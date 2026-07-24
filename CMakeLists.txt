@@ -35,6 +35,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_main.cpp
     tests/test_chunk.cpp
     tests/test_m2.cpp
+    tests/test_integration.cpp
   )
   target_link_libraries(husk-tests PRIVATE husk-lib doctest::doctest)
   target_compile_definitions(husk-tests PRIVATE
