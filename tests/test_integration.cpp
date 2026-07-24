@@ -55,6 +55,27 @@ RunResult runHusk(const std::string& args) {
     return {output, WEXITSTATUS(status)};
 }
 
+// Shape-only skinning check: a real character model has bones, so this
+// must have produced a glTF skin, not silently dropped it. Doesn't assert
+// any model-specific bone count -- that belongs in test_m2.cpp's/
+// test_skel.cpp's synthetic tests.
+void checkSkinnedGlb(const std::string& outPath) {
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(model.skins.size() == 1);
+    CHECK(model.skins[0].joints.size() > 0);
+    CHECK(model.skins[0].inverseBindMatrices >= 0);
+    REQUIRE(model.nodes[0].mesh == 0);
+    CHECK(model.nodes[0].skin == 0);
+    const auto& prim = model.meshes[0].primitives[0];
+    CHECK(prim.attributes.count("JOINTS_0") == 1);
+    CHECK(prim.attributes.count("WEIGHTS_0") == 1);
+}
+
 }  // namespace
 
 TEST_CASE("husk info: real game-extracted M2 parses without error") {
@@ -101,24 +122,37 @@ TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a well-f
     glb.read(magic, 4);
     CHECK(std::string(magic, 4) == "glTF");
 
-    // Shape-only skinning check: a real character model has bones, so this
-    // must have produced a glTF skin, not silently dropped it. Doesn't
-    // assert any model-specific bone count -- that belongs in test_m2.cpp's
-    // synthetic tests.
-    tinygltf::TinyGLTF loader;
-    tinygltf::Model model;
-    std::string gltfErr, gltfWarn;
-    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
-    INFO("tinygltf error: ", gltfErr);
-    REQUIRE(loaded);
-    REQUIRE(model.skins.size() == 1);
-    CHECK(model.skins[0].joints.size() > 0);
-    CHECK(model.skins[0].inverseBindMatrices >= 0);
-    REQUIRE(model.nodes[0].mesh == 0);
-    CHECK(model.nodes[0].skin == 0);
-    const auto& prim = model.meshes[0].primitives[0];
-    CHECK(prim.attributes.count("JOINTS_0") == 1);
-    CHECK(prim.attributes.count("WEIGHTS_0") == 1);
+    checkSkinnedGlb(outPath);
+
+    std::filesystem::remove(outPath);
+}
+
+TEST_CASE(
+    "husk export: M2 with an external .skel (SKID-linked) skeleton produces a well-formed, "
+    "skinned glb") {
+    std::string m2Path = envOrEmpty("HUSK_TEST_SKEL_M2");
+    std::string skinPath = envOrEmpty("HUSK_TEST_SKEL_SKIN");
+    std::string skelPath = envOrEmpty("HUSK_TEST_SKEL");
+    if (m2Path.empty() || skinPath.empty() || skelPath.empty()) {
+        MESSAGE(
+            "SKIPPED (no real SKID-linked M2/.skin/.skel trio available -- set "
+            "HUSK_TEST_SKEL_M2, HUSK_TEST_SKEL_SKIN, HUSK_TEST_SKEL)");
+        return;
+    }
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-skel.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto result = runHusk("export \"" + m2Path + "\" \"" + skinPath + "\" \"" + outPath + "\" \"" +
+                           skelPath + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+    // Confirms the .skel path was actually used, not silently ignored --
+    // cmd_export.cpp only prints a bone count when it resolved some bones
+    // from *somewhere* (inline or external).
+    CHECK(result.output.find(" bones ") != std::string::npos);
+
+    checkSkinnedGlb(outPath);
 
     std::filesystem::remove(outPath);
 }

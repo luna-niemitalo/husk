@@ -5,28 +5,34 @@
 #include "commands.hpp"
 #include "gltf.hpp"
 #include "m2.hpp"
+#include "skel.hpp"
 #include "skin.hpp"
 
-// Roadmap stages 1+2 (see README.md): stage 1 resolves an M2's vertex array
+// Roadmap stages 1-3 (see README.md): stage 1 resolves an M2's vertex array
 // plus a .skin file's two-level triangle-index lookup (see src/skin.hpp)
 // into a static mesh; stage 2 additionally resolves the `bones` array into
 // a bind-pose glTF skin, wiring M2Vertex's bone_weights/bone_indices into
-// JOINTS_0/WEIGHTS_0. Both stages convert WoW's Z-up coordinates to glTF's
-// Y-up. No material, no image, no animation playback -- later roadmap
-// stages add those.
+// JOINTS_0/WEIGHTS_0; stage 3 covers the case where those bones live in an
+// external .skel file instead (see src/skel.hpp). All three convert WoW's
+// Z-up coordinates to glTF's Y-up. No material, no image, no animation
+// playback -- later roadmap stages add those.
 namespace husk::commands {
 
 namespace {
 
 void printUsage() {
-    std::cerr << "usage: husk export <file.m2> <file.skin> <output.glb>\n"
-                 "\n"
-                 "Exports a mesh: resolves the M2's vertex array and the .skin\n"
-                 "file's triangle-index lookup tables, converts WoW's Z-up\n"
-                 "coordinates to glTF's Y-up, and writes a minimal single-\n"
-                 "primitive glTF binary (.glb) -- positions, normals, and UVs,\n"
-                 "no material, no image. If the M2 has bones, they're exported\n"
-                 "as a bind-pose glTF skin (no animation playback yet).\n";
+    std::cerr
+        << "usage: husk export <file.m2> <file.skin> <output.glb> [file.skel]\n"
+           "\n"
+           "Exports a mesh: resolves the M2's vertex array and the .skin\n"
+           "file's triangle-index lookup tables, converts WoW's Z-up\n"
+           "coordinates to glTF's Y-up, and writes a minimal single-\n"
+           "primitive glTF binary (.glb) -- positions, normals, and UVs,\n"
+           "no material, no image. If the M2 has bones, they're exported\n"
+           "as a bind-pose glTF skin (no animation playback yet). Some\n"
+           "models (see `husk info`'s output) keep their bones in a\n"
+           "separate .skel file instead of inline -- pass its path as the\n"
+           "optional 4th argument to use those.\n";
 }
 
 std::vector<uint8_t> readFileBytes(const std::string& path) {
@@ -111,7 +117,7 @@ std::vector<gltf::JointWeights> buildSkinning(const std::vector<m2::Vertex>& ver
 }  // namespace
 
 int exportGlb(int argc, char** args) {
-    if (argc != 3) {
+    if (argc != 3 && argc != 4) {
         printUsage();
         return 1;
     }
@@ -119,6 +125,7 @@ int exportGlb(int argc, char** args) {
     std::string modelPath = args[0];
     std::string skinPath = args[1];
     std::string outputPath = args[2];
+    std::string skelPath = argc == 4 ? args[3] : std::string();
 
     try {
         auto modelBytes = readFileBytes(modelPath);
@@ -156,6 +163,14 @@ int exportGlb(int argc, char** args) {
         mesh.indices = triangleIndices;
 
         auto bones = m2::parseBones(blob, header.bones);
+        if (!bones.empty() && !skelPath.empty()) {
+            std::cerr << "husk: note: '" << modelPath << "' has its own inline bones; ignoring '"
+                      << skelPath << "'\n";
+        } else if (bones.empty() && !skelPath.empty()) {
+            auto skelBytes = readFileBytes(skelPath);
+            bones = skel::parseBones(skelBytes);
+        }
+
         gltf::Skeleton skeleton;
         if (!bones.empty()) {
             skeleton = buildSkeleton(bones);

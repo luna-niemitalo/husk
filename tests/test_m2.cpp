@@ -248,6 +248,36 @@ TEST_CASE("parseHeader: Legion+ chunked file resolves MD21 regardless of chunk o
     checkSentinelHeader(h);
 }
 
+TEST_CASE("parseHeader: SKID chunk, when present, is surfaced as skeletonFileId") {
+    auto md20 = buildMd20Blob();
+
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    uint32_t fileDataId = 0x00ABCDEFu;
+    uint8_t skidPayload[4];
+    std::memcpy(skidPayload, &fileDataId, 4);
+    appendChunk(file, "SKID", std::vector<uint8_t>(skidPayload, skidPayload + 4));
+
+    auto h = husk::m2::parseHeader(file);
+    REQUIRE(h.skeletonFileId.has_value());
+    CHECK(*h.skeletonFileId == 0x00ABCDEFu);
+}
+
+TEST_CASE("parseHeader: no SKID chunk leaves skeletonFileId empty") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+
+    auto h = husk::m2::parseHeader(file);
+    CHECK_FALSE(h.skeletonFileId.has_value());
+}
+
+TEST_CASE("parseHeader: flat (non-chunked) MD20 file never has skeletonFileId") {
+    auto blob = buildMd20Blob();
+    auto h = husk::m2::parseHeader(blob);
+    CHECK_FALSE(h.skeletonFileId.has_value());
+}
+
 TEST_CASE("parseHeader: chunked file with no MD21 chunk throws, names what it found") {
     std::vector<uint8_t> file;
     appendChunk(file, "SFID", {1});

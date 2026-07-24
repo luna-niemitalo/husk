@@ -51,6 +51,11 @@ int info(int argc, char** args) {
 
     printArray("sequences", h.sequences);
     printArray("bones", h.bones);
+    if (h.bones.count == 0 && h.skeletonFileId) {
+        std::cout << "    note: 0 inline bones, but this model has an external skeleton"
+                      " (SKID file data ID " << *h.skeletonFileId
+                  << ") -- pass its .skel path to `husk export`'s optional 4th argument\n";
+    }
     printArray("vertices", h.vertices);
     printArray("textures", h.textures);
     printArray("materials", h.materials);

@@ -21,6 +21,7 @@ add_library(husk-lib STATIC
   src/chunk.cpp
   src/m2.cpp
   src/skin.cpp
+  src/skel.cpp
   src/gltf.cpp
   src/cmd_info.cpp
   src/cmd_export.cpp
@@ -42,6 +43,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_chunk.cpp
     tests/test_m2.cpp
     tests/test_skin.cpp
+    tests/test_skel.cpp
     tests/test_gltf.cpp
     tests/test_integration.cpp
   )

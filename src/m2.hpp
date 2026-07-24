@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -90,6 +91,15 @@ struct Header {
     float collisionSphereRadius = 0;
 
     bool chunked = false;  // true if this file was Legion+ MD21-wrapped
+
+    // FileDataID of an external .skel file (wowdev.wiki M2#SKID) that this
+    // model's `bones` array actually lives in, when `bones.count == 0`
+    // doesn't mean "no skeleton" -- see husk::skel. Only ever set for
+    // chunked files that happen to carry an SKID chunk; husk doesn't
+    // resolve this ID to a path itself (no CASC/listfile access), so
+    // callers that want the actual bones still need a .skel path from
+    // elsewhere (see `husk export`'s optional 4th argument).
+    std::optional<uint32_t> skeletonFileId;
 };
 
 // M2CompBone, per wowdev.wiki M2#Bones -- 88 bytes on disk (>= Wrath shape,

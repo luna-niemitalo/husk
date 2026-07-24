@@ -160,6 +160,9 @@ Header parseBlob(const uint8_t* blob, size_t blobSize, bool chunked) {
 struct ResolvedBlob {
     std::vector<uint8_t> bytes;
     bool chunked;
+    // Set only for chunked files that carry an SKID chunk (wowdev.wiki
+    // M2#SKID) -- see Header::skeletonFileId.
+    std::optional<uint32_t> skeletonFileId;
 };
 
 // Resolves the flat-MD20-vs-Legion+-chunked shape shared by parseHeader and
@@ -177,7 +180,7 @@ ResolvedBlob resolveBlob(const std::vector<uint8_t>& fileBytes) {
 
     // Pre-Legion: the file itself starts with MD20, no chunk wrapper.
     if (firstMagic == 0x3032444D /* "MD20" */) {
-        return {fileBytes, /*chunked=*/false};
+        return {fileBytes, /*chunked=*/false, std::nullopt};
     }
 
     // Legion+: the file is chunks; MD21's payload is the MD20 blob, offsets
@@ -193,14 +196,23 @@ ResolvedBlob resolveBlob(const std::vector<uint8_t>& fileBytes) {
         throw ParseError("file doesn't start with MD20 and has no MD21 chunk; chunks found: [" +
                           found + "]");
     }
-    return {std::vector<uint8_t>(md21->data, md21->data + md21->size), /*chunked=*/true};
+
+    std::optional<uint32_t> skeletonFileId;
+    if (auto skid = findChunk(chunks, "SKID")) {
+        skeletonFileId = readU32(skid->data, skid->size, 0);
+    }
+
+    return {std::vector<uint8_t>(md21->data, md21->data + md21->size), /*chunked=*/true,
+            skeletonFileId};
 }
 
 }  // namespace
 
 Header parseHeader(const std::vector<uint8_t>& fileBytes) {
     auto resolved = resolveBlob(fileBytes);
-    return parseBlob(resolved.bytes.data(), resolved.bytes.size(), resolved.chunked);
+    Header h = parseBlob(resolved.bytes.data(), resolved.bytes.size(), resolved.chunked);
+    h.skeletonFileId = resolved.skeletonFileId;
+    return h;
 }
 
 std::vector<uint8_t> extractBlob(const std::vector<uint8_t>& fileBytes) {
