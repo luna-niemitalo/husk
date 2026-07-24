@@ -122,6 +122,76 @@ M2's `.skin` (mesh/LOD views), `.anim` (offloaded animation data),
 `.bone`, `.phys`, `.skel`; M3's `.mtl3lib` (`MaterialLibrary`) and the
 `GFAT`/`BLS` compiled-shader files it points to. All: not started.
 
+## Roadmap: modern M2 → Blender, via glTF
+
+The eventual goal is a real Blender import path — mesh, skeleton, textures,
+materials, and animation, for a *modern* (Legion+ chunked) M2. husk doesn't
+write a Blender addon itself; the target is a sensible glTF 2.0 export
+(binary `.glb`, core PBR metallic-roughness material model) that Blender's
+own built-in glTF importer can open unmodified. That keeps husk's job
+scoped to "read WoW formats, write correct glTF" — Blender-side concerns
+(addon UI, live reimport, etc.) are explicitly out of scope unless the
+glTF path turns out to be insufficient.
+
+The order below is a dependency chain, not a wishlist — each stage only
+makes sense once the one before it works, and each is meant to be a
+demoable milestone (something you can actually open in Blender and look
+at), not an invisible internal refactor. Current status per piece is
+tracked precisely in the [format support matrix](#format-support-matrix-m2--m3--wmo--blp)
+above; this section is about *sequencing* that work, not duplicating it.
+
+1. **Static mesh, no material.** Resolve the `vertices` array's actual
+   contents (`M2Vertex`: `pos`, `bone_weights[4]`, `bone_indices[4]`,
+   `normal`, `tex_coords[2]`) — today only the array's `(count, offset)`
+   pair is read. M2 itself has no triangle indices; those live in a
+   `.skin` file (LOD/submesh views), resolved via the Legion+ `SFID`
+   chunk — so this stage also means reading one `.skin` file for the first
+   time. Write positions/normals/UVs/indices into a minimal glTF (no
+   material, no image — Blender will render it flat gray). Also the first
+   point a coordinate-system decision has to be made and gets baked in:
+   WoW is Z-up, glTF is Y-up (wowdev.wiki's own conversion note: WoW
+   `(X, Y, Z)` → Y-up `(X, -Z, Y)`).
+2. **Skeleton + skinning, still untextured.** Resolve the `bones` array
+   (`M2CompBone`: parent index, pivot, flags) and wire `M2Vertex`'s
+   `bone_weights`/`bone_indices` into a glTF skin (`JOINTS_0`/`WEIGHTS_0`
+   accessors, inverse bind matrices, a joint-node hierarchy from the bone
+   parent chain). Success at this stage is "imports as an armature-bound
+   mesh in the correct bind pose" — no animation playback yet.
+3. **Textures: BLP → PNG.** A hard prerequisite for materials to show
+   anything other than gray, and genuinely separate work from M2 parsing
+   — BLP is its own header/mip-table/pixel format (palette, DXT1/DXT3/
+   DXT5, uncompressed BGRA, or JPEG; see the format matrix). Scope the
+   first pass to whatever encoding the actual test models use (check
+   before assuming DXT everywhere) and defer JPEG, which the wiki notes
+   is rare in BLP2.
+4. **Materials.** Resolve the `materials` array (blend mode, render
+   flags) and the texture-unit → texture/material linkage that lives in
+   the `.skin` file, then translate WoW's blend modes into glTF's
+   `alphaMode` (`OPAQUE`/`MASK`/`BLEND`) with the resolved texture as
+   `baseColorTexture`. Deliberately **not** attempting real PBR authoring
+   (roughness/metalness/normal maps) in this first pass — WoW's own
+   shader model doesn't map cleanly onto metallic-roughness, and faking
+   plausible-looking values is a separate, later problem from "does the
+   right texture show up with the right blend mode."
+5. **Animation.** Resolve each bone's `M2Track` (translation/rotation/
+   scale keyframes) and map one sequence at a time into glTF `animation`
+   channels targeting joint nodes — get a single idle/stand loop playing
+   correctly before attempting the full `sequences` list. Has a real
+   extra wrinkle: per wowdev.wiki, a sequence loads from an external
+   `.anim` file whenever `(M2Sequence.flags & 0x130) == 0`, resolved via
+   the Legion+ `AFID` chunk (`ChunkedAnimFiles` flag) rather than living
+   inline in the M2 — so this stage also needs `.anim` sidecar support,
+   not just inline track parsing.
+6. **Output hardening.** Validate actual `.glb` output against the
+   Khronos glTF-Validator, not just "Blender didn't crash on import."
+   Decide the LOD/skin-profile policy (almost certainly: always emit the
+   highest-detail skin profile, ignore the rest, at least until there's a
+   concrete reason not to).
+
+Explicitly not in this chain yet: WMO, M3, and anything in the
+"write"/round-trip direction (a real Blender import *addon* rather than a
+glTF file Blender happens to be able to open).
+
 ## Testing
 
 Same two-tier split as `casc-tool`:
