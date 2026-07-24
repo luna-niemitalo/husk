@@ -228,17 +228,22 @@ std::vector<Vertex> parseVertices(const std::vector<uint8_t>& blob, const Array&
     constexpr size_t kVertexSize = 0x30;  // M2Vertex, wowdev.wiki M2#Vertices
     const uint8_t* data = blob.data();
     size_t blobSize = blob.size();
+
+    // Validate the whole claimed range up front, before reserve() -- a
+    // corrupted or misread count (see FAILURES.md #2: this is what a
+    // version this parser doesn't know about yet, shifting this offset,
+    // looks like) must not be able to make this allocate hundreds of GB
+    // before the very first per-element check below ever runs.
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kVertexSize) {
+        throw ParseError("vertices array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kVertexSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
     vertices.reserve(array.count);
 
     for (uint32_t i = 0; i < array.count; ++i) {
         size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kVertexSize;
-        if (off + kVertexSize > blobSize) {
-            throw ParseError("vertex " + std::to_string(i) + " at offset " + std::to_string(off) +
-                              " needs " + std::to_string(kVertexSize) +
-                              " bytes but the blob is only " + std::to_string(blobSize) +
-                              " bytes");
-        }
-
         Vertex v;
         v.pos = readVec3(data, blobSize, off + 0x00);
         for (int j = 0; j < 4; ++j) v.boneWeights[j] = data[off + 0x0C + j];
@@ -270,17 +275,20 @@ std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& arra
 
     const uint8_t* data = blob.data();
     size_t blobSize = blob.size();
+
+    // Same up-front validation as parseVertices above, and for the same
+    // reason (FAILURES.md #2) -- a corrupted/misread count must fail with
+    // a real message here, not a bare std::bad_alloc from reserve().
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kBoneSize) {
+        throw ParseError("bones array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kBoneSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
     bones.reserve(array.count);
 
     for (uint32_t i = 0; i < array.count; ++i) {
         size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kBoneSize;
-        if (off + kBoneSize > blobSize) {
-            throw ParseError("bone " + std::to_string(i) + " at offset " + std::to_string(off) +
-                              " needs " + std::to_string(kBoneSize) +
-                              " bytes but the blob is only " + std::to_string(blobSize) +
-                              " bytes");
-        }
-
         Bone b;
         b.keyBoneId = static_cast<int32_t>(readU32(data, blobSize, off + kKeyBoneIdOffset));
         b.flags = readU32(data, blobSize, off + kFlagsOffset);

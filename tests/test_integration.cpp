@@ -19,9 +19,6 @@
 // bloodelffemale00.skin, its LOD0 -- not an "_hd" variant, which is a
 // different, separate M2 file's sidecar).
 
-#include <array>
-#include <cstdio>
-#include <cstdlib>
 #include <doctest/doctest.h>
 #include <filesystem>
 #include <fstream>
@@ -29,31 +26,12 @@
 #include <string>
 #include <tiny_gltf.h>
 
+#include "run_husk.hpp"
+
 namespace {
 
-std::string envOrEmpty(const char* name) {
-    const char* v = std::getenv(name);
-    return v ? std::string(v) : std::string();
-}
-
-struct RunResult {
-    std::string output;
-    int exitCode;
-};
-
-RunResult runHusk(const std::string& args) {
-    std::string cmd = std::string(HUSK_BINARY) + " " + args + " 2>&1";
-    std::array<char, 4096> buf;
-    std::string output;
-
-    FILE* pipe = popen(cmd.c_str(), "r");
-    REQUIRE(pipe != nullptr);
-    while (fgets(buf.data(), buf.size(), pipe)) {
-        output += buf.data();
-    }
-    int status = pclose(pipe);
-    return {output, WEXITSTATUS(status)};
-}
+using husk::test::envOrEmpty;
+using husk::test::runHusk;
 
 // Shape-only skinning check: a real character model has bones, so this
 // must have produced a glTF skin, not silently dropped it. Doesn't assert

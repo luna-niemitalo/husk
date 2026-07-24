@@ -37,7 +37,14 @@ int info(int argc, char** args) {
     m2::Header h;
     try {
         h = m2::loadFile(path);
-    } catch (const m2::ParseError& e) {
+    } catch (const std::exception& e) {
+        // Catches m2::ParseError (a malformed-but-readable file) and
+        // anything else that can escape loadFile -- e.g. husk::ChunkError
+        // from a garbage/malformed chunked file, or std::ios_base::failure
+        // from a genuine OS-level read error (a directory path, a special
+        // file, ...). Narrower catches here have crashed the whole process
+        // with an unhandled-exception abort instead of a clean message; see
+        // FAILURES.md #1.
         std::cerr << "husk: couldn't read '" << path << "': " << e.what() << "\n";
         return 1;
     }

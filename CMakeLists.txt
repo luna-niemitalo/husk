@@ -46,6 +46,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_skel.cpp
     tests/test_gltf.cpp
     tests/test_integration.cpp
+    tests/test_cli.cpp
   )
   target_link_libraries(husk-tests PRIVATE husk-lib doctest::doctest)
   target_compile_definitions(husk-tests PRIVATE

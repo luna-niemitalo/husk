@@ -75,6 +75,16 @@ std::vector<uint16_t> parseU16Array(const std::vector<uint8_t>& fileBytes, const
 
     const uint8_t* data = fileBytes.data();
     size_t size = fileBytes.size();
+
+    // Up-front validation before reserve(), same reasoning and same bug
+    // class as husk::m2::parseVertices/parseBones -- see FAILURES.md #2.
+    constexpr size_t kElementSize = 2;  // uint16
+    if (array.offset > size || array.count > (size - array.offset) / kElementSize) {
+        throw ParseError("array claims " + std::to_string(array.count) +
+                          " uint16 entries at offset " + std::to_string(array.offset) +
+                          ", which needs more room than the file's " + std::to_string(size) +
+                          " bytes");
+    }
     values.reserve(array.count);
     for (uint32_t i = 0; i < array.count; ++i) {
         size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * 2;

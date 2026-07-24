@@ -1,3 +1,4 @@
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -50,6 +51,46 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
 
 gltf::Vec3 toGltf(const m2::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z}); }
 
+bool isFinite(const m2::Vec3& v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); }
+
+// Detects a cycle in the bones' parent chains (bone A's parent is B, B's
+// parent is A, or any longer loop). No single parentBone bounds check can
+// catch this -- every individual index in a cycle is perfectly in-range
+// (see FAILURES.md #3) -- so this walks each joint's parent chain
+// separately, memoizing finished (acyclic) nodes so the whole pass stays
+// O(joints) instead of O(joints^2). A real (not just hand-crafted) way to
+// hit this: a .skel file that doesn't actually belong to the M2 it's
+// passed alongside -- the same mismatch category the model/.skin
+// vertex-count cross-check exists to catch, just for bones instead of
+// vertices. Assumes every joint's `parent` is already bounds-checked
+// (either -1 or a valid index) -- callers must validate that first.
+void checkNoBoneCycles(const std::vector<gltf::Skeleton::Joint>& joints) {
+    enum class State { kUnvisited, kInProgress, kDone };
+    std::vector<State> state(joints.size(), State::kUnvisited);
+
+    for (size_t start = 0; start < joints.size(); ++start) {
+        if (state[start] == State::kDone) continue;
+
+        std::vector<size_t> path;
+        size_t cur = start;
+        while (true) {
+            if (state[cur] == State::kDone) break;
+            if (state[cur] == State::kInProgress) {
+                throw std::runtime_error(
+                    "bone " + std::to_string(cur) +
+                    "'s parent chain loops back on itself -- not a valid bind-pose skeleton "
+                    "(wrong .skel paired with this model?)");
+            }
+            state[cur] = State::kInProgress;
+            path.push_back(cur);
+            int parent = joints[cur].parent;
+            if (parent == -1) break;
+            cur = static_cast<size_t>(parent);
+        }
+        for (size_t idx : path) state[idx] = State::kDone;
+    }
+}
+
 // Builds a bind-pose Skeleton from M2's bones array: `bone.parentBone` is a
 // direct index into the same bones array (-1 for a root), and each joint's
 // local (parent-relative) translation is just the difference of the two
@@ -81,6 +122,7 @@ gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones) {
         j.localTranslation = {j.globalPosition.x - parentPos.x, j.globalPosition.y - parentPos.y,
                                j.globalPosition.z - parentPos.z};
     }
+    checkNoBoneCycles(skeleton.joints);
     return skeleton;
 }
 
@@ -155,7 +197,18 @@ int exportGlb(int argc, char** args) {
         mesh.positions.reserve(vertices.size());
         mesh.normals.reserve(vertices.size());
         mesh.texCoords.reserve(vertices.size());
-        for (const auto& v : vertices) {
+        for (size_t vi = 0; vi < vertices.size(); ++vi) {
+            const auto& v = vertices[vi];
+            // glTF requires finite POSITION/NORMAL values (and their
+            // accessor min/max); a NaN/Inf here is a real symptom of a
+            // corrupted read or truncated file, not valid mesh data (see
+            // FAILURES.md #4) -- catch it here, where the offending
+            // vertex index is still known, rather than downstream.
+            if (!isFinite(v.pos) || !isFinite(v.normal)) {
+                throw std::runtime_error("vertex " + std::to_string(vi) +
+                                          " has a non-finite (NaN/Inf) position or normal -- "
+                                          "corrupted read or truncated file?");
+            }
             mesh.positions.push_back(toGltf(v.pos));
             mesh.normals.push_back(toGltf(v.normal));
             mesh.texCoords.push_back({v.texCoords[0].x, v.texCoords[0].y});

@@ -1,5 +1,10 @@
 # Failure log
 
+**Status: all 5 items below are fixed**, each with a regression test in
+`tests/test_cli.cpp` (a new file — see item 5) that runs with no real game
+files needed, so these can't silently regress. Left in place as a record of
+what broke and why, not as an open todo list anymore.
+
 Findings from a hands-on "break it on purpose" pass over the parts of husk
 marked Done in the README (static mesh, skeleton + skinning, `.skel`
 sidecar). Goal wasn't "does it crash" so much as "when it fails, does the
@@ -32,7 +37,7 @@ nothing here is a regression, these are all pre-existing gaps.
 
 ---
 
-## 1. [Critical] `husk info` crashes the whole process (SIGABRT) instead of failing cleanly, on two independent classes of malformed/unreadable input
+## 1. [Fixed] [Critical] `husk info` crashes the whole process (SIGABRT) instead of failing cleanly, on two independent classes of malformed/unreadable input
 
 **What's expected:** every documented failure mode prints
 `husk: couldn't read '<path>': <reason>` and exits 1, same as a bad-magic
@@ -86,9 +91,17 @@ exception can escape `m2::loadFile`) derive from a common base type
 `std::exception` like `cmd_export.cpp` already does. The latter is a
 one-line, zero-risk fix.
 
+**Applied:** `cmd_info.cpp`'s `info()` now catches `const std::exception&`
+instead of `const m2::ParseError&`, matching `cmd_export.cpp`. Regression
+tests: `tests/test_cli.cpp`'s `"husk info: directory as path..."`,
+`"...truncated trailing chunk header..."`, and `"...generic non-M2
+garbage..."` cases — all three previously reproduced the crash, all three
+now assert a clean exit 1 with a `husk: couldn't read` message and
+explicitly assert `"terminate called"` does *not* appear in the output.
+
 ---
 
-## 2. [Medium] A corrupted or misread array count is `reserve()`'d *before* any bounds check, in three separate parsers — turns "bad count" into an uninformative `std::bad_alloc` instead of a real error message
+## 2. [Fixed] [Medium] A corrupted or misread array count is `reserve()`'d *before* any bounds check, in three separate parsers — turns "bad count" into an uninformative `std::bad_alloc` instead of a real error message
 
 **Where:** `m2::parseVertices` and `m2::parseBones` (`src/m2.cpp`), and
 `skin::parseU16Array` (`src/skin.cpp`) — all three do
@@ -126,9 +139,19 @@ underflow when `offset > blobSize`) and throw the same descriptive
 `ParseError` style already used for the in-loop checks — same fix,
 applied at all three sites.
 
+**Applied:** exactly that check, added at all three sites
+(`m2::parseVertices`, `m2::parseBones` in `src/m2.cpp`,
+`skin::parseU16Array` in `src/skin.cpp`), before their `reserve()` calls.
+The now-redundant per-element bounds check inside each loop was removed
+(the up-front check makes it unreachable — no more multiplexed validation
+of the same thing twice). Regression tests: `tests/test_cli.cpp`'s three
+"...corrupted huge {vertex,bone,indices} count..." cases, one per site,
+each asserting the output does *not* contain `"bad_alloc"` and *does*
+contain the new descriptive message.
+
 ---
 
-## 3. [Medium] Cyclic bone-parent chains aren't detected anywhere — silently produces a "successful" `.glb` with a cyclic, spec-invalid scene graph
+## 3. [Fixed] [Medium] Cyclic bone-parent chains aren't detected anywhere — silently produces a "successful" `.glb` with a cyclic, spec-invalid scene graph
 
 **What's checked today:** `cmd_export.cpp`'s `buildSkeleton()` verifies
 each bone's `parentBone` is in range `[0, bones.size())`.
@@ -187,9 +210,24 @@ visited-set, in `buildSkeleton()` (where the bone index is still easy to
 name), and throw `std::runtime_error` naming the cycle, before it ever
 reaches `writeGlb`.
 
+**Applied:** `cmd_export.cpp` now has `checkNoBoneCycles()`, called at the
+end of `buildSkeleton()` — an O(joints) three-color (unvisited/in-progress/
+done) walk of each joint's parent chain, memoizing finished nodes so
+repeated starts stay cheap. Throws naming the specific bone the cycle was
+found at. Side effect worth noting: this also now catches the self-parent
+(1-node cycle) case *before* `gltf::writeGlb`'s own dedicated check ever
+runs for any caller that goes through `buildSkeleton()` — `writeGlb`'s
+check is untouched and still fires for any caller that doesn't (it's a
+public library function with its own contract, not just internal
+plumbing; see `tests/test_gltf.cpp`'s `"writeGlb: joint that is its own
+parent throws"`, still passing, still exercising `writeGlb` directly).
+Regression tests: `tests/test_cli.cpp`'s `"...2-cycle in the bones'
+parent chain..."` and `"...bone that is its own parent (a 1-node
+cycle)..."` cases.
+
 ---
 
-## 4. [Low] Non-finite (`NaN` / `Infinity`) vertex floats pass straight through into the exported glTF, unvalidated
+## 4. [Fixed] [Low] Non-finite (`NaN` / `Infinity`) vertex floats pass straight through into the exported glTF, unvalidated
 
 **Repro:** a 1-vertex M2 with `position.x` set to a quiet-NaN bit pattern
 (`0x7FC00000`) and `position.y` set to `+Infinity` (`0x7F800000`),
@@ -221,9 +259,18 @@ file was actually bad.
 known), or as part of the stage-7 output-hardening pass. Either is fine;
 just needs to happen *somewhere* before the bad value reaches tinygltf.
 
+**Applied:** exactly that — `cmd_export.cpp`'s mesh-building loop now
+checks `isFinite(v.pos) && isFinite(v.normal)` per vertex before pushing
+it into `gltf::Mesh`, throwing `std::runtime_error` naming the vertex
+index. This is a stopgap at the point that was easiest to fix now, not a
+substitute for the real stage-7 glTF-Validator pass the README already
+plans — that pass may well catch other spec violations this doesn't.
+Regression test: `tests/test_cli.cpp`'s `"...non-finite (NaN/Inf) vertex
+position..."` case.
+
 ---
 
-## 5. [Test coverage gap] The CLI command layer (`cmd_info.cpp`, `cmd_export.cpp`) — where every bug above actually lives — has zero committed, always-run test coverage
+## 5. [Fixed] [Test coverage gap] The CLI command layer (`cmd_info.cpp`, `cmd_export.cpp`) — where every bug above actually lives — had zero committed, always-run test coverage
 
 Checked which test file actually calls into `husk::commands::info` /
 `husk::commands::exportGlb` (directly or by spawning the built binary):
@@ -250,6 +297,17 @@ case, asserting a clean non-zero exit and a `husk:`-prefixed message
 rather than a crash. This is the same technique `test_integration.cpp`
 already uses to spawn the binary as a subprocess; it just needs fixtures
 that don't require `HUSK_TEST_*` env vars to exist at all.
+
+**Applied:** new `tests/test_cli.cpp`, registered in `CMakeLists.txt`,
+covering findings #1-#4 above (9 test cases total) with hand-built
+synthetic fixtures written to temp files at test time — no `HUSK_TEST_*`
+env vars needed, confirmed by running `./build/husk-tests
+--test-case="husk info:*,husk export:*"` with none set: all 14 matching
+cases pass (the pre-existing real-file-only ones correctly report
+SKIPPED, not failed or absent). The subprocess-spawning helper
+(`runHusk`/`RunResult`/`envOrEmpty`) was factored out of
+`test_integration.cpp` into a shared `tests/run_husk.hpp` so both files
+use the identical mechanism rather than a second copy of it.
 
 ---
 
