@@ -47,6 +47,15 @@
           tinygltf
 		  casc-tool.packages.${pkgs.system}.default
         ];
+
+        # blp/: BLP2 -> PNG texture conversion (roadmap stage 4). uv manages
+        # its own venv + packages (Pillow, numpy, ...) via blp/pyproject.toml
+        # -- deliberately not routed through python3Packages, per Luna's
+        # steer to keep Python dependency management on uv rather than
+        # nixpkgs' package set for this.
+        python = with pkgs; [
+          uv
+        ];
       in
       {
         packages.default = pkgs.stdenv.mkDerivation {
@@ -75,7 +84,7 @@
         };
 
         devShells.default = pkgs.mkShell {
-          packages = cpp;
+          packages = cpp ++ python;
 
           CCACHE_DIR = "/media/luna/cache/ccache";
 
@@ -84,6 +93,7 @@
             echo "  cmake:   $(cmake --version | head -n1)"
             echo "  ccache:  $CCACHE_DIR"
             echo "  doctest: available via find_package(doctest)"
+            echo "  uv:      $(uv --version) -- cd blp/ && uv sync"
           '';
         };
 

@@ -28,6 +28,10 @@ cmake --build build -j$(nproc)
 
 The binary lands at `build/husk`.
 
+`blp/` (texture conversion, see Usage below) is a separate Python
+subproject with its own setup (`cd blp && uv sync`) -- `uv` is provided by
+the same dev shell, but it isn't part of the CMake build above.
+
 ## Usage
 
 ```
@@ -60,6 +64,19 @@ lookup yet) -- pass the path to whichever `.skin` matches the M2's LOD you
 want (e.g. `bloodelffemale.m2` pairs with `bloodelffemale00.skin`, its
 LOD0 -- not an `_hd`-suffixed file, which belongs to a separate, much
 higher-poly HD-variant M2).
+
+Textures are a separate tool, not a `husk` subcommand -- `blp/` is a small
+uv-managed Python package (see [roadmap stage
+4](#roadmap-modern-m2--blender-via-gltf) below for why):
+
+```
+cd blp && uv sync
+uv run husk-blp <file.blp> <output.png> [--mip N]
+```
+
+Converts a BLP2 texture to PNG (mip level 0, full resolution, by default).
+Supports palettized, DXT1, DXT5, and uncompressed-BGRA content; DXT3 and
+JPEG content aren't implemented yet (see the format matrix).
 
 husk never touches CASC storage itself and doesn't know or care how you got
 the file — get a real `.m2` out of a WoW install first with a separate
@@ -146,7 +163,7 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | Collision / physics | 🚧 `bounding_box`/`collision_box` fields read; `.phys` sidecar (`PFID`) untouched | ⬜ `M3CL` collision mesh (`CPOS`/`CNML`/`CINX`) | ⬜ `MOBN`/`MOBR` BSP tree, `MCVP` convex volumes, `MOPL` terrain-cutting planes | ⬛ |
 | Materials | ⬜ `materials` array | ⬜ `M3SI` Instances → external `MaterialLibrary` (`.mtl3lib`) | ⬜ `MOMT`, `MOM3` (v3 override), `MOUV` (UV anim), per-face `MOPY`/`MPY2`/`MOBS` | ⬛ |
 | Texture references (names/FileDataIDs) | ⬜ `textures` array + combo lookup tables | ⬜ indirect, via `MaterialLibrary` → compiled shader files (`GFAT`/`BLS`) — separate formats, not yet even scoped | ⬜ `MOTX` | ⬛ BLP is the referenced asset, not a referencer |
-| Texture pixel data | ⬛ | ⬛ | ⬛ | ⬜ header, mip table, palette/DXT1/DXT3/DXT5/BGRA/JPEG decode |
+| Texture pixel data | ⬛ | ⬛ | ⬛ | 🚧 `blp/` (Python, `husk-blp` CLI) — header + mip table resolved, palette/DXT1/DXT5/BGRA decode to PNG done; DXT3 and JPEG content unimplemented (JPEG rare in BLP2 per the wiki; DXT3 unseen in this repo's real test data so far — not yet a confirmed-needed gap) |
 | Animation sequences / tracks | 🚧 `sequences` array count read, no track/keyframe contents | ❔ no sequence/track chunk documented in the fetched spec at all | ⬛ (`MOUV` texture-translation anim is the closest thing; counted under Materials) | ⬛ |
 | Interaction points (attachments, cameras, events) | ⬜ `attachments`/`cameras`/`events` arrays | ❔ not present in the fetched chunk list | ⬛ | ⬛ |
 | Lights | ⬜ `lights` array | ❔ | ⬜ `MOLT` + `MOLR`/`MOLS`/`MOLP` + Shadowlands lightset system (`MLSS`/`MLSP`/`MLSO`/`MLSK`), `MNLD` dynamic lights, legacy v14 `MOLM`/`MOLD` lightmaps | ⬛ |
@@ -260,13 +277,39 @@ above; this section is about *sequencing* that work, not duplicating it.
    keyframe data this parser correctly skips over) in well under a
    second, and produces a glTF skin that round-trips through tinygltf's
    own loader the same as stage 2's inline-bones case.
-4. **Textures: BLP → PNG.** A hard prerequisite for materials to show
-   anything other than gray, and genuinely separate work from M2 parsing
-   — BLP is its own header/mip-table/pixel format (palette, DXT1/DXT3/
-   DXT5, uncompressed BGRA, or JPEG; see the format matrix). Scope the
-   first pass to whatever encoding the actual test models use (check
-   before assuming DXT everywhere) and defer JPEG, which the wiki notes
-   is rare in BLP2.
+4. **Textures: BLP → PNG. Done** — a hard prerequisite for materials to
+   show anything other than gray, and genuinely separate work from M2
+   parsing, so genuinely separate it's not even C++: `blp/` is a small
+   Python package (`husk-blp <file.blp> <out.png> [--mip N]`, uv-managed,
+   `nix develop` provides `uv` — see the flake and `blp/pyproject.toml`),
+   not part of the `husk` binary. Split of responsibility inside it: the
+   BLP2 container format itself (148-byte header + 1024-byte
+   palette/JPEG-header region, mip offset/size tables) is hand-rolled and
+   independently spec-transcribed, same rigor as husk's C++ modules — it's
+   plain structured data, nothing fuzzy about it. Actual DXT1/DXT3/DXT5
+   block decoding is *not* hand-rolled: `husk_blp/decode.py` wraps the raw
+   compressed bytes from a mip level in a minimal synthetic DDS container
+   (bit-for-bit the same block layout) and hands that to Pillow's own,
+   battle-tested DDS reader, rather than reimplementing color/alpha
+   interpolation math — confirmed pixel-correct against hand-built
+   single-block fixtures first (`blp/tests/test_decode.py`), not assumed.
+   Scoped to the three encodings this repo's real test data (1021 `.blp`
+   files under `test_data/character/bloodelf/female/`) actually contains
+   — Palettized (alpha depth 0), DXT1 (opaque), DXT5 (interpolated alpha)
+   — checked empirically before writing any decode code, not assumed;
+   uncompressed BGRA is also implemented (trivial, no library needed) even
+   though this test data doesn't happen to use it. Explicitly deferred:
+   DXT3 (unseen in this repo's test data, so not a confirmed-needed gap
+   yet) and JPEG content (wiki: rare in BLP2). Palette alpha depth 4 is
+   also deliberately unimplemented and raises a clear error rather than
+   guessing — the wiki's own spec table doesn't clearly document that
+   value's bit layout, unlike the other three depths. Verified against
+   three real files, one per implemented DXT/palette encoding, output
+   inspected directly (not just "didn't crash"): a DXT1 face texture, a
+   DXT5 particle-effects atlas with working transparency, and a palettized
+   face-detail texture — all visually correct, unmistakably the right
+   image content, not garbage that merely happened to be the right
+   dimensions.
 5. **Materials.** Resolve the `materials` array (blend mode, render
    flags) and the texture-unit → texture/material linkage that lives in
    the `.skin` file, then translate WoW's blend modes into glTF's
@@ -339,6 +382,21 @@ cmake --build build -j$(nproc)
 HUSK_TEST_M2=test_data/bloodelffemale.m2 \
 HUSK_TEST_SKIN=test_data/bloodelffemale00.skin \
   ./build/husk-tests                                  # + integration
+```
+
+`blp/` (Python) has its own, separate test suite -- same two-tier shape
+(synthetic `test_header.py`/`test_decode.py`, always run; real-file
+`test_integration.py`, skipped unless `HUSK_TEST_BLP_DXT1`/
+`HUSK_TEST_BLP_DXT5`/`HUSK_TEST_BLP_PALETTE` point at real files):
+
+```
+cd blp
+uv sync
+uv run pytest                                          # pure-logic only
+HUSK_TEST_BLP_DXT1=../test_data/character/bloodelf/female/bloodelffemale_hd_face_3500074.blp \
+HUSK_TEST_BLP_DXT5=../test_data/character/bloodelf/female/bloodelffemale_hd_4530998.blp \
+HUSK_TEST_BLP_PALETTE=../test_data/character/bloodelf/female/bloodelffemalefacelower10_00.blp \
+  uv run pytest                                        # + integration
 ```
 
 ## Design notes
@@ -417,6 +475,22 @@ HUSK_TEST_SKIN=test_data/bloodelffemale00.skin \
   [M2Mod/m2mod](https://github.com/M2Mod/m2mod) for cross-checking
   anything ambiguous in the wiki — not a build dependency, not vendored,
   just something to grep when the spec is unclear.
+- **`blp/` is Python, deliberately, and deliberately not part of the
+  `husk` C++ binary.** Two independent reasons, not one: BLP decoding
+  needs real image-library maturity (correct PNG writing, a trustworthy
+  DXT/BC block decoder) that C++ doesn't have a clean equivalent of
+  already in this project the way tinygltf covers glTF output, and
+  texture conversion is genuinely decoupled from the M2/`.skin`/`.skel`
+  pipeline — nothing in `husk export` calls into it (yet; that wiring is
+  roadmap stage 5's job, once materials need to reference actual PNGs).
+  `husk_blp/decode.py`'s DXT1/DXT3/DXT5 handling in particular leans on
+  a library rather than hand-rolled block math: it wraps the raw
+  compressed bytes in a minimal synthetic DDS container (the same S3TC
+  block layout, just a different file wrapper) and hands that to
+  Pillow's own DDS reader. Confirmed pixel-correct against a hand-built
+  single-block fixture before relying on it for anything real (see
+  `blp/tests/test_decode.py`'s module comment) -- not assumed correct
+  just because Pillow is a trusted library in general.
 
 ## Disclaimer
 
