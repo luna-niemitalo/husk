@@ -242,6 +242,46 @@ std::vector<Vertex> parseVertices(const std::vector<uint8_t>& blob, const Array&
     return vertices;
 }
 
+std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<Bone> bones;
+    if (array.count == 0) {
+        return bones;
+    }
+
+    // M2CompBone, >= Wrath shape (wowdev.wiki M2#Bones -- see the offset
+    // table transcribed independently in tests/test_m2.cpp).
+    constexpr size_t kBoneSize = 0x58;
+    constexpr size_t kKeyBoneIdOffset = 0x00;
+    constexpr size_t kFlagsOffset = 0x04;
+    constexpr size_t kParentBoneOffset = 0x08;
+    constexpr size_t kPivotOffset = 0x4C;
+
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+    bones.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kBoneSize;
+        if (off + kBoneSize > blobSize) {
+            throw ParseError("bone " + std::to_string(i) + " at offset " + std::to_string(off) +
+                              " needs " + std::to_string(kBoneSize) +
+                              " bytes but the blob is only " + std::to_string(blobSize) +
+                              " bytes");
+        }
+
+        Bone b;
+        b.keyBoneId = static_cast<int32_t>(readU32(data, blobSize, off + kKeyBoneIdOffset));
+        b.flags = readU32(data, blobSize, off + kFlagsOffset);
+        uint16_t parentBoneBits;
+        std::memcpy(&parentBoneBits, data + off + kParentBoneOffset, sizeof(parentBoneBits));
+        b.parentBone = static_cast<int16_t>(parentBoneBits);
+        b.pivot = readVec3(data, blobSize, off + kPivotOffset);
+        bones.push_back(b);
+    }
+
+    return bones;
+}
+
 Header loadFile(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f) {

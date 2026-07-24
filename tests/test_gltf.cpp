@@ -139,3 +139,131 @@ TEST_CASE("writeGlb: indices count not a multiple of 3 throws") {
     mesh.indices = {0, 1};
     CHECK_THROWS_AS(husk::gltf::writeGlb(mesh), husk::gltf::Error);
 }
+
+namespace {
+
+// A 3-joint chain: root (0) -> mid (1) -> tip (2), at global positions
+// (0,0,0), (0,2,0), (0,2,3). Every triangle vertex is fully weighted to a
+// different joint, so the round-trip test can tell them apart.
+husk::gltf::Skeleton buildChainSkeleton() {
+    husk::gltf::Skeleton skel;
+    skel.joints.push_back({-1, {0, 0, 0}, {0, 0, 0}});
+    skel.joints.push_back({0, {0, 2, 0}, {0, 2, 0}});
+    skel.joints.push_back({1, {0, 0, 3}, {0, 2, 3}});
+    return skel;
+}
+
+husk::gltf::Mesh buildSkinnedTriangleMesh() {
+    auto mesh = buildTriangleMesh();
+    husk::gltf::JointWeights w0, w1, w2;
+    w0.joints[0] = 0;
+    w0.weights[0] = 1.0f;
+    w1.joints[0] = 1;
+    w1.weights[0] = 1.0f;
+    w2.joints[0] = 2;
+    w2.weights[0] = 1.0f;
+    mesh.skinning = {w0, w1, w2};
+    return mesh;
+}
+
+}  // namespace
+
+TEST_CASE("writeGlb: skinned mesh round-trips joints, weights, and the joint hierarchy") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    auto glb = husk::gltf::writeGlb(mesh, &skel);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.skins.size() == 1);
+    const auto& skin = model.skins[0];
+    REQUIRE(skin.joints.size() == 3);
+
+    // Node hierarchy: joint 0 is root.parent-less, joint 1 is its child,
+    // joint 2 is joint 1's child. Translations are local-to-parent.
+    int rootNode = skin.joints[0];
+    int midNode = skin.joints[1];
+    int tipNode = skin.joints[2];
+    REQUIRE(model.nodes[rootNode].children.size() == 1);
+    CHECK(model.nodes[rootNode].children[0] == midNode);
+    REQUIRE(model.nodes[midNode].children.size() == 1);
+    CHECK(model.nodes[midNode].children[0] == tipNode);
+
+    REQUIRE(model.nodes[midNode].translation.size() == 3);
+    CHECK(model.nodes[midNode].translation[1] == doctest::Approx(2));
+    REQUIRE(model.nodes[tipNode].translation.size() == 3);
+    CHECK(model.nodes[tipNode].translation[2] == doctest::Approx(3));
+
+    // Inverse bind matrices: pure translation by -globalPosition, column-major.
+    REQUIRE(skin.inverseBindMatrices >= 0);
+    const auto& ibmAcc = model.accessors[skin.inverseBindMatrices];
+    REQUIRE(ibmAcc.count == 3);
+    const auto& ibmView = model.bufferViews[ibmAcc.bufferView];
+    const auto& ibmBuf = model.buffers[ibmView.buffer];
+    std::vector<float> ibm(16 * 3);
+    std::memcpy(ibm.data(), ibmBuf.data.data() + ibmView.byteOffset + ibmAcc.byteOffset,
+                ibm.size() * sizeof(float));
+    // Joint 2 (tip)'s global position is (0,2,3) -> translation column is
+    // (-0,-2,-3), the last 4 floats of its 16-float column-major matrix.
+    const float* tipMat = ibm.data() + 16 * 2;
+    CHECK(tipMat[12] == doctest::Approx(0));
+    CHECK(tipMat[13] == doctest::Approx(-2));
+    CHECK(tipMat[14] == doctest::Approx(-3));
+    CHECK(tipMat[15] == doctest::Approx(1));
+
+    // Mesh node references the skin; primitive carries JOINTS_0/WEIGHTS_0.
+    REQUIRE(model.nodes[0].mesh == 0);
+    CHECK(model.nodes[0].skin == 0);
+    const auto& prim = model.meshes[0].primitives[0];
+    REQUIRE(prim.attributes.count("JOINTS_0") == 1);
+    REQUIRE(prim.attributes.count("WEIGHTS_0") == 1);
+
+    const auto& jAcc = model.accessors[prim.attributes.at("JOINTS_0")];
+    REQUIRE(jAcc.count == 3);
+    const auto& jView = model.bufferViews[jAcc.bufferView];
+    const auto& jBuf = model.buffers[jView.buffer];
+    const uint8_t* jData = jBuf.data.data() + jView.byteOffset + jAcc.byteOffset;
+    CHECK(jData[0 * 4 + 0] == 0);  // vertex 0 -> joint 0
+    CHECK(jData[1 * 4 + 0] == 1);  // vertex 1 -> joint 1
+    CHECK(jData[2 * 4 + 0] == 2);  // vertex 2 -> joint 2
+
+    const auto& wAcc = model.accessors[prim.attributes.at("WEIGHTS_0")];
+    const auto& wView = model.bufferViews[wAcc.bufferView];
+    const auto& wBuf = model.buffers[wView.buffer];
+    std::vector<float> weights(4 * 3);
+    std::memcpy(weights.data(), wBuf.data.data() + wView.byteOffset + wAcc.byteOffset,
+                weights.size() * sizeof(float));
+    CHECK(weights[0 * 4 + 0] == doctest::Approx(1));
+    CHECK(weights[2 * 4 + 0] == doctest::Approx(1));
+}
+
+TEST_CASE("writeGlb: skeleton given without matching mesh.skinning throws") {
+    auto mesh = buildTriangleMesh();  // no skinning data
+    auto skel = buildChainSkeleton();
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, &skel), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: mesh.skinning given without a skeleton throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, nullptr), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: mesh.skinning length mismatched with positions throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    mesh.skinning.pop_back();
+    auto skel = buildChainSkeleton();
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, &skel), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: joint parent index out of range throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.joints[2].parent = 99;
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, &skel), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: joint that is its own parent throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.joints[1].parent = 1;
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, &skel), husk::gltf::Error);
+}

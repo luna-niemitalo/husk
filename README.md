@@ -46,12 +46,15 @@ best-guess expansion label, the model's internal name, and record counts
 given `.skin` file's two-level triangle-index lookup (see `src/skin.hpp`),
 converts WoW's Z-up coordinates to glTF's Y-up, and writes a minimal
 single-primitive glTF binary -- positions/normals/UVs/indices, no material,
-no image, no skin/skeleton yet. That's [roadmap stage
-1](#roadmap-modern-m2--blender-via-gltf) below. husk doesn't resolve the
-`.skin` filename itself (no `SFID`-FileDataID lookup yet) -- pass the path
-to whichever `.skin` matches the M2's LOD you want (e.g. `bloodelffemale.m2`
-pairs with `bloodelffemale00.skin`, its LOD0 -- not an `_hd`-suffixed file,
-which belongs to a separate, much higher-poly HD-variant M2).
+no image. If the M2 has bones, they're also resolved into a bind-pose glTF
+skin (`JOINTS_0`/`WEIGHTS_0`, inverse bind matrices, a joint-node hierarchy)
+-- no animation playback yet. That covers [roadmap stages
+1 and 2](#roadmap-modern-m2--blender-via-gltf) below. husk doesn't resolve
+the `.skin` filename itself (no `SFID`-FileDataID lookup yet) -- pass the
+path to whichever `.skin` matches the M2's LOD you want (e.g.
+`bloodelffemale.m2` pairs with `bloodelffemale00.skin`, its LOD0 -- not an
+`_hd`-suffixed file, which belongs to a separate, much higher-poly
+HD-variant M2).
 
 husk never touches CASC storage itself and doesn't know or care how you got
 the file — get a real `.m2` out of a WoW install first with a separate
@@ -70,11 +73,15 @@ Verified against the real, live game install: `character/bloodelf/female/bloodel
 `BloodElfFemale`, 339 sequences / 119 bones / 8061 vertices / 9 textures /
 8 materials, and a bounding box consistent with a humanoid character model.
 `husk export bloodelffemale.m2 bloodelffemale00.skin out.glb` resolves all
-8061 vertices and 10,458 triangles from that same pair and writes a ~375 KiB
-`.glb`. Also stress-tested against the same character's HD variant,
+8061 vertices and 10,458 triangles from that same pair, plus all 119 bones
+into a bind-pose glTF skin, and writes a ~375 KiB `.glb`. Also stress-tested
+against the same character's HD variant,
 `bloodelffemale_hd.m2` (195,498 vertices!) + its matching
 `bloodelffemale_hd00.skin`, producing a ~6.8 MB `.glb` with 45,418
-triangles -- exercises the same code path at ~24x the vertex count.
+triangles -- exercises the same code path at ~24x the vertex count. That HD
+variant has zero bones (it's a pure geometry overlay, no skeleton of its
+own), so it also confirms the no-skin fallback still works correctly at
+that scale, not just the happy path.
 That HD pairing is also a real example of the mismatch check earning its
 keep: `bloodelffemale_hd00.skin`'s `vertices` lookup table references M2
 global vertex indices up to 32938, which only makes sense against
@@ -115,8 +122,8 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 |---|---|---|---|---|
 | Chunk container / magic detection | 🚧 `MD20`/`MD21` detected, generic chunk reader in `src/chunk.*` | ⬜ (chunked like WMO, 16-byte chunk header + property fields) | ⬜ (`MOMO` wrapper, Legion+) | ⬛ flat header, not chunked |
 | Header / global metadata | 🚧 `husk info` reads magic/version/name/flags/bounding boxes/array counts | ⬜ `M3DT` (376 bytes: flags, 2 bounding boxes, particle count) | ⬜ `MOHD` (counts, ambient color, WMOID, bounding box, flags) | ⬜ 148-byte header + 1024-byte palette/JPEG region |
-| Skeleton / bone hierarchy | ⬜ `bones` array (offsets read, contents not resolved) | ❔ no joint-hierarchy chunk documented — only per-vertex weights/bind-poses exist (`VWTS`/`VIBP`) | ⬛ no skeleton | ⬛ |
-| Vertex skinning (bone weights/indices) | 📖 read as part of `M2Vertex` (`bone_weights[4]`/`bone_indices[4]`), not yet wired into a glTF skin | ⬜ `VWTS` (weights), `VIBP` (inverse bind poses) | ⬛ | ⬛ |
+| Skeleton / bone hierarchy | 🚧 inline `bones` array resolved to `key_bone_id`/`flags`/`parent_bone`/`pivot` (`src/m2.cpp`'s `parseBones`) and exported as a bind-pose glTF joint hierarchy via `husk export`; the three embedded `M2Track` animation blocks per bone are skipped, not parsed (stage 6). **Gap:** Legion+ models can instead point a `SKID` chunk at an external `.skel` file whose `SKB1` chunk holds the *same* `M2Array<M2CompBone> bones` — husk doesn't follow `SKID` yet, so those models (common for Shadowlands+ HD/customization variants, e.g. `bloodelffemale_hd.m2`) read as bone-*less* instead of finding their real skeleton. See roadmap stage 3 below. | ❔ no joint-hierarchy chunk documented — only per-vertex weights/bind-poses exist (`VWTS`/`VIBP`) | ⬛ no skeleton | ⬛ |
+| Vertex skinning (bone weights/indices) | 📖 read as part of `M2Vertex` (`bone_weights[4]`/`bone_indices[4]`), wired into a glTF skin (`JOINTS_0`/`WEIGHTS_0`) via `husk export` | ⬜ `VWTS` (weights), `VIBP` (inverse bind poses) | ⬛ | ⬛ |
 | Mesh geometry (positions, indices) | 📖 `vertices` array resolved to real `M2Vertex` records (`src/m2.cpp`); triangle indices resolved via one explicitly-given `.skin` file (`src/skin.cpp`); exported to glTF via `husk export` | ⬜ `VPOS`/`VINX`/`VGEO`+`Geoset`/`LODS`/`RBAT` | ⬜ `MOVT`/`MOVI`/`MOVX`, `MOBA` batches, `MORI`/`MORB` triangle-strip variants | ⬛ |
 | Normals | 📖 part of `M2Vertex`, resolved | ⬜ `VNML` | ⬜ `MONR` | ⬛ |
 | UV / texture coordinates | 📖 both `tex_coords[2]` sets resolved (only set 0 currently exported to glTF) | ⬜ `VUV0`–`VUV5` (up to 6 sets) | ⬜ `MOTV` | ⬛ |
@@ -136,7 +143,7 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | Portals / visibility culling | ⬛ | ⬛ | ⬜ `MOPV`/`MOPT`/`MOPR`/`MOPE`, `MOVV`/`MOVB` visible-block lists | ⬛ |
 | Doodad / object placement (scene composition) | ⬛ | ⬛ | ⬜ `MODS`/`MODN`/`MODI`/`MODD`/`MODR` + `MDDI`/`MDDL` additional info | ⬛ |
 | World/group structure (root+group files, skybox) | ⬛ | ⬛ single-file, no group split | ⬜ `MOGN`/`MOGI`/`MOGP`/`MOGX`/`GFID` + `MOSB`/`MOSI` skybox + `MGI2` group-info-v2 | ⬛ |
-| Sidecar FileDataID resolution | ⬜ `SFID`/`AFID`/`BFID`/`PFID` → `.skin`/`.anim`/`.bone`/`.phys` | ⬛ self-contained, no sidecars per spec | ⬜ `GFID` → group files | ⬛ |
+| Sidecar FileDataID resolution | ⬜ `SFID`/`AFID`/`BFID`/`PFID`/`SKID` → `.skin`/`.anim`/`.bone`/`.phys`/`.skel` (husk's `export` command takes a `.skin` path explicitly instead of resolving `SFID`; none of the others are followed yet) | ⬛ self-contained, no sidecars per spec | ⬜ `GFID` → group files | ⬛ |
 
 **Not individually rowed above** (still real, just low-priority/niche —
 tracked here so nothing's silently dropped): WMO's `MOQG`/`MOGX` per-face
@@ -187,20 +194,59 @@ above; this section is about *sequencing* that work, not duplicating it.
    vertices, 10,458 triangles, glTF binary framing round-trips through
    tinygltf's own loader intact); **not yet verified**: actually opening the
    output in Blender (no Blender in the environment this was built in).
-2. **Skeleton + skinning, still untextured.** Resolve the `bones` array
-   (`M2CompBone`: parent index, pivot, flags) and wire `M2Vertex`'s
+2. **Skeleton + skinning, still untextured. Done** — `husk export` now
+   resolves the `bones` array (`M2CompBone`: `parent_bone`, `pivot`,
+   `flags`, `key_bone_id`; the embedded `M2Track` animation blocks are
+   skipped, not parsed — that's stage 6 below) and wires `M2Vertex`'s
    `bone_weights`/`bone_indices` into a glTF skin (`JOINTS_0`/`WEIGHTS_0`
    accessors, inverse bind matrices, a joint-node hierarchy from the bone
-   parent chain). Success at this stage is "imports as an armature-bound
-   mesh in the correct bind pose" — no animation playback yet.
-3. **Textures: BLP → PNG.** A hard prerequisite for materials to show
+   parent chain, see `src/gltf.hpp`'s `Skeleton`). `M2Vertex.bone_indices`
+   are direct indices into the M2's own `bones` array — confirmed against
+   [pywowlib](https://github.com/wowdev/pywowlib)'s M2 writer, since the
+   `.skin` file's own, *differently*-indirected `bones` lookup table (see
+   its wiki page's debated remarks) is a separate, unrelated field this
+   parser doesn't touch. Since M2's bind pose has no baked rotation/scale,
+   each joint's inverse bind matrix is a plain translation by its negated
+   absolute pivot — no matrix-chain composition needed. Success at this
+   stage is "imports as an armature-bound mesh in the correct bind pose" —
+   no animation playback yet. Verified against `bloodelffemale.m2` (119
+   bones): exports cleanly, round-trips through tinygltf's own loader with
+   a populated skin/joint hierarchy; **not yet verified** in Blender itself
+   (same caveat as stage 1). Models with a genuinely empty inline `bones`
+   array correctly fall back to an unskinned mesh, same as stage 1's
+   output — but as stage 3 below explains, "inline `bones` array is empty"
+   and "this model has no skeleton" turned out to be different things, so
+   that fallback currently fires for some models that do have one.
+3. **External skeleton sidecar (`.skel` via `SKID`).** Not started. Belongs
+   here, not down in the animation stage, because what it resolves is
+   structural (bind-pose bones), the same category of thing as stage 2
+   above — it just lives in a different file for some models. Legion+
+   (7.3+) can move a model's `bones` array out of the M2 entirely: an `SKID`
+   chunk (`uint32_t SKeletonfileID`) points at a `.skel` file, itself
+   chunked (`SKL1` header, `SKA1` attachments, `SKS1` sequences, optional
+   `SKPD` for parent-skeleton dedup — see [wowdev.wiki
+   M2/.skel](https://wowdev.wiki/M2/.skel)), whose `SKB1` chunk holds
+   `M2Array<M2CompBone> bones` — the *identical* struct `m2::parseBones`
+   already reads, just relocated. So this stage is "find and read one more
+   chunk + one more file," not a new struct to reverse-engineer. Confirmed
+   empirically against `bloodelffemale_hd.m2`/`.skel` in this repo's test
+   data: the `.m2` really does contain an `SKID` chunk, and `husk info`'s
+   "bones: 0" for that file is reading the (genuinely empty) inline array
+   correctly — the real 195,498-vertex model's skeleton is in
+   `bloodelffemale_hd.skel`, which husk doesn't open yet. Deliberately
+   **not** in scope for this stage: the `BFID` chunk (`.skel`'s or M2's)
+   pointing at numbered `${basename}_${i}.bone` files -- per wowdev.wiki,
+   those replaced *per-bone animation track* data (the same category as
+   `.anim`/`AFID`), not bind-pose structure, so they're a stage-5 concern,
+   not this one.
+4. **Textures: BLP → PNG.** A hard prerequisite for materials to show
    anything other than gray, and genuinely separate work from M2 parsing
    — BLP is its own header/mip-table/pixel format (palette, DXT1/DXT3/
    DXT5, uncompressed BGRA, or JPEG; see the format matrix). Scope the
    first pass to whatever encoding the actual test models use (check
    before assuming DXT everywhere) and defer JPEG, which the wiki notes
    is rare in BLP2.
-4. **Materials.** Resolve the `materials` array (blend mode, render
+5. **Materials.** Resolve the `materials` array (blend mode, render
    flags) and the texture-unit → texture/material linkage that lives in
    the `.skin` file, then translate WoW's blend modes into glTF's
    `alphaMode` (`OPAQUE`/`MASK`/`BLEND`) with the resolved texture as
@@ -209,7 +255,7 @@ above; this section is about *sequencing* that work, not duplicating it.
    shader model doesn't map cleanly onto metallic-roughness, and faking
    plausible-looking values is a separate, later problem from "does the
    right texture show up with the right blend mode."
-5. **Animation.** Resolve each bone's `M2Track` (translation/rotation/
+6. **Animation.** Resolve each bone's `M2Track` (translation/rotation/
    scale keyframes) and map one sequence at a time into glTF `animation`
    channels targeting joint nodes — get a single idle/stand loop playing
    correctly before attempting the full `sequences` list. Has a real
@@ -217,8 +263,15 @@ above; this section is about *sequencing* that work, not duplicating it.
    `.anim` file whenever `(M2Sequence.flags & 0x130) == 0`, resolved via
    the Legion+ `AFID` chunk (`ChunkedAnimFiles` flag) rather than living
    inline in the M2 — so this stage also needs `.anim` sidecar support,
-   not just inline track parsing.
-6. **Output hardening.** Validate actual `.glb` output against the
+   not just inline track parsing. Same category of thing, likely same
+   stage: `BFID` (on the M2 itself, or inside a stage-3 `.skel` file)
+   points at numbered `${basename}_${i}.bone` files, which per
+   wowdev.wiki replaced *per-bone* animation track data — probably an
+   alternate delivery mechanism for the same `M2Track` data this stage
+   already needs to resolve, not a separate concept; confirm that against
+   a real `.bone` file (this repo's test data has 20 of them) when this
+   stage actually starts.
+7. **Output hardening.** Validate actual `.glb` output against the
    Khronos glTF-Validator, not just "Blender didn't crash on import."
    Decide the LOD/skin-profile policy (almost certainly: always emit the
    highest-detail skin profile, ignore the rest, at least until there's a
@@ -250,13 +303,16 @@ Same two-tier split as `casc-tool`:
   those belong in the synthetic tests. Also covers the failure path: a
   `.skin` that doesn't belong to the given M2 must fail loudly, not
   silently misread. Skipped (not failed) unless `HUSK_TEST_M2` (and, for
-  the `export` cases, `HUSK_TEST_SKIN`) points at real files.
+  the `export` cases, `HUSK_TEST_SKIN`; `HUSK_TEST_MISMATCHED_SKIN` for the
+  failure-path case) points at real files. `test_data/` (gitignored) is a
+  convenient local spot for these -- real, copyrighted game data extracted
+  from your own install, never meant to be committed.
 
 ```
 cmake --build build -j$(nproc)
 ./build/husk-tests                                    # pure-logic only
-HUSK_TEST_M2=/tmp/bloodelffemale.m2 \
-HUSK_TEST_SKIN=/tmp/bloodelffemale00.skin \
+HUSK_TEST_M2=test_data/bloodelffemale.m2 \
+HUSK_TEST_SKIN=test_data/bloodelffemale00.skin \
   ./build/husk-tests                                  # + integration
 ```
 
@@ -291,14 +347,29 @@ HUSK_TEST_SKIN=/tmp/bloodelffemale00.skin \
   bounds-checked-`memcpy`, independently-spec-transcribed-tests approach as
   `src/m2.cpp` — see `tests/test_skin.cpp`'s header comment for the
   `M2SkinProfile` offsets. Only the `vertices`/`indices` lookup tables are
-  read (what `husk export` needs); `bones`/`submeshes`/`batches` wait for
-  the skinning and materials stages.
+  read (what `husk export` needs); `.skin`'s own `bones`/`submeshes`/`batches`
+  fields are a *different*, per-submesh-indirected bone lookup than
+  `M2Vertex.bone_indices` (see the next bullet) and stay unread until the
+  materials stage actually needs per-submesh grouping.
+- **`M2CompBone`'s three embedded animation tracks are skipped, not
+  parsed.** Per wowdev.wiki M2#Bones, each bone struct carries a
+  `translation`/`rotation`/`scale` `M2Track<T>` (60 bytes total) before its
+  `pivot` field. `m2::parseBones` (`src/m2.cpp`) knows their combined byte
+  size precisely -- `M2Track<T>` is always 20 bytes regardless of `T`, see
+  `tests/test_m2.cpp`'s header comment for why -- to skip straight to
+  `pivot` without resolving what's actually a stage-5 (animation) concern.
+  Getting `M2Vertex.bone_indices`' semantics right mattered enough to
+  verify independently: they're direct indices into M2's own `bones` array,
+  confirmed by reading [pywowlib](https://github.com/wowdev/pywowlib)'s M2
+  writer (`m2_file.py`) rather than trusting a search-engine summary that
+  claimed the opposite (likely conflating M2 with the unrelated Warcraft 3
+  MDX format) -- see the roadmap stage 2 entry above for the specifics.
 - **Not built yet:** parsing most of the fixed header past what's
   currently read (attachments, events, lights, cameras, particles, ...),
-  resolving most array offsets to their pointed-to records (`bones`,
-  `textures`, `materials`, `sequences`, ... — `vertices` is the one
-  exception, resolved for the mesh-export stage), the Legion+ sidecar
-  chunks (`SFID`/`AFID`/`BFID`/`PFID`/etc. — `husk export` takes a `.skin`
+  resolving most array offsets to their pointed-to records (`textures`,
+  `materials`, `sequences`, ... — `vertices` and `bones` are resolved, for
+  the mesh-export and skinning stages), the Legion+ sidecar chunks
+  (`SFID`/`AFID`/`BFID`/`PFID`/etc. — `husk export` takes a `.skin`
   path explicitly instead of resolving `SFID` itself), `.skin`'s own
   `bones`/`submeshes`/`batches` fields, M3, WMO, and any form of
   writing/conversion back into WoW's native formats (only glTF export is

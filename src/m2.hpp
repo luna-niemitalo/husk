@@ -92,6 +92,21 @@ struct Header {
     bool chunked = false;  // true if this file was Legion+ MD21-wrapped
 };
 
+// M2CompBone, per wowdev.wiki M2#Bones -- 88 bytes on disk (>= Wrath shape,
+// which is every version this parser targets). Only the fields stage 2 of
+// the roadmap (skeleton + skinning, see README.md) needs for a bind-pose
+// joint hierarchy are surfaced; the three embedded M2Track<T> animation
+// blocks (translation/rotation/scale, 60 bytes together) are skipped over,
+// not parsed -- see tests/test_m2.cpp for why their size is fixed and
+// T-independent. Animation playback (roadmap stage 6) will need to revisit
+// this and actually resolve them.
+struct Bone {
+    int32_t keyBoneId = -1;  // back-reference into the key-bone lookup table, -1 if none
+    uint32_t flags = 0;
+    int16_t parentBone = -1;  // index into this same bones array, -1 if none
+    Vec3 pivot;                // bind-pose position, in model space
+};
+
 struct ParseError : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
@@ -119,6 +134,12 @@ std::vector<uint8_t> extractBlob(const std::vector<uint8_t>& fileBytes);
 // blob. An empty array (count 0) returns an empty vector without touching
 // `array.offset` at all.
 std::vector<Vertex> parseVertices(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` M2CompBone records out of `blob` starting at
+// `array.offset`. Throws ParseError if that range runs past the end of the
+// blob. An empty array (count 0) returns an empty vector without touching
+// `array.offset` at all.
+std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& array);
 
 // Best-effort expansion label(s) for a raw header version number, per the
 // wiki's own version table -- which the wiki itself calls "rough estimates"

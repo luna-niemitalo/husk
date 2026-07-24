@@ -31,6 +31,26 @@
 // "Models ... use a Z-up coordinate system[]; to convert to Y-up, the X, Y,
 // Z values become (X, -Z, Y)" -- this parser does NOT apply that conversion;
 // it reads raw file values verbatim, same as every other field here.
+//
+// M2CompBone (wowdev.wiki M2#Bones), >= Wrath shape (every version this
+// parser targets), 88 bytes:
+//   0x00 key_bone_id (int32)           0x04 flags (uint32)
+//   0x08 parent_bone (int16)           0x0A submesh_id (uint16)
+//   0x0C union{CompressData|boneNameCRC} (4 bytes, unread -- debug-only)
+//   0x10 translation (M2Track<C3Vector>, 20 bytes)
+//   0x24 rotation (M2Track<M2CompQuat>, 20 bytes)
+//   0x38 scale (M2Track<C3Vector>, 20 bytes)
+//   0x4C pivot (C3Vector, 12 bytes)
+// -> 0x58 = 88 bytes total.
+// M2Track<T> (>= Wrath) is always 20 bytes regardless of T -- both halves
+// are (M2Array<M2Array<uint32_t>> timestamps, M2Array<M2Array<T>> values),
+// and an M2Array is just a (count, offset) pair (8 bytes) no matter what
+// it's an array of, so T's own size never affects M2Track<T>'s size:
+//   M2TrackBase: 0x00 interpolation_type (u16) 0x02 global_sequence (u16)
+//                0x04 timestamps (M2Array<M2Array<u32>>, 8 bytes) -> 0x0C
+//   M2Track<T> adds: 0x0C values (M2Array<M2Array<T>>, 8 bytes) -> 0x14
+// This parser doesn't resolve track contents (animation, stage 6) -- it
+// only needs to skip over the right number of bytes to reach `pivot`.
 
 #include <cstring>
 #include <doctest/doctest.h>
@@ -132,6 +152,24 @@ void putVertex(std::vector<uint8_t>& buf, size_t off, const husk::m2::Vertex& v)
     putF32(buf, off + 0x24, v.texCoords[0].y);
     putF32(buf, off + 0x28, v.texCoords[1].x);
     putF32(buf, off + 0x2C, v.texCoords[1].y);
+}
+
+// Writes one 88-byte M2CompBone record at `off`. The M2Track regions
+// (translation/rotation/scale, 20 bytes each) are filled with `trackFiller`
+// instead of left zeroed, so a test can prove the parser skips exactly the
+// right number of bytes rather than coincidentally landing on zeros.
+void putBone(std::vector<uint8_t>& buf, size_t off, int32_t keyBoneId, uint32_t flags,
+             int16_t parentBone, const husk::m2::Vec3& pivot, uint8_t trackFiller = 0xEE) {
+    if (buf.size() < off + 0x58) buf.resize(off + 0x58, 0);
+    putU32(buf, off + 0x00, static_cast<uint32_t>(keyBoneId));
+    putU32(buf, off + 0x04, flags);
+    uint16_t parentBoneBits = static_cast<uint16_t>(parentBone);
+    std::memcpy(buf.data() + off + 0x08, &parentBoneBits, 2);
+    // 0x0A submesh_id, 0x0C union: left as zero, unread by the parser.
+    for (size_t i = 0x10; i < 0x4C; ++i) buf[off + i] = trackFiller;
+    putF32(buf, off + 0x4C, pivot.x);
+    putF32(buf, off + 0x50, pivot.y);
+    putF32(buf, off + 0x54, pivot.z);
 }
 
 void checkSentinelHeader(const husk::m2::Header& h) {
@@ -353,4 +391,47 @@ TEST_CASE("parseVertices: array running past the end of the blob throws") {
     array.count = 3;       // 3 * 48 = 144 bytes needed
     array.offset = 0;      // but the blob is only 100 bytes
     CHECK_THROWS_AS(husk::m2::parseVertices(blob, array), husk::m2::ParseError);
+}
+
+TEST_CASE("parseBones: reads key_bone_id/flags/parent_bone/pivot, skipping the M2Track regions") {
+    size_t boneOffset = 3000;
+    std::vector<uint8_t> blob(boneOffset, 0);
+    putBone(blob, boneOffset, /*keyBoneId=*/5, /*flags=*/0x1234, /*parentBone=*/-1,
+            husk::m2::Vec3{1, 2, 3}, /*trackFiller=*/0xEE);
+    putBone(blob, boneOffset + 0x58, /*keyBoneId=*/-1, /*flags=*/0, /*parentBone=*/0,
+            husk::m2::Vec3{4, 5, 6}, /*trackFiller=*/0xAA);
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = static_cast<uint32_t>(boneOffset);
+    auto bones = husk::m2::parseBones(blob, array);
+
+    REQUIRE(bones.size() == 2);
+    CHECK(bones[0].keyBoneId == 5);
+    CHECK(bones[0].flags == 0x1234);
+    CHECK(bones[0].parentBone == -1);
+    CHECK(bones[0].pivot.x == doctest::Approx(1));
+    CHECK(bones[0].pivot.y == doctest::Approx(2));
+    CHECK(bones[0].pivot.z == doctest::Approx(3));
+
+    CHECK(bones[1].keyBoneId == -1);
+    CHECK(bones[1].parentBone == 0);
+    CHECK(bones[1].pivot.x == doctest::Approx(4));
+    CHECK(bones[1].pivot.z == doctest::Approx(6));
+}
+
+TEST_CASE("parseBones: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 54321;
+    CHECK(husk::m2::parseBones(blob, array).empty());
+}
+
+TEST_CASE("parseBones: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(50, 0);
+    husk::m2::Array array;
+    array.count = 1;   // 88 bytes needed
+    array.offset = 0;  // but the blob is only 50 bytes
+    CHECK_THROWS_AS(husk::m2::parseBones(blob, array), husk::m2::ParseError);
 }

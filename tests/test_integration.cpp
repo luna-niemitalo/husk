@@ -27,6 +27,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <tiny_gltf.h>
 
 namespace {
 
@@ -99,6 +100,25 @@ TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a well-f
     char magic[4] = {};
     glb.read(magic, 4);
     CHECK(std::string(magic, 4) == "glTF");
+
+    // Shape-only skinning check: a real character model has bones, so this
+    // must have produced a glTF skin, not silently dropped it. Doesn't
+    // assert any model-specific bone count -- that belongs in test_m2.cpp's
+    // synthetic tests.
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(model.skins.size() == 1);
+    CHECK(model.skins[0].joints.size() > 0);
+    CHECK(model.skins[0].inverseBindMatrices >= 0);
+    REQUIRE(model.nodes[0].mesh == 0);
+    CHECK(model.nodes[0].skin == 0);
+    const auto& prim = model.meshes[0].primitives[0];
+    CHECK(prim.attributes.count("JOINTS_0") == 1);
+    CHECK(prim.attributes.count("WEIGHTS_0") == 1);
 
     std::filesystem::remove(outPath);
 }
