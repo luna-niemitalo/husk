@@ -157,9 +157,16 @@ Header parseBlob(const uint8_t* blob, size_t blobSize, bool chunked) {
     return h;
 }
 
-}  // namespace
+struct ResolvedBlob {
+    std::vector<uint8_t> bytes;
+    bool chunked;
+};
 
-Header parseHeader(const std::vector<uint8_t>& fileBytes) {
+// Resolves the flat-MD20-vs-Legion+-chunked shape shared by parseHeader and
+// extractBlob: either the file's bytes are already the MD20 blob, or the
+// MD21 chunk's payload is (wowdev.wiki M2#MD21). Copies the bytes out so
+// callers own a self-contained blob regardless of which case applied.
+ResolvedBlob resolveBlob(const std::vector<uint8_t>& fileBytes) {
     if (fileBytes.size() < 4) {
         throw ParseError("file is only " + std::to_string(fileBytes.size()) +
                           " bytes, too short to even contain a magic value");
@@ -170,7 +177,7 @@ Header parseHeader(const std::vector<uint8_t>& fileBytes) {
 
     // Pre-Legion: the file itself starts with MD20, no chunk wrapper.
     if (firstMagic == 0x3032444D /* "MD20" */) {
-        return parseBlob(fileBytes.data(), fileBytes.size(), /*chunked=*/false);
+        return {fileBytes, /*chunked=*/false};
     }
 
     // Legion+: the file is chunks; MD21's payload is the MD20 blob, offsets
@@ -186,7 +193,53 @@ Header parseHeader(const std::vector<uint8_t>& fileBytes) {
         throw ParseError("file doesn't start with MD20 and has no MD21 chunk; chunks found: [" +
                           found + "]");
     }
-    return parseBlob(md21->data, md21->size, /*chunked=*/true);
+    return {std::vector<uint8_t>(md21->data, md21->data + md21->size), /*chunked=*/true};
+}
+
+}  // namespace
+
+Header parseHeader(const std::vector<uint8_t>& fileBytes) {
+    auto resolved = resolveBlob(fileBytes);
+    return parseBlob(resolved.bytes.data(), resolved.bytes.size(), resolved.chunked);
+}
+
+std::vector<uint8_t> extractBlob(const std::vector<uint8_t>& fileBytes) {
+    return resolveBlob(fileBytes).bytes;
+}
+
+std::vector<Vertex> parseVertices(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<Vertex> vertices;
+    if (array.count == 0) {
+        return vertices;
+    }
+
+    constexpr size_t kVertexSize = 0x30;  // M2Vertex, wowdev.wiki M2#Vertices
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+    vertices.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kVertexSize;
+        if (off + kVertexSize > blobSize) {
+            throw ParseError("vertex " + std::to_string(i) + " at offset " + std::to_string(off) +
+                              " needs " + std::to_string(kVertexSize) +
+                              " bytes but the blob is only " + std::to_string(blobSize) +
+                              " bytes");
+        }
+
+        Vertex v;
+        v.pos = readVec3(data, blobSize, off + 0x00);
+        for (int j = 0; j < 4; ++j) v.boneWeights[j] = data[off + 0x0C + j];
+        for (int j = 0; j < 4; ++j) v.boneIndices[j] = data[off + 0x10 + j];
+        v.normal = readVec3(data, blobSize, off + 0x14);
+        v.texCoords[0].x = readF32(data, blobSize, off + 0x20);
+        v.texCoords[0].y = readF32(data, blobSize, off + 0x24);
+        v.texCoords[1].x = readF32(data, blobSize, off + 0x28);
+        v.texCoords[1].y = readF32(data, blobSize, off + 0x2C);
+        vertices.push_back(v);
+    }
+
+    return vertices;
 }
 
 Header loadFile(const std::string& path) {

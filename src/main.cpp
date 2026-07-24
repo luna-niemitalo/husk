@@ -4,11 +4,15 @@
 #include "commands.hpp"
 
 int main(int argc, char** argv) {
+    static const char* usage =
+        "usage: husk <command> [args...]\n"
+        "\n"
+        "commands:\n"
+        "  info <file.m2>                            parse and print an M2 header\n"
+        "  export <file.m2> <file.skin> <out.glb>     export a static mesh to glTF\n";
+
     if (argc < 2) {
-        std::cerr << "usage: husk <command> [args...]\n"
-                     "\n"
-                     "commands:\n"
-                     "  info <file.m2>   parse and print an M2 header\n";
+        std::cerr << usage;
         return 1;
     }
 
@@ -19,11 +23,11 @@ int main(int argc, char** argv) {
     if (command == "info") {
         return husk::commands::info(restArgc, rest);
     }
+    if (command == "export") {
+        return husk::commands::exportGlb(restArgc, rest);
+    }
     if (command == "--help" || command == "-h") {
-        std::cout << "usage: husk <command> [args...]\n"
-                     "\n"
-                     "commands:\n"
-                     "  info <file.m2>   parse and print an M2 header\n";
+        std::cout << usage;
         return 0;
     }
 

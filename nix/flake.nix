@@ -5,6 +5,7 @@
     pins.url = "path:/home/luna/nix/pins";
     nixpkgs.follows = "pins/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
+	casc-tool.url = "github:luna-niemitalo/casc-tool?dir=nix";
   };
 
   outputs =
@@ -13,12 +14,14 @@
       pins,
       nixpkgs,
       flake-utils,
+	  casc-tool,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
+
 
         projectRoot = ../.;
 
@@ -41,6 +44,8 @@
           gdb
           ccache
           doctest
+          tinygltf
+		  casc-tool.packages.${pkgs.system}.default
         ];
       in
       {
@@ -53,6 +58,8 @@
             pkgs.cmake
             pkgs.ninja
           ];
+
+          buildInputs = [ pkgs.tinygltf ];
 
           cmakeFlags = [ "-DHUSK_BUILD_TESTS=OFF" ];
 

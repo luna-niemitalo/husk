@@ -12,15 +12,21 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+find_package(TinyGLTF CONFIG REQUIRED)
+
 # Everything except main.cpp, as a library: lets the test binary link against
 # the exact same command/parsing code the real CLI runs, instead of
 # re-including sources or testing a copy.
 add_library(husk-lib STATIC
   src/chunk.cpp
   src/m2.cpp
+  src/skin.cpp
+  src/gltf.cpp
   src/cmd_info.cpp
+  src/cmd_export.cpp
 )
 target_include_directories(husk-lib PUBLIC src)
+target_link_libraries(husk-lib PUBLIC tinygltf::tinygltf)
 
 add_executable(husk src/main.cpp)
 target_link_libraries(husk PRIVATE husk-lib)
@@ -35,6 +41,8 @@ if(HUSK_BUILD_TESTS)
     tests/test_main.cpp
     tests/test_chunk.cpp
     tests/test_m2.cpp
+    tests/test_skin.cpp
+    tests/test_gltf.cpp
     tests/test_integration.cpp
   )
   target_link_libraries(husk-tests PRIVATE husk-lib doctest::doctest)

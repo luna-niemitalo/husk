@@ -1,0 +1,56 @@
+#pragma once
+
+#include <cstdint>
+#include <stdexcept>
+#include <vector>
+
+#include "m2.hpp"
+
+// .skin file parsing, per https://wowdev.wiki/M2/.skin (fetched 2026-07-24).
+//
+// A .skin file is one LOD/submesh "view" onto an M2's vertex list. M2 files
+// carry no triangle indices themselves (wowdev.wiki M2#Views_(LOD)) -- those
+// live here instead, as two levels of lookup table:
+//   skin.vertices[i]  -> an index into the M2's own global vertex list
+//   skin.indices[i]   -> an index into *this* skin's `vertices` array above
+// So a drawable triangle-index buffer of M2 global vertex indices is
+// `vertices[indices[0]], vertices[indices[1]], vertices[indices[2]], ...`.
+//
+// Unlike M2 itself, .skin files are never chunked -- flat header, offsets
+// relative to the start of the .skin file. Only the fields needed to build
+// that triangle-index buffer are read here (magic, vertices, indices); the
+// header continues further (bones, submeshes, batches, ...) for later work
+// (per-material/per-submesh export, skinning).
+namespace husk::skin {
+
+struct Header {
+    uint32_t magic = 0;   // "SKIN" once read, checked against the literal bytes
+    m2::Array vertices;   // -> M2's global vertex list
+    m2::Array indices;    // -> this skin's `vertices` array above
+};
+
+struct ParseError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
+// Parses the fixed header out of a complete .skin file already read into
+// memory. Throws ParseError if the file is too short or the magic isn't
+// "SKIN".
+Header parseHeader(const std::vector<uint8_t>& fileBytes);
+
+// Reads `array.count` little-endian uint16 values out of `fileBytes` at
+// `array.offset`. Throws ParseError if that range runs past the end of the
+// file. Shared by both the `vertices` and `indices` lookup tables, which
+// have identical on-disk shape (M2Array<uint16>).
+std::vector<uint16_t> parseU16Array(const std::vector<uint8_t>& fileBytes, const m2::Array& array);
+
+// Resolves `header.indices` all the way through to M2 global vertex
+// indices -- see the module comment above for the two-level lookup this
+// collapses. The result is a flat triangle-corner index buffer the same
+// length as `header.indices.count`; every 3 consecutive entries are one
+// triangle (wowdev.wiki M2/.skin#Indices). Throws ParseError if any index
+// in `header.indices` is out of range for `header.vertices`.
+std::vector<uint32_t> resolveTriangleIndices(const std::vector<uint8_t>& fileBytes,
+                                              const Header& header);
+
+}  // namespace husk::skin

@@ -32,13 +32,26 @@ The binary lands at `build/husk`.
 
 ```
 husk info <file.m2>
+husk export <file.m2> <file.skin> <output.glb>
 ```
 
-Parses the header and prints: whether the file is pre-Legion (flat `MD20`)
-or Legion+ (chunked, `MD21`-wrapped), the version and its best-guess
-expansion label, the model's internal name, and record counts (sequences,
-bones, vertices, textures, materials) read out of the header's `M2Array`
-fields.
+`info` parses the header and prints: whether the file is pre-Legion (flat
+`MD20`) or Legion+ (chunked, `MD21`-wrapped), the version and its
+best-guess expansion label, the model's internal name, and record counts
+(sequences, bones, vertices, textures, materials) read out of the header's
+`M2Array` fields.
+
+`export` resolves the M2's `vertices` array to actual `M2Vertex` records
+(position, normal, both UV sets, plus the raw bone weights/indices) and the
+given `.skin` file's two-level triangle-index lookup (see `src/skin.hpp`),
+converts WoW's Z-up coordinates to glTF's Y-up, and writes a minimal
+single-primitive glTF binary -- positions/normals/UVs/indices, no material,
+no image, no skin/skeleton yet. That's [roadmap stage
+1](#roadmap-modern-m2--blender-via-gltf) below. husk doesn't resolve the
+`.skin` filename itself (no `SFID`-FileDataID lookup yet) -- pass the path
+to whichever `.skin` matches the M2's LOD you want (e.g. `bloodelffemale.m2`
+pairs with `bloodelffemale00.skin`, its LOD0 -- not an `_hd`-suffixed file,
+which belongs to a separate, much higher-poly HD-variant M2).
 
 husk never touches CASC storage itself and doesn't know or care how you got
 the file — get a real `.m2` out of a WoW install first with a separate
@@ -56,6 +69,24 @@ Verified against the real, live game install: `character/bloodelf/female/bloodel
 (2,377,292 bytes) parses as Legion+ chunked, version 274, internal name
 `BloodElfFemale`, 339 sequences / 119 bones / 8061 vertices / 9 textures /
 8 materials, and a bounding box consistent with a humanoid character model.
+`husk export bloodelffemale.m2 bloodelffemale00.skin out.glb` resolves all
+8061 vertices and 10,458 triangles from that same pair and writes a ~375 KiB
+`.glb`. Also stress-tested against the same character's HD variant,
+`bloodelffemale_hd.m2` (195,498 vertices!) + its matching
+`bloodelffemale_hd00.skin`, producing a ~6.8 MB `.glb` with 45,418
+triangles -- exercises the same code path at ~24x the vertex count.
+That HD pairing is also a real example of the mismatch check earning its
+keep: `bloodelffemale_hd00.skin`'s `vertices` lookup table references M2
+global vertex indices up to 32938, which only makes sense against
+`bloodelffemale_hd.m2`'s 195,498 vertices, not the base `bloodelffemale.m2`
+(8061 vertices) -- pairing it with the wrong model is exactly the failure
+mode `cmd_export.cpp`'s bounds check exists to catch loudly instead of
+silently misreading. Verified so far: the glTF binary framing round-trips
+through tinygltf's own loader intact (`tests/test_gltf.cpp`) and file sizes
+add up correctly for both real models; **not yet verified**: actually
+opening either output in Blender (no Blender available in the environment
+this was built in) -- do that before trusting this is a real, working mesh
+end to end.
 
 ## Format support matrix (M2 / M3 / WMO / BLP)
 
@@ -85,13 +116,13 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | Chunk container / magic detection | 🚧 `MD20`/`MD21` detected, generic chunk reader in `src/chunk.*` | ⬜ (chunked like WMO, 16-byte chunk header + property fields) | ⬜ (`MOMO` wrapper, Legion+) | ⬛ flat header, not chunked |
 | Header / global metadata | 🚧 `husk info` reads magic/version/name/flags/bounding boxes/array counts | ⬜ `M3DT` (376 bytes: flags, 2 bounding boxes, particle count) | ⬜ `MOHD` (counts, ambient color, WMOID, bounding box, flags) | ⬜ 148-byte header + 1024-byte palette/JPEG region |
 | Skeleton / bone hierarchy | ⬜ `bones` array (offsets read, contents not resolved) | ❔ no joint-hierarchy chunk documented — only per-vertex weights/bind-poses exist (`VWTS`/`VIBP`) | ⬛ no skeleton | ⬛ |
-| Vertex skinning (bone weights/indices) | ⬜ part of `M2Vertex` | ⬜ `VWTS` (weights), `VIBP` (inverse bind poses) | ⬛ | ⬛ |
-| Mesh geometry (positions, indices) | ⬜ `vertices` array | ⬜ `VPOS`/`VINX`/`VGEO`+`Geoset`/`LODS`/`RBAT` | ⬜ `MOVT`/`MOVI`/`MOVX`, `MOBA` batches, `MORI`/`MORB` triangle-strip variants | ⬛ |
-| Normals | ⬜ | ⬜ `VNML` | ⬜ `MONR` | ⬛ |
-| UV / texture coordinates | ⬜ | ⬜ `VUV0`–`VUV5` (up to 6 sets) | ⬜ `MOTV` | ⬛ |
+| Vertex skinning (bone weights/indices) | 📖 read as part of `M2Vertex` (`bone_weights[4]`/`bone_indices[4]`), not yet wired into a glTF skin | ⬜ `VWTS` (weights), `VIBP` (inverse bind poses) | ⬛ | ⬛ |
+| Mesh geometry (positions, indices) | 📖 `vertices` array resolved to real `M2Vertex` records (`src/m2.cpp`); triangle indices resolved via one explicitly-given `.skin` file (`src/skin.cpp`); exported to glTF via `husk export` | ⬜ `VPOS`/`VINX`/`VGEO`+`Geoset`/`LODS`/`RBAT` | ⬜ `MOVT`/`MOVI`/`MOVX`, `MOBA` batches, `MORI`/`MORB` triangle-strip variants | ⬛ |
+| Normals | 📖 part of `M2Vertex`, resolved | ⬜ `VNML` | ⬜ `MONR` | ⬛ |
+| UV / texture coordinates | 📖 both `tex_coords[2]` sets resolved (only set 0 currently exported to glTF) | ⬜ `VUV0`–`VUV5` (up to 6 sets) | ⬜ `MOTV` | ⬛ |
 | Tangents | ❔ not in the documented base header — appears to be runtime-computed, not stored | ⬜ `VTAN` | ⬜ `MOTA` (often auto-generated client-side for shaders 10/14) | ⬛ |
 | Per-vertex colors | ⬛ M2's `Colors` header field is animated material tint, not per-vertex mesh color | ⬜ `VCL0`/`VCL1` | ⬜ `MOCV`/`MOC2` | ⬛ |
-| LOD / mesh views | ⬜ needs `.skin` sidecar files, resolved via `SFID` | ⬛ `LODS` folds LOD into the one file, no sidecar | ⬛ (`GFID`'s `Flag_Lod` is a different, coarser concept — tracked under World/group structure) | ⬜ mip pyramid — tracked under Texture pixel data below, not here |
+| LOD / mesh views | 🚧 one `.skin` file's `vertices`/`indices` lookup tables read directly (`src/skin.cpp`); `.skin` filename must be given explicitly, no `SFID` resolution yet | ⬛ `LODS` folds LOD into the one file, no sidecar | ⬛ (`GFID`'s `Flag_Lod` is a different, coarser concept — tracked under World/group structure) | ⬜ mip pyramid — tracked under Texture pixel data below, not here |
 | Collision / physics | 🚧 `bounding_box`/`collision_box` fields read; `.phys` sidecar (`PFID`) untouched | ⬜ `M3CL` collision mesh (`CPOS`/`CNML`/`CINX`) | ⬜ `MOBN`/`MOBR` BSP tree, `MCVP` convex volumes, `MOPL` terrain-cutting planes | ⬛ |
 | Materials | ⬜ `materials` array | ⬜ `M3SI` Instances → external `MaterialLibrary` (`.mtl3lib`) | ⬜ `MOMT`, `MOM3` (v3 override), `MOUV` (UV anim), per-face `MOPY`/`MPY2`/`MOBS` | ⬛ |
 | Texture references (names/FileDataIDs) | ⬜ `textures` array + combo lookup tables | ⬜ indirect, via `MaterialLibrary` → compiled shader files (`GFAT`/`BLS`) — separate formats, not yet even scoped | ⬜ `MOTX` | ⬛ BLP is the referenced asset, not a referencer |
@@ -140,17 +171,22 @@ at), not an invisible internal refactor. Current status per piece is
 tracked precisely in the [format support matrix](#format-support-matrix-m2--m3--wmo--blp)
 above; this section is about *sequencing* that work, not duplicating it.
 
-1. **Static mesh, no material.** Resolve the `vertices` array's actual
-   contents (`M2Vertex`: `pos`, `bone_weights[4]`, `bone_indices[4]`,
-   `normal`, `tex_coords[2]`) — today only the array's `(count, offset)`
-   pair is read. M2 itself has no triangle indices; those live in a
-   `.skin` file (LOD/submesh views), resolved via the Legion+ `SFID`
-   chunk — so this stage also means reading one `.skin` file for the first
-   time. Write positions/normals/UVs/indices into a minimal glTF (no
-   material, no image — Blender will render it flat gray). Also the first
-   point a coordinate-system decision has to be made and gets baked in:
-   WoW is Z-up, glTF is Y-up (wowdev.wiki's own conversion note: WoW
-   `(X, Y, Z)` → Y-up `(X, -Z, Y)`).
+1. **Static mesh, no material. Done** — `husk export <file.m2> <file.skin>
+   <out.glb>` (see [Usage](#usage) above). Resolves the `vertices` array's
+   actual contents (`M2Vertex`: `pos`, `bone_weights[4]`, `bone_indices[4]`,
+   `normal`, `tex_coords[2]`), not just the array's `(count, offset)` pair.
+   M2 itself has no triangle indices; those come from a `.skin` file
+   (LOD/submesh views) — its filename is given explicitly on the command
+   line for now, not yet resolved automatically via the Legion+ `SFID`
+   chunk (that's still open, see the format matrix's "Sidecar FileDataID
+   resolution" row). Positions/normals/UVs/indices get written into a
+   minimal glTF (no material, no image — Blender will render it flat gray).
+   The Z-up (WoW) → Y-up (glTF) coordinate flip from wowdev.wiki's own note
+   (`(X, Y, Z)` → `(X, -Z, Y)`) is applied in `src/gltf.cpp`'s `zUpToYUp`.
+   Verified against `bloodelffemale.m2` + `bloodelffemale00.skin` (8061
+   vertices, 10,458 triangles, glTF binary framing round-trips through
+   tinygltf's own loader intact); **not yet verified**: actually opening the
+   output in Blender (no Blender in the environment this was built in).
 2. **Skeleton + skinning, still untextured.** Resolve the `bones` array
    (`M2CompBone`: parent index, pivot, flags) and wire `M2Vertex`'s
    `bone_weights`/`bone_indices` into a glTF skin (`JOINTS_0`/`WEIGHTS_0`
@@ -196,22 +232,32 @@ glTF file Blender happens to be able to open).
 
 Same two-tier split as `casc-tool`:
 
-- **Pure-logic** (`tests/test_chunk.cpp`, `test_m2.cpp`) — synthetic
-  buffers built field-by-field from the wiki spec, every offset in the
-  header cross-checked with a distinct sentinel value so a field landing
-  at the wrong byte shows up as a specific failing `CHECK`, not a
-  coincidental pass. No real files needed, always run.
+- **Pure-logic** (`tests/test_chunk.cpp`, `test_m2.cpp`, `test_skin.cpp`) —
+  synthetic buffers built field-by-field from the wiki spec, every offset
+  cross-checked with a distinct sentinel value so a field landing at the
+  wrong byte shows up as a specific failing `CHECK`, not a coincidental
+  pass. `tests/test_gltf.cpp` takes a related but different approach: since
+  `src/gltf.cpp` delegates the actual glTF binary framing to tinygltf
+  rather than hand-rolling it, its tests round-trip `writeGlb()`'s output
+  back through tinygltf's own loader and check the mesh data survived,
+  rather than re-deriving byte offsets by hand. No real files needed for
+  any of the above, always run.
 - **Integration** (`tests/test_integration.cpp`) — runs the compiled
-  `husk` binary against a real, game-extracted `.m2` as a subprocess.
-  Deliberately asserts only on shape (exit code, "did it find some
-  vertices"), not on any one model's specific field values — those belong
-  in the synthetic tests. Skipped (not failed) unless `HUSK_TEST_M2` points
-  at a real file.
+  `husk` binary against a real, game-extracted `.m2` (+ matching `.skin`,
+  for `export`) as a subprocess. Deliberately asserts only on shape (exit
+  code, "did it find some vertices", "is the output a plausibly-sized
+  well-formed `.glb`"), not on any one model's specific field values —
+  those belong in the synthetic tests. Also covers the failure path: a
+  `.skin` that doesn't belong to the given M2 must fail loudly, not
+  silently misread. Skipped (not failed) unless `HUSK_TEST_M2` (and, for
+  the `export` cases, `HUSK_TEST_SKIN`) points at real files.
 
 ```
 cmake --build build -j$(nproc)
 ./build/husk-tests                                    # pure-logic only
-HUSK_TEST_M2=/tmp/bloodelffemale.m2 ./build/husk-tests  # + integration
+HUSK_TEST_M2=/tmp/bloodelffemale.m2 \
+HUSK_TEST_SKIN=/tmp/bloodelffemale00.skin \
+  ./build/husk-tests                                  # + integration
 ```
 
 ## Design notes
@@ -231,12 +277,32 @@ HUSK_TEST_M2=/tmp/bloodelffemale.m2 ./build/husk-tests  # + integration
   whole file or one chunk's payload — the byte layout is identical; the
   only difference is where the blob starts and what it's offsets are
   relative to. `m2::parseHeader` resolves that once, up front.
-- **Not built yet:** parsing anything past the fixed header this MVP reads
-  (attachments, events, lights, cameras, particles, ...), the Legion+
-  sidecar chunks (`SFID`/`AFID`/`BFID`/`PFID`/etc. — see the wiki page for
-  what they carry), actually resolving array offsets to their pointed-to
-  records, M3, WMO, and any form of writing/conversion. This is a header
-  reader, nothing more, yet.
+- **glTF output goes through tinygltf, not a hand-rolled writer.**
+  `src/gltf.cpp` builds a `tinygltf::Model` and hands it to
+  `TinyGLTF::WriteGltfSceneToStream` for the actual `.glb` binary framing
+  (chunk headers, padding, JSON serialization) — one less from-scratch
+  format implementation to keep correct, on a library that's already
+  spec-compliant. tinygltf ships prebuilt (`nix/flake.nix`); `src/gltf.cpp`
+  only includes `tiny_gltf.h` and links against it, it does **not** define
+  `TINYGLTF_IMPLEMENTATION` itself (that would double-define every symbol
+  already compiled into `libtinygltf.a`).
+- **`.skin` files are read as a co-equal sidecar of M2, not bolted on.**
+  `src/skin.hpp`/`skin.cpp` follow the same fixed-offset,
+  bounds-checked-`memcpy`, independently-spec-transcribed-tests approach as
+  `src/m2.cpp` — see `tests/test_skin.cpp`'s header comment for the
+  `M2SkinProfile` offsets. Only the `vertices`/`indices` lookup tables are
+  read (what `husk export` needs); `bones`/`submeshes`/`batches` wait for
+  the skinning and materials stages.
+- **Not built yet:** parsing most of the fixed header past what's
+  currently read (attachments, events, lights, cameras, particles, ...),
+  resolving most array offsets to their pointed-to records (`bones`,
+  `textures`, `materials`, `sequences`, ... — `vertices` is the one
+  exception, resolved for the mesh-export stage), the Legion+ sidecar
+  chunks (`SFID`/`AFID`/`BFID`/`PFID`/etc. — `husk export` takes a `.skin`
+  path explicitly instead of resolving `SFID` itself), `.skin`'s own
+  `bones`/`submeshes`/`batches` fields, M3, WMO, and any form of
+  writing/conversion back into WoW's native formats (only glTF export is
+  in scope, see the roadmap above).
 - **`.reference/`** (gitignored) holds a clone of
   [M2Mod/m2mod](https://github.com/M2Mod/m2mod) for cross-checking
   anything ambiguous in the wiki — not a build dependency, not vendored,

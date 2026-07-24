@@ -32,6 +32,23 @@ struct Vec3 {
     float x = 0, y = 0, z = 0;
 };
 
+struct Vec2 {
+    float x = 0, y = 0;
+};
+
+// M2Vertex, per wowdev.wiki M2#Vertices -- 48 bytes on disk, field order
+// below matches the wire layout exactly (see tests/test_m2.cpp for the byte
+// offsets). Read verbatim: no coordinate-system conversion happens here --
+// WoW's Z-up-to-glTF's-Y-up flip is a concern for whatever writes glTF, not
+// for this reader.
+struct Vertex {
+    Vec3 pos;
+    uint8_t boneWeights[4] = {};
+    uint8_t boneIndices[4] = {};
+    Vec3 normal;
+    Vec2 texCoords[2];
+};
+
 struct BoundingBox {
     Vec3 min;
     Vec3 max;
@@ -89,6 +106,19 @@ Header parseHeader(const std::vector<uint8_t>& fileBytes);
 // (I/O failure wrapped in the same error type) or lets parseHeader's own
 // ParseError propagate.
 Header loadFile(const std::string& path);
+
+// Returns the raw MD20 blob bytes for `fileBytes`, resolving the same
+// flat-vs-Legion+-chunked shape parseHeader does. Every M2Array offset --
+// including ones parseHeader itself doesn't resolve, like `vertices` -- is
+// relative to this blob, not to `fileBytes`. Throws ParseError under the
+// same conditions parseHeader does.
+std::vector<uint8_t> extractBlob(const std::vector<uint8_t>& fileBytes);
+
+// Reads `array.count` M2Vertex records out of `blob` starting at
+// `array.offset`. Throws ParseError if that range runs past the end of the
+// blob. An empty array (count 0) returns an empty vector without touching
+// `array.offset` at all.
+std::vector<Vertex> parseVertices(const std::vector<uint8_t>& blob, const Array& array);
 
 // Best-effort expansion label(s) for a raw header version number, per the
 // wiki's own version table -- which the wiki itself calls "rough estimates"

@@ -23,6 +23,14 @@
 // M2Array<T> = { uint32_t count; uint32_t offset; } (8 bytes), offset
 // relative to the start of this same blob.
 // 0x0D8 is the end of the fixed portion this parser reads (216 bytes).
+//
+// M2Vertex (wowdev.wiki M2#Vertices), 48 bytes, no padding between fields:
+//   0x00 pos (C3Vector)                0x0C bone_weights (uint8[4])
+//   0x10 bone_indices (uint8[4])       0x14 normal (C3Vector)
+//   0x20 tex_coords[2] (C2Vector[2])
+// "Models ... use a Z-up coordinate system[]; to convert to Y-up, the X, Y,
+// Z values become (X, -Z, Y)" -- this parser does NOT apply that conversion;
+// it reads raw file values verbatim, same as every other field here.
 
 #include <cstring>
 #include <doctest/doctest.h>
@@ -106,6 +114,24 @@ void appendChunk(std::vector<uint8_t>& buf, const char tag[4], const std::vector
     std::memcpy(sizeBytes, &size, 4);
     buf.insert(buf.end(), sizeBytes, sizeBytes + 4);
     buf.insert(buf.end(), payload.begin(), payload.end());
+}
+
+// Writes one 48-byte M2Vertex record at `off`, per the offsets transcribed
+// in the file-header comment above.
+void putVertex(std::vector<uint8_t>& buf, size_t off, const husk::m2::Vertex& v) {
+    if (buf.size() < off + 0x30) buf.resize(off + 0x30, 0);
+    putF32(buf, off + 0x00, v.pos.x);
+    putF32(buf, off + 0x04, v.pos.y);
+    putF32(buf, off + 0x08, v.pos.z);
+    for (int i = 0; i < 4; ++i) buf[off + 0x0C + i] = v.boneWeights[i];
+    for (int i = 0; i < 4; ++i) buf[off + 0x10 + i] = v.boneIndices[i];
+    putF32(buf, off + 0x14, v.normal.x);
+    putF32(buf, off + 0x18, v.normal.y);
+    putF32(buf, off + 0x1C, v.normal.z);
+    putF32(buf, off + 0x20, v.texCoords[0].x);
+    putF32(buf, off + 0x24, v.texCoords[0].y);
+    putF32(buf, off + 0x28, v.texCoords[1].x);
+    putF32(buf, off + 0x2C, v.texCoords[1].y);
 }
 
 void checkSentinelHeader(const husk::m2::Header& h) {
@@ -246,4 +272,85 @@ TEST_CASE("expansionForVersion: matches the wiki's version table, overlaps inclu
           "Legion / Battle for Azeroth / Shadowlands");
     CHECK(husk::m2::expansionForVersion(274) == "Legion / Battle for Azeroth / Shadowlands");
     CHECK(husk::m2::expansionForVersion(999) == "unknown");
+}
+
+TEST_CASE("extractBlob: flat MD20 file returns the file bytes verbatim") {
+    auto blob = buildMd20Blob();
+    auto extracted = husk::m2::extractBlob(blob);
+    CHECK(extracted == blob);
+}
+
+TEST_CASE("extractBlob: Legion+ chunked file returns just the MD21 payload") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "SFID", {1, 2, 3, 4});
+    appendChunk(file, "MD21", md20);
+    auto extracted = husk::m2::extractBlob(file);
+    CHECK(extracted == md20);
+}
+
+TEST_CASE("parseVertices: reads every field of every vertex at the right offset") {
+    husk::m2::Vertex v0;
+    v0.pos = {1, 2, 3};
+    v0.boneWeights[0] = 10; v0.boneWeights[1] = 20; v0.boneWeights[2] = 30; v0.boneWeights[3] = 40;
+    v0.boneIndices[0] = 1; v0.boneIndices[1] = 2; v0.boneIndices[2] = 3; v0.boneIndices[3] = 4;
+    v0.normal = {0, 0, 1};
+    v0.texCoords[0] = {0.25f, 0.5f};
+    v0.texCoords[1] = {0.75f, 1.0f};
+
+    husk::m2::Vertex v1;
+    v1.pos = {-1, -2, -3};
+    v1.boneWeights[0] = 255; v1.boneWeights[1] = 0; v1.boneWeights[2] = 0; v1.boneWeights[3] = 0;
+    v1.boneIndices[0] = 9; v1.boneIndices[1] = 8; v1.boneIndices[2] = 7; v1.boneIndices[3] = 6;
+    v1.normal = {1, 0, 0};
+    v1.texCoords[0] = {0.1f, 0.2f};
+    v1.texCoords[1] = {0.3f, 0.4f};
+
+    size_t vertexOffset = 2000;
+    std::vector<uint8_t> blob(vertexOffset, 0);
+    putVertex(blob, vertexOffset, v0);
+    putVertex(blob, vertexOffset + 0x30, v1);
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = static_cast<uint32_t>(vertexOffset);
+    auto vertices = husk::m2::parseVertices(blob, array);
+
+    REQUIRE(vertices.size() == 2);
+
+    CHECK(vertices[0].pos.x == doctest::Approx(1));
+    CHECK(vertices[0].pos.y == doctest::Approx(2));
+    CHECK(vertices[0].pos.z == doctest::Approx(3));
+    CHECK(vertices[0].boneWeights[0] == 10);
+    CHECK(vertices[0].boneWeights[3] == 40);
+    CHECK(vertices[0].boneIndices[0] == 1);
+    CHECK(vertices[0].boneIndices[3] == 4);
+    CHECK(vertices[0].normal.z == doctest::Approx(1));
+    CHECK(vertices[0].texCoords[0].x == doctest::Approx(0.25f));
+    CHECK(vertices[0].texCoords[0].y == doctest::Approx(0.5f));
+    CHECK(vertices[0].texCoords[1].x == doctest::Approx(0.75f));
+    CHECK(vertices[0].texCoords[1].y == doctest::Approx(1.0f));
+
+    CHECK(vertices[1].pos.x == doctest::Approx(-1));
+    CHECK(vertices[1].boneWeights[0] == 255);
+    CHECK(vertices[1].boneIndices[0] == 9);
+    CHECK(vertices[1].normal.x == doctest::Approx(1));
+    CHECK(vertices[1].texCoords[1].y == doctest::Approx(0.4f));
+}
+
+TEST_CASE("parseVertices: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;  // zero bytes -- offset would be out of range if ever read
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 12345;
+    auto vertices = husk::m2::parseVertices(blob, array);
+    CHECK(vertices.empty());
+}
+
+TEST_CASE("parseVertices: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(100, 0);
+    husk::m2::Array array;
+    array.count = 3;       // 3 * 48 = 144 bytes needed
+    array.offset = 0;      // but the blob is only 100 bytes
+    CHECK_THROWS_AS(husk::m2::parseVertices(blob, array), husk::m2::ParseError);
 }
