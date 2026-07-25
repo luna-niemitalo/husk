@@ -38,6 +38,7 @@ the same dev shell, but it isn't part of the CMake build above.
 husk info <file.m2>
 husk export <file.m2> <file.skin>|auto <output.glb> [file.skel]
                        [--textures <dir>] [--skin-dir <dir>] [--anim-dir <dir>]
+                       [--lod <n>|all]
 husk dump-chunks <file.m2>
 ```
 
@@ -95,7 +96,8 @@ alongside a small `AFM2` "stub" chunk that does *not* hold the real
 keyframe data -- an `AFSB` chunk being present at all means husk skips that
 file, regardless of whether `AFM2` is also there (see the Design notes).
 That covers [roadmap stages 1 through
-6](#roadmap-modern-m2--blender-via-gltf) below.
+6](#roadmap-modern-m2--blender-via-gltf) below; `--lod` (the paragraph
+above) is [stage 8](#roadmap-modern-m2--blender-via-gltf).
 
 `dump-chunks` extracts M2 chunks that don't feed into `export`'s glTF
 output at all (mostly rendering-effect/gameplay metadata glTF's material
@@ -114,12 +116,25 @@ access) -- pass the path to whichever `.skin` matches the M2's LOD you want
 not an `_hd`-suffixed file, which belongs to a separate, much higher-poly
 HD-variant M2), *or* pass the literal word `auto` instead of a path, plus
 `--skin-dir <dir>`: husk reads the M2's own `SFID` chunk (its skin
-FileDataIDs) and looks for `<dir>/<FileDataID>.skin` for entry 0 -- always
-"the main skin aka lod0" per wowdev.wiki, the highest-detail LOD, matching
-the policy roadmap stage 7 already settled on. This is the same
+FileDataIDs) and looks for `<dir>/<FileDataID>.skin` for entry 0 by default
+-- always "the main skin aka lod0" per wowdev.wiki, the highest-detail LOD,
+the policy roadmap stage 7 originally settled on before `--lod` (roadmap
+stage 8) existed to override it. This is the same
 local-directory-plus-FileDataID-naming convention `--textures` uses below,
 not CASC/listfile resolution -- husk never looks anywhere but that one
 directory.
+
+`--lod <n>` (only meaningful alongside `auto`) picks `SFID` entry `n`
+instead of always 0 -- `husk info`'s own `skin_file_data_ids` listing shows
+how many entries a given model actually has. `--lod all` resolves every
+entry and exports all of them into the *same* `.glb`, each as its own
+named glTF node (`lod0`, `lod1`, ...) with its own primitives/materials --
+useful for inspecting every LOD tier's geometry side by side in a DCC
+tool's outliner instead of re-running `export` once per tier. Every LOD
+tier shares one skeleton and one set of animation clips (they all draw
+from the same M2 `bones` array -- only the *triangle/vertex-index subset* a
+`.skin` selects differs per LOD, see `src/skin.hpp`), so animating any one
+of them animates all of them together.
 
 Materials get real `baseColorTexture` images, not just metadata, when
 `--textures <dir>` points at a directory of PNGs already converted via
@@ -319,7 +334,7 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | UV / texture coordinates | 📖 both `tex_coords[2]` sets resolved and both exported to glTF (`TEXCOORD_0`/`TEXCOORD_1`); a material's `baseColorTexture` samples whichever set the batch's `textureCoordComboIndex` selects (pre-Cataclysm models only — see `src/cmd_export.cpp`) | ⬜ `VUV0`–`VUV5` (up to 6 sets) | ⬜ `MOTV` | ⬛ |
 | Tangents | ❔ not in the documented base header — appears to be runtime-computed, not stored | ⬜ `VTAN` | ⬜ `MOTA` (often auto-generated client-side for shaders 10/14) | ⬛ |
 | Per-vertex colors | 📖 not truly per-vertex (M2's `colors`/`textureWeights` are per-*batch* material tint/fade, not per-vertex mesh color — see `src/m2.cpp`'s `Color`/`TextureWeight`); resolved into glTF `baseColorFactor` by `husk export` as a *static* approximation (only when the underlying `M2Track` is unambiguously constant — real keyframe animation is stage 6, see the Design notes below) | ⬜ `VCL0`/`VCL1` | ⬜ `MOCV`/`MOC2` | ⬛ |
-| LOD / mesh views | 🚧 one `.skin` file's `vertices`/`indices` lookup tables, plus `submeshes`/`batches` (material/texture linkage per submesh, `src/skin.cpp`'s `Submesh`/`Batch`) read directly; `.skin` filename can be given explicitly, or auto-selected via the M2's own `SFID` chunk + `husk export auto --skin-dir <dir>` (always picks the highest-detail LOD, see Usage) — `LDV1` LOD-count metadata is surfaced (`husk info`) but not otherwise consumed | ⬛ `LODS` folds LOD into the one file, no sidecar | ⬛ (`GFID`'s `Flag_Lod` is a different, coarser concept — tracked under World/group structure) | ⬜ mip pyramid — tracked under Texture pixel data below, not here |
+| LOD / mesh views | 🚧 each LOD tier's `.skin` file's `vertices`/`indices` lookup tables, plus `submeshes`/`batches` (material/texture linkage per submesh, `src/skin.cpp`'s `Submesh`/`Batch`) read directly; `.skin` filename can be given explicitly, or auto-selected via the M2's own `SFID` chunk + `husk export auto --skin-dir <dir>` (defaults to the highest-detail LOD; `--lod <n>` picks a specific `SFID` entry, `--lod all` exports every entry as its own named node in one `.glb`, roadmap stage 8, see Usage) — `LDV1` `lod_count` (`husk info`) is now a real `--lod <n>` range-check consumer, not just display; still 🚧 because `Submesh`/`Batch`'s own non-material fields (culling/sort/hardware-bone-limit metadata `src/skin.hpp` documents but doesn't read -- husk exports full per-vertex global joint indices instead of the engine's per-drawcall bone-limit mechanism these exist for, see `src/cmd_export.cpp`'s `buildSkinning`) still aren't | ⬛ `LODS` folds LOD into the one file, no sidecar | ⬛ (`GFID`'s `Flag_Lod` is a different, coarser concept — tracked under World/group structure) | ⬜ mip pyramid — tracked under Texture pixel data below, not here |
 | Collision / physics | 🚧 `bounding_box`/`collision_box` fields read; `.phys` sidecar (`PFID`) untouched | ⬜ `M3CL` collision mesh (`CPOS`/`CNML`/`CINX`) | ⬜ `MOBN`/`MOBR` BSP tree, `MCVP` convex volumes, `MOPL` terrain-cutting planes | ⬛ |
 | Materials | 📖 `materials` array (`flags`/`blending_mode`, `src/m2.cpp`'s `parseMaterials`) resolved per-batch and translated to glTF `alphaMode`/`doubleSided`, plus a static color tint/alpha-fade into `baseColorFactor` (see Per-vertex colors above), by `husk export` (`src/cmd_export.cpp`) — write-back to M2 not applicable (glTF-only tool) | ⬜ `M3SI` Instances → external `MaterialLibrary` (`.mtl3lib`) | ⬜ `MOMT`, `MOM3` (v3 override), `MOUV` (UV anim), per-face `MOPY`/`MPY2`/`MOBS` | ⬛ |
 | Texture references (names/FileDataIDs) | 📖 `textures` array (`type`/`flags`/`filename`) + `textureCombos` lookup table resolved (`src/m2.cpp`); Legion+ `TXID` chunk FileDataIDs surfaced (`Header::textureFileDataIds`) — same non-resolved-to-a-path treatment as `SKID`, see the Sidecar row below | ⬜ indirect, via `MaterialLibrary` → compiled shader files (`GFAT`/`BLS`) — separate formats, not yet even scoped | ⬜ `MOTX` | ⬛ BLP is the referenced asset, not a referencer |
@@ -624,9 +639,23 @@ above; this section is about *sequencing* that work, not duplicating it.
    the Design notes below for the per-chunk reasoning.
 7. **Output hardening.** Validate actual `.glb` output against the
    Khronos glTF-Validator, not just "Blender didn't crash on import."
-   Decide the LOD/skin-profile policy (almost certainly: always emit the
-   highest-detail skin profile, ignore the rest, at least until there's a
-   concrete reason not to).
+   ~~Decide the LOD/skin-profile policy~~ Done, then extended -- see stage
+   8 below: the default stayed "always emit the highest-detail skin
+   profile," but it's no longer the only option. The glTF-Validator part
+   is still open.
+8. **Multi-LOD export (`--lod`). Done** — `husk export auto`'s default
+   (SFID entry 0, stage 7's policy) can now be overridden: `--lod <n>`
+   picks a specific SFID entry instead (`husk info`'s `skin_file_data_ids`
+   shows how many a model has), and `--lod all` resolves every entry and
+   exports all of them into one `.glb`, each as its own named glTF node
+   (`gltf::writeGlbMulti`, `src/gltf.cpp`) with its own primitives/
+   materials -- sharing one skeleton and one set of animation clips, since
+   every LOD tier of one M2 draws from the same `bones` array (only the
+   triangle/vertex-index *subset* a `.skin` selects differs per LOD, see
+   `src/skin.hpp`). `LDV1`'s `lod_count` (surfaced by `husk info` since
+   before this stage, but previously never consumed by anything -- see the
+   format matrix) now has a real consumer: an out-of-range `--lod <n>`
+   reports it in the error message.
 
 Explicitly not in this chain yet: WMO, M3, and anything in the
 "write"/round-trip direction (a real Blender import *addon* rather than a
@@ -904,6 +933,21 @@ HUSK_TEST_BLP_PALETTE=../test_data/character/bloodelf/female/bloodelffemalefacel
   themselves (a `.skin` extracted via `casc-tool`, a PNG produced by
   `husk-blp`), so the non-goal stated elsewhere in this README ("husk
   never touches CASC storage itself") holds for both without exception.
+- **`--lod all`'s multiple LOD tiers share one skeleton/skin/animation
+  set on purpose, rebuilt as one glTF object instead of once per tier.**
+  Every `.skin` file belonging to one M2 selects a *subset* of that same
+  M2's own global `vertices`/`bones` arrays (`src/skin.hpp`) -- nothing
+  about bind pose or animation differs per LOD, only which
+  triangles/vertices get drawn. So `gltf::writeGlbMulti` (`src/gltf.cpp`)
+  builds exactly one glTF `skin` and one joint-node hierarchy, shared by
+  every LOD's own mesh node, rather than duplicating the skeleton per
+  tier (which would also have meant duplicating every animation clip's
+  keyframe data N times for no reason). The mesh nodes occupy indices
+  `0..meshCount-1` and the joint nodes come after, at `meshCount + i` --
+  `writeGlb`'s older single-mesh case is just this with `meshCount == 1`,
+  which is also how it's implemented now (`writeGlb` calls
+  `writeGlbMulti` with one unnamed entry, see gltf.hpp) rather than as
+  separately maintained code.
 - **`M2Sequence`'s record size is 64 bytes, not the 36 a literal reading of
   the wiki's own struct listing suggests -- caught by decoding real data,
   not by re-reading the spec harder.** wowdev.wiki's `M2Sequence` listing

@@ -47,68 +47,22 @@ const char* alphaModeString(Material::AlphaMode mode) {
 
 }  // namespace
 
-std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& materials,
-                               const Skeleton* skeleton, const std::vector<Animation>& animations) {
-    size_t n = mesh.positions.size();
-    if (mesh.normals.size() != n || mesh.texCoords.size() != n) {
-        throw Error("writeGlb: positions (" + std::to_string(n) + "), normals (" +
-                    std::to_string(mesh.normals.size()) + "), and texCoords (" +
-                    std::to_string(mesh.texCoords.size()) + ") must all be the same length");
-    }
-    bool hasTexCoords2 = !mesh.texCoords2.empty();
-    if (hasTexCoords2 && mesh.texCoords2.size() != n) {
-        throw Error("writeGlb: mesh.texCoords2 (" + std::to_string(mesh.texCoords2.size()) +
-                    ") was given but doesn't match positions (" + std::to_string(n) +
-                    ") -- leave it empty for no second UV set, or match positions exactly");
-    }
-    if (mesh.primitives.empty()) {
-        throw Error("writeGlb: mesh.primitives must not be empty");
-    }
-    for (size_t pi = 0; pi < mesh.primitives.size(); ++pi) {
-        const auto& prim = mesh.primitives[pi];
-        if (prim.indices.empty()) {
-            throw Error("writeGlb: primitive " + std::to_string(pi) + "'s indices must not be empty");
-        }
-        if (prim.indices.size() % 3 != 0) {
-            throw Error("writeGlb: primitive " + std::to_string(pi) + "'s indices count (" +
-                        std::to_string(prim.indices.size()) +
-                        ") must be a multiple of 3 (one triangle per 3 entries)");
-        }
-        for (uint32_t idx : prim.indices) {
-            if (idx >= n) {
-                throw Error("writeGlb: primitive " + std::to_string(pi) + "'s indices reference " +
-                            std::to_string(idx) + " but there are only " + std::to_string(n) +
-                            " positions");
-            }
-        }
-        if (prim.materialIndex != -1 &&
-            (prim.materialIndex < 0 ||
-             static_cast<size_t>(prim.materialIndex) >= materials.size())) {
-            throw Error("writeGlb: primitive " + std::to_string(pi) + "'s materialIndex (" +
-                        std::to_string(prim.materialIndex) + ") is out of range for " +
-                        std::to_string(materials.size()) + " materials");
-        }
+std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const Skeleton* skeleton,
+                                    const std::vector<Animation>& animations) {
+    if (meshes.empty()) {
+        throw Error("writeGlbMulti: meshes must not be empty");
     }
 
     bool hasSkeleton = skeleton != nullptr && !skeleton->joints.empty();
-    if (hasSkeleton && mesh.skinning.size() != n) {
-        throw Error("writeGlb: a skeleton was given but mesh.skinning (" +
-                    std::to_string(mesh.skinning.size()) + ") doesn't match positions (" +
-                    std::to_string(n) + ") -- both or neither");
-    }
-    if (!hasSkeleton && !mesh.skinning.empty()) {
-        throw Error(
-            "writeGlb: mesh.skinning was given without a skeleton -- both or neither");
-    }
     if (hasSkeleton) {
         for (size_t i = 0; i < skeleton->joints.size(); ++i) {
             int parent = skeleton->joints[i].parent;
             if (parent == static_cast<int>(i)) {
-                throw Error("writeGlb: joint " + std::to_string(i) + " is its own parent");
+                throw Error("writeGlbMulti: joint " + std::to_string(i) + " is its own parent");
             }
             if (parent != -1 &&
                 (parent < 0 || static_cast<size_t>(parent) >= skeleton->joints.size())) {
-                throw Error("writeGlb: joint " + std::to_string(i) + "'s parent (" +
+                throw Error("writeGlbMulti: joint " + std::to_string(i) + "'s parent (" +
                             std::to_string(parent) + ") is out of range for " +
                             std::to_string(skeleton->joints.size()) + " joints");
             }
@@ -116,13 +70,13 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
     }
 
     if (!animations.empty() && !hasSkeleton) {
-        throw Error("writeGlb: animations were given without a skeleton");
+        throw Error("writeGlbMulti: animations were given without a skeleton");
     }
     for (size_t ai = 0; ai < animations.size(); ++ai) {
         for (size_t ji = 0; ji < animations[ai].joints.size(); ++ji) {
             const auto& ja = animations[ai].joints[ji];
             if (ja.joint < 0 || static_cast<size_t>(ja.joint) >= skeleton->joints.size()) {
-                throw Error("writeGlb: animation " + std::to_string(ai) + "'s joint entry " +
+                throw Error("writeGlbMulti: animation " + std::to_string(ai) + "'s joint entry " +
                             std::to_string(ji) + " (joint " + std::to_string(ja.joint) +
                             ") is out of range for " + std::to_string(skeleton->joints.size()) +
                             " joints");
@@ -130,10 +84,71 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
             if (ja.translationTimes.size() != ja.translationValues.size() ||
                 ja.rotationTimes.size() != ja.rotationValues.size() ||
                 ja.scaleTimes.size() != ja.scaleValues.size()) {
-                throw Error("writeGlb: animation " + std::to_string(ai) + "'s joint " +
+                throw Error("writeGlbMulti: animation " + std::to_string(ai) + "'s joint " +
                             std::to_string(ja.joint) +
                             " has mismatched keyframe time/value counts");
             }
+        }
+    }
+
+    // Per-entry validation, same checks (and same reasons) as writeGlb's
+    // single mesh/materials pair -- see gltf.hpp's doc comments.
+    for (size_t mi = 0; mi < meshes.size(); ++mi) {
+        const Mesh& mesh = meshes[mi].mesh;
+        const auto& materials = meshes[mi].materials;
+        size_t n = mesh.positions.size();
+        if (mesh.normals.size() != n || mesh.texCoords.size() != n) {
+            throw Error("writeGlbMulti: mesh " + std::to_string(mi) + "'s positions (" +
+                        std::to_string(n) + "), normals (" + std::to_string(mesh.normals.size()) +
+                        "), and texCoords (" + std::to_string(mesh.texCoords.size()) +
+                        ") must all be the same length");
+        }
+        if (!mesh.texCoords2.empty() && mesh.texCoords2.size() != n) {
+            throw Error("writeGlbMulti: mesh " + std::to_string(mi) + "'s texCoords2 (" +
+                        std::to_string(mesh.texCoords2.size()) + ") was given but doesn't match "
+                        "positions (" + std::to_string(n) + ")");
+        }
+        if (mesh.primitives.empty()) {
+            throw Error("writeGlbMulti: mesh " + std::to_string(mi) + "'s primitives must not be "
+                        "empty");
+        }
+        for (size_t pi = 0; pi < mesh.primitives.size(); ++pi) {
+            const auto& prim = mesh.primitives[pi];
+            if (prim.indices.empty()) {
+                throw Error("writeGlbMulti: mesh " + std::to_string(mi) + "'s primitive " +
+                            std::to_string(pi) + " indices must not be empty");
+            }
+            if (prim.indices.size() % 3 != 0) {
+                throw Error("writeGlbMulti: mesh " + std::to_string(mi) + "'s primitive " +
+                            std::to_string(pi) + "'s indices count (" +
+                            std::to_string(prim.indices.size()) +
+                            ") must be a multiple of 3 (one triangle per 3 entries)");
+            }
+            for (uint32_t idx : prim.indices) {
+                if (idx >= n) {
+                    throw Error("writeGlbMulti: mesh " + std::to_string(mi) + "'s primitive " +
+                                std::to_string(pi) + "'s indices reference " +
+                                std::to_string(idx) + " but there are only " + std::to_string(n) +
+                                " positions");
+                }
+            }
+            if (prim.materialIndex != -1 &&
+                (prim.materialIndex < 0 ||
+                 static_cast<size_t>(prim.materialIndex) >= materials.size())) {
+                throw Error("writeGlbMulti: mesh " + std::to_string(mi) + "'s primitive " +
+                            std::to_string(pi) + "'s materialIndex (" +
+                            std::to_string(prim.materialIndex) + ") is out of range for " +
+                            std::to_string(materials.size()) + " materials");
+            }
+        }
+        if (hasSkeleton && mesh.skinning.size() != n) {
+            throw Error("writeGlbMulti: mesh " + std::to_string(mi) + " has a skeleton but its "
+                        "skinning (" + std::to_string(mesh.skinning.size()) +
+                        ") doesn't match positions (" + std::to_string(n) + ")");
+        }
+        if (!hasSkeleton && !mesh.skinning.empty()) {
+            throw Error("writeGlbMulti: mesh " + std::to_string(mi) + " has skinning data without "
+                        "a skeleton");
         }
     }
 
@@ -145,99 +160,16 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
     std::vector<tinygltf::BufferView> views;
     std::vector<tinygltf::Accessor> accessors;
 
-    int posView = appendBufferView(buffer, views, mesh.positions, TINYGLTF_TARGET_ARRAY_BUFFER);
-    int normView = appendBufferView(buffer, views, mesh.normals, TINYGLTF_TARGET_ARRAY_BUFFER);
-    int uvView = appendBufferView(buffer, views, mesh.texCoords, TINYGLTF_TARGET_ARRAY_BUFFER);
-
-    Vec3 posMin = mesh.positions[0], posMax = mesh.positions[0];
-    for (const auto& p : mesh.positions) {
-        posMin.x = std::min(posMin.x, p.x);
-        posMin.y = std::min(posMin.y, p.y);
-        posMin.z = std::min(posMin.z, p.z);
-        posMax.x = std::max(posMax.x, p.x);
-        posMax.y = std::max(posMax.y, p.y);
-        posMax.z = std::max(posMax.z, p.z);
-    }
-
-    tinygltf::Accessor posAcc;
-    posAcc.bufferView = posView;
-    posAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-    posAcc.count = n;
-    posAcc.type = TINYGLTF_TYPE_VEC3;
-    posAcc.minValues = {posMin.x, posMin.y, posMin.z};
-    posAcc.maxValues = {posMax.x, posMax.y, posMax.z};
-    int posAccIdx = static_cast<int>(accessors.size());
-    accessors.push_back(posAcc);
-
-    tinygltf::Accessor normAcc;
-    normAcc.bufferView = normView;
-    normAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-    normAcc.count = n;
-    normAcc.type = TINYGLTF_TYPE_VEC3;
-    int normAccIdx = static_cast<int>(accessors.size());
-    accessors.push_back(normAcc);
-
-    tinygltf::Accessor uvAcc;
-    uvAcc.bufferView = uvView;
-    uvAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-    uvAcc.count = n;
-    uvAcc.type = TINYGLTF_TYPE_VEC2;
-    int uvAccIdx = static_cast<int>(accessors.size());
-    accessors.push_back(uvAcc);
-
-    int uv2AccIdx = -1;
-    if (hasTexCoords2) {
-        int uv2View = appendBufferView(buffer, views, mesh.texCoords2, TINYGLTF_TARGET_ARRAY_BUFFER);
-        tinygltf::Accessor uv2Acc;
-        uv2Acc.bufferView = uv2View;
-        uv2Acc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-        uv2Acc.count = n;
-        uv2Acc.type = TINYGLTF_TYPE_VEC2;
-        uv2AccIdx = static_cast<int>(accessors.size());
-        accessors.push_back(uv2Acc);
-    }
-
+    // Skeleton/skin: built once, shared by every mesh node below. Joint
+    // nodes are appended after every mesh node (see the node-index layout
+    // comment near the bottom of this function), so their indices are
+    // offset by meshes.size() -- known up front, unlike the single-mesh
+    // writeGlb's hardcoded "1 +".
+    size_t meshCount = meshes.size();
     int skinIdx = -1;
-    int jAccIdx = -1, wAccIdx = -1;
     std::vector<tinygltf::Node> jointNodes;
     std::vector<int> rootJointNodeIndices;
-
     if (hasSkeleton) {
-        std::vector<std::array<uint8_t, 4>> jointsFlat;
-        std::vector<std::array<float, 4>> weightsFlat;
-        jointsFlat.reserve(n);
-        weightsFlat.reserve(n);
-        for (const auto& jw : mesh.skinning) {
-            std::array<uint8_t, 4> j;
-            std::copy(std::begin(jw.joints), std::end(jw.joints), j.begin());
-            jointsFlat.push_back(j);
-            std::array<float, 4> w;
-            std::copy(std::begin(jw.weights), std::end(jw.weights), w.begin());
-            weightsFlat.push_back(w);
-        }
-        int jointsView = appendBufferView(buffer, views, jointsFlat, TINYGLTF_TARGET_ARRAY_BUFFER);
-        int weightsView =
-            appendBufferView(buffer, views, weightsFlat, TINYGLTF_TARGET_ARRAY_BUFFER);
-
-        tinygltf::Accessor jAcc;
-        jAcc.bufferView = jointsView;
-        jAcc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
-        jAcc.count = n;
-        jAcc.type = TINYGLTF_TYPE_VEC4;
-        jAccIdx = static_cast<int>(accessors.size());
-        accessors.push_back(jAcc);
-
-        tinygltf::Accessor wAcc;
-        wAcc.bufferView = weightsView;
-        wAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-        wAcc.count = n;
-        wAcc.type = TINYGLTF_TYPE_VEC4;
-        wAccIdx = static_cast<int>(accessors.size());
-        accessors.push_back(wAcc);
-
-        // Pure-translation inverse bind matrices (see Skeleton's doc
-        // comment for why M2's bind pose never needs a rotation/scale
-        // component here), 16 column-major floats per joint.
         std::vector<float> ibmFlat;
         ibmFlat.reserve(skeleton->joints.size() * 16);
         for (const auto& j : skeleton->joints) {
@@ -254,17 +186,15 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
         int ibmAccIdx = static_cast<int>(accessors.size());
         accessors.push_back(ibmAcc);
 
-        // Mesh node is index 0; joint i becomes node (1 + i).
         jointNodes.resize(skeleton->joints.size());
         for (size_t i = 0; i < skeleton->joints.size(); ++i) {
             const auto& src = skeleton->joints[i];
-            tinygltf::Node& node = jointNodes[i];
-            node.translation = {src.localTranslation.x, src.localTranslation.y,
-                                 src.localTranslation.z};
+            jointNodes[i].translation = {src.localTranslation.x, src.localTranslation.y,
+                                          src.localTranslation.z};
         }
         for (size_t i = 0; i < skeleton->joints.size(); ++i) {
             int parent = skeleton->joints[i].parent;
-            int nodeIdx = static_cast<int>(1 + i);
+            int nodeIdx = static_cast<int>(meshCount + i);
             if (parent == -1) {
                 rootJointNodeIndices.push_back(nodeIdx);
             } else {
@@ -275,104 +205,208 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
         tinygltf::Skin skin;
         skin.inverseBindMatrices = ibmAccIdx;
         for (size_t i = 0; i < skeleton->joints.size(); ++i) {
-            skin.joints.push_back(static_cast<int>(1 + i));
+            skin.joints.push_back(static_cast<int>(meshCount + i));
         }
         model.skins = {skin};
         skinIdx = 0;
     }
 
-    // Materials: one tinygltf::Material per husk::gltf::Material, in the
-    // same order (Mesh::Primitive::materialIndex refers to this same
-    // index). A non-empty baseColorImagePng gets embedded as an Image
-    // (raw PNG bytes in a bufferView, no separate file/URI -- see
-    // tinygltf's UpdateImageObject: an empty uri + a set bufferView means
-    // "already embedded, don't touch") plus a Texture referencing it.
     std::vector<tinygltf::Image> images;
     std::vector<tinygltf::Texture> textures;
     std::vector<tinygltf::Material> tinyMaterials;
-    for (const auto& mat : materials) {
-        tinygltf::Material tm;
-        tm.name = mat.name;
-        tm.alphaMode = alphaModeString(mat.alphaMode);
-        tm.doubleSided = mat.doubleSided;
-        tm.pbrMetallicRoughness.baseColorFactor = {mat.baseColorFactor[0], mat.baseColorFactor[1],
-                                                     mat.baseColorFactor[2], mat.baseColorFactor[3]};
-        if (!mat.baseColorImagePng.empty()) {
-            int imgView = appendBufferView(buffer, views, mat.baseColorImagePng, /*target=*/0);
-            tinygltf::Image img;
-            img.mimeType = "image/png";
-            img.bufferView = imgView;
-            int imgIdx = static_cast<int>(images.size());
-            images.push_back(img);
+    std::vector<tinygltf::Mesh> tinyMeshes;
+    std::vector<tinygltf::Node> meshNodes;
 
-            tinygltf::Texture tex;
-            tex.source = imgIdx;
-            int texIdx = static_cast<int>(textures.size());
-            textures.push_back(tex);
+    for (const auto& nm : meshes) {
+        const Mesh& mesh = nm.mesh;
+        size_t n = mesh.positions.size();
+        bool hasTexCoords2 = !mesh.texCoords2.empty();
 
-            tm.pbrMetallicRoughness.baseColorTexture.index = texIdx;
-            if (mat.baseColorTexCoord == 1 && uv2AccIdx >= 0) {
-                tm.pbrMetallicRoughness.baseColorTexture.texCoord = 1;
+        int posView = appendBufferView(buffer, views, mesh.positions, TINYGLTF_TARGET_ARRAY_BUFFER);
+        int normView = appendBufferView(buffer, views, mesh.normals, TINYGLTF_TARGET_ARRAY_BUFFER);
+        int uvView = appendBufferView(buffer, views, mesh.texCoords, TINYGLTF_TARGET_ARRAY_BUFFER);
+
+        Vec3 posMin = mesh.positions[0], posMax = mesh.positions[0];
+        for (const auto& p : mesh.positions) {
+            posMin.x = std::min(posMin.x, p.x);
+            posMin.y = std::min(posMin.y, p.y);
+            posMin.z = std::min(posMin.z, p.z);
+            posMax.x = std::max(posMax.x, p.x);
+            posMax.y = std::max(posMax.y, p.y);
+            posMax.z = std::max(posMax.z, p.z);
+        }
+
+        tinygltf::Accessor posAcc;
+        posAcc.bufferView = posView;
+        posAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+        posAcc.count = n;
+        posAcc.type = TINYGLTF_TYPE_VEC3;
+        posAcc.minValues = {posMin.x, posMin.y, posMin.z};
+        posAcc.maxValues = {posMax.x, posMax.y, posMax.z};
+        int posAccIdx = static_cast<int>(accessors.size());
+        accessors.push_back(posAcc);
+
+        tinygltf::Accessor normAcc;
+        normAcc.bufferView = normView;
+        normAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+        normAcc.count = n;
+        normAcc.type = TINYGLTF_TYPE_VEC3;
+        int normAccIdx = static_cast<int>(accessors.size());
+        accessors.push_back(normAcc);
+
+        tinygltf::Accessor uvAcc;
+        uvAcc.bufferView = uvView;
+        uvAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+        uvAcc.count = n;
+        uvAcc.type = TINYGLTF_TYPE_VEC2;
+        int uvAccIdx = static_cast<int>(accessors.size());
+        accessors.push_back(uvAcc);
+
+        int uv2AccIdx = -1;
+        if (hasTexCoords2) {
+            int uv2View =
+                appendBufferView(buffer, views, mesh.texCoords2, TINYGLTF_TARGET_ARRAY_BUFFER);
+            tinygltf::Accessor uv2Acc;
+            uv2Acc.bufferView = uv2View;
+            uv2Acc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+            uv2Acc.count = n;
+            uv2Acc.type = TINYGLTF_TYPE_VEC2;
+            uv2AccIdx = static_cast<int>(accessors.size());
+            accessors.push_back(uv2Acc);
+        }
+
+        int jAccIdx = -1, wAccIdx = -1;
+        if (hasSkeleton) {
+            std::vector<std::array<uint8_t, 4>> jointsFlat;
+            std::vector<std::array<float, 4>> weightsFlat;
+            jointsFlat.reserve(n);
+            weightsFlat.reserve(n);
+            for (const auto& jw : mesh.skinning) {
+                std::array<uint8_t, 4> j;
+                std::copy(std::begin(jw.joints), std::end(jw.joints), j.begin());
+                jointsFlat.push_back(j);
+                std::array<float, 4> w;
+                std::copy(std::begin(jw.weights), std::end(jw.weights), w.begin());
+                weightsFlat.push_back(w);
             }
-        }
-        tinyMaterials.push_back(tm);
-    }
+            int jointsView =
+                appendBufferView(buffer, views, jointsFlat, TINYGLTF_TARGET_ARRAY_BUFFER);
+            int weightsView =
+                appendBufferView(buffer, views, weightsFlat, TINYGLTF_TARGET_ARRAY_BUFFER);
 
-    // One glTF primitive per mesh.primitives entry: shares the
-    // POSITION/NORMAL/TEXCOORD_0(/JOINTS_0/WEIGHTS_0) accessors built
-    // above, but each gets its own index buffer/accessor (a different
-    // slice of triangles) and material.
-    std::vector<tinygltf::Primitive> tinyPrims;
-    for (const auto& p : mesh.primitives) {
-        int idxView =
-            appendBufferView(buffer, views, p.indices, TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER);
-        tinygltf::Accessor idxAcc;
-        idxAcc.bufferView = idxView;
-        idxAcc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
-        idxAcc.count = p.indices.size();
-        idxAcc.type = TINYGLTF_TYPE_SCALAR;
-        int idxAccIdx = static_cast<int>(accessors.size());
-        accessors.push_back(idxAcc);
+            tinygltf::Accessor jAcc;
+            jAcc.bufferView = jointsView;
+            jAcc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
+            jAcc.count = n;
+            jAcc.type = TINYGLTF_TYPE_VEC4;
+            jAccIdx = static_cast<int>(accessors.size());
+            accessors.push_back(jAcc);
 
-        tinygltf::Primitive tp;
-        tp.attributes["POSITION"] = posAccIdx;
-        tp.attributes["NORMAL"] = normAccIdx;
-        tp.attributes["TEXCOORD_0"] = uvAccIdx;
-        if (uv2AccIdx >= 0) {
-            tp.attributes["TEXCOORD_1"] = uv2AccIdx;
+            tinygltf::Accessor wAcc;
+            wAcc.bufferView = weightsView;
+            wAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+            wAcc.count = n;
+            wAcc.type = TINYGLTF_TYPE_VEC4;
+            wAccIdx = static_cast<int>(accessors.size());
+            accessors.push_back(wAcc);
         }
-        if (jAccIdx >= 0) {
-            tp.attributes["JOINTS_0"] = jAccIdx;
-            tp.attributes["WEIGHTS_0"] = wAccIdx;
+
+        // Materials/images/textures: appended into the shared, model-wide
+        // lists, so a primitive's tinygltf material index has to be offset
+        // by however many other meshes' materials came before this one's --
+        // `nm.materials`/`mesh.primitives[*].materialIndex` are numbered
+        // locally to this one NamedMesh (see gltf.hpp's doc comment).
+        int materialBase = static_cast<int>(tinyMaterials.size());
+        for (const auto& mat : nm.materials) {
+            tinygltf::Material tm;
+            tm.name = mat.name;
+            tm.alphaMode = alphaModeString(mat.alphaMode);
+            tm.doubleSided = mat.doubleSided;
+            tm.pbrMetallicRoughness.baseColorFactor = {mat.baseColorFactor[0], mat.baseColorFactor[1],
+                                                         mat.baseColorFactor[2], mat.baseColorFactor[3]};
+            if (!mat.baseColorImagePng.empty()) {
+                int imgView = appendBufferView(buffer, views, mat.baseColorImagePng, /*target=*/0);
+                tinygltf::Image img;
+                img.mimeType = "image/png";
+                img.bufferView = imgView;
+                int imgIdx = static_cast<int>(images.size());
+                images.push_back(img);
+
+                tinygltf::Texture tex;
+                tex.source = imgIdx;
+                int texIdx = static_cast<int>(textures.size());
+                textures.push_back(tex);
+
+                tm.pbrMetallicRoughness.baseColorTexture.index = texIdx;
+                if (mat.baseColorTexCoord == 1 && uv2AccIdx >= 0) {
+                    tm.pbrMetallicRoughness.baseColorTexture.texCoord = 1;
+                }
+            }
+            tinyMaterials.push_back(tm);
         }
-        tp.indices = idxAccIdx;
-        tp.mode = TINYGLTF_MODE_TRIANGLES;
-        if (p.materialIndex >= 0) {
-            tp.material = p.materialIndex;
+
+        std::vector<tinygltf::Primitive> tinyPrims;
+        for (const auto& p : mesh.primitives) {
+            int idxView =
+                appendBufferView(buffer, views, p.indices, TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER);
+            tinygltf::Accessor idxAcc;
+            idxAcc.bufferView = idxView;
+            idxAcc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
+            idxAcc.count = p.indices.size();
+            idxAcc.type = TINYGLTF_TYPE_SCALAR;
+            int idxAccIdx = static_cast<int>(accessors.size());
+            accessors.push_back(idxAcc);
+
+            tinygltf::Primitive tp;
+            tp.attributes["POSITION"] = posAccIdx;
+            tp.attributes["NORMAL"] = normAccIdx;
+            tp.attributes["TEXCOORD_0"] = uvAccIdx;
+            if (uv2AccIdx >= 0) {
+                tp.attributes["TEXCOORD_1"] = uv2AccIdx;
+            }
+            if (jAccIdx >= 0) {
+                tp.attributes["JOINTS_0"] = jAccIdx;
+                tp.attributes["WEIGHTS_0"] = wAccIdx;
+            }
+            tp.indices = idxAccIdx;
+            tp.mode = TINYGLTF_MODE_TRIANGLES;
+            if (p.materialIndex >= 0) {
+                tp.material = materialBase + p.materialIndex;
+            }
+            tinyPrims.push_back(tp);
         }
-        tinyPrims.push_back(tp);
+
+        tinygltf::Mesh gltfMesh;
+        gltfMesh.primitives = tinyPrims;
+        tinyMeshes.push_back(gltfMesh);
+
+        tinygltf::Node node;
+        node.name = nm.name;
+        node.mesh = static_cast<int>(tinyMeshes.size()) - 1;
+        if (skinIdx >= 0) {
+            node.skin = skinIdx;
+        }
+        meshNodes.push_back(node);
     }
 
     model.images = images;
     model.textures = textures;
     model.materials = tinyMaterials;
+    model.meshes = tinyMeshes;
 
-    tinygltf::Mesh gltfMesh;
-    gltfMesh.primitives = tinyPrims;
-    model.meshes = {gltfMesh};
-
-    tinygltf::Node meshNode;
-    meshNode.mesh = 0;
-    if (skinIdx >= 0) {
-        meshNode.skin = skinIdx;
-    }
-    model.nodes = {meshNode};
+    // Node layout: mesh nodes first (indices 0..meshCount-1, in `meshes`
+    // order), then the shared skeleton's joint nodes (meshCount..meshCount+
+    // jointCount-1) -- see the skeleton/skin block above, which already
+    // computed every joint/skin reference against this same offset.
+    model.nodes = meshNodes;
     for (auto& jointNode : jointNodes) {
         model.nodes.push_back(jointNode);
     }
 
     tinygltf::Scene scene;
-    scene.nodes = {0};
+    for (size_t mi = 0; mi < meshCount; ++mi) {
+        scene.nodes.push_back(static_cast<int>(mi));
+    }
     for (int rootIdx : rootJointNodeIndices) {
         scene.nodes.push_back(rootIdx);
     }
@@ -381,11 +415,11 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
 
     // Animations: one glTF animation per husk::gltf::Animation, one
     // sampler+channel pair per non-empty TRS property per joint entry.
-    // Joint i's data targets node (1 + i) -- see the jointNodes/mesh-node-
-    // is-0 layout built above. Input (time) accessors get min/max per
-    // glTF's own requirement for animation sampler inputs; rotation output
-    // values are laid out as (x, y, z, w) float arrays, matching Quat's own
-    // field order.
+    // Joint i's data targets node (meshCount + i) -- the same joint-node
+    // offset the skeleton/skin block above used. Input (time) accessors get
+    // min/max per glTF's own requirement for animation sampler inputs;
+    // rotation output values are laid out as (x, y, z, w) float arrays,
+    // matching Quat's own field order.
     for (const auto& anim : animations) {
         tinygltf::Animation ga;
         ga.name = anim.name;
@@ -436,7 +470,7 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
         };
 
         for (const auto& ja : anim.joints) {
-            int nodeIdx = static_cast<int>(1 + ja.joint);
+            int nodeIdx = static_cast<int>(meshCount) + ja.joint;
             if (!ja.translationTimes.empty()) {
                 addChannel(nodeIdx, "translation", ja.translationTimes, ja.translationValues.data(),
                            ja.translationValues.size(), sizeof(Vec3), TINYGLTF_TYPE_VEC3);
@@ -472,11 +506,16 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
     tinygltf::TinyGLTF writer;
     std::ostringstream out(std::ios::binary);
     if (!writer.WriteGltfSceneToStream(&model, out, /*prettyPrint=*/false, /*writeBinary=*/true)) {
-        throw Error("writeGlb: tinygltf failed to serialize the model");
+        throw Error("writeGlbMulti: tinygltf failed to serialize the model");
     }
 
     std::string bytes = out.str();
     return std::vector<uint8_t>(bytes.begin(), bytes.end());
+}
+
+std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& materials,
+                               const Skeleton* skeleton, const std::vector<Animation>& animations) {
+    return writeGlbMulti({NamedMesh{"", mesh, materials}}, skeleton, animations);
 }
 
 }  // namespace husk::gltf

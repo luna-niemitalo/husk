@@ -632,3 +632,132 @@ TEST_CASE("writeGlb: baseColorTexCoord=1 without mesh.texCoords2 falls back to T
     auto model = loadBack(glb);
     CHECK(model.materials[0].pbrMetallicRoughness.baseColorTexture.texCoord == 0);
 }
+
+// writeGlbMulti (husk export --lod all's underlying primitive, see
+// README.md/src/cmd_export.cpp): multiple named meshes -- one node per LOD
+// tier -- in a single .glb, optionally sharing one skeleton/animation set.
+// writeGlb(mesh, materials, skeleton, animations) is defined in terms of
+// this (see gltf.cpp) as the one-entry, unnamed case -- already exercised
+// by every test above -- so these focus on what's genuinely new: multiple
+// mesh nodes, per-entry material numbering, and joint-node index offsets
+// when mesh nodes occupy the low indices instead of just node 0.
+
+TEST_CASE("writeGlbMulti: one node (with its own mesh) per entry, named and scened") {
+    husk::gltf::NamedMesh a{"lod0", buildTriangleMesh(), {}};
+    husk::gltf::NamedMesh b{"lod1", buildTriangleMesh(), {}};
+    auto glb = husk::gltf::writeGlbMulti({a, b});
+    auto model = loadBack(glb);
+
+    REQUIRE(model.meshes.size() == 2);
+    REQUIRE(model.nodes.size() == 2);
+    CHECK(model.nodes[0].name == "lod0");
+    CHECK(model.nodes[0].mesh == 0);
+    CHECK(model.nodes[1].name == "lod1");
+    CHECK(model.nodes[1].mesh == 1);
+    REQUIRE(model.scenes[model.defaultScene].nodes.size() == 2);
+    CHECK(model.scenes[model.defaultScene].nodes[0] == 0);
+    CHECK(model.scenes[model.defaultScene].nodes[1] == 1);
+}
+
+TEST_CASE("writeGlbMulti: empty meshes throws") {
+    CHECK_THROWS_AS(husk::gltf::writeGlbMulti({}), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlbMulti: each entry's materials are numbered locally, remapped into one shared "
+          "glTF materials array") {
+    auto quadA = buildTwoPrimitiveQuad();  // primitives reference materialIndex 0 and 1
+    std::vector<husk::gltf::Material> materialsA(2);
+    materialsA[0].name = "a_mat0";
+    materialsA[1].name = "a_mat1";
+
+    auto meshB = buildTriangleMesh();
+    meshB.primitives[0].materialIndex = 0;  // local index 0 -- should NOT collide with a_mat0/1
+    std::vector<husk::gltf::Material> materialsB(1);
+    materialsB[0].name = "b_mat0";
+
+    husk::gltf::NamedMesh a{"a", quadA, materialsA};
+    husk::gltf::NamedMesh b{"b", meshB, materialsB};
+    auto glb = husk::gltf::writeGlbMulti({a, b});
+    auto model = loadBack(glb);
+
+    REQUIRE(model.materials.size() == 3);
+    CHECK(model.materials[0].name == "a_mat0");
+    CHECK(model.materials[1].name == "a_mat1");
+    CHECK(model.materials[2].name == "b_mat0");
+
+    REQUIRE(model.meshes[0].primitives.size() == 2);
+    CHECK(model.meshes[0].primitives[0].material == 0);
+    CHECK(model.meshes[0].primitives[1].material == 1);
+    REQUIRE(model.meshes[1].primitives.size() == 1);
+    // meshB's local materialIndex 0 must resolve to the *global* index of
+    // b_mat0 (2), not be reinterpreted as a_mat0 (0) -- the actual bug this
+    // test exists to catch.
+    CHECK(model.meshes[1].primitives[0].material == 2);
+}
+
+TEST_CASE("writeGlbMulti: a shared skeleton's joint nodes come after every mesh node, and every "
+          "mesh node references the one shared skin") {
+    husk::gltf::NamedMesh a{"lod0", buildSkinnedTriangleMesh(), {}};
+    husk::gltf::NamedMesh b{"lod1", buildSkinnedTriangleMesh(), {}};
+    auto skel = buildChainSkeleton();
+
+    auto glb = husk::gltf::writeGlbMulti({a, b}, &skel);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.nodes.size() == 2 /* mesh nodes */ + 3 /* joints */);
+    CHECK(model.nodes[0].mesh == 0);
+    CHECK(model.nodes[1].mesh == 1);
+    REQUIRE(model.skins.size() == 1);
+    CHECK(model.nodes[0].skin == 0);
+    CHECK(model.nodes[1].skin == 0);
+
+    // Joint node indices are offset by meshCount (2) -- root joint is node
+    // 2, its child node 3, that one's child node 4 (see buildChainSkeleton).
+    const auto& skin = model.skins[0];
+    REQUIRE(skin.joints.size() == 3);
+    CHECK(skin.joints[0] == 2);
+    CHECK(skin.joints[1] == 3);
+    CHECK(skin.joints[2] == 4);
+    REQUIRE(model.nodes[2].children.size() == 1);
+    CHECK(model.nodes[2].children[0] == 3);
+    REQUIRE(model.nodes[3].children.size() == 1);
+    CHECK(model.nodes[3].children[0] == 4);
+
+    // Scene roots: both mesh nodes plus the one root joint node -- not the
+    // whole joint chain (children are reached via the hierarchy, same as
+    // writeGlb's single-mesh case).
+    const auto& sceneNodes = model.scenes[model.defaultScene].nodes;
+    REQUIRE(sceneNodes.size() == 3);
+    CHECK(sceneNodes[0] == 0);
+    CHECK(sceneNodes[1] == 1);
+    CHECK(sceneNodes[2] == 2);
+}
+
+TEST_CASE("writeGlbMulti: an animation's joint target node is offset by meshCount, same as the "
+          "skeleton/skin's own joint nodes") {
+    husk::gltf::NamedMesh a{"lod0", buildSkinnedTriangleMesh(), {}};
+    husk::gltf::NamedMesh b{"lod1", buildSkinnedTriangleMesh(), {}};
+    auto skel = buildChainSkeleton();
+
+    husk::gltf::JointAnimation ja;
+    ja.joint = 1;  // "mid" joint -> node (meshCount=2) + 1 = 3
+    ja.translationTimes = {0.0f, 1.0f};
+    ja.translationValues = {{0, 2, 0}, {0, 5, 0}};
+    husk::gltf::Animation anim;
+    anim.name = "anim0";
+    anim.joints = {ja};
+
+    auto glb = husk::gltf::writeGlbMulti({a, b}, &skel, {anim});
+    auto model = loadBack(glb);
+
+    REQUIRE(model.animations.size() == 1);
+    REQUIRE(model.animations[0].channels.size() == 1);
+    CHECK(model.animations[0].channels[0].target_node == 3);
+}
+
+TEST_CASE("writeGlbMulti: one entry with mismatched skinning throws, naming that entry") {
+    husk::gltf::NamedMesh a{"lod0", buildSkinnedTriangleMesh(), {}};
+    husk::gltf::NamedMesh b{"lod1", buildTriangleMesh(), {}};  // no skinning at all
+    auto skel = buildChainSkeleton();
+    CHECK_THROWS_AS(husk::gltf::writeGlbMulti({a, b}, &skel), husk::gltf::Error);
+}

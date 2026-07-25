@@ -1,8 +1,11 @@
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 
 #include "chunk.hpp"
 #include "commands.hpp"
@@ -38,6 +41,7 @@ void printUsage() {
     std::cerr
         << "usage: husk export <file.m2> <file.skin>|auto <output.glb> [file.skel]\n"
            "                    [--textures <dir>] [--skin-dir <dir>] [--anim-dir <dir>]\n"
+           "                    [--lod <n>|all]\n"
            "\n"
            "Exports a mesh: resolves the M2's vertex array and the .skin\n"
            "file's triangle-index lookup tables, converts WoW's Z-up\n"
@@ -68,7 +72,13 @@ void printUsage() {
            ".skin path, plus --skin-dir <dir> pointing at a directory of\n"
            "already-extracted '<FileDataID>.skin' files, to auto-select\n"
            "the model's highest-detail LOD (M2's SFID chunk) instead of\n"
-           "naming a .skin file explicitly.\n";
+           "naming a .skin file explicitly. --lod only does anything\n"
+           "alongside 'auto': --lod <n> picks SFID entry n instead of\n"
+           "always 0 (see husk info's SFID listing for how many entries a\n"
+           "model has); --lod all resolves every entry and exports one\n"
+           "named node per LOD tier ('lod0', 'lod1', ...) in the same\n"
+           ".glb, all sharing one skeleton/animation set (every LOD of\n"
+           "one M2 draws from the same bones array).\n";
 }
 
 std::vector<uint8_t> readFileBytes(const std::string& path) {
@@ -613,30 +623,82 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
     return result;
 }
 
-// Resolves the literal "auto" .skin path (see printUsage) via the M2's own
-// SFID chunk: entry 0 is always "the main skin aka lod0" (wowdev.wiki
-// M2#SFID), which is the highest-detail LOD -- the policy roadmap stage 7
-// already settled on ("always emit the highest-detail skin profile,
-// ignore the rest"). husk doesn't resolve that FileDataID to a WoW/CASC
-// path itself (no CASC/listfile access, same non-goal as `--textures`) --
-// this only ever looks for `<skinDir>/<FileDataID>.skin` on the local
-// filesystem, the same convention `--textures` already uses for PNGs.
-std::string resolveAutoSkinPath(const m2::Header& header, const std::string& skinDir,
-                                 const std::string& modelPath) {
-    if (skinDir.empty()) {
-        throw std::runtime_error(
-            "'auto' was given for the .skin path but --skin-dir wasn't -- pass --skin-dir <dir> "
-            "pointing at a directory of already-extracted '<FileDataID>.skin' files");
-    }
+// Shared by every resolveAutoSkinPaths mode below: husk's own non-goal (no
+// CASC/listfile access) means a model with no SFID chunk at all has no
+// FileDataIDs to auto-select from, 'all'/--lod alike.
+const std::vector<uint32_t>& requireSkinFileDataIds(const m2::Header& header,
+                                                      const std::string& modelPath) {
     if (!header.skinFileDataIds || header.skinFileDataIds->empty()) {
         throw std::runtime_error("'" + modelPath +
                                   "' has no SFID chunk (or it's empty) -- this M2 doesn't carry "
                                   "skin FileDataIDs to auto-select from (pre-Legion M2s never do) "
                                   "-- pass an explicit .skin path instead of 'auto'");
     }
-    uint32_t fileDataId = header.skinFileDataIds->at(0);
-    auto path = std::filesystem::path(skinDir) / (std::to_string(fileDataId) + ".skin");
-    return path.string();
+    return *header.skinFileDataIds;
+}
+
+// Resolves the literal "auto" .skin path (see printUsage) via the M2's own
+// SFID chunk, honoring an optional --lod selection (`lodArg`, "" if not
+// given). "": the roadmap-stage-7 policy this always followed before --lod
+// existed -- SFID entry 0, "the main skin aka lod0" (wowdev.wiki M2#SFID),
+// the highest-detail LOD. "<n>": SFID entry n instead (0-based), letting a
+// caller deliberately ask for a lower-detail tier LDV1's lodCount says
+// exists but husk never picked before. "all": every entry, so
+// husk export can emit one glTF node per LOD tier in a single .glb (see
+// exportGlb) instead of just one. Each result pairs the entry's own index
+// (for node naming -- "" for the "" case, since that's still one unnamed
+// mesh, same as before --lod existed) with its resolved local path. husk
+// doesn't resolve any of these FileDataIDs to a WoW/CASC path itself (no
+// CASC/listfile access, same non-goal as `--textures`) -- this only ever
+// looks for `<skinDir>/<FileDataID>.skin` on the local filesystem, the same
+// convention `--textures` already uses for PNGs.
+std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::Header& header,
+                                                                        const std::string& skinDir,
+                                                                        const std::string& modelPath,
+                                                                        const std::string& lodArg) {
+    if (skinDir.empty()) {
+        throw std::runtime_error(
+            "'auto' was given for the .skin path but --skin-dir wasn't -- pass --skin-dir <dir> "
+            "pointing at a directory of already-extracted '<FileDataID>.skin' files");
+    }
+    const auto& ids = requireSkinFileDataIds(header, modelPath);
+    auto pathFor = [&](size_t index) {
+        return (std::filesystem::path(skinDir) / (std::to_string(ids[index]) + ".skin")).string();
+    };
+
+    if (lodArg == "all") {
+        std::vector<std::pair<std::string, std::string>> result;
+        result.reserve(ids.size());
+        for (size_t i = 0; i < ids.size(); ++i) {
+            result.emplace_back("lod" + std::to_string(i), pathFor(i));
+        }
+        return result;
+    }
+
+    size_t index = 0;
+    if (!lodArg.empty()) {
+        // Deliberately strict: std::stoul silently accepts leading
+        // whitespace/a leading sign and stops at the first non-digit rather
+        // than requiring the whole argument to be numeric -- reject
+        // anything it would otherwise quietly half-parse (e.g. "3abc"),
+        // same "foreign data that doesn't fit its own claims is an error"
+        // policy as every parser in this codebase (--lod counts as one,
+        // even though it's a CLI argument rather than file bytes).
+        if (!std::all_of(lodArg.begin(), lodArg.end(), [](unsigned char c) { return std::isdigit(c); })) {
+            throw std::runtime_error("--lod '" + lodArg + "' isn't 'all' or a non-negative integer");
+        }
+        index = static_cast<size_t>(std::stoul(lodArg));
+    }
+    if (index >= ids.size()) {
+        std::string lodCountNote;
+        if (header.lodCount) {
+            lodCountNote = " (LDV1 lod_count: " + std::to_string(*header.lodCount) + ")";
+        }
+        throw std::runtime_error("--lod " + std::to_string(index) + " is out of range -- '" +
+                                  modelPath + "'s SFID chunk only has " + std::to_string(ids.size()) +
+                                  " skin FileDataID(s)" + lodCountNote);
+    }
+    return {{lodArg.empty() ? "" : "lod" + std::to_string(index), pathFor(index)}};
 }
 
 }  // namespace
@@ -654,9 +716,11 @@ int exportGlb(int argc, char** args) {
     std::string texturesDir;
     std::string skinDir;
     std::string animDir;
+    std::string lodArg;
 
     // Remaining args: at most one bare positional (.skel path) plus
-    // optional --textures/--skin-dir/--anim-dir <dir> flags, in any order.
+    // optional --textures/--skin-dir/--anim-dir/--lod <dir|n|all> flags, in
+    // any order.
     for (int i = 3; i < argc; ++i) {
         std::string arg = args[i];
         if (arg == "--textures") {
@@ -677,6 +741,12 @@ int exportGlb(int argc, char** args) {
                 return 1;
             }
             animDir = args[++i];
+        } else if (arg == "--lod") {
+            if (i + 1 >= argc) {
+                printUsage();
+                return 1;
+            }
+            lodArg = args[++i];
         } else if (skelPath.empty()) {
             skelPath = arg;
         } else {
@@ -686,6 +756,10 @@ int exportGlb(int argc, char** args) {
     }
     if (!skinDir.empty() && skinPath != "auto") {
         std::cerr << "husk: --skin-dir only does anything when the .skin path is 'auto'\n";
+        return 1;
+    }
+    if (!lodArg.empty() && skinPath != "auto") {
+        std::cerr << "husk: --lod only does anything when the .skin path is 'auto'\n";
         return 1;
     }
 
@@ -705,36 +779,32 @@ int exportGlb(int argc, char** args) {
         m2Inputs.textureWeightCombos = m2::parseUint16Array(blob, header.textureWeightCombos);
         m2Inputs.textureFileDataIds = header.textureFileDataIds;
 
+        // One (node name, .skin path) pair per LOD tier to export -- just
+        // one, unnamed ("lod" only appears in a node name once --lod
+        // resolves more than a single entry, see resolveAutoSkinPaths), for
+        // every case except 'auto' + --lod all.
+        std::vector<std::pair<std::string, std::string>> skinsToExport;
         if (skinPath == "auto") {
-            skinPath = resolveAutoSkinPath(header, skinDir, modelPath);
-            std::cerr << "husk: note: resolved 'auto' -> '" << skinPath << "' (SFID entry 0, "
-                      << "highest-detail LOD)\n";
-        }
-        auto skinBytes = readFileBytes(skinPath);
-        auto skinHeader = skin::parseHeader(skinBytes);
-        auto triangleIndices = skin::resolveTriangleIndices(skinBytes, skinHeader);
-        auto submeshes = skin::parseSubmeshes(skinBytes, skinHeader.submeshes);
-        auto batches = skin::parseBatches(skinBytes, skinHeader.batches);
-
-        // Cross-module boundary check: skin::resolveTriangleIndices only
-        // validates indices against the skin file's own `vertices` array --
-        // it has no idea how many vertices the M2 actually has. A skin file
-        // that doesn't belong to this M2 (wrong LOD, wrong model) shows up
-        // here as an out-of-range global vertex index.
-        for (uint32_t idx : triangleIndices) {
-            if (idx >= vertices.size()) {
-                throw std::runtime_error(
-                    "'" + skinPath + "' references M2 vertex " + std::to_string(idx) + " but '" +
-                    modelPath + "' only has " + std::to_string(vertices.size()) +
-                    " vertices -- model/.skin mismatch?");
+            skinsToExport = resolveAutoSkinPaths(header, skinDir, modelPath, lodArg);
+            for (const auto& [name, path] : skinsToExport) {
+                std::cerr << "husk: note: resolved 'auto' -> '" << path << "'"
+                          << (name.empty() ? " (SFID entry 0, highest-detail LOD)\n"
+                                            : " (SFID, " + name + ")\n");
             }
+        } else {
+            skinsToExport.emplace_back("", skinPath);
         }
 
-        gltf::Mesh mesh;
-        mesh.positions.reserve(vertices.size());
-        mesh.normals.reserve(vertices.size());
-        mesh.texCoords.reserve(vertices.size());
-        mesh.texCoords2.reserve(vertices.size());
+        // Base mesh geometry -- the M2's own global vertex list, shared by
+        // every LOD tier below (a .skin file only ever selects a *subset* of
+        // it via its own vertices/indices two-level lookup, see
+        // src/skin.hpp; it never adds vertices of its own), built once
+        // rather than once per LOD.
+        gltf::Mesh baseMesh;
+        baseMesh.positions.reserve(vertices.size());
+        baseMesh.normals.reserve(vertices.size());
+        baseMesh.texCoords.reserve(vertices.size());
+        baseMesh.texCoords2.reserve(vertices.size());
         for (size_t vi = 0; vi < vertices.size(); ++vi) {
             const auto& v = vertices[vi];
             // glTF requires finite POSITION/NORMAL values (and their
@@ -747,14 +817,11 @@ int exportGlb(int argc, char** args) {
                                           " has a non-finite (NaN/Inf) position or normal -- "
                                           "corrupted read or truncated file?");
             }
-            mesh.positions.push_back(toGltf(v.pos));
-            mesh.normals.push_back(toGltf(v.normal));
-            mesh.texCoords.push_back({v.texCoords[0].x, v.texCoords[0].y});
-            mesh.texCoords2.push_back({v.texCoords[1].x, v.texCoords[1].y});
+            baseMesh.positions.push_back(toGltf(v.pos));
+            baseMesh.normals.push_back(toGltf(v.normal));
+            baseMesh.texCoords.push_back({v.texCoords[0].x, v.texCoords[0].y});
+            baseMesh.texCoords2.push_back({v.texCoords[1].x, v.texCoords[1].y});
         }
-        auto built =
-            buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs, texturesDir);
-        mesh.primitives = built.primitives;
 
         auto bones = m2::parseBones(blob, header.bones);
         // Only *inline* bones (this same flag's condition) have track
@@ -780,7 +847,7 @@ int exportGlb(int argc, char** args) {
         std::vector<gltf::Animation> animations;
         if (!bones.empty()) {
             skeleton = buildSkeleton(bones);
-            mesh.skinning = buildSkinning(vertices, bones.size());
+            baseMesh.skinning = buildSkinning(vertices, bones.size());
             if (bonesAreInline) {
                 auto sequences = m2::parseSequences(blob, header.sequences);
                 M2AnimInputs animInputs;
@@ -810,8 +877,47 @@ int exportGlb(int argc, char** args) {
             }
         }
 
-        auto glb =
-            gltf::writeGlb(mesh, built.materials, bones.empty() ? nullptr : &skeleton, animations);
+        // One NamedMesh per LOD tier: each resolves its own .skin file's
+        // triangle-index lookup/submeshes/batches (see src/skin.hpp) into
+        // its own primitives/materials, but reuses baseMesh's shared
+        // positions/normals/texCoords/texCoords2/skinning as-is -- see the
+        // comment above baseMesh's construction for why that's valid.
+        std::vector<gltf::NamedMesh> namedMeshes;
+        namedMeshes.reserve(skinsToExport.size());
+        for (const auto& [name, path] : skinsToExport) {
+            auto skinBytes = readFileBytes(path);
+            auto skinHeader = skin::parseHeader(skinBytes);
+            auto triangleIndices = skin::resolveTriangleIndices(skinBytes, skinHeader);
+            auto submeshes = skin::parseSubmeshes(skinBytes, skinHeader.submeshes);
+            auto batches = skin::parseBatches(skinBytes, skinHeader.batches);
+
+            // Cross-module boundary check: skin::resolveTriangleIndices only
+            // validates indices against the skin file's own `vertices`
+            // array -- it has no idea how many vertices the M2 actually
+            // has. A skin file that doesn't belong to this M2 (wrong LOD,
+            // wrong model) shows up here as an out-of-range global vertex
+            // index.
+            for (uint32_t idx : triangleIndices) {
+                if (idx >= vertices.size()) {
+                    throw std::runtime_error("'" + path + "' references M2 vertex " +
+                                              std::to_string(idx) + " but '" + modelPath +
+                                              "' only has " + std::to_string(vertices.size()) +
+                                              " vertices -- model/.skin mismatch?");
+                }
+            }
+
+            auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs,
+                                                       texturesDir);
+
+            gltf::NamedMesh nm;
+            nm.name = name;
+            nm.mesh = baseMesh;
+            nm.mesh.primitives = built.primitives;
+            nm.materials = std::move(built.materials);
+            namedMeshes.push_back(std::move(nm));
+        }
+
+        auto glb = gltf::writeGlbMulti(namedMeshes, bones.empty() ? nullptr : &skeleton, animations);
 
         std::ofstream out(outputPath, std::ios::binary);
         if (!out) {
@@ -823,25 +929,47 @@ int exportGlb(int argc, char** args) {
             throw std::runtime_error("error writing '" + outputPath + "'");
         }
 
-        std::cout << outputPath << ": " << vertices.size() << " vertices, "
-                  << (triangleIndices.size() / 3) << " triangles";
-        if (!bones.empty()) {
-            std::cout << ", " << bones.size() << " bones";
-            if (!animations.empty()) {
-                std::cout << ", " << animations.size() << " animation(s)";
-            } else {
-                std::cout << " (bind pose only, no animation)";
+        if (namedMeshes.size() == 1) {
+            size_t triCount = 0;
+            for (const auto& p : namedMeshes[0].mesh.primitives) triCount += p.indices.size() / 3;
+            std::cout << outputPath << ": " << vertices.size() << " vertices, " << triCount
+                      << " triangles";
+            if (!bones.empty()) {
+                std::cout << ", " << bones.size() << " bones";
+                if (!animations.empty()) {
+                    std::cout << ", " << animations.size() << " animation(s)";
+                } else {
+                    std::cout << " (bind pose only, no animation)";
+                }
+            }
+            if (!namedMeshes[0].materials.empty()) {
+                size_t withImage = 0;
+                for (const auto& m : namedMeshes[0].materials) {
+                    if (!m.baseColorImagePng.empty()) ++withImage;
+                }
+                std::cout << ", " << namedMeshes[0].materials.size() << " materials (" << withImage
+                          << " with an embedded texture)";
+            }
+            std::cout << "\n";
+        } else {
+            std::cout << outputPath << ": " << vertices.size() << " vertices (shared), "
+                      << namedMeshes.size() << " LOD tier(s) as separate nodes:\n";
+            for (const auto& nm : namedMeshes) {
+                size_t triCount = 0;
+                for (const auto& p : nm.mesh.primitives) triCount += p.indices.size() / 3;
+                std::cout << "  " << nm.name << ": " << triCount << " triangles, "
+                          << nm.materials.size() << " materials\n";
+            }
+            if (!bones.empty()) {
+                std::cout << "  " << bones.size() << " bones (shared)";
+                if (!animations.empty()) {
+                    std::cout << ", " << animations.size() << " animation(s) (shared)";
+                } else {
+                    std::cout << " (bind pose only, no animation)";
+                }
+                std::cout << "\n";
             }
         }
-        if (!built.materials.empty()) {
-            size_t withImage = 0;
-            for (const auto& m : built.materials) {
-                if (!m.baseColorImagePng.empty()) ++withImage;
-            }
-            std::cout << ", " << built.materials.size() << " materials (" << withImage
-                      << " with an embedded texture)";
-        }
-        std::cout << "\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "husk: export failed: " << e.what() << "\n";

@@ -192,4 +192,42 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
                                const Skeleton* skeleton = nullptr,
                                const std::vector<Animation>& animations = {});
 
+// One mesh's worth of writeGlb's `mesh`/`materials` pair, plus a `name` that
+// becomes its glTF node's `name` -- the unit `writeGlbMulti` (below) repeats
+// once per entry. `materials` is this mesh's own list; `mesh.primitives[i]
+// .materialIndex` indexes into it, not into any other entry's list (each
+// gets its own local numbering, same convention as writeGlb's single-mesh
+// case -- writeGlbMulti remaps them into one shared glTF materials array
+// internally).
+struct NamedMesh {
+    std::string name;
+    Mesh mesh;
+    std::vector<Material> materials;
+};
+
+// Serializes multiple meshes into one .glb, each as its own named node (and
+// its own glTF mesh/primitives/materials) -- husk export --lod all's case
+// (see README.md): one node per LOD tier of the same M2, so a DCC tool's
+// outliner shows them as separate, individually-toggleable objects instead
+// of silently overwriting one another. `meshes` must not be empty; every
+// entry is validated exactly like writeGlb's single `mesh`/`materials`
+// (same Error conditions, "writeGlbMulti" in place of "writeGlb" in the
+// message).
+//
+// `skeleton`/`animations` are shared across every entry, not per-mesh --
+// valid because every LOD of one M2 draws from the same `bones` array (only
+// the triangle/vertex-index *subset* a .skin selects differs per LOD, see
+// src/skin.hpp), so one bind-pose skeleton and one set of animation clips
+// cover all of them. If `skeleton` is given, every entry's mesh.skinning
+// must be non-empty and match that entry's own mesh.positions length (same
+// both-or-neither rule as writeGlb, just checked per entry) -- there's
+// exactly one glTF skin object, shared by every mesh node.
+//
+// writeGlb(mesh, materials, skeleton, animations) is exactly
+// writeGlbMulti({{"", mesh, materials}}, skeleton, animations) -- the
+// single-mesh case is this function with one, unnamed, entry.
+std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes,
+                                    const Skeleton* skeleton = nullptr,
+                                    const std::vector<Animation>& animations = {});
+
 }  // namespace husk::gltf

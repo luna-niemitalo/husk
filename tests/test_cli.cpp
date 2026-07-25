@@ -1001,6 +1001,97 @@ TEST_CASE("husk export: 'auto' with --skin-dir pointing at a directory missing t
     fs::remove(m2Path);
 }
 
+TEST_CASE("husk export: --lod given without 'auto' as the .skin path fails cleanly") {
+    auto m2Path = tempPath("lod-without-auto.m2");
+    writeFile(m2Path, tinyValidM2());
+    auto skinPath = tempPath("lod-without-auto.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                           tempPath("lod-without-auto.glb").string() + " --lod 1");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("--lod") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: --lod <n> resolves SFID entry n instead of always 0") {
+    auto m2Path = tempPath("lod-n.m2");
+    uint32_t entry1FileDataId = 777222;
+    // Entry 0 (777111) deliberately has no matching file on disk -- this
+    // only passes if --lod 1 actually picked entry 1, not entry 0.
+    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {777111, entry1FileDataId}));
+
+    auto skinDir = fs::temp_directory_path();
+    auto skinPath = skinDir / (std::to_string(entry1FileDataId) + ".skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto outPath = tempPath("lod-n.glb");
+    auto result = runHusk("export " + m2Path.string() + " auto " + outPath.string() +
+                           " --skin-dir " + skinDir.string() + " --lod 1");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find(std::to_string(entry1FileDataId)) != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(outPath);
+}
+
+TEST_CASE("husk export: --lod <n> out of range for the SFID chunk fails cleanly, naming the "
+          "entry count") {
+    auto m2Path = tempPath("lod-oor.m2");
+    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {111111, 222222}));  // 2 entries
+
+    auto result = runHusk("export " + m2Path.string() + " auto " +
+                           tempPath("lod-oor.glb").string() + " --skin-dir " +
+                           fs::temp_directory_path().string() + " --lod 5");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("out of range") != std::string::npos);
+    CHECK(result.output.find("2") != std::string::npos);
+
+    fs::remove(m2Path);
+}
+
+TEST_CASE("husk export: --lod given a non-numeric, non-'all' value fails cleanly") {
+    auto m2Path = tempPath("lod-nan.m2");
+    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {111111}));
+
+    auto result = runHusk("export " + m2Path.string() + " auto " +
+                           tempPath("lod-nan.glb").string() + " --skin-dir " +
+                           fs::temp_directory_path().string() + " --lod banana");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("--lod") != std::string::npos);
+
+    fs::remove(m2Path);
+}
+
+TEST_CASE("husk export: --lod all resolves every SFID entry and exports one named node per LOD "
+          "tier") {
+    auto m2Path = tempPath("lod-all.m2");
+    uint32_t id0 = 888001, id1 = 888002;
+    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {id0, id1}));
+
+    auto skinDir = fs::temp_directory_path();
+    auto skinPath0 = skinDir / (std::to_string(id0) + ".skin");
+    auto skinPath1 = skinDir / (std::to_string(id1) + ".skin");
+    writeFile(skinPath0, tinyMatchingSkin());
+    writeFile(skinPath1, tinyMatchingSkin());
+
+    auto outPath = tempPath("lod-all.glb");
+    auto result = runHusk("export " + m2Path.string() + " auto " + outPath.string() +
+                           " --skin-dir " + skinDir.string() + " --lod all");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("2 LOD tier(s)") != std::string::npos);
+    CHECK(result.output.find("lod0") != std::string::npos);
+    CHECK(result.output.find("lod1") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath0);
+    fs::remove(skinPath1);
+    fs::remove(outPath);
+}
+
 TEST_CASE("husk info: prints skin_file_data_ids/lod_count/bone_file_data_ids/anim_file_ids when "
           "their chunks are present") {
     auto md20 = minimalMd20();
