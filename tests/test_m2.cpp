@@ -20,9 +20,15 @@
 //   0x090 textureWeightCombos (M2Array) 0x098 textureTransformCombos (M2Array)
 //   0x0A0 bounding_box (CAaBox, 24B)   0x0B8 bounding_sphere_radius (float)
 //   0x0BC collision_box (CAaBox, 24B)  0x0D4 collision_sphere_radius (float)
+//   0x0D8 collisionIndices (M2Array)   0x0E0 collisionPositions (M2Array)
+//   0x0E8 collisionFaceNormals (M2Array) 0x0F0 attachments (M2Array)
+//   0x0F8 attachmentLookup (M2Array)   0x100 events (M2Array)
+//   0x108 lights (M2Array)             0x110 cameras (M2Array)
+//   0x118 cameraLookup (M2Array)       0x120 ribbonEmitters (M2Array)
+//   0x128 particleEmitters (M2Array)
 // M2Array<T> = { uint32_t count; uint32_t offset; } (8 bytes), offset
 // relative to the start of this same blob.
-// 0x0D8 is the end of the fixed portion this parser reads (216 bytes).
+// 0x130 is the end of the fixed portion this parser reads (304 bytes).
 //
 // M2Vertex (wowdev.wiki M2#Vertices), 48 bytes, no padding between fields:
 //   0x00 pos (C3Vector)                0x0C bone_weights (uint8[4])
@@ -60,11 +66,16 @@
 
 namespace {
 
-constexpr size_t kFixedHeaderSize = 0x0D8;
+constexpr size_t kFixedHeaderSize = 0x130;
 
 void putU32(std::vector<uint8_t>& buf, size_t off, uint32_t v) {
     if (buf.size() < off + 4) buf.resize(off + 4, 0);
     std::memcpy(buf.data() + off, &v, 4);
+}
+
+void putU16(std::vector<uint8_t>& buf, size_t off, uint16_t v) {
+    if (buf.size() < off + 2) buf.resize(off + 2, 0);
+    std::memcpy(buf.data() + off, &v, 2);
 }
 
 void putF32(std::vector<uint8_t>& buf, size_t off, float v) {
@@ -123,6 +134,18 @@ std::vector<uint8_t> buildMd20Blob() {
     putF32(buf, 0x0BC, -10); putF32(buf, 0x0C0, -20); putF32(buf, 0x0C4, -30);
     putF32(buf, 0x0C8, 40);  putF32(buf, 0x0CC, 50);  putF32(buf, 0x0D0, 60);
     putF32(buf, 0x0D4, 99.5f);  // collision_sphere_radius
+
+    putArray(buf, 0x0D8, 19, 1017);  // collisionIndices
+    putArray(buf, 0x0E0, 20, 1018);  // collisionPositions
+    putArray(buf, 0x0E8, 21, 1019);  // collisionFaceNormals
+    putArray(buf, 0x0F0, 22, 1020);  // attachments
+    putArray(buf, 0x0F8, 23, 1021);  // attachmentLookup
+    putArray(buf, 0x100, 24, 1022);  // events
+    putArray(buf, 0x108, 25, 1023);  // lights
+    putArray(buf, 0x110, 26, 1024);  // cameras
+    putArray(buf, 0x118, 27, 1025);  // cameraLookup
+    putArray(buf, 0x120, 28, 1026);  // ribbonEmitters
+    putArray(buf, 0x128, 29, 1027);  // particleEmitters
 
     return buf;
 }
@@ -221,6 +244,19 @@ std::vector<uint8_t> vec3Bytes(const husk::m2::Vec3& v) {
     return b;
 }
 
+// Raw wire bytes for one M2CompQuat: 4x int16, x/y/z/w order (see
+// husk::m2::Quat's doc comment for why w comes last, and
+// src/m2.cpp's readCompQuat for the decompression formula this is meant to
+// exercise).
+std::vector<uint8_t> quatWireBytes(int16_t x, int16_t y, int16_t z, int16_t w) {
+    std::vector<uint8_t> b(8);
+    std::memcpy(b.data() + 0, &x, 2);
+    std::memcpy(b.data() + 2, &y, 2);
+    std::memcpy(b.data() + 4, &z, 2);
+    std::memcpy(b.data() + 6, &w, 2);
+    return b;
+}
+
 // M2Color (wowdev.wiki M2#Colors_and_transparency), 0x28 (40) bytes: color
 // M2Track<C3Vector> at +0x00, alpha M2Track<fixed16> at +0x14.
 void putColor(std::vector<uint8_t>& buf, size_t off,
@@ -289,6 +325,29 @@ void checkSentinelHeader(const husk::m2::Header& h) {
     CHECK(h.collisionBox.min.x == doctest::Approx(-10));
     CHECK(h.collisionBox.max.z == doctest::Approx(60));
     CHECK(h.collisionSphereRadius == doctest::Approx(99.5f));
+
+    CHECK(h.collisionIndices.count == 19);
+    CHECK(h.collisionIndices.offset == 1017);
+    CHECK(h.collisionPositions.count == 20);
+    CHECK(h.collisionPositions.offset == 1018);
+    CHECK(h.collisionFaceNormals.count == 21);
+    CHECK(h.collisionFaceNormals.offset == 1019);
+    CHECK(h.attachments.count == 22);
+    CHECK(h.attachments.offset == 1020);
+    CHECK(h.attachmentLookup.count == 23);
+    CHECK(h.attachmentLookup.offset == 1021);
+    CHECK(h.events.count == 24);
+    CHECK(h.events.offset == 1022);
+    CHECK(h.lights.count == 25);
+    CHECK(h.lights.offset == 1023);
+    CHECK(h.cameras.count == 26);
+    CHECK(h.cameras.offset == 1024);
+    CHECK(h.cameraLookup.count == 27);
+    CHECK(h.cameraLookup.offset == 1025);
+    CHECK(h.ribbonEmitters.count == 28);
+    CHECK(h.ribbonEmitters.offset == 1026);
+    CHECK(h.particleEmitters.count == 29);
+    CHECK(h.particleEmitters.offset == 1027);
 }
 
 }  // namespace
@@ -509,11 +568,17 @@ TEST_CASE("parseBones: reads key_bone_id/flags/parent_bone/pivot, skipping the M
     CHECK(bones[0].pivot.x == doctest::Approx(1));
     CHECK(bones[0].pivot.y == doctest::Approx(2));
     CHECK(bones[0].pivot.z == doctest::Approx(3));
+    CHECK(bones[0].translationTrackOffset == boneOffset + 0x10);
+    CHECK(bones[0].rotationTrackOffset == boneOffset + 0x24);
+    CHECK(bones[0].scaleTrackOffset == boneOffset + 0x38);
 
     CHECK(bones[1].keyBoneId == -1);
     CHECK(bones[1].parentBone == 0);
     CHECK(bones[1].pivot.x == doctest::Approx(4));
     CHECK(bones[1].pivot.z == doctest::Approx(6));
+    CHECK(bones[1].translationTrackOffset == boneOffset + 0x58 + 0x10);
+    CHECK(bones[1].rotationTrackOffset == boneOffset + 0x58 + 0x24);
+    CHECK(bones[1].scaleTrackOffset == boneOffset + 0x58 + 0x38);
 }
 
 TEST_CASE("parseBones: empty array returns an empty vector without touching the blob") {
@@ -990,4 +1055,205 @@ TEST_CASE("parseHeader: no AFID chunk leaves animFileIds empty") {
     appendChunk(file, "MD21", md20);
     auto h = husk::m2::parseHeader(file);
     CHECK_FALSE(h.animFileIds.has_value());
+}
+
+// M2Sequence (wowdev.wiki M2#Animation_sequences), 0x40 bytes: 0x00 id
+// (u16), 0x02 variationIndex (u16), 0x04 duration (u32), 0x0C flags (u32)
+// -- the fields husk::m2::parseSequences actually reads (movespeed/replay/
+// blendTime/bounds/variationNext/aliasNext are skipped, left zeroed here).
+// The 0x40 stride itself (not just these 4 fields) is the part worth
+// getting right -- see Sequence's doc comment in m2.hpp for the real-data
+// story of why it's 64 bytes, not the 36 a naive reading of the wiki
+// struct listing suggests.
+void putSequence(std::vector<uint8_t>& buf, size_t off, uint16_t id, uint16_t variationIndex,
+                  uint32_t duration, uint32_t flags) {
+    if (buf.size() < off + 0x40) buf.resize(off + 0x40, 0);
+    putU16(buf, off + 0x00, id);
+    putU16(buf, off + 0x02, variationIndex);
+    putU32(buf, off + 0x04, duration);
+    putU32(buf, off + 0x0C, flags);
+}
+
+TEST_CASE("parseSequences: reads id/variationIndex/duration/flags for every entry") {
+    std::vector<uint8_t> blob(200, 0);
+    putSequence(blob, 200, 100, 0, 5000, 0x20);
+    putSequence(blob, 200 + 0x40, 101, 1, 3200, 0);
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = 200;
+    auto sequences = husk::m2::parseSequences(blob, array);
+
+    REQUIRE(sequences.size() == 2);
+    CHECK(sequences[0].id == 100);
+    CHECK(sequences[0].variationIndex == 0);
+    CHECK(sequences[0].duration == 5000);
+    CHECK(sequences[0].flags == 0x20);
+    CHECK(sequences[1].id == 101);
+    CHECK(sequences[1].variationIndex == 1);
+    CHECK(sequences[1].duration == 3200);
+    CHECK(sequences[1].flags == 0);
+}
+
+TEST_CASE("parseSequences: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 54321;
+    CHECK(husk::m2::parseSequences(blob, array).empty());
+}
+
+TEST_CASE("parseSequences: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(20, 0);
+    husk::m2::Array array;
+    array.count = 1;   // 0x40 bytes needed
+    array.offset = 0;  // but the blob is only 20 bytes
+    CHECK_THROWS_AS(husk::m2::parseSequences(blob, array), husk::m2::ParseError);
+}
+
+// Builds a *full* M2Track<T> at `trackOff` -- both the `timestamps`
+// (trackOff+0x04) and `values` (trackOff+0x0C) nested M2Array<M2Array<>>
+// fields, in lockstep -- from per-sequence keyframe lists: sequences[i] is
+// the (timestamp ms, raw value bytes) list for animation sub-array i (empty
+// means that sequence's own M2Arrays both have count 0). Unlike
+// putTrackValues (above, used for the parseColors/parseTextureWeights
+// "unambiguously constant" tests, which never read timestamps at all),
+// this is for resolveVec3TrackSequence/resolveQuatTrackSequence, which do.
+void putFullTrack(std::vector<uint8_t>& buf, size_t trackOff,
+                   const std::vector<std::vector<std::pair<uint32_t, std::vector<uint8_t>>>>& sequences) {
+    if (buf.size() < trackOff + 0x14) buf.resize(trackOff + 0x14, 0);
+
+    size_t tsOuterOff = buf.size();
+    buf.resize(tsOuterOff + sequences.size() * 8, 0);
+    size_t valOuterOff = buf.size();
+    buf.resize(valOuterOff + sequences.size() * 8, 0);
+
+    for (size_t i = 0; i < sequences.size(); ++i) {
+        const auto& kfs = sequences[i];
+        if (kfs.empty()) {
+            putArray(buf, tsOuterOff + i * 8, 0, 0);
+            putArray(buf, valOuterOff + i * 8, 0, 0);
+            continue;
+        }
+        size_t tsOff = buf.size();
+        for (const auto& kf : kfs) putU32(buf, buf.size(), kf.first);
+        size_t valOff = buf.size();
+        for (const auto& kf : kfs) buf.insert(buf.end(), kf.second.begin(), kf.second.end());
+
+        putArray(buf, tsOuterOff + i * 8, static_cast<uint32_t>(kfs.size()),
+                 static_cast<uint32_t>(tsOff));
+        putArray(buf, valOuterOff + i * 8, static_cast<uint32_t>(kfs.size()),
+                 static_cast<uint32_t>(valOff));
+    }
+
+    putArray(buf, trackOff + 0x04, static_cast<uint32_t>(sequences.size()),
+             static_cast<uint32_t>(tsOuterOff));
+    putArray(buf, trackOff + 0x0C, static_cast<uint32_t>(sequences.size()),
+             static_cast<uint32_t>(valOuterOff));
+}
+
+TEST_CASE("resolveVec3TrackSequence: reads timestamp/value keyframe pairs for one sequence index") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    // Sequence 0: 2 keyframes. Sequence 1: 1 keyframe.
+    putFullTrack(blob, trackOff,
+                 {
+                     {{0, vec3Bytes({1, 2, 3})}, {1000, vec3Bytes({4, 5, 6})}},
+                     {{500, vec3Bytes({7, 8, 9})}},
+                 });
+
+    auto seq0 = husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 0);
+    REQUIRE(seq0.size() == 2);
+    CHECK(seq0[0].first == 0);
+    CHECK(seq0[0].second.x == doctest::Approx(1));
+    CHECK(seq0[0].second.z == doctest::Approx(3));
+    CHECK(seq0[1].first == 1000);
+    CHECK(seq0[1].second.y == doctest::Approx(5));
+
+    auto seq1 = husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 1);
+    REQUIRE(seq1.size() == 1);
+    CHECK(seq1[0].first == 500);
+    CHECK(seq1[0].second.x == doctest::Approx(7));
+}
+
+TEST_CASE("resolveVec3TrackSequence: a sequence index with no inline data (count 0) is empty, not "
+          "an error") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    // Sequence 0 has real data; sequence 1 has none inline (e.g. its real
+    // data lives in an external .anim file husk doesn't parse).
+    putFullTrack(blob, trackOff, {{{0, vec3Bytes({1, 1, 1})}}, {}});
+
+    CHECK(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 1).empty());
+}
+
+TEST_CASE("resolveVec3TrackSequence: a sequence index past the outer array's own count is empty, "
+          "not an error") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, vec3Bytes({1, 1, 1})}}});
+
+    CHECK(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 5).empty());
+}
+
+TEST_CASE("resolveVec3TrackSequence: no sub-arrays at all is empty, not an error") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {});
+    CHECK(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 0).empty());
+}
+
+TEST_CASE("resolveQuatTrackSequence: decompresses the wiki's own worked identity-quaternion "
+          "example (32767,32767,32767,65535) -> (0,0,0,1)") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    // 65535 as a wire uint16 is -1 when reinterpreted as int16 -- that's
+    // the actual on-disk encoding wowdev.wiki's example uses.
+    putFullTrack(blob, trackOff,
+                 {{{0, quatWireBytes(32767, 32767, 32767, static_cast<int16_t>(65535u))}}});
+
+    auto seq0 = husk::m2::resolveQuatTrackSequence(blob, static_cast<uint32_t>(trackOff), 0);
+    REQUIRE(seq0.size() == 1);
+    CHECK(seq0[0].first == 0);
+    CHECK(seq0[0].second.x == doctest::Approx(0.0f));
+    CHECK(seq0[0].second.y == doctest::Approx(0.0f));
+    CHECK(seq0[0].second.z == doctest::Approx(0.0f));
+    CHECK(seq0[0].second.w == doctest::Approx(1.0f));
+}
+
+TEST_CASE("resolveQuatTrackSequence: decompresses a non-identity quaternion, proving per-component "
+          "decode and x/y/z/w wire order") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    // Per src/m2.cpp's readCompQuat: decode(raw) = (raw<0 ? raw+32768 :
+    // raw-32767) / 32767.0. Wire x=0 -> (0-32767)/32767 = -1.0; wire
+    // y=32767 -> (32767-32767)/32767 = 0.0; wire z=65535 (-1 signed) ->
+    // (-1+32768)/32767 = 1.0; wire w=0 -> same as x, -1.0. Four different
+    // wire values, four different decoded results -- proves each component
+    // is read from its own wire slot in x/y/z/w order, not e.g. all reading
+    // the same offset.
+    putFullTrack(blob, trackOff, {{{0, quatWireBytes(0, 32767, static_cast<int16_t>(65535u), 0)}}});
+
+    auto seq0 = husk::m2::resolveQuatTrackSequence(blob, static_cast<uint32_t>(trackOff), 0);
+    REQUIRE(seq0.size() == 1);
+    CHECK(seq0[0].second.x == doctest::Approx(-1.0f));
+    CHECK(seq0[0].second.y == doctest::Approx(0.0f));
+    CHECK(seq0[0].second.z == doctest::Approx(1.0f));
+    CHECK(seq0[0].second.w == doctest::Approx(-1.0f));
+}
+
+TEST_CASE("resolveVec3TrackSequence: keyframe data running past the end of the blob throws") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    if (blob.size() < trackOff + 0x14) blob.resize(trackOff + 0x14, 0);
+    // Outer arrays both claim 1 sub-array; that sub-array claims 1000
+    // keyframes at an offset that doesn't remotely fit in a 100-byte blob.
+    size_t outerOff = blob.size();
+    blob.resize(outerOff + 8, 0);
+    putArray(blob, outerOff, 1000, 0);
+    putArray(blob, trackOff + 0x04, 1, static_cast<uint32_t>(outerOff));
+    putArray(blob, trackOff + 0x0C, 1, static_cast<uint32_t>(outerOff));
+
+    CHECK_THROWS_AS(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 0),
+                     husk::m2::ParseError);
 }

@@ -25,6 +25,8 @@
 // the ID via `husk info`'s skin_file_data_ids line, or just copy
 // HUSK_TEST_SKIN there under its FileDataID).
 
+#include <cmath>
+#include <cstring>
 #include <doctest/doctest.h>
 #include <filesystem>
 #include <fstream>
@@ -127,6 +129,71 @@ TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a well-f
     CHECK(std::string(magic, 4) == "glTF");
 
     checkSkinnedGlb(outPath);
+
+    std::filesystem::remove(outPath);
+}
+
+TEST_CASE("husk export: real M2 + .skin produces real glTF animation clips with sane (unit-norm, "
+          "finite) rotation keyframes") {
+    // Codifies a manual check performed while building roadmap stage 6
+    // (animation): the M2Sequence stride bug (see husk::m2::Sequence's doc
+    // comment -- 64 bytes, not the 36 a naive wiki reading suggests) was
+    // caught by exactly this kind of real-data check, not by any synthetic
+    // fixture (a hand-built fixture would have just as easily encoded the
+    // same wrong assumption test_m2.cpp's *own* spec transcription made).
+    // This test exists so that class of bug -- structurally plausible
+    // output that's still quietly wrong -- can't silently regress.
+    std::string m2Path = envOrEmpty("HUSK_TEST_M2");
+    std::string skinPath = envOrEmpty("HUSK_TEST_SKIN");
+    if (m2Path.empty() || skinPath.empty()) {
+        MESSAGE("SKIPPED (no real M2+.skin pair available -- set HUSK_TEST_M2 and HUSK_TEST_SKIN)");
+        return;
+    }
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-anim.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto result = runHusk("export \"" + m2Path + "\" \"" + skinPath + "\" \"" + outPath + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+
+    // A real character model with inline bones (the common case) should
+    // produce at least one usable animation clip -- if this is ever 0
+    // against a real file, either the model genuinely has none (rare for a
+    // playable character) or something upstream broke silently.
+    CHECK(model.animations.size() > 0);
+
+    size_t rotationKeyframesChecked = 0;
+    for (const auto& anim : model.animations) {
+        for (const auto& ch : anim.channels) {
+            if (ch.target_path != "rotation") continue;
+            const auto& samp = anim.samplers[ch.sampler];
+            const auto& acc = model.accessors[samp.output];
+            const auto& view = model.bufferViews[acc.bufferView];
+            const auto& buf = model.buffers[view.buffer];
+            std::vector<float> vals(acc.count * 4);
+            std::memcpy(vals.data(), buf.data.data() + view.byteOffset + acc.byteOffset,
+                        vals.size() * sizeof(float));
+            for (size_t i = 0; i < vals.size(); i += 4) {
+                float x = vals[i], y = vals[i + 1], z = vals[i + 2], w = vals[i + 3];
+                CHECK(std::isfinite(x));
+                CHECK(std::isfinite(y));
+                CHECK(std::isfinite(z));
+                CHECK(std::isfinite(w));
+                float norm = std::sqrt(x * x + y * y + z * z + w * w);
+                CHECK(norm == doctest::Approx(1.0f).epsilon(0.05));
+                ++rotationKeyframesChecked;
+            }
+        }
+    }
+    CHECK(rotationKeyframesChecked > 0);
 
     std::filesystem::remove(outPath);
 }

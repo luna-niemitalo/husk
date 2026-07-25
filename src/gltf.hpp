@@ -114,6 +114,42 @@ struct Skeleton {
     std::vector<Joint> joints;
 };
 
+struct Quat {
+    float x = 0, y = 0, z = 0, w = 1;
+};
+
+// One joint's worth of keyframe data for one animation clip -- glTF's own
+// sampler+channel pair, pre-split by TRS property since husk never shares
+// a sampler between properties or joints. Each `*Times`/`*Values` pair
+// must be the same length; leave a property's pair empty to skip emitting
+// that channel entirely for this joint (the ordinary case: most joints
+// won't have data for most sequences, see husk::m2::Sequence's doc
+// comment). Times are seconds, strictly increasing; values are already in
+// the target coordinate system/quaternion convention (Y-up) and, for
+// translation, already relative to the joint's parent the same way
+// Skeleton::Joint::localTranslation is -- writeGlb samples these directly
+// as the node's translation/rotation/scale, it does not add them to the
+// bind pose.
+struct JointAnimation {
+    int joint = -1;  // index into Skeleton::joints, not a glTF node index
+    std::vector<float> translationTimes;
+    std::vector<Vec3> translationValues;
+    std::vector<float> rotationTimes;
+    std::vector<Quat> rotationValues;
+    std::vector<float> scaleTimes;
+    std::vector<Vec3> scaleValues;
+};
+
+// One glTF animation clip. `joints` may be sparse -- only joints with real
+// keyframe data for this clip need an entry (see husk::m2::Sequence's
+// flags for why most of a real model's sequences will only cover a subset
+// of its joints, or none at all) -- but every JointAnimation::joint must be
+// in range for whatever Skeleton is passed to writeGlb alongside this.
+struct Animation {
+    std::string name;
+    std::vector<JointAnimation> joints;
+};
+
 struct Error : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
@@ -147,7 +183,13 @@ Vec3 zUpToYUp(const Vec3& v);
 // orphaned skinning data. Throws Error on any joint's `parent` being out of
 // range or self-referential, or on the skeleton/skinning-data mismatches
 // above.
+//
+// `animations`, if non-empty, requires a non-null/non-empty `skeleton` --
+// each becomes one glTF animation clip (see Animation's doc comment).
+// Throws Error if any JointAnimation::joint is out of range for `skeleton`,
+// or any of its three time/value pairs have mismatched lengths.
 std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& materials = {},
-                               const Skeleton* skeleton = nullptr);
+                               const Skeleton* skeleton = nullptr,
+                               const std::vector<Animation>& animations = {});
 
 }  // namespace husk::gltf

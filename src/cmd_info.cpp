@@ -146,6 +146,14 @@ int info(int argc, char** args) {
         }
     }
 
+    printArray("attachments", h.attachments);
+    printArray("events", h.events);
+    printArray("lights", h.lights);
+    printArray("cameras", h.cameras);
+    printArray("ribbon_emitters", h.ribbonEmitters);
+    printArray("particle_emitters", h.particleEmitters);
+    printArray("collision_positions", h.collisionPositions);
+
     std::cout << "  bounding_box: min=";
     printVec3(h.boundingBox.min);
     std::cout << " max=";

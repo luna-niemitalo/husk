@@ -42,12 +42,24 @@ constexpr size_t boundingBox = 0x0A0;   // CAaBox: 2x C3Vector, 24 bytes
 constexpr size_t boundingSphereRadius = 0x0B8;
 constexpr size_t collisionBox = 0x0BC;  // 24 bytes
 constexpr size_t collisionSphereRadius = 0x0D4;
+constexpr size_t collisionIndices = 0x0D8;
+constexpr size_t collisionPositions = 0x0E0;
+constexpr size_t collisionFaceNormals = 0x0E8;
+constexpr size_t attachments = 0x0F0;
+constexpr size_t attachmentLookup = 0x0F8;
+constexpr size_t events = 0x100;
+constexpr size_t lights = 0x108;
+constexpr size_t cameras = 0x110;
+constexpr size_t cameraLookup = 0x118;
+constexpr size_t ribbonEmitters = 0x120;
+constexpr size_t particleEmitters = 0x128;
 
-// End of the last field this parser reads (collisionSphereRadius, 4 bytes).
-// The real header continues further (attachments, events, lights, cameras,
-// ribbons, particles, ...) -- this is the minimum a header must be for
-// every field above to be safely readable, not the full struct size.
-constexpr size_t minHeaderSize = collisionSphereRadius + 4;
+// End of the last field this parser reads (particleEmitters, an 8-byte
+// Array). The real header continues further, version-gated (e.g.
+// textureCombinerCombos, only present when a global flag bit is set) --
+// this is the minimum a header must be for every field above to be safely
+// readable, not the full struct size.
+constexpr size_t minHeaderSize = particleEmitters + 8;
 }  // namespace offset
 
 uint32_t readU32(const uint8_t* blob, size_t blobSize, size_t off) {
@@ -166,6 +178,17 @@ Header parseBlob(const uint8_t* blob, size_t blobSize, bool chunked) {
     h.boundingSphereRadius = readF32(blob, blobSize, offset::boundingSphereRadius);
     h.collisionBox = readBoundingBox(blob, blobSize, offset::collisionBox);
     h.collisionSphereRadius = readF32(blob, blobSize, offset::collisionSphereRadius);
+    h.collisionIndices = readArray(blob, blobSize, offset::collisionIndices);
+    h.collisionPositions = readArray(blob, blobSize, offset::collisionPositions);
+    h.collisionFaceNormals = readArray(blob, blobSize, offset::collisionFaceNormals);
+    h.attachments = readArray(blob, blobSize, offset::attachments);
+    h.attachmentLookup = readArray(blob, blobSize, offset::attachmentLookup);
+    h.events = readArray(blob, blobSize, offset::events);
+    h.lights = readArray(blob, blobSize, offset::lights);
+    h.cameras = readArray(blob, blobSize, offset::cameras);
+    h.cameraLookup = readArray(blob, blobSize, offset::cameraLookup);
+    h.ribbonEmitters = readArray(blob, blobSize, offset::ribbonEmitters);
+    h.particleEmitters = readArray(blob, blobSize, offset::particleEmitters);
     return h;
 }
 
@@ -392,6 +415,9 @@ std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& arra
     constexpr size_t kKeyBoneIdOffset = 0x00;
     constexpr size_t kFlagsOffset = 0x04;
     constexpr size_t kParentBoneOffset = 0x08;
+    constexpr size_t kTranslationTrackOffset = 0x10;
+    constexpr size_t kRotationTrackOffset = 0x24;
+    constexpr size_t kScaleTrackOffset = 0x38;
     constexpr size_t kPivotOffset = 0x4C;
 
     const uint8_t* data = blob.data();
@@ -416,6 +442,9 @@ std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& arra
         uint16_t parentBoneBits;
         std::memcpy(&parentBoneBits, data + off + kParentBoneOffset, sizeof(parentBoneBits));
         b.parentBone = static_cast<int16_t>(parentBoneBits);
+        b.translationTrackOffset = static_cast<uint32_t>(off + kTranslationTrackOffset);
+        b.rotationTrackOffset = static_cast<uint32_t>(off + kRotationTrackOffset);
+        b.scaleTrackOffset = static_cast<uint32_t>(off + kScaleTrackOffset);
         b.pivot = readVec3(data, blobSize, off + kPivotOffset);
         bones.push_back(b);
     }
@@ -566,6 +595,56 @@ std::optional<Vec3> readVec3TrackValue(const uint8_t* data, size_t blobSize, siz
     return readVec3(data, blobSize, *valueOffset);
 }
 
+// Unpacks one M2CompQuat (4x int16, x/y/z/w order) into a Quat, per
+// wowdev.wiki "Quaternion values and 2.x" -- fetched 2026-07-25, since the
+// main M2 page only links to this formula rather than inlining it:
+//   float(v < 0 ? v + 32768 : v - 32767) / 32767.0
+// applied independently to each component. The identity quaternion
+// (0,0,0,1) is wire value (32767,32767,32767,65535) -- 65535 read as a
+// signed int16 is -1, and (-1 + 32768)/32767 == 1.0, matching the wiki's
+// own worked example exactly (checked in tests/test_m2.cpp).
+Quat readCompQuat(const uint8_t* data, size_t blobSize, size_t off) {
+    auto decode = [](int16_t raw) {
+        int v = raw < 0 ? raw + 32768 : raw - 32767;
+        return static_cast<float>(v) / 32767.0f;
+    };
+    auto readI16 = [&](size_t o) {
+        uint16_t bits = readU16(data, blobSize, o);
+        int16_t v;
+        std::memcpy(&v, &bits, sizeof(v));
+        return v;
+    };
+    Quat q;
+    q.x = decode(readI16(off + 0));
+    q.y = decode(readI16(off + 2));
+    q.z = decode(readI16(off + 4));
+    q.w = decode(readI16(off + 6));
+    return q;
+}
+
+// Resolves one M2Track<T>'s keyframe sub-array for a specific sequence
+// index -- the general case constantTrackValueOffset (above) deliberately
+// refuses to handle. Returns the (outer-array-relative) timestamps/values
+// inner-array descriptors, or nullopt if `sequenceIndex` is out of range
+// for either of the track's own outer arrays (never an error -- a sequence
+// with no inline data for this track is the ordinary case for anything
+// husk doesn't have the .anim keyframes for, see Sequence::flags).
+std::optional<std::pair<Array, Array>> trackSequenceInnerArrays(const uint8_t* data,
+                                                                  size_t blobSize,
+                                                                  size_t trackOffset,
+                                                                  uint32_t sequenceIndex) {
+    Array timestampsOuter = readArray(data, blobSize, trackOffset + 0x04);
+    Array valuesOuter = readArray(data, blobSize, trackOffset + 0x0C);
+    if (sequenceIndex >= timestampsOuter.count || sequenceIndex >= valuesOuter.count) {
+        return std::nullopt;
+    }
+    Array timestampsInner =
+        readArray(data, blobSize, timestampsOuter.offset + static_cast<size_t>(sequenceIndex) * 8);
+    Array valuesInner =
+        readArray(data, blobSize, valuesOuter.offset + static_cast<size_t>(sequenceIndex) * 8);
+    return std::make_pair(timestampsInner, valuesInner);
+}
+
 std::vector<Color> parseColors(const std::vector<uint8_t>& blob, const Array& array) {
     std::vector<Color> colors;
     if (array.count == 0) {
@@ -623,6 +702,115 @@ std::vector<TextureWeight> parseTextureWeights(const std::vector<uint8_t>& blob,
     }
 
     return weights;
+}
+
+std::vector<Sequence> parseSequences(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<Sequence> sequences;
+    if (array.count == 0) {
+        return sequences;
+    }
+
+    // M2Sequence, wowdev.wiki M2#Animation_sequences -- 0x40 (64) bytes,
+    // see Sequence's doc comment in m2.hpp for why (an easy-to-miss 28-byte
+    // M2Bounds field, real-data-verified).
+    constexpr size_t kSequenceSize = 0x40;
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kSequenceSize) {
+        throw ParseError("sequences array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kSequenceSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    sequences.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kSequenceSize;
+        Sequence s;
+        s.id = readU16(data, blobSize, off + 0x00);
+        s.variationIndex = readU16(data, blobSize, off + 0x02);
+        s.duration = readU32(data, blobSize, off + 0x04);
+        s.flags = readU32(data, blobSize, off + 0x0C);
+        sequences.push_back(s);
+    }
+
+    return sequences;
+}
+
+namespace {
+
+// Shared bounds-checked "read n fixed-size records at a foreign-data
+// offset" guard -- same up-front-validate-before-reserve discipline as
+// every other parse* function in this file (FAILURES.md #2), factored out
+// here since resolveVec3TrackSequence/resolveQuatTrackSequence both need it
+// for data that isn't a top-level M2Array (it's an inner M2Track array
+// instead), which is otherwise the one shape parseVertices/parseBones/etc.
+// don't already cover.
+void checkInnerArrayFits(const Array& inner, size_t elementSize, size_t blobSize,
+                          const char* what) {
+    if (inner.offset > blobSize || inner.count > (blobSize - inner.offset) / elementSize) {
+        throw ParseError(std::string("track claims ") + std::to_string(inner.count) + " " + what +
+                          " (" + std::to_string(elementSize) + " bytes each) at offset " +
+                          std::to_string(inner.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+}
+
+}  // namespace
+
+std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(const std::vector<uint8_t>& blob,
+                                                                  uint32_t trackOffset,
+                                                                  uint32_t sequenceIndex) {
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    auto inner = trackSequenceInnerArrays(data, blobSize, trackOffset, sequenceIndex);
+    if (!inner) {
+        return {};
+    }
+    const Array& timestampsInner = inner->first;
+    const Array& valuesInner = inner->second;
+
+    checkInnerArrayFits(timestampsInner, 4, blobSize, "timestamps");
+    checkInnerArrayFits(valuesInner, 12, blobSize, "C3Vector values");
+    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
+
+    std::vector<std::pair<uint32_t, Vec3>> out;
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        uint32_t ts = readU32(data, blobSize, timestampsInner.offset + i * 4);
+        Vec3 v = readVec3(data, blobSize, valuesInner.offset + i * 12);
+        out.emplace_back(ts, v);
+    }
+    return out;
+}
+
+std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(const std::vector<uint8_t>& blob,
+                                                                  uint32_t trackOffset,
+                                                                  uint32_t sequenceIndex) {
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    auto inner = trackSequenceInnerArrays(data, blobSize, trackOffset, sequenceIndex);
+    if (!inner) {
+        return {};
+    }
+    const Array& timestampsInner = inner->first;
+    const Array& valuesInner = inner->second;
+
+    checkInnerArrayFits(timestampsInner, 4, blobSize, "timestamps");
+    checkInnerArrayFits(valuesInner, 8, blobSize, "M2CompQuat values");
+    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
+
+    std::vector<std::pair<uint32_t, Quat>> out;
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        uint32_t ts = readU32(data, blobSize, timestampsInner.offset + i * 4);
+        Quat q = readCompQuat(data, blobSize, valuesInner.offset + i * 8);
+        out.emplace_back(ts, q);
+    }
+    return out;
 }
 
 Header loadFile(const std::string& path) {

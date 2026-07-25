@@ -480,6 +480,139 @@ TEST_CASE("writeGlb: a material's baseColorTexCoord selects TEXCOORD_1 on its ba
     CHECK(model.materials[0].pbrMetallicRoughness.baseColorTexture.texCoord == 1);
 }
 
+TEST_CASE("writeGlb: an animation round-trips translation/rotation/scale keyframes through "
+          "tinygltf's own loader") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    husk::gltf::JointAnimation ja;
+    ja.joint = 1;  // the "mid" joint
+    ja.translationTimes = {0.0f, 1.0f};
+    ja.translationValues = {{0, 2, 0}, {0, 3, 0}};
+    ja.rotationTimes = {0.0f, 1.0f};
+    ja.rotationValues = {{0, 0, 0, 1}, {0.7071f, 0, 0, 0.7071f}};
+    ja.scaleTimes = {0.0f};
+    ja.scaleValues = {{2, 2, 2}};
+
+    husk::gltf::Animation anim;
+    anim.name = "anim_100_0";
+    anim.joints = {ja};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel, {anim});
+    auto model = loadBack(glb);
+
+    REQUIRE(model.animations.size() == 1);
+    const auto& ga = model.animations[0];
+    CHECK(ga.name == "anim_100_0");
+    REQUIRE(ga.channels.size() == 3);
+
+    // Joint 1 -> node index 2 (mesh node is 0, joint i is node 1+i).
+    for (const auto& ch : ga.channels) {
+        CHECK(ch.target_node == 2);
+    }
+
+    auto findChannel = [&](const std::string& path) -> const tinygltf::AnimationChannel& {
+        for (const auto& ch : ga.channels) {
+            if (ch.target_path == path) return ch;
+        }
+        FAIL("no channel for path " << path);
+        return ga.channels[0];
+    };
+
+    const auto& transCh = findChannel("translation");
+    const auto& transSamp = ga.samplers[transCh.sampler];
+    CHECK(transSamp.interpolation == "LINEAR");
+    const auto& transOutAcc = model.accessors[transSamp.output];
+    REQUIRE(transOutAcc.count == 2);
+    const auto& transOutView = model.bufferViews[transOutAcc.bufferView];
+    const auto& transBuf = model.buffers[transOutView.buffer];
+    std::vector<husk::gltf::Vec3> transValues(2);
+    std::memcpy(transValues.data(), transBuf.data.data() + transOutView.byteOffset,
+                2 * sizeof(husk::gltf::Vec3));
+    CHECK(transValues[0].y == doctest::Approx(2));
+    CHECK(transValues[1].y == doctest::Approx(3));
+
+    const auto& transInAcc = model.accessors[transSamp.input];
+    REQUIRE(transInAcc.minValues.size() == 1);
+    CHECK(transInAcc.minValues[0] == doctest::Approx(0.0));
+    CHECK(transInAcc.maxValues[0] == doctest::Approx(1.0));
+
+    const auto& rotCh = findChannel("rotation");
+    const auto& rotSamp = ga.samplers[rotCh.sampler];
+    const auto& rotOutAcc = model.accessors[rotSamp.output];
+    REQUIRE(rotOutAcc.count == 2);
+    CHECK(rotOutAcc.type == TINYGLTF_TYPE_VEC4);
+    const auto& rotOutView = model.bufferViews[rotOutAcc.bufferView];
+    const auto& rotBuf = model.buffers[rotOutView.buffer];
+    std::vector<float> rotValues(4 * 2);
+    std::memcpy(rotValues.data(), rotBuf.data.data() + rotOutView.byteOffset,
+                rotValues.size() * sizeof(float));
+    // Keyframe 1: (0.7071, 0, 0, 0.7071) -- x/y/z/w order preserved.
+    CHECK(rotValues[4 + 0] == doctest::Approx(0.7071f));
+    CHECK(rotValues[4 + 3] == doctest::Approx(0.7071f));
+
+    const auto& scaleCh = findChannel("scale");
+    const auto& scaleSamp = ga.samplers[scaleCh.sampler];
+    CHECK(model.accessors[scaleSamp.output].count == 1);
+}
+
+TEST_CASE("writeGlb: a JointAnimation with only some TRS properties populated emits only those "
+          "channels") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    husk::gltf::JointAnimation ja;
+    ja.joint = 0;
+    ja.translationTimes = {0.0f};
+    ja.translationValues = {{1, 1, 1}};
+    // rotation/scale left empty.
+
+    husk::gltf::Animation anim;
+    anim.joints = {ja};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel, {anim});
+    auto model = loadBack(glb);
+
+    REQUIRE(model.animations.size() == 1);
+    REQUIRE(model.animations[0].channels.size() == 1);
+    CHECK(model.animations[0].channels[0].target_path == "translation");
+}
+
+TEST_CASE("writeGlb: animations given without a skeleton throws") {
+    auto mesh = buildTriangleMesh();
+    husk::gltf::JointAnimation ja;
+    ja.joint = 0;
+    ja.translationTimes = {0.0f};
+    ja.translationValues = {{0, 0, 0}};
+    husk::gltf::Animation anim;
+    anim.joints = {ja};
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, nullptr, {anim}), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: an animation joint index out of range for the skeleton throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    husk::gltf::JointAnimation ja;
+    ja.joint = 99;
+    ja.translationTimes = {0.0f};
+    ja.translationValues = {{0, 0, 0}};
+    husk::gltf::Animation anim;
+    anim.joints = {ja};
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel, {anim}), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: an animation joint with mismatched time/value counts throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    husk::gltf::JointAnimation ja;
+    ja.joint = 0;
+    ja.translationTimes = {0.0f, 1.0f};
+    ja.translationValues = {{0, 0, 0}};  // only 1 value for 2 times
+    husk::gltf::Animation anim;
+    anim.joints = {ja};
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel, {anim}), husk::gltf::Error);
+}
+
 TEST_CASE("writeGlb: baseColorTexCoord=1 without mesh.texCoords2 falls back to TEXCOORD_0, not "
           "a dangling reference") {
     auto mesh = buildTriangleMesh();  // no texCoords2

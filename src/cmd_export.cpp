@@ -20,8 +20,13 @@
 // src/skin.hpp's Batch) into one glTF material + primitive per batch, with
 // WoW's blend mode translated to glTF's alphaMode and (optionally, via
 // --textures) a real baseColorTexture image embedded. All of the above
-// convert WoW's Z-up coordinates to glTF's Y-up. No animation playback yet
-// -- that's roadmap stage 6.
+// convert WoW's Z-up coordinates to glTF's Y-up. Stage 6 (animation, see
+// README.md) additionally resolves M2Sequence + each bone's M2Track<T>
+// keyframes into real glTF animation clips -- but only for a model's
+// *inline* bones (an external .skel file moves per-bone keyframe data out
+// to .anim files husk doesn't parse the content of yet, see
+// buildAnimations's doc comment below) and only for sequences whose data
+// actually lives in this M2 rather than an external .anim file.
 namespace husk::commands {
 
 namespace {
@@ -36,11 +41,15 @@ void printUsage() {
            "coordinates to glTF's Y-up, and writes a glTF binary (.glb) --\n"
            "one primitive per .skin batch, with WoW's blend mode/render\n"
            "flags translated to glTF's alphaMode/doubleSided. If the M2\n"
-           "has bones, they're exported as a bind-pose glTF skin (no\n"
-           "animation playback yet). Some models (see `husk info`'s\n"
-           "output) keep their bones in a separate .skel file instead of\n"
-           "inline -- pass its path as the optional 4th argument to use\n"
-           "those. husk doesn't resolve texture/skin FileDataIDs to actual\n"
+           "has bones, they're exported as a glTF skin; inline bones (not\n"
+           "from a separate .skel file) additionally get real animation\n"
+           "clips, one per M2Sequence whose keyframe data lives in this M2\n"
+           "rather than an external .anim file (which husk doesn't parse\n"
+           "the content of yet). Some models (see `husk info`'s output)\n"
+           "keep their bones in a separate .skel file instead of inline --\n"
+           "pass its path as the optional 4th argument to use those (bind\n"
+           "pose only, no animation clips, for that case). husk doesn't\n"
+           "resolve texture/skin FileDataIDs to actual\n"
            "BLP/.skin files itself (no CASC/listfile access, see\n"
            "README.md) -- pass --textures <dir> pointing at a directory of\n"
            "already-converted (via husk-blp, see blp/) PNGs named\n"
@@ -67,6 +76,29 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
 }
 
 gltf::Vec3 toGltf(const m2::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z}); }
+
+// Converts an M2 bone-rotation quaternion (already decompressed, see
+// m2::Quat) from WoW's Z-up space to glTF's Y-up space. Derived (and
+// numerically checked against several test rotations, not just asserted)
+// from the general rule for re-expressing a rotation under a change of
+// basis that is itself a proper rotation (det +1, which zUpToYUp's (X, -Z,
+// Y) permutation is): apply the same permutation to the quaternion's
+// vector part and leave the scalar part untouched. No wowdev.wiki page
+// spells this out explicitly for M2 bone tracks specifically -- this
+// wasn't visually verified against a real animated model in a 3D viewer,
+// only mathematically (see tests/test_cmd_export.cpp), so treat a first
+// real animated .glb as still worth a sanity look in Blender.
+gltf::Quat toGltf(const m2::Quat& q) { return {q.x, -q.z, q.y, q.w}; }
+
+// Converts an M2 bone scale vector from Z-up to Y-up. Deliberately *not*
+// gltf::zUpToYUp -- that function's sign flip on the (former) Z component
+// is correct for a position/direction, but scale is a set of per-axis
+// magnitudes (the diagonal of a scale matrix), and conjugating a diagonal
+// matrix by a signed-permutation change-of-basis just permutes the
+// diagonal entries -- the signs cancel out (checked numerically the same
+// way as the quaternion conversion above). Swapping Y and Z, unsigned, is
+// the whole conversion.
+gltf::Vec3 toGltfScale(const m2::Vec3& s) { return {s.x, s.z, s.y}; }
 
 bool isFinite(const m2::Vec3& v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); }
 
@@ -141,6 +173,93 @@ gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones) {
     }
     checkNoBoneCycles(skeleton.joints);
     return skeleton;
+}
+
+// M2Sequence flags bit meaning "this sequence's keyframe data lives inline
+// in the M2 (this bit set) vs. in an external .anim file (unset)" --
+// wowdev.wiki M2#Animation_sequences's Flags table, historically named
+// "looped animation" by a wiki contributor without a cited source, but its
+// actual documented meaning ("If set, the animation data is in the .m2
+// file") is what matters here.
+constexpr uint32_t kSequenceStoredInlineFlag = 0x20;
+
+// Builds one glTF animation clip per M2Sequence that has its keyframe data
+// inline (flags & 0x20 -- everything else's real data is in an external
+// .anim file, wowdev.wiki M2#AFID, which husk doesn't parse the content of
+// yet), covering every bone that has real (non-empty) translation/
+// rotation/scale keyframes for that specific sequence. Deliberately only
+// called for a model's *inline* bones (see m2::Bone::translationTrackOffset
+// et al.'s doc comment for why a .skel-sourced skeleton's tracks are
+// expected to be empty, not wrong, here) -- `skeleton` must be the
+// already-built bind-pose Skeleton for these same `bones`, in the same
+// order, since each keyframe's translation channel value is bind-pose-
+// relative-to-parent (`skeleton.joints[i].localTranslation`) plus the
+// animated delta -- glTF's animated translation *replaces* the node's
+// translation at sampled times rather than adding to it, so the bind
+// offset has to be baked into every keyframe value, not left implicit.
+// Sequences with no bone actually carrying inline data for them (a
+// zero-length primary sequence, or one this model just doesn't animate any
+// bone in) are skipped -- an empty animation clip isn't useful output.
+std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
+                                              const std::vector<m2::Bone>& bones,
+                                              const gltf::Skeleton& skeleton,
+                                              const std::vector<m2::Sequence>& sequences) {
+    std::vector<gltf::Animation> animations;
+
+    for (size_t si = 0; si < sequences.size(); ++si) {
+        const auto& seq = sequences[si];
+        if ((seq.flags & kSequenceStoredInlineFlag) == 0) {
+            continue;
+        }
+
+        gltf::Animation anim;
+        anim.name = "anim_" + std::to_string(seq.id) + "_" + std::to_string(seq.variationIndex);
+
+        for (size_t bi = 0; bi < bones.size(); ++bi) {
+            const auto& bone = bones[bi];
+            auto translation =
+                m2::resolveVec3TrackSequence(blob, bone.translationTrackOffset, static_cast<uint32_t>(si));
+            auto rotation =
+                m2::resolveQuatTrackSequence(blob, bone.rotationTrackOffset, static_cast<uint32_t>(si));
+            auto scale =
+                m2::resolveVec3TrackSequence(blob, bone.scaleTrackOffset, static_cast<uint32_t>(si));
+            if (translation.empty() && rotation.empty() && scale.empty()) {
+                continue;
+            }
+
+            gltf::JointAnimation ja;
+            ja.joint = static_cast<int>(bi);
+            const gltf::Vec3& bindTranslation = skeleton.joints[bi].localTranslation;
+
+            ja.translationTimes.reserve(translation.size());
+            ja.translationValues.reserve(translation.size());
+            for (const auto& [ts, v] : translation) {
+                gltf::Vec3 delta = toGltf(v);
+                ja.translationTimes.push_back(static_cast<float>(ts) / 1000.0f);
+                ja.translationValues.push_back({bindTranslation.x + delta.x, bindTranslation.y + delta.y,
+                                                 bindTranslation.z + delta.z});
+            }
+            ja.rotationTimes.reserve(rotation.size());
+            ja.rotationValues.reserve(rotation.size());
+            for (const auto& [ts, q] : rotation) {
+                ja.rotationTimes.push_back(static_cast<float>(ts) / 1000.0f);
+                ja.rotationValues.push_back(toGltf(q));
+            }
+            ja.scaleTimes.reserve(scale.size());
+            ja.scaleValues.reserve(scale.size());
+            for (const auto& [ts, s] : scale) {
+                ja.scaleTimes.push_back(static_cast<float>(ts) / 1000.0f);
+                ja.scaleValues.push_back(toGltfScale(s));
+            }
+            anim.joints.push_back(std::move(ja));
+        }
+
+        if (!anim.joints.empty()) {
+            animations.push_back(std::move(anim));
+        }
+    }
+
+    return animations;
 }
 
 // Lifts M2Vertex's raw bone_weights[4]/bone_indices[4] into glTF's
@@ -522,21 +641,34 @@ int exportGlb(int argc, char** args) {
         mesh.primitives = built.primitives;
 
         auto bones = m2::parseBones(blob, header.bones);
-        if (!bones.empty() && !skelPath.empty()) {
+        // Only *inline* bones (this same flag's condition) have track
+        // offsets relative to `blob` -- a .skel-sourced skeleton's tracks
+        // are expected to be empty anyway (see buildAnimations's doc
+        // comment), but capturing this before the skel fallback below
+        // might overwrite `bones` keeps the intent explicit rather than
+        // relying on that emptiness as an implicit signal.
+        bool bonesAreInline = !bones.empty();
+        if (bonesAreInline && !skelPath.empty()) {
             std::cerr << "husk: note: '" << modelPath << "' has its own inline bones; ignoring '"
                       << skelPath << "'\n";
-        } else if (bones.empty() && !skelPath.empty()) {
+        } else if (!bonesAreInline && !skelPath.empty()) {
             auto skelBytes = readFileBytes(skelPath);
             bones = skel::parseBones(skelBytes);
         }
 
         gltf::Skeleton skeleton;
+        std::vector<gltf::Animation> animations;
         if (!bones.empty()) {
             skeleton = buildSkeleton(bones);
             mesh.skinning = buildSkinning(vertices, bones.size());
+            if (bonesAreInline) {
+                auto sequences = m2::parseSequences(blob, header.sequences);
+                animations = buildAnimations(blob, bones, skeleton, sequences);
+            }
         }
 
-        auto glb = gltf::writeGlb(mesh, built.materials, bones.empty() ? nullptr : &skeleton);
+        auto glb =
+            gltf::writeGlb(mesh, built.materials, bones.empty() ? nullptr : &skeleton, animations);
 
         std::ofstream out(outputPath, std::ios::binary);
         if (!out) {
@@ -551,7 +683,12 @@ int exportGlb(int argc, char** args) {
         std::cout << outputPath << ": " << vertices.size() << " vertices, "
                   << (triangleIndices.size() / 3) << " triangles";
         if (!bones.empty()) {
-            std::cout << ", " << bones.size() << " bones (bind pose only, no animation)";
+            std::cout << ", " << bones.size() << " bones";
+            if (!animations.empty()) {
+                std::cout << ", " << animations.size() << " animation(s)";
+            } else {
+                std::cout << " (bind pose only, no animation)";
+            }
         }
         if (!built.materials.empty()) {
             size_t withImage = 0;

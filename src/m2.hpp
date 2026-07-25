@@ -37,6 +37,15 @@ struct Vec2 {
     float x = 0, y = 0;
 };
 
+// A compressed bone-rotation quaternion, already decompressed to floats --
+// see wowdev.wiki "Quaternion values and 2.x" for the packed-int16 wire
+// format (src/m2.cpp's readCompQuat does the actual unpacking). Field order
+// matches Blizzard's own C4Quaternion: w last, not first (wowdev.wiki
+// Common_Types#C4Quaternion's explicit warning about this).
+struct Quat {
+    float x = 0, y = 0, z = 0, w = 1;
+};
+
 // M2Vertex, per wowdev.wiki M2#Vertices -- 48 bytes on disk, field order
 // below matches the wire layout exactly (see tests/test_m2.cpp for the byte
 // offsets). Read verbatim: no coordinate-system conversion happens here --
@@ -111,6 +120,25 @@ struct Header {
     float boundingSphereRadius = 0;
     BoundingBox collisionBox;
     float collisionSphereRadius = 0;
+
+    // Collision mesh (physics/hit-testing, distinct from the render mesh in
+    // `vertices`) and the object-placement/gameplay arrays that follow it in
+    // the header -- wowdev.wiki M2#Header. None of these are dereferenced by
+    // husk yet (see parseVertices/parseBones/parseTextures for the pattern
+    // that would do it); surfacing the Array descriptors themselves is what
+    // `husk info` needs to report counts, and is the minimum needed to keep
+    // this struct's field layout complete and in wire order.
+    Array collisionIndices;   // uint16 triangle indices into collisionPositions
+    Array collisionPositions; // C3Vector
+    Array collisionFaceNormals; // C3Vector
+    Array attachments;        // M2Attachment -- equip/effect points (hands, head, ...)
+    Array attachmentLookup;   // uint16, alt. name attachment_lookup_table
+    Array events;             // M2Event -- e.g. the "$DTH" death-sound event
+    Array lights;              // M2Light
+    Array cameras;             // M2Camera
+    Array cameraLookup;        // uint16, alt. name camera_lookup_table
+    Array ribbonEmitters;      // M2Ribbon
+    Array particleEmitters;    // M2Particle
 
     bool chunked = false;  // true if this file was Legion+ MD21-wrapped
 
@@ -209,6 +237,62 @@ struct Bone {
     uint32_t flags = 0;
     int16_t parentBone = -1;  // index into this same bones array, -1 if none
     Vec3 pivot;                // bind-pose position, in model space
+
+    // Byte offsets (relative to the *same blob `parseBones` was given* --
+    // for inline M2 bones that's the MD20 blob; for a .skel file's SKB1
+    // bones, per husk::skel::parseBones, it's that chunk's own payload
+    // instead, which matters below) of this bone's three M2Track<T>
+    // animation blocks -- translation/scale are M2Track<C3Vector>, rotation
+    // is M2Track<Quat> (wire format M2CompQuat, see Quat's doc comment).
+    // Not resolved into keyframe data by parseBones itself, same "just the
+    // descriptor" policy Header's own M2Array fields follow -- see
+    // resolveVec3TrackSequence/resolveQuatTrackSequence below, called with
+    // one specific M2Sequence index (Sequence, below) at a time.
+    //
+    // Roadmap stage 6 (animation, see README.md) only actually wires these
+    // up for a model's *inline* bones: per wowdev.wiki's .skel article,
+    // once an M2 has moved its bones out to a .skel file, per-bone keyframe
+    // data moves out too (into a .anim file's AFSB chunk, a format husk
+    // doesn't parse yet) -- these three offsets are still populated for
+    // .skel bones by parseBones (it can't tell the difference), but every
+    // M2Track they point at is expected to be genuinely empty for that
+    // case, not silently wrong.
+    uint32_t translationTrackOffset = 0;
+    uint32_t rotationTrackOffset = 0;
+    uint32_t scaleTrackOffset = 0;
+};
+
+// M2Sequence, per wowdev.wiki M2#Animation_sequences -- 0x40 (64) bytes for
+// every version this parser targets (WotLK+, matching Bone's own minimum;
+// the pre-6.0.1-vs-later blendTimeIn/blendTimeOut-vs-blendTime split
+// doesn't move any of the offsets below, so it doesn't matter that this
+// parser doesn't read that field at all). The wiki's own struct listing
+// shows an "M2Bounds bounds;" field with no offset comment, right where a
+// stale-looking "/*0x20*/ int16_t variationNext" annotation immediately
+// follows it -- easy to misread as a documentation artifact (36-byte
+// stride, bounds omitted) rather than a real 28-byte field the wiki just
+// forgot to re-number after inserting. It's real: verified against
+// bloodelffemale.m2, where a 36-byte stride decodes id/variationIndex into
+// nonsense (e.g. variationIndex in the tens of thousands) for every other
+// record, while 64 bytes decodes every one of its 339 sequences to sane
+// values (small ids/variationIndices, millisecond durations). Deliberately
+// minimal otherwise -- only what roadmap stage 6's animation export
+// actually needs; movespeed/replay/blendTime/bounds itself/variationNext/
+// aliasNext are skipped, same "extend as later commands need more" policy
+// as Header's own doc comment.
+struct Sequence {
+    uint16_t id = 0;             // AnimationData.dbc id -- husk has no DBC access, so this is
+                                  // surfaced as a raw number, never resolved to a human name
+    uint16_t variationIndex = 0; // which sub-animation in a row of same-id animations
+    uint32_t duration = 0;       // milliseconds
+    // M2Sequence flags (wowdev.wiki M2#Animation_sequences's Flags table).
+    // The only bit husk's animation export actually checks is 0x20
+    // ("primary bone sequence": if set, this sequence's M2Track keyframe
+    // data lives inline in this M2; if not, it's in an external .anim file
+    // husk doesn't parse yet -- see Header::animFileIds) -- exposing the
+    // whole field rather than just a bool in case a future caller needs
+    // another bit (e.g. 0x40, alias-follows).
+    uint32_t flags = 0;
 };
 
 // M2Color / M2TextureWeight, per wowdev.wiki M2#Colors_and_transparency --
@@ -300,6 +384,36 @@ std::vector<Color> parseColors(const std::vector<uint8_t>& blob, const Array& ar
 // ParseError under the same conditions. An empty array (count 0) returns
 // an empty vector without touching `array.offset`.
 std::vector<TextureWeight> parseTextureWeights(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` M2Sequence records out of `blob` starting at
+// `array.offset`. Throws ParseError if that range runs past the end of the
+// blob. An empty array (count 0) returns an empty vector without touching
+// `array.offset` at all.
+std::vector<Sequence> parseSequences(const std::vector<uint8_t>& blob, const Array& array);
+
+// Resolves one M2Track<C3Vector>'s keyframe data for exactly one M2Sequence
+// index (an index into the `sequences` array `parseSequences` returned,
+// *not* an M2Sequence::id) -- see wowdev.wiki M2#Interpolation's "outer
+// array indexed by animation" model, and Bone::translationTrackOffset's doc
+// comment for what `trackOffset` (and which `blob`) needs to be. Returns
+// (timestamp in milliseconds, value) pairs in file order, or an empty
+// vector -- not an error -- when `sequenceIndex` is out of range for this
+// particular track's own outer array, or that entry has zero keyframes
+// (the ordinary shape for a sequence whose real data lives in an external
+// .anim file instead, see Sequence::flags). Throws ParseError if the
+// track's own array descriptors, or the claimed keyframe data itself, run
+// past the end of the blob (foreign data, same as every other M2Array
+// access in this file).
+std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(const std::vector<uint8_t>& blob,
+                                                                  uint32_t trackOffset,
+                                                                  uint32_t sequenceIndex);
+
+// Same as resolveVec3TrackSequence, but for an M2Track<M2CompQuat> (i.e.
+// Bone::rotationTrackOffset) -- each raw wire value is decompressed to a
+// Quat (see Quat's doc comment) before being returned.
+std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(const std::vector<uint8_t>& blob,
+                                                                  uint32_t trackOffset,
+                                                                  uint32_t sequenceIndex);
 
 // Best-effort expansion label(s) for a raw header version number, per the
 // wiki's own version table -- which the wiki itself calls "rough estimates"

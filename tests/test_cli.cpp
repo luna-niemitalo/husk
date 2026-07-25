@@ -49,7 +49,7 @@ void putU16(std::vector<uint8_t>& b, uint16_t v) {
 void putTag(std::vector<uint8_t>& b, const char* tag) { b.insert(b.end(), tag, tag + 4); }
 
 // A minimal valid-shaped MD20 blob: every field husk::m2::parseBlob reads,
-// zeroed, through collisionSphereRadius (minHeaderSize = 0xD8 = 216 bytes --
+// zeroed, through particleEmitters (minHeaderSize = 0x130 = 304 bytes --
 // see src/m2.cpp's offset table, or tests/test_m2.cpp's independent
 // transcription of the same wowdev.wiki spec for the authoritative
 // field-by-field layout). Field *values* don't matter here -- these tests
@@ -63,8 +63,8 @@ std::vector<uint8_t> minimalMd20(uint32_t version = 274) {
     std::vector<uint8_t> b;
     putTag(b, "MD20");
     putU32(b, version);
-    for (int i = 0; i < 52; ++i) putU32(b, 0);
-    REQUIRE(b.size() == 0xD8);
+    for (int i = 0; i < 74; ++i) putU32(b, 0);
+    REQUIRE(b.size() == 0x130);
     return b;
 }
 
@@ -158,7 +158,171 @@ std::vector<uint8_t> buildSkel(const std::vector<std::pair<int32_t, int16_t>>& b
     return b;
 }
 
+// Fills in one M2Track<T>'s already-reserved 20-byte slot at `trackOff`
+// with a *single* animation sub-array (index 0, matching sequence index 0
+// -- the only sequence tinyAnimatedM2 defines), appended at the current end
+// of `buf`. `rawValueBytes[i]` is keyframe i's value bytes (e.g. 12 for a
+// C3Vector, 8 for an M2CompQuat); `timestampsMs[i]` its timestamp -- same
+// length required. Mirrors tests/test_m2.cpp's putFullTrack, just in this
+// file's own append-as-you-go style rather than that one's offset-and-
+// resize style.
+void fillTrack(std::vector<uint8_t>& buf, size_t trackOff, const std::vector<uint32_t>& timestampsMs,
+               const std::vector<std::vector<uint8_t>>& rawValueBytes) {
+    uint32_t tsOuterOff = static_cast<uint32_t>(buf.size());
+    buf.resize(buf.size() + 8, 0);
+    uint32_t valOuterOff = static_cast<uint32_t>(buf.size());
+    buf.resize(buf.size() + 8, 0);
+
+    uint32_t tsDataOff = static_cast<uint32_t>(buf.size());
+    for (uint32_t ts : timestampsMs) putU32(buf, ts);
+    uint32_t valDataOff = static_cast<uint32_t>(buf.size());
+    for (const auto& v : rawValueBytes) buf.insert(buf.end(), v.begin(), v.end());
+
+    uint32_t n = static_cast<uint32_t>(timestampsMs.size());
+    std::memcpy(buf.data() + tsOuterOff, &n, 4);
+    std::memcpy(buf.data() + tsOuterOff + 4, &tsDataOff, 4);
+    std::memcpy(buf.data() + valOuterOff, &n, 4);
+    std::memcpy(buf.data() + valOuterOff + 4, &valDataOff, 4);
+
+    uint32_t one = 1;
+    std::memcpy(buf.data() + trackOff + 0x04, &one, 4);
+    std::memcpy(buf.data() + trackOff + 0x08, &tsOuterOff, 4);
+    std::memcpy(buf.data() + trackOff + 0x0C, &one, 4);
+    std::memcpy(buf.data() + trackOff + 0x10, &valOuterOff, 4);
+}
+
+std::vector<uint8_t> vec3Bytes(float x, float y, float z) {
+    std::vector<uint8_t> b(12);
+    std::memcpy(b.data() + 0, &x, 4);
+    std::memcpy(b.data() + 4, &y, 4);
+    std::memcpy(b.data() + 8, &z, 4);
+    return b;
+}
+
+// Raw M2CompQuat wire bytes for the identity quaternion (0,0,0,1) -- wire
+// value (32767,32767,32767,65535), see husk::m2::Quat's doc comment.
+std::vector<uint8_t> identityQuatBytes() {
+    std::vector<uint8_t> b(8);
+    uint16_t vals[4] = {32767, 32767, 32767, 65535};
+    std::memcpy(b.data(), vals, 8);
+    return b;
+}
+
+// tinyValidM2() (1 vertex) plus exactly 1 M2Sequence (id=100,
+// flags=0x20 -- "stored inline") and exactly 1 inline bone whose
+// translation/rotation/scale tracks all carry real keyframe data for that
+// one sequence -- enough to prove `husk export` produces an actual glTF
+// animation clip end-to-end (see test_m2.cpp/test_gltf.cpp for the same
+// logic tested in isolation, one layer at a time).
+std::vector<uint8_t> tinyAnimatedM2() {
+    auto b = tinyValidM2();
+
+    uint32_t seqOff = static_cast<uint32_t>(b.size());
+    uint32_t seqCount = 1;
+    std::memcpy(b.data() + 0x01C, &seqCount, 4);
+    std::memcpy(b.data() + 0x020, &seqOff, 4);
+    b.resize(seqOff + 0x40, 0);
+    uint16_t seqId = 100;
+    std::memcpy(b.data() + seqOff + 0x00, &seqId, 2);
+    uint32_t duration = 1000;
+    std::memcpy(b.data() + seqOff + 0x04, &duration, 4);
+    uint32_t seqFlags = 0x20;
+    std::memcpy(b.data() + seqOff + 0x0C, &seqFlags, 4);
+
+    uint32_t boneOff = static_cast<uint32_t>(b.size());
+    uint32_t boneCount = 1;
+    std::memcpy(b.data() + 0x02C, &boneCount, 4);
+    std::memcpy(b.data() + 0x030, &boneOff, 4);
+    b.resize(boneOff + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(b.data() + boneOff + 0x00, &keyBoneId, 4);
+    int16_t parentBone = -1;
+    std::memcpy(b.data() + boneOff + 0x08, &parentBone, 2);
+
+    fillTrack(b, boneOff + 0x10, {0, 1000}, {vec3Bytes(0, 0, 0), vec3Bytes(1, 2, 3)});
+    fillTrack(b, boneOff + 0x24, {0, 1000}, {identityQuatBytes(), identityQuatBytes()});
+    fillTrack(b, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+
+    return b;
+}
+
 }  // namespace
+
+TEST_CASE("husk export: an inline bone with a flags&0x20 sequence produces a real glTF "
+          "animation, end to end") {
+    auto m2Path = tempPath("animated.m2");
+    writeFile(m2Path, tinyAnimatedM2());
+    auto skinPath = tempPath("animated.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                           tempPath("animated.glb").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: a sequence without flags&0x20 (external .anim data) produces no "
+          "animation clip, even with real inline bone track data") {
+    auto m2 = tinyAnimatedM2();
+    // Clear the inline-storage flag -- same shape as a genuinely low-
+    // priority sequence whose real keyframes live in a .anim file husk
+    // doesn't parse the content of; the M2's own inline track data (if
+    // any) shouldn't be trusted for a sequence that claims it isn't here.
+    uint32_t seqOff = 0;
+    std::memcpy(&seqOff, m2.data() + 0x020, 4);
+    uint32_t noFlags = 0;
+    std::memcpy(m2.data() + seqOff + 0x0C, &noFlags, 4);
+
+    auto m2Path = tempPath("not-inline.m2");
+    writeFile(m2Path, m2);
+    auto skinPath = tempPath("not-inline.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                           tempPath("not-inline.glb").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("animation(s)") == std::string::npos);
+    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: an external .skel skeleton gets no animation clips, even if the M2 has "
+          "a flags&0x20 sequence (real track data lives in .anim's AFSB chunk instead, which "
+          "husk doesn't parse)") {
+    // tinyValidM2() (not tinyAnimatedM2()) -- no inline bones at all, so
+    // bones come entirely from the .skel file below, same as a real
+    // Legion+ SKID-linked model.
+    auto m2 = tinyValidM2();
+    uint32_t seqOff = static_cast<uint32_t>(m2.size());
+    uint32_t seqCount = 1;
+    std::memcpy(m2.data() + 0x01C, &seqCount, 4);
+    std::memcpy(m2.data() + 0x020, &seqOff, 4);
+    m2.resize(seqOff + 0x40, 0);
+    uint32_t seqFlags = 0x20;
+    std::memcpy(m2.data() + seqOff + 0x0C, &seqFlags, 4);
+
+    auto m2Path = tempPath("skel-animated.m2");
+    writeFile(m2Path, m2);
+    auto skinPath = tempPath("skel-animated.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto skelPath = tempPath("skel-animated.skel");
+    writeFile(skelPath, buildSkel({{-1, -1}}));
+
+    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                           tempPath("skel-animated.glb").string() + " " + skelPath.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("animation(s)") == std::string::npos);
+    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
+}
 
 TEST_CASE("husk info: directory as path fails cleanly, not a crash (FAILURES.md #1)") {
     auto result = runHusk("info " + fs::temp_directory_path().string());
@@ -526,6 +690,24 @@ TEST_CASE("husk info: prints skin_file_data_ids/lod_count/bone_file_data_ids/ani
     CHECK(result.output.find("lod_count: 3") != std::string::npos);
     CHECK(result.output.find("bone_file_data_ids: 1") != std::string::npos);
     CHECK(result.output.find("anim_file_ids: 1") != std::string::npos);
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk info: prints attachments/events/lights/cameras/ribbon_emitters/particle_emitters "
+          "counts") {
+    auto md20 = minimalMd20();
+    auto path = tempPath("counts-only.m2");
+    writeFile(path, md20);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("attachments: 0") != std::string::npos);
+    CHECK(result.output.find("events: 0") != std::string::npos);
+    CHECK(result.output.find("lights: 0") != std::string::npos);
+    CHECK(result.output.find("cameras: 0") != std::string::npos);
+    CHECK(result.output.find("ribbon_emitters: 0") != std::string::npos);
+    CHECK(result.output.find("particle_emitters: 0") != std::string::npos);
 
     fs::remove(path);
 }

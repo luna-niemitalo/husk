@@ -48,7 +48,7 @@ const char* alphaModeString(Material::AlphaMode mode) {
 }  // namespace
 
 std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& materials,
-                               const Skeleton* skeleton) {
+                               const Skeleton* skeleton, const std::vector<Animation>& animations) {
     size_t n = mesh.positions.size();
     if (mesh.normals.size() != n || mesh.texCoords.size() != n) {
         throw Error("writeGlb: positions (" + std::to_string(n) + "), normals (" +
@@ -111,6 +111,28 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
                 throw Error("writeGlb: joint " + std::to_string(i) + "'s parent (" +
                             std::to_string(parent) + ") is out of range for " +
                             std::to_string(skeleton->joints.size()) + " joints");
+            }
+        }
+    }
+
+    if (!animations.empty() && !hasSkeleton) {
+        throw Error("writeGlb: animations were given without a skeleton");
+    }
+    for (size_t ai = 0; ai < animations.size(); ++ai) {
+        for (size_t ji = 0; ji < animations[ai].joints.size(); ++ji) {
+            const auto& ja = animations[ai].joints[ji];
+            if (ja.joint < 0 || static_cast<size_t>(ja.joint) >= skeleton->joints.size()) {
+                throw Error("writeGlb: animation " + std::to_string(ai) + "'s joint entry " +
+                            std::to_string(ji) + " (joint " + std::to_string(ja.joint) +
+                            ") is out of range for " + std::to_string(skeleton->joints.size()) +
+                            " joints");
+            }
+            if (ja.translationTimes.size() != ja.translationValues.size() ||
+                ja.rotationTimes.size() != ja.rotationValues.size() ||
+                ja.scaleTimes.size() != ja.scaleValues.size()) {
+                throw Error("writeGlb: animation " + std::to_string(ai) + "'s joint " +
+                            std::to_string(ja.joint) +
+                            " has mismatched keyframe time/value counts");
             }
         }
     }
@@ -331,8 +353,6 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
         tinyPrims.push_back(tp);
     }
 
-    model.bufferViews = views;
-    model.accessors = accessors;
     model.images = images;
     model.textures = textures;
     model.materials = tinyMaterials;
@@ -358,6 +378,94 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
     }
     model.scenes = {scene};
     model.defaultScene = 0;
+
+    // Animations: one glTF animation per husk::gltf::Animation, one
+    // sampler+channel pair per non-empty TRS property per joint entry.
+    // Joint i's data targets node (1 + i) -- see the jointNodes/mesh-node-
+    // is-0 layout built above. Input (time) accessors get min/max per
+    // glTF's own requirement for animation sampler inputs; rotation output
+    // values are laid out as (x, y, z, w) float arrays, matching Quat's own
+    // field order.
+    for (const auto& anim : animations) {
+        tinygltf::Animation ga;
+        ga.name = anim.name;
+
+        auto addChannel = [&](int nodeIdx, const char* path, const std::vector<float>& times,
+                               const void* valuesData, size_t valueCount, size_t valueStride,
+                               int type) {
+            int inView = appendBufferView(buffer, views, times, /*target=*/0);
+            tinygltf::Accessor inAcc;
+            inAcc.bufferView = inView;
+            inAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+            inAcc.count = times.size();
+            inAcc.type = TINYGLTF_TYPE_SCALAR;
+            inAcc.minValues = {static_cast<double>(times.front())};
+            inAcc.maxValues = {static_cast<double>(times.back())};
+            int inIdx = static_cast<int>(accessors.size());
+            accessors.push_back(inAcc);
+
+            tinygltf::BufferView outView;
+            outView.buffer = 0;
+            outView.byteOffset = buffer.data.size();
+            outView.byteLength = valueCount * valueStride;
+            const auto* bytes = reinterpret_cast<const unsigned char*>(valuesData);
+            buffer.data.insert(buffer.data.end(), bytes, bytes + outView.byteLength);
+            int outViewIdx = static_cast<int>(views.size());
+            views.push_back(outView);
+
+            tinygltf::Accessor outAcc;
+            outAcc.bufferView = outViewIdx;
+            outAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+            outAcc.count = valueCount;
+            outAcc.type = type;
+            int outIdx = static_cast<int>(accessors.size());
+            accessors.push_back(outAcc);
+
+            tinygltf::AnimationSampler samp;
+            samp.input = inIdx;
+            samp.output = outIdx;
+            samp.interpolation = "LINEAR";
+            int sampIdx = static_cast<int>(ga.samplers.size());
+            ga.samplers.push_back(samp);
+
+            tinygltf::AnimationChannel ch;
+            ch.sampler = sampIdx;
+            ch.target_node = nodeIdx;
+            ch.target_path = path;
+            ga.channels.push_back(ch);
+        };
+
+        for (const auto& ja : anim.joints) {
+            int nodeIdx = static_cast<int>(1 + ja.joint);
+            if (!ja.translationTimes.empty()) {
+                addChannel(nodeIdx, "translation", ja.translationTimes, ja.translationValues.data(),
+                           ja.translationValues.size(), sizeof(Vec3), TINYGLTF_TYPE_VEC3);
+            }
+            if (!ja.rotationTimes.empty()) {
+                std::vector<std::array<float, 4>> rot;
+                rot.reserve(ja.rotationValues.size());
+                for (const auto& q : ja.rotationValues) {
+                    rot.push_back({q.x, q.y, q.z, q.w});
+                }
+                addChannel(nodeIdx, "rotation", ja.rotationTimes, rot.data(), rot.size(),
+                           sizeof(std::array<float, 4>), TINYGLTF_TYPE_VEC4);
+            }
+            if (!ja.scaleTimes.empty()) {
+                addChannel(nodeIdx, "scale", ja.scaleTimes, ja.scaleValues.data(),
+                           ja.scaleValues.size(), sizeof(Vec3), TINYGLTF_TYPE_VEC3);
+            }
+        }
+
+        model.animations.push_back(ga);
+    }
+
+    // Deferred until every appendBufferView/accessors.push_back above (mesh
+    // data, skinning, materials' embedded images, and now animations) has
+    // run -- `views`/`accessors` are plain local vectors, not references
+    // into the model, so copying them into `model` any earlier would miss
+    // whatever got appended after that point.
+    model.bufferViews = views;
+    model.accessors = accessors;
 
     model.buffers = {buffer};
 

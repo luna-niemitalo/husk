@@ -50,8 +50,12 @@ says so explicitly rather than leaving "bones: 0" to be misread as "no
 skeleton". It also surfaces the model's `SFID` (skin FileDataIDs, see
 `export`'s `auto` below), `LDV1` (LOD count), `BFID` (`.bone` FileDataIDs),
 and `AFID` (`.anim` FileDataIDs) chunks when present -- the last two are
-surfaced but not yet resolved to actual animation-track content (roadmap
-stage 6). For a chunked file it also lists every top-level chunk tag
+surfaced but not yet resolved to actual animation-track content for
+external-`.anim`-file sequences (roadmap stage 6). It also prints record
+counts for `attachments`/`events`/`lights`/`cameras`/`ribbon_emitters`/
+`particle_emitters` -- the header's `(count, offset)` `M2Array` descriptors
+are read, but the records themselves aren't dereferenced yet (see the
+format matrix). For a chunked file it also lists every top-level chunk tag
 found, and separately flags (only when it actually happens) any tag that
 isn't even in husk's known-M2-chunk-tag list -- see the Design notes below
 for why this format needs that.
@@ -71,9 +75,13 @@ whichever one the batch's `textureCoordComboIndex` actually points at
 `M2MaterialInputs`). If the M2 has bones -- inline, or in the optional
 4th-argument `.skel` file for models that keep them there instead (see
 `src/skel.hpp`) -- they're also resolved into a bind-pose glTF skin
-(`JOINTS_0`/`WEIGHTS_0`, inverse bind matrices, a joint-node hierarchy) --
-no animation playback yet. That covers [roadmap stages
-1 through 5](#roadmap-modern-m2--blender-via-gltf) below.
+(`JOINTS_0`/`WEIGHTS_0`, inverse bind matrices, a joint-node hierarchy).
+*Inline* bones (not a `.skel` file, see the design notes below for why)
+additionally get real glTF `animation` clips: one per `M2Sequence` whose
+keyframe data lives in this M2 rather than an external `.anim` file
+(`flags & 0x20`), covering every bone with real translation/rotation/scale
+keyframes for that sequence. That covers [roadmap stages
+1 through 6](#roadmap-modern-m2--blender-via-gltf) below.
 
 husk doesn't resolve the `.skin`/`.skel` filenames itself (no CASC/listfile
 access) -- pass the path to whichever `.skin` matches the M2's LOD you want
@@ -160,6 +168,30 @@ sub-array with exactly one keyframe -- see `src/m2.cpp`'s
 the actual export matched exactly, including that this specific alpha
 track correctly falls back to its default (opaque) rather than the wrong
 value -- `tests/test_m2.cpp` carries this as a named regression test.
+`husk export` on that same pair also produces 256 real glTF animation
+clips out of the model's 339 `M2Sequence` entries (282 flagged `stored
+inline`, 256 of those actually carrying non-empty per-bone keyframe data
+for this particular model) -- every one of the 73,465 resulting rotation
+keyframes checked to be finite and unit-norm (`tests/test_integration.cpp`).
+Getting `M2Sequence`'s own record size right was itself a real-data catch:
+a literal reading of the wiki's struct listing gives 36 bytes, but decoding
+every one of the 339 records at that stride produces plausible-looking
+data for roughly every other entry and outright garbage (`variationIndex`
+in the tens of thousands, multi-gigasecond `duration` values) for the
+rest -- a 64-byte stride (accounting for an `M2Bounds bounds` field the
+wiki lists with no offset comment, easy to misread as a stale annotation
+rather than a real 28-byte gap) decodes all 339 cleanly. See
+`src/m2.hpp`'s `Sequence` doc comment and the Design notes below. The
+Z-up→Y-up conversion for bone rotation/scale keyframes (`gltf::Quat`
+component permutation, `src/cmd_export.cpp`'s `toGltf(m2::Quat)`/
+`toGltfScale`) was derived from general change-of-basis principles and
+checked numerically against several test rotations (see the Design notes)
+rather than taken from an explicit wowdev.wiki formula -- no formula for
+this specific step is documented there. **Not yet verified**: actually
+watching one of these animations play back correctly in Blender (limb
+pivots, timing) -- the checks above prove the data is well-formed and
+internally consistent (unit quaternions, sane durations, correct joint
+targeting), not that a specific animation *looks* right.
 Also stress-tested against the same character's HD variant,
 `bloodelffemale_hd.m2` (195,498 vertices!) + its matching
 `bloodelffemale_hd00.skin`, producing a ~6.8 MB `.glb` with 45,418
@@ -227,10 +259,10 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | Materials | 📖 `materials` array (`flags`/`blending_mode`, `src/m2.cpp`'s `parseMaterials`) resolved per-batch and translated to glTF `alphaMode`/`doubleSided`, plus a static color tint/alpha-fade into `baseColorFactor` (see Per-vertex colors above), by `husk export` (`src/cmd_export.cpp`) — write-back to M2 not applicable (glTF-only tool) | ⬜ `M3SI` Instances → external `MaterialLibrary` (`.mtl3lib`) | ⬜ `MOMT`, `MOM3` (v3 override), `MOUV` (UV anim), per-face `MOPY`/`MPY2`/`MOBS` | ⬛ |
 | Texture references (names/FileDataIDs) | 📖 `textures` array (`type`/`flags`/`filename`) + `textureCombos` lookup table resolved (`src/m2.cpp`); Legion+ `TXID` chunk FileDataIDs surfaced (`Header::textureFileDataIds`) — same non-resolved-to-a-path treatment as `SKID`, see the Sidecar row below | ⬜ indirect, via `MaterialLibrary` → compiled shader files (`GFAT`/`BLS`) — separate formats, not yet even scoped | ⬜ `MOTX` | ⬛ BLP is the referenced asset, not a referencer |
 | Texture pixel data | ⬛ | ⬛ | ⬛ | 🚧 `blp/` (Python, `husk-blp` CLI) — header + mip table resolved, palette/DXT1/DXT5/BGRA decode to PNG done; DXT3 and JPEG content unimplemented (JPEG rare in BLP2 per the wiki; DXT3 unseen in this repo's real test data so far — not yet a confirmed-needed gap) |
-| Animation sequences / tracks | 🚧 `sequences` array count read, no track/keyframe contents; `AFID`/`BFID` (`.anim`/`.bone` sidecar FileDataIDs) surfaced (`husk info`) but not yet resolved to actual track data — see the Sidecar row below | ❔ no sequence/track chunk documented in the fetched spec at all | ⬛ (`MOUV` texture-translation anim is the closest thing; counted under Materials) | ⬛ |
-| Interaction points (attachments, cameras, events) | ⬜ `attachments`/`cameras`/`events` arrays | ❔ not present in the fetched chunk list | ⬛ | ⬛ |
-| Lights | ⬜ `lights` array | ❔ | ⬜ `MOLT` + `MOLR`/`MOLS`/`MOLP` + Shadowlands lightset system (`MLSS`/`MLSP`/`MLSO`/`MLSK`), `MNLD` dynamic lights, legacy v14 `MOLM`/`MOLD` lightmaps | ⬛ |
-| Particles / ribbons (effects) | ⬜ `particle_emitters`/`ribbon_emitters` arrays + `EXPT`/`EXP2`/`TXAC` | ❔ `M3PT` chunk family declared but wiki notes "not yet seen in files" | ⬜ `MPVD` particulate volumes, `MAVG`/`MAVD`/`MBVD` ambient/box volumes + their `*VR` reference lists | ⬛ |
+| Animation sequences / tracks | 📖 `sequences` array resolved to real `M2Sequence` records (`id`/`variationIndex`/`duration`/`flags`, `src/m2.cpp`'s `parseSequences`); each inline bone's `translation`/`rotation`/`scale` `M2Track` resolved per-sequence (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`) into real glTF `animation` clips by `husk export`, for sequences whose data lives in the M2 itself (`flags & 0x20`) — sequences whose data lives in an external `.anim` file, and `.skel`-sourced (non-inline) bones' tracks either way, aren't resolved (`AFID`/`BFID` FileDataIDs are surfaced by `husk info` but the files' content isn't parsed) | ❔ no sequence/track chunk documented in the fetched spec at all | ⬛ (`MOUV` texture-translation anim is the closest thing; counted under Materials) | ⬛ |
+| Interaction points (attachments, cameras, events) | 🚧 `attachments`/`cameras`/`events` array counts/offsets read (`husk info`); records not dereferenced | ❔ not present in the fetched chunk list | ⬛ | ⬛ |
+| Lights | 🚧 `lights` array count/offset read (`husk info`); records not dereferenced | ❔ | ⬜ `MOLT` + `MOLR`/`MOLS`/`MOLP` + Shadowlands lightset system (`MLSS`/`MLSP`/`MLSO`/`MLSK`), `MNLD` dynamic lights, legacy v14 `MOLM`/`MOLD` lightmaps | ⬛ |
+| Particles / ribbons (effects) | 🚧 `particle_emitters`/`ribbon_emitters` array counts/offsets read (`husk info`); records not dereferenced; `EXPT`/`EXP2`/`TXAC` untouched | ❔ `M3PT` chunk family declared but wiki notes "not yet seen in files" | ⬜ `MPVD` particulate volumes, `MAVG`/`MAVD`/`MBVD` ambient/box volumes + their `*VR` reference lists | ⬛ |
 | Fog / environment volumes | ⬛ | ⬛ | ⬜ `MFOG` + `MFED` extra data + `MFOB` fog objects | ⬛ |
 | Liquid / water | ⬛ | ⬛ | ⬜ `MLIQ` | ⬛ |
 | Portals / visibility culling | ⬛ | ⬛ | ⬜ `MOPV`/`MOPT`/`MOPR`/`MOPE`, `MOVV`/`MOVB` visible-block lists | ⬛ |
@@ -420,25 +452,47 @@ above; this section is about *sequencing* that work, not duplicating it.
    surface-now-resolve-later treatment `SKID` got before `.skel` support
    existed — real `.bone`/`.anim` *content* parsing is still stage 6
    below.
-6. **Animation.** Resolve each bone's `M2Track` (translation/rotation/
-   scale keyframes) and map one sequence at a time into glTF `animation`
-   channels targeting joint nodes — get a single idle/stand loop playing
-   correctly before attempting the full `sequences` list. Has a real
-   extra wrinkle: per wowdev.wiki, a sequence loads from an external
-   `.anim` file whenever `(M2Sequence.flags & 0x130) == 0`, resolved via
-   the Legion+ `AFID` chunk (`ChunkedAnimFiles` flag) rather than living
-   inline in the M2 — so this stage also needs `.anim` sidecar support,
-   not just inline track parsing. `AFID`'s FileDataIDs (plus each entry's
-   `animId`/`subAnimId`) are already surfaced (`Header::animFileIds`,
-   stage 5 above) so this stage starts from real IDs, not a fresh
-   discovery. Same category of thing, likely same stage: `BFID` (on the
-   M2 itself, or inside a stage-3 `.skel` file, also already surfaced as
+6. **Animation. Done, for inline bone tracks.** `husk export` resolves
+   `sequences` into real `M2Sequence` records (`src/m2.cpp`'s
+   `parseSequences`) and, for every *inline* bone (see stage 3's `.skel`
+   caveat below), each of its `translation`/`rotation`/`scale` `M2Track`s
+   into per-sequence keyframes (`resolveVec3TrackSequence`/
+   `resolveQuatTrackSequence`) -- one glTF `animation` clip per sequence
+   with real inline data (`M2Sequence.flags & 0x20`, wowdev.wiki: "the
+   animation data is in the .m2 file"), covering every bone that actually
+   has keyframes for it. Translation keyframes are the bind-pose local
+   offset (`Skeleton::Joint::localTranslation`) plus the animated delta --
+   glTF's animated translation *replaces* a node's translation at sampled
+   times rather than adding to it, so the bind offset has to be baked into
+   every keyframe. Rotation/scale keyframes are converted from WoW's Z-up
+   space the same way positions are (see `src/cmd_export.cpp`'s
+   `toGltf(m2::Quat)`/`toGltfScale`) -- derived from general
+   change-of-basis principles and checked numerically against several test
+   rotations rather than taken from an explicit wowdev.wiki formula (none
+   is documented for this specific step). Verified against
+   `bloodelffemale.m2`: 256 animation clips, 73,465 rotation keyframes, all
+   finite and unit-norm (see the Usage section's verified-numbers
+   paragraph) -- **not yet verified** in Blender itself (does a clip
+   actually play back looking right, not just structurally valid data).
+   **Deliberately out of scope for this stage**, left for a follow-on:
+   external `.anim`-file sequences (`flags & 0x20` unset -- per wowdev.wiki
+   these load from `"%s%04d-%02d.anim"`, resolved via the Legion+ `AFID`
+   chunk, whose FileDataIDs plus each entry's `animId`/`subAnimId` are
+   already surfaced as `Header::animFileIds`) and `.skel`-sourced (non-
+   inline) bones' animation, which per wowdev.wiki's `.skel` article moves
+   to a `.anim` file's `AFSB` chunk once a model has a `.skel` file at all
+   -- `Bone::translationTrackOffset` et al. are still populated for
+   `.skel` bones (parseBones can't tell the difference), but
+   `buildAnimations` (`src/cmd_export.cpp`) only ever calls it for inline
+   bones, since a `.skel` model's inline tracks are expected to be
+   genuinely empty, not a source of real keyframes. `BFID` (on the M2
+   itself, or inside a stage-3 `.skel` file, already surfaced as
    `Header::boneFileDataIds`) points at numbered `${basename}_${i}.bone`
-   files, which per wowdev.wiki replaced *per-bone* animation track data —
-   probably an alternate delivery mechanism for the same `M2Track` data
-   this stage already needs to resolve, not a separate concept; confirm
-   that against a real `.bone` file (this repo's test data has 20 of them)
-   when this stage actually starts.
+   files which per wowdev.wiki replaced *per-bone* animation track data --
+   likely an alternate delivery mechanism for the same kind of data this
+   stage already resolves inline, not a separate concept; confirm that
+   against a real `.bone` file (this repo's test data has 20 of them) when
+   `.anim`/`.bone` content parsing actually starts.
 7. **Output hardening.** Validate actual `.glb` output against the
    Khronos glTF-Validator, not just "Blender didn't crash on import."
    Decide the LOD/skin-profile policy (almost certainly: always emit the
@@ -688,20 +742,66 @@ HUSK_TEST_BLP_PALETTE=../test_data/character/bloodelf/female/bloodelffemalefacel
   themselves (a `.skin` extracted via `casc-tool`, a PNG produced by
   `husk-blp`), so the non-goal stated elsewhere in this README ("husk
   never touches CASC storage itself") holds for both without exception.
-- **Not built yet:** parsing most of the fixed header past what's
-  currently read (attachments, events, lights, cameras, particles, ...),
-  resolving `sequences`' own track/keyframe contents (real animation
-  playback, roadmap stage 6 -- `vertices`, `bones`, `textures`,
-  `materials`, `textureCombos`/`textureCoordCombos`/`textureWeightCombos`,
-  and `colors`/`textureWeights` are all resolved now, the last two only as
-  static bind-time approximations, see the design note above), `PFID`
-  (`.phys`, the one Legion+ sidecar chunk with no FileDataID surfaced at
-  all yet -- `SKID`/`SFID`/`TXID`/`BFID`/`AFID` all are, see the format
-  matrix's Sidecar row), actual `.bone`/`.anim` *content* parsing (their
-  FileDataIDs are surfaced, the files themselves aren't fetched or read),
-  `.skin`'s own `bones` field (a different, per-submesh-indirected bone
-  lookup, see the design note above), `.skel`'s own `key_bone_lookup` field
-  and its
+- **`M2Sequence`'s record size is 64 bytes, not the 36 a literal reading of
+  the wiki's own struct listing suggests -- caught by decoding real data,
+  not by re-reading the spec harder.** wowdev.wiki's `M2Sequence` listing
+  includes a line `M2Bounds bounds;` with no offset comment, sitting
+  directly before an annotation `/*0x20*/ int16_t variationNext` that's
+  consistent with `bounds` *not* being there at all (id/variationIndex/
+  duration/movespeed/flags/frequency/padding/replay/blendTimeIn/
+  blendTimeOut already sum to exactly 0x20). That's genuinely ambiguous
+  from the text alone -- it could be a real 28-byte field the wiki forgot
+  to re-number after inserting, or a stale leftover annotation. Deciding
+  it either way from the prose would have been a guess; decoding all 339
+  of `bloodelffemale.m2`'s real sequences at both candidate strides wasn't:
+  36 bytes produces plausible values for roughly every other record and
+  outright garbage for the rest (`variationIndex` in the tens of
+  thousands, `duration` in the billions of milliseconds), while 64 bytes
+  decodes every single one cleanly (small ids, millisecond durations).
+  `src/m2.hpp`'s `Sequence` doc comment carries this derivation; get this
+  wrong and every other `Sequence` field this parser reads (id, duration,
+  flags) silently comes from the wrong byte range for roughly half of a
+  real model's sequences -- not a crash, just quietly wrong data, the same
+  failure shape as the `M2Track[0][0]` bug below.
+- **Bone rotation/scale keyframes need their own Z-up→Y-up conversion,
+  distinct from (and not documented anywhere as explicitly as) positions'
+  `zUpToYUp`.** No wowdev.wiki page spells out the M2-bone-track-specific
+  formula. What's used instead (`src/cmd_export.cpp`'s `toGltf(m2::Quat)`/
+  `toGltfScale`) is derived from the general rule for re-expressing a
+  rotation/scale under a change of basis that's itself a proper rotation
+  (`zUpToYUp`'s `(X, -Z, Y)` permutation has determinant +1): a rotation
+  quaternion gets the *same* permutation applied to its vector part only
+  (scalar/`w` untouched); a scale vector gets the same permutation with
+  signs dropped (Y and Z swapped, unsigned -- conjugating a diagonal scale
+  matrix by a signed-permutation change of basis just permutes the
+  diagonal, the signs cancel). Checked numerically, not just asserted:
+  computed both the "correct by definition" conjugated 3×3 rotation
+  matrix (`R · Q · Rᵀ`) and the permutation-shortcut quaternion for several
+  test rotations (axis-aligned and an arbitrary compound one) and confirmed
+  they produce bit-identical matrices, and separately confirmed a
+  conjugated diagonal scale matrix's entries match the unsigned-swap
+  shortcut. This is weaker evidence than a cited spec formula would be --
+  it's correct *given* that WoW bones use plain parent-relative TRS
+  composition with no separate DCC-style "pivot" concept beyond what
+  `M2CompBone.pivot` already contributes as the bind-pose joint position
+  (the same assumption `buildSkeleton`, stage 2, already made and that
+  this stage's real-data check -- unit-norm quaternions, sane durations --
+  is consistent with, not proof of). See the Usage section's
+  verified-numbers paragraph for what was actually checked end to end.
+- **Not built yet:** dereferencing `attachments`/`events`/`lights`/
+  `cameras`/`ribbon_emitters`/`particle_emitters`/the collision arrays into
+  their actual `M2Attachment`/`M2Event`/`M2Light`/`M2Camera`/`M2Ribbon`/
+  `M2Particle` records (only the header's `(count, offset)` `M2Array`
+  descriptors themselves are read, same as most of these before roadmap
+  stage 6 -- see `husk info`'s output), `PFID` (`.phys`, the one Legion+
+  sidecar chunk with no FileDataID surfaced at all yet --
+  `SKID`/`SFID`/`TXID`/`BFID`/`AFID` all are, see the format matrix's
+  Sidecar row), actual `.bone`/`.anim` *content* parsing (their
+  FileDataIDs are surfaced, the files themselves aren't fetched or read --
+  this is what gates external-`.anim`-sequence and `.skel`-sourced-bone
+  animation, see roadmap stage 6), `.skin`'s own `bones` field (a
+  different, per-submesh-indirected bone lookup, see the design note
+  above), `.skel`'s own `key_bone_lookup` field and its
   `SKL1`/`SKA1`/`SKS1`/`SKPD` chunks, M3, WMO, and any form of
   writing/conversion back into WoW's native formats (only glTF export is
   in scope, see the roadmap above).
