@@ -1,5 +1,6 @@
 #include "m2.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 
@@ -168,6 +169,66 @@ Header parseBlob(const uint8_t* blob, size_t blobSize, bool chunked) {
     return h;
 }
 
+// Many Legion+ chunks are just "one FileDataID" (e.g. SKID, wowdev.wiki
+// M2#SKID) or "a flat array of FileDataIDs, one per some other array's
+// entry" (e.g. TXID, M2#TXID) replacing what used to be a computed
+// filename string -- SFID/AFID/BFID/PFID/SKID/TXID/RPID/GPID all follow one
+// of these two shapes (see README.md's Design notes for why this keeps
+// happening). Centralized here so wiring up the next one is a one-line
+// call at the bottom of resolveBlob(), not a second hand-copied loop.
+std::optional<uint32_t> findFileDataIdChunk(const std::vector<Chunk>& chunks, std::string_view tag) {
+    auto chunk = findChunk(chunks, tag);
+    if (!chunk) {
+        return std::nullopt;
+    }
+    return readU32(chunk->data, chunk->size, 0);
+}
+
+std::optional<std::vector<uint32_t>> findFileDataIdArrayChunk(const std::vector<Chunk>& chunks,
+                                                                std::string_view tag) {
+    auto chunk = findChunk(chunks, tag);
+    if (!chunk) {
+        return std::nullopt;
+    }
+    // `chunk->size` isn't itself an M2Array-style count -- it's just the
+    // chunk's raw byte length, so this is entries-of-4-bytes, not a count
+    // field to trust/validate against some other array's count (that
+    // cross-check, if any, is the consumer's job -- e.g. src/cmd_export.cpp
+    // for TXID vs `textures.count`).
+    size_t count = chunk->size / 4;
+    std::vector<uint32_t> ids;
+    ids.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        ids.push_back(readU32(chunk->data, chunk->size, i * 4));
+    }
+    return ids;
+}
+
+// AFID (wowdev.wiki M2#AFID): a struct array, not a flat FileDataID array
+// -- { uint16_t anim_id; uint16_t sub_anim_id; uint32_t file_id; }[], 8
+// bytes per entry. Doesn't fit findFileDataIdArrayChunk's shape, but is
+// just as small a helper.
+std::optional<std::vector<Header::AnimFileEntry>> findAnimFileIdChunk(
+    const std::vector<Chunk>& chunks, std::string_view tag) {
+    auto chunk = findChunk(chunks, tag);
+    if (!chunk) {
+        return std::nullopt;
+    }
+    constexpr size_t kEntrySize = 8;
+    size_t count = chunk->size / kEntrySize;
+    std::vector<Header::AnimFileEntry> entries;
+    entries.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        size_t off = i * kEntrySize;
+        Header::AnimFileEntry e;
+        e.animId = readU16(chunk->data, chunk->size, off + 0x00);
+        e.subAnimId = readU16(chunk->data, chunk->size, off + 0x02);
+        e.fileId = readU32(chunk->data, chunk->size, off + 0x04);
+        entries.push_back(e);
+    }
+    return entries;
+}
+
 struct ResolvedBlob {
     std::vector<uint8_t> bytes;
     bool chunked;
@@ -177,6 +238,21 @@ struct ResolvedBlob {
     // Set only for chunked files that carry a TXID chunk (wowdev.wiki
     // M2#TXID) -- see Header::textureFileDataIds.
     std::optional<std::vector<uint32_t>> textureFileDataIds;
+    // Set only for chunked files that carry an SFID chunk (wowdev.wiki
+    // M2#SFID) -- see Header::skinFileDataIds.
+    std::optional<std::vector<uint32_t>> skinFileDataIds;
+    // Set only for chunked files that carry an LDV1 chunk (wowdev.wiki
+    // M2#LDV1) -- see Header::lodCount.
+    std::optional<uint16_t> lodCount;
+    // Set only for chunked files that carry a BFID chunk (wowdev.wiki
+    // M2#BFID) -- see Header::boneFileDataIds.
+    std::optional<std::vector<uint32_t>> boneFileDataIds;
+    // Set only for chunked files that carry an AFID chunk (wowdev.wiki
+    // M2#AFID) -- see Header::animFileIds.
+    std::optional<std::vector<Header::AnimFileEntry>> animFileIds;
+    // Every top-level chunk tag found, in file order -- see
+    // Header::chunkTags.
+    std::vector<std::string> chunkTags;
 };
 
 // Resolves the flat-MD20-vs-Legion+-chunked shape shared by parseHeader and
@@ -211,31 +287,38 @@ ResolvedBlob resolveBlob(const std::vector<uint8_t>& fileBytes) {
                           found + "]");
     }
 
-    std::optional<uint32_t> skeletonFileId;
-    if (auto skid = findChunk(chunks, "SKID")) {
-        skeletonFileId = readU32(skid->data, skid->size, 0);
+    std::optional<uint32_t> skeletonFileId = findFileDataIdChunk(chunks, "SKID");
+    std::optional<std::vector<uint32_t>> textureFileDataIds =
+        findFileDataIdArrayChunk(chunks, "TXID");
+    std::optional<std::vector<uint32_t>> skinFileDataIds = findFileDataIdArrayChunk(chunks, "SFID");
+
+    // LDV1 (wowdev.wiki M2#LDV1): struct LodData { uint16 unk0; uint16
+    // lodCount; ... } -- only lodCount (offset 0x02) is surfaced, see
+    // Header::lodCount.
+    std::optional<uint16_t> lodCount;
+    if (auto ldv1 = findChunk(chunks, "LDV1")) {
+        lodCount = readU16(ldv1->data, ldv1->size, 0x02);
     }
 
-    std::optional<std::vector<uint32_t>> textureFileDataIds;
-    if (auto txid = findChunk(chunks, "TXID")) {
-        // wowdev.wiki M2#TXID: a flat array of uint32 FileDataIDs, one per
-        // `textures` entry, in the same order. `size` isn't itself an
-        // M2Array-style count -- it's just the chunk's raw byte length, so
-        // this is entries-of-4-bytes, not a count field to trust/validate
-        // against `textures.count` (that cross-check, if any, belongs to
-        // whoever consumes this -- e.g. src/cmd_export.cpp -- once it also
-        // has the textures array parsed).
-        size_t count = txid->size / 4;
-        std::vector<uint32_t> ids;
-        ids.reserve(count);
-        for (size_t i = 0; i < count; ++i) {
-            ids.push_back(readU32(txid->data, txid->size, i * 4));
-        }
-        textureFileDataIds = std::move(ids);
+    std::optional<std::vector<uint32_t>> boneFileDataIds = findFileDataIdArrayChunk(chunks, "BFID");
+    std::optional<std::vector<Header::AnimFileEntry>> animFileIds =
+        findAnimFileIdChunk(chunks, "AFID");
+
+    std::vector<std::string> chunkTags;
+    chunkTags.reserve(chunks.size());
+    for (const auto& c : chunks) {
+        chunkTags.push_back(c.tag);
     }
 
-    return {std::vector<uint8_t>(md21->data, md21->data + md21->size), /*chunked=*/true,
-            skeletonFileId, textureFileDataIds};
+    return {std::vector<uint8_t>(md21->data, md21->data + md21->size),
+            /*chunked=*/true,
+            skeletonFileId,
+            textureFileDataIds,
+            skinFileDataIds,
+            lodCount,
+            boneFileDataIds,
+            animFileIds,
+            chunkTags};
 }
 
 }  // namespace
@@ -245,6 +328,11 @@ Header parseHeader(const std::vector<uint8_t>& fileBytes) {
     Header h = parseBlob(resolved.bytes.data(), resolved.bytes.size(), resolved.chunked);
     h.skeletonFileId = resolved.skeletonFileId;
     h.textureFileDataIds = resolved.textureFileDataIds;
+    h.skinFileDataIds = resolved.skinFileDataIds;
+    h.lodCount = resolved.lodCount;
+    h.boneFileDataIds = resolved.boneFileDataIds;
+    h.animFileIds = resolved.animFileIds;
+    h.chunkTags = resolved.chunkTags;
     return h;
 }
 
@@ -424,6 +512,117 @@ std::vector<uint16_t> parseUint16Array(const std::vector<uint8_t>& blob, const A
     }
 
     return values;
+}
+
+// Locates an M2Track<T>'s single value, *only* when the track is
+// unambiguously constant -- exactly one animation sub-array (outer.count
+// == 1) with exactly one keyframe in it (inner.count == 1). Anything else
+// is real per-sequence or globally-looped keyframe animation (roadmap
+// stage 6, not this parser's job), and returns nullopt rather than
+// guessing. This distinction mattered in practice, not just in theory: an
+// earlier version of this code took element [0][0] unconditionally, which
+// for a real bloodelffemale.m2 batch meant reading sequence 0's *first*
+// alpha keyframe (0 -- fully transparent) as if it were a sensible default,
+// which would have silently rendered the entire model invisible. Requiring
+// both counts to be exactly 1 is what `interpolation_ranges`/
+// "Blocks that use global sequences also only have one track" (wowdev.wiki
+// M2#Interpolation) actually describes as a non-animated block; anything
+// looser risks repeating that exact mistake. Returns the byte offset of
+// the single value on success, checked the same bounds-checked way any
+// other M2Array element access in this file is.
+std::optional<size_t> constantTrackValueOffset(const uint8_t* data, size_t blobSize,
+                                                size_t trackOffset) {
+    Array outer = readArray(data, blobSize, trackOffset + 0x0C);
+    if (outer.count != 1) {
+        return std::nullopt;
+    }
+    Array inner = readArray(data, blobSize, outer.offset);
+    if (inner.count != 1) {
+        return std::nullopt;
+    }
+    return inner.offset;
+}
+
+std::optional<float> readFixed16TrackValue(const uint8_t* data, size_t blobSize, size_t trackOffset) {
+    auto valueOffset = constantTrackValueOffset(data, blobSize, trackOffset);
+    if (!valueOffset) {
+        return std::nullopt;
+    }
+    // fixed16: a 16-bit fixed-point fraction, 0 (0.0) .. 0x7FFF (1.0) --
+    // wowdev.wiki M2#Colors_and_transparency's own "0 - transparent,
+    // 0x7FFF - opaque" note for M2Color::alpha; M2TextureWeight::weight
+    // uses the same scale.
+    int16_t raw;
+    uint16_t bits = readU16(data, blobSize, *valueOffset);
+    std::memcpy(&raw, &bits, sizeof(raw));
+    return std::clamp(static_cast<float>(raw) / 32767.0f, 0.0f, 1.0f);
+}
+
+std::optional<Vec3> readVec3TrackValue(const uint8_t* data, size_t blobSize, size_t trackOffset) {
+    auto valueOffset = constantTrackValueOffset(data, blobSize, trackOffset);
+    if (!valueOffset) {
+        return std::nullopt;
+    }
+    return readVec3(data, blobSize, *valueOffset);
+}
+
+std::vector<Color> parseColors(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<Color> colors;
+    if (array.count == 0) {
+        return colors;
+    }
+
+    // M2Color: M2Track<C3Vector> color (0x14) + M2Track<fixed16> alpha
+    // (0x14), 0x28 = 40 bytes total.
+    constexpr size_t kColorSize = 0x28;
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kColorSize) {
+        throw ParseError("colors array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kColorSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    colors.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kColorSize;
+        Color c;
+        c.color = readVec3TrackValue(data, blobSize, off + 0x00);
+        c.alpha = readFixed16TrackValue(data, blobSize, off + 0x14);
+        colors.push_back(c);
+    }
+
+    return colors;
+}
+
+std::vector<TextureWeight> parseTextureWeights(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<TextureWeight> weights;
+    if (array.count == 0) {
+        return weights;
+    }
+
+    constexpr size_t kWeightSize = 0x14;  // M2Track<fixed16>, 20 bytes
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kWeightSize) {
+        throw ParseError("textureWeights array claims " + std::to_string(array.count) +
+                          " records (" + std::to_string(kWeightSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    weights.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kWeightSize;
+        TextureWeight w;
+        w.weight = readFixed16TrackValue(data, blobSize, off + 0x00);
+        weights.push_back(w);
+    }
+
+    return weights;
 }
 
 Header loadFile(const std::string& path) {

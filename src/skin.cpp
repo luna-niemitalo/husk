@@ -186,9 +186,12 @@ std::vector<Batch> parseBatches(const std::vector<uint8_t>& fileBytes, const m2:
         Batch b;
         b.flags = readU8(data, size, off + 0x00);
         b.skinSectionIndex = readU16(data, size, off + 0x04);
+        b.colorIndex = readU16(data, size, off + 0x08);
         b.materialIndex = readU16(data, size, off + 0x0A);
         b.textureCount = readU16(data, size, off + 0x0E);
         b.textureComboIndex = readU16(data, size, off + 0x10);
+        b.textureCoordComboIndex = readU16(data, size, off + 0x12);
+        b.textureWeightComboIndex = readU16(data, size, off + 0x14);
         batches.push_back(b);
     }
 

@@ -18,6 +18,12 @@
 // exist, so get this pairing right (e.g. bloodelffemale.m2 pairs with
 // bloodelffemale00.skin, its LOD0 -- not an "_hd" variant, which is a
 // different, separate M2 file's sidecar).
+//
+// HUSK_TEST_SKIN_DIR exercises LOD auto-selection ('auto' + --skin-dir,
+// see cmd_export.cpp): point it at a directory containing
+// HUSK_TEST_M2's own SFID-entry-0 skin, named '<FileDataID>.skin' (find
+// the ID via `husk info`'s skin_file_data_ids line, or just copy
+// HUSK_TEST_SKIN there under its FileDataID).
 
 #include <doctest/doctest.h>
 #include <filesystem>
@@ -74,6 +80,25 @@ TEST_CASE("husk info: real game-extracted M2 parses without error") {
     CHECK(result.output.find("vertices: 0 ") == std::string::npos);
 }
 
+TEST_CASE("husk info: real Legion+ M2 surfaces skin_file_data_ids (SFID) and anim_file_ids "
+          "(AFID) -- both were previously unread") {
+    std::string path = envOrEmpty("HUSK_TEST_M2");
+    if (path.empty()) {
+        MESSAGE("SKIPPED (no real M2 file available -- set HUSK_TEST_M2)");
+        return;
+    }
+
+    auto result = runHusk("info \"" + path + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+    // Not every real M2 necessarily has these chunks (pre-Legion files
+    // never do), but every chunked file used as HUSK_TEST_M2 so far in
+    // this project's own testing does -- if that stops being true for
+    // some other real file, loosen this rather than deleting it outright.
+    CHECK(result.output.find("skin_file_data_ids:") != std::string::npos);
+    CHECK(result.output.find("anim_file_ids:") != std::string::npos);
+}
+
 TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a well-formed glb") {
     std::string m2Path = envOrEmpty("HUSK_TEST_M2");
     std::string skinPath = envOrEmpty("HUSK_TEST_SKIN");
@@ -104,6 +129,28 @@ TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a well-f
     checkSkinnedGlb(outPath);
 
     std::filesystem::remove(outPath);
+}
+
+TEST_CASE("husk info: real game-extracted M2 has no chunk tags outside husk's known M2 chunk "
+          "list") {
+    // The actual canary: cmd_info.cpp's documentedM2ChunkTags is a
+    // snapshot of wowdev.wiki/M2#Chunks from one fetch date, and this
+    // format adds new top-level chunks fairly often (see README.md's
+    // Design notes). If this starts failing against a freshly re-extracted
+    // real file, that's the live signal a client update shipped a chunk
+    // tag nobody's taught husk about yet -- go update
+    // documentedM2ChunkTags (and decide whether the new chunk needs real
+    // support) rather than silently ignoring it.
+    std::string path = envOrEmpty("HUSK_TEST_M2");
+    if (path.empty()) {
+        MESSAGE("SKIPPED (no real M2 file available -- set HUSK_TEST_M2)");
+        return;
+    }
+
+    auto result = runHusk("info \"" + path + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("not in husk's known M2 chunk list") == std::string::npos);
 }
 
 TEST_CASE("husk export: real M2 + .skin resolves per-batch materials with a plausible alphaMode "
@@ -147,6 +194,11 @@ TEST_CASE("husk export: real M2 + .skin resolves per-batch materials with a plau
     }
     CHECK(alphaModes.size() > 1);
 
+    // Second UV set: M2Vertex always carries tex_coords[1], so a real
+    // model's export should always include TEXCOORD_1 now, not just
+    // TEXCOORD_0.
+    CHECK(model.meshes[0].primitives[0].attributes.count("TEXCOORD_1") == 1);
+
     std::filesystem::remove(outPath);
 }
 
@@ -185,6 +237,32 @@ TEST_CASE("husk export: --textures embeds a real baseColorTexture image when one
     // sit in a bufferView.
     CHECK(model.images[0].width > 0);
     CHECK(model.images[0].height > 0);
+
+    std::filesystem::remove(outPath);
+}
+
+TEST_CASE("husk export: 'auto' + --skin-dir resolves a real model's LOD0 .skin via SFID") {
+    std::string m2Path = envOrEmpty("HUSK_TEST_M2");
+    std::string skinDir = envOrEmpty("HUSK_TEST_SKIN_DIR");
+    if (m2Path.empty() || skinDir.empty()) {
+        MESSAGE(
+            "SKIPPED (set HUSK_TEST_M2 and HUSK_TEST_SKIN_DIR -- a directory containing "
+            "HUSK_TEST_M2's own SFID-entry-0 skin, named '<FileDataID>.skin' -- to run this)");
+        return;
+    }
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-auto.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto result =
+        runHusk("export \"" + m2Path + "\" auto \"" + outPath + "\" --skin-dir \"" + skinDir + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("resolved 'auto'") != std::string::npos);
+
+    std::ifstream glb(outPath, std::ios::binary | std::ios::ate);
+    REQUIRE(glb.is_open());
+    CHECK(glb.tellg() > 10000);
 
     std::filesystem::remove(outPath);
 }

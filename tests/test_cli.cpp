@@ -41,6 +41,11 @@ void putU32(std::vector<uint8_t>& b, uint32_t v) {
     b.push_back(static_cast<uint8_t>(v >> 24));
 }
 
+void putU16(std::vector<uint8_t>& b, uint16_t v) {
+    b.push_back(static_cast<uint8_t>(v));
+    b.push_back(static_cast<uint8_t>(v >> 8));
+}
+
 void putTag(std::vector<uint8_t>& b, const char* tag) { b.insert(b.end(), tag, tag + 4); }
 
 // A minimal valid-shaped MD20 blob: every field husk::m2::parseBlob reads,
@@ -74,6 +79,23 @@ std::vector<uint8_t> tinyValidM2() {
     std::memcpy(b.data() + 0x03C, &count, 4);
     std::memcpy(b.data() + 0x040, &off, 4);
     b.resize(b.size() + 0x30, 0);
+    return b;
+}
+
+// Wraps `md20` (e.g. tinyValidM2()'s output) in an MD21 chunk, plus an
+// SFID chunk holding `skinFileDataIds` (empty means no SFID chunk at all)
+// -- used by the LOD-auto-selection ('auto' + --skin-dir) tests below.
+std::vector<uint8_t> chunkedM2WithSfid(const std::vector<uint8_t>& md20,
+                                        const std::vector<uint32_t>& skinFileDataIds) {
+    std::vector<uint8_t> b;
+    putTag(b, "MD21");
+    putU32(b, static_cast<uint32_t>(md20.size()));
+    b.insert(b.end(), md20.begin(), md20.end());
+    if (!skinFileDataIds.empty()) {
+        putTag(b, "SFID");
+        putU32(b, static_cast<uint32_t>(skinFileDataIds.size() * 4));
+        for (uint32_t id : skinFileDataIds) putU32(b, id);
+    }
     return b;
 }
 
@@ -316,6 +338,54 @@ TEST_CASE("husk export: a bone that is its own parent (a 1-node cycle) is still 
     fs::remove(skelPath);
 }
 
+TEST_CASE("husk info: flags a chunk tag that isn't in husk's known M2 chunk list") {
+    // "ZZZZ" stands in for whatever chunk a future client build adds that
+    // isn't yet in cmd_info.cpp's documentedM2ChunkTags -- see that file's
+    // comment and README.md's Design notes for why this format keeps
+    // growing new top-level chunks. The point of this test isn't "ZZZZ"
+    // itself, it's proving the diagnostic path actually fires end-to-end
+    // through the real CLI, not just at the parser level (see
+    // tests/test_m2.cpp's chunkTags tests for that half).
+    auto md20 = minimalMd20();
+    std::vector<uint8_t> bytes;
+    putTag(bytes, "MD21");
+    putU32(bytes, static_cast<uint32_t>(md20.size()));
+    bytes.insert(bytes.end(), md20.begin(), md20.end());
+    putTag(bytes, "ZZZZ");
+    putU32(bytes, 4);
+    putU32(bytes, 0xDEADBEEF);
+
+    auto path = tempPath("undocumented-chunk.m2");
+    writeFile(path, bytes);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("ZZZZ") != std::string::npos);
+    CHECK(result.output.find("not in husk's known M2 chunk list") != std::string::npos);
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk info: a real, fully-documented chunk set gets no undocumented-chunk note") {
+    auto md20 = minimalMd20();
+    std::vector<uint8_t> bytes;
+    putTag(bytes, "MD21");
+    putU32(bytes, static_cast<uint32_t>(md20.size()));
+    bytes.insert(bytes.end(), md20.begin(), md20.end());
+    putTag(bytes, "SFID");  // a real, documented tag -- see cmd_info.cpp
+    putU32(bytes, 0);
+
+    auto path = tempPath("documented-chunk.m2");
+    writeFile(path, bytes);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("SFID") != std::string::npos);  // still listed under "chunks:"
+    CHECK(result.output.find("not in husk's known M2 chunk list") == std::string::npos);
+
+    fs::remove(path);
+}
+
 TEST_CASE("husk export: non-finite (NaN/Inf) vertex position is rejected, not silently baked "
           "into the glb (FAILURES.md #4)") {
     auto m2 = tinyValidM2();
@@ -336,4 +406,126 @@ TEST_CASE("husk export: non-finite (NaN/Inf) vertex position is rejected, not si
 
     fs::remove(m2Path);
     fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: 'auto' .skin path without --skin-dir fails cleanly") {
+    auto m2Path = tempPath("auto-no-skindir.m2");
+    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {12345}));
+
+    auto result = runHusk("export " + m2Path.string() + " auto " +
+                           tempPath("auto-no-skindir.glb").string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("--skin-dir") != std::string::npos);
+
+    fs::remove(m2Path);
+}
+
+TEST_CASE("husk export: 'auto' on a model with no SFID chunk fails cleanly, naming the reason") {
+    auto m2Path = tempPath("auto-no-sfid.m2");
+    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {}));  // no SFID chunk at all
+
+    auto result = runHusk("export " + m2Path.string() + " auto " +
+                           tempPath("auto-no-sfid.glb").string() + " --skin-dir " +
+                           fs::temp_directory_path().string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("no SFID chunk") != std::string::npos);
+
+    fs::remove(m2Path);
+}
+
+TEST_CASE("husk export: --skin-dir given without 'auto' as the .skin path fails cleanly") {
+    auto m2Path = tempPath("skindir-without-auto.m2");
+    writeFile(m2Path, tinyValidM2());
+    auto skinPath = tempPath("skindir-without-auto.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                           tempPath("skindir-without-auto.glb").string() + " --skin-dir " +
+                           fs::temp_directory_path().string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("--skin-dir") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: 'auto' + --skin-dir resolves SFID entry 0 (highest-detail LOD) and "
+          "exports successfully") {
+    auto m2Path = tempPath("auto-resolve.m2");
+    uint32_t fileDataId = 555111;
+    // Entry 0 (555111) is the one that should get used -- entry 1 (555112)
+    // deliberately has no matching file on disk, so this only passes if
+    // resolution actually picked entry 0, not "some" entry.
+    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {fileDataId, 555112}));
+
+    auto skinDir = fs::temp_directory_path();
+    auto skinPath = skinDir / (std::to_string(fileDataId) + ".skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto outPath = tempPath("auto-resolve.glb");
+    auto result = runHusk("export " + m2Path.string() + " auto " + outPath.string() +
+                           " --skin-dir " + skinDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("resolved 'auto'") != std::string::npos);
+    CHECK(result.output.find(std::to_string(fileDataId)) != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(outPath);
+}
+
+TEST_CASE("husk export: 'auto' with --skin-dir pointing at a directory missing the resolved "
+          "FileDataID's .skin fails cleanly") {
+    auto m2Path = tempPath("auto-missing-file.m2");
+    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {999999999}));
+
+    auto result = runHusk("export " + m2Path.string() + " auto " +
+                           tempPath("auto-missing-file.glb").string() + " --skin-dir " +
+                           fs::temp_directory_path().string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("couldn't open") != std::string::npos);
+    CHECK(result.output.find("999999999") != std::string::npos);
+
+    fs::remove(m2Path);
+}
+
+TEST_CASE("husk info: prints skin_file_data_ids/lod_count/bone_file_data_ids/anim_file_ids when "
+          "their chunks are present") {
+    auto md20 = minimalMd20();
+    std::vector<uint8_t> bytes;
+    putTag(bytes, "MD21");
+    putU32(bytes, static_cast<uint32_t>(md20.size()));
+    bytes.insert(bytes.end(), md20.begin(), md20.end());
+
+    putTag(bytes, "SFID");
+    putU32(bytes, 8);
+    putU32(bytes, 469824);
+    putU32(bytes, 469830);
+
+    putTag(bytes, "LDV1");
+    putU32(bytes, 4);
+    putU16(bytes, 8);  // unk0
+    putU16(bytes, 3);  // lodCount
+
+    putTag(bytes, "BFID");
+    putU32(bytes, 4);
+    putU32(bytes, 777001);
+
+    putTag(bytes, "AFID");
+    putU32(bytes, 8);
+    putU16(bytes, 120);      // anim_id
+    putU16(bytes, 0);        // sub_anim_id
+    putU32(bytes, 469839);   // file_id
+
+    auto path = tempPath("full-sidecars.m2");
+    writeFile(path, bytes);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("skin_file_data_ids: 469824, 469830") != std::string::npos);
+    CHECK(result.output.find("lod_count: 3") != std::string::npos);
+    CHECK(result.output.find("bone_file_data_ids: 1") != std::string::npos);
+    CHECK(result.output.find("anim_file_ids: 1") != std::string::npos);
+
+    fs::remove(path);
 }

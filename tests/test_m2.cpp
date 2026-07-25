@@ -172,6 +172,72 @@ void putBone(std::vector<uint8_t>& buf, size_t off, int32_t keyBoneId, uint32_t 
     putF32(buf, off + 0x54, pivot.z);
 }
 
+// Builds an M2Track<T>'s `values` field (M2Array<M2Array<T>>, wowdev.wiki
+// M2#Interpolation) at `trackOff+0x0C` from `subArrays`: subArrays[i] is
+// the list of raw T value byte-blobs for animation sub-array i (an empty
+// list means that sub-array's own M2Array<T> has count 0). Appends all the
+// inner-array/value bytes at the current end of `buf` -- callers must
+// ensure `buf` is already at least `trackOff + 0x14` bytes (the fixed
+// M2Track header) before calling, same "reserve fixed slots before
+// appending variable data" discipline as putTexture's filename handling
+// above. `interpolation_type`/`global_sequence`/`timestamps`
+// (trackOff+0x00..0x0C) are left zeroed -- husk never reads them.
+void putTrackValues(std::vector<uint8_t>& buf, size_t trackOff,
+                     const std::vector<std::vector<std::vector<uint8_t>>>& subArrays) {
+    if (buf.size() < trackOff + 0x14) buf.resize(trackOff + 0x14, 0);
+
+    size_t innerArraysOff = buf.size();
+    buf.resize(innerArraysOff + subArrays.size() * 8, 0);
+
+    for (size_t i = 0; i < subArrays.size(); ++i) {
+        const auto& values = subArrays[i];
+        if (values.empty()) {
+            putArray(buf, innerArraysOff + i * 8, 0, 0);
+            continue;
+        }
+        size_t firstValueOff = buf.size();
+        for (const auto& v : values) {
+            buf.insert(buf.end(), v.begin(), v.end());
+        }
+        putArray(buf, innerArraysOff + i * 8, static_cast<uint32_t>(values.size()),
+                 static_cast<uint32_t>(firstValueOff));
+    }
+
+    putArray(buf, trackOff + 0x0C, static_cast<uint32_t>(subArrays.size()),
+             static_cast<uint32_t>(innerArraysOff));
+}
+
+std::vector<uint8_t> fixed16Bytes(int16_t raw) {
+    std::vector<uint8_t> b(2);
+    std::memcpy(b.data(), &raw, 2);
+    return b;
+}
+
+std::vector<uint8_t> vec3Bytes(const husk::m2::Vec3& v) {
+    std::vector<uint8_t> b(12);
+    std::memcpy(b.data() + 0, &v.x, 4);
+    std::memcpy(b.data() + 4, &v.y, 4);
+    std::memcpy(b.data() + 8, &v.z, 4);
+    return b;
+}
+
+// M2Color (wowdev.wiki M2#Colors_and_transparency), 0x28 (40) bytes: color
+// M2Track<C3Vector> at +0x00, alpha M2Track<fixed16> at +0x14.
+void putColor(std::vector<uint8_t>& buf, size_t off,
+              const std::vector<std::vector<std::vector<uint8_t>>>& colorSubArrays,
+              const std::vector<std::vector<std::vector<uint8_t>>>& alphaSubArrays) {
+    if (buf.size() < off + 0x28) buf.resize(off + 0x28, 0);
+    putTrackValues(buf, off + 0x00, colorSubArrays);
+    putTrackValues(buf, off + 0x14, alphaSubArrays);
+}
+
+// M2TextureWeight, 0x14 (20) bytes: weight M2Track<fixed16> at +0x00.
+void putTextureWeight(std::vector<uint8_t>& buf, size_t off,
+                       const std::vector<std::vector<std::vector<uint8_t>>>& weightSubArrays) {
+    if (buf.size() < off + 0x14) buf.resize(off + 0x14, 0);
+    putTrackValues(buf, off + 0x00, weightSubArrays);
+}
+
 void checkSentinelHeader(const husk::m2::Header& h) {
     CHECK(h.version == 274);
     CHECK(h.name == "Sentinel");
@@ -634,4 +700,294 @@ TEST_CASE("parseHeader: flat (non-chunked) MD20 file never has textureFileDataId
     auto blob = buildMd20Blob();
     auto h = husk::m2::parseHeader(blob);
     CHECK_FALSE(h.textureFileDataIds.has_value());
+}
+
+// Forward-compatibility: husk::readChunks (src/chunk.cpp) is tag-agnostic
+// by construction -- it doesn't validate chunk tags against any list, so a
+// brand-new chunk a future client build ships (this format adds them
+// often, see README.md's Design notes) doesn't break parsing on its own.
+// `Header::chunkTags` is what turns that "silently fine" default into an
+// actual diagnostic opportunity for callers (see cmd_info.cpp's
+// documentedM2ChunkTags/isUndocumentedChunkTag) -- these tests lock in
+// both halves: chunkTags is populated correctly, and a chunk tag this
+// parser has genuinely never heard of doesn't throw.
+TEST_CASE("parseHeader: chunkTags lists every top-level chunk tag, in file order") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "SFID", {1, 2, 3, 4});
+    appendChunk(file, "MD21", md20);
+    appendChunk(file, "TXID", {5, 6, 7, 8});
+
+    auto h = husk::m2::parseHeader(file);
+    REQUIRE(h.chunkTags.size() == 3);
+    CHECK(h.chunkTags[0] == "SFID");
+    CHECK(h.chunkTags[1] == "MD21");
+    CHECK(h.chunkTags[2] == "TXID");
+}
+
+TEST_CASE("parseHeader: flat (non-chunked) MD20 file has an empty chunkTags") {
+    auto blob = buildMd20Blob();
+    auto h = husk::m2::parseHeader(blob);
+    CHECK(h.chunkTags.empty());
+}
+
+TEST_CASE("parseHeader: a chunk tag this parser has never heard of is tolerated, not an error") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    // "ZZZZ" is deliberately not a real wowdev.wiki-documented M2 chunk tag
+    // (see cmd_info.cpp's documentedM2ChunkTags) -- stands in for whatever
+    // the next client build actually adds.
+    appendChunk(file, "ZZZZ", {0xDE, 0xAD, 0xBE, 0xEF});
+
+    auto h = husk::m2::parseHeader(file);
+    REQUIRE(h.chunkTags.size() == 2);
+    CHECK(h.chunkTags[1] == "ZZZZ");
+}
+
+TEST_CASE("parseColors: an unambiguously constant track (one sub-array, one keyframe) resolves") {
+    size_t off = 1000;
+    std::vector<uint8_t> blob(off, 0);
+    putColor(blob, off,
+              /*colorSubArrays=*/{{vec3Bytes({0.5f, 0.25f, 0.75f})}},
+              /*alphaSubArrays=*/{{fixed16Bytes(16384)}});  // ~0.5
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = static_cast<uint32_t>(off);
+    auto colors = husk::m2::parseColors(blob, array);
+
+    REQUIRE(colors.size() == 1);
+    REQUIRE(colors[0].color.has_value());
+    CHECK(colors[0].color->x == doctest::Approx(0.5f));
+    CHECK(colors[0].color->y == doctest::Approx(0.25f));
+    CHECK(colors[0].color->z == doctest::Approx(0.75f));
+    REQUIRE(colors[0].alpha.has_value());
+    CHECK(*colors[0].alpha == doctest::Approx(16384.0f / 32767.0f));
+}
+
+TEST_CASE(
+    "parseColors: more than one animation sub-array means real per-sequence animation, not a "
+    "static value -- regression test for a real bug found against bloodelffemale.m2, where "
+    "naively reading element [0][0] picked up sequence 0's alpha keyframe (0, fully "
+    "transparent) as if it were a sensible default and would have rendered the model invisible") {
+    size_t off = 1000;
+    std::vector<uint8_t> blob(off, 0);
+    putColor(blob, off,
+              /*colorSubArrays=*/{{vec3Bytes({1, 1, 1})}, {vec3Bytes({1, 1, 1})}},
+              /*alphaSubArrays=*/{{fixed16Bytes(0)}, {fixed16Bytes(32767)}});
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = static_cast<uint32_t>(off);
+    auto colors = husk::m2::parseColors(blob, array);
+
+    REQUIRE(colors.size() == 1);
+    CHECK_FALSE(colors[0].alpha.has_value());
+}
+
+TEST_CASE("parseColors: more than one keyframe in an otherwise-single sub-array is also treated "
+          "as animated, not a static value") {
+    size_t off = 1000;
+    std::vector<uint8_t> blob(off, 0);
+    putColor(blob, off,
+              /*colorSubArrays=*/{{vec3Bytes({1, 1, 1})}},
+              /*alphaSubArrays=*/{{fixed16Bytes(0), fixed16Bytes(32767)}});
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = static_cast<uint32_t>(off);
+    auto colors = husk::m2::parseColors(blob, array);
+
+    REQUIRE(colors.size() == 1);
+    CHECK_FALSE(colors[0].alpha.has_value());
+}
+
+TEST_CASE("parseColors: a track with no sub-arrays at all has no value") {
+    size_t off = 1000;
+    std::vector<uint8_t> blob(off, 0);
+    putColor(blob, off, /*colorSubArrays=*/{}, /*alphaSubArrays=*/{});
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = static_cast<uint32_t>(off);
+    auto colors = husk::m2::parseColors(blob, array);
+
+    REQUIRE(colors.size() == 1);
+    CHECK_FALSE(colors[0].color.has_value());
+    CHECK_FALSE(colors[0].alpha.has_value());
+}
+
+TEST_CASE("parseColors: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 12345;
+    CHECK(husk::m2::parseColors(blob, array).empty());
+}
+
+TEST_CASE("parseColors: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(10, 0);  // 0x28 bytes needed for one entry
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = 0;
+    CHECK_THROWS_AS(husk::m2::parseColors(blob, array), husk::m2::ParseError);
+}
+
+TEST_CASE("parseTextureWeights: an unambiguously constant track resolves") {
+    size_t off = 500;
+    std::vector<uint8_t> blob(off, 0);
+    putTextureWeight(blob, off, {{fixed16Bytes(6553)}});
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = static_cast<uint32_t>(off);
+    auto weights = husk::m2::parseTextureWeights(blob, array);
+
+    REQUIRE(weights.size() == 1);
+    REQUIRE(weights[0].weight.has_value());
+    CHECK(*weights[0].weight == doctest::Approx(6553.0f / 32767.0f));
+}
+
+TEST_CASE("parseTextureWeights: an animated (multi-sub-array) track has no value") {
+    size_t off = 500;
+    std::vector<uint8_t> blob(off, 0);
+    putTextureWeight(blob, off, {{fixed16Bytes(32767)}, {fixed16Bytes(0)}});
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = static_cast<uint32_t>(off);
+    auto weights = husk::m2::parseTextureWeights(blob, array);
+
+    REQUIRE(weights.size() == 1);
+    CHECK_FALSE(weights[0].weight.has_value());
+}
+
+TEST_CASE("parseTextureWeights: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 999;
+    CHECK(husk::m2::parseTextureWeights(blob, array).empty());
+}
+
+TEST_CASE("parseTextureWeights: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(5, 0);  // 0x14 bytes needed for one entry
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = 0;
+    CHECK_THROWS_AS(husk::m2::parseTextureWeights(blob, array), husk::m2::ParseError);
+}
+
+TEST_CASE("parseHeader: SFID chunk, when present, is surfaced as skinFileDataIds") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    std::vector<uint8_t> sfidPayload;
+    for (uint32_t id : {469824u, 469830u}) {
+        uint8_t bytes[4];
+        std::memcpy(bytes, &id, 4);
+        sfidPayload.insert(sfidPayload.end(), bytes, bytes + 4);
+    }
+    appendChunk(file, "SFID", sfidPayload);
+
+    auto h = husk::m2::parseHeader(file);
+    REQUIRE(h.skinFileDataIds.has_value());
+    REQUIRE(h.skinFileDataIds->size() == 2);
+    CHECK((*h.skinFileDataIds)[0] == 469824u);
+    CHECK((*h.skinFileDataIds)[1] == 469830u);
+}
+
+TEST_CASE("parseHeader: no SFID chunk leaves skinFileDataIds empty") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    auto h = husk::m2::parseHeader(file);
+    CHECK_FALSE(h.skinFileDataIds.has_value());
+}
+
+TEST_CASE("parseHeader: LDV1 chunk, when present, is surfaced as lodCount") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    // struct LodData { uint16 unk0; uint16 lodCount; ... } -- only the
+    // first 4 bytes matter to husk.
+    std::vector<uint8_t> ldv1Payload = {0x08, 0x00, 0x03, 0x00};  // unk0=8, lodCount=3
+    appendChunk(file, "LDV1", ldv1Payload);
+
+    auto h = husk::m2::parseHeader(file);
+    REQUIRE(h.lodCount.has_value());
+    CHECK(*h.lodCount == 3);
+}
+
+TEST_CASE("parseHeader: no LDV1 chunk leaves lodCount empty") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    auto h = husk::m2::parseHeader(file);
+    CHECK_FALSE(h.lodCount.has_value());
+}
+
+TEST_CASE("parseHeader: BFID chunk, when present, is surfaced as boneFileDataIds") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    std::vector<uint8_t> bfidPayload;
+    for (uint32_t id : {100001u, 100002u, 100003u}) {
+        uint8_t bytes[4];
+        std::memcpy(bytes, &id, 4);
+        bfidPayload.insert(bfidPayload.end(), bytes, bytes + 4);
+    }
+    appendChunk(file, "BFID", bfidPayload);
+
+    auto h = husk::m2::parseHeader(file);
+    REQUIRE(h.boneFileDataIds.has_value());
+    REQUIRE(h.boneFileDataIds->size() == 3);
+    CHECK((*h.boneFileDataIds)[1] == 100002u);
+}
+
+TEST_CASE("parseHeader: no BFID chunk leaves boneFileDataIds empty") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    auto h = husk::m2::parseHeader(file);
+    CHECK_FALSE(h.boneFileDataIds.has_value());
+}
+
+TEST_CASE("parseHeader: AFID chunk, when present, is surfaced as animFileIds") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    // { uint16 anim_id; uint16 sub_anim_id; uint32 file_id; }[]
+    std::vector<uint8_t> afidPayload;
+    auto putEntry = [&](uint16_t animId, uint16_t subAnimId, uint32_t fileId) {
+        uint8_t a[2], s[2], f[4];
+        std::memcpy(a, &animId, 2);
+        std::memcpy(s, &subAnimId, 2);
+        std::memcpy(f, &fileId, 4);
+        afidPayload.insert(afidPayload.end(), a, a + 2);
+        afidPayload.insert(afidPayload.end(), s, s + 2);
+        afidPayload.insert(afidPayload.end(), f, f + 4);
+    };
+    putEntry(120, 0, 469839);
+    putEntry(119, 1, 469836);
+    appendChunk(file, "AFID", afidPayload);
+
+    auto h = husk::m2::parseHeader(file);
+    REQUIRE(h.animFileIds.has_value());
+    REQUIRE(h.animFileIds->size() == 2);
+    CHECK((*h.animFileIds)[0].animId == 120);
+    CHECK((*h.animFileIds)[0].subAnimId == 0);
+    CHECK((*h.animFileIds)[0].fileId == 469839u);
+    CHECK((*h.animFileIds)[1].animId == 119);
+    CHECK((*h.animFileIds)[1].subAnimId == 1);
+    CHECK((*h.animFileIds)[1].fileId == 469836u);
+}
+
+TEST_CASE("parseHeader: no AFID chunk leaves animFileIds empty") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    auto h = husk::m2::parseHeader(file);
+    CHECK_FALSE(h.animFileIds.has_value());
 }

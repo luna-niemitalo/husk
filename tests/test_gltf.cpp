@@ -406,3 +406,96 @@ TEST_CASE("writeGlb: a material without baseColorImagePng gets no image/texture"
     CHECK(model.textures.empty());
     CHECK(model.materials[0].pbrMetallicRoughness.baseColorTexture.index == -1);
 }
+
+TEST_CASE("writeGlb: a material's baseColorFactor round-trips through tinygltf's own loader") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].baseColorFactor[0] = 1.0f;
+    materials[0].baseColorFactor[1] = 0.5f;
+    materials[0].baseColorFactor[2] = 0.25f;
+    materials[0].baseColorFactor[3] = 0.75f;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.materials[0].pbrMetallicRoughness.baseColorFactor.size() == 4);
+    CHECK(model.materials[0].pbrMetallicRoughness.baseColorFactor[0] == doctest::Approx(1.0));
+    CHECK(model.materials[0].pbrMetallicRoughness.baseColorFactor[1] == doctest::Approx(0.5));
+    CHECK(model.materials[0].pbrMetallicRoughness.baseColorFactor[2] == doctest::Approx(0.25));
+    CHECK(model.materials[0].pbrMetallicRoughness.baseColorFactor[3] == doctest::Approx(0.75));
+}
+
+TEST_CASE("writeGlb: mesh.texCoords2 adds a TEXCOORD_1 accessor shared across primitives") {
+    auto mesh = buildTriangleMesh();
+    mesh.texCoords2 = {{0.1f, 0.2f}, {0.3f, 0.4f}, {0.5f, 0.6f}};
+
+    auto glb = husk::gltf::writeGlb(mesh);
+    auto model = loadBack(glb);
+
+    const auto& prim = model.meshes[0].primitives[0];
+    REQUIRE(prim.attributes.count("TEXCOORD_1") == 1);
+    int uv2Idx = prim.attributes.at("TEXCOORD_1");
+    REQUIRE(model.accessors[uv2Idx].count == 3);
+    const auto& acc = model.accessors[uv2Idx];
+    const auto& view = model.bufferViews[acc.bufferView];
+    const auto& buf = model.buffers[view.buffer];
+    std::vector<husk::gltf::Vec2> uv2(3);
+    std::memcpy(uv2.data(), buf.data.data() + view.byteOffset + acc.byteOffset,
+                3 * sizeof(husk::gltf::Vec2));
+    CHECK(uv2[1].x == doctest::Approx(0.3f));
+    CHECK(uv2[2].y == doctest::Approx(0.6f));
+}
+
+TEST_CASE("writeGlb: no mesh.texCoords2 means no TEXCOORD_1 attribute at all") {
+    auto glb = husk::gltf::writeGlb(buildTriangleMesh());
+    auto model = loadBack(glb);
+    CHECK(model.meshes[0].primitives[0].attributes.count("TEXCOORD_1") == 0);
+}
+
+TEST_CASE("writeGlb: mesh.texCoords2 of the wrong length throws") {
+    auto mesh = buildTriangleMesh();
+    mesh.texCoords2 = {{0, 0}, {1, 1}};  // 2 entries, but 3 positions
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: a material's baseColorTexCoord selects TEXCOORD_1 on its baseColorTexture "
+          "when mesh.texCoords2 is present") {
+    auto mesh = buildTriangleMesh();
+    mesh.texCoords2 = {{0, 0}, {1, 0}, {0, 1}};
+    mesh.primitives[0].materialIndex = 0;
+
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].baseColorImagePng = onePixelPng;
+    materials[0].baseColorTexCoord = 1;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+    CHECK(model.materials[0].pbrMetallicRoughness.baseColorTexture.texCoord == 1);
+}
+
+TEST_CASE("writeGlb: baseColorTexCoord=1 without mesh.texCoords2 falls back to TEXCOORD_0, not "
+          "a dangling reference") {
+    auto mesh = buildTriangleMesh();  // no texCoords2
+    mesh.primitives[0].materialIndex = 0;
+
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].baseColorImagePng = onePixelPng;
+    materials[0].baseColorTexCoord = 1;  // claims UV1, but there is no UV1
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+    CHECK(model.materials[0].pbrMetallicRoughness.baseColorTexture.texCoord == 0);
+}

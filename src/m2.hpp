@@ -130,6 +130,70 @@ struct Header {
     // TXID chunk; husk doesn't resolve these IDs to paths itself (no
     // CASC/listfile access -- same non-goal as skeletonFileId above).
     std::optional<std::vector<uint32_t>> textureFileDataIds;
+
+    // Set only for chunked files that carry an SFID chunk (wowdev.wiki
+    // M2#SFID) -- the .skin files this model actually has, as FileDataIDs,
+    // replacing what used to be filename templating
+    // (`${basename}${view}.skin`). Deliberately undifferentiated: the
+    // wiki's own `skinFileDataIDs[nViews]` + `lod_skinFileDataIDs[lodBands]`
+    // split isn't reconstructed here (nViews == Header::numSkinProfiles,
+    // known by the time this is populated, but the split isn't needed for
+    // what husk does with it) -- entry 0 is always "the main skin aka
+    // lod0" per the wiki, which is all `husk export --skin-dir`'s LOD
+    // auto-selection actually uses. husk doesn't resolve these IDs to
+    // paths itself (no CASC/listfile access, same non-goal as
+    // skeletonFileId/textureFileDataIds above) -- `--skin-dir` only ever
+    // checks a local, user-populated directory for `<FileDataID>.skin`.
+    std::optional<std::vector<uint32_t>> skinFileDataIds;
+
+    // Set only for chunked files that carry an LDV1 chunk (wowdev.wiki
+    // M2#LDV1) -- the number of `_lod%0d.skin` files this model has beyond
+    // its ordinary per-view skins (see skinFileDataIds). Not consumed by
+    // `--skin-dir`'s "always pick lod0" policy (roadmap stage 7 already
+    // settled on that); surfaced for `husk info` since it's otherwise
+    // invisible metadata about how many LOD tiers a model actually has.
+    std::optional<uint16_t> lodCount;
+
+    // Set only for chunked files that carry a BFID chunk (wowdev.wiki
+    // M2#BFID) -- `.bone` files, replacing what used to be filename
+    // templating (`${basename}_${i}.bone`). Per the wiki these hold
+    // per-bone animation track data (the same category as `.anim`, roadmap
+    // stage 6), so -- like skeletonFileId before .skel support existed --
+    // this is surfaced now but not yet resolved to actual bone-track
+    // content; husk doesn't resolve these IDs to paths itself (no
+    // CASC/listfile access, same non-goal as the other *FileDataIds
+    // above).
+    std::optional<std::vector<uint32_t>> boneFileDataIds;
+
+    // M2's AFID entry (wowdev.wiki M2#AFID) -- one per `.anim` file this
+    // model has, replacing what used to be filename templating
+    // (`"%s%04d-%02d.anim"`). `animId`/`subAnimId` identify which
+    // M2Sequence this file holds data for; `fileId` is 0 for "none" per
+    // the wiki (not sparse, just possibly unset).
+    struct AnimFileEntry {
+        uint16_t animId = 0;
+        uint16_t subAnimId = 0;
+        uint32_t fileId = 0;
+    };
+
+    // Set only for chunked files that carry an AFID chunk. Same
+    // surfaced-but-not-yet-resolved status as boneFileDataIds -- real
+    // `.anim` keyframe parsing is roadmap stage 6.
+    std::optional<std::vector<AnimFileEntry>> animFileIds;
+
+    // Every top-level chunk tag found in this file, in file order -- only
+    // populated for chunked (Legion+) files; empty for flat MD20. This
+    // format has added a new top-level chunk at a steady clip since Legion
+    // (wowdev.wiki M2#Chunks currently documents 30 of them, spanning
+    // 7.0 through an unreleased 12.0 build at the time this was written --
+    // see README.md's Design notes for the recurring shapes they take).
+    // husk::readChunks itself is already tag-agnostic (an unrecognized tag
+    // is just skipped over, never an error) -- surfacing the raw tag list
+    // here is what lets a caller (see `husk info`, cmd_info.cpp) turn
+    // "silently fine" into an actual diagnostic when a real file contains
+    // a chunk tag nobody's taught husk about yet, which is exactly what a
+    // future client update looks like from here.
+    std::vector<std::string> chunkTags;
 };
 
 // M2CompBone, per wowdev.wiki M2#Bones -- 88 bytes on disk (>= Wrath shape,
@@ -145,6 +209,28 @@ struct Bone {
     uint32_t flags = 0;
     int16_t parentBone = -1;  // index into this same bones array, -1 if none
     Vec3 pivot;                // bind-pose position, in model space
+};
+
+// M2Color / M2TextureWeight, per wowdev.wiki M2#Colors_and_transparency --
+// referenced from a .skin Batch's colorIndex/textureWeightComboIndex (see
+// husk::skin::Batch) to tint/fade a texture-unit's material. Both are
+// M2Track<T>-backed (real keyframe animation, roadmap stage 6, not parsed
+// here) -- what's surfaced instead is a value *only when the track is
+// unambiguously constant* (exactly one animation sub-array with exactly
+// one keyframe in it -- see src/m2.cpp's constantTrackValueOffset for why
+// anything looser is a real correctness trap, not just an approximation
+// worth avoiding). `nullopt` covers both "genuinely no data" and "this
+// track is actually animated, which is out of scope here" -- callers fall
+// back to that field's natural default (opaque white / full weight)
+// either way, since a wrong guess (e.g. reading an animated alpha track's
+// unrelated first keyframe) can be worse than no value at all.
+struct Color {
+    std::optional<Vec3> color;   // 0..1 per channel, rgb order
+    std::optional<float> alpha;  // 0 (transparent) .. 1 (opaque)
+};
+
+struct TextureWeight {
+    std::optional<float> weight;  // 0..1; wiki: "I assume these are multiplied together" with Color::alpha
 };
 
 struct ParseError : std::runtime_error {
@@ -200,6 +286,20 @@ std::vector<Material> parseMaterials(const std::vector<uint8_t>& blob, const Arr
 // src/cmd_export.cpp for how batches resolve through it to an actual
 // texture).
 std::vector<uint16_t> parseUint16Array(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` M2Color records out of `blob` starting at
+// `array.offset`, resolving each one's color/alpha M2Track to a static
+// value (see Color's doc comment -- not real keyframe playback). Throws
+// ParseError if the fixed-size record range, or either track's own
+// (foreign-data) array descriptors, run past the end of the blob. An empty
+// array (count 0) returns an empty vector without touching `array.offset`.
+std::vector<Color> parseColors(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` M2TextureWeight records out of `blob` starting at
+// `array.offset`, same static-value approximation as parseColors. Throws
+// ParseError under the same conditions. An empty array (count 0) returns
+// an empty vector without touching `array.offset`.
+std::vector<TextureWeight> parseTextureWeights(const std::vector<uint8_t>& blob, const Array& array);
 
 // Best-effort expansion label(s) for a raw header version number, per the
 // wiki's own version table -- which the wiki itself calls "rough estimates"

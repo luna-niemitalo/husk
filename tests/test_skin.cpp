@@ -88,15 +88,24 @@ void putSubmesh(std::vector<uint8_t>& buf, size_t off, uint16_t vertexStart, uin
     putU16(buf, off + 0x0A, indexCount);
 }
 
-// Writes one 0x18-byte M2Batch record at `off`.
+// Writes one 0x18-byte M2Batch record at `off`. colorIndex defaults to
+// 0xFFFF ("none", per wowdev.wiki) and textureCoordComboIndex/
+// textureWeightComboIndex default to 0, matching skin::Batch's own default
+// member initializers -- existing call sites that don't care about these
+// three newer fields don't need to change.
 void putBatch(std::vector<uint8_t>& buf, size_t off, uint8_t flags, uint16_t skinSectionIndex,
-              uint16_t materialIndex, uint16_t textureCount, uint16_t textureComboIndex) {
+              uint16_t materialIndex, uint16_t textureCount, uint16_t textureComboIndex,
+              uint16_t colorIndex = 0xFFFF, uint16_t textureCoordComboIndex = 0,
+              uint16_t textureWeightComboIndex = 0) {
     if (buf.size() < off + 0x18) buf.resize(off + 0x18, 0);
     putU8(buf, off + 0x00, flags);
     putU16(buf, off + 0x04, skinSectionIndex);
+    putU16(buf, off + 0x08, colorIndex);
     putU16(buf, off + 0x0A, materialIndex);
     putU16(buf, off + 0x0E, textureCount);
     putU16(buf, off + 0x10, textureComboIndex);
+    putU16(buf, off + 0x12, textureCoordComboIndex);
+    putU16(buf, off + 0x14, textureWeightComboIndex);
 }
 
 }  // namespace
@@ -267,11 +276,35 @@ TEST_CASE("parseBatches: reads flags/skinSectionIndex/materialIndex/textureCount
     CHECK(batches[0].materialIndex == 3);
     CHECK(batches[0].textureCount == 1);
     CHECK(batches[0].textureComboIndex == 0);
+    // Neither call above specified colorIndex/textureCoordComboIndex/
+    // textureWeightComboIndex -- putBatch's own defaults (0xFFFF/0/0)
+    // should come through unchanged.
+    CHECK(batches[0].colorIndex == 0xFFFF);
+    CHECK(batches[0].textureCoordComboIndex == 0);
+    CHECK(batches[0].textureWeightComboIndex == 0);
     CHECK(batches[1].flags == 144);
     CHECK(batches[1].skinSectionIndex == 63);
     CHECK(batches[1].materialIndex == 0);
     CHECK(batches[1].textureCount == 6);
     CHECK(batches[1].textureComboIndex == 2);
+}
+
+TEST_CASE("parseBatches: reads colorIndex/textureCoordComboIndex/textureWeightComboIndex") {
+    std::vector<uint8_t> file(100, 0);
+    size_t off = 20;
+    putBatch(file, off, /*flags=*/0, /*skinSectionIndex=*/5, /*materialIndex=*/2,
+             /*textureCount=*/1, /*textureComboIndex=*/1, /*colorIndex=*/7,
+             /*textureCoordComboIndex=*/1, /*textureWeightComboIndex=*/3);
+
+    husk::m2::Array a;
+    a.count = 1;
+    a.offset = static_cast<uint32_t>(off);
+    auto batches = husk::skin::parseBatches(file, a);
+
+    REQUIRE(batches.size() == 1);
+    CHECK(batches[0].colorIndex == 7);
+    CHECK(batches[0].textureCoordComboIndex == 1);
+    CHECK(batches[0].textureWeightComboIndex == 3);
 }
 
 TEST_CASE("parseBatches: empty array returns an empty vector without touching the file") {

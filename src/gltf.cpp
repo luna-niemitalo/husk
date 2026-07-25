@@ -55,6 +55,12 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
                     std::to_string(mesh.normals.size()) + "), and texCoords (" +
                     std::to_string(mesh.texCoords.size()) + ") must all be the same length");
     }
+    bool hasTexCoords2 = !mesh.texCoords2.empty();
+    if (hasTexCoords2 && mesh.texCoords2.size() != n) {
+        throw Error("writeGlb: mesh.texCoords2 (" + std::to_string(mesh.texCoords2.size()) +
+                    ") was given but doesn't match positions (" + std::to_string(n) +
+                    ") -- leave it empty for no second UV set, or match positions exactly");
+    }
     if (mesh.primitives.empty()) {
         throw Error("writeGlb: mesh.primitives must not be empty");
     }
@@ -157,6 +163,18 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
     int uvAccIdx = static_cast<int>(accessors.size());
     accessors.push_back(uvAcc);
 
+    int uv2AccIdx = -1;
+    if (hasTexCoords2) {
+        int uv2View = appendBufferView(buffer, views, mesh.texCoords2, TINYGLTF_TARGET_ARRAY_BUFFER);
+        tinygltf::Accessor uv2Acc;
+        uv2Acc.bufferView = uv2View;
+        uv2Acc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+        uv2Acc.count = n;
+        uv2Acc.type = TINYGLTF_TYPE_VEC2;
+        uv2AccIdx = static_cast<int>(accessors.size());
+        accessors.push_back(uv2Acc);
+    }
+
     int skinIdx = -1;
     int jAccIdx = -1, wAccIdx = -1;
     std::vector<tinygltf::Node> jointNodes;
@@ -255,6 +273,8 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
         tm.name = mat.name;
         tm.alphaMode = alphaModeString(mat.alphaMode);
         tm.doubleSided = mat.doubleSided;
+        tm.pbrMetallicRoughness.baseColorFactor = {mat.baseColorFactor[0], mat.baseColorFactor[1],
+                                                     mat.baseColorFactor[2], mat.baseColorFactor[3]};
         if (!mat.baseColorImagePng.empty()) {
             int imgView = appendBufferView(buffer, views, mat.baseColorImagePng, /*target=*/0);
             tinygltf::Image img;
@@ -269,6 +289,9 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
             textures.push_back(tex);
 
             tm.pbrMetallicRoughness.baseColorTexture.index = texIdx;
+            if (mat.baseColorTexCoord == 1 && uv2AccIdx >= 0) {
+                tm.pbrMetallicRoughness.baseColorTexture.texCoord = 1;
+            }
         }
         tinyMaterials.push_back(tm);
     }
@@ -293,6 +316,9 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
         tp.attributes["POSITION"] = posAccIdx;
         tp.attributes["NORMAL"] = normAccIdx;
         tp.attributes["TEXCOORD_0"] = uvAccIdx;
+        if (uv2AccIdx >= 0) {
+            tp.attributes["TEXCOORD_1"] = uv2AccIdx;
+        }
         if (jAccIdx >= 0) {
             tp.attributes["JOINTS_0"] = jAccIdx;
             tp.attributes["WEIGHTS_0"] = wAccIdx;

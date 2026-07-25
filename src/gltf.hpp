@@ -37,13 +37,26 @@ struct Material {
     enum class AlphaMode { Opaque, Mask, Blend };
     AlphaMode alphaMode = AlphaMode::Opaque;
     bool doubleSided = false;
+    // RGBA, glTF's own default (opaque white) when left untouched --
+    // WoW's per-batch vertex-color tint (RGB) and combined alpha/texture-
+    // weight fade (A) land here, a *static* (not animated, roadmap stage 6)
+    // approximation -- see husk::m2::Color/TextureWeight's doc comments.
+    float baseColorFactor[4] = {1, 1, 1, 1};
     // Raw encoded image bytes (PNG) for baseColorTexture, or empty for no
     // texture -- a material without one still gets its alphaMode/
-    // doubleSided applied correctly, it just renders as flat white/gray in
-    // that mode rather than showing the actual WoW texture. husk doesn't
-    // decode/encode image formats itself (see blp/, a separate Python
-    // tool) -- this is opaque bytes handed straight to tinygltf to embed.
+    // doubleSided/baseColorFactor applied correctly, it just renders as a
+    // flat tinted surface in that mode rather than showing the actual WoW
+    // texture. husk doesn't decode/encode image formats itself (see blp/,
+    // a separate Python tool) -- this is opaque bytes handed straight to
+    // tinygltf to embed.
     std::vector<uint8_t> baseColorImagePng;
+    // Which of Mesh::texCoords (0) or Mesh::texCoords2 (1) baseColorImagePng
+    // should be sampled with -- from the .skin Batch's own
+    // textureCoordComboIndex (wowdev.wiki M2/.skin#geosetIndex's "Texture
+    // mapping lookup table": -1/0/1 for envmap/UV0/UV1). Ignored when
+    // baseColorImagePng is empty. Environment mapping (-1) has no glTF
+    // equivalent and isn't attempted -- callers fall back to 0.
+    int baseColorTexCoord = 0;
 };
 
 // One glTF primitive's worth of triangles: a slice of triangle-corner
@@ -66,6 +79,12 @@ struct Mesh {
     std::vector<Vec3> positions;
     std::vector<Vec3> normals;
     std::vector<Vec2> texCoords;
+    // M2's second UV set (M2Vertex.tex_coords[1]) -- optional: leave empty
+    // for TEXCOORD_0-only output (every stage before this one), or fill in
+    // with exactly one entry per position to also emit TEXCOORD_1. Which
+    // set a given material's baseColorTexture actually samples is that
+    // Material's own baseColorTexCoord, not decided here.
+    std::vector<Vec2> texCoords2;
     // One or more triangle groups, each with its own material -- see
     // Primitive above. Every index in every primitive must be in range for
     // positions/normals/texCoords.
@@ -111,7 +130,9 @@ Vec3 zUpToYUp(const Vec3& v);
 // if positions/normals/texCoords aren't all the same length, `primitives`
 // is empty, any primitive's indices is empty or not a multiple of 3 or out
 // of range for positions, or any primitive's materialIndex is out of range
-// for `materials`.
+// for `materials`. `mesh.texCoords2`, if non-empty, must be the same
+// length as `mesh.positions` (adds a shared TEXCOORD_1 accessor to every
+// primitive) -- Error if it's some other length.
 //
 // `materials` becomes the glTF document's materials array 1:1 (see
 // Material's doc comment) -- pass an empty vector for the roadmap-stage-1-
