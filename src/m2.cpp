@@ -258,6 +258,9 @@ struct ResolvedBlob {
     // Set only for chunked files that carry an SKID chunk (wowdev.wiki
     // M2#SKID) -- see Header::skeletonFileId.
     std::optional<uint32_t> skeletonFileId;
+    // Set only for chunked files that carry a PFID chunk (wowdev.wiki
+    // M2#PFID) -- see Header::physFileId.
+    std::optional<uint32_t> physFileId;
     // Set only for chunked files that carry a TXID chunk (wowdev.wiki
     // M2#TXID) -- see Header::textureFileDataIds.
     std::optional<std::vector<uint32_t>> textureFileDataIds;
@@ -311,6 +314,7 @@ ResolvedBlob resolveBlob(const std::vector<uint8_t>& fileBytes) {
     }
 
     std::optional<uint32_t> skeletonFileId = findFileDataIdChunk(chunks, "SKID");
+    std::optional<uint32_t> physFileId = findFileDataIdChunk(chunks, "PFID");
     std::optional<std::vector<uint32_t>> textureFileDataIds =
         findFileDataIdArrayChunk(chunks, "TXID");
     std::optional<std::vector<uint32_t>> skinFileDataIds = findFileDataIdArrayChunk(chunks, "SFID");
@@ -336,6 +340,7 @@ ResolvedBlob resolveBlob(const std::vector<uint8_t>& fileBytes) {
     return {std::vector<uint8_t>(md21->data, md21->data + md21->size),
             /*chunked=*/true,
             skeletonFileId,
+            physFileId,
             textureFileDataIds,
             skinFileDataIds,
             lodCount,
@@ -350,6 +355,7 @@ Header parseHeader(const std::vector<uint8_t>& fileBytes) {
     auto resolved = resolveBlob(fileBytes);
     Header h = parseBlob(resolved.bytes.data(), resolved.bytes.size(), resolved.chunked);
     h.skeletonFileId = resolved.skeletonFileId;
+    h.physFileId = resolved.physFileId;
     h.textureFileDataIds = resolved.textureFileDataIds;
     h.skinFileDataIds = resolved.skinFileDataIds;
     h.lodCount = resolved.lodCount;
@@ -450,6 +456,14 @@ std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& arra
     }
 
     return bones;
+}
+
+const char* billboardModeName(uint32_t flags) {
+    if (flags & BoneFlag::kSphericalBillboard) return "spherical";
+    if (flags & BoneFlag::kCylindricalBillboardLockX) return "cylindrical_lock_x";
+    if (flags & BoneFlag::kCylindricalBillboardLockY) return "cylindrical_lock_y";
+    if (flags & BoneFlag::kCylindricalBillboardLockZ) return "cylindrical_lock_z";
+    return nullptr;
 }
 
 std::vector<Texture> parseTextures(const std::vector<uint8_t>& blob, const Array& array) {
@@ -622,6 +636,13 @@ Quat readCompQuat(const uint8_t* data, size_t blobSize, size_t off) {
     return q;
 }
 
+TrackMeta readTrackMeta(const std::vector<uint8_t>& blob, uint32_t trackOffset) {
+    TrackMeta meta;
+    meta.interpolationType = readU16(blob.data(), blob.size(), trackOffset + 0x00);
+    meta.globalSequence = readU16(blob.data(), blob.size(), trackOffset + 0x02);
+    return meta;
+}
+
 // Resolves one M2Track<T>'s keyframe sub-array for a specific sequence
 // index -- the general case constantTrackValueOffset (above) deliberately
 // refuses to handle. Returns the (outer-array-relative) timestamps/values
@@ -762,6 +783,31 @@ void checkInnerArrayFits(const Array& inner, size_t elementSize, size_t blobSize
 std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
     const std::vector<uint8_t>* externalDataBlob) {
+    TrackMeta meta = readTrackMeta(blob, trackOffset);
+    // A global-sequence track loops continuously, independent of any
+    // M2Sequence -- resolving it by `sequenceIndex` at all would silently
+    // attribute its data to whichever M2Sequence happens to occupy the
+    // track's outer-array position `sequenceIndex` (see TrackMeta's doc
+    // comment). husk doesn't have global_sequences durations to build a
+    // real independent clip yet, so this returns empty rather than guessing
+    // -- strictly more correct than the old behavior, even though it means
+    // no animation comes out for this track today.
+    if (meta.globalSequence != TrackMeta::kNoGlobalSequence) {
+        return {};
+    }
+    // interpolation_type 2/3 (cubic bezier/hermite) is only valid for
+    // M2SplineKey<T> tracks per wowdev.wiki -- bone translation/scale,
+    // M2Color, and M2TextureWeight are all plain M2Track<T>, so a real file
+    // reporting 2/3 here means either a version this parser doesn't
+    // understand or a corrupted read, not a case husk can silently keep
+    // reading at the wrong (3x) stride (see TrackMeta's doc comment).
+    if (meta.interpolationType > 1) {
+        throw ParseError("track at offset " + std::to_string(trackOffset) +
+                          " has interpolation_type " + std::to_string(meta.interpolationType) +
+                          ", but this track kind is never M2SplineKey-based -- unexpected file "
+                          "version or corrupted read?");
+    }
+
     auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, sequenceIndex);
     if (!inner) {
         return {};
@@ -789,6 +835,20 @@ std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(
 std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
     const std::vector<uint8_t>* externalDataBlob) {
+    TrackMeta meta = readTrackMeta(blob, trackOffset);
+    // See resolveVec3TrackSequence's identical checks for why these two
+    // conditions are handled before touching the timestamps/values arrays
+    // at all.
+    if (meta.globalSequence != TrackMeta::kNoGlobalSequence) {
+        return {};
+    }
+    if (meta.interpolationType > 1) {
+        throw ParseError("track at offset " + std::to_string(trackOffset) +
+                          " has interpolation_type " + std::to_string(meta.interpolationType) +
+                          ", but this track kind is never M2SplineKey-based -- unexpected file "
+                          "version or corrupted read?");
+    }
+
     auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, sequenceIndex);
     if (!inner) {
         return {};
@@ -927,6 +987,52 @@ std::vector<Light> parseLights(const std::vector<uint8_t>& blob, const Array& ar
     }
 
     return lights;
+}
+
+std::vector<Ribbon> parseRibbons(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<Ribbon> ribbons;
+    if (array.count == 0) {
+        return ribbons;
+    }
+
+    // M2Ribbon, >= Wrath shape (wowdev.wiki M2#Ribbon_emitters -- see
+    // Ribbon's doc comment in m2.hpp for the full offset derivation).
+    constexpr size_t kRibbonSize = 0xB0;
+    constexpr size_t kRibbonIdOffset = 0x00;
+    constexpr size_t kBoneIndexOffset = 0x04;
+    constexpr size_t kPositionOffset = 0x08;
+    constexpr size_t kEdgesPerSecondOffset = 0x74;
+    constexpr size_t kEdgeLifetimeOffset = 0x78;
+    constexpr size_t kGravityOffset = 0x7C;
+    constexpr size_t kTextureRowsOffset = 0x80;
+    constexpr size_t kTextureColsOffset = 0x82;
+
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kRibbonSize) {
+        throw ParseError("ribbonEmitters array claims " + std::to_string(array.count) +
+                          " records (" + std::to_string(kRibbonSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    ribbons.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kRibbonSize;
+        Ribbon r;
+        r.ribbonId = readU32(data, blobSize, off + kRibbonIdOffset);
+        r.boneIndex = readU32(data, blobSize, off + kBoneIndexOffset);
+        r.position = readVec3(data, blobSize, off + kPositionOffset);
+        r.edgesPerSecond = readF32(data, blobSize, off + kEdgesPerSecondOffset);
+        r.edgeLifetime = readF32(data, blobSize, off + kEdgeLifetimeOffset);
+        r.gravity = readF32(data, blobSize, off + kGravityOffset);
+        r.textureRows = readU16(data, blobSize, off + kTextureRowsOffset);
+        r.textureCols = readU16(data, blobSize, off + kTextureColsOffset);
+        ribbons.push_back(r);
+    }
+
+    return ribbons;
 }
 
 Header loadFile(const std::string& path) {

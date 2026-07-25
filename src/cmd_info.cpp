@@ -110,6 +110,14 @@ int info(int argc, char** args) {
                       " (SKID file data ID " << *h.skeletonFileId
                   << ") -- pass its .skel path to `husk export`'s optional 4th argument\n";
     }
+    {
+        auto bones = m2::parseBones(blob, h.bones);
+        for (size_t i = 0; i < bones.size(); ++i) {
+            if (const char* mode = m2::billboardModeName(bones[i].flags)) {
+                std::cout << "    bone " << i << ": billboard=" << mode << "\n";
+            }
+        }
+    }
     printArray("vertices", h.vertices);
     printArray("textures", h.textures);
     printArray("materials", h.materials);
@@ -136,6 +144,10 @@ int info(int argc, char** args) {
         std::cout << "  anim_file_ids: " << h.animFileIds->size()
                   << " (.anim sidecars -- animation track data, not yet resolved by husk, see "
                      "README.md roadmap stage 6)\n";
+    }
+    if (h.physFileId) {
+        std::cout << "  phys_file_id: " << *h.physFileId
+                  << " (.phys sidecar -- physics/collision data, not yet resolved by husk)\n";
     }
 
     if (!h.chunkTags.empty()) {
@@ -185,6 +197,12 @@ int info(int argc, char** args) {
     }
     printArray("cameras", h.cameras);
     printArray("ribbon_emitters", h.ribbonEmitters);
+    for (const auto& r : m2::parseRibbons(blob, h.ribbonEmitters)) {
+        std::cout << "    ribbonId=" << r.ribbonId << " bone=" << r.boneIndex << " position=";
+        printVec3(r.position);
+        std::cout << " edgesPerSecond=" << r.edgesPerSecond << " edgeLifetime=" << r.edgeLifetime
+                   << "\n";
+    }
     printArray("particle_emitters", h.particleEmitters);
     printArray("collision_positions", h.collisionPositions);
 

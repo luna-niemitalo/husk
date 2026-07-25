@@ -256,6 +256,22 @@ TEST_CASE("writeGlb: skinned mesh round-trips joints, weights, and the joint hie
     CHECK(weights[2 * 4 + 0] == doctest::Approx(1));
 }
 
+TEST_CASE("writeGlb: a joint's billboardMode becomes a \"billboard\" key in its node's extras") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.joints[1].billboardMode = "spherical";
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    int midNode = model.skins[0].joints[1];
+    REQUIRE(model.nodes[midNode].extras.Has("billboard"));
+    CHECK(model.nodes[midNode].extras.Get("billboard").Get<std::string>() == "spherical");
+
+    // Joints without a billboardMode get no extras at all.
+    int rootNode = model.skins[0].joints[0];
+    CHECK_FALSE(model.nodes[rootNode].extras.Has("billboard"));
+}
+
 TEST_CASE("writeGlb: skeleton given without matching mesh.skinning throws") {
     auto mesh = buildTriangleMesh();  // no skinning data
     auto skel = buildChainSkeleton();
@@ -353,6 +369,35 @@ TEST_CASE("writeGlb: each primitive keeps its own indices, attributes are shared
     CHECK(idx1[0] == 1);
     CHECK(idx1[1] == 3);
     CHECK(idx1[2] == 2);
+}
+
+TEST_CASE("writeGlb: a material with unlit=true gets the KHR_materials_unlit extension") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].unlit = true;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.materials.size() == 1);
+    CHECK(model.materials[0].extensions.count("KHR_materials_unlit") == 1);
+    REQUIRE(model.extensionsUsed.size() == 1);
+    CHECK(model.extensionsUsed[0] == "KHR_materials_unlit");
+}
+
+TEST_CASE("writeGlb: a material with unlit=false (the default) gets no unlit extension, and "
+          "extensionsUsed stays empty") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.materials.size() == 1);
+    CHECK(model.materials[0].extensions.count("KHR_materials_unlit") == 0);
+    CHECK(model.extensionsUsed.empty());
 }
 
 TEST_CASE("writeGlb: a primitive with materialIndex -1 gets no material") {
@@ -554,6 +599,37 @@ TEST_CASE("writeGlb: an animation round-trips translation/rotation/scale keyfram
     const auto& scaleCh = findChannel("scale");
     const auto& scaleSamp = ga.samplers[scaleCh.sampler];
     CHECK(model.accessors[scaleSamp.output].count == 1);
+}
+
+TEST_CASE("writeGlb: JointAnimation's per-property step flags become STEP samplers, "
+          "independent of one another") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    husk::gltf::JointAnimation ja;
+    ja.joint = 0;
+    ja.translationTimes = {0.0f, 1.0f};
+    ja.translationValues = {{0, 0, 0}, {1, 1, 1}};
+    ja.translationStep = true;
+    ja.rotationTimes = {0.0f, 1.0f};
+    ja.rotationValues = {{0, 0, 0, 1}, {0, 0, 0, 1}};
+    // rotationStep left false (the default) -- proves the three flags are
+    // read independently, not one shared setting for the whole joint.
+
+    husk::gltf::Animation anim;
+    anim.joints = {ja};
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel, {anim});
+    auto model = loadBack(glb);
+
+    const auto& ga = model.animations[0];
+    for (const auto& ch : ga.channels) {
+        const auto& samp = ga.samplers[ch.sampler];
+        if (ch.target_path == "translation") {
+            CHECK(samp.interpolation == "STEP");
+        } else if (ch.target_path == "rotation") {
+            CHECK(samp.interpolation == "LINEAR");
+        }
+    }
 }
 
 TEST_CASE("writeGlb: a JointAnimation with only some TRS properties populated emits only those "

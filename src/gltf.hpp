@@ -37,6 +37,12 @@ struct Material {
     enum class AlphaMode { Opaque, Mask, Blend };
     AlphaMode alphaMode = AlphaMode::Opaque;
     bool doubleSided = false;
+    // WoW's M2Material flag 0x01 ("Unlit" -- wowdev.wiki
+    // M2#Render_flags_and_blending_modes): rendered without directional
+    // lighting in the real client. Translated to glTF's own
+    // KHR_materials_unlit extension (writeGlb adds it to the document's
+    // extensionsUsed list whenever any material sets this).
+    bool unlit = false;
     // RGBA, glTF's own default (opaque white) when left untouched --
     // WoW's per-batch vertex-color tint (RGB) and combined alpha/texture-
     // weight fade (A) land here, a *static* (not animated, roadmap stage 6)
@@ -110,6 +116,14 @@ struct Skeleton {
         // inverse bind matrix (a pure translation, since M2's bind pose has
         // no baked rotation/scale -- see README.md roadmap stage 2).
         Vec3 globalPosition;
+        // Non-empty ("spherical"/"cylindrical_lock_x"/"_y"/"_z" -- see
+        // husk::m2::billboardModeName) for a billboarded joint: this
+        // becomes a `"billboard"` key in the joint's glTF node `extras`,
+        // for a custom renderer to act on (billboarding is a
+        // renderer-camera-relative behavior with no core-glTF equivalent,
+        // so this is metadata for the consumer, not something writeGlb
+        // itself applies). Empty string (the default): no extras added.
+        std::string billboardMode;
     };
     std::vector<Joint> joints;
 };
@@ -134,10 +148,24 @@ struct JointAnimation {
     int joint = -1;  // index into Skeleton::joints, not a glTF node index
     std::vector<float> translationTimes;
     std::vector<Vec3> translationValues;
+    // Per-property "step" flag (M2Track::interpolation_type == 0, "values
+    // change instantly at the timestamp, with no interpolation whatsoever"
+    // -- wowdev.wiki M2#Interpolation), each independent since translation/
+    // rotation/scale are three separate M2Tracks with their own
+    // interpolation_type. false (the default) means glTF's own LINEAR
+    // sampler interpolation; true means STEP. There's no third glTF-side
+    // option here -- interpolation_type 2/3 (cubic bezier/hermite) never
+    // reaches this struct, since husk::m2::resolveVec3TrackSequence/
+    // resolveQuatTrackSequence throw rather than resolve one (see their doc
+    // comments): those types are only valid for M2SplineKey tracks, which
+    // bone/color/weight tracks never are.
+    bool translationStep = false;
     std::vector<float> rotationTimes;
     std::vector<Quat> rotationValues;
+    bool rotationStep = false;
     std::vector<float> scaleTimes;
     std::vector<Vec3> scaleValues;
+    bool scaleStep = false;
 };
 
 // One glTF animation clip. `joints` may be sparse -- only joints with real

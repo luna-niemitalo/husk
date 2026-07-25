@@ -403,6 +403,36 @@ TEST_CASE("parseHeader: flat (non-chunked) MD20 file never has skeletonFileId") 
     CHECK_FALSE(h.skeletonFileId.has_value());
 }
 
+TEST_CASE("parseHeader: PFID chunk, when present, is surfaced as physFileId") {
+    auto md20 = buildMd20Blob();
+
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    uint32_t fileDataId = 0x00123456u;
+    uint8_t pfidPayload[4];
+    std::memcpy(pfidPayload, &fileDataId, 4);
+    appendChunk(file, "PFID", std::vector<uint8_t>(pfidPayload, pfidPayload + 4));
+
+    auto h = husk::m2::parseHeader(file);
+    REQUIRE(h.physFileId.has_value());
+    CHECK(*h.physFileId == 0x00123456u);
+}
+
+TEST_CASE("parseHeader: no PFID chunk leaves physFileId empty") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+
+    auto h = husk::m2::parseHeader(file);
+    CHECK_FALSE(h.physFileId.has_value());
+}
+
+TEST_CASE("parseHeader: flat (non-chunked) MD20 file never has physFileId") {
+    auto blob = buildMd20Blob();
+    auto h = husk::m2::parseHeader(blob);
+    CHECK_FALSE(h.physFileId.has_value());
+}
+
 TEST_CASE("parseHeader: chunked file with no MD21 chunk throws, names what it found") {
     std::vector<uint8_t> file;
     appendChunk(file, "SFID", {1});
@@ -595,6 +625,28 @@ TEST_CASE("parseBones: array running past the end of the blob throws") {
     array.count = 1;   // 88 bytes needed
     array.offset = 0;  // but the blob is only 50 bytes
     CHECK_THROWS_AS(husk::m2::parseBones(blob, array), husk::m2::ParseError);
+}
+
+// Bit values transcribed independently from wowdev.wiki M2#Bones's
+// M2CompBone::flags enum, not copied from m2.hpp's BoneFlag namespace --
+// same cross-check discipline as every other offset table in this file.
+TEST_CASE("billboardModeName: names each of the four billboard bits, per wowdev.wiki M2#Bones") {
+    CHECK(std::string(husk::m2::billboardModeName(0x8)) == "spherical");
+    CHECK(std::string(husk::m2::billboardModeName(0x10)) == "cylindrical_lock_x");
+    CHECK(std::string(husk::m2::billboardModeName(0x20)) == "cylindrical_lock_y");
+    CHECK(std::string(husk::m2::billboardModeName(0x40)) == "cylindrical_lock_z");
+}
+
+TEST_CASE("billboardModeName: no billboard bit set returns nullptr, even with unrelated bits set") {
+    CHECK(husk::m2::billboardModeName(0x0) == nullptr);
+    // ignoreParentTranslate|ignoreParentScale|ignoreParentRotation (0x1|0x2|0x4) --
+    // real, unrelated bone flags, not billboard bits.
+    CHECK(husk::m2::billboardModeName(0x7) == nullptr);
+}
+
+TEST_CASE("billboardModeName: a bone with a billboard bit set alongside unrelated bits is still "
+          "recognized") {
+    CHECK(std::string(husk::m2::billboardModeName(0x1 | 0x8)) == "spherical");
 }
 
 // M2Texture (wowdev.wiki M2#Textures), 16 bytes: 0x00 type (u32), 0x04
@@ -1257,6 +1309,71 @@ TEST_CASE("parseLights: array running past the end of the blob throws") {
     CHECK_THROWS_AS(husk::m2::parseLights(blob, array), husk::m2::ParseError);
 }
 
+// M2Ribbon (wowdev.wiki M2#Ribbon_emitters), 0xB0 bytes: only the static
+// fields (see husk::m2::Ribbon's doc comment) are written here -- the
+// M2Track/M2Array-indirected fields in between are left zeroed, same
+// skipped-region convention putLight above uses.
+void putRibbon(std::vector<uint8_t>& buf, size_t off, uint32_t ribbonId, uint32_t boneIndex,
+               const husk::m2::Vec3& position, float edgesPerSecond, float edgeLifetime,
+               float gravity, uint16_t textureRows, uint16_t textureCols) {
+    if (buf.size() < off + 0xB0) buf.resize(off + 0xB0, 0);
+    putU32(buf, off + 0x00, ribbonId);
+    putU32(buf, off + 0x04, boneIndex);
+    putF32(buf, off + 0x08, position.x);
+    putF32(buf, off + 0x0C, position.y);
+    putF32(buf, off + 0x10, position.z);
+    putF32(buf, off + 0x74, edgesPerSecond);
+    putF32(buf, off + 0x78, edgeLifetime);
+    putF32(buf, off + 0x7C, gravity);
+    putU16(buf, off + 0x80, textureRows);
+    putU16(buf, off + 0x82, textureCols);
+}
+
+TEST_CASE("parseRibbons: reads ribbonId/boneIndex/position/edgesPerSecond/edgeLifetime/gravity/"
+          "textureRows/textureCols for every entry, skipping the M2Track/M2Array regions") {
+    std::vector<uint8_t> blob(300, 0);
+    putRibbon(blob, 300, 0xFFFFFFFFu, 3, {1, 2, 3}, 10.0f, 2.5f, -0.5f, 4, 2);
+    putRibbon(blob, 300 + 0xB0, 0xFFFFFFFFu, 7, {4, 5, 6}, 20.0f, 1.0f, 0.5f, 1, 1);
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = 300;
+    auto ribbons = husk::m2::parseRibbons(blob, array);
+
+    REQUIRE(ribbons.size() == 2);
+    CHECK(ribbons[0].ribbonId == 0xFFFFFFFFu);
+    CHECK(ribbons[0].boneIndex == 3);
+    CHECK(ribbons[0].position.x == doctest::Approx(1));
+    CHECK(ribbons[0].position.z == doctest::Approx(3));
+    CHECK(ribbons[0].edgesPerSecond == doctest::Approx(10.0f));
+    CHECK(ribbons[0].edgeLifetime == doctest::Approx(2.5f));
+    CHECK(ribbons[0].gravity == doctest::Approx(-0.5f));
+    CHECK(ribbons[0].textureRows == 4);
+    CHECK(ribbons[0].textureCols == 2);
+
+    CHECK(ribbons[1].boneIndex == 7);
+    CHECK(ribbons[1].position.y == doctest::Approx(5));
+    CHECK(ribbons[1].edgesPerSecond == doctest::Approx(20.0f));
+    CHECK(ribbons[1].textureRows == 1);
+    CHECK(ribbons[1].textureCols == 1);
+}
+
+TEST_CASE("parseRibbons: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 54321;
+    CHECK(husk::m2::parseRibbons(blob, array).empty());
+}
+
+TEST_CASE("parseRibbons: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(20, 0);
+    husk::m2::Array array;
+    array.count = 1;   // 0xB0 bytes needed
+    array.offset = 0;  // but the blob is only 20 bytes
+    CHECK_THROWS_AS(husk::m2::parseRibbons(blob, array), husk::m2::ParseError);
+}
+
 // Builds a *full* M2Track<T> at `trackOff` -- both the `timestamps`
 // (trackOff+0x04) and `values` (trackOff+0x0C) nested M2Array<M2Array<>>
 // fields, in lockstep -- from per-sequence keyframe lists: sequences[i] is
@@ -1268,6 +1385,16 @@ TEST_CASE("parseLights: array running past the end of the blob throws") {
 void putFullTrack(std::vector<uint8_t>& buf, size_t trackOff,
                    const std::vector<std::vector<std::pair<uint32_t, std::vector<uint8_t>>>>& sequences) {
     if (buf.size() < trackOff + 0x14) buf.resize(trackOff + 0x14, 0);
+    // M2TrackBase's own header (wowdev.wiki "Standard animation block"):
+    // interpolation_type=1 (linear, the ordinary case) and
+    // global_sequence=0xFFFF ("none" -- see m2::TrackMeta::kNoGlobalSequence).
+    // A real per-sequence-indexed track (what every fixture below models)
+    // always has the latter -- leaving this zero-filled would make it look
+    // like a global-sequence track instead, which resolveVec3TrackSequence/
+    // resolveQuatTrackSequence now (correctly) refuse to resolve by
+    // sequence index at all.
+    putU16(buf, trackOff + 0x00, 1);
+    putU16(buf, trackOff + 0x02, 0xFFFF);
 
     size_t tsOuterOff = buf.size();
     buf.resize(tsOuterOff + sequences.size() * 8, 0);
@@ -1333,6 +1460,79 @@ TEST_CASE("resolveVec3TrackSequence: a sequence index with no inline data (count
     CHECK(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 1).empty());
 }
 
+TEST_CASE("readTrackMeta: reads interpolation_type/global_sequence, per wowdev.wiki's "
+          "M2TrackBase") {
+    std::vector<uint8_t> blob(20, 0);
+    uint16_t interp = 3;
+    uint16_t globalSeq = 42;
+    std::memcpy(blob.data() + 0x00, &interp, 2);
+    std::memcpy(blob.data() + 0x02, &globalSeq, 2);
+
+    auto meta = husk::m2::readTrackMeta(blob, 0);
+    CHECK(meta.interpolationType == 3);
+    CHECK(meta.globalSequence == 42);
+}
+
+TEST_CASE("resolveVec3TrackSequence: a track with a real global_sequence (not the 0xFFFF \"none\" "
+          "sentinel) resolves to empty for every sequence index -- it must not be silently "
+          "attributed to whichever M2Sequence occupies outer-array position 0") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, vec3Bytes({1, 2, 3})}}});
+    // Override putFullTrack's default "none" sentinel with a real global
+    // sequence index (7) -- same shape a genuine glow-pulse/idle-loop track
+    // would have, per wowdev.wiki's "Global Sequences" section.
+    uint16_t globalSeq = 7;
+    std::memcpy(blob.data() + trackOff + 0x02, &globalSeq, 2);
+
+    CHECK(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 0).empty());
+    CHECK(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 1).empty());
+}
+
+TEST_CASE("resolveQuatTrackSequence: a track with a real global_sequence also resolves to empty, "
+          "not misattributed") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, quatWireBytes(0, 32767, static_cast<int16_t>(65535u), 0)}}});
+    uint16_t globalSeq = 3;
+    std::memcpy(blob.data() + trackOff + 0x02, &globalSeq, 2);
+
+    CHECK(husk::m2::resolveQuatTrackSequence(blob, static_cast<uint32_t>(trackOff), 0).empty());
+}
+
+TEST_CASE("resolveVec3TrackSequence: interpolation_type 2 or 3 (bezier/hermite, M2SplineKey-only "
+          "per wowdev.wiki) throws rather than silently misreading the values array at the wrong "
+          "stride") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, vec3Bytes({1, 2, 3})}}});
+
+    uint16_t bezier = 2;
+    std::memcpy(blob.data() + trackOff + 0x00, &bezier, 2);
+    CHECK_THROWS_AS(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 0),
+                     husk::m2::ParseError);
+
+    uint16_t hermite = 3;
+    std::memcpy(blob.data() + trackOff + 0x00, &hermite, 2);
+    CHECK_THROWS_AS(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 0),
+                     husk::m2::ParseError);
+}
+
+TEST_CASE("resolveVec3TrackSequence: interpolation_type 0 (step) or 1 (linear) are both accepted, "
+          "the only two values a plain M2Track<T> should ever carry") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, vec3Bytes({1, 2, 3})}}});
+
+    uint16_t step = 0;
+    std::memcpy(blob.data() + trackOff + 0x00, &step, 2);
+    CHECK(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 0).size() == 1);
+
+    uint16_t linear = 1;
+    std::memcpy(blob.data() + trackOff + 0x00, &linear, 2);
+    CHECK(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 0).size() == 1);
+}
+
 TEST_CASE("resolveVec3TrackSequence: a sequence index past the outer array's own count is empty, "
           "not an error") {
     std::vector<uint8_t> blob(100, 0);
@@ -1392,6 +1592,7 @@ TEST_CASE("resolveVec3TrackSequence: keyframe data running past the end of the b
     std::vector<uint8_t> blob(100, 0);
     size_t trackOff = 100;
     if (blob.size() < trackOff + 0x14) blob.resize(trackOff + 0x14, 0);
+    putU16(blob, trackOff + 0x02, 0xFFFF);  // global_sequence: none (see putFullTrack)
     // Outer arrays both claim 1 sub-array; that sub-array claims 1000
     // keyframes at an offset that doesn't remotely fit in a 100-byte blob.
     size_t outerOff = blob.size();
@@ -1415,6 +1616,7 @@ TEST_CASE("resolveVec3TrackSequence: an externalDataBlob reads keyframe payload 
     std::vector<uint8_t> m2Blob(100, 0);
     size_t trackOff = 100;
     m2Blob.resize(trackOff + 0x14, 0);
+    putU16(m2Blob, trackOff + 0x02, 0xFFFF);  // global_sequence: none (see putFullTrack)
     // Two separate inner-array descriptors -- timestamps and values are
     // unrelated arrays, at unrelated offsets, even though both are
     // (deliberately) meaningless against m2Blob's own small buffer and
@@ -1446,6 +1648,7 @@ TEST_CASE("resolveVec3TrackSequence: externalDataBlob too small for the claimed 
     std::vector<uint8_t> m2Blob(100, 0);
     size_t trackOff = 100;
     m2Blob.resize(trackOff + 0x14, 0);
+    putU16(m2Blob, trackOff + 0x02, 0xFFFF);  // global_sequence: none (see putFullTrack)
     size_t tsOuterOff = m2Blob.size();
     m2Blob.resize(tsOuterOff + 8, 0);
     putArray(m2Blob, tsOuterOff, 1, 0);  // 1 timestamp at offset 0 -- fits tinyAnimBlob

@@ -159,6 +159,11 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     tinygltf::Buffer buffer;
     std::vector<tinygltf::BufferView> views;
     std::vector<tinygltf::Accessor> accessors;
+    // Set if any material sets Material::unlit -- KHR_materials_unlit needs
+    // a document-level extensionsUsed entry, added once after the material
+    // loop below (see kUnlitExtensionName's use near the end of this
+    // function).
+    bool usedUnlitExtension = false;
 
     // Skeleton/skin: built once, shared by every mesh node below. Joint
     // nodes are appended after every mesh node (see the node-index layout
@@ -191,6 +196,11 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
             const auto& src = skeleton->joints[i];
             jointNodes[i].translation = {src.localTranslation.x, src.localTranslation.y,
                                           src.localTranslation.z};
+            if (!src.billboardMode.empty()) {
+                tinygltf::Value::Object extras;
+                extras["billboard"] = tinygltf::Value(src.billboardMode);
+                jointNodes[i].extras = tinygltf::Value(extras);
+            }
         }
         for (size_t i = 0; i < skeleton->joints.size(); ++i) {
             int parent = skeleton->joints[i].parent;
@@ -342,6 +352,10 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
                     tm.pbrMetallicRoughness.baseColorTexture.texCoord = 1;
                 }
             }
+            if (mat.unlit) {
+                tm.extensions["KHR_materials_unlit"] = tinygltf::Value(tinygltf::Value::Object());
+                usedUnlitExtension = true;
+            }
             tinyMaterials.push_back(tm);
         }
 
@@ -392,6 +406,9 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     model.images = images;
     model.textures = textures;
     model.materials = tinyMaterials;
+    if (usedUnlitExtension) {
+        model.extensionsUsed.push_back("KHR_materials_unlit");
+    }
     model.meshes = tinyMeshes;
 
     // Node layout: mesh nodes first (indices 0..meshCount-1, in `meshes`
@@ -426,7 +443,7 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
 
         auto addChannel = [&](int nodeIdx, const char* path, const std::vector<float>& times,
                                const void* valuesData, size_t valueCount, size_t valueStride,
-                               int type) {
+                               int type, bool step) {
             int inView = appendBufferView(buffer, views, times, /*target=*/0);
             tinygltf::Accessor inAcc;
             inAcc.bufferView = inView;
@@ -458,7 +475,7 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
             tinygltf::AnimationSampler samp;
             samp.input = inIdx;
             samp.output = outIdx;
-            samp.interpolation = "LINEAR";
+            samp.interpolation = step ? "STEP" : "LINEAR";
             int sampIdx = static_cast<int>(ga.samplers.size());
             ga.samplers.push_back(samp);
 
@@ -473,7 +490,8 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
             int nodeIdx = static_cast<int>(meshCount) + ja.joint;
             if (!ja.translationTimes.empty()) {
                 addChannel(nodeIdx, "translation", ja.translationTimes, ja.translationValues.data(),
-                           ja.translationValues.size(), sizeof(Vec3), TINYGLTF_TYPE_VEC3);
+                           ja.translationValues.size(), sizeof(Vec3), TINYGLTF_TYPE_VEC3,
+                           ja.translationStep);
             }
             if (!ja.rotationTimes.empty()) {
                 std::vector<std::array<float, 4>> rot;
@@ -482,11 +500,11 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
                     rot.push_back({q.x, q.y, q.z, q.w});
                 }
                 addChannel(nodeIdx, "rotation", ja.rotationTimes, rot.data(), rot.size(),
-                           sizeof(std::array<float, 4>), TINYGLTF_TYPE_VEC4);
+                           sizeof(std::array<float, 4>), TINYGLTF_TYPE_VEC4, ja.rotationStep);
             }
             if (!ja.scaleTimes.empty()) {
                 addChannel(nodeIdx, "scale", ja.scaleTimes, ja.scaleValues.data(),
-                           ja.scaleValues.size(), sizeof(Vec3), TINYGLTF_TYPE_VEC3);
+                           ja.scaleValues.size(), sizeof(Vec3), TINYGLTF_TYPE_VEC3, ja.scaleStep);
             }
         }
 

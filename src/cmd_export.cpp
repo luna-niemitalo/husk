@@ -39,9 +39,23 @@ namespace {
 
 void printUsage() {
     std::cerr
-        << "usage: husk export <file.m2> <file.skin>|auto <output.glb> [file.skel]\n"
+        << "usage: husk export <file.m2> [<file.skin>|auto [<output.glb> [file.skel]]]\n"
            "                    [--textures <dir>] [--skin-dir <dir>] [--anim-dir <dir>]\n"
            "                    [--lod <n>|all]\n"
+           "\n"
+           "Only <file.m2> is required -- everything else defaults from what's\n"
+           "sitting next to it: an omitted .skin path looks for a same-named\n"
+           "'<basename><N>.skin' file in the model's own directory (picking the\n"
+           "lowest-numbered/highest-detail one if more than one matches); an\n"
+           "omitted output path defaults to '<basename>.glb'; an omitted .skel\n"
+           "path (only relevant when the model has 0 inline bones) checks for a\n"
+           "same-named '<basename>.skel' next to the model; and --textures/\n"
+           "--skin-dir/--anim-dir all default to the model's own directory\n"
+           "instead of requiring three separate flags for what's normally the\n"
+           "same one directory a real extraction already drops everything\n"
+           "into. Every default is overridable by just giving that argument\n"
+           "explicitly, and every one of these positionals is trailing-\n"
+           "optional (you can stop early, but can't skip one in the middle).\n"
            "\n"
            "Exports a mesh: resolves the M2's vertex array and the .skin\n"
            "file's triangle-index lookup tables, converts WoW's Z-up\n"
@@ -172,6 +186,9 @@ gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones) {
         gltf::Skeleton::Joint j;
         j.parent = b.parentBone;
         j.globalPosition = toGltf(b.pivot);
+        if (const char* mode = m2::billboardModeName(b.flags)) {
+            j.billboardMode = mode;
+        }
         skeleton.joints.push_back(j);
     }
 
@@ -349,6 +366,19 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
             gltf::JointAnimation ja;
             ja.joint = static_cast<int>(bi);
             const gltf::Vec3& bindTranslation = skeleton.joints[bi].localTranslation;
+            // interpolation_type 0 ("step: values change instantly at the
+            // timestamp, with no interpolation whatsoever" -- wowdev.wiki
+            // M2#Interpolation) needs glTF's STEP sampler, not its default
+            // LINEAR -- each of translation/rotation/scale is a separate
+            // M2Track with its own independent type. Reading this doesn't
+            // touch the timestamps/values arrays resolveVec3TrackSequence/
+            // resolveQuatTrackSequence already validated above, just the
+            // two fields before them (see m2::TrackMeta).
+            ja.translationStep = m2::readTrackMeta(blob, bone.translationTrackOffset)
+                                      .interpolationType == 0;
+            ja.rotationStep =
+                m2::readTrackMeta(blob, bone.rotationTrackOffset).interpolationType == 0;
+            ja.scaleStep = m2::readTrackMeta(blob, bone.scaleTrackOffset).interpolationType == 0;
 
             ja.translationTimes.reserve(translation.size());
             ja.translationValues.reserve(translation.size());
@@ -425,6 +455,18 @@ gltf::Material::AlphaMode alphaModeForBlend(uint16_t blendMode) {
         default: return gltf::Material::AlphaMode::Blend;
     }
 }
+
+// M2Material flags (wowdev.wiki M2#Render_flags_and_blending_modes). Only
+// 0x04 (two-sided) was translated before; 0x01 (unlit) is the other bit
+// with a real glTF equivalent (KHR_materials_unlit) -- a material rendered
+// without directional lighting in the real client (glow/eye-effect layers,
+// some UI-attached models) would otherwise come out looking normally-lit in
+// any glTF consumer, a real visible mismatch, not just missing metadata.
+// depthTest/depthWrite (0x08/0x10) have no core-glTF equivalent at all (no
+// per-material depth-state override in the spec) so aren't translated --
+// surfaced as raw `flags` on m2::Material for a consumer that wants them.
+constexpr uint16_t kMaterialUnlitFlag = 0x01;
+constexpr uint16_t kMaterialTwoSidedFlag = 0x04;
 
 struct BuiltMaterials {
     std::vector<gltf::Material> materials;
@@ -510,7 +552,8 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
 
         gltf::Material gm;
         gm.alphaMode = alphaModeForBlend(mat.blendMode);
-        gm.doubleSided = (mat.flags & 0x04) != 0;
+        gm.doubleSided = (mat.flags & kMaterialTwoSidedFlag) != 0;
+        gm.unlit = (mat.flags & kMaterialUnlitFlag) != 0;
         gm.name = "batch" + std::to_string(bi) + "_mat" + std::to_string(b.materialIndex);
 
         // Vertex-color tint + combined alpha/texture-weight fade (static
@@ -701,27 +744,77 @@ std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::
     return {{lodArg.empty() ? "" : "lod" + std::to_string(index), pathFor(index)}};
 }
 
+// Scans `modelPath`'s own directory for files named exactly
+// `<model-basename><digits>.skin` (e.g. "bloodelffemale00.skin" for
+// "bloodelffemale.m2") -- the naming convention a real casc-tool-style
+// extraction actually produces (see README.md's Usage section), as opposed
+// to `resolveAutoSkinPaths`'s FileDataID-renamed-directory convention.
+// Deliberately stricter than a plain string-prefix match: the character
+// immediately after the basename must be a digit, which is what excludes a
+// real, dangerous false match this project's own test data contains --
+// "bloodelffemale_hd00.skin" belongs to a *separate*, much-higher-poly
+// model (bloodelffemale_hd.m2), not this one, even though it does start
+// with "bloodelffemale" as a plain string. Returns every match found,
+// sorted by that numeric suffix ascending -- 0 is always "the main skin
+// aka lod0" (wowdev.wiki M2#SFID), the highest-detail LOD, the same
+// "pick the most-detailed one" policy `--skin-dir`'s auto-select already
+// follows. Empty if `modelPath`'s directory doesn't exist or has no match.
+std::vector<std::pair<int, std::string>> findSameBasenameSkins(const std::string& modelPath) {
+    std::filesystem::path model(modelPath);
+    std::string baseName = model.stem().string();  // e.g. "bloodelffemale"
+    std::filesystem::path dir = model.parent_path();
+    if (dir.empty()) dir = ".";
+
+    std::vector<std::pair<int, std::string>> found;
+    std::error_code ec;
+    if (!std::filesystem::is_directory(dir, ec)) {
+        return found;
+    }
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec || !entry.is_regular_file()) continue;
+        std::string name = entry.path().filename().string();
+        if (name.size() <= baseName.size() || name.compare(0, baseName.size(), baseName) != 0) {
+            continue;
+        }
+        size_t digitsStart = baseName.size();
+        size_t pos = digitsStart;
+        while (pos < name.size() && std::isdigit(static_cast<unsigned char>(name[pos]))) ++pos;
+        if (pos == digitsStart) continue;  // no digit right after the basename
+        if (name.compare(pos, name.size() - pos, ".skin") != 0) continue;
+        int lod = std::stoi(name.substr(digitsStart, pos - digitsStart));
+        found.emplace_back(lod, entry.path().string());
+    }
+    std::sort(found.begin(), found.end());
+    return found;
+}
+
 }  // namespace
 
 int exportGlb(int argc, char** args) {
-    if (argc < 3) {
+    if (argc < 1) {
         printUsage();
         return 1;
     }
 
     std::string modelPath = args[0];
-    std::string skinPath = args[1];
-    std::string outputPath = args[2];
-    std::string skelPath;
+    // Up to 3 bare positionals after the model, in order: .skin path,
+    // output .glb path, .skel path -- each one trailing-optional (you can
+    // stop early, but can't skip one in the middle without a placeholder),
+    // same convention as e.g. `cp src [dst]`. Omitted ones default once the
+    // model's own header/directory are known (see below): an empty
+    // `skinPath` triggers findSameBasenameSkins; an empty `outputPath`
+    // defaults to the model's own basename + ".glb"; an empty `skelPath`
+    // (only relevant when the model's own inline bones are empty) checks
+    // for a same-basename ".skel" next to the model. Every existing
+    // 2/3/4-bare-positional invocation is completely unaffected -- this
+    // only adds new, shorter ones.
+    std::vector<std::string> positionals;
     std::string texturesDir;
     std::string skinDir;
     std::string animDir;
     std::string lodArg;
 
-    // Remaining args: at most one bare positional (.skel path) plus
-    // optional --textures/--skin-dir/--anim-dir/--lod <dir|n|all> flags, in
-    // any order.
-    for (int i = 3; i < argc; ++i) {
+    for (int i = 1; i < argc; ++i) {
         std::string arg = args[i];
         if (arg == "--textures") {
             if (i + 1 >= argc) {
@@ -747,13 +840,17 @@ int exportGlb(int argc, char** args) {
                 return 1;
             }
             lodArg = args[++i];
-        } else if (skelPath.empty()) {
-            skelPath = arg;
+        } else if (positionals.size() < 3) {
+            positionals.push_back(arg);
         } else {
             printUsage();
             return 1;
         }
     }
+    std::string skinPath = positionals.size() > 0 ? positionals[0] : "";
+    std::string outputPath = positionals.size() > 1 ? positionals[1] : "";
+    std::string skelPath = positionals.size() > 2 ? positionals[2] : "";
+
     if (!skinDir.empty() && skinPath != "auto") {
         std::cerr << "husk: --skin-dir only does anything when the .skin path is 'auto'\n";
         return 1;
@@ -763,11 +860,52 @@ int exportGlb(int argc, char** args) {
         return 1;
     }
 
+    if (outputPath.empty()) {
+        outputPath = std::filesystem::path(modelPath).replace_extension(".glb").string();
+        std::cerr << "husk: note: no output path given -- writing to '" << outputPath << "'\n";
+    }
+    // --textures/--skin-dir/--anim-dir all default to the model's own
+    // directory when not given explicitly -- a real casc-tool-style
+    // extraction drops the .m2 and every sidecar it needs (BLP-converted
+    // PNGs, .skin/.anim files) into one directory together (see
+    // README.md's Usage section), so requiring three separate flags for
+    // what's normally the same one directory was pure friction. An explicit
+    // flag still overrides this for the FileDataID-renamed-directory
+    // workflow (see resolveAutoSkinPaths). This runs after the --skin-dir/
+    // 'auto' mismatch checks above so defaulting skinDir here can't mask a
+    // real usage error.
+    {
+        std::filesystem::path modelDir = std::filesystem::path(modelPath).parent_path();
+        std::string modelDirStr = modelDir.empty() ? "." : modelDir.string();
+        if (texturesDir.empty()) texturesDir = modelDirStr;
+        if (skinDir.empty()) skinDir = modelDirStr;
+        if (animDir.empty()) animDir = modelDirStr;
+    }
+
     try {
         auto modelBytes = readFileBytes(modelPath);
         auto header = m2::parseHeader(modelBytes);
         auto blob = m2::extractBlob(modelBytes);
         auto vertices = m2::parseVertices(blob, header.vertices);
+
+        if (skinPath.empty()) {
+            auto candidates = findSameBasenameSkins(modelPath);
+            if (candidates.empty()) {
+                throw std::runtime_error(
+                    "no .skin path given, and no same-named '<model-basename><N>.skin' file found "
+                    "next to '" +
+                    modelPath +
+                    "' -- pass one explicitly, or 'auto' + --skin-dir <dir> for the "
+                    "FileDataID-renamed-directory convention");
+            }
+            skinPath = candidates.front().second;
+            std::cerr << "husk: note: no .skin path given -- resolved '" << skinPath << "'";
+            if (candidates.size() > 1) {
+                std::cerr << " (lowest-numbered of " << candidates.size()
+                          << " same-basename .skin files found next to the model)";
+            }
+            std::cerr << "\n";
+        }
 
         M2MaterialInputs m2Inputs;
         m2Inputs.materials = m2::parseMaterials(blob, header.materials);
@@ -837,6 +975,26 @@ int exportGlb(int argc, char** args) {
         if (bonesAreInline && !skelPath.empty()) {
             std::cerr << "husk: note: '" << modelPath << "' has its own inline bones; ignoring '"
                       << skelPath << "'\n";
+        } else if (!bonesAreInline && skelPath.empty()) {
+            // No .skel path given, and this model's own inline bones are
+            // empty -- check for a same-basename .skel next to the model
+            // (the README's own worked example is exactly this shape:
+            // bloodelffemale_hd.m2 + bloodelffemale_hd.skel, same
+            // directory). Not finding one isn't an error: plenty of 0-bone
+            // models genuinely have no skeleton at all, and this model
+            // falls back to the same unskinned-mesh output it always did
+            // when no .skel was given.
+            auto defaultSkel = std::filesystem::path(modelPath).replace_extension(".skel");
+            std::error_code ec;
+            if (std::filesystem::exists(defaultSkel, ec) && !ec) {
+                skelPath = defaultSkel.string();
+                std::cerr << "husk: note: '" << modelPath
+                          << "' has 0 inline bones -- found and using '" << skelPath
+                          << "' next to it\n";
+                skelBytes = readFileBytes(skelPath);
+                haveSkel = true;
+                bones = skel::parseBones(skelBytes);
+            }
         } else if (!bonesAreInline && !skelPath.empty()) {
             skelBytes = readFileBytes(skelPath);
             haveSkel = true;

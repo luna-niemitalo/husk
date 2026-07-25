@@ -151,6 +151,14 @@ struct Header {
     // elsewhere (see `husk export`'s optional 4th argument).
     std::optional<uint32_t> skeletonFileId;
 
+    // FileDataID of an external .phys file (wowdev.wiki M2#PFID) --
+    // physics/collision data (cloth, ragdoll-style secondary motion), a
+    // format husk doesn't parse yet. Same non-goal as skeletonFileId: not
+    // resolved to a path (no CASC/listfile access), surfaced purely so
+    // `husk info` doesn't leave this sidecar invisible the way every other
+    // Legion+ sidecar chunk already is (SFID/AFID/BFID/SKID/TXID).
+    std::optional<uint32_t> physFileId;
+
     // FileDataIDs parallel to `textures` (same index, same count), from the
     // Legion+ TXID chunk (wowdev.wiki M2#TXID). Entry i is textures[i]'s
     // FileDataID, or 0 for a texture that isn't file-based at all (type != 0
@@ -223,6 +231,37 @@ struct Header {
     // future client update looks like from here.
     std::vector<std::string> chunkTags;
 };
+
+// M2CompBone::flags bits (wowdev.wiki M2#Bones), the ones relevant to
+// rendering rather than animation-blending internals. Billboarding is a
+// *renderer-camera-relative* behavior, not baked model data: these bits
+// only say which joints need their orientation overridden at render time
+// to face whatever camera the (custom) engine actually has -- nothing
+// about M2Camera (a completely separate, unrelated concept: WoW's own
+// baked cinematic camera paths) is needed to act on them. Spherical and
+// cylindrical-lock bits are mutually exclusive per the wiki (only one
+// applies to a given bone); husk doesn't enforce that here, just surfaces
+// whichever bits are actually set (see cmd_info.cpp/cmd_export.cpp for
+// where these get read).
+namespace BoneFlag {
+constexpr uint32_t kSphericalBillboard = 0x8;
+constexpr uint32_t kCylindricalBillboardLockX = 0x10;
+constexpr uint32_t kCylindricalBillboardLockY = 0x20;
+constexpr uint32_t kCylindricalBillboardLockZ = 0x40;
+constexpr uint32_t kBillboardMask = kSphericalBillboard | kCylindricalBillboardLockX |
+                                     kCylindricalBillboardLockY | kCylindricalBillboardLockZ;
+}  // namespace BoneFlag
+
+// Names a bone's billboard mode ("spherical"/"cylindrical_lock_x"/"_y"/"_z"),
+// or nullptr if none of BoneFlag's bits are set -- the ordinary case for
+// most bones. Spherical and cylindrical-lock bits are documented as
+// mutually exclusive; if a real file somehow sets more than one, this
+// reports whichever is checked first rather than inventing a combined
+// meaning nothing defines. Shared by `husk info` (cmd_info.cpp, printed
+// per-bone) and `husk export` (cmd_export.cpp, into the exported glTF
+// joint's `extras` -- see gltf::Skeleton::Joint::billboardMode) so the two
+// don't carry two copies of the same bit-to-name mapping.
+const char* billboardModeName(uint32_t flags);
 
 // M2CompBone, per wowdev.wiki M2#Bones -- 88 bytes on disk (>= Wrath shape,
 // which is every version this parser targets). Only the fields stage 2 of
@@ -355,6 +394,29 @@ struct Light {
     Vec3 position;         // relative to `bone`, if given
 };
 
+// M2Ribbon, per wowdev.wiki M2#Ribbon_emitters -- 176 (0xB0) bytes for the
+// >= Wrath shape (matching the same minimum-targeted version as Bone/
+// Sequence elsewhere in this file; the wiki itself marks the trailing
+// priorityPlane/RibbonColorIndex/textureTransformLookupIndex fields "TODO:
+// verify version", but they're present in every version this parser
+// targets either way). Only the static, non-M2Track, non-M2Array fields
+// are surfaced -- colorTrack/alphaTrack/heightAboveTrack/heightBelowTrack/
+// texSlotTrack/visibilityTrack (all M2Track<T>, real keyframe animation)
+// and textureIndices/materialIndices (M2Array<uint16_t> lookup tables,
+// same category as .skin's own indirected bone lookup husk already leaves
+// unread) are skipped, same "structural fields now, animated/indirected
+// data later" policy as Attachment/Event/Light above.
+struct Ribbon {
+    uint32_t ribbonId = 0;  // "Always (as I have seen): -1" per the wiki
+    uint32_t boneIndex = 0;  // bone to attach to
+    Vec3 position;            // relative to `boneIndex`
+    float edgesPerSecond = 0;  // ribbon smoothness -- quads generated per second
+    float edgeLifetime = 0;    // seconds a generated quad stays around
+    float gravity = 0;         // use arcsin(val) for the emission angle, per the wiki
+    uint16_t textureRows = 0;  // tiles in the ribbon's texture
+    uint16_t textureCols = 0;
+};
+
 struct ParseError : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
@@ -429,6 +491,40 @@ std::vector<TextureWeight> parseTextureWeights(const std::vector<uint8_t>& blob,
 // `array.offset` at all.
 std::vector<Sequence> parseSequences(const std::vector<uint8_t>& blob, const Array& array);
 
+// M2TrackBase's first two fields (wowdev.wiki "Standard animation block"),
+// constant for the whole track regardless of which sequence's sub-array is
+// being read -- interpolation_type governs how a *consumer* should
+// interpolate between keyframes (0: step/none, 1: linear, 2/3: cubic
+// bezier/hermite spline -- "only valid for M2SplineKey tracks", per the
+// wiki), and global_sequence, when not the "none" sentinel, means this
+// track ignores M2Sequence entirely and instead loops continuously against
+// a duration in the model's own global_sequences table (wowdev.wiki
+// "Global Sequences": "completely unrelated to animations... always
+// loops"). husk doesn't have a header field for global_sequences durations
+// yet, so a global-sequence track can't be resolved into a real,
+// independently-looping clip -- see resolveVec3TrackSequence/
+// resolveQuatTrackSequence below for how that's handled without silently
+// mis-attributing the data to whichever M2Sequence happens to occupy index
+// 0 of the track's outer array (a real bug this type existed to fix, not a
+// hypothetical one -- see WIKI_FINDINGS.md/TODO_correctness.md).
+struct TrackMeta {
+    uint16_t interpolationType = 1;
+    // 0xFFFF ("none"), the same -1-as-unsigned sentinel convention this
+    // format uses elsewhere (Bone::parentBone, Attachment::bone, ...), not
+    // an explicit wowdev.wiki quote for this specific field -- inferred by
+    // convention, flagged here so a future correction is easy to find.
+    static constexpr uint16_t kNoGlobalSequence = 0xFFFF;
+    uint16_t globalSequence = kNoGlobalSequence;
+};
+
+// Reads interpolation_type/global_sequence directly, without touching the
+// timestamps/values arrays that follow -- the two fields resolveVec3/
+// QuatTrackSequence below check before deciding whether/how to resolve a
+// given sequence index. Exposed separately so a caller building one glTF
+// animation sampler per property (see cmd_export.cpp's buildAnimations)
+// can pick STEP vs. LINEAR once per track, not per keyframe.
+TrackMeta readTrackMeta(const std::vector<uint8_t>& blob, uint32_t trackOffset);
+
 // Resolves one M2Track<C3Vector>'s keyframe data for exactly one M2Sequence
 // index (an index into the `sequences` array `parseSequences` returned,
 // *not* an M2Sequence::id) -- see wowdev.wiki M2#Interpolation's "outer
@@ -436,7 +532,25 @@ std::vector<Sequence> parseSequences(const std::vector<uint8_t>& blob, const Arr
 // comment for what `trackOffset` (and which `blob`) needs to be. Returns
 // (timestamp in milliseconds, value) pairs in file order, or an empty
 // vector -- not an error -- when `sequenceIndex` is out of range for this
-// particular track's own outer array, or that entry has zero keyframes.
+// particular track's own outer array, that entry has zero keyframes, *or*
+// the track's global_sequence isn't the "none" sentinel (see TrackMeta) --
+// husk doesn't resolve global-sequence tracks into a real looping clip yet,
+// and the old behavior of indexing straight into the outer array by
+// `sequenceIndex` anyway silently attributed a global-sequence track's data
+// to whichever M2Sequence happened to occupy outer-array position
+// `sequenceIndex` (usually 0), a real correctness bug, not just a missing
+// feature -- returning empty here is strictly more correct than that, even
+// though it means such a track currently produces no animation at all.
+// Throws ParseError if interpolation_type is 2 or 3: per wowdev.wiki, cubic
+// bezier/hermite interpolation is "only valid for M2SplineKey tracks", and
+// every M2Track this function is used for (bone translation/scale, M2Color,
+// M2TextureWeight) is declared as a plain M2Track<T>, not
+// M2Track<M2SplineKey<T>> -- a real file reporting 2/3 here would mean
+// either this parser's assumption is wrong for some version, or the file is
+// corrupted, and guessing at M2SplineKey's 3x-stride layout for a track
+// that per spec shouldn't have it risks exactly the kind of silent
+// misread this project's tests exist to catch (see the M2Sequence-stride
+// investigation in WIKI_FINDINGS.md for the same shape of mistake).
 //
 // `externalDataBlob`, when non-null, is where the *actual keyframe bytes*
 // are read from instead of `blob` -- `blob` still supplies every array
@@ -499,6 +613,13 @@ std::vector<Event> parseEvents(const std::vector<uint8_t>& blob, const Array& ar
 // ParseError under the same conditions as parseAttachments. An empty
 // array (count 0) returns an empty vector without touching `array.offset`.
 std::vector<Light> parseLights(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` M2Ribbon records out of `blob` starting at
+// `array.offset`, surfacing only Ribbon's static fields (see its doc
+// comment). Throws ParseError under the same conditions as
+// parseAttachments. An empty array (count 0) returns an empty vector
+// without touching `array.offset`.
+std::vector<Ribbon> parseRibbons(const std::vector<uint8_t>& blob, const Array& array);
 
 // Best-effort expansion label(s) for a raw header version number, per the
 // wiki's own version table -- which the wiki itself calls "rough estimates"

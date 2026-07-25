@@ -198,6 +198,18 @@ void fillTrack(std::vector<uint8_t>& buf, size_t trackOff, const std::vector<uin
     std::memcpy(buf.data() + valOuterOff, &n, 4);
     std::memcpy(buf.data() + valOuterOff + 4, &valDataOff, 4);
 
+    // M2TrackBase's own header: interpolation_type=1 (linear) and
+    // global_sequence=0xFFFF ("none" -- see m2::TrackMeta::kNoGlobalSequence).
+    // Every track this helper builds is a real per-sequence-indexed one, so
+    // it must not look like a global-sequence track (0xFFFF is the "none"
+    // sentinel; leaving this zero-filled would make resolveVec3TrackSequence/
+    // resolveQuatTrackSequence correctly, but unhelpfully for this fixture's
+    // purposes, refuse to resolve it by sequence index at all).
+    uint16_t interpType = 1;
+    uint16_t noGlobalSeq = 0xFFFF;
+    std::memcpy(buf.data() + trackOff + 0x00, &interpType, 2);
+    std::memcpy(buf.data() + trackOff + 0x02, &noGlobalSeq, 2);
+
     uint32_t one = 1;
     std::memcpy(buf.data() + trackOff + 0x04, &one, 4);
     std::memcpy(buf.data() + trackOff + 0x08, &tsOuterOff, 4);
@@ -293,6 +305,8 @@ std::vector<uint8_t> tinyExternalAnimM2() {
     std::memcpy(b.data() + boneOff + 0x08, &parentBone, 2);
 
     size_t trackOff = boneOff + 0x10;  // translation
+    uint16_t noGlobalSeq = 0xFFFF;  // see fillTrack's identical comment
+    std::memcpy(b.data() + trackOff + 0x02, &noGlobalSeq, 2);
     uint32_t tsOuterOff = static_cast<uint32_t>(b.size());
     b.resize(tsOuterOff + 8, 0);
     putArrayAt(b, tsOuterOff, 1, 0);  // sequence 0: 1 timestamp at *anim-blob* offset 0
@@ -533,6 +547,8 @@ TEST_CASE("husk export: a .skel external (flags without 0x20/0x40) SKS1 sequence
     size_t boneOff = 0;
     auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);
     size_t transOff = boneOff + 0x10;
+    uint16_t noGlobalSeq = 0xFFFF;  // see fillTrack's identical comment
+    std::memcpy(skb1Payload.data() + transOff + 0x02, &noGlobalSeq, 2);
     uint32_t tsOuterOff = static_cast<uint32_t>(skb1Payload.size());
     skb1Payload.resize(tsOuterOff + 8, 0);
     putArrayAt(skb1Payload, tsOuterOff, 1, 0);  // seq 0: 1 timestamp at *anim-blob* offset 0
@@ -920,14 +936,19 @@ TEST_CASE("husk export: non-finite (NaN/Inf) vertex position is rejected, not si
     fs::remove(skinPath);
 }
 
-TEST_CASE("husk export: 'auto' .skin path without --skin-dir fails cleanly") {
+TEST_CASE("husk export: 'auto' .skin path without --skin-dir defaults to the model's own "
+          "directory, and still fails cleanly when the FileDataID-named .skin isn't there") {
     auto m2Path = tempPath("auto-no-skindir.m2");
     writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {12345}));
 
     auto result = runHusk("export " + m2Path.string() + " auto " +
                            tempPath("auto-no-skindir.glb").string());
     CHECK(result.exitCode == 1);
-    CHECK(result.output.find("--skin-dir") != std::string::npos);
+    // --skin-dir now defaults to the model's own directory (same one
+    // tempPath() writes m2Path into) rather than being required -- since no
+    // '12345.skin' actually exists there, this fails on the file itself,
+    // not on a missing flag.
+    CHECK(result.output.find("12345.skin") != std::string::npos);
 
     fs::remove(m2Path);
 }
@@ -1149,4 +1170,216 @@ TEST_CASE("husk info: prints attachments/events/lights/cameras/ribbon_emitters/p
     CHECK(result.output.find("particle_emitters: 0") != std::string::npos);
 
     fs::remove(path);
+}
+
+// CLI default-resolution tests: `husk export <file.m2>` alone (no .skin,
+// output, .skel, or --textures/--skin-dir/--anim-dir) should resolve
+// everything it reasonably can from what's already sitting next to the
+// model, rather than requiring every argument spelled out even when it's
+// exactly where the tool could have found it itself. Each fixture below
+// gets its own dedicated subdirectory (not the shared system temp root
+// tempPath() otherwise writes into) so directory-scan-based defaulting has
+// a clean, isolated view -- no risk of an unrelated file from a different
+// test case being picked up.
+
+fs::path defaultsDir(const std::string& name) {
+    auto dir = fs::temp_directory_path() / ("husk-cli-test-defaults-" + name);
+    fs::create_directories(dir);
+    return dir;
+}
+
+TEST_CASE("husk export: model path alone resolves a same-basename .skin and defaults the output "
+          "path, end to end") {
+    auto dir = defaultsDir("basic");
+    writeFile(dir / "basic.m2", tinyValidM2());
+    writeFile(dir / "basic00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "basic.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("no .skin path given") != std::string::npos);
+    CHECK(result.output.find("no output path given") != std::string::npos);
+    CHECK(fs::exists(dir / "basic.glb"));
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: default .skin resolution never matches a different model's file that "
+          "merely extends this one's name as a string (the _hd-variant trap)") {
+    auto dir = defaultsDir("hdtrap");
+    writeFile(dir / "hero.m2", tinyValidM2());
+    writeFile(dir / "hero00.skin", tinyMatchingSkin());
+    // A real, unrelated, much-higher-poly model -- "hero_hd" starts with
+    // "hero" as a plain string, but the character right after the basename
+    // is '_', not a digit, so it must never be picked for hero.m2.
+    writeFile(dir / "hero_hd00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "hero.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("hero00.skin") != std::string::npos);
+    CHECK(result.output.find("hero_hd00.skin") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: multiple same-basename .skin candidates resolves to the lowest-numbered "
+          "one, and says so") {
+    auto dir = defaultsDir("ambiguous");
+    writeFile(dir / "multi.m2", tinyValidM2());
+    writeFile(dir / "multi01.skin", tinyMatchingSkin());
+    writeFile(dir / "multi00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "multi.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("multi00.skin") != std::string::npos);
+    CHECK(result.output.find("2 same-basename .skin files") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: no .skin path given and none found next to the model fails cleanly, "
+          "naming what was expected") {
+    auto dir = defaultsDir("noskin");
+    writeFile(dir / "lonely.m2", tinyValidM2());
+
+    auto result = runHusk("export " + (dir / "lonely.m2").string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("no same-named") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a 0-inline-bone model with a same-basename .skel next to it resolves the "
+          "skeleton automatically, end to end") {
+    auto dir = defaultsDir("skel");
+    writeFile(dir / "rigged.m2", tinyValidM2());  // inline bones empty
+    writeFile(dir / "rigged00.skin", tinyMatchingSkin());
+    writeFile(dir / "rigged.skel", buildSkel({{-1, -1}}));  // one root bone
+
+    auto result = runHusk("export " + (dir / "rigged.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("found and using") != std::string::npos);
+    CHECK(result.output.find("rigged.skel") != std::string::npos);
+    CHECK(result.output.find("1 bones") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --textures defaults to the model's own directory -- a FileDataID-named "
+          "file already sitting there is embedded without passing the flag") {
+    auto dir = defaultsDir("textures");
+    auto md20 = tinyValidM2();
+    // One M2Texture (type=0, i.e. hardcoded/filename-based -- fine, only
+    // the TXID-resolved FileDataID matters for embedding) plus a TXID chunk
+    // giving it FileDataID 555, and one .skin batch referencing material 0
+    // (itself referencing texture 0 via a trivial 1-entry combo table) --
+    // the minimum shape buildMaterialsAndPrimitives needs to try resolving
+    // an actual image.
+    uint32_t one = 1;
+    uint32_t texOff = static_cast<uint32_t>(md20.size());
+    md20.resize(texOff + 16, 0);  // M2Texture: type/flags/filename(M2Array<char>)
+    std::memcpy(md20.data() + 0x050, &one, 4);    // textures.count
+    std::memcpy(md20.data() + 0x054, &texOff, 4);  // textures.offset
+    uint32_t matOff = static_cast<uint32_t>(md20.size());
+    md20.resize(matOff + 4, 0);  // M2Material: flags(u16)=0, blendMode(u16)=0
+    std::memcpy(md20.data() + 0x070, &one, 4);    // materials.count
+    std::memcpy(md20.data() + 0x074, &matOff, 4);  // materials.offset
+    uint32_t comboOff = static_cast<uint32_t>(md20.size());
+    putU16(md20, 0);  // textureCombos[0] = texture index 0
+    std::memcpy(md20.data() + 0x080, &one, 4);      // textureCombos.count
+    std::memcpy(md20.data() + 0x084, &comboOff, 4);  // textureCombos.offset
+
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    putTag(file, "TXID");
+    putU32(file, 4);
+    putU32(file, 555);  // texture 0's FileDataID
+
+    // .skin with one submesh + one batch (materialIndex=0,
+    // textureComboIndex=0) -- header offsets/sizes per src/skin.cpp
+    // (vertices=0x04, indices=0x0C, bones=0x14, submeshes=0x1C,
+    // batches=0x24; kSubmeshSize=0x30, kBatchSize=0x18). Built by appending
+    // each section and patching its header descriptor from the running
+    // size, rather than hand-computed offsets, so a struct-size mistake
+    // shows up as a wrong read immediately instead of silently compiling.
+    std::vector<uint8_t> skin;
+    putTag(skin, "SKIN");
+    skin.resize(44, 0);  // 5 M2Array descriptors, patched below
+    auto patchArray = [&](size_t off, uint32_t count, uint32_t offset) {
+        std::memcpy(skin.data() + off, &count, 4);
+        std::memcpy(skin.data() + off + 4, &offset, 4);
+    };
+
+    uint32_t submeshOff = static_cast<uint32_t>(skin.size());
+    skin.resize(skin.size() + 0x30, 0);
+    uint16_t indexStart = 0, indexCount = 3;
+    std::memcpy(skin.data() + submeshOff + 0x08, &indexStart, 2);
+    std::memcpy(skin.data() + submeshOff + 0x0A, &indexCount, 2);
+    patchArray(0x1C, 1, submeshOff);
+
+    uint32_t batchOff = static_cast<uint32_t>(skin.size());
+    skin.resize(skin.size() + 0x18, 0);
+    uint16_t zero16 = 0;
+    uint16_t one16 = 1;
+    uint16_t noColor = 0xFFFF;  // colorIndex's "none" sentinel (skin.hpp's Batch::colorIndex)
+    std::memcpy(skin.data() + batchOff + 0x04, &zero16, 2);   // skinSectionIndex
+    std::memcpy(skin.data() + batchOff + 0x08, &noColor, 2);  // colorIndex: none
+    std::memcpy(skin.data() + batchOff + 0x0A, &zero16, 2);   // materialIndex
+    std::memcpy(skin.data() + batchOff + 0x0E, &one16, 2);    // textureCount: 1 (gates resolution)
+    std::memcpy(skin.data() + batchOff + 0x10, &zero16, 2);   // textureComboIndex
+    patchArray(0x24, 1, batchOff);
+
+    // vertices lookup table: 1 entry -> global vertex 0.
+    uint32_t vertOff = static_cast<uint32_t>(skin.size());
+    putU16(skin, 0);
+    patchArray(0x04, 1, vertOff);
+
+    // indices: 3 entries, all pointing at vertices-lookup slot 0 (a
+    // degenerate triangle onto the model's one vertex -- same as
+    // tinyMatchingSkin's own shape).
+    uint32_t idxOff = static_cast<uint32_t>(skin.size());
+    putU16(skin, 0);
+    putU16(skin, 0);
+    putU16(skin, 0);
+    patchArray(0x0C, 3, idxOff);
+
+    patchArray(0x14, 0, 0);  // bones: unread, left empty
+
+    auto dirModel = dir / "textured.m2";
+    writeFile(dirModel, file);
+    writeFile(dir / "textured00.skin", skin);
+    writeFile(dir / "555.png", {1, 2, 3, 4});  // fake PNG bytes -- husk embeds raw, doesn't decode
+
+    auto result = runHusk("export " + dirModel.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --anim-dir defaults to the model's own directory -- an external "
+          "sequence's .anim file already sitting there resolves without passing the flag") {
+    auto dir = defaultsDir("animdir");
+    auto md20 = tinyExternalAnimM2();
+
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    putTag(file, "AFID");
+    putU32(file, 8);
+    putU16(file, 200);  // anim_id, matches tinyExternalAnimM2's sequence id
+    putU16(file, 0);    // sub_anim_id
+    putU32(file, 999);  // file_id
+
+    writeFile(dir / "extanim.m2", file);
+    writeFile(dir / "extanim00.skin", tinyMatchingSkin());
+    writeFile(dir / "999.anim", tinyAnimFile());
+
+    auto result = runHusk("export " + (dir / "extanim.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove_all(dir);
 }
