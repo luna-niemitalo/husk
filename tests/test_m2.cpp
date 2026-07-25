@@ -1111,6 +1111,152 @@ TEST_CASE("parseSequences: array running past the end of the blob throws") {
     CHECK_THROWS_AS(husk::m2::parseSequences(blob, array), husk::m2::ParseError);
 }
 
+// M2Attachment (wowdev.wiki M2#Attachments), 0x28 bytes: 0x00 id (u32),
+// 0x04 bone (i16), 0x06 unknown (u16, unread), 0x08 position (C3Vector).
+void putAttachment(std::vector<uint8_t>& buf, size_t off, uint32_t id, int16_t bone,
+                    const husk::m2::Vec3& position) {
+    if (buf.size() < off + 0x28) buf.resize(off + 0x28, 0);
+    putU32(buf, off + 0x00, id);
+    uint16_t boneBits = static_cast<uint16_t>(bone);
+    std::memcpy(buf.data() + off + 0x04, &boneBits, 2);
+    putF32(buf, off + 0x08, position.x);
+    putF32(buf, off + 0x0C, position.y);
+    putF32(buf, off + 0x10, position.z);
+}
+
+TEST_CASE("parseAttachments: reads id/bone/position for every entry") {
+    std::vector<uint8_t> blob(200, 0);
+    putAttachment(blob, 200, 3, 54, {-0.134592f, -0.281851f, 1.3306f});
+    putAttachment(blob, 200 + 0x28, 4, 55, {1, 2, 3});
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = 200;
+    auto attachments = husk::m2::parseAttachments(blob, array);
+
+    REQUIRE(attachments.size() == 2);
+    CHECK(attachments[0].id == 3);
+    CHECK(attachments[0].bone == 54);
+    CHECK(attachments[0].position.x == doctest::Approx(-0.134592f));
+    CHECK(attachments[0].position.z == doctest::Approx(1.3306f));
+    CHECK(attachments[1].id == 4);
+    CHECK(attachments[1].bone == 55);
+}
+
+TEST_CASE("parseAttachments: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 54321;
+    CHECK(husk::m2::parseAttachments(blob, array).empty());
+}
+
+TEST_CASE("parseAttachments: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(20, 0);
+    husk::m2::Array array;
+    array.count = 1;   // 0x28 bytes needed
+    array.offset = 0;  // but the blob is only 20 bytes
+    CHECK_THROWS_AS(husk::m2::parseAttachments(blob, array), husk::m2::ParseError);
+}
+
+// M2Event (wowdev.wiki M2#Events), 0x24 bytes: 0x00 identifier (4 raw
+// ASCII bytes), 0x04 data (u32), 0x08 bone (u32), 0x0C position (C3Vector).
+void putEvent(std::vector<uint8_t>& buf, size_t off, const char identifier[4], uint32_t data,
+              uint32_t bone, const husk::m2::Vec3& position) {
+    if (buf.size() < off + 0x24) buf.resize(off + 0x24, 0);
+    std::memcpy(buf.data() + off + 0x00, identifier, 4);
+    putU32(buf, off + 0x04, data);
+    putU32(buf, off + 0x08, bone);
+    putF32(buf, off + 0x0C, position.x);
+    putF32(buf, off + 0x10, position.y);
+    putF32(buf, off + 0x14, position.z);
+}
+
+TEST_CASE("parseEvents: reads identifier/data/bone/position for every entry") {
+    std::vector<uint8_t> blob(200, 0);
+    putEvent(blob, 200, "$HIT", 0, 94, {-0.0276569f, 0.000218528f, 1.1743f});
+    putEvent(blob, 200 + 0x24, "$DTH", 7, 10, {1, 2, 3});
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = 200;
+    auto events = husk::m2::parseEvents(blob, array);
+
+    REQUIRE(events.size() == 2);
+    CHECK(events[0].identifier == "$HIT");
+    CHECK(events[0].data == 0);
+    CHECK(events[0].bone == 94);
+    CHECK(events[0].position.z == doctest::Approx(1.1743f));
+    CHECK(events[1].identifier == "$DTH");
+    CHECK(events[1].data == 7);
+    CHECK(events[1].bone == 10);
+}
+
+TEST_CASE("parseEvents: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 54321;
+    CHECK(husk::m2::parseEvents(blob, array).empty());
+}
+
+TEST_CASE("parseEvents: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(20, 0);
+    husk::m2::Array array;
+    array.count = 1;   // 0x24 bytes needed
+    array.offset = 0;  // but the blob is only 20 bytes
+    CHECK_THROWS_AS(husk::m2::parseEvents(blob, array), husk::m2::ParseError);
+}
+
+// M2Light (wowdev.wiki M2#Lights), 0x9C bytes: only the 3 static fields
+// (0x00 type u16, 0x02 bone i16, 0x04 position C3Vector) are written here
+// -- the rest of the record is M2Track-animated data this parser skips.
+void putLight(std::vector<uint8_t>& buf, size_t off, uint16_t type, int16_t bone,
+              const husk::m2::Vec3& position) {
+    if (buf.size() < off + 0x9C) buf.resize(off + 0x9C, 0);
+    putU16(buf, off + 0x00, type);
+    uint16_t boneBits = static_cast<uint16_t>(bone);
+    std::memcpy(buf.data() + off + 0x02, &boneBits, 2);
+    putF32(buf, off + 0x04, position.x);
+    putF32(buf, off + 0x08, position.y);
+    putF32(buf, off + 0x0C, position.z);
+}
+
+TEST_CASE("parseLights: reads type/bone/position for every entry, skipping the M2Track region") {
+    std::vector<uint8_t> blob(300, 0);
+    putLight(blob, 300, 1, -1, {1, 2, 3});
+    putLight(blob, 300 + 0x9C, 0, 5, {4, 5, 6});
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = 300;
+    auto lights = husk::m2::parseLights(blob, array);
+
+    REQUIRE(lights.size() == 2);
+    CHECK(lights[0].type == 1);
+    CHECK(lights[0].bone == -1);
+    CHECK(lights[0].position.x == doctest::Approx(1));
+    CHECK(lights[1].type == 0);
+    CHECK(lights[1].bone == 5);
+    CHECK(lights[1].position.z == doctest::Approx(6));
+}
+
+TEST_CASE("parseLights: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 54321;
+    CHECK(husk::m2::parseLights(blob, array).empty());
+}
+
+TEST_CASE("parseLights: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(20, 0);
+    husk::m2::Array array;
+    array.count = 1;   // 0x9C bytes needed
+    array.offset = 0;  // but the blob is only 20 bytes
+    CHECK_THROWS_AS(husk::m2::parseLights(blob, array), husk::m2::ParseError);
+}
+
 // Builds a *full* M2Track<T> at `trackOff` -- both the `timestamps`
 // (trackOff+0x04) and `values` (trackOff+0x0C) nested M2Array<M2Array<>>
 // fields, in lockstep -- from per-sequence keyframe lists: sequences[i] is
@@ -1256,4 +1402,88 @@ TEST_CASE("resolveVec3TrackSequence: keyframe data running past the end of the b
 
     CHECK_THROWS_AS(husk::m2::resolveVec3TrackSequence(blob, static_cast<uint32_t>(trackOff), 0),
                      husk::m2::ParseError);
+}
+
+TEST_CASE("resolveVec3TrackSequence: an externalDataBlob reads keyframe payload from that blob, "
+          "descriptors still from the M2 blob") {
+    // The M2 blob holds the track's descriptors (outer + one inner
+    // M2Array) exactly as usual -- but the inner array's `offset` field is
+    // deliberately small/plausible-looking *for the M2 blob* while
+    // actually only being valid against a separate, unrelated "anim" blob
+    // -- proving the payload really comes from externalDataBlob, not by
+    // coincidence sharing layout with descriptorBlob.
+    std::vector<uint8_t> m2Blob(100, 0);
+    size_t trackOff = 100;
+    m2Blob.resize(trackOff + 0x14, 0);
+    // Two separate inner-array descriptors -- timestamps and values are
+    // unrelated arrays, at unrelated offsets, even though both are
+    // (deliberately) meaningless against m2Blob's own small buffer and
+    // only valid against animBlob.
+    size_t tsOuterOff = m2Blob.size();
+    m2Blob.resize(tsOuterOff + 8, 0);
+    putArray(m2Blob, tsOuterOff, 1, 40);  // 1 timestamp at animBlob offset 40
+    size_t valOuterOff = m2Blob.size();
+    m2Blob.resize(valOuterOff + 8, 0);
+    putArray(m2Blob, valOuterOff, 1, 60);  // 1 C3Vector at animBlob offset 60
+    putArray(m2Blob, trackOff + 0x04, 1, static_cast<uint32_t>(tsOuterOff));
+    putArray(m2Blob, trackOff + 0x0C, 1, static_cast<uint32_t>(valOuterOff));
+
+    std::vector<uint8_t> animBlob(100, 0);
+    putU32(animBlob, 40, 12345);  // timestamp
+    auto posBytes = vec3Bytes({7, 8, 9});
+    std::memcpy(animBlob.data() + 60, posBytes.data(), posBytes.size());
+
+    auto result = husk::m2::resolveVec3TrackSequence(m2Blob, static_cast<uint32_t>(trackOff), 0,
+                                                       &animBlob);
+    REQUIRE(result.size() == 1);
+    CHECK(result[0].first == 12345);
+    CHECK(result[0].second.x == doctest::Approx(7));
+    CHECK(result[0].second.z == doctest::Approx(9));
+}
+
+TEST_CASE("resolveVec3TrackSequence: externalDataBlob too small for the claimed keyframe data "
+          "throws, not a wild read") {
+    std::vector<uint8_t> m2Blob(100, 0);
+    size_t trackOff = 100;
+    m2Blob.resize(trackOff + 0x14, 0);
+    size_t tsOuterOff = m2Blob.size();
+    m2Blob.resize(tsOuterOff + 8, 0);
+    putArray(m2Blob, tsOuterOff, 1, 0);  // 1 timestamp at offset 0 -- fits tinyAnimBlob
+    size_t valOuterOff = m2Blob.size();
+    m2Blob.resize(valOuterOff + 8, 0);
+    putArray(m2Blob, valOuterOff, 1, 40);  // 1 C3Vector at offset 40 -- doesn't fit
+    putArray(m2Blob, trackOff + 0x04, 1, static_cast<uint32_t>(tsOuterOff));
+    putArray(m2Blob, trackOff + 0x0C, 1, static_cast<uint32_t>(valOuterOff));
+
+    std::vector<uint8_t> tinyAnimBlob(10, 0);  // far too small for offset 40 + 12 bytes
+
+    CHECK_THROWS_AS(husk::m2::resolveVec3TrackSequence(m2Blob, static_cast<uint32_t>(trackOff), 0,
+                                                         &tinyAnimBlob),
+                     husk::m2::ParseError);
+}
+
+TEST_CASE("extractAnimBlob: chunked=false returns the file bytes verbatim") {
+    std::vector<uint8_t> flat = {1, 2, 3, 4, 5};
+    auto blob = husk::m2::extractAnimBlob(flat, /*chunked=*/false);
+    CHECK(blob == flat);
+}
+
+TEST_CASE("extractAnimBlob: chunked=true finds and returns the AFM2 chunk's payload") {
+    std::vector<uint8_t> file;
+    appendChunk(file, "AFSA", {0xAA, 0xAA});  // unrelated chunk before AFM2
+    appendChunk(file, "AFM2", {1, 2, 3, 4, 5, 6});
+    appendChunk(file, "AFSB", {0xBB});  // unrelated chunk after AFM2
+
+    auto blob = husk::m2::extractAnimBlob(file, /*chunked=*/true);
+    std::vector<uint8_t> expected = {1, 2, 3, 4, 5, 6};
+    CHECK(blob == expected);
+}
+
+TEST_CASE("extractAnimBlob: chunked=true with no AFM2 chunk throws, naming what it found") {
+    std::vector<uint8_t> file;
+    appendChunk(file, "AFSA", {0xAA});
+    appendChunk(file, "AFSB", {0xBB});
+
+    CHECK_THROWS_WITH_AS(husk::m2::extractAnimBlob(file, /*chunked=*/true),
+                          doctest::Contains("AFSA"), husk::m2::ParseError);
 }

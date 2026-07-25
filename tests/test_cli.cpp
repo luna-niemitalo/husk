@@ -158,6 +158,20 @@ std::vector<uint8_t> buildSkel(const std::vector<std::pair<int32_t, int16_t>>& b
     return b;
 }
 
+// Writes an M2Array<T>-shaped (count, offset) pair at the absolute offset
+// `off` in `buf`, resizing if needed. Unlike fillTrack's payload (appended
+// wherever `buf.size()` currently is), `arrOffset` here is caller-chosen --
+// used below to point a track's inner array descriptor at an offset that's
+// only meaningful in a *separate* buffer (an external .anim file's own
+// blob), proving resolveVec3TrackSequence's externalDataBlob parameter is
+// really being used, not coincidentally reading the right bytes from `buf`
+// itself.
+void putArrayAt(std::vector<uint8_t>& buf, size_t off, uint32_t count, uint32_t arrOffset) {
+    if (buf.size() < off + 8) buf.resize(off + 8, 0);
+    std::memcpy(buf.data() + off, &count, 4);
+    std::memcpy(buf.data() + off + 4, &arrOffset, 4);
+}
+
 // Fills in one M2Track<T>'s already-reserved 20-byte slot at `trackOff`
 // with a *single* animation sub-array (index 0, matching sequence index 0
 // -- the only sequence tinyAnimatedM2 defines), appended at the current end
@@ -246,6 +260,105 @@ std::vector<uint8_t> tinyAnimatedM2() {
     return b;
 }
 
+// tinyValidM2() (1 vertex) plus 1 M2Sequence with flags=0 (neither 0x20
+// nor 0x40 -- "external .anim file" per wowdev.wiki's Flags table) and 1
+// inline bone whose translation track's descriptors (outer + one inner
+// M2Array, both still physically inside the M2 blob) claim keyframe data
+// at offsets that are only meaningful in a *separate* .anim blob -- proving
+// `husk export --anim-dir` really reads the payload cross-blob end to end,
+// not by coincidentally finding valid-looking bytes inside the M2 itself.
+// Rotation/scale tracks are left with 0 sub-arrays (no data at all, for
+// either blob) -- this sequence's translation channel alone is enough to
+// prove the wiring works.
+std::vector<uint8_t> tinyExternalAnimM2() {
+    auto b = tinyValidM2();
+
+    uint32_t seqOff = static_cast<uint32_t>(b.size());
+    uint32_t seqCount = 1;
+    std::memcpy(b.data() + 0x01C, &seqCount, 4);
+    std::memcpy(b.data() + 0x020, &seqOff, 4);
+    b.resize(seqOff + 0x40, 0);
+    uint16_t seqId = 200;
+    std::memcpy(b.data() + seqOff + 0x00, &seqId, 2);
+    // flags left at 0 -- external, not an alias.
+
+    uint32_t boneOff = static_cast<uint32_t>(b.size());
+    uint32_t boneCount = 1;
+    std::memcpy(b.data() + 0x02C, &boneCount, 4);
+    std::memcpy(b.data() + 0x030, &boneOff, 4);
+    b.resize(boneOff + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(b.data() + boneOff + 0x00, &keyBoneId, 4);
+    int16_t parentBone = -1;
+    std::memcpy(b.data() + boneOff + 0x08, &parentBone, 2);
+
+    size_t trackOff = boneOff + 0x10;  // translation
+    uint32_t tsOuterOff = static_cast<uint32_t>(b.size());
+    b.resize(tsOuterOff + 8, 0);
+    putArrayAt(b, tsOuterOff, 1, 0);  // sequence 0: 1 timestamp at *anim-blob* offset 0
+    uint32_t valOuterOff = static_cast<uint32_t>(b.size());
+    b.resize(valOuterOff + 8, 0);
+    putArrayAt(b, valOuterOff, 1, 4);  // sequence 0: 1 C3Vector at *anim-blob* offset 4
+    putArrayAt(b, trackOff + 0x04, 1, tsOuterOff);
+    putArrayAt(b, trackOff + 0x0C, 1, valOuterOff);
+    // rotation (+0x24) / scale (+0x38) tracks stay all-zero: 0 sub-arrays.
+
+    return b;
+}
+
+// The .anim file tinyExternalAnimM2()'s translation track descriptor
+// actually points into: a single (timestamp=5000ms, C3Vector(9,9,9))
+// keyframe, laid out at exactly the offsets tinyExternalAnimM2() claims
+// (0 and 4).
+std::vector<uint8_t> tinyAnimFile() {
+    std::vector<uint8_t> b;
+    putU32(b, 5000);            // timestamp, at offset 0
+    auto pos = vec3Bytes(9, 9, 9);
+    b.insert(b.end(), pos.begin(), pos.end());  // C3Vector, at offset 4
+    return b;
+}
+
+void appendChunkTo(std::vector<uint8_t>& file, const char* tag, const std::vector<uint8_t>& payload) {
+    putTag(file, tag);
+    putU32(file, static_cast<uint32_t>(payload.size()));
+    file.insert(file.end(), payload.begin(), payload.end());
+}
+
+// An SKB1 payload (see src/skel.cpp) with exactly one M2CompBone
+// (keyBoneId/parentBone = -1, everything else zeroed, tracks left at "0
+// sub-arrays" for the caller to fill via fillTrack/putArrayAt -- same
+// pattern tinyAnimatedM2/tinyExternalAnimM2 use for an inline M2's bones).
+// `boneOff` (out param) is the resulting SKB1-payload-relative offset of
+// that bone, i.e. the base fillTrack's trackOff is relative to.
+std::vector<uint8_t> buildSkb1PayloadForTracks(size_t* boneOff) {
+    std::vector<uint8_t> payload(16, 0);
+    putArrayAt(payload, 0x00, 1, 16);  // bones: count=1, offset=16
+    // key_bone_lookup (0x08) left at {0, 0} -- unread.
+    payload.resize(16 + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(payload.data() + 16 + 0x00, &keyBoneId, 4);
+    int16_t parentBone = -1;
+    std::memcpy(payload.data() + 16 + 0x08, &parentBone, 2);
+    if (boneOff) *boneOff = 16;
+    return payload;
+}
+
+// An SKS1 payload (see src/skel.cpp) with exactly one M2Sequence -- same
+// 0x40-byte record shape tests/test_m2.cpp's putSequence uses, transcribed
+// fresh here since this file builds fixtures byte-by-byte rather than
+// sharing helpers across test binaries.
+std::vector<uint8_t> buildSks1Payload(uint16_t seqId, uint32_t seqFlags) {
+    std::vector<uint8_t> payload(32, 0);
+    // global_loops (0x00) and sequence_lookups (0x10) left at {0, 0}.
+    putArrayAt(payload, 0x08, 1, 32);  // sequences: count=1, offset=32
+    payload.resize(32 + 0x40, 0);
+    std::memcpy(payload.data() + 32 + 0x00, &seqId, 2);
+    uint32_t duration = 1000;
+    std::memcpy(payload.data() + 32 + 0x04, &duration, 4);
+    std::memcpy(payload.data() + 32 + 0x0C, &seqFlags, 4);
+    return payload;
+}
+
 }  // namespace
 
 TEST_CASE("husk export: an inline bone with a flags&0x20 sequence produces a real glTF "
@@ -262,6 +375,73 @@ TEST_CASE("husk export: an inline bone with a flags&0x20 sequence produces a rea
 
     fs::remove(m2Path);
     fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: --anim-dir resolves an external (flags without 0x20/0x40) sequence's "
+          "bone keyframes from a real .anim file, via AFID, end to end") {
+    auto md20 = tinyExternalAnimM2();
+
+    // Wrap in MD21 + an AFID chunk mapping (animId=200, subAnimId=0) ->
+    // fileId=777 -- AFID only exists in the chunked container (wowdev.wiki:
+    // "This section only applies to versions >= 7.0.1.20740").
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    putTag(file, "AFID");
+    putU32(file, 8);
+    putU16(file, 200);  // anim_id
+    putU16(file, 0);    // sub_anim_id
+    putU32(file, 777);  // file_id
+
+    auto m2Path = tempPath("external-anim.m2");
+    writeFile(m2Path, file);
+    auto skinPath = tempPath("external-anim.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-dir";
+    fs::create_directories(animDir);
+    writeFile(animDir / "777.anim", tinyAnimFile());
+
+    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                           tempPath("external-anim.glb").string() + " --anim-dir " + animDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove_all(animDir);
+}
+
+TEST_CASE("husk export: an external sequence with no matching --anim-dir file produces no "
+          "animation clip, not an error") {
+    auto md20 = tinyExternalAnimM2();
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    putTag(file, "AFID");
+    putU32(file, 8);
+    putU16(file, 200);
+    putU16(file, 0);
+    putU32(file, 777);
+
+    auto m2Path = tempPath("external-anim-missing.m2");
+    writeFile(m2Path, file);
+    auto skinPath = tempPath("external-anim-missing.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-dir-empty";
+    fs::create_directories(animDir);  // no 777.anim inside
+
+    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                           tempPath("external-anim-missing.glb").string() + " --anim-dir " +
+                           animDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("animation(s)") == std::string::npos);
+    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove_all(animDir);
 }
 
 TEST_CASE("husk export: a sequence without flags&0x20 (external .anim data) produces no "
@@ -291,30 +471,25 @@ TEST_CASE("husk export: a sequence without flags&0x20 (external .anim data) prod
     fs::remove(skinPath);
 }
 
-TEST_CASE("husk export: an external .skel skeleton gets no animation clips, even if the M2 has "
-          "a flags&0x20 sequence (real track data lives in .anim's AFSB chunk instead, which "
-          "husk doesn't parse)") {
+TEST_CASE("husk export: a .skel with no SKS1 chunk at all gets no animation clips, not an "
+          "error (a .skel isn't required to carry sequences, same as skel::findAnimFileIds "
+          "already tolerating a missing AFID)") {
     // tinyValidM2() (not tinyAnimatedM2()) -- no inline bones at all, so
     // bones come entirely from the .skel file below, same as a real
-    // Legion+ SKID-linked model.
+    // Legion+ SKID-linked model. The M2's *own* sequences array is
+    // irrelevant here regardless -- a .skel-sourced skeleton's animations
+    // come from the .skel's own SKS1/AFID, never the owning M2's.
     auto m2 = tinyValidM2();
-    uint32_t seqOff = static_cast<uint32_t>(m2.size());
-    uint32_t seqCount = 1;
-    std::memcpy(m2.data() + 0x01C, &seqCount, 4);
-    std::memcpy(m2.data() + 0x020, &seqOff, 4);
-    m2.resize(seqOff + 0x40, 0);
-    uint32_t seqFlags = 0x20;
-    std::memcpy(m2.data() + seqOff + 0x0C, &seqFlags, 4);
 
-    auto m2Path = tempPath("skel-animated.m2");
+    auto m2Path = tempPath("skel-no-sks1.m2");
     writeFile(m2Path, m2);
-    auto skinPath = tempPath("skel-animated.skin");
+    auto skinPath = tempPath("skel-no-sks1.skin");
     writeFile(skinPath, tinyMatchingSkin());
-    auto skelPath = tempPath("skel-animated.skel");
-    writeFile(skelPath, buildSkel({{-1, -1}}));
+    auto skelPath = tempPath("skel-no-sks1.skel");
+    writeFile(skelPath, buildSkel({{-1, -1}}));  // SKB1 only, no SKS1
 
     auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
-                           tempPath("skel-animated.glb").string() + " " + skelPath.string());
+                           tempPath("skel-no-sks1.glb").string() + " " + skelPath.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("animation(s)") == std::string::npos);
     CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
@@ -322,6 +497,179 @@ TEST_CASE("husk export: an external .skel skeleton gets no animation clips, even
     fs::remove(m2Path);
     fs::remove(skinPath);
     fs::remove(skelPath);
+}
+
+TEST_CASE("husk export: a .skel with an inline (flags&0x20) SKS1 sequence and real SKB1 track "
+          "data produces a real glTF animation, end to end") {
+    size_t boneOff = 0;
+    auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);
+    fillTrack(skb1Payload, boneOff + 0x10, {0, 1000}, {vec3Bytes(0, 0, 0), vec3Bytes(1, 2, 3)});
+    fillTrack(skb1Payload, boneOff + 0x24, {0, 1000}, {identityQuatBytes(), identityQuatBytes()});
+    fillTrack(skb1Payload, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+
+    std::vector<uint8_t> skel;
+    appendChunkTo(skel, "SKB1", skb1Payload);
+    appendChunkTo(skel, "SKS1", buildSks1Payload(300, 0x20));
+
+    auto m2Path = tempPath("skel-inline-anim.m2");
+    writeFile(m2Path, tinyValidM2());
+    auto skinPath = tempPath("skel-inline-anim.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto skelPath = tempPath("skel-inline-anim.skel");
+    writeFile(skelPath, skel);
+
+    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                           tempPath("skel-inline-anim.glb").string() + " " + skelPath.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
+}
+
+TEST_CASE("husk export: a .skel external (flags without 0x20/0x40) SKS1 sequence resolves via "
+          "the .skel's own AFID + --anim-dir, cross-blob (own AFID table, not the owning M2's)") {
+    size_t boneOff = 0;
+    auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);
+    size_t transOff = boneOff + 0x10;
+    uint32_t tsOuterOff = static_cast<uint32_t>(skb1Payload.size());
+    skb1Payload.resize(tsOuterOff + 8, 0);
+    putArrayAt(skb1Payload, tsOuterOff, 1, 0);  // seq 0: 1 timestamp at *anim-blob* offset 0
+    uint32_t valOuterOff = static_cast<uint32_t>(skb1Payload.size());
+    skb1Payload.resize(valOuterOff + 8, 0);
+    putArrayAt(skb1Payload, valOuterOff, 1, 4);  // seq 0: 1 C3Vector at *anim-blob* offset 4
+    putArrayAt(skb1Payload, transOff + 0x04, 1, tsOuterOff);
+    putArrayAt(skb1Payload, transOff + 0x0C, 1, valOuterOff);
+
+    std::vector<uint8_t> skel;
+    appendChunkTo(skel, "SKB1", skb1Payload);
+    appendChunkTo(skel, "SKS1", buildSks1Payload(400, 0));  // flags=0 -- external
+    std::vector<uint8_t> afid;
+    putU16(afid, 400);  // anim_id
+    putU16(afid, 0);    // sub_anim_id
+    putU32(afid, 777);  // file_id -- this .skel's own AFID, unrelated to the M2's
+    appendChunkTo(skel, "AFID", afid);
+
+    auto m2Path = tempPath("skel-external-anim.m2");
+    writeFile(m2Path, tinyValidM2());  // globalFlags=0 -- .anim is flat, matching tinyAnimFile()
+    auto skinPath = tempPath("skel-external-anim.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto skelPath = tempPath("skel-external-anim.skel");
+    writeFile(skelPath, skel);
+    auto animDir = fs::temp_directory_path() / "husk-cli-test-skel-anim-dir";
+    fs::create_directories(animDir);
+    writeFile(animDir / "777.anim", tinyAnimFile());
+
+    auto result =
+        runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                tempPath("skel-external-anim.glb").string() + " " + skelPath.string() +
+                " --anim-dir " + animDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
+    fs::remove_all(animDir);
+}
+
+TEST_CASE("husk export: a .skel external sequence whose --anim-dir file is AFSB-tagged (not "
+          "AFM2) produces no animation clip, not an error -- AFSB has no documented byte "
+          "layout husk can parse yet") {
+    size_t boneOff = 0;
+    auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);  // tracks left empty -- never reached
+
+    std::vector<uint8_t> skel;
+    appendChunkTo(skel, "SKB1", skb1Payload);
+    appendChunkTo(skel, "SKS1", buildSks1Payload(500, 0));  // flags=0 -- external
+    std::vector<uint8_t> afid;
+    putU16(afid, 500);
+    putU16(afid, 0);
+    putU32(afid, 888);
+    appendChunkTo(skel, "AFID", afid);
+
+    // globalFlags |= 0x200000 -- "chunked .anim files" (wowdev.wiki's
+    // flag_unk_0x200000) -- needed for the AFM2-vs-AFSB sniff to run at
+    // all (see buildAnimations's doc comment); a flat-.anim model has no
+    // AFSB shape to begin with.
+    auto m2 = tinyValidM2();
+    uint32_t globalFlags = 0x200000;
+    std::memcpy(m2.data() + 0x010, &globalFlags, 4);
+
+    auto m2Path = tempPath("skel-afsb-anim.m2");
+    writeFile(m2Path, m2);
+    auto skinPath = tempPath("skel-afsb-anim.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto skelPath = tempPath("skel-afsb-anim.skel");
+    writeFile(skelPath, skel);
+    auto animDir = fs::temp_directory_path() / "husk-cli-test-skel-afsb-dir";
+    fs::create_directories(animDir);
+    std::vector<uint8_t> afsbFile;
+    appendChunkTo(afsbFile, "AFSB", {1, 2, 3, 4});  // content never parsed -- just needs the tag
+    writeFile(animDir / "888.anim", afsbFile);
+
+    auto result =
+        runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                tempPath("skel-afsb-anim.glb").string() + " " + skelPath.string() +
+                " --anim-dir " + animDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("animation(s)") == std::string::npos);
+    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
+    fs::remove_all(animDir);
+}
+
+TEST_CASE("husk export: a .skel external sequence's --anim-dir file with BOTH a small AFM2 "
+          "chunk and a trailing AFSB chunk still produces no animation clip, not a bounds-check "
+          "crash -- real bloodelffemale_hd .anim files have exactly this shape (a tiny AFM2 "
+          "stub alongside the real AFSB data), and using the stub's payload as if it were the "
+          "full flat-format content throws a real 'claims more keyframes than this blob holds' "
+          "error, so AFSB's mere presence has to override AFM2's") {
+    size_t boneOff = 0;
+    auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);  // tracks left empty -- never reached
+
+    std::vector<uint8_t> skel;
+    appendChunkTo(skel, "SKB1", skb1Payload);
+    appendChunkTo(skel, "SKS1", buildSks1Payload(600, 0));  // flags=0 -- external
+    std::vector<uint8_t> afid;
+    putU16(afid, 600);
+    putU16(afid, 0);
+    putU32(afid, 999);
+    appendChunkTo(skel, "AFID", afid);
+
+    auto m2 = tinyValidM2();
+    uint32_t globalFlags = 0x200000;
+    std::memcpy(m2.data() + 0x010, &globalFlags, 4);
+
+    auto m2Path = tempPath("skel-afm2-stub-afsb-anim.m2");
+    writeFile(m2Path, m2);
+    auto skinPath = tempPath("skel-afm2-stub-afsb-anim.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto skelPath = tempPath("skel-afm2-stub-afsb-anim.skel");
+    writeFile(skelPath, skel);
+    auto animDir = fs::temp_directory_path() / "husk-cli-test-skel-afm2-stub-dir";
+    fs::create_directories(animDir);
+    std::vector<uint8_t> mixedFile;
+    appendChunkTo(mixedFile, "AFM2", {0, 0, 0, 0});  // tiny stub, not real track data
+    appendChunkTo(mixedFile, "AFSB", {1, 2, 3, 4});  // the real (unparsed) data
+    writeFile(animDir / "999.anim", mixedFile);
+
+    auto result =
+        runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                tempPath("skel-afm2-stub-afsb-anim.glb").string() + " " + skelPath.string() +
+                " --anim-dir " + animDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("animation(s)") == std::string::npos);
+    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
+    fs::remove_all(animDir);
 }
 
 TEST_CASE("husk info: directory as path fails cleanly, not a crash (FAILURES.md #1)") {

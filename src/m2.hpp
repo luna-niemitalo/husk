@@ -317,6 +317,44 @@ struct TextureWeight {
     std::optional<float> weight;  // 0..1; wiki: "I assume these are multiplied together" with Color::alpha
 };
 
+// M2Attachment, per wowdev.wiki M2#Attachments -- 40 (0x28) bytes on disk.
+// Only the static fields are surfaced; `animate_attached` (an
+// M2Track<uchar>, whether the attached model animates with this one) is
+// skipped, same "M2Track fields are stage-6-or-later" policy as
+// Bone/Color/TextureWeight elsewhere in this file -- it's a bool-ish
+// on/off switch, not something husk's glTF export has a slot for yet.
+struct Attachment {
+    uint32_t id = 0;      // meaning depends on model type; see wowdev.wiki's attachment-point table
+    int16_t bone = -1;    // attachment base
+    Vec3 position;         // relative to `bone`
+};
+
+// M2Event, per wowdev.wiki M2#Events -- 36 (0x24) bytes on disk.
+// `identifier` is 4 raw bytes read as ASCII (typically a '$'-prefixed
+// 3-character code, e.g. "$DTH" for death) -- read in file order, same as
+// every other 4-byte field in this codebase (M2 doesn't reverse these,
+// unlike WMO/ADT chunk tags, see chunk.hpp). `enabled` (an
+// M2TrackBase-only "timestamp-only animation block", every timestamp an
+// implicit "fire now") is skipped -- resolving *when* an event fires
+// during playback is a real-animation-clip concern, out of scope for a
+// static record dump.
+struct Event {
+    std::string identifier;
+    uint32_t data = 0;
+    uint32_t bone = 0;
+    Vec3 position;
+};
+
+// M2Light, per wowdev.wiki M2#Lights -- 156 (0x9C) bytes on disk. Only the
+// 3 static fields (of 8 total) are surfaced; the other 5 -- ambient/
+// diffuse color and intensity, attenuation start/end, visibility -- are
+// all M2Track-animated, same skip-for-now policy as Attachment/Event above.
+struct Light {
+    uint16_t type = 0;    // 0 = directional, 1 = point (wowdev.wiki M2#Lights)
+    int16_t bone = -1;    // -1 if not attached to a bone
+    Vec3 position;         // relative to `bone`, if given
+};
+
 struct ParseError : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
@@ -398,22 +436,69 @@ std::vector<Sequence> parseSequences(const std::vector<uint8_t>& blob, const Arr
 // comment for what `trackOffset` (and which `blob`) needs to be. Returns
 // (timestamp in milliseconds, value) pairs in file order, or an empty
 // vector -- not an error -- when `sequenceIndex` is out of range for this
-// particular track's own outer array, or that entry has zero keyframes
-// (the ordinary shape for a sequence whose real data lives in an external
-// .anim file instead, see Sequence::flags). Throws ParseError if the
-// track's own array descriptors, or the claimed keyframe data itself, run
-// past the end of the blob (foreign data, same as every other M2Array
-// access in this file).
-std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(const std::vector<uint8_t>& blob,
-                                                                  uint32_t trackOffset,
-                                                                  uint32_t sequenceIndex);
+// particular track's own outer array, or that entry has zero keyframes.
+//
+// `externalDataBlob`, when non-null, is where the *actual keyframe bytes*
+// are read from instead of `blob` -- `blob` still supplies every array
+// descriptor (the outer M2Array<M2Array<T>> and the per-sequence inner
+// M2Array<T> it points at), only the final timestamp/value reads move to
+// the other blob. This is for a sequence whose real data lives in an
+// external .anim file (Sequence::flags without 0x20): per wowdev.wiki,
+// "these files are just a blob of data which may as well be in the main
+// model file, that is pointed to by the first array_ref layer" -- the
+// M2's own per-sequence inner M2Array descriptor is real (not zeroed),
+// its `offset` field is just relative to the .anim file's blob instead of
+// the M2's own (see extractAnimBlob). Throws ParseError if the track's own
+// array descriptors (always read from `blob`), or the claimed keyframe
+// data itself (read from whichever blob is actually in play), run past
+// the end of that blob.
+std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    const std::vector<uint8_t>* externalDataBlob = nullptr);
 
 // Same as resolveVec3TrackSequence, but for an M2Track<M2CompQuat> (i.e.
 // Bone::rotationTrackOffset) -- each raw wire value is decompressed to a
 // Quat (see Quat's doc comment) before being returned.
-std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(const std::vector<uint8_t>& blob,
-                                                                  uint32_t trackOffset,
-                                                                  uint32_t sequenceIndex);
+std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    const std::vector<uint8_t>* externalDataBlob = nullptr);
+
+// Resolves a .anim file's own possibly-chunked shape (wowdev.wiki
+// M2#.anim_files' "Legion 24500" section) into the raw blob
+// resolveVec3TrackSequence/resolveQuatTrackSequence's `externalDataBlob`
+// expects. Unlike the M2/.skel container formats, a .anim file carries no
+// magic value of its own to sniff -- whether a *specific* model's .anim
+// files are chunked (single AFM2 chunk wrapping the same content a flat
+// file would hold) or flat (the raw content directly) is determined by
+// that model's own M2 header: `chunked` should be
+// `(header.globalFlags & 0x200000) != 0` (wowdev.wiki's
+// `flag_unk_0x200000`, "apparently: use 24500 upgraded model format:
+// chunked .anim files"). Throws ParseError if `chunked` is true but no
+// AFM2 chunk is found (a flat file passed in with the wrong flag would
+// otherwise be silently misread as chunk headers). NOTE: this is
+// implemented directly from the wiki's description, not yet cross-checked
+// against a real chunked .anim file -- see README.md's Design notes.
+std::vector<uint8_t> extractAnimBlob(const std::vector<uint8_t>& animFileBytes, bool chunked);
+
+// Reads `array.count` M2Attachment records out of `blob` starting at
+// `array.offset`, surfacing only `id`/`bone`/`position` (see Attachment's
+// doc comment). Throws ParseError if that range runs past the end of the
+// blob. An empty array (count 0) returns an empty vector without touching
+// `array.offset` at all.
+std::vector<Attachment> parseAttachments(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` M2Event records out of `blob` starting at
+// `array.offset`, surfacing only `identifier`/`data`/`bone`/`position`.
+// Throws ParseError under the same conditions as parseAttachments. An
+// empty array (count 0) returns an empty vector without touching
+// `array.offset`.
+std::vector<Event> parseEvents(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` M2Light records out of `blob` starting at
+// `array.offset`, surfacing only `type`/`bone`/`position`. Throws
+// ParseError under the same conditions as parseAttachments. An empty
+// array (count 0) returns an empty vector without touching `array.offset`.
+std::vector<Light> parseLights(const std::vector<uint8_t>& blob, const Array& array);
 
 // Best-effort expansion label(s) for a raw header version number, per the
 // wiki's own version table -- which the wiki itself calls "rough estimates"

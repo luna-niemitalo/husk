@@ -759,58 +759,174 @@ void checkInnerArrayFits(const Array& inner, size_t elementSize, size_t blobSize
 
 }  // namespace
 
-std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(const std::vector<uint8_t>& blob,
-                                                                  uint32_t trackOffset,
-                                                                  uint32_t sequenceIndex) {
-    const uint8_t* data = blob.data();
-    size_t blobSize = blob.size();
-
-    auto inner = trackSequenceInnerArrays(data, blobSize, trackOffset, sequenceIndex);
+std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    const std::vector<uint8_t>* externalDataBlob) {
+    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, sequenceIndex);
     if (!inner) {
         return {};
     }
     const Array& timestampsInner = inner->first;
     const Array& valuesInner = inner->second;
 
-    checkInnerArrayFits(timestampsInner, 4, blobSize, "timestamps");
-    checkInnerArrayFits(valuesInner, 12, blobSize, "C3Vector values");
+    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
+    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
+
+    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
+    checkInnerArrayFits(valuesInner, 12, dataSize, "C3Vector values");
     size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
 
     std::vector<std::pair<uint32_t, Vec3>> out;
     out.reserve(n);
     for (size_t i = 0; i < n; ++i) {
-        uint32_t ts = readU32(data, blobSize, timestampsInner.offset + i * 4);
-        Vec3 v = readVec3(data, blobSize, valuesInner.offset + i * 12);
+        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
+        Vec3 v = readVec3(data, dataSize, valuesInner.offset + i * 12);
         out.emplace_back(ts, v);
     }
     return out;
 }
 
-std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(const std::vector<uint8_t>& blob,
-                                                                  uint32_t trackOffset,
-                                                                  uint32_t sequenceIndex) {
-    const uint8_t* data = blob.data();
-    size_t blobSize = blob.size();
-
-    auto inner = trackSequenceInnerArrays(data, blobSize, trackOffset, sequenceIndex);
+std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    const std::vector<uint8_t>* externalDataBlob) {
+    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, sequenceIndex);
     if (!inner) {
         return {};
     }
     const Array& timestampsInner = inner->first;
     const Array& valuesInner = inner->second;
 
-    checkInnerArrayFits(timestampsInner, 4, blobSize, "timestamps");
-    checkInnerArrayFits(valuesInner, 8, blobSize, "M2CompQuat values");
+    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
+    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
+
+    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
+    checkInnerArrayFits(valuesInner, 8, dataSize, "M2CompQuat values");
     size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
 
     std::vector<std::pair<uint32_t, Quat>> out;
     out.reserve(n);
     for (size_t i = 0; i < n; ++i) {
-        uint32_t ts = readU32(data, blobSize, timestampsInner.offset + i * 4);
-        Quat q = readCompQuat(data, blobSize, valuesInner.offset + i * 8);
+        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
+        Quat q = readCompQuat(data, dataSize, valuesInner.offset + i * 8);
         out.emplace_back(ts, q);
     }
     return out;
+}
+
+std::vector<uint8_t> extractAnimBlob(const std::vector<uint8_t>& animFileBytes, bool chunked) {
+    if (!chunked) {
+        return animFileBytes;
+    }
+    auto chunks = readChunks(animFileBytes.data(), animFileBytes.size());
+    auto afm2 = findChunk(chunks, "AFM2");
+    if (!afm2) {
+        std::string found;
+        for (const auto& c : chunks) {
+            if (!found.empty()) found += ", ";
+            found += c.tag;
+        }
+        throw ParseError("chunked .anim file has no AFM2 chunk; chunks found: [" + found + "]");
+    }
+    return std::vector<uint8_t>(afm2->data, afm2->data + afm2->size);
+}
+
+std::vector<Attachment> parseAttachments(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<Attachment> attachments;
+    if (array.count == 0) {
+        return attachments;
+    }
+
+    constexpr size_t kAttachmentSize = 0x28;  // M2Attachment, wowdev.wiki M2#Attachments
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kAttachmentSize) {
+        throw ParseError("attachments array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kAttachmentSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    attachments.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kAttachmentSize;
+        Attachment a;
+        a.id = readU32(data, blobSize, off + 0x00);
+        uint16_t boneBits = readU16(data, blobSize, off + 0x04);
+        std::memcpy(&a.bone, &boneBits, sizeof(a.bone));
+        a.position = readVec3(data, blobSize, off + 0x08);
+        attachments.push_back(a);
+    }
+
+    return attachments;
+}
+
+std::vector<Event> parseEvents(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<Event> events;
+    if (array.count == 0) {
+        return events;
+    }
+
+    constexpr size_t kEventSize = 0x24;  // M2Event, wowdev.wiki M2#Events
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kEventSize) {
+        throw ParseError("events array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kEventSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    events.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kEventSize;
+        Event e;
+        // identifier is 4 raw ASCII bytes, file order (not reversed, same
+        // as chunk tags -- see chunk.hpp), trimmed of a trailing NUL the
+        // same way readName handles the `name` field.
+        char idBytes[5] = {};
+        std::memcpy(idBytes, data + off + 0x00, 4);
+        e.identifier = std::string(idBytes, 4);
+        while (!e.identifier.empty() && e.identifier.back() == '\0') e.identifier.pop_back();
+        e.data = readU32(data, blobSize, off + 0x04);
+        e.bone = readU32(data, blobSize, off + 0x08);
+        e.position = readVec3(data, blobSize, off + 0x0C);
+        events.push_back(e);
+    }
+
+    return events;
+}
+
+std::vector<Light> parseLights(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<Light> lights;
+    if (array.count == 0) {
+        return lights;
+    }
+
+    constexpr size_t kLightSize = 0x9C;  // M2Light, wowdev.wiki M2#Lights
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kLightSize) {
+        throw ParseError("lights array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kLightSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    lights.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kLightSize;
+        Light l;
+        l.type = readU16(data, blobSize, off + 0x00);
+        uint16_t boneBits = readU16(data, blobSize, off + 0x02);
+        std::memcpy(&l.bone, &boneBits, sizeof(l.bone));
+        l.position = readVec3(data, blobSize, off + 0x04);
+        lights.push_back(l);
+    }
+
+    return lights;
 }
 
 Header loadFile(const std::string& path) {

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <fstream>
 #include <iostream>
 #include <vector>
 
@@ -55,6 +56,19 @@ void printVec3(const m2::Vec3& v) {
     std::cout << "(" << v.x << ", " << v.y << ", " << v.z << ")";
 }
 
+std::vector<uint8_t> readFileBytes(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) {
+        throw m2::ParseError("couldn't open '" + path + "' for reading");
+    }
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
+                                std::istreambuf_iterator<char>());
+    if (!f.good() && !f.eof()) {
+        throw m2::ParseError("error reading '" + path + "'");
+    }
+    return bytes;
+}
+
 }  // namespace
 
 int info(int argc, char** args) {
@@ -65,8 +79,11 @@ int info(int argc, char** args) {
 
     std::string path = args[0];
     m2::Header h;
+    std::vector<uint8_t> blob;
     try {
-        h = m2::loadFile(path);
+        auto bytes = readFileBytes(path);
+        h = m2::parseHeader(bytes);
+        blob = m2::extractBlob(bytes);
     } catch (const std::exception& e) {
         // Catches m2::ParseError (a malformed-but-readable file) and
         // anything else that can escape loadFile -- e.g. husk::ChunkError
@@ -147,8 +164,25 @@ int info(int argc, char** args) {
     }
 
     printArray("attachments", h.attachments);
+    for (const auto& a : m2::parseAttachments(blob, h.attachments)) {
+        std::cout << "    id=" << a.id << " bone=" << a.bone << " position=";
+        printVec3(a.position);
+        std::cout << "\n";
+    }
     printArray("events", h.events);
+    for (const auto& e : m2::parseEvents(blob, h.events)) {
+        std::cout << "    " << (e.identifier.empty() ? "(empty)" : e.identifier) << " bone=" << e.bone
+                   << " data=" << e.data << " position=";
+        printVec3(e.position);
+        std::cout << "\n";
+    }
     printArray("lights", h.lights);
+    for (const auto& l : m2::parseLights(blob, h.lights)) {
+        std::cout << "    type=" << (l.type == 0 ? "directional" : l.type == 1 ? "point" : "unknown")
+                   << " bone=" << l.bone << " position=";
+        printVec3(l.position);
+        std::cout << "\n";
+    }
     printArray("cameras", h.cameras);
     printArray("ribbon_emitters", h.ribbonEmitters);
     printArray("particle_emitters", h.particleEmitters);

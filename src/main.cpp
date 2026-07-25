@@ -9,7 +9,8 @@ int main(int argc, char** argv) {
         "\n"
         "commands:\n"
         "  info <file.m2>                            parse and print an M2 header\n"
-        "  export <file.m2> <file.skin> <out.glb>     export a static mesh to glTF\n";
+        "  export <file.m2> <file.skin> <out.glb>     export a mesh (+ skin/animation) to glTF\n"
+        "  dump-chunks <file.m2>                      extract misc chunks to JSON (see --help)\n";
 
     if (argc < 2) {
         std::cerr << usage;
@@ -25,6 +26,9 @@ int main(int argc, char** argv) {
     }
     if (command == "export") {
         return husk::commands::exportGlb(restArgc, rest);
+    }
+    if (command == "dump-chunks") {
+        return husk::commands::dumpChunks(restArgc, rest);
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;

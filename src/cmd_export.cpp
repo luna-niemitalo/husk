@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "chunk.hpp"
 #include "commands.hpp"
 #include "gltf.hpp"
 #include "m2.hpp"
@@ -22,11 +23,13 @@
 // --textures) a real baseColorTexture image embedded. All of the above
 // convert WoW's Z-up coordinates to glTF's Y-up. Stage 6 (animation, see
 // README.md) additionally resolves M2Sequence + each bone's M2Track<T>
-// keyframes into real glTF animation clips -- but only for a model's
-// *inline* bones (an external .skel file moves per-bone keyframe data out
-// to .anim files husk doesn't parse the content of yet, see
-// buildAnimations's doc comment below) and only for sequences whose data
-// actually lives in this M2 rather than an external .anim file.
+// keyframes into real glTF animation clips, for a model's own inline bones
+// and (via skel::parseSequences/skel::boneTrackBlob/skel::findAnimFileIds)
+// a .skel-sourced skeleton alike -- either way, only for sequences whose
+// keyframe data actually resolves: inline, via --anim-dir for an AFM2-shape
+// external .anim file, or not at all for a .skel sequence whose external
+// data is in the AFSB shape husk doesn't parse yet (see buildAnimations's
+// doc comment below).
 namespace husk::commands {
 
 namespace {
@@ -34,21 +37,27 @@ namespace {
 void printUsage() {
     std::cerr
         << "usage: husk export <file.m2> <file.skin>|auto <output.glb> [file.skel]\n"
-           "                    [--textures <dir>] [--skin-dir <dir>]\n"
+           "                    [--textures <dir>] [--skin-dir <dir>] [--anim-dir <dir>]\n"
            "\n"
            "Exports a mesh: resolves the M2's vertex array and the .skin\n"
            "file's triangle-index lookup tables, converts WoW's Z-up\n"
            "coordinates to glTF's Y-up, and writes a glTF binary (.glb) --\n"
            "one primitive per .skin batch, with WoW's blend mode/render\n"
            "flags translated to glTF's alphaMode/doubleSided. If the M2\n"
-           "has bones, they're exported as a glTF skin; inline bones (not\n"
-           "from a separate .skel file) additionally get real animation\n"
-           "clips, one per M2Sequence whose keyframe data lives in this M2\n"
-           "rather than an external .anim file (which husk doesn't parse\n"
-           "the content of yet). Some models (see `husk info`'s output)\n"
-           "keep their bones in a separate .skel file instead of inline --\n"
-           "pass its path as the optional 4th argument to use those (bind\n"
-           "pose only, no animation clips, for that case). husk doesn't\n"
+           "has bones, they're exported as a glTF skin, with real\n"
+           "animation clips, one per M2Sequence whose keyframe data\n"
+           "resolves -- either inline, or via --anim-dir <dir> pointing at\n"
+           "a directory of already-extracted '<FileDataID>.anim' files\n"
+           "(same local-directory-by-FileDataID convention as\n"
+           "--skin-dir/--textures) for sequences whose data lives in an\n"
+           "external .anim file instead (husk reads the FileDataID off the\n"
+           "model's AFID chunk, it just doesn't fetch the file itself).\n"
+           "Some models (see `husk info`'s output) keep their bones in a\n"
+           "separate .skel file instead of inline -- pass its path as the\n"
+           "optional 4th argument to use those; animation clips still work\n"
+           "for that case (own SKS1 sequences/AFID table), except for\n"
+           "sequences whose external data lives in a .skel-only 'AFSB'\n"
+           ".anim shape husk doesn't parse yet (see README.md). husk doesn't\n"
            "resolve texture/skin FileDataIDs to actual\n"
            "BLP/.skin files itself (no CASC/listfile access, see\n"
            "README.md) -- pass --textures <dir> pointing at a directory of\n"
@@ -175,41 +184,141 @@ gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones) {
     return skeleton;
 }
 
-// M2Sequence flags bit meaning "this sequence's keyframe data lives inline
-// in the M2 (this bit set) vs. in an external .anim file (unset)" --
-// wowdev.wiki M2#Animation_sequences's Flags table, historically named
-// "looped animation" by a wiki contributor without a cited source, but its
-// actual documented meaning ("If set, the animation data is in the .m2
-// file") is what matters here.
+// M2Sequence flags bits (wowdev.wiki M2#Animation_sequences's Flags
+// table). 0x20, historically named "looped animation" by a wiki
+// contributor without a cited source, actually means "the animation data
+// is in the .m2 file" -- unset means external. 0x40 ("has next / is
+// alias") layered on top of an unset 0x20 is a case the wiki itself
+// admits it doesn't understand ("stored... somewhere. I have no clue.") --
+// sequences in that state are skipped entirely, not guessed at.
 constexpr uint32_t kSequenceStoredInlineFlag = 0x20;
+constexpr uint32_t kSequenceAliasFlag = 0x40;
 
-// Builds one glTF animation clip per M2Sequence that has its keyframe data
-// inline (flags & 0x20 -- everything else's real data is in an external
-// .anim file, wowdev.wiki M2#AFID, which husk doesn't parse the content of
-// yet), covering every bone that has real (non-empty) translation/
-// rotation/scale keyframes for that specific sequence. Deliberately only
-// called for a model's *inline* bones (see m2::Bone::translationTrackOffset
-// et al.'s doc comment for why a .skel-sourced skeleton's tracks are
-// expected to be empty, not wrong, here) -- `skeleton` must be the
-// already-built bind-pose Skeleton for these same `bones`, in the same
-// order, since each keyframe's translation channel value is bind-pose-
-// relative-to-parent (`skeleton.joints[i].localTranslation`) plus the
-// animated delta -- glTF's animated translation *replaces* the node's
-// translation at sampled times rather than adding to it, so the bind
-// offset has to be baked into every keyframe value, not left implicit.
-// Sequences with no bone actually carrying inline data for them (a
-// zero-length primary sequence, or one this model just doesn't animate any
-// bone in) are skipped -- an empty animation clip isn't useful output.
+// Everything buildAnimations needs to resolve a sequence's keyframes from
+// an external .anim file, when its data isn't inline -- bundled for the
+// same reason M2MaterialInputs is (a handful of related inputs, one call
+// site). `animDir` is the same local-directory-by-FileDataID convention
+// `--skin-dir`/`--textures` already use -- husk doesn't resolve a FileDataID
+// to a CASC path itself, so a missing file here is treated as "skip this
+// sequence" (see buildAnimations), not an error.
+struct M2AnimInputs {
+    std::optional<std::vector<m2::Header::AnimFileEntry>> animFileIds;
+    // header.globalFlags & 0x200000 -- wowdev.wiki's flag_unk_0x200000,
+    // "apparently: use 24500 upgraded model format: chunked .anim files".
+    // See m2::extractAnimBlob's doc comment for the caveat: this is
+    // implemented from that description, not yet verified against a real
+    // chunked .anim file.
+    bool animChunked = false;
+    std::string animDir;
+};
+
+// Finds the FileDataID for sequence (animId, subAnimId) in `animFileIds`,
+// or 0 ("none", same sentinel AnimFileEntry::fileId itself uses) if there's
+// no matching entry, or the matching entry's own fileId is 0.
+uint32_t findAnimFileId(const std::vector<m2::Header::AnimFileEntry>& animFileIds, uint16_t animId,
+                         uint16_t subAnimId) {
+    for (const auto& e : animFileIds) {
+        if (e.animId == animId && e.subAnimId == subAnimId && e.fileId != 0) {
+            return e.fileId;
+        }
+    }
+    return 0;
+}
+
+// Builds one glTF animation clip per M2Sequence that has resolvable
+// keyframe data -- either inline (flags & 0x20) or, when `animInputs`
+// resolves one, in an external .anim file (see M2AnimInputs, findAnimFileId,
+// m2::extractAnimBlob) -- covering every bone that has real (non-empty)
+// translation/rotation/scale keyframes for that specific sequence. Works
+// equally for a model's own inline bones+sequences (`blob` = the MD20 blob,
+// `sequences` from m2::parseSequences) and a .skel-sourced skeleton (`blob`
+// = skel::boneTrackBlob's SKB1 payload, `sequences` from
+// skel::parseSequences, `animInputs.animFileIds` from skel::findAnimFileIds
+// -- a .skel's own AFID table, not the owning M2's, see skel.hpp) -- the
+// M2Track outer-array-indexed-by-sequence-position convention (and the
+// external-.anim-file mechanism) is the same either way, verified against a
+// real bloodelffemale_hd.m2/.skel pair (see skel.hpp's doc comment). The
+// only case this can't resolve is a .skel sequence whose external data
+// lives in an AFSB-chunked .anim file, a format wowdev.wiki documents no
+// byte layout for at all (unlike AFM2's "identical to the flat format"
+// one-liner) -- skipped below, same policy as a missing file. `skeleton`
+// must be the already-built bind-pose Skeleton for these same `bones`, in
+// the same order, since each keyframe's translation channel value is
+// bind-pose-relative-to-parent (`skeleton.joints[i].localTranslation`) plus
+// the animated delta -- glTF's animated translation *replaces* the node's
+// translation at sampled times rather than adding to it, so the bind offset
+// has to be baked into every keyframe value, not left implicit. Sequences
+// with no bone actually carrying resolvable data for them (a zero-length
+// primary sequence, one this model just doesn't animate any bone in, an
+// external sequence whose .anim file isn't available in
+// `animInputs.animDir`, or one in the unhandled AFSB shape above) are
+// skipped -- an empty animation clip isn't useful output. A malformed .anim
+// file (bad chunk framing, or keyframe data claiming more than the file
+// actually holds) throws rather than being silently skipped -- same
+// "foreign data that doesn't fit its own claims is an error, not a
+// best-effort" policy as every other parser in this codebase; only a
+// *missing* file, or the AFSB case, is treated as "husk doesn't have this
+// one," consistent with --textures/--skin-dir.
 std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                                               const std::vector<m2::Bone>& bones,
                                               const gltf::Skeleton& skeleton,
-                                              const std::vector<m2::Sequence>& sequences) {
+                                              const std::vector<m2::Sequence>& sequences,
+                                              const M2AnimInputs& animInputs) {
     std::vector<gltf::Animation> animations;
 
     for (size_t si = 0; si < sequences.size(); ++si) {
         const auto& seq = sequences[si];
-        if ((seq.flags & kSequenceStoredInlineFlag) == 0) {
-            continue;
+
+        // Keeps a loaded external .anim blob alive for this sequence's
+        // iteration -- externalBlob, when set, points into this.
+        std::vector<uint8_t> loadedAnimBlob;
+        const std::vector<uint8_t>* externalBlob = nullptr;
+
+        if ((seq.flags & kSequenceStoredInlineFlag) != 0) {
+            // Inline -- externalBlob stays null, resolves against `blob`.
+        } else if ((seq.flags & kSequenceAliasFlag) != 0) {
+            continue;  // wowdev.wiki: "I have no clue" where this lives.
+        } else {
+            if (animInputs.animDir.empty() || !animInputs.animFileIds) {
+                continue;
+            }
+            uint32_t fileId = findAnimFileId(*animInputs.animFileIds, seq.id, seq.variationIndex);
+            if (fileId == 0) {
+                continue;
+            }
+            auto animPath =
+                std::filesystem::path(animInputs.animDir) / (std::to_string(fileId) + ".anim");
+            std::ifstream f(animPath, std::ios::binary);
+            if (!f) {
+                continue;  // not available locally -- same skip policy as --textures
+            }
+            std::vector<uint8_t> animFileBytes((std::istreambuf_iterator<char>(f)),
+                                                std::istreambuf_iterator<char>());
+            if (animInputs.animChunked) {
+                // Peek at the top-level chunks before handing off to
+                // extractAnimBlob (which only knows AFM2): a .skel-sourced
+                // model's .anim files were found, against real data, to
+                // carry an AFSB chunk (wowdev.wiki has no documented byte
+                // layout for this at all, unlike AFM2's "identical to the
+                // flat format" one-liner) either alongside a small
+                // (64-byte, real files) AFM2 chunk or alone -- and that
+                // small AFM2 "stub" does NOT hold the real per-bone track
+                // data (confirmed the hard way: resolving against it throws
+                // a real "claims more keyframes than this blob holds"
+                // bounds error, not silently wrong data, but still not
+                // useful output) -- an AFSB chunk being present at all
+                // means husk can't use this file, regardless of whether
+                // AFM2 also is. Skip it, same "husk doesn't have this one"
+                // policy as a missing --anim-dir file, rather than letting
+                // a downstream bounds check throw over a shape it was
+                // never told to expect.
+                auto topChunks = readChunks(animFileBytes.data(), animFileBytes.size());
+                if (findChunk(topChunks, "AFSB") || !findChunk(topChunks, "AFM2")) {
+                    continue;
+                }
+            }
+            loadedAnimBlob = m2::extractAnimBlob(animFileBytes, animInputs.animChunked);
+            externalBlob = &loadedAnimBlob;
         }
 
         gltf::Animation anim;
@@ -217,12 +326,12 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
 
         for (size_t bi = 0; bi < bones.size(); ++bi) {
             const auto& bone = bones[bi];
-            auto translation =
-                m2::resolveVec3TrackSequence(blob, bone.translationTrackOffset, static_cast<uint32_t>(si));
-            auto rotation =
-                m2::resolveQuatTrackSequence(blob, bone.rotationTrackOffset, static_cast<uint32_t>(si));
-            auto scale =
-                m2::resolveVec3TrackSequence(blob, bone.scaleTrackOffset, static_cast<uint32_t>(si));
+            auto translation = m2::resolveVec3TrackSequence(blob, bone.translationTrackOffset,
+                                                              static_cast<uint32_t>(si), externalBlob);
+            auto rotation = m2::resolveQuatTrackSequence(blob, bone.rotationTrackOffset,
+                                                          static_cast<uint32_t>(si), externalBlob);
+            auto scale = m2::resolveVec3TrackSequence(blob, bone.scaleTrackOffset,
+                                                       static_cast<uint32_t>(si), externalBlob);
             if (translation.empty() && rotation.empty() && scale.empty()) {
                 continue;
             }
@@ -544,9 +653,10 @@ int exportGlb(int argc, char** args) {
     std::string skelPath;
     std::string texturesDir;
     std::string skinDir;
+    std::string animDir;
 
     // Remaining args: at most one bare positional (.skel path) plus
-    // optional --textures/--skin-dir <dir> flags, in any order.
+    // optional --textures/--skin-dir/--anim-dir <dir> flags, in any order.
     for (int i = 3; i < argc; ++i) {
         std::string arg = args[i];
         if (arg == "--textures") {
@@ -561,6 +671,12 @@ int exportGlb(int argc, char** args) {
                 return 1;
             }
             skinDir = args[++i];
+        } else if (arg == "--anim-dir") {
+            if (i + 1 >= argc) {
+                printUsage();
+                return 1;
+            }
+            animDir = args[++i];
         } else if (skelPath.empty()) {
             skelPath = arg;
         } else {
@@ -642,17 +758,21 @@ int exportGlb(int argc, char** args) {
 
         auto bones = m2::parseBones(blob, header.bones);
         // Only *inline* bones (this same flag's condition) have track
-        // offsets relative to `blob` -- a .skel-sourced skeleton's tracks
-        // are expected to be empty anyway (see buildAnimations's doc
-        // comment), but capturing this before the skel fallback below
-        // might overwrite `bones` keeps the intent explicit rather than
-        // relying on that emptiness as an implicit signal.
+        // offsets relative to `blob` -- a .skel-sourced skeleton's bone
+        // track offsets are relative to the .skel's own SKB1 payload
+        // instead (skelBytes/skelTrackBlob below), so capturing this before
+        // the skel fallback might overwrite `bones` keeps the intent
+        // explicit rather than relying on which blob's in play as an
+        // implicit signal.
         bool bonesAreInline = !bones.empty();
+        std::vector<uint8_t> skelBytes;
+        bool haveSkel = false;
         if (bonesAreInline && !skelPath.empty()) {
             std::cerr << "husk: note: '" << modelPath << "' has its own inline bones; ignoring '"
                       << skelPath << "'\n";
         } else if (!bonesAreInline && !skelPath.empty()) {
-            auto skelBytes = readFileBytes(skelPath);
+            skelBytes = readFileBytes(skelPath);
+            haveSkel = true;
             bones = skel::parseBones(skelBytes);
         }
 
@@ -663,7 +783,30 @@ int exportGlb(int argc, char** args) {
             mesh.skinning = buildSkinning(vertices, bones.size());
             if (bonesAreInline) {
                 auto sequences = m2::parseSequences(blob, header.sequences);
-                animations = buildAnimations(blob, bones, skeleton, sequences);
+                M2AnimInputs animInputs;
+                animInputs.animFileIds = header.animFileIds;
+                animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
+                animInputs.animDir = animDir;
+                animations = buildAnimations(blob, bones, skeleton, sequences, animInputs);
+            } else if (haveSkel && findChunk(readChunks(skelBytes.data(), skelBytes.size()), "SKS1")) {
+                // Same buildAnimations, pointed at the .skel's own blob
+                // (SKB1's payload, which is what `bones`'s track offsets
+                // are relative to -- see skel::boneTrackBlob) and its own
+                // sequences/AFID table instead of the M2's (see
+                // buildAnimations's doc comment). Peeking for SKS1 first,
+                // rather than just calling skel::parseSequences and letting
+                // its ParseError propagate, treats "this .skel has no
+                // sequences at all" (plausible for a non-animated model,
+                // and skel::findAnimFileIds already returns nullopt rather
+                // than throwing for the symmetric "no AFID" case) as
+                // "no animation clips available," not export failure.
+                auto skelTrackBlob = skel::boneTrackBlob(skelBytes);
+                auto sequences = skel::parseSequences(skelBytes);
+                M2AnimInputs animInputs;
+                animInputs.animFileIds = skel::findAnimFileIds(skelBytes);
+                animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
+                animInputs.animDir = animDir;
+                animations = buildAnimations(skelTrackBlob, bones, skeleton, sequences, animInputs);
             }
         }
 

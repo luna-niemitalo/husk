@@ -356,8 +356,11 @@ TEST_CASE(
     CHECK(result.exitCode == 0);
     // Confirms the .skel path was actually used, not silently ignored --
     // cmd_export.cpp only prints a bone count when it resolved some bones
-    // from *somewhere* (inline or external).
-    CHECK(result.output.find(" bones ") != std::string::npos);
+    // from *somewhere* (inline or external). Not asserting on "animation(s)"
+    // vs. "bind pose only" here -- whether a .skel's own SKS1 sequences
+    // resolve to any real clips is real-data-dependent (inline ones do;
+    // external ones need --anim-dir, not exercised by this test).
+    CHECK(result.output.find(" bones") != std::string::npos);
 
     checkSkinnedGlb(outPath);
 

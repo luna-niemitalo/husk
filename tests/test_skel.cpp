@@ -134,3 +134,96 @@ TEST_CASE("parseBones: no SKB1 chunk throws") {
     appendChunk(file, "SKL1", {1});
     CHECK_THROWS_AS(husk::skel::parseBones(file), husk::skel::ParseError);
 }
+
+TEST_CASE("boneTrackBlob: returns the SKB1 chunk's own payload bytes verbatim") {
+    std::vector<uint8_t> file;
+    appendChunk(file, "SKB1", buildSkb1Payload(2));
+
+    auto blob = husk::skel::boneTrackBlob(file);
+    CHECK(blob.size() == buildSkb1Payload(2).size());
+    CHECK(blob == buildSkb1Payload(2));
+}
+
+TEST_CASE("boneTrackBlob: no SKB1 chunk throws") {
+    std::vector<uint8_t> file;
+    appendChunk(file, "SKS1", {1});
+    CHECK_THROWS_AS(husk::skel::boneTrackBlob(file), husk::skel::ParseError);
+}
+
+namespace {
+
+// Builds an SKS1 chunk payload: 32-byte header (global_loops/
+// sequence_lookups left zeroed -- unread) followed by `seqCount` raw
+// M2Sequence records (0x40 bytes each, same stride husk::m2::parseSequences
+// itself uses -- see m2.hpp's Sequence doc comment for why).
+std::vector<uint8_t> buildSks1Payload(uint32_t seqCount) {
+    constexpr size_t kHeaderSize = 0x20;
+    std::vector<uint8_t> payload(kHeaderSize, 0);
+    putArray(payload, 0x08, seqCount, static_cast<uint32_t>(kHeaderSize));  // sequences field
+    for (uint32_t i = 0; i < seqCount; ++i) {
+        size_t off = kHeaderSize + static_cast<size_t>(i) * 0x40;
+        payload.resize(off + 0x40, 0);
+        uint16_t id = static_cast<uint16_t>(100 + i);
+        std::memcpy(payload.data() + off + 0x00, &id, 2);
+        uint32_t duration = 1000 + i;
+        std::memcpy(payload.data() + off + 0x04, &duration, 4);
+    }
+    return payload;
+}
+
+}  // namespace
+
+TEST_CASE("parseSequences: resolves SKS1's sequences array into real M2Sequence records") {
+    std::vector<uint8_t> file;
+    appendChunk(file, "SKS1", buildSks1Payload(2));
+
+    auto sequences = husk::skel::parseSequences(file);
+    REQUIRE(sequences.size() == 2);
+    CHECK(sequences[0].id == 100);
+    CHECK(sequences[0].duration == 1000);
+    CHECK(sequences[1].id == 101);
+    CHECK(sequences[1].duration == 1001);
+}
+
+TEST_CASE("parseSequences: no SKS1 chunk throws, names what it found") {
+    std::vector<uint8_t> file;
+    appendChunk(file, "SKB1", buildSkb1Payload(1));
+
+    CHECK_THROWS_WITH_AS(husk::skel::parseSequences(file), doctest::Contains("SKB1"),
+                          husk::skel::ParseError);
+}
+
+TEST_CASE("parseSequences: SKS1 payload shorter than its 32-byte header throws") {
+    std::vector<uint8_t> file;
+    appendChunk(file, "SKS1", {1, 2, 3});
+    CHECK_THROWS_AS(husk::skel::parseSequences(file), husk::skel::ParseError);
+}
+
+TEST_CASE("findAnimFileIds: reads (anim_id, sub_anim_id, file_id) entries from AFID") {
+    auto putU16 = [](std::vector<uint8_t>& b, uint16_t v) {
+        b.push_back(static_cast<uint8_t>(v));
+        b.push_back(static_cast<uint8_t>(v >> 8));
+    };
+
+    std::vector<uint8_t> file;
+    std::vector<uint8_t> afid;
+    putU16(afid, 60);  // anim_id
+    putU16(afid, 1);   // sub_anim_id
+    putU32(afid, 4, 1100263);  // file_id, this .skel's own -- not the owning M2's
+    appendChunk(file, "AFID", afid);
+
+    auto entries = husk::skel::findAnimFileIds(file);
+    REQUIRE(entries.has_value());
+    REQUIRE(entries->size() == 1);
+    CHECK((*entries)[0].animId == 60);
+    CHECK((*entries)[0].subAnimId == 1);
+    CHECK((*entries)[0].fileId == 1100263);
+}
+
+TEST_CASE("findAnimFileIds: no AFID chunk returns nullopt, not an error (not every .skel has "
+          "one -- e.g. a child skeleton sharing its parent's animations, per SKPD's wiki note)") {
+    std::vector<uint8_t> file;
+    appendChunk(file, "SKB1", buildSkb1Payload(1));
+
+    CHECK_FALSE(husk::skel::findAnimFileIds(file).has_value());
+}
