@@ -60,6 +60,17 @@ uint32_t readU32(const uint8_t* blob, size_t blobSize, size_t off) {
     return v;
 }
 
+uint16_t readU16(const uint8_t* blob, size_t blobSize, size_t off) {
+    if (off + 2 > blobSize) {
+        throw ParseError("header field at offset 0x" + std::to_string(off) +
+                          " needs 2 bytes but the blob is only " + std::to_string(blobSize) +
+                          " bytes");
+    }
+    uint16_t v;
+    std::memcpy(&v, blob + off, sizeof(v));
+    return v;
+}
+
 float readF32(const uint8_t* blob, size_t blobSize, size_t off) {
     uint32_t bits = readU32(blob, blobSize, off);
     float v;
@@ -163,6 +174,9 @@ struct ResolvedBlob {
     // Set only for chunked files that carry an SKID chunk (wowdev.wiki
     // M2#SKID) -- see Header::skeletonFileId.
     std::optional<uint32_t> skeletonFileId;
+    // Set only for chunked files that carry a TXID chunk (wowdev.wiki
+    // M2#TXID) -- see Header::textureFileDataIds.
+    std::optional<std::vector<uint32_t>> textureFileDataIds;
 };
 
 // Resolves the flat-MD20-vs-Legion+-chunked shape shared by parseHeader and
@@ -202,8 +216,26 @@ ResolvedBlob resolveBlob(const std::vector<uint8_t>& fileBytes) {
         skeletonFileId = readU32(skid->data, skid->size, 0);
     }
 
+    std::optional<std::vector<uint32_t>> textureFileDataIds;
+    if (auto txid = findChunk(chunks, "TXID")) {
+        // wowdev.wiki M2#TXID: a flat array of uint32 FileDataIDs, one per
+        // `textures` entry, in the same order. `size` isn't itself an
+        // M2Array-style count -- it's just the chunk's raw byte length, so
+        // this is entries-of-4-bytes, not a count field to trust/validate
+        // against `textures.count` (that cross-check, if any, belongs to
+        // whoever consumes this -- e.g. src/cmd_export.cpp -- once it also
+        // has the textures array parsed).
+        size_t count = txid->size / 4;
+        std::vector<uint32_t> ids;
+        ids.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            ids.push_back(readU32(txid->data, txid->size, i * 4));
+        }
+        textureFileDataIds = std::move(ids);
+    }
+
     return {std::vector<uint8_t>(md21->data, md21->data + md21->size), /*chunked=*/true,
-            skeletonFileId};
+            skeletonFileId, textureFileDataIds};
 }
 
 }  // namespace
@@ -212,6 +244,7 @@ Header parseHeader(const std::vector<uint8_t>& fileBytes) {
     auto resolved = resolveBlob(fileBytes);
     Header h = parseBlob(resolved.bytes.data(), resolved.bytes.size(), resolved.chunked);
     h.skeletonFileId = resolved.skeletonFileId;
+    h.textureFileDataIds = resolved.textureFileDataIds;
     return h;
 }
 
@@ -300,6 +333,97 @@ std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& arra
     }
 
     return bones;
+}
+
+std::vector<Texture> parseTextures(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<Texture> textures;
+    if (array.count == 0) {
+        return textures;
+    }
+
+    // M2Texture, wowdev.wiki M2#Textures: type(u32) + flags(u32) +
+    // filename(M2Array<char>, 8 bytes) = 16 bytes.
+    constexpr size_t kTextureSize = 0x10;
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    // Same up-front validation as parseVertices/parseBones, same reason
+    // (FAILURES.md #2).
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kTextureSize) {
+        throw ParseError("textures array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kTextureSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    textures.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kTextureSize;
+        Texture t;
+        t.type = readU32(data, blobSize, off + 0x00);
+        t.flags = readU32(data, blobSize, off + 0x04);
+        t.filename = readName(data, blobSize, readArray(data, blobSize, off + 0x08));
+        textures.push_back(t);
+    }
+
+    return textures;
+}
+
+std::vector<Material> parseMaterials(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<Material> materials;
+    if (array.count == 0) {
+        return materials;
+    }
+
+    constexpr size_t kMaterialSize = 0x04;  // M2Material: flags(u16) + blendMode(u16)
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kMaterialSize) {
+        throw ParseError("materials array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kMaterialSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    materials.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kMaterialSize;
+        Material m;
+        m.flags = readU16(data, blobSize, off + 0x00);
+        m.blendMode = readU16(data, blobSize, off + 0x02);
+        materials.push_back(m);
+    }
+
+    return materials;
+}
+
+std::vector<uint16_t> parseUint16Array(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<uint16_t> values;
+    if (array.count == 0) {
+        return values;
+    }
+
+    constexpr size_t kElementSize = 2;
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kElementSize) {
+        throw ParseError("array claims " + std::to_string(array.count) +
+                          " uint16 entries at offset " + std::to_string(array.offset) +
+                          ", which needs more room than the blob's " + std::to_string(blobSize) +
+                          " bytes");
+    }
+    values.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kElementSize;
+        uint16_t v;
+        std::memcpy(&v, data + off, sizeof(v));
+        values.push_back(v);
+    }
+
+    return values;
 }
 
 Header loadFile(const std::string& path) {

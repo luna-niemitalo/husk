@@ -78,14 +78,26 @@ std::vector<uint8_t> tinyValidM2() {
 }
 
 // Pairs with tinyValidM2(): one global-vertex slot (-> M2 vertex 0) and one
-// degenerate triangle (all three corners = that same slot).
+// degenerate triangle (all three corners = that same slot). submeshes/
+// batches are left empty (count 0) -- these fixtures exercise unrelated
+// failure paths (bone cycles, NaN vertices, huge counts), not materials, so
+// "no submeshes" is fine as long as the header itself parses, which now
+// requires those two array descriptors to physically be present (real
+// .skin files always have them -- see src/skin.hpp's Header).
 std::vector<uint8_t> tinyMatchingSkin() {
     std::vector<uint8_t> b;
     putTag(b, "SKIN");
     putU32(b, 1);
-    putU32(b, 20);  // vertices: count=1, offset=20
+    putU32(b, 44);  // vertices: count=1, offset=44
     putU32(b, 3);
-    putU32(b, 22);  // indices: count=3, offset=22
+    putU32(b, 46);  // indices: count=3, offset=46
+    putU32(b, 0);
+    putU32(b, 0);  // bones: count=0, offset=0 (unread, see skin.hpp)
+    putU32(b, 0);
+    putU32(b, 0);  // submeshes: count=0, offset=0
+    putU32(b, 0);
+    putU32(b, 0);  // batches: count=0, offset=0
+    REQUIRE(b.size() == 44);
     b.push_back(0);
     b.push_back(0);  // vertices[0] = 0
     for (int i = 0; i < 3; ++i) {
@@ -235,6 +247,12 @@ TEST_CASE("husk export: .skin file with a corrupted huge indices count fails wit
     putU32(skin, 0);           // vertices: count=0, offset=0
     putU32(skin, 0xFFFFFFF0);  // indices: corrupted huge count
     putU32(skin, 8);
+    putU32(skin, 0);
+    putU32(skin, 0);  // bones: count=0, offset=0
+    putU32(skin, 0);
+    putU32(skin, 0);  // submeshes: count=0, offset=0
+    putU32(skin, 0);
+    putU32(skin, 0);  // batches: count=0, offset=0
     auto skinPath = tempPath("huge-indices.skin");
     writeFile(skinPath, skin);
 

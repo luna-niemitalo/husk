@@ -1,4 +1,5 @@
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -9,14 +10,18 @@
 #include "skel.hpp"
 #include "skin.hpp"
 
-// Roadmap stages 1-3 (see README.md): stage 1 resolves an M2's vertex array
+// Roadmap stages 1-5 (see README.md): stage 1 resolves an M2's vertex array
 // plus a .skin file's two-level triangle-index lookup (see src/skin.hpp)
 // into a static mesh; stage 2 additionally resolves the `bones` array into
 // a bind-pose glTF skin, wiring M2Vertex's bone_weights/bone_indices into
 // JOINTS_0/WEIGHTS_0; stage 3 covers the case where those bones live in an
-// external .skel file instead (see src/skel.hpp). All three convert WoW's
-// Z-up coordinates to glTF's Y-up. No material, no image, no animation
-// playback -- later roadmap stages add those.
+// external .skel file instead (see src/skel.hpp); stage 5 resolves the
+// .skin file's per-submesh batches (M2's materials/textures arrays, see
+// src/skin.hpp's Batch) into one glTF material + primitive per batch, with
+// WoW's blend mode translated to glTF's alphaMode and (optionally, via
+// --textures) a real baseColorTexture image embedded. All of the above
+// convert WoW's Z-up coordinates to glTF's Y-up. No animation playback yet
+// -- that's roadmap stage 6.
 namespace husk::commands {
 
 namespace {
@@ -24,16 +29,23 @@ namespace {
 void printUsage() {
     std::cerr
         << "usage: husk export <file.m2> <file.skin> <output.glb> [file.skel]\n"
+           "                    [--textures <dir>]\n"
            "\n"
            "Exports a mesh: resolves the M2's vertex array and the .skin\n"
            "file's triangle-index lookup tables, converts WoW's Z-up\n"
-           "coordinates to glTF's Y-up, and writes a minimal single-\n"
-           "primitive glTF binary (.glb) -- positions, normals, and UVs,\n"
-           "no material, no image. If the M2 has bones, they're exported\n"
-           "as a bind-pose glTF skin (no animation playback yet). Some\n"
-           "models (see `husk info`'s output) keep their bones in a\n"
-           "separate .skel file instead of inline -- pass its path as the\n"
-           "optional 4th argument to use those.\n";
+           "coordinates to glTF's Y-up, and writes a glTF binary (.glb) --\n"
+           "one primitive per .skin batch, with WoW's blend mode/render\n"
+           "flags translated to glTF's alphaMode/doubleSided. If the M2\n"
+           "has bones, they're exported as a bind-pose glTF skin (no\n"
+           "animation playback yet). Some models (see `husk info`'s\n"
+           "output) keep their bones in a separate .skel file instead of\n"
+           "inline -- pass its path as the optional 4th argument to use\n"
+           "those. husk doesn't resolve texture FileDataIDs to actual BLP\n"
+           "files itself (no CASC/listfile access, see README.md) -- pass\n"
+           "--textures <dir> pointing at a directory of already-converted\n"
+           "(via husk-blp, see blp/) PNGs named '<FileDataID>.png' to\n"
+           "embed real baseColorTexture images; without it, materials\n"
+           "still get the right blend mode/culling, just no image.\n";
 }
 
 std::vector<uint8_t> readFileBytes(const std::string& path) {
@@ -156,10 +168,131 @@ std::vector<gltf::JointWeights> buildSkinning(const std::vector<m2::Vertex>& ver
     return skinning;
 }
 
+// WoW's M2BLEND_* blend modes (wowdev.wiki M2/Rendering#M2BLEND) collapsed
+// to glTF's three-way alphaMode: 0 (OPAQUE) maps directly, 1 (ALPHA_KEY,
+// alpha-tested) maps to MASK, and everything else -- 2 (a real alpha
+// blend), plus the additive/multiply modes 3+ that glTF's core material
+// model has no equivalent for -- maps to BLEND as the closest
+// approximation. Not an attempt at faithfully reproducing additive
+// rendering, see README.md roadmap stage 5.
+gltf::Material::AlphaMode alphaModeForBlend(uint16_t blendMode) {
+    switch (blendMode) {
+        case 0: return gltf::Material::AlphaMode::Opaque;
+        case 1: return gltf::Material::AlphaMode::Mask;
+        default: return gltf::Material::AlphaMode::Blend;
+    }
+}
+
+struct BuiltMaterials {
+    std::vector<gltf::Material> materials;
+    std::vector<gltf::Primitive> primitives;
+};
+
+// Resolves the .skin file's batches (M2's actual material/texture
+// linkage, see src/skin.hpp's Batch doc comment) into one glTF material +
+// primitive per batch: batch -> submesh (a slice of `triangleIndices`) ->
+// material (blend mode/render flags -> alphaMode/doubleSided) -> texture
+// (via the textureCombos lookup table -> M2's textures array -> optionally
+// a FileDataID, via TXID, resolved to a real PNG if `texturesDir` is
+// given). If the .skin has no batches at all (e.g. a minimal/synthetic
+// fixture, or in principle a genuinely material-less model), falls back to
+// stage-1-through-4 behavior: one primitive covering every triangle, no
+// material.
+BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangleIndices,
+                                            const std::vector<skin::Submesh>& submeshes,
+                                            const std::vector<skin::Batch>& batches,
+                                            const std::vector<m2::Material>& m2Materials,
+                                            const std::vector<m2::Texture>& m2Textures,
+                                            const std::vector<uint16_t>& textureCombos,
+                                            const std::optional<std::vector<uint32_t>>& textureFileDataIds,
+                                            const std::string& texturesDir) {
+    BuiltMaterials result;
+
+    if (batches.empty()) {
+        gltf::Primitive prim;
+        prim.indices = triangleIndices;
+        result.primitives.push_back(std::move(prim));
+        return result;
+    }
+
+    for (size_t bi = 0; bi < batches.size(); ++bi) {
+        const auto& b = batches[bi];
+        if (b.skinSectionIndex >= submeshes.size()) {
+            throw std::runtime_error("batch " + std::to_string(bi) + "'s skinSectionIndex (" +
+                                      std::to_string(b.skinSectionIndex) +
+                                      ") is out of range for " + std::to_string(submeshes.size()) +
+                                      " submeshes");
+        }
+        const auto& sm = submeshes[b.skinSectionIndex];
+        if (static_cast<size_t>(sm.indexStart) + sm.indexCount > triangleIndices.size()) {
+            throw std::runtime_error(
+                "submesh " + std::to_string(b.skinSectionIndex) +
+                "'s index range runs past the end of the resolved triangle-index buffer -- "
+                "corrupted .skin?");
+        }
+
+        gltf::Primitive prim;
+        prim.indices.assign(triangleIndices.begin() + sm.indexStart,
+                             triangleIndices.begin() + sm.indexStart + sm.indexCount);
+
+        if (b.materialIndex >= m2Materials.size()) {
+            throw std::runtime_error("batch " + std::to_string(bi) + "'s materialIndex (" +
+                                      std::to_string(b.materialIndex) + ") is out of range for " +
+                                      std::to_string(m2Materials.size()) + " materials");
+        }
+        const auto& mat = m2Materials[b.materialIndex];
+
+        gltf::Material gm;
+        gm.alphaMode = alphaModeForBlend(mat.blendMode);
+        gm.doubleSided = (mat.flags & 0x04) != 0;
+        gm.name = "batch" + std::to_string(bi) + "_mat" + std::to_string(b.materialIndex);
+
+        if (b.textureCount > 0) {
+            if (b.textureComboIndex >= textureCombos.size()) {
+                throw std::runtime_error(
+                    "batch " + std::to_string(bi) + "'s textureComboIndex (" +
+                    std::to_string(b.textureComboIndex) + ") is out of range for " +
+                    std::to_string(textureCombos.size()) + " textureCombos entries");
+            }
+            uint16_t textureIndex = textureCombos[b.textureComboIndex];
+            if (textureIndex >= m2Textures.size()) {
+                throw std::runtime_error(
+                    "batch " + std::to_string(bi) + "'s texture (index " +
+                    std::to_string(textureIndex) + " via textureCombos[" +
+                    std::to_string(b.textureComboIndex) + "]) is out of range for " +
+                    std::to_string(m2Textures.size()) + " textures");
+            }
+            gm.name += "_tex" + std::to_string(textureIndex);
+
+            if (textureFileDataIds && textureIndex < textureFileDataIds->size()) {
+                uint32_t fdid = (*textureFileDataIds)[textureIndex];
+                if (fdid != 0) {
+                    gm.name += "_fdid" + std::to_string(fdid);
+                    if (!texturesDir.empty()) {
+                        auto pngPath =
+                            std::filesystem::path(texturesDir) / (std::to_string(fdid) + ".png");
+                        std::ifstream f(pngPath, std::ios::binary);
+                        if (f) {
+                            gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
+                                                         std::istreambuf_iterator<char>());
+                        }
+                    }
+                }
+            }
+        }
+
+        prim.materialIndex = static_cast<int>(result.materials.size());
+        result.materials.push_back(std::move(gm));
+        result.primitives.push_back(std::move(prim));
+    }
+
+    return result;
+}
+
 }  // namespace
 
 int exportGlb(int argc, char** args) {
-    if (argc != 3 && argc != 4) {
+    if (argc < 3) {
         printUsage();
         return 1;
     }
@@ -167,7 +300,26 @@ int exportGlb(int argc, char** args) {
     std::string modelPath = args[0];
     std::string skinPath = args[1];
     std::string outputPath = args[2];
-    std::string skelPath = argc == 4 ? args[3] : std::string();
+    std::string skelPath;
+    std::string texturesDir;
+
+    // Remaining args: at most one bare positional (.skel path) plus an
+    // optional --textures <dir> flag, in either order.
+    for (int i = 3; i < argc; ++i) {
+        std::string arg = args[i];
+        if (arg == "--textures") {
+            if (i + 1 >= argc) {
+                printUsage();
+                return 1;
+            }
+            texturesDir = args[++i];
+        } else if (skelPath.empty()) {
+            skelPath = arg;
+        } else {
+            printUsage();
+            return 1;
+        }
+    }
 
     try {
         auto modelBytes = readFileBytes(modelPath);
@@ -175,9 +327,15 @@ int exportGlb(int argc, char** args) {
         auto blob = m2::extractBlob(modelBytes);
         auto vertices = m2::parseVertices(blob, header.vertices);
 
+        auto textures = m2::parseTextures(blob, header.textures);
+        auto materials = m2::parseMaterials(blob, header.materials);
+        auto textureCombos = m2::parseUint16Array(blob, header.textureCombos);
+
         auto skinBytes = readFileBytes(skinPath);
         auto skinHeader = skin::parseHeader(skinBytes);
         auto triangleIndices = skin::resolveTriangleIndices(skinBytes, skinHeader);
+        auto submeshes = skin::parseSubmeshes(skinBytes, skinHeader.submeshes);
+        auto batches = skin::parseBatches(skinBytes, skinHeader.batches);
 
         // Cross-module boundary check: skin::resolveTriangleIndices only
         // validates indices against the skin file's own `vertices` array --
@@ -213,7 +371,10 @@ int exportGlb(int argc, char** args) {
             mesh.normals.push_back(toGltf(v.normal));
             mesh.texCoords.push_back({v.texCoords[0].x, v.texCoords[0].y});
         }
-        mesh.indices = triangleIndices;
+        auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, materials,
+                                                  textures, textureCombos,
+                                                  header.textureFileDataIds, texturesDir);
+        mesh.primitives = built.primitives;
 
         auto bones = m2::parseBones(blob, header.bones);
         if (!bones.empty() && !skelPath.empty()) {
@@ -230,7 +391,7 @@ int exportGlb(int argc, char** args) {
             mesh.skinning = buildSkinning(vertices, bones.size());
         }
 
-        auto glb = gltf::writeGlb(mesh, bones.empty() ? nullptr : &skeleton);
+        auto glb = gltf::writeGlb(mesh, built.materials, bones.empty() ? nullptr : &skeleton);
 
         std::ofstream out(outputPath, std::ios::binary);
         if (!out) {
@@ -246,6 +407,14 @@ int exportGlb(int argc, char** args) {
                   << (triangleIndices.size() / 3) << " triangles";
         if (!bones.empty()) {
             std::cout << ", " << bones.size() << " bones (bind pose only, no animation)";
+        }
+        if (!built.materials.empty()) {
+            size_t withImage = 0;
+            for (const auto& m : built.materials) {
+                if (!m.baseColorImagePng.empty()) ++withImage;
+            }
+            std::cout << ", " << built.materials.size() << " materials (" << withImage
+                      << " with an embedded texture)";
         }
         std::cout << "\n";
         return 0;

@@ -465,3 +465,173 @@ TEST_CASE("parseBones: array running past the end of the blob throws") {
     array.offset = 0;  // but the blob is only 50 bytes
     CHECK_THROWS_AS(husk::m2::parseBones(blob, array), husk::m2::ParseError);
 }
+
+// M2Texture (wowdev.wiki M2#Textures), 16 bytes: 0x00 type (u32), 0x04
+// flags (u32), 0x08 filename (M2Array<char>).
+void putTexture(std::vector<uint8_t>& buf, size_t off, uint32_t type, uint32_t flags,
+                 const std::string& filename) {
+    if (buf.size() < off + 0x10) buf.resize(off + 0x10, 0);
+    putU32(buf, off + 0x00, type);
+    putU32(buf, off + 0x04, flags);
+    if (filename.empty()) {
+        putArray(buf, off + 0x08, 0, 0);
+        return;
+    }
+    size_t nameOff = buf.size();
+    buf.resize(nameOff + filename.size());
+    std::memcpy(buf.data() + nameOff, filename.data(), filename.size());
+    putArray(buf, off + 0x08, static_cast<uint32_t>(filename.size()),
+             static_cast<uint32_t>(nameOff));
+}
+
+// M2Material (wowdev.wiki M2#Render_flags_and_blending_modes), 4 bytes:
+// 0x00 flags (u16), 0x02 blending_mode (u16).
+void putMaterial(std::vector<uint8_t>& buf, size_t off, uint16_t flags, uint16_t blendMode) {
+    if (buf.size() < off + 0x04) buf.resize(off + 0x04, 0);
+    uint16_t f = flags, b = blendMode;
+    std::memcpy(buf.data() + off + 0x00, &f, 2);
+    std::memcpy(buf.data() + off + 0x02, &b, 2);
+}
+
+TEST_CASE("parseTextures: reads type/flags/filename for every entry") {
+    size_t off = 500;
+    // Both fixed-size records reserved up front -- putTexture appends
+    // variable-length filename data at the *current* end of the buffer, so
+    // writing record 0's name before record 1's fixed bytes exist would
+    // otherwise let record 1 clobber it.
+    std::vector<uint8_t> blob(off + 2 * 0x10, 0);
+    putTexture(blob, off, /*type=*/0, /*flags=*/0x1, "Textures\\foo.blp");
+    putTexture(blob, off + 0x10, /*type=*/6, /*flags=*/0, "");  // char hair, no embedded name
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = static_cast<uint32_t>(off);
+    auto textures = husk::m2::parseTextures(blob, array);
+
+    REQUIRE(textures.size() == 2);
+    CHECK(textures[0].type == 0);
+    CHECK(textures[0].flags == 0x1);
+    CHECK(textures[0].filename == "Textures\\foo.blp");
+    CHECK(textures[1].type == 6);
+    CHECK(textures[1].flags == 0);
+    CHECK(textures[1].filename.empty());
+}
+
+TEST_CASE("parseTextures: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 999;
+    CHECK(husk::m2::parseTextures(blob, array).empty());
+}
+
+TEST_CASE("parseTextures: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(10, 0);  // 0x10 bytes needed for one entry
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = 0;
+    CHECK_THROWS_AS(husk::m2::parseTextures(blob, array), husk::m2::ParseError);
+}
+
+TEST_CASE("parseMaterials: reads flags/blendMode for every entry") {
+    size_t off = 300;
+    std::vector<uint8_t> blob(off, 0);
+    putMaterial(blob, off, /*flags=*/0x04, /*blendMode=*/0);
+    putMaterial(blob, off + 0x04, /*flags=*/0x11, /*blendMode=*/4);
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = static_cast<uint32_t>(off);
+    auto materials = husk::m2::parseMaterials(blob, array);
+
+    REQUIRE(materials.size() == 2);
+    CHECK(materials[0].flags == 0x04);
+    CHECK(materials[0].blendMode == 0);
+    CHECK(materials[1].flags == 0x11);
+    CHECK(materials[1].blendMode == 4);
+}
+
+TEST_CASE("parseMaterials: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 777;
+    CHECK(husk::m2::parseMaterials(blob, array).empty());
+}
+
+TEST_CASE("parseMaterials: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(2, 0);  // 4 bytes needed for one entry
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = 0;
+    CHECK_THROWS_AS(husk::m2::parseMaterials(blob, array), husk::m2::ParseError);
+}
+
+TEST_CASE("parseUint16Array: reads count values at offset in order") {
+    size_t off = 40;
+    std::vector<uint8_t> blob(off, 0);
+    putU32(blob, off + 0, 0x00090001);  // two u16s packed: 1, 9 (little-endian)
+    putU32(blob, off + 4, 0x00080002);  // 2, 8
+
+    husk::m2::Array array;
+    array.count = 4;
+    array.offset = static_cast<uint32_t>(off);
+    auto values = husk::m2::parseUint16Array(blob, array);
+    REQUIRE(values.size() == 4);
+    CHECK(values[0] == 1);
+    CHECK(values[1] == 9);
+    CHECK(values[2] == 2);
+    CHECK(values[3] == 8);
+}
+
+TEST_CASE("parseUint16Array: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 555;
+    CHECK(husk::m2::parseUint16Array(blob, array).empty());
+}
+
+TEST_CASE("parseUint16Array: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(2, 0);  // 4 bytes needed for two u16 entries
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = 0;
+    CHECK_THROWS_AS(husk::m2::parseUint16Array(blob, array), husk::m2::ParseError);
+}
+
+TEST_CASE("parseHeader: TXID chunk, when present, is surfaced as textureFileDataIds") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    // Three FileDataIDs: two real, one 0 (a non-file-based texture type,
+    // wowdev.wiki M2#TXID).
+    std::vector<uint8_t> txidPayload;
+    for (uint32_t id : {1034713u, 0u, 220043u}) {
+        uint8_t bytes[4];
+        std::memcpy(bytes, &id, 4);
+        txidPayload.insert(txidPayload.end(), bytes, bytes + 4);
+    }
+    appendChunk(file, "TXID", txidPayload);
+
+    auto h = husk::m2::parseHeader(file);
+    REQUIRE(h.textureFileDataIds.has_value());
+    REQUIRE(h.textureFileDataIds->size() == 3);
+    CHECK((*h.textureFileDataIds)[0] == 1034713u);
+    CHECK((*h.textureFileDataIds)[1] == 0u);
+    CHECK((*h.textureFileDataIds)[2] == 220043u);
+}
+
+TEST_CASE("parseHeader: no TXID chunk leaves textureFileDataIds empty") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    auto h = husk::m2::parseHeader(file);
+    CHECK_FALSE(h.textureFileDataIds.has_value());
+}
+
+TEST_CASE("parseHeader: flat (non-chunked) MD20 file never has textureFileDataIds") {
+    auto blob = buildMd20Blob();
+    auto h = husk::m2::parseHeader(blob);
+    CHECK_FALSE(h.textureFileDataIds.has_value());
+}

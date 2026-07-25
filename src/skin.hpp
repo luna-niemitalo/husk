@@ -27,6 +27,38 @@ struct Header {
     uint32_t magic = 0;   // "SKIN" once read, checked against the literal bytes
     m2::Array vertices;   // -> M2's global vertex list
     m2::Array indices;    // -> this skin's `vertices` array above
+    m2::Array submeshes;  // -> M2SkinSection records, see Submesh below
+    m2::Array batches;    // -> M2Batch records, see Batch below
+};
+
+// M2SkinSection, per wowdev.wiki M2/.skin#Submeshes -- 48 bytes on disk.
+// Only the fields needed to slice this submesh's triangles out of the
+// skin's flat index buffer are surfaced; centerPosition/sortCenterPosition/
+// sortRadius/boneCount/boneComboIndex/boneInfluences/centerBoneIndex stay
+// unread (LOD/culling/skinning-optimization concerns, not materials).
+struct Submesh {
+    uint16_t vertexStart = 0;
+    uint16_t vertexCount = 0;
+    uint16_t indexStart = 0;  // into the skin's resolved triangle-index buffer
+    uint16_t indexCount = 0;
+};
+
+// M2Batch (aka "texture unit"), per wowdev.wiki M2/.skin#Texture_units --
+// 24 bytes on disk. This is the actual material/texture linkage a submesh
+// draws with; only the fields roadmap stage 5 (see README.md) needs are
+// surfaced -- priorityPlane/shader_id/geosetIndex/colorIndex/materialLayer/
+// textureCoordComboIndex/textureWeightComboIndex/textureTransformComboIndex
+// stay unread (multitexturing/animation/UV-mapping concerns, out of scope
+// for a first metallic-roughness-with-one-texture pass).
+struct Batch {
+    uint8_t flags = 0;
+    uint16_t skinSectionIndex = 0;  // -> Header::submeshes
+    uint16_t materialIndex = 0;     // -> M2's own `materials` array (m2::Material)
+    uint16_t textureCount = 0;      // 1..4; only the first texture is used here
+    // -> M2's own `textureCombos` array (m2::parseUint16Array on
+    // Header::textureCombos), which in turn holds an index into M2's
+    // `textures` array. See src/cmd_export.cpp for the full chain.
+    uint16_t textureComboIndex = 0;
 };
 
 struct ParseError : std::runtime_error {
@@ -52,5 +84,17 @@ std::vector<uint16_t> parseU16Array(const std::vector<uint8_t>& fileBytes, const
 // in `header.indices` is out of range for `header.vertices`.
 std::vector<uint32_t> resolveTriangleIndices(const std::vector<uint8_t>& fileBytes,
                                               const Header& header);
+
+// Reads `array.count` M2SkinSection records out of `fileBytes` at
+// `array.offset`. Throws ParseError if that range runs past the end of the
+// file. An empty array (count 0) returns an empty vector without touching
+// `array.offset` at all.
+std::vector<Submesh> parseSubmeshes(const std::vector<uint8_t>& fileBytes, const m2::Array& array);
+
+// Reads `array.count` M2Batch records out of `fileBytes` at `array.offset`.
+// Throws ParseError if that range runs past the end of the file. An empty
+// array (count 0) returns an empty vector without touching `array.offset`
+// at all.
+std::vector<Batch> parseBatches(const std::vector<uint8_t>& fileBytes, const m2::Array& array);
 
 }  // namespace husk::skin

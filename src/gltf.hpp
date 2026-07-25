@@ -6,9 +6,7 @@
 
 // Minimal glTF 2.0 binary (.glb) export, via tinygltf (see nix/flake.nix) --
 // husk builds the mesh data and hands it to tinygltf rather than
-// hand-rolling glTF's JSON/binary-chunk framing itself. Scope matches
-// roadmap stage 1 in README.md ("Static mesh, no material"): one
-// single-primitive mesh, no material, no image, no skin.
+// hand-rolling glTF's JSON/binary-chunk framing itself.
 namespace husk::gltf {
 
 struct Vec3 {
@@ -28,6 +26,39 @@ struct JointWeights {
     float weights[4] = {0, 0, 0, 0};
 };
 
+// One glTF material, roadmap stage 5 (see README.md): WoW's blend mode
+// translated to glTF's alphaMode, and the "two-sided" render flag
+// translated to doubleSided. Deliberately not attempting real PBR
+// authoring (roughness/metalness/normal maps) -- WoW's own shader model
+// doesn't map cleanly onto metallic-roughness, so those are left at
+// tinygltf/glTF's own defaults (fully rough, non-metal, flat white).
+struct Material {
+    std::string name;
+    enum class AlphaMode { Opaque, Mask, Blend };
+    AlphaMode alphaMode = AlphaMode::Opaque;
+    bool doubleSided = false;
+    // Raw encoded image bytes (PNG) for baseColorTexture, or empty for no
+    // texture -- a material without one still gets its alphaMode/
+    // doubleSided applied correctly, it just renders as flat white/gray in
+    // that mode rather than showing the actual WoW texture. husk doesn't
+    // decode/encode image formats itself (see blp/, a separate Python
+    // tool) -- this is opaque bytes handed straight to tinygltf to embed.
+    std::vector<uint8_t> baseColorImagePng;
+};
+
+// One glTF primitive's worth of triangles: a slice of triangle-corner
+// indices (into the positions/normals/texCoords/skinning arrays below),
+// drawn with one material. M2 splits a model into per-submesh batches that
+// can each use a different material (see src/skin.hpp's Submesh/Batch) --
+// this is where that split shows up on the glTF side.
+struct Primitive {
+    // Flat triangle-corner index buffer; size() must be a multiple of 3.
+    std::vector<uint32_t> indices;
+    // Index into the `materials` vector passed to writeGlb, or -1 for none
+    // (renders with glTF's own default material).
+    int materialIndex = -1;
+};
+
 // Mesh data ready to serialize, already in the target coordinate system
 // (Y-up) -- writeGlb() does not perform the WoW Z-up -> glTF Y-up
 // conversion itself, that's the caller's job (see husk::m2::Vertex).
@@ -35,8 +66,10 @@ struct Mesh {
     std::vector<Vec3> positions;
     std::vector<Vec3> normals;
     std::vector<Vec2> texCoords;
-    // Flat triangle-corner index buffer; size() must be a multiple of 3.
-    std::vector<uint32_t> indices;
+    // One or more triangle groups, each with its own material -- see
+    // Primitive above. Every index in every primitive must be in range for
+    // positions/normals/texCoords.
+    std::vector<Primitive> primitives;
     // Optional per-vertex skinning data. Leave empty for an unskinned mesh;
     // if non-empty, must be given alongside a Skeleton (see writeGlb) and
     // have exactly one entry per position.
@@ -73,19 +106,27 @@ struct Error : std::runtime_error {
 Vec3 zUpToYUp(const Vec3& v);
 
 // Serializes `mesh` as a minimal glTF binary (.glb): one buffer holding
-// positions/normals/texCoords/indices, one mesh with a single TRIANGLES
-// primitive, one node, one scene. No material, no image -- later roadmap
-// stages add those. Throws Error if positions/normals/texCoords aren't all
-// the same length, or indices is empty or not a multiple of 3.
+// positions/normals/texCoords/indices, one mesh with one TRIANGLES
+// primitive per `mesh.primitives` entry, one node, one scene. Throws Error
+// if positions/normals/texCoords aren't all the same length, `primitives`
+// is empty, any primitive's indices is empty or not a multiple of 3 or out
+// of range for positions, or any primitive's materialIndex is out of range
+// for `materials`.
+//
+// `materials` becomes the glTF document's materials array 1:1 (see
+// Material's doc comment) -- pass an empty vector for the roadmap-stage-1-
+// through-4 behavior (no material, no image; every primitive must then
+// leave materialIndex at -1).
 //
 // If `skeleton` is non-null (and non-empty), `mesh.skinning` must be
 // non-empty and the same length as `mesh.positions`: this adds a joint node
 // per skeleton entry (parented per `Joint::parent`), a glTF skin with
-// inverse bind matrices, and JOINTS_0/WEIGHTS_0 accessors on the mesh
+// inverse bind matrices, and JOINTS_0/WEIGHTS_0 accessors on every
 // primitive. If `skeleton` is null, `mesh.skinning` must be empty -- no
 // orphaned skinning data. Throws Error on any joint's `parent` being out of
 // range or self-referential, or on the skeleton/skinning-data mismatches
 // above.
-std::vector<uint8_t> writeGlb(const Mesh& mesh, const Skeleton* skeleton = nullptr);
+std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& materials = {},
+                               const Skeleton* skeleton = nullptr);
 
 }  // namespace husk::gltf

@@ -36,7 +36,7 @@ the same dev shell, but it isn't part of the CMake build above.
 
 ```
 husk info <file.m2>
-husk export <file.m2> <file.skin> <output.glb> [file.skel]
+husk export <file.m2> <file.skin> <output.glb> [file.skel] [--textures <dir>]
 ```
 
 `info` parses the header and prints: whether the file is pre-Legion (flat
@@ -51,19 +51,29 @@ skeleton".
 `export` resolves the M2's `vertices` array to actual `M2Vertex` records
 (position, normal, both UV sets, plus the raw bone weights/indices) and the
 given `.skin` file's two-level triangle-index lookup (see `src/skin.hpp`),
-converts WoW's Z-up coordinates to glTF's Y-up, and writes a minimal
-single-primitive glTF binary -- positions/normals/UVs/indices, no material,
-no image. If the M2 has bones -- inline, or in the optional 4th-argument
-`.skel` file for models that keep them there instead (see `src/skel.hpp`)
--- they're also resolved into a bind-pose glTF skin (`JOINTS_0`/`WEIGHTS_0`,
-inverse bind matrices, a joint-node hierarchy) -- no animation playback
-yet. That covers [roadmap stages
-1 through 3](#roadmap-modern-m2--blender-via-gltf) below. husk doesn't
+converts WoW's Z-up coordinates to glTF's Y-up, and writes a glTF binary --
+one primitive per `.skin` batch (see `src/skin.hpp`'s `Batch`), each with a
+material carrying the right `alphaMode`/`doubleSided` translated from WoW's
+blend mode/render flags. If the M2 has bones -- inline, or in the optional
+4th-argument `.skel` file for models that keep them there instead (see
+`src/skel.hpp`) -- they're also resolved into a bind-pose glTF skin
+(`JOINTS_0`/`WEIGHTS_0`, inverse bind matrices, a joint-node hierarchy) --
+no animation playback yet. That covers [roadmap stages
+1 through 5](#roadmap-modern-m2--blender-via-gltf) below. husk doesn't
 resolve the `.skin`/`.skel` filenames itself (no `SFID`/`SKID`-FileDataID
 lookup yet) -- pass the path to whichever `.skin` matches the M2's LOD you
 want (e.g. `bloodelffemale.m2` pairs with `bloodelffemale00.skin`, its
 LOD0 -- not an `_hd`-suffixed file, which belongs to a separate, much
 higher-poly HD-variant M2).
+
+Materials get real `baseColorTexture` images, not just metadata, when
+`--textures <dir>` points at a directory of PNGs already converted via
+`husk-blp` (see below) and named `<FileDataID>.png` -- husk reads the
+FileDataID itself off the M2's `TXID` chunk, it just doesn't go looking for
+the matching BLP/PNG file on its own (no CASC/listfile access, same
+non-goal as `.skin`/`.skel` resolution above). Without `--textures`,
+materials still carry the correct blend mode and culling, they just render
+flat white/gray instead of showing the actual WoW texture.
 
 Textures are a separate tool, not a `husk` subcommand -- `blp/` is a small
 uv-managed Python package (see [roadmap stage
@@ -96,8 +106,19 @@ Verified against the real, live game install: `character/bloodelf/female/bloodel
 8 materials, and a bounding box consistent with a humanoid character model.
 `husk export bloodelffemale.m2 bloodelffemale00.skin out.glb` resolves all
 8061 vertices and 10,458 triangles from that same pair, plus all 119 bones
-into a bind-pose glTF skin, and writes a ~375 KiB `.glb`. Also stress-tested
-against the same character's HD variant,
+into a bind-pose glTF skin, and writes a ~570 KiB `.glb` -- the .skin's 70
+batches become 70 glTF primitives/materials, splitting into a plausible
+`alphaMode` mix (36 `OPAQUE` -- skin/tabard, 32 `MASK` -- hair, 2 `BLEND` --
+the eye-glow effect layer) with `doubleSided` correctly following each
+batch's own material flags (41 of the 70, hand-cross-checked against the
+raw `M2Material` flags/`M2Batch.materialIndex` pairing, not just "some
+number came out non-zero"). Passing `--textures <dir>`, where `<dir>` holds
+this model's two `TXID`-resolved textures pre-converted via `husk-blp` and
+named by FileDataID (`1034713.png`, `220043.png` -- the eye-glow effect
+layer's two color variants), embeds them as real, tinygltf-decodable
+images -- confirmed by round-tripping the output through tinygltf's own
+loader (`tests/test_integration.cpp`), not just "the byte count went up."
+Also stress-tested against the same character's HD variant,
 `bloodelffemale_hd.m2` (195,498 vertices!) + its matching
 `bloodelffemale_hd00.skin`, producing a ~6.8 MB `.glb` with 45,418
 triangles -- exercises the same code path at ~24x the vertex count. That HD
@@ -159,10 +180,10 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | UV / texture coordinates | 📖 both `tex_coords[2]` sets resolved (only set 0 currently exported to glTF) | ⬜ `VUV0`–`VUV5` (up to 6 sets) | ⬜ `MOTV` | ⬛ |
 | Tangents | ❔ not in the documented base header — appears to be runtime-computed, not stored | ⬜ `VTAN` | ⬜ `MOTA` (often auto-generated client-side for shaders 10/14) | ⬛ |
 | Per-vertex colors | ⬛ M2's `Colors` header field is animated material tint, not per-vertex mesh color | ⬜ `VCL0`/`VCL1` | ⬜ `MOCV`/`MOC2` | ⬛ |
-| LOD / mesh views | 🚧 one `.skin` file's `vertices`/`indices` lookup tables read directly (`src/skin.cpp`); `.skin` filename must be given explicitly, no `SFID` resolution yet | ⬛ `LODS` folds LOD into the one file, no sidecar | ⬛ (`GFID`'s `Flag_Lod` is a different, coarser concept — tracked under World/group structure) | ⬜ mip pyramid — tracked under Texture pixel data below, not here |
+| LOD / mesh views | 🚧 one `.skin` file's `vertices`/`indices` lookup tables, plus `submeshes`/`batches` (material/texture linkage per submesh, `src/skin.cpp`'s `Submesh`/`Batch`) read directly; `.skin` filename must be given explicitly, no `SFID` resolution yet | ⬛ `LODS` folds LOD into the one file, no sidecar | ⬛ (`GFID`'s `Flag_Lod` is a different, coarser concept — tracked under World/group structure) | ⬜ mip pyramid — tracked under Texture pixel data below, not here |
 | Collision / physics | 🚧 `bounding_box`/`collision_box` fields read; `.phys` sidecar (`PFID`) untouched | ⬜ `M3CL` collision mesh (`CPOS`/`CNML`/`CINX`) | ⬜ `MOBN`/`MOBR` BSP tree, `MCVP` convex volumes, `MOPL` terrain-cutting planes | ⬛ |
-| Materials | ⬜ `materials` array | ⬜ `M3SI` Instances → external `MaterialLibrary` (`.mtl3lib`) | ⬜ `MOMT`, `MOM3` (v3 override), `MOUV` (UV anim), per-face `MOPY`/`MPY2`/`MOBS` | ⬛ |
-| Texture references (names/FileDataIDs) | ⬜ `textures` array + combo lookup tables | ⬜ indirect, via `MaterialLibrary` → compiled shader files (`GFAT`/`BLS`) — separate formats, not yet even scoped | ⬜ `MOTX` | ⬛ BLP is the referenced asset, not a referencer |
+| Materials | 📖 `materials` array (`flags`/`blending_mode`, `src/m2.cpp`'s `parseMaterials`) resolved per-batch and translated to glTF `alphaMode`/`doubleSided` by `husk export` (`src/cmd_export.cpp`) — write-back to M2 not applicable (glTF-only tool) | ⬜ `M3SI` Instances → external `MaterialLibrary` (`.mtl3lib`) | ⬜ `MOMT`, `MOM3` (v3 override), `MOUV` (UV anim), per-face `MOPY`/`MPY2`/`MOBS` | ⬛ |
+| Texture references (names/FileDataIDs) | 📖 `textures` array (`type`/`flags`/`filename`) + `textureCombos` lookup table resolved (`src/m2.cpp`); Legion+ `TXID` chunk FileDataIDs surfaced (`Header::textureFileDataIds`) — same non-resolved-to-a-path treatment as `SKID`, see the Sidecar row below | ⬜ indirect, via `MaterialLibrary` → compiled shader files (`GFAT`/`BLS`) — separate formats, not yet even scoped | ⬜ `MOTX` | ⬛ BLP is the referenced asset, not a referencer |
 | Texture pixel data | ⬛ | ⬛ | ⬛ | 🚧 `blp/` (Python, `husk-blp` CLI) — header + mip table resolved, palette/DXT1/DXT5/BGRA decode to PNG done; DXT3 and JPEG content unimplemented (JPEG rare in BLP2 per the wiki; DXT3 unseen in this repo's real test data so far — not yet a confirmed-needed gap) |
 | Animation sequences / tracks | 🚧 `sequences` array count read, no track/keyframe contents | ❔ no sequence/track chunk documented in the fetched spec at all | ⬛ (`MOUV` texture-translation anim is the closest thing; counted under Materials) | ⬛ |
 | Interaction points (attachments, cameras, events) | ⬜ `attachments`/`cameras`/`events` arrays | ❔ not present in the fetched chunk list | ⬛ | ⬛ |
@@ -173,7 +194,7 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | Portals / visibility culling | ⬛ | ⬛ | ⬜ `MOPV`/`MOPT`/`MOPR`/`MOPE`, `MOVV`/`MOVB` visible-block lists | ⬛ |
 | Doodad / object placement (scene composition) | ⬛ | ⬛ | ⬜ `MODS`/`MODN`/`MODI`/`MODD`/`MODR` + `MDDI`/`MDDL` additional info | ⬛ |
 | World/group structure (root+group files, skybox) | ⬛ | ⬛ single-file, no group split | ⬜ `MOGN`/`MOGI`/`MOGP`/`MOGX`/`GFID` + `MOSB`/`MOSI` skybox + `MGI2` group-info-v2 | ⬛ |
-| Sidecar FileDataID resolution | 🚧 `SFID`/`AFID`/`BFID`/`PFID`/`SKID` → `.skin`/`.anim`/`.bone`/`.phys`/`.skel` — none of these FileDataIDs are resolved to a path (no CASC/listfile access, by design, see the README's Usage section); `SKID`'s raw ID is at least surfaced (`husk info`) and `.skin`/`.skel` paths are accepted explicitly as `husk export` arguments; `AFID`/`BFID`/`PFID` aren't touched at all yet | ⬛ self-contained, no sidecars per spec | ⬜ `GFID` → group files | ⬛ |
+| Sidecar FileDataID resolution | 🚧 `SFID`/`AFID`/`BFID`/`PFID`/`SKID`/`TXID` → `.skin`/`.anim`/`.bone`/`.phys`/`.skel`/BLP textures — none of these FileDataIDs are resolved to a path (no CASC/listfile access, by design, see the README's Usage section); `SKID`'s raw ID is surfaced via `husk info`, `TXID`'s via `Header::textureFileDataIds` (used by `husk export --textures`, see Usage), and `.skin`/`.skel` paths are accepted explicitly as `husk export` arguments; `AFID`/`BFID`/`PFID` aren't touched at all yet | ⬛ self-contained, no sidecars per spec | ⬜ `GFID` → group files | ⬛ |
 
 **Not individually rowed above** (still real, just low-priority/niche —
 tracked here so nothing's silently dropped): WMO's `MOQG`/`MOGX` per-face
@@ -310,15 +331,40 @@ above; this section is about *sequencing* that work, not duplicating it.
    face-detail texture — all visually correct, unmistakably the right
    image content, not garbage that merely happened to be the right
    dimensions.
-5. **Materials.** Resolve the `materials` array (blend mode, render
-   flags) and the texture-unit → texture/material linkage that lives in
-   the `.skin` file, then translate WoW's blend modes into glTF's
-   `alphaMode` (`OPAQUE`/`MASK`/`BLEND`) with the resolved texture as
-   `baseColorTexture`. Deliberately **not** attempting real PBR authoring
-   (roughness/metalness/normal maps) in this first pass — WoW's own
-   shader model doesn't map cleanly onto metallic-roughness, and faking
-   plausible-looking values is a separate, later problem from "does the
-   right texture show up with the right blend mode."
+5. **Materials. Done** — resolves the `.skin` file's `batches` array
+   (`M2Batch`, wowdev.wiki M2/.skin#Texture_units, `src/skin.cpp`'s
+   `Batch`) into one glTF material + primitive per batch: `batch ->
+   submesh` (a slice of the already-resolved triangle-index buffer, via
+   `Submesh.indexStart`/`indexCount`) `-> materialIndex` (M2's own
+   `materials` array, `m2::Material`'s `flags`/`blendMode`) `->
+   textureComboIndex` (through the header's `textureCombos` lookup table,
+   wowdev.wiki's "Texture lookup table") `-> textures` array entry. WoW's
+   `M2BLEND_*` blend mode collapses to glTF's three-way `alphaMode`
+   (`0`→`OPAQUE`, `1`→`MASK`, everything else — real alpha blend plus the
+   additive/multiply modes glTF's core material model has no equivalent
+   for — `BLEND` as the closest approximation) and the material's
+   "two-sided" render flag (`0x04`) becomes glTF `doubleSided`
+   (`src/cmd_export.cpp`'s `alphaModeForBlend`). Deliberately **not**
+   attempting real PBR authoring (roughness/metalness/normal maps) — WoW's
+   own shader model doesn't map cleanly onto metallic-roughness, and
+   faking plausible-looking values is a separate, later problem from
+   "does the right blend mode show up on the right part of the mesh."
+   One glTF material per *batch* rather than per M2 material index is
+   deliberate: a batch is the thing that actually pins down both blend
+   mode *and* texture together, and nothing in the format guarantees two
+   batches sharing a `materialIndex` also share a texture (this repo's
+   real test data happens to keep that 1:1, but the spec doesn't promise
+   it) — some duplicate-looking glTF materials is a fair trade for never
+   guessing.
+   `baseColorTexture` embedding is real, not just metadata: husk still
+   doesn't resolve a texture's FileDataID to a WoW/CASC path itself (same
+   non-goal as `.skin`/`.skel`, see Usage below and the format matrix's
+   Sidecar row) — but `husk export --textures <dir>` embeds an actual PNG
+   when one already exists at `<dir>/<FileDataID>.png` (produced by
+   `blp/`'s `husk-blp`, roadmap stage 4), closing the loop between the two
+   tools without husk ever touching CASC or a listfile. Without
+   `--textures`, materials still get the right `alphaMode`/`doubleSided`,
+   just no image — both paths verified against real data (see Usage).
 6. **Animation.** Resolve each bone's `M2Track` (translation/rotation/
    scale keyframes) and map one sequence at a time into glTF `animation`
    channels targeting joint nodes — get a single idle/stand loop playing
@@ -369,12 +415,17 @@ Same two-tier split as `casc-tool`:
   silently misread; a model with an external `.skel` skeleton must produce
   a real skinned glTF skin, not a silent unskinned fallback. Skipped (not
   failed) unless the relevant env vars point at real files: `HUSK_TEST_M2`
-  (bare `info`), plus `HUSK_TEST_SKIN` (`export`), `HUSK_TEST_MISMATCHED_SKIN`
-  (the mismatch failure path), or `HUSK_TEST_SKEL_M2`/`HUSK_TEST_SKEL_SKIN`/
-  `HUSK_TEST_SKEL` (the external-skeleton path, a separate model+trio from
-  the others since it needs one with an `SKID` chunk). `test_data/`
-  (gitignored) is a convenient local spot for these -- real, copyrighted
-  game data extracted from your own install, never meant to be committed.
+  (bare `info`), plus `HUSK_TEST_SKIN` (`export`, also exercises the
+  per-batch materials path -- checks for a plausible `alphaMode` spread,
+  not exact values), `HUSK_TEST_MISMATCHED_SKIN` (the mismatch failure
+  path), `HUSK_TEST_TEXTURES_DIR` (alongside `HUSK_TEST_M2`/`HUSK_TEST_SKIN`
+  -- a directory of `husk-blp`-converted `<FileDataID>.png` files, to
+  exercise `--textures`' real image embedding), or
+  `HUSK_TEST_SKEL_M2`/`HUSK_TEST_SKEL_SKIN`/`HUSK_TEST_SKEL` (the
+  external-skeleton path, a separate model+trio from the others since it
+  needs one with an `SKID` chunk). `test_data/` (gitignored) is a
+  convenient local spot for these -- real, copyrighted game data extracted
+  from your own install, never meant to be committed.
 
 ```
 cmake --build build -j$(nproc)
@@ -429,11 +480,14 @@ HUSK_TEST_BLP_PALETTE=../test_data/character/bloodelf/female/bloodelffemalefacel
   `src/skin.hpp`/`skin.cpp` follow the same fixed-offset,
   bounds-checked-`memcpy`, independently-spec-transcribed-tests approach as
   `src/m2.cpp` — see `tests/test_skin.cpp`'s header comment for the
-  `M2SkinProfile` offsets. Only the `vertices`/`indices` lookup tables are
-  read (what `husk export` needs); `.skin`'s own `bones`/`submeshes`/`batches`
-  fields are a *different*, per-submesh-indirected bone lookup than
-  `M2Vertex.bone_indices` (see the next bullet) and stay unread until the
-  materials stage actually needs per-submesh grouping.
+  `M2SkinProfile`/`M2SkinSection`/`M2Batch` offsets. `vertices`/`indices`
+  (the triangle-index lookup) and `submeshes`/`batches` (the
+  material/texture linkage, roadmap stage 5) are read -- what `husk
+  export` needs; `.skin`'s own `bones` field is a *different*,
+  per-submesh-indirected bone lookup than `M2Vertex.bone_indices` (see the
+  next bullet) and stays unread, since stage 2 already established the
+  direct-index reading is correct and this indirected table isn't needed
+  for anything husk currently does.
 - **`M2CompBone`'s three embedded animation tracks are skipped, not
   parsed.** Per wowdev.wiki M2#Bones, each bone struct carries a
   `translation`/`rotation`/`scale` `M2Track<T>` (60 bytes total) before its
@@ -461,14 +515,17 @@ HUSK_TEST_BLP_PALETTE=../test_data/character/bloodelf/female/bloodelffemalefacel
   erroring, on the assumption a model wouldn't legitimately have both.
 - **Not built yet:** parsing most of the fixed header past what's
   currently read (attachments, events, lights, cameras, particles, ...),
-  resolving most array offsets to their pointed-to records (`textures`,
-  `materials`, `sequences`, ... — `vertices` and `bones` are resolved, for
-  the mesh-export and skinning stages), the Legion+ sidecar chunks
-  (`AFID`/`BFID`/`PFID`/etc. — `husk export` takes `.skin`/`.skel` paths
-  explicitly instead of resolving `SFID`/`SKID` itself, though it does
-  surface `SKID`'s raw file data ID via `husk info`), `.skin`'s own
-  `bones`/`submeshes`/`batches` fields, `.skel`'s own `key_bone_lookup`
-  field and its `SKL1`/`SKA1`/`SKS1`/`SKPD` chunks, M3, WMO, and any form of
+  resolving most array offsets to their pointed-to records (`sequences`
+  and its track/keyframe contents, mainly — `vertices`, `bones`,
+  `textures`, `materials`, and `textureCombos` are all resolved now, for
+  the mesh-export/skinning/materials stages), the Legion+ sidecar chunks
+  besides `SKID`/`TXID` (`AFID`/`BFID`/`PFID` — `husk export` takes
+  `.skin`/`.skel` paths explicitly instead of resolving `SFID`/`SKID`
+  itself, though it does surface `SKID`'s and `TXID`'s raw FileDataIDs via
+  `husk info`/`Header::textureFileDataIds`), `.skin`'s own `bones` field
+  (a different, per-submesh-indirected bone lookup, see the design note
+  above), `.skel`'s own `key_bone_lookup` field and its
+  `SKL1`/`SKA1`/`SKS1`/`SKPD` chunks, M3, WMO, and any form of
   writing/conversion back into WoW's native formats (only glTF export is
   in scope, see the roadmap above).
 - **`.reference/`** (gitignored) holds a clone of
@@ -480,10 +537,11 @@ HUSK_TEST_BLP_PALETTE=../test_data/character/bloodelf/female/bloodelffemalefacel
   needs real image-library maturity (correct PNG writing, a trustworthy
   DXT/BC block decoder) that C++ doesn't have a clean equivalent of
   already in this project the way tinygltf covers glTF output, and
-  texture conversion is genuinely decoupled from the M2/`.skin`/`.skel`
-  pipeline — nothing in `husk export` calls into it (yet; that wiring is
-  roadmap stage 5's job, once materials need to reference actual PNGs).
-  `husk_blp/decode.py`'s DXT1/DXT3/DXT5 handling in particular leans on
+  texture conversion stays a separate process boundary even now that
+  `husk export --textures` actually embeds the PNGs it produces (roadmap
+  stage 5) -- husk reads a PNG file `husk-blp` already wrote and named by
+  FileDataID, it doesn't invoke `husk-blp` as a subprocess or link against
+  Pillow, so the two tools/languages never actually touch. `husk_blp/decode.py`'s DXT1/DXT3/DXT5 handling in particular leans on
   a library rather than hand-rolled block math: it wraps the raw
   compressed bytes in a minimal synthetic DDS container (the same S3TC
   block layout, just a different file wrapper) and hands that to

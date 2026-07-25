@@ -20,7 +20,9 @@ husk::gltf::Mesh buildTriangleMesh() {
     mesh.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
     mesh.normals = {{0, 0, 1}, {0, 0, 1}, {0, 0, 1}};
     mesh.texCoords = {{0, 0}, {1, 0}, {0, 1}};
-    mesh.indices = {0, 1, 2};
+    husk::gltf::Primitive prim;
+    prim.indices = {0, 1, 2};
+    mesh.primitives = {prim};
     return mesh;
 }
 
@@ -128,15 +130,33 @@ TEST_CASE("writeGlb: mismatched attribute array lengths throws") {
     CHECK_THROWS_AS(husk::gltf::writeGlb(mesh), husk::gltf::Error);
 }
 
+TEST_CASE("writeGlb: no primitives at all throws") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives.clear();
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh), husk::gltf::Error);
+}
+
 TEST_CASE("writeGlb: empty indices throws") {
     auto mesh = buildTriangleMesh();
-    mesh.indices.clear();
+    mesh.primitives[0].indices.clear();
     CHECK_THROWS_AS(husk::gltf::writeGlb(mesh), husk::gltf::Error);
 }
 
 TEST_CASE("writeGlb: indices count not a multiple of 3 throws") {
     auto mesh = buildTriangleMesh();
-    mesh.indices = {0, 1};
+    mesh.primitives[0].indices = {0, 1};
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: an index referencing a nonexistent position throws") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].indices = {0, 1, 99};  // only 3 positions, index 2 max
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: a primitive's materialIndex out of range for `materials` throws") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;  // but no materials were given
     CHECK_THROWS_AS(husk::gltf::writeGlb(mesh), husk::gltf::Error);
 }
 
@@ -171,7 +191,7 @@ husk::gltf::Mesh buildSkinnedTriangleMesh() {
 TEST_CASE("writeGlb: skinned mesh round-trips joints, weights, and the joint hierarchy") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();
-    auto glb = husk::gltf::writeGlb(mesh, &skel);
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
     auto model = loadBack(glb);
 
     REQUIRE(model.skins.size() == 1);
@@ -239,31 +259,150 @@ TEST_CASE("writeGlb: skinned mesh round-trips joints, weights, and the joint hie
 TEST_CASE("writeGlb: skeleton given without matching mesh.skinning throws") {
     auto mesh = buildTriangleMesh();  // no skinning data
     auto skel = buildChainSkeleton();
-    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, &skel), husk::gltf::Error);
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
 }
 
 TEST_CASE("writeGlb: mesh.skinning given without a skeleton throws") {
     auto mesh = buildSkinnedTriangleMesh();
-    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, nullptr), husk::gltf::Error);
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, nullptr), husk::gltf::Error);
 }
 
 TEST_CASE("writeGlb: mesh.skinning length mismatched with positions throws") {
     auto mesh = buildSkinnedTriangleMesh();
     mesh.skinning.pop_back();
     auto skel = buildChainSkeleton();
-    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, &skel), husk::gltf::Error);
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
 }
 
 TEST_CASE("writeGlb: joint parent index out of range throws") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();
     skel.joints[2].parent = 99;
-    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, &skel), husk::gltf::Error);
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
 }
 
 TEST_CASE("writeGlb: joint that is its own parent throws") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();
     skel.joints[1].parent = 1;
-    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, &skel), husk::gltf::Error);
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
+}
+
+namespace {
+
+// A 2-triangle quad (0,1,2 and 1,3,2), each triangle its own primitive so a
+// test can prove they get independent index buffers and materials -- roadmap
+// stage 5 (see README.md), where one M2 submesh/batch becomes one primitive.
+husk::gltf::Mesh buildTwoPrimitiveQuad() {
+    husk::gltf::Mesh mesh;
+    mesh.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {1, 1, 0}};
+    mesh.normals = {{0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}};
+    mesh.texCoords = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
+
+    husk::gltf::Primitive p0;
+    p0.indices = {0, 1, 2};
+    p0.materialIndex = 0;
+    husk::gltf::Primitive p1;
+    p1.indices = {1, 3, 2};
+    p1.materialIndex = 1;
+    mesh.primitives = {p0, p1};
+    return mesh;
+}
+
+}  // namespace
+
+TEST_CASE("writeGlb: each primitive keeps its own indices, attributes are shared") {
+    auto mesh = buildTwoPrimitiveQuad();
+    std::vector<husk::gltf::Material> materials(2);
+    materials[0].name = "opaque_mat";
+    materials[0].alphaMode = husk::gltf::Material::AlphaMode::Opaque;
+    materials[1].name = "blend_mat";
+    materials[1].alphaMode = husk::gltf::Material::AlphaMode::Blend;
+    materials[1].doubleSided = true;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.materials.size() == 2);
+    CHECK(model.materials[0].name == "opaque_mat");
+    CHECK(model.materials[0].alphaMode == "OPAQUE");
+    CHECK_FALSE(model.materials[0].doubleSided);
+    CHECK(model.materials[1].name == "blend_mat");
+    CHECK(model.materials[1].alphaMode == "BLEND");
+    CHECK(model.materials[1].doubleSided);
+
+    REQUIRE(model.meshes[0].primitives.size() == 2);
+    const auto& prim0 = model.meshes[0].primitives[0];
+    const auto& prim1 = model.meshes[0].primitives[1];
+    CHECK(prim0.material == 0);
+    CHECK(prim1.material == 1);
+
+    // Both primitives share the same POSITION accessor (one shared vertex
+    // buffer)...
+    CHECK(prim0.attributes.at("POSITION") == prim1.attributes.at("POSITION"));
+    // ...but each has its own index accessor/buffer view, with the right
+    // 3-entry slice.
+    CHECK(prim0.indices != prim1.indices);
+    REQUIRE(model.accessors[prim1.indices].count == 3);
+    const auto& idxAcc = model.accessors[prim1.indices];
+    const auto& idxView = model.bufferViews[idxAcc.bufferView];
+    const auto& idxBuf = model.buffers[idxView.buffer];
+    std::vector<uint32_t> idx1(3);
+    std::memcpy(idx1.data(), idxBuf.data.data() + idxView.byteOffset + idxAcc.byteOffset,
+                3 * sizeof(uint32_t));
+    CHECK(idx1[0] == 1);
+    CHECK(idx1[1] == 3);
+    CHECK(idx1[2] == 2);
+}
+
+TEST_CASE("writeGlb: a primitive with materialIndex -1 gets no material") {
+    auto mesh = buildTriangleMesh();  // materialIndex defaults to -1
+    std::vector<husk::gltf::Material> materials(1);
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+    CHECK(model.meshes[0].primitives[0].material == -1);
+}
+
+TEST_CASE("writeGlb: a material's baseColorImagePng is embedded as a real glTF image+texture") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+
+    // A real, valid 1x1 PNG (RGBA, generated via Pillow) -- has to actually
+    // decode, since this test round-trips through tinygltf's own loader
+    // (which decodes embedded images via stb_image), same rationale as
+    // every other test in this file.
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].baseColorImagePng = onePixelPng;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.images.size() == 1);
+    CHECK(model.images[0].mimeType == "image/png");
+    // tinygltf's loader decoded it -- confirms it's not just bytes that
+    // happen to round-trip, but an image a real glTF consumer can read.
+    CHECK(model.images[0].width == 1);
+    CHECK(model.images[0].height == 1);
+
+    REQUIRE(model.textures.size() == 1);
+    CHECK(model.textures[0].source == 0);
+    REQUIRE(model.materials[0].pbrMetallicRoughness.baseColorTexture.index == 0);
+}
+
+TEST_CASE("writeGlb: a material without baseColorImagePng gets no image/texture") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+    CHECK(model.images.empty());
+    CHECK(model.textures.empty());
+    CHECK(model.materials[0].pbrMetallicRoughness.baseColorTexture.index == -1);
 }

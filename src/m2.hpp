@@ -55,6 +55,28 @@ struct BoundingBox {
     Vec3 max;
 };
 
+// M2Texture, per wowdev.wiki M2#Textures -- 16 bytes on disk. `filename`
+// only means something when `type == 0` ("NONE" -- a real, embedded path);
+// every other type is resolved at runtime from DBC tables husk doesn't read
+// (character customization, item textures, ...), and `filename` is empty
+// (or a placeholder zero byte) for those. Modern (Legion+) content usually
+// leaves even type-0 filenames empty and points at a FileDataID via the
+// TXID chunk instead -- see Header::textureFileDataIds.
+struct Texture {
+    uint32_t type = 0;
+    uint32_t flags = 0;
+    std::string filename;
+};
+
+// M2Material, per wowdev.wiki M2#Render_flags_and_blending_modes -- 4 bytes
+// on disk. `blendMode` is WoW's M2BLEND_* enum (see wowdev.wiki
+// M2/Rendering#M2BLEND), not a glTF alphaMode directly -- translating that
+// is roadmap stage 5's job (src/cmd_export.cpp), not this parser's.
+struct Material {
+    uint16_t flags = 0;
+    uint16_t blendMode = 0;
+};
+
 // Field offsets and order below are transcribed directly from the wowdev.wiki
 // M2 "Header" section (offsets given there for expansion level >= 3, which
 // covers every currently-shipping model). Deliberately stops at the last
@@ -100,6 +122,14 @@ struct Header {
     // callers that want the actual bones still need a .skel path from
     // elsewhere (see `husk export`'s optional 4th argument).
     std::optional<uint32_t> skeletonFileId;
+
+    // FileDataIDs parallel to `textures` (same index, same count), from the
+    // Legion+ TXID chunk (wowdev.wiki M2#TXID). Entry i is textures[i]'s
+    // FileDataID, or 0 for a texture that isn't file-based at all (type != 0
+    // -- see husk::m2::Texture). Only set for chunked files that carry a
+    // TXID chunk; husk doesn't resolve these IDs to paths itself (no
+    // CASC/listfile access -- same non-goal as skeletonFileId above).
+    std::optional<std::vector<uint32_t>> textureFileDataIds;
 };
 
 // M2CompBone, per wowdev.wiki M2#Bones -- 88 bytes on disk (>= Wrath shape,
@@ -150,6 +180,26 @@ std::vector<Vertex> parseVertices(const std::vector<uint8_t>& blob, const Array&
 // blob. An empty array (count 0) returns an empty vector without touching
 // `array.offset` at all.
 std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` M2Texture records out of `blob` starting at
+// `array.offset`. Throws ParseError if that range runs past the end of the
+// blob. An empty array (count 0) returns an empty vector without touching
+// `array.offset` at all.
+std::vector<Texture> parseTextures(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` M2Material records out of `blob` starting at
+// `array.offset`. Throws ParseError if that range runs past the end of the
+// blob. An empty array (count 0) returns an empty vector without touching
+// `array.offset` at all.
+std::vector<Material> parseMaterials(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` little-endian uint16 values out of `blob` at
+// `array.offset`. Throws ParseError if that range runs past the end of the
+// blob. Used for the header's various uint16 "combo"/lookup arrays (e.g.
+// `textureCombos`, wowdev.wiki's "Texture lookup table" -- see
+// src/cmd_export.cpp for how batches resolve through it to an actual
+// texture).
+std::vector<uint16_t> parseUint16Array(const std::vector<uint8_t>& blob, const Array& array);
 
 // Best-effort expansion label(s) for a raw header version number, per the
 // wiki's own version table -- which the wiki itself calls "rough estimates"

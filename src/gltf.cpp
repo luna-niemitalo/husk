@@ -34,19 +34,54 @@ int appendBufferView(tinygltf::Buffer& buffer, std::vector<tinygltf::BufferView>
 
 Vec3 zUpToYUp(const Vec3& v) { return {v.x, -v.z, v.y}; }
 
-std::vector<uint8_t> writeGlb(const Mesh& mesh, const Skeleton* skeleton) {
+namespace {
+
+const char* alphaModeString(Material::AlphaMode mode) {
+    switch (mode) {
+        case Material::AlphaMode::Opaque: return "OPAQUE";
+        case Material::AlphaMode::Mask: return "MASK";
+        case Material::AlphaMode::Blend: return "BLEND";
+    }
+    return "OPAQUE";
+}
+
+}  // namespace
+
+std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& materials,
+                               const Skeleton* skeleton) {
     size_t n = mesh.positions.size();
     if (mesh.normals.size() != n || mesh.texCoords.size() != n) {
         throw Error("writeGlb: positions (" + std::to_string(n) + "), normals (" +
                     std::to_string(mesh.normals.size()) + "), and texCoords (" +
                     std::to_string(mesh.texCoords.size()) + ") must all be the same length");
     }
-    if (mesh.indices.empty()) {
-        throw Error("writeGlb: indices must not be empty");
+    if (mesh.primitives.empty()) {
+        throw Error("writeGlb: mesh.primitives must not be empty");
     }
-    if (mesh.indices.size() % 3 != 0) {
-        throw Error("writeGlb: indices count (" + std::to_string(mesh.indices.size()) +
-                    ") must be a multiple of 3 (one triangle per 3 entries)");
+    for (size_t pi = 0; pi < mesh.primitives.size(); ++pi) {
+        const auto& prim = mesh.primitives[pi];
+        if (prim.indices.empty()) {
+            throw Error("writeGlb: primitive " + std::to_string(pi) + "'s indices must not be empty");
+        }
+        if (prim.indices.size() % 3 != 0) {
+            throw Error("writeGlb: primitive " + std::to_string(pi) + "'s indices count (" +
+                        std::to_string(prim.indices.size()) +
+                        ") must be a multiple of 3 (one triangle per 3 entries)");
+        }
+        for (uint32_t idx : prim.indices) {
+            if (idx >= n) {
+                throw Error("writeGlb: primitive " + std::to_string(pi) + "'s indices reference " +
+                            std::to_string(idx) + " but there are only " + std::to_string(n) +
+                            " positions");
+            }
+        }
+        if (prim.materialIndex != -1 &&
+            (prim.materialIndex < 0 ||
+             static_cast<size_t>(prim.materialIndex) >= materials.size())) {
+            throw Error("writeGlb: primitive " + std::to_string(pi) + "'s materialIndex (" +
+                        std::to_string(prim.materialIndex) + ") is out of range for " +
+                        std::to_string(materials.size()) + " materials");
+        }
     }
 
     bool hasSkeleton = skeleton != nullptr && !skeleton->joints.empty();
@@ -85,8 +120,6 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const Skeleton* skeleton) {
     int posView = appendBufferView(buffer, views, mesh.positions, TINYGLTF_TARGET_ARRAY_BUFFER);
     int normView = appendBufferView(buffer, views, mesh.normals, TINYGLTF_TARGET_ARRAY_BUFFER);
     int uvView = appendBufferView(buffer, views, mesh.texCoords, TINYGLTF_TARGET_ARRAY_BUFFER);
-    int idxView =
-        appendBufferView(buffer, views, mesh.indices, TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER);
 
     Vec3 posMin = mesh.positions[0], posMax = mesh.positions[0];
     for (const auto& p : mesh.positions) {
@@ -124,22 +157,8 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const Skeleton* skeleton) {
     int uvAccIdx = static_cast<int>(accessors.size());
     accessors.push_back(uvAcc);
 
-    tinygltf::Accessor idxAcc;
-    idxAcc.bufferView = idxView;
-    idxAcc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
-    idxAcc.count = mesh.indices.size();
-    idxAcc.type = TINYGLTF_TYPE_SCALAR;
-    int idxAccIdx = static_cast<int>(accessors.size());
-    accessors.push_back(idxAcc);
-
-    tinygltf::Primitive prim;
-    prim.attributes["POSITION"] = posAccIdx;
-    prim.attributes["NORMAL"] = normAccIdx;
-    prim.attributes["TEXCOORD_0"] = uvAccIdx;
-    prim.indices = idxAccIdx;
-    prim.mode = TINYGLTF_MODE_TRIANGLES;
-
     int skinIdx = -1;
+    int jAccIdx = -1, wAccIdx = -1;
     std::vector<tinygltf::Node> jointNodes;
     std::vector<int> rootJointNodeIndices;
 
@@ -165,7 +184,7 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const Skeleton* skeleton) {
         jAcc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
         jAcc.count = n;
         jAcc.type = TINYGLTF_TYPE_VEC4;
-        int jAccIdx = static_cast<int>(accessors.size());
+        jAccIdx = static_cast<int>(accessors.size());
         accessors.push_back(jAcc);
 
         tinygltf::Accessor wAcc;
@@ -173,11 +192,8 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const Skeleton* skeleton) {
         wAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
         wAcc.count = n;
         wAcc.type = TINYGLTF_TYPE_VEC4;
-        int wAccIdx = static_cast<int>(accessors.size());
+        wAccIdx = static_cast<int>(accessors.size());
         accessors.push_back(wAcc);
-
-        prim.attributes["JOINTS_0"] = jAccIdx;
-        prim.attributes["WEIGHTS_0"] = wAccIdx;
 
         // Pure-translation inverse bind matrices (see Skeleton's doc
         // comment for why M2's bind pose never needs a rotation/scale
@@ -225,11 +241,78 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const Skeleton* skeleton) {
         skinIdx = 0;
     }
 
+    // Materials: one tinygltf::Material per husk::gltf::Material, in the
+    // same order (Mesh::Primitive::materialIndex refers to this same
+    // index). A non-empty baseColorImagePng gets embedded as an Image
+    // (raw PNG bytes in a bufferView, no separate file/URI -- see
+    // tinygltf's UpdateImageObject: an empty uri + a set bufferView means
+    // "already embedded, don't touch") plus a Texture referencing it.
+    std::vector<tinygltf::Image> images;
+    std::vector<tinygltf::Texture> textures;
+    std::vector<tinygltf::Material> tinyMaterials;
+    for (const auto& mat : materials) {
+        tinygltf::Material tm;
+        tm.name = mat.name;
+        tm.alphaMode = alphaModeString(mat.alphaMode);
+        tm.doubleSided = mat.doubleSided;
+        if (!mat.baseColorImagePng.empty()) {
+            int imgView = appendBufferView(buffer, views, mat.baseColorImagePng, /*target=*/0);
+            tinygltf::Image img;
+            img.mimeType = "image/png";
+            img.bufferView = imgView;
+            int imgIdx = static_cast<int>(images.size());
+            images.push_back(img);
+
+            tinygltf::Texture tex;
+            tex.source = imgIdx;
+            int texIdx = static_cast<int>(textures.size());
+            textures.push_back(tex);
+
+            tm.pbrMetallicRoughness.baseColorTexture.index = texIdx;
+        }
+        tinyMaterials.push_back(tm);
+    }
+
+    // One glTF primitive per mesh.primitives entry: shares the
+    // POSITION/NORMAL/TEXCOORD_0(/JOINTS_0/WEIGHTS_0) accessors built
+    // above, but each gets its own index buffer/accessor (a different
+    // slice of triangles) and material.
+    std::vector<tinygltf::Primitive> tinyPrims;
+    for (const auto& p : mesh.primitives) {
+        int idxView =
+            appendBufferView(buffer, views, p.indices, TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER);
+        tinygltf::Accessor idxAcc;
+        idxAcc.bufferView = idxView;
+        idxAcc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
+        idxAcc.count = p.indices.size();
+        idxAcc.type = TINYGLTF_TYPE_SCALAR;
+        int idxAccIdx = static_cast<int>(accessors.size());
+        accessors.push_back(idxAcc);
+
+        tinygltf::Primitive tp;
+        tp.attributes["POSITION"] = posAccIdx;
+        tp.attributes["NORMAL"] = normAccIdx;
+        tp.attributes["TEXCOORD_0"] = uvAccIdx;
+        if (jAccIdx >= 0) {
+            tp.attributes["JOINTS_0"] = jAccIdx;
+            tp.attributes["WEIGHTS_0"] = wAccIdx;
+        }
+        tp.indices = idxAccIdx;
+        tp.mode = TINYGLTF_MODE_TRIANGLES;
+        if (p.materialIndex >= 0) {
+            tp.material = p.materialIndex;
+        }
+        tinyPrims.push_back(tp);
+    }
+
     model.bufferViews = views;
     model.accessors = accessors;
+    model.images = images;
+    model.textures = textures;
+    model.materials = tinyMaterials;
 
     tinygltf::Mesh gltfMesh;
-    gltfMesh.primitives = {prim};
+    gltfMesh.primitives = tinyPrims;
     model.meshes = {gltfMesh};
 
     tinygltf::Node meshNode;

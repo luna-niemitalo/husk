@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <set>
 #include <string>
 #include <tiny_gltf.h>
 
@@ -101,6 +102,89 @@ TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a well-f
     CHECK(std::string(magic, 4) == "glTF");
 
     checkSkinnedGlb(outPath);
+
+    std::filesystem::remove(outPath);
+}
+
+TEST_CASE("husk export: real M2 + .skin resolves per-batch materials with a plausible alphaMode "
+          "spread") {
+    std::string m2Path = envOrEmpty("HUSK_TEST_M2");
+    std::string skinPath = envOrEmpty("HUSK_TEST_SKIN");
+    if (m2Path.empty() || skinPath.empty()) {
+        MESSAGE("SKIPPED (no real M2+.skin pair available -- set HUSK_TEST_M2 and HUSK_TEST_SKIN)");
+        return;
+    }
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-mats.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto result = runHusk("export \"" + m2Path + "\" \"" + skinPath + "\" \"" + outPath + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+    // cmd_export.cpp only prints a material count when it actually built
+    // some -- confirms the .skin's batches array wasn't silently empty.
+    CHECK(result.output.find(" materials (") != std::string::npos);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+
+    // A real character model has multiple submesh/batch groups (skin,
+    // hair, tabard, ...) that don't all share one blend mode -- if every
+    // primitive ended up OPAQUE, the batch->material resolution chain
+    // silently fell back to defaults instead of actually reading the
+    // .skin's batches. Shape-only, per this file's own stated philosophy
+    // -- exact per-material values belong in tests/test_m2.cpp/test_skin.cpp's
+    // synthetic fixtures.
+    REQUIRE(model.meshes[0].primitives.size() > 1);
+    REQUIRE(model.materials.size() > 1);
+    std::set<std::string> alphaModes;
+    for (const auto& m : model.materials) {
+        alphaModes.insert(m.alphaMode);
+    }
+    CHECK(alphaModes.size() > 1);
+
+    std::filesystem::remove(outPath);
+}
+
+TEST_CASE("husk export: --textures embeds a real baseColorTexture image when one resolves") {
+    std::string m2Path = envOrEmpty("HUSK_TEST_M2");
+    std::string skinPath = envOrEmpty("HUSK_TEST_SKIN");
+    std::string texturesDir = envOrEmpty("HUSK_TEST_TEXTURES_DIR");
+    if (m2Path.empty() || skinPath.empty() || texturesDir.empty()) {
+        MESSAGE(
+            "SKIPPED (set HUSK_TEST_M2, HUSK_TEST_SKIN, and HUSK_TEST_TEXTURES_DIR -- a "
+            "directory of husk-blp-converted '<FileDataID>.png' files -- to run this)");
+        return;
+    }
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-tex.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto result = runHusk("export \"" + m2Path + "\" \"" + skinPath + "\" \"" + outPath +
+                           "\" --textures \"" + texturesDir + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find(" with an embedded texture)") != std::string::npos);
+    // The whole point of this test: at least one texture actually got
+    // embedded, not just "materials exist but all imageless" (that's
+    // already covered by the no-textures-dir test above).
+    CHECK(result.output.find("(0 with an embedded texture)") == std::string::npos);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(model.images.size() > 0);
+    // tinygltf decoded it -- a real image, not just bytes that happen to
+    // sit in a bufferView.
+    CHECK(model.images[0].width > 0);
+    CHECK(model.images[0].height > 0);
 
     std::filesystem::remove(outPath);
 }

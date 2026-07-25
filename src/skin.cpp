@@ -10,7 +10,10 @@ namespace offset {
 constexpr size_t magic = 0x00;
 constexpr size_t vertices = 0x04;
 constexpr size_t indices = 0x0C;
-constexpr size_t minHeaderSize = indices + 8;  // through the end of `indices`
+constexpr size_t bones = 0x14;
+constexpr size_t submeshes = 0x1C;
+constexpr size_t batches = 0x24;
+constexpr size_t minHeaderSize = batches + 8;  // through the end of `batches`
 }  // namespace offset
 
 uint32_t readU32(const uint8_t* buf, size_t bufSize, size_t off) {
@@ -22,6 +25,15 @@ uint32_t readU32(const uint8_t* buf, size_t bufSize, size_t off) {
     uint32_t v;
     std::memcpy(&v, buf + off, sizeof(v));
     return v;
+}
+
+uint8_t readU8(const uint8_t* buf, size_t bufSize, size_t off) {
+    if (off + 1 > bufSize) {
+        throw ParseError("field at offset " + std::to_string(off) +
+                          " needs 1 byte but the file is only " + std::to_string(bufSize) +
+                          " bytes");
+    }
+    return buf[off];
 }
 
 uint16_t readU16(const uint8_t* buf, size_t bufSize, size_t off) {
@@ -64,6 +76,8 @@ Header parseHeader(const std::vector<uint8_t>& fileBytes) {
     }
     h.vertices = readArray(data, size, offset::vertices);
     h.indices = readArray(data, size, offset::indices);
+    h.submeshes = readArray(data, size, offset::submeshes);
+    h.batches = readArray(data, size, offset::batches);
     return h;
 }
 
@@ -109,6 +123,76 @@ std::vector<uint32_t> resolveTriangleIndices(const std::vector<uint8_t>& fileByt
         globalIndices.push_back(localVertices[slot]);
     }
     return globalIndices;
+}
+
+std::vector<Submesh> parseSubmeshes(const std::vector<uint8_t>& fileBytes, const m2::Array& array) {
+    std::vector<Submesh> submeshes;
+    if (array.count == 0) {
+        return submeshes;
+    }
+
+    // M2SkinSection, wowdev.wiki M2/.skin#Submeshes: 0x30 (48) bytes; only
+    // vertexStart/vertexCount/indexStart/indexCount (offsets 0x04-0x0B) are
+    // read, see skin.hpp's Submesh doc comment for why the rest is skipped.
+    constexpr size_t kSubmeshSize = 0x30;
+    const uint8_t* data = fileBytes.data();
+    size_t size = fileBytes.size();
+
+    if (array.offset > size || array.count > (size - array.offset) / kSubmeshSize) {
+        throw ParseError("submeshes array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kSubmeshSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the file's " +
+                          std::to_string(size) + " bytes");
+    }
+    submeshes.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kSubmeshSize;
+        Submesh s;
+        s.vertexStart = readU16(data, size, off + 0x04);
+        s.vertexCount = readU16(data, size, off + 0x06);
+        s.indexStart = readU16(data, size, off + 0x08);
+        s.indexCount = readU16(data, size, off + 0x0A);
+        submeshes.push_back(s);
+    }
+
+    return submeshes;
+}
+
+std::vector<Batch> parseBatches(const std::vector<uint8_t>& fileBytes, const m2::Array& array) {
+    std::vector<Batch> batches;
+    if (array.count == 0) {
+        return batches;
+    }
+
+    // M2Batch, wowdev.wiki M2/.skin#Texture_units: 0x18 (24) bytes; only
+    // flags/skinSectionIndex/materialIndex/textureCount/textureComboIndex
+    // are read, see skin.hpp's Batch doc comment for why the rest is
+    // skipped.
+    constexpr size_t kBatchSize = 0x18;
+    const uint8_t* data = fileBytes.data();
+    size_t size = fileBytes.size();
+
+    if (array.offset > size || array.count > (size - array.offset) / kBatchSize) {
+        throw ParseError("batches array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kBatchSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the file's " +
+                          std::to_string(size) + " bytes");
+    }
+    batches.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kBatchSize;
+        Batch b;
+        b.flags = readU8(data, size, off + 0x00);
+        b.skinSectionIndex = readU16(data, size, off + 0x04);
+        b.materialIndex = readU16(data, size, off + 0x0A);
+        b.textureCount = readU16(data, size, off + 0x0E);
+        b.textureComboIndex = readU16(data, size, off + 0x10);
+        batches.push_back(b);
+    }
+
+    return batches;
 }
 
 }  // namespace husk::skin

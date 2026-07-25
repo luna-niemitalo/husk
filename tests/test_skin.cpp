@@ -1,7 +1,8 @@
-// Spec source: https://wowdev.wiki/M2/.skin "Header", "Vertices", "Indices"
-// sections (fetched 2026-07-24). Offsets below are typed out fresh from that
-// page, not copied from src/skin.cpp -- same independent-transcription
-// rationale as tests/test_m2.cpp (see the comment at the top of that file).
+// Spec source: https://wowdev.wiki/M2/.skin "Header", "Vertices", "Indices",
+// "Submeshes", "Texture units" sections (fetched 2026-07-24). Offsets below
+// are typed out fresh from that page, not copied from src/skin.cpp -- same
+// independent-transcription rationale as tests/test_m2.cpp (see the comment
+// at the top of that file).
 //
 // M2SkinProfile header (>= Wrath, which is every field this parser reads):
 //   0x00 magic (char[4], literal "SKIN", not reversed -- same M2-family
@@ -9,12 +10,30 @@
 //   0x04 vertices (M2Array<uint16>) -- index into the M2's global vertex list
 //   0x0C indices  (M2Array<uint16>) -- index into this skin's `vertices`
 //        array above
-// (bones/submeshes/batches/boneCountMax/shadow_batches follow at 0x14+;
-// out of scope for this parser today, see src/skin.hpp)
+//   0x14 bones (M2Array<ubyte4>) -- unread, see src/skin.hpp
+//   0x1C submeshes (M2Array<M2SkinSection>)
+//   0x24 batches (M2Array<M2Batch>)
+// (boneCountMax/shadow_batches follow at 0x2C+; out of scope for this
+// parser today, see src/skin.hpp)
 //
 // Indices form triangles in groups of 3: for skin-local vertex slot i,
 // header.indices[i] selects a slot in header.vertices, and
 // header.vertices[that] is the M2 global vertex index actually drawn.
+//
+// M2SkinSection (0x30 = 48 bytes), only the fields src/skin.hpp's Submesh
+// surfaces:
+//   0x00 skinSectionId (u16)   0x02 Level (u16)
+//   0x04 vertexStart (u16)     0x06 vertexCount (u16)
+//   0x08 indexStart (u16)      0x0A indexCount (u16)
+//   0x0C boneCount (u16) ... 0x2C sortRadius (float) -- unread, see skin.hpp
+//
+// M2Batch (0x18 = 24 bytes), only the fields src/skin.hpp's Batch surfaces:
+//   0x00 flags (u8)            0x01 priorityPlane (i8, unread)
+//   0x02 shader_id (u16, unread) 0x04 skinSectionIndex (u16)
+//   0x06 geosetIndex (u16, unread) 0x08 colorIndex (u16, unread)
+//   0x0A materialIndex (u16)   0x0C materialLayer (u16, unread)
+//   0x0E textureCount (u16)    0x10 textureComboIndex (u16)
+//   0x12-0x17 texture{Coord,Weight,Transform}ComboIndex -- unread
 
 #include <cstring>
 #include <doctest/doctest.h>
@@ -22,6 +41,11 @@
 #include "../src/skin.hpp"
 
 namespace {
+
+void putU8(std::vector<uint8_t>& buf, size_t off, uint8_t v) {
+    if (buf.size() < off + 1) buf.resize(off + 1, 0);
+    buf[off] = v;
+}
 
 void putU16(std::vector<uint8_t>& buf, size_t off, uint16_t v) {
     if (buf.size() < off + 2) buf.resize(off + 2, 0);
@@ -38,27 +62,57 @@ void putArray(std::vector<uint8_t>& buf, size_t off, uint32_t count, uint32_t ar
     putU32(buf, off + 4, arrayOffset);
 }
 
-constexpr size_t kFixedHeaderSize = 0x14;  // through the end of `indices`
+constexpr size_t kFixedHeaderSize = 0x2C;  // through the end of `batches`
 
 std::vector<uint8_t> buildSkinFile(uint32_t verticesCount, uint32_t verticesOffset,
-                                    uint32_t indicesCount, uint32_t indicesOffset) {
+                                    uint32_t indicesCount, uint32_t indicesOffset,
+                                    uint32_t submeshesCount = 0, uint32_t submeshesOffset = 0,
+                                    uint32_t batchesCount = 0, uint32_t batchesOffset = 0) {
     std::vector<uint8_t> buf(kFixedHeaderSize, 0);
     std::memcpy(buf.data() + 0x00, "SKIN", 4);
     putArray(buf, 0x04, verticesCount, verticesOffset);
     putArray(buf, 0x0C, indicesCount, indicesOffset);
+    putArray(buf, 0x14, 0, 0);  // bones, unread
+    putArray(buf, 0x1C, submeshesCount, submeshesOffset);
+    putArray(buf, 0x24, batchesCount, batchesOffset);
     return buf;
+}
+
+// Writes one 0x30-byte M2SkinSection record at `off`.
+void putSubmesh(std::vector<uint8_t>& buf, size_t off, uint16_t vertexStart, uint16_t vertexCount,
+                 uint16_t indexStart, uint16_t indexCount) {
+    if (buf.size() < off + 0x30) buf.resize(off + 0x30, 0);
+    putU16(buf, off + 0x04, vertexStart);
+    putU16(buf, off + 0x06, vertexCount);
+    putU16(buf, off + 0x08, indexStart);
+    putU16(buf, off + 0x0A, indexCount);
+}
+
+// Writes one 0x18-byte M2Batch record at `off`.
+void putBatch(std::vector<uint8_t>& buf, size_t off, uint8_t flags, uint16_t skinSectionIndex,
+              uint16_t materialIndex, uint16_t textureCount, uint16_t textureComboIndex) {
+    if (buf.size() < off + 0x18) buf.resize(off + 0x18, 0);
+    putU8(buf, off + 0x00, flags);
+    putU16(buf, off + 0x04, skinSectionIndex);
+    putU16(buf, off + 0x0A, materialIndex);
+    putU16(buf, off + 0x0E, textureCount);
+    putU16(buf, off + 0x10, textureComboIndex);
 }
 
 }  // namespace
 
-TEST_CASE("parseHeader: reads magic and both array fields at the right offsets") {
-    auto file = buildSkinFile(6, 1000, 9, 2000);
+TEST_CASE("parseHeader: reads magic and every array field at the right offsets") {
+    auto file = buildSkinFile(6, 1000, 9, 2000, 3, 3000, 5, 4000);
     auto h = husk::skin::parseHeader(file);
     CHECK(h.magic == 0x4E494B53);  // "SKIN" little-endian
     CHECK(h.vertices.count == 6);
     CHECK(h.vertices.offset == 1000);
     CHECK(h.indices.count == 9);
     CHECK(h.indices.offset == 2000);
+    CHECK(h.submeshes.count == 3);
+    CHECK(h.submeshes.offset == 3000);
+    CHECK(h.batches.count == 5);
+    CHECK(h.batches.offset == 4000);
 }
 
 TEST_CASE("parseHeader: wrong magic throws") {
@@ -67,8 +121,8 @@ TEST_CASE("parseHeader: wrong magic throws") {
     CHECK_THROWS_AS(husk::skin::parseHeader(file), husk::skin::ParseError);
 }
 
-TEST_CASE("parseHeader: file shorter than the fixed header throws") {
-    std::vector<uint8_t> file(0x10, 0);  // short of 0x14
+TEST_CASE("parseHeader: file shorter than the fixed header (through batches) throws") {
+    std::vector<uint8_t> file(0x20, 0);  // short of 0x2C
     std::memcpy(file.data(), "SKIN", 4);
     CHECK_THROWS_AS(husk::skin::parseHeader(file), husk::skin::ParseError);
 }
@@ -151,4 +205,87 @@ TEST_CASE("resolveTriangleIndices: an out-of-range local index throws") {
     h.indices.offset = static_cast<uint32_t>(indicesOff);
 
     CHECK_THROWS_AS(husk::skin::resolveTriangleIndices(file, h), husk::skin::ParseError);
+}
+
+TEST_CASE("parseSubmeshes: reads vertexStart/vertexCount/indexStart/indexCount for every entry") {
+    std::vector<uint8_t> file(500, 0);
+    size_t off = 200;
+    putSubmesh(file, off, /*vertexStart=*/0, /*vertexCount=*/10, /*indexStart=*/0,
+               /*indexCount=*/30);
+    putSubmesh(file, off + 0x30, /*vertexStart=*/10, /*vertexCount=*/5, /*indexStart=*/30,
+               /*indexCount=*/9);
+
+    husk::m2::Array a;
+    a.count = 2;
+    a.offset = static_cast<uint32_t>(off);
+    auto submeshes = husk::skin::parseSubmeshes(file, a);
+
+    REQUIRE(submeshes.size() == 2);
+    CHECK(submeshes[0].vertexStart == 0);
+    CHECK(submeshes[0].vertexCount == 10);
+    CHECK(submeshes[0].indexStart == 0);
+    CHECK(submeshes[0].indexCount == 30);
+    CHECK(submeshes[1].vertexStart == 10);
+    CHECK(submeshes[1].vertexCount == 5);
+    CHECK(submeshes[1].indexStart == 30);
+    CHECK(submeshes[1].indexCount == 9);
+}
+
+TEST_CASE("parseSubmeshes: empty array returns an empty vector without touching the file") {
+    std::vector<uint8_t> file;
+    husk::m2::Array a;
+    a.count = 0;
+    a.offset = 12345;
+    CHECK(husk::skin::parseSubmeshes(file, a).empty());
+}
+
+TEST_CASE("parseSubmeshes: array running past the end of the file throws") {
+    std::vector<uint8_t> file(20, 0);  // 0x30 bytes needed for even one entry
+    husk::m2::Array a;
+    a.count = 1;
+    a.offset = 0;
+    CHECK_THROWS_AS(husk::skin::parseSubmeshes(file, a), husk::skin::ParseError);
+}
+
+TEST_CASE("parseBatches: reads flags/skinSectionIndex/materialIndex/textureCount/"
+          "textureComboIndex for every entry") {
+    std::vector<uint8_t> file(500, 0);
+    size_t off = 200;
+    putBatch(file, off, /*flags=*/16, /*skinSectionIndex=*/0, /*materialIndex=*/3,
+             /*textureCount=*/1, /*textureComboIndex=*/0);
+    putBatch(file, off + 0x18, /*flags=*/144, /*skinSectionIndex=*/63, /*materialIndex=*/0,
+             /*textureCount=*/6, /*textureComboIndex=*/2);
+
+    husk::m2::Array a;
+    a.count = 2;
+    a.offset = static_cast<uint32_t>(off);
+    auto batches = husk::skin::parseBatches(file, a);
+
+    REQUIRE(batches.size() == 2);
+    CHECK(batches[0].flags == 16);
+    CHECK(batches[0].skinSectionIndex == 0);
+    CHECK(batches[0].materialIndex == 3);
+    CHECK(batches[0].textureCount == 1);
+    CHECK(batches[0].textureComboIndex == 0);
+    CHECK(batches[1].flags == 144);
+    CHECK(batches[1].skinSectionIndex == 63);
+    CHECK(batches[1].materialIndex == 0);
+    CHECK(batches[1].textureCount == 6);
+    CHECK(batches[1].textureComboIndex == 2);
+}
+
+TEST_CASE("parseBatches: empty array returns an empty vector without touching the file") {
+    std::vector<uint8_t> file;
+    husk::m2::Array a;
+    a.count = 0;
+    a.offset = 54321;
+    CHECK(husk::skin::parseBatches(file, a).empty());
+}
+
+TEST_CASE("parseBatches: array running past the end of the file throws") {
+    std::vector<uint8_t> file(10, 0);  // 0x18 bytes needed for even one entry
+    husk::m2::Array a;
+    a.count = 1;
+    a.offset = 0;
+    CHECK_THROWS_AS(husk::skin::parseBatches(file, a), husk::skin::ParseError);
 }
