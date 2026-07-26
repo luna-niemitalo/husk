@@ -5,7 +5,7 @@
     pins.url = "path:/home/luna/nix/pins";
     nixpkgs.follows = "pins/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
-	casc-tool.url = "github:luna-niemitalo/casc-tool?dir=nix";
+    casc-tool.url = "github:luna-niemitalo/casc-tool?dir=nix";
   };
 
   outputs =
@@ -14,14 +14,13 @@
       pins,
       nixpkgs,
       flake-utils,
-	  casc-tool,
+      casc-tool,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
-
 
         projectRoot = ../.;
 
@@ -36,6 +35,41 @@
           ];
         };
 
+        # Khronos glTF-Validator: no nixpkgs derivation exists upstream, and
+        # no Dart toolchain here to build from source -- pull the official
+        # precompiled Linux binary release instead. Single dynamically-linked
+        # ELF against plain glibc (libc/libm/libpthread/libdl), so
+        # autoPatchelfHook alone is enough to fix the interpreter + rpath;
+        # no extra buildInputs needed.
+        gltf-validator = pkgs.stdenv.mkDerivation rec {
+          pname = "gltf-validator";
+          version = "2.0.0-dev.3.10";
+
+          src = pkgs.fetchurl {
+            url = "https://github.com/KhronosGroup/glTF-Validator/releases/download/${version}/gltf_validator-${version}-linux64.tar.xz";
+            hash = "sha256-Fo66iHlkElq+F66XiZs40LPP1zwmbHhCTBlJKd3LxSI=";
+          };
+          sourceRoot = ".";
+          nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+
+          # Tarball unpacks flat: gltf_validator, LICENSE, NOTICES, docs/
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/bin $out/share/doc/gltf-validator
+            install -m755 gltf_validator $out/bin/
+            cp -r LICENSE NOTICES docs $out/share/doc/gltf-validator/
+            runHook postInstall
+          '';
+
+          meta = with lib; {
+            description = "Khronos glTF 2.0 asset validator (precompiled binary)";
+            homepage = "https://github.com/KhronosGroup/glTF-Validator";
+            license = licenses.asl20;
+            platforms = [ "x86_64-linux" ];
+            sourceProvenance = with sourceTypes; [ binaryNativeCode ];
+          };
+        };
+
         cpp = with pkgs; [
           cmake
           ninja
@@ -45,7 +79,9 @@
           ccache
           doctest
           tinygltf
-		  casc-tool.packages.${pkgs.system}.default
+          casc-tool.packages.${pkgs.system}.default
+          blender
+          gltf-validator
         ];
 
         # blp/: BLP2 -> PNG texture conversion (roadmap stage 4). uv manages
@@ -78,6 +114,8 @@
           '';
         };
 
+        packages.gltf-validator = gltf-validator;
+
         apps.default = {
           type = "app";
           program = "${self.packages.${system}.default}/bin/husk";
@@ -92,6 +130,8 @@
             echo "husk dev shell"
             echo "  cmake:   $(cmake --version | head -n1)"
             echo "  ccache:  $CCACHE_DIR"
+			echo "  blender: $(blender --version | head -n1)"
+			echo "  gltf-validator: $(gltf_validator --version)"
             echo "  doctest: available via find_package(doctest)"
             echo "  uv:      $(uv --version) -- cd blp/ && uv sync"
           '';

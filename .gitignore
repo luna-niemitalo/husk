@@ -9,3 +9,4 @@ documentation
 # their own self-excluding .gitignore, these cover the rest.
 __pycache__/
 *.pyc
+.claude
