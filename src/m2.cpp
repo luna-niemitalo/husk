@@ -217,7 +217,17 @@ std::optional<std::vector<uint32_t>> findFileDataIdArrayChunk(const std::vector<
     // chunk's raw byte length, so this is entries-of-4-bytes, not a count
     // field to trust/validate against some other array's count (that
     // cross-check, if any, is the consumer's job -- e.g. src/cmd_export.cpp
-    // for TXID vs `textures.count`).
+    // for TXID vs `textures.count`). A byte length that isn't itself a
+    // multiple of 4 means a truncated/corrupted chunk -- every other
+    // fixed-record-array parser in this file errors loudly on foreign data
+    // that doesn't fit its own claims (FAILURES.md #2); silently dropping
+    // the last partial entry here would be the one place that convention
+    // broke down (FAILURES2.md #8).
+    if (chunk->size % 4 != 0) {
+        throw ParseError(std::string(tag) + " chunk is " + std::to_string(chunk->size) +
+                          " bytes, not a multiple of 4 (one uint32 FileDataID per entry) -- "
+                          "truncated or corrupted file?");
+    }
     size_t count = chunk->size / 4;
     std::vector<uint32_t> ids;
     ids.reserve(count);
@@ -238,6 +248,15 @@ std::optional<std::vector<Header::AnimFileEntry>> findAnimFileIdChunk(
         return std::nullopt;
     }
     constexpr size_t kEntrySize = 8;
+    // See findFileDataIdArrayChunk's identical check above (FAILURES2.md #8)
+    // -- same reasoning, applied to AFID's 8-byte record instead of a flat
+    // 4-byte FileDataID.
+    if (chunk->size % kEntrySize != 0) {
+        throw ParseError(std::string(tag) + " chunk is " + std::to_string(chunk->size) +
+                          " bytes, not a multiple of " + std::to_string(kEntrySize) +
+                          " (one {anim_id, sub_anim_id, file_id} entry per record) -- truncated "
+                          "or corrupted file?");
+    }
     size_t count = chunk->size / kEntrySize;
     std::vector<Header::AnimFileEntry> entries;
     entries.reserve(count);
@@ -871,6 +890,111 @@ std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(
         out.emplace_back(ts, q);
     }
     return out;
+}
+
+std::vector<std::pair<uint32_t, Vec3>> resolveVec3GlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset,
+    const std::vector<uint8_t>* externalDataBlob) {
+    TrackMeta meta = readTrackMeta(blob, trackOffset);
+    if (meta.globalSequence == TrackMeta::kNoGlobalSequence) {
+        return {};
+    }
+    if (meta.interpolationType > 1) {
+        throw ParseError("track at offset " + std::to_string(trackOffset) +
+                          " has interpolation_type " + std::to_string(meta.interpolationType) +
+                          ", but this track kind is never M2SplineKey-based -- unexpected file "
+                          "version or corrupted read?");
+    }
+
+    // A global-sequence track's outer M2Array<M2Array<T>> holds exactly one
+    // sub-array (see this function's doc comment) -- index 0 is always the
+    // right (and only) one to resolve, the same way trackSequenceInnerArrays
+    // already resolves a specific M2Sequence's sub-array by index.
+    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, /*sequenceIndex=*/0);
+    if (!inner) {
+        return {};
+    }
+    const Array& timestampsInner = inner->first;
+    const Array& valuesInner = inner->second;
+
+    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
+    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
+
+    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
+    checkInnerArrayFits(valuesInner, 12, dataSize, "C3Vector values");
+    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
+
+    std::vector<std::pair<uint32_t, Vec3>> out;
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
+        Vec3 v = readVec3(data, dataSize, valuesInner.offset + i * 12);
+        out.emplace_back(ts, v);
+    }
+    return out;
+}
+
+std::vector<std::pair<uint32_t, Quat>> resolveQuatGlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset,
+    const std::vector<uint8_t>* externalDataBlob) {
+    TrackMeta meta = readTrackMeta(blob, trackOffset);
+    if (meta.globalSequence == TrackMeta::kNoGlobalSequence) {
+        return {};
+    }
+    if (meta.interpolationType > 1) {
+        throw ParseError("track at offset " + std::to_string(trackOffset) +
+                          " has interpolation_type " + std::to_string(meta.interpolationType) +
+                          ", but this track kind is never M2SplineKey-based -- unexpected file "
+                          "version or corrupted read?");
+    }
+
+    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, /*sequenceIndex=*/0);
+    if (!inner) {
+        return {};
+    }
+    const Array& timestampsInner = inner->first;
+    const Array& valuesInner = inner->second;
+
+    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
+    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
+
+    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
+    checkInnerArrayFits(valuesInner, 8, dataSize, "M2CompQuat values");
+    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
+
+    std::vector<std::pair<uint32_t, Quat>> out;
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
+        Quat q = readCompQuat(data, dataSize, valuesInner.offset + i * 8);
+        out.emplace_back(ts, q);
+    }
+    return out;
+}
+
+std::vector<uint32_t> parseGlobalLoops(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<uint32_t> loops;
+    if (array.count == 0) {
+        return loops;
+    }
+
+    constexpr size_t kLoopSize = 4;  // M2Loop: a bare uint32_t timestamp
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kLoopSize) {
+        throw ParseError("globalLoops array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kLoopSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    loops.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        loops.push_back(readU32(data, blobSize, array.offset + static_cast<size_t>(i) * kLoopSize));
+    }
+
+    return loops;
 }
 
 std::vector<uint8_t> extractAnimBlob(const std::vector<uint8_t>& animFileBytes, bool chunked) {

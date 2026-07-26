@@ -819,6 +819,22 @@ TEST_CASE("parseHeader: flat (non-chunked) MD20 file never has textureFileDataId
     CHECK_FALSE(h.textureFileDataIds.has_value());
 }
 
+// Regression test for FAILURES2.md #8: a TXID chunk whose byte length isn't
+// a multiple of 4 (one uint32 FileDataID per entry) used to silently
+// truncate -- the last partial entry just vanished, with no error and no
+// count mismatch a caller could notice -- rather than failing loudly like
+// every other fixed-record-array parser in this codebase does for the same
+// class of foreign-data mismatch (FAILURES.md #2).
+TEST_CASE("parseHeader: TXID chunk with a byte length not a multiple of 4 throws, rather than "
+          "silently dropping the trailing partial entry") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    appendChunk(file, "TXID", {1, 2, 3, 4, 5, 6});  // 6 bytes: 1 whole entry + 2 stray bytes
+    CHECK_THROWS_WITH_AS(husk::m2::parseHeader(file), doctest::Contains("TXID"),
+                          husk::m2::ParseError);
+}
+
 // Forward-compatibility: husk::readChunks (src/chunk.cpp) is tag-agnostic
 // by construction -- it doesn't validate chunk tags against any list, so a
 // brand-new chunk a future client build ships (this format adds them
@@ -1107,6 +1123,20 @@ TEST_CASE("parseHeader: no AFID chunk leaves animFileIds empty") {
     appendChunk(file, "MD21", md20);
     auto h = husk::m2::parseHeader(file);
     CHECK_FALSE(h.animFileIds.has_value());
+}
+
+// Regression test for FAILURES2.md #8 (AFID's 8-byte-record version of the
+// TXID test above).
+TEST_CASE("parseHeader: AFID chunk with a byte length not a multiple of 8 throws, rather than "
+          "silently dropping the trailing partial entry") {
+    auto md20 = buildMd20Blob();
+    std::vector<uint8_t> file;
+    appendChunk(file, "MD21", md20);
+    // 10 bytes: 1 whole {anim_id, sub_anim_id, file_id} entry (8 bytes) + 2
+    // stray bytes.
+    appendChunk(file, "AFID", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+    CHECK_THROWS_WITH_AS(husk::m2::parseHeader(file), doctest::Contains("AFID"),
+                          husk::m2::ParseError);
 }
 
 // M2Sequence (wowdev.wiki M2#Animation_sequences), 0x40 bytes: 0x00 id
@@ -1498,6 +1528,96 @@ TEST_CASE("resolveQuatTrackSequence: a track with a real global_sequence also re
     std::memcpy(blob.data() + trackOff + 0x02, &globalSeq, 2);
 
     CHECK(husk::m2::resolveQuatTrackSequence(blob, static_cast<uint32_t>(trackOff), 0).empty());
+}
+
+// resolveVec3GlobalSequenceTrack/resolveQuatGlobalSequenceTrack (FAILURES2.md
+// #7): the real-data counterpart to the two "resolves to empty, not
+// misattributed" tests just above -- resolveVec3TrackSequence/
+// resolveQuatTrackSequence correctly refuse to resolve a global-sequence
+// track *by M2Sequence index*, but that means such a track needs its *own*
+// resolution path to ever produce real keyframes at all. `putFullTrack`'s
+// single sub-array (index 0) is exactly the shape wowdev.wiki describes for
+// a global-sequence track ("blocks that use global sequences also only have
+// one track").
+TEST_CASE("resolveVec3GlobalSequenceTrack: reads real keyframes for a global-sequence-driven "
+          "track") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff,
+                 {{{0, vec3Bytes({1, 2, 3})}, {1000, vec3Bytes({4, 5, 6})}}});
+    uint16_t globalSeq = 7;
+    std::memcpy(blob.data() + trackOff + 0x02, &globalSeq, 2);
+
+    auto keyframes = husk::m2::resolveVec3GlobalSequenceTrack(blob, static_cast<uint32_t>(trackOff));
+    REQUIRE(keyframes.size() == 2);
+    CHECK(keyframes[0].first == 0);
+    CHECK(keyframes[0].second.x == doctest::Approx(1));
+    CHECK(keyframes[1].first == 1000);
+    CHECK(keyframes[1].second.y == doctest::Approx(5));
+}
+
+TEST_CASE("resolveVec3GlobalSequenceTrack: a track that's NOT global-sequence-driven (the 0xFFFF "
+          "\"none\" sentinel) resolves to empty") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    // putFullTrack's own default is "none" -- no override needed.
+    putFullTrack(blob, trackOff, {{{0, vec3Bytes({1, 2, 3})}}});
+
+    CHECK(husk::m2::resolveVec3GlobalSequenceTrack(blob, static_cast<uint32_t>(trackOff)).empty());
+}
+
+TEST_CASE("resolveQuatGlobalSequenceTrack: reads real keyframes for a global-sequence-driven "
+          "track") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    // Identity quaternion (0,0,0,1) is wire value (32767,32767,32767,65535)
+    // -- see husk::m2::Quat's doc comment.
+    putFullTrack(blob, trackOff,
+                 {{{0, quatWireBytes(32767, 32767, 32767, static_cast<int16_t>(65535u))}}});
+    uint16_t globalSeq = 3;
+    std::memcpy(blob.data() + trackOff + 0x02, &globalSeq, 2);
+
+    auto keyframes = husk::m2::resolveQuatGlobalSequenceTrack(blob, static_cast<uint32_t>(trackOff));
+    REQUIRE(keyframes.size() == 1);
+    CHECK(keyframes[0].first == 0);
+    CHECK(keyframes[0].second.w == doctest::Approx(1));
+}
+
+TEST_CASE("resolveVec3GlobalSequenceTrack: interpolation_type 2 or 3 throws, same as "
+          "resolveVec3TrackSequence") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, vec3Bytes({1, 2, 3})}}});
+    uint16_t globalSeq = 1;
+    std::memcpy(blob.data() + trackOff + 0x02, &globalSeq, 2);
+    uint16_t interp = 2;
+    std::memcpy(blob.data() + trackOff + 0x00, &interp, 2);
+
+    CHECK_THROWS_AS(husk::m2::resolveVec3GlobalSequenceTrack(blob, static_cast<uint32_t>(trackOff)),
+                     husk::m2::ParseError);
+}
+
+TEST_CASE("parseGlobalLoops: reads count M2Loop (bare uint32 timestamp) records in order") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t off = 40;
+    putU32(blob, off + 0, 2000);
+    putU32(blob, off + 4, 5000);
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = static_cast<uint32_t>(off);
+    auto loops = husk::m2::parseGlobalLoops(blob, array);
+    REQUIRE(loops.size() == 2);
+    CHECK(loops[0] == 2000);
+    CHECK(loops[1] == 5000);
+}
+
+TEST_CASE("parseGlobalLoops: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(10, 0);
+    husk::m2::Array array;
+    array.count = 5;  // 20 bytes needed
+    array.offset = 0;
+    CHECK_THROWS_AS(husk::m2::parseGlobalLoops(blob, array), husk::m2::ParseError);
 }
 
 TEST_CASE("resolveVec3TrackSequence: interpolation_type 2 or 3 (bezier/hermite, M2SplineKey-only "

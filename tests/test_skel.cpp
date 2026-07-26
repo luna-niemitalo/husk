@@ -227,3 +227,16 @@ TEST_CASE("findAnimFileIds: no AFID chunk returns nullopt, not an error (not eve
 
     CHECK_FALSE(husk::skel::findAnimFileIds(file).has_value());
 }
+
+// Regression test for FAILURES2.md #8: same class of bug as m2.cpp's
+// findAnimFileIdChunk (see tests/test_m2.cpp) -- a .skel's own AFID chunk
+// with a byte length that isn't a multiple of 8 used to silently drop the
+// trailing partial entry instead of failing loudly.
+TEST_CASE("findAnimFileIds: AFID chunk with a byte length not a multiple of 8 throws, rather "
+          "than silently dropping the trailing partial entry") {
+    std::vector<uint8_t> file;
+    // 10 bytes: 1 whole {anim_id, sub_anim_id, file_id} entry (8 bytes) + 2
+    // stray bytes.
+    appendChunk(file, "AFID", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+    CHECK_THROWS_AS(husk::skel::findAnimFileIds(file), husk::skel::ParseError);
+}

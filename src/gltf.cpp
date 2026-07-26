@@ -10,6 +10,25 @@ namespace husk::gltf {
 
 namespace {
 
+// glTF 2.0 requires an accessor's total byte offset (bufferView.byteOffset
+// here, since every accessor below leaves its own byteOffset at 0) to be a
+// multiple of its component type's size -- 4 bytes for the FLOAT/
+// UNSIGNED_INT accessors this file emits (vertex attributes, indices,
+// animation sampler in/out). `buffer.data` is one shared, growing byte
+// array with every bufferView's offset simply wherever the previous append
+// left off, so anything of a length that isn't itself a multiple of 4 --
+// most concretely, a `--textures`-embedded PNG (mat.baseColorImagePng),
+// whose byte length is essentially never a multiple of 4 -- would silently
+// misalign every bufferView appended after it for the rest of the file
+// otherwise. Zero-pad up to the next 4-byte boundary after every append
+// (image bytes included, see the two ad hoc appends below that don't go
+// through appendBufferView) so that can never happen.
+void padTo4(tinygltf::Buffer& buffer) {
+    while (buffer.data.size() % 4 != 0) {
+        buffer.data.push_back(0);
+    }
+}
+
 // Appends `data`'s raw bytes to `buffer` and returns a BufferView covering
 // exactly that span. `target` is TINYGLTF_TARGET_ARRAY_BUFFER for vertex
 // attributes, TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER for indices, or 0 for
@@ -25,6 +44,7 @@ int appendBufferView(tinygltf::Buffer& buffer, std::vector<tinygltf::BufferView>
 
     const auto* bytes = reinterpret_cast<const unsigned char*>(data.data());
     buffer.data.insert(buffer.data.end(), bytes, bytes + view.byteLength);
+    padTo4(buffer);
 
     views.push_back(view);
     return static_cast<int>(views.size()) - 1;
@@ -356,6 +376,40 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
                 tm.extensions["KHR_materials_unlit"] = tinygltf::Value(tinygltf::Value::Object());
                 usedUnlitExtension = true;
             }
+            // Additional texture layers (textureCount > 1, FAILURES2.md #6)
+            // -- inert glTF extras, not wired into pbrMetallicRoughness (see
+            // gltf.hpp's AdditionalTextureLayer doc comment for why): each
+            // layer's FileDataID/UV-set is always listed, plus a real,
+            // separately embedded (but core-material-unused) image/texture
+            // when `--textures` had a match for it, the same "embed if
+            // available, metadata either way" policy baseColorImagePng uses.
+            if (!mat.additionalTextureLayers.empty()) {
+                tinygltf::Value::Array layers;
+                for (const auto& layer : mat.additionalTextureLayers) {
+                    tinygltf::Value::Object layerObj;
+                    layerObj["file_data_id"] = tinygltf::Value(static_cast<int>(layer.fileDataId));
+                    layerObj["tex_coord"] = tinygltf::Value(layer.texCoord);
+                    if (!layer.imagePng.empty()) {
+                        int imgView = appendBufferView(buffer, views, layer.imagePng, /*target=*/0);
+                        tinygltf::Image img;
+                        img.mimeType = "image/png";
+                        img.bufferView = imgView;
+                        int imgIdx = static_cast<int>(images.size());
+                        images.push_back(img);
+
+                        tinygltf::Texture tex;
+                        tex.source = imgIdx;
+                        int texIdx = static_cast<int>(textures.size());
+                        textures.push_back(tex);
+
+                        layerObj["texture_index"] = tinygltf::Value(texIdx);
+                    }
+                    layers.push_back(tinygltf::Value(layerObj));
+                }
+                tinygltf::Value::Object materialExtras;
+                materialExtras["additional_textures"] = tinygltf::Value(layers);
+                tm.extras = tinygltf::Value(materialExtras);
+            }
             tinyMaterials.push_back(tm);
         }
 
@@ -386,6 +440,15 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
             tp.mode = TINYGLTF_MODE_TRIANGLES;
             if (p.materialIndex >= 0) {
                 tp.material = materialBase + p.materialIndex;
+            }
+            // Geoset metadata (FAILURES2.md #1) -- inert glTF extras, see
+            // gltf.hpp's Primitive::skinSectionId doc comment.
+            if (p.skinSectionId >= 0) {
+                tinygltf::Value::Object extras;
+                extras["geoset_id"] = tinygltf::Value(p.skinSectionId);
+                extras["geoset_group"] = tinygltf::Value(p.skinSectionId / 100);
+                extras["geoset_variant"] = tinygltf::Value(p.skinSectionId % 100);
+                tp.extras = tinygltf::Value(extras);
             }
             tinyPrims.push_back(tp);
         }
@@ -461,6 +524,7 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
             outView.byteLength = valueCount * valueStride;
             const auto* bytes = reinterpret_cast<const unsigned char*>(valuesData);
             buffer.data.insert(buffer.data.end(), bytes, bytes + outView.byteLength);
+            padTo4(buffer);
             int outViewIdx = static_cast<int>(views.size());
             views.push_back(outView);
 

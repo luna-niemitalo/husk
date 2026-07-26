@@ -15,6 +15,7 @@
 #include <doctest/doctest.h>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -126,6 +127,104 @@ std::vector<uint8_t> tinyMatchingSkin() {
         b.push_back(0);
         b.push_back(0);  // indices = [0, 0, 0]
     }
+    return b;
+}
+
+// A minimalMd20 with two zeroed M2Vertex records (global vertices 0 and 1)
+// and one zeroed M2Material (blendMode 0 = Opaque, flags 0), for the
+// FAILURES2.md #1 (skinSectionId/geoset) regression test below -- needs two
+// real vertices (one per submesh) and at least one material for two batches
+// to resolve against.
+std::vector<uint8_t> twoVertexOneMaterialM2() {
+    auto b = minimalMd20();
+    uint32_t vertCount = 2;
+    uint32_t vertOff = static_cast<uint32_t>(b.size());
+    std::memcpy(b.data() + 0x03C, &vertCount, 4);
+    std::memcpy(b.data() + 0x040, &vertOff, 4);
+    b.resize(b.size() + 2 * 0x30, 0);
+
+    uint32_t matCount = 1;
+    uint32_t matOff = static_cast<uint32_t>(b.size());
+    std::memcpy(b.data() + 0x070, &matCount, 4);
+    std::memcpy(b.data() + 0x074, &matOff, 4);
+    b.resize(b.size() + 4, 0);
+    return b;
+}
+
+// A .skin file with two submeshes/batches carrying *different*
+// skinSectionId values (0 and 401 -- a plausible base-body vs. cloak-geoset
+// pairing per Character_Customization's own group numbering) each with one
+// degenerate triangle, referencing material 0 -- the minimal shape that
+// exercises cmd_export.cpp's new distinct-geoset-count note (FAILURES2.md
+// #1) without needing any texture/color/weight combo tables.
+std::vector<uint8_t> twoGeosetSkin() {
+    std::vector<uint8_t> b;
+    putTag(b, "SKIN");
+    putU32(b, 2);
+    putU32(b, 44);  // vertices: count=2, offset=44 (local slot -> global vtx)
+    putU32(b, 6);
+    putU32(b, 48);  // indices: count=6, offset=48
+    putU32(b, 0);
+    putU32(b, 0);  // bones: unread
+    putU32(b, 2);
+    putU32(b, 60);  // submeshes: count=2, offset=60
+    putU32(b, 2);
+    putU32(b, 60 + 2 * 0x30);  // batches: count=2, right after submeshes
+    REQUIRE(b.size() == 44);
+
+    putU16(b, 0);
+    putU16(b, 1);  // vertices[0]=global 0, vertices[1]=global 1
+    REQUIRE(b.size() == 48);
+    for (int i = 0; i < 3; ++i) putU16(b, 0);  // indices[0..3) = local slot 0
+    for (int i = 0; i < 3; ++i) putU16(b, 1);  // indices[3..6) = local slot 1
+    REQUIRE(b.size() == 60);
+
+    // Submesh 0: skinSectionId=0 ("base"), covers indices[0..3).
+    putU16(b, 0);
+    putU16(b, 0);  // skinSectionId, Level
+    putU16(b, 0);
+    putU16(b, 1);  // vertexStart, vertexCount
+    putU16(b, 0);
+    putU16(b, 3);  // indexStart, indexCount
+    b.resize(b.size() + 0x30 - 12, 0);
+
+    // Submesh 1: skinSectionId=401 ("cloak"-range), covers indices[3..6).
+    size_t sm1 = b.size();
+    putU16(b, 401);
+    putU16(b, 0);
+    putU16(b, 1);
+    putU16(b, 1);
+    putU16(b, 3);
+    putU16(b, 3);
+    b.resize(sm1 + 0x30, 0);
+    REQUIRE(b.size() == 60 + 2 * 0x30);
+
+    // Batch 0 -> submesh 0, batch 1 -> submesh 1, both -> material 0,
+    // no textures (textureCount=0 skips the texture-combo lookups
+    // entirely). Byte layout per src/skin.cpp's parseBatches: flags(u8,
+    // 0x00), priorityPlane(i8, 0x01, unread), shader_id(u16, 0x02, unread),
+    // skinSectionIndex(u16, 0x04), geosetIndex(u16, 0x06, unread),
+    // colorIndex(u16, 0x08), materialIndex(u16, 0x0A), materialLayer(u16,
+    // 0x0C, unread), textureCount(u16, 0x0E), textureComboIndex(u16, 0x10),
+    // textureCoordComboIndex(u16, 0x12), textureWeightComboIndex(u16, 0x14),
+    // textureTransformComboIndex(u16, 0x16, unread) -- 0x18 bytes total.
+    for (uint16_t skinSectionIndex : {uint16_t{0}, uint16_t{1}}) {
+        b.push_back(0);  // flags
+        b.push_back(0);  // priorityPlane
+        putU16(b, 0);    // shader_id
+        putU16(b, skinSectionIndex);
+        putU16(b, 0);       // geosetIndex
+        putU16(b, 0xFFFF);  // colorIndex = none
+        putU16(b, 0);       // materialIndex = 0
+        putU16(b, 0);       // materialLayer
+        putU16(b, 0);       // textureCount = 0
+        putU16(b, 0);       // textureComboIndex
+        putU16(b, 0);       // textureCoordComboIndex
+        putU16(b, 0);       // textureWeightComboIndex
+        putU16(b, 0);       // textureTransformComboIndex
+    }
+    REQUIRE(b.size() == 60 + 2 * 0x30 + 2 * 0x18);
+
     return b;
 }
 
@@ -1154,6 +1253,102 @@ TEST_CASE("husk info: prints skin_file_data_ids/lod_count/bone_file_data_ids/ani
     fs::remove(path);
 }
 
+// Regression tests for FAILURES2.md #3: parseBones/parseSequences/
+// parseRibbons' fixed record strides are only documented/verified for
+// Wrath+ (version 264), but nothing warned when a file below that version
+// went through them anyway -- expansionForVersion happily recognizes and
+// labels Classic (256-257)/TBC (260-263) already, so the information needed
+// to catch this was already on hand and simply unused.
+TEST_CASE("husk info: a version below Wrath (264) prints a loud warning") {
+    auto path = tempPath("pre-wrath.m2");
+    writeFile(path, minimalMd20(/*version=*/260));  // The Burning Crusade
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("below Wrath") != std::string::npos);
+    CHECK(result.output.find("260") != std::string::npos);
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk info: a Wrath+ version prints no such warning") {
+    auto path = tempPath("post-wrath.m2");
+    writeFile(path, minimalMd20(/*version=*/274));
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("below Wrath") == std::string::npos);
+
+    fs::remove(path);
+}
+
+// Regression test for FAILURES2.md #4: `husk info` used to print only the
+// raw `textures`/`materials` array *counts* (parseTextures/parseMaterials
+// were never called at all in cmd_info.cpp), unlike attachments/events/
+// lights/ribbons, which all get per-record detail -- and Header::
+// textureFileDataIds (the TXID chunk, already resolved and used internally
+// by `husk export --textures`) was never printed anywhere in `info`'s
+// output at all, unlike every other sidecar FileDataID list.
+TEST_CASE("husk info: prints per-texture type/flags/filename, per-material flags/blend_mode, and "
+          "texture_file_data_ids when TXID is present") {
+    auto md20 = minimalMd20();
+
+    // textures[0]: type=0 (real embedded filename), flags=0, name "foo.blp".
+    // textures[1]: type=1 (runtime-substituted -- filename shouldn't print).
+    uint32_t nameOff = static_cast<uint32_t>(md20.size());
+    std::string name = "foo.blp";
+    md20.insert(md20.end(), name.begin(), name.end());
+    md20.push_back(0);  // trailing NUL, trimmed by readName
+
+    uint32_t texOff = static_cast<uint32_t>(md20.size());
+    putU32(md20, 0);                                     // textures[0].type
+    putU32(md20, 0);                                      // textures[0].flags
+    putU32(md20, static_cast<uint32_t>(name.size() + 1));  // textures[0].filename.count
+    putU32(md20, nameOff);                                 // textures[0].filename.offset
+    putU32(md20, 1);                                       // textures[1].type
+    putU32(md20, 0);                                       // textures[1].flags
+    putU32(md20, 0);                                       // textures[1].filename.count
+    putU32(md20, 0);                                       // textures[1].filename.offset
+    uint32_t two = 2;
+    std::memcpy(md20.data() + 0x050, &two, 4);   // textures.count
+    std::memcpy(md20.data() + 0x054, &texOff, 4);  // textures.offset
+
+    // materials[0]: flags=0x04 (two-sided), blendMode=2 (Alpha).
+    uint32_t matOff = static_cast<uint32_t>(md20.size());
+    putU16(md20, 0x04);
+    putU16(md20, 2);
+    uint32_t one = 1;
+    std::memcpy(md20.data() + 0x070, &one, 4);
+    std::memcpy(md20.data() + 0x074, &matOff, 4);
+
+    std::vector<uint8_t> bytes;
+    putTag(bytes, "MD21");
+    putU32(bytes, static_cast<uint32_t>(md20.size()));
+    bytes.insert(bytes.end(), md20.begin(), md20.end());
+    putTag(bytes, "TXID");
+    putU32(bytes, 8);
+    putU32(bytes, 1034713);  // textures[0]'s FileDataID
+    putU32(bytes, 0);        // textures[1]: not file-based (type != 0)
+
+    auto path = tempPath("textures-materials.m2");
+    writeFile(path, bytes);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("texture 0: type=0 flags=0x0 filename=foo.blp file_data_id=1034713") !=
+          std::string::npos);
+    // texture 1 has type != 0 -- filename must NOT print (it's a runtime
+    // substitution slot, not a real path -- see m2::Texture's doc comment),
+    // and file_data_id must not print either (its TXID entry is 0, "none").
+    CHECK(result.output.find("texture 1: type=1 flags=0x0") != std::string::npos);
+    CHECK(result.output.find("texture 1: type=1 flags=0x0 filename") == std::string::npos);
+    CHECK(result.output.find("texture 1: type=1 flags=0x0 file_data_id") == std::string::npos);
+    CHECK(result.output.find("material 0: flags=0x4 blend_mode=2") != std::string::npos);
+    CHECK(result.output.find("texture_file_data_ids: 1034713, 0") != std::string::npos);
+
+    fs::remove(path);
+}
+
 TEST_CASE("husk info: prints attachments/events/lights/cameras/ribbon_emitters/particle_emitters "
           "counts") {
     auto md20 = minimalMd20();
@@ -1186,6 +1381,27 @@ fs::path defaultsDir(const std::string& name) {
     auto dir = fs::temp_directory_path() / ("husk-cli-test-defaults-" + name);
     fs::create_directories(dir);
     return dir;
+}
+
+// Regression test for FAILURES2.md #3 (export side -- see the two `husk
+// info` versions of this test above for the info-command side).
+TEST_CASE("husk export: a version below Wrath (264) prints a loud warning") {
+    auto dir = defaultsDir("prewrathexport");
+    auto md20 = minimalMd20(/*version=*/256);  // Classic
+    uint32_t count = 1;
+    uint32_t off = static_cast<uint32_t>(md20.size());
+    std::memcpy(md20.data() + 0x03C, &count, 4);
+    std::memcpy(md20.data() + 0x040, &off, 4);
+    md20.resize(md20.size() + 0x30, 0);
+    writeFile(dir / "classic.m2", md20);
+    writeFile(dir / "classic00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "classic.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("below Wrath") != std::string::npos);
+    CHECK(result.output.find("256") != std::string::npos);
+
+    fs::remove_all(dir);
 }
 
 TEST_CASE("husk export: model path alone resolves a same-basename .skin and defaults the output "
@@ -1379,6 +1595,322 @@ TEST_CASE("husk export: --anim-dir defaults to the model's own directory -- an e
 
     auto result = runHusk("export " + (dir / "extanim.m2").string());
     CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+// A tinyValidM2() (1 vertex) with one material, one texture (type=0, empty
+// filename), and a 1-entry textureCombos table pointing at it -- the
+// minimum an M2 needs for a batch's textureComboIndex to resolve at all.
+// Used by the FAILURES2.md #6 (multi-texture batch) regression test below.
+std::vector<uint8_t> oneTextureOneMaterialM2() {
+    auto b = tinyValidM2();
+
+    uint32_t texOff = static_cast<uint32_t>(b.size());
+    b.resize(b.size() + 16, 0);  // M2Texture: type=0, flags=0, filename={0,0}
+    uint32_t one = 1;
+    std::memcpy(b.data() + 0x050, &one, 4);
+    std::memcpy(b.data() + 0x054, &texOff, 4);
+
+    uint32_t matOff = static_cast<uint32_t>(b.size());
+    b.resize(b.size() + 4, 0);  // M2Material: flags=0, blendMode=0
+    std::memcpy(b.data() + 0x070, &one, 4);
+    std::memcpy(b.data() + 0x074, &matOff, 4);
+
+    uint32_t comboOff = static_cast<uint32_t>(b.size());
+    putU16(b, 0);  // textureCombos[0] = texture index 0
+    std::memcpy(b.data() + 0x080, &one, 4);
+    std::memcpy(b.data() + 0x084, &comboOff, 4);
+    return b;
+}
+
+// A .skin with one submesh/batch whose textureCount is 2 -- per
+// wowdev.wiki M2/.skin#Texture_units, a real second texture layer (e.g. an
+// env-mapped "shine" pass), which husk only ever resolves the first of
+// (FAILURES2.md #6). Pairs with oneTextureOneMaterialM2().
+std::vector<uint8_t> oneBatchTwoTexturesSkin() {
+    std::vector<uint8_t> b;
+    putTag(b, "SKIN");
+    putU32(b, 1);
+    putU32(b, 44);  // vertices: count=1, offset=44
+    putU32(b, 3);
+    putU32(b, 46);  // indices: count=3, offset=46
+    putU32(b, 0);
+    putU32(b, 0);  // bones: unread
+    putU32(b, 1);
+    putU32(b, 52);  // submeshes: count=1, offset=52
+    putU32(b, 1);
+    putU32(b, 52 + 0x30);  // batches: count=1, right after submeshes
+    REQUIRE(b.size() == 44);
+
+    putU16(b, 0);  // vertices[0] = global vertex 0
+    REQUIRE(b.size() == 46);
+    for (int i = 0; i < 3; ++i) putU16(b, 0);  // indices = [0, 0, 0]
+    REQUIRE(b.size() == 52);
+
+    putU16(b, 0);
+    putU16(b, 0);  // skinSectionId, Level
+    putU16(b, 0);
+    putU16(b, 1);  // vertexStart, vertexCount
+    putU16(b, 0);
+    putU16(b, 3);  // indexStart, indexCount
+    b.resize(52 + 0x30, 0);
+    REQUIRE(b.size() == 52 + 0x30);
+
+    b.push_back(0);  // flags
+    b.push_back(0);  // priorityPlane
+    putU16(b, 0);    // shader_id
+    putU16(b, 0);    // skinSectionIndex
+    putU16(b, 0);    // geosetIndex
+    putU16(b, 0xFFFF);  // colorIndex = none
+    putU16(b, 0);        // materialIndex = 0
+    putU16(b, 0);        // materialLayer
+    putU16(b, 2);        // textureCount = 2 -- the field under test
+    putU16(b, 0);        // textureComboIndex = 0
+    putU16(b, 0);        // textureCoordComboIndex
+    putU16(b, 0);        // textureWeightComboIndex
+    putU16(b, 0);        // textureTransformComboIndex
+    REQUIRE(b.size() == 52 + 0x30 + 0x18);
+
+    return b;
+}
+
+// Regression tests for FAILURES2.md #9: FAILURES.md #4 fixed non-finite
+// (NaN/Inf) vertex positions/normals, but the identical exposure existed,
+// unfixed, for animation keyframe data -- neither the resolved value nor
+// the timestamp ordering was ever checked before this fix. Both fixtures
+// below are otherwise identical to tinyAnimatedM2() (see its own doc
+// comment), just with the translation track's second keyframe corrupted one
+// way at a time.
+TEST_CASE("husk export: a non-finite (NaN) translation keyframe value fails with a real message, "
+          "not a silently-invalid .glb") {
+    auto b = tinyValidM2();
+    uint32_t seqOff = static_cast<uint32_t>(b.size());
+    uint32_t seqCount = 1;
+    std::memcpy(b.data() + 0x01C, &seqCount, 4);
+    std::memcpy(b.data() + 0x020, &seqOff, 4);
+    b.resize(seqOff + 0x40, 0);
+    uint16_t seqId = 100;
+    std::memcpy(b.data() + seqOff + 0x00, &seqId, 2);
+    uint32_t seqFlags = 0x20;
+    std::memcpy(b.data() + seqOff + 0x0C, &seqFlags, 4);
+
+    uint32_t boneOff = static_cast<uint32_t>(b.size());
+    uint32_t boneCount = 1;
+    std::memcpy(b.data() + 0x02C, &boneCount, 4);
+    std::memcpy(b.data() + 0x030, &boneOff, 4);
+    b.resize(boneOff + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(b.data() + boneOff + 0x00, &keyBoneId, 4);
+    int16_t parentBone = -1;
+    std::memcpy(b.data() + boneOff + 0x08, &parentBone, 2);
+
+    float nan = std::numeric_limits<float>::quiet_NaN();
+    fillTrack(b, boneOff + 0x10, {0, 1000}, {vec3Bytes(0, 0, 0), vec3Bytes(nan, 2, 3)});
+    fillTrack(b, boneOff + 0x24, {0, 1000}, {identityQuatBytes(), identityQuatBytes()});
+    fillTrack(b, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+
+    auto m2Path = tempPath("nan-keyframe.m2");
+    writeFile(m2Path, b);
+    auto skinPath = tempPath("nan-keyframe.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                           tempPath("nan-keyframe.glb").string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("non-finite (NaN/Inf) value") != std::string::npos);
+    CHECK(result.output.find("bone 0's translation keyframe 1") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: a non-monotonic (out-of-order) translation keyframe timestamp fails with "
+          "a real message") {
+    auto b = tinyValidM2();
+    uint32_t seqOff = static_cast<uint32_t>(b.size());
+    uint32_t seqCount = 1;
+    std::memcpy(b.data() + 0x01C, &seqCount, 4);
+    std::memcpy(b.data() + 0x020, &seqOff, 4);
+    b.resize(seqOff + 0x40, 0);
+    uint16_t seqId = 100;
+    std::memcpy(b.data() + seqOff + 0x00, &seqId, 2);
+    uint32_t seqFlags = 0x20;
+    std::memcpy(b.data() + seqOff + 0x0C, &seqFlags, 4);
+
+    uint32_t boneOff = static_cast<uint32_t>(b.size());
+    uint32_t boneCount = 1;
+    std::memcpy(b.data() + 0x02C, &boneCount, 4);
+    std::memcpy(b.data() + 0x030, &boneOff, 4);
+    b.resize(boneOff + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(b.data() + boneOff + 0x00, &keyBoneId, 4);
+    int16_t parentBone = -1;
+    std::memcpy(b.data() + boneOff + 0x08, &parentBone, 2);
+
+    // Keyframe 1's timestamp (500) is *before* keyframe 0's (1000) -- a
+    // corrupted/truncated read, not a valid ascending keyframe sequence.
+    fillTrack(b, boneOff + 0x10, {1000, 500}, {vec3Bytes(0, 0, 0), vec3Bytes(1, 2, 3)});
+    fillTrack(b, boneOff + 0x24, {0, 1000}, {identityQuatBytes(), identityQuatBytes()});
+    fillTrack(b, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+
+    auto m2Path = tempPath("nonmonotonic-keyframe.m2");
+    writeFile(m2Path, b);
+    auto skinPath = tempPath("nonmonotonic-keyframe.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+                           tempPath("nonmonotonic-keyframe.glb").string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("isn't strictly greater than") != std::string::npos);
+    CHECK(result.output.find("bone 0's translation keyframe 1") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+// The ordinary (finite, ascending) case -- tinyAnimatedM2() itself -- must
+// keep working; already covered by other tests in this file (e.g. "husk
+// export: end-to-end animated model produces a real glTF animation clip"),
+// not repeated here.
+
+// Regression test for FAILURES2.md #1: a .skin file whose submeshes carry
+// different skinSectionId ("geoset ID") values -- the normal shape for a
+// real character model bundling multiple selectable hairstyles/gear geosets
+// in one file -- used to be exported completely unfiltered with zero
+// indication anything unusual happened. husk still doesn't filter geosets
+// (that's a separate, bigger feature), but it must now say so loudly.
+TEST_CASE("husk export: batches spanning more than one distinct skinSectionId (geoset ID) print a "
+          "loud note naming them") {
+    auto dir = defaultsDir("geosets");
+    writeFile(dir / "geoset.m2", twoVertexOneMaterialM2());
+    writeFile(dir / "geoset00.skin", twoGeosetSkin());
+
+    auto result = runHusk("export " + (dir / "geoset.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("2 distinct geoset IDs") != std::string::npos);
+    CHECK(result.output.find("skinSectionId: 0, 401") != std::string::npos);
+    CHECK(result.output.find("doesn't filter geosets yet") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+// The same-skinSectionId case (the ordinary shape -- every submesh really is
+// part of one consistent mesh) must stay quiet: no note at all.
+TEST_CASE("husk export: batches that all share one skinSectionId print no geoset note") {
+    auto dir = defaultsDir("samegeoset");
+    auto skin = twoGeosetSkin();
+    // Patch submesh 1's skinSectionId (offset 60 + 0x30 + 0x00) from 401 to
+    // 0, matching submesh 0 -- same fixture, single-geoset shape.
+    uint16_t zero16 = 0;
+    std::memcpy(skin.data() + 60 + 0x30 + 0x00, &zero16, 2);
+    writeFile(dir / "onegeoset.m2", twoVertexOneMaterialM2());
+    writeFile(dir / "onegeoset00.skin", skin);
+
+    auto result = runHusk("export " + (dir / "onegeoset.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("distinct geoset IDs") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+// Regression test for FAILURES2.md #6: a batch with textureCount > 1 (a
+// real second texture layer, e.g. an env-mapped "shine" pass) used to be
+// silently reduced to a single texture with zero indication anything was
+// dropped.
+TEST_CASE("husk export: a batch with textureCount > 1 prints a note that extra texture layers "
+          "are dropped") {
+    auto dir = defaultsDir("multitex");
+    writeFile(dir / "shiny.m2", oneTextureOneMaterialM2());
+    writeFile(dir / "shiny00.skin", oneBatchTwoTexturesSkin());
+
+    auto result = runHusk("export " + (dir / "shiny.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 batch(es) with more than one texture") != std::string::npos);
+    CHECK(result.output.find("FAILURES2.md #6") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+// The ordinary (single-texture) case must stay quiet.
+TEST_CASE("husk export: a batch with textureCount == 1 prints no multi-texture note") {
+    auto dir = defaultsDir("singletex");
+    writeFile(dir / "plain.m2", oneTextureOneMaterialM2());
+    auto skin = oneBatchTwoTexturesSkin();
+    uint16_t one16 = 1;
+    // textureCount lives at submesh-block-end + batch offset 0x0E (see
+    // oneBatchTwoTexturesSkin's own layout comment: 52 + 0x30 is the batch's
+    // start).
+    std::memcpy(skin.data() + 52 + 0x30 + 0x0E, &one16, 2);
+    writeFile(dir / "plain00.skin", skin);
+
+    auto result = runHusk("export " + (dir / "plain.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("more than one texture") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+// Regression test for FAILURES2.md #7: a bone track whose global_sequence
+// field is set (continuous, M2Sequence-independent looping animation --
+// glow pulses, idle sway) correctly refuses to misattribute its keyframes
+// to whichever M2Sequence happens to occupy outer-array position 0 (fixed
+// separately, see TODO_correctness.md item 1 and m2::TrackMeta's doc
+// comment) -- but used to resolve to *no* animation at all as a result, not
+// a real global-sequence clip. `m2::resolveVec3GlobalSequenceTrack`/
+// `buildGlobalSequenceAnimations` (src/m2.cpp, src/cmd_export.cpp) fix that:
+// this checks it end to end through the real CLI, not just the underlying
+// parser (see tests/test_m2.cpp for that).
+TEST_CASE("husk export: a global-sequence-driven bone track resolves to a real animation clip") {
+    auto m2 = tinyValidM2();
+    uint32_t boneOff = static_cast<uint32_t>(m2.size());
+    uint32_t boneCount = 1;
+    std::memcpy(m2.data() + 0x02C, &boneCount, 4);
+    std::memcpy(m2.data() + 0x030, &boneOff, 4);
+    m2.resize(boneOff + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(m2.data() + boneOff + 0x00, &keyBoneId, 4);
+    int16_t parentBone = -1;
+    std::memcpy(m2.data() + boneOff + 0x08, &parentBone, 2);
+
+    fillTrack(m2, boneOff + 0x10, {0, 1000}, {vec3Bytes(0, 0, 0), vec3Bytes(1, 2, 3)});
+    // fillTrack always writes global_sequence = 0xFFFF ("none") at the
+    // track's own header -- patch it to a real global-sequence index (3),
+    // marking this specific track as global-sequence-driven instead of
+    // per-M2Sequence (see fillTrack's own doc comment).
+    uint16_t globalSeq = 3;
+    std::memcpy(m2.data() + boneOff + 0x10 + 0x02, &globalSeq, 2);
+    // Rotation/scale get a trivial single keyframe each, left "none" (
+    // fillTrack's default) -- isolates this test to exactly the translation
+    // track actually under test.
+    fillTrack(m2, boneOff + 0x24, {0}, {identityQuatBytes()});
+    fillTrack(m2, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+
+    auto dir = defaultsDir("globalseq");
+    writeFile(dir / "glow.m2", m2);
+    writeFile(dir / "glow00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "glow.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+// The ordinary case (tinyAnimatedM2's per-M2Sequence-only bone -- fillTrack's
+// default global_sequence is "none") must not gain a phantom extra clip.
+TEST_CASE("husk export: a model with no global-sequence-driven tracks gains no extra clip") {
+    auto dir = defaultsDir("noglobalseq");
+    writeFile(dir / "normal.m2", tinyAnimatedM2());
+    writeFile(dir / "normal00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "normal.m2").string());
+    CHECK(result.exitCode == 0);
+    // tinyAnimatedM2 resolves to exactly 1 real (per-sequence) clip already
+    // (see its own doc comment/other tests using it) -- must stay exactly 1,
+    // not 2, confirming no spurious global-sequence clip appears when no
+    // track is actually global-sequence-driven.
     CHECK(result.output.find("1 animation(s)") != std::string::npos);
 
     fs::remove_all(dir);

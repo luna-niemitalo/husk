@@ -84,7 +84,10 @@ std::vector<m2::Sequence> parseSequences(const std::vector<uint8_t>& fileBytes);
 // .skel file's own, not the owning M2's (see this file's doc comment).
 // Returns nullopt if there's no AFID chunk at all (not every .skel has one
 // -- wowdev.wiki's SKPD section: a child skeleton that shares its parent's
-// animations "does not even have an AFID chunk").
+// animations "does not even have an AFID chunk"). Throws ParseError if the
+// chunk exists but its byte length isn't a multiple of 8 (one {anim_id,
+// sub_anim_id, file_id} record) -- a truncated/corrupted chunk, not a case
+// to silently drop the last partial entry for (FAILURES2.md #8).
 std::optional<std::vector<m2::Header::AnimFileEntry>> findAnimFileIds(
     const std::vector<uint8_t>& fileBytes);
 

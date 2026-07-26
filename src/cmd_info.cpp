@@ -100,6 +100,13 @@ int info(int argc, char** args) {
     std::cout << "  format: " << (h.chunked ? "Legion+ chunked (MD21-wrapped)" : "pre-Legion (flat MD20)")
                << "\n";
     std::cout << "  version: " << h.version << " (" << m2::expansionForVersion(h.version) << ")\n";
+    if (h.version < m2::kMinVerifiedRecordStrideVersion) {
+        std::cerr << "husk: warning: version " << h.version
+                  << " is below Wrath (264) -- this parser's bones/sequences/ribbon_emitters "
+                     "record sizes are only documented and verified for Wrath+; a real "
+                     "Classic/TBC file may be silently misread at the wrong byte offset rather "
+                     "than failing loudly (see FAILURES2.md #3)\n";
+    }
     std::cout << "  name: " << (h.name.empty() ? "(empty)" : h.name) << "\n";
     std::cout << "  global_flags: 0x" << std::hex << h.globalFlags << std::dec << "\n";
 
@@ -120,9 +127,40 @@ int info(int argc, char** args) {
     }
     printArray("vertices", h.vertices);
     printArray("textures", h.textures);
+    {
+        auto textures = m2::parseTextures(blob, h.textures);
+        for (size_t i = 0; i < textures.size(); ++i) {
+            const auto& t = textures[i];
+            std::cout << "    texture " << i << ": type=" << t.type << " flags=0x" << std::hex
+                       << t.flags << std::dec;
+            if (t.type == 0) {
+                std::cout << " filename=" << (t.filename.empty() ? "(empty)" : t.filename);
+            }
+            if (h.textureFileDataIds && i < h.textureFileDataIds->size() &&
+                (*h.textureFileDataIds)[i] != 0) {
+                std::cout << " file_data_id=" << (*h.textureFileDataIds)[i];
+            }
+            std::cout << "\n";
+        }
+    }
     printArray("materials", h.materials);
+    {
+        auto materials = m2::parseMaterials(blob, h.materials);
+        for (size_t i = 0; i < materials.size(); ++i) {
+            std::cout << "    material " << i << ": flags=0x" << std::hex << materials[i].flags
+                       << std::dec << " blend_mode=" << materials[i].blendMode << "\n";
+        }
+    }
     std::cout << "  num_skin_profiles: " << h.numSkinProfiles << "\n";
 
+    if (h.textureFileDataIds && !h.textureFileDataIds->empty()) {
+        std::cout << "  texture_file_data_ids: ";
+        for (size_t i = 0; i < h.textureFileDataIds->size(); ++i) {
+            if (i) std::cout << ", ";
+            std::cout << (*h.textureFileDataIds)[i];
+        }
+        std::cout << " (Legion+ TXID chunk -- also shown per-texture above)\n";
+    }
     if (h.skinFileDataIds) {
         std::cout << "  skin_file_data_ids: ";
         for (size_t i = 0; i < h.skinFileDataIds->size(); ++i) {

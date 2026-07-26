@@ -161,6 +161,34 @@ TEST_CASE("husk dump-chunks: RPID (a flat FileDataID array sized by chunk byte l
     fs::remove(path);
 }
 
+// Regression test for FAILURES2.md #5: TEXL was recognized by
+// cmd_info.cpp's documentedM2ChunkTags (so it never tripped the
+// "undocumented chunk" note) but was in neither of this file's own
+// kDocumented/kFallback lists -- a real TEXL chunk was invisible to
+// dump-chunks entirely, not even as a hex dump. TEXL has a real,
+// unambiguous struct (unlike DETL's inconsistent offsets), so it now gets
+// real field-level parsing, same shape as DBOC (16-byte records sized by
+// chunk byte length).
+TEST_CASE("husk dump-chunks: TEXL (light-cookie texture lookups) reads its four fields per record") {
+    std::vector<uint8_t> texl;
+    putF32(texl, 1.5f);
+    putF32(texl, -2.5f);
+    putU32(texl, 3);  // texture_lookup: index into TXID
+    putU32(texl, 0);  // unk2
+    auto file = wrapChunked(minimalMd20(), {{"TEXL", texl}});
+    auto path = tempPath("texl.m2");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"TEXL\"") != std::string::npos);
+    CHECK(result.output.find("\"texture_lookup\"") != std::string::npos);
+    CHECK(result.output.find("1.5") != std::string::npos);
+    CHECK(result.output.find("-2.5") != std::string::npos);
+
+    fs::remove(path);
+}
+
 TEST_CASE("husk dump-chunks: an undocumented chunk (e.g. WFV1) is included as a raw hex dump "
           "plus a note, not silently dropped") {
     std::vector<uint8_t> wfv1 = {0xDE, 0xAD, 0xBE, 0xEF};

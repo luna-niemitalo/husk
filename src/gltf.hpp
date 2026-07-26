@@ -63,6 +63,25 @@ struct Material {
     // baseColorImagePng is empty. Environment mapping (-1) has no glTF
     // equivalent and isn't attempted -- callers fall back to 0.
     int baseColorTexCoord = 0;
+
+    // One M2Batch texture layer beyond the first (textureCount > 1, e.g. a
+    // second env-mapped "shine" pass on armor, or a genuine two-texture
+    // blend -- wowdev.wiki M2/.skin#Texture_units) -- see FAILURES2.md #6.
+    // husk doesn't fake WoW's fixed-function combiner math (Mod2x/Add/...)
+    // by wiring this into pbrMetallicRoughness; it's exposed as inert
+    // metadata instead (glTF extras + an unused auxiliary image/texture, if
+    // one was embeddable), the same "tag it, don't guess at semantics"
+    // treatment `billboardMode` already gets, for a custom renderer or a
+    // Blender script (material node setup, geometry nodes, ...) to act on.
+    struct AdditionalTextureLayer {
+        uint32_t fileDataId = 0;  // 0 if this texture isn't file-based (see m2::Texture)
+        int texCoord = 0;         // which UV set this layer samples, same convention as baseColorTexCoord
+        // Raw encoded image bytes (PNG), or empty if no --textures match was
+        // found for this FileDataID -- same "opaque bytes, not decoded"
+        // policy as baseColorImagePng.
+        std::vector<uint8_t> imagePng;
+    };
+    std::vector<AdditionalTextureLayer> additionalTextureLayers;
 };
 
 // One glTF primitive's worth of triangles: a slice of triangle-corner
@@ -76,6 +95,17 @@ struct Primitive {
     // Index into the `materials` vector passed to writeGlb, or -1 for none
     // (renders with glTF's own default material).
     int materialIndex = -1;
+    // The submesh's M2SkinSection::skinSectionId (the "geoset ID" -- see
+    // src/skin.hpp's Submesh doc comment, FAILURES2.md #1), or -1 if this
+    // primitive didn't come from a real .skin submesh (the batches.empty()
+    // fallback case, see cmd_export.cpp's buildMaterialsAndPrimitives).
+    // husk doesn't filter by this -- every submesh is always exported,
+    // including mutually-exclusive character-customization options -- this
+    // is purely inert metadata (glTF extras) for a custom renderer or a
+    // Blender script (mesh mask / geometry nodes / driven material, ...) to
+    // implement its own geoset selection with, the same "tag it, don't
+    // guess at semantics" treatment `billboardMode` already gets.
+    int skinSectionId = -1;
 };
 
 // Mesh data ready to serialize, already in the target coordinate system

@@ -34,7 +34,7 @@ void printUsage() {
            "\n"
            "Extracts the M2 chunks husk doesn't fold into `export`'s glTF\n"
            "output -- TXAC/EXPT/PABC/PADC/PSBC/PEDC/RPID/GPID/PGD1/WFV3/NERF/\n"
-           "EDGF/DBOC, all reasonably well documented on wowdev.wiki -- into\n"
+           "EDGF/DBOC/TEXL, all reasonably well documented on wowdev.wiki -- into\n"
            "readable JSON on stdout. Chunks with no documented byte layout, or\n"
            "an internally-inconsistent one (WFV1/WFV2/DPIV/AFRA/DETL/PFDC/PCOL/\n"
            "EXP2) are still included, as a raw hex dump plus a note, not\n"
@@ -396,6 +396,36 @@ void dumpDboc(json::Writer& w, const Chunk& c) {
     w.endArray();
 }
 
+// TEXL (wowdev.wiki M2#TEXL, Midnight/12.0+): 16-byte records, one per
+// `lights.count` entry -- unlike DETL's internally-inconsistent offsets or
+// WFV1/AFRA's outright-undocumented layout, TEXL's struct (two floats, then
+// an index into TXID for the light cookie texture, then one more unknown
+// int) is unambiguous, so it gets real structural parsing rather than the
+// raw-hex-plus-note fallback below -- was a complete blind spot before
+// (FAILURES2.md #5): recognized by cmd_info.cpp's documentedM2ChunkTags
+// (so it never tripped the "undocumented chunk" note) but absent from both
+// of this file's own lists, meaning a real file's TEXL data was invisible
+// to every husk command, not just unparsed.
+void dumpTexl(json::Writer& w, const Chunk& c) {
+    constexpr size_t kSize = 16;
+    size_t n = c.size / kSize;
+    w.beginArray();
+    for (size_t i = 0; i < n; ++i) {
+        size_t off = i * kSize;
+        w.beginObject();
+        w.key("unk0");
+        w.value(static_cast<double>(readF32(c.data, c.size, off + 0x00)));
+        w.key("unk1");
+        w.value(static_cast<double>(readF32(c.data, c.size, off + 0x04)));
+        w.key("texture_lookup");
+        w.value(static_cast<int64_t>(readU32(c.data, c.size, off + 0x08)));
+        w.key("unk2");
+        w.value(static_cast<int64_t>(readU32(c.data, c.size, off + 0x0C)));
+        w.endObject();
+    }
+    w.endArray();
+}
+
 }  // namespace
 
 int dumpChunks(int argc, char** args) {
@@ -454,7 +484,7 @@ int dumpChunks(int argc, char** args) {
             {"PADC", dumpPadc},          {"PSBC", dumpPsbc},   {"PEDC", dumpPedc},
             {"RPID", dumpFileDataIdArrayChunk}, {"GPID", dumpFileDataIdArrayChunk},
             {"PGD1", dumpU16ArrayChunk}, {"WFV3", dumpWfv3},   {"NERF", dumpNerf},
-            {"EDGF", dumpEdgf},          {"DBOC", dumpDboc},
+            {"EDGF", dumpEdgf},          {"DBOC", dumpDboc},   {"TEXL", dumpTexl},
         };
         for (const auto& e : kDocumented) {
             auto c = findChunk(chunks, e.tag);

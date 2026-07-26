@@ -1,18 +1,27 @@
 # Failure log 2
 
-**Status: all items below are open** — this is a read-only inspection pass
-(no source files were modified, no commands were run against the built
-binary; every finding below comes from reading `src/`, `tests/`, `README.md`,
+**Status: items 1-9 are fixed**, each with regression tests (`tests/test_skin.cpp`,
+`tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_m2.cpp`,
+`tests/test_skel.cpp`, `tests/test_dump.cpp`) that run with no real game
+files needed, so these can't silently regress; item 10 was a mistaken
+finding, retracted below, not a real gap. This started as a read-only
+inspection pass (no source files modified, no commands run against the
+built binary; every finding came from reading `src/`, `tests/`, `README.md`,
 `FAILURES.md`, `TODO_correctness.md`, `WIKI_FINDINGS.md`, and the
-`documentation/` tree, including the local wowdev.wiki mirror). It's a
+`documentation/` tree, including the local wowdev.wiki mirror) and was a
 follow-on to `FAILURES.md` (five previously-found bugs, all fixed) and
-`TODO_correctness.md` (coverage gaps already tracked): this pass went
-looking specifically for (a) features a *comprehensive, user-friendly* M2
-reader should have that husk doesn't yet, and (b) new ways husk breaks
-that neither of those two files already name. Nothing here duplicates an
-item already open in `TODO_correctness.md` (particles, `AFSB`, cameras,
-`.bone` LOD integration, `.skel`'s `SKL1`/`SKA1`/`SKPD`/`key_bone_lookup`) —
-those are real, known, and still true, just not repeated here.
+`TODO_correctness.md` (coverage gaps already tracked): it went looking
+specifically for (a) features a *comprehensive, user-friendly* M2 reader
+should have that husk didn't yet, and (b) new ways husk breaks that
+neither of those two files already named. Nothing here duplicates an item
+already open in `TODO_correctness.md` (particles, `AFSB`, cameras, `.bone`
+LOD integration, `.skel`'s `SKL1`/`SKA1`/`SKPD`/`key_bone_lookup`) — those
+are real, known, and still true, just not repeated here. Several of these
+fixes are diagnostics/warnings rather than full feature implementations
+(e.g. geoset filtering, multi-texture batches, global-sequence animation) —
+the underlying feature gaps are real and still open, but husk now says so
+loudly instead of silently doing the wrong thing, consistent with this
+project's own foreign-data-validation philosophy.
 
 Findings are ranked most-impactful first. "Impactful" here means: how much
 of a *real* model's visual/structural correctness is affected, and how
@@ -21,7 +30,7 @@ likely a normal user is to hit it without doing anything unusual — not
 
 ---
 
-## 1. [Open] [Critical] `M2SkinSection.skinSectionId` (the "geoset ID") is never read — `husk export` renders every submesh in a `.skin` file at once, including mutually-exclusive character-customization options
+## 1. [Fixed] [Critical] `M2SkinSection.skinSectionId` (the "geoset ID") is never read — `husk export` renders every submesh in a `.skin` file at once, including mutually-exclusive character-customization options
 
 **What's expected:** per wowdev.wiki (`documentation/wowdev-wiki/md/M2/.skin.md`,
 "Submeshes" section), `M2SkinSection`'s *first* field is:
@@ -89,9 +98,35 @@ model." Deciding *what* the default filter should be (all geoset group 0
 design question, not a one-line fix — but the underlying field needs to
 exist in the parser before any of those options are even possible.
 
+**Applied:** `skin::Submesh` now has `skinSectionId` (`src/skin.hpp`),
+read by `parseSubmeshes` (`src/skin.cpp`). Discussed with Luna: no
+DBC-free "correct default" exists (Armory/Wowhead's viewer/WMV/
+`wow.export` all resolve *which* geoset variant is "the" one from DBC/DB2
+data husk deliberately never reads — there's nothing to fall back on
+without it), so husk still doesn't filter — but rather than stopping at a
+diagnostic, every submesh's real `skinSectionId` is now carried all the
+way into the exported `.glb` as inert glTF `extras` on its primitive
+(`geoset_id`, plus a derived `geoset_group`/`geoset_variant` split), the
+same "tag it, don't guess at semantics" treatment `billboardMode` already
+gets — a custom renderer or Blender script (mesh mask, geometry nodes, a
+driven material, ...) has everything it needs to build its own selection
+UI on top, without husk inventing a policy it can't actually ground in
+data. `exportGlb` still prints a loud `husk: note:` line naming every
+distinct `skinSectionId` in a `.skin` whenever more than one shows up, so
+the "every geoset, unfiltered, with no indication" failure mode stays
+closed. Verified against real data: `bloodelffemale00.skin` reports "66
+distinct geoset IDs" spanning the hairstyle/facial-hair/gear-slot ranges
+the wiki's own `Character_Customization` groupings predict, and the full
+export still round-trips cleanly with the new extras attached. Regression
+tests: `tests/test_skin.cpp`'s "reads skinSectionId" case,
+`tests/test_gltf.cpp`'s "a primitive's skinSectionId round-trips as
+geoset_id/group/variant extras" and "...no skinSectionId... gets no
+geoset extras", `tests/test_cli.cpp`'s "batches spanning more than one
+distinct skinSectionId..." and "...print no geoset note" cases.
+
 ---
 
-## 2. [Open] [High] `husk export --textures` can produce a `.glb` with misaligned glTF buffer views/accessors — a real spec violation, not a hypothetical one, for any embedded PNG whose byte length isn't a multiple of 4
+## 2. [Fixed] [High] `husk export --textures` can produce a `.glb` with misaligned glTF buffer views/accessors — a real spec violation, not a hypothetical one, for any embedded PNG whose byte length isn't a multiple of 4
 
 **What's expected:** per the glTF 2.0 specification, a `bufferView` that
 backs a vertex-attribute or index `accessor` (`POSITION`/`NORMAL`/
@@ -137,9 +172,24 @@ value append, before recording the *next* view's `byteOffset` — a small,
 local change to `appendBufferView` (and the two ad hoc append sites that
 don't go through it: the image view and `addChannel`'s output view).
 
+**Applied:** `gltf.cpp`'s new `padTo4()` zero-pads `buffer.data` up to the
+next 4-byte boundary; called from inside `appendBufferView` itself (so the
+embedded-image case, which already went through it, is covered
+automatically) and from the one other ad hoc append site, `addChannel`'s
+animation-sampler output view. Verified this actually reproduces and fixes
+the bug, not just "looks plausible": temporarily reverted the fix, reran
+the new test, and confirmed it fails with the exact predicted offset
+(`byteOffset=166`, `166 % 4 == 2`) before restoring the fix and confirming
+it passes again. Regression test: `tests/test_gltf.cpp`'s "every
+bufferView stays 4-byte aligned even after an odd-length embedded image"
+case, which checks every `bufferView` in the round-tripped document
+generically (not just the one known-affected pair), so it also guards the
+inverse-bind-matrix/animation-sampler buffer views against the same class
+of regression.
+
 ---
 
-## 3. [Open] [High] Bone/Sequence/Ribbon record sizes are hardcoded to a "Wrath+" shape, but `expansionForVersion` happily recognizes and labels genuine Classic/TBC files — feeding husk a real pre-Wrath M2 silently misreads bone/sequence/ribbon data at the wrong byte stride
+## 3. [Fixed] [High] Bone/Sequence/Ribbon record sizes are hardcoded to a "Wrath+" shape, but `expansionForVersion` happily recognizes and labels genuine Classic/TBC files — feeding husk a real pre-Wrath M2 silently misreads bone/sequence/ribbon data at the wrong byte stride
 
 **What's expected:** a tool that labels a file "Classic" or "The Burning
 Crusade" (`m2::expansionForVersion`, `src/m2.cpp:1051-1078`, version ranges
@@ -188,9 +238,20 @@ elsewhere (`WIKI_FINDINGS.md`, `AFSB`) — but a warning costs nothing and
 closes the "silently wrong, no indication anything's off" half of the gap
 immediately.
 
+**Applied:** exactly the warning, not the full version-branched parser
+(the latter still needs real pre-Wrath sample files this pass doesn't
+have, per the fix's own reasoning above). `m2::kMinVerifiedRecordStrideVersion`
+(`src/m2.hpp`, = 264) names the cutoff once; both `cmd_info.cpp`'s `info()`
+and `cmd_export.cpp`'s `exportGlb()` check `header.version` against it and
+print a `husk: warning:` line naming the actual version and what might be
+wrong, before any bone/sequence/ribbon data is trusted. Regression tests:
+`tests/test_cli.cpp`'s "a version below Wrath (264) prints a loud warning"
+(both `info` and `export` variants) and "a Wrath+ version prints no such
+warning".
+
 ---
 
-## 4. [Open] [Medium] `husk info` never prints resolved texture or material records, and never prints `TXID` (`textureFileDataIds`) at all — inconsistent with every other per-record array `info` surfaces, and with the README's own description of what `info` does
+## 4. [Fixed] [Medium] `husk info` never prints resolved texture or material records, and never prints `TXID` (`textureFileDataIds`) at all — inconsistent with every other per-record array `info` surfaces, and with the README's own description of what `info` does
 
 **What's expected:** `README.md`'s Usage section says `info` "resolves and
 prints `attachments`/`events`/`lights` records," and separately "surfaces
@@ -232,9 +293,21 @@ ribbons, for both `textures` (type/flags/filename, cross-referenced against
 add a `texture_file_data_ids:` line matching the format of the existing
 `skin_file_data_ids:`/`bone_file_data_ids:` lines.
 
+**Applied:** exactly that pattern, in `cmd_info.cpp`. Per-texture lines
+show `type`/`flags`, plus `filename` only for `type == 0` (a real embedded
+path — a nonzero type is a runtime-substituted slot, see `m2::Texture`'s
+doc comment, so printing a filename there would be misleading) and
+`file_data_id` when `textureFileDataIds` has a nonzero entry for that
+index; per-material lines show `flags`/`blend_mode`; a new
+`texture_file_data_ids:` summary line matches the existing sidecar-ID
+lines' format. Regression test: `tests/test_cli.cpp`'s "prints per-texture
+type/flags/filename, per-material flags/blend_mode, and
+texture_file_data_ids..." case, which specifically checks a `type != 0`
+texture's filename/file_data_id are correctly *not* printed.
+
 ---
 
-## 5. [Open] [Medium] The `TEXL` chunk tag is a complete blind spot — recognized by `husk info` (so it never triggers the "undocumented chunk" warning) but not handled anywhere by `husk dump-chunks`, silently contradicting the project's own "never silently drop a real chunk" policy
+## 5. [Fixed] [Medium] The `TEXL` chunk tag is a complete blind spot — recognized by `husk info` (so it never triggers the "undocumented chunk" warning) but not handled anywhere by `husk dump-chunks`, silently contradicting the project's own "never silently drop a real chunk" policy
 
 **What's expected:** README.md's Design notes state the explicit intent
 behind `dump-chunks`: "Chunks with no documented byte layout, or a
@@ -265,9 +338,18 @@ note, the two things every *other* unhandled documented chunk gets one of.
 (same one-line pattern as `WFV1`/`WFV2`/etc.) with a short note explaining
 why it isn't structurally parsed yet.
 
+**Applied:** better than the suggested fix — `TEXL`'s own struct (two
+floats, then an index into `TXID` for the light cookie texture, then one
+more unknown int, 16 bytes/record) turned out to be completely
+unambiguous, unlike `DETL`'s internally-inconsistent offsets, so it got
+real field-level parsing (`dumpTexl`, added to `kDocumented` rather than
+`kFallback`) instead of just a hex-dump-plus-note. Regression test:
+`tests/test_dump.cpp`'s "TEXL (light-cookie texture lookups) reads its
+four fields per record".
+
 ---
 
-## 6. [Open] [Medium] Multi-texture batches (`M2Batch.textureCount` 1-4) always resolve to exactly one texture, with no diagnostic that a batch actually uses more than one
+## 6. [Fixed] [Medium] Multi-texture batches (`M2Batch.textureCount` 1-4) always resolve to exactly one texture, with no diagnostic that a batch actually uses more than one
 
 **What's expected:** per wowdev.wiki (`documentation/wowdev-wiki/md/M2/.skin.md`'s
 "Texture units" section, and `documentation/wow-material-rendering.md`
@@ -308,9 +390,38 @@ Actually emitting a second glTF texture (e.g. a `KHR_materials_specular`-
 style additional layer, or simply embedding it as an unused auxiliary
 image with a name hinting at its role) is a larger, separate feature.
 
+**Applied: more than the diagnostic half.** Discussed with Luna: resolving
+the additional texture(s) is easy (loop `textureCount` times instead of
+assuming 1), the real question was *representation*, since core glTF has
+no generic multi-layer slot and faking a `KHR_materials_*` extension would
+misstate WoW's actual combiner math (`Mod2x`/`Add`/env-map blending) as
+something it isn't. Landed on the same answer as geoset filtering above:
+tag it, don't guess. `buildMaterialsAndPrimitives` now resolves layers
+`textureComboIndex + 1 .. textureComboIndex + textureCount - 1` (per
+wowdev.wiki: "the texture ... indices ... are only the 'base' index")
+best-effort — skipped rather than erroring if the base-index assumption
+doesn't hold for some batch, since this is supplementary metadata, not
+required for a usable export — and carries each into
+`gltf::Material::additionalTextureLayers`. `gltf.cpp` emits them as
+`extras.additional_textures` on the material (FileDataID + UV set per
+layer), plus a real, separately embedded but core-material-*unused*
+image/texture when `--textures <dir>` has a matching PNG — the same
+"embed if available" policy the primary `baseColorTexture` already uses.
+Still not wired into the actual rendered material (core glTF has nowhere
+correct to put it); `exportGlb`'s note was reworded to say so precisely
+rather than "dropped". Verified against real data: `bloodelffemale00.skin`
+still reports its 1 multi-texture batch and exports cleanly with the new
+extras attached. Regression tests: `tests/test_gltf.cpp`'s "a material's
+additionalTextureLayers round-trip as extras..." (including the
+with-image/without-image split) and "...no additionalTextureLayers gets no
+such extras", `tests/test_cli.cpp`'s "a batch with textureCount > 1
+prints a note..." and "...textureCount == 1 prints no multi-texture note"
+(wording updated to match, substrings preserved so both still pass
+unmodified).
+
 ---
 
-## 7. [Open] [Low-Medium] Global-sequence-driven `M2Track`s (continuous glow/pulse/sway animation) always resolve to nothing, with no user-facing indication any track was skipped for this reason
+## 7. [Fixed] [Low-Medium] Global-sequence-driven `M2Track`s (continuous glow/pulse/sway animation) always resolve to nothing, with no user-facing indication any track was skipped for this reason
 
 **What's expected:** per wowdev.wiki M2#Interpolation ("Global Sequences":
 "completely unrelated to animations... always loops"), a track whose
@@ -354,9 +465,47 @@ only, no animation)" note) when that count is nonzero — e.g. "N bone
 tracks use global sequences (continuous looping animation) and aren't
 included in any exported clip."
 
+**Applied: fully resolved, not just diagnosed** — on reflection this was
+tractable without any new external data. `Header::globalLoops` was already
+parsed as a bare `(count, offset)` descriptor but its `M2Loop` records were
+never read; wowdev.wiki's own "blocks that use global sequences also only
+have one track" note means a global-sequence track's outer
+`M2Array<M2Array<T>>` always has exactly one sub-array (index 0), so real
+keyframes are a `trackSequenceInnerArrays(..., /*sequenceIndex=*/0)` call
+away — the identical shape `resolveVec3TrackSequence`/
+`resolveQuatTrackSequence` already use for a specific `M2Sequence` index,
+just fixed at 0 instead. New `m2::resolveVec3GlobalSequenceTrack`/
+`resolveQuatGlobalSequenceTrack` (`src/m2.cpp`/`m2.hpp`) implement exactly
+that, and `m2::parseGlobalLoops` resolves the `M2Loop` records themselves
+(not yet wired into clip duration/naming — see below). `cmd_export.cpp`'s
+new `buildGlobalSequenceAnimations` finds every distinct global-sequence
+index actually used across a model's bones and builds one real glTF
+animation clip per index (`global_seq_<n>`), covering every bone that
+references it — the same per-bone `JointAnimation`-building logic
+`buildAnimations` already used was factored into a shared
+`buildJointAnimation` helper so both paths build identical glTF channel
+data from whichever keyframes they resolved. Runs unconditionally alongside
+(not gated by) the per-`M2Sequence` clips, for both inline-bones and
+`.skel`-sourced models, since a global-sequence track is a property of the
+bone itself, not of `M2Sequence`/`SKS1`. **Verified against real data**:
+`bloodelffemale.m2` now exports 258 animation clips (256 real + 2 real
+global-sequence clips), up from 256 before this fix — not a guess, an
+actual count increase from real file data, with the full 254/254 test
+suite (synthetic + real-data integration) passing throughout. Regression
+tests: `tests/test_m2.cpp`'s `resolveVec3GlobalSequenceTrack`/
+`resolveQuatGlobalSequenceTrack`/`parseGlobalLoops` cases (pure-logic,
+including the "not global-sequence-driven resolves to empty" and
+interpolation-type-2/3-throws cases), `tests/test_cli.cpp`'s "a
+global-sequence-driven bone track resolves to a real animation clip" and
+"a model with no global-sequence-driven tracks gains no extra clip"
+(end-to-end through the real CLI). Not yet done: using `parseGlobalLoops`'
+own duration for anything (clip naming/length hint) — glTF has no native
+"loop independently of scene state" concept to map it onto anyway, so this
+is left as future polish, not a correctness gap.
+
 ---
 
-## 8. [Open] [Low] Several FileDataID/struct-array chunk readers silently truncate on a non-record-aligned chunk size instead of erroring, unlike every other fixed-record array parser in the codebase
+## 8. [Fixed] [Low] Several FileDataID/struct-array chunk readers silently truncate on a non-record-aligned chunk size instead of erroring, unlike every other fixed-record array parser in the codebase
 
 **What's expected:** every `parse*` function in `src/m2.cpp` that reads an
 array of fixed-size records validates the claimed range up front and
@@ -394,9 +543,16 @@ shaped array in this codebase is validated.
 the same descriptive-`ParseError` style used everywhere else) to all
 three functions before computing `count`.
 
+**Applied:** exactly that check, at all three sites, throwing the same
+descriptive `ParseError` style. Regression tests: `tests/test_m2.cpp`'s
+"TXID chunk with a byte length not a multiple of 4 throws..." and "AFID
+chunk with a byte length not a multiple of 8 throws...", plus
+`tests/test_skel.cpp`'s "AFID chunk with a byte length not a multiple of 8
+throws..." for the `.skel`-specific copy.
+
 ---
 
-## 9. [Open] [Low] No finiteness/monotonicity validation on animation keyframe timestamps or values — the same bug class `FAILURES.md` #4 fixed for vertex positions/normals, left open for animation data
+## 9. [Fixed] [Low] No finiteness/monotonicity validation on animation keyframe timestamps or values — the same bug class `FAILURES.md` #4 fixed for vertex positions/normals, left open for animation data
 
 **What's expected:** per `FAILURES.md` #4 (already fixed), the project's
 own stated policy is that non-finite (NaN/Inf) data reaching glTF output
@@ -439,41 +595,33 @@ identity is still known, same reasoning as the original fix), plus an
 explicit monotonic-timestamp check before trusting `front()`/`back()` as
 true min/max.
 
+**Applied:** `cmd_export.cpp`'s new `checkKeyframesWellFormed` (a small
+template over `Vec3`/`Quat`) checks every resolved keyframe's value for
+finiteness and every timestamp for being strictly greater than the
+previous one, called once per bone/property right after
+`resolveVec3TrackSequence`/`resolveQuatTrackSequence`, naming the bone
+index, property, and offending keyframe index on failure. Verified against
+real data: `bloodelffemale.m2`'s 256 real animation clips (73,465 rotation
+keyframes) still export cleanly with this check active, confirming it
+doesn't false-positive on well-formed real data. Regression tests:
+`tests/test_cli.cpp`'s "a non-finite (NaN) translation keyframe value
+fails with a real message..." and "a non-monotonic (out-of-order)
+translation keyframe timestamp fails with a real message".
+
 ---
 
-## 10. [Open] [Low, meta] The documentation mirror is missing the actual M2 wiki page — `documentation/wowdev-wiki/md/` has no `M2.md`, only an unrelated, decades-obsolete page that happens to share a similar name
+## 10. [Retracted] The documentation mirror is missing the actual M2 wiki page
 
-**What's expected:** since this project's entire correctness story rests
-on "read directly from wowdev.wiki, verified against real files"
-(README.md's "Why test-first" section), the local mirror
-(`documentation/wowdev-wiki/`) ought to actually contain the main M2 page
-in its readable (`md/`) form, for anyone using the mirror as a reference
-rather than the live wiki.
-
-**What actually happens:** `documentation/wowdev-wiki/wikitext_expanded/M2.wiki`
-exists and is substantial (2,594 lines) — the raw page *was* fetched and
-template-expanded successfully. But `documentation/wowdev-wiki/md/M2.md`
-does not exist anywhere in the mirror. The only markdown file in that
-directory whose name resembles "M2" is `M-M2.md` — which, on inspection,
-is a completely unrelated, ~2008-2016-era page about `CMapObject`/ADT
-in-game object memory offsets and a Warden-style "highlight the selected
-object" client hack, with zero relation to the M2 *model file format*
-this entire project reads. Every subpage (`M2/.skin.md`, `M2/.skel.md`,
-`M2/Rendering.md`, etc.) links back to `../M2.md` for the main page — those
-links are dead in this mirror.
-
-**Why it matters:** low severity (husk's own source code clearly *was*
-checked against the real page's content at some point — the offsets in
-`m2.hpp`/`m2.cpp` match reality, and `wikitext_expanded/M2.wiki` has the
-source text on disk even if it was never rendered to `md/`), but this
-was surfaced directly by the task of "read the documentation": anyone
-else opening this mirror's `md/` tree specifically to cross-check a
-header-offset claim, expecting the main M2 page to be there the way every
-other page is, will silently land on nothing (or worse, might not notice
-`M-M2.md` is a different page and briefly think the mirror is corrupted
-or that the M2 spec really is that page).
-
-**Suggested fix:** re-run whatever step converts `wikitext_expanded/*.wiki`
-to `md/*.md` for `M2.wiki` specifically (the source text is already
-present, so this shouldn't need re-fetching anything) — a build/tooling
-gap in the mirror, not a content gap.
+**This finding was wrong.** `documentation/wowdev-wiki/md/M2.md` does
+exist — a real, complete, well-formed rendering of the M2 page (frontmatter,
+header struct, tables, chunk sections, all the way through the trailing
+`References`/`Category` footer), confirmed by reading the file directly.
+The original claim was based on a `find -iname "M2.md"` that came back
+empty; either that check was run against a filesystem state where the file
+genuinely wasn't there yet (this mirror is populated by an external
+process, per `WIKI_FINDINGS.md`) or the check itself was mistaken — either
+way, the file is there now and the cross-links from `M2/.skin.md` etc.
+resolve correctly. `M-M2.md` (the unrelated 2008-era ADT page) still also
+exists alongside it, under its own distinct name — that part of the
+original finding was accurate, it just wasn't evidence of a missing page.
+No action needed here.

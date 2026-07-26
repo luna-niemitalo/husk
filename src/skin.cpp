@@ -149,6 +149,7 @@ std::vector<Submesh> parseSubmeshes(const std::vector<uint8_t>& fileBytes, const
     for (uint32_t i = 0; i < array.count; ++i) {
         size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kSubmeshSize;
         Submesh s;
+        s.skinSectionId = readU16(data, size, off + 0x00);
         s.vertexStart = readU16(data, size, off + 0x04);
         s.vertexCount = readU16(data, size, off + 0x06);
         s.indexStart = readU16(data, size, off + 0x08);

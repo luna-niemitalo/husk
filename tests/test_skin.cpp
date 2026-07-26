@@ -22,7 +22,7 @@
 //
 // M2SkinSection (0x30 = 48 bytes), only the fields src/skin.hpp's Submesh
 // surfaces:
-//   0x00 skinSectionId (u16)   0x02 Level (u16)
+//   0x00 skinSectionId (u16)   0x02 Level (u16, unread)
 //   0x04 vertexStart (u16)     0x06 vertexCount (u16)
 //   0x08 indexStart (u16)      0x0A indexCount (u16)
 //   0x0C boneCount (u16) ... 0x2C sortRadius (float) -- unread, see skin.hpp
@@ -78,10 +78,13 @@ std::vector<uint8_t> buildSkinFile(uint32_t verticesCount, uint32_t verticesOffs
     return buf;
 }
 
-// Writes one 0x30-byte M2SkinSection record at `off`.
+// Writes one 0x30-byte M2SkinSection record at `off`. `skinSectionId`
+// defaults to 0 (the common "base body" group) so existing call sites that
+// don't care about geoset filtering don't need to change.
 void putSubmesh(std::vector<uint8_t>& buf, size_t off, uint16_t vertexStart, uint16_t vertexCount,
-                 uint16_t indexStart, uint16_t indexCount) {
+                 uint16_t indexStart, uint16_t indexCount, uint16_t skinSectionId = 0) {
     if (buf.size() < off + 0x30) buf.resize(off + 0x30, 0);
+    putU16(buf, off + 0x00, skinSectionId);
     putU16(buf, off + 0x04, vertexStart);
     putU16(buf, off + 0x06, vertexCount);
     putU16(buf, off + 0x08, indexStart);
@@ -238,6 +241,30 @@ TEST_CASE("parseSubmeshes: reads vertexStart/vertexCount/indexStart/indexCount f
     CHECK(submeshes[1].vertexCount == 5);
     CHECK(submeshes[1].indexStart == 30);
     CHECK(submeshes[1].indexCount == 9);
+}
+
+// Regression test for FAILURES2.md #1: skinSectionId (offset 0x00, the
+// "Mesh part ID"/geoset ID -- wowdev.wiki M2/.skin#Submeshes) was skipped
+// entirely by the original parser, which started reading at vertexStart
+// (0x04). Without it, husk had no way to even tell that two submeshes
+// belong to mutually-exclusive character-customization geosets (different
+// hairstyles, etc.) rather than both being part of the base mesh.
+TEST_CASE("parseSubmeshes: reads skinSectionId (the geoset ID) at offset 0x00, distinct per entry") {
+    std::vector<uint8_t> file(500, 0);
+    size_t off = 200;
+    putSubmesh(file, off, /*vertexStart=*/0, /*vertexCount=*/10, /*indexStart=*/0,
+               /*indexCount=*/30, /*skinSectionId=*/0);
+    putSubmesh(file, off + 0x30, /*vertexStart=*/10, /*vertexCount=*/5, /*indexStart=*/30,
+               /*indexCount=*/9, /*skinSectionId=*/401);
+
+    husk::m2::Array a;
+    a.count = 2;
+    a.offset = static_cast<uint32_t>(off);
+    auto submeshes = husk::skin::parseSubmeshes(file, a);
+
+    REQUIRE(submeshes.size() == 2);
+    CHECK(submeshes[0].skinSectionId == 0);
+    CHECK(submeshes[1].skinSectionId == 401);
 }
 
 TEST_CASE("parseSubmeshes: empty array returns an empty vector without touching the file") {

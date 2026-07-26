@@ -577,6 +577,43 @@ std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
     const std::vector<uint8_t>* externalDataBlob = nullptr);
 
+// Resolves one M2Track<C3Vector>'s keyframe data when it's global-sequence-
+// driven (TrackMeta::globalSequence != TrackMeta::kNoGlobalSequence) --
+// per wowdev.wiki M2#Interpolation, "blocks that use global sequences also
+// only have one track": such a track's outer M2Array<M2Array<T>> holds
+// exactly one sub-array (index 0), not one per M2Sequence, since the
+// keyframes loop continuously against the model's own global_sequences
+// duration table (see parseGlobalLoops) instead of being tied to any
+// specific M2Sequence's timeline. This is the real-data counterpart to
+// resolveVec3TrackSequence's own global-sequence check, which correctly
+// refuses to resolve such a track *by sequence index* (see TrackMeta's doc
+// comment) but as a result never resolved it any other way either --
+// FAILURES2.md #7 was that gap. Returns the same (timestamp, value) pairs
+// resolveVec3TrackSequence does, or empty (not an error) if this track is
+// *not* global-sequence-driven, or if its single outer sub-array is itself
+// empty. Throws ParseError under the same conditions as
+// resolveVec3TrackSequence (interpolation_type 2/3, or a claimed range
+// running past the end of `blob`/`externalDataBlob`).
+std::vector<std::pair<uint32_t, Vec3>> resolveVec3GlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset,
+    const std::vector<uint8_t>* externalDataBlob = nullptr);
+
+// Same as resolveVec3GlobalSequenceTrack, but for an M2Track<M2CompQuat>
+// (i.e. Bone::rotationTrackOffset) -- each raw wire value is decompressed
+// to a Quat (see Quat's doc comment) before being returned.
+std::vector<std::pair<uint32_t, Quat>> resolveQuatGlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset,
+    const std::vector<uint8_t>* externalDataBlob = nullptr);
+
+// Reads `array.count` M2Loop records (wowdev.wiki M2#Global_sequences: a
+// bare `uint32_t timestamp` each, the total duration in milliseconds a
+// global sequence loops over) out of `blob` at `array.offset` -- the
+// model's (or `.skel`'s own) `Header::globalLoops` array, indexed by a
+// track's TrackMeta::globalSequence value. Throws ParseError if that range
+// runs past the end of the blob. An empty array (count 0) returns an empty
+// vector without touching `array.offset` at all.
+std::vector<uint32_t> parseGlobalLoops(const std::vector<uint8_t>& blob, const Array& array);
+
 // Resolves a .anim file's own possibly-chunked shape (wowdev.wiki
 // M2#.anim_files' "Legion 24500" section) into the raw blob
 // resolveVec3TrackSequence/resolveQuatTrackSequence's `externalDataBlob`
@@ -626,5 +663,22 @@ std::vector<Ribbon> parseRibbons(const std::vector<uint8_t>& blob, const Array& 
 // with overlapping ranges, so this can return multiple labels joined by
 // " or ", or "unknown" for anything outside the documented ranges.
 std::string expansionForVersion(uint32_t version);
+
+// The lowest header version Bone/Sequence/Ribbon's fixed record strides
+// (0x58/0x40/0xB0 bytes -- see their own doc comments above) are documented
+// and real-data-verified for: Wrath of the Lich King, per
+// expansionForVersion's own table. parseBones/parseSequences/parseRibbons
+// don't branch on version at all -- there's no code path that reads a
+// different stride for an older file -- so a genuine Classic/TBC M2 (a
+// completely normal thing to have from an older-client extraction) would be
+// silently decoded at the wrong byte stride: not necessarily a bounds error,
+// just quiet wrong data, the exact failure shape the M2Sequence-stride
+// investigation (see Sequence's doc comment, WIKI_FINDINGS.md) already
+// caught once for a different version-ambiguity reason. Callers that
+// resolve these three arrays (cmd_info.cpp, cmd_export.cpp) check
+// `header.version < kMinVerifiedRecordStrideVersion` and warn loudly rather
+// than silently trusting output this parser was never confirmed to read
+// correctly for that version -- see FAILURES2.md #3.
+constexpr uint32_t kMinVerifiedRecordStrideVersion = 264;
 
 }  // namespace husk::m2

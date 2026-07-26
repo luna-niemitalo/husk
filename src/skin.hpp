@@ -32,11 +32,22 @@ struct Header {
 };
 
 // M2SkinSection, per wowdev.wiki M2/.skin#Submeshes -- 48 bytes on disk.
-// Only the fields needed to slice this submesh's triangles out of the
-// skin's flat index buffer are surfaced; centerPosition/sortCenterPosition/
-// sortRadius/boneCount/boneComboIndex/boneInfluences/centerBoneIndex stay
-// unread (LOD/culling/skinning-optimization concerns, not materials).
+// `skinSectionId` (the "Mesh part ID"/"geoset ID") plus the fields needed
+// to slice this submesh's triangles out of the skin's flat index buffer are
+// surfaced; `Level`/centerPosition/sortCenterPosition/sortRadius/boneCount/
+// boneComboIndex/boneInfluences/centerBoneIndex stay unread (LOD/culling/
+// skinning-optimization concerns, not materials). `skinSectionId` is what a
+// real client uses to decide *which* submeshes to actually draw for a given
+// character/creature configuration -- a `.skin` file routinely bundles every
+// selectable hairstyle/facial-hair/gear-slot geoset as separate submeshes
+// sharing one file, distinguished only by this field (wowdev.wiki's own
+// "Mesh part ID" section, cross-referenced from CreatureDisplayInfo.dbc/
+// ItemDisplayInfo.dbc). husk doesn't filter by it yet -- see
+// `cmd_export.cpp`'s `buildMaterialsAndPrimitives`, which surfaces every
+// distinct value actually used as a loud note rather than silently merging
+// them with no indication multiple geosets got exported unfiltered.
 struct Submesh {
+    uint16_t skinSectionId = 0;
     uint16_t vertexStart = 0;
     uint16_t vertexCount = 0;
     uint16_t indexStart = 0;  // into the skin's resolved triangle-index buffer

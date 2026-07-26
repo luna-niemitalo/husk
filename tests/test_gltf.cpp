@@ -441,6 +441,133 @@ TEST_CASE("writeGlb: a material's baseColorImagePng is embedded as a real glTF i
     REQUIRE(model.materials[0].pbrMetallicRoughness.baseColorTexture.index == 0);
 }
 
+// Regression tests for FAILURES2.md #1/#6: geoset (skinSectionId) and
+// multi-texture-layer metadata are exposed as inert glTF `extras` -- husk
+// doesn't filter geosets or fake WoW's texture-combiner math, but a custom
+// renderer or Blender script (mesh mask / geometry nodes / driven material)
+// can use this to implement its own selection, the same "tag it, don't
+// guess at semantics" treatment `billboardMode` already gets (see
+// gltf.hpp's Primitive::skinSectionId / Material::AdditionalTextureLayer
+// doc comments).
+TEST_CASE("writeGlb: a primitive's skinSectionId round-trips as geoset_id/group/variant extras") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].skinSectionId = 401;  // group 4, variant 1
+
+    auto glb = husk::gltf::writeGlb(mesh);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.meshes[0].primitives.size() == 1);
+    const auto& extras = model.meshes[0].primitives[0].extras;
+    REQUIRE(extras.IsObject());
+    CHECK(extras.Get("geoset_id").GetNumberAsInt() == 401);
+    CHECK(extras.Get("geoset_group").GetNumberAsInt() == 4);
+    CHECK(extras.Get("geoset_variant").GetNumberAsInt() == 1);
+}
+
+TEST_CASE("writeGlb: a primitive with no skinSectionId (the batches.empty() fallback shape) gets "
+          "no geoset extras") {
+    auto mesh = buildTriangleMesh();  // skinSectionId left at its default (-1)
+
+    auto glb = husk::gltf::writeGlb(mesh);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.meshes[0].primitives.size() == 1);
+    CHECK_FALSE(model.meshes[0].primitives[0].extras.IsObject());
+}
+
+TEST_CASE("writeGlb: a material's additionalTextureLayers round-trip as extras, with an embedded "
+          "auxiliary image/texture when imagePng is given") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+
+    std::vector<husk::gltf::Material> materials(1);
+    husk::gltf::Material::AdditionalTextureLayer withImage;
+    withImage.fileDataId = 555;
+    withImage.texCoord = 1;
+    withImage.imagePng = onePixelPng;
+    husk::gltf::Material::AdditionalTextureLayer withoutImage;
+    withoutImage.fileDataId = 777;
+    materials[0].additionalTextureLayers = {withImage, withoutImage};
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.materials[0].extras;
+    REQUIRE(extras.IsObject());
+    const auto& layers = extras.Get("additional_textures");
+    REQUIRE(layers.IsArray());
+    REQUIRE(layers.ArrayLen() == 2);
+
+    const auto& layer0 = layers.Get(0);
+    CHECK(layer0.Get("file_data_id").GetNumberAsInt() == 555);
+    CHECK(layer0.Get("tex_coord").GetNumberAsInt() == 1);
+    int texIdx = layer0.Get("texture_index").GetNumberAsInt();
+    REQUIRE(texIdx >= 0);
+    REQUIRE(static_cast<size_t>(texIdx) < model.textures.size());
+    CHECK(model.images[model.textures[texIdx].source].width == 1);
+
+    const auto& layer1 = layers.Get(1);
+    CHECK(layer1.Get("file_data_id").GetNumberAsInt() == 777);
+    // No imagePng given for this one -- no texture_index key at all.
+    CHECK_FALSE(layer1.Get("texture_index").IsInt());
+}
+
+TEST_CASE("writeGlb: a material with no additionalTextureLayers gets no such extras") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    CHECK_FALSE(model.materials[0].extras.IsObject());
+}
+
+// Regression test for FAILURES2.md #2: glTF 2.0 requires every accessor's
+// total byte offset to be a multiple of its component type's size (4 bytes
+// for the FLOAT/UNSIGNED_INT accessors husk emits) -- the
+// ACCESSOR_TOTAL_OFFSET_ALIGNMENT rule the Khronos glTF-Validator enforces.
+// Before the fix, appendBufferView never padded the shared buffer, so an
+// embedded image of a byte length that wasn't itself a multiple of 4 (true
+// of essentially every real PNG, and true of this fixture's own 70-byte
+// onePixelPng, reused from the test above) silently misaligned every
+// bufferView appended after it -- concretely, the very next primitive's
+// index accessor. Checked generically (every bufferView in the whole
+// document, not just the one known-affected pair) so this also guards the
+// inverse-bind-matrix/animation-sampler buffer views against the same class
+// of regression.
+TEST_CASE("writeGlb: every bufferView stays 4-byte aligned even after an odd-length embedded image") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+    REQUIRE(onePixelPng.size() % 4 != 0);  // confirms this fixture actually exercises the bug
+
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].baseColorImagePng = onePixelPng;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    REQUIRE(!model.bufferViews.empty());
+    for (size_t i = 0; i < model.bufferViews.size(); ++i) {
+        INFO("bufferView ", i, " byteOffset=", model.bufferViews[i].byteOffset);
+        CHECK(model.bufferViews[i].byteOffset % 4 == 0);
+    }
+}
+
 TEST_CASE("writeGlb: a material without baseColorImagePng gets no image/texture") {
     auto mesh = buildTriangleMesh();
     mesh.primitives[0].materialIndex = 0;

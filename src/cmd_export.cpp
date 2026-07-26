@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
@@ -135,6 +136,45 @@ gltf::Vec3 toGltfScale(const m2::Vec3& s) { return {s.x, s.z, s.y}; }
 
 bool isFinite(const m2::Vec3& v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); }
 
+bool isFinite(const m2::Quat& q) {
+    return std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w);
+}
+
+// Validates one bone property's resolved keyframe sequence before it's
+// trusted as real animation data: every value finite (FAILURES.md #4 fixed
+// this for vertex positions/normals; the identical exposure existed,
+// unfixed, for animation keyframes -- see FAILURES2.md #9), and timestamps
+// strictly increasing (gltf::JointAnimation's own doc comment already
+// documents this as a precondition its caller -- this function -- must
+// guarantee; glTF requires an animation sampler's input accessor `min`/
+// `max` to be its true bounds, and gltf.cpp's addChannel takes a shortcut
+// of `times.front()`/`times.back()` that's only correct if the data is
+// actually sorted ascending). A corrupted or truncated .anim/.skel/M2 file
+// -- the exact "extraction went wrong" scenario this project is built to
+// survive gracefully -- that flips a bit in a keyframe throws here, with
+// the offending bone/property/keyframe index named, rather than silently
+// producing a spec-non-compliant .glb only a downstream tool (Blender, the
+// Khronos validator) would ever notice.
+template <typename T>
+void checkKeyframesWellFormed(const std::vector<std::pair<uint32_t, T>>& keyframes, size_t boneIndex,
+                               const char* property) {
+    for (size_t i = 0; i < keyframes.size(); ++i) {
+        if (!isFinite(keyframes[i].second)) {
+            throw std::runtime_error("bone " + std::to_string(boneIndex) + "'s " + property +
+                                      " keyframe " + std::to_string(i) +
+                                      " has a non-finite (NaN/Inf) value -- corrupted read or "
+                                      "truncated file?");
+        }
+        if (i > 0 && keyframes[i].first <= keyframes[i - 1].first) {
+            throw std::runtime_error(
+                "bone " + std::to_string(boneIndex) + "'s " + property + " keyframe " +
+                std::to_string(i) + "'s timestamp (" + std::to_string(keyframes[i].first) +
+                "ms) isn't strictly greater than keyframe " + std::to_string(i - 1) + "'s (" +
+                std::to_string(keyframes[i - 1].first) + "ms) -- corrupted read or truncated file?");
+        }
+    }
+}
+
 // Detects a cycle in the bones' parent chains (bone A's parent is B, B's
 // parent is A, or any longer loop). No single parentBone bounds check can
 // catch this -- every individual index in a cycle is perfectly in-range
@@ -252,6 +292,125 @@ uint32_t findAnimFileId(const std::vector<m2::Header::AnimFileEntry>& animFileId
     return 0;
 }
 
+// Builds one JointAnimation for bone `bi` from already-resolved translation/
+// rotation/scale keyframes -- shared by buildAnimations (per-M2Sequence
+// resolution) and buildGlobalSequenceAnimations (global-sequence, single-
+// track resolution) below, which resolve *which* keyframes apply
+// differently but build the resulting glTF channel data identically once
+// resolved. Returns nullopt if all three are empty (nothing to animate for
+// this bone in this clip) -- an empty JointAnimation isn't useful output.
+// Validates every keyframe first (finiteness + strictly-increasing
+// timestamps, see checkKeyframesWellFormed, FAILURES2.md #9).
+std::optional<gltf::JointAnimation> buildJointAnimation(
+    const std::vector<uint8_t>& blob, const m2::Bone& bone, size_t bi, const gltf::Skeleton& skeleton,
+    const std::vector<std::pair<uint32_t, m2::Vec3>>& translation,
+    const std::vector<std::pair<uint32_t, m2::Quat>>& rotation,
+    const std::vector<std::pair<uint32_t, m2::Vec3>>& scale) {
+    if (translation.empty() && rotation.empty() && scale.empty()) {
+        return std::nullopt;
+    }
+    checkKeyframesWellFormed(translation, bi, "translation");
+    checkKeyframesWellFormed(rotation, bi, "rotation");
+    checkKeyframesWellFormed(scale, bi, "scale");
+
+    gltf::JointAnimation ja;
+    ja.joint = static_cast<int>(bi);
+    const gltf::Vec3& bindTranslation = skeleton.joints[bi].localTranslation;
+    // interpolation_type 0 ("step: values change instantly at the
+    // timestamp, with no interpolation whatsoever" -- wowdev.wiki
+    // M2#Interpolation) needs glTF's STEP sampler, not its default LINEAR
+    // -- each of translation/rotation/scale is a separate M2Track with its
+    // own independent type.
+    ja.translationStep = m2::readTrackMeta(blob, bone.translationTrackOffset).interpolationType == 0;
+    ja.rotationStep = m2::readTrackMeta(blob, bone.rotationTrackOffset).interpolationType == 0;
+    ja.scaleStep = m2::readTrackMeta(blob, bone.scaleTrackOffset).interpolationType == 0;
+
+    ja.translationTimes.reserve(translation.size());
+    ja.translationValues.reserve(translation.size());
+    for (const auto& [ts, v] : translation) {
+        gltf::Vec3 delta = toGltf(v);
+        ja.translationTimes.push_back(static_cast<float>(ts) / 1000.0f);
+        ja.translationValues.push_back({bindTranslation.x + delta.x, bindTranslation.y + delta.y,
+                                         bindTranslation.z + delta.z});
+    }
+    ja.rotationTimes.reserve(rotation.size());
+    ja.rotationValues.reserve(rotation.size());
+    for (const auto& [ts, q] : rotation) {
+        ja.rotationTimes.push_back(static_cast<float>(ts) / 1000.0f);
+        ja.rotationValues.push_back(toGltf(q));
+    }
+    ja.scaleTimes.reserve(scale.size());
+    ja.scaleValues.reserve(scale.size());
+    for (const auto& [ts, s] : scale) {
+        ja.scaleTimes.push_back(static_cast<float>(ts) / 1000.0f);
+        ja.scaleValues.push_back(toGltfScale(s));
+    }
+    return ja;
+}
+
+// Builds one glTF animation clip per distinct global_sequence index actually
+// used by any of `bones`' translation/rotation/scale tracks -- a
+// continuously-looping animation independent of any M2Sequence (eye glow
+// pulses, torch flicker, idle sway; wowdev.wiki "Global Sequences": "always
+// loops"). Fixes FAILURES2.md #7: these tracks used to correctly resolve to
+// nothing at all (avoiding misattributing them to whichever M2Sequence
+// happened to occupy outer-array position 0, see TrackMeta's doc comment --
+// a real bug this exact type was introduced to fix) but were never resolved
+// any other way either, so a real, intentional animation feature (glowing
+// eyes, idle sway) silently never appeared in any exported clip. `blob`/
+// `bones`/`skeleton` are the same triple buildAnimations takes (inline M2 or
+// .skel-sourced) -- global-sequence tracks have no external-.anim mechanism
+// of their own (they aren't tied to an AFID-resolvable M2Sequence at all),
+// so there's no `animInputs`/external-blob parameter here. Named
+// "global_seq_<index>" per clip. A clip that ends up with no bone actually
+// carrying data for it (shouldn't happen given how the candidate index set
+// is built, but keeps the same "no empty clips" policy as buildAnimations)
+// is skipped.
+std::vector<gltf::Animation> buildGlobalSequenceAnimations(const std::vector<uint8_t>& blob,
+                                                            const std::vector<m2::Bone>& bones,
+                                                            const gltf::Skeleton& skeleton) {
+    std::set<uint16_t> globalSequenceIndices;
+    for (const auto& bone : bones) {
+        for (uint32_t off : {bone.translationTrackOffset, bone.rotationTrackOffset, bone.scaleTrackOffset}) {
+            uint16_t gs = m2::readTrackMeta(blob, off).globalSequence;
+            if (gs != m2::TrackMeta::kNoGlobalSequence) {
+                globalSequenceIndices.insert(gs);
+            }
+        }
+    }
+
+    std::vector<gltf::Animation> animations;
+    for (uint16_t gs : globalSequenceIndices) {
+        gltf::Animation anim;
+        anim.name = "global_seq_" + std::to_string(gs);
+
+        for (size_t bi = 0; bi < bones.size(); ++bi) {
+            const auto& bone = bones[bi];
+            std::vector<std::pair<uint32_t, m2::Vec3>> translation;
+            if (m2::readTrackMeta(blob, bone.translationTrackOffset).globalSequence == gs) {
+                translation = m2::resolveVec3GlobalSequenceTrack(blob, bone.translationTrackOffset);
+            }
+            std::vector<std::pair<uint32_t, m2::Quat>> rotation;
+            if (m2::readTrackMeta(blob, bone.rotationTrackOffset).globalSequence == gs) {
+                rotation = m2::resolveQuatGlobalSequenceTrack(blob, bone.rotationTrackOffset);
+            }
+            std::vector<std::pair<uint32_t, m2::Vec3>> scale;
+            if (m2::readTrackMeta(blob, bone.scaleTrackOffset).globalSequence == gs) {
+                scale = m2::resolveVec3GlobalSequenceTrack(blob, bone.scaleTrackOffset);
+            }
+
+            if (auto ja = buildJointAnimation(blob, bone, bi, skeleton, translation, rotation, scale)) {
+                anim.joints.push_back(std::move(*ja));
+            }
+        }
+
+        if (!anim.joints.empty()) {
+            animations.push_back(std::move(anim));
+        }
+    }
+    return animations;
+}
+
 // Builds one glTF animation clip per M2Sequence that has resolvable
 // keyframe data -- either inline (flags & 0x20) or, when `animInputs`
 // resolves one, in an external .anim file (see M2AnimInputs, findAnimFileId,
@@ -359,48 +518,9 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                                                           static_cast<uint32_t>(si), externalBlob);
             auto scale = m2::resolveVec3TrackSequence(blob, bone.scaleTrackOffset,
                                                        static_cast<uint32_t>(si), externalBlob);
-            if (translation.empty() && rotation.empty() && scale.empty()) {
-                continue;
+            if (auto ja = buildJointAnimation(blob, bone, bi, skeleton, translation, rotation, scale)) {
+                anim.joints.push_back(std::move(*ja));
             }
-
-            gltf::JointAnimation ja;
-            ja.joint = static_cast<int>(bi);
-            const gltf::Vec3& bindTranslation = skeleton.joints[bi].localTranslation;
-            // interpolation_type 0 ("step: values change instantly at the
-            // timestamp, with no interpolation whatsoever" -- wowdev.wiki
-            // M2#Interpolation) needs glTF's STEP sampler, not its default
-            // LINEAR -- each of translation/rotation/scale is a separate
-            // M2Track with its own independent type. Reading this doesn't
-            // touch the timestamps/values arrays resolveVec3TrackSequence/
-            // resolveQuatTrackSequence already validated above, just the
-            // two fields before them (see m2::TrackMeta).
-            ja.translationStep = m2::readTrackMeta(blob, bone.translationTrackOffset)
-                                      .interpolationType == 0;
-            ja.rotationStep =
-                m2::readTrackMeta(blob, bone.rotationTrackOffset).interpolationType == 0;
-            ja.scaleStep = m2::readTrackMeta(blob, bone.scaleTrackOffset).interpolationType == 0;
-
-            ja.translationTimes.reserve(translation.size());
-            ja.translationValues.reserve(translation.size());
-            for (const auto& [ts, v] : translation) {
-                gltf::Vec3 delta = toGltf(v);
-                ja.translationTimes.push_back(static_cast<float>(ts) / 1000.0f);
-                ja.translationValues.push_back({bindTranslation.x + delta.x, bindTranslation.y + delta.y,
-                                                 bindTranslation.z + delta.z});
-            }
-            ja.rotationTimes.reserve(rotation.size());
-            ja.rotationValues.reserve(rotation.size());
-            for (const auto& [ts, q] : rotation) {
-                ja.rotationTimes.push_back(static_cast<float>(ts) / 1000.0f);
-                ja.rotationValues.push_back(toGltf(q));
-            }
-            ja.scaleTimes.reserve(scale.size());
-            ja.scaleValues.reserve(scale.size());
-            for (const auto& [ts, s] : scale) {
-                ja.scaleTimes.push_back(static_cast<float>(ts) / 1000.0f);
-                ja.scaleValues.push_back(toGltfScale(s));
-            }
-            anim.joints.push_back(std::move(ja));
         }
 
         if (!anim.joints.empty()) {
@@ -471,6 +591,26 @@ constexpr uint16_t kMaterialTwoSidedFlag = 0x04;
 struct BuiltMaterials {
     std::vector<gltf::Material> materials;
     std::vector<gltf::Primitive> primitives;
+    // Every distinct Submesh::skinSectionId (the "geoset ID", wowdev.wiki
+    // M2/.skin#Submeshes) actually referenced by a batch that became a
+    // primitive, sorted ascending -- see skin.hpp's Submesh doc comment.
+    // husk doesn't filter geosets yet (FAILURES2.md #1): every submesh in
+    // the .skin file gets exported, unconditionally, even when several are
+    // mutually-exclusive character-customization options (different
+    // hairstyles, etc.) that a real client would only ever draw one of at a
+    // time. Surfaced here so exportGlb can at least warn loudly when more
+    // than one distinct geoset actually ended up in the output, rather than
+    // silently merging them with no indication anything unusual happened.
+    std::vector<uint16_t> distinctSkinSectionIds;
+    // Number of batches whose textureCount is > 1 -- per wowdev.wiki
+    // M2/.skin#Texture_units, textureCount (1-4) means the real per-unit
+    // texture/UV-mapping/transparency lookups are `textureCount` consecutive
+    // entries starting at textureComboIndex, used for real, visually
+    // meaningful multi-texture effects (a second env-mapped "shine" layer on
+    // armor/weapons, genuinely independent two-texture blends) -- husk only
+    // ever resolves the first one (see FAILURES2.md #6), silently dropping
+    // any additional layer. Surfaced so exportGlb can at least say so.
+    size_t multiTextureBatchCount = 0;
 };
 
 // Everything buildMaterialsAndPrimitives needs out of the M2 itself (as
@@ -523,6 +663,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
         return result;
     }
 
+    std::set<uint16_t> skinSectionIds;
     for (size_t bi = 0; bi < batches.size(); ++bi) {
         const auto& b = batches[bi];
         if (b.skinSectionIndex >= submeshes.size()) {
@@ -532,6 +673,10 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                                       " submeshes");
         }
         const auto& sm = submeshes[b.skinSectionIndex];
+        skinSectionIds.insert(sm.skinSectionId);
+        if (b.textureCount > 1) {
+            ++result.multiTextureBatchCount;
+        }
         if (static_cast<size_t>(sm.indexStart) + sm.indexCount > triangleIndices.size()) {
             throw std::runtime_error(
                 "submesh " + std::to_string(b.skinSectionIndex) +
@@ -542,6 +687,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
         gltf::Primitive prim;
         prim.indices.assign(triangleIndices.begin() + sm.indexStart,
                              triangleIndices.begin() + sm.indexStart + sm.indexCount);
+        prim.skinSectionId = sm.skinSectionId;
 
         if (b.materialIndex >= m2.materials.size()) {
             throw std::runtime_error("batch " + std::to_string(bi) + "'s materialIndex (" +
@@ -656,6 +802,49 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                     }
                 }
             }
+
+            // Additional texture layers (textureCount > 1, FAILURES2.md #6):
+            // per wowdev.wiki M2/.skin#Texture_units, textureComboIndex is a
+            // *base* index -- layer i's real combo index is
+            // textureComboIndex + i ("If the textureCount is e.g. 3 and the
+            // texunit's uv anim lookup is 2, then the 3 uv animation lookups
+            // are 2, 3, and 4"). Resolved best-effort, not with the same
+            // "foreign data must fit its own claims" strictness as the
+            // primary texture above: this is supplementary metadata (see
+            // gltf::Material::AdditionalTextureLayer), not required for a
+            // usable export, so an out-of-range layer is skipped rather than
+            // failing the whole batch -- the base-index assumption itself
+            // isn't independently verified against a real multi-texture
+            // batch's exact semantics the way the rest of this parser's
+            // offsets are.
+            for (uint16_t layer = 1; layer < b.textureCount; ++layer) {
+                size_t comboIdx = static_cast<size_t>(b.textureComboIndex) + layer;
+                if (comboIdx >= m2.textureCombos.size()) break;
+                uint16_t layerTextureIndex = m2.textureCombos[comboIdx];
+                if (layerTextureIndex >= m2.textures.size()) continue;
+
+                gltf::Material::AdditionalTextureLayer al;
+                if (!m2.textureCoordCombos.empty()) {
+                    size_t coordComboIdx = static_cast<size_t>(b.textureCoordComboIndex) + layer;
+                    if (coordComboIdx < m2.textureCoordCombos.size() &&
+                        m2.textureCoordCombos[coordComboIdx] == 1) {
+                        al.texCoord = 1;
+                    }
+                }
+                if (m2.textureFileDataIds && layerTextureIndex < m2.textureFileDataIds->size()) {
+                    al.fileDataId = (*m2.textureFileDataIds)[layerTextureIndex];
+                    if (al.fileDataId != 0 && !texturesDir.empty()) {
+                        auto pngPath = std::filesystem::path(texturesDir) /
+                                       (std::to_string(al.fileDataId) + ".png");
+                        std::ifstream f(pngPath, std::ios::binary);
+                        if (f) {
+                            al.imagePng.assign(std::istreambuf_iterator<char>(f),
+                                                std::istreambuf_iterator<char>());
+                        }
+                    }
+                }
+                gm.additionalTextureLayers.push_back(std::move(al));
+            }
         }
 
         prim.materialIndex = static_cast<int>(result.materials.size());
@@ -663,6 +852,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
         result.primitives.push_back(std::move(prim));
     }
 
+    result.distinctSkinSectionIds.assign(skinSectionIds.begin(), skinSectionIds.end());
     return result;
 }
 
@@ -888,6 +1078,14 @@ int exportGlb(int argc, char** args) {
         auto blob = m2::extractBlob(modelBytes);
         auto vertices = m2::parseVertices(blob, header.vertices);
 
+        if (header.version < m2::kMinVerifiedRecordStrideVersion) {
+            std::cerr << "husk: warning: '" << modelPath << "' is version " << header.version
+                      << ", below Wrath (264) -- this parser's bones/sequences/ribbon_emitters "
+                         "record sizes are only documented and verified for Wrath+; the "
+                         "exported bind pose/animation/ribbon data may be silently wrong rather "
+                         "than failing loudly (see FAILURES2.md #3)\n";
+        }
+
         if (skinPath.empty()) {
             auto candidates = findSameBasenameSkins(modelPath);
             if (candidates.empty()) {
@@ -1013,7 +1211,16 @@ int exportGlb(int argc, char** args) {
                 animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
                 animInputs.animDir = animDir;
                 animations = buildAnimations(blob, bones, skeleton, sequences, animInputs);
-            } else if (haveSkel && findChunk(readChunks(skelBytes.data(), skelBytes.size()), "SKS1")) {
+                // Global-sequence-driven tracks (continuous looping
+                // animation independent of any M2Sequence -- see
+                // buildGlobalSequenceAnimations's doc comment,
+                // FAILURES2.md #7) aren't tied to `sequences` at all, so
+                // this runs unconditionally alongside the per-sequence
+                // clips above, not gated on any of them existing.
+                auto globalSeqAnims = buildGlobalSequenceAnimations(blob, bones, skeleton);
+                animations.insert(animations.end(), std::make_move_iterator(globalSeqAnims.begin()),
+                                   std::make_move_iterator(globalSeqAnims.end()));
+            } else if (haveSkel) {
                 // Same buildAnimations, pointed at the .skel's own blob
                 // (SKB1's payload, which is what `bones`'s track offsets
                 // are relative to -- see skel::boneTrackBlob) and its own
@@ -1025,13 +1232,21 @@ int exportGlb(int argc, char** args) {
                 // and skel::findAnimFileIds already returns nullopt rather
                 // than throwing for the symmetric "no AFID" case) as
                 // "no animation clips available," not export failure.
+                // Global-sequence-driven bone tracks are a property of the
+                // bones themselves, not of SKS1's sequences, so those are
+                // resolved even when a .skel has no SKS1 chunk at all.
                 auto skelTrackBlob = skel::boneTrackBlob(skelBytes);
-                auto sequences = skel::parseSequences(skelBytes);
-                M2AnimInputs animInputs;
-                animInputs.animFileIds = skel::findAnimFileIds(skelBytes);
-                animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
-                animInputs.animDir = animDir;
-                animations = buildAnimations(skelTrackBlob, bones, skeleton, sequences, animInputs);
+                if (findChunk(readChunks(skelBytes.data(), skelBytes.size()), "SKS1")) {
+                    auto sequences = skel::parseSequences(skelBytes);
+                    M2AnimInputs animInputs;
+                    animInputs.animFileIds = skel::findAnimFileIds(skelBytes);
+                    animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
+                    animInputs.animDir = animDir;
+                    animations = buildAnimations(skelTrackBlob, bones, skeleton, sequences, animInputs);
+                }
+                auto globalSeqAnims = buildGlobalSequenceAnimations(skelTrackBlob, bones, skeleton);
+                animations.insert(animations.end(), std::make_move_iterator(globalSeqAnims.begin()),
+                                   std::make_move_iterator(globalSeqAnims.end()));
             }
         }
 
@@ -1066,6 +1281,46 @@ int exportGlb(int argc, char** args) {
 
             auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs,
                                                        texturesDir);
+
+            // FAILURES2.md #1: husk doesn't filter geosets (skinSectionId) --
+            // every submesh in the .skin file is exported unconditionally,
+            // even when several are mutually-exclusive character-
+            // customization options (different hairstyles, facial hair,
+            // gear slots, ...) a real client would only ever draw one of at
+            // a time. Loudly note it rather than silently merging them with
+            // no indication multiple geosets ended up in the output.
+            if (built.distinctSkinSectionIds.size() > 1) {
+                std::cerr << "husk: note: '" << path << "'"
+                          << (name.empty() ? "" : " (" + name + ")")
+                          << "'s batches span " << built.distinctSkinSectionIds.size()
+                          << " distinct geoset IDs (skinSectionId: ";
+                for (size_t i = 0; i < built.distinctSkinSectionIds.size(); ++i) {
+                    if (i) std::cerr << ", ";
+                    std::cerr << built.distinctSkinSectionIds[i];
+                }
+                std::cerr << ") -- husk doesn't filter geosets yet, so every one of them is "
+                             "exported unfiltered into this mesh (see FAILURES2.md #1)\n";
+            }
+
+            // FAILURES2.md #6: a batch with textureCount > 1 has real,
+            // additional texture layers (a second env-mapped "shine" pass,
+            // a genuine two-texture blend) that husk still only wires the
+            // *first* of into the actual glTF material (WoW's fixed-
+            // function combiner math has no core-glTF equivalent to
+            // translate it into) -- the rest are captured as inert
+            // `extras` metadata (gltf::Material::additionalTextureLayers)
+            // for a custom renderer or Blender script to use, not silently
+            // dropped, but still worth noting since the *rendered* result
+            // remains single-texture.
+            if (built.multiTextureBatchCount > 0) {
+                std::cerr << "husk: note: '" << path << "'"
+                          << (name.empty() ? "" : " (" + name + ")") << "' has "
+                          << built.multiTextureBatchCount
+                          << " batch(es) with more than one texture (textureCount > 1) -- husk "
+                             "only wires the first texture per batch into the rendered "
+                             "material; additional layers are exported as inert 'extras' "
+                             "metadata (see FAILURES2.md #6), not applied to the render\n";
+            }
 
             gltf::NamedMesh nm;
             nm.name = name;
