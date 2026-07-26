@@ -6,12 +6,12 @@
 #include <doctest/doctest.h>
 #include <string>
 
-// Shared by tests/test_integration.cpp and tests/test_cli.cpp: spawns the
-// actual compiled `husk` binary (HUSK_BINARY, a compile definition set by
-// CMakeLists.txt) as a subprocess and captures combined stdout+stderr and
-// the exit code. Both files want to exercise the real CLI boundary --
-// argv parsing, cmd_info.cpp/cmd_export.cpp's own exception handling --
-// not the underlying parser functions directly.
+// Shared by tests/test_integration.cpp, tests/test_cli.cpp, and
+// tests/test_conformance.cpp: spawns a subprocess and captures combined
+// stdout+stderr and the exit code. Everyone wants to exercise a real CLI
+// boundary -- husk's own argv parsing/exception handling, or a real
+// downstream tool's (gltf_validator, blender) actual behavior -- not a
+// mocked stand-in.
 namespace husk::test {
 
 struct RunResult {
@@ -24,8 +24,12 @@ inline std::string envOrEmpty(const char* name) {
     return v ? std::string(v) : std::string();
 }
 
-inline RunResult runHusk(const std::string& args) {
-    std::string cmd = std::string(HUSK_BINARY) + " " + args + " 2>&1";
+// `command` is a fully-formed shell command line (executable + args,
+// already quoted as needed by the caller) -- this just adds output
+// capture, same as a hand-rolled `popen` call would, without repeating
+// the boilerplate at each call site.
+inline RunResult runCommand(const std::string& command) {
+    std::string cmd = command + " 2>&1";
     std::array<char, 4096> buf;
     std::string output;
 
@@ -36,6 +40,10 @@ inline RunResult runHusk(const std::string& args) {
     }
     int status = pclose(pipe);
     return {output, WEXITSTATUS(status)};
+}
+
+inline RunResult runHusk(const std::string& args) {
+    return runCommand(std::string(HUSK_BINARY) + " " + args);
 }
 
 }  // namespace husk::test

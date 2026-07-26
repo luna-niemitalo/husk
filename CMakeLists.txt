@@ -51,11 +51,31 @@ if(HUSK_BUILD_TESTS)
     tests/test_integration.cpp
     tests/test_cli.cpp
     tests/test_dump.cpp
+    tests/test_conformance.cpp
   )
   target_link_libraries(husk-tests PRIVATE husk-lib doctest::doctest)
   target_compile_definitions(husk-tests PRIVATE
     HUSK_BINARY="$<TARGET_FILE:husk>"
   )
   add_dependencies(husk-tests husk)
+
+  # Both optional: exercise real downstream consumers of exported .glb files
+  # (tests/test_conformance.cpp) when present in the dev shell, skip
+  # gracefully at runtime when not -- same convention as the real-data env
+  # vars in tests/test_integration.cpp.
+  find_program(HUSK_GLTF_VALIDATOR_PROGRAM gltf_validator)
+  if(HUSK_GLTF_VALIDATOR_PROGRAM)
+    target_compile_definitions(husk-tests PRIVATE
+      HUSK_GLTF_VALIDATOR="${HUSK_GLTF_VALIDATOR_PROGRAM}"
+    )
+  endif()
+  find_program(HUSK_BLENDER_PROGRAM blender)
+  if(HUSK_BLENDER_PROGRAM)
+    target_compile_definitions(husk-tests PRIVATE
+      HUSK_BLENDER="${HUSK_BLENDER_PROGRAM}"
+      HUSK_BLENDER_IMPORT_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/tests/blender_import_check.py"
+    )
+  endif()
+
   doctest_discover_tests(husk-tests)
 endif()

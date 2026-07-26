@@ -37,10 +37,23 @@
 
         # Khronos glTF-Validator: no nixpkgs derivation exists upstream, and
         # no Dart toolchain here to build from source -- pull the official
-        # precompiled Linux binary release instead. Single dynamically-linked
-        # ELF against plain glibc (libc/libm/libpthread/libdl), so
-        # autoPatchelfHook alone is enough to fix the interpreter + rpath;
-        # no extra buildInputs needed.
+        # precompiled Linux binary release instead. This is a Dart AOT
+        # executable: its actual app logic lives in a VM isolate snapshot
+        # appended into the ELF, and BOTH of stdenv's default ELF-mangling
+        # fixup steps corrupt that snapshot independently -- confirmed by
+        # hand: patchelf --set-interpreter alone (no strip) already breaks
+        # it, and separately dontPatchELF alone (leaving the default
+        # stripHook active) also breaks it. Only the combination of both
+        # dontPatchELF and dontStrip leaves the snapshot intact. Every
+        # broken variant "runs" as bare `dart` (e.g. `--help`/`--version`
+        # return generic Dart VM output) but dies with "VM initialization
+        # failed: Invalid vm isolate snapshot seen" on any real invocation.
+        # Fix: leave the ELF completely untouched and run it inside
+        # steam-run-free's FHS-compat sandbox instead (same mechanism as
+        # steam-run, MIT-licensed, no Steam binary in the closure -- plain
+        # steam-run pulls in the unfree steam-unwrapped package and fails
+        # eval under this flake's default unfree-disallow policy), which
+        # resolves the dynamic linker without ever rewriting the file.
         gltf-validator = pkgs.stdenv.mkDerivation rec {
           pname = "gltf-validator";
           version = "2.0.0-dev.3.10";
@@ -50,13 +63,17 @@
             hash = "sha256-Fo66iHlkElq+F66XiZs40LPP1zwmbHhCTBlJKd3LxSI=";
           };
           sourceRoot = ".";
-          nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+          dontPatchELF = true;
+          dontStrip = true;
+          nativeBuildInputs = [ pkgs.makeWrapper ];
 
           # Tarball unpacks flat: gltf_validator, LICENSE, NOTICES, docs/
           installPhase = ''
             runHook preInstall
             mkdir -p $out/bin $out/share/doc/gltf-validator
-            install -m755 gltf_validator $out/bin/
+            install -m755 gltf_validator $out/bin/.gltf_validator-unwrapped
+            makeWrapper ${pkgs.steam-run-free}/bin/steam-run $out/bin/gltf_validator \
+              --add-flags $out/bin/.gltf_validator-unwrapped
             cp -r LICENSE NOTICES docs $out/share/doc/gltf-validator/
             runHook postInstall
           '';
@@ -131,7 +148,7 @@
             echo "  cmake:   $(cmake --version | head -n1)"
             echo "  ccache:  $CCACHE_DIR"
 			echo "  blender: $(blender --version | head -n1)"
-			echo "  gltf-validator: $(gltf_validator --version)"
+			echo "  gltf-validator: gltf_validator ${gltf-validator.version}"
             echo "  doctest: available via find_package(doctest)"
             echo "  uv:      $(uv --version) -- cd blp/ && uv sync"
           '';

@@ -21,8 +21,12 @@ tool, `blp/`) converts BLP2 textures to PNG.
   palettized/DXT1/DXT5/BGRA). See `README.md`'s format-support matrix and roadmap for
   the exact per-feature state — that table is the source of truth, not this file.
 - **Target**: a real Blender import path for modern (Legion+ chunked) M2 — see
-  `DESIGN.md`'s Goal section. Roadmap stage 7 (Khronos glTF-Validator pass) is the
-  next real milestone; WMO and M3 are tracked, not started, by design.
+  `DESIGN.md`'s Goal section. All 8 roadmap stages are now done, including stage 7
+  (output hardening: real exports now run through the Khronos glTF-Validator *and*
+  headless Blender itself, `tests/test_conformance.cpp` — see Resume). Remaining
+  work is either scope expansion (WMO/M3, not started, by design) or the structural
+  gaps `TODO_correctness.md` already tracks (`AFSB`, `M2Particle`, `.bone`
+  LOD-context integration) — nothing currently in flight.
 - Anything not listed under Current does not exist yet. In particular: `M2Particle`/
   `M2Camera` are still count-only (not dereferenced); `.anim`'s `AFSB` chunk shape is
   undocumented and detected-but-skipped, not parsed. Three FAILURES2.md gaps
@@ -63,49 +67,45 @@ for every real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: `FAILURES2.md` (a second read-only inspection pass, follow-on to
-  `FAILURES.md`) done — 9 real findings fixed in `src/`/`tests/` (each with a
-  regression test), one (`M2.md` documentation-mirror finding) retracted as
-  mistaken. Three of those 9 were then pushed further than the initial
-  diagnostic-only fix, after Luna asked whether they could actually be solved:
-  - **#7 global-sequence animation** — fully resolved, real glTF clips. New
-    `m2::resolveVec3/QuatGlobalSequenceTrack` + `m2::parseGlobalLoops`
-    (`src/m2.cpp`/`.hpp`) resolve a global-sequence track's single outer
-    sub-array; `cmd_export.cpp`'s `buildGlobalSequenceAnimations` turns every
-    distinct global-sequence index a model's bones use into a real clip
-    (`global_seq_<n>`). `bloodelffemale.m2`: 256 → 258 clips.
-  - **#1 geoset selection + #6 multi-texture layers** — not filtered/rendered
-    (still can't be, without DBC data / a core-glTF multi-layer slot — see
-    below), but no longer diagnostic-only either: every submesh's real
-    `skinSectionId` (+derived `geoset_group`/`geoset_variant`) and every
-    additional (`textureCount > 1`) texture layer's FileDataID/UV-set (+a real
-    embedded-but-unused image when `--textures` has a match) are now inert
-    glTF `extras` on each primitive/material — `gltf::Primitive::skinSectionId`,
-    `gltf::Material::additionalTextureLayers` (`src/gltf.hpp`/`.cpp`), wired
-    from `cmd_export.cpp`'s `buildMaterialsAndPrimitives`. Same "tag it, don't
-    guess at semantics" precedent `billboardMode` already set. Luna's own
-    framing settled the design question: Blender (mesh masks, geometry nodes,
-    driven materials) can implement selection/toggling itself once the data's
-    there with distinguishing metadata — husk doesn't need to split submeshes
-    into separate glTF nodes for that to work, tagging-in-place is enough.
-  258/258 tests passing (synthetic + real-data integration against
-  `bloodelffemale.m2`, including its 66 real geosets and 1 real multi-texture
-  batch). Luna independently split the old single `README.md` into `README.md`
-  (usage/status/roadmap) + `DESIGN.md` (architecture rationale) during this same
-  session; that split is reflected in this file and is otherwise Luna's edit, not
-  touched further.
-- **Next step**: nothing in flight. If picking this back up: `FAILURES2.md` #1/#6
-  are about as far as they reasonably go without either DBC/DB2 access (out of
-  scope, hard project non-goal) or a documented WoW combiner-math translation to
-  core glTF (doesn't exist) — further work there would be Blender-side (a script/
-  addon reading the `extras` this session added), not more husk parsing. `.bone`
-  LOD-context integration, `M2Particle`/`M2Camera` dereferencing, and `AFSB`
-  reverse-engineering remain the open structural gaps (`TODO_correctness.md`).
-- **Hazards**: `README.md`'s Usage/roadmap prose still says things like "husk info
-  resolves and prints attachments/events/lights records" without yet mentioning the
-  newer per-texture/material printing, the now-258-not-256 animation-clip count for
-  `bloodelffemale.m2`, or the geoset/multi-texture-layer `extras` metadata added
-  this session — the format matrix and roadmap text haven't been synced to
-  `FAILURES2.md`'s fixes yet (deliberately deferred while Luna was mid-edit on
-  `README.md`/`DESIGN.md` concurrently — don't touch those two files without
-  rereading them fresh first, they may have moved again).
+- **Last state**: roadmap stage 7 (output hardening) closed out this session —
+  every real export now runs through two independent real downstream consumers
+  in `tests/test_conformance.cpp` (2 new tests, 258 → 260 total), not just
+  tinygltf's own permissive reader:
+  - The Khronos glTF-Validator CLI (`gltf_validator`), asserting zero
+    validator-reported errors. Getting this running surfaced a real nix
+    packaging bug in `nix/flake.nix`'s `gltf-validator` derivation (added
+    just before this session, from the official precompiled Linux release):
+    it's a Dart-AOT binary whose app logic lives in a VM isolate snapshot
+    appended to the ELF, and *both* `autoPatchelfHook`'s interpreter rewrite
+    and stdenv's default strip step independently corrupt that snapshot —
+    confirmed by hand-testing each in isolation. Fixed with `dontPatchELF`/
+    `dontStrip` plus running the untouched binary through `steam-run-free`
+    (same FHS-sandbox mechanism as `steam-run`, MIT-licensed, doesn't pull in
+    Steam's unfree bits the way plain `steam-run` does).
+  - Blender itself, run headlessly (`--background --factory-startup`, so it's
+    hermetic against personal addon config) via new `tests/
+    blender_import_check.py`, which imports the glb and prints bone/mesh/
+    animation counts. The C++ test cross-checks those against tinygltf's own
+    reading of the *same* file rather than hardcoded fixture numbers, so
+    agreement between two independent glTF implementations is the actual
+    signal, not a tautology.
+  Verified against real data: `bloodelffemale.m2` passes the validator with 0
+  errors/0 warnings; Blender's importer agrees with tinygltf on 119 bones and
+  258 animation clips. `tests/run_husk.hpp`'s subprocess-runner was generalized
+  (`runCommand`, with `runHusk` now a thin wrapper) to spawn `gltf_validator`/
+  `blender`, not just the `husk` binary. README.md's roadmap stage 7 and
+  Testing section were updated to match (was previously the one open roadmap
+  stage; all 8 are done now).
+- **Next step**: nothing in flight. The remaining known gaps are exactly the
+  ones `TODO_correctness.md` already tracks (`AFSB` reverse-engineering,
+  `M2Particle` dereferencing, `.bone` LOD-context integration) plus optional
+  scope expansion (WMO/M3, or Blender-side tooling — a script/addon reading
+  the geoset/multi-texture-layer `extras` `FAILURES2.md` #1/#6 added) — none
+  of that is a husk-parsing task.
+- **Hazards**: `ctest` (unlike running `./build/husk-tests` directly) executes
+  from `build/`, not repo root — the `HUSK_TEST_M2`/`HUSK_TEST_SKIN` env vars
+  need absolute paths when driving the real-data tests through `ctest`
+  specifically, or every one of them fails on a bad relative path, not a real
+  regression. No other known-stale doc content as of this session — checked
+  README.md's roadmap/Testing text against the actual current source and
+  they agree.

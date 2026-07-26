@@ -690,12 +690,26 @@ above; this section is about *sequencing* that work, not duplicating it.
    `AFRA`/`DETL`/`PFDC`/`PCOL`/`EXP2`), are still included as a raw hex
    dump plus a note explaining why, rather than silently dropped -- see
    `DESIGN.md` for the per-chunk reasoning.
-7. **Output hardening.** Validate actual `.glb` output against the
-   Khronos glTF-Validator, not just "Blender didn't crash on import."
-   ~~Decide the LOD/skin-profile policy~~ Done, then extended -- see stage
-   8 below: the default stayed "always emit the highest-detail skin
-   profile," but it's no longer the only option. The glTF-Validator part
-   is still open.
+7. **Output hardening. Done** — every real-data export
+   (`tests/test_conformance.cpp`) now runs through two independent, real
+   downstream consumers, not just tinygltf's own (fairly permissive)
+   reader: the Khronos glTF-Validator CLI (`gltf_validator`, packaged in
+   `nix/flake.nix` from the official precompiled release -- see that
+   file's own comment for a real packaging gotcha this surfaced: the
+   binary is Dart-AOT, and both `autoPatchelfHook`'s ELF rewrite *and*
+   stdenv's default strip step independently corrupt its embedded VM
+   snapshot; fixed with `dontPatchELF`/`dontStrip` plus a `steam-run-free`
+   wrapper instead of patching the file at all), asserting zero validator
+   errors; and Blender itself, run headlessly (`blender --background
+   --factory-startup`) via `tests/blender_import_check.py`, cross-checked
+   against tinygltf's own reading of the same file (bone count, animation
+   clip count) so the test can't pass by both readers sharing the same
+   blind spot. Verified against real data: `bloodelffemale.m2`'s export
+   passes the validator with 0 errors/0 warnings, and Blender's importer
+   agrees with tinygltf on both bone count (119) and animation clip count
+   (258). ~~Decide the LOD/skin-profile policy~~ Done, then extended --
+   see stage 8 below: the default stayed "always emit the highest-detail
+   skin profile," but it's no longer the only option.
 8. **Multi-LOD export (`--lod`). Done** — `husk export auto`'s default
    (SFID entry 0, stage 7's policy) can now be overridden: `--lod <n>`
    picks a specific SFID entry instead (`husk info`'s `skin_file_data_ids`
@@ -739,6 +753,17 @@ Same two-tier split as `casc-tool`:
   specifically -- its per-chunk JSON logic lives entirely inside
   `cmd_dump.cpp`'s own translation unit, so this is the only way to reach
   it at all.
+- **Conformance** (`tests/test_conformance.cpp`) — a fourth tier, answering
+  a different question than Integration's "did husk itself run correctly":
+  does a real downstream *consumer* accept the output? Runs the same real
+  export through the Khronos glTF-Validator CLI (`gltf_validator`) and
+  through Blender's own importer, headlessly (`blender --background
+  --factory-startup --python tests/blender_import_check.py`), cross-
+  checking Blender's reported bone/animation counts against tinygltf's own
+  reading of the same file rather than hardcoded fixture numbers. Both
+  tools are optional in the nix flake devShell (`blender`, `gltf-validator`
+  in `nix/flake.nix`) -- skipped, not failed, if either isn't on `PATH`, on
+  top of the same `HUSK_TEST_M2`/`HUSK_TEST_SKIN` gating as Integration.
 - **Integration** (`tests/test_integration.cpp`) — runs the compiled
   `husk` binary against a real, game-extracted `.m2` (+ matching `.skin`,
   for `export`) as a subprocess. Deliberately asserts only on shape (exit
