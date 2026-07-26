@@ -96,6 +96,7 @@
           ccache
           doctest
           tinygltf
+          cli11
           casc-tool.packages.${pkgs.system}.default
           blender
           gltf-validator
@@ -121,7 +122,10 @@
             pkgs.ninja
           ];
 
-          buildInputs = [ pkgs.tinygltf ];
+          buildInputs = [
+            pkgs.tinygltf
+            pkgs.cli11
+          ];
 
           cmakeFlags = [ "-DHUSK_BUILD_TESTS=OFF" ];
 

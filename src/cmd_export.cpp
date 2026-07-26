@@ -8,6 +8,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include <CLI/CLI.hpp>
+
 #include "chunk.hpp"
 #include "commands.hpp"
 #include "gltf.hpp"
@@ -30,70 +32,13 @@
 // keyframes into real glTF animation clips, for a model's own inline bones
 // and (via skel::parseSequences/skel::boneTrackBlob/skel::findAnimFileIds)
 // a .skel-sourced skeleton alike -- either way, only for sequences whose
-// keyframe data actually resolves: inline, via --anim-dir for an AFM2-shape
+// keyframe data actually resolves: inline, via --anim for an AFM2-shape
 // external .anim file, or not at all for a .skel sequence whose external
 // data is in the AFSB shape husk doesn't parse yet (see buildAnimations's
 // doc comment below).
 namespace husk::commands {
 
 namespace {
-
-void printUsage(std::ostream& out = std::cerr) {
-    out << "usage: husk export <file.m2> [<file.skin>|auto [<output.glb> [file.skel]]]\n"
-           "                    [--textures <dir>] [--skin-dir <dir>] [--anim-dir <dir>]\n"
-           "                    [--lod <n>|all]\n"
-           "\n"
-           "Only <file.m2> is required -- everything else defaults from what's\n"
-           "sitting next to it: an omitted .skin path looks for a same-named\n"
-           "'<basename><N>.skin' file in the model's own directory (picking the\n"
-           "lowest-numbered/highest-detail one if more than one matches); an\n"
-           "omitted output path defaults to '<basename>.glb'; an omitted .skel\n"
-           "path (only relevant when the model has 0 inline bones) checks for a\n"
-           "same-named '<basename>.skel' next to the model; and --textures/\n"
-           "--skin-dir/--anim-dir all default to the model's own directory\n"
-           "instead of requiring three separate flags for what's normally the\n"
-           "same one directory a real extraction already drops everything\n"
-           "into. Every default is overridable by just giving that argument\n"
-           "explicitly, and every one of these positionals is trailing-\n"
-           "optional (you can stop early, but can't skip one in the middle).\n"
-           "\n"
-           "Exports a mesh: resolves the M2's vertex array and the .skin\n"
-           "file's triangle-index lookup tables, converts WoW's Z-up\n"
-           "coordinates to glTF's Y-up, and writes a glTF binary (.glb) --\n"
-           "one primitive per .skin batch, with WoW's blend mode/render\n"
-           "flags translated to glTF's alphaMode/doubleSided. If the M2\n"
-           "has bones, they're exported as a glTF skin, with real\n"
-           "animation clips, one per M2Sequence whose keyframe data\n"
-           "resolves -- either inline, or via --anim-dir <dir> pointing at\n"
-           "a directory of already-extracted '<FileDataID>.anim' files\n"
-           "(same local-directory-by-FileDataID convention as\n"
-           "--skin-dir/--textures) for sequences whose data lives in an\n"
-           "external .anim file instead (husk reads the FileDataID off the\n"
-           "model's AFID chunk, it just doesn't fetch the file itself).\n"
-           "Some models (see `husk info`'s output) keep their bones in a\n"
-           "separate .skel file instead of inline -- pass its path as the\n"
-           "optional 4th argument to use those; animation clips still work\n"
-           "for that case (own SKS1 sequences/AFID table), except for\n"
-           "sequences whose external data lives in a .skel-only 'AFSB'\n"
-           ".anim shape husk doesn't parse yet (see README.md). husk doesn't\n"
-           "resolve texture/skin FileDataIDs to actual\n"
-           "BLP/.skin files itself (no CASC/listfile access, see\n"
-           "README.md) -- pass --textures <dir> pointing at a directory of\n"
-           "already-converted (via husk-blp, see blp/) PNGs named\n"
-           "'<FileDataID>.png' to embed real baseColorTexture images;\n"
-           "without it, materials still get the right blend mode/culling,\n"
-           "just no image. Pass the literal word 'auto' instead of a\n"
-           ".skin path, plus --skin-dir <dir> pointing at a directory of\n"
-           "already-extracted '<FileDataID>.skin' files, to auto-select\n"
-           "the model's highest-detail LOD (M2's SFID chunk) instead of\n"
-           "naming a .skin file explicitly. --lod only does anything\n"
-           "alongside 'auto': --lod <n> picks SFID entry n instead of\n"
-           "always 0 (see husk info's SFID listing for how many entries a\n"
-           "model has); --lod all resolves every entry and exports one\n"
-           "named node per LOD tier ('lod0', 'lod1', ...) in the same\n"
-           ".glb, all sharing one skeleton/animation set (every LOD of\n"
-           "one M2 draws from the same bones array).\n";
-}
 
 std::vector<uint8_t> readFileBytes(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
@@ -494,7 +439,7 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                 // useful output) -- an AFSB chunk being present at all
                 // means husk can't use this file, regardless of whether
                 // AFM2 also is. Skip it, same "husk doesn't have this one"
-                // policy as a missing --anim-dir file, rather than letting
+                // policy as a missing --anim-resolved file, rather than letting
                 // a downstream bounds check throw over a shape it was
                 // never told to expect.
                 auto topChunks = readChunks(animFileBytes.data(), animFileBytes.size());
@@ -931,9 +876,9 @@ const std::vector<uint32_t>& requireSkinFileDataIds(const m2::Header& header,
     return *header.skinFileDataIds;
 }
 
-// Resolves the literal "auto" .skin path (see printUsage) via the M2's own
-// SFID chunk, honoring an optional --lod selection (`lodArg`, "" if not
-// given). "": the roadmap-stage-7 policy this always followed before --lod
+// Resolves the literal "auto" .skin path via the M2's own SFID chunk,
+// honoring an optional --lod selection (`lodArg`, "" if not given). "":
+// the roadmap-stage-7 policy this always followed before --lod
 // existed -- SFID entry 0, "the main skin aka lod0" (wowdev.wiki M2#SFID),
 // the highest-detail LOD. "<n>": SFID entry n instead (0-based), letting a
 // caller deliberately ask for a lower-detail tier LDV1's lodCount says
@@ -951,9 +896,15 @@ std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::
                                                                         const std::string& modelPath,
                                                                         const std::string& lodArg) {
     if (skinDir.empty()) {
+        // Only reachable via --lod/an indexed 'auto' resolution with
+        // --skin-dir explicitly 'none' -- exportGlb's caller already
+        // rejects this combination before parsing the model at all (see
+        // its own "--lod ... --skin-dir 'none'" check), so this is a
+        // belt-and-suspenders guard, not the primary error path.
         throw std::runtime_error(
-            "'auto' was given for the .skin path but --skin-dir wasn't -- pass --skin-dir <dir> "
-            "pointing at a directory of already-extracted '<FileDataID>.skin' files");
+            "'auto' needs a --skin-dir to search (got 'none') -- pass --skin-dir <dir> pointing at "
+            "a directory of already-extracted '<FileDataID>.skin' files, or drop --lod so 'auto' "
+            "can fall back to the same-basename numbered scan instead");
     }
     const auto& ids = requireSkinFileDataIds(header, modelPath);
     auto pathFor = [&](size_t index) {
@@ -1039,105 +990,196 @@ std::vector<std::pair<int, std::string>> findSameBasenameSkins(const std::string
     return found;
 }
 
-}  // namespace
+// Resolves `--skin auto` (CLI11 rejects the literal 'none' at parse time,
+// and an explicit .skin path never reaches this function at all -- see
+// addExportOptions/exportGlb) for the common case of no explicit --lod:
+// folds what used to be two independent code paths (an omitted .skin
+// positional -> findSameBasenameSkins only; the literal word "auto" ->
+// resolveAutoSkinPaths only) into the single 'auto' state DESIGN.md
+// decided on. Order matters: the SFID-declared FileDataID (the model's own
+// self-description) is tried first, in `skinDir` (unless `skinDirNone`,
+// which skips this stage entirely); the same-basename numbered scan next
+// to the model is the fallback, tried only when the SFID stage didn't
+// resolve to a file that actually exists. An explicit --lod is handled
+// separately by exportGlb (via resolveAutoSkinPaths directly) -- there's
+// no equivalent of an indexed/'all' selection in the same-basename scan,
+// so --lod always commits to the SFID stage with no fallback, same as
+// before this migration.
+std::vector<std::pair<std::string, std::string>> resolveSkin(const m2::Header& header,
+                                                               const std::string& modelPath,
+                                                               const std::string& skinDir,
+                                                               bool skinDirNone) {
+    bool sfidPresent = header.skinFileDataIds && !header.skinFileDataIds->empty();
 
-int exportGlb(int argc, char** args) {
-    for (int i = 0; i < argc; ++i) {
-        if (isHelpFlag(args[i])) {
-            printUsage(std::cout);
-            return 0;
+    if (!skinDirNone && sfidPresent) {
+        std::string candidate =
+            (std::filesystem::path(skinDir) / (std::to_string((*header.skinFileDataIds)[0]) + ".skin"))
+                .string();
+        std::error_code ec;
+        if (std::filesystem::exists(candidate, ec) && !ec) {
+            std::cerr << "husk: note: 'auto' resolved '" << candidate
+                      << "' (SFID entry 0, highest-detail LOD)\n";
+            return {{"", candidate}};
         }
     }
-    if (argc < 1) {
-        printUsage();
-        return 1;
+
+    auto candidates = findSameBasenameSkins(modelPath);
+    if (!candidates.empty()) {
+        std::cerr << "husk: note: 'auto' resolved '" << candidates.front().second
+                  << "' via the same-basename numbered scan";
+        if (candidates.size() > 1) {
+            std::cerr << " (lowest-numbered of " << candidates.size()
+                      << " same-basename .skin files found next to the model)";
+        }
+        std::cerr << "\n";
+        return {{"", candidates.front().second}};
     }
 
-    std::string modelPath = args[0];
-    // Up to 3 bare positionals after the model, in order: .skin path,
-    // output .glb path, .skel path -- each one trailing-optional (you can
-    // stop early, but can't skip one in the middle without a placeholder),
-    // same convention as e.g. `cp src [dst]`. Omitted ones default once the
-    // model's own header/directory are known (see below): an empty
-    // `skinPath` triggers findSameBasenameSkins; an empty `outputPath`
-    // defaults to the model's own basename + ".glb"; an empty `skelPath`
-    // (only relevant when the model's own inline bones are empty) checks
-    // for a same-basename ".skel" next to the model. Every existing
-    // 2/3/4-bare-positional invocation is completely unaffected -- this
-    // only adds new, shorter ones.
-    std::vector<std::string> positionals;
-    std::string texturesDir;
-    std::string skinDir;
-    std::string animDir;
-    std::string lodArg;
+    std::string reason;
+    if (skinDirNone) {
+        reason = "--skin-dir is 'none', so the SFID stage was skipped entirely";
+    } else if (!sfidPresent) {
+        reason = "'" + modelPath + "' has no SFID chunk (or it's empty) -- this M2 doesn't carry "
+                                    "skin FileDataIDs to auto-select from (pre-Legion M2s never do)";
+    } else {
+        reason = "the SFID-declared FileDataID's .skin wasn't found in '" + skinDir + "'";
+    }
+    throw std::runtime_error("'auto' couldn't resolve a .skin file for '" + modelPath + "': " + reason +
+                              ", and no same-named '<model-basename><N>.skin' file exists next to it "
+                              "either -- pass an explicit .skin path instead of 'auto'");
+}
 
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = args[i];
-        if (arg == "--textures") {
-            if (i + 1 >= argc) {
-                printUsage();
-                return 1;
-            }
-            texturesDir = args[++i];
-        } else if (arg == "--skin-dir") {
-            if (i + 1 >= argc) {
-                printUsage();
-                return 1;
-            }
-            skinDir = args[++i];
-        } else if (arg == "--anim-dir") {
-            if (i + 1 >= argc) {
-                printUsage();
-                return 1;
-            }
-            animDir = args[++i];
-        } else if (arg == "--lod") {
-            if (i + 1 >= argc) {
-                printUsage();
-                return 1;
-            }
-            lodArg = args[++i];
-        } else if (positionals.size() < 3) {
-            positionals.push_back(arg);
-        } else {
-            printUsage();
+}  // namespace
+
+// See commands.hpp's doc comment on ExportOptions: this is the one place
+// export's flag surface is declared, shared by exportGlb's own real parse
+// and main.cpp's `--print-completion` introspection.
+void addExportOptions(CLI::App& app, ExportOptions& opts) {
+    app.add_option("-i,--input,input", opts.modelPath, "the .m2 file to export")->required();
+    app.add_option("-o,--output,output", opts.outputPath,
+                    "output .glb path (default: '<model-basename>.glb')");
+    app.add_option("-s,--skin", opts.skinArg,
+                    "a .skin path, or 'auto' to resolve via the model's own SFID chunk, falling "
+                    "back to a same-basename numbered scan next to the model if that doesn't "
+                    "resolve")
+        ->capture_default_str()
+        ->check(
+            [](const std::string& v) -> std::string {
+                if (v == "none") {
+                    return "--skin takes a .skin path or 'auto', never 'none' -- a .skin file is "
+                           "the sole source of triangle/submesh/batch data, not optional "
+                           "enrichment (pass an explicit path instead)";
+                }
+                return "";
+            },
+            "SKIN");
+    app.add_option("-t,--textures", opts.texturesArg,
+                    "directory of already-converted '<FileDataID>.png' files, or 'none' to skip "
+                    "embedding images (default: the model's own directory)");
+    app.add_option("--skin-dir", opts.skinDirArg,
+                    "directory 'auto' searches for the SFID-declared '<FileDataID>.skin' file, or "
+                    "'none' to skip that stage (default: the model's own directory)");
+    app.add_option("-a,--anim", opts.animArg,
+                    "'auto': inline + global-sequence + best-effort external directory search; "
+                    "'inline': inline + global-sequence only, no external search; 'none': no "
+                    "animation clips at all (bind pose only); or a directory of "
+                    "'<FileDataID>.anim' files")
+        ->capture_default_str();
+    app.add_option("--skel", opts.skelArg,
+                    "external .skel path (only relevant for a model with 0 inline bones), or "
+                    "'none' to never look for one (default: a same-basename '.skel' next to the "
+                    "model, if any)");
+    app.add_option("--lod", opts.lodArg,
+                    "'<n>' or 'all' -- only meaningful when --skin resolves via 'auto' (default: "
+                    "entry 0)");
+}
+
+int exportGlb(int argc, char** args) {
+    ExportOptions opts;
+    CLI::App app{"husk export: WoW M2 (+ .skin/.skel/.anim sidecars) -> glTF 2.0 (.glb)",
+                 "husk export"};
+    addExportOptions(app, opts);
+
+    try {
+        // App::parse(vector<string>&) processes tokens back-to-front
+        // (mirroring how its (argc, argv) sibling reverses argv before
+        // handing off to the same internal _parse) -- reverse `args` into
+        // that expected order, or every flag's value binds to the wrong
+        // neighbor.
+        std::vector<std::string> argVec(args, args + argc);
+        std::reverse(argVec.begin(), argVec.end());
+        app.parse(argVec);
+    } catch (const CLI::ParseError& e) {
+        return app.exit(e);
+    }
+
+    const std::string& modelPath = opts.modelPath;
+    std::string outputPath = opts.outputPath;
+    bool skinDirGiven = app.count("--skin-dir") > 0;
+    bool lodGiven = !opts.lodArg.empty();
+
+    // --skin-dir/--lod only mean anything alongside --skin auto (the
+    // default) -- an explicit .skin path has no SFID-resolution stage for
+    // either of them to modify.
+    if (opts.skinArg != "auto") {
+        if (skinDirGiven) {
+            std::cerr << "husk: --skin-dir only does anything when --skin is 'auto'\n";
+            return 1;
+        }
+        if (lodGiven) {
+            std::cerr << "husk: --lod only does anything when --skin is 'auto'\n";
             return 1;
         }
     }
-    std::string skinPath = positionals.size() > 0 ? positionals[0] : "";
-    std::string outputPath = positionals.size() > 1 ? positionals[1] : "";
-    std::string skelPath = positionals.size() > 2 ? positionals[2] : "";
-
-    if (!skinDir.empty() && skinPath != "auto") {
-        std::cerr << "husk: --skin-dir only does anything when the .skin path is 'auto'\n";
-        return 1;
-    }
-    if (!lodArg.empty() && skinPath != "auto") {
-        std::cerr << "husk: --lod only does anything when the .skin path is 'auto'\n";
+    if (lodGiven && skinDirGiven && opts.skinDirArg == "none") {
+        std::cerr << "husk: --lod needs the SFID-based resolution --skin-dir 'none' disables\n";
         return 1;
     }
 
-    if (outputPath.empty()) {
+    if (app.count("--output") == 0) {
         outputPath = std::filesystem::path(modelPath).replace_extension(".glb").string();
         std::cerr << "husk: note: no output path given -- writing to '" << outputPath << "'\n";
     }
-    // --textures/--skin-dir/--anim-dir all default to the model's own
-    // directory when not given explicitly -- a real casc-tool-style
-    // extraction drops the .m2 and every sidecar it needs (BLP-converted
-    // PNGs, .skin/.anim files) into one directory together (see
-    // README.md's Usage section), so requiring three separate flags for
-    // what's normally the same one directory was pure friction. An explicit
-    // flag still overrides this for the FileDataID-renamed-directory
-    // workflow (see resolveAutoSkinPaths). This runs after the --skin-dir/
-    // 'auto' mismatch checks above so defaulting skinDir here can't mask a
-    // real usage error.
-    {
-        std::filesystem::path modelDir = std::filesystem::path(modelPath).parent_path();
-        std::string modelDirStr = modelDir.empty() ? "." : modelDir.string();
-        if (texturesDir.empty()) texturesDir = modelDirStr;
-        if (skinDir.empty()) skinDir = modelDirStr;
-        if (animDir.empty()) animDir = modelDirStr;
+
+    std::filesystem::path modelDir = std::filesystem::path(modelPath).parent_path();
+    std::string modelDirStr = modelDir.empty() ? "." : modelDir.string();
+
+    // --textures/--skin-dir: three-state resolution (~/docs/CLI.md §2.11)
+    // -- unset defaults to the model's own directory (a real casc-tool-
+    // style extraction drops the .m2 and every sidecar it needs into one
+    // directory together, see README.md's Usage section); an explicit
+    // 'none' means deliberately skip, never attempted; anything else
+    // overrides. (--skel gets the identical three states below, but its
+    // "unset" default -- a same-basename '.skel' next to the model -- is a
+    // filesystem *check*, not a fixed directory, so it's resolved later,
+    // once bones are known to actually be needed.)
+    std::string texturesDir = app.count("--textures") ? opts.texturesArg : modelDirStr;
+    if (texturesDir == "none") texturesDir.clear();
+
+    bool skinDirNone = skinDirGiven && opts.skinDirArg == "none";
+    std::string skinDir = skinDirNone ? "" : (skinDirGiven ? opts.skinDirArg : modelDirStr);
+
+    // --anim: four states, not three (see DESIGN.md's "Does inline
+    // generalize past --anim?") -- inline M2Sequence/global-sequence bone
+    // tracks and external-.anim-directory resolution are independent axes.
+    // 'inline' deliberately leaves `animDir` empty rather than setting a
+    // separate flag: buildAnimations already treats an empty animDir as
+    // "skip external resolution" (its own doc comment), which is exactly
+    // what 'inline' means -- inline/global-sequence tracks aren't gated on
+    // animDir at all, so they still resolve.
+    std::string animDir;
+    bool animNone = false;
+    if (opts.animArg == "auto") {
+        animDir = modelDirStr;
+    } else if (opts.animArg == "none") {
+        animNone = true;
+    } else if (opts.animArg != "inline") {
+        animDir = opts.animArg;
     }
+
+    bool skelGiven = app.count("--skel") > 0;
+    bool skelNone = skelGiven && opts.skelArg == "none";
+    std::string skelPath = (skelGiven && !skelNone) ? opts.skelArg : "";
 
     try {
         auto modelBytes = readFileBytes(modelPath);
@@ -1151,25 +1193,6 @@ int exportGlb(int argc, char** args) {
                          "record sizes are only documented and verified for Wrath+; the "
                          "exported bind pose/animation/ribbon data may be silently wrong rather "
                          "than failing loudly (see FAILURES2.md #3)\n";
-        }
-
-        if (skinPath.empty()) {
-            auto candidates = findSameBasenameSkins(modelPath);
-            if (candidates.empty()) {
-                throw std::runtime_error(
-                    "no .skin path given, and no same-named '<model-basename><N>.skin' file found "
-                    "next to '" +
-                    modelPath +
-                    "' -- pass one explicitly, or 'auto' + --skin-dir <dir> for the "
-                    "FileDataID-renamed-directory convention");
-            }
-            skinPath = candidates.front().second;
-            std::cerr << "husk: note: no .skin path given -- resolved '" << skinPath << "'";
-            if (candidates.size() > 1) {
-                std::cerr << " (lowest-numbered of " << candidates.size()
-                          << " same-basename .skin files found next to the model)";
-            }
-            std::cerr << "\n";
         }
 
         M2MaterialInputs m2Inputs;
@@ -1187,17 +1210,26 @@ int exportGlb(int argc, char** args) {
         // One (node name, .skin path) pair per LOD tier to export -- just
         // one, unnamed ("lod" only appears in a node name once --lod
         // resolves more than a single entry, see resolveAutoSkinPaths), for
-        // every case except 'auto' + --lod all.
+        // every case except 'auto' + --lod all. --skin auto without an
+        // explicit --lod folds the SFID-first/same-basename-scan-fallback
+        // resolution (resolveSkin); an explicit --lod always commits to
+        // the SFID stage (resolveAutoSkinPaths) since the same-basename
+        // scan has no indexed/'all' equivalent to fall back to (see
+        // DESIGN.md).
         std::vector<std::pair<std::string, std::string>> skinsToExport;
-        if (skinPath == "auto") {
-            skinsToExport = resolveAutoSkinPaths(header, skinDir, modelPath, lodArg);
-            for (const auto& [name, path] : skinsToExport) {
-                std::cerr << "husk: note: resolved 'auto' -> '" << path << "'"
-                          << (name.empty() ? " (SFID entry 0, highest-detail LOD)\n"
-                                            : " (SFID, " + name + ")\n");
+        if (opts.skinArg == "auto") {
+            if (lodGiven) {
+                skinsToExport = resolveAutoSkinPaths(header, skinDir, modelPath, opts.lodArg);
+                for (const auto& [name, path] : skinsToExport) {
+                    std::cerr << "husk: note: 'auto' resolved '" << path << "'"
+                              << (name.empty() ? " (SFID entry 0, highest-detail LOD)\n"
+                                                : " (SFID, " + name + ")\n");
+                }
+            } else {
+                skinsToExport = resolveSkin(header, modelPath, skinDir, skinDirNone);
             }
         } else {
-            skinsToExport.emplace_back("", skinPath);
+            skinsToExport.emplace_back("", opts.skinArg);
         }
 
         // Base mesh geometry -- the M2's own global vertex list, shared by
@@ -1239,18 +1271,32 @@ int exportGlb(int argc, char** args) {
         bool bonesAreInline = !bones.empty();
         std::vector<uint8_t> skelBytes;
         bool haveSkel = false;
-        if (bonesAreInline && !skelPath.empty()) {
-            std::cerr << "husk: note: '" << modelPath << "' has its own inline bones; ignoring '"
-                      << skelPath << "'\n";
-        } else if (!bonesAreInline && skelPath.empty()) {
-            // No .skel path given, and this model's own inline bones are
-            // empty -- check for a same-basename .skel next to the model
-            // (the README's own worked example is exactly this shape:
-            // bloodelffemale_hd.m2 + bloodelffemale_hd.skel, same
-            // directory). Not finding one isn't an error: plenty of 0-bone
-            // models genuinely have no skeleton at all, and this model
-            // falls back to the same unskinned-mesh output it always did
-            // when no .skel was given.
+        // --skel: three-state resolution (~/docs/CLI.md §2.11) -- 'none'
+        // means never look, even if a same-basename .skel exists (checked
+        // first, regardless of bonesAreInline, since it's a deliberate
+        // skip); an explicit path overrides; unset means auto-detect a
+        // same-basename '.skel' next to the model (the README's own
+        // worked example is exactly this shape: bloodelffemale_hd.m2 +
+        // bloodelffemale_hd.skel). Inline bones already present makes any
+        // of this moot -- only the "ignore it, and say so" note differs
+        // between an explicit override and 'none' (nothing to ignore for
+        // 'none', since the user already said not to look).
+        if (bonesAreInline) {
+            if (skelGiven && !skelNone) {
+                std::cerr << "husk: note: '" << modelPath << "' has its own inline bones; ignoring '"
+                          << skelPath << "'\n";
+            }
+        } else if (skelNone) {
+            // Deliberately skip -- forces an unskinned mesh regardless of
+            // whether a same-basename '.skel' actually exists.
+        } else if (skelGiven) {
+            skelBytes = readFileBytes(skelPath);
+            haveSkel = true;
+            bones = skel::parseBones(skelBytes);
+        } else {
+            // Not finding one isn't an error: plenty of 0-bone models
+            // genuinely have no skeleton at all, and this model falls back
+            // to the same unskinned-mesh output it always did.
             auto defaultSkel = std::filesystem::path(modelPath).replace_extension(".skel");
             std::error_code ec;
             if (std::filesystem::exists(defaultSkel, ec) && !ec) {
@@ -1262,10 +1308,6 @@ int exportGlb(int argc, char** args) {
                 haveSkel = true;
                 bones = skel::parseBones(skelBytes);
             }
-        } else if (!bonesAreInline && !skelPath.empty()) {
-            skelBytes = readFileBytes(skelPath);
-            haveSkel = true;
-            bones = skel::parseBones(skelBytes);
         }
 
         gltf::Skeleton skeleton;
@@ -1273,7 +1315,11 @@ int exportGlb(int argc, char** args) {
         if (!bones.empty()) {
             skeleton = buildSkeleton(bones);
             baseMesh.skinning = buildSkinning(vertices, bones.size());
-            if (bonesAreInline) {
+            // --anim none: skip animation-clip resolution entirely (both
+            // per-sequence and global-sequence), inline or external --
+            // the bind pose (skinning, just built above) is unaffected,
+            // only `animations` stays empty.
+            if (!animNone && bonesAreInline) {
                 auto sequences = m2::parseSequences(blob, header.sequences);
                 M2AnimInputs animInputs;
                 animInputs.animFileIds = header.animFileIds;
@@ -1289,7 +1335,7 @@ int exportGlb(int argc, char** args) {
                 auto globalSeqAnims = buildGlobalSequenceAnimations(blob, bones, skeleton);
                 animations.insert(animations.end(), std::make_move_iterator(globalSeqAnims.begin()),
                                    std::make_move_iterator(globalSeqAnims.end()));
-            } else if (haveSkel) {
+            } else if (!animNone && haveSkel) {
                 // Same buildAnimations, pointed at the .skel's own blob
                 // (SKB1's payload, which is what `bones`'s track offsets
                 // are relative to -- see skel::boneTrackBlob) and its own

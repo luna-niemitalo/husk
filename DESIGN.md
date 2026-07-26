@@ -25,7 +25,7 @@ Non-goals, by design, not oversight:
 - No CASC/listfile access, ever. husk never resolves a FileDataID to a real
   WoW install path. A separate tool (e.g. `casc-tool`) extracts real files
   first; husk only reads what's already on disk, and sidecar resolution
-  (`--skin-dir`/`--textures`/`--anim-dir`) is a **local-directory,
+  (`--skin-dir`/`--textures`/`--anim`) is a **local-directory,
   FileDataID-named** convention the user populates themselves — never CASC.
 - No write-back to WoW's native formats. glTF-out only.
 - No WMO or M3 support (tracked, not started).
@@ -100,7 +100,7 @@ the blob start," not "how is the blob read."
    a matching `<FileDataID>.png`).
 7. Per sequence: resolve per-bone translation/rotation/scale M2Tracks —
    inline (`flags & 0x20`) from the owning blob, or external (no `0x20`,
-   no `0x40`) from a `--anim-dir`-resolved `.anim` file via the model's (or
+   no `0x40`) from a `--anim`-resolved `.anim` file via the model's (or
    `.skel`'s own separate) `AFID` table. Z-up→Y-up conversion applied to
    every keyframe (see Design Decisions). `0x40` ("alias") sequences are
    skipped — wowdev.wiki itself doesn't know where that data lives.
@@ -323,23 +323,28 @@ process boundary is kept even now that `--textures` embeds real PNGs —
 husk reads a file `husk-blp` already wrote, it never invokes `husk-blp` or
 links against Pillow.
 
-## CLI argument grammar for `export` (target — not yet implemented)
+## CLI argument grammar for `export` (implemented)
 
-**Current state**, for contrast: `export`'s own `printUsage` (`src/cmd_export.cpp`)
-takes up to three *positional* arguments after the model (`.skin`|`auto`,
-output `.glb`, `.skel`), each trailing-optional — you can stop early, but
-can't skip one in the middle, e.g. giving a `.skel` means also giving a skin
-path and an output path first. `--textures`/`--skin-dir`/`--anim-dir`/`--lod`
-are flags layered on top of that. This grew organically (each positional was
-added when its feature was built) and it works, but it fails
-`~/docs/CLI.md`'s own §2.2 in one specific way: a bare word's *meaning*
-depends on how many other words came before it, not on what the word itself
-says — the same failure mode §1 calls out as "no shared grammar." It's also
-why `--help`/`-h` needed a dedicated pre-parse check (`commands::isHelpFlag`)
-instead of Just Working: a hand-rolled positional parser has no generic
-notion of "this token is a flag regardless of position."
+**Previous grammar**, for contrast (replaced, not additive — every existing
+invocation's argument order changed): `export`'s own `printUsage`
+(`src/cmd_export.cpp`) used to take up to three *positional* arguments after
+the model (`.skin`|`auto`, output `.glb`, `.skel`), each trailing-optional —
+you could stop early, but couldn't skip one in the middle, e.g. giving a
+`.skel` meant also giving a skin path and an output path first.
+`--textures`/`--skin-dir`/`--anim-dir`/`--lod` were flags layered on top of
+that. This grew organically (each positional was added when its feature was
+built) and it worked, but it failed `~/docs/CLI.md`'s own §2.2 in one
+specific way: a bare word's *meaning* depended on how many other words came
+before it, not on what the word itself said — the same failure mode §1
+calls out as "no shared grammar." It's also why `--help`/`-h` needed a
+dedicated pre-parse check (`commands::isHelpFlag`) instead of Just Working:
+a hand-rolled positional parser has no generic notion of "this token is a
+flag regardless of position."
 
-**Target grammar**, derived directly from `~/docs/CLI.md`:
+**Current grammar**, derived directly from `~/docs/CLI.md` and now real
+(`src/commands.hpp`'s `ExportOptions`/`addExportOptions`, `src/cmd_export.cpp`'s
+`exportGlb`/`resolveSkin`, both built on
+[CLI11](https://github.com/CLIUtils/CLI11)):
 
 | Flag | Short | Meaning |
 |---|---|---|
@@ -543,29 +548,70 @@ runtime into its own control flow); a Python wrapper for argv handling
 blurs that same line from the opposite direction for no benefit CLI11
 doesn't already provide directly in C++.
 
-**Impact when this lands** (tracked here so it isn't lost between sessions):
-`src/cmd_export.cpp`'s positional-parsing block and `printUsage`, `README.md`'s
-`export` Usage subsection (defaults/flags table/examples), and
-`tests/test_cli.cpp`'s positional-ordering cases all need rewriting together
-— this is a breaking change to every existing `husk export` invocation's
-argument order, not an additive one. `nix/flake.nix` needs CLI11 added as a
-new dependency (flag for permission before adding, per this project's
-package-approval rule). Also not purely mechanical: today, "no `.skin` given
-at all" (`findSameBasenameSkins`'s scan) and "`.skin` given as `auto`" (`SFID`
-+ `--skin-dir`) are two independent code paths; the target grammar has only
-one flag (`--skin`, default `auto`), so `auto`'s own resolution needs to try
-both conventions in order, inside whatever `--skin-dir` resolves to (itself
-defaulting to the model's directory, so this is normally one search in one
-folder, not two): **`SFID`-declared FileDataID match first** (the model's own
-self-description, §2.11 — decided over trying the basename scan first),
-**same-basename numbered scan second** as the fallback. `--skin none` itself
-is rejected at parse time (decided above), so this function never needs to
-handle a "deliberately skip" case. Separately, today's single boolean-ish
-"is `--anim-dir` given" check needs replacing with real state handling for
-`--anim`'s four values (`auto`/`inline`/`none`/an explicit directory) — in
-particular, `none` is new behavior, not a rename: nothing today suppresses
-inline sequences or global-sequence clips, so the code path that currently
-always resolves them needs an explicit early-out for this one case.
+**Impact, landed**: `src/cmd_export.cpp`'s old positional-parsing block and
+`printUsage` are gone, replaced by `addExportOptions`/`exportGlb` above;
+`README.md`'s `export` Usage subsection (defaults/flags table/examples) and
+`tests/test_cli.cpp`'s positional-ordering cases were rewritten together —
+this was a breaking change to every existing `husk export` invocation's
+argument order, not an additive one. `nix/flake.nix`/`CMakeLists.txt` gained
+CLI11 as a new dependency (`pkgs.cli11`, `find_package(CLI11 CONFIG
+REQUIRED)`, linked `PUBLIC` on `husk-lib` so `main.cpp`'s completion
+generator gets it transitively too), signed off before landing per this
+project's package-approval rule. Not purely mechanical: what used to be "no
+`.skin` given at all" (`findSameBasenameSkins`'s scan) and "`.skin` given as
+`auto`" (`SFID` + `--skin-dir`) as two independent code paths folded into
+`resolveSkin`, the single function behind the one `--skin` flag (default
+`auto`) — it tries both conventions in order, inside whatever `--skin-dir`
+resolves to (itself defaulting to the model's directory, so this is
+normally one search in one folder, not two): **`SFID`-declared FileDataID
+match first** (the model's own self-description, §2.11 — decided over
+trying the basename scan first), **same-basename numbered scan second** as
+the fallback, only attempted once the SFID stage is confirmed unavailable
+(no chunk, `--skin-dir none`, or the declared file doesn't actually exist).
+`--skin none` itself is rejected at parse time by a CLI11 `Option::check`
+validator on `--skin` (decided above), so `resolveSkin` never needs to
+handle a "deliberately skip" case. Separately, the old single boolean-ish
+"is `--anim-dir` given" check was replaced with real state handling for
+`--anim`'s four values (`auto`/`inline`/`none`/an explicit directory) in
+`exportGlb`: `none` sets a dedicated `animNone` flag gating the entire
+per-sequence-plus-global-sequence animation-building call (both were
+previously unconditional whenever bones existed); `inline` leaves the
+resolved `animDir` empty, which `buildAnimations`' own external-sequence
+branch already treated as "skip external resolution" before this change —
+no new parameter needed there, just a new way to reach that existing state
+deliberately instead of only via a missing `--anim-dir`. One real
+implementation subtlety worth flagging for future readers: CLI11's
+`App::parse(std::vector<std::string>&)` overload consumes tokens from the
+*back* of the vector (mirroring how its `(argc, argv)` sibling reverses
+argv internally before the same call) — `exportGlb` reverses its `args`
+array into that order before calling `app.parse(...)`; passing it in
+forward order silently binds every flag to the wrong neighboring token
+instead of erroring, which is exactly what happened during this migration
+before the reversal was added, so don't drop it in a future refactor.
+
+### Shell completion generation
+
+`completions/husk.bash`/`.zsh` (checked in) are captured output, not
+hand-written — `src/main.cpp`'s hidden `--print-completion=<bash|zsh>` flag
+builds a throwaway `CLI::App` tree (`export` via the real
+`addExportOptions`, so its flag surface can never drift from what
+`exportGlb` actually parses; `info`/`dump-chunks` hand-registered, since
+neither is CLI11-based — both take exactly one positional argument and
+nothing else) and walks it with CLI11's own introspection API
+(`get_options()`, the filtered `get_subcommands()`, `Option::get_lnames()`/
+`get_snames()`/`get_expected_max()`), never `.parse(...)`. This exists
+because no C++ argument-parsing library (CLI11 included — checked its own
+docs, not assumed) generates shell completions, unlike Rust's
+`clap_complete`, Go's Cobra, or Python's Click/Typer; generating from the
+live option objects rather than hand-listing flags a second time is what
+keeps the completion scripts from silently drifting the next time a flag
+is added or renamed. `--print-completion` itself is deliberately absent
+from `husk --help` (it has no human reader — its only consumers are this
+capture step and the installed completion script's own callback) rather
+than hidden via CLI11's `->group("")` mechanism, since `husk`'s top-level
+dispatch isn't itself CLI11-driven (see the previous-grammar note above:
+`info`/`dump-chunks` stay hand-rolled by design, so there's no top-level
+`App` whose help output needs suppressing in the first place).
 
 ## Boundaries (where foreign data enters)
 
@@ -575,7 +621,7 @@ always resolves them needs an explicit early-out for this one case.
 - `.bone` sidecar — per-bone correction matrices (reverse-engineered).
 - `.anim` sidecar — external per-sequence keyframe blob (`AFM2` flat
   format only; `AFSB` detected and rejected).
-- `--textures`/`--skin-dir`/`--anim-dir` directories — user-populated,
+- `--textures`/`--skin-dir`/`--anim` directories — user-populated,
   FileDataID-named, local filesystem only. Never CASC.
 - `.blp` texture files (separate `blp/` Python tool) — container + mip
   table hand-rolled, block decode delegated to Pillow via synthetic DDS.

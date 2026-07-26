@@ -57,7 +57,8 @@ TEST_CASE("husk export: real M2 + .skin produces a glb the Khronos glTF-Validato
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-conformance.glb").string();
     std::filesystem::remove(outPath);
 
-    auto exportResult = runHusk("export \"" + m2Path + "\" \"" + skinPath + "\" \"" + outPath + "\"");
+    auto exportResult =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
     INFO("husk export output:\n", exportResult.output);
     REQUIRE(exportResult.exitCode == 0);
 
@@ -92,7 +93,8 @@ TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bon
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-blender.glb").string();
     std::filesystem::remove(outPath);
 
-    auto exportResult = runHusk("export \"" + m2Path + "\" \"" + skinPath + "\" \"" + outPath + "\"");
+    auto exportResult =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
     INFO("husk export output:\n", exportResult.output);
     REQUIRE(exportResult.exitCode == 0);
 

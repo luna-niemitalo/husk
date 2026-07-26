@@ -105,7 +105,8 @@ TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a well-f
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export.glb").string();
     std::filesystem::remove(outPath);
 
-    auto result = runHusk("export \"" + m2Path + "\" \"" + skinPath + "\" \"" + outPath + "\"");
+    auto result =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
@@ -143,7 +144,8 @@ TEST_CASE("husk export: real M2 + .skin produces real glTF animation clips with 
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-anim.glb").string();
     std::filesystem::remove(outPath);
 
-    auto result = runHusk("export \"" + m2Path + "\" \"" + skinPath + "\" \"" + outPath + "\"");
+    auto result =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
 
@@ -216,7 +218,8 @@ TEST_CASE("husk export: real M2 + .skin resolves per-batch materials with a plau
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-mats.glb").string();
     std::filesystem::remove(outPath);
 
-    auto result = runHusk("export \"" + m2Path + "\" \"" + skinPath + "\" \"" + outPath + "\"");
+    auto result =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
     // cmd_export.cpp only prints a material count when it actually built
@@ -267,7 +270,7 @@ TEST_CASE("husk export: --textures embeds a real baseColorTexture image when one
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-tex.glb").string();
     std::filesystem::remove(outPath);
 
-    auto result = runHusk("export \"" + m2Path + "\" \"" + skinPath + "\" \"" + outPath +
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
                            "\" --textures \"" + texturesDir + "\"");
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
@@ -304,11 +307,14 @@ TEST_CASE("husk export: 'auto' + --skin-dir resolves a real model's LOD0 .skin v
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-auto.glb").string();
     std::filesystem::remove(outPath);
 
-    auto result =
-        runHusk("export \"" + m2Path + "\" auto \"" + outPath + "\" --skin-dir \"" + skinDir + "\"");
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin-dir \"" +
+                           skinDir + "\"");
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("resolved 'auto'") != std::string::npos);
+    // resolveSkin's own phrasing (cmd_export.cpp), not exportGlb's separate
+    // --lod-path message ("resolved 'auto' -> ...") -- the two currently
+    // read slightly differently depending on whether --lod was given.
+    CHECK(result.output.find("'auto' resolved") != std::string::npos);
 
     std::ifstream glb(outPath, std::ios::binary | std::ios::ate);
     REQUIRE(glb.is_open());
@@ -328,8 +334,8 @@ TEST_CASE(
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-skel.glb").string();
     std::filesystem::remove(outPath);
 
-    auto result = runHusk("export \"" + m2Path + "\" \"" + skinPath + "\" \"" + outPath + "\" \"" +
-                           skelPath + "\"");
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
+                           "\" --skel \"" + skelPath + "\"");
     INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
     // Confirms the .skel path was actually used, not silently ignored --
@@ -337,7 +343,7 @@ TEST_CASE(
     // from *somewhere* (inline or external). Not asserting on "animation(s)"
     // vs. "bind pose only" here -- whether a .skel's own SKS1 sequences
     // resolve to any real clips is real-data-dependent (inline ones do;
-    // external ones need --anim-dir, not exercised by this test).
+    // external ones need --anim, not exercised by this test).
     CHECK(result.output.find(" bones") != std::string::npos);
 
     checkSkinnedGlb(outPath);
@@ -351,8 +357,8 @@ TEST_CASE("husk export: skin file that doesn't belong to the given M2 fails clea
     std::string mismatchedSkinPath = testMismatchedSkin();
 
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-bad.glb").string();
-    auto result = runHusk("export \"" + m2Path + "\" \"" + mismatchedSkinPath + "\" \"" + outPath +
-                           "\"");
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" +
+                           mismatchedSkinPath + "\"");
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("mismatch") != std::string::npos);
 }

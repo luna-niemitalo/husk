@@ -31,6 +31,17 @@ fs::path tempPath(const std::string& name) {
     return fs::temp_directory_path() / ("husk-cli-test-" + name);
 }
 
+// A dedicated subdirectory (not the shared system temp root tempPath()
+// otherwise writes into) so directory-scan-based defaulting (--skin
+// auto's same-basename scan, --skin-dir/--textures/--anim/--skel all
+// defaulting to "the model's own directory") gets a clean, isolated view --
+// no risk of an unrelated file from a different test case being picked up.
+fs::path defaultsDir(const std::string& name) {
+    auto dir = fs::temp_directory_path() / ("husk-cli-test-defaults-" + name);
+    fs::create_directories(dir);
+    return dir;
+}
+
 void writeFile(const fs::path& path, const std::vector<uint8_t>& bytes) {
     std::ofstream f(path, std::ios::binary);
     f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
@@ -572,7 +583,7 @@ std::vector<uint8_t> tinyAnimatedM2() {
 // inline bone whose translation track's descriptors (outer + one inner
 // M2Array, both still physically inside the M2 blob) claim keyframe data
 // at offsets that are only meaningful in a *separate* .anim blob -- proving
-// `husk export --anim-dir` really reads the payload cross-blob end to end,
+// `husk export --anim <dir>` really reads the payload cross-blob end to end,
 // not by coincidentally finding valid-looking bytes inside the M2 itself.
 // Rotation/scale tracks are left with 0 sub-arrays (no data at all, for
 // either blob) -- this sequence's translation channel alone is enough to
@@ -668,6 +679,89 @@ std::vector<uint8_t> buildSks1Payload(uint16_t seqId, uint32_t seqFlags) {
     return payload;
 }
 
+// tinyValidM2() (1 vertex) plus 1 M2Texture (type=0)/1 M2Material/a 1-entry
+// textureCombos table pointing at it, wrapped in MD21 with a TXID chunk
+// giving that texture FileDataID `fileDataId` -- the minimum shape
+// buildMaterialsAndPrimitives needs to try resolving a real embedded image.
+// Shared by the --textures default-directory and --textures none tests
+// below: both need the identical model, only the `--textures` argument
+// differs.
+std::vector<uint8_t> oneTexturedModel(uint32_t fileDataId) {
+    auto md20 = tinyValidM2();
+    uint32_t one = 1;
+    uint32_t texOff = static_cast<uint32_t>(md20.size());
+    md20.resize(texOff + 16, 0);  // M2Texture: type/flags/filename(M2Array<char>)
+    std::memcpy(md20.data() + 0x050, &one, 4);     // textures.count
+    std::memcpy(md20.data() + 0x054, &texOff, 4);  // textures.offset
+    uint32_t matOff = static_cast<uint32_t>(md20.size());
+    md20.resize(matOff + 4, 0);  // M2Material: flags=0, blendMode=0
+    std::memcpy(md20.data() + 0x070, &one, 4);     // materials.count
+    std::memcpy(md20.data() + 0x074, &matOff, 4);  // materials.offset
+    uint32_t comboOff = static_cast<uint32_t>(md20.size());
+    putU16(md20, 0);  // textureCombos[0] = texture index 0
+    std::memcpy(md20.data() + 0x080, &one, 4);      // textureCombos.count
+    std::memcpy(md20.data() + 0x084, &comboOff, 4);  // textureCombos.offset
+
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    putTag(file, "TXID");
+    putU32(file, 4);
+    putU32(file, fileDataId);
+    return file;
+}
+
+// A .skin with one submesh/batch (materialIndex=0, textureComboIndex=0,
+// textureCount=1) over the model oneTexturedModel() builds -- header
+// offsets/sizes per src/skin.cpp (vertices=0x04, indices=0x0C, bones=0x14,
+// submeshes=0x1C, batches=0x24; kSubmeshSize=0x30, kBatchSize=0x18). Built
+// by appending each section and patching its header descriptor from the
+// running size, rather than hand-computed offsets, so a struct-size mistake
+// shows up as a wrong read immediately instead of silently compiling.
+std::vector<uint8_t> oneTexturedModelSkin() {
+    std::vector<uint8_t> skin;
+    putTag(skin, "SKIN");
+    skin.resize(44, 0);  // 5 M2Array descriptors, patched below
+    auto patchArray = [&](size_t off, uint32_t count, uint32_t offset) {
+        std::memcpy(skin.data() + off, &count, 4);
+        std::memcpy(skin.data() + off + 4, &offset, 4);
+    };
+
+    uint32_t submeshOff = static_cast<uint32_t>(skin.size());
+    skin.resize(skin.size() + 0x30, 0);
+    uint16_t indexStart = 0, indexCount = 3;
+    std::memcpy(skin.data() + submeshOff + 0x08, &indexStart, 2);
+    std::memcpy(skin.data() + submeshOff + 0x0A, &indexCount, 2);
+    patchArray(0x1C, 1, submeshOff);
+
+    uint32_t batchOff = static_cast<uint32_t>(skin.size());
+    skin.resize(skin.size() + 0x18, 0);
+    uint16_t zero16 = 0, one16 = 1, noColor = 0xFFFF;  // colorIndex's "none" sentinel
+    std::memcpy(skin.data() + batchOff + 0x04, &zero16, 2);   // skinSectionIndex
+    std::memcpy(skin.data() + batchOff + 0x08, &noColor, 2);  // colorIndex: none
+    std::memcpy(skin.data() + batchOff + 0x0A, &zero16, 2);   // materialIndex
+    std::memcpy(skin.data() + batchOff + 0x0E, &one16, 2);    // textureCount: 1 (gates resolution)
+    std::memcpy(skin.data() + batchOff + 0x10, &zero16, 2);   // textureComboIndex
+    patchArray(0x24, 1, batchOff);
+
+    // vertices lookup table: 1 entry -> global vertex 0.
+    uint32_t vertOff = static_cast<uint32_t>(skin.size());
+    putU16(skin, 0);
+    patchArray(0x04, 1, vertOff);
+
+    // indices: 3 entries, all pointing at vertices-lookup slot 0 (a
+    // degenerate triangle onto the model's one vertex).
+    uint32_t idxOff = static_cast<uint32_t>(skin.size());
+    putU16(skin, 0);
+    putU16(skin, 0);
+    putU16(skin, 0);
+    patchArray(0x0C, 3, idxOff);
+
+    patchArray(0x14, 0, 0);  // bones: unread, left empty
+    return skin;
+}
+
 }  // namespace
 
 TEST_CASE("husk export: an inline bone with a flags&0x20 sequence produces a real glTF "
@@ -677,7 +771,7 @@ TEST_CASE("husk export: an inline bone with a flags&0x20 sequence produces a rea
     auto skinPath = tempPath("animated.skin");
     writeFile(skinPath, tinyMatchingSkin());
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("animated.glb").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 animation(s)") != std::string::npos);
@@ -686,7 +780,7 @@ TEST_CASE("husk export: an inline bone with a flags&0x20 sequence produces a rea
     fs::remove(skinPath);
 }
 
-TEST_CASE("husk export: --anim-dir resolves an external (flags without 0x20/0x40) sequence's "
+TEST_CASE("husk export: --anim <dir> resolves an external (flags without 0x20/0x40) sequence's "
           "bone keyframes from a real .anim file, via AFID, end to end") {
     auto md20 = tinyExternalAnimM2();
 
@@ -711,8 +805,8 @@ TEST_CASE("husk export: --anim-dir resolves an external (flags without 0x20/0x40
     fs::create_directories(animDir);
     writeFile(animDir / "777.anim", tinyAnimFile());
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
-                           tempPath("external-anim.glb").string() + " --anim-dir " + animDir.string());
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("external-anim.glb").string() + " --anim " + animDir.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 animation(s)") != std::string::npos);
 
@@ -721,7 +815,7 @@ TEST_CASE("husk export: --anim-dir resolves an external (flags without 0x20/0x40
     fs::remove_all(animDir);
 }
 
-TEST_CASE("husk export: an external sequence with no matching --anim-dir file produces no "
+TEST_CASE("husk export: an external sequence with no matching --anim <dir> file produces no "
           "animation clip, not an error") {
     auto md20 = tinyExternalAnimM2();
     std::vector<uint8_t> file;
@@ -741,8 +835,8 @@ TEST_CASE("husk export: an external sequence with no matching --anim-dir file pr
     auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-dir-empty";
     fs::create_directories(animDir);  // no 777.anim inside
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
-                           tempPath("external-anim-missing.glb").string() + " --anim-dir " +
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("external-anim-missing.glb").string() + " --anim " +
                            animDir.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("animation(s)") == std::string::npos);
@@ -770,7 +864,7 @@ TEST_CASE("husk export: a sequence without flags&0x20 (external .anim data) prod
     auto skinPath = tempPath("not-inline.skin");
     writeFile(skinPath, tinyMatchingSkin());
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("not-inline.glb").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("animation(s)") == std::string::npos);
@@ -797,8 +891,8 @@ TEST_CASE("husk export: a .skel with no SKS1 chunk at all gets no animation clip
     auto skelPath = tempPath("skel-no-sks1.skel");
     writeFile(skelPath, buildSkel({{-1, -1}}));  // SKB1 only, no SKS1
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
-                           tempPath("skel-no-sks1.glb").string() + " " + skelPath.string());
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("skel-no-sks1.glb").string() + " --skel " + skelPath.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("animation(s)") == std::string::npos);
     CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
@@ -827,8 +921,8 @@ TEST_CASE("husk export: a .skel with an inline (flags&0x20) SKS1 sequence and re
     auto skelPath = tempPath("skel-inline-anim.skel");
     writeFile(skelPath, skel);
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
-                           tempPath("skel-inline-anim.glb").string() + " " + skelPath.string());
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("skel-inline-anim.glb").string() + " --skel " + skelPath.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 animation(s)") != std::string::npos);
 
@@ -838,7 +932,7 @@ TEST_CASE("husk export: a .skel with an inline (flags&0x20) SKS1 sequence and re
 }
 
 TEST_CASE("husk export: a .skel external (flags without 0x20/0x40) SKS1 sequence resolves via "
-          "the .skel's own AFID + --anim-dir, cross-blob (own AFID table, not the owning M2's)") {
+          "the .skel's own AFID + --anim <dir>, cross-blob (own AFID table, not the owning M2's)") {
     size_t boneOff = 0;
     auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);
     size_t transOff = boneOff + 0x10;
@@ -873,9 +967,9 @@ TEST_CASE("husk export: a .skel external (flags without 0x20/0x40) SKS1 sequence
     writeFile(animDir / "777.anim", tinyAnimFile());
 
     auto result =
-        runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
-                tempPath("skel-external-anim.glb").string() + " " + skelPath.string() +
-                " --anim-dir " + animDir.string());
+        runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                tempPath("skel-external-anim.glb").string() + " --skel " + skelPath.string() +
+                " --anim " + animDir.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 animation(s)") != std::string::npos);
 
@@ -885,7 +979,7 @@ TEST_CASE("husk export: a .skel external (flags without 0x20/0x40) SKS1 sequence
     fs::remove_all(animDir);
 }
 
-TEST_CASE("husk export: a .skel external sequence whose --anim-dir file is AFSB-tagged (not "
+TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFSB-tagged (not "
           "AFM2) produces no animation clip, not an error -- AFSB has no documented byte "
           "layout husk can parse yet") {
     size_t boneOff = 0;
@@ -921,9 +1015,9 @@ TEST_CASE("husk export: a .skel external sequence whose --anim-dir file is AFSB-
     writeFile(animDir / "888.anim", afsbFile);
 
     auto result =
-        runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
-                tempPath("skel-afsb-anim.glb").string() + " " + skelPath.string() +
-                " --anim-dir " + animDir.string());
+        runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                tempPath("skel-afsb-anim.glb").string() + " --skel " + skelPath.string() +
+                " --anim " + animDir.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("animation(s)") == std::string::npos);
     CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
@@ -934,7 +1028,7 @@ TEST_CASE("husk export: a .skel external sequence whose --anim-dir file is AFSB-
     fs::remove_all(animDir);
 }
 
-TEST_CASE("husk export: a .skel external sequence's --anim-dir file with BOTH a small AFM2 "
+TEST_CASE("husk export: a .skel external sequence's --anim <dir> file with BOTH a small AFM2 "
           "chunk and a trailing AFSB chunk still produces no animation clip, not a bounds-check "
           "crash -- real bloodelffemale_hd .anim files have exactly this shape (a tiny AFM2 "
           "stub alongside the real AFSB data), and using the stub's payload as if it were the "
@@ -970,9 +1064,9 @@ TEST_CASE("husk export: a .skel external sequence's --anim-dir file with BOTH a 
     writeFile(animDir / "999.anim", mixedFile);
 
     auto result =
-        runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
-                tempPath("skel-afm2-stub-afsb-anim.glb").string() + " " + skelPath.string() +
-                " --anim-dir " + animDir.string());
+        runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                tempPath("skel-afm2-stub-afsb-anim.glb").string() + " --skel " + skelPath.string() +
+                " --anim " + animDir.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("animation(s)") == std::string::npos);
     CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
@@ -1049,7 +1143,7 @@ TEST_CASE("husk export: corrupted huge vertex count fails with a real message, n
     // m2::parseVertices runs (and, pre-fix, would have OOM'd) before
     // cmd_export.cpp ever opens the .skin file, so this path doesn't need
     // to exist or be valid.
-    auto result = runHusk("export " + m2Path.string() + " /nonexistent.skin " +
+    auto result = runHusk("export " + m2Path.string() + " --skin /nonexistent.skin -o " +
                            tempPath("huge-vertices.glb").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("bad_alloc") == std::string::npos);
@@ -1071,7 +1165,7 @@ TEST_CASE("husk export: corrupted huge bone count fails with a real message, not
     auto skinPath = tempPath("huge-bones.skin");
     writeFile(skinPath, tinyMatchingSkin());
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("huge-bones.glb").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("bad_alloc") == std::string::npos);
@@ -1101,7 +1195,7 @@ TEST_CASE("husk export: .skin file with a corrupted huge indices count fails wit
     auto skinPath = tempPath("huge-indices.skin");
     writeFile(skinPath, skin);
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("huge-skin-indices.glb").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("bad_alloc") == std::string::npos);
@@ -1123,8 +1217,8 @@ TEST_CASE("husk export: a 2-cycle in the bones' parent chain is rejected, not si
     auto skelPath = tempPath("cycle.skel");
     writeFile(skelPath, buildSkel({{-1, 1}, {-1, 0}}));
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
-                           tempPath("cycle.glb").string() + " " + skelPath.string());
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("cycle.glb").string() + " --skel " + skelPath.string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("loops back") != std::string::npos);
 
@@ -1151,8 +1245,8 @@ TEST_CASE("husk export: a bone that is its own parent (a 1-node cycle) is still 
     auto skelPath = tempPath("self-parent.skel");
     writeFile(skelPath, buildSkel({{-1, 0}}));
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
-                           tempPath("self-parent.glb").string() + " " + skelPath.string());
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("self-parent.glb").string() + " --skel " + skelPath.string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("loops back") != std::string::npos);
 
@@ -1238,7 +1332,7 @@ TEST_CASE("husk export: non-finite (NaN/Inf) vertex position is rejected, not si
     auto skinPath = tempPath("nan-vertex.skin");
     writeFile(skinPath, tinyMatchingSkin());
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("nan-vertex.glb").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("non-finite") != std::string::npos);
@@ -1247,28 +1341,86 @@ TEST_CASE("husk export: non-finite (NaN/Inf) vertex position is rejected, not si
     fs::remove(skinPath);
 }
 
-TEST_CASE("husk export: 'auto' .skin path without --skin-dir defaults to the model's own "
+TEST_CASE("husk export: --skin auto (explicit) without --skin-dir defaults to the model's own "
           "directory, and still fails cleanly when the FileDataID-named .skin isn't there") {
     auto m2Path = tempPath("auto-no-skindir.m2");
     writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {12345}));
 
-    auto result = runHusk("export " + m2Path.string() + " auto " +
+    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
                            tempPath("auto-no-skindir.glb").string());
     CHECK(result.exitCode == 1);
     // --skin-dir now defaults to the model's own directory (same one
     // tempPath() writes m2Path into) rather than being required -- since no
     // '12345.skin' actually exists there, this fails on the file itself,
-    // not on a missing flag.
-    CHECK(result.output.find("12345.skin") != std::string::npos);
+    // not on a missing flag. resolveSkin's own "not found" reason only
+    // names the *directory* searched, not the specific FileDataID/filename
+    // (cmd_export.cpp's requireSkinFileDataIds/resolveSkin) -- so this
+    // checks for the directory + "wasn't found", not "12345.skin" itself.
+    CHECK(result.output.find("wasn't found in") != std::string::npos);
+    CHECK(result.output.find(fs::temp_directory_path().string()) != std::string::npos);
 
     fs::remove(m2Path);
+}
+
+TEST_CASE("husk export: --skin omitted resolves identically to --skin auto explicitly") {
+    auto m2Path = tempPath("auto-omitted.m2");
+    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {12345}));
+
+    auto result = runHusk("export " + m2Path.string() + " -o " +
+                           tempPath("auto-omitted.glb").string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("wasn't found in") != std::string::npos);
+
+    fs::remove(m2Path);
+}
+
+TEST_CASE("husk export: 'auto' resolution order -- the SFID-declared FileDataID wins over a "
+          "same-basename numbered scan match when both exist, not just 'some' resolution") {
+    auto dir = defaultsDir("sfidwins");
+    uint32_t fileDataId = 424242;
+    writeFile(dir / "sfidwins.m2", chunkedM2WithSfid(tinyValidM2(), {fileDataId}));
+    writeFile(dir / (std::to_string(fileDataId) + ".skin"), tinyMatchingSkin());
+    // A same-basename numbered file also sits right next to the model --
+    // if resolveSkin tried the fallback scan first (or instead of the SFID
+    // stage), this file would get picked, and the assertions below would
+    // fail.
+    writeFile(dir / "sfidwins00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "sfidwins.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("SFID entry 0, highest-detail LOD") != std::string::npos);
+    CHECK(result.output.find("same-basename numbered scan") == std::string::npos);
+    CHECK(result.output.find(std::to_string(fileDataId) + ".skin") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --skin-dir none skips the SFID stage entirely -- 'auto' falls straight "
+          "to the same-basename scan even when a matching FileDataID-named file also sits in "
+          "the model's own directory") {
+    auto dir = defaultsDir("skindirnone");
+    uint32_t fileDataId = 646464;
+    writeFile(dir / "skindirnone.m2", chunkedM2WithSfid(tinyValidM2(), {fileDataId}));
+    // Both the SFID-declared FileDataID's own file and a same-basename
+    // numbered file sit in the model's directory -- --skin-dir none must
+    // still pick the same-basename one, never even looking at the
+    // FileDataID match.
+    writeFile(dir / (std::to_string(fileDataId) + ".skin"), tinyMatchingSkin());
+    writeFile(dir / "skindirnone00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (dir / "skindirnone.m2").string() + " --skin-dir none");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("same-basename numbered scan") != std::string::npos);
+    CHECK(result.output.find("SFID entry 0") == std::string::npos);
+
+    fs::remove_all(dir);
 }
 
 TEST_CASE("husk export: 'auto' on a model with no SFID chunk fails cleanly, naming the reason") {
     auto m2Path = tempPath("auto-no-sfid.m2");
     writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {}));  // no SFID chunk at all
 
-    auto result = runHusk("export " + m2Path.string() + " auto " +
+    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
                            tempPath("auto-no-sfid.glb").string() + " --skin-dir " +
                            fs::temp_directory_path().string());
     CHECK(result.exitCode == 1);
@@ -1277,20 +1429,44 @@ TEST_CASE("husk export: 'auto' on a model with no SFID chunk fails cleanly, nami
     fs::remove(m2Path);
 }
 
-TEST_CASE("husk export: --skin-dir given without 'auto' as the .skin path fails cleanly") {
+TEST_CASE("husk export: --skin none is rejected by CLI11 at parse time, naming the real "
+          "expected values (a path, or 'auto') -- never silently accepted") {
+    auto result = runHusk("export some.m2 --skin none");
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("--skin") != std::string::npos);
+    CHECK(result.output.find("auto") != std::string::npos);
+}
+
+TEST_CASE("husk export: --skin-dir given while --skin is an explicit path (not 'auto') fails "
+          "cleanly") {
     auto m2Path = tempPath("skindir-without-auto.m2");
     writeFile(m2Path, tinyValidM2());
     auto skinPath = tempPath("skindir-without-auto.skin");
     writeFile(skinPath, tinyMatchingSkin());
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("skindir-without-auto.glb").string() + " --skin-dir " +
                            fs::temp_directory_path().string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("--skin-dir") != std::string::npos);
+    CHECK(result.output.find("'auto'") != std::string::npos);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: --lod combined with --skin-dir none is its own explicit conflict -- "
+          "--lod needs the SFID-based resolution stage --skin-dir 'none' disables") {
+    auto m2Path = tempPath("lod-skindir-none-conflict.m2");
+    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {111111}));
+
+    auto result = runHusk("export " + m2Path.string() + " --skin-dir none --lod 1");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("--lod") != std::string::npos);
+    CHECK(result.output.find("--skin-dir") != std::string::npos);
+    CHECK(result.output.find("'none'") != std::string::npos);
+
+    fs::remove(m2Path);
 }
 
 TEST_CASE("husk export: 'auto' + --skin-dir resolves SFID entry 0 (highest-detail LOD) and "
@@ -1307,10 +1483,14 @@ TEST_CASE("husk export: 'auto' + --skin-dir resolves SFID entry 0 (highest-detai
     writeFile(skinPath, tinyMatchingSkin());
 
     auto outPath = tempPath("auto-resolve.glb");
-    auto result = runHusk("export " + m2Path.string() + " auto " + outPath.string() +
+    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " + outPath.string() +
                            " --skin-dir " + skinDir.string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("resolved 'auto'") != std::string::npos);
+    // resolveSkin's own success note is "'auto' resolved '<path>' (SFID
+    // entry 0, ...)" -- note the word order (unlike the --lod-given path's
+    // "resolved 'auto' -> ..." in exportGlb, these two success messages are
+    // phrased differently for what's conceptually the same event).
+    CHECK(result.output.find("'auto' resolved") != std::string::npos);
     CHECK(result.output.find(std::to_string(fileDataId)) != std::string::npos);
 
     fs::remove(m2Path);
@@ -1319,30 +1499,39 @@ TEST_CASE("husk export: 'auto' + --skin-dir resolves SFID entry 0 (highest-detai
 }
 
 TEST_CASE("husk export: 'auto' with --skin-dir pointing at a directory missing the resolved "
-          "FileDataID's .skin fails cleanly") {
+          "FileDataID's .skin, and no same-basename fallback either, fails cleanly") {
     auto m2Path = tempPath("auto-missing-file.m2");
     writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {999999999}));
 
-    auto result = runHusk("export " + m2Path.string() + " auto " +
+    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
                            tempPath("auto-missing-file.glb").string() + " --skin-dir " +
                            fs::temp_directory_path().string());
     CHECK(result.exitCode == 1);
-    CHECK(result.output.find("couldn't open") != std::string::npos);
-    CHECK(result.output.find("999999999") != std::string::npos);
+    // resolveSkin falls back to the same-basename scan (which also finds
+    // nothing here) before giving up -- neither of its two failure reasons
+    // ever names the specific FileDataID/candidate filename it tried
+    // (cmd_export.cpp's resolveSkin only mentions the *directory*), so this
+    // checks the actual "couldn't resolve" wording rather than "couldn't
+    // open" + "999999999" (what the old, pre-CLI11-migration code produced
+    // by actually attempting to open the candidate path).
+    CHECK(result.output.find("'auto' couldn't resolve a .skin file") != std::string::npos);
+    CHECK(result.output.find("wasn't found in") != std::string::npos);
 
     fs::remove(m2Path);
 }
 
-TEST_CASE("husk export: --lod given without 'auto' as the .skin path fails cleanly") {
+TEST_CASE("husk export: --lod given while --skin is an explicit path (not 'auto') fails "
+          "cleanly") {
     auto m2Path = tempPath("lod-without-auto.m2");
     writeFile(m2Path, tinyValidM2());
     auto skinPath = tempPath("lod-without-auto.skin");
     writeFile(skinPath, tinyMatchingSkin());
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("lod-without-auto.glb").string() + " --lod 1");
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("--lod") != std::string::npos);
+    CHECK(result.output.find("'auto'") != std::string::npos);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
@@ -1360,7 +1549,7 @@ TEST_CASE("husk export: --lod <n> resolves SFID entry n instead of always 0") {
     writeFile(skinPath, tinyMatchingSkin());
 
     auto outPath = tempPath("lod-n.glb");
-    auto result = runHusk("export " + m2Path.string() + " auto " + outPath.string() +
+    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " + outPath.string() +
                            " --skin-dir " + skinDir.string() + " --lod 1");
     CHECK(result.exitCode == 0);
     CHECK(result.output.find(std::to_string(entry1FileDataId)) != std::string::npos);
@@ -1375,7 +1564,7 @@ TEST_CASE("husk export: --lod <n> out of range for the SFID chunk fails cleanly,
     auto m2Path = tempPath("lod-oor.m2");
     writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {111111, 222222}));  // 2 entries
 
-    auto result = runHusk("export " + m2Path.string() + " auto " +
+    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
                            tempPath("lod-oor.glb").string() + " --skin-dir " +
                            fs::temp_directory_path().string() + " --lod 5");
     CHECK(result.exitCode == 1);
@@ -1389,7 +1578,7 @@ TEST_CASE("husk export: --lod given a non-numeric, non-'all' value fails cleanly
     auto m2Path = tempPath("lod-nan.m2");
     writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {111111}));
 
-    auto result = runHusk("export " + m2Path.string() + " auto " +
+    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " +
                            tempPath("lod-nan.glb").string() + " --skin-dir " +
                            fs::temp_directory_path().string() + " --lod banana");
     CHECK(result.exitCode == 1);
@@ -1411,7 +1600,7 @@ TEST_CASE("husk export: --lod all resolves every SFID entry and exports one name
     writeFile(skinPath1, tinyMatchingSkin());
 
     auto outPath = tempPath("lod-all.glb");
-    auto result = runHusk("export " + m2Path.string() + " auto " + outPath.string() +
+    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " + outPath.string() +
                            " --skin-dir " + skinDir.string() + " --lod all");
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("2 LOD tier(s)") != std::string::npos);
@@ -1580,7 +1769,7 @@ TEST_CASE("husk info: prints attachments/events/lights/cameras/ribbon_emitters/p
 }
 
 // CLI default-resolution tests: `husk export <file.m2>` alone (no .skin,
-// output, .skel, or --textures/--skin-dir/--anim-dir) should resolve
+// output, .skel, or --textures/--skin-dir/--anim) should resolve
 // everything it reasonably can from what's already sitting next to the
 // model, rather than requiring every argument spelled out even when it's
 // exactly where the tool could have found it itself. Each fixture below
@@ -1588,12 +1777,6 @@ TEST_CASE("husk info: prints attachments/events/lights/cameras/ribbon_emitters/p
 // tempPath() otherwise writes into) so directory-scan-based defaulting has
 // a clean, isolated view -- no risk of an unrelated file from a different
 // test case being picked up.
-
-fs::path defaultsDir(const std::string& name) {
-    auto dir = fs::temp_directory_path() / ("husk-cli-test-defaults-" + name);
-    fs::create_directories(dir);
-    return dir;
-}
 
 // Regression test for FAILURES2.md #3 (export side -- see the two `husk
 // info` versions of this test above for the info-command side).
@@ -1624,7 +1807,11 @@ TEST_CASE("husk export: model path alone resolves a same-basename .skin and defa
 
     auto result = runHusk("export " + (dir / "basic.m2").string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("no .skin path given") != std::string::npos);
+    // --skin's default is "auto" (not a separate "no .skin path given" note
+    // the old positional grammar printed) -- resolveSkin's own success note
+    // covers this instead.
+    CHECK(result.output.find("'auto' resolved") != std::string::npos);
+    CHECK(result.output.find("same-basename numbered scan") != std::string::npos);
     CHECK(result.output.find("no output path given") != std::string::npos);
     CHECK(fs::exists(dir / "basic.glb"));
 
@@ -1695,99 +1882,33 @@ TEST_CASE("husk export: a 0-inline-bone model with a same-basename .skel next to
 TEST_CASE("husk export: --textures defaults to the model's own directory -- a FileDataID-named "
           "file already sitting there is embedded without passing the flag") {
     auto dir = defaultsDir("textures");
-    auto md20 = tinyValidM2();
-    // One M2Texture (type=0, i.e. hardcoded/filename-based -- fine, only
-    // the TXID-resolved FileDataID matters for embedding) plus a TXID chunk
-    // giving it FileDataID 555, and one .skin batch referencing material 0
-    // (itself referencing texture 0 via a trivial 1-entry combo table) --
-    // the minimum shape buildMaterialsAndPrimitives needs to try resolving
-    // an actual image.
-    uint32_t one = 1;
-    uint32_t texOff = static_cast<uint32_t>(md20.size());
-    md20.resize(texOff + 16, 0);  // M2Texture: type/flags/filename(M2Array<char>)
-    std::memcpy(md20.data() + 0x050, &one, 4);    // textures.count
-    std::memcpy(md20.data() + 0x054, &texOff, 4);  // textures.offset
-    uint32_t matOff = static_cast<uint32_t>(md20.size());
-    md20.resize(matOff + 4, 0);  // M2Material: flags(u16)=0, blendMode(u16)=0
-    std::memcpy(md20.data() + 0x070, &one, 4);    // materials.count
-    std::memcpy(md20.data() + 0x074, &matOff, 4);  // materials.offset
-    uint32_t comboOff = static_cast<uint32_t>(md20.size());
-    putU16(md20, 0);  // textureCombos[0] = texture index 0
-    std::memcpy(md20.data() + 0x080, &one, 4);      // textureCombos.count
-    std::memcpy(md20.data() + 0x084, &comboOff, 4);  // textureCombos.offset
-
-    std::vector<uint8_t> file;
-    putTag(file, "MD21");
-    putU32(file, static_cast<uint32_t>(md20.size()));
-    file.insert(file.end(), md20.begin(), md20.end());
-    putTag(file, "TXID");
-    putU32(file, 4);
-    putU32(file, 555);  // texture 0's FileDataID
-
-    // .skin with one submesh + one batch (materialIndex=0,
-    // textureComboIndex=0) -- header offsets/sizes per src/skin.cpp
-    // (vertices=0x04, indices=0x0C, bones=0x14, submeshes=0x1C,
-    // batches=0x24; kSubmeshSize=0x30, kBatchSize=0x18). Built by appending
-    // each section and patching its header descriptor from the running
-    // size, rather than hand-computed offsets, so a struct-size mistake
-    // shows up as a wrong read immediately instead of silently compiling.
-    std::vector<uint8_t> skin;
-    putTag(skin, "SKIN");
-    skin.resize(44, 0);  // 5 M2Array descriptors, patched below
-    auto patchArray = [&](size_t off, uint32_t count, uint32_t offset) {
-        std::memcpy(skin.data() + off, &count, 4);
-        std::memcpy(skin.data() + off + 4, &offset, 4);
-    };
-
-    uint32_t submeshOff = static_cast<uint32_t>(skin.size());
-    skin.resize(skin.size() + 0x30, 0);
-    uint16_t indexStart = 0, indexCount = 3;
-    std::memcpy(skin.data() + submeshOff + 0x08, &indexStart, 2);
-    std::memcpy(skin.data() + submeshOff + 0x0A, &indexCount, 2);
-    patchArray(0x1C, 1, submeshOff);
-
-    uint32_t batchOff = static_cast<uint32_t>(skin.size());
-    skin.resize(skin.size() + 0x18, 0);
-    uint16_t zero16 = 0;
-    uint16_t one16 = 1;
-    uint16_t noColor = 0xFFFF;  // colorIndex's "none" sentinel (skin.hpp's Batch::colorIndex)
-    std::memcpy(skin.data() + batchOff + 0x04, &zero16, 2);   // skinSectionIndex
-    std::memcpy(skin.data() + batchOff + 0x08, &noColor, 2);  // colorIndex: none
-    std::memcpy(skin.data() + batchOff + 0x0A, &zero16, 2);   // materialIndex
-    std::memcpy(skin.data() + batchOff + 0x0E, &one16, 2);    // textureCount: 1 (gates resolution)
-    std::memcpy(skin.data() + batchOff + 0x10, &zero16, 2);   // textureComboIndex
-    patchArray(0x24, 1, batchOff);
-
-    // vertices lookup table: 1 entry -> global vertex 0.
-    uint32_t vertOff = static_cast<uint32_t>(skin.size());
-    putU16(skin, 0);
-    patchArray(0x04, 1, vertOff);
-
-    // indices: 3 entries, all pointing at vertices-lookup slot 0 (a
-    // degenerate triangle onto the model's one vertex -- same as
-    // tinyMatchingSkin's own shape).
-    uint32_t idxOff = static_cast<uint32_t>(skin.size());
-    putU16(skin, 0);
-    putU16(skin, 0);
-    putU16(skin, 0);
-    patchArray(0x0C, 3, idxOff);
-
-    patchArray(0x14, 0, 0);  // bones: unread, left empty
-
-    auto dirModel = dir / "textured.m2";
-    writeFile(dirModel, file);
-    writeFile(dir / "textured00.skin", skin);
+    writeFile(dir / "textured.m2", oneTexturedModel(555));
+    writeFile(dir / "textured00.skin", oneTexturedModelSkin());
     writeFile(dir / "555.png", {1, 2, 3, 4});  // fake PNG bytes -- husk embeds raw, doesn't decode
 
-    auto result = runHusk("export " + dirModel.string());
+    auto result = runHusk("export " + (dir / "textured.m2").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
 
     fs::remove_all(dir);
 }
 
-TEST_CASE("husk export: --anim-dir defaults to the model's own directory -- an external "
-          "sequence's .anim file already sitting there resolves without passing the flag") {
+TEST_CASE("husk export: --textures none never embeds an image, even when a matching "
+          "<FileDataID>.png sits in the default (model's own) directory") {
+    auto dir = defaultsDir("texturesnone");
+    writeFile(dir / "textured.m2", oneTexturedModel(555));
+    writeFile(dir / "textured00.skin", oneTexturedModelSkin());
+    writeFile(dir / "555.png", {1, 2, 3, 4});
+
+    auto result = runHusk("export " + (dir / "textured.m2").string() + " --textures none");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("0 with an embedded texture") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --anim defaults to the model's own directory -- an external sequence's "
+          ".anim file already sitting there resolves without passing the flag") {
     auto dir = defaultsDir("animdir");
     auto md20 = tinyExternalAnimM2();
 
@@ -1928,7 +2049,7 @@ TEST_CASE("husk export: a non-finite (NaN) translation keyframe value fails with
     auto skinPath = tempPath("nan-keyframe.skin");
     writeFile(skinPath, tinyMatchingSkin());
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("nan-keyframe.glb").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("non-finite (NaN/Inf) value") != std::string::npos);
@@ -1972,7 +2093,7 @@ TEST_CASE("husk export: a non-monotonic (out-of-order) translation keyframe time
     auto skinPath = tempPath("nonmonotonic-keyframe.skin");
     writeFile(skinPath, tinyMatchingSkin());
 
-    auto result = runHusk("export " + m2Path.string() + " " + skinPath.string() + " " +
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("nonmonotonic-keyframe.glb").string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("isn't strictly greater than") != std::string::npos);
@@ -2128,32 +2249,198 @@ TEST_CASE("husk export: a model with no global-sequence-driven tracks gains no e
     fs::remove_all(dir);
 }
 
-// Regression coverage for a real bug: `--help`/`-h` used to only be
-// special-cased in main.cpp, before a subcommand name was even read --
-// `husk export --help` fell through to treating "--help" as a literal
-// model path (args[0] is always the first positional in exportGlb, taken
-// unconditionally), producing a confusing "couldn't open '--help'" error
-// instead of the usage text each cmd_*.cpp already had. Every subcommand
-// now checks isHelpFlag (commands.hpp) before doing any real argument
-// parsing.
-TEST_CASE("husk export --help prints usage and exits 0, not a file-not-found error") {
+// --skel/--textures/--anim/--skin-dir three(-plus)-state coverage
+// (DESIGN.md's "CLI argument grammar for export") not already exercised above.
+
+TEST_CASE("husk export: --skel none forces an unskinned mesh even when a same-basename .skel "
+          "exists next to the model") {
+    auto dir = defaultsDir("skelnone");
+    writeFile(dir / "rigged.m2", tinyValidM2());  // inline bones empty
+    writeFile(dir / "rigged00.skin", tinyMatchingSkin());
+    // Same fixture as the "0-inline-bone model... resolves the skeleton
+    // automatically" test above, minus the flag -- this one's whole point
+    // is that --skel none must still ignore it.
+    writeFile(dir / "rigged.skel", buildSkel({{-1, -1}}));
+
+    auto result = runHusk("export " + (dir / "rigged.m2").string() + " --skel none");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("found and using") == std::string::npos);
+    CHECK(result.output.find("bones") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --anim auto (explicit) produces the identical clip count as the "
+          "default (omitted) case -- 'auto' is genuinely the default, not merely documented as "
+          "one") {
+    auto m2Path = tempPath("animated-anim-auto.m2");
+    writeFile(m2Path, tinyAnimatedM2());
+    auto skinPath = tempPath("animated-anim-auto.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("animated-anim-auto.glb").string() + " --anim auto");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: --anim inline still resolves a model's own inline + global-sequence "
+          "clips (only external-directory resolution is what --anim inline turns off)") {
+    auto m2Path = tempPath("anim-inline-still-inline.m2");
+    writeFile(m2Path, tinyAnimatedM2());
+    auto skinPath = tempPath("anim-inline-still-inline.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("anim-inline-still-inline.glb").string() + " --anim inline");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: --anim inline skips external-directory resolution entirely -- an "
+          "external sequence's otherwise-resolvable --anim <dir> file is ignored, even sitting "
+          "right there") {
+    auto md20 = tinyExternalAnimM2();
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    putTag(file, "AFID");
+    putU32(file, 8);
+    putU16(file, 200);
+    putU16(file, 0);
+    putU32(file, 777);
+
+    auto m2Path = tempPath("anim-inline-ignores-external.m2");
+    writeFile(m2Path, file);
+    auto skinPath = tempPath("anim-inline-ignores-external.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-inline-dir";
+    fs::create_directories(animDir);
+    writeFile(animDir / "777.anim", tinyAnimFile());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("anim-inline-ignores-external.glb").string() +
+                           " --anim inline");
+    CHECK(result.exitCode == 0);
+    // Same model/skin/AFID/anim-dir fixture as the "--anim <dir> resolves
+    // an external sequence" test above, which asserts "1 animation(s)" for
+    // the exact same file layout with --anim <dir> instead -- the only
+    // difference here is the flag value, proving --anim inline really does
+    // suppress the external lookup rather than happening to find nothing.
+    CHECK(result.output.find("animation(s)") == std::string::npos);
+    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove_all(animDir);
+}
+
+TEST_CASE("husk export: --anim none produces zero animation clips, but JOINTS_0/WEIGHTS_0 (the "
+          "bind-pose skin) are still present when the model has bones") {
+    auto m2Path = tempPath("anim-none.m2");
+    writeFile(m2Path, tinyAnimatedM2());  // has 1 bone + 1 real inline sequence
+    auto skinPath = tempPath("anim-none.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("anim-none.glb").string() + " --anim none");
+    CHECK(result.exitCode == 0);
+    // Bones (and thus JOINTS_0/WEIGHTS_0 -- buildSkinning runs whenever
+    // bones aren't empty, unconditionally on --anim) still print; only the
+    // animation-clip resolution that --anim none suppresses is gone.
+    CHECK(result.output.find("1 bones") != std::string::npos);
+    CHECK(result.output.find("animation(s)") == std::string::npos);
+    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: -i/--input and -o/--output work identically as named flags and as bare "
+          "positionals") {
+    auto dir = defaultsDir("namedflags");
+    writeFile(dir / "flagged.m2", tinyValidM2());
+    writeFile(dir / "flagged00.skin", tinyMatchingSkin());
+
+    auto outPath = dir / "explicit-out.glb";
+    auto result =
+        runHusk("export -i " + (dir / "flagged.m2").string() + " -o " + outPath.string());
+    CHECK(result.exitCode == 0);
+    CHECK(fs::exists(outPath));
+
+    auto outPath2 = dir / "explicit-out2.glb";
+    auto result2 = runHusk("export --input " + (dir / "flagged.m2").string() + " --output " +
+                            outPath2.string());
+    CHECK(result2.exitCode == 0);
+    CHECK(fs::exists(outPath2));
+
+    // -o given *before* the model on the command line: proves the bare
+    // positional (the model path) still binds to --input regardless of
+    // where a named flag sits in argv, not just when named flags trail it.
+    auto outPath3 = dir / "explicit-out3.glb";
+    auto result3 =
+        runHusk("export -o " + outPath3.string() + " " + (dir / "flagged.m2").string());
+    CHECK(result3.exitCode == 0);
+    CHECK(fs::exists(outPath3));
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: every flag accepted named, in arbitrary order") {
+    auto dir = defaultsDir("allflags");
+    writeFile(dir / "m.m2", tinyValidM2());
+    writeFile(dir / "m.skin", tinyMatchingSkin());
+    auto outPath = dir / "out.glb";
+
+    // Every flag but --skin-dir/--lod (both only meaningful alongside
+    // --skin auto -- combining them with an explicit --skin path is its
+    // own rejected case, covered by its own dedicated tests above),
+    // scrambled out of the order addExportOptions declares them in, proving
+    // none of them depend on argv position.
+    auto result = runHusk("export --anim none --textures none --skel none -o " + outPath.string() +
+                           " --skin " + (dir / "m.skin").string() + " -i " +
+                           (dir / "m.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(fs::exists(outPath));
+
+    fs::remove_all(dir);
+}
+
+// `export`'s --help/-h no longer needs commands::isHelpFlag's hand-rolled
+// pre-check (see commands.hpp's doc comment, and info/dump-chunks below,
+// which still do) -- CLI11 recognizes -h/--help itself, anywhere in argv,
+// and prints its own auto-generated help sourced from addExportOptions's
+// real flag surface, not a hand-written usage block. These three tests
+// check for real flag names in that output, not the old hand-written prose.
+TEST_CASE("husk export --help prints CLI11's own generated help (real flag names) and exits 0, "
+          "not a file-not-found error") {
     auto result = runHusk("export --help");
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("usage: husk export") != std::string::npos);
+    CHECK(result.output.find("--skin") != std::string::npos);
+    CHECK(result.output.find("--anim") != std::string::npos);
+    CHECK(result.output.find("--lod") != std::string::npos);
     CHECK(result.output.find("couldn't open") == std::string::npos);
 }
 
-TEST_CASE("husk export -h (shorthand) prints usage and exits 0") {
+TEST_CASE("husk export -h (shorthand) prints the same CLI11-generated help and exits 0") {
     auto result = runHusk("export -h");
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("usage: husk export") != std::string::npos);
+    CHECK(result.output.find("--skin") != std::string::npos);
+    CHECK(result.output.find("--anim") != std::string::npos);
 }
 
-TEST_CASE("husk export <file.m2> --help (help after a positional) still prints usage, "
+TEST_CASE("husk export <file.m2> --help (help after a positional) still prints CLI11's help, "
           "without ever trying to open the (nonexistent) model path") {
     auto result = runHusk("export nonexistent-model.m2 --help");
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("usage: husk export") != std::string::npos);
+    CHECK(result.output.find("--skin") != std::string::npos);
     CHECK(result.output.find("couldn't open") == std::string::npos);
 }
 
@@ -2208,46 +2495,61 @@ TEST_CASE("husk with an unknown command fails cleanly, not a crash") {
     CHECK(result.output.find("unknown command") != std::string::npos);
 }
 
-// Remaining CLI argv edge cases (FINDINGS.md §4.3): each subcommand's
-// argc guard, and export's four "flag given with no value" branches.
-// None of these need a real M2 -- they're all rejected before any file is
-// ever opened.
+// Remaining CLI argv edge cases (FINDINGS.md §4.3): each subcommand's argc
+// guard. export's own guard is now CLI11's own machinery -- --input is
+// ->required() (addExportOptions), and a flag given with no value is a
+// real CLI11 parse-time error with CLI11's own named exit code (see
+// CLI::ExitCodes in /nix/store/*-cli11-*/include/CLI/Error.hpp), not the
+// old code's uniform "usage: husk export" text + exit 1. info/dump-chunks
+// weren't touched by this migration, so their argc guards below are
+// unchanged.
 
-TEST_CASE("husk export with no arguments at all prints usage and exits 1") {
+TEST_CASE("husk export with no arguments at all fails via CLI11's RequiredError (--input is "
+          "required), not the old hand-written usage text") {
     auto result = runHusk("export");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("usage: husk export") != std::string::npos);
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("--input") != std::string::npos);
+    CHECK(result.output.find("required") != std::string::npos);
 }
 
-TEST_CASE("husk export --textures with no value prints usage and exits 1") {
+TEST_CASE("husk export --textures with no value fails via CLI11's own parse-time error") {
     auto result = runHusk("export some.m2 --textures");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("usage: husk export") != std::string::npos);
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("--textures") != std::string::npos);
 }
 
-TEST_CASE("husk export --skin-dir with no value prints usage and exits 1") {
+TEST_CASE("husk export --skin-dir with no value fails via CLI11's own parse-time error") {
     auto result = runHusk("export some.m2 --skin-dir");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("usage: husk export") != std::string::npos);
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("--skin-dir") != std::string::npos);
 }
 
-TEST_CASE("husk export --anim-dir with no value prints usage and exits 1") {
-    auto result = runHusk("export some.m2 --anim-dir");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("usage: husk export") != std::string::npos);
+TEST_CASE("husk export --anim with no value fails via CLI11's own parse-time error") {
+    auto result = runHusk("export some.m2 --anim");
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("--anim") != std::string::npos);
 }
 
-TEST_CASE("husk export --lod with no value prints usage and exits 1") {
+TEST_CASE("husk export --skel with no value fails via CLI11's own parse-time error") {
+    auto result = runHusk("export some.m2 --skel");
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("--skel") != std::string::npos);
+}
+
+TEST_CASE("husk export --lod with no value fails via CLI11's own parse-time error") {
     auto result = runHusk("export some.m2 --lod");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("usage: husk export") != std::string::npos);
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("--lod") != std::string::npos);
 }
 
-TEST_CASE("husk export with more than 4 positionals (model + 3 trailing-optional) prints usage "
-          "and exits 1") {
-    auto result = runHusk("export some.m2 a.skin out.glb some.skel one-too-many");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("usage: husk export") != std::string::npos);
+TEST_CASE("husk export with a 3rd bare positional fails via CLI11's ExtrasError -- only -i/-o "
+          "have a positional fallback (see addExportOptions's 'input'/'output' names), so a 3rd "
+          "bare word is always rejected, regardless of how many named flags exist (replaces the "
+          "old 'more than 4 positionals' test -- there's no 4th positional slot left to overflow "
+          "into anymore)") {
+    auto result = runHusk("export some.m2 a.glb extra-positional");
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("not expected") != std::string::npos);
 }
 
 TEST_CASE("husk info with no arguments at all prints usage and exits 1") {
@@ -2285,7 +2587,7 @@ TEST_CASE("husk export: batch skinSectionIndex out of range for submeshes fails 
     writeFile(dir / "m.m2", tinyValidM2());
     writeFile(dir / "m.skin", oneBatchSkin({.skinSectionIndex = 1}));  // only submesh 0 exists
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("skinSectionIndex (1) is out of range for 1 submeshes") !=
           std::string::npos);
@@ -2301,7 +2603,7 @@ TEST_CASE("husk export: submesh index range past the resolved triangle-index buf
     // the resolved triangle-index buffer) only has 3.
     writeFile(dir / "m.skin", oneBatchSkin({}, /*submeshIndexCount=*/10));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("corrupted .skin?") != std::string::npos);
 
@@ -2313,7 +2615,7 @@ TEST_CASE("husk export: batch materialIndex out of range for materials fails cle
     writeFile(dir / "m.m2", tinyValidM2());       // 0 materials
     writeFile(dir / "m.skin", oneBatchSkin({}));  // materialIndex defaults to 0
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("materialIndex (0) is out of range for 0 materials") !=
           std::string::npos);
@@ -2326,7 +2628,7 @@ TEST_CASE("husk export: batch colorIndex out of range for colors fails cleanly")
     writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 0, 0, 0, 0));  // 1 material, 0 colors
     writeFile(dir / "m.skin", oneBatchSkin({.colorIndex = 0}));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("colorIndex (0) is out of range for 0 colors") != std::string::npos);
 
@@ -2339,7 +2641,7 @@ TEST_CASE("husk export: batch textureWeightComboIndex out of range for textureWe
     writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 1, 0, 0, 0));  // 1 textureWeightCombos entry
     writeFile(dir / "m.skin", oneBatchSkin({.textureWeightComboIndex = 5}));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("textureWeightComboIndex (5) is out of range for 1 "
                               "textureWeightCombos entries") != std::string::npos);
@@ -2354,7 +2656,7 @@ TEST_CASE("husk export: batch texture weight, resolved via textureWeightCombos, 
     writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 1, 0, 0, 0, /*textureWeightCombo0=*/99));
     writeFile(dir / "m.skin", oneBatchSkin({.textureWeightComboIndex = 0}));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("texture weight (index 99 via textureWeightCombos[0]) is out of "
                               "range for 0 textureWeights entries") != std::string::npos);
@@ -2367,7 +2669,7 @@ TEST_CASE("husk export: batch textureComboIndex out of range for textureCombos f
     writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 0, 0, 0, 0));  // 0 textureCombos
     writeFile(dir / "m.skin", oneBatchSkin({.textureCount = 1, .textureComboIndex = 0}));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("textureComboIndex (0) is out of range for 0 textureCombos "
                               "entries") != std::string::npos);
@@ -2383,7 +2685,7 @@ TEST_CASE("husk export: batch texture, resolved via textureCombos, out of range 
               materialsFixtureM2(1, 0, 0, 0, 0, 1, 0, std::nullopt, /*textureCombo0=*/99));
     writeFile(dir / "m.skin", oneBatchSkin({.textureCount = 1, .textureComboIndex = 0}));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("texture (index 99 via textureCombos[0]) is out of range for 0 "
                               "textures") != std::string::npos);
@@ -2401,7 +2703,7 @@ TEST_CASE("husk export: batch textureCoordComboIndex out of range for textureCoo
     writeFile(dir / "m.skin",
               oneBatchSkin({.textureCount = 1, .textureComboIndex = 0, .textureCoordComboIndex = 5}));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("textureCoordComboIndex (5) is out of range for 1 "
                               "textureCoordCombos entries") != std::string::npos);
@@ -2426,7 +2728,7 @@ TEST_CASE("husk export: an animated (non-constant) M2Color track is dropped with
     writeFile(dir / "m.m2", m2);
     writeFile(dir / "m.skin", oneBatchSkin({.colorIndex = 0}));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 batch(es) whose color tint (M2Color) or transparency fade") !=
           std::string::npos);
@@ -2446,7 +2748,7 @@ TEST_CASE("husk export: an animated (non-constant) M2TextureWeight track is drop
     writeFile(dir / "m.m2", m2);
     writeFile(dir / "m.skin", oneBatchSkin({.textureWeightComboIndex = 0}));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 batch(es) whose color tint (M2Color) or transparency fade") !=
           std::string::npos);
@@ -2462,7 +2764,7 @@ TEST_CASE("husk export: a constant (non-animated) M2Color track gets no animated
     writeFile(dir / "m.m2", materialsFixtureM2(1, 1, 0, 0, 0, 0, 0));
     writeFile(dir / "m.skin", oneBatchSkin({.colorIndex = 0}));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("color tint") == std::string::npos);
 
@@ -2480,7 +2782,7 @@ TEST_CASE("husk export: a batch referencing a texture transform gets a note, and
     writeFile(dir / "m.m2", oneTextureTransformM2());
     writeFile(dir / "m.skin", oneBatchSkin({.textureTransformComboIndex = 0}));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 batch(es) with a UV transform (M2TextureTransform)") !=
           std::string::npos);
@@ -2501,7 +2803,7 @@ TEST_CASE("husk export: a batch with textureTransformComboIndex = 0xFFFF (none) 
     // reference it.
     writeFile(dir / "m.skin", oneBatchSkin({}));
 
-    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("UV transform") == std::string::npos);
 

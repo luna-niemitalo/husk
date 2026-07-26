@@ -45,9 +45,7 @@ the same dev shell, but it isn't part of the CMake build above.
 
 ```
 husk info <file.m2>
-husk export <file.m2> [<file.skin>|auto [<output.glb> [file.skel]]]
-                       [--textures <dir>] [--skin-dir <dir>] [--anim-dir <dir>]
-                       [--lod <n>|all]
+husk export --input <file.m2> [OPTIONS]   (see below -- all flags order-independent)
 husk dump-chunks <file.m2>
 husk dump-chunks <file.bone>
 ```
@@ -93,46 +91,59 @@ Parses the header only and prints:
   `particle_emitters` are still counts-only (not dereferenced -- see the
   format matrix).
 - sidecar-reference chunks when present: `SFID` (skin FileDataIDs, used by
-  `export auto` below), `LDV1` (LOD count), `BFID` (`.bone` FileDataIDs),
+  `--skin auto` below), `LDV1` (LOD count), `BFID` (`.bone` FileDataIDs),
   `AFID` (`.anim` FileDataIDs).
 - for chunked files, every top-level chunk tag found, flagging any tag outside
   husk's known-M2-chunk-tag list (see `DESIGN.md` for why that matters for
   this format).
 
-### `husk export <file.m2> [<skin>|auto [<output.glb> [file.skel]]]`
+### `husk export --input <file.m2> [OPTIONS]`
 
 Resolves the M2's vertices and the `.skin`'s triangle-index lookup into one
 glTF primitive per `.skin` batch, converts WoW's Z-up coordinates to glTF's
-Y-up, and writes a `.glb`. Only `<file.m2>` is required.
+Y-up, and writes a `.glb`. Only `--input`/`-i` is required; every other flag
+is named and order-independent (only `--input`/`-i` and `--output`/`-o` also
+work as bare positionals, first and last -- `husk export model.m2 out.glb`
+-- the same universal `tool in out` muscle memory as `cp`/`mv`; every other
+flag must be spelled out, so adding a tenth flag later can never shift what
+a bare word means).
 
-**Defaults.** Every argument after the model is trailing-optional (stop
-early, but you can't skip one in the middle -- same convention as `cp src
-[dst]`), and each one omitted resolves from what's already sitting next to
-the model, announced on stderr as it's resolved, never silently:
+**Defaults.** Every flag left unset resolves from what's already sitting
+next to the model, announced on stderr as it's resolved, never silently:
 
-- omitted `.skin` path -> the lowest-numbered (highest-detail)
-  `<model-basename><N>.skin` file found in the model's own directory
-  (`bloodelffemale.m2` finds `bloodelffemale00.skin` next to it, but not
-  `bloodelffemale_hd00.skin` -- a stricter match than a plain string prefix,
-  see `src/cmd_export.cpp`'s `findSameBasenameSkins`); an error if none match.
-- omitted `<output.glb>` -> `<model-basename>.glb`.
-- omitted `.skel` path, only relevant when the model has 0 inline bones ->
-  checks for a same-basename `.skel` next to the model; not finding one isn't
-  an error, since plenty of 0-bone models genuinely have no skeleton.
-- omitted `--textures`/`--skin-dir`/`--anim-dir` -> all three default to the
-  model's own directory, not `none` -- a real extraction already drops the
-  `.m2` and everything it needs into one place, so nothing here requires
-  CASC/listfile access, just the filesystem layout you already have.
+- unset `--output` -> `<model-basename>.glb`.
+- unset `--skin` -> the literal `auto` (see below).
+- unset `--textures`/`--skin-dir` -> the model's own directory -- a real
+  extraction already drops the `.m2` and everything it needs into one place,
+  so nothing here requires CASC/listfile access, just the filesystem layout
+  you already have.
+- unset `--anim` -> the literal `auto` (see below).
+- unset `--skel`, only relevant when the model has 0 inline bones -> checks
+  for a same-basename `.skel` next to the model; not finding one isn't an
+  error, since plenty of 0-bone models genuinely have no skeleton.
 
-Every default is overridable by giving that argument explicitly.
+Each of `--textures`/`--skin-dir`/`--skel` also accepts the literal `none`,
+distinct from leaving it unset: `none` means "don't even try," skipping that
+resolution deliberately (no image embedded/no SFID search stage/no
+same-basename `.skel` lookup) rather than best-effort deriving it. Every
+default is overridable by giving that flag explicitly.
 
-**Skin argument.** Either a path to the `.skin` matching the LOD you want
-(see the same-basename convention above), or the literal word `auto`, which
-reads the M2's own `SFID` chunk and resolves `<--skin-dir>/<FileDataID>.skin`
-for the entry `--lod` selects (default: entry 0, "the main skin", per
-wowdev.wiki) -- the FileDataID-renamed-directory convention a `--skin-dir`
-you populated yourself would use, as opposed to the same-basename convention
-above. `auto` announces which FileDataID it picked.
+**`--skin`/`-s` argument.** Either a path to the `.skin` matching the LOD
+you want, or `auto` (the default), which tries the M2's own `SFID` chunk
+first -- resolving `<--skin-dir>/<FileDataID>.skin` for the entry `--lod`
+selects (default: entry 0, "the main skin", per wowdev.wiki), the
+FileDataID-renamed-directory convention a `--skin-dir` you populated
+yourself would use -- and falls back to the lowest-numbered (highest-detail)
+`<model-basename><N>.skin` file found in the model's own directory if that
+doesn't resolve (`bloodelffemale.m2` finds `bloodelffemale00.skin` next to
+it, but not `bloodelffemale_hd00.skin` -- a stricter match than a plain
+string prefix, see `src/cmd_export.cpp`'s `findSameBasenameSkins`). `auto`
+announces which stage resolved and what it found; an error, naming both
+attempts, if neither does. `--skin none` is rejected outright (not a real
+state) -- a `.skin` is the sole source of triangle/submesh/batch data, never
+optional enrichment. `--skin-dir`/`--lod` only mean anything alongside
+`--skin auto` (the default); giving either alongside an explicit `.skin`
+path is a usage error.
 
 **Materials.** Correct `alphaMode`/`doubleSided` from WoW's blend mode/render
 flags, plus a static `baseColorFactor` tint/fade from the batch's `M2Color`/
@@ -157,32 +168,50 @@ layer(s) as material `extras` (FileDataID, UV set, embedded image if
 rendered material, since core glTF has no slot for WoW's fixed-function
 combiner math.
 
-**Skeleton + animation.** If the M2 has bones -- inline, or via the optional
-`file.skel` argument for models that keep them external instead (see
-`src/skel.hpp`) -- they resolve into a bind-pose glTF skin (`JOINTS_0`/
-`WEIGHTS_0`, inverse bind matrices, joint-node hierarchy), plus real glTF
-`animation` clips: one per `M2Sequence` (or a `.skel`-sourced skeleton's own
-`SKS1` sequences) whose keyframe data resolves, either inline
-(`flags & 0x20`) or via `--anim-dir` for a sequence stored in an external
-`.anim` file instead. Bone tracks with a `global_sequence` field (eye-glow
-pulses, torch flicker, idle sway) each resolve into their own clip
-(`global_seq_<n>`) too, independent of any `M2Sequence`. Unresolvable data is
-skipped, never guessed: the `0x40` ("alias") flag case, and any `.anim` file
-carrying an undocumented `AFSB` chunk (see `DESIGN.md`).
+**Skeleton + animation.** If the M2 has bones -- inline, or via `--skel`
+for models that keep them external instead (see `src/skel.hpp`) -- they
+resolve into a bind-pose glTF skin (`JOINTS_0`/`WEIGHTS_0`, inverse bind
+matrices, joint-node hierarchy), plus real glTF `animation` clips per
+`--anim`/`-a`'s four states:
+
+- `auto` (default): inline sequences (`flags & 0x20`) + global-sequence bone
+  tracks (eye-glow pulses, torch flicker, idle sway -- each its own
+  `global_seq_<n>` clip, independent of any `M2Sequence`), both resolved
+  straight from the model's own data, *plus* best-effort external-directory
+  search (default: the model's own directory) for sequences stored in an
+  external `.anim` file instead.
+- `inline`: inline sequences + global-sequence tracks only; external search
+  explicitly skipped.
+- `none`: zero `animation` clips at all -- the bind pose itself
+  (`JOINTS_0`/`WEIGHTS_0`, inverse bind matrices) is unaffected, only clips
+  are suppressed.
+- `<dir>`: explicit directory for the external-search stage; inline +
+  global-sequence clips still resolve on top of it, same as `auto`.
+
+Unresolvable data is skipped, never guessed: the `0x40` ("alias") flag case,
+and any `.anim` file carrying an undocumented `AFSB` chunk (see `DESIGN.md`).
 
 Flags:
 
-| Flag | Meaning | Default |
-|---|---|---|
-| `--textures <dir>` | Directory of `<FileDataID>.png` (from `husk-blp`, see below) for real `baseColorTexture` images | model's own directory |
-| `--skin-dir <dir>` | Directory of `<FileDataID>.skin`, used when the skin argument is `auto` | model's own directory |
-| `--anim-dir <dir>` | Directory of `<FileDataID>.anim`, for sequences not stored inline | model's own directory |
-| `--lod <n>` | With `auto`, pick `SFID` entry `n` instead of 0 (`husk info`'s `skin_file_data_ids` shows how many entries exist) | entry `0` |
-| `--lod all` | With `auto`, resolve every LOD entry into the same `.glb`, each as its own node (`lod0`, `lod1`, ...) with its own primitives/materials, sharing one skeleton and one set of animation clips | -- |
+| Flag | Short | Meaning | Default |
+|---|---|---|---|
+| `--input <file.m2>` | `-i` | The model to export (required; 1st bare positional if omitted) | -- |
+| `--output <file.glb>` | `-o` | Output path (last bare positional if omitted) | `<model-basename>.glb` |
+| `--skin <path>` &#124; `auto` | `-s` | `.skin` path, or `auto` (see above); never `none` | `auto` |
+| `--textures <dir>` &#124; `none` | `-t` | Directory of `<FileDataID>.png` (from `husk-blp`, see below) for real `baseColorTexture` images, or `none` to never embed one | model's own directory |
+| `--skin-dir <dir>` &#124; `none` | -- | Directory `auto` searches for the SFID-declared `<FileDataID>.skin`, or `none` to skip that stage | model's own directory |
+| `--anim <dir>` &#124; `auto`/`inline`/`none` | `-a` | See the four states above | `auto` |
+| `--skel <path>` &#124; `none` | -- | External `.skel` path (0-inline-bone models only), or `none` to never look for one | same-basename `.skel` next to the model, if any |
+| `--lod <n>` &#124; `all` | -- | With `--skin auto`, pick `SFID` entry `n` instead of 0, or resolve every entry into the same `.glb` as its own node (`lod0`, `lod1`, ...) sharing one skeleton/animation set (`husk info`'s `skin_file_data_ids` shows how many entries exist) | entry `0` |
 
 If no matching image is found in the resolved `--textures` directory,
 materials still carry the correct blend mode, culling, and tint/fade -- they
 render as a flat tinted surface instead of the real WoW texture.
+
+Shell completion (bash/zsh) for every subcommand and flag above ships in
+`completions/` -- see that directory's own files, generated from husk's real
+flag definitions via the hidden `--print-completion=<bash|zsh>` flag rather
+than hand-maintained.
 
 Examples:
 
@@ -191,14 +220,14 @@ Examples:
 husk export bloodelffemale.m2
 
 # same, with paths spelled out explicitly
-husk export bloodelffemale.m2 bloodelffemale00.skin out.glb --textures ./png
+husk export bloodelffemale.m2 out.glb --skin bloodelffemale00.skin --textures ./png
 
 # FileDataID-renamed-directory workflow, every LOD tier in one .glb
-husk export bloodelffemale.m2 auto out.glb --skin-dir ./skins --lod all
+husk export bloodelffemale.m2 out.glb --skin-dir ./skins --lod all
 
 # .skel-sourced skeleton, external animation data
-husk export bloodelffemale_hd.m2 bloodelffemale_hd00.skin out.glb \
-  bloodelffemale_hd.skel --anim-dir ./anims
+husk export bloodelffemale_hd.m2 out.glb --skin bloodelffemale_hd00.skin \
+  --skel bloodelffemale_hd.skel --anim ./anims
 ```
 
 ### `husk dump-chunks <file.m2>` / `husk dump-chunks <file.bone>`
@@ -274,12 +303,12 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | UV / texture coordinates | 📖 both `tex_coords[2]` sets resolved and both exported to glTF (`TEXCOORD_0`/`TEXCOORD_1`); a material's `baseColorTexture` samples whichever set the batch's `textureCoordComboIndex` selects (pre-Cataclysm models only — see `src/cmd_export.cpp`) | ⬜ `VUV0`–`VUV5` (up to 6 sets) | ⬜ `MOTV` | ⬛ |
 | Tangents | ❔ not in the documented base header — appears to be runtime-computed, not stored | ⬜ `VTAN` | ⬜ `MOTA` (often auto-generated client-side for shaders 10/14) | ⬛ |
 | Per-vertex colors | 📖 not truly per-vertex (M2's `colors`/`textureWeights` are per-*batch* material tint/fade, not per-vertex mesh color — see `src/m2.cpp`'s `Color`/`TextureWeight`); resolved into glTF `baseColorFactor` by `husk export` as a *static* approximation (only when the underlying `M2Track` is unambiguously constant — real keyframe animation is stage 6, see `DESIGN.md`) | ⬜ `VCL0`/`VCL1` | ⬜ `MOCV`/`MOC2` | ⬛ |
-| LOD / mesh views | 🚧 each LOD tier's `.skin` file's `vertices`/`indices` lookup tables, plus `submeshes`/`batches` (material/texture linkage per submesh, `src/skin.cpp`'s `Submesh`/`Batch`) read directly; `.skin` filename can be given explicitly, or auto-selected via the M2's own `SFID` chunk + `husk export auto --skin-dir <dir>` (defaults to the highest-detail LOD; `--lod <n>` picks a specific `SFID` entry, `--lod all` exports every entry as its own named node in one `.glb`, roadmap stage 8, see Usage) — `LDV1` `lod_count` (`husk info`) is now a real `--lod <n>` range-check consumer, not just display; `Submesh.skinSectionId` (the "geoset ID") is read and carried into every exported primitive as glTF `extras`, but not filtered on (no CASC/DBC data to ground a selection in, see `DESIGN.md`) — every submesh, including mutually-exclusive character-customization options, is always exported; still 🚧 because `Submesh`/`Batch`'s other non-material fields (culling/sort/hardware-bone-limit metadata `src/skin.hpp` documents but doesn't read -- husk exports full per-vertex global joint indices instead of the engine's per-drawcall bone-limit mechanism these exist for, see `src/cmd_export.cpp`'s `buildSkinning`) still aren't | ⬛ `LODS` folds LOD into the one file, no sidecar | ⬛ (`GFID`'s `Flag_Lod` is a different, coarser concept — tracked under World/group structure) | ⬜ mip pyramid — tracked under Texture pixel data below, not here |
+| LOD / mesh views | 🚧 each LOD tier's `.skin` file's `vertices`/`indices` lookup tables, plus `submeshes`/`batches` (material/texture linkage per submesh, `src/skin.cpp`'s `Submesh`/`Batch`) read directly; `.skin` filename can be given explicitly, or auto-selected via the M2's own `SFID` chunk + `husk export --skin-dir <dir>` (`--skin` defaults to `auto`; defaults to the highest-detail LOD; `--lod <n>` picks a specific `SFID` entry, `--lod all` exports every entry as its own named node in one `.glb`, roadmap stage 8, see Usage) — `LDV1` `lod_count` (`husk info`) is now a real `--lod <n>` range-check consumer, not just display; `Submesh.skinSectionId` (the "geoset ID") is read and carried into every exported primitive as glTF `extras`, but not filtered on (no CASC/DBC data to ground a selection in, see `DESIGN.md`) — every submesh, including mutually-exclusive character-customization options, is always exported; still 🚧 because `Submesh`/`Batch`'s other non-material fields (culling/sort/hardware-bone-limit metadata `src/skin.hpp` documents but doesn't read -- husk exports full per-vertex global joint indices instead of the engine's per-drawcall bone-limit mechanism these exist for, see `src/cmd_export.cpp`'s `buildSkinning`) still aren't | ⬛ `LODS` folds LOD into the one file, no sidecar | ⬛ (`GFID`'s `Flag_Lod` is a different, coarser concept — tracked under World/group structure) | ⬜ mip pyramid — tracked under Texture pixel data below, not here |
 | Collision / physics | 🚧 `bounding_box`/`collision_box`/`collision_sphere_radius` scalars and `collision_positions`/`collision_indices`/`collision_face_normals` counts all printed by `husk info` (not just `collision_positions`, a real "parsed then dropped" gap this session's own external review found — see `FINDINGS.md` §3.3); the actual low-poly hit-test mesh's *content* still isn't exported anywhere (no `dump-chunks`-style dump, no glTF equivalent attempted); `.phys` sidecar (`PFID`) untouched | ⬜ `M3CL` collision mesh (`CPOS`/`CNML`/`CINX`) | ⬜ `MOBN`/`MOBR` BSP tree, `MCVP` convex volumes, `MOPL` terrain-cutting planes | ⬛ |
 | Materials | 📖 `materials` array (`flags`/`blending_mode`, `src/m2.cpp`'s `parseMaterials`) resolved per-batch and translated to glTF `alphaMode`/`doubleSided`, plus a static color tint/alpha-fade into `baseColorFactor` (see Per-vertex colors above), by `husk export` (`src/cmd_export.cpp`) — write-back to M2 not applicable (glTF-only tool); a batch's additional texture layers (`M2Batch.textureCount > 1` — a real second env-mapped/blended layer, wowdev.wiki M2/.skin#Texture_units) are resolved and surfaced as glTF `extras` (FileDataID/UV set, plus a real embedded-but-unused image if `--textures` has a match) but not rendered — core glTF has no slot for WoW's fixed-function combiner math (`Mod2x`/`Add`/env-map blending) to translate into; a batch's UV scroll/rotate/scale animation (`M2TextureTransform`, `Header::textureTransforms` + `.skin`'s `Batch.textureTransformComboIndex` — flowing lava/water, some portal/aura effects) is likewise resolved (`m2::parseTextureTransforms`) and surfaced as `extras` (`gltf::Material::textureTransform`) rather than a real `KHR_texture_transform`, for the same "no verified-safe translation" reason: core glTF's own extension has no animation-channel target either (so the animated case, almost certainly the common one for a real scrolling-UV model, has no representation regardless), and correctly folding WoW's texture-center rotation pivot into the extension's own origin-based one hasn't been checked against a real animated file yet — see `src/m2.hpp`'s `TextureTransform` doc comment | ⬜ `M3SI` Instances → external `MaterialLibrary` (`.mtl3lib`) | ⬜ `MOMT`, `MOM3` (v3 override), `MOUV` (UV anim), per-face `MOPY`/`MPY2`/`MOBS` | ⬛ |
 | Texture references (names/FileDataIDs) | 📖 `textures` array (`type`/`flags`/`filename`) + `textureCombos` lookup table resolved (`src/m2.cpp`); Legion+ `TXID` chunk FileDataIDs surfaced (`Header::textureFileDataIds`) — same non-resolved-to-a-path treatment as `SKID`, see the Sidecar row below | ⬜ indirect, via `MaterialLibrary` → compiled shader files (`GFAT`/`BLS`) — separate formats, not yet even scoped | ⬜ `MOTX` | ⬛ BLP is the referenced asset, not a referencer |
 | Texture pixel data | ⬛ | ⬛ | ⬛ | 🚧 `blp/` (Python, `husk-blp` CLI) — header + mip table resolved, palette/DXT1/DXT5/BGRA decode to PNG done; DXT3 and JPEG content unimplemented (JPEG rare in BLP2 per the wiki; DXT3 unseen in this repo's real test data so far — not yet a confirmed-needed gap) |
-| Animation sequences / tracks | 📖 `sequences` resolved to real `M2Sequence` records (`id`/`variationIndex`/`duration`/`flags`) whether inline (`src/m2.cpp`'s `parseSequences`) or `.skel`-sourced (`SKS1`, `src/skel.cpp`'s `parseSequences`); each bone's `translation`/`rotation`/`scale` `M2Track` resolved per-sequence (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`) into real glTF `animation` clips by `husk export`, for sequences whose data lives inline (`flags & 0x20`) *or* an external `.anim` file resolved via `--anim-dir` + the model's own `AFID` chunk (or the `.skel`'s own separate `AFID` table, for a `.skel`-sourced skeleton) — verified against real files both ways (see the Usage section and roadmap stage 6). A bone track whose `global_sequence` field is set (continuous, `M2Sequence`-independent looping — glow pulses, idle sway) also resolves to its own real glTF clip (`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack`, one clip per distinct global-sequence index actually used), for inline and `.skel`-sourced bones alike. Still unresolved: sequences with `flags & 0x40` ("alias", wowdev.wiki: "I have no clue" where that data lives), and any external `.anim` file that turns out to carry an `AFSB` chunk instead of (or alongside) `AFM2` — real `.skel`-sourced character files were found to use `AFSB` almost universally, a format wowdev.wiki documents no byte layout for at all | ❔ no sequence/track chunk documented in the fetched spec at all | ⬛ (`MOUV` texture-translation anim is the closest thing; counted under Materials) | ⬛ |
+| Animation sequences / tracks | 📖 `sequences` resolved to real `M2Sequence` records (`id`/`variationIndex`/`duration`/`flags`) whether inline (`src/m2.cpp`'s `parseSequences`) or `.skel`-sourced (`SKS1`, `src/skel.cpp`'s `parseSequences`); each bone's `translation`/`rotation`/`scale` `M2Track` resolved per-sequence (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`) into real glTF `animation` clips by `husk export`, for sequences whose data lives inline (`flags & 0x20`) *or* an external `.anim` file resolved via `--anim` + the model's own `AFID` chunk (or the `.skel`'s own separate `AFID` table, for a `.skel`-sourced skeleton) — verified against real files both ways (see the Usage section and roadmap stage 6). A bone track whose `global_sequence` field is set (continuous, `M2Sequence`-independent looping — glow pulses, idle sway) also resolves to its own real glTF clip (`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack`, one clip per distinct global-sequence index actually used), for inline and `.skel`-sourced bones alike. Still unresolved: sequences with `flags & 0x40` ("alias", wowdev.wiki: "I have no clue" where that data lives), and any external `.anim` file that turns out to carry an `AFSB` chunk instead of (or alongside) `AFM2` — real `.skel`-sourced character files were found to use `AFSB` almost universally, a format wowdev.wiki documents no byte layout for at all | ❔ no sequence/track chunk documented in the fetched spec at all | ⬛ (`MOUV` texture-translation anim is the closest thing; counted under Materials) | ⬛ |
 | Interaction points (attachments, cameras, events) | 🚧 `attachments`/`events` resolved to real records (`id`/`bone`/`position` for attachments, `identifier`/`data`/`bone`/`position` for events — both static-fields-only, their own `M2Track` sub-fields skipped, `src/m2.cpp`'s `parseAttachments`/`parseEvents`, surfaced via `husk info`); `cameras` still count/offset-only — `M2Camera` is almost entirely `M2SplineKey`-animated data with a version-ambiguous field layout, not attempted yet | ❔ not present in the fetched chunk list | ⬛ | ⬛ |
 | Lights | 🚧 `lights` resolved to `type`/`bone`/`position` (`src/m2.cpp`'s `parseLights`, static fields only — ambient/diffuse color+intensity and attenuation are all `M2Track`-animated and skipped), surfaced via `husk info` | ❔ | ⬜ `MOLT` + `MOLR`/`MOLS`/`MOLP` + Shadowlands lightset system (`MLSS`/`MLSP`/`MLSO`/`MLSK`), `MNLD` dynamic lights, legacy v14 `MOLM`/`MOLD` lightmaps | ⬛ |
 | Particles / ribbons (effects) | 🚧 `particle_emitters`/`ribbon_emitters` array counts/offsets read (`husk info`); records not dereferenced — both are almost entirely `M2Track`-animated with real version ambiguity (`M2Ribbon`'s own wiki entry: "TODO: verify version"), not attempted; `TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1` (small per-particle side-chunks) are extracted to JSON by `husk dump-chunks`, not integrated into glTF (see `DESIGN.md`) | ❔ `M3PT` chunk family declared but wiki notes "not yet seen in files" | ⬜ `MPVD` particulate volumes, `MAVG`/`MAVD`/`MBVD` ambient/box volumes + their `*VR` reference lists | ⬛ |
@@ -288,7 +317,7 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | Portals / visibility culling | ⬛ | ⬛ | ⬜ `MOPV`/`MOPT`/`MOPR`/`MOPE`, `MOVV`/`MOVB` visible-block lists | ⬛ |
 | Doodad / object placement (scene composition) | ⬛ | ⬛ | ⬜ `MODS`/`MODN`/`MODI`/`MODD`/`MODR` + `MDDI`/`MDDL` additional info | ⬛ |
 | World/group structure (root+group files, skybox) | ⬛ | ⬛ single-file, no group split | ⬜ `MOGN`/`MOGI`/`MOGP`/`MOGX`/`GFID` + `MOSB`/`MOSI` skybox + `MGI2` group-info-v2 | ⬛ |
-| Sidecar FileDataID resolution | 🚧 `SFID`/`AFID`/`BFID`/`PFID`/`SKID`/`TXID` → `.skin`/`.anim`/`.bone`/`.phys`/`.skel`/BLP textures — none of these FileDataIDs are resolved to a *WoW/CASC* path (no CASC/listfile access, by design, see the README's Usage section); `SKID`/`SFID`/`TXID`/`BFID`/`AFID` are all surfaced as raw IDs (`husk info`; `Header::skeletonFileId`/`skinFileDataIds`/`textureFileDataIds`/`boneFileDataIds`/`animFileIds`), and `SFID`/`TXID`/`AFID` additionally get a *local-directory* resolution convention -- `husk export`'s `--skin-dir <dir>`/`--textures <dir>`/`--anim-dir <dir>` look for `<dir>/<FileDataID>.skin`/`.png`/`.anim`, a directory the user populates themselves (e.g. via `husk-blp`), never CASC. `.skin`/`.skel` paths can also still be given explicitly instead, and so can a `.bone` file directly to `dump-chunks` (see the Usage section) -- `.bone` *content* itself is parsed now (`src/bone.hpp`, reverse engineered, no wowdev.wiki byte layout exists for it), just not resolved from a FileDataID or integrated into glTF export. `PFID` (`.phys`) isn't touched at all yet | ⬛ self-contained, no sidecars per spec | ⬜ `GFID` → group files | ⬛ |
+| Sidecar FileDataID resolution | 🚧 `SFID`/`AFID`/`BFID`/`PFID`/`SKID`/`TXID` → `.skin`/`.anim`/`.bone`/`.phys`/`.skel`/BLP textures — none of these FileDataIDs are resolved to a *WoW/CASC* path (no CASC/listfile access, by design, see the README's Usage section); `SKID`/`SFID`/`TXID`/`BFID`/`AFID` are all surfaced as raw IDs (`husk info`; `Header::skeletonFileId`/`skinFileDataIds`/`textureFileDataIds`/`boneFileDataIds`/`animFileIds`), and `SFID`/`TXID`/`AFID` additionally get a *local-directory* resolution convention -- `husk export`'s `--skin-dir <dir>`/`--textures <dir>`/`--anim <dir>` look for `<dir>/<FileDataID>.skin`/`.png`/`.anim`, a directory the user populates themselves (e.g. via `husk-blp`), never CASC. `.skin`/`.skel` paths can also still be given explicitly instead, and so can a `.bone` file directly to `dump-chunks` (see the Usage section) -- `.bone` *content* itself is parsed now (`src/bone.hpp`, reverse engineered, no wowdev.wiki byte layout exists for it), just not resolved from a FileDataID or integrated into glTF export. `PFID` (`.phys`) isn't touched at all yet | ⬛ self-contained, no sidecars per spec | ⬜ `GFID` → group files | ⬛ |
 
 **Not individually rowed above** (still real, just low-priority/niche —
 tracked here so nothing's silently dropped): WMO's `MOQG`/`MOGX` per-face
@@ -467,7 +496,7 @@ above; this section is about *sequencing* that work, not duplicating it.
    why that safeguard exists, and `src/m2.cpp`'s `Color`/`TextureWeight`);
    **the second UV set** (`TEXCOORD_1`, plus per-material `texCoord`
    selection via `textureCoordCombos`, pre-Cataclysm-only); **LOD
-   auto-selection** (`SFID` + `husk export auto --skin-dir <dir>`,
+   auto-selection** (`SFID` + `husk export --skin-dir <dir>` -- `--skin` defaults to `auto`,
    `LDV1`'s `lodCount` surfaced for information); and **`BFID`/`AFID`
    surfaced as raw FileDataIDs** (`husk info`), the same
    surface-now-resolve-later treatment `SKID` got before `.skel` support
@@ -520,7 +549,7 @@ above; this section is about *sequencing* that work, not duplicating it.
    an `AFID` chunk (`animId`/`subAnimId` -> FileDataID -- the model's own
    for inline bones, or the `.skel`'s own separate `AFID` table for a
    `.skel`-sourced skeleton, `skel::findAnimFileIds`) and
-   `export --anim-dir <dir>` (same local-directory-by-FileDataID
+   `export --anim <dir>` (same local-directory-by-FileDataID
    convention as `--skin-dir`/`--textures`). The owning descriptor's own
    per-bone `M2Track` fields are still what's read
    (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`'s
@@ -550,7 +579,7 @@ above; this section is about *sequencing* that work, not duplicating it.
    the loaded `.anim` file's own top-level chunks before handing off to
    `m2::extractAnimBlob`: an `AFSB` chunk being present at all means this
    sequence is skipped (same "husk doesn't have this one" policy as a
-   missing `--anim-dir` file), regardless of whether `AFM2` is *also*
+   missing `--anim`-resolved file), regardless of whether `AFM2` is *also*
    there. This is the one place the wiki's spec-only implementation (see
    the paragraph above) needed a real-data correction the wiki's prose
    didn't surface -- exactly the pattern the `M2Sequence` stride fix set,
@@ -609,7 +638,7 @@ above; this section is about *sequencing* that work, not duplicating it.
    (258). ~~Decide the LOD/skin-profile policy~~ Done, then extended --
    see stage 8 below: the default stayed "always emit the highest-detail
    skin profile," but it's no longer the only option.
-8. **Multi-LOD export (`--lod`). Done** — `husk export auto`'s default
+8. **Multi-LOD export (`--lod`). Done** — `husk export`'s default (`--skin auto`)
    (SFID entry 0, stage 7's policy) can now be overridden: `--lod <n>`
    picks a specific SFID entry instead (`husk info`'s `skin_file_data_ids`
    shows how many a model has), and `--lod all` resolves every entry and
@@ -693,7 +722,7 @@ Same two-tier split as `casc-tool`:
   banner prints exactly what each fixture resolved to, or why it didn't,
   every run -- "why did N tests just skip" is a read, not a rerun.
   There's still no `HUSK_TEST_ANIM_DIR` env var wired into the committed
-  suite -- `--anim-dir`'s external-`.anim` resolution is instead covered
+  suite -- `--anim`'s external-`.anim` resolution is instead covered
   by the synthetic fixtures in `tests/test_cli.cpp` (both the inline-M2
   and `.skel`-sourced cases, including the real-data-discovered
   `AFSB`-vs-`AFM2` shape). The real-file verification described in roadmap
