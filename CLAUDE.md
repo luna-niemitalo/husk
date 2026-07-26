@@ -66,9 +66,9 @@ tool, `blp/`) converts BLP2 textures to PNG.
 
 Every boundary above is read via explicit bounds-checked parsing at named offsets,
 throwing a descriptive `ParseError`/`std::runtime_error` on anything foreign data
-claims that doesn't fit — never a silent misread. See `FAILURES.md`/`FAILURES2.md`
-for the specific bugs found and fixed under this discipline, and `WIKI_FINDINGS.md`
-for every real-file-driven spec correction found along the way.
+claims that doesn't fit — never a silent misread (see git history for the specific
+bugs found and fixed under this discipline), and `WIKI_FINDINGS.md` for every
+real-file-driven spec correction found along the way.
 
 ## Resume
 
@@ -251,11 +251,15 @@ for every real-file-driven spec correction found along the way.
 - **Next step**: nothing in flight. The CLI11 migration closes out
   `DESIGN_CHANGES.md`'s entire punch list (that file is deleted — see Last
   state). Remaining known gaps are exactly the ones `TODO_correctness.md`
-  already tracks (`AFSB` reverse-engineering, `M2Particle` dereferencing,
-  `.bone` LOD-context integration), `FINDINGS.md` §3.4/§3.5 (awareness-only/
-  blocked-on-real-data, not action items), plus optional scope expansion
-  (WMO/M3, or Blender-side tooling for the geoset/multi-texture-layer
-  `extras`) — none of that is CLI-grammar work. One real, minor loose end
+  tracks (`AFSB` reverse-engineering, `M2Particle` dereferencing, `.bone`
+  LOD-context integration, two awareness-only/blocked-on-real-data
+  footnotes), plus optional scope expansion (WMO/M3, or Blender-side
+  tooling for the geoset/multi-texture-layer `extras`) — none of that is
+  CLI-grammar work. `FINDINGS.md` (the external review this and the prior
+  session worked through) has since been retired now that every actionable
+  item is fixed and folded back into `README.md`/`DESIGN.md`/
+  `TODO_correctness.md` — git history has the original writeup if it's ever
+  needed. One real, minor loose end
   from this session worth picking up if `cmd_export.cpp` is touched again:
   `resolveSkin`'s failure messages could name the specific candidate
   path/FileDataID they tried, not just the directory (see Last state's

@@ -9,7 +9,9 @@ roadmap and format matrix, not here — this file explains *why* the code is
 shaped the way it is, so a structural change can be checked against the
 reasoning instead of just the current state. Real-file reverse-engineering
 findings live in `WIKI_FINDINGS.md`; open correctness gaps live in
-`TODO_correctness.md`.
+`TODO_correctness.md`; a granular per-M2-feature completion breakdown
+(parse depth vs. consumption depth vs. glTF ceiling) lives in
+`M2_COMPLETENESS.md`.
 
 ## Goal
 
@@ -207,7 +209,7 @@ byte offset to be a multiple of its component size and an embedded PNG's
 byte length is essentially never itself a multiple of 4 -- without this,
 a `--textures` export could misalign every bufferView appended after the
 first embedded image, a real bug this project found and fixed (not a
-hypothetical), see `FAILURES2.md` #2.
+hypothetical).
 
 **`husk dump-chunks` is a deliberately separate output shape (JSON), not a
 step toward richer glTF.** Chunks like parent-sequence overrides,
@@ -298,8 +300,8 @@ textureTransform` carries whichever raw values resolved through to
 wants to apply the pivot correction itself.
 
 **A batch's animated `M2Color`/`M2TextureWeight` gets a diagnostic note,
-not a translation attempt.** The global-sequence bone-track fix
-(`FAILURES2.md` #7, above) doesn't have a material-side counterpart: a
+not a translation attempt.** The global-sequence bone-track fix (above)
+doesn't have a material-side counterpart: a
 bone's translation/rotation/scale are real, independently animatable glTF
 node properties, but core glTF has no way to *play back* an animated
 material property at all (unlike the texture-transform case just above,
@@ -314,7 +316,7 @@ batch's static default as if nothing were lost. Extracting the actual
 keyframe data as `extras` (the way the texture-transform case does) would
 need the same per-sequence/global-sequence resolution `buildAnimations`
 already does for bones, applied to a material property instead — real
-future work, not attempted this pass (see `FINDINGS.md` §3.2).
+future work, not attempted this pass.
 
 **BLP/texture conversion is a separate Python process, permanently.** Two
 independent reasons: real DXT/BC block decoding needs library maturity

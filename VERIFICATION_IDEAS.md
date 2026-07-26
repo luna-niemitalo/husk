@@ -1,7 +1,7 @@
 # Verification ideas: source M2 counts vs. exported glb vs. Blender readback
 
 Exploratory, read-only pass. Prompted by adding `collision_box`/
-`collision_sphere_radius` to `husk info` (FINDINGS.md §3.3) and the
+`collision_sphere_radius` to `husk info` and the
 question: can husk info's own numbers become a third leg of
 `tests/test_conformance.cpp`'s existing two-implementation cross-check
 (tinygltf vs. Blender), rather than just a source of eyeballed sanity

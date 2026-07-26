@@ -1,11 +1,18 @@
 # TODO: correctness &amp; usability gaps
 
-**Status: Item 3 needs work, rest are left for later version** (each
-with regression tests — `tests/test_m2.cpp`, `test_gltf.cpp`, `test_cli.cpp`).
-Items 1, 2, and 4 remain open need real-file reverse-engineering
-work this pass deliberately didn't attempt
- 5 is low-priority by design, not by oversight. Left in place as a record of what
-was found and fixed, not as a stale list.
+**Status: an open punch list, not a historical record.** Fixed items get
+removed outright rather than kept as `[Fixed]` noise — git history is where
+the record of what was fixed and when lives, not a checked-in file. Item 1
+needs real-file reverse-engineering work this pass deliberately didn't
+attempt; item 2 (particles) needs real-file investigation out of scope for
+this pass; item 3 (cameras) is low-priority by design, not by oversight;
+items 4/5 are awareness-only footnotes, not action items, kept here only so
+they aren't lost; item 6 needs a real-data answer to "which `.bone` file
+applies to which LOD/context" before it can even start. Formerly-tracked
+items that got fixed and folded back into
+`README.md`/`DESIGN.md` (shell completion, `.phys`/`PFID` surfacing,
+`M2Ribbon`, and everything `FINDINGS.md` used to track before it was
+retired) were removed from this file entirely.
 
 ---
 
@@ -23,50 +30,20 @@ quick parser fix.
 
 ---
 
-### 2. Particles (`M2Particle`) / ribbons (`M2Ribbon`)
+### 2. Particles (`M2Particle`) — still open
 
-**Ribbons: fixed** (see below). **Particles: still open.**
 `M2Particle` is a large, heavily version-conditional struct (BC/Cata+
 branches for several fields) — enough real-file investigation to get right
 is out of scope for this pass. Currently count/offset-only in `husk info`.
 Still core to WoW's visual identity (weapon trails, magic, fire/smoke) and
 0% implemented.
 
-**`M2Ribbon`: fixed.** `m2::Ribbon`/`m2::parseRibbons` (`src/m2.cpp`,
-0xB0-byte record confirmed against the wowdev.wiki mirror) surfaces the
-static fields — `ribbonId`/`boneIndex`/`position`/`edgesPerSecond`/
-`edgeLifetime`/`gravity`/`textureRows`/`textureCols` — same
-static-fields-only pattern as Attachment/Event/Light; the six embedded
-`M2Track`s (color/alpha/height/texSlot/visibility) and the two
-`M2Array<uint16_t>` lookup tables are left unread, consistent with that
-pattern. Surfaced via `husk info`.
+(`M2Ribbon` was the sibling gap here — fixed and documented in `README.md`'s
+format matrix / `DESIGN.md`, see those files for the current state.)
 
 ---
 
-### 3. shell-completion script
-
-**No `husk` shell-completion script** (bash/zsh/fish). Given CLI.md
-  §2.3 treats autocomplete as "the interface, not an add-on," and husk's
-  own subcommand/flag surface is small and stable, a completion script
-  would be cheap and would directly serve the doc's discovery-by-doing
-  ideal (flag names, and — where feasible — `--lod`'s `all` literal and the
-  `auto` keyword). Not urgent for a single-developer local tool, but worth
-  a mention since it's rung 2 of CLI.md's own fallback chain and currently
-  entirely absent at every subcommand level.
----
-
-### 4. [Fixed PARTIAL] `.phys` / `PFID`
-
-**Fixed:** `Header::physFileId`, wired through `resolveBlob` exactly like
-`SKID`/`skeletonFileId` (confirmed `PFID` is a single `uint32_t`, same
-shape as `SKID`, via the wowdev.wiki mirror — not an array like
-`BFID`/`AFID`). Surfaced via `husk info`. Actual `.phys` file *content*
-parsing is still unstarted — this only closes the "not even surfaced"
-gap, matching where `SKID` was before `.skel` support existed.
-
----
-
-### 5. Cameras (`M2Camera`) — low priority, explicitly deprioritized
+### 3. Cameras (`M2Camera`) — low priority, explicitly deprioritized
 
 **Explored per request: why would a custom-engine emulator need these at
 all?** `M2Camera` records are WoW's own *baked, model-relative* cinematic
@@ -83,3 +60,46 @@ literally reproducing WoW's specific character-select/cinematic screens,
 not general model rendering. Currently count/offset-only in `husk info`;
 leave as-is.
 
+---
+
+### 4. Five lookup-table arrays parsed, never referenced
+
+`boneLookup`, `attachmentLookup`, `cameraLookup`, `textureLookup`,
+`sequenceLookup` (`src/m2.hpp`) are all read into descriptors and never
+dereferenced or counted anywhere downstream. Lowest priority here — these
+are indirection/name-lookup tables (key-bone role lookup, replaceable-
+texture lookup, name-lookup for cameras/attachments), not required for the
+mesh/skin/material/animation pipeline that's already implemented, and
+husk's own documented design choice (full per-vertex global joint indices
+instead of hardware bone-limit batching) already makes the closely-related
+`boneCombos` moot by intent, not oversight. Awareness-only, in case any of
+them become relevant to future work (e.g. `attachmentLookup` would matter
+if attachment-point *naming* — not just raw id/bone/position, which `husk
+info` already prints — ever gets added).
+
+---
+
+### 5. Multi-texture-layer index arithmetic unverified against a real file
+
+`cmd_export.cpp`'s `textureComboIndex + layer` / `textureCoordComboIndex +
+layer` arithmetic for a batch's 2nd+ texture layer (see the code comment
+right above that arithmetic) is implemented straight from wiki prose, with
+an in-code note that it hasn't been cross-checked against a real
+multi-layer file the way nearly everything else in this codebase has been
+(this project's own stated bar, per `DESIGN.md`'s recurring "decode real
+records... don't guess from text alone" principle). Worth a real-file check
+whenever a multi-texture-layer test model shows up in `test_data/` —
+`WIKI_FINDINGS.md`'s methodology is the template.
+
+---
+
+### 6. `.bone` correction matrices aren't wired into the export
+
+`husk dump-chunks <file.bone>` surfaces the raw `(bone_index, matrix)`
+pairs (see `README.md`'s `.bone` section), but nothing about which of a
+model's several `.bone` files (per its `BFID` array) applies to which
+LOD/context is documented or inferred anywhere, and `husk export` doesn't
+currently vary its output by LOD in a way a correction could hook into
+regardless. Wiring a per-LOD bone correction into the exported skeleton
+needs that open question answered first — real future work, not attempted
+yet.
