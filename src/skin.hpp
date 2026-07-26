@@ -83,6 +83,14 @@ struct Batch {
     // `textureWeights` array (m2::TextureWeight) -- an additional,
     // separately-animated transparency multiplier. See src/cmd_export.cpp.
     uint16_t textureWeightComboIndex = 0;
+    // -1 (0xFFFF) if none (inferred by convention, same sentinel shape as
+    // colorIndex above -- not an explicit wowdev.wiki quote for this
+    // specific field), else -> M2's own `textureTransformCombos` array
+    // (m2::parseUint16Array on Header::textureTransformCombos), which in
+    // turn holds an index into M2's `textureTransforms` array
+    // (m2::TextureTransform) -- UV scroll/rotate/scale animation. See
+    // src/cmd_export.cpp.
+    uint16_t textureTransformComboIndex = 0xFFFF;
 };
 
 struct ParseError : std::runtime_error {

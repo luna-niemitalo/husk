@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -207,7 +208,7 @@ std::vector<uint8_t> twoGeosetSkin() {
     // colorIndex(u16, 0x08), materialIndex(u16, 0x0A), materialLayer(u16,
     // 0x0C, unread), textureCount(u16, 0x0E), textureComboIndex(u16, 0x10),
     // textureCoordComboIndex(u16, 0x12), textureWeightComboIndex(u16, 0x14),
-    // textureTransformComboIndex(u16, 0x16, unread) -- 0x18 bytes total.
+    // textureTransformComboIndex(u16, 0x16) -- 0x18 bytes total.
     for (uint16_t skinSectionIndex : {uint16_t{0}, uint16_t{1}}) {
         b.push_back(0);  // flags
         b.push_back(0);  // priorityPlane
@@ -224,6 +225,201 @@ std::vector<uint8_t> twoGeosetSkin() {
         putU16(b, 0);       // textureTransformComboIndex
     }
     REQUIRE(b.size() == 60 + 2 * 0x30 + 2 * 0x18);
+
+    return b;
+}
+
+// Configurable single-batch fixture for the buildMaterialsAndPrimitives
+// out-of-range tests below (FINDINGS.md §4.2): one submesh (skinSectionId
+// = 0, indexStart = 0, indexCount = submeshIndexCount) and one batch
+// built from `fields`. Every earlier check in buildMaterialsAndPrimitives's
+// own chain (skinSectionIndex -> submesh index range -> materialIndex ->
+// colorIndex -> textureWeightComboIndex[+resolved weightIndex] ->
+// textureComboIndex[+resolved textureIndex] -> textureCoordComboIndex)
+// must pass for a later one to even be reached, so each test below keeps
+// every field before the one under test valid and deliberately breaks
+// only that one.
+struct BatchFields {
+    uint16_t skinSectionIndex = 0;
+    uint16_t colorIndex = 0xFFFF;
+    uint16_t materialIndex = 0;
+    uint16_t textureCount = 0;
+    uint16_t textureComboIndex = 0;
+    uint16_t textureCoordComboIndex = 0;
+    uint16_t textureWeightComboIndex = 0;
+    uint16_t textureTransformComboIndex = 0xFFFF;
+};
+
+std::vector<uint8_t> oneBatchSkin(const BatchFields& fields, uint16_t submeshIndexCount = 3) {
+    std::vector<uint8_t> b;
+    putTag(b, "SKIN");
+    putU32(b, 1);
+    putU32(b, 44);  // vertices: count=1, offset=44
+    putU32(b, 3);
+    putU32(b, 46);  // indices: count=3, offset=46
+    putU32(b, 0);
+    putU32(b, 0);  // bones: unread
+    putU32(b, 1);
+    putU32(b, 52);  // submeshes: count=1, offset=52
+    putU32(b, 1);
+    putU32(b, 52 + 0x30);  // batches: count=1, right after the submesh
+    REQUIRE(b.size() == 44);
+
+    putU16(b, 0);  // vertices[0] = global vertex 0
+    REQUIRE(b.size() == 46);
+    for (int i = 0; i < 3; ++i) putU16(b, 0);  // indices = [0, 0, 0]
+    REQUIRE(b.size() == 52);
+
+    // Submesh 0: skinSectionId=0, claims indexStart=0/indexCount=
+    // submeshIndexCount -- normally 3 (matching the 3 real indices
+    // above), overridable to something larger to exercise the
+    // "corrupted .skin?" range check specifically.
+    putU16(b, 0);
+    putU16(b, 0);  // skinSectionId, Level
+    putU16(b, 0);
+    putU16(b, 1);  // vertexStart, vertexCount
+    putU16(b, 0);
+    putU16(b, submeshIndexCount);  // indexStart, indexCount
+    b.resize(b.size() + 0x30 - 12, 0);
+    REQUIRE(b.size() == 52 + 0x30);
+
+    b.push_back(0);  // flags
+    b.push_back(0);  // priorityPlane
+    putU16(b, 0);    // shader_id
+    putU16(b, fields.skinSectionIndex);
+    putU16(b, 0);  // geosetIndex
+    putU16(b, fields.colorIndex);
+    putU16(b, fields.materialIndex);
+    putU16(b, 0);  // materialLayer
+    putU16(b, fields.textureCount);
+    putU16(b, fields.textureComboIndex);
+    putU16(b, fields.textureCoordComboIndex);
+    putU16(b, fields.textureWeightComboIndex);
+    putU16(b, fields.textureTransformComboIndex);
+    REQUIRE(b.size() == 52 + 0x30 + 0x18);
+
+    return b;
+}
+
+// tinyValidM2() (1 vertex) plus zeroed M2Material/M2Color/
+// M2TextureWeight/uint16-combo-table records at the given counts --
+// content-irrelevant (all zeroed) except combo-table entry 0, when a
+// `*Combo0` override is given, which lets a test target the
+// "resolved-via-combo" half of a check (weightIndex/textureIndex) rather
+// than the combo-table index bound itself.
+std::vector<uint8_t> materialsFixtureM2(uint32_t materialCount, uint32_t colorCount,
+                                         uint32_t textureWeightCount,
+                                         uint32_t textureWeightComboCount, uint32_t textureCount,
+                                         uint32_t textureComboCount, uint32_t textureCoordComboCount,
+                                         std::optional<uint16_t> textureWeightCombo0 = std::nullopt,
+                                         std::optional<uint16_t> textureCombo0 = std::nullopt) {
+    auto b = tinyValidM2();
+
+    auto appendArray = [&](size_t headerOff, uint32_t count, size_t recordSize) {
+        uint32_t off = static_cast<uint32_t>(b.size());
+        std::memcpy(b.data() + headerOff, &count, 4);
+        std::memcpy(b.data() + headerOff + 4, &off, 4);
+        b.resize(b.size() + count * recordSize, 0);
+        return off;
+    };
+
+    appendArray(0x070, materialCount, 0x04);                          // materials
+    appendArray(0x048, colorCount, 0x28);                              // colors
+    appendArray(0x058, textureWeightCount, 0x14);                      // textureWeights
+    uint32_t twcOff = appendArray(0x090, textureWeightComboCount, 2);  // textureWeightCombos
+    appendArray(0x050, textureCount, 0x10);                            // textures
+    uint32_t tcOff = appendArray(0x080, textureComboCount, 2);         // textureCombos
+    appendArray(0x088, textureCoordComboCount, 2);                     // textureCoordCombos
+
+    if (textureWeightCombo0 && textureWeightComboCount > 0) {
+        uint16_t v = *textureWeightCombo0;
+        std::memcpy(b.data() + twcOff, &v, 2);
+    }
+    if (textureCombo0 && textureComboCount > 0) {
+        uint16_t v = *textureCombo0;
+        std::memcpy(b.data() + tcOff, &v, 2);
+    }
+
+    return b;
+}
+
+// Patches materialsFixtureM2's first M2Color record (colors.offset, read
+// back from the header rather than recomputed by hand, so this can't
+// silently drift from materialsFixtureM2's own layout) so its color track
+// is genuinely per-sequence animated -- values outer M2Array count=2, not
+// the single-constant-value shape constantTrackValueOffset requires (see
+// m2::trackHasAnimatedData's outer.count > 1 case, FINDINGS.md §3.2).
+// Content of the two claimed sub-arrays is irrelevant; trackHasAnimatedData
+// only inspects outer.count once it's already > 1. Requires colorCount >= 1.
+void patchColorTrackAnimated(std::vector<uint8_t>& b) {
+    uint32_t colorOff;
+    std::memcpy(&colorOff, b.data() + 0x048 + 4, 4);
+    uint32_t two = 2;
+    uint32_t innerOff = static_cast<uint32_t>(b.size());
+    std::memcpy(b.data() + colorOff + 0x0C, &two, 4);
+    std::memcpy(b.data() + colorOff + 0x0C + 4, &innerOff, 4);
+    b.resize(b.size() + 2 * 8, 0);  // 2 zeroed inner-array descriptors
+}
+
+// Same as patchColorTrackAnimated, but for materialsFixtureM2's first
+// M2TextureWeight record (a single fixed16 track at record offset 0x00,
+// so its values-outer array is at weights.offset + 0x0C). Requires
+// textureWeightCount >= 1.
+void patchWeightTrackAnimated(std::vector<uint8_t>& b) {
+    uint32_t weightOff;
+    std::memcpy(&weightOff, b.data() + 0x058 + 4, 4);
+    uint32_t two = 2;
+    uint32_t innerOff = static_cast<uint32_t>(b.size());
+    std::memcpy(b.data() + weightOff + 0x0C, &two, 4);
+    std::memcpy(b.data() + weightOff + 0x0C + 4, &innerOff, 4);
+    b.resize(b.size() + 2 * 8, 0);
+}
+
+// tinyValidM2() (1 vertex) plus 1 M2Material (so a batch's default
+// materialIndex=0 resolves) and 1 M2TextureTransform record whose
+// translation track is a real, unambiguously constant value (rotation/
+// scaling left at their "no data" default) and a 1-entry
+// textureTransformCombos table pointing at it -- the FINDINGS.md §3.1
+// export-side regression test fixture below. Pair with
+// oneBatchSkin({.textureTransformComboIndex = 0}).
+std::vector<uint8_t> oneTextureTransformM2() {
+    auto b = tinyValidM2();
+
+    uint32_t matOff = static_cast<uint32_t>(b.size());
+    b.resize(b.size() + 0x04, 0);  // M2Material: flags=0, blendMode=0
+    uint32_t matCount = 1;
+    std::memcpy(b.data() + 0x070, &matCount, 4);
+    std::memcpy(b.data() + 0x074, &matOff, 4);
+
+    uint32_t xfOff = static_cast<uint32_t>(b.size());
+    b.resize(b.size() + 0x3C, 0);
+
+    // translation track (xfOff + 0x00): one sub-array, one keyframe --
+    // (0.1, 0.2, 0.0), written directly rather than via vec3Bytes (defined
+    // later in this file) to avoid a forward-declaration dependency.
+    uint32_t innerOff = static_cast<uint32_t>(b.size());
+    b.resize(b.size() + 8, 0);
+    uint32_t valueOff = static_cast<uint32_t>(b.size());
+    b.resize(b.size() + 12, 0);
+    float tx = 0.1f, ty = 0.2f, tz = 0.0f;
+    std::memcpy(b.data() + valueOff + 0, &tx, 4);
+    std::memcpy(b.data() + valueOff + 4, &ty, 4);
+    std::memcpy(b.data() + valueOff + 8, &tz, 4);
+    uint32_t one = 1;
+    std::memcpy(b.data() + innerOff + 0, &one, 4);
+    std::memcpy(b.data() + innerOff + 4, &valueOff, 4);
+    std::memcpy(b.data() + xfOff + 0x0C, &one, 4);
+    std::memcpy(b.data() + xfOff + 0x0C + 4, &innerOff, 4);
+
+    uint32_t xfCount = 1;
+    std::memcpy(b.data() + 0x060, &xfCount, 4);
+    std::memcpy(b.data() + 0x064, &xfOff, 4);
+
+    uint32_t comboOff = static_cast<uint32_t>(b.size());
+    putU16(b, 0);  // textureTransformCombos[0] = transform index 0
+    uint32_t comboCount = 1;
+    std::memcpy(b.data() + 0x098, &comboCount, 4);
+    std::memcpy(b.data() + 0x09C, &comboOff, 4);
 
     return b;
 }
@@ -963,6 +1159,22 @@ TEST_CASE("husk export: a bone that is its own parent (a 1-node cycle) is still 
     fs::remove(m2Path);
     fs::remove(skinPath);
     fs::remove(skelPath);
+}
+
+TEST_CASE("husk info: prints collision_box/collision_sphere_radius/collision_indices/"
+          "collision_face_normals, not just collision_positions (FINDINGS.md §3.3)") {
+    auto path = tempPath("collision.m2");
+    writeFile(path, tinyValidM2());
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("collision_box: min=") != std::string::npos);
+    CHECK(result.output.find("collision_sphere_radius: ") != std::string::npos);
+    CHECK(result.output.find("collision_positions: ") != std::string::npos);
+    CHECK(result.output.find("collision_indices: ") != std::string::npos);
+    CHECK(result.output.find("collision_face_normals: ") != std::string::npos);
+
+    fs::remove(path);
 }
 
 TEST_CASE("husk info: flags a chunk tag that isn't in husk's known M2 chunk list") {
@@ -1967,6 +2179,23 @@ TEST_CASE("husk --help prints the top-level command list and exits 0") {
     CHECK(result.output.find("dump-chunks") != std::string::npos);
 }
 
+TEST_CASE("husk --version prints a non-empty version string and exits 0 (FINDINGS.md §2.3)") {
+    // HUSK_VERSION is baked in at CMake configure time (a git describe,
+    // see CMakeLists.txt) and varies build to build (e.g. a "-dirty"
+    // suffix) -- this only checks the command works and says *something*
+    // real, not any specific string.
+    auto result = runHusk("--version");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("husk ") != std::string::npos);
+    CHECK(result.output.find("husk unknown") == std::string::npos);
+}
+
+TEST_CASE("husk -V (shorthand) prints the same thing as --version") {
+    auto result = runHusk("-V");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("husk ") != std::string::npos);
+}
+
 TEST_CASE("husk with no command prints usage and exits 1") {
     auto result = runHusk("");
     CHECK(result.exitCode == 1);
@@ -1977,4 +2206,304 @@ TEST_CASE("husk with an unknown command fails cleanly, not a crash") {
     auto result = runHusk("frobnicate");
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("unknown command") != std::string::npos);
+}
+
+// Remaining CLI argv edge cases (FINDINGS.md §4.3): each subcommand's
+// argc guard, and export's four "flag given with no value" branches.
+// None of these need a real M2 -- they're all rejected before any file is
+// ever opened.
+
+TEST_CASE("husk export with no arguments at all prints usage and exits 1") {
+    auto result = runHusk("export");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("usage: husk export") != std::string::npos);
+}
+
+TEST_CASE("husk export --textures with no value prints usage and exits 1") {
+    auto result = runHusk("export some.m2 --textures");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("usage: husk export") != std::string::npos);
+}
+
+TEST_CASE("husk export --skin-dir with no value prints usage and exits 1") {
+    auto result = runHusk("export some.m2 --skin-dir");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("usage: husk export") != std::string::npos);
+}
+
+TEST_CASE("husk export --anim-dir with no value prints usage and exits 1") {
+    auto result = runHusk("export some.m2 --anim-dir");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("usage: husk export") != std::string::npos);
+}
+
+TEST_CASE("husk export --lod with no value prints usage and exits 1") {
+    auto result = runHusk("export some.m2 --lod");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("usage: husk export") != std::string::npos);
+}
+
+TEST_CASE("husk export with more than 4 positionals (model + 3 trailing-optional) prints usage "
+          "and exits 1") {
+    auto result = runHusk("export some.m2 a.skin out.glb some.skel one-too-many");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("usage: husk export") != std::string::npos);
+}
+
+TEST_CASE("husk info with no arguments at all prints usage and exits 1") {
+    auto result = runHusk("info");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("usage: husk info") != std::string::npos);
+}
+
+TEST_CASE("husk info with more than one argument prints usage and exits 1") {
+    auto result = runHusk("info a.m2 b.m2");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("usage: husk info") != std::string::npos);
+}
+
+TEST_CASE("husk dump-chunks with no arguments at all prints usage and exits 1") {
+    auto result = runHusk("dump-chunks");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("usage: husk dump-chunks") != std::string::npos);
+}
+
+TEST_CASE("husk dump-chunks with more than one argument prints usage and exits 1") {
+    auto result = runHusk("dump-chunks a.m2 b.m2");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("usage: husk dump-chunks") != std::string::npos);
+}
+
+// Adversarial/out-of-range coverage for buildMaterialsAndPrimitives
+// (cmd_export.cpp, FINDINGS.md §4.2): six real, well-written bounds
+// checks chaining batch -> submesh -> material -> color/textureWeight/
+// texture/textureCoord, previously exercised only with in-range synthetic
+// fixtures. A real mismatched .skin/.m2 pairing hits exactly these paths.
+
+TEST_CASE("husk export: batch skinSectionIndex out of range for submeshes fails cleanly") {
+    auto dir = defaultsDir("badskinsection");
+    writeFile(dir / "m.m2", tinyValidM2());
+    writeFile(dir / "m.skin", oneBatchSkin({.skinSectionIndex = 1}));  // only submesh 0 exists
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("skinSectionIndex (1) is out of range for 1 submeshes") !=
+          std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: submesh index range past the resolved triangle-index buffer fails "
+          "cleanly (corrupted .skin?)") {
+    auto dir = defaultsDir("badindexrange");
+    writeFile(dir / "m.m2", tinyValidM2());
+    // Submesh claims 10 indices; the .skin's own indices array (and thus
+    // the resolved triangle-index buffer) only has 3.
+    writeFile(dir / "m.skin", oneBatchSkin({}, /*submeshIndexCount=*/10));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("corrupted .skin?") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: batch materialIndex out of range for materials fails cleanly") {
+    auto dir = defaultsDir("badmaterial");
+    writeFile(dir / "m.m2", tinyValidM2());       // 0 materials
+    writeFile(dir / "m.skin", oneBatchSkin({}));  // materialIndex defaults to 0
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("materialIndex (0) is out of range for 0 materials") !=
+          std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: batch colorIndex out of range for colors fails cleanly") {
+    auto dir = defaultsDir("badcolor");
+    writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 0, 0, 0, 0));  // 1 material, 0 colors
+    writeFile(dir / "m.skin", oneBatchSkin({.colorIndex = 0}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("colorIndex (0) is out of range for 0 colors") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: batch textureWeightComboIndex out of range for textureWeightCombos "
+          "fails cleanly") {
+    auto dir = defaultsDir("badweightcombo");
+    writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 1, 0, 0, 0));  // 1 textureWeightCombos entry
+    writeFile(dir / "m.skin", oneBatchSkin({.textureWeightComboIndex = 5}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("textureWeightComboIndex (5) is out of range for 1 "
+                              "textureWeightCombos entries") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: batch texture weight, resolved via textureWeightCombos, out of range "
+          "for textureWeights fails cleanly") {
+    auto dir = defaultsDir("badweightresolved");
+    // textureWeightCombos[0] = 99, but there are 0 real textureWeights.
+    writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 1, 0, 0, 0, /*textureWeightCombo0=*/99));
+    writeFile(dir / "m.skin", oneBatchSkin({.textureWeightComboIndex = 0}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("texture weight (index 99 via textureWeightCombos[0]) is out of "
+                              "range for 0 textureWeights entries") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: batch textureComboIndex out of range for textureCombos fails cleanly") {
+    auto dir = defaultsDir("badtexturecombo");
+    writeFile(dir / "m.m2", materialsFixtureM2(1, 0, 0, 0, 0, 0, 0));  // 0 textureCombos
+    writeFile(dir / "m.skin", oneBatchSkin({.textureCount = 1, .textureComboIndex = 0}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("textureComboIndex (0) is out of range for 0 textureCombos "
+                              "entries") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: batch texture, resolved via textureCombos, out of range for textures "
+          "fails cleanly") {
+    auto dir = defaultsDir("badtextureresolved");
+    // textureCombos[0] = 99, but there are 0 real textures.
+    writeFile(dir / "m.m2",
+              materialsFixtureM2(1, 0, 0, 0, 0, 1, 0, std::nullopt, /*textureCombo0=*/99));
+    writeFile(dir / "m.skin", oneBatchSkin({.textureCount = 1, .textureComboIndex = 0}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("texture (index 99 via textureCombos[0]) is out of range for 0 "
+                              "textures") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: batch textureCoordComboIndex out of range for textureCoordCombos "
+          "fails cleanly") {
+    auto dir = defaultsDir("badtexcoordcombo");
+    // 1 real texture, textureCombos[0]=0 (valid, points at it), but only
+    // 1 textureCoordCombos entry even though the batch claims index 5.
+    writeFile(dir / "m.m2",
+              materialsFixtureM2(1, 0, 0, 0, 1, 1, 1, std::nullopt, /*textureCombo0=*/0));
+    writeFile(dir / "m.skin",
+              oneBatchSkin({.textureCount = 1, .textureComboIndex = 0, .textureCoordComboIndex = 5}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("textureCoordComboIndex (5) is out of range for 1 "
+                              "textureCoordCombos entries") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+// FINDINGS.md §3.2: a batch's M2Color/M2TextureWeight can be genuinely
+// animated (per-sequence or global-sequence keyframes), the same track
+// shape a bone's translation/rotation/scale can be -- but unlike a bone
+// track (a real, animatable glTF node property, see FAILURES2.md #7),
+// core glTF has no way to animate a material's baseColorFactor at all, so
+// there's no real clip to build. These tests confirm husk says so instead
+// of silently exporting the batch as if the track were the ordinary
+// constant-value case.
+
+TEST_CASE("husk export: an animated (non-constant) M2Color track is dropped with a note, not "
+          "silently treated as constant") {
+    auto dir = defaultsDir("animatedcolor");
+    auto m2 = materialsFixtureM2(1, 1, 0, 0, 0, 0, 0);  // 1 material, 1 color
+    patchColorTrackAnimated(m2);
+    writeFile(dir / "m.m2", m2);
+    writeFile(dir / "m.skin", oneBatchSkin({.colorIndex = 0}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 batch(es) whose color tint (M2Color) or transparency fade") !=
+          std::string::npos);
+    CHECK(result.output.find("core glTF has no way to animate a material's baseColorFactor") !=
+          std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: an animated (non-constant) M2TextureWeight track is dropped with a "
+          "note, not silently treated as constant") {
+    auto dir = defaultsDir("animatedweight");
+    // 1 material, 1 textureWeight, 1 textureWeightCombos entry (its
+    // zeroed default value, 0, already points at textureWeights[0]).
+    auto m2 = materialsFixtureM2(1, 0, 1, 1, 0, 0, 0);
+    patchWeightTrackAnimated(m2);
+    writeFile(dir / "m.m2", m2);
+    writeFile(dir / "m.skin", oneBatchSkin({.textureWeightComboIndex = 0}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 batch(es) whose color tint (M2Color) or transparency fade") !=
+          std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a constant (non-animated) M2Color track gets no animated-tint note") {
+    auto dir = defaultsDir("constantcolor");
+    // materialsFixtureM2's zeroed color record has outer.count=0 (empty,
+    // not animated) -- the ordinary, already-well-tested case; this just
+    // confirms it doesn't spuriously trigger the new note.
+    writeFile(dir / "m.m2", materialsFixtureM2(1, 1, 0, 0, 0, 0, 0));
+    writeFile(dir / "m.skin", oneBatchSkin({.colorIndex = 0}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("color tint") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+// FINDINGS.md §3.1: a batch's textureTransformComboIndex resolving to a
+// real M2TextureTransform gets noted and exported as inert extras, not
+// silently dropped -- see gltf.hpp's TextureTransform doc comment for
+// why it's never applied to the actual render.
+
+TEST_CASE("husk export: a batch referencing a texture transform gets a note, and husk info "
+          "counts texture_transforms") {
+    auto dir = defaultsDir("texturetransform");
+    writeFile(dir / "m.m2", oneTextureTransformM2());
+    writeFile(dir / "m.skin", oneBatchSkin({.textureTransformComboIndex = 0}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 batch(es) with a UV transform (M2TextureTransform)") !=
+          std::string::npos);
+
+    auto infoResult = runHusk("info " + (dir / "m.m2").string());
+    CHECK(infoResult.exitCode == 0);
+    CHECK(infoResult.output.find("texture_transforms: 1 ") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a batch with textureTransformComboIndex = 0xFFFF (none) gets no "
+          "UV-transform note") {
+    auto dir = defaultsDir("notexturetransform");
+    writeFile(dir / "m.m2", oneTextureTransformM2());
+    // Default BatchFields::textureTransformComboIndex is 0xFFFF -- the
+    // model has a real texture_transforms entry, but this batch doesn't
+    // reference it.
+    writeFile(dir / "m.skin", oneBatchSkin({}));
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " " + (dir / "m.skin").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("UV transform") == std::string::npos);
+
+    fs::remove_all(dir);
 }

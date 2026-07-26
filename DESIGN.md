@@ -270,6 +270,48 @@ track loops on its own independent timeline no matter which (if any)
 `M2Sequence` the rest of the skeleton is animating through, so folding it
 into a per-sequence clip would misrepresent when it actually plays.
 
+**A batch's `M2TextureTransform` (UV scroll/rotate/scale) is surfaced as
+`extras`, never a real `KHR_texture_transform`.** Same "tag it, don't guess
+at semantics" family as geoset selection/multi-texture-layer rendering
+above, for a different reason: core glTF's `KHR_texture_transform`
+extension is itself *static* (offset/rotation/scale baked once, no
+animation-channel target), so even a correct translation couldn't play
+back the animated case — and a real texture transform is almost always
+animated in practice (scrolling lava/water is the model's whole reason to
+carry one). The constant case *could* in principle become a real static
+`KHR_texture_transform`, except wowdev.wiki's own note that rotation here
+pivots around the texture's center (0.5, 0.5), not the extension's own
+(0,0) origin, means a correct translation has to fold that pivot
+difference into the extension's offset field — exactly the kind of
+byte-level claim this project's own methodology (`WIKI_FINDINGS.md`: decode
+real records, don't guess from text alone) says shouldn't ship unverified,
+and no real texture-transform-carrying file has turned up in this
+project's test data yet to check it against. `m2::parseTextureTransforms`
+resolves the same constant-vs-animated split `constantTrackValueOffset`
+already does for `M2Color`/`M2TextureWeight`; `gltf::Material::
+textureTransform` carries whichever raw values resolved through to
+`extras`, untransformed, for a downstream renderer or Blender script that
+wants to apply the pivot correction itself.
+
+**A batch's animated `M2Color`/`M2TextureWeight` gets a diagnostic note,
+not a translation attempt.** The global-sequence bone-track fix
+(`FAILURES2.md` #7, above) doesn't have a material-side counterpart: a
+bone's translation/rotation/scale are real, independently animatable glTF
+node properties, but core glTF has no way to *play back* an animated
+material property at all (unlike the texture-transform case just above,
+this isn't even a question of extension support — there's no core-glTF
+animation-channel target for a material's `baseColorFactor`, full stop).
+`m2::Color::colorAnimated`/`alphaAnimated`/`m2::TextureWeight::
+weightAnimated` (via the shared `trackHasAnimatedData` helper) distinguish
+"nullopt because genuinely empty" from "nullopt because it's animated and
+dropped," so `cmd_export.cpp` can at least say so
+(`animatedTintOrFadeBatchCount`'s note) instead of silently exporting the
+batch's static default as if nothing were lost. Extracting the actual
+keyframe data as `extras` (the way the texture-transform case does) would
+need the same per-sequence/global-sequence resolution `buildAnimations`
+already does for bones, applied to a material property instead — real
+future work, not attempted this pass (see `FINDINGS.md` §3.2).
+
 **BLP/texture conversion is a separate Python process, permanently.** Two
 independent reasons: real DXT/BC block decoding needs library maturity
 (Pillow) C++ doesn't have an equivalent of already in this project, and the

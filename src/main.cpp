@@ -11,6 +11,7 @@ int main(int argc, char** argv) {
         "  info <file.m2>              parse and print an M2 header\n"
         "  export <file.m2> [args...]  export a mesh (+ skin/animation) to glTF (see --help)\n"
         "  dump-chunks <file.m2|.bone> extract misc chunks to JSON (see --help)\n"
+        "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
 
@@ -34,6 +35,13 @@ int main(int argc, char** argv) {
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;
+        return 0;
+    }
+    // A durable fact, not a per-invocation flag choice (~/docs/CLI.md
+    // §2.5) -- HUSK_VERSION is baked in at CMake configure time
+    // (CMakeLists.txt), never recomputed here.
+    if (command == "--version" || command == "-V") {
+        std::cout << "husk " << HUSK_VERSION << "\n";
         return 0;
     }
 

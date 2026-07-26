@@ -376,6 +376,14 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
                 tm.extensions["KHR_materials_unlit"] = tinygltf::Value(tinygltf::Value::Object());
                 usedUnlitExtension = true;
             }
+            // Both blocks below accumulate into the same `materialExtras`
+            // object (assigned to tm.extras once, at the end) rather than
+            // each setting tm.extras independently -- a material can have
+            // both an extra texture layer and a texture transform at once,
+            // and the second assignment would otherwise silently clobber
+            // the first.
+            tinygltf::Value::Object materialExtras;
+
             // Additional texture layers (textureCount > 1, FAILURES2.md #6)
             // -- inert glTF extras, not wired into pbrMetallicRoughness (see
             // gltf.hpp's AdditionalTextureLayer doc comment for why): each
@@ -406,8 +414,33 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
                     }
                     layers.push_back(tinygltf::Value(layerObj));
                 }
-                tinygltf::Value::Object materialExtras;
                 materialExtras["additional_textures"] = tinygltf::Value(layers);
+            }
+
+            // UV scroll/rotate/scale animation (M2TextureTransform) -- same
+            // inert-extras treatment, see gltf.hpp's TextureTransform doc
+            // comment for why this isn't a real KHR_texture_transform.
+            if (mat.textureTransform) {
+                const auto& xf = *mat.textureTransform;
+                tinygltf::Value::Object xfObj;
+                xfObj["constant"] = tinygltf::Value(xf.constant);
+                xfObj["translation"] = tinygltf::Value(tinygltf::Value::Array{
+                    tinygltf::Value(static_cast<double>(xf.translation.x)),
+                    tinygltf::Value(static_cast<double>(xf.translation.y)),
+                    tinygltf::Value(static_cast<double>(xf.translation.z))});
+                xfObj["rotation"] = tinygltf::Value(tinygltf::Value::Array{
+                    tinygltf::Value(static_cast<double>(xf.rotation[0])),
+                    tinygltf::Value(static_cast<double>(xf.rotation[1])),
+                    tinygltf::Value(static_cast<double>(xf.rotation[2])),
+                    tinygltf::Value(static_cast<double>(xf.rotation[3]))});
+                xfObj["scaling"] = tinygltf::Value(tinygltf::Value::Array{
+                    tinygltf::Value(static_cast<double>(xf.scaling.x)),
+                    tinygltf::Value(static_cast<double>(xf.scaling.y)),
+                    tinygltf::Value(static_cast<double>(xf.scaling.z))});
+                materialExtras["texture_transform"] = tinygltf::Value(xfObj);
+            }
+
+            if (!materialExtras.empty()) {
                 tm.extras = tinygltf::Value(materialExtras);
             }
             tinyMaterials.push_back(tm);

@@ -347,13 +347,56 @@ struct Sequence {
 // back to that field's natural default (opaque white / full weight)
 // either way, since a wrong guess (e.g. reading an animated alpha track's
 // unrelated first keyframe) can be worse than no value at all.
+//
+// The `*Animated` flags below distinguish those two nullopt cases for a
+// caller that wants to *say something* about the second one: core glTF
+// has no way to animate a material's baseColorFactor at all (unlike a
+// bone's translation/rotation/scale, which are real animatable node
+// properties -- see FAILURES2.md #7's global-sequence bone-track fix),
+// so there's no real translation to build here, only a diagnostic --
+// see cmd_export.cpp's animatedTintOrFadeBatchCount note.
 struct Color {
     std::optional<Vec3> color;   // 0..1 per channel, rgb order
     std::optional<float> alpha;  // 0 (transparent) .. 1 (opaque)
+    bool colorAnimated = false;  // true iff `color` is nullopt *because* the track has real keyframe data
+    bool alphaAnimated = false;  // true iff `alpha` is nullopt *because* the track has real keyframe data
 };
 
 struct TextureWeight {
     std::optional<float> weight;  // 0..1; wiki: "I assume these are multiplied together" with Color::alpha
+    bool weightAnimated = false;  // true iff `weight` is nullopt *because* the track has real keyframe data
+};
+
+// M2TextureTransform, per wowdev.wiki M2#Texture_Transforms -- UV
+// scroll/rotate/scale animation (flowing lava/water, some portal/aura
+// effects). Referenced from a .skin Batch's textureTransformComboIndex
+// (via Header::textureTransformCombos) -- see husk::skin::Batch. Like
+// Color/TextureWeight above, all three fields are M2Track<T>-backed and
+// only resolved here when unambiguously constant; the `*Animated` flags
+// mirror Color's own for the non-constant case.
+//
+// Unlike Color/TextureWeight, husk doesn't even attempt to apply this to
+// the rendered material (see cmd_export.cpp) -- core glTF's
+// KHR_texture_transform extension is a *static* offset/rotation/scale
+// with no animation-channel target of its own, so the animated case
+// (almost certainly the common one for a real scrolling-UV model)
+// couldn't be represented as real playback either way, and per the wiki,
+// rotation here is around the texture's own center (0.5, 0.5) -- a
+// different pivot than KHR_texture_transform's own (0,0), and correctly
+// folding that pivot difference into the extension's offset field is
+// exactly the kind of thing this project's own methodology (see
+// WIKI_FINDINGS.md: decode real records, don't guess from text alone)
+// says shouldn't be shipped without a real animated test file to check
+// it against, which isn't available yet. Surfaced as raw resolved values
+// instead (gltf::Material::textureTransform, inert `extras`), for a
+// downstream renderer or Blender script to apply correctly itself.
+struct TextureTransform {
+    std::optional<Vec3> translation;
+    std::optional<Quat> rotation;  // C4Quaternion -- 4 raw floats (x,y,z,w), NOT the compressed M2CompQuat bones use
+    std::optional<Vec3> scaling;
+    bool translationAnimated = false;
+    bool rotationAnimated = false;
+    bool scalingAnimated = false;
 };
 
 // M2Attachment, per wowdev.wiki M2#Attachments -- 40 (0x28) bytes on disk.
@@ -485,6 +528,16 @@ std::vector<Color> parseColors(const std::vector<uint8_t>& blob, const Array& ar
 // an empty vector without touching `array.offset`.
 std::vector<TextureWeight> parseTextureWeights(const std::vector<uint8_t>& blob, const Array& array);
 
+// Reads `array.count` M2TextureTransform records out of `blob` starting
+// at `array.offset`, resolving each of the 3 tracks (translation/
+// rotation/scaling) to a static value only when unambiguously constant
+// (see TextureTransform's doc comment). Throws ParseError if the
+// fixed-size record range, or any track's own array descriptors, run
+// past the end of the blob. An empty array (count 0) returns an empty
+// vector without touching `array.offset`.
+std::vector<TextureTransform> parseTextureTransforms(const std::vector<uint8_t>& blob,
+                                                       const Array& array);
+
 // Reads `array.count` M2Sequence records out of `blob` starting at
 // `array.offset`. Throws ParseError if that range runs past the end of the
 // blob. An empty array (count 0) returns an empty vector without touching
@@ -500,13 +553,17 @@ std::vector<Sequence> parseSequences(const std::vector<uint8_t>& blob, const Arr
 // track ignores M2Sequence entirely and instead loops continuously against
 // a duration in the model's own global_sequences table (wowdev.wiki
 // "Global Sequences": "completely unrelated to animations... always
-// loops"). husk doesn't have a header field for global_sequences durations
-// yet, so a global-sequence track can't be resolved into a real,
-// independently-looping clip -- see resolveVec3TrackSequence/
-// resolveQuatTrackSequence below for how that's handled without silently
+// loops", `Header::globalLoops`/parseGlobalLoops below). See
+// resolveVec3TrackSequence/resolveQuatTrackSequence below for how a
+// global-sequence track is refused *by sequence index* without silently
 // mis-attributing the data to whichever M2Sequence happens to occupy index
 // 0 of the track's outer array (a real bug this type existed to fix, not a
-// hypothetical one -- see WIKI_FINDINGS.md/TODO_correctness.md).
+// hypothetical one -- see WIKI_FINDINGS.md/TODO_correctness.md), and
+// resolveVec3GlobalSequenceTrack/resolveQuatGlobalSequenceTrack below for
+// how it's actually resolved into a real, independently-looping glTF
+// clip instead (FAILURES2.md #7) -- for bone tracks; the same track shape
+// on a material's M2Color/M2TextureWeight has no glTF property to animate
+// at all, see Color::colorAnimated/alphaAnimated's doc comment.
 struct TrackMeta {
     uint16_t interpolationType = 1;
     // 0xFFFF ("none"), the same -1-as-unsigned sentinel convention this

@@ -155,6 +155,11 @@ int info(int argc, char** args) {
                        << std::dec << " blend_mode=" << materials[i].blendMode << "\n";
         }
     }
+    // FINDINGS.md §3.1: parsed and (since this session) resolved by `husk
+    // export` into inert glTF extras for a batch that references one (see
+    // m2::TextureTransform's doc comment) -- previously not even counted
+    // here, the exact "parsed then dropped" gap that finding tracked.
+    printArray("texture_transforms", h.textureTransforms);
     std::cout << "  num_skin_profiles: " << h.numSkinProfiles << "\n";
 
     if (h.textureFileDataIds && !h.textureFileDataIds->empty()) {
@@ -246,7 +251,6 @@ int info(int argc, char** args) {
                    << "\n";
     }
     printArray("particle_emitters", h.particleEmitters);
-    printArray("collision_positions", h.collisionPositions);
 
     std::cout << "  bounding_box: min=";
     printVec3(h.boundingBox.min);
@@ -254,6 +258,25 @@ int info(int argc, char** args) {
     printVec3(h.boundingBox.max);
     std::cout << "\n";
     std::cout << "  bounding_sphere_radius: " << h.boundingSphereRadius << "\n";
+
+    // FINDINGS.md §3.3: all four collision fields are parsed (m2.cpp's
+    // parseHeader) but until this session only collision_positions was ever
+    // printed here -- collision_box/collision_sphere_radius weren't printed
+    // at all, and collision_indices/collision_face_normals weren't even
+    // counted, despite `husk export` documenting real triangle topology for
+    // this low-poly hit-test mesh (not the render mesh) sitting right next
+    // to the fields that are surfaced. Still no `dump-chunks`-style content
+    // dump of the actual mesh -- these are counts/scalars only, same depth
+    // as every other still-🚧 array in the format matrix.
+    std::cout << "  collision_box: min=";
+    printVec3(h.collisionBox.min);
+    std::cout << " max=";
+    printVec3(h.collisionBox.max);
+    std::cout << "\n";
+    std::cout << "  collision_sphere_radius: " << h.collisionSphereRadius << "\n";
+    printArray("collision_positions", h.collisionPositions);
+    printArray("collision_indices", h.collisionIndices);
+    printArray("collision_face_normals", h.collisionFaceNormals);
 
     return 0;
 }

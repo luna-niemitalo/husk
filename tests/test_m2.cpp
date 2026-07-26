@@ -274,6 +274,32 @@ void putTextureWeight(std::vector<uint8_t>& buf, size_t off,
     putTrackValues(buf, off + 0x00, weightSubArrays);
 }
 
+// Raw wire bytes for one C4Quaternion: 4 raw floats, x/y/z/w order (NOT
+// the compressed M2CompQuat quatWireBytes above builds -- see
+// husk::m2::TextureTransform's doc comment for why rotation here is this
+// different, uncompressed type).
+std::vector<uint8_t> quatFloatBytes(float x, float y, float z, float w) {
+    std::vector<uint8_t> b(16);
+    std::memcpy(b.data() + 0, &x, 4);
+    std::memcpy(b.data() + 4, &y, 4);
+    std::memcpy(b.data() + 8, &z, 4);
+    std::memcpy(b.data() + 12, &w, 4);
+    return b;
+}
+
+// M2TextureTransform (wowdev.wiki M2#Texture_Transforms), 0x3C (60) bytes:
+// translation M2Track<C3Vector> at +0x00, rotation M2Track<C4Quaternion>
+// at +0x14, scaling M2Track<C3Vector> at +0x28.
+void putTextureTransform(std::vector<uint8_t>& buf, size_t off,
+                          const std::vector<std::vector<std::vector<uint8_t>>>& translationSubArrays,
+                          const std::vector<std::vector<std::vector<uint8_t>>>& rotationSubArrays,
+                          const std::vector<std::vector<std::vector<uint8_t>>>& scalingSubArrays) {
+    if (buf.size() < off + 0x3C) buf.resize(off + 0x3C, 0);
+    putTrackValues(buf, off + 0x00, translationSubArrays);
+    putTrackValues(buf, off + 0x14, rotationSubArrays);
+    putTrackValues(buf, off + 0x28, scalingSubArrays);
+}
+
 void checkSentinelHeader(const husk::m2::Header& h) {
     CHECK(h.version == 274);
     CHECK(h.name == "Sentinel");
@@ -1010,6 +1036,95 @@ TEST_CASE("parseTextureWeights: array running past the end of the blob throws") 
     array.count = 1;
     array.offset = 0;
     CHECK_THROWS_AS(husk::m2::parseTextureWeights(blob, array), husk::m2::ParseError);
+}
+
+TEST_CASE("parseTextureTransforms: an unambiguously constant transform (translation/rotation/"
+          "scaling all one sub-array, one keyframe) resolves all three") {
+    size_t off = 1000;
+    std::vector<uint8_t> blob(off, 0);
+    putTextureTransform(blob, off,
+                         /*translationSubArrays=*/{{vec3Bytes({0.1f, 0.2f, 0.0f})}},
+                         /*rotationSubArrays=*/{{quatFloatBytes(0, 0, 0.7071f, 0.7071f)}},
+                         /*scalingSubArrays=*/{{vec3Bytes({2, 2, 1})}});
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = static_cast<uint32_t>(off);
+    auto transforms = husk::m2::parseTextureTransforms(blob, array);
+
+    REQUIRE(transforms.size() == 1);
+    REQUIRE(transforms[0].translation.has_value());
+    CHECK(transforms[0].translation->x == doctest::Approx(0.1f));
+    CHECK(transforms[0].translation->y == doctest::Approx(0.2f));
+    REQUIRE(transforms[0].rotation.has_value());
+    CHECK(transforms[0].rotation->z == doctest::Approx(0.7071f));
+    CHECK(transforms[0].rotation->w == doctest::Approx(0.7071f));
+    REQUIRE(transforms[0].scaling.has_value());
+    CHECK(transforms[0].scaling->x == doctest::Approx(2.0f));
+    CHECK_FALSE(transforms[0].translationAnimated);
+    CHECK_FALSE(transforms[0].rotationAnimated);
+    CHECK_FALSE(transforms[0].scalingAnimated);
+}
+
+TEST_CASE("parseTextureTransforms: a genuinely animated (multi-sub-array) rotation track has no "
+          "value and is flagged animated, independent of the other two (still-constant) tracks") {
+    size_t off = 1000;
+    std::vector<uint8_t> blob(off, 0);
+    putTextureTransform(blob, off,
+                         /*translationSubArrays=*/{{vec3Bytes({0, 0, 0})}},
+                         /*rotationSubArrays=*/
+                         {{quatFloatBytes(0, 0, 0, 1)}, {quatFloatBytes(0, 0, 1, 0)}},
+                         /*scalingSubArrays=*/{{vec3Bytes({1, 1, 1})}});
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = static_cast<uint32_t>(off);
+    auto transforms = husk::m2::parseTextureTransforms(blob, array);
+
+    REQUIRE(transforms.size() == 1);
+    CHECK(transforms[0].translation.has_value());
+    CHECK_FALSE(transforms[0].rotation.has_value());
+    CHECK(transforms[0].scaling.has_value());
+    CHECK_FALSE(transforms[0].translationAnimated);
+    CHECK(transforms[0].rotationAnimated);
+    CHECK_FALSE(transforms[0].scalingAnimated);
+}
+
+TEST_CASE("parseTextureTransforms: a track with no sub-arrays at all has no value and is not "
+          "flagged animated (genuinely empty, not dropped animation)") {
+    size_t off = 1000;
+    std::vector<uint8_t> blob(off, 0);
+    putTextureTransform(blob, off, {}, {}, {});
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = static_cast<uint32_t>(off);
+    auto transforms = husk::m2::parseTextureTransforms(blob, array);
+
+    REQUIRE(transforms.size() == 1);
+    CHECK_FALSE(transforms[0].translation.has_value());
+    CHECK_FALSE(transforms[0].translationAnimated);
+    CHECK_FALSE(transforms[0].rotation.has_value());
+    CHECK_FALSE(transforms[0].rotationAnimated);
+    CHECK_FALSE(transforms[0].scaling.has_value());
+    CHECK_FALSE(transforms[0].scalingAnimated);
+}
+
+TEST_CASE("parseTextureTransforms: empty array returns an empty vector without touching the "
+          "blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 54321;
+    CHECK(husk::m2::parseTextureTransforms(blob, array).empty());
+}
+
+TEST_CASE("parseTextureTransforms: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(10, 0);  // 0x3C bytes needed for one entry
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = 0;
+    CHECK_THROWS_AS(husk::m2::parseTextureTransforms(blob, array), husk::m2::ParseError);
 }
 
 TEST_CASE("parseHeader: SFID chunk, when present, is surfaced as skinFileDataIds") {

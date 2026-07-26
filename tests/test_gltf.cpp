@@ -530,6 +530,72 @@ TEST_CASE("writeGlb: a material with no additionalTextureLayers gets no such ext
     CHECK_FALSE(model.materials[0].extras.IsObject());
 }
 
+TEST_CASE("writeGlb: a material's textureTransform round-trips as extras (FINDINGS.md §3.1)") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+
+    std::vector<husk::gltf::Material> materials(1);
+    husk::gltf::Material::TextureTransform xf;
+    xf.constant = true;
+    xf.translation = {0.1f, 0.2f, 0.0f};
+    xf.rotation[0] = 0;
+    xf.rotation[1] = 0;
+    xf.rotation[2] = 0.7071f;
+    xf.rotation[3] = 0.7071f;
+    xf.scaling = {2.0f, 3.0f, 1.0f};
+    materials[0].textureTransform = xf;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.materials[0].extras;
+    REQUIRE(extras.IsObject());
+    const auto& tf = extras.Get("texture_transform");
+    REQUIRE(tf.IsObject());
+    CHECK(tf.Get("constant").Get<bool>() == true);
+    CHECK(tf.Get("translation").Get(0).GetNumberAsDouble() == doctest::Approx(0.1));
+    CHECK(tf.Get("translation").Get(1).GetNumberAsDouble() == doctest::Approx(0.2));
+    CHECK(tf.Get("rotation").Get(2).GetNumberAsDouble() == doctest::Approx(0.7071));
+    CHECK(tf.Get("rotation").Get(3).GetNumberAsDouble() == doctest::Approx(0.7071));
+    CHECK(tf.Get("scaling").Get(0).GetNumberAsDouble() == doctest::Approx(2.0));
+    CHECK(tf.Get("scaling").Get(1).GetNumberAsDouble() == doctest::Approx(3.0));
+}
+
+TEST_CASE("writeGlb: a material with no textureTransform gets no such extras key") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    CHECK_FALSE(model.materials[0].extras.IsObject());
+}
+
+TEST_CASE("writeGlb: additionalTextureLayers and textureTransform extras coexist on the same "
+          "material without one clobbering the other") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+
+    std::vector<husk::gltf::Material> materials(1);
+    husk::gltf::Material::AdditionalTextureLayer layer;
+    layer.fileDataId = 42;
+    materials[0].additionalTextureLayers = {layer};
+    husk::gltf::Material::TextureTransform xf;
+    xf.constant = false;
+    materials[0].textureTransform = xf;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.materials[0].extras;
+    REQUIRE(extras.IsObject());
+    REQUIRE(extras.Get("additional_textures").IsArray());
+    CHECK(extras.Get("additional_textures").Get(0).Get("file_data_id").GetNumberAsInt() == 42);
+    REQUIRE(extras.Get("texture_transform").IsObject());
+    CHECK(extras.Get("texture_transform").Get("constant").Get<bool>() == false);
+}
+
 // Regression test for FAILURES2.md #2: glTF 2.0 requires every accessor's
 // total byte offset to be a multiple of its component type's size (4 bytes
 // for the FLOAT/UNSIGNED_INT accessors husk emits) -- the

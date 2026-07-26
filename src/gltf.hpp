@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -82,6 +83,24 @@ struct Material {
         std::vector<uint8_t> imagePng;
     };
     std::vector<AdditionalTextureLayer> additionalTextureLayers;
+
+    // A batch's UV scroll/rotate/scale animation (M2TextureTransform,
+    // wowdev.wiki M2#Texture_Transforms), when its textureTransformComboIndex
+    // resolves to one -- see m2::TextureTransform's doc comment for why
+    // this is exposed as inert extras, the same "tag it, don't guess at
+    // semantics" treatment additionalTextureLayers/billboardMode get,
+    // rather than a real KHR_texture_transform applied to the render.
+    // `constant`, when true, means translation/rotation/scaling below are
+    // real resolved static values; when false (the animated case -- e.g.
+    // scrolling lava/water, almost certainly the common one in practice),
+    // they're just each field's un-animated default and not real data.
+    struct TextureTransform {
+        bool constant = true;
+        Vec3 translation;                  // defaults to (0,0,0), Vec3's own default
+        float rotation[4] = {0, 0, 0, 1};  // x,y,z,w quaternion, identity default
+        Vec3 scaling{1, 1, 1};
+    };
+    std::optional<TextureTransform> textureTransform;
 };
 
 // One glTF primitive's worth of triangles: a slice of triangle-corner

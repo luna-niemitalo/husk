@@ -13,12 +13,16 @@ standards, not a security review and not a wowdev.wiki spec audit (that
 discipline already exists in `WIKI_FINDINGS.md`/`FAILURES.md`/`FAILURES2.md`
 and is, on the evidence below, unusually rigorous).
 
-**Post-review update**: §2.1 (subcommand `--help` bug) and §4.1 (12/260
-tests silently reporting "passed" with 0 assertions) were fixed
-immediately after this review, in the same session — see each section
-below and `CLAUDE.md`'s Resume for what changed. Left in place, marked
-`[Fixed]`, rather than removed — the rest of this document (§3's M2
-completeness gaps, §4.2–4.4's remaining test-coverage gaps) is still open.
+**Post-review update**: every finding in this document except §3.4/§3.5
+(a footnote-level "worth knowing" item and a self-flagged-in-code caveat,
+neither an action item) and §5's usability observations (not framed as
+defects) was fixed across two follow-up passes in the same overall
+session — see each section's own `[Fixed]` marker for what changed,
+`CLAUDE.md`'s Resume for the full list, and §6's punch list for the
+final status of every item. Left in place, marked `[Fixed]`, rather than
+removed — the original finding text is kept as "originally found as
+follows" for the record, since this document is as much a record of what
+was checked as of what's currently true.
 
 ---
 
@@ -126,14 +130,16 @@ now-stale text undersells what the tool grew into, rather than overselling
 unbuilt work. Minor (the real usage text is one `--help` fall-through away
 once §2.1 above is fixed), but worth a one-line sync.
 
-### 2.3 No `--version` / `-V`
+### 2.3 [Fixed] No `--version` / `-V`
 
-Not present at any level. Low priority for a locally-built dev tool, but
-worth a line given the tool consumes wowdev.wiki spec state that moves
-("this format keeps growing new chunks," per `DESIGN.md`) — knowing which
-build produced a given `.glb` matters for bug reports against a moving
-target. Cheap to add (embed the git rev or a `CMakeLists.txt`-set version
-string).
+**Fixed**: `CMakeLists.txt` resolves `git describe --always --dirty` once
+at configure time (never re-run live, matching `CLI.md` §2.9's "no inline
+computation" rule) into `HUSK_VERSION`; `husk --version`/`-V` prints it.
+Originally: not present at any level. Low priority for a locally-built dev
+tool, but worth a line given the tool consumes wowdev.wiki spec state that
+moves ("this format keeps growing new chunks," per `DESIGN.md`) — knowing
+which build produced a given `.glb` matters for bug reports against a
+moving target.
 
 ### 2.4 What's already excellent (checked, not just assumed)
 
@@ -168,9 +174,32 @@ new context changes their severity. What follows is genuinely new,
 found by cross-referencing every `Header` array against what actually
 consumes it downstream.
 
-### 3.1 `M2TextureTransform` — parsed as a descriptor, never dereferenced, not even counted (highest-impact new finding)
+### 3.1 [Fixed] `M2TextureTransform` — parsed as a descriptor, never dereferenced, not even counted (highest-impact new finding)
 
-`Header::textureTransforms` and `Header::textureTransformCombos`
+**Fixed**, with a deliberate scope decision: `m2::parseTextureTransforms`
+resolves each of the 3 tracks (translation/rotation/scaling) the same
+constant-vs-animated way `parseColors` already does; `.skin`'s
+`Batch.textureTransformComboIndex` (offset `0x16`, previously entirely
+unread) is now parsed too; `husk info` counts `texture_transforms`; `husk
+export` resolves a batch's reference and surfaces it as
+`gltf::Material::textureTransform` — real, inert `extras`, **not** a real
+`KHR_texture_transform` applied to the render. That last part was a
+deliberate call, not a shortcut: `KHR_texture_transform` is itself static
+(no animation-channel target), so it couldn't represent the animated case
+either — and WoW's own rotation pivot (texture center, 0.5/0.5) differs
+from the extension's (0,0), a pivot-correction detail this project's own
+methodology says shouldn't ship without a real animated file to verify
+against, which wasn't available. See `DESIGN.md`'s new "A batch's
+`M2TextureTransform`..." entry for the full reasoning, and `m2::
+TextureTransform`'s doc comment in `src/m2.hpp`. Verified against real
+data: `bloodelffemale.m2` has 0 `texture_transforms` (character models
+mostly don't use this — it's an environment/world-object feature), so
+this was confirmed safe on the zero-count path; the resolution/extras
+code itself is covered by synthetic tests (`test_m2.cpp`, `test_skin.cpp`,
+`test_gltf.cpp`, `test_cli.cpp`) since no real transform-carrying file
+was available to verify against directly.
+
+Originally found as follows (kept for the record): `Header::textureTransforms` and `Header::textureTransformCombos`
 (`src/m2.hpp:110,117`, offsets `0x060`/`0x098` in `src/m2.cpp:33,40`) are
 read into `Array` descriptors and then never touched again anywhere in
 `cmd_export.cpp`, `cmd_dump.cpp`, or `cmd_info.cpp` — confirmed by grep:
@@ -191,9 +220,28 @@ extension (which maps onto this reasonably well — translation/rotation/
 scale) is the real fix and is a comparable scope to the already-completed
 `KHR_materials_unlit` translation.
 
-### 3.2 Global-sequence tracks: fixed for bones, not for materials — a real asymmetry
+### 3.2 [Fixed] Global-sequence tracks: fixed for bones, not for materials — a real asymmetry
 
-`FAILURES2.md` #7 fixed global-sequence-driven **bone** tracks
+**Fixed**, matching the multi-texture-layer/geoset precedent: `m2::Color`/
+`m2::TextureWeight` gained `colorAnimated`/`alphaAnimated`/
+`weightAnimated` flags (via a shared `trackHasAnimatedData` helper,
+distinguishing "nullopt because empty" from "nullopt because animated and
+dropped"), and `cmd_export.cpp` now prints a note
+(`animatedTintOrFadeBatchCount`) whenever a batch hits this case, instead
+of silently falling back to the static default with no indication.
+Deliberately **not** extended to a full extras-based keyframe dump the way
+the texture-transform fix (§3.1) got — that would need the same per-
+sequence/global-sequence resolution `buildAnimations` already does for
+bones, applied to a material property instead, real future work tracked
+in `DESIGN.md` rather than attempted this pass. Verified against real
+data: exporting `bloodelffemale.m2` now prints "3 batch(es) whose color
+tint (M2Color) or transparency fade (M2TextureWeight) is animated" — a
+real, previously-silent case (plausibly the eye-glow effect blood elves
+are known for), not a hypothetical one; a synthetic regression test
+(`test_cli.cpp`) also confirms a genuinely constant track still gets no
+spurious note.
+
+Originally found as follows (kept for the record): `FAILURES2.md` #7 fixed global-sequence-driven **bone** tracks
 (`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack`, wired
 into `buildGlobalSequenceAnimations`, `cmd_export.cpp:369-399`). The
 *identical* track shape on the **material** side —
@@ -212,9 +260,20 @@ consistency with the bone-track precedent that already exists in the same
 file, and at minimum deserves the same stderr note the other
 can't-fully-translate cases already get.
 
-### 3.3 Collision geometry: inconsistently surfaced relative to the README's own claim
+### 3.3 [Fixed] Collision geometry: inconsistently surfaced relative to the README's own claim
 
-`Header::collisionBox`/`collisionSphereRadius`/`collisionIndices`/
+**Fixed**: `cmd_info.cpp` now prints `collision_box`/`collision_sphere_radius`
+(same scalar-print pattern as `bounding_box`/`bounding_sphere_radius`) and
+counts `collision_indices`/`collision_face_normals` (same `printArray`
+pattern as everything else), not just `collision_positions`. Verified
+against real data: `bloodelffemale.m2` reports 8 `collision_positions`, 36
+`collision_indices` (12 triangles), 12 `collision_face_normals` — a real,
+small hit-test mesh, not zeros. Still just counts/scalars, not the mesh's
+actual content (no `dump-chunks`-style dump of it) — that remains open,
+same depth as every other still-🚧 row in the format matrix, now noted
+there explicitly rather than left implicit.
+
+Originally found as follows (kept for the record): `Header::collisionBox`/`collisionSphereRadius`/`collisionIndices`/
 `collisionFaceNormals` are all parsed (`src/m2.cpp:179-183`), but
 `cmd_info.cpp` only prints `collision_positions` (`cmd_info.cpp:245`) — not
 `collision_box`, `collision_sphere_radius`, `collision_indices`, or
@@ -307,9 +366,18 @@ claim in `CLAUDE.md`/`README.md` — i.e. the entirety of roadmap stage 7 —
 depended on these 12 actually running, which required explicit env-var
 wiring that wasn't visible anywhere in the repo (no CI config found).
 
-### 4.2 `buildMaterialsAndPrimitives`'s six bounds checks have zero adversarial tests
+### 4.2 [Fixed] `buildMaterialsAndPrimitives`'s six bounds checks have zero adversarial tests
 
-`cmd_export.cpp:652-820` is the most complex cross-referencing logic in the
+**Fixed**: 9 new `test_cli.cpp` cases (one per throw site — the "resolved
+via combo" checks for texture weight/texture each split into an outer-
+index test and an inner-resolved-value test) isolate each check in
+`buildMaterialsAndPrimitives`'s chain, verified via a reusable
+`BatchFields`/`oneBatchSkin`/`materialsFixtureM2` fixture trio that lets a
+test break exactly one field while keeping every earlier check in the
+chain valid. All 9 assert both the nonzero exit code and the exact
+expected-vs-actual message text.
+
+Originally found as follows (kept for the record): `cmd_export.cpp:652-820` is the most complex cross-referencing logic in the
 codebase — batch → submesh → material → color/weight/texture combo, four
 separate arrays chained together — and has six distinct, well-written
 `throw` sites with real expected-vs-actual messages (verified directly,
@@ -323,9 +391,17 @@ would hit, and it's currently untested at the unit level where it'd be
 cheap and fast to check. Highest-value gap to close of everything found in
 this audit.
 
-### 4.3 `main.cpp` and several CLI argv edge cases have no coverage at all
+### 4.3 [Fixed] `main.cpp` and several CLI argv edge cases have no coverage at all
 
-No test invokes the binary with zero arguments, an unknown command name, or
+**Fixed**: 8 new `test_cli.cpp` cases now cover `husk export`/`info`/
+`dump-chunks` with zero arguments, `export`'s four "flag given with no
+value" branches (`--textures`/`--skin-dir`/`--anim-dir`/`--lod`),
+`export`'s too-many-positionals case, and `info`/`dump-chunks`'s
+extra-argument case — on top of the `--help`/`-h`/unknown-command/
+no-command tests §2.1's fix already added (which, as originally noted
+here, would have caught that bug directly).
+
+Originally found as follows (kept for the record): No test invokes the binary with zero arguments, an unknown command name, or
 top-level `--help`/`-h` (ironic given §2.1's finding — a test here would
 have caught that bug directly). Also untested: `cmd_info.cpp`'s
 `argc != 1` guard, `cmd_export.cpp`'s `argc < 1` guard, `cmd_dump.cpp`'s
@@ -333,9 +409,20 @@ extra-args case, and all four of `--textures`/`--skin-dir`/`--anim-dir`/
 `--lod`'s "flag given with no value" branches (`cmd_export.cpp:1010-1032`).
 Cheap to close via `test_cli.cpp`'s existing subprocess-spawn pattern.
 
-### 4.4 `cmd_dump.cpp`: 9 of ~14 per-chunk JSON dumpers are asserted-covered, not actually tested
+### 4.4 [Fixed] `cmd_dump.cpp`: 9 of ~14 per-chunk JSON dumpers are asserted-covered, not actually tested
 
-`test_dump.cpp`'s own comments claim TXAC/EXPT/PSBC/PEDC/GPID/PGD1/EDGF/
+**Fixed**: 8 new `test_dump.cpp` round-trip tests cover TXAC/EXPT/PADC/
+PSBC/PEDC/EDGF/DBOC and, highest-priority, `dumpWfv3` — every field at its
+own offset checked via an exact `"key": value` substring per field (not
+just "the number appears somewhere"), the precision the transcription-bug
+risk actually called for. GPID/PGD1 stay untested on purpose: they call
+the *identical* function pointer as RPID/PABC (`dumpFileDataIdArrayChunk`/
+`dumpU16ArrayChunk`), so a second test would exercise the same code, not
+new coverage — documented explicitly in `test_dump.cpp`'s header comment
+now, instead of lumped in with the genuinely-shared-shape claim that
+turned out to be true for some tags and not fully checked for others.
+
+Originally found as follows (kept for the record): `test_dump.cpp`'s own comments claim TXAC/EXPT/PSBC/PEDC/GPID/PGD1/EDGF/
 DBOC/WFV3 "share a shape already covered" by the four chunk types that
 *are* tested (NERF/PABC/RPID/TEXL) — but that's a claim, not something a
 test verifies. `dumpWfv3` in particular (~20 sequential hand-transcribed
@@ -388,29 +475,35 @@ WFV1.
 ## 6. Summary punch list, roughly by leverage
 
 1. ~~Fix `--help`/`-h` on all three subcommands (§2.1)~~ **Done.**
-2. Add adversarial/out-of-range tests for `buildMaterialsAndPrimitives`
-   (§4.2) — highest-value *open* test gap, real code paths already exist
-   and are well-written, just unexercised.
-3. Decide the fate of `M2TextureTransform` (§3.1) — at minimum surface
-   counts in `husk info` (one line, existing pattern); real fix is a
-   `KHR_texture_transform` translation, comparable scope to the
-   already-shipped `KHR_materials_unlit` work.
-4. Fix the global-sequence-track asymmetry between bones and materials
-   (§3.2) — same bug class already fixed once in this file, now needs the
-   same treatment for `M2Color`/`M2TextureWeight`.
+2. ~~Add adversarial/out-of-range tests for `buildMaterialsAndPrimitives`
+   (§4.2)~~ **Done.**
+3. ~~Decide the fate of `M2TextureTransform` (§3.1)~~ **Done** — real
+   resolution + `husk info` counts + inert `extras`, deliberately not a
+   `KHR_texture_transform` translation (see `DESIGN.md` for why).
+4. ~~Fix the global-sequence-track asymmetry between bones and materials
+   (§3.2)~~ **Done** — diagnostic note, not a full extras-based keyframe
+   dump (see `DESIGN.md` for the scope line drawn and why).
 5. ~~Wire CI (or at least document how to) so the 12 gated tests (§4.1)
    actually run somewhere~~ **Done** — auto-detected from `test_data/`
    instead, so it no longer needs separate CI wiring to exercise for real
    locally (a real CI pipeline, if one gets added later, would still need
    `test_data/` populated or `HUSK_TEST_*` set, same as any other
    environment).
-6. Small mop-up: `cmd_info.cpp` collision-data printing (§3.3),
+6. ~~Small mop-up: `cmd_info.cpp` collision-data printing (§3.3),
    `--version` flag (§2.3), `cmd_dump.cpp` per-chunk test coverage (§4.4),
-   remaining `main.cpp`/argv edge-case tests beyond `--help` (§4.3, e.g.
-   the `--textures`/`--skin-dir`/`--anim-dir`/`--lod` "flag with no value"
-   branches).
+   remaining `main.cpp`/argv edge-case tests beyond `--help` (§4.3)~~
+   **Done**, all four.
 
-Nothing found here rises to "the project is wrong about its own status" —
-every current-vs-target claim spot-checked against code held up. These are
-additive gaps on top of an already well-tracked, well-tested, honestly
-self-documented codebase.
+What's left, genuinely open: §3.4 (five lookup-table arrays parsed but
+never referenced — flagged for awareness, not an action item, since
+nothing downstream needs them yet) and §3.5 (multi-texture-layer index
+arithmetic self-flagged as unverified against a real multi-layer file —
+needs one to show up in `test_data/` before it can be checked the way
+this project checks everything else). §5's usability notes were
+observations, not defects, and weren't actioned.
+
+Nothing found in this review rose to "the project is wrong about its own
+status" — every current-vs-target claim spot-checked against code held
+up. Every finding that *was* actionable got fixed and verified (build +
+310-case test suite + real-data export, all green) rather than just
+written down.

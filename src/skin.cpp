@@ -166,10 +166,9 @@ std::vector<Batch> parseBatches(const std::vector<uint8_t>& fileBytes, const m2:
         return batches;
     }
 
-    // M2Batch, wowdev.wiki M2/.skin#Texture_units: 0x18 (24) bytes; only
-    // flags/skinSectionIndex/materialIndex/textureCount/textureComboIndex
-    // are read, see skin.hpp's Batch doc comment for why the rest is
-    // skipped.
+    // M2Batch, wowdev.wiki M2/.skin#Texture_units: 0x18 (24) bytes; see
+    // skin.hpp's Batch doc comment for which fields are read and why the
+    // rest (priorityPlane/shader_id/geosetIndex/materialLayer) is skipped.
     constexpr size_t kBatchSize = 0x18;
     const uint8_t* data = fileBytes.data();
     size_t size = fileBytes.size();
@@ -193,6 +192,7 @@ std::vector<Batch> parseBatches(const std::vector<uint8_t>& fileBytes, const m2:
         b.textureComboIndex = readU16(data, size, off + 0x10);
         b.textureCoordComboIndex = readU16(data, size, off + 0x12);
         b.textureWeightComboIndex = readU16(data, size, off + 0x14);
+        b.textureTransformComboIndex = readU16(data, size, off + 0x16);
         batches.push_back(b);
     }
 

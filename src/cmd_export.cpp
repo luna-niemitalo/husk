@@ -610,6 +610,27 @@ struct BuiltMaterials {
     // ever resolves the first one (see FAILURES2.md #6), silently dropping
     // any additional layer. Surfaced so exportGlb can at least say so.
     size_t multiTextureBatchCount = 0;
+    // Number of batches whose color (M2Color) or transparency-fade
+    // (M2TextureWeight) reference is real per-sequence or global-sequence
+    // keyframe animation, not a single constant value (see
+    // m2::Color::colorAnimated/alphaAnimated, m2::TextureWeight::
+    // weightAnimated) -- e.g. an eye-glow or enchant-glow pulse. Unlike a
+    // bone's translation/rotation/scale, core glTF has no way to *play back*
+    // an animated material property, so there's no real translation to
+    // build -- and unlike the multi-texture-layer/textureTransform extras
+    // below, husk doesn't currently extract the actual keyframe data here
+    // either (that would need the same per-sequence/global-sequence
+    // resolution buildAnimations already does for bones, applied to a
+    // material property instead -- real future work, not attempted this
+    // pass). This only exists so exportGlb can at least say the static
+    // default is a lossy approximation, not silently pretend the export is
+    // complete.
+    size_t animatedTintOrFadeBatchCount = 0;
+    // Number of batches whose textureTransformComboIndex resolved to a real
+    // M2TextureTransform (UV scroll/rotate/scale animation) -- see
+    // gltf::Material::TextureTransform's doc comment for why this is
+    // exposed as inert extras rather than a real KHR_texture_transform.
+    size_t textureTransformBatchCount = 0;
 };
 
 // Everything buildMaterialsAndPrimitives needs out of the M2 itself (as
@@ -631,6 +652,8 @@ struct M2MaterialInputs {
     std::vector<m2::Color> colors;
     std::vector<m2::TextureWeight> textureWeights;
     std::vector<uint16_t> textureWeightCombos;
+    std::vector<m2::TextureTransform> textureTransforms;
+    std::vector<uint16_t> textureTransformCombos;
     std::optional<std::vector<uint32_t>> textureFileDataIds;
 };
 
@@ -722,6 +745,9 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             if (color.alpha) {
                 gm.baseColorFactor[3] *= *color.alpha;
             }
+            if (color.colorAnimated || color.alphaAnimated) {
+                ++result.animatedTintOrFadeBatchCount;
+            }
         }
         // Like textureCoordCombos above, treat a completely empty table as
         // "this model doesn't use this feature" rather than an error --
@@ -744,8 +770,12 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                     std::to_string(b.textureWeightComboIndex) + "]) is out of range for " +
                     std::to_string(m2.textureWeights.size()) + " textureWeights entries");
             }
-            if (auto weight = m2.textureWeights[weightIndex].weight) {
-                gm.baseColorFactor[3] *= *weight;
+            const auto& weight = m2.textureWeights[weightIndex];
+            if (weight.weight) {
+                gm.baseColorFactor[3] *= *weight.weight;
+            }
+            if (weight.weightAnimated) {
+                ++result.animatedTintOrFadeBatchCount;
             }
         }
 
@@ -843,6 +873,38 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                     }
                 }
                 gm.additionalTextureLayers.push_back(std::move(al));
+            }
+        }
+
+        // UV scroll/rotate/scale animation (FINDINGS.md §3.1): resolved
+        // the same "sentinel means none" way colorIndex is, then exposed as
+        // inert extras -- see m2::TextureTransform's doc comment for why
+        // this never becomes a real KHR_texture_transform on the render.
+        // Best-effort like the additional-texture-layers loop just above
+        // (an out-of-range index is skipped, not a failure) -- this is
+        // supplementary metadata, not required for a usable export.
+        if (b.textureTransformComboIndex != 0xFFFF &&
+            b.textureTransformComboIndex < m2.textureTransformCombos.size()) {
+            uint16_t transformIndex = m2.textureTransformCombos[b.textureTransformComboIndex];
+            if (transformIndex < m2.textureTransforms.size()) {
+                const auto& xf = m2.textureTransforms[transformIndex];
+                gltf::Material::TextureTransform gxf;
+                gxf.constant =
+                    !xf.translationAnimated && !xf.rotationAnimated && !xf.scalingAnimated;
+                if (xf.translation) {
+                    gxf.translation = {xf.translation->x, xf.translation->y, xf.translation->z};
+                }
+                if (xf.rotation) {
+                    gxf.rotation[0] = xf.rotation->x;
+                    gxf.rotation[1] = xf.rotation->y;
+                    gxf.rotation[2] = xf.rotation->z;
+                    gxf.rotation[3] = xf.rotation->w;
+                }
+                if (xf.scaling) {
+                    gxf.scaling = {xf.scaling->x, xf.scaling->y, xf.scaling->z};
+                }
+                gm.textureTransform = gxf;
+                ++result.textureTransformBatchCount;
             }
         }
 
@@ -1118,6 +1180,8 @@ int exportGlb(int argc, char** args) {
         m2Inputs.colors = m2::parseColors(blob, header.colors);
         m2Inputs.textureWeights = m2::parseTextureWeights(blob, header.textureWeights);
         m2Inputs.textureWeightCombos = m2::parseUint16Array(blob, header.textureWeightCombos);
+        m2Inputs.textureTransforms = m2::parseTextureTransforms(blob, header.textureTransforms);
+        m2Inputs.textureTransformCombos = m2::parseUint16Array(blob, header.textureTransformCombos);
         m2Inputs.textureFileDataIds = header.textureFileDataIds;
 
         // One (node name, .skin path) pair per LOD tier to export -- just
@@ -1325,6 +1389,40 @@ int exportGlb(int argc, char** args) {
                              "only wires the first texture per batch into the rendered "
                              "material; additional layers are exported as inert 'extras' "
                              "metadata (see FAILURES2.md #6), not applied to the render\n";
+            }
+
+            // FINDINGS.md §3.2: a batch's M2Color/M2TextureWeight can be
+            // real per-sequence or global-sequence keyframe animation (an
+            // eye-glow or enchant-glow pulse, say), not the single constant
+            // value gltf::Material::baseColorFactor can actually hold --
+            // unlike a bone's translation/rotation/scale (a real, animatable
+            // glTF node property, see resolveVec3GlobalSequenceTrack/
+            // FAILURES2.md #7), core glTF has no way to animate a material
+            // property at all, so there's no translation to build, only a
+            // diagnostic that the static default is a lossy approximation.
+            if (built.animatedTintOrFadeBatchCount > 0) {
+                std::cerr << "husk: note: '" << path << "'"
+                          << (name.empty() ? "" : " (" + name + ")") << "' has "
+                          << built.animatedTintOrFadeBatchCount
+                          << " batch(es) whose color tint (M2Color) or transparency fade "
+                             "(M2TextureWeight) is animated (per-sequence or global-sequence "
+                             "keyframes, not a single constant value) -- core glTF has no way to "
+                             "animate a material's baseColorFactor, so each batch's static "
+                             "default is used instead and the real animation is dropped\n";
+            }
+
+            // FINDINGS.md §3.1: a batch's textureTransformComboIndex
+            // resolved to a real M2TextureTransform (UV scroll/rotate/scale
+            // animation, e.g. flowing lava/water) -- exposed as inert
+            // extras (gltf::Material::textureTransform), not applied to the
+            // render, see m2::TextureTransform's doc comment for why.
+            if (built.textureTransformBatchCount > 0) {
+                std::cerr << "husk: note: '" << path << "'"
+                          << (name.empty() ? "" : " (" + name + ")") << "' has "
+                          << built.textureTransformBatchCount
+                          << " batch(es) with a UV transform (M2TextureTransform) -- exported as "
+                             "inert 'extras' metadata on the material, not applied to the "
+                             "render (see FINDINGS.md §3.1)\n";
             }
 
             gltf::NamedMesh nm;

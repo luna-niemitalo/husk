@@ -67,11 +67,68 @@ for every real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: an external read-only review (`FINDINGS.md`, new this
-  session) audited the project against `~/docs/READABILITY.md`/`CLI.md`,
-  M2 completeness, and test coverage — most findings are still open (see
-  `FINDINGS.md`'s punch list), but the two highest-leverage ones were
-  fixed immediately, both verified live:
+- **Last state**: every remaining actionable finding from `FINDINGS.md`
+  (the external review below) got fixed in a second follow-up pass, same
+  overall session — the punch list's items 2-6, on top of items 1/5
+  the first pass already closed. All verified: clean rebuild, 310-case
+  `husk-tests` suite (up from 267) green via both `./build/husk-tests`
+  and `ctest`, plus a real `bloodelffemale.m2` export re-checked by hand.
+  - **`buildMaterialsAndPrimitives` adversarial tests** (§4.2): 9 new
+    `test_cli.cpp` cases, one per throw site in the batch→submesh→
+    material→color/weight/texture/textureCoord chain, via a reusable
+    `BatchFields`/`oneBatchSkin`/`materialsFixtureM2` fixture trio.
+  - **`M2TextureTransform`** (§3.1): `m2::parseTextureTransforms` (new,
+    mirrors `parseColors`'s constant-vs-animated split) + `.skin`'s
+    `Batch.textureTransformComboIndex` (offset `0x16`, previously
+    entirely unread) + `husk info` counts + `husk export` resolving a
+    batch's reference into `gltf::Material::textureTransform` — real,
+    inert `extras`, deliberately **not** a `KHR_texture_transform`
+    applied to the render (the extension is itself static/non-animatable,
+    and WoW's rotation pivots around the texture center vs. the
+    extension's own origin — a correction this project's own real-file-
+    verification discipline says shouldn't ship unchecked, and no real
+    transform-carrying file was available; see `DESIGN.md`'s new entry).
+    `bloodelffemale.m2` has 0 real `texture_transforms` (a character-
+    model thing, not really used there) — confirmed safe on the
+    zero-count path; the resolution logic itself is synthetic-tested.
+  - **Global-sequence material-track asymmetry** (§3.2): `m2::Color`/
+    `m2::TextureWeight` gained `colorAnimated`/`alphaAnimated`/
+    `weightAnimated` flags (shared `trackHasAnimatedData` helper); `husk
+    export` now prints a note instead of silently applying the static
+    default. Verified against real data: exporting `bloodelffemale.m2`
+    now reports "3 batch(es) whose color tint ... is animated" — a real,
+    previously-silent case (plausibly blood elves' eye-glow), not
+    hypothetical. Deliberately not extended to a full extras-based
+    keyframe dump (see `DESIGN.md` for the scope line and why).
+  - **Collision data** (§3.3): `cmd_info.cpp` now prints
+    `collision_box`/`collision_sphere_radius` and counts
+    `collision_indices`/`collision_face_normals`, not just
+    `collision_positions`. Real data: 8/36/12 respectively, a real small
+    hit-test mesh.
+  - **`--version`/`-V`** (§2.3): `CMakeLists.txt` resolves `git describe
+    --always --dirty` once at configure time into `HUSK_VERSION`.
+  - **Remaining CLI argv edge cases** (§4.3): 8 more `test_cli.cpp` cases
+    (zero-arg invocations for all three subcommands, `export`'s four
+    "flag with no value" branches, `export`'s too-many-positionals case,
+    `info`/`dump-chunks`'s extra-argument case).
+  - **`cmd_dump.cpp` per-chunk coverage** (§4.4): 8 new `test_dump.cpp`
+    round-trip tests (TXAC/EXPT/PADC/PSBC/PEDC/EDGF/DBOC/WFV3) — `WFV3`
+    (~20 hand-transcribed fields, the highest-risk one) checked via exact
+    `"key": value` substrings per field, not just "the number appears
+    somewhere". `GPID`/`PGD1` deliberately left untested — they call the
+    identical function pointer as `RPID`/`PABC`, so a second test would
+    exercise the same code, not new coverage.
+  `FINDINGS.md` itself was updated throughout: every fixed section marked
+  `[Fixed]` with the original text kept as "originally found as follows"
+  for the record, and the punch list resolved. Only §3.4 (five unused
+  lookup-table arrays, awareness-only) and §3.5 (a self-flagged-in-code,
+  needs-real-data caveat) remain genuinely open, plus §5's usability
+  observations (not framed as defects).
+- **Previous state**: an external read-only review (`FINDINGS.md`, new
+  that session) audited the project against `~/docs/READABILITY.md`/
+  `CLI.md`, M2 completeness, and test coverage — most findings were still
+  open at that point, but the two highest-leverage ones were fixed
+  immediately, both verified live:
   - **Silent test skips.** 12 of 260 `husk-tests` cases (in
     `test_integration.cpp`/`test_conformance.cpp`) used to `MESSAGE(...)`
     + early `return` when a `HUSK_TEST_*` env var or optional tool
@@ -109,7 +166,7 @@ for every real-file-driven spec correction found along the way.
   is now moot for the *default* fixtures (baked-absolute
   `HUSK_TEST_DATA_DIR`) but still applies if you override one by hand with
   a relative path.
-- **Previous state**: roadmap stage 7 (output hardening) closed out that session —
+- **Earlier state**: roadmap stage 7 (output hardening) closed out that session —
   every real export now runs through two independent real downstream consumers
   in `tests/test_conformance.cpp` (2 new tests, 258 → 260 total), not just
   tinygltf's own permissive reader:
@@ -138,14 +195,14 @@ for every real-file-driven spec correction found along the way.
   `blender`, not just the `husk` binary. README.md's roadmap stage 7 and
   Testing section were updated to match (was previously the one open roadmap
   stage; all 8 are done now).
-- **Next step**: nothing in flight. `FINDINGS.md`'s remaining punch list
-  (highest-leverage first): adversarial/out-of-range tests for
-  `cmd_export.cpp`'s `buildMaterialsAndPrimitives` (real bounds checks,
-  zero negative tests); `M2TextureTransform` (UV scroll/rotate/scale) is
-  parsed but never dereferenced or even counted anywhere, not previously
-  tracked; the global-sequence-track fix (`FAILURES2.md` #7) only covers
-  bones, not `M2Color`/`M2TextureWeight` material tracks — same bug class,
-  asymmetric fix. Otherwise the remaining known gaps are exactly the ones
+- **Next step**: nothing in flight. `FINDINGS.md`'s punch list is now
+  fully closed except two items that aren't really action items: §3.4
+  (five lookup-table arrays parsed but never referenced — awareness-only,
+  nothing downstream needs them yet) and §3.5 (multi-texture-layer index
+  arithmetic self-flagged as unverified against a real multi-layer file —
+  blocked on one showing up in `test_data/`, same "verify against real
+  data before trusting it" bar every other claim in this project met).
+  Otherwise the remaining known gaps are exactly the ones
   `TODO_correctness.md` already tracks (`AFSB` reverse-engineering,
   `M2Particle` dereferencing, `.bone` LOD-context integration) plus optional
   scope expansion (WMO/M3, or Blender-side tooling — a script/addon reading

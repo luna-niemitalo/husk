@@ -605,6 +605,29 @@ std::optional<size_t> constantTrackValueOffset(const uint8_t* data, size_t blobS
     return inner.offset;
 }
 
+// True when an M2Track<T> carries real keyframe data beyond the
+// single-constant-value case constantTrackValueOffset resolves --
+// per-M2Sequence animation (outer.count > 1), or a global-sequence-driven
+// loop (outer.count == 1 but with more than one keyframe in its single
+// sub-array). Both constantTrackValueOffset and this function agree on
+// "empty" (outer.count == 0): neither an animated nor a constant track,
+// just genuinely no data. This is what lets a caller distinguish "this
+// M2Color/M2TextureWeight track is nullopt because it's genuinely empty"
+// from "...because it's animated and husk has no way to represent that in
+// a static baseColorFactor" -- see Color::colorAnimated/alphaAnimated and
+// TextureWeight::weightAnimated.
+bool trackHasAnimatedData(const uint8_t* data, size_t blobSize, size_t trackOffset) {
+    Array outer = readArray(data, blobSize, trackOffset + 0x0C);
+    if (outer.count == 0) {
+        return false;
+    }
+    if (outer.count > 1) {
+        return true;
+    }
+    Array inner = readArray(data, blobSize, outer.offset);
+    return inner.count > 1;
+}
+
 std::optional<float> readFixed16TrackValue(const uint8_t* data, size_t blobSize, size_t trackOffset) {
     auto valueOffset = constantTrackValueOffset(data, blobSize, trackOffset);
     if (!valueOffset) {
@@ -626,6 +649,23 @@ std::optional<Vec3> readVec3TrackValue(const uint8_t* data, size_t blobSize, siz
         return std::nullopt;
     }
     return readVec3(data, blobSize, *valueOffset);
+}
+
+// Same shape as readVec3TrackValue, but for an M2Track<C4Quaternion> --
+// M2TextureTransform::rotation's own type (wowdev.wiki Common_Types
+// C4Quaternion: 4 raw floats x/y/z/w, *not* the compressed M2CompQuat
+// bones use -- see readCompQuat below for that unrelated format).
+std::optional<Quat> readQuatFloatTrackValue(const uint8_t* data, size_t blobSize, size_t trackOffset) {
+    auto valueOffset = constantTrackValueOffset(data, blobSize, trackOffset);
+    if (!valueOffset) {
+        return std::nullopt;
+    }
+    Quat q;
+    q.x = readF32(data, blobSize, *valueOffset + 0);
+    q.y = readF32(data, blobSize, *valueOffset + 4);
+    q.z = readF32(data, blobSize, *valueOffset + 8);
+    q.w = readF32(data, blobSize, *valueOffset + 12);
+    return q;
 }
 
 // Unpacks one M2CompQuat (4x int16, x/y/z/w order) into a Quat, per
@@ -710,6 +750,8 @@ std::vector<Color> parseColors(const std::vector<uint8_t>& blob, const Array& ar
         Color c;
         c.color = readVec3TrackValue(data, blobSize, off + 0x00);
         c.alpha = readFixed16TrackValue(data, blobSize, off + 0x14);
+        c.colorAnimated = !c.color && trackHasAnimatedData(data, blobSize, off + 0x00);
+        c.alphaAnimated = !c.alpha && trackHasAnimatedData(data, blobSize, off + 0x14);
         colors.push_back(c);
     }
 
@@ -738,10 +780,48 @@ std::vector<TextureWeight> parseTextureWeights(const std::vector<uint8_t>& blob,
         size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kWeightSize;
         TextureWeight w;
         w.weight = readFixed16TrackValue(data, blobSize, off + 0x00);
+        w.weightAnimated = !w.weight && trackHasAnimatedData(data, blobSize, off + 0x00);
         weights.push_back(w);
     }
 
     return weights;
+}
+
+std::vector<TextureTransform> parseTextureTransforms(const std::vector<uint8_t>& blob,
+                                                       const Array& array) {
+    std::vector<TextureTransform> transforms;
+    if (array.count == 0) {
+        return transforms;
+    }
+
+    // M2TextureTransform: M2Track<C3Vector> translation (0x14) +
+    // M2Track<C4Quaternion> rotation (0x14) + M2Track<C3Vector> scaling
+    // (0x14), 0x3C = 60 bytes total (wowdev.wiki M2#Texture_Transforms).
+    constexpr size_t kTransformSize = 0x3C;
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kTransformSize) {
+        throw ParseError("textureTransforms array claims " + std::to_string(array.count) +
+                          " records (" + std::to_string(kTransformSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    transforms.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kTransformSize;
+        TextureTransform t;
+        t.translation = readVec3TrackValue(data, blobSize, off + 0x00);
+        t.rotation = readQuatFloatTrackValue(data, blobSize, off + 0x14);
+        t.scaling = readVec3TrackValue(data, blobSize, off + 0x28);
+        t.translationAnimated = !t.translation && trackHasAnimatedData(data, blobSize, off + 0x00);
+        t.rotationAnimated = !t.rotation && trackHasAnimatedData(data, blobSize, off + 0x14);
+        t.scalingAnimated = !t.scaling && trackHasAnimatedData(data, blobSize, off + 0x28);
+        transforms.push_back(t);
+    }
+
+    return transforms;
 }
 
 std::vector<Sequence> parseSequences(const std::vector<uint8_t>& blob, const Array& array) {
