@@ -319,6 +319,250 @@ process boundary is kept even now that `--textures` embeds real PNGs —
 husk reads a file `husk-blp` already wrote, it never invokes `husk-blp` or
 links against Pillow.
 
+## CLI argument grammar for `export` (target — not yet implemented)
+
+**Current state**, for contrast: `export`'s own `printUsage` (`src/cmd_export.cpp`)
+takes up to three *positional* arguments after the model (`.skin`|`auto`,
+output `.glb`, `.skel`), each trailing-optional — you can stop early, but
+can't skip one in the middle, e.g. giving a `.skel` means also giving a skin
+path and an output path first. `--textures`/`--skin-dir`/`--anim-dir`/`--lod`
+are flags layered on top of that. This grew organically (each positional was
+added when its feature was built) and it works, but it fails
+`~/docs/CLI.md`'s own §2.2 in one specific way: a bare word's *meaning*
+depends on how many other words came before it, not on what the word itself
+says — the same failure mode §1 calls out as "no shared grammar." It's also
+why `--help`/`-h` needed a dedicated pre-parse check (`commands::isHelpFlag`)
+instead of Just Working: a hand-rolled positional parser has no generic
+notion of "this token is a flag regardless of position."
+
+**Target grammar**, derived directly from `~/docs/CLI.md`:
+
+| Flag | Short | Meaning |
+|---|---|---|
+| `--input` | `-i` | the `.m2` path |
+| `--output` | `-o` | output `.glb` path |
+| `--skin` | `-s` | `.skin` path, or the literal word `auto` |
+| `--textures` | `-t` | directory of `<FileDataID>.png` |
+| `--anim` | `-a` | directory of `<FileDataID>.anim`, or one of `auto`/`inline`/`none` (see below) |
+| `--skin-dir` | *(none)* | directory `auto` searches for the `SFID`-declared `<FileDataID>.skin` |
+| `--skel` | *(none)* | external `.skel` path (0-inline-bone models only) |
+| `--lod` | *(none)* | `<n>` or `all`, only meaningful with `--skin auto` |
+
+Every flag is order-independent. The only positional-shaped things left are
+the two every CLI on every platform already trains a user to expect
+(`tool input output`, same as `cp`/`mv`) — everything else is named, so
+`--help` is trivially always a valid token (no positional-counting to fall
+through first) and adding a tenth flag next year can't shift what word #3
+means the way it can today.
+
+- **`-i`/`-o` keep a positional fallback, nothing else does** (§1, "habit /
+  muscle memory" — the null-then-fallback chain's cheapest rung). `tool in
+  out` is load-bearing muscle memory across the entire CLI ecosystem;
+  `.skin`/`.skel`/directory arguments have no equivalent universal
+  convention to lean on, so spelling them out loses nothing a positional
+  would have bought. `--output`'s own default value is a plain computed
+  literal (`<model-basename>.glb`) — not an "auto" state in the §2.11 sense
+  below, since there's no self-description in the model to defer to for
+  "where should this be written."
+- **`-s`/`-t`/`-a` get shorthands; `--skin-dir`/`--skel`/`--lod` don't**
+  (§2.8, high-frequency flags earn the cheap spelling). `--skin`,
+  `--textures`, `--anim` vary on nearly every invocation — that's the
+  definition of "common case" §2.8 reserves shorthands for. `--skin-dir`
+  doesn't get one *not* because it's rare, but because `-s` is already
+  spoken for by `--skin`'s more common meaning (the direct file path/`auto`)
+  — a real naming collision, not a frequency judgment (§2.8's actual test:
+  "is this a new spelling of an existing flag, or a genuinely different
+  axis" — `--skin`/`--skin-dir` are a different axis wearing similar
+  clothes, same shape as the `--verbose`/`--debug` example in §2.8, so both
+  survive, neither gets collapsed). `--skel` and `--lod` stay unshorthanded
+  because they're genuinely occasional — one-shot decisions (§2.6,
+  progressive disclosure: common actions at the top level, rare ones one
+  step further out), not per-invocation variance.
+
+### Three-state resolution, not two (§2.11)
+
+`--skin`, `--textures`, `--skin-dir`, and `--skel` all name a thing
+the model's own chunk data (or its presence next to the model) already
+points at — `~/docs/CLI.md` §2.11 states the rule for exactly this shape of
+flag directly: *"there are three states here, not two"* — collapsing "leave
+it unset" and "actively don't want it" loses the difference between "try to
+resolve, warn if broken" and "I already know, don't even try."
+
+- **Unset -> `auto`.** Best-effort derivation from whatever the input
+  already declares — and this is deliberately **not** defined as "check the
+  model's own directory." That directory is *one current heuristic* for
+  *where to search*, not what `auto` means. The two are genuinely separate
+  questions with separate answers:
+  - *What* to look for is derived from the model's own bytes wherever the
+    model states it explicitly — `--skin auto` reads the `SFID` chunk (entry
+    `--lod` selects) for the FileDataID to search for; that answer never
+    depends on the filesystem at all.
+  - *Where* to search is a directory, and today that directory's own
+    default happens to be the model's own directory (a real extraction
+    drops everything into one place) — but that's this flag's default
+    *value*, not a redefinition of `auto` itself. A future second signal
+    for "where" (a manifest file, a second sidecar) would extend the
+    heuristic without changing what any of these flags mean to the user.
+  Leaving the definition of "auto" at "derive from self-description,
+  best-effort" rather than baking in today's one heuristic keeps the
+  contract stable if the heuristic ever grows a second source.
+- **Explicit value -> override.** Use exactly this file/directory instead
+  of deriving anything.
+- **Explicit `none` -> skip deliberately.** Distinct from unset: the user
+  already knows this reference is missing or broken and wants the rest of
+  the export to proceed without a warning or a resolution attempt — the
+  strongest form of "don't even try."
+
+What `none` means, concretely, per flag:
+
+- `--textures none` — never embed an image, even if a matching
+  `<FileDataID>.png` would otherwise resolve. Materials still get the
+  correct blend mode/tint either way.
+- `--skel none` — never look for a same-basename `.skel` next to the model,
+  even if one exists there. Forces an unskinned mesh regardless of the
+  model's own inline-bone count.
+- `--skin-dir none` — `--skin auto` skips the `SFID`-FileDataID search stage
+  entirely and falls straight to the same-basename numbered scan.
+
+**`--anim` needs four states, not three — it bundles two independent
+questions the generic pattern above collapses into one.** "Should any
+animation data exist at all" and "should *external* `.anim` files
+contribute to it" are separate axes: inline sequences (`flags & 0x20`) and
+global-sequence bone tracks are both resolved straight from the model's own
+blob, with no filesystem involved, so "skip external resolution" and "skip
+animation entirely" are genuinely different outcomes. Collapsing them into
+one `none` (as first drafted, then corrected) silently picked one meaning
+and lost the other. Four states:
+
+- `--anim auto` (**default**) — today's combined behavior: inline
+  sequences and global-sequence tracks always resolved from the model's own
+  blob, *plus* best-effort external-directory search (default: the model's
+  own directory) for sequences not stored inline.
+- `--anim inline` — inline sequences and global-sequence tracks only;
+  external-directory search is explicitly skipped. This is what a bare
+  `none` was first written to mean above, and why it needed its own name
+  instead of overloading `none`.
+- `--anim none` — no animation data at all, full stop: a static, still
+  possibly-skinned (bind-pose) mesh with zero glTF `animation` clips,
+  inline or external. The bind pose itself (`JOINTS_0`/`WEIGHTS_0`, inverse
+  bind matrices) is unaffected — this flag only ever touches `animation`
+  clips, never the skin itself.
+- `--anim <dir>` — explicit directory override for the external-search
+  stage; inline sequences and global-sequence tracks are still resolved on
+  top of it, same as `auto`.
+
+### Does `inline` generalize past `--anim`?
+
+Worth deriving as a general rule rather than deciding per-flag by feel,
+since this tool's whole premise is comprehensiveness — a rule that's checked
+once against every current flag is worth more than four separate judgment
+calls that might silently disagree later.
+
+**A flag earns a fourth `inline` state, distinct from both `auto` and
+`none`, only when both hold:**
+
+1. The model's own blob can independently produce a *non-empty, meaningful*
+   result for that data category with zero filesystem access, **and**
+2. that inline-sourced result and an externally-sourced result are not
+   mutually exclusive — both can be true at once, and the export *combines*
+   them rather than picking one.
+
+`--anim` is the only current flag meeting both: inline `M2Sequence`/
+global-sequence bone tracks are self-sufficient (condition 1) and additive
+alongside `.anim`-sourced sequences — a real export can and does carry both
+kinds of clip side by side (condition 2). Checking the other candidates
+against the same rule, not just asserting "no":
+
+- **`--skel` fails condition 2.** Inline `bones` and an external `.skel`
+  are mutually exclusive in every real file this project has examined, and
+  in the pipeline's own resolution order (`DESIGN.md`'s Pipeline section,
+  step 4: "if inline `bones` is empty *and* an `SKID`/`.skel` path is
+  available") — an `SKID` chunk only shows up when inline bones are already
+  empty. A `--skel inline` state would be indistinguishable from `auto`
+  whenever inline bones exist (both just use them), and indistinguishable
+  from `none` whenever they don't (nothing to use either way) — a state
+  that can never independently change behavior is worse than no state:
+  it's one more thing to document and test that measures nothing. If a real
+  file ever surfaces genuine inline+external combination, that's new
+  evidence worth reopening this against — same "verify against real data
+  before trusting a claim" bar this project holds everywhere else — but
+  nothing observed so far supports it.
+- **`--textures` fails condition 1.** WoW never embeds pixel data in the
+  M2/`.skin` itself — every texture, including the `type == 0` "real
+  filename" case, is BLP-external by construction (`src/m2.hpp`'s `Texture`
+  doc comment). There is no inline image to fall back to, so `inline` here
+  would just be `none` under a different name.
+- **`--lod` isn't this shape of flag at all.** It's an index selector into
+  already-resolved `SFID` entries (which tier, or `all`), not a
+  resolution-source flag with an inline/external axis to begin with — the
+  auto/`none`/`inline` framing doesn't apply to a selector.
+- **Other glTF `extras` this tool bakes in** (geoset ID/group/variant,
+  second-texture-layer metadata, texture-transform data) **aren't gated by
+  any resolution flag at all**, inline or otherwise — they're read
+  unconditionally from the model's own `.skin`/`M2` data every export, with
+  no external counterpart to combine with or skip. Nothing to extend here
+  because there's no flag in the first place.
+
+**`--skin` doesn't cleanly extend to the three-state table above either,
+and that's worth stating outright rather than fudging.** The other two
+flags there (`--textures`, `--skel`) gate *optional
+enrichment* — at `none`, the export still succeeds (an unskinned mesh, a
+flat-tinted material, fewer clips). A `.skin` file is not optional
+enrichment: it's the *sole* source of triangle winding, submesh, and batch
+data (`skin::resolveTriangleIndices`/`parseSubmeshes`/`parseBatches`,
+`src/skin.hpp`) — there is currently no code path that emits even one glTF
+primitive without one.
+
+**Decided: `--skin none` is rejected outright**, not accepted as a real
+state. A `.skin` is load-bearing, not optional enrichment, so `none` isn't
+meaningful for it — CLI11 validates this at parse time with a clear error
+naming the actual expectation (`--skin` takes a path or `auto`, never
+`none`). A genuine skin-less export (a raw, un-triangulated point cloud
+straight from the M2's own vertex array, no submesh/material structure at
+all) would be real new scope this file has never tracked before, and isn't
+being added as a side effect of a CLI-grammar change — if that's ever
+wanted, it gets its own design discussion, not a quiet `none` case here.
+
+**Library: [CLI11](https://github.com/CLIUtils/CLI11)**, header-only, MIT,
+chosen over hand-rolling a second generation of the current parser or adding
+a Boost-style everything-framework — matches the project's existing
+tight-fit-library-only policy (`tinygltf` for glTF framing, `tinyobj`-style
+single-purpose deps elsewhere). Declaring `-i,--input`/`-o,--output`/etc.
+with a description string at the declaration site gets `--help` generation,
+order-independent parsing, and the positional-fallback behavior above for
+free, instead of hand-maintaining all three the way `printUsage` does today.
+
+**Rejected alternative: wrap the CLI in a Python layer.** husk-the-binary
+stays pure C++ — this would cut against the already-stated `.blp` process
+boundary above (husk never invokes another process or links a scripting
+runtime into its own control flow); a Python wrapper for argv handling
+blurs that same line from the opposite direction for no benefit CLI11
+doesn't already provide directly in C++.
+
+**Impact when this lands** (tracked here so it isn't lost between sessions):
+`src/cmd_export.cpp`'s positional-parsing block and `printUsage`, `README.md`'s
+`export` Usage subsection (defaults/flags table/examples), and
+`tests/test_cli.cpp`'s positional-ordering cases all need rewriting together
+— this is a breaking change to every existing `husk export` invocation's
+argument order, not an additive one. `nix/flake.nix` needs CLI11 added as a
+new dependency (flag for permission before adding, per this project's
+package-approval rule). Also not purely mechanical: today, "no `.skin` given
+at all" (`findSameBasenameSkins`'s scan) and "`.skin` given as `auto`" (`SFID`
++ `--skin-dir`) are two independent code paths; the target grammar has only
+one flag (`--skin`, default `auto`), so `auto`'s own resolution needs to try
+both conventions in order, inside whatever `--skin-dir` resolves to (itself
+defaulting to the model's directory, so this is normally one search in one
+folder, not two): **`SFID`-declared FileDataID match first** (the model's own
+self-description, §2.11 — decided over trying the basename scan first),
+**same-basename numbered scan second** as the fallback. `--skin none` itself
+is rejected at parse time (decided above), so this function never needs to
+handle a "deliberately skip" case. Separately, today's single boolean-ish
+"is `--anim-dir` given" check needs replacing with real state handling for
+`--anim`'s four values (`auto`/`inline`/`none`/an explicit directory) — in
+particular, `none` is new behavior, not a rename: nothing today suppresses
+inline sequences or global-sequence clips, so the code path that currently
+always resolves them needs an explicit early-out for this one case.
+
 ## Boundaries (where foreign data enters)
 
 - Model file bytes (`.m2`) — chunk container + fixed-offset header/arrays.
