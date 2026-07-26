@@ -38,9 +38,8 @@ namespace husk::commands {
 
 namespace {
 
-void printUsage() {
-    std::cerr
-        << "usage: husk export <file.m2> [<file.skin>|auto [<output.glb> [file.skel]]]\n"
+void printUsage(std::ostream& out = std::cerr) {
+    out << "usage: husk export <file.m2> [<file.skin>|auto [<output.glb> [file.skel]]]\n"
            "                    [--textures <dir>] [--skin-dir <dir>] [--anim-dir <dir>]\n"
            "                    [--lod <n>|all]\n"
            "\n"
@@ -981,6 +980,12 @@ std::vector<std::pair<int, std::string>> findSameBasenameSkins(const std::string
 }  // namespace
 
 int exportGlb(int argc, char** args) {
+    for (int i = 0; i < argc; ++i) {
+        if (isHelpFlag(args[i])) {
+            printUsage(std::cout);
+            return 0;
+        }
+    }
     if (argc < 1) {
         printUsage();
         return 1;

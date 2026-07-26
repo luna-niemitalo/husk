@@ -28,9 +28,8 @@ namespace husk::commands {
 
 namespace {
 
-void printUsage() {
-    std::cerr
-        << "usage: husk dump-chunks <file.m2>|<file.bone>\n"
+void printUsage(std::ostream& out = std::cerr) {
+    out << "usage: husk dump-chunks <file.m2>|<file.bone>\n"
            "\n"
            "Extracts the M2 chunks husk doesn't fold into `export`'s glTF\n"
            "output -- TXAC/EXPT/PABC/PADC/PSBC/PEDC/RPID/GPID/PGD1/WFV3/NERF/\n"
@@ -429,6 +428,10 @@ void dumpTexl(json::Writer& w, const Chunk& c) {
 }  // namespace
 
 int dumpChunks(int argc, char** args) {
+    if (argc >= 1 && isHelpFlag(args[0])) {
+        printUsage(std::cout);
+        return 0;
+    }
     if (argc != 1) {
         printUsage();
         return 1;

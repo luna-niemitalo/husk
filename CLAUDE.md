@@ -67,7 +67,49 @@ for every real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: roadmap stage 7 (output hardening) closed out this session —
+- **Last state**: an external read-only review (`FINDINGS.md`, new this
+  session) audited the project against `~/docs/READABILITY.md`/`CLI.md`,
+  M2 completeness, and test coverage — most findings are still open (see
+  `FINDINGS.md`'s punch list), but the two highest-leverage ones were
+  fixed immediately, both verified live:
+  - **Silent test skips.** 12 of 260 `husk-tests` cases (in
+    `test_integration.cpp`/`test_conformance.cpp`) used to `MESSAGE(...)`
+    + early `return` when a `HUSK_TEST_*` env var or optional tool
+    (`gltf_validator`/`blender`) was missing — doctest counted that as
+    "passed" with 0 assertions, so a bare `./build/husk-tests` run always
+    reported "0 skipped" even when roadmap-stage-7's entire conformance
+    tier silently didn't run. Fixed two ways: every gated `TEST_CASE` is
+    now `* doctest::skip(...)`, which doctest reports as a real, distinct
+    "skipped" count; and a new `tests/test_data_paths.hpp` auto-detects
+    real fixtures already sitting in this repo's own `test_data/` (env
+    var still overrides) instead of requiring 8 hand-set env vars —
+    `HUSK_TEST_SKIN_DIR` is even *constructed* on the fly from the SFID
+    entry 0 read out of the resolved M2's own header. Net effect,
+    verified: a bare `./build/husk-tests` run now actually exercises 259
+    of 260 cases for real (368,515 assertions, up from 1,113) instead of
+    248; only `HUSK_TEST_TEXTURES_DIR` (no committed `husk-blp`-converted
+    PNGs) still needs to be set by hand, and now visibly skips instead of
+    silently passing when it isn't. `tests/test_main.cpp` gained a startup
+    banner printing every fixture's resolution up front.
+  - **`--help`/`-h` bug.** Only `main.cpp` special-cased it, before a
+    subcommand name was even read — `husk export --help` fell through to
+    treating `--help` as a literal model path (`args[0]` is always the
+    first positional in `exportGlb`), producing "couldn't open '--help'"
+    instead of the good usage text `cmd_export.cpp` already had. Same bug
+    in `info`/`dump-chunks`. Fixed via a shared `commands::isHelpFlag`
+    (`src/commands.hpp`) checked before real argument parsing in all
+    three, plus 8 new regression tests in `test_cli.cpp`. `main.cpp`'s own
+    top-level usage text was also resynced (it undersold `export`'s real
+    optional args/flags and `dump-chunks`' `.bone` support).
+  260 → 267 total test cases (8 new `--help` regressions, minus the 1
+  test_conformance.cpp case that split into a real-vs-`doctest::skip(true)`
+  pair per missing tool — see test_conformance.cpp). `README.md`'s Testing
+  section and `DESIGN.md`'s Testing architecture section were updated to
+  match; the `ctest`-runs-from-`build/`-needs-absolute-paths hazard below
+  is now moot for the *default* fixtures (baked-absolute
+  `HUSK_TEST_DATA_DIR`) but still applies if you override one by hand with
+  a relative path.
+- **Previous state**: roadmap stage 7 (output hardening) closed out that session —
   every real export now runs through two independent real downstream consumers
   in `tests/test_conformance.cpp` (2 new tests, 258 → 260 total), not just
   tinygltf's own permissive reader:
@@ -96,16 +138,25 @@ for every real-file-driven spec correction found along the way.
   `blender`, not just the `husk` binary. README.md's roadmap stage 7 and
   Testing section were updated to match (was previously the one open roadmap
   stage; all 8 are done now).
-- **Next step**: nothing in flight. The remaining known gaps are exactly the
-  ones `TODO_correctness.md` already tracks (`AFSB` reverse-engineering,
+- **Next step**: nothing in flight. `FINDINGS.md`'s remaining punch list
+  (highest-leverage first): adversarial/out-of-range tests for
+  `cmd_export.cpp`'s `buildMaterialsAndPrimitives` (real bounds checks,
+  zero negative tests); `M2TextureTransform` (UV scroll/rotate/scale) is
+  parsed but never dereferenced or even counted anywhere, not previously
+  tracked; the global-sequence-track fix (`FAILURES2.md` #7) only covers
+  bones, not `M2Color`/`M2TextureWeight` material tracks — same bug class,
+  asymmetric fix. Otherwise the remaining known gaps are exactly the ones
+  `TODO_correctness.md` already tracks (`AFSB` reverse-engineering,
   `M2Particle` dereferencing, `.bone` LOD-context integration) plus optional
   scope expansion (WMO/M3, or Blender-side tooling — a script/addon reading
   the geoset/multi-texture-layer `extras` `FAILURES2.md` #1/#6 added) — none
   of that is a husk-parsing task.
-- **Hazards**: `ctest` (unlike running `./build/husk-tests` directly) executes
-  from `build/`, not repo root — the `HUSK_TEST_M2`/`HUSK_TEST_SKIN` env vars
-  need absolute paths when driving the real-data tests through `ctest`
-  specifically, or every one of them fails on a bad relative path, not a real
-  regression. No other known-stale doc content as of this session — checked
-  README.md's roadmap/Testing text against the actual current source and
-  they agree.
+- **Hazards**: `HUSK_TEST_DATA_DIR` (new, `CMakeLists.txt`) is baked
+  absolute at configure time, so the default `test_data/`-fallback
+  fixtures are immune to the old `ctest`-runs-from-`build/` relative-path
+  trap — but if you override any `HUSK_TEST_*` env var by hand for `ctest`
+  specifically (not `./build/husk-tests` directly), it still needs to be
+  absolute, or that one test fails on a bad relative path, not a real
+  regression. No other known-stale doc content as of this session —
+  checked README.md's roadmap/Testing text against the actual current
+  source and they agree.

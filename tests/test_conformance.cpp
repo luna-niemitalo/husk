@@ -11,9 +11,11 @@
 //
 // Both tools are optional in the dev shell (HUSK_GLTF_VALIDATOR/
 // HUSK_BLENDER compile definitions, set by CMakeLists.txt via
-// find_program) -- absent either, or absent the real-data env vars this
-// file shares with test_integration.cpp, these tests skip rather than
-// fail, same convention throughout this file's sibling.
+// find_program) -- absent either, or absent the real-data fixtures this
+// file shares with test_integration.cpp (see tests/test_data_paths.hpp),
+// these tests are marked `* doctest::skip(...)` rather than silently
+// "passing" with zero assertions -- see test_main.cpp's startup banner
+// for which case applies on this run.
 
 #include <cstring>
 #include <doctest/doctest.h>
@@ -22,12 +24,14 @@
 #include <tiny_gltf.h>
 
 #include "run_husk.hpp"
+#include "test_data_paths.hpp"
 
 namespace {
 
-using husk::test::envOrEmpty;
 using husk::test::runCommand;
 using husk::test::runHusk;
+using husk::test::testM2;
+using husk::test::testSkin;
 
 // Pulls an integer out of a "HUSK_PROBE key=value" line (see
 // tests/blender_import_check.py) -- REQUIREs the key is present so a
@@ -43,18 +47,12 @@ int parseProbeInt(const std::string& output, const std::string& key) {
 
 }  // namespace
 
+#ifdef HUSK_GLTF_VALIDATOR
 TEST_CASE("husk export: real M2 + .skin produces a glb the Khronos glTF-Validator "
-          "accepts with zero errors") {
-#ifndef HUSK_GLTF_VALIDATOR
-    MESSAGE("SKIPPED (gltf_validator not found -- available via this project's nix flake devShell)");
-    return;
-#else
-    std::string m2Path = envOrEmpty("HUSK_TEST_M2");
-    std::string skinPath = envOrEmpty("HUSK_TEST_SKIN");
-    if (m2Path.empty() || skinPath.empty()) {
-        MESSAGE("SKIPPED (no real M2+.skin pair available -- set HUSK_TEST_M2 and HUSK_TEST_SKIN)");
-        return;
-    }
+          "accepts with zero errors" *
+          doctest::skip(testM2().empty() || testSkin().empty())) {
+    std::string m2Path = testM2();
+    std::string skinPath = testSkin();
 
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-conformance.glb").string();
     std::filesystem::remove(outPath);
@@ -73,21 +71,23 @@ TEST_CASE("husk export: real M2 + .skin produces a glb the Khronos glTF-Validato
     CHECK(validation.exitCode == 0);
 
     std::filesystem::remove(outPath);
-#endif
 }
-
-TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bone/animation "
-          "counts matching tinygltf's own reading of the same file") {
-#if !defined(HUSK_BLENDER) || !defined(HUSK_BLENDER_IMPORT_SCRIPT)
-    MESSAGE("SKIPPED (blender not found -- available via this project's nix flake devShell)");
-    return;
 #else
-    std::string m2Path = envOrEmpty("HUSK_TEST_M2");
-    std::string skinPath = envOrEmpty("HUSK_TEST_SKIN");
-    if (m2Path.empty() || skinPath.empty()) {
-        MESSAGE("SKIPPED (no real M2+.skin pair available -- set HUSK_TEST_M2 and HUSK_TEST_SKIN)");
-        return;
-    }
+TEST_CASE("husk export: real M2 + .skin produces a glb the Khronos glTF-Validator "
+          "accepts with zero errors" *
+          doctest::skip(true)) {
+    // gltf_validator not found on PATH at configure time (see
+    // CMakeLists.txt's find_program) -- available via this project's nix
+    // flake devShell.
+}
+#endif
+
+#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
+TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bone/animation "
+          "counts matching tinygltf's own reading of the same file" *
+          doctest::skip(testM2().empty() || testSkin().empty())) {
+    std::string m2Path = testM2();
+    std::string skinPath = testSkin();
 
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-blender.glb").string();
     std::filesystem::remove(outPath);
@@ -126,5 +126,12 @@ TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bon
     CHECK(parseProbeInt(blenderResult.output, "total_vertex_count") > 0);
 
     std::filesystem::remove(outPath);
-#endif
 }
+#else
+TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bone/animation "
+          "counts matching tinygltf's own reading of the same file" *
+          doctest::skip(true)) {
+    // blender not found on PATH at configure time (see CMakeLists.txt's
+    // find_program) -- available via this project's nix flake devShell.
+}
+#endif

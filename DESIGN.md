@@ -308,10 +308,24 @@ Three tiers, same shape used by `casc-tool`:
    binary against small synthetic fixtures; exercises argv parsing and
    `cmd_*.cpp` exception handling without needing real game files.
 3. **Integration** (`test_integration`) — the compiled binary against real,
-   game-extracted files, gated behind `HUSK_TEST_*` env vars, skipped (not
-   failed) when unset. Asserts on shape ("found some vertices," "plausible
+   game-extracted files. Asserts on shape ("found some vertices," "plausible
    `.glb`"), never on one specific model's exact field values — those
-   belong in tier 1.
+   belong in tier 1. Each real-file fixture resolves via
+   `tests/test_data_paths.hpp`: an explicit `HUSK_TEST_*` env var always
+   overrides; otherwise it falls back to a matching file already in this
+   repo's own gitignored `test_data/` (one fixture, the `--skin-dir`
+   one, is *constructed* on the fly from the other two by reading the
+   real SFID entry 0 out of the resolved M2's header — the same shape a
+   hand-populated directory would need). A fixture that doesn't resolve
+   marks its `TEST_CASE` with `* doctest::skip(...)`, not a runtime
+   `MESSAGE` + early `return` — doctest's own summary then reports a
+   distinct, non-zero "skipped" count instead of silently folding a
+   0-assertion test into "passed" (a real gap this project's own audit
+   found: `./build/husk-tests` used to report "0 skipped" even when 12 of
+   260 cases never exercised anything). `tests/test_main.cpp`'s startup
+   banner prints every fixture's resolution (or lack of one) up front, so
+   "why did N tests just skip" is a read, not a rerun with env vars
+   guessed at.
 
 Known gap: the ad hoc real-`.anim`-directory verification described in the
 README's roadmap stage 6 (50/50 and 54/54 real files, parsed back apart in

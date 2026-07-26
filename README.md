@@ -772,33 +772,41 @@ Same two-tier split as `casc-tool`:
   those belong in the synthetic tests. Also covers the failure paths: a
   `.skin` that doesn't belong to the given M2 must fail loudly, not
   silently misread; a model with an external `.skel` skeleton must produce
-  a real skinned glTF skin, not a silent unskinned fallback. Skipped (not
-  failed) unless the relevant env vars point at real files: `HUSK_TEST_M2`
-  (bare `info` -- also checks `skin_file_data_ids`/`anim_file_ids` show up),
-  plus `HUSK_TEST_SKIN` (`export`, also exercises the per-batch materials
-  path -- checks for a plausible `alphaMode` spread and a `TEXCOORD_1`
-  attribute, not exact values), `HUSK_TEST_MISMATCHED_SKIN` (the mismatch
-  failure path), `HUSK_TEST_TEXTURES_DIR` (alongside
-  `HUSK_TEST_M2`/`HUSK_TEST_SKIN` -- a directory of `husk-blp`-converted
-  `<FileDataID>.png` files, to exercise `--textures`' real image
-  embedding), `HUSK_TEST_SKIN_DIR` (alongside `HUSK_TEST_M2` -- a directory
-  containing that model's own SFID-entry-0 `.skin`, renamed to its
-  FileDataID, to exercise `auto` + `--skin-dir`'s LOD auto-selection), or
-  `HUSK_TEST_SKEL_M2`/`HUSK_TEST_SKEL_SKIN`/`HUSK_TEST_SKEL` (the
-  external-skeleton path, a separate model+trio from the others since it
-  needs one with an `SKID` chunk). There's still no `HUSK_TEST_ANIM_DIR`
-  env var wired into the committed suite -- `--anim-dir`'s external-`.anim`
-  resolution is instead covered by the synthetic fixtures in
-  `tests/test_cli.cpp` (both the inline-M2 and `.skel`-sourced cases,
-  including the real-data-discovered `AFSB`-vs-`AFM2` shape). The real-file
-  verification described in roadmap stage 6 (50/50 real files for the
-  inline model, 54/54 for the `.skel`-sourced one, checked by parsing the
-  resulting `.glb` back apart in Python) was done ad hoc against this
-  repo's own `test_data/` during development, not as a repeatable
-  `HUSK_TEST_*`-gated test case -- a real gap, since it means that specific
-  check doesn't re-run automatically. `test_data/` (gitignored) is a
-  convenient local spot for real, copyrighted game data extracted from your
-  own install, never meant to be committed.
+  a real skinned glTF skin, not a silent unskinned fallback. Each fixture
+  resolves via `tests/test_data_paths.hpp`: an explicit `HUSK_TEST_*` env
+  var always overrides, but absent that, it falls back to a matching file
+  already sitting in this repo's own (gitignored) `test_data/` directory
+  -- `HUSK_TEST_M2`/`HUSK_TEST_SKIN`/`HUSK_TEST_MISMATCHED_SKIN`/
+  `HUSK_TEST_SKEL_M2`/`HUSK_TEST_SKEL_SKIN`/`HUSK_TEST_SKEL` all default
+  this way, and `HUSK_TEST_SKIN_DIR` is *built* on the fly (`autoSkinDir`)
+  by reading the real SFID entry 0 out of the resolved M2's own header and
+  copying the resolved `.skin` there under that FileDataID -- the same
+  fixture a hand-populated directory would need, constructed automatically
+  instead of requiring one. Only `HUSK_TEST_TEXTURES_DIR` has no default
+  (no `husk-blp`-converted PNGs are committed to `test_data/`) and still
+  needs to be set by hand, pointing at a directory of `<FileDataID>.png`
+  files. A fixture that doesn't resolve marks its `TEST_CASE` with
+  `* doctest::skip(...)` rather than a runtime `MESSAGE` + early `return`
+  -- it shows up as a distinct, non-zero "skipped" count in doctest's own
+  summary instead of being folded silently into "passed" (this was a real
+  gap: `./build/husk-tests` used to report "0 skipped" even when 12 of the
+  260 cases never ran a single assertion). `tests/test_main.cpp`'s startup
+  banner prints exactly what each fixture resolved to, or why it didn't,
+  every run -- "why did N tests just skip" is a read, not a rerun.
+  There's still no `HUSK_TEST_ANIM_DIR` env var wired into the committed
+  suite -- `--anim-dir`'s external-`.anim` resolution is instead covered
+  by the synthetic fixtures in `tests/test_cli.cpp` (both the inline-M2
+  and `.skel`-sourced cases, including the real-data-discovered
+  `AFSB`-vs-`AFM2` shape). The real-file verification described in roadmap
+  stage 6 (50/50 real files for the inline model, 54/54 for the
+  `.skel`-sourced one, checked by parsing the resulting `.glb` back apart
+  in Python) was done ad hoc against this repo's own `test_data/` during
+  development, not as a repeatable `HUSK_TEST_*`-gated test case -- a real
+  gap, since it means that specific check doesn't re-run automatically.
+  `test_data/` (gitignored) is a convenient local spot for real,
+  copyrighted game data extracted from your own install, never meant to be
+  committed -- everything above degrades gracefully (skips, visibly) when
+  it isn't there.
 
 ```
 cmake --build build -j$(nproc)

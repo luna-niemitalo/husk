@@ -38,13 +38,13 @@ bool isUndocumentedChunkTag(const std::string& tag) {
     return std::find(known.begin(), known.end(), tag) == known.end();
 }
 
-void printUsage() {
-    std::cerr << "usage: husk info <file.m2>\n"
-                 "\n"
-                 "Parses an M2 model's header and prints what was found:\n"
-                 "magic/version/name, whether it's Legion+ chunked, and the\n"
-                 "record counts (bones, vertices, textures, ...) from the\n"
-                 "header's M2Array fields.\n";
+void printUsage(std::ostream& out = std::cerr) {
+    out << "usage: husk info <file.m2>\n"
+           "\n"
+           "Parses an M2 model's header and prints what was found:\n"
+           "magic/version/name, whether it's Legion+ chunked, and the\n"
+           "record counts (bones, vertices, textures, ...) from the\n"
+           "header's M2Array fields.\n";
 }
 
 void printArray(const char* label, const m2::Array& a) {
@@ -72,6 +72,10 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
 }  // namespace
 
 int info(int argc, char** args) {
+    if (argc >= 1 && isHelpFlag(args[0])) {
+        printUsage(std::cout);
+        return 0;
+    }
     if (argc != 1) {
         printUsage();
         return 1;

@@ -56,6 +56,11 @@ if(HUSK_BUILD_TESTS)
   target_link_libraries(husk-tests PRIVATE husk-lib doctest::doctest)
   target_compile_definitions(husk-tests PRIVATE
     HUSK_BINARY="$<TARGET_FILE:husk>"
+    # Absolute by construction (see CLAUDE.md's ctest-runs-from-build/ hazard
+    # note) -- tests/test_data_paths.hpp's resolve() checks this at runtime,
+    # so a missing (gitignored, user-populated) test_data/ just means every
+    # real-data test skips, not a configure-time error.
+    HUSK_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test_data"
   )
   add_dependencies(husk-tests husk)
 

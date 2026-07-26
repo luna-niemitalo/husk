@@ -1915,3 +1915,66 @@ TEST_CASE("husk export: a model with no global-sequence-driven tracks gains no e
 
     fs::remove_all(dir);
 }
+
+// Regression coverage for a real bug: `--help`/`-h` used to only be
+// special-cased in main.cpp, before a subcommand name was even read --
+// `husk export --help` fell through to treating "--help" as a literal
+// model path (args[0] is always the first positional in exportGlb, taken
+// unconditionally), producing a confusing "couldn't open '--help'" error
+// instead of the usage text each cmd_*.cpp already had. Every subcommand
+// now checks isHelpFlag (commands.hpp) before doing any real argument
+// parsing.
+TEST_CASE("husk export --help prints usage and exits 0, not a file-not-found error") {
+    auto result = runHusk("export --help");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("usage: husk export") != std::string::npos);
+    CHECK(result.output.find("couldn't open") == std::string::npos);
+}
+
+TEST_CASE("husk export -h (shorthand) prints usage and exits 0") {
+    auto result = runHusk("export -h");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("usage: husk export") != std::string::npos);
+}
+
+TEST_CASE("husk export <file.m2> --help (help after a positional) still prints usage, "
+          "without ever trying to open the (nonexistent) model path") {
+    auto result = runHusk("export nonexistent-model.m2 --help");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("usage: husk export") != std::string::npos);
+    CHECK(result.output.find("couldn't open") == std::string::npos);
+}
+
+TEST_CASE("husk info --help prints usage and exits 0, not a file-not-found error") {
+    auto result = runHusk("info --help");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("usage: husk info") != std::string::npos);
+    CHECK(result.output.find("couldn't open") == std::string::npos);
+}
+
+TEST_CASE("husk dump-chunks --help prints usage and exits 0, not a file-not-found error") {
+    auto result = runHusk("dump-chunks --help");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("usage: husk dump-chunks") != std::string::npos);
+    CHECK(result.output.find("couldn't open") == std::string::npos);
+}
+
+TEST_CASE("husk --help prints the top-level command list and exits 0") {
+    auto result = runHusk("--help");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("usage: husk <command>") != std::string::npos);
+    CHECK(result.output.find("export") != std::string::npos);
+    CHECK(result.output.find("dump-chunks") != std::string::npos);
+}
+
+TEST_CASE("husk with no command prints usage and exits 1") {
+    auto result = runHusk("");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("usage: husk <command>") != std::string::npos);
+}
+
+TEST_CASE("husk with an unknown command fails cleanly, not a crash") {
+    auto result = runHusk("frobnicate");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("unknown command") != std::string::npos);
+}

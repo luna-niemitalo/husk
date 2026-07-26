@@ -8,9 +8,11 @@ int main(int argc, char** argv) {
         "usage: husk <command> [args...]\n"
         "\n"
         "commands:\n"
-        "  info <file.m2>                            parse and print an M2 header\n"
-        "  export <file.m2> <file.skin> <out.glb>     export a mesh (+ skin/animation) to glTF\n"
-        "  dump-chunks <file.m2>                      extract misc chunks to JSON (see --help)\n";
+        "  info <file.m2>              parse and print an M2 header\n"
+        "  export <file.m2> [args...]  export a mesh (+ skin/animation) to glTF (see --help)\n"
+        "  dump-chunks <file.m2|.bone> extract misc chunks to JSON (see --help)\n"
+        "\n"
+        "run `husk <command> --help` for a command's full usage and defaults.\n";
 
     if (argc < 2) {
         std::cerr << usage;
