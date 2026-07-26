@@ -1,3 +1,7 @@
+---
+aliases:
+  - README
+---
 # husk
 
 A CLI for converting World of Warcraft's proprietary model/world formats

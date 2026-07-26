@@ -97,6 +97,57 @@ fallback (universal `tool in out` muscle memory — `CLI.md` §1); every other
 flag is named-only, so a tenth flag added later can never shift what
 positional word #3 means.
 
+### Shell completion ships with this migration, not after it
+
+A bash/zsh/fish completion script for `husk` (all three subcommands —
+`info`, `export`, `dump-chunks` — plus `export`'s flag table above) is
+in scope for this same piece of work, not a separate future item.
+`~/docs/CLI.md` §2.3 treats autocomplete as "the interface, not an
+add-on" — rung 2 of the doc's own help → completion → docs fallback chain
+— and it's currently absent at every subcommand level. Bundling it here
+rather than building it later is deliberate: a completion script written
+against today's positional-heavy `export` grammar would need rewriting
+the moment this migration lands and replaces it with named flags, so
+writing it once against the final flag surface is the only non-wasteful
+order.
+
+**No C++ argument-parsing library generates shell completions — checked,
+not assumed.** CLI11's own docs list "Autocomplete" under features it
+doesn't support ("might eventually be added... not supported yet");
+cxxopts, Lyra, TCLAP, and docopt.cpp were also checked and none of them
+do either. This is an ecosystem-wide gap (contrast Rust's `clap_complete`,
+Go's Cobra, Python's Click/Typer), not a CLI11 shortcoming specifically —
+so switching libraries buys nothing here, and CLI11 stays the right choice
+per this project's tight-fit-library policy.
+
+**Generate the script from CLI11's own `App` object, don't hand-write a
+second copy of the flag list.** A hand-written completion script is a
+second place the fact "`--anim` takes `auto`/`inline`/`none`/a directory"
+lives — exactly the single-source-of-truth violation `~/docs/
+READABILITY.md` warns about, and it silently drifts the next time a flag
+is added or renamed. CLI11's `App` is introspectable at runtime
+(`get_options()`, `get_subcommands()`, `Option::get_lnames()`/
+`get_snames()`), so a hidden `--print-completion=<bash|zsh|fish>` flag can
+walk the live `App` — the exact same object `export`'s real argument
+parsing uses — and emit the script to stdout. That output gets captured
+once (a build/packaging step, not a person) into the checked-in
+`completions/husk.bash`/`.zsh` files, and regenerated whenever the flag
+table changes, instead of hand-edited to match.
+
+**`--print-completion` is hidden from `--help` (CLI11's documented
+`->group("")`, confirmed real — an empty group name removes an option
+from the help formatter while leaving it fully functional), because it
+has no human reader.** Its only consumers are the packaging step that
+captures its stdout once and the completion script's own dynamic
+callback, if one is ever needed — never someone typing `husk --help` to
+learn what `husk` does. Surfacing it there would put a meta-flag whose
+job is bootstrapping shell tooling in the same visible list as `--skin`/
+`--anim`/`--lod`, which is exactly the kind of surprise `CLI.md` §2.2's
+"no shared grammar" failure mode warns about in miniature: a flag that
+looks like part of the product but is actually plumbing for the product's
+packaging. The discovery path for a human is the *installed completion
+script* (typing `husk export --<TAB>`), not the flag that generated it.
+
 ### Per-flag state machine (this is the part a conformance task must check
 behaviorally, not just by flag presence)
 
@@ -182,6 +233,13 @@ existing `husk export` invocation's argument order — not additive)
   flags above are real: synopsis, defaults list, flags table, examples.
 - `tests/test_cli.cpp` — the current positional-ordering test cases test a
   grammar that will no longer exist; needs new cases per state below.
+- `src/main.cpp` (or wherever the top-level `App` is assembled) — add the
+  hidden `--print-completion=<bash|zsh|fish>` flag (`->group("")`) that
+  walks `App::get_options()`/`get_subcommands()` and emits a completion
+  script to stdout.
+- `completions/husk.bash` / `completions/husk.zsh` (new, generated) —
+  captured output of `husk --print-completion=bash`/`=zsh`, checked in and
+  regenerated whenever the flag table changes, not hand-edited directly.
 
 ### Verification checklist
 
@@ -219,6 +277,15 @@ existing `husk export` invocation's argument order — not additive)
       directory when omitted entirely (unchanged from Part 1).
 - [ ] `--output`/`--input` positional-fallback and explicit-flag forms both
       work and agree.
+- [ ] `--print-completion` does **not** appear in `husk --help`'s output,
+      but `husk --print-completion=bash` still works.
+- [ ] `completions/husk.bash`/`.zsh` (the captured, checked-in output) list
+      all three subcommands and every flag in the table above, including
+      value completion for `--lod` (`all`/numeric) and `--skin`/`--anim`'s
+      `auto`/`inline`/`none`.
+- [ ] Sourcing the completion script in a live bash/zsh actually completes
+      `husk export --<TAB>` with the real flag names (not just present in
+      the repo, but functional).
 - [ ] `README.md`'s `export` subsection matches this checklist's behavior
       1:1 — no stale prose describing the old positional grammar.
 - [ ] `DESIGN.md`'s "target — not yet implemented" heading and "Decided"/

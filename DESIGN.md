@@ -1,3 +1,7 @@
+---
+aliases:
+  - README
+---
 # DESIGN.md — husk
 
 Architecture and design rationale. Status/progress lives in the README's

@@ -1,3 +1,7 @@
+---
+aliases:
+  - WIKI_FINDINGS
+---
 # wowdev.wiki findings
 
 Things husk's development turned up that go beyond, or correct, what
