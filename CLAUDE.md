@@ -33,9 +33,12 @@ tool, `blp/`) converts BLP2 textures to PNG.
   headless Blender itself, `tests/test_conformance.cpp` — see Resume). `AFSB`
   (`.skel`-linked models' real external-animation format, previously the single
   biggest animation gap) is now cracked and resolved end to end — see Resume.
-  `VERIFICATION_IDEAS.md`'s cases 1/2/3/5 (M2-source-vs-exported-glb-vs-Blender-
-  readback cross-checks, plus a real collision-mesh export husk never had before)
-  are now implemented too — see Resume. Remaining work is either scope expansion
+  M2-source-vs-exported-glb-vs-Blender-readback cross-checks (former
+  `VERIFICATION_IDEAS.md`, now deleted — its survey's job was done, every
+  case had a final disposition, folded back into `tests/test_conformance.cpp`/
+  `WIKI_FINDINGS.md` §5, same scratch-doc lifecycle `DESIGN_CHANGES.md`
+  had) are now implemented too, plus a real collision-mesh export husk
+  never had before — see Resume. Remaining work is either scope expansion
   (WMO/M3, not started, by design) or the structural gaps `TODO_correctness.md`
   already tracks (`M2Particle`, plus `.bone` correction *selection* — the
   extras-export half is done, see Resume; picking which slot applies is blocked
@@ -86,7 +89,18 @@ real-file-driven spec correction found along the way.
   is implemented" to cases 1/2/3/5 all real, in exactly the file's own
   triviality-ranked order (case 4 stayed deliberately skipped, per its own
   reasoning). Requested as "implement the rest of the verification ideas
-  findings, in order of triviality."
+  findings, in order of triviality." Once every case had a final
+  disposition, `VERIFICATION_IDEAS.md` was deleted outright in a same-session
+  follow-up (initially left in place with `[IMPLEMENTED]` tags and
+  duplicated writeups — a real inconsistency with this project's own
+  stated punch-list convention, caught by Luna asking "did you update it
+  according to that?" rather than caught proactively) — its survey's job
+  (decide what to build) was complete, every real fact already lived in
+  its permanent home (`tests/test_conformance.cpp` comments,
+  `WIKI_FINDINGS.md` §5, `README.md`, `DESIGN.md`, `M2_COMPLETENESS.md`),
+  exactly the situation `DESIGN_CHANGES.md` was in when *it* got deleted.
+  Every cross-reference to the file (source comments included, not just
+  docs) got repointed rather than left dangling.
   - **Case 1 (vertex count) + case 2 (bone count)**: exactly as
     scoped — two `CHECK`s added to `tests/test_conformance.cpp`'s existing
     Blender `TEST_CASE`, comparing `m2::parseHeader(...)`'s own
@@ -178,9 +192,11 @@ real-file-driven spec correction found along the way.
     2 more `test_gltf.cpp` cases rewrote their premise without changing
     count). Both `./build/husk-tests` and `ctest` green (346 total
     including 1 permanently-inapplicable skip).
-  - **Docs**: `VERIFICATION_IDEAS.md` (every case tagged `[IMPLEMENTED]`
-    with a receipts section, cases 3/5 explicitly noting what changed from
-    the original plan and why), `WIKI_FINDINGS.md` (new §5, the
+  - **Docs**: `VERIFICATION_IDEAS.md` deleted outright once every case had
+    a final disposition (see this entry's own opening paragraph for why —
+    the punch-list convention this repo already uses for
+    `TODO_correctness.md`/`DESIGN_CHANGES.md`, not additive `[IMPLEMENTED]`
+    tags), its content folded into: `WIKI_FINDINGS.md` (new §5, the
     bounding-box-isn't-tight finding, tagged hypothesis-confidence since
     the *why* isn't confirmed against an authoritative source), `README.md`
     (Collision/physics format-matrix row bumped from 🚧 to 📖, Testing
@@ -188,7 +204,11 @@ real-file-driven spec correction found along the way.
     design decisions bullet for the collision-mesh/`writeGlbMulti`
     relaxation, Testing architecture section gained the previously-missing
     4th "Conformance" tier), `M2_COMPLETENESS.md` (Collision & physics
-    rows bumped to `full`/`native`/`native — 100%`).
+    rows bumped to `full`/`native`/`native — 100%`), and self-contained
+    comments in `tests/test_conformance.cpp`/`tests/blender_import_check.py`/
+    `src/cmd_export.cpp` (every one of those files' comments used to point
+    at `VERIFICATION_IDEAS.md` by name — all repointed rather than left
+    dangling once the file was gone).
   - **Environment note, reconfirmed**: `direnv exec . uv run --no-project
     python3 <script>` for ad hoc byte-level scratch analysis (this
     session's minimal-glTF/Blender-object-introspection scripts lived in
@@ -430,9 +450,10 @@ real-file-driven spec correction found along the way.
   DB2 data husk doesn't have and, per `DESIGN.md`'s non-goals, never will
   at runtime; two awareness-only footnotes), plus optional scope expansion
   (WMO/M3, or Blender-side tooling for the geoset/multi-texture-layer/
-  bone-correction `extras`). `VERIFICATION_IDEAS.md`'s cases 1/2/3/5 are
-  now all implemented too (see Last state) — case 4 stays deliberately
-  skipped, per that file's own reasoning; nothing pending there. One real,
+  bone-correction `extras`). The M2-vs-glb-vs-Blender verification cases
+  (former `VERIFICATION_IDEAS.md`, see Last state) are now all resolved —
+  cases 1/2/3/5 implemented, case 4 deliberately left as-is; nothing
+  pending there, the file itself is gone. One real,
   minor loose end from an earlier session worth picking up if
   `cmd_export.cpp` is touched again: `resolveSkin`'s failure messages
   could name the specific candidate path/FileDataID they tried, not just

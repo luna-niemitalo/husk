@@ -364,7 +364,7 @@ translation exists (fixed-function texture combiner math, a customization
 slot selector with no local data to resolve it); a collision mesh is just
 a plain indexed triangle mesh with an obvious translation, so
 `cmd_export.cpp` writes one (`m2::parseCollisionMesh` → one more
-`gltf::NamedMesh`, `VERIFICATION_IDEAS.md` case 5). The only `extras` use
+`gltf::NamedMesh`). The only `extras` use
 here is a `{"collision": true}` tag on that mesh's node, purely to mark
 *purpose* (so a renderer/Blender script knows not to draw it) — the
 geometry itself is native. It's deliberately unskinned even though it
@@ -741,7 +741,7 @@ Four tiers, the first three the same shape used by `casc-tool`:
    the M2 source file's own header counts, cross-checked against what
    Blender/tinygltf actually read back (vertex/bone counts exactly,
    bind-pose bounds via containment, collision-mesh count/topology
-   exactly — `VERIFICATION_IDEAS.md`, `WIKI_FINDINGS.md` §5). See
+   exactly — see `WIKI_FINDINGS.md` §5 for the bounding-box finding. See
    `README.md`'s Testing section for the full per-check writeup, including
    two real Blender-importer-side contamination sources found while making
    these checks exact.

@@ -54,9 +54,9 @@ int parseProbeInt(const std::string& output, const std::string& key) {
 
 // Reads an M2 header straight from disk, independent of anything husk
 // export/tinygltf/Blender did with it -- the ground-truth source-file leg
-// of the source-vs-export-vs-readback cross-checks below (VERIFICATION_IDEAS.md
-// cases 1/2). Bones/vertices only: this fixture (testM2()) has inline bones,
-// not .skel-sourced ones, so header.bones.count is the real joint count here.
+// of the source-vs-export-vs-readback cross-checks below. Bones/vertices
+// only: this fixture (testM2()) has inline bones, not .skel-sourced ones,
+// so header.bones.count is the real joint count here.
 husk::m2::Header readM2Header(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
     REQUIRE_MESSAGE(static_cast<bool>(f), "couldn't open '", path, "'");
@@ -127,9 +127,10 @@ TEST_CASE("husk export: exported bind-pose vertex bounds sit fully inside the M2
     REQUIRE(!model.meshes.empty());
     REQUIRE(!model.meshes[0].primitives.empty());
 
-    // VERIFICATION_IDEAS.md case 3, corrected against real data: the
-    // header's bounding_box is NOT a tight fit around the bind-pose mesh
-    // (confirmed against both bloodelffemale.m2 and bloodelffemale_hd.m2 --
+    // The header's bounding_box is NOT a tight fit around the bind-pose
+    // mesh -- a tempting first assumption, corrected against real data
+    // before this check was written (WIKI_FINDINGS.md §5; confirmed
+    // against both bloodelffemale.m2 and bloodelffemale_hd.m2 --
     // the header box runs roughly 2x-4x wider per axis than the bind-pose
     // vertices' own extent, e.g. bloodelffemale_hd.m2's header z range is
     // ~9.6 units vs. the bind-pose mesh's ~2.1 -- consistent with the
@@ -242,9 +243,9 @@ TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bon
     CHECK(parseProbeInt(blenderResult.output, "action_count") ==
           static_cast<int>(model.animations.size()));
 
-    // VERIFICATION_IDEAS.md cases 1/2/5: the M2 source's own header counts,
-    // a third leg alongside tinygltf's and Blender's independent readings
-    // of the exported .glb. This export has no --lod, so exactly one skin
+    // The M2 source's own header counts, a third leg alongside tinygltf's
+    // and Blender's independent readings of the exported .glb. This
+    // export has no --lod, so exactly one skin
     // (LOD tier) is written -- header.vertices.count carries over exactly,
     // not multiplied (cmd_export.cpp's baseMesh is built once from the
     // entire vertex array and reused unsliced; a .skin's batches only

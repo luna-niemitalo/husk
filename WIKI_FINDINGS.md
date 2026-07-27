@@ -504,9 +504,8 @@ extremes to prove it directly).
 **What does hold, exactly, on both files**: the bind-pose mesh's own AABB
 is fully *contained* inside `bounding_box`, per axis, with no exceptions
 found. That's the real, tolerance-free invariant `tests/test_conformance.cpp`
-now checks (VERIFICATION_IDEAS.md case 3) — containment, not a tight-fit
-equality this session initially assumed and then had to correct once the
-numbers above came back.
+now checks — containment, not a tight-fit equality this session initially
+assumed and then had to correct once the numbers above came back.
 
 ---
 

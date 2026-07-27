@@ -44,9 +44,9 @@ def main():
     print("HUSK_PROBE total_vertex_count=%d" % sum(len(o.data.vertices) for o in meshes))
     print("HUSK_PROBE action_count=%d" % len(bpy.data.actions))
 
-    # VERIFICATION_IDEAS.md case 5: cmd_export.cpp tags the collision mesh's
-    # glTF node extras with {"collision": true} (gltf::NamedMesh::isCollision)
-    # -- find it by that tag rather than by name, so this probe still works
+    # cmd_export.cpp tags the collision mesh's glTF node extras with
+    # {"collision": true} (gltf::NamedMesh::isCollision) -- find it by that
+    # tag rather than by name, so this probe still works
     # if the node name ever changes. Blender surfaces glTF node extras as
     # plain custom properties on the imported object (o["collision"]).
     collision_objs = [o for o in meshes if o.get("collision") is True]

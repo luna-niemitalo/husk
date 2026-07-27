@@ -1555,9 +1555,9 @@ int exportGlb(int argc, char** args) {
         // it doesn't mislabel the collision mesh as another LOD tier.
         size_t renderMeshCount = namedMeshes.size();
 
-        // VERIFICATION_IDEAS.md case 5: the collision mesh (physics/
-        // hit-testing, m2::CollisionMesh) is a plain triangle mesh with an
-        // unambiguous glTF translation -- unlike geoset selection/multi-
+        // The collision mesh (physics/hit-testing, m2::CollisionMesh) is a
+        // plain triangle mesh with an unambiguous glTF translation --
+        // unlike geoset selection/multi-
         // texture-layers (data with no unambiguous glTF shape, hence inert
         // extras only), so it's exported as real geometry: one more
         // NamedMesh, unskinned (a collision mesh is static, not deformed by
