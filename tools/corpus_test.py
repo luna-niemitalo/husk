@@ -26,23 +26,31 @@ Usage (direnv -> uv run -> the venv's python -> this script):
     direnv exec . uv run --python tools/venv/bin/python tools/corpus_test.py --limit 200 --verbose
     direnv exec . uv run --python tools/venv/bin/python tools/corpus_test.py --sample 5000 --report /tmp/report.json
 
-Why gltf_validator runs are batched, not one-per-file: gltf_validator is a
-Dart program, and its per-invocation VM startup cost dominates its actual
-(near-instant) validation work -- spawning it once per file serializes the
-whole run behind that startup tax and doesn't parallelize the way native
-husk calls do. gltf_validator itself supports pointing at a *directory*
-and recursively validating every *.glb inside in one process (one VM
-startup for the whole batch), writing a `<name>.glb.report.json` sidecar
-per asset -- this tool exports a batch of files in parallel, then runs
-exactly one validator invocation over that batch's directory and reads the
-structured JSON reports back, instead of round-tripping through the VM
-startup cost per file.
+Why gltf_validator runs are batched AND pooled, not one-per-file: gltf_validator
+is a Dart program, and its per-invocation VM startup cost dominates its
+actual (near-instant) validation work -- spawning it once per file
+serializes the whole run behind that startup tax. It also supports pointing
+at a *directory* and recursively validating every *.glb inside in one
+process (one VM startup for the whole batch), writing a
+`<name>.glb.report.json` sidecar per asset. Measured empirically on this
+machine (32 cores): validating a fixed corpus with 1 process takes about
+the same wall time as splitting it 8 ways across 8 concurrent processes
+(no speedup at all -- Dart VMs are heavy enough that 8 concurrent instances
+hit real contention), but running the *same full corpus* through 2 or 4
+concurrent processes scales almost linearly. So: husk's own info/export/
+dump-chunks run on a large thread pool (they scale cleanly, no such
+ceiling); gltf_validator runs on a small, fixed-size pool of persistent
+worker threads (--validator-workers, default 4), each pulling one
+already-exported batch at a time off a *bounded* queue.Queue so the export
+producer can't race arbitrarily far ahead of validation and pile up
+unbounded .glb data in tmpfs.
 """
 
 import argparse
 import concurrent.futures
 import json
 import os
+import queue
 import random
 import shutil
 import subprocess
@@ -220,25 +228,69 @@ def process_file_phase1(m2_path, batch_dir, husk_bin, opts):
     result = FileResult(path=str(m2_path))
     glb_path = unique_glb_path(batch_dir, m2_path)
 
-    info_result, chunked = test_info(husk_bin, m2_path, opts.timeout)
+    info_result, is_chunked = test_info(husk_bin, m2_path, opts.timeout)
     result.tests.append(info_result)
 
     export_result, glb_exists = test_export(husk_bin, m2_path, glb_path, opts.anim, opts.timeout)
     result.tests.append(export_result)
 
-    if chunked and not opts.skip_dump:
+    if is_chunked and not opts.skip_dump:
         result.tests.append(test_dump_chunks(husk_bin, m2_path, opts.timeout))
 
     return result, (glb_path if glb_exists else None)
 
 
-def run_batch_validation(batch_dir: Path, glb_to_result: dict, gltf_validator_bin, timeout):
-    if not glb_to_result or not gltf_validator_bin:
-        return
-    code, out = run_cmd([str(gltf_validator_bin), "-a", str(batch_dir)], timeout)
-    for glb_path, result in glb_to_result.items():
-        report_path = glb_path.with_name(glb_path.name + ".report.json")
-        result.tests.append(validate_result_from_report(report_path, out))
+def validate_and_report_batch(batch_dir, file_results, glb_to_result, gltf_validator_bin,
+                               opts, reporter, results, results_lock):
+    """Owns one batch's validation, reporting, and cleanup end to end -- the
+    unit of work a validator worker pulls off the bounded queue (see
+    validator_worker_loop/main()). Runs exactly one gltf_validator
+    invocation for the whole batch (amortizing its Dart VM startup cost
+    across every file in it, see module docstring), merges each file's own
+    report.json back into its FileResult, then reports and records every
+    file in this batch itself: this worker owns this batch's output start
+    to finish, so multiple validator workers running concurrently never
+    contend over a single central "merge results" step -- only the shared
+    `results` list append is (briefly) locked, and the printed lines/
+    progress bar go through tqdm/rich, both already safe for concurrent use
+    from worker threads.
+    """
+    try:
+        if not opts.skip_validator and gltf_validator_bin and glb_to_result:
+            code, out = run_cmd([str(gltf_validator_bin), "-a", str(batch_dir)], opts.validator_timeout)
+            for glb_path, result in glb_to_result.items():
+                report_path = glb_path.with_name(glb_path.name + ".report.json")
+                result.tests.append(validate_result_from_report(report_path, out))
+        with results_lock:
+            results.extend(file_results.values())
+        for result in file_results.values():
+            reporter.report(result, opts.root)
+    finally:
+        shutil.rmtree(batch_dir, ignore_errors=True)
+
+
+def validator_worker_loop(work_queue, gltf_validator_bin, opts, reporter, results, results_lock):
+    """Runs forever in its own thread, pulling one already-exported batch at
+    a time off `work_queue` -- one persistent 'parser' per worker, matching
+    export's own per-file worker shape but at batch granularity, since
+    gltf_validator's fixed per-invocation cost (see module docstring) needs
+    many files per invocation to amortize well. `work_queue` is a *bounded*
+    queue.Queue (see main()): its own put()/get() blocking is what keeps the
+    export producer from racing arbitrarily far ahead and piling up
+    unbounded .glb data in tmpfs -- a plain generator can lazily produce
+    batches, but only a bounded queue between threads actually throttles
+    the producer against how fast these workers are draining it.
+    """
+    while True:
+        item = work_queue.get()
+        try:
+            if item is None:  # sentinel: no more batches, this worker is done
+                return
+            batch_dir, file_results, glb_to_result = item
+            validate_and_report_batch(batch_dir, file_results, glb_to_result,
+                                       gltf_validator_bin, opts, reporter, results, results_lock)
+        finally:
+            work_queue.task_done()
 
 
 def discover_files(root: Path, pattern: str, limit, sample, seed):
@@ -346,6 +398,10 @@ def main():
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 4, help="parallel worker count for husk calls")
     ap.add_argument("--batch-size", type=int, default=500,
                      help="files per gltf_validator batch (one Dart VM startup per batch, not per file)")
+    ap.add_argument("--validator-workers", type=int, default=4,
+                     help="concurrent gltf_validator processes (default: 4 -- empirically the sweet spot on "
+                          "this machine; unlike husk itself, running many more concurrent Dart VMs measured "
+                          "no faster than 1, see module docstring)")
     ap.add_argument("--limit", type=int, default=None, help="only process the first N discovered files")
     ap.add_argument("--sample", type=int, default=None, help="randomly sample N files instead of all")
     ap.add_argument("--seed", type=int, default=0, help="RNG seed for --sample (reproducible by default)")
@@ -386,8 +442,9 @@ def main():
     if total == 0:
         print("no files matched -- nothing to do", file=sys.stderr)
         return 0
-    print(f"{total} file(s) to test, {opts.workers} worker(s), "
-          f"gltf_validator batched {opts.batch_size}/invocation, scratch in tmpfs ({opts.ram_dir})",
+    print(f"{total} file(s) to test, {opts.workers} husk worker(s), "
+          f"{opts.validator_workers} gltf_validator worker(s) x {opts.batch_size} files/batch, "
+          f"scratch in tmpfs ({opts.ram_dir})",
           file=sys.stderr)
 
     if not opts.ram_dir.exists():
@@ -398,39 +455,64 @@ def main():
 
     reporter = Reporter(total, use_color, opts.quiet, opts.only_failures)
     results = []
+    results_lock = threading.Lock()
     start = time.time()
+
+    # husk's info/export/dump-chunks are cheap native calls that scale
+    # cleanly with --workers (measured ~218 files/s at 32 workers on this
+    # machine); gltf_validator does not -- it's a Dart program, and
+    # empirically (see module docstring) running more than a handful
+    # concurrently hits a wall on this machine (8 concurrent instances
+    # measured no faster than 1; 2-4 scaled almost linearly). So export
+    # stays on a large thread pool, while opts.validator_workers persistent
+    # threads (validator_worker_loop) each pull one already-exported batch
+    # at a time off `work_queue` -- a *bounded* queue.Queue, not a plain
+    # generator or an executor's own (unbounded) internal queue: its
+    # maxsize is what stops the export producer from racing arbitrarily far
+    # ahead and piling up unbounded .glb data in tmpfs while validation
+    # lags behind. A small multiple of validator_workers keeps a little
+    # look-ahead (so a worker never idles waiting on the next batch) without
+    # letting the producer run away.
+    work_queue = queue.Queue(maxsize=opts.validator_workers * 2)
+    validator_threads = [
+        threading.Thread(target=validator_worker_loop,
+                          args=(work_queue, gltf_validator_bin, opts, reporter, results, results_lock),
+                          daemon=True)
+        for _ in range(opts.validator_workers)
+    ]
+    for t in validator_threads:
+        t.start()
+
+    export_pool = concurrent.futures.ThreadPoolExecutor(max_workers=opts.workers)
     try:
-        for batch_files in chunked(files, opts.batch_size):
-            batch_dir = run_root / f"batch-{len(results)}"
+        for i, batch_files in enumerate(chunked(files, opts.batch_size)):
+            batch_dir = run_root / f"batch-{i}"
             batch_dir.mkdir()
-            try:
-                glb_to_result = {}
-                with concurrent.futures.ThreadPoolExecutor(max_workers=opts.workers) as pool:
-                    futures = [pool.submit(process_file_phase1, f, batch_dir, opts.husk_bin, opts)
-                               for f in batch_files]
-                    batch_results = []
-                    for fut in concurrent.futures.as_completed(futures):
-                        result, glb_path = fut.result()
-                        batch_results.append(result)
-                        if glb_path is not None:
-                            glb_to_result[glb_path] = result
+            file_results = {}
+            glb_to_result = {}
+            futures = [export_pool.submit(process_file_phase1, f, batch_dir, opts.husk_bin, opts)
+                       for f in batch_files]
+            for fut in concurrent.futures.as_completed(futures):
+                result, glb_path = fut.result()
+                file_results[result.path] = result
+                if glb_path is not None:
+                    glb_to_result[glb_path] = result
 
-                if not opts.skip_validator:
-                    run_batch_validation(batch_dir, glb_to_result, gltf_validator_bin, opts.validator_timeout)
-
-                for result in batch_results:
-                    results.append(result)
-                    reporter.report(result, opts.root)
-            finally:
-                # Aggressive cleanup: this batch's tmpfs directory (every
-                # .glb + gltf_validator's .report.json sidecar) goes away
-                # the instant this batch's results are recorded -- nothing
-                # from this tool accumulates in /dev/shm across batches.
-                shutil.rmtree(batch_dir, ignore_errors=True)
+            work_queue.put((batch_dir, file_results, glb_to_result))  # blocks once queue is full
     except KeyboardInterrupt:
         print("\ninterrupted -- reporting partial results...", file=sys.stderr)
     finally:
+        export_pool.shutdown(wait=True, cancel_futures=True)
+        for _ in validator_threads:
+            work_queue.put(None)  # one stop sentinel per worker
+        for t in validator_threads:
+            t.join()
         reporter.close()
+        # Aggressive cleanup: every batch directory is removed by its own
+        # validator worker (see validate_and_report_batch's finally) the
+        # instant that batch's results are recorded; this catches whatever
+        # a cancelled/interrupted batch left behind so nothing from this
+        # tool ever accumulates in /dev/shm across runs.
         shutil.rmtree(run_root, ignore_errors=True)
 
     elapsed = time.time() - start
