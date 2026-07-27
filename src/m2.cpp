@@ -576,6 +576,41 @@ std::vector<uint16_t> parseUint16Array(const std::vector<uint8_t>& blob, const A
     return values;
 }
 
+std::vector<Vec3> parseVec3Array(const std::vector<uint8_t>& blob, const Array& array) {
+    std::vector<Vec3> values;
+    if (array.count == 0) {
+        return values;
+    }
+
+    constexpr size_t kElementSize = 12;  // C3Vector: 3x float32
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kElementSize) {
+        throw ParseError("array claims " + std::to_string(array.count) +
+                          " C3Vector entries at offset " + std::to_string(array.offset) +
+                          ", which needs more room than the blob's " + std::to_string(blobSize) +
+                          " bytes");
+    }
+    values.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kElementSize;
+        values.push_back(readVec3(data, blobSize, off));
+    }
+
+    return values;
+}
+
+CollisionMesh parseCollisionMesh(const std::vector<uint8_t>& blob, const Array& positionsArray,
+                                  const Array& indicesArray, const Array& faceNormalsArray) {
+    CollisionMesh mesh;
+    mesh.positions = parseVec3Array(blob, positionsArray);
+    mesh.indices = parseUint16Array(blob, indicesArray);
+    mesh.faceNormals = parseVec3Array(blob, faceNormalsArray);
+    return mesh;
+}
+
 // Locates an M2Track<T>'s single value, *only* when the track is
 // unambiguously constant -- exactly one animation sub-array (outer.count
 // == 1) with exactly one keyframe in it (inner.count == 1). Anything else

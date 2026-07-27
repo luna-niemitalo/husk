@@ -91,8 +91,8 @@ elsewhere is just unattempted work.
 
 | Feature | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|
-| Collision box / sphere radius (scalars) | full | diagnostic | n/a — verification-signal only | not an export target; candidate for cross-checking husk's own vertex parsing, see `VERIFICATION_IDEAS.md` Case 3 |
-| Collision mesh (positions/indices/face normals) | descriptor | diagnostic | native-possible, not done | a plain unskinned triangle mesh — no format gap, just unbuilt; see `VERIFICATION_IDEAS.md` Case 5 |
+| Collision box / sphere radius (scalars) | full | diagnostic | n/a — verification-signal only | not an export target; cross-checked against husk's own bind-pose vertex parsing (containment, not tight fit — see `WIKI_FINDINGS.md` §5) by `tests/test_conformance.cpp`, `VERIFICATION_IDEAS.md` Case 3 |
+| Collision mesh (positions/indices/face normals) | full | native | native — 100% | a plain unskinned triangle mesh, one more `gltf::NamedMesh` tagged `{"collision": true}` in node `extras` for a renderer/Blender script to filter — per-vertex normals approximated (averaged adjacent face normals) since the source data is per-triangle, not per-vertex; see `VERIFICATION_IDEAS.md` Case 5 |
 | `.phys` sidecar content | none (only the `PFID` FileDataID itself is read) | none | n/a — unscoped | nobody has reverse-engineered `.phys`'s own byte layout yet, unlike every other sidecar |
 
 ## Interaction points & effects

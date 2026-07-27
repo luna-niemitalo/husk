@@ -357,6 +357,29 @@ serialized as `bone_correction_sets` on the glTF skin's `extras`, for a
 downstream renderer or Blender script that *does* have the slot-selection
 mapping to apply on top.
 
+**The collision mesh is real exported geometry, not inert extras — the one
+place this differs from the geoset/texture-transform/`.bone`-correction
+family above.** Those all became `extras` because no unambiguous glTF
+translation exists (fixed-function texture combiner math, a customization
+slot selector with no local data to resolve it); a collision mesh is just
+a plain indexed triangle mesh with an obvious translation, so
+`cmd_export.cpp` writes one (`m2::parseCollisionMesh` → one more
+`gltf::NamedMesh`, `VERIFICATION_IDEAS.md` case 5). The only `extras` use
+here is a `{"collision": true}` tag on that mesh's node, purely to mark
+*purpose* (so a renderer/Blender script knows not to draw it) — the
+geometry itself is native. It's deliberately unskinned even though it
+shares the render mesh's skeleton (a collision mesh is static, not
+deformed by the armature): `gltf::writeGlbMulti` previously required every
+`NamedMesh` entry to be skinned whenever *any* shared skeleton was in
+scope, so supporting this needed a real relaxation — each entry now
+independently opts in (non-empty, matching-length `mesh.skinning`) or out
+(empty, no glTF `skin` reference on that node) rather than an all-or-
+nothing rule across the whole call. Per-vertex normals are *approximated*
+(averaged adjacent face normals) since the M2 source only has one normal
+per triangle, not per vertex — acceptable because a collision mesh isn't
+shaded, this is only to satisfy `gltf::Mesh`'s own same-length invariant
+with real, finite data rather than a placeholder.
+
 **BLP/texture conversion is a separate Python process, permanently.** Two
 independent reasons: real DXT/BC block decoding needs library maturity
 (Pillow) C++ doesn't have an equivalent of already in this project, and the
@@ -681,7 +704,7 @@ to check against.
 
 ## Testing architecture
 
-Three tiers, same shape used by `casc-tool`:
+Four tiers, the first three the same shape used by `casc-tool`:
 
 1. **Pure-logic** (`test_chunk`/`test_m2`/`test_skin`/`test_skel`/
    `test_gltf`) — synthetic buffers built field-by-field from the wiki
@@ -711,6 +734,17 @@ Three tiers, same shape used by `casc-tool`:
    banner prints every fixture's resolution (or lack of one) up front, so
    "why did N tests just skip" is a read, not a rerun with env vars
    guessed at.
+
+4. **Conformance** (`test_conformance`) — real downstream *consumers* of an
+   exported `.glb` (Khronos `gltf_validator`, Blender's own importer run
+   headlessly), plus a third comparison leg the other tiers don't reach:
+   the M2 source file's own header counts, cross-checked against what
+   Blender/tinygltf actually read back (vertex/bone counts exactly,
+   bind-pose bounds via containment, collision-mesh count/topology
+   exactly — `VERIFICATION_IDEAS.md`, `WIKI_FINDINGS.md` §5). See
+   `README.md`'s Testing section for the full per-check writeup, including
+   two real Blender-importer-side contamination sources found while making
+   these checks exact.
 
 Known gap: the ad hoc real-`.anim`-directory verification described in the
 README's roadmap stage 6 (50/50 and 54/54 real files, parsed back apart in

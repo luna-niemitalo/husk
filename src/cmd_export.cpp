@@ -1549,6 +1549,102 @@ int exportGlb(int argc, char** args) {
             namedMeshes.push_back(std::move(nm));
         }
 
+        // Captured before the collision mesh (if any) is appended below --
+        // the final summary needs to know how many of `namedMeshes` are
+        // real render/LOD entries versus the trailing collision entry, so
+        // it doesn't mislabel the collision mesh as another LOD tier.
+        size_t renderMeshCount = namedMeshes.size();
+
+        // VERIFICATION_IDEAS.md case 5: the collision mesh (physics/
+        // hit-testing, m2::CollisionMesh) is a plain triangle mesh with an
+        // unambiguous glTF translation -- unlike geoset selection/multi-
+        // texture-layers (data with no unambiguous glTF shape, hence inert
+        // extras only), so it's exported as real geometry: one more
+        // NamedMesh, unskinned (a collision mesh is static, not deformed by
+        // the armature -- see writeGlbMulti's doc comment for sharing a
+        // skeleton without being skinned by it), tagged `isCollision` so
+        // writeGlbMulti marks its node `{"collision": true}` in extras.
+        // Silently skipped when the model has no collision data at all
+        // (count 0 -- not every M2 necessarily has some), same "quiet when
+        // nothing applies" policy as --textures.
+        if (header.collisionPositions.count > 0 && header.collisionIndices.count > 0) {
+            auto collisionMesh = m2::parseCollisionMesh(blob, header.collisionPositions,
+                                                          header.collisionIndices,
+                                                          header.collisionFaceNormals);
+
+            if (collisionMesh.indices.size() % 3 != 0) {
+                throw std::runtime_error(
+                    "'" + modelPath + "'s collision mesh has " +
+                    std::to_string(collisionMesh.indices.size()) +
+                    " indices, not a multiple of 3 (one triangle per 3 entries)");
+            }
+            for (uint16_t idx : collisionMesh.indices) {
+                if (idx >= collisionMesh.positions.size()) {
+                    throw std::runtime_error(
+                        "'" + modelPath + "'s collision mesh index " + std::to_string(idx) +
+                        " is out of range for " + std::to_string(collisionMesh.positions.size()) +
+                        " collision positions");
+                }
+            }
+            size_t triCount = collisionMesh.indices.size() / 3;
+            if (!collisionMesh.faceNormals.empty() && collisionMesh.faceNormals.size() != triCount) {
+                throw std::runtime_error(
+                    "'" + modelPath + "'s collision mesh has " +
+                    std::to_string(collisionMesh.faceNormals.size()) + " face normals for " +
+                    std::to_string(triCount) + " triangles");
+            }
+
+            gltf::Mesh collisionGltfMesh;
+            collisionGltfMesh.positions.reserve(collisionMesh.positions.size());
+            for (const auto& p : collisionMesh.positions) {
+                collisionGltfMesh.positions.push_back(toGltf(p));
+            }
+
+            // No per-vertex normals exist in the source data (only one
+            // face normal per triangle, m2::CollisionMesh's doc comment) --
+            // approximate them by averaging every adjacent triangle's face
+            // normal at each shared vertex, the standard flat-to-smooth
+            // normal derivation. A collision mesh isn't shaded/rendered in
+            // practice, so this is only to satisfy gltf::Mesh's own
+            // positions/normals/texCoords-all-same-length invariant with
+            // real, finite, unit-length data rather than a placeholder.
+            std::vector<gltf::Vec3> normalSums(collisionMesh.positions.size(), gltf::Vec3{0, 0, 0});
+            if (!collisionMesh.faceNormals.empty()) {
+                for (size_t t = 0; t < triCount; ++t) {
+                    gltf::Vec3 faceNormal = toGltf(collisionMesh.faceNormals[t]);
+                    for (int c = 0; c < 3; ++c) {
+                        uint16_t vi = collisionMesh.indices[t * 3 + static_cast<size_t>(c)];
+                        normalSums[vi].x += faceNormal.x;
+                        normalSums[vi].y += faceNormal.y;
+                        normalSums[vi].z += faceNormal.z;
+                    }
+                }
+            }
+            collisionGltfMesh.normals.reserve(normalSums.size());
+            for (const auto& sum : normalSums) {
+                float len = std::sqrt(sum.x * sum.x + sum.y * sum.y + sum.z * sum.z);
+                collisionGltfMesh.normals.push_back(
+                    len > 1e-8f ? gltf::Vec3{sum.x / len, sum.y / len, sum.z / len}
+                                : gltf::Vec3{0, 1, 0});
+            }
+            collisionGltfMesh.texCoords.assign(collisionMesh.positions.size(), gltf::Vec2{0, 0});
+
+            gltf::Primitive collisionPrim;
+            collisionPrim.indices.assign(collisionMesh.indices.begin(), collisionMesh.indices.end());
+            collisionGltfMesh.primitives = {collisionPrim};
+
+            gltf::NamedMesh collisionNamedMesh;
+            collisionNamedMesh.name = "collision";
+            collisionNamedMesh.mesh = std::move(collisionGltfMesh);
+            collisionNamedMesh.isCollision = true;
+            namedMeshes.push_back(std::move(collisionNamedMesh));
+
+            std::cout << "husk: note: attached a " << collisionMesh.positions.size()
+                      << "-position/" << triCount
+                      << "-triangle collision mesh (unskinned, tagged 'collision' in glTF "
+                         "extras, not applied to the render)\n";
+        }
+
         auto glb = gltf::writeGlbMulti(namedMeshes, bones.empty() ? nullptr : &skeleton, animations);
 
         std::ofstream out(outputPath, std::ios::binary);
@@ -1561,7 +1657,7 @@ int exportGlb(int argc, char** args) {
             throw std::runtime_error("error writing '" + outputPath + "'");
         }
 
-        if (namedMeshes.size() == 1) {
+        if (renderMeshCount == 1) {
             size_t triCount = 0;
             for (const auto& p : namedMeshes[0].mesh.primitives) triCount += p.indices.size() / 3;
             std::cout << outputPath << ": " << vertices.size() << " vertices, " << triCount
@@ -1585,8 +1681,9 @@ int exportGlb(int argc, char** args) {
             std::cout << "\n";
         } else {
             std::cout << outputPath << ": " << vertices.size() << " vertices (shared), "
-                      << namedMeshes.size() << " LOD tier(s) as separate nodes:\n";
-            for (const auto& nm : namedMeshes) {
+                      << renderMeshCount << " LOD tier(s) as separate nodes:\n";
+            for (size_t mi = 0; mi < renderMeshCount; ++mi) {
+                const auto& nm = namedMeshes[mi];
                 size_t triCount = 0;
                 for (const auto& p : nm.mesh.primitives) triCount += p.indices.size() / 3;
                 std::cout << "  " << nm.name << ": " << triCount << " triangles, "

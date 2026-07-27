@@ -334,8 +334,22 @@ TEST_CASE("writeGlb: a correctionSet entry with an out-of-range joint throws") {
     CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
 }
 
-TEST_CASE("writeGlb: skeleton given without matching mesh.skinning throws") {
+// A single writeGlb mesh may legitimately share a skeleton without being
+// skinned by it (empty mesh.skinning opts out -- see writeGlbMulti's doc
+// comment); the still-real error case is skinning data that's *present*
+// but the wrong length.
+TEST_CASE("writeGlb: skeleton given with no mesh.skinning succeeds, mesh node gets no skin") {
     auto mesh = buildTriangleMesh();  // no skinning data
+    auto skel = buildChainSkeleton();
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+    REQUIRE(!model.nodes.empty());
+    CHECK(model.nodes[0].skin == -1);
+}
+
+TEST_CASE("writeGlb: skeleton given with mesh.skinning present but the wrong length throws") {
+    auto mesh = buildTriangleMesh();  // 3 positions
+    mesh.skinning = {husk::gltf::JointWeights{}};  // 1 entry
     auto skel = buildChainSkeleton();
     CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
 }
@@ -1086,9 +1100,35 @@ TEST_CASE("writeGlbMulti: an animation's joint target node is offset by meshCoun
     CHECK(model.animations[0].channels[0].target_node == 3);
 }
 
-TEST_CASE("writeGlbMulti: one entry with mismatched skinning throws, naming that entry") {
+TEST_CASE("writeGlbMulti: one entry with skinning present but the wrong length throws, naming "
+          "that entry") {
     husk::gltf::NamedMesh a{"lod0", buildSkinnedTriangleMesh(), {}};
-    husk::gltf::NamedMesh b{"lod1", buildTriangleMesh(), {}};  // no skinning at all
+    husk::gltf::Mesh badSkinning = buildTriangleMesh();
+    badSkinning.skinning = {husk::gltf::JointWeights{}};  // 1 entry, but 3 positions
+    husk::gltf::NamedMesh b{"lod1", badSkinning, {}};
     auto skel = buildChainSkeleton();
     CHECK_THROWS_AS(husk::gltf::writeGlbMulti({a, b}, &skel), husk::gltf::Error);
+}
+
+// A skeleton in scope doesn't force every mesh entry to be skinned -- an
+// entry can opt out by leaving `mesh.skinning` empty (see gltf.hpp's
+// writeGlbMulti doc comment; the concrete use case is an unskinned
+// collision-mesh node alongside a skinned render mesh, cmd_export.cpp).
+TEST_CASE("writeGlbMulti: a mesh entry with no skinning data, alongside a skinned one sharing the "
+          "same skeleton, gets no glTF skin reference") {
+    husk::gltf::NamedMesh skinned{"render", buildSkinnedTriangleMesh(), {}};
+    husk::gltf::NamedMesh unskinned{"aux", buildTriangleMesh(), {}};  // no skinning at all
+    auto skel = buildChainSkeleton();
+
+    auto glb = husk::gltf::writeGlbMulti({skinned, unskinned}, &skel);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.nodes.size() >= 2);
+    CHECK(model.nodes[0].skin == 0);
+    CHECK(model.nodes[1].skin == -1);
+    REQUIRE(model.meshes.size() == 2);
+    for (const auto& attr : model.meshes[1].primitives[0].attributes) {
+        CHECK(attr.first != "JOINTS_0");
+        CHECK(attr.first != "WEIGHTS_0");
+    }
 }

@@ -122,12 +122,13 @@ struct Header {
     float collisionSphereRadius = 0;
 
     // Collision mesh (physics/hit-testing, distinct from the render mesh in
-    // `vertices`) and the object-placement/gameplay arrays that follow it in
-    // the header -- wowdev.wiki M2#Header. None of these are dereferenced by
-    // husk yet (see parseVertices/parseBones/parseTextures for the pattern
-    // that would do it); surfacing the Array descriptors themselves is what
-    // `husk info` needs to report counts, and is the minimum needed to keep
-    // this struct's field layout complete and in wire order.
+    // `vertices`) -- wowdev.wiki M2#Header. Dereferenced by parseCollisionMesh
+    // (see CollisionMesh's doc comment). The object-placement/gameplay
+    // arrays that follow it are not: surfacing their Array descriptors
+    // themselves is what `husk info` needs to report counts, and is the
+    // minimum needed to keep this struct's field layout complete and in
+    // wire order (see parseVertices/parseBones/parseTextures for the
+    // dereferencing pattern, if one of these needs it later).
     Array collisionIndices;   // uint16 triangle indices into collisionPositions
     Array collisionPositions; // C3Vector
     Array collisionFaceNormals; // C3Vector
@@ -411,6 +412,20 @@ struct Attachment {
     Vec3 position;         // relative to `bone`
 };
 
+// Collision mesh (physics/hit-testing), dereferenced from the header's
+// `collisionPositions`/`collisionIndices`/`collisionFaceNormals` Array
+// descriptors -- wowdev.wiki M2#Header. A plain indexed triangle mesh, no
+// M2Track/lookup-table indirection unlike Attachment/Event/Light below:
+// `indices` is flat (3 entries per triangle, indexing into `positions`),
+// and `faceNormals` has one entry per triangle (indices.size() / 3), not
+// per vertex -- distinct from the render mesh's per-vertex normals in
+// m2::Vertex.
+struct CollisionMesh {
+    std::vector<Vec3> positions;
+    std::vector<uint16_t> indices;
+    std::vector<Vec3> faceNormals;
+};
+
 // M2Event, per wowdev.wiki M2#Events -- 36 (0x24) bytes on disk.
 // `identifier` is 4 raw bytes read as ASCII (typically a '$'-prefixed
 // 3-character code, e.g. "$DTH" for death) -- read in file order, same as
@@ -513,6 +528,13 @@ std::vector<Material> parseMaterials(const std::vector<uint8_t>& blob, const Arr
 // src/cmd_export.cpp for how batches resolve through it to an actual
 // texture).
 std::vector<uint16_t> parseUint16Array(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` raw C3Vector (12-byte float triples) out of `blob`
+// at `array.offset`. Throws ParseError if that range runs past the end of
+// the blob. Used for the header's plain position/normal arrays that carry
+// no other per-record fields -- currently just the collision mesh's
+// `collisionPositions`/`collisionFaceNormals` (see parseCollisionMesh).
+std::vector<Vec3> parseVec3Array(const std::vector<uint8_t>& blob, const Array& array);
 
 // Reads `array.count` M2Color records out of `blob` starting at
 // `array.offset`, resolving each one's color/alpha M2Track to a static
@@ -694,6 +716,18 @@ std::vector<uint8_t> extractAnimBlob(const std::vector<uint8_t>& animFileBytes, 
 // blob. An empty array (count 0) returns an empty vector without touching
 // `array.offset` at all.
 std::vector<Attachment> parseAttachments(const std::vector<uint8_t>& blob, const Array& array);
+
+// Dereferences a header's collision Array descriptors into a real
+// CollisionMesh: `positions`/`faceNormals` via parseVec3Array,
+// `indices` via parseUint16Array. Throws ParseError under the same
+// byte-range conditions as those two functions -- this does NOT
+// cross-check `indices` against `positions.size()` or `faceNormals.size()`
+// against `indices.size() / 3` (that's export-time consumption logic, same
+// "cross-array validation lives at the point of use" split cmd_export.cpp
+// already follows for e.g. vertex bone_indices vs. bone count). Every
+// array empty (count 0) returns an all-empty CollisionMesh.
+CollisionMesh parseCollisionMesh(const std::vector<uint8_t>& blob, const Array& positionsArray,
+                                  const Array& indicesArray, const Array& faceNormalsArray);
 
 // Reads `array.count` M2Event records out of `blob` starting at
 // `array.offset`, surfacing only `identifier`/`data`/`bone`/`position`.

@@ -33,11 +33,14 @@ tool, `blp/`) converts BLP2 textures to PNG.
   headless Blender itself, `tests/test_conformance.cpp` — see Resume). `AFSB`
   (`.skel`-linked models' real external-animation format, previously the single
   biggest animation gap) is now cracked and resolved end to end — see Resume.
-  Remaining work is either scope expansion (WMO/M3, not started, by design) or
-  the structural gaps `TODO_correctness.md` already tracks (`M2Particle`, plus
-  `.bone` correction *selection* — the extras-export half is done, see Resume;
-  picking which slot applies is blocked on client-side DB2 data husk doesn't
-  have, not on more investigation) — nothing currently in flight.
+  `VERIFICATION_IDEAS.md`'s cases 1/2/3/5 (M2-source-vs-exported-glb-vs-Blender-
+  readback cross-checks, plus a real collision-mesh export husk never had before)
+  are now implemented too — see Resume. Remaining work is either scope expansion
+  (WMO/M3, not started, by design) or the structural gaps `TODO_correctness.md`
+  already tracks (`M2Particle`, plus `.bone` correction *selection* — the
+  extras-export half is done, see Resume; picking which slot applies is blocked
+  on client-side DB2 data husk doesn't have, not on more investigation) —
+  nothing currently in flight.
 - Anything not listed under Current does not exist yet. In particular: `M2Particle`/
   `M2Camera` are still count-only (not dereferenced). Three FAILURES2.md gaps
   (geoset selection #1, multi-texture-layer rendering #6, global-sequence animation
@@ -78,7 +81,122 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: `TODO_correctness.md`'s former #1 — `.skel`-sourced
+- **Last state**: `VERIFICATION_IDEAS.md`'s survey (source-M2-counts vs.
+  exported-glb vs. Blender-readback cross-checks) went from "none of this
+  is implemented" to cases 1/2/3/5 all real, in exactly the file's own
+  triviality-ranked order (case 4 stayed deliberately skipped, per its own
+  reasoning). Requested as "implement the rest of the verification ideas
+  findings, in order of triviality."
+  - **Case 1 (vertex count) + case 2 (bone count)**: exactly as
+    scoped — two `CHECK`s added to `tests/test_conformance.cpp`'s existing
+    Blender `TEST_CASE`, comparing `m2::parseHeader(...)`'s own
+    `vertices.count`/`bones.count` against Blender's/tinygltf's readback.
+    Getting these *exact* (not `> 0`) surfaced a real, previously-invisible
+    contamination bug in `tests/blender_import_check.py`: Blender's
+    `--factory-startup` scene (default Cube/Camera/Light) survives into the
+    probe unless cleared first, and `bpy.ops.import_scene.gltf`'s own
+    `armature_display()` creates a real 42-vertex Icosphere mesh object per
+    armature import (a bone custom-shape widget, parked in a hidden
+    collection but still a real `bpy.data.objects` entry) unless
+    `disable_bone_shape=True` is passed — found by writing the exact-match
+    assertion and getting `8111 == 8061` instead of a pass, not by
+    inspection. Both fixed in the probe script before either `CHECK` could
+    hold.
+  - **Case 3 (bounding box)**: the file's own "tolerance match" premise
+    was wrong, found by actually computing both sides against real data
+    (both `bloodelffemale.m2` and `bloodelffemale_hd.m2`) before writing
+    the assertion rather than after — the header's `bounding_box` runs
+    roughly 2x–4x the bind-pose mesh's own extent per axis, consistent
+    with it covering the model's full *animated* range rather than a tight
+    rest-pose fit (documented as a hypothesis, not confirmed against an
+    authoritative source — `WIKI_FINDINGS.md` §5, new). Shipped the
+    corrected, still tolerance-free invariant instead: the bind-pose
+    mesh's own AABB is fully *contained* inside the header's box, per
+    axis, after the same Z-up→Y-up remap (`transformedM2BoundingBox`,
+    remapping all 8 corners — the axis swap negates one component, so
+    naively pairing `zUpToYUp(min)`/`zUpToYUp(max)` would silently produce
+    an inside-out box on that axis). Verified the check itself actually
+    catches a regression, not just passing vacuously: temporarily
+    perturbed `cmd_export.cpp`'s `toGltf` by +50 units on X, confirmed the
+    new `TEST_CASE` fails with the exact expected numbers, reverted.
+  - **Case 5 (collision mesh)**: the biggest piece — collision data used
+    to be `Array` descriptors only (`husk info` counts, nothing
+    dereferenced). New `m2::parseVec3Array`/`m2::parseCollisionMesh`
+    (`src/m2.hpp`/`m2.cpp`, unit-tested in `tests/test_m2.cpp`) dereference
+    `collisionPositions`/`collisionIndices`/`collisionFaceNormals` into
+    real data; `cmd_export.cpp` writes it as one more `gltf::NamedMesh`
+    (positions via the existing `toGltf`; per-vertex normals *approximated*
+    by averaging each vertex's adjacent face normals, since the source is
+    one normal per triangle, not per vertex — acceptable since a collision
+    mesh isn't shaded, this only satisfies `gltf::Mesh`'s own same-length
+    invariant with real data), tagged via new `gltf::NamedMesh::isCollision`
+    → `{"collision": true}` in that node's glTF `extras`. Real, unambiguous
+    glTF translation (unlike geoset selection/`.bone` corrections/texture
+    transforms, which stay `extras`-only because no such translation
+    exists) — the geometry itself is native, only the "don't draw this"
+    purpose tag is `extras`.
+    - **One real API relaxation this forced**: `gltf::writeGlbMulti`
+      previously required *every* `NamedMesh` entry to be skinned whenever
+      any shared skeleton was in scope (`hasSkeleton && mesh.skinning
+      .size() != n` → unconditional `Error`) — too strict for an unskinned
+      collision mesh sharing a skinned render mesh's armature. Now each
+      entry independently opts in (non-empty, matching-length
+      `mesh.skinning`) or out (empty — no glTF `skin` reference on that
+      node, not deformed by the armature); the real error case (skinning
+      *present* but the wrong length) still throws. Two existing
+      `tests/test_gltf.cpp` cases whose whole premise was "mixed
+      skinned/unskinned entries must throw" got rewritten (their premise
+      is now the supported case) rather than deleted, plus two new cases
+      proving both the new positive path and that the real error case
+      still fires.
+    - `tests/blender_import_check.py` gained `collision_mesh_count`/
+      `collision_mesh_vertex_count`/`collision_mesh_triangle_count` probes
+      (found via the `collision` extras tag, not by name), checked exactly
+      against `header.collisionPositions.count`/`header.collisionIndices
+      .count / 3` in `test_conformance.cpp` — small enough (8 positions,
+      12 triangles for the real fixture) that exact match is realistic,
+      no tolerance needed, pure count/topology.
+    - **One real regression this surfaced and fixed in the same pass**:
+      `cmd_export.cpp`'s own "N LOD tier(s)" summary print used to key off
+      `namedMeshes.size()` directly — with a collision mesh now always
+      appended when present, that over-counted by one and would have
+      mislabeled it as another LOD tier. Fixed by capturing
+      `renderMeshCount` before the collision entry is appended, used for
+      both the branch decision and the per-entry print loop.
+  - **Case 4 (sequences)**: left alone, exactly as the file's own
+    reasoning says — the metric needs to change shape (a resolved/
+    skipped/aliased breakdown) before a comparison would mean anything,
+    not a suspected bug.
+  - **Verification discipline throughout**: every premise got checked
+    against real data (`bloodelffemale.m2`/`bloodelffemale_hd.m2`) before
+    being written into an assertion, not assumed from the survey doc's own
+    text — this is what caught case 3's wrong premise and case 1/2's
+    Blender-importer contamination, both invisible from reading code alone.
+  - **Tests**: 338 → 345 cases (5 in `test_m2.cpp` for
+    `parseVec3Array`/`parseCollisionMesh`, 1 new `test_conformance.cpp`
+    bounding-box `TEST_CASE`, 1 new `test_gltf.cpp` mixed-skinning case;
+    2 more `test_gltf.cpp` cases rewrote their premise without changing
+    count). Both `./build/husk-tests` and `ctest` green (346 total
+    including 1 permanently-inapplicable skip).
+  - **Docs**: `VERIFICATION_IDEAS.md` (every case tagged `[IMPLEMENTED]`
+    with a receipts section, cases 3/5 explicitly noting what changed from
+    the original plan and why), `WIKI_FINDINGS.md` (new §5, the
+    bounding-box-isn't-tight finding, tagged hypothesis-confidence since
+    the *why* isn't confirmed against an authoritative source), `README.md`
+    (Collision/physics format-matrix row bumped from 🚧 to 📖, Testing
+    section's Conformance paragraph rewritten), `DESIGN.md` (new Key
+    design decisions bullet for the collision-mesh/`writeGlbMulti`
+    relaxation, Testing architecture section gained the previously-missing
+    4th "Conformance" tier), `M2_COMPLETENESS.md` (Collision & physics
+    rows bumped to `full`/`native`/`native — 100%`).
+  - **Environment note, reconfirmed**: `direnv exec . uv run --no-project
+    python3 <script>` for ad hoc byte-level scratch analysis (this
+    session's minimal-glTF/Blender-object-introspection scripts lived in
+    the scratchpad, not committed) — used this session to isolate the
+    Blender Icosphere/Cube contamination down to its exact source
+    (`io_scene_gltf2/blender/imp/node.py`'s `armature_display()`) before
+    trusting the fix, not just patching around the symptom.
+- **Previous state**: `TODO_correctness.md`'s former #1 — `.skel`-sourced
   external `.anim` files' undocumented `AFSB` chunk shape, the single
   biggest remaining animation gap (essentially 0% external-animation
   coverage for any modern character model) — is now **cracked and fully
@@ -282,129 +400,22 @@ real-file-driven spec correction found along the way.
     corrected bones cluster on Head/Jaw, not hand/wrist — since
     `TODO_correctness.md` #6 now cites it as an established fact and it
     needs real receipts backing it, not just a claim).
-- **Previous state**: `TODO_correctness.md` #6 (which `.bone` file — of a
-  model's several, per its `BFID` array — applies to which LOD/context)
-  got real forward progress this session, though not a full close. Pure
-  investigation, no reverse-engineering: decoded and cross-compared all 20
-  real `bloodelffemale_hd_00.bone`–`_19.bone` files (plus their 20
-  `_sdr_00`–`_sdr_19` siblings) against `bloodelffemale_hd.skel`'s `BFID`
-  chunk (manually chunk-parsed with `nu`/`uv run python3` scratch scripts,
-  since husk itself doesn't parse `.skel`'s `BFID` — only `m2.cpp`'s BFID
-  reading is wired up, and that model has 0 inline bones/external skel
-  anyway). Verdict: **the LOD/render-distance hypothesis is now ruled out
-  by real data**, not just left undetermined. Three independent pieces of
-  evidence: (1) the count itself doesn't fit — 20 `.bone` slots vs. this
-  model's `lod_count: 7`, no clean relationship; (2) the 20 files collapse
-  into only 5 distinct bone-index sets, one of them (33 bones) repeated
-  *verbatim* across 10 of the 20 files — a LOD ladder sheds bone
-  involvement as detail drops, it doesn't reuse the identical set 10
-  times; (3) where a bone is corrected in multiple files, the correction
-  is a pure magnitude scale along one of exactly two fixed 3D directions
-  (checked via bone 64's translation row across all 20 `_hd_*.bone`
-  files — 14 share one direction at 9 distinct magnitudes, 6 share another
-  at 3), the signature of a small number of shape variants reused across
-  many selectable slots (e.g. some choices being texture/color-only and
-  intentionally sharing bone data), not 20 independently-authored LOD
-  tiers. What *does* select a slot most plausibly lives in client-side DB2
-  data (something `ChrCustomizationBoneSet`-shaped, named from memory, not
-  confirmed against a real DB2 dump) — squarely CASC/DBC-adjacent, which
-  `DESIGN.md`'s non-goals already rule out for this project, same reason
-  the geoset-default-selection question stays open. Documented in
-  `WIKI_FINDINGS.md` §4's new follow-up (the receipts: exact magnitudes,
-  bone-set overlaps, file-by-file breakdown), `TODO_correctness.md` #6
-  (updated to state what kind of open question remains), `README.md`'s
-  `.bone` section, and `M2_COMPLETENESS.md`'s sidecar table row. No code
-  changed — `src/bone.hpp`/`.cpp` and `husk dump-chunks` are unaffected;
-  this was strictly closing the "what do we even know" gap before any
-  wiring-in could be attempted. Scratch analysis scripts used for this
-  aren't checked in (ad hoc `nu`/Python in the session's scratchpad, not
-  project code).
-  - **Environment note for future sessions**: bare `python`/`python3` is
-    guarded off (even under `direnv exec .`/`nix develop ./nix -c`) with a
-    message pointing at "the flake" — this project's actual sanctioned
-    Python entry point is `uv run --no-project python3 <script>` (or
-    `cd blp/ && uv sync` for the real `husk-blp` project), matching
-    `nix/flake.nix`'s comment that Python dependency management goes
-    through `uv`, not a bare interpreter. `nu` (Nushell, Luna's globally
-    preferred scripting language) is available system-wide and worked
-    fine for direct byte-level chunk parsing without needing `uv` at all.
-- **Earlier state**: `export`'s CLI grammar migrated from a hand-rolled,
-  position-dependent positional parser to named CLI11 flags, per
-  `DESIGN_CHANGES.md`'s spec (that file is now deleted — folded back into
-  `DESIGN.md`'s "CLI argument grammar for `export`" section and `README.md`'s
-  `export` Usage subsection, per its own stated scratch-doc lifecycle).
-  Breaking change to every existing `husk export` invocation's argument
-  order, done deliberately in one pass rather than staged. All verified:
-  clean rebuild, full 324-case `husk-tests` suite green via both
-  `./build/husk-tests` and `ctest` (up from 310), plus real
-  `bloodelffemale.m2` exports re-checked by hand for several flag states.
-  - **CLI11 added as a new dependency** (`pkgs.cli11` in `nix/flake.nix`,
-    `find_package(CLI11 CONFIG REQUIRED)` in `CMakeLists.txt`, linked
-    `PUBLIC` on `husk-lib` so `main.cpp` gets it transitively too) —
-    explicit sign-off obtained before landing, per this project's
-    package-approval rule.
-  - **`src/commands.hpp`/`src/cmd_export.cpp`**: new `ExportOptions` struct
-    + `addExportOptions(CLI::App&, ExportOptions&)` is the one place
-    export's flag surface is declared, shared by `exportGlb`'s real parse
-    and the completion generator below (single source of truth, not two
-    hand-maintained copies). `-i,--input`/`-o,--output` keep a positional
-    fallback (the universal `tool in out` muscle memory); every other flag
-    is named-only. `--skin`'s literal `none` is rejected at CLI11 parse
-    time via an `Option::check` validator, with a message naming the real
-    expected values. `resolveSkin` (new) folds what used to be two
-    independent code paths (an omitted `.skin` positional vs. the literal
-    word `auto`) into `--skin`'s single `auto` default: SFID-declared
-    FileDataID match first (only committed to if that file actually
-    exists on disk — a real filesystem peek, not just path construction),
-    same-basename numbered scan as the fallback. `--anim` got a real fourth
-    state (`none`, gating the entire per-sequence-plus-global-sequence
-    animation-building call, not just external resolution) alongside
-    `auto`/`inline`/an explicit directory. `--textures`/`--skin-dir`/
-    `--skel` all got the three-state (`unset`→auto-default,
-    explicit-value→override, explicit-`none`→deliberate skip) treatment
-    `~/docs/CLI.md` §2.11 calls for. One real implementation gotcha found
-    and fixed along the way, now documented in `DESIGN.md`: CLI11's
-    `App::parse(std::vector<std::string>&)` consumes tokens from the
-    *back* of the vector (mirrors how its `(argc, argv)` sibling reverses
-    argv before the same internal call) — passing `args` in forward order
-    silently bound every flag to the wrong neighboring token instead of
-    erroring; `exportGlb` now reverses it first.
-  - **Shell completion** (`src/main.cpp`, new): a hidden
-    `--print-completion=<bash|zsh>` flag builds a throwaway `CLI::App` tree
-    (via the same `addExportOptions` for `export`; `info`/`dump-chunks`
-    hand-registered since neither is CLI11-based) and walks it with CLI11's
-    own introspection API (never `.parse(...)`) to generate real, working
-    bash/zsh completion scripts — captured into checked-in
-    `completions/husk.bash`/`.zsh`. Verified functionally, not just
-    syntax-checked: sourcing `completions/husk.bash` and driving its
-    completion function directly with a scripted `COMP_WORDS`/`COMP_CWORD`
-    confirms real flag names and per-flag value completion (`auto` for
-    `--skin`; `auto inline none` for `--anim`; `none` + real directories
-    for `--textures`/`--skin-dir`; `all` for `--lod`). `--print-completion`
-    itself is absent from `husk --help`'s output (no human reader) but
-    functions when invoked directly; unrecognized shell names fail cleanly
-    naming what's actually supported.
-  - **`tests/test_cli.cpp`**: every `export`-grammar test rewritten to the
-    named-flag form (86 → 100 cases), plus 14 new cases proving the
-    checklist behaviors directly rather than by inference — SFID-beats-
-    same-basename resolution ordering, `--skin-dir none`'s fallback-only
-    behavior, `--skin none`'s parse-time rejection, the `--lod`+
-    `--skin-dir none` conflict, `--anim inline`'s external-suppression
-    (same fixture as an `--anim <dir>` test, only the flag value differs,
-    proving suppression rather than "happened to find nothing"), `--anim
-    none`'s zero-clips-but-bones-still-present case, `--skel none`, and
-    `-i`/`-o` positional/flag-form agreement including out-of-order flags.
-  - **`tests/test_integration.cpp`/`tests/test_conformance.cpp`**: their
-    `runHusk("export ...")` calls still used the old positional grammar
-    (a real gap the test-rewrite pass surfaced, since those two files were
-    out of that pass's scope) — converted to named flags in a follow-up
-    fix, confirmed green.
-  Real discrepancy worth flagging for future work: `resolveSkin`'s
-  "couldn't resolve" error messages name only the *directory* searched,
-  never the specific FileDataID/candidate filename the old positional
-  code's `readFileBytes` "couldn't open '<path>'" message used to
-  surface — a real (if minor) loss of specificity, noted in
-  `tests/test_cli.cpp`'s comments rather than silently adjusted around.
+- **Earlier state** (condensed — full detail in git history/`WIKI_FINDINGS.md`/
+  `DESIGN.md`/`README.md`, which all already captured the durable facts):
+  a `.bone`-slot-selection investigation ruled out the LOD/render-distance
+  hypothesis by real data (20 `.bone` slots don't fit a 7-tier LOD count,
+  collapse into only 5 distinct bone-index sets with heavy exact
+  duplication) — the real selector is external client-side DB2 data husk
+  has no access to, per `DESIGN.md`'s non-goals (`WIKI_FINDINGS.md` §4,
+  `TODO_correctness.md` #5). Earlier still, `export`'s CLI grammar
+  migrated from a positional parser to named CLI11 flags (a breaking
+  change to every invocation's argument order, done in one deliberate
+  pass) — CLI11 added as a new flake dependency with sign-off,
+  `addExportOptions` became the one place the flag surface is declared
+  (shared by real parsing and the `--print-completion` generator), and
+  `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel` got the
+  three/four-state (`auto`/explicit/`none`) treatment `DESIGN.md`'s CLI
+  grammar section still documents in full.
 - **Next step**: nothing in flight. `AFSB` is fully resolved — no further
   work needed there barring a real multi-model cross-check if a
   non-blood-elf `.skel`-linked character file ever shows up in
@@ -419,14 +430,24 @@ real-file-driven spec correction found along the way.
   DB2 data husk doesn't have and, per `DESIGN.md`'s non-goals, never will
   at runtime; two awareness-only footnotes), plus optional scope expansion
   (WMO/M3, or Blender-side tooling for the geoset/multi-texture-layer/
-  bone-correction `extras`). One real, minor loose end from an earlier
-  session worth picking up if `cmd_export.cpp` is touched again:
-  `resolveSkin`'s failure messages could name the specific candidate
-  path/FileDataID they tried, not just the directory — small, not urgent.
-- **Hazards**: none new this session — the `AFSB` work only touched
-  `buildAnimations`' external-file branch and reused existing, already-
-  tested resolution functions unchanged. Carried over from earlier
-  sessions: `completions/husk.bash`/`.zsh` are generated, checked-in
+  bone-correction `extras`). `VERIFICATION_IDEAS.md`'s cases 1/2/3/5 are
+  now all implemented too (see Last state) — case 4 stays deliberately
+  skipped, per that file's own reasoning; nothing pending there. One real,
+  minor loose end from an earlier session worth picking up if
+  `cmd_export.cpp` is touched again: `resolveSkin`'s failure messages
+  could name the specific candidate path/FileDataID they tried, not just
+  the directory — small, not urgent.
+- **Hazards**: none new from this session's own changes beyond what's
+  already folded into the code/docs (the `writeGlbMulti` skinning
+  relaxation and `blender_import_check.py` fixes are both covered by real
+  tests, not just asserted safe). One thing worth knowing if
+  `cmd_export.cpp`'s collision-mesh block is touched again: it always
+  appends its `NamedMesh` *after* every render/LOD entry — anything
+  indexing `namedMeshes` by position (like the "N LOD tier(s)" summary
+  print, already fixed this session via `renderMeshCount`) needs to
+  account for that trailing entry, not assume `namedMeshes.size()` equals
+  the render-mesh count. Carried over from earlier sessions:
+  `completions/husk.bash`/`.zsh` are generated, checked-in
   artifacts (`husk --print-completion=<bash|zsh>`) — if `addExportOptions`'s
   flag table changes, regenerate both rather than hand-editing; **the
   completion generator's per-flag value-taxonomy tables in `src/main.cpp`

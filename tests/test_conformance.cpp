@@ -17,12 +17,19 @@
 // "passing" with zero assertions -- see test_main.cpp's startup banner
 // for which case applies on this run.
 
+#include <algorithm>
 #include <cstring>
 #include <doctest/doctest.h>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <limits>
 #include <string>
 #include <tiny_gltf.h>
+#include <vector>
 
+#include "gltf.hpp"
+#include "m2.hpp"
 #include "run_husk.hpp"
 #include "test_data_paths.hpp"
 
@@ -45,7 +52,117 @@ int parseProbeInt(const std::string& output, const std::string& key) {
     return std::stoi(output.substr(pos + marker.size()));
 }
 
+// Reads an M2 header straight from disk, independent of anything husk
+// export/tinygltf/Blender did with it -- the ground-truth source-file leg
+// of the source-vs-export-vs-readback cross-checks below (VERIFICATION_IDEAS.md
+// cases 1/2). Bones/vertices only: this fixture (testM2()) has inline bones,
+// not .skel-sourced ones, so header.bones.count is the real joint count here.
+husk::m2::Header readM2Header(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    REQUIRE_MESSAGE(static_cast<bool>(f), "couldn't open '", path, "'");
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return husk::m2::parseHeader(bytes);
+}
+
+// Remaps an M2-space (Z-up) AABB to glTF-space (Y-up) via husk's own
+// gltf::zUpToYUp, transforming all 8 corners rather than just `min`/`max`
+// directly -- the axis permutation negates one component (y_gltf =
+// -z_m2), which flips that axis's min/max, so naively pairing
+// zUpToYUp(min) with zUpToYUp(max) would silently produce an inside-out
+// box on that axis.
+struct Aabb {
+    husk::gltf::Vec3 min, max;
+};
+
+Aabb transformedM2BoundingBox(const husk::m2::BoundingBox& box) {
+    Aabb result;
+    result.min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+                  std::numeric_limits<float>::max()};
+    result.max = {std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(),
+                  std::numeric_limits<float>::lowest()};
+    for (float x : {box.min.x, box.max.x}) {
+        for (float y : {box.min.y, box.max.y}) {
+            for (float z : {box.min.z, box.max.z}) {
+                husk::gltf::Vec3 corner = husk::gltf::zUpToYUp({x, y, z});
+                result.min.x = std::min(result.min.x, corner.x);
+                result.min.y = std::min(result.min.y, corner.y);
+                result.min.z = std::min(result.min.z, corner.z);
+                result.max.x = std::max(result.max.x, corner.x);
+                result.max.y = std::max(result.max.y, corner.y);
+                result.max.z = std::max(result.max.z, corner.z);
+            }
+        }
+    }
+    return result;
+}
+
 }  // namespace
+
+TEST_CASE("husk export: exported bind-pose vertex bounds sit fully inside the M2 header's own "
+          "declared bounding box" *
+          doctest::skip(testM2().empty() || testSkin().empty())) {
+    std::string m2Path = testM2();
+    std::string skinPath = testSkin();
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-conformance-bbox.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto exportResult =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
+    INFO("husk export output:\n", exportResult.output);
+    REQUIRE(exportResult.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    // mesh 0 is always the render mesh: cmd_export.cpp appends the
+    // (optional) collision mesh strictly after every render/LOD entry, so
+    // it never displaces this fixture's single render mesh from index 0 --
+    // see cmd_export.cpp's "renderMeshCount" comment. mesh count is 1 or 2
+    // depending on whether this fixture happens to carry collision data
+    // (it does, but this check doesn't hardcode that).
+    REQUIRE(!model.meshes.empty());
+    REQUIRE(!model.meshes[0].primitives.empty());
+
+    // VERIFICATION_IDEAS.md case 3, corrected against real data: the
+    // header's bounding_box is NOT a tight fit around the bind-pose mesh
+    // (confirmed against both bloodelffemale.m2 and bloodelffemale_hd.m2 --
+    // the header box runs roughly 2x-4x wider per axis than the bind-pose
+    // vertices' own extent, e.g. bloodelffemale_hd.m2's header z range is
+    // ~9.6 units vs. the bind-pose mesh's ~2.1 -- consistent with the
+    // header accounting for the model's full animated range, not just its
+    // rest pose), so a tight-tolerance equality check would fail on real
+    // data, not catch a real bug. What *does* hold, and is a genuine
+    // correctness signal: the bind-pose mesh husk actually parsed and
+    // wrote must sit entirely inside the header's declared box -- if
+    // husk's vertex parsing were subtly wrong (bad offset, wrong scale),
+    // the computed accessor bounds could poke outside it.
+    auto posIt = model.meshes[0].primitives[0].attributes.find("POSITION");
+    REQUIRE(posIt != model.meshes[0].primitives[0].attributes.end());
+    const tinygltf::Accessor& posAcc = model.accessors[posIt->second];
+    REQUIRE(posAcc.minValues.size() == 3);
+    REQUIRE(posAcc.maxValues.size() == 3);
+
+    husk::m2::Header header = readM2Header(m2Path);
+    Aabb headerBox = transformedM2BoundingBox(header.boundingBox);
+
+    // A small epsilon, not zero: the header box is itself a float value
+    // Blizzard's own exporter computed, and husk's own axis remap
+    // introduces its own rounding -- this isn't meant to catch that noise,
+    // only a real containment violation.
+    constexpr float kEpsilon = 1e-3f;
+    CHECK(headerBox.min.x <= static_cast<float>(posAcc.minValues[0]) + kEpsilon);
+    CHECK(headerBox.min.y <= static_cast<float>(posAcc.minValues[1]) + kEpsilon);
+    CHECK(headerBox.min.z <= static_cast<float>(posAcc.minValues[2]) + kEpsilon);
+    CHECK(headerBox.max.x >= static_cast<float>(posAcc.maxValues[0]) - kEpsilon);
+    CHECK(headerBox.max.y >= static_cast<float>(posAcc.maxValues[1]) - kEpsilon);
+    CHECK(headerBox.max.z >= static_cast<float>(posAcc.maxValues[2]) - kEpsilon);
+
+    std::filesystem::remove(outPath);
+}
 
 #ifdef HUSK_GLTF_VALIDATOR
 TEST_CASE("husk export: real M2 + .skin produces a glb the Khronos glTF-Validator "
@@ -124,8 +241,41 @@ TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bon
           static_cast<int>(model.skins[0].joints.size()));
     CHECK(parseProbeInt(blenderResult.output, "action_count") ==
           static_cast<int>(model.animations.size()));
-    CHECK(parseProbeInt(blenderResult.output, "mesh_object_count") > 0);
-    CHECK(parseProbeInt(blenderResult.output, "total_vertex_count") > 0);
+
+    // VERIFICATION_IDEAS.md cases 1/2/5: the M2 source's own header counts,
+    // a third leg alongside tinygltf's and Blender's independent readings
+    // of the exported .glb. This export has no --lod, so exactly one skin
+    // (LOD tier) is written -- header.vertices.count carries over exactly,
+    // not multiplied (cmd_export.cpp's baseMesh is built once from the
+    // entire vertex array and reused unsliced; a .skin's batches only
+    // select a *subset* for drawing, never re-slice the accessor).
+    // cmd_export.cpp also attaches an unskinned collision-mesh node
+    // whenever the M2 has collision data (this fixture does), so the
+    // expected mesh/vertex counts below fold that in explicitly rather
+    // than assuming the render mesh is the only node.
+    husk::m2::Header header = readM2Header(m2Path);
+    bool hasCollisionMesh = header.collisionPositions.count > 0 && header.collisionIndices.count > 0;
+    int expectedMeshCount = 1 + (hasCollisionMesh ? 1 : 0);
+    uint32_t expectedVertexCount =
+        header.vertices.count + (hasCollisionMesh ? header.collisionPositions.count : 0);
+
+    CHECK(parseProbeInt(blenderResult.output, "mesh_object_count") == expectedMeshCount);
+    CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "total_vertex_count")) ==
+          expectedVertexCount);
+    CHECK(model.skins[0].joints.size() == header.bones.count);
+
+    // Case 5, readback step: the collision mesh Blender actually imported
+    // (found by its "collision" extras tag, not by name -- see
+    // blender_import_check.py) matches the M2 header's own collision
+    // counts exactly (no tolerance needed -- pure count/topology, same
+    // indices/positions the M2 declares, just carried through unchanged).
+    if (hasCollisionMesh) {
+        CHECK(parseProbeInt(blenderResult.output, "collision_mesh_count") == 1);
+        CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "collision_mesh_vertex_count")) ==
+              header.collisionPositions.count);
+        CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "collision_mesh_triangle_count")) ==
+              header.collisionIndices.count / 3);
+    }
 
     std::filesystem::remove(outPath);
 }

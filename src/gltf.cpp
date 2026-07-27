@@ -176,7 +176,7 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
                             std::to_string(materials.size()) + " materials");
             }
         }
-        if (hasSkeleton && mesh.skinning.size() != n) {
+        if (hasSkeleton && !mesh.skinning.empty() && mesh.skinning.size() != n) {
             throw Error("writeGlbMulti: mesh " + std::to_string(mi) + " has a skeleton but its "
                         "skinning (" + std::to_string(mesh.skinning.size()) +
                         ") doesn't match positions (" + std::to_string(n) + ")");
@@ -346,8 +346,15 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
             accessors.push_back(uv2Acc);
         }
 
+        // A NamedMesh with a shared skeleton in scope may still opt out of
+        // skinning by leaving `mesh.skinning` empty -- e.g. a collision mesh
+        // or other auxiliary geometry parented directly to the scene root,
+        // not deformed by the armature (see cmd_export.cpp's collision-mesh
+        // export). Validated above: non-empty skinning must match `n`
+        // exactly when a skeleton exists; empty is always allowed.
+        bool meshIsSkinned = hasSkeleton && !mesh.skinning.empty();
         int jAccIdx = -1, wAccIdx = -1;
-        if (hasSkeleton) {
+        if (meshIsSkinned) {
             std::vector<std::array<uint8_t, 4>> jointsFlat;
             std::vector<std::array<float, 4>> weightsFlat;
             jointsFlat.reserve(n);
@@ -534,8 +541,13 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
         tinygltf::Node node;
         node.name = nm.name;
         node.mesh = static_cast<int>(tinyMeshes.size()) - 1;
-        if (skinIdx >= 0) {
+        if (skinIdx >= 0 && meshIsSkinned) {
             node.skin = skinIdx;
+        }
+        if (nm.isCollision) {
+            tinygltf::Value::Object extras;
+            extras["collision"] = tinygltf::Value(true);
+            node.extras = tinygltf::Value(extras);
         }
         meshNodes.push_back(node);
     }

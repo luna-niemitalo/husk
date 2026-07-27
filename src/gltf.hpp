@@ -276,14 +276,19 @@ Vec3 zUpToYUp(const Vec3& v);
 // through-4 behavior (no material, no image; every primitive must then
 // leave materialIndex at -1).
 //
-// If `skeleton` is non-null (and non-empty), `mesh.skinning` must be
-// non-empty and the same length as `mesh.positions`: this adds a joint node
-// per skeleton entry (parented per `Joint::parent`), a glTF skin with
-// inverse bind matrices, and JOINTS_0/WEIGHTS_0 accessors on every
-// primitive. If `skeleton` is null, `mesh.skinning` must be empty -- no
-// orphaned skinning data. Throws Error on any joint's `parent` being out of
-// range or self-referential, or on the skeleton/skinning-data mismatches
-// above. `skeleton->correctionSets`, if non-empty, becomes a
+// If `skeleton` is non-null (and non-empty), it adds a joint node per
+// skeleton entry (parented per `Joint::parent`) and a glTF skin with
+// inverse bind matrices regardless of `mesh.skinning`. Whether `mesh`
+// itself is deformed by that skeleton is decided by `mesh.skinning`:
+// non-empty (must be the same length as `mesh.positions`) attaches the skin
+// to `mesh`'s node and adds JOINTS_0/WEIGHTS_0 accessors; empty leaves
+// `mesh`'s node unskinned even though the skeleton/skin still exist in the
+// document (see writeGlbMulti's doc comment for why -- an unskinned
+// NamedMesh entry alongside a skinned one is the concrete use case). If
+// `skeleton` is null, `mesh.skinning` must be empty -- no orphaned skinning
+// data. Throws Error on any joint's `parent` being out of range or
+// self-referential, or on the skeleton/skinning-data mismatches above.
+// `skeleton->correctionSets`, if non-empty, becomes a
 // `bone_correction_sets` key in the skin's own glTF `extras` (see
 // Skeleton::CorrectionSet's doc comment) -- Error if any correction's
 // `joint` is out of range for `skeleton`.
@@ -307,6 +312,18 @@ struct NamedMesh {
     std::string name;
     Mesh mesh;
     std::vector<Material> materials;
+
+    // True for a physics/hit-testing collision mesh (husk::m2::CollisionMesh),
+    // distinct from every other NamedMesh entry (a render mesh, one per LOD
+    // tier). Adds a `{"collision": true}` key to this entry's glTF node
+    // `extras`, the same "tag it, don't guess at semantics" treatment
+    // skinSectionId/billboardMode already get -- writeGlbMulti doesn't skip
+    // rendering it (no core-glTF "don't draw this" flag exists), only marks
+    // it for a custom renderer or Blender script to filter out. Implies
+    // `mesh.skinning` is left empty (see writeGlbMulti's doc comment for
+    // sharing a skeleton without being skinned by it) -- a collision mesh is
+    // static, not deformed by the armature.
+    bool isCollision = false;
 };
 
 // Serializes multiple meshes into one .glb, each as its own named node (and
@@ -322,10 +339,13 @@ struct NamedMesh {
 // valid because every LOD of one M2 draws from the same `bones` array (only
 // the triangle/vertex-index *subset* a .skin selects differs per LOD, see
 // src/skin.hpp), so one bind-pose skeleton and one set of animation clips
-// cover all of them. If `skeleton` is given, every entry's mesh.skinning
-// must be non-empty and match that entry's own mesh.positions length (same
-// both-or-neither rule as writeGlb, just checked per entry) -- there's
-// exactly one glTF skin object, shared by every mesh node.
+// cover all of them. If `skeleton` is given, each entry independently
+// chooses skinned (mesh.skinning non-empty, must match that entry's own
+// mesh.positions length) or unskinned (mesh.skinning left empty -- the
+// node gets no glTF `skin` reference at all, and isn't deformed by the
+// armature) -- e.g. a render mesh alongside an unskinned collision-mesh
+// entry, parented directly to the scene root like any other node. There's
+// exactly one glTF skin object, shared by every *skinned* mesh node.
 //
 // writeGlb(mesh, materials, skeleton, animations) is exactly
 // writeGlbMulti({{"", mesh, materials}}, skeleton, animations) -- the

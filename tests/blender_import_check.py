@@ -21,7 +21,19 @@ def main():
     argv = sys.argv[sys.argv.index("--") + 1:]
     glb_path = argv[0]
 
-    bpy.ops.import_scene.gltf(filepath=glb_path)
+    # --factory-startup still loads the stock startup scene (Cube/Camera/
+    # Light) -- clear it so object/vertex counts below reflect only what
+    # the .glb itself contains, not Blender's own defaults.
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete(use_global=False)
+
+    # disable_bone_shape=True: the importer's own armature_display() (see
+    # io_scene_gltf2/blender/imp/node.py) otherwise creates a real
+    # 42-vertex Icosphere mesh object (parked in a hidden, "not for
+    # export" collection) purely as the bone custom-shape widget --
+    # invisible in the viewport by convention, but still a real object in
+    # bpy.data.objects, silently inflating mesh/vertex counts below.
+    bpy.ops.import_scene.gltf(filepath=glb_path, disable_bone_shape=True)
 
     armatures = [o for o in bpy.data.objects if o.type == 'ARMATURE']
     meshes = [o for o in bpy.data.objects if o.type == 'MESH']
@@ -31,6 +43,18 @@ def main():
     print("HUSK_PROBE mesh_object_count=%d" % len(meshes))
     print("HUSK_PROBE total_vertex_count=%d" % sum(len(o.data.vertices) for o in meshes))
     print("HUSK_PROBE action_count=%d" % len(bpy.data.actions))
+
+    # VERIFICATION_IDEAS.md case 5: cmd_export.cpp tags the collision mesh's
+    # glTF node extras with {"collision": true} (gltf::NamedMesh::isCollision)
+    # -- find it by that tag rather than by name, so this probe still works
+    # if the node name ever changes. Blender surfaces glTF node extras as
+    # plain custom properties on the imported object (o["collision"]).
+    collision_objs = [o for o in meshes if o.get("collision") is True]
+    print("HUSK_PROBE collision_mesh_count=%d" % len(collision_objs))
+    if collision_objs:
+        c = collision_objs[0]
+        print("HUSK_PROBE collision_mesh_vertex_count=%d" % len(c.data.vertices))
+        print("HUSK_PROBE collision_mesh_triangle_count=%d" % len(c.data.polygons))
 
 
 if __name__ == "__main__":

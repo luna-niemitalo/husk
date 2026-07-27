@@ -462,6 +462,54 @@ customization-choice lookup husk can't reach, now known to plausibly be a
 
 ---
 
+## 5. `M2` — `bounding_box` is not a tight fit around the bind-pose mesh, on any axis, in either real file checked
+
+**Confidence: hypothesis** for *why* (evidence is real and reproducible;
+the explanation is the most consistent one found, not confirmed against
+an authoritative source). wowdev.wiki's M2 page documents `bounding_box`/
+`bounding_sphere_radius` only as "used as a fast, rough check if the whole
+model is in the view frustum" — it doesn't say what pose or range that box
+is computed relative to. The natural assumption (and this project's own,
+implicitly, until this session actually checked it) is "the bind-pose
+render mesh's own tight AABB." Real data says otherwise.
+
+**Evidence.** Computed the raw M2 vertex array's own min/max directly
+(independent of husk's own parsing code — a from-scratch byte-level
+Python read against `M2Header::vertices`' array descriptor) and compared
+against the same file's `bounding_box` field, both in native M2 (Z-up)
+space, no axis remap involved yet:
+
+| File | Axis | Bind-pose vertex range | Header `bounding_box` |
+|---|---|---|---|
+| `bloodelffemale.m2` | x | -0.572 .. 0.175 | -1.141 .. 1.093 |
+| `bloodelffemale.m2` | y | -0.329 .. 0.329 | -1.111 .. 1.054 |
+| `bloodelffemale.m2` | z | -0.011 .. 1.992 | -0.096 .. 2.308 |
+| `bloodelffemale_hd.m2` | x | -0.581 .. 0.188 | -8.990 .. 9.163 |
+| `bloodelffemale_hd.m2` | y | -0.521 .. 0.521 | -9.655 .. 9.553 |
+| `bloodelffemale_hd.m2` | z | -0.017 .. 2.084 | -0.921 .. 8.710 |
+
+`bloodelffemale.m2`'s header box runs roughly 2x the bind-pose mesh's own
+extent per axis; `bloodelffemale_hd.m2`'s runs roughly 4x on x/y and over
+4x on z. Both real character models, both non-trivially larger than a
+tight fit, both larger by an amount that scales with the *character's own
+proportions* rather than a fixed padding constant (x/y width tracks
+roughly the same ratio in both files despite `_hd`'s otherwise-similar
+bind pose). The pattern is consistent with `bounding_box` accounting for
+the model's full *animated* range — arm/weapon swings, spread limbs —
+not just its rest pose, though this hasn't been confirmed against an
+authoritative source (no wowdev.wiki text says so, and this session
+didn't attempt to trace it against a specific animation's own keyframe
+extremes to prove it directly).
+
+**What does hold, exactly, on both files**: the bind-pose mesh's own AABB
+is fully *contained* inside `bounding_box`, per axis, with no exceptions
+found. That's the real, tolerance-free invariant `tests/test_conformance.cpp`
+now checks (VERIFICATION_IDEAS.md case 3) — containment, not a tight-fit
+equality this session initially assumed and then had to correct once the
+numbers above came back.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -470,3 +518,4 @@ customization-choice lookup husk can't reach, now known to plausibly be a
 | §2 `AFSB` real resolution | `src/cmd_export.cpp` (`buildAnimations`'s external-file branch), `src/m2.cpp` (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`/`trackSequenceInnerArrays`, unchanged — just fed the `AFSB` payload as `externalDataBlob`) | `tests/test_cli.cpp`, `tests/test_integration.cpp` (real 336-clip corpus check) |
 | §3 `.skel` `SKS1` indexing + own `AFID` | `src/skel.hpp`/`skel.cpp` (`parseSequences`, `boneTrackBlob`, `findAnimFileIds`) | `tests/test_skel.cpp`, `tests/test_cli.cpp` |
 | §4 `.bone` format | `src/bone.hpp`/`bone.cpp` | `tests/test_bone.cpp` |
+| §5 `bounding_box` containment, not tight fit | `src/cmd_export.cpp` (unaffected — no code depends on `bounding_box` being tight), `tests/test_conformance.cpp` (`transformedM2BoundingBox`) | `tests/test_conformance.cpp` |

@@ -809,6 +809,93 @@ TEST_CASE("parseUint16Array: array running past the end of the blob throws") {
     CHECK_THROWS_AS(husk::m2::parseUint16Array(blob, array), husk::m2::ParseError);
 }
 
+TEST_CASE("parseVec3Array: reads count C3Vectors at offset in order") {
+    size_t off = 40;
+    std::vector<uint8_t> blob(off, 0);
+    blob.resize(off + 24, 0);
+    putF32(blob, off + 0, 1.0f);
+    putF32(blob, off + 4, 2.0f);
+    putF32(blob, off + 8, 3.0f);
+    putF32(blob, off + 12, -1.0f);
+    putF32(blob, off + 16, -2.0f);
+    putF32(blob, off + 20, -3.0f);
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = static_cast<uint32_t>(off);
+    auto values = husk::m2::parseVec3Array(blob, array);
+    REQUIRE(values.size() == 2);
+    CHECK(values[0].x == doctest::Approx(1.0f));
+    CHECK(values[0].y == doctest::Approx(2.0f));
+    CHECK(values[0].z == doctest::Approx(3.0f));
+    CHECK(values[1].x == doctest::Approx(-1.0f));
+    CHECK(values[1].y == doctest::Approx(-2.0f));
+    CHECK(values[1].z == doctest::Approx(-3.0f));
+}
+
+TEST_CASE("parseVec3Array: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 555;
+    CHECK(husk::m2::parseVec3Array(blob, array).empty());
+}
+
+TEST_CASE("parseVec3Array: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(8, 0);  // 12 bytes needed for one C3Vector
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = 0;
+    CHECK_THROWS_AS(husk::m2::parseVec3Array(blob, array), husk::m2::ParseError);
+}
+
+TEST_CASE("parseCollisionMesh: dereferences positions/indices/faceNormals into one CollisionMesh") {
+    std::vector<uint8_t> blob(100, 0);
+    // 2 positions (C3Vector) at offset 0
+    putF32(blob, 0, 0.0f);
+    putF32(blob, 4, 0.0f);
+    putF32(blob, 8, 0.0f);
+    putF32(blob, 12, 1.0f);
+    putF32(blob, 16, 0.0f);
+    putF32(blob, 20, 0.0f);
+    // 3 indices (uint16) at offset 24, forming one triangle
+    putU32(blob, 24, 0x00020001);  // 1, 2 (little-endian u16 pair)
+    blob[28] = 0;
+    blob[29] = 0;  // 0
+    // 1 face normal (C3Vector) at offset 30
+    putF32(blob, 30, 0.0f);
+    putF32(blob, 34, 0.0f);
+    putF32(blob, 38, 1.0f);
+
+    husk::m2::Array positions;
+    positions.count = 2;
+    positions.offset = 0;
+    husk::m2::Array indices;
+    indices.count = 3;
+    indices.offset = 24;
+    husk::m2::Array faceNormals;
+    faceNormals.count = 1;
+    faceNormals.offset = 30;
+
+    auto mesh = husk::m2::parseCollisionMesh(blob, positions, indices, faceNormals);
+    REQUIRE(mesh.positions.size() == 2);
+    REQUIRE(mesh.indices.size() == 3);
+    REQUIRE(mesh.faceNormals.size() == 1);
+    CHECK(mesh.indices[0] == 1);
+    CHECK(mesh.indices[1] == 2);
+    CHECK(mesh.indices[2] == 0);
+    CHECK(mesh.faceNormals[0].z == doctest::Approx(1.0f));
+}
+
+TEST_CASE("parseCollisionMesh: every array empty returns an all-empty CollisionMesh") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array empty;
+    auto mesh = husk::m2::parseCollisionMesh(blob, empty, empty, empty);
+    CHECK(mesh.positions.empty());
+    CHECK(mesh.indices.empty());
+    CHECK(mesh.faceNormals.empty());
+}
+
 TEST_CASE("parseHeader: TXID chunk, when present, is surfaced as textureFileDataIds") {
     auto md20 = buildMd20Blob();
     std::vector<uint8_t> file;
