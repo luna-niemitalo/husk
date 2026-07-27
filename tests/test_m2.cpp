@@ -244,6 +244,27 @@ std::vector<uint8_t> vec3Bytes(const husk::m2::Vec3& v) {
     return b;
 }
 
+std::vector<uint8_t> vec2Bytes(const husk::m2::Vec2& v) {
+    std::vector<uint8_t> b(8);
+    std::memcpy(b.data() + 0, &v.x, 4);
+    std::memcpy(b.data() + 4, &v.y, 4);
+    return b;
+}
+
+std::vector<uint8_t> floatBytes(float v) {
+    std::vector<uint8_t> b(4);
+    std::memcpy(b.data(), &v, 4);
+    return b;
+}
+
+// `size` is 1 (uint8_t) or 2 (uint16_t) -- matches resolveRawIntTrackSequence/
+// resolveRawIntGlobalSequenceTrack's own `elementSize` parameter.
+std::vector<uint8_t> rawIntBytes(uint32_t v, size_t size) {
+    std::vector<uint8_t> b(size);
+    for (size_t i = 0; i < size; ++i) b[i] = static_cast<uint8_t>(v >> (8 * i));
+    return b;
+}
+
 // Raw wire bytes for one M2CompQuat: 4x int16, x/y/z/w order (see
 // husk::m2::Quat's doc comment for why w comes last, and
 // src/m2.cpp's readCompQuat for the decompression formula this is meant to
@@ -1590,6 +1611,47 @@ TEST_CASE("parseRibbons: reads ribbonId/boneIndex/position/edgesPerSecond/edgeLi
     CHECK(ribbons[1].textureCols == 1);
 }
 
+TEST_CASE("parseRibbons: reads textureIndices/materialIndices lookup arrays, the 6 M2Track offsets, "
+          "and the trailing priorityPlane/ribbonColorIndex/textureTransformLookupIndex fields") {
+    std::vector<uint8_t> blob(300, 0);
+    putRibbon(blob, 300, 0xFFFFFFFFu, 3, {1, 2, 3}, 10.0f, 2.5f, -0.5f, 4, 2);
+
+    // textureIndices (0x14) -> [5, 6]; materialIndices (0x1C) -> [9].
+    size_t texIdxOff = blob.size();
+    putU16(blob, texIdxOff, 5);
+    putU16(blob, texIdxOff + 2, 6);
+    putArray(blob, 300 + 0x14, 2, static_cast<uint32_t>(texIdxOff));
+    size_t matIdxOff = blob.size();
+    putU16(blob, matIdxOff, 9);
+    putArray(blob, 300 + 0x1C, 1, static_cast<uint32_t>(matIdxOff));
+
+    putU16(blob, 300 + 0xAC, static_cast<uint16_t>(-7));  // priorityPlane
+    blob[300 + 0xAE] = static_cast<uint8_t>(static_cast<int8_t>(-2));    // ribbonColorIndex
+    blob[300 + 0xAF] = static_cast<uint8_t>(static_cast<int8_t>(3));     // textureTransformLookupIndex
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = 300;
+    auto ribbons = husk::m2::parseRibbons(blob, array);
+
+    REQUIRE(ribbons.size() == 1);
+    const auto& r = ribbons[0];
+    REQUIRE(r.textureIndices.size() == 2);
+    CHECK(r.textureIndices[0] == 5);
+    CHECK(r.textureIndices[1] == 6);
+    REQUIRE(r.materialIndices.size() == 1);
+    CHECK(r.materialIndices[0] == 9);
+    CHECK(r.colorTrackOffset == 300 + 0x24);
+    CHECK(r.alphaTrackOffset == 300 + 0x38);
+    CHECK(r.heightAboveTrackOffset == 300 + 0x4C);
+    CHECK(r.heightBelowTrackOffset == 300 + 0x60);
+    CHECK(r.texSlotTrackOffset == 300 + 0x84);
+    CHECK(r.visibilityTrackOffset == 300 + 0x98);
+    CHECK(r.priorityPlane == -7);
+    CHECK(r.ribbonColorIndex == -2);
+    CHECK(r.textureTransformLookupIndex == 3);
+}
+
 TEST_CASE("parseRibbons: empty array returns an empty vector without touching the blob") {
     std::vector<uint8_t> blob;
     husk::m2::Array array;
@@ -1604,6 +1666,139 @@ TEST_CASE("parseRibbons: array running past the end of the blob throws") {
     array.count = 1;   // 0xB0 bytes needed
     array.offset = 0;  // but the blob is only 20 bytes
     CHECK_THROWS_AS(husk::m2::parseRibbons(blob, array), husk::m2::ParseError);
+}
+
+// M2Particle, Cata+ shape (wowdev.wiki M2#Particle_emitters -- see
+// husk::m2::ParticleEmitter's doc comment for the full 0x1EC-byte offset
+// derivation and its real-file cross-check). Writes the fields this test
+// suite actually checks; every M2Track/FBlock region in between is left
+// zeroed (interpolation_type 0/global_sequence 0 reads as a valid, if
+// empty, constant track -- same convention putRibbon above uses for its
+// own skipped track regions).
+void putParticle(std::vector<uint8_t>& buf, size_t off, uint32_t particleId, uint32_t flags,
+                  const husk::m2::Vec3& position, uint16_t boneId, uint16_t textureId,
+                  const std::string& particleModelFilename, uint8_t blendingType,
+                  uint8_t emitterType, uint16_t particleColorIndex, uint16_t rows, uint16_t columns) {
+    if (buf.size() < off + 0x1EC) buf.resize(off + 0x1EC, 0);
+    putU32(buf, off + 0x00, particleId);
+    putU32(buf, off + 0x04, flags);
+    putF32(buf, off + 0x08, position.x);
+    putF32(buf, off + 0x0C, position.y);
+    putF32(buf, off + 0x10, position.z);
+    putU16(buf, off + 0x14, boneId);
+    putU16(buf, off + 0x16, textureId);
+    if (particleModelFilename.empty()) {
+        putArray(buf, off + 0x18, 0, 0);
+    } else {
+        size_t nameOff = buf.size();
+        buf.resize(nameOff + particleModelFilename.size());
+        std::memcpy(buf.data() + nameOff, particleModelFilename.data(), particleModelFilename.size());
+        putArray(buf, off + 0x18, static_cast<uint32_t>(particleModelFilename.size()),
+                 static_cast<uint32_t>(nameOff));
+    }
+    putArray(buf, off + 0x20, 0, 0);  // childEmittersModelFilename, empty
+    buf[off + 0x28] = blendingType;
+    buf[off + 0x29] = emitterType;
+    putU16(buf, off + 0x2A, particleColorIndex);
+    putU16(buf, off + 0x30, rows);
+    putU16(buf, off + 0x32, columns);
+}
+
+TEST_CASE("parseParticles: reads particleId/flags/position/boneId/textureId/"
+          "particleModelFilename/blendingType/emitterType/particleColorIndex/rows/columns for "
+          "every entry") {
+    // Both fixed-size records reserved up front, same reason
+    // parseTextures's own test pre-reserves 2*0x10 -- putParticle appends
+    // record 0's variable-length filename data at the *current* end of the
+    // buffer, which would otherwise land exactly where record 1's fixed
+    // bytes need to go.
+    std::vector<uint8_t> blob(500 + 2 * 0x1EC, 0);
+    putParticle(blob, 500, 0xFFFFFFFFu, 0x10000000u, {0.9f, -0.1f, 0.05f}, 12, 0x4,
+                "particle\\fire.m2", 4, 1, 0, 1, 1);
+    putParticle(blob, 500 + 0x1EC, 0xFFFFFFFFu, 2, {0, 0, 0}, 13, 0, "", 2, 2, 11, 2, 4);
+
+    husk::m2::Array array;
+    array.count = 2;
+    array.offset = 500;
+    auto particles = husk::m2::parseParticles(blob, array);
+
+    REQUIRE(particles.size() == 2);
+    const auto& p0 = particles[0];
+    CHECK(p0.particleId == 0xFFFFFFFFu);
+    CHECK(p0.flags == 0x10000000u);
+    CHECK(p0.position.x == doctest::Approx(0.9f));
+    CHECK(p0.position.z == doctest::Approx(0.05f));
+    CHECK(p0.boneId == 12);
+    CHECK(p0.textureId == 0x4);
+    CHECK(p0.particleModelFilename == "particle\\fire.m2");
+    CHECK(p0.blendingType == 4);
+    CHECK(p0.emitterType == 1);
+    CHECK(p0.rows == 1);
+    CHECK(p0.columns == 1);
+
+    const auto& p1 = particles[1];
+    CHECK(p1.boneId == 13);
+    CHECK(p1.particleModelFilename.empty());
+    CHECK(p1.blendingType == 2);
+    CHECK(p1.emitterType == 2);
+    CHECK(p1.particleColorIndex == 11);
+    CHECK(p1.rows == 2);
+    CHECK(p1.columns == 4);
+}
+
+TEST_CASE("parseParticles: reads multiTexScale/priorityPlane/lifespanVariation/splinePoints/"
+          "multiTexScrollMid/multiTexScrollRange") {
+    std::vector<uint8_t> blob(500, 0);
+    putParticle(blob, 500, 0xFFFFFFFFu, 0, {0, 0, 0}, 0, 0, "", 0, 1, 0, 1, 1);
+
+    // multiTexScale: fixed_point<int8_t,2,5>[2] -- raw 16 -> 16/32 = 0.5.
+    blob[500 + 0x2C] = 16;
+    blob[500 + 0x2D] = static_cast<uint8_t>(static_cast<int8_t>(-16));  // -16/32 = -0.5
+    putU16(blob, 500 + 0x2E, static_cast<uint16_t>(-3));                // priorityPlane
+    putF32(blob, 500 + 0xAC, 0.25f);                                    // lifespanVariation
+
+    // splinePoints (M2Array<C3Vector>) -> one point (1, 2, 3).
+    size_t splineOff = blob.size();
+    putF32(blob, splineOff, 1.0f);
+    putF32(blob, splineOff + 4, 2.0f);
+    putF32(blob, splineOff + 8, 3.0f);
+    putArray(blob, 500 + 0x1C0, 1, static_cast<uint32_t>(splineOff));
+
+    // multiTexScrollMid/Range: fixed_point<uint16_t,6,9>, raw 512 -> 1.0.
+    putU16(blob, 500 + 0x1DC, 512);
+    putU16(blob, 500 + 0x1E4, 1024);  // 1024/512 = 2.0
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = 500;
+    auto particles = husk::m2::parseParticles(blob, array);
+
+    REQUIRE(particles.size() == 1);
+    const auto& p = particles[0];
+    CHECK(p.multiTexScale[0] == doctest::Approx(0.5f));
+    CHECK(p.multiTexScale[1] == doctest::Approx(-0.5f));
+    CHECK(p.priorityPlane == -3);
+    CHECK(p.lifespanVariation == doctest::Approx(0.25f));
+    REQUIRE(p.splinePoints.size() == 1);
+    CHECK(p.splinePoints[0].y == doctest::Approx(2.0f));
+    CHECK(p.multiTexScrollMid[0] == doctest::Approx(1.0f));
+    CHECK(p.multiTexScrollRange[0] == doctest::Approx(2.0f));
+}
+
+TEST_CASE("parseParticles: empty array returns an empty vector without touching the blob") {
+    std::vector<uint8_t> blob;
+    husk::m2::Array array;
+    array.count = 0;
+    array.offset = 12345;
+    CHECK(husk::m2::parseParticles(blob, array).empty());
+}
+
+TEST_CASE("parseParticles: array running past the end of the blob throws") {
+    std::vector<uint8_t> blob(20, 0);
+    husk::m2::Array array;
+    array.count = 1;   // 0x1EC bytes needed
+    array.offset = 0;  // but the blob is only 20 bytes
+    CHECK_THROWS_AS(husk::m2::parseParticles(blob, array), husk::m2::ParseError);
 }
 
 // Builds a *full* M2Track<T> at `trackOff` -- both the `timestamps`
@@ -1797,6 +1992,177 @@ TEST_CASE("resolveVec3GlobalSequenceTrack: interpolation_type 2 or 3 throws, sam
 
     CHECK_THROWS_AS(husk::m2::resolveVec3GlobalSequenceTrack(blob, static_cast<uint32_t>(trackOff)),
                      husk::m2::ParseError);
+}
+
+TEST_CASE("resolveFloatTrackSequence: reads timestamp/value keyframe pairs for one sequence index") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff,
+                 {
+                     {{0, floatBytes(0.5f)}, {1000, floatBytes(1.5f)}},
+                     {{500, floatBytes(2.5f)}},
+                 });
+
+    auto seq0 = husk::m2::resolveFloatTrackSequence(blob, static_cast<uint32_t>(trackOff), 0);
+    REQUIRE(seq0.size() == 2);
+    CHECK(seq0[0].first == 0);
+    CHECK(seq0[0].second == doctest::Approx(0.5f));
+    CHECK(seq0[1].first == 1000);
+    CHECK(seq0[1].second == doctest::Approx(1.5f));
+
+    auto seq1 = husk::m2::resolveFloatTrackSequence(blob, static_cast<uint32_t>(trackOff), 1);
+    REQUIRE(seq1.size() == 1);
+    CHECK(seq1[0].second == doctest::Approx(2.5f));
+}
+
+TEST_CASE("resolveFloatTrackSequence: a track with a real global_sequence resolves to empty for "
+          "every sequence index, same non-misattribution guarantee as resolveVec3TrackSequence") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, floatBytes(1.0f)}}});
+    uint16_t globalSeq = 5;
+    std::memcpy(blob.data() + trackOff + 0x02, &globalSeq, 2);
+
+    CHECK(husk::m2::resolveFloatTrackSequence(blob, static_cast<uint32_t>(trackOff), 0).empty());
+}
+
+TEST_CASE("resolveFloatGlobalSequenceTrack: reads real keyframes for a global-sequence-driven "
+          "track") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, floatBytes(3.25f)}, {200, floatBytes(4.5f)}}});
+    uint16_t globalSeq = 2;
+    std::memcpy(blob.data() + trackOff + 0x02, &globalSeq, 2);
+
+    auto kfs = husk::m2::resolveFloatGlobalSequenceTrack(blob, static_cast<uint32_t>(trackOff));
+    REQUIRE(kfs.size() == 2);
+    CHECK(kfs[0].second == doctest::Approx(3.25f));
+    CHECK(kfs[1].first == 200);
+    CHECK(kfs[1].second == doctest::Approx(4.5f));
+}
+
+TEST_CASE("resolveRawIntTrackSequence: reads raw uint8_t and uint16_t keyframe values, zero-"
+          "extended, for one sequence index") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff16 = 100;
+    putFullTrack(blob, trackOff16, {{{0, rawIntBytes(0xBEEFu, 2)}, {10, rawIntBytes(1, 2)}}});
+    auto kfs16 = husk::m2::resolveRawIntTrackSequence(blob, static_cast<uint32_t>(trackOff16), 0, 2);
+    REQUIRE(kfs16.size() == 2);
+    CHECK(kfs16[0].second == 0xBEEFu);
+    CHECK(kfs16[1].second == 1u);
+
+    size_t trackOff8 = 200;
+    putFullTrack(blob, trackOff8, {{{0, rawIntBytes(0xAB, 1)}}});
+    auto kfs8 = husk::m2::resolveRawIntTrackSequence(blob, static_cast<uint32_t>(trackOff8), 0, 1);
+    REQUIRE(kfs8.size() == 1);
+    CHECK(kfs8[0].second == 0xABu);
+}
+
+TEST_CASE("resolveRawIntTrackSequence: an unsupported element size throws") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, rawIntBytes(1, 2)}}});
+    CHECK_THROWS_AS(husk::m2::resolveRawIntTrackSequence(blob, static_cast<uint32_t>(trackOff), 0, 4),
+                     husk::m2::ParseError);
+}
+
+TEST_CASE("resolveRawIntGlobalSequenceTrack: reads real keyframes for a global-sequence-driven "
+          "track") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, rawIntBytes(7, 1)}}});
+    uint16_t globalSeq = 9;
+    std::memcpy(blob.data() + trackOff + 0x02, &globalSeq, 2);
+
+    auto kfs = husk::m2::resolveRawIntGlobalSequenceTrack(blob, static_cast<uint32_t>(trackOff), 1);
+    REQUIRE(kfs.size() == 1);
+    CHECK(kfs[0].second == 7u);
+}
+
+// Builds one FBlock (wowdev.wiki's "Fake-AnimationBlock": flat
+// {nTimestamps, ofsTimestamps, nKeys, ofsKeys}, no per-sequence outer/inner
+// indirection -- see husk::m2::FBlockMeta's doc comment) from parallel
+// (uint16_t timestamp, raw value bytes) pairs.
+void putFBlock(std::vector<uint8_t>& buf, size_t blockOff,
+               const std::vector<std::pair<uint16_t, std::vector<uint8_t>>>& keyframes) {
+    if (buf.size() < blockOff + 0x10) buf.resize(blockOff + 0x10, 0);
+    size_t tsOff = buf.size();
+    for (const auto& kf : keyframes) putU16(buf, buf.size(), kf.first);
+    size_t valOff = buf.size();
+    for (const auto& kf : keyframes) buf.insert(buf.end(), kf.second.begin(), kf.second.end());
+
+    putArray(buf, blockOff + 0x00, static_cast<uint32_t>(keyframes.size()), static_cast<uint32_t>(tsOff));
+    putArray(buf, blockOff + 0x08, static_cast<uint32_t>(keyframes.size()),
+             static_cast<uint32_t>(valOff));
+}
+
+TEST_CASE("readFBlockMeta: reads the flat nTimestamps/ofsTimestamps/nKeys/ofsKeys header") {
+    std::vector<uint8_t> blob(100, 0);
+    putFBlock(blob, 50, {{0, floatBytes(1.0f)}, {32767, floatBytes(2.0f)}});
+
+    auto meta = husk::m2::readFBlockMeta(blob, 50);
+    CHECK(meta.timestamps.count == 2);
+    CHECK(meta.keys.count == 2);
+}
+
+TEST_CASE("resolveFBlockVec3: reads timestamp/value keyframe pairs directly, no sequence "
+          "indirection") {
+    std::vector<uint8_t> blob(100, 0);
+    putFBlock(blob, 50, {{0, vec3Bytes({255, 119, 0})}, {32767, vec3Bytes({151, 11, 11})}});
+
+    auto kfs = husk::m2::resolveFBlockVec3(blob, 50);
+    REQUIRE(kfs.size() == 2);
+    CHECK(kfs[0].first == 0);
+    CHECK(kfs[0].second.x == doctest::Approx(255));
+    CHECK(kfs[1].first == 32767);
+    CHECK(kfs[1].second.z == doctest::Approx(11));
+}
+
+TEST_CASE("resolveFBlockVec2: reads C2Vector keyframes") {
+    std::vector<uint8_t> blob(100, 0);
+    putFBlock(blob, 50, {{0, vec2Bytes({0.1f, 0.2f})}});
+
+    auto kfs = husk::m2::resolveFBlockVec2(blob, 50);
+    REQUIRE(kfs.size() == 1);
+    CHECK(kfs[0].second.x == doctest::Approx(0.1f));
+    CHECK(kfs[0].second.y == doctest::Approx(0.2f));
+}
+
+TEST_CASE("resolveFBlockFixed16: decodes fixed16 keyframes to 0.0..1.0 floats, same scale as "
+          "readFixed16TrackValue") {
+    std::vector<uint8_t> blob(100, 0);
+    putFBlock(blob, 50, {{0, fixed16Bytes(0)}, {16000, fixed16Bytes(32767)}});
+
+    auto kfs = husk::m2::resolveFBlockFixed16(blob, 50);
+    REQUIRE(kfs.size() == 2);
+    CHECK(kfs[0].second == doctest::Approx(0.0f));
+    CHECK(kfs[1].second == doctest::Approx(1.0f));
+}
+
+TEST_CASE("resolveFBlockUint16: reads raw uint16_t keyframes (flipbook cell indices)") {
+    std::vector<uint8_t> blob(100, 0);
+    putFBlock(blob, 50, {{0, rawIntBytes(3, 2)}, {100, rawIntBytes(7, 2)}});
+
+    auto kfs = husk::m2::resolveFBlockUint16(blob, 50);
+    REQUIRE(kfs.size() == 2);
+    CHECK(kfs[0].second == 3);
+    CHECK(kfs[1].second == 7);
+}
+
+TEST_CASE("resolveFBlockVec3: empty (zero keys) returns an empty vector, not an error") {
+    std::vector<uint8_t> blob(100, 0);
+    putFBlock(blob, 50, {});
+    CHECK(husk::m2::resolveFBlockVec3(blob, 50).empty());
+}
+
+TEST_CASE("resolveFBlockVec3: claimed key range past the end of the blob throws") {
+    std::vector<uint8_t> blob(20, 0);
+    // Claims 5 C3Vector keys (60 bytes) at offset 0, but the blob is only 20
+    // bytes -- same "trust the claimed count, bounds-check before reading"
+    // discipline as checkInnerArrayFits.
+    putArray(blob, 0, 5, 0);
+    putArray(blob, 8, 5, 0);
+    CHECK_THROWS_AS(husk::m2::resolveFBlockVec3(blob, 0), husk::m2::ParseError);
 }
 
 TEST_CASE("parseGlobalLoops: reads count M2Loop (bare uint32 timestamp) records in order") {

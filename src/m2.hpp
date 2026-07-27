@@ -457,22 +457,119 @@ struct Light {
 // Sequence elsewhere in this file; the wiki itself marks the trailing
 // priorityPlane/RibbonColorIndex/textureTransformLookupIndex fields "TODO:
 // verify version", but they're present in every version this parser
-// targets either way). Only the static, non-M2Track, non-M2Array fields
-// are surfaced -- colorTrack/alphaTrack/heightAboveTrack/heightBelowTrack/
-// texSlotTrack/visibilityTrack (all M2Track<T>, real keyframe animation)
-// and textureIndices/materialIndices (M2Array<uint16_t> lookup tables,
-// same category as .skin's own indirected bone lookup husk already leaves
-// unread) are skipped, same "structural fields now, animated/indirected
-// data later" policy as Attachment/Event/Light above.
+// targets either way). `textureIndices`/`materialIndices` (M2Array<uint16_t>
+// lookup tables) are surfaced directly; the six M2Track<T> fields
+// (colorTrack/alphaTrack/heightAboveTrack/heightBelowTrack/texSlotTrack/
+// visibilityTrack) are stored as raw track offsets only -- same
+// "descriptor now, real keyframe resolution happens downstream" policy as
+// Bone's own three tracks (see Bone::translationTrackOffset's doc comment)
+// -- full curve resolution for these lives in `husk dump-chunks`
+// (src/cmd_dump.cpp), not here.
 struct Ribbon {
     uint32_t ribbonId = 0;  // "Always (as I have seen): -1" per the wiki
     uint32_t boneIndex = 0;  // bone to attach to
     Vec3 position;            // relative to `boneIndex`
+    std::vector<uint16_t> textureIndices;   // into the model's own `textures` array
+    std::vector<uint16_t> materialIndices;  // into the model's own `materials` array
+    uint32_t colorTrackOffset = 0;        // M2Track<C3Vector>
+    uint32_t alphaTrackOffset = 0;        // M2Track<fixed16>
+    uint32_t heightAboveTrackOffset = 0;  // M2Track<float>
+    uint32_t heightBelowTrackOffset = 0;  // M2Track<float>
     float edgesPerSecond = 0;  // ribbon smoothness -- quads generated per second
     float edgeLifetime = 0;    // seconds a generated quad stays around
     float gravity = 0;         // use arcsin(val) for the emission angle, per the wiki
     uint16_t textureRows = 0;  // tiles in the ribbon's texture
     uint16_t textureCols = 0;
+    uint32_t texSlotTrackOffset = 0;    // M2Track<uint16_t>
+    uint32_t visibilityTrackOffset = 0;  // M2Track<uint8_t>
+    int16_t priorityPlane = 0;
+    int8_t ribbonColorIndex = 0;
+    int8_t textureTransformLookupIndex = 0;
+};
+
+// M2Particle, per wowdev.wiki M2#Particle_emitters -- the Cata+ shape only
+// (M2ParticleOld's late-BC blendingType/emitterType width + Cata's
+// multiTexScale + Wrath's FBlock-based color/alpha/scale/UV curves +
+// Cata's multiTexScrollMid/Range wrapper), 492 (0x1EC) bytes on disk. Per
+// the wiki's own note ("if 0x200 is set or if version is bigger than 271,
+// length of M2ParticleOld is 492"), every real file this parser targets
+// (version >= kMinVerifiedParticleVersion) always uses the 492-byte shape
+// unconditionally, regardless of the per-particle flag -- so there's no
+// version OR per-record branching inside parseParticles, only the
+// file-level kMinVerifiedParticleVersion gate. Verified against real
+// weapon particle emitters (mace_2h_bolvar_d_01.m2, see
+// WIKI_FINDINGS.md): decoded colors form a real fire/ember gradient,
+// alpha/scale curves are clean fade/grow envelopes, and the MultiTexture
+// flag bit (0x10000000) correlates exactly with non-zero multiTexScale.
+// Older (pre-BC/pre-Wrath/pre-Cata) shapes are real but unverified against
+// any file this project has access to -- not implemented, same
+// "kMinVerified*"-gated policy as Bone/Sequence/Ribbon (see
+// kMinVerifiedRecordStrideVersion). M2Track/FBlock fields are stored as
+// raw offsets; full curve resolution lives downstream in
+// `husk dump-chunks` (src/cmd_dump.cpp), same split as Ribbon's tracks.
+struct ParticleEmitter {
+    uint32_t particleId = 0;  // "Always (as I have seen): -1" per the wiki
+    uint32_t flags = 0;       // see wowdev.wiki M2#Particle_Flags
+    Vec3 position;             // relative to `boneId`
+    uint16_t boneId = 0;
+    // Cata+: 3x 5-bit sub-fields (textureId1/textureId2/textureId3) + 1 pad
+    // bit, for multi-textured particles -- stored raw, un-decoded, same
+    // "give the raw bits, let a consumer interpret" policy as elsewhere.
+    uint16_t textureId = 0;
+    std::string particleModelFilename;       // non-empty: this emitter spawns model particles
+    std::string childEmittersModelFilename;  // non-empty: child emitters come from this model
+    uint8_t blendingType = 0;  // see wowdev.wiki M2#Particle_Blendings
+    uint8_t emitterType = 0;   // 1=Plane, 2=Sphere, 3=Spline, 4=Bone
+    uint16_t particleColorIndex = 0;  // ParticleColor.dbc row selector, 0 = unmodified
+    // fixed_point<int8_t,2,5>[2] decoded to float (raw / 32.0f) -- per-
+    // texture-layer scale for multi-textured particles.
+    float multiTexScale[2] = {0, 0};
+    int16_t priorityPlane = 0;
+    uint16_t rows = 0;  // tiles in texture
+    uint16_t columns = 0;
+    uint32_t emissionSpeedTrackOffset = 0;      // M2Track<float>
+    uint32_t speedVariationTrackOffset = 0;     // M2Track<float>
+    uint32_t verticalRangeTrackOffset = 0;      // M2Track<float>
+    uint32_t horizontalRangeTrackOffset = 0;    // M2Track<float>
+    uint32_t gravityTrackOffset = 0;            // M2Track<float>
+    uint32_t lifespanTrackOffset = 0;           // M2Track<float>
+    float lifespanVariation = 0;
+    uint32_t emissionRateTrackOffset = 0;       // M2Track<float>
+    float emissionRateVariation = 0;
+    uint32_t emissionAreaWidthTrackOffset = 0;  // M2Track<float>
+    uint32_t emissionAreaLengthTrackOffset = 0; // M2Track<float>
+    uint32_t zSourceTrackOffset = 0;            // M2Track<float>
+    uint32_t colorTrackBlockOffset = 0;  // FBlock<C3Vector>
+    uint32_t alphaTrackBlockOffset = 0;  // FBlock<fixed16>
+    uint32_t scaleTrackBlockOffset = 0;  // FBlock<C2Vector>
+    Vec2 scaleVary;  // percentage amount to randomly vary each particle's scale
+    uint32_t headUVAnimBlockOffset = 0;  // FBlock<uint16_t>, flipbook cell indices
+    uint32_t tailUVAnimBlockOffset = 0;  // FBlock<uint16_t>
+    float tailLength = 0;
+    float twinkleSpeed = 0;
+    float twinklePercent = 0;
+    float twinkleScaleMin = 0;  // CRange
+    float twinkleScaleMax = 0;
+    float inheritVelocityScale = 0;
+    float drag = 0;
+    float baseSpin = 0;
+    float baseSpinVariation = 0;
+    float spinSpeed = 0;
+    float spinSpeedVariation = 0;
+    Vec3 tumbleMin;  // M2Box: angular velocity min/max, ModelParticles only
+    Vec3 tumbleMax;
+    Vec3 windVector;  // static wind, ignored if the DynamicWind flag is set
+    float windTime = 0;
+    float followSpeed1 = 0;
+    float followScale1 = 0;
+    float followSpeed2 = 0;
+    float followScale2 = 0;
+    std::vector<Vec3> splinePoints;  // spline emitter control points (emitterType == 3)
+    uint32_t enabledInTrackOffset = 0;  // M2Track<uint8_t>
+    // 2x vector_2fp_6_9 (fixed_point<uint16_t,6,9>), decoded to float
+    // (raw / 512.0f), as {x0, y0, x1, y1}.
+    float multiTexScrollMid[4] = {0, 0, 0, 0};
+    float multiTexScrollRange[4] = {0, 0, 0, 0};
 };
 
 struct ParseError : std::runtime_error {
@@ -684,6 +781,91 @@ std::vector<std::pair<uint32_t, Quat>> resolveQuatGlobalSequenceTrack(
     const std::vector<uint8_t>& blob, uint32_t trackOffset,
     const std::vector<uint8_t>* externalDataBlob = nullptr);
 
+// Same shape as resolveVec3TrackSequence, but for an M2Track<float> --
+// M2Particle's ~10 simulation-parameter tracks (emissionSpeed, gravity,
+// lifespan, ...) and M2Ribbon's heightAboveTrack/heightBelowTrack are all
+// this type; unlike Vec3/Quat (2 real call sites total), this one has over
+// a dozen real occurrences once particles are parsed, past this codebase's
+// own "third occurrence earns an abstraction" bar (see CLAUDE.md), so it's
+// a real named function rather than another hand-duplicated copy.
+std::vector<std::pair<uint32_t, float>> resolveFloatTrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    const std::vector<uint8_t>* externalDataBlob = nullptr);
+
+// Global-sequence counterpart to resolveFloatTrackSequence, same relationship
+// resolveVec3GlobalSequenceTrack has to resolveVec3TrackSequence.
+std::vector<std::pair<uint32_t, float>> resolveFloatGlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset,
+    const std::vector<uint8_t>* externalDataBlob = nullptr);
+
+// Same shape as resolveVec3TrackSequence, but for an M2Track<T> whose
+// keyframe values are a small raw integer (uint8_t/uint16_t/int16_t) rather
+// than a float/Vec3/Quat -- M2Ribbon's texSlotTrack (uint16_t)/
+// visibilityTrack (uint8_t) and M2Particle's enabledIn (uint8_t) all need
+// this, but each individually has too few real occurrences (1-2) to justify
+// its own named function the way resolveFloatTrackSequence's dozen+ uses
+// do -- `elementSize` (1 or 2 bytes) plays the same runtime-parameter role
+// here that checkInnerArrayFits already uses instead of a template, matching
+// this codebase's existing style. Each keyframe's raw little-endian bytes
+// are returned zero-extended into a uint32_t; scaling (e.g. alphaTrack's
+// fixed16 0..0x7FFF -> 0.0..1.0) is the caller's job, same split
+// readFixed16TrackValue already draws from its own raw bit read. Throws
+// ParseError if `elementSize` isn't 1 or 2, or under the same conditions as
+// resolveVec3TrackSequence otherwise.
+std::vector<std::pair<uint32_t, uint32_t>> resolveRawIntTrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    size_t elementSize, const std::vector<uint8_t>* externalDataBlob = nullptr);
+
+// Global-sequence counterpart to resolveRawIntTrackSequence.
+std::vector<std::pair<uint32_t, uint32_t>> resolveRawIntGlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t elementSize,
+    const std::vector<uint8_t>* externalDataBlob = nullptr);
+
+// M2Particle's Wrath+ colorTrack/alphaTrack/scaleTrack/headUVAnim/
+// tailUVAnim use a different, simpler shape than M2Track -- wowdev.wiki's
+// "Fake-AnimationBlock": a flat `{nTimestamps, ofsTimestamps, nKeys,
+// ofsKeys}` (16 bytes) pointing directly at real keyframe data, no
+// per-M2Sequence outer/inner indirection at all ("they're unable to change
+// between different animations, so they directly point to the data").
+// Cross-checked against real particle data (mace_2h_bolvar_d_01.m2): the
+// timestamp values themselves are `uint16_t`, *not* the `uint32_t`
+// milliseconds a real M2Track uses -- confirmed both by the wiki text ("the
+// timestamps are shorts") and by real files, where they run 0..0x7FFF
+// monotonically per key set. That range strongly suggests a normalized
+// lifetime fraction (0 = particle spawn, 0x7FFF = particle death) rather
+// than an absolute time, consistent with these curves having no
+// M2Sequence/global-sequence to be absolute against -- exposed as raw
+// `uint16_t` here (not rescaled to 0.0..1.0), since husk hasn't found an
+// authoritative source confirming that interpretation, only strong
+// circumstantial real-data evidence (see WIKI_FINDINGS.md).
+struct FBlockMeta {
+    Array timestamps;
+    Array keys;
+};
+FBlockMeta readFBlockMeta(const std::vector<uint8_t>& blob, uint32_t blockOffset);
+
+// Resolves one FBlock's keyframes as raw Vec3 (colorTrack: C3Vector RGB
+// multiplier, wire values observed 0..255-ish, not normalized 0..1 -- see
+// FBlockMeta's doc comment, exposed raw rather than guessing a scale).
+// Throws ParseError if the claimed timestamp/key ranges run past the end of
+// the blob. Empty (zero keys) returns an empty vector, not an error.
+std::vector<std::pair<uint16_t, Vec3>> resolveFBlockVec3(const std::vector<uint8_t>& blob,
+                                                           uint32_t blockOffset);
+
+// Same as resolveFBlockVec3, but for a C2Vector (scaleTrack).
+std::vector<std::pair<uint16_t, Vec2>> resolveFBlockVec2(const std::vector<uint8_t>& blob,
+                                                           uint32_t blockOffset);
+
+// Same as resolveFBlockVec3, but for a fixed16 scalar (alphaTrack) --
+// decoded to a 0.0..1.0 float the same way readFixed16TrackValue does.
+std::vector<std::pair<uint16_t, float>> resolveFBlockFixed16(const std::vector<uint8_t>& blob,
+                                                               uint32_t blockOffset);
+
+// Same as resolveFBlockVec3, but for a raw uint16_t (headUVAnim/tailUVAnim
+// flipbook-cell indices).
+std::vector<std::pair<uint16_t, uint16_t>> resolveFBlockUint16(const std::vector<uint8_t>& blob,
+                                                                 uint32_t blockOffset);
+
 // Reads `array.count` M2Loop records (wowdev.wiki M2#Global_sequences: a
 // bare `uint32_t timestamp` each, the total duration in milliseconds a
 // global sequence loops over) out of `blob` at `array.offset` -- the
@@ -748,6 +930,31 @@ std::vector<Light> parseLights(const std::vector<uint8_t>& blob, const Array& ar
 // parseAttachments. An empty array (count 0) returns an empty vector
 // without touching `array.offset`.
 std::vector<Ribbon> parseRibbons(const std::vector<uint8_t>& blob, const Array& array);
+
+// The lowest header version parseParticles's 0x1EC-byte record shape is
+// documented and real-data-verified for: Cataclysm, per expansionForVersion's
+// own table (see ParticleEmitter's doc comment for the real-file cross-check
+// this was confirmed against). Callers check `header.version <
+// kMinVerifiedParticleVersion` and warn/report count-only rather than
+// silently trusting output this parser was never confirmed to read
+// correctly for an older shape -- same policy kMinVerifiedRecordStrideVersion
+// already uses for Bone/Sequence/Ribbon, just a newer floor since
+// M2Particle's own byte layout genuinely changed at Cataclysm (unlike those
+// three, which are stride-stable back to Wrath).
+constexpr uint32_t kMinVerifiedParticleVersion = 272;
+
+// Reads `array.count` M2Particle records out of `blob` starting at
+// `array.offset`, at the fixed 0x1EC-byte Cata+ stride (see
+// ParticleEmitter's doc comment) -- callers must check
+// `version >= kMinVerifiedParticleVersion` themselves before calling this;
+// it does not check `version` on its own (mirroring parseRibbons/parseBones,
+// which likewise never branch on version internally). Throws ParseError if
+// the fixed-size record range, or any nested M2Array/M2Track/FBlock
+// descriptor read while resolving `particleModelFilename`/
+// `childEmittersModelFilename`/`splinePoints`/`textureIndices`-shaped
+// fields, runs past the end of the blob. An empty array (count 0) returns
+// an empty vector without touching `array.offset`.
+std::vector<ParticleEmitter> parseParticles(const std::vector<uint8_t>& blob, const Array& array);
 
 // Best-effort expansion label(s) for a raw header version number, per the
 // wiki's own version table -- which the wiki itself calls "rough estimates"

@@ -89,9 +89,13 @@ Parses the header only and prints:
   FileDataIDs when present.
 - every `materials` entry's `flags`/`blend_mode`.
 - `attachments`/`events`/`lights` records, fully dereferenced (id/bone/
-  position, or type/bone/position for lights); `cameras`/`ribbon_emitters`/
-  `particle_emitters` are still counts-only (not dereferenced -- see the
-  format matrix).
+  position, or type/bone/position for lights); `ribbon_emitters`/
+  `particle_emitters` get a one-line-per-emitter summary (id/bone/position,
+  plus blend/emitter type and tile counts for particles) -- full field/curve
+  data lives in `husk dump-chunks`, not here (see the format matrix).
+  `particle_emitters` stays counts-only below Cataclysm (version 272, see
+  `m2::kMinVerifiedParticleVersion`). `cameras` is still counts-only (not
+  dereferenced -- see the format matrix).
 - sidecar-reference chunks when present: `SFID` (skin FileDataIDs, used by
   `--skin auto` below), `LDV1` (LOD count), `BFID` (`.bone` FileDataIDs),
   `AFID` (`.anim` FileDataIDs).
@@ -254,11 +258,18 @@ husk export bloodelffemale_hd.m2 out.glb --skin bloodelffemale_hd00.skin \
 
 ### `husk dump-chunks <file.m2>` / `husk dump-chunks <file.bone>`
 
-Extracts M2 chunks that don't feed `export`'s glTF output at all (mostly
+Extracts M2 data that doesn't feed `export`'s glTF output at all into
+readable JSON on stdout. Two categories: Legion+-only chunk tags (mostly
 rendering-effect/gameplay metadata glTF's material model has no equivalent
-for) into readable JSON on stdout -- see [roadmap stage 6's
-follow-on](#roadmap-modern-m2--blender-via-gltf) and `DESIGN.md` for which
-chunks and why.
+for -- see [roadmap stage 6's follow-on](#roadmap-modern-m2--blender-via-gltf)
+and `DESIGN.md` for which chunks and why), and `ribbon_emitters`/
+`particle_emitters` -- core header arrays present in every M2 version, every
+field and every resolved animation curve (procedural emitter data, same "no
+glTF slot" reasoning as the chunks, broadened to this command once real
+particle/ribbon-bearing weapon files made full parsing possible to verify --
+see `WIKI_FINDINGS.md`). `husk export` separately attaches a minimal
+position/bone placement anchor for each emitter directly to the `.glb`'s skin
+`extras`; this command is where the rest of the data lives.
 
 Given a `.bone` file directly (no `.m2`/`.skel` magic to sniff -- husk falls
 back to the `.bone` shape), dumps its per-bone correction matrices (`BIDA`/
@@ -333,7 +344,7 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | Animation sequences / tracks | 📖 `sequences` resolved to real `M2Sequence` records (`id`/`variationIndex`/`duration`/`flags`) whether inline (`src/m2.cpp`'s `parseSequences`) or `.skel`-sourced (`SKS1`, `src/skel.cpp`'s `parseSequences`); each bone's `translation`/`rotation`/`scale` `M2Track` resolved per-sequence (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`) into real glTF `animation` clips by `husk export`, for sequences whose data lives inline (`flags & 0x20`) *or* an external `.anim` file resolved via `--anim` + the model's own `AFID` chunk (or the `.skel`'s own separate `AFID` table, for a `.skel`-sourced skeleton) — verified against real files both ways (see the Usage section and roadmap stage 6), `AFM2`- and `AFSB`-shaped external files alike (`AFSB` is the real shape for `.skel`-linked models; its undocumented byte layout was cracked — `SKB1`'s own per-bone/per-sequence descriptors point directly into it, no new parser needed, see `WIKI_FINDINGS.md` §2's follow-up). A bone track whose `global_sequence` field is set (continuous, `M2Sequence`-independent looping — glow pulses, idle sway) also resolves to its own real glTF clip (`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack`, one clip per distinct global-sequence index actually used), for inline and `.skel`-sourced bones alike. Still unresolved: sequences with `flags & 0x40` ("alias", wowdev.wiki: "I have no clue" where that data lives) | ❔ no sequence/track chunk documented in the fetched spec at all | ⬛ (`MOUV` texture-translation anim is the closest thing; counted under Materials) | ⬛ |
 | Interaction points (attachments, cameras, events) | 🚧 `attachments`/`events` resolved to real records (`id`/`bone`/`position` for attachments, `identifier`/`data`/`bone`/`position` for events — both static-fields-only, their own `M2Track` sub-fields skipped, `src/m2.cpp`'s `parseAttachments`/`parseEvents`, surfaced via `husk info`); `cameras` still count/offset-only — `M2Camera` is almost entirely `M2SplineKey`-animated data with a version-ambiguous field layout, not attempted yet | ❔ not present in the fetched chunk list | ⬛ | ⬛ |
 | Lights | 🚧 `lights` resolved to `type`/`bone`/`position` (`src/m2.cpp`'s `parseLights`, static fields only — ambient/diffuse color+intensity and attenuation are all `M2Track`-animated and skipped), surfaced via `husk info` | ❔ | ⬜ `MOLT` + `MOLR`/`MOLS`/`MOLP` + Shadowlands lightset system (`MLSS`/`MLSP`/`MLSO`/`MLSK`), `MNLD` dynamic lights, legacy v14 `MOLM`/`MOLD` lightmaps | ⬛ |
-| Particles / ribbons (effects) | 🚧 `particle_emitters` array counts/offsets read only (`husk info`); `M2Particle` records not dereferenced — a large, heavily version-conditional struct, out of scope so far (see `TODO_correctness.md`). `ribbon_emitters` records *are* dereferenced (`m2::Ribbon`/`parseRibbons`, `src/m2.cpp`, confirmed 0xB0-byte record) — static fields (`ribbonId`/`boneIndex`/`position`/`edgesPerSecond`/`edgeLifetime`/`gravity`/`textureRows`/`textureCols`) surfaced via `husk info`, same static-fields-only pattern as attachments/events/lights; the six embedded `M2Track`s (color/alpha/height/texSlot/visibility) and the two lookup tables are left unread; `TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1` (small per-particle side-chunks) are extracted to JSON by `husk dump-chunks`, not integrated into glTF (see `DESIGN.md`) | ❔ `M3PT` chunk family declared but wiki notes "not yet seen in files" | ⬜ `MPVD` particulate volumes, `MAVG`/`MAVD`/`MBVD` ambient/box volumes + their `*VR` reference lists | ⬛ |
+| Particles / ribbons (effects) | 📖 both `m2::Ribbon`/`parseRibbons` and `m2::ParticleEmitter`/`parseParticles` (`src/m2.cpp`) fully dereference every field, including the M2Track/FBlock-based animation curves — Ribbon's 6 tracks and Particle's ~10 `M2Track<float>` simulation parameters resolved per-sequence (or via the global-sequence resolver, `resolveFloatTrackSequence`/`resolveVec3TrackSequence`/`resolveRawIntTrackSequence`), Particle's Wrath+ `FBlock`-based color/alpha/scale/UV curves resolved directly (no per-sequence indirection, `resolveFBlockVec3`/`Vec2`/`Fixed16`/`Uint16`) — verified against real weapon particle data (`mace_2h_bolvar_d_01.m2`: decoded colors form a real fire/ember gradient, alpha/scale curves are clean envelopes, the `MultiTexture` flag bit correlates exactly with non-zero `multiTexScale` — see `WIKI_FINDINGS.md`). `M2Particle` is gated to `kMinVerifiedParticleVersion` (272, Cataclysm — the shape genuinely changed there, unlike Ribbon/Bone/Sequence's Wrath floor); below that, count-only with a loud warning, same policy as `kMinVerifiedRecordStrideVersion`. Neither type has a native glTF representation (procedural emitters, not geometry): the **full** record (every field, every resolved curve) is `husk dump-chunks`'s JSON output (`ribbon_emitters`/`particle_emitters` keys, broadened from that command's original Legion+-chunk-only scope — see `src/cmd_dump.cpp`'s doc comment); `husk export` additionally attaches a **minimal** placement anchor (id/bone/position only) to the `.glb` skin's `extras`, so a Blender script can place a marker without needing the JSON at all. `TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1` (small per-particle side-chunks, a separate concern from the M2Particle record itself) remain `dump-chunks`-only, not integrated into glTF | ❔ `M3PT` chunk family declared but wiki notes "not yet seen in files" | ⬜ `MPVD` particulate volumes, `MAVG`/`MAVD`/`MBVD` ambient/box volumes + their `*VR` reference lists | ⬛ |
 | Fog / environment volumes | ⬛ | ⬛ | ⬜ `MFOG` + `MFED` extra data + `MFOB` fog objects | ⬛ |
 | Liquid / water | ⬛ | ⬛ | ⬜ `MLIQ` | ⬛ |
 | Portals / visibility culling | ⬛ | ⬛ | ⬜ `MOPV`/`MOPT`/`MOPR`/`MOPE`, `MOVV`/`MOVB` visible-block lists | ⬛ |
@@ -640,6 +651,22 @@ above; this section is about *sequencing* that work, not duplicating it.
    `WIKI_FINDINGS.md` §4 and `TODO_correctness.md` #6). Wiring a bone
    correction into the exported skeleton would need that external
    (client-side DB2, out of husk's reach by design) lookup answered first.
+   **Particles/ribbons: fully parsed, split across a `.glb` anchor and
+   `dump-chunks` JSON.** `M2Ribbon`/`M2Particle` (`m2::parseRibbons`/
+   `parseParticles`, `src/m2.cpp`) are now fully dereferenced -- every
+   static field, plus every M2Track/FBlock animation curve, resolved and
+   real-data-verified against actual weapon particle effects (fire/ember
+   color gradients, alpha fade envelopes, growing scale curves -- see
+   `WIKI_FINDINGS.md`). Like `.bone` corrections, neither type has a
+   native glTF representation (procedural emitters, not geometry), but
+   unlike the small, bounded `.bone`-correction/geoset/texture-transform
+   `extras`, this data can be large (dozens of emitters, each with several
+   curves) -- so it's deliberately split: `husk export` attaches only a
+   minimal placement anchor (id/bone/position) to the `.glb`'s skin
+   `extras`, and the full record lives in `husk dump-chunks`'s JSON output
+   instead (see below). `M2Particle`'s record shape is version-gated
+   (Cataclysm+, `m2::kMinVerifiedParticleVersion`) the same way Bone/
+   Sequence/Ribbon already gate on Wrath.
    **Simple, unintegrated M2 chunks: extracted to JSON, not glTF.**
    `husk dump-chunks <file.m2>` (`src/cmd_dump.cpp`) pulls `TXAC`/`EXPT`/
    `PABC`/`PADC`/`PSBC`/`PEDC`/`RPID`/`GPID`/`PGD1`/`WFV3`/`NERF`/`EDGF`/
@@ -651,7 +678,10 @@ above; this section is about *sequencing* that work, not duplicating it.
    layout, or a wiki-acknowledged-uncertain one (`WFV1`/`WFV2`/`DPIV`/
    `AFRA`/`DETL`/`PFDC`/`PCOL`/`EXP2`), are still included as a raw hex
    dump plus a note explaining why, rather than silently dropped -- see
-   `DESIGN.md` for the per-chunk reasoning.
+   `DESIGN.md` for the per-chunk reasoning. This same command also now
+   carries the full `ribbon_emitters`/`particle_emitters` records (see
+   above) -- a deliberate broadening from its original Legion+-chunk-only
+   scope, since the "no glTF slot" rationale applies equally to both.
 7. **Output hardening. Done** — every real-data export
    (`tests/test_conformance.cpp`) now runs through two independent, real
    downstream consumers, not just tinygltf's own (fairly permissive)

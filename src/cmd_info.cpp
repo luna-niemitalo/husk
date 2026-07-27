@@ -248,9 +248,26 @@ int info(int argc, char** args) {
         std::cout << "    ribbonId=" << r.ribbonId << " bone=" << r.boneIndex << " position=";
         printVec3(r.position);
         std::cout << " edgesPerSecond=" << r.edgesPerSecond << " edgeLifetime=" << r.edgeLifetime
-                   << "\n";
+                   << " textures=" << r.textureIndices.size() << " materials=" << r.materialIndices.size()
+                   << " (full field/curve data: `husk dump-chunks`)\n";
     }
     printArray("particle_emitters", h.particleEmitters);
+    if (h.particleEmitters.count > 0 && h.version < m2::kMinVerifiedParticleVersion) {
+        std::cerr << "husk: warning: version " << h.version << " is below Cataclysm ("
+                  << m2::kMinVerifiedParticleVersion
+                  << ") -- M2Particle's record shape is only documented and verified for Cata+; "
+                     "particle_emitters is count-only for this file rather than risking a "
+                     "silent misread at the wrong byte offset\n";
+    } else {
+        for (const auto& p : m2::parseParticles(blob, h.particleEmitters)) {
+            std::cout << "    particleId=" << p.particleId << " bone=" << p.boneId << " position=";
+            printVec3(p.position);
+            std::cout << " blendingType=" << static_cast<int>(p.blendingType)
+                       << " emitterType=" << static_cast<int>(p.emitterType) << " rows=" << p.rows
+                       << " columns=" << p.columns
+                       << " (full field/curve data: `husk dump-chunks`)\n";
+        }
+    }
 
     std::cout << "  bounding_box: min=";
     printVec3(h.boundingBox.min);

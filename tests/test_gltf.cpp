@@ -273,7 +273,7 @@ TEST_CASE("writeGlb: a joint's billboardMode becomes a \"billboard\" key in its 
 }
 
 TEST_CASE("writeGlb: a skeleton's correctionSets round-trip as bone_correction_sets on the "
-          "skin's extras (WIKI_FINDINGS.md §4/TODO_correctness.md #5)") {
+          "skin's extras (WIKI_FINDINGS.md §4/TODO_correctness.md #4)") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();
 
@@ -332,6 +332,79 @@ TEST_CASE("writeGlb: a correctionSet entry with an out-of-range joint throws") {
     skel.correctionSets = {set};
 
     CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: a skeleton's ribbonAnchors/particleAnchors round-trip as ribbon_emitters/"
+          "particle_emitters on the skin's extras -- minimal placement data only") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.ribbonAnchors = {{0xFFFFFFFFu, 1, {0.1f, 0.2f, 0.3f}}};
+    skel.particleAnchors = {{42, 0, {1.0f, -1.0f, 0.5f}}, {43, 1, {0, 0, 0}}};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.skins[0].extras;
+    REQUIRE(extras.IsObject());
+
+    const auto& ribbons = extras.Get("ribbon_emitters");
+    REQUIRE(ribbons.IsArray());
+    REQUIRE(ribbons.ArrayLen() == 1);
+    CHECK(ribbons.Get(0).Get("id").GetNumberAsInt() == -1);
+    CHECK(ribbons.Get(0).Get("joint").GetNumberAsInt() == 1);
+    const auto& rPos = ribbons.Get(0).Get("position");
+    CHECK(rPos.Get("x").GetNumberAsDouble() == doctest::Approx(0.1));
+    CHECK(rPos.Get("z").GetNumberAsDouble() == doctest::Approx(0.3));
+
+    const auto& particles = extras.Get("particle_emitters");
+    REQUIRE(particles.IsArray());
+    REQUIRE(particles.ArrayLen() == 2);
+    CHECK(particles.Get(0).Get("id").GetNumberAsInt() == 42);
+    CHECK(particles.Get(1).Get("joint").GetNumberAsInt() == 1);
+}
+
+TEST_CASE("writeGlb: a skeleton with no ribbon/particle anchors gets no such extras keys") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    CHECK_FALSE(model.skins[0].extras.IsObject());
+}
+
+TEST_CASE("writeGlb: a ribbon anchor with an out-of-range joint throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.ribbonAnchors = {{0, 99, {0, 0, 0}}};
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: a particle anchor with an out-of-range joint throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.particleAnchors = {{0, -1, {0, 0, 0}}};
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: ribbon/particle anchors coexist with bone_correction_sets without "
+          "clobbering each other") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    husk::gltf::Skeleton::CorrectionSet set;
+    set.fileDataId = 7;
+    skel.correctionSets = {set};
+    skel.ribbonAnchors = {{0, 0, {0, 0, 0}}};
+    skel.particleAnchors = {{0, 0, {0, 0, 0}}};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.skins[0].extras;
+    REQUIRE(extras.IsObject());
+    CHECK(extras.Get("bone_correction_sets").IsArray());
+    CHECK(extras.Get("ribbon_emitters").IsArray());
+    CHECK(extras.Get("particle_emitters").IsArray());
 }
 
 // A single writeGlb mesh may legitimately share a skeleton without being

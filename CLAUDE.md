@@ -12,14 +12,20 @@ tool, `blp/`) converts BLP2 textures to PNG.
 ## Status
 
 - **Current**: `husk info` (header/record-count/chunk-tag summary, incl. per-texture/
-  material detail and sidecar FileDataIDs), `husk export` (static mesh → skeleton +
+  material detail and sidecar FileDataIDs, plus a one-line ribbon/particle-emitter
+  summary), `husk export` (static mesh → skeleton +
   skinning, inline or external `.skel` → materials with real embedded textures →
   animation, inline/external-`.anim`/`.skel`-sourced, verified against real
   `bloodelffemale.m2`/`bloodelffemale_hd.m2` data), `husk export --lod`
   (single-tier or `all`), `husk export --bones-dir` (real `.bone` correction
   data attached as inert `bone_correction_sets` glTF skin `extras`, never
-  applied to the render — see Resume), `husk dump-chunks` (JSON dump of chunks
-  with no glTF equivalent, or `.bone` files directly). `blp/`'s `husk-blp` (BLP2 → PNG:
+  applied to the render — see Resume), every export also attaching minimal
+  ribbon/particle placement anchors (id/bone/position, `ribbon_emitters`/
+  `particle_emitters` skin `extras`, unconditional — see Resume), `husk
+  dump-chunks` (JSON dump of Legion+ chunks with no glTF equivalent, *and* —
+  broadened this session — full `M2Ribbon`/`M2Particle` records including
+  every resolved animation curve, present in every M2 version; or `.bone`
+  files directly). `blp/`'s `husk-blp` (BLP2 → PNG:
   palettized/DXT1/DXT5/BGRA). `husk export`'s CLI grammar is CLI11-based named
   flags (`--input`/`--output` positional-fallback, everything else named,
   `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel`/`--bones-dir`
@@ -38,14 +44,18 @@ tool, `blp/`) converts BLP2 textures to PNG.
   case had a final disposition, folded back into `tests/test_conformance.cpp`/
   `WIKI_FINDINGS.md` §5, same scratch-doc lifecycle `DESIGN_CHANGES.md`
   had) are now implemented too, plus a real collision-mesh export husk
-  never had before — see Resume. Remaining work is either scope expansion
+  never had before. `M2Particle`/`M2Ribbon` (weapon glow trails, magic/fire/
+  smoke — the single biggest remaining visual-identity gap this tool had) are
+  now fully parsed, every field and every resolved animation curve, split
+  between a minimal glTF placement anchor and `husk dump-chunks`'s full JSON
+  output — see Resume. Remaining work is either scope expansion
   (WMO/M3, not started, by design) or the structural gaps `TODO_correctness.md`
-  already tracks (`M2Particle`, plus `.bone` correction *selection* — the
-  extras-export half is done, see Resume; picking which slot applies is blocked
-  on client-side DB2 data husk doesn't have, not on more investigation) —
-  nothing currently in flight.
-- Anything not listed under Current does not exist yet. In particular: `M2Particle`/
-  `M2Camera` are still count-only (not dereferenced). Three FAILURES2.md gaps
+  already tracks (`M2Camera`, low-priority by design; `.bone` correction
+  *selection* — the extras-export half is done, see Resume; picking which
+  slot applies is blocked on client-side DB2 data husk doesn't have, not on
+  more investigation) — nothing currently in flight.
+- Anything not listed under Current does not exist yet. In particular: `M2Camera`
+  is still count-only (not dereferenced). Three FAILURES2.md gaps
   (geoset selection #1, multi-texture-layer rendering #6, global-sequence animation
   #7) all went further than a diagnostic this session: geoset `skinSectionId` and
   additional (`textureCount > 1`) texture layers are now real glTF `extras`
@@ -84,7 +94,166 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: `VERIFICATION_IDEAS.md`'s survey (source-M2-counts vs.
+- **Last state**: Particles/ribbons (`M2Particle`/`M2Ribbon`) — the single
+  biggest remaining visual-identity gap this tool had (weapon glow trails,
+  magic/fire/smoke) — went from 0%/static-fields-only to fully parsed:
+  every static field, plus every M2Track/FBlock animation curve, for both
+  types. Requested as "what's the next biggest step in M2 coverage to WoW
+  feel/look" with the user's own hunch (particles and ribbons) confirmed
+  and pursued.
+  - **Real test data was the actual blocker, and got solved mid-session.**
+    Every M2 fixture previously in `test_data/` (blood elf female, base +
+    HD) has zero particle/ribbon emitters. Luna extracted the game's full
+    weapon set into `test_data/item/objectcomponents/weapon/` (gitignored,
+    1.6G, 4112 `.m2` files, same "real, personally-owned extraction, never
+    committed" convention as the character fixtures) mid-session, in
+    response. A scan found 1270 files with real particle/ribbon data, all
+    sampled at M2 version 272/274 (Cataclysm+) — four fixtures selected
+    and now permanently referenced by `tests/test_data_paths.hpp`
+    (`kWeaponRibbon` = Ashbringer, 3 ribbons/0 particles;
+    `kWeaponParticleA`/`B` = two combined ribbon+particle weapons;
+    `kWeaponParticleStress` = a 64-particle-emitter mace).
+  - **Architecture went through a real design pivot, twice, before
+    implementation** (both via `EnterPlanMode`/`AskUserQuestion`, not
+    silently decided): first draft put everything in glTF `extras`
+    (matching `.bone`-correction/geoset/texture-transform precedent) —
+    the user pushed back, asking whether an auxiliary file (the BLP→PNG
+    precedent) fit better given `dump-chunks` already exists for "M2 data
+    with no glTF slot." Second draft routed everything through
+    `dump-chunks` — but that command's own stated scope (`src/
+    cmd_dump.cpp`'s doc comment, its usage text) is Legion+ chunk tags
+    only, and `M2Ribbon`/`M2Particle` are core `MD20` header arrays
+    present in *every* version, a real, narrower boundary than "no glTF
+    slot." Landed on a hybrid, confirmed by the user directly ("point it
+    at a dir, get generic file equivalents... completeness and
+    automatability are the key"): a **minimal placement anchor**
+    (id/bone/position, `gltf::Skeleton::EmitterAnchor`) unconditionally in
+    the `.glb` skin's `extras`, and the **full record** (every field,
+    every resolved curve) in `dump-chunks`'s JSON output — which required
+    deliberately broadening that command's own documented scope (usage
+    text and doc comment both rewritten to state it explicitly, not left
+    to imply chunk-tags-only while secretly doing more).
+  - **Offset derivation was hand-done, not guessed, and cross-checked
+    twice** — the wiki gives `M2Particle`'s explicit hex offsets only up
+    to `childEmittersModelFilename`; everything after (all
+    version-conditional branches: late-BC field-width change, Cata's
+    `multiTexScale`, Wrath's extra floats and `FBlock`-based curves) was
+    summed field-by-field by hand. That derivation landed on exactly the
+    wiki's own independently-stated total record size (476 bytes default,
+    492 with the Cata+ wrapper) without being fudged to fit — a real
+    independent check, not circular. Then cross-checked a second way,
+    against real bytes (`mace_2h_bolvar_d_01.m2`, 64 particles): decoded
+    colors form a genuine fire/ember gradient, alpha/scale curves are
+    clean envelopes, and the `MultiTexture` flag bit correlates exactly
+    with non-zero `multiTexScale` — see `WIKI_FINDINGS.md` §6 for the full
+    writeup, including a real bug an early ad hoc verification script had
+    (skipped the real per-sequence `M2Track` inner-array indirection,
+    producing a plausible-but-wrong near-zero alpha value instead of the
+    real resolver's correct 0.8) that the "verify against real data before
+    trusting a claim" discipline caught before it reached any shipped
+    code. Also found and confirmed independently: `FBlock` (the Wrath+
+    particle color/alpha/scale/UV curve shape) timestamps are `uint16_t`,
+    not the `uint32_t` a real `M2Track` uses — matches the wiki's own "the
+    timestamps are shorts" text and decodes to a clean monotonic
+    `0..0x7FFF` run against real bytes; interpreted as likely a normalized
+    lifetime fraction (hypothesis, not confirmed against an authoritative
+    source) but exposed raw regardless, per this project's own "don't
+    guess at semantics" discipline.
+  - **New shared infrastructure** (`src/m2.hpp`/`m2.cpp`): `readU8`,
+    `resolveFloatTrackSequence`/`resolveFloatGlobalSequenceTrack` (a real
+    named function, not another hand-duplicated Vec3/Quat-style copy —
+    `M2Particle` alone has ~10 real `M2Track<float>` fields, past this
+    codebase's own "third occurrence earns an abstraction" bar),
+    `resolveRawIntTrackSequence`/`resolveRawIntGlobalSequenceTrack`
+    (`elementSize`-as-runtime-parameter, matching `checkInnerArrayFits`'s
+    own existing style, for the lower-occurrence uint8_t/uint16_t/fixed16
+    cases that didn't individually earn a named function), and
+    `FBlockMeta`/`resolveFBlockVec3`/`Vec2`/`Fixed16`/`Uint16` (a
+    private templated `resolveFBlockGeneric` helper backing all four —
+    the one place this session used a template, since the alternative was
+    four near-identical hand-copies of a flat, no-indirection curve
+    reader, more duplication than even this codebase's own
+    duplication-tolerant style usually accepts).
+  - **`m2::Ribbon`/`m2::ParticleEmitter` (`src/m2.hpp`)**: Ribbon gained
+    `textureIndices`/`materialIndices` lookup arrays, 6 new track-offset
+    fields, and the Wrath+ trailing `priorityPlane`/`ribbonColorIndex`/
+    `textureTransformLookupIndex`. `ParticleEmitter` is new outright —
+    every Cata+-shape field, ~30 in total, gated to a new
+    `kMinVerifiedParticleVersion = 272` (same "verified floor, warn below
+    it" policy `kMinVerifiedRecordStrideVersion` already established for
+    Bone/Sequence/Ribbon, just a newer floor since `M2Particle`'s own byte
+    layout genuinely changed at Cataclysm, unlike those three).
+  - **`src/cmd_info.cpp`**: ribbon printout extended (track/lookup
+    counts); new particle one-line-per-emitter summary, gated the same
+    way, with a loud warning (matching the existing below-Wrath one)
+    for real `particle_emitters` data below Cataclysm.
+  - **`src/cmd_dump.cpp`**: `dumpEmitters` (+ `writeRibbon`/`writeParticle`/
+    `writeTrackCurve`/`writeFloatTrack`/`writeVec3Track`/`writeRawIntTrack`/
+    `writeFBlockCurve`) — full JSON, written unconditionally (before the
+    existing `header.chunked` early-return, which now only gates the
+    Legion+ chunk-tag section, not the whole command) so pre-Legion flat
+    files still get real `ribbon_emitters`/`particle_emitters` output.
+  - **`src/gltf.hpp`/`gltf.cpp`**: `Skeleton::EmitterAnchor` (one shared
+    struct for both `ribbonAnchors`/`particleAnchors` — structurally
+    identical, so not duplicated into two types) serialized as
+    `ribbon_emitters`/`particle_emitters` keys on the same `skinExtras`
+    object `bone_correction_sets` already uses (verified all three
+    coexist without clobbering); `writeGlbMulti` gained the matching
+    out-of-range-joint validation `correctionSets` already had.
+  - **`src/cmd_export.cpp`**: unconditional (no new CLI flag, unlike
+    `--bones-dir`) — builds ribbon/particle anchors right after the
+    `--bones-dir` block, reusing the already-parsed `header`/`blob`, with
+    a real bug caught by the compiler, not by inspection: the first
+    attempt aggregate-initialized `EmitterAnchor` directly from
+    `m2::Vec3`/`m2::Ribbon::position` without the existing `toGltf()`
+    conversion helper — `m2::Vec3` and `gltf::Vec3` are distinct
+    aggregate types (no implicit conversion), so it failed to compile
+    rather than silently skipping the Z-up→Y-up remap every other
+    exported position already goes through. Fixed by using `toGltf()`,
+    same as every other position in this pipeline.
+  - **Tests**: 337 → 376 cases. New `test_m2.cpp` cases for every new
+    resolver (`resolveFloatTrackSequence`/`resolveRawIntTrackSequence`/
+    `resolveFBlockVec3`/`Vec2`/`Fixed16`/`Uint16`, global-sequence variants,
+    bounds-checking throws), `parseRibbons`'s new fields, and
+    `parseParticles` (happy path, extra fields, empty, out-of-bounds).
+    New `test_gltf.cpp` cases for `EmitterAnchor` round-trip (present/
+    absent/out-of-range-throws/coexists-with-correctionSets). New
+    `test_dump.cpp` cases for the JSON output shape, plus a real-byte-
+    offset synthetic fixture on a flat (non-chunked) file proving
+    `ribbon_emitters`/`particle_emitters` aren't chunk-gated. New
+    `test_cli.cpp` cases for the `kMinVerifiedParticleVersion` warning.
+    New `test_integration.cpp` real-data cases (`doctest::skip`-gated on
+    the new weapon fixtures): exact ribbon/particle anchor counts against
+    all four real files via tinygltf, plus a `dump-chunks` NaN/finite
+    sanity check on the 64-particle stress file. Both `./build/husk-tests`
+    (376/376, 1 permanently-inapplicable skip) and `ctest` (377/377) green.
+  - **Verification discipline**: a `gltf_validator` sweep across all four
+    real exports found one pre-existing "Joints do not have a common
+    root" error on two of the four weapon models — confirmed via
+    `git stash`/rebuild/re-export against the unmodified baseline that
+    this predates the session entirely (this session's diff never touches
+    joint-parent assignment), then `git stash pop`/rebuilt/re-verified
+    376/376 green before continuing, rather than assuming.
+  - **Docs**: `README.md` (format matrix row rewritten from 🚧 to 📖, `husk
+    info`/`dump-chunks` usage sections, a new roadmap-stage-6 paragraph),
+    `M2_COMPLETENESS.md` (Ribbons/Particles rows), `DESIGN.md` (new Key
+    design decisions bullet on the anchor/full-data split and why,
+    Boundaries/data-flow bullets, the flag-gating table), `WIKI_FINDINGS.md`
+    (new §6: the offset derivation, the `FBlock`-`uint16_t`-timestamp
+    finding, the real bug an early verification script had),
+    `TODO_correctness.md` (former item 1, particles, removed outright per
+    this file's own "fixed items get removed" convention — not marked
+    `[Fixed]` — remaining items renumbered 2-5 → 1-4, every
+    `TODO_correctness.md #N` cross-reference across `src/`/`tests/`
+    grep-verified and updated to match, same careful-renumbering
+    precedent the AFSB removal already set).
+  - **Environment note, reconfirmed**: `direnv exec . uv run --no-project
+    python3 <script>`, scripts written to files in the scratchpad rather
+    than passed inline (`python3 -c ...`), per explicit instruction this
+    session — inline `-c` invocations otherwise prompt for confirmation
+    on every single iteration, which adds up fast during real-data
+    byte-level verification work like this session's offset derivation.
+- **Previous state**: `VERIFICATION_IDEAS.md`'s survey (source-M2-counts vs.
   exported-glb vs. Blender-readback cross-checks) went from "none of this
   is implemented" to cases 1/2/3/5 all real, in exactly the file's own
   triviality-ranked order (case 4 stayed deliberately skipped, per its own
@@ -436,32 +605,40 @@ real-file-driven spec correction found along the way.
   `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel` got the
   three/four-state (`auto`/explicit/`none`) treatment `DESIGN.md`'s CLI
   grammar section still documents in full.
-- **Next step**: nothing in flight. `AFSB` is fully resolved — no further
-  work needed there barring a real multi-model cross-check if a
-  non-blood-elf `.skel`-linked character file ever shows up in
-  `test_data/` (the packing/alignment rule was verified across one
-  model's entire real corpus, not multiple distinct models; worth
-  reconfirming if the opportunity arises, not urgent since the
-  underlying mechanism — reusing already-verified `SKB1` descriptor
-  resolution — has no model-specific assumptions baked in). Remaining
-  known gaps are exactly what `TODO_correctness.md` tracks post-renumbering
-  (item 1: `M2Particle` dereferencing; item 5: `.bone` slot *selection* —
-  the extras-export half is done, picking a slot is blocked on client-side
-  DB2 data husk doesn't have and, per `DESIGN.md`'s non-goals, never will
-  at runtime; two awareness-only footnotes), plus optional scope expansion
-  (WMO/M3, or Blender-side tooling for the geoset/multi-texture-layer/
-  bone-correction `extras`). The M2-vs-glb-vs-Blender verification cases
-  (former `VERIFICATION_IDEAS.md`, see Last state) are now all resolved —
-  cases 1/2/3/5 implemented, case 4 deliberately left as-is; nothing
-  pending there, the file itself is gone. One real,
-  minor loose end from an earlier session worth picking up if
+- **Next step**: nothing in flight. Particles/ribbons are fully parsed and
+  verified (see Last state) — no further work needed there barring: (a) a
+  real pre-Cataclysm particle-bearing file ever showing up, which would
+  let `kMinVerifiedParticleVersion`'s floor be lowered with real evidence
+  instead of guessed; (b) full per-sequence/global-sequence curve
+  resolution was *not* deferred this session (it's already real, both for
+  `M2Track`-based and `FBlock`-based curves — see Last state), so there's
+  no "finish the curves" follow-up the way `M2Ribbon`'s own earlier
+  static-fields-first pass once left one. Remaining known gaps are exactly
+  what `TODO_correctness.md` tracks post-renumbering (item 1: `M2Camera`,
+  low-priority by design, not oversight; item 4: `.bone` slot *selection*
+  — the extras-export half is done, picking a slot is blocked on
+  client-side DB2 data husk doesn't have and, per `DESIGN.md`'s
+  non-goals, never will at runtime; two awareness-only footnotes), plus
+  optional scope expansion (WMO/M3, or Blender-side tooling for the
+  geoset/multi-texture-layer/bone-correction/ribbon/particle `extras`).
+  One real, minor loose end from an earlier session worth picking up if
   `cmd_export.cpp` is touched again: `resolveSkin`'s failure messages
   could name the specific candidate path/FileDataID they tried, not just
   the directory — small, not urgent.
 - **Hazards**: none new from this session's own changes beyond what's
-  already folded into the code/docs (the `writeGlbMulti` skinning
-  relaxation and `blender_import_check.py` fixes are both covered by real
-  tests, not just asserted safe). One thing worth knowing if
+  already folded into the code/docs (the ribbon/particle anchor
+  out-of-range-joint validation and the `dumpEmitters`-before-
+  `header.chunked`-early-return restructuring are both covered by real
+  tests, not just asserted safe). Two pre-existing, unrelated
+  `gltf_validator` "Joints do not have a common root" errors on 2 of the
+  4 real weapon fixtures (`offhand_1h_revendreth_d_01.m2`,
+  `mace_2h_bolvar_d_01.m2`) were confirmed via `git stash`/rebuild against
+  the unmodified baseline to predate this session entirely — a genuine,
+  still-open gap (some weapon models have a multi-root bone hierarchy
+  husk's `buildSkeleton` doesn't currently reconcile into one glTF-spec-
+  conformant root) but out of this session's own scope; worth a future
+  session if weapon-model export quality becomes a focus. One thing worth
+  knowing if
   `cmd_export.cpp`'s collision-mesh block is touched again: it always
   appends its `NamedMesh` *after* every render/LOD entry — anything
   indexing `namedMeshes` by position (like the "N LOD tier(s)" summary

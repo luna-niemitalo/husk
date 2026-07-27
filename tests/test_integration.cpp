@@ -31,6 +31,7 @@
 #include <string>
 #include <tiny_gltf.h>
 
+#include "m2.hpp"
 #include "run_husk.hpp"
 #include "test_data_paths.hpp"
 
@@ -47,6 +48,10 @@ using husk::test::testSkelSkin;
 using husk::test::testSkin;
 using husk::test::testSkinDir;
 using husk::test::testTexturesDir;
+using husk::test::testWeaponParticleA;
+using husk::test::testWeaponParticleB;
+using husk::test::testWeaponParticleStress;
+using husk::test::testWeaponRibbon;
 
 // Shape-only skinning check: a real character model has bones, so this
 // must have produced a glTF skin, not silently dropped it. Doesn't assert
@@ -431,7 +436,7 @@ TEST_CASE(
 
 TEST_CASE(
     "husk export: --bones-dir attaches real .bone correction data as inert skin extras, end to "
-    "end (WIKI_FINDINGS.md §4/TODO_correctness.md #5)" *
+    "end (WIKI_FINDINGS.md §4/TODO_correctness.md #4)" *
     doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
                   testBonesDir().empty())) {
     std::string m2Path = testSkelM2();
@@ -470,6 +475,97 @@ TEST_CASE(
     CHECK(c0.Get("matrix").ArrayLen() == 16);
 
     std::filesystem::remove(outPath);
+}
+
+// Real ribbon/particle emitter data (weapon models -- see
+// tests/test_data_paths.hpp's kWeaponRibbon/kWeaponParticleA/B/Stress doc
+// comment for how these were chosen out of a 4112-file scan). Checks the
+// exported .glb's skin extras ribbon_emitters/particle_emitters anchor
+// arrays against the real header counts -- exact, not a tolerance, same
+// precedent the collision-mesh work established (see CLAUDE.md's Resume).
+void checkEmitterAnchorCounts(const std::string& m2Path, size_t expectedRibbons,
+                               size_t expectedParticles) {
+    auto header = husk::m2::loadFile(m2Path);
+    CHECK(header.ribbonEmitters.count == expectedRibbons);
+    CHECK(header.particleEmitters.count == expectedParticles);
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-emitters.glb").string();
+    std::filesystem::remove(outPath);
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(model.skins.size() == 1);
+    const auto& extras = model.skins[0].extras;
+
+    if (expectedRibbons > 0) {
+        REQUIRE(extras.IsObject());
+        const auto& ribbons = extras.Get("ribbon_emitters");
+        REQUIRE(ribbons.IsArray());
+        CHECK(static_cast<size_t>(ribbons.ArrayLen()) == expectedRibbons);
+        const auto& r0 = ribbons.Get(0);
+        CHECK(r0.Get("joint").GetNumberAsInt() >= 0);
+        REQUIRE(r0.Get("position").IsObject());
+    } else if (extras.IsObject()) {
+        CHECK_FALSE(extras.Get("ribbon_emitters").IsArray());
+    }
+
+    if (expectedParticles > 0) {
+        REQUIRE(extras.IsObject());
+        const auto& particles = extras.Get("particle_emitters");
+        REQUIRE(particles.IsArray());
+        CHECK(static_cast<size_t>(particles.ArrayLen()) == expectedParticles);
+    } else if (extras.IsObject()) {
+        CHECK_FALSE(extras.Get("particle_emitters").IsArray());
+    }
+
+    std::filesystem::remove(outPath);
+}
+
+TEST_CASE("husk export: a real ribbon-only weapon (Ashbringer) gets exactly 3 ribbon anchors, 0 "
+          "particle anchors" *
+          doctest::skip(testWeaponRibbon().empty())) {
+    checkEmitterAnchorCounts(testWeaponRibbon(), /*expectedRibbons=*/3, /*expectedParticles=*/0);
+}
+
+TEST_CASE("husk export: a real combined ribbon+particle weapon gets exactly 1 ribbon anchor and "
+          "2 particle anchors" *
+          doctest::skip(testWeaponParticleA().empty())) {
+    checkEmitterAnchorCounts(testWeaponParticleA(), /*expectedRibbons=*/1, /*expectedParticles=*/2);
+}
+
+TEST_CASE("husk export: a second real combined ribbon+particle weapon gets exactly 1 ribbon "
+          "anchor and 2 particle anchors" *
+          doctest::skip(testWeaponParticleB().empty())) {
+    checkEmitterAnchorCounts(testWeaponParticleB(), /*expectedRibbons=*/1, /*expectedParticles=*/2);
+}
+
+TEST_CASE("husk export: a real 64-particle-emitter weapon (stress case) gets exactly 64 particle "
+          "anchors, 0 ribbon anchors" *
+          doctest::skip(testWeaponParticleStress().empty())) {
+    checkEmitterAnchorCounts(testWeaponParticleStress(), /*expectedRibbons=*/0,
+                              /*expectedParticles=*/64);
+}
+
+TEST_CASE("husk dump-chunks: a real weapon's particle_emitters JSON resolves plausible, "
+          "finite color/alpha/scale curve values, not garbage or NaN" *
+          doctest::skip(testWeaponParticleStress().empty())) {
+    auto result = runHusk("dump-chunks \"" + testWeaponParticleStress() + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"particle_id\"") != std::string::npos);
+    CHECK(result.output.find("\"color_track\"") != std::string::npos);
+    CHECK(result.output.find("\"alpha_track\"") != std::string::npos);
+    // A NaN keyframe would serialize as the JSON literal `null` (see
+    // json::Writer::value(double)'s isfinite guard) -- if that ever shows
+    // up inside a resolved curve, something upstream decoded garbage.
+    CHECK(result.output.find("\"value\": null") == std::string::npos);
 }
 
 TEST_CASE("husk export: skin file that doesn't belong to the given M2 fails cleanly" *

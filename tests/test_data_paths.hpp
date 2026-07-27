@@ -111,7 +111,7 @@ inline std::string autoSkinDir(const std::string& m2Path, const std::string& ski
 // produce. HUSK_TEST_BONES_DIR, if set explicitly, still overrides this
 // entirely. The NN -> BFID[NN] positional assignment is arbitrary for test
 // purposes, not a claimed real slot mapping (see WIKI_FINDINGS.md
-// §4/TODO_correctness.md #5: that mapping is exactly the client-side
+// §4/TODO_correctness.md #4: that mapping is exactly the client-side
 // customization-choice data husk doesn't have access to) -- this fixture
 // only needs to prove the resolution/parse/extras pipeline works end to
 // end against real '.bone' bytes, not that any particular slot is
@@ -181,6 +181,22 @@ constexpr const char* kSkel = "character/bloodelf/female/bloodelffemale_hd.skel"
 // separate one, since that's exactly the layout a real casc-tool extraction
 // produces.
 constexpr const char* kAnimDir = "character/bloodelf/female";
+// Real weapon models with ribbon/particle emitters (see WIKI_FINDINGS.md's
+// particle/ribbon section) -- sit under this repo's own gitignored
+// test_data/item/objectcomponents/weapon/ (Luna's own personally-owned
+// extraction of the game's full weapon set, same convention as the
+// character fixtures above, never committed). Chosen by a full 4112-file
+// scan: kWeaponRibbon is ribbon-only (3 ribbons, 0 particles) for a clean
+// first cross-check; kWeaponParticleA/B each have both (1-2 ribbons, 2
+// particles) for a combined check; kWeaponParticleStress has 64 particle
+// emitters and 0 ribbons, the largest real file available, for a
+// multi-emitter stress check. All four are Cataclysm+ (version 272/274),
+// at or above kMinVerifiedParticleVersion.
+constexpr const char* kWeaponRibbon = "item/objectcomponents/weapon/sword_2h_ashbringer_a_01.m2";
+constexpr const char* kWeaponParticleA =
+    "item/objectcomponents/weapon/sword_1h_artifactskywall_d_06.m2";
+constexpr const char* kWeaponParticleB = "item/objectcomponents/weapon/offhand_1h_revendreth_d_01.m2";
+constexpr const char* kWeaponParticleStress = "item/objectcomponents/weapon/mace_2h_bolvar_d_01.m2";
 }  // namespace fixtures
 
 inline std::string testM2() { return resolve("HUSK_TEST_M2", fixtures::kM2); }
@@ -196,6 +212,18 @@ inline std::string testSkelM2() { return resolve("HUSK_TEST_SKEL_M2", fixtures::
 inline std::string testSkelSkin() { return resolve("HUSK_TEST_SKEL_SKIN", fixtures::kSkelSkin); }
 inline std::string testAnimDir() { return resolve("HUSK_TEST_ANIM_DIR", fixtures::kAnimDir); }
 inline std::string testSkel() { return resolve("HUSK_TEST_SKEL", fixtures::kSkel); }
+inline std::string testWeaponRibbon() {
+    return resolve("HUSK_TEST_WEAPON_RIBBON", fixtures::kWeaponRibbon);
+}
+inline std::string testWeaponParticleA() {
+    return resolve("HUSK_TEST_WEAPON_PARTICLE_A", fixtures::kWeaponParticleA);
+}
+inline std::string testWeaponParticleB() {
+    return resolve("HUSK_TEST_WEAPON_PARTICLE_B", fixtures::kWeaponParticleB);
+}
+inline std::string testWeaponParticleStress() {
+    return resolve("HUSK_TEST_WEAPON_PARTICLE_STRESS", fixtures::kWeaponParticleStress);
+}
 inline std::string testBonesDir() { return autoBonesDir(testSkel()); }
 
 }  // namespace husk::test

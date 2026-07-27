@@ -509,6 +509,85 @@ assumed and then had to correct once the numbers above came back.
 
 ---
 
+## 6. `M2` — `M2Particle`'s Cata+ byte offsets, and `FBlock` timestamps being `uint16_t` (not the `uint32_t` a real `M2Track` uses), both confirmed against real weapon particle data
+
+**Confidence: confirmed**, both against a genuine real-file corpus (Luna's
+own weapon-model extraction, `test_data/item/objectcomponents/weapon/`, a
+4112-file scan that found 1270 files with real ribbon/particle data — the
+first time this project has had any) and, for the offset table itself,
+independently cross-checked against wowdev.wiki's own stated total-record-
+size claim.
+
+**`M2Particle`'s post-`childEmittersModelFilename` offsets aren't given as
+explicit hex on the wiki** — only sequential struct-declaration order,
+version-conditional branches included (late-BC `blendingType`/`emitterType`
+width, Cata's `multiTexScale` replacing `particleType`/`headOrTail`, Wrath's
+`lifespanVariation`/`emissionRateVariation`/`baseSpin*`/`spinSpeed*` and its
+`FBlock`-based color/alpha/scale/UV curves replacing the pre-Wrath fixed
+arrays). Hand-deriving the Cata+ shape field-by-field and summing it landed
+on exactly 0x1DC (476) bytes for the "default" `M2ParticleOld`, then exactly
+0x1EC (492) once the Cata+ `multiTexScrollMid`/`multiTexScrollRange`
+wrapper is added — matching the wiki's own independent claim ("if 0x200 is
+set or if version is bigger than 271, length of `M2ParticleOld` is 492")
+precisely, without that total being fudged to fit. Every real weapon
+fixture sampled is version 272 or 274 (Cataclysm+), so the "version bigger
+than 271" branch always applies uniformly — no per-record length variation
+to handle within the verified range.
+
+**Real-data sanity checks, not just size arithmetic**, against
+`mace_2h_bolvar_d_01.m2` (64 real particle emitters):
+
+- `particleId` is `0xFFFFFFFF` (-1) for every one of the 64 entries,
+  matching the wiki's "Always (as I have seen): -1" note exactly.
+- `boneId` runs in small, mostly-sequential integers (12, 13, 14, ...) —
+  consistent with a run of glow-point attachment bones down the mace head,
+  not garbage.
+- The `MultiTexture` flag bit (`0x10000000`) is set if and only if that
+  entry's `multiTexScale` decodes to a non-zero value — an independent
+  cross-check between two unrelated fields (a flags bitmask and a
+  `fixed_point<int8_t,2,5>` pair) that only lines up if both offsets are
+  correct.
+- Decoded `colorTrack` keyframes (the Wrath+ `FBlock<C3Vector>`) form a
+  genuine fire/ember gradient: `(255, 119, 0) → (151, 11, 11)` for one
+  emitter, `(245, 238, 217) → (255, 158, 2) → (180, 75, 0) → (100, 16, 0) →
+  (25, 12, 5) → (0, 0, 0)` (white-hot to ember to black) for another.
+- Decoded `alphaTrack`/`scaleTrack` keyframes are clean fade-in/fade-out
+  envelopes and smoothly-growing scale curves respectively — not the
+  NaN/garbage a wrong offset produces (an early hand-written verification
+  script *did* produce exactly that kind of garbage once, from a real bug:
+  see below).
+
+**`FBlock` timestamps are `uint16_t`, confirmed by both the wiki text and
+real bytes.** The wiki's own "Fake-AnimationBlock" section says "the
+timestamps are shorts" — read literally at first and then re-verified
+directly: decoding a real `colorTrack`'s timestamp array as `uint16_t`
+produces a clean monotonic run from 0 up to exactly `0x7FFF` (32767);
+decoding the same bytes as `uint32_t` produces enormous, non-monotonic
+garbage. The `0..0x7FFF` range strongly suggests a normalized fraction of
+the particle's own lifetime (0 = spawn, 0x7FFF = death) rather than an
+absolute millisecond count — consistent with these curves having no
+`M2Sequence`/global-sequence to be absolute *against* in the first place
+(the wiki: "they're unable to change between different animations, so they
+directly point to the data") — but that specific interpretation is a
+hypothesis, not confirmed against an authoritative source, so husk exposes
+the raw `uint16_t` value rather than rescaling it (see
+`m2::FBlockMeta`'s doc comment).
+
+**A real bug this verification process caught, not just confirmed against:**
+an early ad hoc Python script decoding the *real* per-sequence `M2Track`
+curves (e.g. a ribbon's `alphaTrack`) read the outer `M2Array<M2Array<T>>`
+descriptor's bytes directly as if they were already the final keyframe
+values — skipping the inner-array indirection `trackSequenceInnerArrays`
+(the actual, already-existing, already-tested resolution mechanism) performs
+correctly. That shortcut produced a plausible-looking but wrong alpha value
+(a raw `int16` of `1`, i.e. ~0.00003 — implausibly near-invisible for a
+supposedly-visible ribbon effect); the real resolver, on the same bytes,
+correctly resolves to `0.8`. Caught by not trusting a quick script's output
+over the codebase's own established, tested decode path — the same
+discipline this file's other findings were built on.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -518,3 +597,4 @@ assumed and then had to correct once the numbers above came back.
 | §3 `.skel` `SKS1` indexing + own `AFID` | `src/skel.hpp`/`skel.cpp` (`parseSequences`, `boneTrackBlob`, `findAnimFileIds`) | `tests/test_skel.cpp`, `tests/test_cli.cpp` |
 | §4 `.bone` format | `src/bone.hpp`/`bone.cpp` | `tests/test_bone.cpp` |
 | §5 `bounding_box` containment, not tight fit | `src/cmd_export.cpp` (unaffected — no code depends on `bounding_box` being tight), `tests/test_conformance.cpp` (`transformedM2BoundingBox`) | `tests/test_conformance.cpp` |
+| §6 `M2Particle` offsets + `FBlock` `uint16_t` timestamps | `src/m2.hpp`/`m2.cpp` (`ParticleEmitter`, `parseParticles`, `resolveFloatTrackSequence`/`resolveRawIntTrackSequence`/`resolveFBlockVec3`/`Vec2`/`Fixed16`/`Uint16`), `src/cmd_dump.cpp` (full-record JSON), `src/cmd_export.cpp`/`gltf.hpp`/`gltf.cpp` (`EmitterAnchor` extras) | `tests/test_m2.cpp`, `tests/test_dump.cpp`, `tests/test_gltf.cpp`, `tests/test_integration.cpp` (real weapon corpus) |

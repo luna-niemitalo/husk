@@ -1854,6 +1854,56 @@ TEST_CASE("husk info: prints attachments/events/lights/cameras/ribbon_emitters/p
     fs::remove(path);
 }
 
+// Regression coverage for kMinVerifiedParticleVersion: M2Particle's 0x1EC
+// byte shape is only real-data-verified for Cataclysm+ (272) -- see
+// m2::ParticleEmitter's doc comment. A file below that version with real
+// particle_emitters must warn and stay count-only, same shape as the
+// existing "below Wrath" bones/sequences/ribbons regression test above.
+TEST_CASE("husk info: a particle_emitters array below Cataclysm (272) prints a loud warning and "
+          "stays count-only") {
+    auto md20 = minimalMd20(/*version=*/264);  // Wrath -- above the bones/ribbons floor, below
+                                                 // the particle one
+    uint32_t count = 1;
+    uint32_t off = static_cast<uint32_t>(md20.size());
+    std::memcpy(md20.data() + 0x128, &count, 4);
+    std::memcpy(md20.data() + 0x12C, &off, 4);
+    md20.resize(md20.size() + 0x1EC, 0);
+
+    auto path = tempPath("pre-cata-particles.m2");
+    writeFile(path, md20);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("below Cataclysm") != std::string::npos);
+    CHECK(result.output.find("particle_emitters: 1") != std::string::npos);
+    CHECK(result.output.find("particleId=") == std::string::npos);  // never parsed structurally
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk info: a Cata+ particle_emitters array prints no version warning and resolves "
+          "real fields") {
+    auto md20 = minimalMd20(/*version=*/274);
+    uint32_t count = 1;
+    uint32_t off = static_cast<uint32_t>(md20.size());
+    std::memcpy(md20.data() + 0x128, &count, 4);
+    std::memcpy(md20.data() + 0x12C, &off, 4);
+    md20.resize(md20.size() + 0x1EC, 0);
+    md20[off + 0x28] = 4;  // blendingType
+    md20[off + 0x29] = 1;  // emitterType
+
+    auto path = tempPath("cata-particles.m2");
+    writeFile(path, md20);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("below Cataclysm") == std::string::npos);
+    CHECK(result.output.find("particleId=") != std::string::npos);
+    CHECK(result.output.find("blendingType=4 emitterType=1") != std::string::npos);
+
+    fs::remove(path);
+}
+
 // CLI default-resolution tests: `husk export <file.m2>` alone (no .skin,
 // output, .skel, or --textures/--skin-dir/--anim) should resolve
 // everything it reasonably can from what's already sitting next to the

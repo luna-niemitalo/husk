@@ -1106,7 +1106,7 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "directory of already-extracted '<FileDataID>.bone' files (per the model's/"
                     "'.skel's BFID array), or 'none' to skip (default: the model's own directory) "
                     "-- attached as inert glTF extras only, never applied to the render (see "
-                    "TODO_correctness.md #5)");
+                    "TODO_correctness.md #4)");
 }
 
 int exportGlb(int argc, char** args) {
@@ -1389,7 +1389,7 @@ int exportGlb(int argc, char** args) {
             // missing PNG) -- attached as inert gltf::Skeleton::
             // CorrectionSet extras, never applied to the bind pose/
             // animation above (see gltf.hpp's CorrectionSet doc comment,
-            // TODO_correctness.md #5).
+            // TODO_correctness.md #4).
             if (!bonesDir.empty()) {
                 std::optional<std::vector<uint32_t>> boneFileDataIds =
                     bonesAreInline ? header.boneFileDataIds
@@ -1429,9 +1429,46 @@ int exportGlb(int argc, char** args) {
                                   << "' as inert glTF extras (not applied to the render -- "
                                      "which slot is 'correct' for a given character depends "
                                      "on client-side customization-choice data husk doesn't "
-                                     "have; see TODO_correctness.md #5)\n";
+                                     "have; see TODO_correctness.md #4)\n";
                     }
                 }
+            }
+
+            // Ribbon/particle placement anchors (gltf::Skeleton::
+            // EmitterAnchor's doc comment): unconditional, no CLI flag --
+            // unlike --bones-dir's optional sidecar directory, this data
+            // comes straight from the model's own already-parsed header
+            // arrays, same "always attached" treatment as the geoset/
+            // texture-transform extras. Full field/curve data lives in
+            // `husk dump-chunks`, not here (see cmd_dump.cpp's doc
+            // comment) -- this is placement only.
+            for (const auto& r : m2::parseRibbons(blob, header.ribbonEmitters)) {
+                if (r.boneIndex >= skeleton.joints.size()) {
+                    throw std::runtime_error("ribbon emitter references bone " +
+                                              std::to_string(r.boneIndex) + ", out of range for " +
+                                              std::to_string(skeleton.joints.size()) + " bones");
+                }
+                skeleton.ribbonAnchors.push_back(
+                    {r.ribbonId, static_cast<int>(r.boneIndex), toGltf(r.position)});
+            }
+            if (header.particleEmitters.count == 0 ||
+                header.version >= m2::kMinVerifiedParticleVersion) {
+                for (const auto& p : m2::parseParticles(blob, header.particleEmitters)) {
+                    if (p.boneId >= skeleton.joints.size()) {
+                        throw std::runtime_error("particle emitter references bone " +
+                                                  std::to_string(p.boneId) + ", out of range for " +
+                                                  std::to_string(skeleton.joints.size()) + " bones");
+                    }
+                    skeleton.particleAnchors.push_back(
+                        {p.particleId, static_cast<int>(p.boneId), toGltf(p.position)});
+                }
+            }
+            if (!skeleton.ribbonAnchors.empty() || !skeleton.particleAnchors.empty()) {
+                std::cerr << "husk: note: attached " << skeleton.ribbonAnchors.size()
+                          << " ribbon and " << skeleton.particleAnchors.size()
+                          << " particle emitter placement anchor(s) as inert glTF extras (id/"
+                             "bone/position only -- full field/curve data via `husk "
+                             "dump-chunks`)\n";
             }
         }
 

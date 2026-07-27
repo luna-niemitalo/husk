@@ -183,7 +183,7 @@ struct Skeleton {
     // bind pose or any animation. Which of a model's several `.bone` files
     // is "correct" for a given character is selected by client-side
     // customization-choice data husk has no access to (no CASC/DBC access,
-    // a hard non-goal -- see DESIGN.md's Non-goals, TODO_correctness.md #5,
+    // a hard non-goal -- see DESIGN.md's Non-goals, TODO_correctness.md #4,
     // WIKI_FINDINGS.md §4); husk surfaces every slot it can resolve from
     // disk and stops there, same "tag it, don't guess at semantics"
     // treatment as skinSectionId/textureTransform above. Empty (the
@@ -199,6 +199,26 @@ struct Skeleton {
         std::vector<Correction> corrections;
     };
     std::vector<CorrectionSet> correctionSets;
+
+    // Minimal placement anchors for M2Ribbon/M2Particle emitters -- just
+    // enough (id, attach joint, relative position) for a custom Blender
+    // script to place a marker/empty at the right spot, same "inert glTF
+    // extras, never applied to anything writeGlb itself renders" treatment
+    // as CorrectionSet above. Every other field (blend mode, texture,
+    // curves, ...) has no native glTF slot either, but is high-volume
+    // enough (potentially dozens of emitters, each with several animation
+    // curves) that it lives in `husk dump-chunks`'s JSON output instead of
+    // bloating every .glb with data a plain glTF viewer can't use -- see
+    // DESIGN.md's Key design decisions and src/cmd_dump.cpp's doc comment.
+    struct EmitterAnchor {
+        uint32_t id = 0;   // M2Ribbon::ribbonId / M2Particle::particleId, usually -1
+        int joint = -1;    // index into Skeleton::joints
+        // Relative to `joint`, already in the target coordinate system
+        // (Y-up) -- same caller responsibility as Joint::localTranslation.
+        Vec3 position;
+    };
+    std::vector<EmitterAnchor> ribbonAnchors;
+    std::vector<EmitterAnchor> particleAnchors;
 };
 
 struct Quat {
@@ -291,7 +311,11 @@ Vec3 zUpToYUp(const Vec3& v);
 // `skeleton->correctionSets`, if non-empty, becomes a
 // `bone_correction_sets` key in the skin's own glTF `extras` (see
 // Skeleton::CorrectionSet's doc comment) -- Error if any correction's
-// `joint` is out of range for `skeleton`.
+// `joint` is out of range for `skeleton`. `skeleton->ribbonAnchors`/
+// `particleAnchors`, if non-empty, likewise become `ribbon_emitters`/
+// `particle_emitters` keys on the same skin `extras` object (see
+// Skeleton::EmitterAnchor's doc comment) -- Error under the same
+// out-of-range-joint condition.
 //
 // `animations`, if non-empty, requires a non-null/non-empty `skeleton` --
 // each becomes one glTF animation clip (see Animation's doc comment).

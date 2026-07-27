@@ -104,6 +104,21 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
         }
     }
 
+    if (skeleton) {
+        auto checkAnchors = [&](const std::vector<Skeleton::EmitterAnchor>& anchors, const char* what) {
+            for (size_t i = 0; i < anchors.size(); ++i) {
+                int joint = anchors[i].joint;
+                if (joint < 0 || static_cast<size_t>(joint) >= skeleton->joints.size()) {
+                    throw Error(std::string("writeGlbMulti: ") + what + " " + std::to_string(i) +
+                                " (joint " + std::to_string(joint) + ") is out of range for " +
+                                std::to_string(skeleton->joints.size()) + " joints");
+                }
+            }
+        };
+        checkAnchors(skeleton->ribbonAnchors, "ribbon anchor");
+        checkAnchors(skeleton->particleAnchors, "particle anchor");
+    }
+
     if (!animations.empty() && !hasSkeleton) {
         throw Error("writeGlbMulti: animations were given without a skeleton");
     }
@@ -254,8 +269,13 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
         }
 
         // .bone correction data (gltf::Skeleton::CorrectionSet's doc
-        // comment) -- inert extras only, same nested Value construction as
-        // a material's additional_textures/texture_transform extras below.
+        // comment), plus ribbon/particle emitter placement anchors
+        // (Skeleton::EmitterAnchor's doc comment) -- inert extras only,
+        // same nested Value construction as a material's
+        // additional_textures/texture_transform extras below. All three
+        // are independent (any subset may be present) and share one
+        // skinExtras object the same way materialExtras does below.
+        tinygltf::Value::Object skinExtras;
         if (!skeleton->correctionSets.empty()) {
             tinygltf::Value::Array sets;
             for (const auto& cs : skeleton->correctionSets) {
@@ -273,8 +293,30 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
                 setObj["corrections"] = tinygltf::Value(corrections);
                 sets.push_back(tinygltf::Value(setObj));
             }
-            tinygltf::Value::Object skinExtras;
             skinExtras["bone_correction_sets"] = tinygltf::Value(sets);
+        }
+        auto writeAnchors = [](const std::vector<Skeleton::EmitterAnchor>& anchors) {
+            tinygltf::Value::Array arr;
+            for (const auto& a : anchors) {
+                tinygltf::Value::Object obj;
+                obj["id"] = tinygltf::Value(static_cast<int>(a.id));
+                obj["joint"] = tinygltf::Value(a.joint);
+                tinygltf::Value::Object pos;
+                pos["x"] = tinygltf::Value(static_cast<double>(a.position.x));
+                pos["y"] = tinygltf::Value(static_cast<double>(a.position.y));
+                pos["z"] = tinygltf::Value(static_cast<double>(a.position.z));
+                obj["position"] = tinygltf::Value(pos);
+                arr.push_back(tinygltf::Value(obj));
+            }
+            return arr;
+        };
+        if (!skeleton->ribbonAnchors.empty()) {
+            skinExtras["ribbon_emitters"] = tinygltf::Value(writeAnchors(skeleton->ribbonAnchors));
+        }
+        if (!skeleton->particleAnchors.empty()) {
+            skinExtras["particle_emitters"] = tinygltf::Value(writeAnchors(skeleton->particleAnchors));
+        }
+        if (!skinExtras.empty()) {
             skin.extras = tinygltf::Value(skinExtras);
         }
 

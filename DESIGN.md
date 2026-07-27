@@ -50,9 +50,10 @@ file bytes
    │
    ├─ src/m2.cpp/.hpp   MD20/MD21 header (fixed-offset memcpy, not a
    │                    packed struct), vertices, bones, sequences,
-   │                    materials, attachments/events/lights, ribbons;
-   │                    M2Track resolution (per-sequence, constant-value,
-   │                    external-blob splicing)
+   │                    materials, attachments/events/lights, ribbons,
+   │                    particles; M2Track/FBlock resolution (per-sequence,
+   │                    global-sequence, constant-value, external-blob
+   │                    splicing)
    │
    ├─ src/skin.cpp/.hpp .skin sidecar: triangle-index lookup, submeshes,
    │                    batches (material/texture linkage) — same
@@ -92,7 +93,8 @@ the blob start," not "how is the blob read."
 1. Read model file → detect flat vs. chunked → resolve MD20 blob.
 2. Parse header (fixed offsets) → arrays: vertices, bones, sequences,
    materials, textures, textureCombos, attachments/events/lights,
-   ribbons, sidecar FileDataID chunks (SFID/AFID/BFID/PFID/SKID/TXID).
+   ribbons, particles, sidecar FileDataID chunks (SFID/AFID/BFID/PFID/
+   SKID/TXID).
 3. Resolve triangle indices + submesh/batch structure from the given (or
    `auto` + `--skin-dir`, FileDataID-resolved) `.skin` file.
 4. If inline `bones` is empty and an `SKID`/`.skel` path is available,
@@ -357,6 +359,40 @@ serialized as `bone_correction_sets` on the glTF skin's `extras`, for a
 downstream renderer or Blender script that *does* have the slot-selection
 mapping to apply on top.
 
+**Ribbons/particles: same `extras`-only family as geoset/texture-transform/
+`.bone`-correction, but split across two destinations instead of one,
+because of data volume.** `M2Ribbon`/`M2Particle` (`m2::parseRibbons`/
+`parseParticles`, `src/m2.cpp`) are procedural emitter systems — no core
+glTF primitive represents a particle emitter or a ribbon trail generator,
+so like the cases above, the real answer is "tag it, don't guess at
+semantics." What's different here is scope: a `.bone` correction set is one
+small `(bone_index, matrix)` list per file; a model can have dozens of
+particle emitters, each with up to ~15 animation curves once fully
+resolved. Cramming all of that into every `.glb`'s `extras` — the way
+`bone_correction_sets`/geoset/texture-transform data already does — would
+bloat a file most consumers (a plain glTF viewer, a renderer that doesn't
+care about VFX) can't use any of. So the data is deliberately split:
+`husk export` attaches only a **minimal placement anchor** (`id`/`boneIndex`
+/`position`, `gltf::Skeleton::EmitterAnchor`) to the skin's `extras` — enough
+for a Blender script to place a marker at the right bone — and the **full
+record** (every field, every resolved curve) goes to `husk dump-chunks`'s
+JSON output instead, which has no such size pressure (see `src/cmd_dump.cpp`'s
+doc comment for how that command's own scope broadened from Legion+-chunk-
+tags-only to cover these two core header arrays too, since the "no glTF
+slot" rationale that already justified the chunk-tag side of that command
+applies just as much to the parsed record itself). `M2Particle`'s own byte
+shape is genuinely version-conditional back to pre-BC; real weapon data was
+only available for Cataclysm+ (272), so parsing is gated to
+`kMinVerifiedParticleVersion`, the same "verified floor, warn below it"
+policy `kMinVerifiedRecordStrideVersion` already established for Bone/
+Sequence/Ribbon — see `WIKI_FINDINGS.md` for the real-file cross-check (a
+real weapon's particle color curve decodes to an actual fire/ember
+gradient, alpha curves are clean fade envelopes) that this offset table and
+the FBlock/M2Track curve-resolution split (FBlock curves are flat, not
+per-sequence — "unable to change between different animations," per the
+wiki — while `M2Track`-based ones are, resolved per `M2Sequence` or via the
+global-sequence resolver) were both confirmed against.
+
 **The collision mesh is real exported geometry, not inert extras — the one
 place this differs from the geoset/texture-transform/`.bone`-correction
 family above.** Those all became `extras` because no unambiguous glTF
@@ -574,11 +610,12 @@ against the same rule, not just asserting "no":
   resolution-source flag with an inline/external axis to begin with — the
   auto/`none`/`inline` framing doesn't apply to a selector.
 - **Other glTF `extras` this tool bakes in** (geoset ID/group/variant,
-  second-texture-layer metadata, texture-transform data) **aren't gated by
-  any resolution flag at all**, inline or otherwise — they're read
-  unconditionally from the model's own `.skin`/`M2` data every export, with
-  no external counterpart to combine with or skip. Nothing to extend here
-  because there's no flag in the first place.
+  second-texture-layer metadata, texture-transform data, ribbon/particle
+  placement anchors) **aren't gated by any resolution flag at all**, inline
+  or otherwise — they're read unconditionally from the model's own
+  `.skin`/`M2` data every export, with no external counterpart to combine
+  with or skip. Nothing to extend here because there's no flag in the first
+  place.
 
 **`--skin` doesn't cleanly extend to the three-state table above either,
 and that's worth stating outright rather than fudging.** The other two
@@ -753,8 +790,8 @@ re-run automatically. Tracked as a testing debt, not a correctness bug.
 
 ## Open work
 
-See `TODO_correctness.md` for the current punch list (particles,
-`M2Camera`, `.bone` slot selection) and `WIKI_FINDINGS.md` for every
+See `TODO_correctness.md` for the current punch list (`M2Camera`, `.bone`
+slot selection, and two awareness-only footnotes) and `WIKI_FINDINGS.md` for every
 real-data-driven spec correction found so far, `AFSB`'s included. Both are
 living documents; this file describes the shape of the system they operate
 within, not their current item-by-item status.
