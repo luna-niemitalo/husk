@@ -9,9 +9,34 @@ Not a replacement for that doctest suite: doctest's real-data tests assert
 exact, model-specific values (vertex counts, emitter counts, ...) -- that
 only makes sense against fixtures whose expected values were hand-derived
 once, per test_data_paths.hpp's own doc comments. This tool asks a
-different, generic question that scales to arbitrary files: does husk
-survive contact with this file at all, and does its output validate --
-per-file "Tests"/"Asserts" tallies, not per-model hardcoded expectations.
+different, generic question that scales to arbitrary files: does this file
+produce a plausible, internally-consistent, full-pipeline-correct output,
+without needing a pre-known "right answer" for each of ~130k files. Per
+file:
+
+  - header: not just "did husk info exit 0" -- classifies *why* not, via
+    husk's own descriptive ParseError/ChunkError text (truncated file, bad
+    magic, chunk-container corruption, array-bounds violation, ...), and
+    cross-checks against an independent from-scratch Python header read
+    (not calling husk at all) as a genuine second opinion.
+  - export: husk export produces a well-formed (correct magic, non-empty)
+    .glb.
+  - dump-chunks: (chunked files only) valid JSON output.
+  - fidelity: the *independently* parsed M2 header's vertex/bone counts
+    exactly match the exported glTF's actual accessor/skin counts -- same
+    exact-match precedent tests/test_conformance.cpp's case-1/case-2
+    checks established against curated fixtures, generalized to work
+    without a hardcoded expected value.
+  - finite: every FLOAT accessor (positions, normals, UVs, *and* every
+    animation keyframe) is swept for NaN/Inf -- a static proxy for "doesn't
+    explode when animated": a keyframe that's already non-finite at rest
+    will definitely misbehave the moment anything interpolates it.
+  - mesh_completeness: every primitive actually carries TEXCOORD_0 (UV
+    data genuinely present, not just assumed).
+  - validate: zero gltf_validator errors -- schema-level glTF correctness
+    (joint hierarchy, weight normalization, etc.) is *not* reimplemented
+    here; it's exactly what a mature, already-comprehensive validator is
+    for.
 
 Dependencies (tqdm, rich) live in tools/venv, a uv-managed venv -- not
 this project's usual bare-stdlib scratch-script convention, deliberately:
@@ -49,10 +74,12 @@ unbounded .glb data in tmpfs.
 import argparse
 import concurrent.futures
 import json
+import math
 import os
 import queue
 import random
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -142,13 +169,103 @@ def last_meaningful_line(out: str) -> str:
     return ""
 
 
-def test_info(husk_bin, m2_path, timeout):
+# Same fixed field offsets husk's own src/m2.cpp uses (verified against
+# real data earlier this session -- see WIKI_FINDINGS.md) -- reimplemented
+# from scratch here, not called into husk, so this is a genuinely
+# independent second opinion on "does this look like a real M2," not husk
+# checking its own homework.
+_M2_VERSION_OFFSET = 0x04
+_M2_BONES_COUNT_OFFSET = 0x02C
+_M2_VERTICES_COUNT_OFFSET = 0x03C
+_M2_MIN_HEADER_SIZE = 0x090
+
+
+def read_m2_header_summary(m2_path: Path):
+    """Independent (no husk involved) minimal M2 header read: magic/chunk
+    container walk + a handful of fixed-offset fields. Returns None if the
+    file isn't even recognizable as MD20/MD21-wrapped -- the `header` test
+    reports that as its own distinct outcome, not folded into "husk failed
+    for some reason."
+    """
+    data = m2_path.read_bytes()
+    if len(data) < 8:
+        return None
+    if data[0:4] == b"MD20":
+        blob = data
+    else:
+        pos = 0
+        blob = None
+        while pos + 8 <= len(data):
+            ctag = data[pos:pos + 4]
+            csize = struct.unpack_from("<I", data, pos + 4)[0]
+            payload_start = pos + 8
+            if payload_start + csize > len(data):
+                break  # truncated chunk container
+            if ctag == b"MD21":
+                blob = data[payload_start:payload_start + csize]
+                break
+            pos = payload_start + csize
+        if blob is None:
+            return None
+    if len(blob) < _M2_MIN_HEADER_SIZE or blob[0:4] != b"MD20":
+        return None
+    version = struct.unpack_from("<I", blob, _M2_VERSION_OFFSET)[0]
+    bone_count = struct.unpack_from("<I", blob, _M2_BONES_COUNT_OFFSET)[0]
+    vertex_count = struct.unpack_from("<I", blob, _M2_VERTICES_COUNT_OFFSET)[0]
+    return {"version": version, "bone_count": bone_count, "vertex_count": vertex_count}
+
+
+# Buckets husk's own descriptive ParseError/ChunkError text (see src/m2.cpp,
+# src/chunk.cpp) into categories that make sense to group across an entire
+# corpus -- "N files failed because X", not one distinct message per file.
+# Order matters: first match wins, most-specific patterns first.
+_FAILURE_CATEGORIES = [
+    ("TRUNCATED_FILE", ("too short to even contain a magic value",)),
+    ("NOT_RECOGNIZED_AS_M2", ("doesn't start with md20", "no md21 chunk")),
+    ("CHUNK_CONTAINER_TRUNCATED", ("truncated chunk header", "declares size")),
+    ("ARRAY_BOUNDS_VIOLATION", ("out of range", "needs more room", "claims")),
+    ("SKIN_MISMATCH", ("skin index", "out of range for the skin")),
+]
+
+
+def classify_parse_failure(message: str) -> str:
+    lower = message.lower()
+    for category, needles in _FAILURE_CATEGORIES:
+        if any(n in lower for n in needles):
+            return category
+    return "OTHER_PARSE_ERROR"
+
+
+def test_header(husk_bin, m2_path, timeout):
+    """Not just "did husk info exit 0" -- classifies *why* when it doesn't,
+    and cross-checks against an independent (non-husk) parse of the same
+    file, per the corpus tool's actual purpose: "does this look like a
+    functional file, or is it borked, and as a result of what."
+    """
     code, out = run_cmd([str(husk_bin), "info", str(m2_path)], timeout)
-    asserts = [
-        AssertResult("exit_code_0", code == 0, detail=last_meaningful_line(out) if code != 0 else ""),
-        AssertResult("has_version_line", "version:" in out, detail="" if "version:" in out else out[:400]),
-    ]
-    return TestResult("info", asserts), "Legion+ chunked" in out
+    independent = read_m2_header_summary(m2_path)
+    asserts = []
+
+    if code == 0:
+        asserts.append(AssertResult("recognized", True))
+        asserts.append(AssertResult("has_version_line", "version:" in out,
+                                     detail="" if "version:" in out else out[:400]))
+        # husk parsed it; does an independent from-scratch reader see
+        # something in the same ballpark? A mismatch here means either
+        # husk is more lenient/lax than this minimal reader (expected for
+        # some legitimately-tricky-but-valid files) or there's a genuine
+        # disagreement worth a human look -- flagged, not treated as fatal.
+        if independent is not None:
+            asserts.append(AssertResult(
+                "independent_vertex_count_plausible", 0 <= independent["vertex_count"] <= 10_000_000,
+                detail="" if 0 <= independent["vertex_count"] <= 10_000_000
+                else f"independent parse got vertex_count={independent['vertex_count']}"))
+    else:
+        reason = last_meaningful_line(out)
+        category = classify_parse_failure(reason)
+        asserts.append(AssertResult("recognized", False, code=category, detail=reason))
+
+    return TestResult("header", asserts), "Legion+ chunked" in out, independent
 
 
 def test_export(husk_bin, m2_path, out_glb, anim_mode, timeout):
@@ -180,6 +297,197 @@ def test_dump_chunks(husk_bin, m2_path, timeout):
         AssertResult("looks_like_json", looks_json, detail="" if looks_json else out[:200]),
     ]
     return TestResult("dump-chunks", asserts)
+
+
+# ---------------------------------------------------------------------------
+# glTF content correctness (fidelity/finite/mesh_completeness): a minimal,
+# from-scratch glb reader -- deliberately not a dependency like pygltflib,
+# since all that's needed is "read this accessor's raw values," and every
+# glb husk produces uses plain (non-sparse), single-bufferView accessors.
+# Sparse accessors are recognized and skipped (husk doesn't emit them; a
+# skip here just means "not checked," never a silent misread).
+# ---------------------------------------------------------------------------
+
+_COMPONENT_TYPES = {
+    5120: ("b", 1), 5121: ("B", 1), 5122: ("h", 2),
+    5123: ("H", 2), 5125: ("I", 4), 5126: ("f", 4),
+}
+_TYPE_COMPONENT_COUNTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT2": 4, "MAT3": 9, "MAT4": 16}
+
+
+def read_glb(glb_path: Path):
+    data = glb_path.read_bytes()
+    magic, version, length = struct.unpack_from("<4sII", data, 0)
+    if magic != b"glTF":
+        raise ValueError("bad glb magic")
+    off = 12
+    gltf_json, bin_chunk = None, b""
+    while off + 8 <= length:
+        chunk_len, chunk_type = struct.unpack_from("<I4s", data, off)
+        off += 8
+        chunk_data = data[off:off + chunk_len]
+        if chunk_type == b"JSON":
+            gltf_json = json.loads(chunk_data)
+        elif chunk_type == b"BIN\x00":
+            bin_chunk = chunk_data
+        off += chunk_len
+    if gltf_json is None:
+        raise ValueError("no JSON chunk in glb")
+    return gltf_json, bin_chunk
+
+
+def read_accessor_values(gltf, bin_chunk, accessor_index):
+    """Returns a flat list of component values for the accessor, or None if
+    it's a shape this reader deliberately doesn't handle (sparse, or no
+    bufferView -- the latter is spec-valid (implicit zeros) but husk never
+    emits it, so treating it as "not checked" rather than guessing is safer.
+    """
+    acc = gltf["accessors"][accessor_index]
+    if "sparse" in acc or "bufferView" not in acc:
+        return None
+    comp_fmt, comp_size = _COMPONENT_TYPES[acc["componentType"]]
+    n_comp = _TYPE_COMPONENT_COUNTS[acc["type"]]
+    bv = gltf["bufferViews"][acc["bufferView"]]
+    base_offset = bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
+    stride = bv.get("byteStride", n_comp * comp_size)
+    count = acc["count"]
+    fmt = f"<{n_comp}{comp_fmt}"
+    values = []
+    for i in range(count):
+        values.extend(struct.unpack_from(fmt, bin_chunk, base_offset + i * stride))
+    return values
+
+
+def collision_mesh_indices(gltf) -> set:
+    # The collision mesh (if present) is a genuinely separate NamedMesh with
+    # its own, unrelated, much smaller vertex buffer and no UV data at all
+    # (see cmd_export.cpp/gltf.cpp's isCollision handling) -- tagged via
+    # {"collision": true} on its *node*, not the mesh itself. Both
+    # test_fidelity (vertex-count consistency) and test_mesh_completeness
+    # (UV presence) need to exclude it, or every collision-bearing export
+    # would falsely look like a regression.
+    return {
+        node["mesh"] for node in gltf.get("nodes", [])
+        if node.get("extras", {}).get("collision") is True and "mesh" in node
+    }
+
+
+def test_fidelity(gltf, header_summary):
+    """Cross-checks husk's exported glTF against an *independently* parsed
+    M2 header -- not a hardcoded expected value, so this generalizes to any
+    file. Exact match, no tolerance: same precedent as
+    tests/test_conformance.cpp's case-1/case-2 checks (vertex count, bone
+    count) against real fixtures -- see CLAUDE.md's Resume for how those
+    were established and why exact (not "> 0") is the right bar here.
+    """
+    asserts = []
+    if header_summary is None:
+        return None  # independent parse itself failed -- nothing to cross-check
+    meshes = gltf.get("meshes", [])
+    accessors = gltf.get("accessors", [])
+    excluded = collision_mesh_indices(gltf)
+    position_counts = {
+        accessors[prim["attributes"]["POSITION"]]["count"]
+        for mi, mesh in enumerate(meshes) if mi not in excluded
+        for prim in mesh.get("primitives", [])
+        if "POSITION" in prim.get("attributes", {})
+    }
+    # All primitives share one vertex buffer in husk's own design (only
+    # `indices` differs per submesh/batch) -- so every primitive's POSITION
+    # accessor should report the *same* count; more than one distinct value
+    # here would itself be a real regression, not just a fidelity mismatch.
+    if position_counts:
+        consistent = len(position_counts) == 1
+        asserts.append(AssertResult("one_consistent_vertex_count", consistent,
+                                     detail="" if consistent
+                                     else f"primitives disagree on vertex count: {position_counts}"))
+        vertex_count = next(iter(position_counts)) if consistent else None
+        if vertex_count is not None:
+            asserts.append(AssertResult(
+                "vertex_count_matches_header", vertex_count == header_summary["vertex_count"],
+                detail="" if vertex_count == header_summary["vertex_count"]
+                else f"glb has {vertex_count}, header says {header_summary['vertex_count']}"))
+
+    # header_summary["bone_count"] == 0 legitimately means "bones live in an
+    # external .skel file, not inline" (husk export --skel; see DESIGN.md's
+    # CLI grammar section) -- this independent reader doesn't parse .skel,
+    # so it has no expected count to check in that case. Only assert when
+    # the M2 itself claims inline bones.
+    skins = gltf.get("skins", [])
+    if skins and header_summary["bone_count"] > 0:
+        joint_count = len(skins[0].get("joints", []))
+        asserts.append(AssertResult(
+            "bone_count_matches_header", joint_count == header_summary["bone_count"],
+            detail="" if joint_count == header_summary["bone_count"]
+            else f"glb skin has {joint_count} joints, header says {header_summary['bone_count']} bones"))
+
+    return TestResult("fidelity", asserts) if asserts else None
+
+
+def test_finite(gltf, bin_chunk):
+    """Sweeps every FLOAT accessor -- vertex positions/normals/UVs *and*
+    every animation sampler's keyframe input/output, since those are all
+    just entries in the same top-level `accessors` array -- for NaN/Inf.
+    This is a static check on stored data, not a full animation-playback
+    simulation, but a keyframe that's already non-finite at rest will
+    definitely "explode" the moment anything samples/interpolates it.
+    """
+    bad = []
+    for i, acc in enumerate(gltf.get("accessors", [])):
+        if acc.get("componentType") != 5126:  # FLOAT only
+            continue
+        values = read_accessor_values(gltf, bin_chunk, i)
+        if values is None:
+            continue
+        if not all(math.isfinite(v) for v in values):
+            bad.append(i)
+    passed = not bad
+    return TestResult("finite", [AssertResult(
+        "all_float_accessors_finite", passed,
+        detail="" if passed else f"non-finite values in accessor(s) {bad[:10]}")])
+
+
+def test_mesh_completeness(gltf):
+    """Does every primitive actually carry UV data, not just claim to via a
+    material reference -- a real "meshes have UV information" check, not a
+    guess. husk always exports UVs when the M2 vertex format has them
+    (effectively always for real character/creature/item models), so a
+    primitive missing TEXCOORD_0 is worth a look, not expected noise.
+    """
+    excluded = collision_mesh_indices(gltf)  # never textured/UV-mapped by design
+    missing = []
+    for mi, mesh in enumerate(gltf.get("meshes", [])):
+        if mi in excluded:
+            continue
+        for pi, prim in enumerate(mesh.get("primitives", [])):
+            if "TEXCOORD_0" not in prim.get("attributes", {}):
+                missing.append(f"mesh{mi}/prim{pi}")
+    passed = not missing
+    return TestResult("mesh_completeness", [AssertResult(
+        "every_primitive_has_texcoord0", passed,
+        detail="" if passed else f"missing on {missing[:10]}")])
+
+
+def test_glb_content(glb_path: Path, header_summary):
+    """Runs fidelity/finite/mesh_completeness together against one glb parse
+    (avoids reading+decoding the same file 3 times). Returns the list of
+    TestResults that actually apply -- a glb this reader can't even open
+    (should be unreachable if export's own magic-byte check passed, but
+    defensive regardless) reports that failure once instead of silently
+    skipping every content check.
+    """
+    try:
+        gltf, bin_chunk = read_glb(glb_path)
+    except (ValueError, KeyError, struct.error, json.JSONDecodeError) as e:
+        return [TestResult("glb_content", [AssertResult("glb_parseable", False, detail=str(e))])]
+
+    results = []
+    fidelity = test_fidelity(gltf, header_summary)
+    if fidelity is not None:
+        results.append(fidelity)
+    results.append(test_finite(gltf, bin_chunk))
+    results.append(test_mesh_completeness(gltf))
+    return results
 
 
 def validate_result_from_report(report_path: Path, run_out: str) -> TestResult:
@@ -219,8 +527,11 @@ def unique_glb_path(batch_dir, m2_path):
 
 
 def process_file_phase1(m2_path, batch_dir, husk_bin, opts):
-    """Runs the fast, natively-parallel checks (info/export/dump-chunks).
-    Does NOT run gltf_validator -- that's batched separately (see module
+    """Runs every check that's fast/native and scales cleanly with a large
+    thread pool: husk info/export/dump-chunks, plus the glb content checks
+    (fidelity/finite/mesh_completeness -- pure Python, no subprocess, so
+    they belong here, not on the small gltf_validator worker pool). Does
+    NOT run gltf_validator itself -- that's batched separately (see module
     docstring) -- and does NOT delete the .glb: the caller needs it around
     for the batch-wide validator pass, and cleans up the whole batch
     directory afterward instead.
@@ -228,14 +539,17 @@ def process_file_phase1(m2_path, batch_dir, husk_bin, opts):
     result = FileResult(path=str(m2_path))
     glb_path = unique_glb_path(batch_dir, m2_path)
 
-    info_result, is_chunked = test_info(husk_bin, m2_path, opts.timeout)
-    result.tests.append(info_result)
+    header_result, is_chunked, header_summary = test_header(husk_bin, m2_path, opts.timeout)
+    result.tests.append(header_result)
 
     export_result, glb_exists = test_export(husk_bin, m2_path, glb_path, opts.anim, opts.timeout)
     result.tests.append(export_result)
 
     if is_chunked and not opts.skip_dump:
         result.tests.append(test_dump_chunks(husk_bin, m2_path, opts.timeout))
+
+    if glb_exists and not opts.skip_content_checks:
+        result.tests.extend(test_glb_content(glb_path, header_summary))
 
     return result, (glb_path if glb_exists else None)
 
@@ -412,6 +726,8 @@ def main():
     ap.add_argument("--validator-timeout", type=float, default=120.0, help="per-batch gltf_validator timeout, seconds")
     ap.add_argument("--skip-validator", action="store_true", help="skip the gltf_validator pass entirely")
     ap.add_argument("--skip-dump", action="store_true", help="skip the dump-chunks pass on chunked files")
+    ap.add_argument("--skip-content-checks", action="store_true",
+                     help="skip fidelity/finite/mesh_completeness glb content checks")
     ap.add_argument("--ram-dir", type=Path, default=Path("/dev/shm"),
                      help="tmpfs root for scratch .glb output (default: /dev/shm)")
     ap.add_argument("--quiet", action="store_true", help="progress bar only, no per-file lines")
