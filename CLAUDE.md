@@ -30,15 +30,16 @@ tool, `blp/`) converts BLP2 textures to PNG.
 - **Target**: a real Blender import path for modern (Legion+ chunked) M2 — see
   `DESIGN.md`'s Goal section. All 8 roadmap stages are now done, including stage 7
   (output hardening: real exports now run through the Khronos glTF-Validator *and*
-  headless Blender itself, `tests/test_conformance.cpp` — see Resume). Remaining
-  work is either scope expansion (WMO/M3, not started, by design) or the structural
-  gaps `TODO_correctness.md` already tracks (`AFSB`, `M2Particle`, plus `.bone`
-  correction *selection* — the extras-export half is done, see Resume; picking
-  which slot applies is blocked on client-side DB2 data husk doesn't have, not
-  on more investigation) — nothing currently in flight.
+  headless Blender itself, `tests/test_conformance.cpp` — see Resume). `AFSB`
+  (`.skel`-linked models' real external-animation format, previously the single
+  biggest animation gap) is now cracked and resolved end to end — see Resume.
+  Remaining work is either scope expansion (WMO/M3, not started, by design) or
+  the structural gaps `TODO_correctness.md` already tracks (`M2Particle`, plus
+  `.bone` correction *selection* — the extras-export half is done, see Resume;
+  picking which slot applies is blocked on client-side DB2 data husk doesn't
+  have, not on more investigation) — nothing currently in flight.
 - Anything not listed under Current does not exist yet. In particular: `M2Particle`/
-  `M2Camera` are still count-only (not dereferenced); `.anim`'s `AFSB` chunk shape is
-  undocumented and detected-but-skipped, not parsed. Three FAILURES2.md gaps
+  `M2Camera` are still count-only (not dereferenced). Three FAILURES2.md gaps
   (geoset selection #1, multi-texture-layer rendering #6, global-sequence animation
   #7) all went further than a diagnostic this session: geoset `skinSectionId` and
   additional (`textureCount > 1`) texture layers are now real glTF `extras`
@@ -58,8 +59,9 @@ tool, `blp/`) converts BLP2 textures to PNG.
 - `.skin` sidecar — triangle-index lookup, submesh/batch structure (`src/skin.cpp`).
 - `.skel` sidecar — external bones + sequences (`src/skel.cpp`).
 - `.bone` sidecar — per-bone correction matrices, reverse-engineered (`src/bone.cpp`).
-- `.anim` sidecar — external per-sequence keyframe blob; `AFM2` (flat) parsed, `AFSB`
-  detected and rejected (`m2::extractAnimBlob`).
+- `.anim` sidecar — external per-sequence keyframe blob; `AFM2` (flat) and `AFSB`
+  (`.skel`-linked models' real shape) both resolved (`m2::extractAnimBlob`,
+  `cmd_export.cpp`'s `buildAnimations`).
 - `--textures`/`--skin-dir`/`--anim` directories — user-populated,
   FileDataID-named, local filesystem only. **Never CASC** — husk has no
   CASC/listfile access and never will, by design (see `DESIGN.md`'s Non-goals).
@@ -76,7 +78,110 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: `TODO_correctness.md` #6's extras-export half is now
+- **Last state**: `TODO_correctness.md`'s former #1 — `.skel`-sourced
+  external `.anim` files' undocumented `AFSB` chunk shape, the single
+  biggest remaining animation gap (essentially 0% external-animation
+  coverage for any modern character model) — is now **cracked and fully
+  resolved**, not just detected-and-skipped. Session ran autonomously
+  overnight per explicit standing permission (read-only web search
+  pre-approved; no new flake packages, since no one was available to
+  approve them) picking up right after the `--bones-dir` work above.
+  - **Prior-art search first, properly exhausted before guessing.**
+    `WebSearch`/`WebFetch` against wowdev.wiki (direct fetches 403 — same
+    bot-blocking this project already knew about, no local proxy available
+    this session), GitHub code search, `warcraft-rs`/`wow.export`/
+    `WoWDBDefs` repos, and a couple of WoW-modding forums. Found only a
+    *semantic* confirmation (wowdev.wiki's own indexed summary: `AFSA` =
+    attachment animation, `AFSB` = bone animation) — no byte-level struct
+    anywhere reachable. Moved to from-scratch analysis once that was
+    genuinely dry, not before.
+  - **The crack, in one sentence: `AFSB` isn't a new format at all.** A
+    full 104-file chunk survey of `bloodelffemale_hd_*.anim` (correcting an
+    earlier claim in `WIKI_FINDINGS.md` §2 that `AFM2`'s stub is always 64
+    bytes — it's actually 16–1344, always a multiple of 16) found `AFSB`'s
+    first bytes are a clean, monotonic keyframe-timestamp run (0 up to the
+    sequence's own `duration`, in ms) — not the "per-bone offset table" an
+    earlier shallow peek guessed. Cross-referencing `bloodelffemale_hd.skel`'s
+    own `SKB1` bone records against the real `SKS1` sequence array (mapping
+    each `.anim` filename's `<animId>-<subId>` to its `SKS1` position) found
+    that `src/m2.hpp`'s own doc-comment claim — "every M2Track [a `.skel`
+    bone points at] is expected to be genuinely empty" for external
+    sequences — is simply wrong: **211 of 245 real bones have non-zero
+    per-sequence `(count, offset)` tuples**, and for real bone/sequence
+    pairs, that `offset` lands *exactly* on a clean timestamp run inside
+    that sequence's own `.anim` file's `AFSB` payload. `husk::m2::
+    trackSequenceInnerArrays`/`resolveVec3TrackSequence`/
+    `resolveQuatTrackSequence` (unchanged, existing code — the same
+    mechanism already used for `AFM2`-external files via their
+    `externalDataBlob` parameter) needed zero new parsing logic; the value
+    region past each timestamp run (byte length padded to the next multiple
+    of 16, confirmed by the next track's offset always starting exactly
+    there) decodes as a raw 12-byte `C3Vector` (translation/scale) or the
+    existing 8-byte `M2CompQuat` decoder (rotation) — every decoded
+    rotation quaternion comes out unit-length to 4 decimal places, every
+    translation curve smooth and finite.
+  - **Verified three independent ways**, not just "the numbers looked
+    consistent": (1) a full self-consistency sweep across all 54
+    non-`_sdr` `bloodelffemale_hd*.anim` files (every bone × every track ×
+    its own matching sequence) found zero bounds/monotonicity/finiteness
+    problems; (2) `husk export` itself, pointed at the real `--anim`
+    directory, now reports **336 real animation clips** for
+    `bloodelffemale_hd.m2` (up from whatever inline/global-sequence-only
+    count was possible before); (3) the Khronos `gltf_validator` reports
+    zero *new* errors on that export (the fixture's own pre-existing,
+    unrelated `JOINTS_0` duplicate-value issue is identical with or
+    without `--anim`, confirmed by diffing against a `--anim`-less
+    export); (4) Blender's own glTF importer, run headlessly the same way
+    `test_conformance.cpp` already does, independently reports **336
+    actions** — an exact match from a completely separate glTF
+    implementation.
+  - **Code change was small and surgical, given how much existing code
+    already generalized correctly**: `src/cmd_export.cpp`'s
+    `buildAnimations` — the `AFSB`-peek branch that used to `continue`
+    (skip) now extracts `AFSB`'s own chunk payload directly as
+    `externalDataBlob` (taking priority whenever both `AFM2` and `AFSB` are
+    present, since `AFM2`'s stub still isn't real data — confirmed via the
+    same "claims more keyframes than this blob holds" bounds error a prior
+    session already found); the `AFM2`-only and neither-chunk-present
+    branches are otherwise unchanged. No changes at all to `src/m2.cpp`'s
+    resolution functions.
+  - **Tests**: rewrote the two `test_cli.cpp` cases that used to assert
+    "`AFSB` present → no animation clip" (that assertion is now false) into
+    cases asserting a real clip *is* produced — one plain `AFSB`-only file,
+    one with a genuine `AFM2` stub alongside real `AFSB` data (proving
+    priority) — plus a new third case for the one remaining skip path
+    (neither `AFM2` nor `AFSB` present, an unrecognized future shape).
+    New `tests/test_integration.cpp` case (`HUSK_TEST_ANIM_DIR`-gated, new
+    env var + `testAnimDir()`/banner line, defaults to the same directory
+    the `.skel` fixtures already live in since that's where the real
+    `.anim` files sit) runs the real 104-file corpus end to end and checks
+    every decoded rotation/translation keyframe via tinygltf — asserts a
+    conservative `> 100` clip lower bound, not the exact 336, so it doesn't
+    become a silent tripwire if the fixture set changes slightly. Full
+    suite: 337 → 337 cases (no new cases needed beyond the 3 rewritten + 1
+    real-data one — the fix reuses existing resolution machinery, not new
+    surface), but assertion count went 368,997 → 7,164,311 (the new
+    real-data test checks every keyframe across all 336 clips). Both
+    `./build/husk-tests` and `ctest` green.
+  - **Docs**: `WIKI_FINDINGS.md` §2 rewritten with the corrected `AFM2`-size
+    claim and a full "Follow-up: cracked" section (the receipts above, in
+    more detail); `TODO_correctness.md`'s former item 1 removed outright
+    (per this file's own "fixed items get removed, not marked `[Fixed]`"
+    convention) and items 2-6 renumbered to 1-5 — a deliberate exception to
+    "don't renumber, it touches live code strings," done carefully with a
+    full grep-verified sweep across every `TODO_correctness.md #N`
+    reference in `src/`/`tests/` (bone-corrections references moved
+    `#6`→`#5`); `README.md` (Usage section's `.anim`/roadmap-stage-6
+    prose, format matrix row, Testing-architecture paragraph — the
+    "there's no repeatable real-file `.anim` test, a real gap" line was
+    itself stale after this session and got corrected), `DESIGN.md` (Key
+    design decisions entry rewritten from "skipped outright" to "resolved,
+    here's how," Boundaries list, Open-work pointer).
+  - **Environment note, reconfirmed**: same `uv run --no-project python3`
+    pattern as prior sessions for ad hoc byte-level scratch analysis (this
+    session's scripts lived in the scratchpad, not committed); `nu` used
+    for a couple of quick chunk-offset dumps needing no Python at all.
+- **Previous state**: `TODO_correctness.md` #6's extras-export half is now
   implemented — real `.bone` correction data attaches to `husk export`'s
   glTF output as inert `extras`, never applied to the render. New
   `husk export --bones-dir <dir>` flag (three-state, same shape as
@@ -300,33 +405,38 @@ real-file-driven spec correction found along the way.
   code's `readFileBytes` "couldn't open '<path>'" message used to
   surface — a real (if minor) loss of specificity, noted in
   `tests/test_cli.cpp`'s comments rather than silently adjusted around.
-- **Next step**: nothing in flight. `TODO_correctness.md` #6 is as closed
-  as husk itself can close it — the remaining piece (a client-side DB2
-  slot-selection lookup) is out of reach by design, not a to-do; a future
-  session could revisit *applying* a specific slot (e.g. real, scrubable
-  glTF animation clips per slot, mirroring `global_seq_<n>`) if that
-  external mapping ever becomes reachable some other way, but that's new
-  scope, not a continuation of this session's work. Remaining known gaps
-  are exactly the ones `TODO_correctness.md` tracks (`AFSB`
-  reverse-engineering, `M2Particle` dereferencing, two awareness-only/
-  blocked-on-real-data footnotes), plus optional scope expansion (WMO/M3,
-  or Blender-side tooling for the geoset/multi-texture-layer `extras`).
-  One real, minor loose end from an earlier session worth picking up if
-  `cmd_export.cpp` is touched again: `resolveSkin`'s failure messages could
-  name the specific candidate path/FileDataID they tried, not just the
-  directory — small, not urgent.
-- **Hazards**: none new this session beyond the pre-existing
-  `HUSK_TEST_DATA_DIR`/relative-path one below. `completions/husk.bash`/
-  `.zsh` are generated, checked-in artifacts (`husk --print-completion=
-  <bash|zsh>`) — if `addExportOptions`'s flag table changes, regenerate
-  both rather than hand-editing; **the completion generator's per-flag
-  value-taxonomy tables in `src/main.cpp` (`bashValueCompletion`/
-  `zshValueAction`/`zshFlagLabel`) are hand-maintained, separate from
-  `addExportOptions`, and don't pick up a new flag's `none`/directory
-  semantics automatically** — a new flag falls through to plain-filename
-  completion until it's added to those tables explicitly (found the hard
-  way this session; verify by actually sourcing the regenerated script and
-  driving `_husk_completions`/`_husk`, not just diffing that a new flag
+- **Next step**: nothing in flight. `AFSB` is fully resolved — no further
+  work needed there barring a real multi-model cross-check if a
+  non-blood-elf `.skel`-linked character file ever shows up in
+  `test_data/` (the packing/alignment rule was verified across one
+  model's entire real corpus, not multiple distinct models; worth
+  reconfirming if the opportunity arises, not urgent since the
+  underlying mechanism — reusing already-verified `SKB1` descriptor
+  resolution — has no model-specific assumptions baked in). Remaining
+  known gaps are exactly what `TODO_correctness.md` tracks post-renumbering
+  (item 1: `M2Particle` dereferencing; item 5: `.bone` slot *selection* —
+  the extras-export half is done, picking a slot is blocked on client-side
+  DB2 data husk doesn't have and, per `DESIGN.md`'s non-goals, never will
+  at runtime; two awareness-only footnotes), plus optional scope expansion
+  (WMO/M3, or Blender-side tooling for the geoset/multi-texture-layer/
+  bone-correction `extras`). One real, minor loose end from an earlier
+  session worth picking up if `cmd_export.cpp` is touched again:
+  `resolveSkin`'s failure messages could name the specific candidate
+  path/FileDataID they tried, not just the directory — small, not urgent.
+- **Hazards**: none new this session — the `AFSB` work only touched
+  `buildAnimations`' external-file branch and reused existing, already-
+  tested resolution functions unchanged. Carried over from earlier
+  sessions: `completions/husk.bash`/`.zsh` are generated, checked-in
+  artifacts (`husk --print-completion=<bash|zsh>`) — if `addExportOptions`'s
+  flag table changes, regenerate both rather than hand-editing; **the
+  completion generator's per-flag value-taxonomy tables in `src/main.cpp`
+  (`bashValueCompletion`/`zshValueAction`/`zshFlagLabel`) are hand-maintained,
+  separate from `addExportOptions`, and don't pick up a new flag's
+  `none`/directory semantics automatically** — a new flag falls through to
+  plain-filename completion until it's added to those tables explicitly
+  (found the hard way in an earlier session; verify by actually sourcing
+  the regenerated script and driving `_husk_completions`/`_husk`, not just
+  diffing that a new flag
   name appears). `HUSK_TEST_DATA_DIR` (`CMakeLists.txt`) is baked absolute
   at configure time, so the default `test_data/`-fallback fixtures are
   immune to the old `ctest`-runs-from-`build/` relative-path trap — but if

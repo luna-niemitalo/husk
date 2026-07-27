@@ -2,16 +2,21 @@
 
 **Status: an open punch list, not a historical record.** Fixed items get
 removed outright rather than kept as `[Fixed]` noise — git history is where
-the record of what was fixed and when lives, not a checked-in file. Item 1
-needs real-file reverse-engineering work this pass deliberately didn't
-attempt; item 2 (particles) needs real-file investigation out of scope for
-this pass; item 3 (cameras) is low-priority by design, not by oversight;
-items 4/5 are awareness-only footnotes, not action items, kept here only so
-they aren't lost; item 6's LOD hypothesis has since been ruled out by real
-data, and the extras-export half is now implemented (`husk export
---bones-dir`) — what's left needs a client-side DB2 lookup husk doesn't have
-access to, not more file-reading or export work. Formerly-tracked
-items that got fixed and folded back into
+the record of what was fixed and when lives, not a checked-in file.
+Former item 1 (`.skel`-sourced external `.anim`/`AFSB`) is exactly that
+case — cracked and implemented this session (see `WIKI_FINDINGS.md` §2's
+follow-up), removed outright rather than kept as a done-item note, and
+every remaining item below renumbered accordingly (1-5, was 2-6) — a
+deliberate, fully cross-checked exception to "don't renumber, it touches
+live code strings," since leaving a numbering gap forever would be worse
+than a one-time careful rename. Item 1 (particles) needs real-file
+investigation out of scope for this pass; item 2 (cameras) is low-priority
+by design, not by oversight; items 3/4 are awareness-only footnotes, not
+action items, kept here only so they aren't lost; item 5's LOD hypothesis
+has since been ruled out by real data, and the extras-export half is now
+implemented (`husk export --bones-dir`) — what's left needs a client-side
+DB2 lookup husk doesn't have access to, not more file-reading or export
+work. Formerly-tracked items that got fixed and folded back into
 `README.md`/`DESIGN.md` (shell completion, `.phys`/`PFID` surfacing,
 `M2Ribbon`, and everything `FINDINGS.md` used to track before it was
 retired) were removed from this file entirely.
@@ -20,19 +25,7 @@ retired) were removed from this file entirely.
 
 ## Read-pipeline correctness
 
-### 1. `.skel`-sourced external `.anim` files (`AFSB`) are unparsed
-
-**Still open — deliberately not attempted this pass.** All 54/54 sampled
-`.anim` files for the `.skel`-sourced HD test model carry `AFSB` instead of
-usable `AFM2` data. For any Legion+ character whose bones live in a `.skel`
-file (the norm for modern character models), external-sequence animation is
-essentially 0% available. `AFSB`'s own byte layout is undocumented anywhere
-(see `WIKI_FINDINGS.md` §2) — a genuine reverse-engineering task, not a
-quick parser fix.
-
----
-
-### 2. Particles (`M2Particle`) — still open
+### 1. Particles (`M2Particle`) — still open
 
 `M2Particle` is a large, heavily version-conditional struct (BC/Cata+
 branches for several fields) — enough real-file investigation to get right
@@ -45,7 +38,7 @@ format matrix / `DESIGN.md`, see those files for the current state.)
 
 ---
 
-### 3. Cameras (`M2Camera`) — low priority, explicitly deprioritized
+### 2. Cameras (`M2Camera`) — low priority, explicitly deprioritized
 
 **Explored per request: why would a custom-engine emulator need these at
 all?** `M2Camera` records are WoW's own *baked, model-relative* cinematic
@@ -64,7 +57,7 @@ leave as-is.
 
 ---
 
-### 4. Five lookup-table arrays parsed, never referenced
+### 3. Five lookup-table arrays parsed, never referenced
 
 `boneLookup`, `attachmentLookup`, `cameraLookup`, `textureLookup`,
 `sequenceLookup` (`src/m2.hpp`) are all read into descriptors and never
@@ -81,7 +74,7 @@ info` already prints — ever gets added).
 
 ---
 
-### 5. Multi-texture-layer index arithmetic unverified against a real file
+### 4. Multi-texture-layer index arithmetic unverified against a real file
 
 `cmd_export.cpp`'s `textureComboIndex + layer` / `textureCoordComboIndex +
 layer` arithmetic for a batch's 2nd+ texture layer (see the code comment
@@ -95,7 +88,7 @@ whenever a multi-texture-layer test model shows up in `test_data/` —
 
 ---
 
-### 6. `.bone` correction matrices — which slot applies is unresolvable, extras export is done
+### 5. `.bone` correction matrices — which slot applies is unresolvable, extras export is done
 
 `husk dump-chunks <file.bone>` surfaces the raw `(bone_index, matrix)`
 pairs (see `README.md`'s `.bone` section); nothing about which of a

@@ -33,10 +33,10 @@
 // keyframes into real glTF animation clips, for a model's own inline bones
 // and (via skel::parseSequences/skel::boneTrackBlob/skel::findAnimFileIds)
 // a .skel-sourced skeleton alike -- either way, only for sequences whose
-// keyframe data actually resolves: inline, via --anim for an AFM2-shape
-// external .anim file, or not at all for a .skel sequence whose external
-// data is in the AFSB shape husk doesn't parse yet (see buildAnimations's
-// doc comment below).
+// keyframe data actually resolves: inline, or via --anim for an external
+// .anim file, AFM2- or AFSB-shaped alike (see buildAnimations's doc comment
+// below, and WIKI_FINDINGS.md §2 for how AFSB's undocumented byte layout
+// was cracked).
 namespace husk::commands {
 
 namespace {
@@ -368,28 +368,34 @@ std::vector<gltf::Animation> buildGlobalSequenceAnimations(const std::vector<uin
 // -- a .skel's own AFID table, not the owning M2's, see skel.hpp) -- the
 // M2Track outer-array-indexed-by-sequence-position convention (and the
 // external-.anim-file mechanism) is the same either way, verified against a
-// real bloodelffemale_hd.m2/.skel pair (see skel.hpp's doc comment). The
-// only case this can't resolve is a .skel sequence whose external data
-// lives in an AFSB-chunked .anim file, a format wowdev.wiki documents no
-// byte layout for at all (unlike AFM2's "identical to the flat format"
-// one-liner) -- skipped below, same policy as a missing file. `skeleton`
-// must be the already-built bind-pose Skeleton for these same `bones`, in
-// the same order, since each keyframe's translation channel value is
-// bind-pose-relative-to-parent (`skeleton.joints[i].localTranslation`) plus
-// the animated delta -- glTF's animated translation *replaces* the node's
-// translation at sampled times rather than adding to it, so the bind offset
-// has to be baked into every keyframe value, not left implicit. Sequences
-// with no bone actually carrying resolvable data for them (a zero-length
-// primary sequence, one this model just doesn't animate any bone in, an
-// external sequence whose .anim file isn't available in
-// `animInputs.animDir`, or one in the unhandled AFSB shape above) are
-// skipped -- an empty animation clip isn't useful output. A malformed .anim
-// file (bad chunk framing, or keyframe data claiming more than the file
-// actually holds) throws rather than being silently skipped -- same
-// "foreign data that doesn't fit its own claims is an error, not a
-// best-effort" policy as every other parser in this codebase; only a
-// *missing* file, or the AFSB case, is treated as "husk doesn't have this
-// one," consistent with --textures/--skin-dir.
+// real bloodelffemale_hd.m2/.skel pair (see skel.hpp's doc comment). A
+// .skel sequence whose external data lives in an AFSB-chunked .anim file
+// (the norm for modern character models, see WIKI_FINDINGS.md §2) resolves
+// the exact same way: SKB1's own per-bone M2Track (count, offset)
+// descriptors -- the ones trackSequenceInnerArrays already reads for the
+// inline/AFM2 cases above -- turn out to point directly into the AFSB
+// payload's own byte range, not into SKB1 itself (verified against the
+// entire real bloodelffemale_hd.m2/.skel/.anim corpus: every bone/sequence
+// combination's timestamps decode monotonic-and-in-bounds and every
+// resulting value is finite, rotation quaternions included, which decode
+// to unit length). `skeleton` must be the already-built bind-pose Skeleton
+// for these same `bones`, in the same order, since each keyframe's
+// translation channel value is bind-pose-relative-to-parent
+// (`skeleton.joints[i].localTranslation`) plus the animated delta -- glTF's
+// animated translation *replaces* the node's translation at sampled times
+// rather than adding to it, so the bind offset has to be baked into every
+// keyframe value, not left implicit. Sequences with no bone actually
+// carrying resolvable data for them (a zero-length primary sequence, one
+// this model just doesn't animate any bone in, or an external sequence
+// whose .anim file isn't available in `animInputs.animDir`) are skipped --
+// an empty animation clip isn't useful output. A malformed .anim file (bad
+// chunk framing, or keyframe data claiming more than the file actually
+// holds) throws rather than being silently skipped -- same "foreign data
+// that doesn't fit its own claims is an error, not a best-effort" policy as
+// every other parser in this codebase; only a genuinely *missing* file, or
+// a chunked .anim with neither an `AFM2` nor an `AFSB` chunk (a future
+// .anim variant this parser doesn't recognize yet), is treated as "husk
+// doesn't have this one," consistent with --textures/--skin-dir.
 std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                                               const std::vector<m2::Bone>& bones,
                                               const gltf::Skeleton& skeleton,
@@ -429,27 +435,30 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                 // Peek at the top-level chunks before handing off to
                 // extractAnimBlob (which only knows AFM2): a .skel-sourced
                 // model's .anim files were found, against real data, to
-                // carry an AFSB chunk (wowdev.wiki has no documented byte
-                // layout for this at all, unlike AFM2's "identical to the
-                // flat format" one-liner) either alongside a small
-                // (64-byte, real files) AFM2 chunk or alone -- and that
-                // small AFM2 "stub" does NOT hold the real per-bone track
-                // data (confirmed the hard way: resolving against it throws
-                // a real "claims more keyframes than this blob holds"
-                // bounds error, not silently wrong data, but still not
-                // useful output) -- an AFSB chunk being present at all
-                // means husk can't use this file, regardless of whether
-                // AFM2 also is. Skip it, same "husk doesn't have this one"
-                // policy as a missing --anim-resolved file, rather than letting
-                // a downstream bounds check throw over a shape it was
-                // never told to expect.
+                // carry an AFSB chunk -- either alongside a small (real
+                // files: 16-1344 bytes, always a multiple of 16) AFM2 chunk,
+                // or alone. That AFM2 "stub" does NOT hold the real per-bone
+                // track data (confirmed the hard way early on: resolving
+                // against it throws a real "claims more keyframes than this
+                // blob holds" bounds error) -- the real data is AFSB's own
+                // payload, used directly as the external blob below, same
+                // mechanism as an AFM2-shaped external file (WIKI_FINDINGS.md
+                // §2's follow-up has the full byte-level receipts). AFSB
+                // takes priority whenever both are present.
                 auto topChunks = readChunks(animFileBytes.data(), animFileBytes.size());
-                if (findChunk(topChunks, "AFSB") || !findChunk(topChunks, "AFM2")) {
-                    continue;
+                if (auto afsb = findChunk(topChunks, "AFSB")) {
+                    loadedAnimBlob.assign(afsb->data, afsb->data + afsb->size);
+                    externalBlob = &loadedAnimBlob;
+                } else if (findChunk(topChunks, "AFM2")) {
+                    loadedAnimBlob = m2::extractAnimBlob(animFileBytes, animInputs.animChunked);
+                    externalBlob = &loadedAnimBlob;
+                } else {
+                    continue;  // neither AFM2 nor AFSB -- an unrecognized future shape
                 }
+            } else {
+                loadedAnimBlob = m2::extractAnimBlob(animFileBytes, animInputs.animChunked);
+                externalBlob = &loadedAnimBlob;
             }
-            loadedAnimBlob = m2::extractAnimBlob(animFileBytes, animInputs.animChunked);
-            externalBlob = &loadedAnimBlob;
         }
 
         gltf::Animation anim;
@@ -1097,7 +1106,7 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "directory of already-extracted '<FileDataID>.bone' files (per the model's/"
                     "'.skel's BFID array), or 'none' to skip (default: the model's own directory) "
                     "-- attached as inert glTF extras only, never applied to the render (see "
-                    "TODO_correctness.md #6)");
+                    "TODO_correctness.md #5)");
 }
 
 int exportGlb(int argc, char** args) {
@@ -1380,7 +1389,7 @@ int exportGlb(int argc, char** args) {
             // missing PNG) -- attached as inert gltf::Skeleton::
             // CorrectionSet extras, never applied to the bind pose/
             // animation above (see gltf.hpp's CorrectionSet doc comment,
-            // TODO_correctness.md #6).
+            // TODO_correctness.md #5).
             if (!bonesDir.empty()) {
                 std::optional<std::vector<uint32_t>> boneFileDataIds =
                     bonesAreInline ? header.boneFileDataIds
@@ -1420,7 +1429,7 @@ int exportGlb(int argc, char** args) {
                                   << "' as inert glTF extras (not applied to the render -- "
                                      "which slot is 'correct' for a given character depends "
                                      "on client-side customization-choice data husk doesn't "
-                                     "have; see TODO_correctness.md #6)\n";
+                                     "have; see TODO_correctness.md #5)\n";
                     }
                 }
             }

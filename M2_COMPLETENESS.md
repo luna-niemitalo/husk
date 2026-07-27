@@ -21,7 +21,7 @@ layout husk actually decodes for this feature:
 
 | Value | Meaning |
 |---|---|
-| `none` | Not read at all, or detected-and-skipped (e.g. `AFSB`) |
+| `none` | Not read at all, or detected-and-skipped (e.g. the `0x40` "alias" sequence flag) |
 | `descriptor` | Only the `M2Array` count+offset pair is read — no real records |
 | `deref` | Real records dereferenced, but only their static (non-`M2Track`) fields |
 | `full` | Every field husk needs for the feature, including animated tracks |
@@ -72,7 +72,7 @@ elsewhere is just unattempted work.
 |---|---|---|---|---|
 | Animation sequences + per-bone tracks (inline or `.skel`-sourced) | full | native | native — 100% | `resolveVec3TrackSequence`/`resolveQuatTrackSequence` |
 | External `.anim` sequences (`AFM2`) | full | native | native — 100% | via `--anim <dir>` + `AFID`/`.skel`'s own `AFID` |
-| External `.anim` sequences (`AFSB`, `.skel`-linked) | none | none | native-possible, not done | byte layout undocumented anywhere (`WIKI_FINDINGS.md` §2); `TODO_correctness.md` #1 |
+| External `.anim` sequences (`AFSB`, `.skel`-linked) | full | native | native — 100% | byte layout was undocumented anywhere, cracked this session — `SKB1`'s own descriptors point directly into `AFSB`'s payload, no new parser needed (`WIKI_FINDINGS.md` §2's follow-up) |
 | Global-sequence bone tracks (independent continuous loops) | full | native | native — 100% | `buildGlobalSequenceAnimations`, one clip per global-sequence index |
 | Alias sequences (`flags & 0x40`) | none | none | n/a | wowdev.wiki itself: "I have no clue" where this data lives — an upstream-spec gap, not a husk gap |
 | Animated material tint/fade (`M2Color`/`M2TextureWeight`, global-sequence-driven) | deref (animated flag detected) | diagnostic (stderr note only) | native-possible, not done | no core-glTF animation-channel target for a material property exists either way, but husk hasn't even attempted the extras-based keyframe dump that would at least surface the data |

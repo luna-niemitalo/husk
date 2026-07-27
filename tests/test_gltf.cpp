@@ -273,7 +273,7 @@ TEST_CASE("writeGlb: a joint's billboardMode becomes a \"billboard\" key in its 
 }
 
 TEST_CASE("writeGlb: a skeleton's correctionSets round-trip as bone_correction_sets on the "
-          "skin's extras (WIKI_FINDINGS.md §4/TODO_correctness.md #6)") {
+          "skin's extras (WIKI_FINDINGS.md §4/TODO_correctness.md #5)") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();
 

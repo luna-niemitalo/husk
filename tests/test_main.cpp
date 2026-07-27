@@ -36,6 +36,7 @@ int main(int argc, char** argv) {
     printFixture("HUSK_TEST_SKEL_SKIN", husk::test::testSkelSkin());
     printFixture("HUSK_TEST_SKEL", husk::test::testSkel());
     printFixture("HUSK_TEST_BONES_DIR", husk::test::testBonesDir());
+    printFixture("HUSK_TEST_ANIM_DIR", husk::test::testAnimDir());
 #ifdef HUSK_GLTF_VALIDATOR
     std::cerr << "husk-tests:   HUSK_GLTF_VALIDATOR: " << HUSK_GLTF_VALIDATOR << "\n";
 #else

@@ -193,8 +193,11 @@ matrices, joint-node hierarchy), plus real glTF `animation` clips per
 - `<dir>`: explicit directory for the external-search stage; inline +
   global-sequence clips still resolve on top of it, same as `auto`.
 
-Unresolvable data is skipped, never guessed: the `0x40` ("alias") flag case,
-and any `.anim` file carrying an undocumented `AFSB` chunk (see `DESIGN.md`).
+External `.anim` files resolve either shape husk has seen in real files:
+`AFM2` (flat, inline-boned models) or `AFSB` (`.skel`-linked models' real
+shape, cracked and resolved -- see `DESIGN.md`/`WIKI_FINDINGS.md` §2). Only
+the `0x40` ("alias") flag case is still skipped, never guessed --
+wowdev.wiki: "I have no clue" where that data lives.
 
 **`.bone` corrections.** If the model's/`.skel`'s `BFID` array names any
 `.bone` sidecar files and `--bones-dir` resolves any of them to a real
@@ -327,7 +330,7 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | Materials | 📖 `materials` array (`flags`/`blending_mode`, `src/m2.cpp`'s `parseMaterials`) resolved per-batch and translated to glTF `alphaMode`/`doubleSided`, plus a static color tint/alpha-fade into `baseColorFactor` (see Per-vertex colors above), by `husk export` (`src/cmd_export.cpp`) — write-back to M2 not applicable (glTF-only tool); a batch's additional texture layers (`M2Batch.textureCount > 1` — a real second env-mapped/blended layer, wowdev.wiki M2/.skin#Texture_units) are resolved and surfaced as glTF `extras` (FileDataID/UV set, plus a real embedded-but-unused image if `--textures` has a match) but not rendered — core glTF has no slot for WoW's fixed-function combiner math (`Mod2x`/`Add`/env-map blending) to translate into; a batch's UV scroll/rotate/scale animation (`M2TextureTransform`, `Header::textureTransforms` + `.skin`'s `Batch.textureTransformComboIndex` — flowing lava/water, some portal/aura effects) is likewise resolved (`m2::parseTextureTransforms`) and surfaced as `extras` (`gltf::Material::textureTransform`) rather than a real `KHR_texture_transform`, for the same "no verified-safe translation" reason: core glTF's own extension has no animation-channel target either (so the animated case, almost certainly the common one for a real scrolling-UV model, has no representation regardless), and correctly folding WoW's texture-center rotation pivot into the extension's own origin-based one hasn't been checked against a real animated file yet — see `src/m2.hpp`'s `TextureTransform` doc comment | ⬜ `M3SI` Instances → external `MaterialLibrary` (`.mtl3lib`) | ⬜ `MOMT`, `MOM3` (v3 override), `MOUV` (UV anim), per-face `MOPY`/`MPY2`/`MOBS` | ⬛ |
 | Texture references (names/FileDataIDs) | 📖 `textures` array (`type`/`flags`/`filename`) + `textureCombos` lookup table resolved (`src/m2.cpp`); Legion+ `TXID` chunk FileDataIDs surfaced (`Header::textureFileDataIds`) — same non-resolved-to-a-path treatment as `SKID`, see the Sidecar row below | ⬜ indirect, via `MaterialLibrary` → compiled shader files (`GFAT`/`BLS`) — separate formats, not yet even scoped | ⬜ `MOTX` | ⬛ BLP is the referenced asset, not a referencer |
 | Texture pixel data | ⬛ | ⬛ | ⬛ | 🚧 `blp/` (Python, `husk-blp` CLI) — header + mip table resolved, palette/DXT1/DXT5/BGRA decode to PNG done; DXT3 and JPEG content unimplemented (JPEG rare in BLP2 per the wiki; DXT3 unseen in this repo's real test data so far — not yet a confirmed-needed gap) |
-| Animation sequences / tracks | 📖 `sequences` resolved to real `M2Sequence` records (`id`/`variationIndex`/`duration`/`flags`) whether inline (`src/m2.cpp`'s `parseSequences`) or `.skel`-sourced (`SKS1`, `src/skel.cpp`'s `parseSequences`); each bone's `translation`/`rotation`/`scale` `M2Track` resolved per-sequence (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`) into real glTF `animation` clips by `husk export`, for sequences whose data lives inline (`flags & 0x20`) *or* an external `.anim` file resolved via `--anim` + the model's own `AFID` chunk (or the `.skel`'s own separate `AFID` table, for a `.skel`-sourced skeleton) — verified against real files both ways (see the Usage section and roadmap stage 6). A bone track whose `global_sequence` field is set (continuous, `M2Sequence`-independent looping — glow pulses, idle sway) also resolves to its own real glTF clip (`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack`, one clip per distinct global-sequence index actually used), for inline and `.skel`-sourced bones alike. Still unresolved: sequences with `flags & 0x40` ("alias", wowdev.wiki: "I have no clue" where that data lives), and any external `.anim` file that turns out to carry an `AFSB` chunk instead of (or alongside) `AFM2` — real `.skel`-sourced character files were found to use `AFSB` almost universally, a format wowdev.wiki documents no byte layout for at all | ❔ no sequence/track chunk documented in the fetched spec at all | ⬛ (`MOUV` texture-translation anim is the closest thing; counted under Materials) | ⬛ |
+| Animation sequences / tracks | 📖 `sequences` resolved to real `M2Sequence` records (`id`/`variationIndex`/`duration`/`flags`) whether inline (`src/m2.cpp`'s `parseSequences`) or `.skel`-sourced (`SKS1`, `src/skel.cpp`'s `parseSequences`); each bone's `translation`/`rotation`/`scale` `M2Track` resolved per-sequence (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`) into real glTF `animation` clips by `husk export`, for sequences whose data lives inline (`flags & 0x20`) *or* an external `.anim` file resolved via `--anim` + the model's own `AFID` chunk (or the `.skel`'s own separate `AFID` table, for a `.skel`-sourced skeleton) — verified against real files both ways (see the Usage section and roadmap stage 6), `AFM2`- and `AFSB`-shaped external files alike (`AFSB` is the real shape for `.skel`-linked models; its undocumented byte layout was cracked — `SKB1`'s own per-bone/per-sequence descriptors point directly into it, no new parser needed, see `WIKI_FINDINGS.md` §2's follow-up). A bone track whose `global_sequence` field is set (continuous, `M2Sequence`-independent looping — glow pulses, idle sway) also resolves to its own real glTF clip (`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack`, one clip per distinct global-sequence index actually used), for inline and `.skel`-sourced bones alike. Still unresolved: sequences with `flags & 0x40` ("alias", wowdev.wiki: "I have no clue" where that data lives) | ❔ no sequence/track chunk documented in the fetched spec at all | ⬛ (`MOUV` texture-translation anim is the closest thing; counted under Materials) | ⬛ |
 | Interaction points (attachments, cameras, events) | 🚧 `attachments`/`events` resolved to real records (`id`/`bone`/`position` for attachments, `identifier`/`data`/`bone`/`position` for events — both static-fields-only, their own `M2Track` sub-fields skipped, `src/m2.cpp`'s `parseAttachments`/`parseEvents`, surfaced via `husk info`); `cameras` still count/offset-only — `M2Camera` is almost entirely `M2SplineKey`-animated data with a version-ambiguous field layout, not attempted yet | ❔ not present in the fetched chunk list | ⬛ | ⬛ |
 | Lights | 🚧 `lights` resolved to `type`/`bone`/`position` (`src/m2.cpp`'s `parseLights`, static fields only — ambient/diffuse color+intensity and attenuation are all `M2Track`-animated and skipped), surfaced via `husk info` | ❔ | ⬜ `MOLT` + `MOLR`/`MOLS`/`MOLP` + Shadowlands lightset system (`MLSS`/`MLSP`/`MLSO`/`MLSK`), `MNLD` dynamic lights, legacy v14 `MOLM`/`MOLD` lightmaps | ⬛ |
 | Particles / ribbons (effects) | 🚧 `particle_emitters` array counts/offsets read only (`husk info`); `M2Particle` records not dereferenced — a large, heavily version-conditional struct, out of scope so far (see `TODO_correctness.md`). `ribbon_emitters` records *are* dereferenced (`m2::Ribbon`/`parseRibbons`, `src/m2.cpp`, confirmed 0xB0-byte record) — static fields (`ribbonId`/`boneIndex`/`position`/`edgesPerSecond`/`edgeLifetime`/`gravity`/`textureRows`/`textureCols`) surfaced via `husk info`, same static-fields-only pattern as attachments/events/lights; the six embedded `M2Track`s (color/alpha/height/texSlot/visibility) and the two lookup tables are left unread; `TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1` (small per-particle side-chunks) are extracted to JSON by `husk dump-chunks`, not integrated into glTF (see `DESIGN.md`) | ❔ `M3PT` chunk family declared but wiki notes "not yet seen in files" | ⬜ `MPVD` particulate volumes, `MAVG`/`MAVD`/`MBVD` ambient/box volumes + their `*VR` reference lists | ⬛ |
@@ -584,29 +587,36 @@ above; this section is about *sequencing* that work, not duplicating it.
    306 total clips, zero malformed reads. For a `.skel`-sourced model
    (`bloodelffemale_hd.m2`), it did *not* -- see the next paragraph.
    **`.skel`-sourced external `.anim` files: real per-bone data lives in an
-   undocumented `AFSB` chunk almost universally, not `AFM2` -- husk detects
-   this and skips gracefully, rather than either guessing at `AFSB`'s
-   layout or crashing.** All 54 of `bloodelffemale_hd.m2`'s own real
-   `.anim` files (resolved through the `.skel`'s own `AFID` table) turned
-   out to carry an `AFSB` chunk -- either alone (13 files) or alongside a
-   64-byte `AFM2` "stub" that is *not* real track data (91 files, confirmed
-   by trying to resolve against it anyway and getting a real "claims more
-   keyframes than this blob holds" bounds error, not silently wrong
-   output). `AFSB` is per-bone skeleton-track data in a format wowdev.wiki
-   documents no byte layout for at all (unlike `AFM2`'s one-line "identical
-   to the flat format"). `husk export`'s external-file loading now peeks at
-   the loaded `.anim` file's own top-level chunks before handing off to
-   `m2::extractAnimBlob`: an `AFSB` chunk being present at all means this
-   sequence is skipped (same "husk doesn't have this one" policy as a
-   missing `--anim`-resolved file), regardless of whether `AFM2` is *also*
-   there. This is the one place the wiki's spec-only implementation (see
-   the paragraph above) needed a real-data correction the wiki's prose
-   didn't surface -- exactly the pattern the `M2Sequence` stride fix set,
-   just found on the second file pairing rather than the first.
-   Reverse-engineering `AFSB` itself from real file samples remains future
-   work, not attempted here -- guessing at an undocumented per-bone
-   keyframe format risks silently-wrong animation data, worse than no
-   animation at all.
+   `AFSB` chunk almost universally, not `AFM2` -- and `AFSB`'s undocumented
+   byte layout has since been cracked and resolved, not just detected.**
+   All 54 of `bloodelffemale_hd.m2`'s own real `.anim` files (resolved
+   through the `.skel`'s own `AFID` table) turned out to carry an `AFSB`
+   chunk -- either alone (13 files) or alongside a small (16-1344 bytes
+   across the full corpus, always a multiple of 16, and near-zero) `AFM2`
+   "stub" that is *not* real track data (confirmed by trying to resolve
+   against it anyway and getting a real "claims more keyframes than this
+   blob holds" bounds error, not silently wrong output). The crack: `AFSB`
+   isn't a new format at all -- it's the same per-bone `M2Track` data
+   `.skel`'s `SKB1` chunk already describes, just stored in the external
+   `.anim` file's `AFSB` payload instead of `SKB1` itself. `SKB1`'s own
+   per-bone, per-sequence `(count, offset)` descriptors (the exact ones
+   `resolveVec3TrackSequence`/`resolveQuatTrackSequence` already resolve
+   for the `AFM2`-external case above) turn out to be real and non-zero far
+   more often than assumed -- the `offset` just needed to be read against
+   `AFSB`'s payload, the same `externalDataBlob` mechanism already used one
+   paragraph up, not a new parser. `husk export`'s external-file loading
+   now extracts `AFSB`'s own chunk payload directly as that blob whenever
+   present (taking priority over the `AFM2` stub, same "husk doesn't have
+   this one" skip only for a truly unrecognized future shape -- neither
+   chunk present at all). Verified against the entire real 104-file
+   `bloodelffemale_hd_*.anim` corpus (every bone/sequence combination's
+   timestamps monotonic and in-bounds, every decoded value finite, rotation
+   quaternions unit-length) and, end to end, three independent ways: husk
+   itself now reports 336 real animation clips for this model (up from the
+   inline/global-sequence-only clips available before), the Khronos
+   `gltf_validator` reports zero new errors, and Blender's own glTF
+   importer, run headlessly, independently counts 336 actions -- see
+   `WIKI_FINDINGS.md` §2's follow-up for the full byte-level writeup.
    **`.bone` (`BFID`) content: done, structure reverse engineered from real
    files (no wowdev.wiki documentation exists for it at all), not
    integrated into glTF export.** A `.bone` file (`src/bone.hpp`) is a
@@ -729,10 +739,14 @@ Same two-tier split as `casc-tool`:
   var always overrides, but absent that, it falls back to a matching file
   already sitting in this repo's own (gitignored) `test_data/` directory
   -- `HUSK_TEST_M2`/`HUSK_TEST_SKIN`/`HUSK_TEST_MISMATCHED_SKIN`/
-  `HUSK_TEST_SKEL_M2`/`HUSK_TEST_SKEL_SKIN`/`HUSK_TEST_SKEL` all default
-  this way, and `HUSK_TEST_SKIN_DIR` is *built* on the fly (`autoSkinDir`)
-  by reading the real SFID entry 0 out of the resolved M2's own header and
-  copying the resolved `.skin` there under that FileDataID -- the same
+  `HUSK_TEST_SKEL_M2`/`HUSK_TEST_SKEL_SKIN`/`HUSK_TEST_SKEL`/
+  `HUSK_TEST_ANIM_DIR` all default this way (the last one just resolves to
+  the same directory the `.skel`-sourced fixtures already live in, since
+  that's where the real, `AFSB`-shaped `.anim` files sit too), and
+  `HUSK_TEST_SKIN_DIR`/`HUSK_TEST_BONES_DIR` are *built* on the fly
+  (`autoSkinDir`/`autoBonesDir`) by reading the real SFID entry 0 / `BFID`
+  array out of the resolved M2's/`.skel`'s own header and copying the
+  resolved sidecar(s) there under the right FileDataID(s) -- the same
   fixture a hand-populated directory would need, constructed automatically
   instead of requiring one. Only `HUSK_TEST_TEXTURES_DIR` has no default
   (no `husk-blp`-converted PNGs are committed to `test_data/`) and still
@@ -745,16 +759,14 @@ Same two-tier split as `casc-tool`:
   260 cases never ran a single assertion). `tests/test_main.cpp`'s startup
   banner prints exactly what each fixture resolved to, or why it didn't,
   every run -- "why did N tests just skip" is a read, not a rerun.
-  There's still no `HUSK_TEST_ANIM_DIR` env var wired into the committed
-  suite -- `--anim`'s external-`.anim` resolution is instead covered
-  by the synthetic fixtures in `tests/test_cli.cpp` (both the inline-M2
-  and `.skel`-sourced cases, including the real-data-discovered
-  `AFSB`-vs-`AFM2` shape). The real-file verification described in roadmap
-  stage 6 (50/50 real files for the inline model, 54/54 for the
-  `.skel`-sourced one, checked by parsing the resulting `.glb` back apart
-  in Python) was done ad hoc against this repo's own `test_data/` during
-  development, not as a repeatable `HUSK_TEST_*`-gated test case -- a real
-  gap, since it means that specific check doesn't re-run automatically.
+  `--anim`'s synthetic-fixture coverage in `tests/test_cli.cpp` (both the
+  inline-M2 and `.skel`-sourced cases, including the `AFSB`-vs-`AFM2`
+  shape) is complemented by a real, `HUSK_TEST_ANIM_DIR`-gated
+  `test_integration.cpp` case that resolves the entire real
+  `bloodelffemale_hd_*.anim` corpus (336 clips) and checks every decoded
+  rotation/translation keyframe -- the ad hoc, one-off real-file
+  verification a previous version of this section used to describe is now
+  a repeatable, committed test case, not a gap.
   `test_data/` (gitignored) is a convenient local spot for real,
   copyrighted game data extracted from your own install, never meant to be
   committed -- everything above degrades gracefully (skips, visibly) when
@@ -791,7 +803,7 @@ structural change has one canonical place to be checked against. That
 includes: the chunk-tag-tracking/diagnostic mechanism, the `.skel`/`.bone`
 sidecar reuse pattern, the `M2Track` constant-value safeguard and the real
 bug that motivated it, external `.anim` blob splicing and the `AFSB`
-skip, the `M2Sequence`-is-64-bytes finding, the bone-track Z-up→Y-up
+crack, the `M2Sequence`-is-64-bytes finding, the bone-track Z-up→Y-up
 quaternion/scale conversion, why glTF output goes through tinygltf, why
 `dump-chunks` is a separate JSON format, why LOD tiers share one skeleton,
 and why `blp/` stays a separate Python process. Real-file

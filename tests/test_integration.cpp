@@ -37,6 +37,7 @@
 namespace {
 
 using husk::test::runHusk;
+using husk::test::testAnimDir;
 using husk::test::testBonesDir;
 using husk::test::testM2;
 using husk::test::testMismatchedSkin;
@@ -187,6 +188,82 @@ TEST_CASE("husk export: real M2 + .skin produces real glTF animation clips with 
         }
     }
     CHECK(rotationKeyframesChecked > 0);
+
+    std::filesystem::remove(outPath);
+}
+
+TEST_CASE(
+    "husk export: a .skel-sourced model's external AFSB-shaped .anim files resolve real, "
+    "sane (unit-norm, finite) animation clips, end to end (WIKI_FINDINGS.md §2's follow-up)" *
+    doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
+                  testAnimDir().empty())) {
+    // Every real bloodelffemale_hd_*.anim file carries AFSB, not AFM2 --
+    // per WIKI_FINDINGS.md §2, this was the single biggest unresolved
+    // animation gap in the project (essentially 0% external-animation
+    // coverage for any modern, .skel-linked character model). This test is
+    // the real-data proof the crack holds, mirroring the inline-animation
+    // sanity check above rather than asserting on one specific clip's exact
+    // values (those belong in test_cli.cpp's synthetic fixtures).
+    std::string m2Path = testSkelM2();
+    std::string skinPath = testSkelSkin();
+    std::string skelPath = testSkel();
+    std::string animDir = testAnimDir();
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-afsb.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
+                           "\" --skel \"" + skelPath + "\" --anim \"" + animDir + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+
+    // Real bloodelffemale_hd.m2/.skel/.anim data resolves 300+ real clips
+    // (336, checked by hand against this exact fixture) -- asserting a
+    // conservative lower bound here, not the precise count, so this test
+    // doesn't become a silent tripwire if the fixture's own AFID/anim-file
+    // set ever changes slightly.
+    CHECK(model.animations.size() > 100);
+
+    size_t rotationKeyframesChecked = 0;
+    size_t translationKeyframesChecked = 0;
+    for (const auto& anim : model.animations) {
+        for (const auto& ch : anim.channels) {
+            const auto& samp = anim.samplers[ch.sampler];
+            const auto& acc = model.accessors[samp.output];
+            const auto& view = model.bufferViews[acc.bufferView];
+            const auto& buf = model.buffers[view.buffer];
+            if (ch.target_path == "rotation") {
+                std::vector<float> vals(acc.count * 4);
+                std::memcpy(vals.data(), buf.data.data() + view.byteOffset + acc.byteOffset,
+                            vals.size() * sizeof(float));
+                for (size_t i = 0; i < vals.size(); i += 4) {
+                    float x = vals[i], y = vals[i + 1], z = vals[i + 2], w = vals[i + 3];
+                    CHECK(std::isfinite(x));
+                    CHECK(std::isfinite(y));
+                    CHECK(std::isfinite(z));
+                    CHECK(std::isfinite(w));
+                    float norm = std::sqrt(x * x + y * y + z * z + w * w);
+                    CHECK(norm == doctest::Approx(1.0f).epsilon(0.05));
+                    ++rotationKeyframesChecked;
+                }
+            } else if (ch.target_path == "translation") {
+                std::vector<float> vals(acc.count * 3);
+                std::memcpy(vals.data(), buf.data.data() + view.byteOffset + acc.byteOffset,
+                            vals.size() * sizeof(float));
+                for (float v : vals) CHECK(std::isfinite(v));
+                translationKeyframesChecked += acc.count;
+            }
+        }
+    }
+    CHECK(rotationKeyframesChecked > 0);
+    CHECK(translationKeyframesChecked > 0);
 
     std::filesystem::remove(outPath);
 }
@@ -354,7 +431,7 @@ TEST_CASE(
 
 TEST_CASE(
     "husk export: --bones-dir attaches real .bone correction data as inert skin extras, end to "
-    "end (WIKI_FINDINGS.md §4/TODO_correctness.md #6)" *
+    "end (WIKI_FINDINGS.md §4/TODO_correctness.md #5)" *
     doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
                   testBonesDir().empty())) {
     std::string m2Path = testSkelM2();

@@ -999,11 +999,23 @@ TEST_CASE("husk export: a .skel external (flags without 0x20/0x40) SKS1 sequence
     fs::remove_all(animDir);
 }
 
-TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFSB-tagged (not "
-          "AFM2) produces no animation clip, not an error -- AFSB has no documented byte "
-          "layout husk can parse yet") {
+TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFSB-tagged "
+          "resolves a real animation clip, end to end -- SKB1's own per-sequence (count,offset) "
+          "descriptors point directly into the AFSB payload, same mechanism as an AFM2-shaped "
+          "external file just pointed at a different blob (WIKI_FINDINGS.md §2's follow-up)") {
     size_t boneOff = 0;
-    auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);  // tracks left empty -- never reached
+    auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);
+    size_t transOff = boneOff + 0x10;
+    uint16_t noGlobalSeq = 0xFFFF;  // see fillTrack's identical comment
+    std::memcpy(skb1Payload.data() + transOff + 0x02, &noGlobalSeq, 2);
+    uint32_t tsOuterOff = static_cast<uint32_t>(skb1Payload.size());
+    skb1Payload.resize(tsOuterOff + 8, 0);
+    putArrayAt(skb1Payload, tsOuterOff, 1, 0);  // seq 0: 1 timestamp at *AFSB-blob* offset 0
+    uint32_t valOuterOff = static_cast<uint32_t>(skb1Payload.size());
+    skb1Payload.resize(valOuterOff + 8, 0);
+    putArrayAt(skb1Payload, valOuterOff, 1, 4);  // seq 0: 1 C3Vector at *AFSB-blob* offset 4
+    putArrayAt(skb1Payload, transOff + 0x04, 1, tsOuterOff);
+    putArrayAt(skb1Payload, transOff + 0x0C, 1, valOuterOff);
 
     std::vector<uint8_t> skel;
     appendChunkTo(skel, "SKB1", skb1Payload);
@@ -1031,7 +1043,7 @@ TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFS
     auto animDir = fs::temp_directory_path() / "husk-cli-test-skel-afsb-dir";
     fs::create_directories(animDir);
     std::vector<uint8_t> afsbFile;
-    appendChunkTo(afsbFile, "AFSB", {1, 2, 3, 4});  // content never parsed -- just needs the tag
+    appendChunkTo(afsbFile, "AFSB", tinyAnimFile());  // real [timestamp][Vec3] payload
     writeFile(animDir / "888.anim", afsbFile);
 
     auto result =
@@ -1039,8 +1051,7 @@ TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFS
                 tempPath("skel-afsb-anim.glb").string() + " --skel " + skelPath.string() +
                 " --anim " + animDir.string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("animation(s)") == std::string::npos);
-    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
@@ -1049,13 +1060,24 @@ TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFS
 }
 
 TEST_CASE("husk export: a .skel external sequence's --anim <dir> file with BOTH a small AFM2 "
-          "chunk and a trailing AFSB chunk still produces no animation clip, not a bounds-check "
-          "crash -- real bloodelffemale_hd .anim files have exactly this shape (a tiny AFM2 "
-          "stub alongside the real AFSB data), and using the stub's payload as if it were the "
-          "full flat-format content throws a real 'claims more keyframes than this blob holds' "
-          "error, so AFSB's mere presence has to override AFM2's") {
+          "stub chunk and a real AFSB chunk resolves the AFSB data, not the AFM2 stub -- real "
+          "bloodelffemale_hd .anim files have exactly this shape (a tiny, all-near-zero AFM2 "
+          "stub alongside the real AFSB data); using the stub's payload as if it were the full "
+          "flat-format content throws a real 'claims more keyframes than this blob holds' error "
+          "instead, so AFSB has to take priority whenever both are present") {
     size_t boneOff = 0;
-    auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);  // tracks left empty -- never reached
+    auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);
+    size_t transOff = boneOff + 0x10;
+    uint16_t noGlobalSeq = 0xFFFF;
+    std::memcpy(skb1Payload.data() + transOff + 0x02, &noGlobalSeq, 2);
+    uint32_t tsOuterOff = static_cast<uint32_t>(skb1Payload.size());
+    skb1Payload.resize(tsOuterOff + 8, 0);
+    putArrayAt(skb1Payload, tsOuterOff, 1, 0);
+    uint32_t valOuterOff = static_cast<uint32_t>(skb1Payload.size());
+    skb1Payload.resize(valOuterOff + 8, 0);
+    putArrayAt(skb1Payload, valOuterOff, 1, 4);
+    putArrayAt(skb1Payload, transOff + 0x04, 1, tsOuterOff);
+    putArrayAt(skb1Payload, transOff + 0x0C, 1, valOuterOff);
 
     std::vector<uint8_t> skel;
     appendChunkTo(skel, "SKB1", skb1Payload);
@@ -1079,13 +1101,57 @@ TEST_CASE("husk export: a .skel external sequence's --anim <dir> file with BOTH 
     auto animDir = fs::temp_directory_path() / "husk-cli-test-skel-afm2-stub-dir";
     fs::create_directories(animDir);
     std::vector<uint8_t> mixedFile;
-    appendChunkTo(mixedFile, "AFM2", {0, 0, 0, 0});  // tiny stub, not real track data
-    appendChunkTo(mixedFile, "AFSB", {1, 2, 3, 4});  // the real (unparsed) data
+    appendChunkTo(mixedFile, "AFM2", {0, 0, 0, 0});    // tiny stub, not real track data
+    appendChunkTo(mixedFile, "AFSB", tinyAnimFile());  // the real data
     writeFile(animDir / "999.anim", mixedFile);
 
     auto result =
         runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                 tempPath("skel-afm2-stub-afsb-anim.glb").string() + " --skel " + skelPath.string() +
+                " --anim " + animDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
+    fs::remove_all(animDir);
+}
+
+TEST_CASE("husk export: a .skel external sequence's chunked --anim <dir> file with neither an "
+          "AFM2 nor an AFSB chunk produces no animation clip, not an error -- an unrecognized "
+          "future .anim shape, same skip policy as a missing file") {
+    size_t boneOff = 0;
+    auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);  // tracks left empty -- never reached
+
+    std::vector<uint8_t> skel;
+    appendChunkTo(skel, "SKB1", skb1Payload);
+    appendChunkTo(skel, "SKS1", buildSks1Payload(700, 0));  // flags=0 -- external
+    std::vector<uint8_t> afid;
+    putU16(afid, 700);
+    putU16(afid, 0);
+    putU32(afid, 1111);
+    appendChunkTo(skel, "AFID", afid);
+
+    auto m2 = tinyValidM2();
+    uint32_t globalFlags = 0x200000;
+    std::memcpy(m2.data() + 0x010, &globalFlags, 4);
+
+    auto m2Path = tempPath("skel-neither-afm2-afsb.m2");
+    writeFile(m2Path, m2);
+    auto skinPath = tempPath("skel-neither-afm2-afsb.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto skelPath = tempPath("skel-neither-afm2-afsb.skel");
+    writeFile(skelPath, skel);
+    auto animDir = fs::temp_directory_path() / "husk-cli-test-skel-neither-dir";
+    fs::create_directories(animDir);
+    std::vector<uint8_t> unknownFile;
+    appendChunkTo(unknownFile, "ZZZZ", {1, 2, 3, 4});  // some future chunk shape, not AFM2/AFSB
+    writeFile(animDir / "1111.anim", unknownFile);
+
+    auto result =
+        runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                tempPath("skel-neither-afm2-afsb.glb").string() + " --skel " + skelPath.string() +
                 " --anim " + animDir.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("animation(s)") == std::string::npos);

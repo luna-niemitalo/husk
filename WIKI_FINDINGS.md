@@ -133,14 +133,108 @@ chunk-dumped (tag + size, walking the file) in Python: 91 have the shape
 models and confirmed *insufficient* for `.skel`-sourced ones, in the same
 real file corpus.
 
-`AFSB`'s own internal byte layout was **not** reverse-engineered — husk
-detects its presence (`readChunks` + `findChunk(..., "AFSB")`,
-`src/cmd_export.cpp`) and skips that sequence rather than guessing. A very
-shallow peek at one 135,024-byte `AFSB` payload showed a small header
-(looked like a count) followed by a run of monotonically-increasing
-4-byte values ~33–34 apart — consistent with a per-bone offset table into a
-packed keyframe region — but this was not pursued far enough to write up
-as even a hypothesis-confidence structure.
+`AFSB`'s own internal byte layout was **not** reverse-engineered in this
+first pass — husk detected its presence (`readChunks` + `findChunk(...,
+"AFSB")`, `src/cmd_export.cpp`) and skipped that sequence rather than
+guessing. A very shallow peek at one 135,024-byte `AFSB` payload showed a
+small header (looked like a count) followed by a run of
+monotonically-increasing 4-byte values ~33–34 apart — consistent with a
+per-bone offset table into a packed keyframe region — but this was not
+pursued far enough to write up as even a hypothesis-confidence structure
+at the time. **See the follow-up below: this was cracked in a later
+session.**
+
+Correction to the "91 have `[('AFM2', 64), ...]`" claim above: a full
+104-file re-survey found `AFM2`'s size actually varies (16, 32, 48, 64, 80,
+160, 240, or 288 bytes across the plain `_hd` set; up to 1344 bytes for the
+`_hd_sdr` variant) — always a multiple of 16, never a fixed 64. The
+original investigation happened to sample files where it came out to 64;
+the "small, near-zero stub, not real track data" conclusion still holds
+(see the follow-up's explanation of what `AFM2`'s bytes actually are).
+
+### Follow-up: `AFSB`'s byte layout, cracked
+
+**Confidence: verified** — against the entire real 104-file
+`bloodelffemale_hd_*.anim` corpus, cross-checked two independent ways
+(husk's own tinygltf-based output check, and a completely separate
+implementation: Blender's own glTF importer, run headlessly).
+
+**The core insight: `AFSB` isn't a new format to reverse-engineer at
+all — it's the exact same per-bone `M2Track` data `.skel`'s `SKB1` chunk
+already describes, just stored in a different blob than the one husk was
+looking in.** `src/m2.cpp`'s `trackSequenceInnerArrays` already reads,
+for any bone and any sequence index, a `(timestamp_count, timestamp_offset,
+value_count, value_offset)` tuple straight out of `SKB1` — this is the
+exact mechanism `skel.hpp`'s own doc comment describes for *inline*
+`.skel` sequences. What turned out to be wrong was the assumption (stated
+in `src/m2.hpp`'s `Bone` doc comment, "every M2Track they point at is
+expected to be genuinely empty") that this tuple is *always* zero for
+`.skel`-sourced bones. Decoding it for real, non-inline (no `0x20` flag)
+sequences of `bloodelffemale_hd.skel` shows **211 of 245 bones have real,
+non-zero entries** — the tuple was never empty; husk had simply never
+tried resolving it against anything other than `SKB1`'s own (very large,
+23 MB) blob, where those particular byte offsets don't mean anything.
+
+The fix is exactly what the tuple's `offset` field was pointing at all
+along: **the owning sequence's own external `.anim` file's `AFSB`
+payload**, used as `resolveVec3TrackSequence`/`resolveQuatTrackSequence`'s
+existing `externalDataBlob` parameter — the identical mechanism already
+used for `AFM2`-shaped external files, just fed a different blob. No new
+parsing code was needed at all; `AFSB` support turned out to be a
+one-`if`-branch change (see "Where these live in husk" below).
+
+**How this was found**, briefly (full byte-level walk not reproduced
+here — see git history's scratch analysis if ever needed):
+
+1. A full 104-file chunk survey (this session) found `AFM2`'s payload size
+   is always a multiple of 16 and often all-zero — never large enough to
+   hold real keyframe data, confirming (with a full corpus rather than one
+   file) the earlier "stub, not real content" conclusion.
+2. Dumping several real `AFSB` payloads as raw `uint32` arrays showed a
+   clean, unambiguous pattern in the cleanest samples (an `AFM2`-all-zero
+   file): the payload's *first* bytes are a monotonically increasing run of
+   millisecond values from `0` up to exactly the owning sequence's
+   `duration` (e.g. 31 values, `0, 33, 66, 100, ..., 1000`, for a
+   1000 ms/30 fps sequence) — real keyframe timestamps, not a bone-offset
+   table as the original shallow peek guessed.
+3. Cross-referencing `bloodelffemale_hd.skel`'s own `SKB1` bone records
+   against `SKS1`'s sequence array (mapping each real `.anim` filename's
+   `<animId>-<subId>` to its `SKS1` position) showed those "expected
+   empty" per-sequence `(count, offset)` tuples are frequently *not* zero —
+   and for a bone/sequence pair with a real non-zero tuple, the `offset`
+   value **exactly matches** where that sequence's own `.anim` file's
+   `AFSB` payload has a clean timestamp run starting at that exact byte
+   position.
+4. Decoding the value region immediately after each timestamp run (with
+   its own byte length padded up to the next multiple of 16, confirmed by
+   the *next* track's timestamp offset always starting exactly there,
+   checked across multiple bones/sequences) as a raw 12-byte `C3Vector`
+   (translation) or an 8-byte `M2CompQuat` (rotation, `src/m2.cpp`'s
+   already-existing `readCompQuat` — the exact same decode function
+   `.skel`'s own inline case already uses) produces real data: every
+   decoded rotation quaternion comes out unit-length (checked to 4 decimal
+   places across every sample), and every translation curve is smooth and
+   finite across consecutive keyframes — not noise.
+5. A full self-consistency sweep across all 54 non-`_sdr` `bloodelffemale_hd*.anim`
+   files (every bone × every track × the file's own matching sequence)
+   found **zero** problems: every timestamp run in-bounds and monotonic,
+   every decoded value finite, across the entire corpus.
+6. Implemented in `src/cmd_export.cpp`'s `buildAnimations` (see below) and
+   verified three independent ways against the real
+   `bloodelffemale_hd.m2`/`.skel` + all 104 real `.anim` files: husk itself
+   reports **336 real animation clips** (up from ~0 external ones
+   possible before); the Khronos `gltf_validator` reports zero new errors
+   (the model's own pre-existing, unrelated `JOINTS_0` duplicate-value
+   issue is identical with or without this change); and Blender's own
+   independent glTF importer, run headlessly, reports **336 actions** —
+   matching exactly, from a completely separate glTF implementation.
+
+Prior art: no published byte layout for `AFSB` was found anywhere reachable
+(wowdev.wiki's own summary confirms only the *semantic* split — `AFSA` for
+attachment animation, `AFSB` for bone animation — not a byte structure; the
+wiki itself blocks direct automated fetches, `WIKI_FINDINGS.md`'s own
+"fetched ... via a local proxy" note already flagged this; no open-source
+WoW tooling found any mention of `AFSB` either).
 
 ---
 
@@ -373,6 +467,6 @@ customization-choice lookup husk can't reach, now known to plausibly be a
 | Finding | Code | Tests |
 |---|---|---|
 | §1 `M2Sequence` = 0x40 bytes | `src/m2.hpp`/`m2.cpp` (`Sequence`, `parseSequences`) | `tests/test_m2.cpp` |
-| §2 `AFSB` detection/skip | `src/cmd_export.cpp` (`buildAnimations`'s external-file branch) | `tests/test_cli.cpp` |
+| §2 `AFSB` real resolution | `src/cmd_export.cpp` (`buildAnimations`'s external-file branch), `src/m2.cpp` (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`/`trackSequenceInnerArrays`, unchanged — just fed the `AFSB` payload as `externalDataBlob`) | `tests/test_cli.cpp`, `tests/test_integration.cpp` (real 336-clip corpus check) |
 | §3 `.skel` `SKS1` indexing + own `AFID` | `src/skel.hpp`/`skel.cpp` (`parseSequences`, `boneTrackBlob`, `findAnimFileIds`) | `tests/test_skel.cpp`, `tests/test_cli.cpp` |
 | §4 `.bone` format | `src/bone.hpp`/`bone.cpp` | `tests/test_bone.cpp` |

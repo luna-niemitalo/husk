@@ -172,14 +172,25 @@ M2's. `resolveVec3TrackSequence`/`resolveQuatTrackSequence`'s
 `externalDataBlob` parameter implements exactly that split: descriptor from
 the owning blob, payload bytes from whichever blob is in play.
 
-**`.anim` files carrying an `AFSB` chunk are skipped outright, regardless of
-whether `AFM2` is also present.** For `.skel`-sourced models, real per-bone
-data lives in undocumented `AFSB`, not `AFM2` — a small always-zeroed
+**`.anim` files carrying an `AFSB` chunk resolve real per-bone data, the same
+way as the `AFM2`-external case just above.** For `.skel`-sourced models,
+real per-bone data lives in `AFSB`, not `AFM2` — a small, always-near-zero
 `AFM2` "stub" can be present alongside it and must not be mistaken for real
-track data (confirmed via a real bounds error when tried anyway). See
-`WIKI_FINDINGS.md` §2 for the full byte-shape investigation. `AFSB`'s own
-layout is unreverse-engineered — this is a detect-and-skip, not a
-best-effort parse.
+track data (confirmed via a real bounds error when tried anyway), so `AFSB`
+takes priority whenever both are present. `AFSB`'s own byte layout has no
+published spec anywhere (`WIKI_FINDINGS.md` §2's follow-up has the full
+reverse-engineering writeup), but it turned out not to need one: `SKB1`'s
+own per-bone, per-sequence `M2Track` `(count, offset)` descriptors — the
+exact same ones the paragraph above already resolves for `AFM2` — point
+directly into the `AFSB` payload's own byte range for external sequences
+too. `buildAnimations` just extracts `AFSB`'s payload as the
+`externalDataBlob` instead of an `AFM2` blob; `resolveVec3TrackSequence`/
+`resolveQuatTrackSequence` needed no changes at all. Verified against the
+entire real 104-file `bloodelffemale_hd_*.anim` corpus (zero
+bounds/monotonicity/finiteness problems) and, end to end, three independent
+ways: husk itself (336 real clips), the Khronos `gltf_validator` (no new
+errors), and Blender's own glTF importer running headlessly (336 actions,
+matching exactly).
 
 **`M2Sequence` is 64 bytes, not 36** — the wiki's own struct listing has an
 un-renumbered offset comment that reads as if `M2Bounds bounds` weren't
@@ -655,8 +666,8 @@ dispatch isn't itself CLI11-driven (see the previous-grammar note above:
 - `.bone` sidecar — per-bone correction matrices (reverse-engineered),
   surfaced as inert glTF `extras` via `--bones-dir`, never applied to the
   render (see Key design decisions).
-- `.anim` sidecar — external per-sequence keyframe blob (`AFM2` flat
-  format only; `AFSB` detected and rejected).
+- `.anim` sidecar — external per-sequence keyframe blob, `AFM2` (flat) and
+  `AFSB` (`.skel`-linked models' real shape) both resolved.
 - `--textures`/`--skin-dir`/`--anim`/`--bones-dir` directories —
   user-populated, FileDataID-named, local filesystem only. Never CASC.
 - `.blp` texture files (separate `blp/` Python tool) — container + mip
@@ -708,8 +719,8 @@ re-run automatically. Tracked as a testing debt, not a correctness bug.
 
 ## Open work
 
-See `TODO_correctness.md` for the current punch list (particles, `AFSB`
-reverse-engineering, `M2Camera`) and `WIKI_FINDINGS.md` for every
-real-data-driven spec correction found so far. Both are living documents;
-this file describes the shape of the system they operate within, not their
-current item-by-item status.
+See `TODO_correctness.md` for the current punch list (particles,
+`M2Camera`, `.bone` slot selection) and `WIKI_FINDINGS.md` for every
+real-data-driven spec correction found so far, `AFSB`'s included. Both are
+living documents; this file describes the shape of the system they operate
+within, not their current item-by-item status.

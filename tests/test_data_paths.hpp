@@ -111,7 +111,7 @@ inline std::string autoSkinDir(const std::string& m2Path, const std::string& ski
 // produce. HUSK_TEST_BONES_DIR, if set explicitly, still overrides this
 // entirely. The NN -> BFID[NN] positional assignment is arbitrary for test
 // purposes, not a claimed real slot mapping (see WIKI_FINDINGS.md
-// §4/TODO_correctness.md #6: that mapping is exactly the client-side
+// §4/TODO_correctness.md #5: that mapping is exactly the client-side
 // customization-choice data husk doesn't have access to) -- this fixture
 // only needs to prove the resolution/parse/extras pipeline works end to
 // end against real '.bone' bytes, not that any particular slot is
@@ -176,6 +176,11 @@ constexpr const char* kTexturesDir = "textures";
 constexpr const char* kSkelM2 = "character/bloodelf/female/bloodelffemale_hd.m2";
 constexpr const char* kSkelSkin = "character/bloodelf/female/bloodelffemale_hd00.skin";
 constexpr const char* kSkel = "character/bloodelf/female/bloodelffemale_hd.skel";
+// The real bloodelffemale_hd_*.anim files (AFSB-shaped, see WIKI_FINDINGS.md
+// §2) sit right next to the .m2/.skin/.skel above -- same directory, not a
+// separate one, since that's exactly the layout a real casc-tool extraction
+// produces.
+constexpr const char* kAnimDir = "character/bloodelf/female";
 }  // namespace fixtures
 
 inline std::string testM2() { return resolve("HUSK_TEST_M2", fixtures::kM2); }
@@ -189,6 +194,7 @@ inline std::string testTexturesDir() {
 inline std::string testSkinDir() { return autoSkinDir(testM2(), testSkin()); }
 inline std::string testSkelM2() { return resolve("HUSK_TEST_SKEL_M2", fixtures::kSkelM2); }
 inline std::string testSkelSkin() { return resolve("HUSK_TEST_SKEL_SKIN", fixtures::kSkelSkin); }
+inline std::string testAnimDir() { return resolve("HUSK_TEST_ANIM_DIR", fixtures::kAnimDir); }
 inline std::string testSkel() { return resolve("HUSK_TEST_SKEL", fixtures::kSkel); }
 inline std::string testBonesDir() { return autoBonesDir(testSkel()); }
 
