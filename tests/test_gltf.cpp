@@ -272,6 +272,68 @@ TEST_CASE("writeGlb: a joint's billboardMode becomes a \"billboard\" key in its 
     CHECK_FALSE(model.nodes[rootNode].extras.Has("billboard"));
 }
 
+TEST_CASE("writeGlb: a skeleton's correctionSets round-trip as bone_correction_sets on the "
+          "skin's extras (WIKI_FINDINGS.md §4/TODO_correctness.md #6)") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    husk::gltf::Skeleton::CorrectionSet set;
+    set.fileDataId = 1103216;
+    husk::gltf::Skeleton::CorrectionSet::Correction c;
+    c.joint = 1;
+    c.matrix = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.01f, 0.02f, 0.03f, 1};
+    set.corrections = {c};
+    skel.correctionSets = {set};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.skins[0].extras;
+    REQUIRE(extras.IsObject());
+    const auto& sets = extras.Get("bone_correction_sets");
+    REQUIRE(sets.IsArray());
+    REQUIRE(sets.ArrayLen() == 1);
+
+    const auto& set0 = sets.Get(0);
+    CHECK(set0.Get("file_data_id").GetNumberAsInt() == 1103216);
+    const auto& corrections = set0.Get("corrections");
+    REQUIRE(corrections.IsArray());
+    REQUIRE(corrections.ArrayLen() == 1);
+    const auto& c0 = corrections.Get(0);
+    CHECK(c0.Get("joint").GetNumberAsInt() == 1);
+    const auto& matrix = c0.Get("matrix");
+    REQUIRE(matrix.IsArray());
+    REQUIRE(matrix.ArrayLen() == 16);
+    CHECK(matrix.Get(12).GetNumberAsDouble() == doctest::Approx(0.01));
+    CHECK(matrix.Get(13).GetNumberAsDouble() == doctest::Approx(0.02));
+    CHECK(matrix.Get(14).GetNumberAsDouble() == doctest::Approx(0.03));
+    CHECK(matrix.Get(15).GetNumberAsDouble() == doctest::Approx(1));
+}
+
+TEST_CASE("writeGlb: a skeleton with no correctionSets gets no bone_correction_sets extras key") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    CHECK_FALSE(model.skins[0].extras.IsObject());
+}
+
+TEST_CASE("writeGlb: a correctionSet entry with an out-of-range joint throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    husk::gltf::Skeleton::CorrectionSet set;
+    set.fileDataId = 1;
+    husk::gltf::Skeleton::CorrectionSet::Correction c;
+    c.joint = 99;
+    set.corrections = {c};
+    skel.correctionSets = {set};
+
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
+}
+
 TEST_CASE("writeGlb: skeleton given without matching mesh.skinning throws") {
     auto mesh = buildTriangleMesh();  // no skinning data
     auto skel = buildChainSkeleton();

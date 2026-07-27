@@ -40,8 +40,14 @@
 //     is the *.skel's own* table, with its own FileDataIDs, not the owning
 //     M2's (confirmed against real data: the same (animId, subAnimId) pair
 //     resolves to a completely different fileId in each).
+//   - `BFID`: same flat-uint32-FileDataID-array shape as an M2's own BFID
+//     chunk (husk::m2::Header::boneFileDataIds) -- this .skel's own table
+//     of `.bone` sidecar files (see src/bone.hpp), used the same way: no
+//     resolution to a real path, no default-slot selection (WIKI_FINDINGS.md
+//     §4/TODO_correctness.md #6 -- that's client-side customization-choice
+//     data husk doesn't have), just the raw FileDataID list.
 // `SKB1`'s `key_bone_lookup` field, and every other .skel chunk (`SKL1`,
-// `SKA1`, `SKPD`, `BFID`), are out of scope for now.
+// `SKA1`, `SKPD`), are out of scope for now.
 namespace husk::skel {
 
 struct BoneHeader {
@@ -90,5 +96,15 @@ std::vector<m2::Sequence> parseSequences(const std::vector<uint8_t>& fileBytes);
 // to silently drop the last partial entry for (FAILURES2.md #8).
 std::optional<std::vector<m2::Header::AnimFileEntry>> findAnimFileIds(
     const std::vector<uint8_t>& fileBytes);
+
+// Reads the .skel's own BFID chunk, if present -- same shape as
+// husk::m2::Header::boneFileDataIds, but (like AFID above) this table is
+// this .skel file's own, not necessarily identical to the owning M2's.
+// Returns nullopt if there's no BFID chunk at all. Throws ParseError if the
+// chunk exists but its byte length isn't a multiple of 4 (one FileDataID
+// per entry) -- a truncated/corrupted chunk, not a case to silently drop
+// the last partial entry for (same FAILURES2.md #8 discipline as
+// findAnimFileIds above).
+std::optional<std::vector<uint32_t>> findBoneFileDataIds(const std::vector<uint8_t>& fileBytes);
 
 }  // namespace husk::skel

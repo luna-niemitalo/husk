@@ -644,6 +644,26 @@ void appendChunkTo(std::vector<uint8_t>& file, const char* tag, const std::vecto
     file.insert(file.end(), payload.begin(), payload.end());
 }
 
+// A minimal, valid .bone file (see src/bone.hpp/tests/test_bone.cpp): a
+// leading version=1, then BIDA (one uint16 bone index) and BOMT (one
+// identity-plus-translation 4x4 row-major matrix) in lockstep, one entry.
+std::vector<uint8_t> buildBoneFile(uint16_t boneIndex, float tx, float ty, float tz) {
+    std::vector<uint8_t> file;
+    putU32(file, 1);  // version
+    std::vector<uint8_t> bida;
+    putU16(bida, boneIndex);
+    appendChunkTo(file, "BIDA", bida);
+    std::vector<uint8_t> bomt;
+    float rows[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, tx, ty, tz, 1};
+    for (float f : rows) {
+        uint32_t bits;
+        std::memcpy(&bits, &f, 4);
+        putU32(bomt, bits);
+    }
+    appendChunkTo(file, "BOMT", bomt);
+    return file;
+}
+
 // An SKB1 payload (see src/skel.cpp) with exactly one M2CompBone
 // (keyBoneId/parentBone = -1, everything else zeroed, tracks left at "0
 // sub-arrays" for the caller to fill via fillTrack/putArrayAt -- same
@@ -1876,6 +1896,96 @@ TEST_CASE("husk export: a 0-inline-bone model with a same-basename .skel next to
     CHECK(result.output.find("rigged.skel") != std::string::npos);
     CHECK(result.output.find("1 bones") != std::string::npos);
 
+    fs::remove_all(dir);
+}
+
+// Shared by every --bones-dir test below: a 0-inline-bone model + a .skel
+// with one root bone (index 0) and a BFID chunk declaring FileDataID
+// 424242 -- the minimum shape needed to prove --bones-dir's resolution
+// (model/.skel's BFID array -> '<dir>/<FileDataID>.bone').
+std::vector<uint8_t> boneCorrectionSkel() {
+    auto skel = buildSkel({{-1, -1}});
+    std::vector<uint8_t> bfid;
+    putU32(bfid, 424242);
+    appendChunkTo(skel, "BFID", bfid);
+    return skel;
+}
+
+TEST_CASE("husk export: --bones-dir resolves a .skel's BFID-declared FileDataID to a real "
+          "'<FileDataID>.bone' file and attaches it as inert extras, end to end") {
+    auto m2Path = tempPath("bonesdir.m2");
+    writeFile(m2Path, tinyValidM2());
+    auto skinPath = tempPath("bonesdir.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto skelPath = tempPath("bonesdir.skel");
+    writeFile(skelPath, boneCorrectionSkel());
+    auto dir = defaultsDir("bonesdir");
+    writeFile(dir / "424242.bone", buildBoneFile(0, 0.01f, 0.02f, 0.03f));
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("bonesdir.glb").string() + " --skel " + skelPath.string() +
+                           " --bones-dir " + dir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("attached 1/1") != std::string::npos);
+    CHECK(result.output.find("'.bone' correction set(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --bones-dir none never attaches corrections, even when a matching "
+          "'<FileDataID>.bone' sits in the default (model's own) directory") {
+    auto dir = defaultsDir("bonesdirnone");
+    writeFile(dir / "bonesdirnone.m2", tinyValidM2());
+    writeFile(dir / "bonesdirnone00.skin", tinyMatchingSkin());
+    writeFile(dir / "bonesdirnone.skel", boneCorrectionSkel());
+    writeFile(dir / "424242.bone", buildBoneFile(0, 0.01f, 0.02f, 0.03f));
+
+    auto result = runHusk("export " + (dir / "bonesdirnone.m2").string() + " --bones-dir none");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("correction set(s)") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --bones-dir defaults to the model's own directory -- a FileDataID-named "
+          "'.bone' file already sitting there is attached without passing the flag") {
+    auto dir = defaultsDir("bonesdirdefault");
+    writeFile(dir / "bonesdirdefault.m2", tinyValidM2());
+    writeFile(dir / "bonesdirdefault00.skin", tinyMatchingSkin());
+    writeFile(dir / "bonesdirdefault.skel", boneCorrectionSkel());
+    writeFile(dir / "424242.bone", buildBoneFile(0, 0.01f, 0.02f, 0.03f));
+
+    auto result = runHusk("export " + (dir / "bonesdirdefault.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("attached 1/1") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a .bone file correcting a bone index out of range for the model's "
+          "skeleton fails the export with a clear message, naming the offending file/index") {
+    auto m2Path = tempPath("bonesdir-oor.m2");
+    writeFile(m2Path, tinyValidM2());
+    auto skinPath = tempPath("bonesdir-oor.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto skelPath = tempPath("bonesdir-oor.skel");
+    writeFile(skelPath, boneCorrectionSkel());  // 1 bone (index 0) only
+    auto dir = defaultsDir("bonesdiroor");
+    writeFile(dir / "424242.bone", buildBoneFile(5, 0, 0, 0));  // bone 5 doesn't exist
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("bonesdir-oor.glb").string() + " --skel " + skelPath.string() +
+                           " --bones-dir " + dir.string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("424242.bone") != std::string::npos);
+    CHECK(result.output.find("bone 5") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
     fs::remove_all(dir);
 }
 

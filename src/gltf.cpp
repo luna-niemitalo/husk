@@ -89,6 +89,21 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
         }
     }
 
+    if (skeleton) {
+        for (size_t si = 0; si < skeleton->correctionSets.size(); ++si) {
+            const auto& cs = skeleton->correctionSets[si];
+            for (size_t ci = 0; ci < cs.corrections.size(); ++ci) {
+                int joint = cs.corrections[ci].joint;
+                if (joint < 0 || static_cast<size_t>(joint) >= skeleton->joints.size()) {
+                    throw Error("writeGlbMulti: correction set " + std::to_string(si) +
+                                "'s entry " + std::to_string(ci) + " (joint " +
+                                std::to_string(joint) + ") is out of range for " +
+                                std::to_string(skeleton->joints.size()) + " joints");
+                }
+            }
+        }
+    }
+
     if (!animations.empty() && !hasSkeleton) {
         throw Error("writeGlbMulti: animations were given without a skeleton");
     }
@@ -237,6 +252,32 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
         for (size_t i = 0; i < skeleton->joints.size(); ++i) {
             skin.joints.push_back(static_cast<int>(meshCount + i));
         }
+
+        // .bone correction data (gltf::Skeleton::CorrectionSet's doc
+        // comment) -- inert extras only, same nested Value construction as
+        // a material's additional_textures/texture_transform extras below.
+        if (!skeleton->correctionSets.empty()) {
+            tinygltf::Value::Array sets;
+            for (const auto& cs : skeleton->correctionSets) {
+                tinygltf::Value::Object setObj;
+                setObj["file_data_id"] = tinygltf::Value(static_cast<int>(cs.fileDataId));
+                tinygltf::Value::Array corrections;
+                for (const auto& c : cs.corrections) {
+                    tinygltf::Value::Object co;
+                    co["joint"] = tinygltf::Value(c.joint);
+                    tinygltf::Value::Array mat;
+                    for (float f : c.matrix) mat.push_back(tinygltf::Value(static_cast<double>(f)));
+                    co["matrix"] = tinygltf::Value(mat);
+                    corrections.push_back(tinygltf::Value(co));
+                }
+                setObj["corrections"] = tinygltf::Value(corrections);
+                sets.push_back(tinygltf::Value(setObj));
+            }
+            tinygltf::Value::Object skinExtras;
+            skinExtras["bone_correction_sets"] = tinygltf::Value(sets);
+            skin.extras = tinygltf::Value(skinExtras);
+        }
+
         model.skins = {skin};
         skinIdx = 0;
     }

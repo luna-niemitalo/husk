@@ -37,6 +37,7 @@
 namespace {
 
 using husk::test::runHusk;
+using husk::test::testBonesDir;
 using husk::test::testM2;
 using husk::test::testMismatchedSkin;
 using husk::test::testSkel;
@@ -347,6 +348,49 @@ TEST_CASE(
     CHECK(result.output.find(" bones") != std::string::npos);
 
     checkSkinnedGlb(outPath);
+
+    std::filesystem::remove(outPath);
+}
+
+TEST_CASE(
+    "husk export: --bones-dir attaches real .bone correction data as inert skin extras, end to "
+    "end (WIKI_FINDINGS.md §4/TODO_correctness.md #6)" *
+    doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
+                  testBonesDir().empty())) {
+    std::string m2Path = testSkelM2();
+    std::string skinPath = testSkelSkin();
+    std::string skelPath = testSkel();
+    std::string bonesDir = testBonesDir();
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-bones.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
+                           "\" --skel \"" + skelPath + "\" --bones-dir \"" + bonesDir + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("correction set(s)") != std::string::npos);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(model.skins.size() == 1);
+    const auto& extras = model.skins[0].extras;
+    REQUIRE(extras.IsObject());
+    const auto& sets = extras.Get("bone_correction_sets");
+    REQUIRE(sets.IsArray());
+    CHECK(sets.ArrayLen() > 0);
+    const auto& set0 = sets.Get(0);
+    CHECK(set0.Get("file_data_id").GetNumberAsInt() > 0);
+    const auto& corrections = set0.Get("corrections");
+    REQUIRE(corrections.IsArray());
+    REQUIRE(corrections.ArrayLen() > 0);
+    const auto& c0 = corrections.Get(0);
+    CHECK(c0.Get("joint").GetNumberAsInt() >= 0);
+    CHECK(c0.Get("matrix").ArrayLen() == 16);
 
     std::filesystem::remove(outPath);
 }

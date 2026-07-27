@@ -240,3 +240,37 @@ TEST_CASE("findAnimFileIds: AFID chunk with a byte length not a multiple of 8 th
     appendChunk(file, "AFID", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
     CHECK_THROWS_AS(husk::skel::findAnimFileIds(file), husk::skel::ParseError);
 }
+
+TEST_CASE("findBoneFileDataIds: reads a flat uint32 FileDataID array from BFID, same shape as "
+          "an M2's own BFID chunk") {
+    std::vector<uint8_t> file;
+    std::vector<uint8_t> bfid;
+    putU32(bfid, 0, 1103216);
+    putU32(bfid, 4, 1103217);
+    putU32(bfid, 8, 1103231);
+    appendChunk(file, "BFID", bfid);
+
+    auto ids = husk::skel::findBoneFileDataIds(file);
+    REQUIRE(ids.has_value());
+    REQUIRE(ids->size() == 3);
+    CHECK((*ids)[0] == 1103216);
+    CHECK((*ids)[1] == 1103217);
+    CHECK((*ids)[2] == 1103231);
+}
+
+TEST_CASE("findBoneFileDataIds: no BFID chunk returns nullopt, not an error") {
+    std::vector<uint8_t> file;
+    appendChunk(file, "SKB1", buildSkb1Payload(1));
+
+    CHECK_FALSE(husk::skel::findBoneFileDataIds(file).has_value());
+}
+
+// Same FAILURES2.md #8 discipline as findAnimFileIds above, applied to
+// BFID's 4-byte-per-entry shape instead of AFID's 8-byte one.
+TEST_CASE("findBoneFileDataIds: BFID chunk with a byte length not a multiple of 4 throws, "
+          "rather than silently dropping the trailing partial entry") {
+    std::vector<uint8_t> file;
+    // 6 bytes: 1 whole uint32 FileDataID (4 bytes) + 2 stray bytes.
+    appendChunk(file, "BFID", {1, 2, 3, 4, 5, 6});
+    CHECK_THROWS_AS(husk::skel::findBoneFileDataIds(file), husk::skel::ParseError);
+}

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -175,6 +176,29 @@ struct Skeleton {
         std::string billboardMode;
     };
     std::vector<Joint> joints;
+
+    // Real husk::bone::Correction data (one entry per resolved `.bone`
+    // sidecar file, `husk export`'s `--bones-dir`) -- inert glTF `extras`
+    // on the skin object (`bone_correction_sets`), never applied to the
+    // bind pose or any animation. Which of a model's several `.bone` files
+    // is "correct" for a given character is selected by client-side
+    // customization-choice data husk has no access to (no CASC/DBC access,
+    // a hard non-goal -- see DESIGN.md's Non-goals, TODO_correctness.md #6,
+    // WIKI_FINDINGS.md §4); husk surfaces every slot it can resolve from
+    // disk and stops there, same "tag it, don't guess at semantics"
+    // treatment as skinSectionId/textureTransform above. Empty (the
+    // default) if `--bones-dir none`, or none of a model's BFID-declared
+    // FileDataIDs resolved to a real file on disk.
+    struct CorrectionSet {
+        uint32_t fileDataId = 0;
+        struct Correction {
+            int joint = -1;  // index into Skeleton::joints
+            // Row-major, same convention as husk::bone::Correction::matrix.
+            std::array<float, 16> matrix{};
+        };
+        std::vector<Correction> corrections;
+    };
+    std::vector<CorrectionSet> correctionSets;
 };
 
 struct Quat {
@@ -259,7 +283,10 @@ Vec3 zUpToYUp(const Vec3& v);
 // primitive. If `skeleton` is null, `mesh.skinning` must be empty -- no
 // orphaned skinning data. Throws Error on any joint's `parent` being out of
 // range or self-referential, or on the skeleton/skinning-data mismatches
-// above.
+// above. `skeleton->correctionSets`, if non-empty, becomes a
+// `bone_correction_sets` key in the skin's own glTF `extras` (see
+// Skeleton::CorrectionSet's doc comment) -- Error if any correction's
+// `joint` is out of range for `skeleton`.
 //
 // `animations`, if non-empty, requires a non-null/non-empty `skeleton` --
 // each becomes one glTF animation clip (see Animation's doc comment).

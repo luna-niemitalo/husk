@@ -16,22 +16,26 @@ tool, `blp/`) converts BLP2 textures to PNG.
   skinning, inline or external `.skel` → materials with real embedded textures →
   animation, inline/external-`.anim`/`.skel`-sourced, verified against real
   `bloodelffemale.m2`/`bloodelffemale_hd.m2` data), `husk export --lod`
-  (single-tier or `all`), `husk dump-chunks` (JSON dump of chunks with no glTF
-  equivalent, or `.bone` files directly). `blp/`'s `husk-blp` (BLP2 → PNG:
+  (single-tier or `all`), `husk export --bones-dir` (real `.bone` correction
+  data attached as inert `bone_correction_sets` glTF skin `extras`, never
+  applied to the render — see Resume), `husk dump-chunks` (JSON dump of chunks
+  with no glTF equivalent, or `.bone` files directly). `blp/`'s `husk-blp` (BLP2 → PNG:
   palettized/DXT1/DXT5/BGRA). `husk export`'s CLI grammar is CLI11-based named
   flags (`--input`/`--output` positional-fallback, everything else named,
-  `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel` three-or-four-state —
-  see `DESIGN.md`'s "CLI argument grammar for `export`"), with generated
-  bash/zsh completions in `completions/`. See `README.md`'s format-support
-  matrix and roadmap for the exact per-feature state — that table is the
-  source of truth, not this file.
+  `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel`/`--bones-dir`
+  three-or-four-state — see `DESIGN.md`'s "CLI argument grammar for
+  `export`"), with generated bash/zsh completions in `completions/`. See
+  `README.md`'s format-support matrix and roadmap for the exact per-feature
+  state — that table is the source of truth, not this file.
 - **Target**: a real Blender import path for modern (Legion+ chunked) M2 — see
   `DESIGN.md`'s Goal section. All 8 roadmap stages are now done, including stage 7
   (output hardening: real exports now run through the Khronos glTF-Validator *and*
   headless Blender itself, `tests/test_conformance.cpp` — see Resume). Remaining
   work is either scope expansion (WMO/M3, not started, by design) or the structural
-  gaps `TODO_correctness.md` already tracks (`AFSB`, `M2Particle`, `.bone`
-  LOD-context integration) — nothing currently in flight.
+  gaps `TODO_correctness.md` already tracks (`AFSB`, `M2Particle`, plus `.bone`
+  correction *selection* — the extras-export half is done, see Resume; picking
+  which slot applies is blocked on client-side DB2 data husk doesn't have, not
+  on more investigation) — nothing currently in flight.
 - Anything not listed under Current does not exist yet. In particular: `M2Particle`/
   `M2Camera` are still count-only (not dereferenced); `.anim`'s `AFSB` chunk shape is
   undocumented and detected-but-skipped, not parsed. Three FAILURES2.md gaps
@@ -72,7 +76,154 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: `export`'s CLI grammar migrated from a hand-rolled,
+- **Last state**: `TODO_correctness.md` #6's extras-export half is now
+  implemented — real `.bone` correction data attaches to `husk export`'s
+  glTF output as inert `extras`, never applied to the render. New
+  `husk export --bones-dir <dir>` flag (three-state, same shape as
+  `--textures`/`--skin-dir`): resolves every FileDataID the model's/
+  `.skel`'s `BFID` array declares to a real `<dir>/<FileDataID>.bone` file
+  (silently skipping any that don't resolve, same policy `--textures`
+  already uses for a missing PNG), parses each with the existing
+  `husk::bone::parse`, and attaches every resolved slot as a
+  `bone_correction_sets` key on the glTF **skin**'s own `extras` — one
+  entry per `.bone` file, each a `(file_data_id, [{joint, matrix}, ...])`
+  record. Deliberately *not* applied to the bind pose or any animation:
+  which slot is "correct" for a given character is external,
+  client-side customization-choice data husk still doesn't have (this
+  session's own prior investigation, see Previous state below, and
+  `WIKI_FINDINGS.md` §4/`TODO_correctness.md` #6) — same "tag it, don't
+  guess at semantics" treatment as geoset selection/`textureTransform`.
+  Went through a full plan-mode design pass before implementation, given
+  the CLI-grammar/parsing-pipeline/glTF-schema surface touched; the
+  approved plan is what got built, no deviations. All verified: clean
+  rebuild, full 335-case `husk-tests` suite green via both
+  `./build/husk-tests` and `ctest` (up from 324), plus a real
+  `bloodelffemale_hd.m2`/`.skel` export re-checked by hand (20/20
+  `.bone` slots attached, round-tripped through `gltf_validator` — the
+  1.7M pre-existing `JOINTS_0` duplicate-value errors on that specific
+  fixture are unrelated, confirmed identical with `--bones-dir none`,
+  not a regression from this work).
+  - **`src/skel.hpp`/`skel.cpp`**: new `findBoneFileDataIds` reads
+    `.skel`'s own `BFID` chunk (previously explicitly out of scope, per
+    this file's own doc comment) — same flat-`uint32`-array shape as an
+    M2's own `BFID`, duplicated locally rather than shared from `m2.cpp`'s
+    anonymous-namespace helper, matching this file's existing
+    `findAnimFileIds` precedent (same "small parser helper, one per
+    translation unit" pattern already established here, not a new one).
+  - **`src/gltf.hpp`/`gltf.cpp`**: new `gltf::Skeleton::CorrectionSet`
+    (`fileDataId` + `vector<{joint, matrix[16]}>`) as a field on
+    `Skeleton` alongside `joints`; `writeGlbMulti` validates every
+    correction's `joint` is in range (same `Error` shape as the existing
+    parent-range check) and serializes non-empty `correctionSets` into
+    `skin.extras["bone_correction_sets"]`, nested `tinygltf::Value`
+    construction following the exact existing pattern
+    `additional_textures`/`texture_transform` material extras already use.
+  - **`src/commands.hpp`/`src/cmd_export.cpp`**: `ExportOptions::
+    bonesDirArg` + `--bones-dir` registered in `addExportOptions` (so the
+    completion generator picks it up automatically); resolution/
+    attachment logic sits right after the existing skeleton-building
+    block, keyed off the same `bonesAreInline`/`haveSkel` branch already
+    used for choosing inline-vs-`.skel` bones/animation elsewhere in this
+    function. Prints a summary note (`attached N/M '.bone' correction
+    set(s)...`) only when `N > 0` — silent otherwise, matching
+    `--textures`'s existing "quiet when nothing applies" behavior.
+  - **`src/main.cpp`**: the hand-maintained bash/zsh completion-generator
+    tables (`bashValueCompletion`/`zshValueAction`/`zshFlagLabel` — these
+    are *not* derived from CLI11 introspection alone, a real gap this
+    session had to discover by testing the regenerated completion
+    function directly rather than assuming the flag-table change alone
+    was sufficient) needed `--bones-dir` added explicitly, same
+    `none`-plus-directory treatment as `--textures`/`--skin-dir`.
+    `completions/husk.bash`/`.zsh` regenerated and functionally verified
+    the same way prior sessions did (sourcing the script, driving
+    `_husk_completions` with scripted `COMP_WORDS`/`COMP_CWORD` — confirmed
+    `--bones-dir` offers `none` + real directories, not plain filenames).
+  - **Tests**: `tests/test_skel.cpp` (`findBoneFileDataIds`: found/absent/
+    malformed-length-throws, mirroring `findAnimFileIds`'s existing
+    cases), `tests/test_gltf.cpp` (3 new cases: `correctionSets` round-trip
+    as skin extras, no-`correctionSets`-means-no-key, out-of-range joint
+    throws — same style as the existing billboard/geoset/textureTransform
+    extras tests), `tests/test_cli.cpp` (4 new cases: explicit
+    `--bones-dir` attaches + notes, `--bones-dir none` suppresses, unset
+    defaults to the model's own directory, an out-of-range `.bone`
+    correction fails the export naming the file/bone index — new local
+    `buildBoneFile`/`boneCorrectionSkel` fixture helpers), `tests/
+    test_data_paths.hpp`+`test_integration.cpp` (new `autoBonesDir`
+    mirroring `autoSkinDir`: reads real `BFID` entries out of
+    `bloodelffemale_hd.skel` and copies a few of this repo's own real
+    `.bone` fixtures under those FileDataIDs — comment notes the NN→
+    `BFID[NN]` positional assignment is arbitrary for test purposes, not a
+    claimed real mapping; one new `doctest::skip`-gated real-data
+    `TEST_CASE` checks the produced `.glb`'s skin extras directly via
+    tinygltf). `test_main.cpp`'s startup banner gained a
+    `HUSK_TEST_BONES_DIR` line.
+  - **Environment note carried over, reconfirmed**: bare `python`/`python3`
+    is still guarded off even under `direnv exec .`/`nix develop ./nix -c`
+    — `direnv exec . uv run --no-project python3 <script>` is the
+    sanctioned path for ad hoc Python in this repo (used again this
+    session for the real-file `--bones-dir` smoke test), `nu` remains fine
+    for direct byte-level work with no `uv` involved at all.
+  - **Docs updated**: `README.md` (`.bone` corrections paragraph + flag
+    table row + defaults/`none` lists + sidecar-resolution format-matrix
+    row), `DESIGN.md` (CLI grammar table + three-state section + a new
+    Key design decisions bullet matching the geoset/texture-transform
+    precedent + a Non-goals clarifying sentence: an out-of-band
+    CASC/DB2-scraping build tool is fine, husk itself talking to CASC at
+    runtime never is), `TODO_correctness.md` #6 (extras-export marked
+    done, remaining gap reframed as "external lookup, not more
+    investigation"), `M2_COMPLETENESS.md` (`.bone` row + the sidecar
+    FileDataID-resolution rows), `WIKI_FINDINGS.md` §4 (added the
+    previously chat-only weapon-type/armor-type ruling-out finding — the
+    corrected bones cluster on Head/Jaw, not hand/wrist — since
+    `TODO_correctness.md` #6 now cites it as an established fact and it
+    needs real receipts backing it, not just a claim).
+- **Previous state**: `TODO_correctness.md` #6 (which `.bone` file — of a
+  model's several, per its `BFID` array — applies to which LOD/context)
+  got real forward progress this session, though not a full close. Pure
+  investigation, no reverse-engineering: decoded and cross-compared all 20
+  real `bloodelffemale_hd_00.bone`–`_19.bone` files (plus their 20
+  `_sdr_00`–`_sdr_19` siblings) against `bloodelffemale_hd.skel`'s `BFID`
+  chunk (manually chunk-parsed with `nu`/`uv run python3` scratch scripts,
+  since husk itself doesn't parse `.skel`'s `BFID` — only `m2.cpp`'s BFID
+  reading is wired up, and that model has 0 inline bones/external skel
+  anyway). Verdict: **the LOD/render-distance hypothesis is now ruled out
+  by real data**, not just left undetermined. Three independent pieces of
+  evidence: (1) the count itself doesn't fit — 20 `.bone` slots vs. this
+  model's `lod_count: 7`, no clean relationship; (2) the 20 files collapse
+  into only 5 distinct bone-index sets, one of them (33 bones) repeated
+  *verbatim* across 10 of the 20 files — a LOD ladder sheds bone
+  involvement as detail drops, it doesn't reuse the identical set 10
+  times; (3) where a bone is corrected in multiple files, the correction
+  is a pure magnitude scale along one of exactly two fixed 3D directions
+  (checked via bone 64's translation row across all 20 `_hd_*.bone`
+  files — 14 share one direction at 9 distinct magnitudes, 6 share another
+  at 3), the signature of a small number of shape variants reused across
+  many selectable slots (e.g. some choices being texture/color-only and
+  intentionally sharing bone data), not 20 independently-authored LOD
+  tiers. What *does* select a slot most plausibly lives in client-side DB2
+  data (something `ChrCustomizationBoneSet`-shaped, named from memory, not
+  confirmed against a real DB2 dump) — squarely CASC/DBC-adjacent, which
+  `DESIGN.md`'s non-goals already rule out for this project, same reason
+  the geoset-default-selection question stays open. Documented in
+  `WIKI_FINDINGS.md` §4's new follow-up (the receipts: exact magnitudes,
+  bone-set overlaps, file-by-file breakdown), `TODO_correctness.md` #6
+  (updated to state what kind of open question remains), `README.md`'s
+  `.bone` section, and `M2_COMPLETENESS.md`'s sidecar table row. No code
+  changed — `src/bone.hpp`/`.cpp` and `husk dump-chunks` are unaffected;
+  this was strictly closing the "what do we even know" gap before any
+  wiring-in could be attempted. Scratch analysis scripts used for this
+  aren't checked in (ad hoc `nu`/Python in the session's scratchpad, not
+  project code).
+  - **Environment note for future sessions**: bare `python`/`python3` is
+    guarded off (even under `direnv exec .`/`nix develop ./nix -c`) with a
+    message pointing at "the flake" — this project's actual sanctioned
+    Python entry point is `uv run --no-project python3 <script>` (or
+    `cd blp/ && uv sync` for the real `husk-blp` project), matching
+    `nix/flake.nix`'s comment that Python dependency management goes
+    through `uv`, not a bare interpreter. `nu` (Nushell, Luna's globally
+    preferred scripting language) is available system-wide and worked
+    fine for direct byte-level chunk parsing without needing `uv` at all.
+- **Earlier state**: `export`'s CLI grammar migrated from a hand-rolled,
   position-dependent positional parser to named CLI11 flags, per
   `DESIGN_CHANGES.md`'s spec (that file is now deleted — folded back into
   `DESIGN.md`'s "CLI argument grammar for `export`" section and `README.md`'s
@@ -149,131 +300,36 @@ real-file-driven spec correction found along the way.
   code's `readFileBytes` "couldn't open '<path>'" message used to
   surface — a real (if minor) loss of specificity, noted in
   `tests/test_cli.cpp`'s comments rather than silently adjusted around.
-- **Previous state**: every remaining actionable finding from `FINDINGS.md`
-  (the external review below) got fixed in a second follow-up pass, same
-  overall session — the punch list's items 2-6, on top of items 1/5
-  the first pass already closed. All verified: clean rebuild, 310-case
-  `husk-tests` suite (up from 267) green via both `./build/husk-tests`
-  and `ctest`, plus a real `bloodelffemale.m2` export re-checked by hand.
-  - **`buildMaterialsAndPrimitives` adversarial tests** (§4.2): 9 new
-    `test_cli.cpp` cases, one per throw site in the batch→submesh→
-    material→color/weight/texture/textureCoord chain, via a reusable
-    `BatchFields`/`oneBatchSkin`/`materialsFixtureM2` fixture trio.
-  - **`M2TextureTransform`** (§3.1): `m2::parseTextureTransforms` (new,
-    mirrors `parseColors`'s constant-vs-animated split) + `.skin`'s
-    `Batch.textureTransformComboIndex` (offset `0x16`, previously
-    entirely unread) + `husk info` counts + `husk export` resolving a
-    batch's reference into `gltf::Material::textureTransform` — real,
-    inert `extras`, deliberately **not** a `KHR_texture_transform`
-    applied to the render (the extension is itself static/non-animatable,
-    and WoW's rotation pivots around the texture center vs. the
-    extension's own origin — a correction this project's own real-file-
-    verification discipline says shouldn't ship unchecked, and no real
-    transform-carrying file was available; see `DESIGN.md`'s new entry).
-    `bloodelffemale.m2` has 0 real `texture_transforms` (a character-
-    model thing, not really used there) — confirmed safe on the
-    zero-count path; the resolution logic itself is synthetic-tested.
-  - **Global-sequence material-track asymmetry** (§3.2): `m2::Color`/
-    `m2::TextureWeight` gained `colorAnimated`/`alphaAnimated`/
-    `weightAnimated` flags (shared `trackHasAnimatedData` helper); `husk
-    export` now prints a note instead of silently applying the static
-    default. Verified against real data: exporting `bloodelffemale.m2`
-    now reports "3 batch(es) whose color tint ... is animated" — a real,
-    previously-silent case (plausibly blood elves' eye-glow), not
-    hypothetical. Deliberately not extended to a full extras-based
-    keyframe dump (see `DESIGN.md` for the scope line and why).
-  - **Collision data** (§3.3): `cmd_info.cpp` now prints
-    `collision_box`/`collision_sphere_radius` and counts
-    `collision_indices`/`collision_face_normals`, not just
-    `collision_positions`. Real data: 8/36/12 respectively, a real small
-    hit-test mesh.
-  - **`--version`/`-V`** (§2.3): `CMakeLists.txt` resolves `git describe
-    --always --dirty` once at configure time into `HUSK_VERSION`.
-  - **Remaining CLI argv edge cases** (§4.3): 8 more `test_cli.cpp` cases
-    (zero-arg invocations for all three subcommands, `export`'s four
-    "flag with no value" branches, `export`'s too-many-positionals case,
-    `info`/`dump-chunks`'s extra-argument case).
-  - **`cmd_dump.cpp` per-chunk coverage** (§4.4): 8 new `test_dump.cpp`
-    round-trip tests (TXAC/EXPT/PADC/PSBC/PEDC/EDGF/DBOC/WFV3) — `WFV3`
-    (~20 hand-transcribed fields, the highest-risk one) checked via exact
-    `"key": value` substrings per field, not just "the number appears
-    somewhere". `GPID`/`PGD1` deliberately left untested — they call the
-    identical function pointer as `RPID`/`PABC`, so a second test would
-    exercise the same code, not new coverage.
-  `FINDINGS.md` itself was updated throughout: every fixed section marked
-  `[Fixed]` with the original text kept as "originally found as follows"
-  for the record, and the punch list resolved. Only §3.4 (five unused
-  lookup-table arrays, awareness-only) and §3.5 (a self-flagged-in-code,
-  needs-real-data caveat) remain genuinely open, plus §5's usability
-  observations (not framed as defects).
-- **Earlier state**: an external read-only review (`FINDINGS.md`, new
-  that session) audited the project against `~/docs/READABILITY.md`/
-  `CLI.md`, M2 completeness, and test coverage — most findings were still
-  open at that point, but the two highest-leverage ones were fixed
-  immediately, both verified live:
-  - **Silent test skips.** 12 of 260 `husk-tests` cases (in
-    `test_integration.cpp`/`test_conformance.cpp`) used to `MESSAGE(...)`
-    + early `return` when a `HUSK_TEST_*` env var or optional tool
-    (`gltf_validator`/`blender`) was missing — doctest counted that as
-    "passed" with 0 assertions, so a bare `./build/husk-tests` run always
-    reported "0 skipped" even when roadmap-stage-7's entire conformance
-    tier silently didn't run. Fixed two ways: every gated `TEST_CASE` is
-    now `* doctest::skip(...)`, which doctest reports as a real, distinct
-    "skipped" count; and a new `tests/test_data_paths.hpp` auto-detects
-    real fixtures already sitting in this repo's own `test_data/` (env
-    var still overrides) instead of requiring 8 hand-set env vars —
-    `HUSK_TEST_SKIN_DIR` is even *constructed* on the fly from the SFID
-    entry 0 read out of the resolved M2's own header. Net effect,
-    verified: a bare `./build/husk-tests` run now actually exercises 259
-    of 260 cases for real (368,515 assertions, up from 1,113) instead of
-    248; only `HUSK_TEST_TEXTURES_DIR` (no committed `husk-blp`-converted
-    PNGs) still needs to be set by hand, and now visibly skips instead of
-    silently passing when it isn't. `tests/test_main.cpp` gained a startup
-    banner printing every fixture's resolution up front.
-  - **`--help`/`-h` bug.** Only `main.cpp` special-cased it, before a
-    subcommand name was even read — `husk export --help` fell through to
-    treating `--help` as a literal model path (`args[0]` is always the
-    first positional in `exportGlb`), producing "couldn't open '--help'"
-    instead of the good usage text `cmd_export.cpp` already had. Same bug
-    in `info`/`dump-chunks`. Fixed via a shared `commands::isHelpFlag`
-    (`src/commands.hpp`) checked before real argument parsing in all
-    three, plus 8 new regression tests in `test_cli.cpp`. `main.cpp`'s own
-    top-level usage text was also resynced (it undersold `export`'s real
-    optional args/flags and `dump-chunks`' `.bone` support).
-  260 → 267 total test cases (8 new `--help` regressions, minus the 1
-  test_conformance.cpp case that split into a real-vs-`doctest::skip(true)`
-  pair per missing tool — see test_conformance.cpp). `README.md`'s Testing
-  section and `DESIGN.md`'s Testing architecture section were updated to
-  match; the `ctest`-runs-from-`build/`-needs-absolute-paths hazard below
-  is now moot for the *default* fixtures (baked-absolute
-  `HUSK_TEST_DATA_DIR`) but still applies if you override one by hand with
-  a relative path.
-- **Next step**: nothing in flight. The CLI11 migration closes out
-  `DESIGN_CHANGES.md`'s entire punch list (that file is deleted — see Last
-  state). Remaining known gaps are exactly the ones `TODO_correctness.md`
-  tracks (`AFSB` reverse-engineering, `M2Particle` dereferencing, `.bone`
-  LOD-context integration, two awareness-only/blocked-on-real-data
-  footnotes), plus optional scope expansion (WMO/M3, or Blender-side
-  tooling for the geoset/multi-texture-layer `extras`) — none of that is
-  CLI-grammar work. `FINDINGS.md` (the external review this and the prior
-  session worked through) has since been retired now that every actionable
-  item is fixed and folded back into `README.md`/`DESIGN.md`/
-  `TODO_correctness.md` — git history has the original writeup if it's ever
-  needed. One real, minor loose end
-  from this session worth picking up if `cmd_export.cpp` is touched again:
-  `resolveSkin`'s failure messages could name the specific candidate
-  path/FileDataID they tried, not just the directory (see Last state's
-  closing note) — small, not urgent.
+- **Next step**: nothing in flight. `TODO_correctness.md` #6 is as closed
+  as husk itself can close it — the remaining piece (a client-side DB2
+  slot-selection lookup) is out of reach by design, not a to-do; a future
+  session could revisit *applying* a specific slot (e.g. real, scrubable
+  glTF animation clips per slot, mirroring `global_seq_<n>`) if that
+  external mapping ever becomes reachable some other way, but that's new
+  scope, not a continuation of this session's work. Remaining known gaps
+  are exactly the ones `TODO_correctness.md` tracks (`AFSB`
+  reverse-engineering, `M2Particle` dereferencing, two awareness-only/
+  blocked-on-real-data footnotes), plus optional scope expansion (WMO/M3,
+  or Blender-side tooling for the geoset/multi-texture-layer `extras`).
+  One real, minor loose end from an earlier session worth picking up if
+  `cmd_export.cpp` is touched again: `resolveSkin`'s failure messages could
+  name the specific candidate path/FileDataID they tried, not just the
+  directory — small, not urgent.
 - **Hazards**: none new this session beyond the pre-existing
   `HUSK_TEST_DATA_DIR`/relative-path one below. `completions/husk.bash`/
   `.zsh` are generated, checked-in artifacts (`husk --print-completion=
   <bash|zsh>`) — if `addExportOptions`'s flag table changes, regenerate
-  both rather than hand-editing (a stale completion script silently
-  drifting from the real flags is exactly the failure mode generating them
-  was meant to prevent). `HUSK_TEST_DATA_DIR` (`CMakeLists.txt`) is baked
-  absolute at configure time, so the default `test_data/`-fallback
-  fixtures are immune to the old `ctest`-runs-from-`build/` relative-path
-  trap — but if you override any `HUSK_TEST_*` env var by hand for `ctest`
-  specifically (not `./build/husk-tests` directly), it still needs to be
-  absolute, or that one test fails on a bad relative path, not a real
-  regression.
+  both rather than hand-editing; **the completion generator's per-flag
+  value-taxonomy tables in `src/main.cpp` (`bashValueCompletion`/
+  `zshValueAction`/`zshFlagLabel`) are hand-maintained, separate from
+  `addExportOptions`, and don't pick up a new flag's `none`/directory
+  semantics automatically** — a new flag falls through to plain-filename
+  completion until it's added to those tables explicitly (found the hard
+  way this session; verify by actually sourcing the regenerated script and
+  driving `_husk_completions`/`_husk`, not just diffing that a new flag
+  name appears). `HUSK_TEST_DATA_DIR` (`CMakeLists.txt`) is baked absolute
+  at configure time, so the default `test_data/`-fallback fixtures are
+  immune to the old `ctest`-runs-from-`build/` relative-path trap — but if
+  you override any `HUSK_TEST_*` env var by hand for `ctest` specifically
+  (not `./build/husk-tests` directly), it still needs to be absolute, or
+  that one test fails on a bad relative path, not a real regression.

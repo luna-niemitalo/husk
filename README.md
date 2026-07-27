@@ -123,12 +123,15 @@ next to the model, announced on stderr as it's resolved, never silently:
 - unset `--skel`, only relevant when the model has 0 inline bones -> checks
   for a same-basename `.skel` next to the model; not finding one isn't an
   error, since plenty of 0-bone models genuinely have no skeleton.
+- unset `--bones-dir`, only relevant when the model has bones at all ->
+  the model's own directory, same as `--textures`/`--skin-dir`.
 
-Each of `--textures`/`--skin-dir`/`--skel` also accepts the literal `none`,
-distinct from leaving it unset: `none` means "don't even try," skipping that
-resolution deliberately (no image embedded/no SFID search stage/no
-same-basename `.skel` lookup) rather than best-effort deriving it. Every
-default is overridable by giving that flag explicitly.
+Each of `--textures`/`--skin-dir`/`--skel`/`--bones-dir` also accepts the
+literal `none`, distinct from leaving it unset: `none` means "don't even
+try," skipping that resolution deliberately (no image embedded/no SFID
+search stage/no same-basename `.skel` lookup/no `.bone` correction data
+attached) rather than best-effort deriving it. Every default is overridable
+by giving that flag explicitly.
 
 **`--skin`/`-s` argument.** Either a path to the `.skin` matching the LOD
 you want, or `auto` (the default), which tries the M2's own `SFID` chunk
@@ -193,6 +196,19 @@ matrices, joint-node hierarchy), plus real glTF `animation` clips per
 Unresolvable data is skipped, never guessed: the `0x40` ("alias") flag case,
 and any `.anim` file carrying an undocumented `AFSB` chunk (see `DESIGN.md`).
 
+**`.bone` corrections.** If the model's/`.skel`'s `BFID` array names any
+`.bone` sidecar files and `--bones-dir` resolves any of them to a real
+`<FileDataID>.bone` on disk, husk attaches every resolved file's real
+`(bone_index, correction_matrix)` pairs as `bone_correction_sets` on the
+glTF skin's own `extras` -- and stops there. These are never applied to the
+bind pose or any animation: which of a model's several `.bone` files is
+"correct" for a given character is selected by client-side customization-
+choice data (which slider/dropdown value the player picked) husk has no
+access to and, like geoset selection above, never will by design (see
+`TODO_correctness.md` #6, `WIKI_FINDINGS.md` §4). A downstream renderer or
+Blender script that does have that mapping has everything it needs to apply
+the right slot on top of this data.
+
 Flags:
 
 | Flag | Short | Meaning | Default |
@@ -205,6 +221,7 @@ Flags:
 | `--anim <dir>` &#124; `auto`/`inline`/`none` | `-a` | See the four states above | `auto` |
 | `--skel <path>` &#124; `none` | -- | External `.skel` path (0-inline-bone models only), or `none` to never look for one | same-basename `.skel` next to the model, if any |
 | `--lod <n>` &#124; `all` | -- | With `--skin auto`, pick `SFID` entry `n` instead of 0, or resolve every entry into the same `.glb` as its own node (`lod0`, `lod1`, ...) sharing one skeleton/animation set (`husk info`'s `skin_file_data_ids` shows how many entries exist) | entry `0` |
+| `--bones-dir <dir>` &#124; `none` | -- | Directory of `<FileDataID>.bone` files (per the model's/`.skel`'s `BFID` array), attached as inert skin `extras`; or `none` to skip | model's own directory |
 
 If no matching image is found in the resolved `--textures` directory,
 materials still carry the correct blend mode, culling, and tint/fade -- they
@@ -319,7 +336,7 @@ Built directly from wowdev.wiki (M2, M3, WMO, BLP pages, fetched
 | Portals / visibility culling | ⬛ | ⬛ | ⬜ `MOPV`/`MOPT`/`MOPR`/`MOPE`, `MOVV`/`MOVB` visible-block lists | ⬛ |
 | Doodad / object placement (scene composition) | ⬛ | ⬛ | ⬜ `MODS`/`MODN`/`MODI`/`MODD`/`MODR` + `MDDI`/`MDDL` additional info | ⬛ |
 | World/group structure (root+group files, skybox) | ⬛ | ⬛ single-file, no group split | ⬜ `MOGN`/`MOGI`/`MOGP`/`MOGX`/`GFID` + `MOSB`/`MOSI` skybox + `MGI2` group-info-v2 | ⬛ |
-| Sidecar FileDataID resolution | 🚧 `SFID`/`AFID`/`BFID`/`PFID`/`SKID`/`TXID` → `.skin`/`.anim`/`.bone`/`.phys`/`.skel`/BLP textures — none of these FileDataIDs are resolved to a *WoW/CASC* path (no CASC/listfile access, by design, see the README's Usage section); `SKID`/`SFID`/`TXID`/`BFID`/`AFID`/`PFID` are all surfaced as raw IDs (`husk info`; `Header::skeletonFileId`/`skinFileDataIds`/`textureFileDataIds`/`boneFileDataIds`/`animFileIds`/`physFileId`), and `SFID`/`TXID`/`AFID` additionally get a *local-directory* resolution convention -- `husk export`'s `--skin-dir <dir>`/`--textures <dir>`/`--anim <dir>` look for `<dir>/<FileDataID>.skin`/`.png`/`.anim`, a directory the user populates themselves (e.g. via `husk-blp`), never CASC. `.skin`/`.skel` paths can also still be given explicitly instead, and so can a `.bone` file directly to `dump-chunks` (see the Usage section) -- `.bone` *content* itself is parsed now (`src/bone.hpp`, reverse engineered, no wowdev.wiki byte layout exists for it), just not resolved from a FileDataID or integrated into glTF export. `PFID`'s own `.phys` file content isn't touched at all yet (no local-directory resolution convention either — unlike `.skin`/`.textures`/`.anim`, there's no `--phys-dir` flag) | ⬛ self-contained, no sidecars per spec | ⬜ `GFID` → group files | ⬛ |
+| Sidecar FileDataID resolution | 🚧 `SFID`/`AFID`/`BFID`/`PFID`/`SKID`/`TXID` → `.skin`/`.anim`/`.bone`/`.phys`/`.skel`/BLP textures — none of these FileDataIDs are resolved to a *WoW/CASC* path (no CASC/listfile access, by design, see the README's Usage section); `SKID`/`PFID` are surfaced as raw IDs only (`husk info`; `Header::skeletonFileId`/`physFileId`), and `SFID`/`TXID`/`AFID`/`BFID` additionally get a *local-directory* resolution convention -- `husk export`'s `--skin-dir <dir>`/`--textures <dir>`/`--anim <dir>`/`--bones-dir <dir>` look for `<dir>/<FileDataID>.skin`/`.png`/`.anim`/`.bone`, a directory the user populates themselves (e.g. via `husk-blp`), never CASC. `.skin`/`.skel` paths can also still be given explicitly instead, and so can a `.bone` file directly to `dump-chunks` (see the Usage section) -- `.bone` *content* itself is parsed (`src/bone.hpp`, reverse engineered, no wowdev.wiki byte layout exists for it) and, via `--bones-dir`, attached to the exported glTF skin as inert `bone_correction_sets` extras (never applied to the render -- see the Usage section's "`.bone` corrections" paragraph, `TODO_correctness.md` #6). `PFID`'s own `.phys` file content isn't touched at all yet (no local-directory resolution convention either — unlike `.skin`/`.textures`/`.anim`/`.bone`, there's no `--phys-dir` flag) | ⬛ self-contained, no sidecars per spec | ⬜ `GFID` → group files | ⬛ |
 
 **Not individually rowed above** (still real, just low-priority/niche —
 tracked here so nothing's silently dropped): WMO's `MOQG`/`MOGX` per-face
@@ -602,12 +619,17 @@ above; this section is about *sequencing* that work, not duplicating it.
    upper-left 3x3 stays near-identity with small (millimeter-to-centimeter)
    translation-sized deltas -- the signature of a small corrective delta
    transform per listed bone, not arbitrary data or a full replacement
-   pose. What LOD/context each of a model's several `.bone` files (per its
+   pose. What context each of a model's several `.bone` files (per its
    `BFID` array) applies to isn't documented or inferred here -- husk
-   surfaces the raw pairs and stops there; wiring a per-LOD bone correction
-   into the exported skeleton would need that question answered first, and
-   `husk export` doesn't currently vary its output by LOD in a way that
-   correction could hook into anyway.
+   surfaces the raw pairs and stops there. LOD is now ruled out as that
+   selector by real data (all 20 of a real model's `.bone` files don't fit
+   its 7-tier LOD count, collapse into only 5 distinct bone-index sets with
+   heavy exact duplication, and share corrections that are pure magnitude
+   scales along one of two fixed directions -- the signature of a
+   customization-choice lookup, not a detail-reduction ladder; see
+   `WIKI_FINDINGS.md` §4 and `TODO_correctness.md` #6). Wiring a bone
+   correction into the exported skeleton would need that external
+   (client-side DB2, out of husk's reach by design) lookup answered first.
    **Simple, unintegrated M2 chunks: extracted to JSON, not glTF.**
    `husk dump-chunks <file.m2>` (`src/cmd_dump.cpp`) pulls `TXAC`/`EXPT`/
    `PABC`/`PADC`/`PSBC`/`PEDC`/`RPID`/`GPID`/`PGD1`/`WFV3`/`NERF`/`EDGF`/

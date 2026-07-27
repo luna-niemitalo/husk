@@ -43,6 +43,7 @@ struct ExportOptions {
     std::string animArg = "auto";
     std::string skelArg;
     std::string lodArg;
+    std::string bonesDirArg;
 };
 
 // Declares every export flag (names, defaults, descriptions, the `--skin

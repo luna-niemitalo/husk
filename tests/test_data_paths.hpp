@@ -20,14 +20,17 @@
 // copy of the same logic.
 
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "m2.hpp"
+#include "skel.hpp"
 
 namespace husk::test {
 
@@ -98,6 +101,71 @@ inline std::string autoSkinDir(const std::string& m2Path, const std::string& ski
     return ec ? std::string() : dir.string();
 }
 
+// Builds a --bones-dir fixture from an already-resolved .skel path: reads
+// the real BFID entries out of the .skel's own BFID chunk (the exact field
+// cmd_export.cpp's --bones-dir resolution reads for a .skel-sourced
+// skeleton) and copies up to 3 real, already-in-this-repo '<basename>_NN
+// .bone' fixture files (see test_data/character/bloodelf/female/) next to
+// it under their corresponding BFID[NN] FileDataID -- the same
+// '<FileDataID>.bone' naming convention a real casc-tool extraction would
+// produce. HUSK_TEST_BONES_DIR, if set explicitly, still overrides this
+// entirely. The NN -> BFID[NN] positional assignment is arbitrary for test
+// purposes, not a claimed real slot mapping (see WIKI_FINDINGS.md
+// §4/TODO_correctness.md #6: that mapping is exactly the client-side
+// customization-choice data husk doesn't have access to) -- this fixture
+// only needs to prove the resolution/parse/extras pipeline works end to
+// end against real '.bone' bytes, not that any particular slot is
+// semantically correct. Returns "" if skelPath is empty, has no BFID chunk,
+// or none of the expected same-basename '_NN.bone' files exist next to it.
+inline std::string autoBonesDir(const std::string& skelPath) {
+    if (const char* env = std::getenv("HUSK_TEST_BONES_DIR")) {
+        return std::string(env);
+    }
+    if (skelPath.empty()) {
+        return std::string();
+    }
+
+    std::ifstream f(skelPath, std::ios::binary);
+    if (!f) {
+        return std::string();
+    }
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+
+    std::optional<std::vector<uint32_t>> boneIds;
+    try {
+        boneIds = husk::skel::findBoneFileDataIds(bytes);
+    } catch (...) {
+        return std::string();
+    }
+    if (!boneIds || boneIds->empty()) {
+        return std::string();
+    }
+
+    std::filesystem::path skelPathObj(skelPath);
+    std::filesystem::path skelDir = skelPathObj.parent_path();
+    std::string base = skelPathObj.stem().string();
+
+    std::error_code ec;
+    std::filesystem::path dir = std::filesystem::temp_directory_path() / "husk-test-autobones";
+    std::filesystem::create_directories(dir, ec);
+
+    size_t copied = 0;
+    for (size_t i = 0; i < boneIds->size() && i < 3; ++i) {
+        char nn[4];
+        std::snprintf(nn, sizeof(nn), "%02zu", i);
+        std::filesystem::path src = skelDir / (base + "_" + nn + ".bone");
+        if (!std::filesystem::exists(src, ec)) {
+            continue;
+        }
+        std::filesystem::path dest = dir / (std::to_string((*boneIds)[i]) + ".bone");
+        std::filesystem::copy_file(src, dest, std::filesystem::copy_options::overwrite_existing, ec);
+        if (!ec) {
+            ++copied;
+        }
+    }
+    return copied > 0 ? dir.string() : std::string();
+}
+
 // Default relative paths under test_data/, named once so every caller
 // (banner + tests) shares the same literal instead of retyping it.
 namespace fixtures {
@@ -122,5 +190,6 @@ inline std::string testSkinDir() { return autoSkinDir(testM2(), testSkin()); }
 inline std::string testSkelM2() { return resolve("HUSK_TEST_SKEL_M2", fixtures::kSkelM2); }
 inline std::string testSkelSkin() { return resolve("HUSK_TEST_SKEL_SKIN", fixtures::kSkelSkin); }
 inline std::string testSkel() { return resolve("HUSK_TEST_SKEL", fixtures::kSkel); }
+inline std::string testBonesDir() { return autoBonesDir(testSkel()); }
 
 }  // namespace husk::test

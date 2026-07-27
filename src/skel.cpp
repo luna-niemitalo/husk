@@ -147,4 +147,28 @@ std::optional<std::vector<m2::Header::AnimFileEntry>> findAnimFileIds(
     return entries;
 }
 
+std::optional<std::vector<uint32_t>> findBoneFileDataIds(const std::vector<uint8_t>& fileBytes) {
+    auto chunks = readChunks(fileBytes.data(), fileBytes.size());
+    auto bfid = findChunk(chunks, "BFID");
+    if (!bfid) {
+        return std::nullopt;
+    }
+    constexpr size_t kEntrySize = 4;
+    // Same up-front check as m2.cpp's findFileDataIdArrayChunk/this file's
+    // own findAnimFileIds (FAILURES2.md #8) -- a byte length that isn't a
+    // multiple of the record size means a truncated/corrupted chunk.
+    if (bfid->size % kEntrySize != 0) {
+        throw ParseError("BFID chunk is " + std::to_string(bfid->size) +
+                          " bytes, not a multiple of " + std::to_string(kEntrySize) +
+                          " (one uint32 FileDataID per entry) -- truncated or corrupted file?");
+    }
+    size_t count = bfid->size / kEntrySize;
+    std::vector<uint32_t> ids;
+    ids.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        ids.push_back(readU32(bfid->data, bfid->size, i * kEntrySize));
+    }
+    return ids;
+}
+
 }  // namespace husk::skel

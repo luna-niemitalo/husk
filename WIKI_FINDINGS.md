@@ -277,6 +277,95 @@ tested in `src/bone.hpp`/`src/bone.cpp` (`husk::bone::parse`), exposed via
 `husk dump-chunks <file.bone>`; `tests/test_bone.cpp` has the synthetic
 fixtures.
 
+### Follow-up: the LOD/render-distance hypothesis is ruled out
+
+**Confidence: verified** (LOD is not the selector) for the negative claim;
+**inferred, plausible** for the positive one (character customization).
+
+`TODO_correctness.md` #6 asked "which `.bone` file (of a model's several)
+applies to which LOD/context." All 20 real `bloodelffemale_hd_00.bone`
+through `_19.bone` files (plus their 20 `_sdr_00`–`_sdr_19` siblings — same
+count, same container shape) were decoded and compared directly against
+each other, not just individually:
+
+- **The count itself doesn't fit LOD.** `bloodelffemale_hd.skel`'s `BFID`
+  chunk holds exactly 20 FileDataIDs (`80 bytes / 4`), but the same model's
+  `LDV1`/`SFID` data gives `lod_count: 7`. 20 doesn't divide or multiply
+  cleanly into 7, and no other per-model count in this codebase (texture
+  count 13, material count 12, geoset/skin-section counts) is 20 either —
+  there's no LOD-shaped quantity for 20 slots to map onto 1:1.
+- **The 20 files collapse into only 5 distinct bone-index sets, heavily
+  duplicated** (e.g. the 33-bone set `{52,53,54,58,59,60,64-67,71,72,
+  81-84,86-94,96,128,130-135}` is shared *verbatim* by 10 of the 20 files:
+  `_01/_03/_05/_08/_09/_11/_13/_15/_18/_19`). A LOD ladder produces a
+  handful of tiers with *decreasing* bone/vertex involvement as detail
+  drops (matching `lod_count: 7`, not repeating the same set 10 times
+  across 20 slots).
+- **Where a bone is corrected in multiple files, the correction itself is
+  a pure magnitude scale along one of exactly two fixed 3D directions**,
+  not 20 independent hand-authored deltas. Checking bone 64's translation
+  (`BOMT` row 3) across all 20 `_hd_*.bone` files: 14 of them share one
+  direction (`tx:ty` ratio ≈ `1.394` in every single one, only the
+  magnitude changes: `0.0001708 → 0.0003746 → 0.0005784 → 0.0006467 →
+  0.0009188 → 0.0009871 → 0.0011921 → 0.0015325 → 0.0023489`, nine distinct
+  magnitudes across those 14 slots, several repeated exactly), and the
+  other 6 share a second, different fixed direction (pure `+tz`, magnitude
+  `0.0010628 → 0.0018992 → 0.0024151`, three distinct magnitudes across
+  those 6 slots). That's the signature of a small number of underlying
+  *shape variants* scaled/reused across many selectable slots — e.g. a
+  slider or a set of dropdown choices where several choices are texture/
+  color-only and intentionally reuse the same bone-shape data — not a
+  detail-reduction ladder, which would not produce exact-duplicate deltas
+  reused non-adjacently across the file's own numbering.
+- The specific slot→context mapping (which in-game customization choice
+  picks `BFID[7]` versus `BFID[13]`) isn't recoverable from the `.bone`
+  files or the `.skel`/`.m2` themselves — that lookup lives in client-side
+  DB2 data (something like `ChrCustomizationBoneSet`/`ChrCustomizationElement`
+  by name, going from memory, not verified against a real DB2 dump this
+  session) that husk has no access to and, per `DESIGN.md`'s non-goals,
+  never will (no CASC/DBC access, same reason geoset default-selection is
+  still unresolved). **This part of #6 stays open** — but it's now known
+  *what kind* of open question it is (a customization-choice lookup table
+  husk can't reach), not an undetermined LOD question husk could plausibly
+  answer with more file-reading alone.
+
+Scratch analysis (chunk-offset dump of `bloodelffemale_hd.skel`'s `BFID`,
+and a full 20-file `BIDA`/`BOMT` decode/compare) was done ad hoc for this
+finding and isn't checked into the repo — the numbers above are the
+receipts.
+
+### Follow-up: weapon-type/armor-type is also ruled out — the corrected bones are facial
+
+**Confidence: verified** (structural fact about the skeleton). A natural
+second hypothesis for the 20-slot count is WoW's classic weapon-subclass
+enum (`ITEM_SUBCLASS_WEAPON`), which also has exactly 20 values — but the
+real bone hierarchy rules this out just as cleanly as LOD was ruled out
+above. Parsing `bloodelffemale_hd.skel`'s own `SKB1` bone records (parent
+index, `keyBoneId`, bind-pose pivot — the same struct `husk::m2::Bone`
+already exposes) for every bone index any of the 20 `.bone` files
+corrects:
+
+- All 26 bones in the largest cluster (indices 52–54, 58–60, 64–67, 71–72,
+  81–94, 96) share the exact same parent: bone 42, which is this
+  skeleton's own Head bone (`keyBoneId=6`, pivot z≈1.749 — head height for
+  this character). Every one of them has a pivot within a few centimeters
+  of the head (z≈1.75–1.86).
+- The second, smaller cluster (128, 130–135) is parented to bone 95, the
+  Jaw (`keyBoneId=7`, itself a child of Head), pivot z≈1.71–1.74.
+- For comparison, this same skeleton's real finger bones (`keyBoneId` 8–17,
+  `IndexFingerR`/`L` etc.) live at index 102–116, pivot z≈1.0–1.06 — the
+  hand, nowhere near any bone a `.bone` file actually corrects.
+
+A weapon-grip or armor-fitting correction would need to touch wrist/hand
+(or waist/shoulder) bones, not a ~30-bone cluster bolted onto the skull.
+This is the anatomical signature of facial detail bones (brow/cheek/ear/
+chin) instead — consistent with the customization-choice-slider read
+above, and with Blood Elves specifically having received an extensive
+facial-customization pass in Blizzard's "Character Customization 2.0"
+work. Reinforces, rather than changes, the open/closed split above: still a
+customization-choice lookup husk can't reach, now known to plausibly be a
+*facial* one specifically, not a body-type/equipment one.
+
 ---
 
 ## Where these live in husk

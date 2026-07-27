@@ -27,8 +27,14 @@ Non-goals, by design, not oversight:
 - No CASC/listfile access, ever. husk never resolves a FileDataID to a real
   WoW install path. A separate tool (e.g. `casc-tool`) extracts real files
   first; husk only reads what's already on disk, and sidecar resolution
-  (`--skin-dir`/`--textures`/`--anim`) is a **local-directory,
+  (`--skin-dir`/`--textures`/`--anim`/`--bones-dir`) is a **local-directory,
   FileDataID-named** convention the user populates themselves — never CASC.
+  Generalizes past raw file extraction, too: an out-of-band tool scraping
+  CASC/DB2 at build time to learn something husk itself can't (e.g. which
+  `.bone` slot a customization choice selects, `TODO_correctness.md` #6) is
+  fine — it would just hand husk a plain local file/flag to read, same as
+  every other sidecar. What husk itself never does, at runtime, under any
+  circumstance, is talk to CASC/DB2 directly.
 - No write-back to WoW's native formats. glTF-out only.
 - No WMO or M3 support (tracked, not started).
 - No Blender addon. A `.glb` file Blender's stock importer can open is the
@@ -318,6 +324,28 @@ need the same per-sequence/global-sequence resolution `buildAnimations`
 already does for bones, applied to a material property instead — real
 future work, not attempted this pass.
 
+**`.bone` correction data is surfaced as `extras`, never applied to the bind
+pose.** Same "tag it, don't guess at semantics" family as geoset selection/
+texture-transform above, for the same underlying reason: which of a model's
+several `.bone` files (its `BFID` array) is "correct" for a given character
+is selected by client-side customization-choice data (a DB2-shaped lookup)
+husk has no access to and, per this file's Non-goals, never will. Real
+investigation (`WIKI_FINDINGS.md` §4's follow-up) ruled out the two more
+tractable-looking hypotheses first — LOD/render-distance (the slot count
+doesn't fit the model's real LOD tier count, and slots collapse into far
+fewer distinct bone-index sets than a detail ladder would produce) and
+weapon-type/armor-type (the corrected bones cluster on the Head/Jaw, not
+the hand/wrist bones a grip correction would need) — before concluding the
+real selector is external, unreachable data, not a gap husk itself could
+close with more file-reading. `husk export --bones-dir <dir>` therefore
+resolves every `BFID`-declared FileDataID it can find on disk (same
+local-directory, never-CASC convention as `--textures`/`--skin-dir`/
+`--anim`) and attaches every one it finds as a `gltf::Skeleton::
+CorrectionSet` — real `(bone_index, matrix)` data, faithfully surfaced —
+serialized as `bone_correction_sets` on the glTF skin's `extras`, for a
+downstream renderer or Blender script that *does* have the slot-selection
+mapping to apply on top.
+
 **BLP/texture conversion is a separate Python process, permanently.** Two
 independent reasons: real DXT/BC block decoding needs library maturity
 (Pillow) C++ doesn't have an equivalent of already in this project, and the
@@ -358,6 +386,7 @@ flag regardless of position."
 | `--skin-dir` | *(none)* | directory `auto` searches for the `SFID`-declared `<FileDataID>.skin` |
 | `--skel` | *(none)* | external `.skel` path (0-inline-bone models only) |
 | `--lod` | *(none)* | `<n>` or `all`, only meaningful with `--skin auto` |
+| `--bones-dir` | *(none)* | directory of `<FileDataID>.bone` files, attached as inert extras |
 
 Every flag is order-independent. The only positional-shaped things left are
 the two every CLI on every platform already trains a user to expect
@@ -392,8 +421,8 @@ means the way it can today.
 
 ### Three-state resolution, not two (§2.11)
 
-`--skin`, `--textures`, `--skin-dir`, and `--skel` all name a thing
-the model's own chunk data (or its presence next to the model) already
+`--skin`, `--textures`, `--skin-dir`, `--skel`, and `--bones-dir` all name a
+thing the model's own chunk data (or its presence next to the model) already
 points at — `~/docs/CLI.md` §2.11 states the rule for exactly this shape of
 flag directly: *"there are three states here, not two"* — collapsing "leave
 it unset" and "actively don't want it" loses the difference between "try to
@@ -434,6 +463,9 @@ What `none` means, concretely, per flag:
   model's own inline-bone count.
 - `--skin-dir none` — `--skin auto` skips the `SFID`-FileDataID search stage
   entirely and falls straight to the same-basename numbered scan.
+- `--bones-dir none` — never resolve any `.bone` file, even if a matching
+  `<FileDataID>.bone` sits in the default directory; no `bone_correction_sets`
+  extras attached at all.
 
 **`--anim` needs four states, not three — it bundles two independent
 questions the generic pattern above collapses into one.** "Should any
@@ -620,11 +652,13 @@ dispatch isn't itself CLI11-driven (see the previous-grammar note above:
 - Model file bytes (`.m2`) — chunk container + fixed-offset header/arrays.
 - `.skin` sidecar — triangle-index lookup, submesh/batch structure.
 - `.skel` sidecar — external bones + sequences.
-- `.bone` sidecar — per-bone correction matrices (reverse-engineered).
+- `.bone` sidecar — per-bone correction matrices (reverse-engineered),
+  surfaced as inert glTF `extras` via `--bones-dir`, never applied to the
+  render (see Key design decisions).
 - `.anim` sidecar — external per-sequence keyframe blob (`AFM2` flat
   format only; `AFSB` detected and rejected).
-- `--textures`/`--skin-dir`/`--anim` directories — user-populated,
-  FileDataID-named, local filesystem only. Never CASC.
+- `--textures`/`--skin-dir`/`--anim`/`--bones-dir` directories —
+  user-populated, FileDataID-named, local filesystem only. Never CASC.
 - `.blp` texture files (separate `blp/` Python tool) — container + mip
   table hand-rolled, block decode delegated to Pillow via synthetic DDS.
 
@@ -651,10 +685,12 @@ Three tiers, same shape used by `casc-tool`:
    belong in tier 1. Each real-file fixture resolves via
    `tests/test_data_paths.hpp`: an explicit `HUSK_TEST_*` env var always
    overrides; otherwise it falls back to a matching file already in this
-   repo's own gitignored `test_data/` (one fixture, the `--skin-dir`
-   one, is *constructed* on the fly from the other two by reading the
-   real SFID entry 0 out of the resolved M2's header — the same shape a
-   hand-populated directory would need). A fixture that doesn't resolve
+   repo's own gitignored `test_data/` (two fixtures are *constructed* on
+   the fly rather than resolved directly: `--skin-dir`'s, by reading the
+   real SFID entry 0 out of the resolved M2's header; `--bones-dir`'s, by
+   reading the real `.skel`'s own `BFID` chunk and copying a few of this
+   repo's already-present `.bone` fixtures under those FileDataIDs — the
+   same shape a hand-populated directory would need either way). A fixture that doesn't resolve
    marks its `TEST_CASE` with `* doctest::skip(...)`, not a runtime
    `MESSAGE` + early `return` — doctest's own summary then reports a
    distinct, non-zero "skipped" count instead of silently folding a

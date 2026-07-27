@@ -31,6 +31,7 @@ _husk() {
                 '(-a --anim)'{-a,--anim}'[auto, inline, none, or a directory]:value:_husk_anim_value' \
                 '--skel[external .skel path, or none]:value:_husk_skel_value' \
                 '--lod[LOD index, or all]:value:(all)' \
+                '--bones-dir[bone-correction directory, or none]:value:_husk_dir_or_none_value' \
                 '1:model:_files'
             ;;
         info)

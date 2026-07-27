@@ -10,6 +10,7 @@
 
 #include <CLI/CLI.hpp>
 
+#include "bone.hpp"
 #include "chunk.hpp"
 #include "commands.hpp"
 #include "gltf.hpp"
@@ -1092,6 +1093,11 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
     app.add_option("--lod", opts.lodArg,
                     "'<n>' or 'all' -- only meaningful when --skin resolves via 'auto' (default: "
                     "entry 0)");
+    app.add_option("--bones-dir", opts.bonesDirArg,
+                    "directory of already-extracted '<FileDataID>.bone' files (per the model's/"
+                    "'.skel's BFID array), or 'none' to skip (default: the model's own directory) "
+                    "-- attached as inert glTF extras only, never applied to the render (see "
+                    "TODO_correctness.md #6)");
 }
 
 int exportGlb(int argc, char** args) {
@@ -1155,6 +1161,9 @@ int exportGlb(int argc, char** args) {
     // once bones are known to actually be needed.)
     std::string texturesDir = app.count("--textures") ? opts.texturesArg : modelDirStr;
     if (texturesDir == "none") texturesDir.clear();
+
+    std::string bonesDir = app.count("--bones-dir") ? opts.bonesDirArg : modelDirStr;
+    if (bonesDir == "none") bonesDir.clear();
 
     bool skinDirNone = skinDirGiven && opts.skinDirArg == "none";
     std::string skinDir = skinDirNone ? "" : (skinDirGiven ? opts.skinDirArg : modelDirStr);
@@ -1362,6 +1371,58 @@ int exportGlb(int argc, char** args) {
                 auto globalSeqAnims = buildGlobalSequenceAnimations(skelTrackBlob, bones, skeleton);
                 animations.insert(animations.end(), std::make_move_iterator(globalSeqAnims.begin()),
                                    std::make_move_iterator(globalSeqAnims.end()));
+            }
+
+            // --bones-dir: resolves each of the model's/.skel's BFID-
+            // declared FileDataIDs to a real '<bonesDir>/<id>.bone' file,
+            // if present (silently skipped otherwise, same "optional,
+            // resolve what's there" policy --textures already uses for a
+            // missing PNG) -- attached as inert gltf::Skeleton::
+            // CorrectionSet extras, never applied to the bind pose/
+            // animation above (see gltf.hpp's CorrectionSet doc comment,
+            // TODO_correctness.md #6).
+            if (!bonesDir.empty()) {
+                std::optional<std::vector<uint32_t>> boneFileDataIds =
+                    bonesAreInline ? header.boneFileDataIds
+                                    : (haveSkel ? skel::findBoneFileDataIds(skelBytes)
+                                                : std::nullopt);
+                if (boneFileDataIds) {
+                    size_t found = 0;
+                    for (uint32_t fdid : *boneFileDataIds) {
+                        auto bonePath =
+                            std::filesystem::path(bonesDir) / (std::to_string(fdid) + ".bone");
+                        std::error_code ec;
+                        if (!std::filesystem::exists(bonePath, ec) || ec) {
+                            continue;
+                        }
+                        auto boneBytes = readFileBytes(bonePath.string());
+                        auto corrections = bone::parse(boneBytes);
+                        gltf::Skeleton::CorrectionSet set;
+                        set.fileDataId = fdid;
+                        set.corrections.reserve(corrections.size());
+                        for (const auto& c : corrections) {
+                            if (c.boneIndex >= skeleton.joints.size()) {
+                                throw std::runtime_error(
+                                    "'" + bonePath.string() + "' corrects bone " +
+                                    std::to_string(c.boneIndex) + ", out of range for " +
+                                    std::to_string(skeleton.joints.size()) + " bones");
+                            }
+                            set.corrections.push_back(
+                                {static_cast<int>(c.boneIndex), c.matrix});
+                        }
+                        skeleton.correctionSets.push_back(std::move(set));
+                        ++found;
+                    }
+                    if (found > 0) {
+                        std::cerr << "husk: note: attached " << found << "/"
+                                  << boneFileDataIds->size()
+                                  << " '.bone' correction set(s) from '" << bonesDir
+                                  << "' as inert glTF extras (not applied to the render -- "
+                                     "which slot is 'correct' for a given character depends "
+                                     "on client-side customization-choice data husk doesn't "
+                                     "have; see TODO_correctness.md #6)\n";
+                    }
+                }
             }
         }
 
