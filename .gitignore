@@ -10,3 +10,8 @@ documentation
 __pycache__/
 *.pyc
 .claude
+
+# tools/corpus_test.py's uv-managed venv (tqdm/rich) -- set up locally via
+# `cd tools && uv venv venv && uv pip install --python venv/bin/python tqdm rich`,
+# never committed.
+/tools/venv/

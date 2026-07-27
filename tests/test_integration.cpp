@@ -33,6 +33,7 @@
 
 #include "m2.hpp"
 #include "run_husk.hpp"
+#include "skin.hpp"
 #include "test_data_paths.hpp"
 
 namespace {
@@ -42,11 +43,15 @@ using husk::test::testAnimDir;
 using husk::test::testBonesDir;
 using husk::test::testM2;
 using husk::test::testMismatchedSkin;
+using husk::test::testMultiTextureLayerM2;
+using husk::test::testMultiTextureLayerSkin;
 using husk::test::testSkel;
 using husk::test::testSkelM2;
 using husk::test::testSkelSkin;
 using husk::test::testSkin;
 using husk::test::testSkinDir;
+using husk::test::testTextureCoordComboM2;
+using husk::test::testTextureCoordComboSkin;
 using husk::test::testTexturesDir;
 using husk::test::testWeaponParticleA;
 using husk::test::testWeaponParticleB;
@@ -436,7 +441,7 @@ TEST_CASE(
 
 TEST_CASE(
     "husk export: --bones-dir attaches real .bone correction data as inert skin extras, end to "
-    "end (WIKI_FINDINGS.md §4/TODO_correctness.md #4)" *
+    "end (WIKI_FINDINGS.md §4/TODO_correctness.md #3)" *
     doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
                   testBonesDir().empty())) {
     std::string m2Path = testSkelM2();
@@ -566,6 +571,109 @@ TEST_CASE("husk dump-chunks: a real weapon's particle_emitters JSON resolves pla
     // json::Writer::value(double)'s isfinite guard) -- if that ever shows
     // up inside a resolved curve, something upstream decoded garbage.
     CHECK(result.output.find("\"value\": null") == std::string::npos);
+}
+
+// TODO_correctness.md #3: cross-checks cmd_export.cpp's
+// textureComboIndex+layer / textureCoordComboIndex+layer arithmetic (see
+// its own doc comment, "Additional texture layers") against an
+// independent resolution computed straight from husk::m2::parseHeader/
+// husk::m2::extractBlob/husk::m2::parseUint16Array and
+// husk::skin::parseHeader/parseBatches -- the same public, already
+// unit-tested parsing primitives test_m2.cpp/test_skin.cpp exercise, not
+// cmd_export.cpp's own internal buildMaterialsAndPrimitives (which isn't
+// exposed outside that translation unit). Deliberately model-agnostic:
+// this doesn't hardcode any fixture's specific FileDataIDs or batch
+// layout, so it stays meaningful if HUSK_TEST_MULTITEX_*/
+// HUSK_TEST_COORDCOMBO_* ever point at a different real file (see
+// test_data_paths.hpp's fixture doc comment for how these two were
+// found -- a 287k-file .skin scan and a 130k-file .m2 scan of Luna's own
+// real WoW extraction). Requires at least one real textureCount > 1
+// batch to actually exercise the arithmetic, not just skip it.
+void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::string& skinPath) {
+    std::ifstream mf(m2Path, std::ios::binary);
+    REQUIRE(mf.good());
+    std::vector<uint8_t> fileBytes((std::istreambuf_iterator<char>(mf)),
+                                    std::istreambuf_iterator<char>());
+    auto header = husk::m2::parseHeader(fileBytes);
+    auto blob = husk::m2::extractBlob(fileBytes);
+    auto textureCombos = husk::m2::parseUint16Array(blob, header.textureCombos);
+    auto textureCoordCombos = husk::m2::parseUint16Array(blob, header.textureCoordCombos);
+
+    std::ifstream sf(skinPath, std::ios::binary);
+    REQUIRE(sf.good());
+    std::vector<uint8_t> skinBytes((std::istreambuf_iterator<char>(sf)),
+                                    std::istreambuf_iterator<char>());
+    auto skinHeader = husk::skin::parseHeader(skinBytes);
+    auto batches = husk::skin::parseBatches(skinBytes, skinHeader.batches);
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-multitex.glb").string();
+    std::filesystem::remove(outPath);
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath +
+                           "\" --textures none --anim none --bones-dir none");
+    INFO("output:\n", result.output);
+    REQUIRE(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+
+    bool foundMultiLayerBatch = false;
+    for (size_t bi = 0; bi < batches.size(); ++bi) {
+        const auto& b = batches[bi];
+        if (b.textureCount <= 1) {
+            continue;
+        }
+        foundMultiLayerBatch = true;
+        REQUIRE(bi < model.materials.size());
+        const auto& extras = model.materials[bi].extras;
+        REQUIRE(extras.IsObject());
+        const auto& additional = extras.Get("additional_textures");
+        REQUIRE(additional.IsArray());
+        CHECK(static_cast<size_t>(additional.ArrayLen()) ==
+              static_cast<size_t>(b.textureCount - 1));
+
+        for (uint16_t layer = 1; layer < b.textureCount; ++layer) {
+            size_t comboIdx = static_cast<size_t>(b.textureComboIndex) + layer;
+            uint32_t expectedFdid = 0;
+            if (comboIdx < textureCombos.size()) {
+                uint16_t texIdx = textureCombos[comboIdx];
+                if (header.textureFileDataIds && texIdx < header.textureFileDataIds->size()) {
+                    expectedFdid = (*header.textureFileDataIds)[texIdx];
+                }
+            }
+            int expectedTexCoord = 0;
+            size_t coordIdx = static_cast<size_t>(b.textureCoordComboIndex) + layer;
+            if (!textureCoordCombos.empty() && coordIdx < textureCoordCombos.size() &&
+                textureCoordCombos[coordIdx] == 1) {
+                expectedTexCoord = 1;
+            }
+
+            REQUIRE(static_cast<int>(layer - 1) < additional.ArrayLen());
+            const auto& entry = additional.Get(static_cast<int>(layer - 1));
+            auto actualFdid = static_cast<uint32_t>(entry.Get("file_data_id").GetNumberAsInt());
+            int actualTexCoord = entry.Get("tex_coord").GetNumberAsInt();
+            CHECK(actualFdid == expectedFdid);
+            CHECK(actualTexCoord == expectedTexCoord);
+        }
+    }
+    REQUIRE(foundMultiLayerBatch);
+
+    std::filesystem::remove(outPath);
+}
+
+TEST_CASE("husk export: real multi-texture-layer batch resolves textureComboIndex+layer exactly, "
+          "TODO_correctness.md #3" *
+          doctest::skip(testMultiTextureLayerM2().empty() || testMultiTextureLayerSkin().empty())) {
+    checkMultiTextureLayerArithmetic(testMultiTextureLayerM2(), testMultiTextureLayerSkin());
+}
+
+TEST_CASE("husk export: real file with a nonzero textureCoordCombos table still resolves "
+          "textureCoordComboIndex+layer safely, TODO_correctness.md #3" *
+          doctest::skip(testTextureCoordComboM2().empty() || testTextureCoordComboSkin().empty())) {
+    checkMultiTextureLayerArithmetic(testTextureCoordComboM2(), testTextureCoordComboSkin());
 }
 
 TEST_CASE("husk export: skin file that doesn't belong to the given M2 fails cleanly" *

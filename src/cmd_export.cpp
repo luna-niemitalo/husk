@@ -600,9 +600,17 @@ struct M2MaterialInputs {
     std::vector<m2::Texture> textures;
     std::vector<uint16_t> textureCombos;
     // Pre-Cataclysm only (wowdev.wiki M2/.skin#geosetIndex: "Still present
-    // but unused in Cataclysm") -- empty in every modern file this was
-    // tested against, in which case batch.textureCoordComboIndex is never
-    // dereferenced at all and every material just uses UV set 0.
+    // but unused in Cataclysm") -- empty in almost every modern file (a
+    // full ~130k-file real-data scan found only 3 exceptions, see
+    // WIKI_FINDINGS.md §7); when empty, batch.textureCoordComboIndex is
+    // never dereferenced at all and every material just uses UV set 0.
+    // Real, nonzero data has been seen in those 3 files, but its values
+    // (e.g. 33/34) don't match the wiki's documented -1/0/1 range --
+    // consistent with the "present but unused" wording, likely leftover/
+    // vestigial rather than actually consulted, but not confirmed against
+    // an authoritative source. mapping==1 below still only special-cases
+    // the one documented value, so this data (real or vestigial) safely
+    // falls back to UV set 0 either way.
     std::vector<uint16_t> textureCoordCombos;
     std::vector<m2::Color> colors;
     std::vector<m2::TextureWeight> textureWeights;
@@ -797,10 +805,16 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             // primary texture above: this is supplementary metadata (see
             // gltf::Material::AdditionalTextureLayer), not required for a
             // usable export, so an out-of-range layer is skipped rather than
-            // failing the whole batch -- the base-index assumption itself
-            // isn't independently verified against a real multi-texture
-            // batch's exact semantics the way the rest of this parser's
-            // offsets are.
+            // failing the whole batch. The base-index arithmetic itself
+            // *is* now independently verified against a real multi-texture
+            // batch (TODO_correctness.md's former #3, resolved -- see
+            // WIKI_FINDINGS.md §7 and tests/test_integration.cpp's
+            // checkMultiTextureLayerArithmetic): a real 6-layer guild-
+            // pennant batch's resolved FileDataIDs match a from-scratch
+            // independent parse exactly, and a real file with a nonzero
+            // textureCoordCombos table (values outside the documented
+            // -1/0/1 range -- likely vestigial, see WIKI_FINDINGS.md)
+            // still resolves safely via the mapping==1 fallback below.
             for (uint16_t layer = 1; layer < b.textureCount; ++layer) {
                 size_t comboIdx = static_cast<size_t>(b.textureComboIndex) + layer;
                 if (comboIdx >= m2.textureCombos.size()) break;
@@ -1106,7 +1120,7 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "directory of already-extracted '<FileDataID>.bone' files (per the model's/"
                     "'.skel's BFID array), or 'none' to skip (default: the model's own directory) "
                     "-- attached as inert glTF extras only, never applied to the render (see "
-                    "TODO_correctness.md #4)");
+                    "TODO_correctness.md #3)");
 }
 
 int exportGlb(int argc, char** args) {
@@ -1389,7 +1403,7 @@ int exportGlb(int argc, char** args) {
             // missing PNG) -- attached as inert gltf::Skeleton::
             // CorrectionSet extras, never applied to the bind pose/
             // animation above (see gltf.hpp's CorrectionSet doc comment,
-            // TODO_correctness.md #4).
+            // TODO_correctness.md #3).
             if (!bonesDir.empty()) {
                 std::optional<std::vector<uint32_t>> boneFileDataIds =
                     bonesAreInline ? header.boneFileDataIds
@@ -1429,7 +1443,7 @@ int exportGlb(int argc, char** args) {
                                   << "' as inert glTF extras (not applied to the render -- "
                                      "which slot is 'correct' for a given character depends "
                                      "on client-side customization-choice data husk doesn't "
-                                     "have; see TODO_correctness.md #4)\n";
+                                     "have; see TODO_correctness.md #3)\n";
                     }
                 }
             }

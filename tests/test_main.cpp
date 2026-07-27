@@ -41,6 +41,10 @@ int main(int argc, char** argv) {
     printFixture("HUSK_TEST_WEAPON_PARTICLE_A", husk::test::testWeaponParticleA());
     printFixture("HUSK_TEST_WEAPON_PARTICLE_B", husk::test::testWeaponParticleB());
     printFixture("HUSK_TEST_WEAPON_PARTICLE_STRESS", husk::test::testWeaponParticleStress());
+    printFixture("HUSK_TEST_MULTITEX_M2", husk::test::testMultiTextureLayerM2());
+    printFixture("HUSK_TEST_MULTITEX_SKIN", husk::test::testMultiTextureLayerSkin());
+    printFixture("HUSK_TEST_COORDCOMBO_M2", husk::test::testTextureCoordComboM2());
+    printFixture("HUSK_TEST_COORDCOMBO_SKIN", husk::test::testTextureCoordComboSkin());
 #ifdef HUSK_GLTF_VALIDATOR
     std::cerr << "husk-tests:   HUSK_GLTF_VALIDATOR: " << HUSK_GLTF_VALIDATOR << "\n";
 #else

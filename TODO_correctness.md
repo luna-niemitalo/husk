@@ -18,16 +18,30 @@ finished in the same pass. Removed outright rather than kept as a done-item
 note, and every remaining item below renumbered accordingly (1-4, was
 2-5) — a deliberate, fully cross-checked exception to "don't renumber, it
 touches live code strings," since leaving a numbering gap forever would be
-worse than a one-time careful rename. Item 1 (cameras) is low-priority by
-design, not by oversight; items 2/3 are awareness-only footnotes, not
-action items, kept here only so they aren't lost; item 4's LOD hypothesis
-has since been ruled out by real data, and the extras-export half is now
-implemented (`husk export --bones-dir`) — what's left needs a client-side
-DB2 lookup husk doesn't have access to, not more file-reading or export
-work. Formerly-tracked items that got fixed and folded back into
-`README.md`/`DESIGN.md` (shell completion, `.phys`/`PFID` surfacing,
-`M2Ribbon`, `M2Particle`, and everything `FINDINGS.md` used to track before
-it was retired) were removed from this file entirely.
+worse than a one-time careful rename.
+
+Former item 3 (multi-texture-layer arithmetic) is now resolved the same
+way: a full real-data scan (Luna's own extraction, ~287k `.skin` files and
+~130k `.m2` files) found and confirmed both a real `textureCount > 1` batch
+and a real nonzero `textureCoordCombos` table, hand-verified byte-for-byte
+against an independent parse (see `WIKI_FINDINGS.md` §7) and now backed by
+permanent real-data regression tests (`tests/test_integration.cpp`'s
+`checkMultiTextureLayerArithmetic`, gated on `test_data/world/
+replaceabletextureprops/guild/pennant_guild_alliance_a_01.m2` and
+`test_data/world/expansion05/doodads/ironhorde/
+6ih_ironhorde_siegeweapon03.m2`). Removed outright and the remaining item
+renumbered accordingly (1-3, was 1-4) — same one-time exception as above.
+
+Item 1 (cameras) is low-priority by design, not by oversight; item 2 is an
+awareness-only footnote, not an action item, kept here only so it isn't
+lost; item 3's LOD hypothesis has since been ruled out by real data, and
+the extras-export half is now implemented (`husk export --bones-dir`) —
+what's left needs a client-side DB2 lookup husk doesn't have access to,
+not more file-reading or export work. Formerly-tracked items that got
+fixed and folded back into `README.md`/`DESIGN.md` (shell completion,
+`.phys`/`PFID` surfacing, `M2Ribbon`, `M2Particle`, multi-texture-layer
+arithmetic, and everything `FINDINGS.md` used to track before it was
+retired) were removed from this file entirely.
 
 ---
 
@@ -69,21 +83,7 @@ info` already prints — ever gets added).
 
 ---
 
-### 3. Multi-texture-layer index arithmetic unverified against a real file
-
-`cmd_export.cpp`'s `textureComboIndex + layer` / `textureCoordComboIndex +
-layer` arithmetic for a batch's 2nd+ texture layer (see the code comment
-right above that arithmetic) is implemented straight from wiki prose, with
-an in-code note that it hasn't been cross-checked against a real
-multi-layer file the way nearly everything else in this codebase has been
-(this project's own stated bar, per `DESIGN.md`'s recurring "decode real
-records... don't guess from text alone" principle). Worth a real-file check
-whenever a multi-texture-layer test model shows up in `test_data/` —
-`WIKI_FINDINGS.md`'s methodology is the template.
-
----
-
-### 4. `.bone` correction matrices — which slot applies is unresolvable, extras export is done
+### 3. `.bone` correction matrices — which slot applies is unresolvable, extras export is done
 
 `husk dump-chunks <file.bone>` surfaces the raw `(bone_index, matrix)`
 pairs (see `README.md`'s `.bone` section); nothing about which of a

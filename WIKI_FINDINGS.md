@@ -588,6 +588,73 @@ discipline this file's other findings were built on.
 
 ---
 
+## 7. `M2/.skin` — multi-texture-layer arithmetic confirmed exact against real data; `textureCoordCombos` found real but not matching its documented value range
+
+`cmd_export.cpp`'s handling of a `.skin` batch's `textureCount > 1` case
+(`TODO_correctness.md`'s former #3) was implemented straight from wowdev.wiki
+prose — "if the textureCount is e.g. 3 and the texunit's uv anim lookup is
+2, then the 3 uv animation lookups are 2, 3, and 4" — but had never been
+cross-checked against a real multi-layer file. Luna's full extraction of
+every currently-accessible game file (`/media/luna/data/wow_export`, ~1.9M
+files total) finally made that possible.
+
+**Finding the real files.** A from-scratch Python scan of every `.skin`
+file in the extraction (~287k files, reading just the batch array header +
+records, no husk code involved) for a batch with `textureCount > 1` found
+this to be *extremely common* — 226,294 of 287,005 files (~79%) have at
+least one such batch. A separate full scan of every `.m2` file (~130,576)
+for a **nonzero `textureCoordCombos` array** — the other half of the same
+arithmetic, documented as "still present but unused in Cataclysm" — found
+the opposite: only **3** files, all Warlords of Draenor doodad/creature
+models (`6ih_ironhorde_siegeweapon03.m2`, two `felsiege0{3,4}` creature
+files), all with `textureCoordCombos.count == 2`.
+
+**`textureComboIndex + layer`: confirmed exact.** Picked the smallest, cleanest
+real hit — `pennant_guild_alliance_a_01.m2` (`world/
+replaceabletextureprops/guild/`), a guild-pennant doodad with a single
+batch at `textureCount=6`. A from-scratch independent Python parser (reading
+the M2's raw `textureCombos` array and the `.skin`'s raw batch record
+directly, sharing no code with husk) resolved the batch's 6 layers to
+FileDataIDs `457665, 0, 458521, 0, 0, 0` (the `0`s are legitimate —
+those texture slots are client-side "replaceable" types 15/16/17/18, not
+real files, confirmed via the model's own `TXID` chunk). husk's actual
+`husk export` output matches exactly: base material `..._tex2_fdid457665`,
+`additional_textures = [{0}, {458521}, {0}, {0}, {0}]`. Byte-for-byte match.
+
+**`textureCoordComboIndex + layer`: confirmed safe, semantics of the table
+itself now an open question.** Hand-verified `6ih_ironhorde_siegeweapon03.m2`
+the same independent way: its real `textureCoordCombos` array holds
+`[33, 34]` — not the wiki's documented `-1 (0xFFFF)/0/1` range at all.
+Every batch's `textureCoordComboIndex` is 0, so every batch resolves to 33
+(layer 0) / 34 (layer 1), never `1` — `cmd_export.cpp`'s `mapping == 1`
+special case therefore never fires, and the real export correctly falls
+back to UV set 0 everywhere, confirmed directly in the exported `.glb`'s
+material JSON (`baseColorTexCoord`/`additional_textures[].tex_coord` all
+absent/0). So: no bug, the existing safe-fallback code handles this
+correctly — but the wiki's stated value range for this table is now known
+to be an oversimplification, at least for these 3 files. Best read as
+genuinely-present-but-vestigial data (consistent with the wiki's own
+"present but unused" phrasing) rather than a still-meaningful selector;
+not confirmed against an authoritative source, since none exists for this
+field beyond that same wiki prose.
+
+**Verification discipline.** Both cross-checks used a parser written fresh
+for this investigation (raw `struct.unpack` over the file bytes), not
+`cmd_export.cpp`'s own resolution code or even husk's own `m2`/`skin`
+library functions — a genuinely independent computation, then compared
+against `husk export`'s real output. The permanent regression test
+(`tests/test_integration.cpp`'s `checkMultiTextureLayerArithmetic`) instead
+cross-checks against husk's own already-unit-tested `m2::parseHeader`/
+`m2::extractBlob`/`m2::parseUint16Array`/`skin::parseHeader`/
+`skin::parseBatches` (not a third independent parser, since a test that
+ships in the repo should reuse trusted, tested primitives) — still a real
+regression guard against `cmd_export.cpp`'s own arithmetic drifting from
+those primitives, and deliberately parameterized so it stays meaningful if
+`HUSK_TEST_MULTITEX_*`/`HUSK_TEST_COORDCOMBO_*` ever point at a different
+real file.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -598,3 +665,4 @@ discipline this file's other findings were built on.
 | §4 `.bone` format | `src/bone.hpp`/`bone.cpp` | `tests/test_bone.cpp` |
 | §5 `bounding_box` containment, not tight fit | `src/cmd_export.cpp` (unaffected — no code depends on `bounding_box` being tight), `tests/test_conformance.cpp` (`transformedM2BoundingBox`) | `tests/test_conformance.cpp` |
 | §6 `M2Particle` offsets + `FBlock` `uint16_t` timestamps | `src/m2.hpp`/`m2.cpp` (`ParticleEmitter`, `parseParticles`, `resolveFloatTrackSequence`/`resolveRawIntTrackSequence`/`resolveFBlockVec3`/`Vec2`/`Fixed16`/`Uint16`), `src/cmd_dump.cpp` (full-record JSON), `src/cmd_export.cpp`/`gltf.hpp`/`gltf.cpp` (`EmitterAnchor` extras) | `tests/test_m2.cpp`, `tests/test_dump.cpp`, `tests/test_gltf.cpp`, `tests/test_integration.cpp` (real weapon corpus) |
+| §7 multi-texture-layer arithmetic confirmed; `textureCoordCombos` value range | `src/cmd_export.cpp` (`buildMaterialsAndPrimitives`'s additional-layer loop, unchanged) | `tests/test_integration.cpp` (`checkMultiTextureLayerArithmetic`, real pennant/ironhorde fixtures) |

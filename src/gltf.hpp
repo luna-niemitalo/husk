@@ -183,7 +183,7 @@ struct Skeleton {
     // bind pose or any animation. Which of a model's several `.bone` files
     // is "correct" for a given character is selected by client-side
     // customization-choice data husk has no access to (no CASC/DBC access,
-    // a hard non-goal -- see DESIGN.md's Non-goals, TODO_correctness.md #4,
+    // a hard non-goal -- see DESIGN.md's Non-goals, TODO_correctness.md #3,
     // WIKI_FINDINGS.md §4); husk surfaces every slot it can resolve from
     // disk and stops there, same "tag it, don't guess at semantics"
     // treatment as skinSectionId/textureTransform above. Empty (the

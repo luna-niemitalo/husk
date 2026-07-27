@@ -111,7 +111,7 @@ inline std::string autoSkinDir(const std::string& m2Path, const std::string& ski
 // produce. HUSK_TEST_BONES_DIR, if set explicitly, still overrides this
 // entirely. The NN -> BFID[NN] positional assignment is arbitrary for test
 // purposes, not a claimed real slot mapping (see WIKI_FINDINGS.md
-// §4/TODO_correctness.md #4: that mapping is exactly the client-side
+// §4/TODO_correctness.md #3: that mapping is exactly the client-side
 // customization-choice data husk doesn't have access to) -- this fixture
 // only needs to prove the resolution/parse/extras pipeline works end to
 // end against real '.bone' bytes, not that any particular slot is
@@ -197,6 +197,27 @@ constexpr const char* kWeaponParticleA =
     "item/objectcomponents/weapon/sword_1h_artifactskywall_d_06.m2";
 constexpr const char* kWeaponParticleB = "item/objectcomponents/weapon/offhand_1h_revendreth_d_01.m2";
 constexpr const char* kWeaponParticleStress = "item/objectcomponents/weapon/mace_2h_bolvar_d_01.m2";
+// TODO_correctness.md #3 (multi-texture-layer arithmetic, textureComboIndex
+// +layer / textureCoordComboIndex+layer): found by a full ~287k-file .skin
+// scan of Luna's own real WoW extraction for batches with textureCount > 1
+// (226,294 hits -- common) and a full ~130k-file .m2 scan for a nonzero
+// textureCoordCombos array (only 3 hits -- rare, matching the "still
+// present but unused in Cataclysm" wiki text). kMultiTextureLayer is a
+// small guild-pennant doodad with a clean 6-layer batch, chosen for the
+// primary textureComboIndex+layer cross-check (WIKI_FINDINGS.md's new §7
+// has the receipts). kTextureCoordCombo is one of the 3 real files with a
+// nonzero textureCoordCombos table (values [33, 34] -- not the documented
+// -1/0/1 range, real but apparently vestigial data), chosen to prove the
+// textureCoordComboIndex+layer path is exercised (not just skipped via the
+// empty-table fast path) and still resolves safely.
+constexpr const char* kMultiTextureLayerM2 =
+    "world/replaceabletextureprops/guild/pennant_guild_alliance_a_01.m2";
+constexpr const char* kMultiTextureLayerSkin =
+    "world/replaceabletextureprops/guild/pennant_guild_alliance_a_0100.skin";
+constexpr const char* kTextureCoordComboM2 =
+    "world/expansion05/doodads/ironhorde/6ih_ironhorde_siegeweapon03.m2";
+constexpr const char* kTextureCoordComboSkin =
+    "world/expansion05/doodads/ironhorde/6ih_ironhorde_siegeweapon0300.skin";
 }  // namespace fixtures
 
 inline std::string testM2() { return resolve("HUSK_TEST_M2", fixtures::kM2); }
@@ -225,5 +246,17 @@ inline std::string testWeaponParticleStress() {
     return resolve("HUSK_TEST_WEAPON_PARTICLE_STRESS", fixtures::kWeaponParticleStress);
 }
 inline std::string testBonesDir() { return autoBonesDir(testSkel()); }
+inline std::string testMultiTextureLayerM2() {
+    return resolve("HUSK_TEST_MULTITEX_M2", fixtures::kMultiTextureLayerM2);
+}
+inline std::string testMultiTextureLayerSkin() {
+    return resolve("HUSK_TEST_MULTITEX_SKIN", fixtures::kMultiTextureLayerSkin);
+}
+inline std::string testTextureCoordComboM2() {
+    return resolve("HUSK_TEST_COORDCOMBO_M2", fixtures::kTextureCoordComboM2);
+}
+inline std::string testTextureCoordComboSkin() {
+    return resolve("HUSK_TEST_COORDCOMBO_SKIN", fixtures::kTextureCoordComboSkin);
+}
 
 }  // namespace husk::test

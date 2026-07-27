@@ -83,7 +83,7 @@ elsewhere is just unattempted work.
 |---|---|---|---|---|
 | Base material (blend mode, alpha mode, doubleSided) | full | native | native — 100% | `alphaMode`/`doubleSided` |
 | Texture references (names/FileDataIDs, `TXID`) | full | native | native — 100% | real embedded `baseColorTexture` via `--textures <dir>` |
-| Multi-texture-layer (`textureCount > 1`, 2nd+ layer) | full | extras | extras-capped, permanent | core glTF has no slot for WoW's fixed-function combiner math (`Mod2x`/`Add`/env-map); index arithmetic itself also unverified against a real multi-layer file, `TODO_correctness.md` #5 |
+| Multi-texture-layer (`textureCount > 1`, 2nd+ layer) | full | extras | extras-capped, permanent | core glTF has no slot for WoW's fixed-function combiner math (`Mod2x`/`Add`/env-map); index arithmetic confirmed exact against real data, `WIKI_FINDINGS.md` §7 |
 | Texture transform (UV scroll/rotate/scale, animated case) | full | extras | extras-capped, permanent | `KHR_texture_transform` has no animation-channel target — the common case has no representation regardless of effort |
 | Texture transform (UV scroll/rotate/scale, constant case) | full | extras | native-possible, unverified | pivot-correction math (texture-center vs. extension's origin) not checked against a real file yet |
 

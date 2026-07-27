@@ -44,7 +44,7 @@
 //     chunk (husk::m2::Header::boneFileDataIds) -- this .skel's own table
 //     of `.bone` sidecar files (see src/bone.hpp), used the same way: no
 //     resolution to a real path, no default-slot selection (WIKI_FINDINGS.md
-//     §4/TODO_correctness.md #4 -- that's client-side customization-choice
+//     §4/TODO_correctness.md #3 -- that's client-side customization-choice
 //     data husk doesn't have), just the raw FileDataID list.
 // `SKB1`'s `key_bone_lookup` field, and every other .skel chunk (`SKL1`,
 // `SKA1`, `SKPD`), are out of scope for now.

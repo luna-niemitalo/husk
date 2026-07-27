@@ -71,9 +71,11 @@ struct Batch {
     // `textures` array. See src/cmd_export.cpp for the full chain.
     uint16_t textureComboIndex = 0;
     // -> M2's own `textureCoordCombos` array (m2::parseUint16Array on
-    // Header::textureCoordCombos): -1 (0xFFFF)/0/1, selecting environment
-    // mapping (unhandled, falls back to UV set 0)/UV set 0/UV set 1 for
-    // this batch's texture. See src/cmd_export.cpp.
+    // Header::textureCoordCombos): documented as -1 (0xFFFF)/0/1, selecting
+    // environment mapping (unhandled, falls back to UV set 0)/UV set 0/UV
+    // set 1 for this batch's texture -- see src/cmd_export.cpp, and
+    // WIKI_FINDINGS.md §7 for a real file whose table holds values outside
+    // that documented range (likely vestigial; safely ignored either way).
     uint16_t textureCoordComboIndex = 0;
     // -1 (0xFFFF) if none, else an index into M2's own `colors` array
     // (m2::Color) -- a per-batch tint/fade, see src/cmd_export.cpp.
