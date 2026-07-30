@@ -103,7 +103,147 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: Worked `CORPUS_TODO.md` as a punch card — a from-scratch
+- **Last state**: Corrected the framing on `MULTIROOT_SKELETON_TODO.md`'s
+  whole premise, did bounded prior-art research, and recorded a real
+  decision — Luna, not implemented yet, handing off from here. Prompted by
+  a direct question after the previous state's corpus-scale measurement:
+  "is it right to call it an issue, if the source material does not have a
+  problem with multi root files... we want as close as possible 1 to 1
+  representation." Correct catch: multi-root bone forests are legitimate,
+  common M2 data (WoW's engine never required a single tree), not a
+  defect — the file's whole opening section now states this explicitly
+  and judges every design option against "closest possible 1:1 fidelity to
+  the source," not "make gltf_validator happy." Bounded web research (2
+  searches + 1 fetch, deliberately capped per Luna's own "don't spend too
+  much time" instruction) found real prior art: glTF's own spec/tooling
+  explicitly anticipates a skeleton root's parent not being a joint itself
+  (Khronos issue #1270), and `wow.export` (the established community
+  WoW-export tool) has a real, shipped "prefix bones" inclusion toggle for
+  this exact shape (v0.2.0) — added as a third design option (filter,
+  `wow.export`-style) alongside the two from the previous state's survey.
+  Luna then chose directly: **Option 1** (a plain non-joint glTF node
+  parenting every real root joint, `skin.skeleton` pointed at it) — the
+  spec-anticipated, fully-fidelity-preserving choice, overriding the
+  previous state's own "needs empirical Blender verification before
+  deciding" recommendation (that verification now happens *during*
+  implementation's real test-writing, not as a precondition to choosing).
+  `MULTIROOT_SKELETON_TODO.md` restructured around this: a new Decision
+  section up top, both design questions marked decided (kept for their
+  reasoning, not deleted), a concrete numbered Implementation plan
+  (supersedes the old "Recommended first steps"). Nothing in `src/`
+  touched this turn — pure documentation, per Luna's own "I'll take over
+  from there" close. **Whoever picks this up next should start at
+  `MULTIROOT_SKELETON_TODO.md`'s Implementation plan section directly.**
+- **Previous state**: Measured `MULTIROOT_SKELETON_TODO.md`'s scope for real,
+  corpus-wide, and found the previous state's own framing needed a real
+  correction. Requested directly: "generate a script that prints all of
+  the multiroot skeleton files into a newline separated txt file... similar
+  to ./phys_files_for_exploration.txt." New `tools/
+  find_multiroot_skeletons.py` (self-contained, same independent-parse
+  discipline `corpus_checks.py` uses -- not calling husk) scanned the full
+  real corpus in ~40s: **45,804 of 130,576 `.m2` files (35%) have more than
+  one root bone**, written to `multiroot_skeleton_files_for_exploration.txt`
+  (repo root, plain newline-separated paths, same format as its
+  `phys_files_for_exploration.txt` precedent).
+  - **The real correction**: Luna asked directly whether "a lot of models
+    have multiroot but pass [gltf_validator] because of skinning
+    shenanigans, and a common root fix could theoretically apply to every
+    file for correctness" -- confirmed, empirically, not just plausibly.
+    `bloodelffemale.m2` (the project's own primary fixture) has **90 root
+    bones out of 119** and exports with **zero** `gltf_validator` errors;
+    `offhand_1h_revendreth_d_01.m2` has only **10** and *does* trigger
+    `SKIN_NO_COMMON_ROOT`. Neither raw root count nor root count restricted
+    to vertex-weighted joints explains the difference -- both hypotheses
+    directly falsified against real bytes before being written down. A
+    real 150-file random sample (from the 45,804), each actually exported
+    and checked with the real `gltf_validator` (not a proxy), found only
+    **11/150 (≈7.3%) currently trigger the error** -- extrapolated, ~3,300
+    files corpus-wide are visibly flagged today, a small fraction of the
+    45,804 that are genuinely structurally multi-root. `gltf_validator`'s
+    own exact trigger condition wasn't reverse-engineered (flagged as an
+    open question, not guessed at) -- what *is* now established is that
+    "passes the validator" isn't the same as "has one real joint root,"
+    which reframes the whole rework: the fix target is the full 35%, not
+    just the ~2-3% currently visible, and testing it only against
+    known-currently-erroring files would badly under-scope it.
+  - **Docs**: `MULTIROOT_SKELETON_TODO.md` rewritten (opening section, a
+    new "Open questions this session didn't chase down," step 1 of
+    Recommended first steps marked done) to reflect the corrected,
+    corpus-measured scope rather than the earlier 2-fixture/26-file
+    estimate.
+  - Nothing committed this turn -- the new script, the generated `.txt`
+    file, and the `MULTIROOT_SKELETON_TODO.md`/`CLAUDE.md` edits are
+    sitting in the working tree, same as the previous state's own
+    (already-committed) work being built on.
+- **Previous state**: Committed the `CORPUS_TODO.md` work below (single commit,
+  `git log` for the message), then wrote `MULTIROOT_SKELETON_TODO.md` — a
+  pre-implementation risk survey for the `SKIN_NO_COMMON_ROOT` gap the
+  previous state below flagged but didn't fix, requested directly: "this
+  would need a more robust workaround... write a todo file for this
+  rework, what it could affect, and where it would be likely to fail
+  invisibly... attempting to pre-empt failure modes we might miss by
+  doing something the original file format didn't do." Pure investigation
+  and documentation this turn — no `src/` changes, nothing to test-run.
+  - **The core risk, identified and documented as the file's own opening
+    section**: `Skeleton::joints`' ordering is raw M2 bone-array indices,
+    copied verbatim into glTF `JOINTS_0` (`buildSkinning`), and into
+    `EmitterAnchor`/`CorrectionSet`/`JointAnimation`'s own `joint` fields
+    — none of these are ever remapped, only bounds-checked. A synthetic
+    "common root" node inserted into `Skeleton::joints` itself (rather
+    than purely on the glTF-node side, past the end of the real range)
+    would silently misattribute every one of those to the wrong bone —
+    no crash, no validator error, just visually wrong. Confined the fix's
+    entire footprint to `gltf.cpp`'s `writeGlbMulti` for exactly this
+    reason.
+  - **Grounded against real bytes before writing anything else** (a
+    from-scratch bone-array parent-chain parser, not reusing husk's own
+    code — same independent-check discipline `WIKI_FINDINGS.md`'s other
+    entries use): `offhand_1h_revendreth_d_01.m2` (15 bones, 10 roots —
+    a mixed shape, a few real small hierarchies plus isolated bones) and
+    `mace_2h_bolvar_d_01.m2` (78 bones, **78 roots** — every bone its own
+    tree, no hierarchy at all, consistent with "one bone per particle
+    emitter, no relation needed between them"). Real, intentional M2 data
+    either way, not corruption — and root count can be the *entire* bone
+    count, not "usually 2, sometimes a few," which rules out any design
+    that only comfortably handles a small fixed number of extra roots.
+  - **Two design questions deliberately left open, not decided**: (a)
+    whether the synthetic node joins `skin.joints` as one more real bone
+    (identity IBM, appended past every real M2 index) or stays a plain
+    non-joint parent node outside the skin — the actual deciding factor
+    is empirical (does Blender's importer count it as a bone either way?
+    `tests/blender_import_check.py`'s `bone_count` probe would answer
+    this directly, but only once a real spike exists to run through it —
+    not guessed at this session); (b) whether `tinygltf::Skin::skeleton`
+    (currently never set at all) should point at the synthetic node —
+    glTF spec text and `gltf_validator`/Blender's actual behavior around
+    it weren't checked this session, flagged as genuinely unresearched
+    rather than assumed either way.
+  - **Other concrete invisible-failure scenarios documented**: single-
+    root models must produce byte-identical output (the fix has to be
+    strictly gated on `rootJointNodeIndices.size() > 1`, and every
+    existing `test_gltf.cpp` skeleton test hard-codes exact node
+    counts/indices assuming a single root); `test_conformance.cpp`'s
+    exact-match bone-count assertions only run against the single-root
+    bloodelf fixture today, so a multi-root regression wouldn't be caught
+    by anything currently passing; a stray non-identity transform on the
+    synthetic node would silently shift every former-root joint's whole
+    subtree; `--lod all` and `--bones-dir` combined with a synthesized
+    root are both untested combinations with no fixture today.
+  - **Recommended sequencing, in the file itself**: characterize the
+    shape more broadly first (the 10 geometry-less-VFX files this
+    session's own #1 fix uncovered, not sampled for bone-hierarchy shape
+    yet), answer the Blender-bone-count question empirically with a
+    throwaway spike before committing to a real implementation, check
+    glTF's `skin.skeleton` semantics for real, only then implement --
+    gated strictly, in `gltf.cpp` alone, with new tests using the two
+    real fixtures above (`testWeaponParticleB()`/
+    `testWeaponParticleStress()`, already wired up) through both
+    `gltf_validator` and the real headless-Blender probe, not just "no
+    crash."
+  - **Docs**: `DESIGN.md`'s Open work section now points at
+    `MULTIROOT_SKELETON_TODO.md` alongside `TODO_correctness.md`/
+    `WIKI_FINDINGS.md`.
+- **Previous state**: Worked `CORPUS_TODO.md` as a punch card — a from-scratch
   grounding of an earlier raw sweep (`HUSK_CORPUS_FINDINGS.md`) across a
   real 130k-file corpus (`/media/luna/data/wow_export`), re-checked against
   actual code and real bytes, with Luna's own DEVELOPER NOTES per item
@@ -803,16 +943,13 @@ real-file-driven spec correction found along the way.
   three/four-state (`auto`/explicit/`none`) treatment `DESIGN.md`'s CLI
   grammar section still documents in full.
 - **Next step**: nothing in flight. `CORPUS_TODO.md`'s punch list is fully
-  worked (see Last state) — every item has a final disposition, five real
-  fixes landed, two investigations widened and confirmed. Genuinely open
-  threads, in the priority order the doc's own bottom section would put
-  them: (a) the `SKIN_NO_COMMON_ROOT` multi-root-bone-hierarchy gap,
-  confirmed this session as reaching ~38% of geometry-less VFX models on
-  top of the 2-of-4 real weapon fixtures already known — `buildSkeleton`
-  doesn't reconcile a multi-root bone hierarchy into one glTF-spec-
-  conformant root; a real, non-trivial design question (how to pick/
-  synthesize a single root) worth a dedicated session if export
-  conformance on these models becomes a priority; (b) the ~7
+  worked (see Previous state) — every item has a final disposition, five
+  real fixes landed, two investigations widened and confirmed. Genuinely
+  open threads: (a) `MULTIROOT_SKELETON_TODO.md` — the M2→glTF multi-root-
+  bone-forest representation gap now has a real Decision (Option 1, a
+  plain non-joint synthetic root node) and a concrete numbered
+  Implementation plan (see Last state), not started; that section is the
+  actual next step, not a repeat of it in this file; (b) the ~7
   `textureComboIndex`-out-of-range cases `CORPUS_TODO.md` #5 couldn't
   re-verify this session (`failures_unique.txt` strips paths) — almost
   certainly the same "mismatched shared batch data" root cause as the
@@ -826,12 +963,13 @@ real-file-driven spec correction found along the way.
   scope expansion (WMO/M3, Blender-side tooling for the various `extras`
   this project already exports), and `resolveSkin`'s failure messages not
   naming the specific candidate path/FileDataID they tried.
-- **Hazards**: the `SKIN_NO_COMMON_ROOT` gap above is now confirmed wider
-  than previously known — not just 2 of 4 real weapon fixtures, but ~38%
-  of a 26-file real geometry-less-VFX-model sample too (10/26, plus the
-  single file checked individually earlier) — same root cause
-  (`buildSkeleton` doesn't reconcile a multi-root bone hierarchy), still
-  out of scope for whichever session picks it up next, not this one. This
+- **Hazards**: `MULTIROOT_SKELETON_TODO.md`'s own "concrete places this
+  could fail invisibly" section is the authoritative list for that rework
+  — most importantly, never insert a synthetic node into `Skeleton::joints`
+  itself (see that file's opening section for why: every vertex/emitter-
+  anchor/correction/animation joint index is a raw, unremapped M2
+  bone-array index, and a reordered `Skeleton::joints` would silently
+  misattribute all of them with no crash and no validator error). This
   session's own changes are each covered by real tests, not just asserted
   safe (`writeGlbMulti`'s empty-meshes-with-skeleton path,
   `findSameBasenameSkins`'s 2-digit preference, the keyframe-repair

@@ -839,7 +839,12 @@ re-run automatically. Tracked as a testing debt, not a correctness bug.
 ## Open work
 
 See `TODO_correctness.md` for the current punch list (`M2Camera`, `.bone`
-slot selection, and two awareness-only footnotes) and `WIKI_FINDINGS.md` for every
-real-data-driven spec correction found so far, `AFSB`'s included. Both are
+slot selection, and two awareness-only footnotes), `WIKI_FINDINGS.md` for every
+real-data-driven spec correction found so far, `AFSB`'s included, and
+`MULTIROOT_SKELETON_TODO.md` for the pre-implementation risk survey behind
+the still-open `SKIN_NO_COMMON_ROOT` multi-root-bone-hierarchy gap
+(`buildSkeleton` doesn't reconcile a real M2 bone forest into one glTF-
+spec-conformant scene-graph root -- confirmed on real weapon and
+geometry-less-VFX fixtures alike, not implemented). All three are
 living documents; this file describes the shape of the system they operate
 within, not their current item-by-item status.
