@@ -158,7 +158,7 @@ def _last_meaningful_line(out: str) -> str:
     # line before a nonzero exit (see main.cpp's top-level catch).
     for line in reversed(out.splitlines()):
         if line.strip():
-            return line.strip()[:400]
+            return line.strip()
     return ""
 
 

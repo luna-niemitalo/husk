@@ -15,3 +15,7 @@ __pycache__/
 # `cd tools && uv venv venv && uv pip install --python venv/bin/python tqdm rich`,
 # never committed.
 /tools/venv/
+
+*.txt
+*.old*
+*.json
