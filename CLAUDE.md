@@ -54,15 +54,16 @@ tool, `blp/`) converts BLP2 textures to PNG.
   *selection* — the extras-export half is done, see Resume; picking which
   slot applies is blocked on client-side DB2 data husk doesn't have, not on
   more investigation), or the corpus-hardening follow-ups a real 130k-file
-  corpus sweep (`CORPUS_TODO.md`, see Resume) turned up this session --
+  corpus sweep turned up this session --
   five real export-robustness bugs found and fixed (a geometry-less-model
   crash affecting 3,807 real files, a `.skin`-pairing collision bug, an
   undocumented `WFV3` short-chunk variant, a duplicate-animation-keyframe
   crash), two more findings confirmed genuinely unfixable in husk
   (mismatched shared batch data, an extraction-completeness gap), and one
-  concrete follow-up identified but not fixed (a multi-root-bone-hierarchy
-  gap now confirmed wider than previously known -- see Resume's Next
-  step) -- nothing currently in flight.
+  concrete follow-up identified and now implemented (the multi-root-bone-
+  hierarchy gap, `MULTIROOT_SKELETON_TODO.md` -- `writeGlbMulti` now
+  synthesizes a non-joint glTF parent node for the 35% of the corpus with
+  more than one root bone, see Resume) -- nothing currently in flight.
 - Anything not listed under Current does not exist yet. In particular: `M2Camera`
   is still count-only (not dereferenced). Three FAILURES2.md gaps
   (geoset selection #1, multi-texture-layer rendering #6, global-sequence animation
@@ -103,7 +104,262 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: Corrected the framing on `MULTIROOT_SKELETON_TODO.md`'s
+- **Last state**: Closed out `MULTIROOT_SKELETON_TODO.md` the same way
+  `CORPUS_TODO.md` was closed out below — requested directly: "explore
+  MULTIROOT_SKELETON_TODO.md, and make sure appropriate documentation is
+  in DESIGN and README, for items that are done/resolved... document
+  remaining items and decisions and unfixables in DESIGN, and remove the
+  file once empty." Confirmed the file's own "Implemented" framing against
+  the actual repo state (not just trusted the file's own claim): its
+  Decision, Implementation plan (all 5 steps), and the invariant section
+  were all already faithfully reflected in `DESIGN.md`'s Key design
+  decisions and `src/gltf.hpp`'s `Skeleton`/`writeGlbMulti` doc comments —
+  confirmed by reading both directly, not by inspection of the TODO file
+  alone. The one gap: `README.md`'s format-support matrix — this project's
+  own source-of-truth table for per-feature state — had zero mention of
+  multi-root handling at all, unlike `M2_COMPLETENESS.md`'s parallel row,
+  which already had one. Added a matching sentence to README's "Skeleton /
+  bone hierarchy" row. `DESIGN.md`'s Open work section gained a new
+  paragraph for the three things the original survey explicitly left
+  unchased (kept, not discarded, since they're genuinely still open, just
+  not blocking): what `gltf_validator`'s `SKIN_NO_COMMON_ROOT` check
+  actually measures (empirically ~7% of a random multi-root sample, no
+  hypothesis tested explains the rate), why an 11-file hit sample skewed
+  toward one item family, and what `M2CompBone.flags & 0x200`
+  ("transformed") actually distinguishes among root bones — all three
+  low-priority, awareness-only, recorded so a future session doesn't
+  re-derive them from scratch.
+  `MULTIROOT_SKELETON_TODO.md` itself was then deleted outright, same
+  "survey's job is done" disposition `VERIFICATION_IDEAS.md`/
+  `DESIGN_CHANGES.md`/`CORPUS_TODO.md` already got. Its ~19 live
+  cross-references across `src/gltf.cpp`, `src/gltf.hpp`,
+  `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_conformance.cpp`,
+  `tools/find_multiroot_skeletons.py`, `M2_COMPLETENESS.md`, `PHYS_TODO.md`,
+  and this file's own living Next-step/Hazards bullets (below) were each
+  grep-verified and rewritten to describe the fact directly or point at
+  `DESIGN.md`/`src/gltf.hpp` instead — comment/string-literal-only changes,
+  no logic touched. This session's own historical Resume entries further
+  down (and their references to `MULTIROOT_SKELETON_TODO.md` by name) were
+  deliberately left as-is, same "historical log entries aren't rewritten,
+  only living cross-references are repointed" precedent every prior
+  file-deletion session here has used. No `src/` behavior changed — pure
+  documentation and cleanup, comment-only edits to `src/`/`tests/`, no
+  rebuild performed (none of the edits touch code, only comments and
+  string literals inside `TEST_CASE`/docstrings).
+- **Previous state**: Closed out `CORPUS_TODO.md` — requested directly: "read
+  CORPUS_TODO.md, discard items that are genuinely done and documented,
+  document rest of them in DESIGN and README." Re-read all 7 items plus
+  their DEVELOPER NOTES: every single one already carried a `[DONE]` (or,
+  for #7, "Noted") disposition from the earlier punch-card session (commit
+  `9c52615`), and every item that changed behavior or established a new
+  fact already had a permanent home — #1 (zero-mesh), #3b (2-digit `.skin`
+  suffix preference), and #4 (duplicate-keyframe nudge) in `DESIGN.md`'s
+  Key design decisions and `M2_COMPLETENESS.md`; #6 (`WFV3` short variant)
+  in `WIKI_FINDINGS.md` §8; #2's extraction-gap finding in `README.md`.
+  Confirmed the one loose end from the developer notes ("I will manually
+  fix this," for `tools/corpus_checks.py`'s truncating
+  `_last_meaningful_line`) really is fixed by reading the current source —
+  `[:400]` is gone. The only genuinely undocumented items were #3c
+  (mismatched `.skin`/`.m2` vertex counts) and #5 (`materialIndex`/
+  `textureComboIndex` one-past-the-end) — both confirmed-unfixable
+  bad-source-data findings with no behavior change, so no `DESIGN.md`
+  entry, but worth the same public-facing honesty #2 already gets: added a
+  paragraph to `README.md` right after #2's existing extraction-gap note
+  (0-byte files folded in alongside, same extraction-completeness class).
+  With every item accounted for, nothing was left to discard piecemeal —
+  the whole file's job was done, same "survey's job is done" disposition
+  `VERIFICATION_IDEAS.md`/`DESIGN_CHANGES.md`/`PHYS_SIDECAR_FINDINGS.md`
+  already got, so `CORPUS_TODO.md` was deleted outright rather than left
+  as an all-`[DONE]` husk. Unlike those three, though, its item numbers
+  were baked into ~20 live `CORPUS_TODO.md #N` comments across `src/`
+  (`cmd_export.cpp`, `gltf.hpp`, `cmd_dump.cpp`), `tests/` (`test_cli.cpp`,
+  `test_gltf.cpp`, `test_dump.cpp`), and `tools/find_multiroot_skeletons.py`
+  — every one grep-verified and rewritten to describe the fact directly
+  (or point at `WIKI_FINDINGS.md`/`DESIGN.md` where the permanent record
+  already lives) rather than left dangling, same discipline the
+  `VERIFICATION_IDEAS.md` deletion used for its own much smaller
+  reference count. `M2_COMPLETENESS.md`'s two `CORPUS_TODO.md #N`
+  citations repointed to `DESIGN.md` the same way. This session's own
+  historical entries below (and this file's Status section's one
+  narrative mention) were deliberately left naming `CORPUS_TODO.md` by
+  name where they're describing what happened in the past — same
+  "historical log entries aren't rewritten, only living cross-references
+  are repointed" precedent `VERIFICATION_IDEAS.md`'s own deletion already
+  set. No `src/` behavior changed this session — pure documentation and
+  cleanup, verified by a full rebuild + `./build/husk-tests` afterward.
+- **Previous state**: Read-only investigation into `.phys` (physics/collision
+  sidecar, `M2_COMPLETENESS.md`'s Collision & physics section, previously
+  completely unscoped -- husk only ever read the `PFID` FileDataID scalar,
+  never the file's own content), requested directly: "do an read only
+  investigation on this ... poke around, ask if something is unclear."
+  Two-part follow-up in the same session, once the investigation confirmed
+  implementation was viable: "would we be able to implement the .phys
+  handling into husk with this information? if so, go ahead and write the
+  WIKI_FINDINGS, and convert the PHYS_SIDECAR_FINDINGS into a comprehensive
+  and testable todo." No `src/` changes -- investigation and documentation
+  only, same "findings and plan before code" shape `MULTIROOT_SKELETON_TODO.md`
+  used for the multi-root gap above.
+  - **Different starting position than every prior sidecar investigation**:
+    `.phys` is not undocumented. `documentation/wowdev-wiki/md/PHYS.md`
+    (wiki_revision 30458) already gives byte offsets for nearly every
+    field, so this was verify-against-real-bytes, not reverse-engineer-
+    from-nothing (`.bone`'s situation) or crack-a-format-the-wiki-doesn't-
+    cover (`AFSB`'s).
+  - **Independent scratch decoder** (Python, not committed, no dependency
+    on husk's own not-yet-written parser -- same discipline
+    `tools/find_multiroot_skeletons.py` already established), run against
+    103 real files: the 7 already-committed weapon fixtures under
+    `test_data/item/objectcomponents/weapon/`, plus 96 real corpus files
+    Luna had already listed in `phys_files_for_exploration.txt`
+    (world doodads, item components, creatures, spell-effect arena flags).
+  - **One real transcription bug found and fixed in understanding**:
+    `PLYT`'s self-describing header struct is 80 bytes (0x50) per entry,
+    not 38 (0x38) -- the wiki's own struct listing has the extra trailing
+    `float unk_38[6]` field, but it's easy to misread the struct as ending
+    one field earlier. Caught by the second header entry in a real 4-
+    polytope file decoding to garbage at the wrong stride and to clean,
+    wiki-comment-matching values (`vertexCount=8 count_10=6 nodeCount=24`,
+    "mostly 8/6/24" per the wiki's own text) at the corrected one.
+  - **One real semantic correction**: `BODY`/`BDY3`/`BDY4`'s `type` field
+    comment ("only one body should be of type 0, the root") is contradicted
+    by 78 of 98 real files with a body chunk -- multiple type-0 bodies is
+    the common case (up to 27 of 44 in one creature file), cross-tabulated
+    against `BDY3`'s own `unk1`-as-kinematic-weight field with a 96% clean
+    correlation across 1256 real body records, consistent with type-0
+    meaning "kinematic, bone-driven" as a real per-body classification,
+    not a single distinguished root.
+  - **Everything else in PHYS.md's struct listing verified clean**: chunk-
+    tag byte-reversal (WMO/ADT convention, opposite of M2's own inline
+    chunks -- confirmed via hex dump), the `PHYV` chunk's mutual-
+    exclusivity claim and worked example (confirmed on the exact file the
+    wiki names by filename, `7vs_detail_nightmareplant01_phys.phys`, plus
+    its sibling), version↔chunk-name-variant pairing (zero exceptions),
+    `SHOJ`'s documented-but-ambiguous version-2 stride cutover (0x6c vs.
+    0x74 -- every one of 86 real chunks divided evenly by exactly one,
+    never both), and -- the strongest single piece of corroborating
+    evidence -- a full cross-chunk index/bounds validation pass
+    (`BODY`/`BDY3`/`BDY4`'s shape ranges, `SHAP`/`SHP2`'s `shapeIndex`,
+    `JOIN`'s `bodyAIdx`/`bodyBIdx`/`jointId`) across all 103 files found
+    **zero** out-of-range references anywhere.
+  - **Findings written to `WIKI_FINDINGS.md` §9** (new), following the
+    page's own "current text / proposed addition / evidence" convention,
+    with a "Follow-up" subsection for the full verification sweep --
+    same shape §2 (`AFSB`) and §8 (`WFV3`) already use. `PHYS_SIDECAR_FINDINGS.md`
+    (this session's own intermediate scratch-investigation file) was then
+    deleted outright once its content had a permanent home split two ways
+    -- same "survey's job is done" disposition `VERIFICATION_IDEAS.md` and
+    `DESIGN_CHANGES.md` got in earlier sessions, not left in place with
+    `[DONE]` tags.
+  - **`PHYS_TODO.md`** (new) is the actionable half -- a concrete
+    implementation plan, not another open-ended survey, since the
+    investigation resolved essentially every structural question. Covers:
+    a verified-vs-unverified coverage table per chunk type (driving
+    implementation priority -- `PLYT`/`CAPS`/`SHP2`/`BDY4`/`SHOJ`/`REVJ`/
+    `WLJ2` all verified against real files; `BOXS`/`SPHJ`/`PRSJ`/`PRS2`/
+    `DSTJ`/`SHJ2`/`WLJ3`/`REV2`/`BDY2` never observed anywhere in the
+    103-file sample, flagged for the same "verified floor, warn below it"
+    treatment `kMinVerifiedParticleVersion` already uses elsewhere, per
+    chunk type rather than per file version); an architecture
+    recommendation (the ribbon/particle hybrid pattern -- minimal
+    placement-anchor `extras` unconditional in every `.glb`, full body/
+    shape/joint/`PHYV` records in `dump-chunks`'s JSON, `.phys` files
+    also accepted directly by `dump-chunks` like `.bone` already is --
+    reasoned from `.phys` bodies already being `position`+`boneIndex`
+    anchors structurally closer to `M2Ribbon`/`M2Particle` than to
+    `.bone`'s flat correction-matrix table), explicitly flagged as a
+    recommendation for a real plan-mode design pass, not a decision
+    already made; a `src/phys.hpp`/`phys.cpp` data-model sketch mirroring
+    `bone.hpp`'s shape; a concrete real-fixture test plan, including an
+    honest gap callout that zero committed fixtures currently carry
+    `PLYT`/`SPHS`/`BOXS`/`SPHJ`/`PRSJ`/`PRS2`/`DSTJ`/`SHJ2`/`WLJ3`/`REV2`/
+    `PHYV` (candidate real corpus paths named for the ones this session's
+    sample did find, e.g. `PLYT` in
+    `world/expansion07/doodads/8xp_heartofazeroth_prop_floatychain.phys`)
+    -- same "real test data was the actual blocker" pattern the particle/
+    ribbon session hit, flagged proactively this time rather than
+    discovered mid-implementation; and a full doc-sync checklist
+    (`M2_COMPLETENESS.md`, `README.md`, `DESIGN.md`, completions tables'
+    hand-maintained-gotcha) for whenever implementation actually happens.
+  - **Docs**: `DESIGN.md`'s Open work section now also points at
+    `PHYS_TODO.md`, alongside `TODO_correctness.md`/`WIKI_FINDINGS.md`/
+    `MULTIROOT_SKELETON_TODO.md`.
+  - **Environment note, reconfirmed**: `direnv exec . uv run --python
+    tools/venv/bin/python <script>` for every ad hoc analysis pass this
+    session (the decoder, the index/bounds cross-check, the `husk info`
+    bone-count cross-reference) -- scripts lived in the scratchpad, not
+    committed, matching every prior session's convention.
+- **Previous state**: Implemented `MULTIROOT_SKELETON_TODO.md`'s Implementation
+  plan end to end -- the multi-root-bone-forest → glTF representation gap
+  (35% of a real 130k-file corpus, per the previous state's own
+  measurement) is no longer a decision-and-survey document, it's real code.
+  Requested directly: "start working on the implementation step of this
+  file."
+  - **`src/gltf.cpp`'s `writeGlbMulti`**: exactly the previous state's
+    Option 1 -- when `rootJointNodeIndices.size() > 1`, one
+    `tinygltf::Node` (default/identity transform) is synthesized with
+    `.children = rootJointNodeIndices`, appended past the end of the
+    joint-node range (`meshCount + skeleton->joints.size()`), and becomes
+    the sole `scene.nodes` entry standing in for those roots;
+    `skin.skeleton` is set to it. Single-root models (`size() <= 1`,
+    the overwhelming majority): completely unchanged, verified by the
+    full pre-existing test suite passing unmodified. `Skeleton::joints`
+    itself was never touched, per the file's own "one invariant that
+    must never break" -- the whole change lives inside `writeGlbMulti`'s
+    node/scene/skin construction.
+  - **Empirically resolved the one thing the Decision section had
+    explicitly deferred, not guessed at**: does Blender's glTF importer
+    count the synthesized node as a bone? Ran the real fixture
+    (`offhand_1h_revendreth_d_01.m2`, 15 bones/10 roots) through
+    `husk export` then both the real `gltf_validator` and headless
+    Blender by hand before writing any test assertion. Confirmed:
+    `gltf_validator` reports 0 errors (`SKIN_NO_COMMON_ROOT` gone,
+    previously present); Blender's `bone_count` probe reports exactly 15
+    -- the synthesized node is *not* counted as a bone, `skin.joints.size()`
+    stays exactly `header.bones.count`. Option 1 and Option 2 are
+    confirmed *not* equivalent in practice; Option 1 has no Blender-visible
+    downside. Both `MULTIROOT_SKELETON_TODO.md`'s Decision section and its
+    design-question-A writeup were updated with this finding rather than
+    left as an open hedge.
+  - **Tests**: 387 → 394 cases (both `./build/husk-tests` and `ctest`
+    green, 1 permanently-inapplicable skip unchanged). New
+    `tests/test_gltf.cpp` cases (a `buildMultiRootSkeleton()` fixture, 3
+    independent roots): synthetic-node-exists-with-correct-children/
+    skin.skeleton/untouched-transform, single-root-output-unaffected
+    (explicit regression case, not just "the old tests still pass"), and
+    a mixed mesh-nodes-plus-multi-root-skeleton case proving vertex joint
+    indices stay raw/unshifted. New `tests/test_conformance.cpp` cases
+    (real `testWeaponParticleB()` fixture, gated the same
+    `doctest::skip`/`#ifdef HUSK_GLTF_VALIDATOR`/`HUSK_BLENDER` way every
+    other conformance case is): the `gltf_validator`
+    zero-errors-no-`SKIN_NO_COMMON_ROOT` check, and the Blender
+    bone-count-matches-header-exactly check, each gated on a
+    `countRealRootBones()` sanity check (parses the real bone array
+    directly, independent of husk's own code) so the test fails loudly
+    rather than passing vacuously if a future fixture swap ever replaces
+    this file with a single-root one. New `tests/test_cli.cpp` cases for
+    the two combinations `MULTIROOT_SKELETON_TODO.md` flagged as
+    genuinely untested: `--lod all` + a synthetic 3-independent-root
+    `.skel` (via the existing `buildSkel` helper, since no real fixture
+    combines multi-LOD and multi-root), and `--bones-dir` + the same
+    multi-root `.skel`, with the `.bone` file deliberately correcting the
+    *last* root joint (not joint 0) to prove `CorrectionSet::joint`
+    indices are unaffected by the synthesized node's presence, not just
+    "should be unaffected in principle."
+  - **Docs**: `src/gltf.hpp`'s `Skeleton`/`writeGlbMulti` doc comments
+    (the new synthesized-root behavior, now the authoritative contract,
+    not just this TODO file's prose); `DESIGN.md` (new Key design
+    decisions bullet, matching this session's own corpus numbers and the
+    Blender finding; Open work section's multi-root paragraph rewritten
+    from "still open" to "implemented"); `M2_COMPLETENESS.md`'s "Skeleton
+    / bone hierarchy" row (note now mentions multi-root synthesis, status
+    unchanged at `native — 100%`); `MULTIROOT_SKELETON_TODO.md` itself
+    (opening framing now says "Implemented," every Implementation-plan
+    step and every now-resolved hazard bullet marked `[DONE]`, the
+    Decision section's "still genuinely unverified" paragraph rewritten
+    with the real Blender numbers).
+  - Nothing else in `src/` touched -- `cmd_export.cpp`/`buildSkeleton`
+    exactly as before, per the plan's own step 2.
+- **Previous state**: Corrected the framing on `MULTIROOT_SKELETON_TODO.md`'s
   whole premise, did bounded prior-art research, and recorded a real
   decision — Luna, not implemented yet, handing off from here. Prompted by
   a direct question after the previous state's corpus-scale measurement:
@@ -942,39 +1198,43 @@ real-file-driven spec correction found along the way.
   `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel` got the
   three/four-state (`auto`/explicit/`none`) treatment `DESIGN.md`'s CLI
   grammar section still documents in full.
-- **Next step**: nothing in flight. `CORPUS_TODO.md`'s punch list is fully
-  worked (see Previous state) — every item has a final disposition, five
-  real fixes landed, two investigations widened and confirmed. Genuinely
-  open threads: (a) `MULTIROOT_SKELETON_TODO.md` — the M2→glTF multi-root-
-  bone-forest representation gap now has a real Decision (Option 1, a
-  plain non-joint synthetic root node) and a concrete numbered
-  Implementation plan (see Last state), not started; that section is the
-  actual next step, not a repeat of it in this file; (b) the ~7
+- **Next step**: `PHYS_TODO.md`'s Implementation plan — `.phys` byte
+  layout is fully verified (`WIKI_FINDINGS.md` §9), nothing left to
+  investigate before writing `src/phys.hpp`/`phys.cpp`, except the one
+  real open call this session deliberately left for a plan-mode pass
+  rather than deciding unilaterally: the exact `extras`-vs-`dump-chunks`
+  split and CLI flag shape (recommendation: the ribbon/particle hybrid,
+  see `PHYS_TODO.md`'s Architecture recommendation section). The M2→glTF
+  multi-root-bone-forest representation gap is real, tested code now, not
+  a survey — see `DESIGN.md`'s Key design decisions (the
+  synthesized-non-joint-parent-node entry). Genuinely open threads, all carried over from earlier
+  sessions and untouched by this one: (a) the ~7
   `textureComboIndex`-out-of-range cases `CORPUS_TODO.md` #5 couldn't
-  re-verify this session (`failures_unique.txt` strips paths) — almost
-  certainly the same "mismatched shared batch data" root cause as the
-  now-16x-confirmed `materialIndex` case, but genuinely unconfirmed;
-  (c) `tools/corpus_checks.py` keeping at least one real example path per
-  distinct failure *message shape*, not just the top-N codes by count, so
-  a case like (b) doesn't stay unverifiable next time. Also still open,
-  carried over from earlier sessions and untouched by this one:
+  re-verify (`failures_unique.txt` strips paths) — almost certainly the
+  same "mismatched shared batch data" root cause as the now-16x-confirmed
+  `materialIndex` case, but genuinely unconfirmed; (b) `tools/
+  corpus_checks.py` keeping at least one real example path per distinct
+  failure *message shape*, not just the top-N codes by count, so a case
+  like (a) doesn't stay unverifiable next time. Also still open:
   `TODO_correctness.md`'s own tracked items (`M2Camera`, `.bone` slot
   *selection* — both low-priority by design, not oversight), optional
   scope expansion (WMO/M3, Blender-side tooling for the various `extras`
   this project already exports), and `resolveSkin`'s failure messages not
   naming the specific candidate path/FileDataID they tried.
-- **Hazards**: `MULTIROOT_SKELETON_TODO.md`'s own "concrete places this
-  could fail invisibly" section is the authoritative list for that rework
-  — most importantly, never insert a synthetic node into `Skeleton::joints`
-  itself (see that file's opening section for why: every vertex/emitter-
-  anchor/correction/animation joint index is a raw, unremapped M2
-  bone-array index, and a reordered `Skeleton::joints` would silently
-  misattribute all of them with no crash and no validator error). This
-  session's own changes are each covered by real tests, not just asserted
-  safe (`writeGlbMulti`'s empty-meshes-with-skeleton path,
-  `findSameBasenameSkins`'s 2-digit preference, the keyframe-repair
-  cascading-duplicate-run case, `dumpWfv3`'s short-variant branch — see
-  Last state for the specific test names). One thing worth knowing if
+- **Hazards**: for the multi-root rework (now implemented), never insert a
+  synthetic node into `Skeleton::joints` itself (see `src/gltf.hpp`'s
+  `Skeleton` doc comment and `DESIGN.md`'s Key design decisions for why:
+  every vertex/emitter-anchor/correction/animation joint
+  index is a raw, unremapped M2 bone-array index, and a reordered
+  `Skeleton::joints` would silently misattribute all of them with no
+  crash and no validator error) — `writeGlbMulti`'s actual implementation
+  confirmed to respect this (the change lives entirely in glTF-side node/
+  scene/skin construction, `Skeleton::joints` itself untouched), covered
+  by a real test (`test_gltf.cpp`'s mixed mesh-nodes-plus-multi-root case
+  asserting vertex joint indices stay raw/unshifted), not just asserted
+  safe by inspection. This session's own changes are each covered by real
+  tests (see Last state for the specific test names). One thing worth
+  knowing if
   `cmd_export.cpp`'s collision-mesh block is touched again: it always
   appends its `NamedMesh` *after* every render/LOD entry — anything
   indexing `namedMeshes` by position (like the "N LOD tier(s)" summary

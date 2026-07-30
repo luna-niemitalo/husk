@@ -459,8 +459,8 @@ TEST_CASE("husk dump-chunks: WFV3 (one fixed 80-byte struct) reads every field a
     fs::remove(path);
 }
 
-// Regression test for CORPUS_TODO.md #6: real corpus files (Shadowlands
-// waterfall doodads, 9 files -- see WIKI_FINDINGS.md's WFV3 entry) carry a
+// Regression test: real corpus files (Shadowlands
+// waterfall doodads, 9 files -- see WIKI_FINDINGS.md §8's WFV3 entry) carry a
 // 64-byte WFV3 chunk, missing exactly the trailing unk1-unk4 floats the
 // wiki's own struct listing always includes. dumpWfv3 used to assume 80
 // bytes unconditionally, so every field read past 0x40 threw a bounds

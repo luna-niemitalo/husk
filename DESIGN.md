@@ -425,7 +425,7 @@ links against Pillow.
 
 **A genuinely geometry-less model gets zero mesh nodes, not an empty one —
 "zero meshes," not "one empty mesh."** A 130k-file corpus sweep
-(`CORPUS_TODO.md` #1) found 3,807 real files (pure particle/ribbon VFX
+found 3,807 real files (pure particle/ribbon VFX
 models, e.g. `particles/lootglow_boss.m2`) with 0 vertices at the M2 level,
 which `buildMaterialsAndPrimitives` used to turn into one glTF primitive
 with empty `indices` — a shape glTF itself has no valid representation for
@@ -442,8 +442,8 @@ producing a degenerate `.glb`.
 
 **A same-basename numeric-suffix `.skin` match prefers exactly 2 digits
 when one exists.** `findSameBasenameSkins`'s digit-suffix scan used to
-accept any digit-run length, which a real corpus scan (`CORPUS_TODO.md`
-#3b) found genuinely ambiguous whenever one model's basename is itself a
+accept any digit-run length, which a real corpus scan found genuinely
+ambiguous whenever one model's basename is itself a
 numeric-suffix prefix of a sibling model's basename in the same directory
 (`mogu_library_crate_10.m2` vs. `mogu_library_crate_1.m2` — the shorter
 model's own `...1` + `00` LOD suffix parses as a spurious 1-digit match
@@ -458,8 +458,8 @@ way and a hard reject risks a new false-negative regression for it.
 **A duplicate animation keyframe timestamp is repaired, not rejected.**
 `i > 0 && keyframes[i].first <= keyframes[i-1].first` used to throw
 unconditionally — correct for genuine disorder (a timestamp that actually
-*decreases*, real corruption), but a real corpus scan (`CORPUS_TODO.md`
-#4, 5 files) found an *exact*-duplicate timestamp is real, shipped
+*decreases*, real corruption), but a real corpus scan (5 files) found an
+*exact*-duplicate timestamp is real, shipped
 Blizzard data: a "hard cut" pose authored as two rotation keyframes at the
 same instant. Collapsing either keyframe would silently discard one of the
 two real authored values; the fix instead nudges the later duplicate's

@@ -310,8 +310,8 @@ void dumpFileDataIdArrayChunk(json::Writer& w, const Chunk& c) {
 // WFV3 (wowdev.wiki M2#WFV3), WaterFallDataV3 -- one fixed 80-byte struct
 // per chunk (not an array), *except* a real, consistent 64-byte variant
 // found across all 9 real corpus files that carry it (Shadowlands "Maw"
-// zone waterfall doodads, world/expansion08/doodads/maw/*.m2 --
-// CORPUS_TODO.md #6): every one is missing exactly the trailing 4 floats
+// zone waterfall doodads, world/expansion08/doodads/maw/*.m2, see
+// WIKI_FINDINGS.md §8): every one is missing exactly the trailing 4 floats
 // (unk1-unk4, the last 16 bytes of the 80-byte struct), never truncated
 // anywhere else. Reads those four conditionally on `c.size >= 80`,
 // emitting `null` (same "genuinely absent, not a parse failure" treatment

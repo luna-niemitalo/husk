@@ -156,7 +156,7 @@ path is a usage error.
 
 **A model with real geometry but no resolvable `.skin` at all is a real,
 known extraction gap, not a husk bug.** A 130k-file corpus sweep
-(`CORPUS_TODO.md` #2) found ~267 files -- spell-effect models, but also
+found ~267 files -- spell-effect models, but also
 ordinary item pieces (shoulder armor, collections/recolor variants) -- whose
 `SFID` chunk names real FileDataIDs that simply don't exist anywhere in the
 extraction, under any name: not next to the model, not FileDataID-renamed in
@@ -167,7 +167,18 @@ it has access to -- husk has no CASC/listfile access by design (see
 `DESIGN.md`'s Non-goals) and can't re-request anything the extraction
 skipped. `auto`'s error message already names exactly what it tried; there's
 nothing more to try. Re-running the extraction tool (not husk) is the only
-fix, if these specific assets are needed.
+fix, if these specific assets are needed. A 130k-file corpus sweep also
+found 334 genuinely 0-byte `.m2` files (same extraction-completeness class,
+not even a magic value to read) and, separately, a `.skin` whose own
+triangle-index buffer references far more vertices than its `.m2` actually
+has -- confirmed on real quest-helm and raid-helm variant files, roughly
+double the model's real vertex count, not a small offset -- and batch
+records whose `materialIndex`/`textureComboIndex` point one past the end of
+the model's own material/texture-combo array, confirmed uniformly across 16
+real collections/recolor item variants. Both are real, stale/mismatched
+Blizzard source data, not a husk defect: husk already does the right thing
+by refusing to fabricate geometry or guess a material it can't verify,
+failing loudly with the specific out-of-range index/count instead.
 
 **Materials.** Correct `alphaMode`/`doubleSided` from WoW's blend mode/render
 flags, plus a static `baseColorFactor` tint/fade from the batch's `M2Color`/

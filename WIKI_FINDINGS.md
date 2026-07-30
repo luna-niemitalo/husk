@@ -657,8 +657,8 @@ real file.
 
 ## 8. `M2` — `WFV3` has a real, undocumented 64-byte short variant, missing exactly the trailing `unk1`-`unk4` floats
 
-**Confidence: confirmed**, against all 9 real files in the corpus sweep
-(`CORPUS_TODO.md`'s own tools, `/media/luna/data/wow_export`) that carry a
+**Confidence: confirmed**, against all 9 real files in a 130k-file corpus
+sweep (`/media/luna/data/wow_export`) that carry a
 `WFV3` chunk at all: 1 Shadowlands "Maw" zone waterfall doodad
 (`world/expansion08/doodads/maw/9maw_torghast_clouds_01.m2`) and 8
 Nazjatar zone waterfall/water-effect doodads
@@ -697,6 +697,127 @@ optional `weight`/`alpha` fields already use elsewhere in the same file.
 
 ---
 
+## 9. `.phys` — wiki's struct listing verified correct against 103 real files, with one real transcription bug found and fixed
+
+**Confidence: verified**, against 103 real `.phys` files (7 in-repo
+fixtures under `test_data/item/objectcomponents/weapon/`, plus 96 real
+corpus files — world doodads, item components, creatures, spell-effect
+arena flags — sampled from `/media/luna/data/wow_export`, paths recorded
+in `phys_files_for_exploration.txt`). Unlike every other sidecar husk has
+investigated so far, `.phys` is not undocumented —
+`documentation/wowdev-wiki/md/PHYS.md` (wiki_revision 30458) already gives
+byte offsets for nearly every field, so this entry verifies/extends an
+existing page rather than reverse-engineering one from nothing. Full
+investigation notes and per-finding evidence: `PHYS_TODO.md`.
+
+### Current text (PHYS#PLYT)
+
+The `PLYT` chunk's self-describing `header[count]` struct listing goes:
+
+```
+/*0x30*/  uint64_t RUNTIME_30_ptr_data_3;  // = &data[i].unk_3
+/*0x38*/  float unk_38[6];                 // not sure if floats: has e-08 values
+} header[count];
+```
+
+`unk_38[6]` (6 floats, spanning 0x38–0x50) genuinely is the struct's last
+field — but it's easy to read the whole struct as ending at 0x38 (the
+last field before it, and the offset most transcriptions would naturally
+stop at) rather than continuing 24 more bytes to 0x50. The exact same
+shape of misreading as §1 (`M2Sequence`, this page, 0x40 not ~0x24) — a
+struct listing that's textually complete but easy to under-count.
+
+### Proposed addition
+
+> `PLYT`'s `header[]` array entries are **0x50 (80) bytes each**, not
+> 0x38 — the true stride includes the trailing `unk_38[6]` float tail.
+> Decoding at 0x38 produces a plausible-looking first entry (chunk-base
+> offset is the same either way) and garbage for every entry after it.
+
+### Evidence
+
+`world/expansion07/doodads/8xp_heartofazeroth_prop_floatychain.phys`'s
+`PLYT` chunk (`count=4`, 1500 bytes). At stride 0x38: `header[0]` decodes
+sanely (`vertexCount=8 count_10=6 nodeCount=24`, matching the wiki's own
+"mostly 8"/"mostly 6"/"mostly 24" comments exactly), but `header[1]`
+decodes to `vertexCount=2994733056 count_10=1048605387 nodeCount=6` —
+garbage, and the resulting expected-data-size calculation overflows to
+~54 billion bytes against a 1500-byte chunk. At stride 0x50: all 4 header
+entries decode identically clean, and the variable-length data region that
+follows consumes **exactly** the chunk's remaining bytes: `4 + 4×0x50 =
+324` bytes of header, `1500 − 324 = 1176` bytes of data, and
+`4 × (8×12 + 6×16 + 6×1 + 24×4) = 4 × 294 = 1176` — an exact match. Holds
+across every one of the 55 sampled files that carry a `PLYT` chunk, zero
+exceptions.
+
+### Follow-up: full verification sweep across every other documented chunk type
+
+**Confidence: verified**, same 103-file sample, via an independent
+from-scratch Python decoder (not committed, no dependency on husk's own —
+not yet written — `.phys` parser).
+
+- **Chunk tags are byte-reversed on disk** (WMO/ADT convention), the
+  *opposite* of M2's own inline chunks (`src/chunk.hpp`'s doc comment: M2
+  tags are not reversed). Confirmed via hex dump
+  (`test_data/.../mace_1h_warfrontsforsaken_d_01.phys`: `53 59 48 50` =
+  `"SYHP"` = `"PHYS"` reversed) and holds on all 103 files — every reversed
+  tag resolved to a name PHYS.md documents, never an unrecognized one.
+  `husk::readChunks`/`findChunk` (`src/chunk.hpp`), as used verbatim by
+  `bone.cpp`/`skel.cpp`, assume the M2 (non-reversed) convention and can't
+  be reused as-is for `.phys`.
+- **`BODY`/`BDY3`/`BDY4`'s "only one body should be of type 0 (root)"
+  claim is contradicted by most real files.** 78 of 98 sampled files with
+  a body chunk have *more than one* type-0 body (up to 27 of 44 in
+  `creature/gallywix/gallywix.phys`). Cross-tabulated against `BDY3`'s
+  documented `unk1`-as-weight field (same page, "if version >= 3 and
+  unk1 == 0 the body will be non kinematic even if the flag is set"): 96%
+  of 1256 sampled bodies (1205/1256) cleanly split type-0↔`unk1==0`,
+  type-1↔`unk1≠0` — consistent with type-0 meaning "kinematic, driven by
+  its bone, not simulated" as a real per-body classification, not a
+  single distinguished root. The wiki's own worked example,
+  `offhand_1h_artifactskulloferedar_d_06` ("all the bodies have the
+  kinematic flag"), has 4–5 of 16 bodies as type-0 — many, not one.
+- **`PHYV`'s worked example and mutual-exclusivity claim both confirmed**
+  on the exact file the wiki names (`7vs_detail_nightmareplant01_phys.phys`)
+  and its sibling `..._02`: both files' entire chunk set is
+  `{PHYS, PHYT, PHYV}`, 54 bytes total, no slack. Both `PHYV` payloads
+  genuinely *differ* from the wiki's own listed default six floats (which
+  the wiki itself calls uncertain, "some kind of tuning?") — real per-file
+  override data, not a fixed constant the worked example happened to guess
+  right.
+- **Version ↔ chunk-name-variant pairing holds with zero exceptions**:
+  v0/1 → `BODY`+`SHAP`+`WELJ` (no `PHYT` at v0); v3 → `BDY3`+`SHP2`; v4/5
+  → `BDY4`+`SHP2`. `SHOJ`'s documented version-2 stride ambiguity (0x6c
+  vs. 0x74, same chunk name either way) never actually produced an
+  ambiguous case: every one of 86 real `SHOJ` chunks divides evenly by
+  exactly one of the two strides, never both. No version 2 or 6 file seen
+  in the sample (6 remains exactly as unverified as PHYS.md's own `ᵘ` flag
+  states); `BOXS`/`SPHJ`/`PRSJ`/`PRS2`/`DSTJ`/`SHJ2` never appeared either
+  — real chunk types, just not exercised by this particular sample.
+- **Every cross-chunk index reference resolves in range, in all 103
+  files, zero exceptions** — `BODY`/`BDY3`/`BDY4`'s shape range vs. `SHAP`/
+  `SHP2`'s count, `SHAP`/`SHP2`'s `shapeIndex` vs. the target shape
+  chunk's count, `JOIN`'s `bodyAIdx`/`bodyBIdx` vs. body count, and
+  `JOIN`'s `jointId` vs. the matching joint-type chunk's count (including
+  the `SHOJ` stride disambiguation above). A genuinely wrong stride
+  anywhere in this chain would very likely have produced *some*
+  out-of-range value across 103 files and 1256 body records — a clean
+  zero is strong independent confirmation the transcribed layouts are
+  right.
+- **`BDY3`/`BDY4`'s `boneIndex` decodes to plausible M2 bone indices**:
+  `mace_1h_warfrontsforsaken_d_01.m2` (`husk info`: `bones: 17`) pairs with
+  a `.phys` whose `BDY4` chunk uses `boneIndex` values `{0..9}`, each
+  exactly once, all within `[0, 17)`.
+
+Not resolved by this investigation: what several of the wiki's own
+`unk`-tagged fields actually *mean* (`SHOJ`'s `motorMode`, `PLYT`'s
+per-node tree-structure fields beyond "connects the vertices together")
+— these decode to sane numbers but confirming semantics, not just
+byte-layout, needs simulation-behavior testing this investigation didn't
+attempt.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -709,3 +830,4 @@ optional `weight`/`alpha` fields already use elsewhere in the same file.
 | §6 `M2Particle` offsets + `FBlock` `uint16_t` timestamps | `src/m2.hpp`/`m2.cpp` (`ParticleEmitter`, `parseParticles`, `resolveFloatTrackSequence`/`resolveRawIntTrackSequence`/`resolveFBlockVec3`/`Vec2`/`Fixed16`/`Uint16`), `src/cmd_dump.cpp` (full-record JSON), `src/cmd_export.cpp`/`gltf.hpp`/`gltf.cpp` (`EmitterAnchor` extras) | `tests/test_m2.cpp`, `tests/test_dump.cpp`, `tests/test_gltf.cpp`, `tests/test_integration.cpp` (real weapon corpus) |
 | §7 multi-texture-layer arithmetic confirmed; `textureCoordCombos` value range | `src/cmd_export.cpp` (`buildMaterialsAndPrimitives`'s additional-layer loop, unchanged) | `tests/test_integration.cpp` (`checkMultiTextureLayerArithmetic`, real pennant/ironhorde fixtures) |
 | §8 `WFV3`'s real 64-byte short variant | `src/cmd_dump.cpp` (`dumpWfv3`) | `tests/test_dump.cpp` |
+| §9 `.phys` format verified (`PLYT` stride fix + full sweep) | not yet implemented — see `PHYS_TODO.md` | — |

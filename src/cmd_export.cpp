@@ -101,7 +101,7 @@ bool isFinite(const m2::Quat& q) {
 // producing a spec-non-compliant .glb only a downstream tool (Blender, the
 // Khronos validator) would ever notice.
 //
-// CORPUS_TODO.md #4: a *duplicate* timestamp (keyframes[i].first ==
+// A *duplicate* timestamp (keyframes[i].first ==
 // keyframes[i-1].first) is real, shipped Blizzard data, not corruption --
 // found on 5 real files (world bosses, base character rigs, one world
 // doodad), always exactly one pair, always on `rotation`, consistent with a
@@ -690,7 +690,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
     BuiltMaterials result;
 
     if (batches.empty()) {
-        // CORPUS_TODO.md #1: a genuinely geometry-less .skin (real corpus
+        // A genuinely geometry-less .skin (real corpus
         // shape -- pure particle/ribbon VFX models, zero vertices at the M2
         // level, not just an empty batch table) has no triangles to put in
         // a primitive at all. Leave `result.primitives` empty rather than
@@ -728,7 +728,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 "corrupted .skin?");
         }
 
-        // CORPUS_TODO.md #1's minority case: a submesh with zero indices
+        // The minority case: a submesh with zero indices
         // alongside sibling submeshes that have real geometry (mixed real+
         // empty geosets in one .skin) -- not the dominant "whole model is
         // geometry-less" shape (see the batches.empty() branch's caller-
@@ -1058,7 +1058,7 @@ std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::
 // "pick the most-detailed one" policy `--skin-dir`'s auto-select already
 // follows. Empty if `modelPath`'s directory doesn't exist or has no match.
 //
-// CORPUS_TODO.md #3b: a digit-suffix match of *any* length is ambiguous
+// A digit-suffix match of *any* length is ambiguous
 // when one model's basename is itself a numeric-suffix prefix of another
 // model's basename in the same directory (e.g. "mogu_library_crate_10" is
 // a prefix of "mogu_library_crate_100" and "mogu_library_crate_1000") --
@@ -1607,7 +1607,7 @@ int exportGlb(int argc, char** args) {
             // wrong model) shows up here as an out-of-range global vertex
             // index.
             //
-            // CORPUS_TODO.md #3b: report every out-of-range index found (
+            // Report every out-of-range index found (
             // count + the worst offender), not just the first -- a real
             // wrong-.skin pairing references hundreds of out-of-range
             // indices, not one, and the first-hit index alone made two
@@ -1707,7 +1707,7 @@ int exportGlb(int argc, char** args) {
                              "render (see FINDINGS.md §3.1)\n";
             }
 
-            // CORPUS_TODO.md #1: no primitives came out of this LOD tier's
+            // No primitives came out of this LOD tier's
             // .skin (genuinely geometry-less M2, or every batch's submesh
             // had zero indices) -- glTF requires a mesh's own primitives
             // list to be non-empty, so there's no valid mesh to emit here.
@@ -1840,7 +1840,7 @@ int exportGlb(int argc, char** args) {
         }
 
         if (renderMeshCount == 0) {
-            // CORPUS_TODO.md #1: every LOD tier's .skin was geometry-less
+            // Every LOD tier's .skin was geometry-less
             // (or there was only ever one tier and it was empty) -- no mesh
             // node exists in this .glb at all, only the skeleton and
             // whatever ribbon/particle emitter anchors were attached above.
