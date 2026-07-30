@@ -100,9 +100,37 @@ bool isFinite(const m2::Quat& q) {
 // the offending bone/property/keyframe index named, rather than silently
 // producing a spec-non-compliant .glb only a downstream tool (Blender, the
 // Khronos validator) would ever notice.
+//
+// CORPUS_TODO.md #4: a *duplicate* timestamp (keyframes[i].first ==
+// keyframes[i-1].first) is real, shipped Blizzard data, not corruption --
+// found on 5 real files (world bosses, base character rigs, one world
+// doodad), always exactly one pair, always on `rotation`, consistent with a
+// genuinely-authored "hard cut" pose (two values meant to apply at the same
+// instant). Repaired in place rather than rejected: nudges the later
+// duplicate's timestamp forward by 1ms (cascading, so a run of 3+
+// duplicates spreads out 1ms apart each) instead of dropping either
+// keyframe -- collapsing would silently discard one of the two real
+// authored values (whichever the drop picks), while nudging keeps both,
+// turning an authored instantaneous cut into a 1ms transition that's
+// visually indistinguishable and correct under both glTF LINEAR and STEP
+// sampler interpolation (JointAnimation::translationStep etc. -- STEP just
+// delays the jump by 1ms, LINEAR ramps over 1ms instead of 0). A timestamp
+// that's *less than* the previous one in the original data (not just equal)
+// stays a hard error -- that's genuine disorder, not the observed
+// duplicate-hard-cut shape, and repairing it would require guessing which
+// of the two is "right." The disorder check classifies each keyframe
+// against the *original* (pre-repair) previous timestamp, captured up
+// front, not the already-nudged one -- comparing against a nudged value
+// would misclassify a legitimate cascading duplicate run (T, T, T) as
+// disorder once the first T became T+1. A final pass re-checks the fully
+// repaired sequence is actually strictly increasing and throws (rather than
+// silently emitting a spec-non-compliant .glb) in the one shape this repair
+// doesn't attempt to handle and has no real-data evidence for: a duplicate
+// immediately followed by a distinct timestamp too close for the nudge to
+// clear.
 template <typename T>
-void checkKeyframesWellFormed(const std::vector<std::pair<uint32_t, T>>& keyframes, size_t boneIndex,
-                               const char* property) {
+void repairDuplicateTimestampsAndValidate(std::vector<std::pair<uint32_t, T>>& keyframes,
+                                           size_t boneIndex, const char* property) {
     for (size_t i = 0; i < keyframes.size(); ++i) {
         if (!isFinite(keyframes[i].second)) {
             throw std::runtime_error("bone " + std::to_string(boneIndex) + "'s " + property +
@@ -110,12 +138,32 @@ void checkKeyframesWellFormed(const std::vector<std::pair<uint32_t, T>>& keyfram
                                       " has a non-finite (NaN/Inf) value -- corrupted read or "
                                       "truncated file?");
         }
-        if (i > 0 && keyframes[i].first <= keyframes[i - 1].first) {
+    }
+
+    std::vector<uint32_t> originalTimes;
+    originalTimes.reserve(keyframes.size());
+    for (const auto& kf : keyframes) originalTimes.push_back(kf.first);
+
+    for (size_t i = 1; i < keyframes.size(); ++i) {
+        if (originalTimes[i] < originalTimes[i - 1]) {
             throw std::runtime_error(
                 "bone " + std::to_string(boneIndex) + "'s " + property + " keyframe " +
-                std::to_string(i) + "'s timestamp (" + std::to_string(keyframes[i].first) +
+                std::to_string(i) + "'s timestamp (" + std::to_string(originalTimes[i]) +
                 "ms) isn't strictly greater than keyframe " + std::to_string(i - 1) + "'s (" +
-                std::to_string(keyframes[i - 1].first) + "ms) -- corrupted read or truncated file?");
+                std::to_string(originalTimes[i - 1]) + "ms) -- corrupted read or truncated file?");
+        }
+        if (originalTimes[i] == originalTimes[i - 1]) {
+            keyframes[i].first = keyframes[i - 1].first + 1;
+        }
+    }
+
+    for (size_t i = 1; i < keyframes.size(); ++i) {
+        if (keyframes[i].first <= keyframes[i - 1].first) {
+            throw std::runtime_error(
+                "bone " + std::to_string(boneIndex) + "'s " + property + " keyframe " +
+                std::to_string(i) + "'s timestamp couldn't be repaired into strictly-increasing "
+                "order (duplicate-timestamp nudging collided with a following keyframe) -- "
+                "corrupted read or truncated file?");
         }
     }
 }
@@ -248,15 +296,15 @@ uint32_t findAnimFileId(const std::vector<m2::Header::AnimFileEntry>& animFileId
 // timestamps, see checkKeyframesWellFormed, FAILURES2.md #9).
 std::optional<gltf::JointAnimation> buildJointAnimation(
     const std::vector<uint8_t>& blob, const m2::Bone& bone, size_t bi, const gltf::Skeleton& skeleton,
-    const std::vector<std::pair<uint32_t, m2::Vec3>>& translation,
-    const std::vector<std::pair<uint32_t, m2::Quat>>& rotation,
-    const std::vector<std::pair<uint32_t, m2::Vec3>>& scale) {
+    std::vector<std::pair<uint32_t, m2::Vec3>>& translation,
+    std::vector<std::pair<uint32_t, m2::Quat>>& rotation,
+    std::vector<std::pair<uint32_t, m2::Vec3>>& scale) {
     if (translation.empty() && rotation.empty() && scale.empty()) {
         return std::nullopt;
     }
-    checkKeyframesWellFormed(translation, bi, "translation");
-    checkKeyframesWellFormed(rotation, bi, "rotation");
-    checkKeyframesWellFormed(scale, bi, "scale");
+    repairDuplicateTimestampsAndValidate(translation, bi, "translation");
+    repairDuplicateTimestampsAndValidate(rotation, bi, "rotation");
+    repairDuplicateTimestampsAndValidate(scale, bi, "scale");
 
     gltf::JointAnimation ja;
     ja.joint = static_cast<int>(bi);
@@ -642,6 +690,17 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
     BuiltMaterials result;
 
     if (batches.empty()) {
+        // CORPUS_TODO.md #1: a genuinely geometry-less .skin (real corpus
+        // shape -- pure particle/ribbon VFX models, zero vertices at the M2
+        // level, not just an empty batch table) has no triangles to put in
+        // a primitive at all. Leave `result.primitives` empty rather than
+        // manufacturing one with empty `indices` -- glTF has no valid
+        // "primitive with zero indices" representation, so the caller
+        // (cmd_export.cpp) skips adding a mesh node for this LOD tier
+        // entirely when `result.primitives` comes back empty.
+        if (triangleIndices.empty()) {
+            return result;
+        }
         gltf::Primitive prim;
         prim.indices = triangleIndices;
         result.primitives.push_back(std::move(prim));
@@ -667,6 +726,19 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 "submesh " + std::to_string(b.skinSectionIndex) +
                 "'s index range runs past the end of the resolved triangle-index buffer -- "
                 "corrupted .skin?");
+        }
+
+        // CORPUS_TODO.md #1's minority case: a submesh with zero indices
+        // alongside sibling submeshes that have real geometry (mixed real+
+        // empty geosets in one .skin) -- not the dominant "whole model is
+        // geometry-less" shape (see the batches.empty() branch's caller-
+        // side handling in cmd_export.cpp), but the same "don't manufacture
+        // a primitive glTF can't represent" rule applies per-primitive:
+        // skip just this batch (no primitive, no material) rather than
+        // emitting a zero-indices primitive that would fail writeGlbMulti's
+        // hard check.
+        if (sm.indexCount == 0) {
+            continue;
         }
 
         gltf::Primitive prim;
@@ -985,16 +1057,35 @@ std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::
 // aka lod0" (wowdev.wiki M2#SFID), the highest-detail LOD, the same
 // "pick the most-detailed one" policy `--skin-dir`'s auto-select already
 // follows. Empty if `modelPath`'s directory doesn't exist or has no match.
+//
+// CORPUS_TODO.md #3b: a digit-suffix match of *any* length is ambiguous
+// when one model's basename is itself a numeric-suffix prefix of another
+// model's basename in the same directory (e.g. "mogu_library_crate_10" is
+// a prefix of "mogu_library_crate_100" and "mogu_library_crate_1000") --
+// a real corpus scan found this silently pairs a model with a *different*
+// model's skin, since the wrong-basename candidate happens to parse as a
+// valid (if shorter/longer) digit suffix too. WoW's own convention is
+// always exactly 2 digits (`00`-`0N`); real corpus directories checked
+// here (world/nodxt/detail's vebgrs*/vebbsh* families, 1-17 LOD-numbered
+// siblings each) confirm every genuine skin resolves cleanly under "prefer
+// a 2-digit suffix match when one exists" -- so 1-digit/3+-digit matches
+// are only ever collisions with a sibling model's own real 2-digit suffix,
+// never a real model's only skin. Kept as a fallback (not an outright
+// reject) for the unconfirmed case of a directory with no 2-digit match at
+// all, rather than turning a hypothetical 1-or-3-digit-only model into a
+// new "no .skin found" regression.
 std::vector<std::pair<int, std::string>> findSameBasenameSkins(const std::string& modelPath) {
     std::filesystem::path model(modelPath);
     std::string baseName = model.stem().string();  // e.g. "bloodelffemale"
     std::filesystem::path dir = model.parent_path();
     if (dir.empty()) dir = ".";
 
-    std::vector<std::pair<int, std::string>> found;
+    // (lod, path, digit-suffix length) -- the length is only used to filter
+    // for the "prefer 2 digits" rule below, then discarded.
+    std::vector<std::tuple<int, std::string, size_t>> found;
     std::error_code ec;
     if (!std::filesystem::is_directory(dir, ec)) {
-        return found;
+        return {};
     }
     for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
         if (ec || !entry.is_regular_file()) continue;
@@ -1008,10 +1099,19 @@ std::vector<std::pair<int, std::string>> findSameBasenameSkins(const std::string
         if (pos == digitsStart) continue;  // no digit right after the basename
         if (name.compare(pos, name.size() - pos, ".skin") != 0) continue;
         int lod = std::stoi(name.substr(digitsStart, pos - digitsStart));
-        found.emplace_back(lod, entry.path().string());
+        found.emplace_back(lod, entry.path().string(), pos - digitsStart);
     }
-    std::sort(found.begin(), found.end());
-    return found;
+
+    bool hasTwoDigitMatch =
+        std::any_of(found.begin(), found.end(), [](const auto& t) { return std::get<2>(t) == 2; });
+
+    std::vector<std::pair<int, std::string>> result;
+    for (const auto& [lod, path, digitLen] : found) {
+        if (hasTwoDigitMatch && digitLen != 2) continue;
+        result.emplace_back(lod, path);
+    }
+    std::sort(result.begin(), result.end());
+    return result;
 }
 
 // Resolves `--skin auto` (CLI11 rejects the literal 'none' at parse time,
@@ -1506,13 +1606,28 @@ int exportGlb(int argc, char** args) {
             // has. A skin file that doesn't belong to this M2 (wrong LOD,
             // wrong model) shows up here as an out-of-range global vertex
             // index.
+            //
+            // CORPUS_TODO.md #3b: report every out-of-range index found (
+            // count + the worst offender), not just the first -- a real
+            // wrong-.skin pairing references hundreds of out-of-range
+            // indices, not one, and the first-hit index alone made two
+            // genuinely identical bugs look like different shapes (a small
+            // "off by one" vs. a "gap of dozens") purely as an artifact of
+            // where in `triangleIndices` iteration happened to first fail.
+            uint32_t maxOutOfRange = 0;
+            size_t outOfRangeCount = 0;
             for (uint32_t idx : triangleIndices) {
                 if (idx >= vertices.size()) {
-                    throw std::runtime_error("'" + path + "' references M2 vertex " +
-                                              std::to_string(idx) + " but '" + modelPath +
-                                              "' only has " + std::to_string(vertices.size()) +
-                                              " vertices -- model/.skin mismatch?");
+                    maxOutOfRange = std::max(maxOutOfRange, idx);
+                    ++outOfRangeCount;
                 }
+            }
+            if (outOfRangeCount > 0) {
+                throw std::runtime_error(
+                    "'" + path + "' references " + std::to_string(outOfRangeCount) +
+                    " out-of-range M2 vertex index(es) (up to " + std::to_string(maxOutOfRange) +
+                    ") but '" + modelPath + "' only has " + std::to_string(vertices.size()) +
+                    " vertices -- model/.skin mismatch?");
             }
 
             auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs,
@@ -1590,6 +1705,22 @@ int exportGlb(int argc, char** args) {
                           << " batch(es) with a UV transform (M2TextureTransform) -- exported as "
                              "inert 'extras' metadata on the material, not applied to the "
                              "render (see FINDINGS.md §3.1)\n";
+            }
+
+            // CORPUS_TODO.md #1: no primitives came out of this LOD tier's
+            // .skin (genuinely geometry-less M2, or every batch's submesh
+            // had zero indices) -- glTF requires a mesh's own primitives
+            // list to be non-empty, so there's no valid mesh to emit here.
+            // Skip the NamedMesh entirely rather than manufacturing an
+            // empty one; the model's skeleton and ribbon/particle emitter
+            // anchors (built unconditionally above) still export.
+            if (built.primitives.empty()) {
+                std::cerr << "husk: note: '" << path << "'"
+                          << (name.empty() ? "" : " (" + name + ")")
+                          << "' has no renderable geometry -- skipping mesh output for this LOD "
+                             "tier (skeleton and ribbon/particle emitter anchors, if any, are "
+                             "still exported)\n";
+                continue;
             }
 
             gltf::NamedMesh nm;
@@ -1708,7 +1839,22 @@ int exportGlb(int argc, char** args) {
             throw std::runtime_error("error writing '" + outputPath + "'");
         }
 
-        if (renderMeshCount == 1) {
+        if (renderMeshCount == 0) {
+            // CORPUS_TODO.md #1: every LOD tier's .skin was geometry-less
+            // (or there was only ever one tier and it was empty) -- no mesh
+            // node exists in this .glb at all, only the skeleton and
+            // whatever ribbon/particle emitter anchors were attached above.
+            std::cout << outputPath << ": no renderable geometry (particle/ribbon-effect model?)";
+            if (!bones.empty()) {
+                std::cout << ", " << bones.size() << " bones";
+                if (!animations.empty()) {
+                    std::cout << ", " << animations.size() << " animation(s)";
+                } else {
+                    std::cout << " (bind pose only, no animation)";
+                }
+            }
+            std::cout << "\n";
+        } else if (renderMeshCount == 1) {
             size_t triCount = 0;
             for (const auto& p : namedMeshes[0].mesh.primitives) triCount += p.indices.size() / 3;
             std::cout << outputPath << ": " << vertices.size() << " vertices, " << triCount

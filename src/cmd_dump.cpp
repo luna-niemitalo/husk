@@ -308,9 +308,19 @@ void dumpFileDataIdArrayChunk(json::Writer& w, const Chunk& c) {
 }
 
 // WFV3 (wowdev.wiki M2#WFV3), WaterFallDataV3 -- one fixed 80-byte struct
-// per chunk (not an array). Field names/order transcribed verbatim from
-// the wiki; most are documented only as "passed directly to fragment
-// shader" with no further meaning given.
+// per chunk (not an array), *except* a real, consistent 64-byte variant
+// found across all 9 real corpus files that carry it (Shadowlands "Maw"
+// zone waterfall doodads, world/expansion08/doodads/maw/*.m2 --
+// CORPUS_TODO.md #6): every one is missing exactly the trailing 4 floats
+// (unk1-unk4, the last 16 bytes of the 80-byte struct), never truncated
+// anywhere else. Reads those four conditionally on `c.size >= 80`,
+// emitting `null` (same "genuinely absent, not a parse failure" treatment
+// dumpTextureWeights's optional weight/alpha fields already use) for the
+// shorter variant instead of throwing -- consistent with this codebase's
+// "don't guess, dump what data actually exists" rule. Field names/order
+// for the rest transcribed verbatim from the wiki; most are documented
+// only as "passed directly to fragment shader" with no further meaning
+// given.
 void dumpWfv3(json::Writer& w, const Chunk& c) {
     w.beginObject();
     w.key("bumpScale");
@@ -349,14 +359,18 @@ void dumpWfv3(json::Writer& w, const Chunk& c) {
     w.value(static_cast<double>(readF32(c.data, c.size, 0x38)));
     w.key("values4_y");
     w.value(static_cast<double>(readF32(c.data, c.size, 0x3C)));
-    w.key("unk1");
-    w.value(static_cast<double>(readF32(c.data, c.size, 0x40)));
-    w.key("unk2");
-    w.value(static_cast<double>(readF32(c.data, c.size, 0x44)));
-    w.key("unk3");
-    w.value(static_cast<double>(readF32(c.data, c.size, 0x48)));
-    w.key("unk4");
-    w.value(static_cast<double>(readF32(c.data, c.size, 0x4C)));
+    auto writeOptionalF32 = [&](const char* key, size_t off) {
+        w.key(key);
+        if (c.size >= 0x50) {
+            w.value(static_cast<double>(readF32(c.data, c.size, off)));
+        } else {
+            w.nullValue();
+        }
+    };
+    writeOptionalF32("unk1", 0x40);
+    writeOptionalF32("unk2", 0x44);
+    writeOptionalF32("unk3", 0x48);
+    writeOptionalF32("unk4", 0x4C);
     w.endObject();
 }
 

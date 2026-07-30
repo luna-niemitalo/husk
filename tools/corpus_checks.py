@@ -241,7 +241,7 @@ def test_header(m2_path) -> bool:
     if code == 0:
         asserts.append(AssertResult("recognized", True))
         asserts.append(AssertResult("has_version_line", "version:" in out,
-                                     detail="" if "version:" in out else out[:400]))
+                                     detail="" if "version:" in out else out[:500]))
         independent = read_m2_header_summary(m2_path)
         if independent is not None:
             plausible = 0 <= independent["vertex_count"] <= 10_000_000

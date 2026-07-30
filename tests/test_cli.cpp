@@ -142,6 +142,76 @@ std::vector<uint8_t> tinyMatchingSkin() {
     return b;
 }
 
+// A .skin with every array (vertices/indices/submeshes/batches) genuinely
+// empty (count 0) -- CORPUS_TODO.md #1's dominant real-corpus shape: a
+// pure particle/ribbon VFX model with no renderable geometry at all, not
+// merely an empty batch table over real vertices (that's tinyMatchingSkin's
+// case). Pairs with a 0-vertex M2 (minimalMd20() itself, unmodified).
+std::vector<uint8_t> emptySkin() {
+    std::vector<uint8_t> b;
+    putTag(b, "SKIN");
+    putU32(b, 0);
+    putU32(b, 44);  // vertices: count=0, offset=44
+    putU32(b, 0);
+    putU32(b, 44);  // indices: count=0, offset=44
+    putU32(b, 0);
+    putU32(b, 0);  // bones: count=0, offset=0 (unread)
+    putU32(b, 0);
+    putU32(b, 0);  // submeshes: count=0, offset=0
+    putU32(b, 0);
+    putU32(b, 0);  // batches: count=0, offset=0
+    REQUIRE(b.size() == 44);
+    return b;
+}
+
+// minimalMd20() (0 vertices) plus one M2CompBone -- the real shape a
+// geometry-less VFX model still has (CORPUS_TODO.md #1: the corpus's own
+// particle-only .m2 files all carry at least one bone for emitter
+// attachment), so a mesh-less export still has a skeleton to fall back to
+// instead of hitting writeGlbMulti's "nothing to export at all" case.
+std::vector<uint8_t> zeroVertexOneBoneM2() {
+    auto b = minimalMd20();
+    uint32_t boneOff = static_cast<uint32_t>(b.size());
+    uint32_t boneCount = 1;
+    std::memcpy(b.data() + 0x02C, &boneCount, 4);
+    std::memcpy(b.data() + 0x030, &boneOff, 4);
+    b.resize(boneOff + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(b.data() + boneOff + 0x00, &keyBoneId, 4);
+    int16_t parentBone = -1;
+    std::memcpy(b.data() + boneOff + 0x08, &parentBone, 2);
+    return b;
+}
+
+// Pairs with tinyValidM2() (1 M2 vertex) to reproduce CORPUS_TODO.md #3b's
+// "wrong .skin" shape: 2 local vertex slots resolving to global vertices 5
+// and 6 (both out of range for a 1-vertex model), each referenced 3 times
+// by `indices` -- 6 out-of-range triangleIndices entries total, the worst
+// being 6, so the improved error message's count/max-offender fields have
+// real, distinct values to assert on (not 1-and-1, which wouldn't tell
+// count and max apart).
+std::vector<uint8_t> outOfRangeVertexSkin() {
+    std::vector<uint8_t> b;
+    putTag(b, "SKIN");
+    putU32(b, 2);
+    putU32(b, 44);  // vertices: count=2, offset=44
+    putU32(b, 6);
+    putU32(b, 48);  // indices: count=6, offset=48
+    putU32(b, 0);
+    putU32(b, 0);  // bones: unread
+    putU32(b, 0);
+    putU32(b, 0);  // submeshes: count=0
+    putU32(b, 0);
+    putU32(b, 0);  // batches: count=0
+    REQUIRE(b.size() == 44);
+    putU16(b, 5);
+    putU16(b, 6);  // vertices[0]=global 5, vertices[1]=global 6
+    REQUIRE(b.size() == 48);
+    for (int i = 0; i < 3; ++i) putU16(b, 0);  // indices[0..3) -> local slot 0 -> global 5
+    for (int i = 0; i < 3; ++i) putU16(b, 1);  // indices[3..6) -> local slot 1 -> global 6
+    return b;
+}
+
 // A minimalMd20 with two zeroed M2Vertex records (global vertices 0 and 1)
 // and one zeroed M2Material (blendMode 0 = Opaque, flags 0), for the
 // FAILURES2.md #1 (skinSectionId/geoset) regression test below -- needs two
@@ -1987,6 +2057,55 @@ TEST_CASE("husk export: multiple same-basename .skin candidates resolves to the 
     fs::remove_all(dir);
 }
 
+// Regression test for CORPUS_TODO.md #3b: a real corpus scan found
+// findSameBasenameSkins silently pairing "mogu_library_crate_10.m2" with
+// "mogu_library_crate_100.skin" -- which actually belongs to the shorter
+// sibling model "mogu_library_crate_1.m2" ("...crate_1" + "00" LOD suffix),
+// not "...crate_10" ("...crate_10" + "0", a spurious 1-digit match that
+// used to tie with the real "...crate_1000.skin" ("...crate_10" + "00")
+// candidate and lose the std::sort tie-break (lexicographically, "0" <
+// "00.skin"'s leading "0" but ".skin" < "0" in ASCII, so the *wrong* file
+// sorted first). Reproduced here with a minimal same-shape pair: "crate_1"/
+// "crate_10" siblings, each with its own real 2-digit-suffix .skin.
+TEST_CASE("husk export: a model basename that's a numeric-suffix prefix of a sibling model's own "
+          "basename resolves its own 2-digit-suffix .skin, not the sibling's colliding shorter/"
+          "longer match") {
+    auto dir = defaultsDir("basenamecollision");
+    writeFile(dir / "crate_1.m2", tinyValidM2());
+    writeFile(dir / "crate_10.m2", tinyValidM2());
+    writeFile(dir / "crate_100.skin", tinyMatchingSkin());   // crate_1's real skin: "crate_1"+"00"
+    writeFile(dir / "crate_1000.skin", tinyMatchingSkin());  // crate_10's real skin: "crate_10"+"00"
+
+    auto shortResult = runHusk("export " + (dir / "crate_1.m2").string());
+    CHECK(shortResult.exitCode == 0);
+    CHECK(shortResult.output.find("crate_100.skin") != std::string::npos);
+
+    auto longResult = runHusk("export " + (dir / "crate_10.m2").string());
+    CHECK(longResult.exitCode == 0);
+    CHECK(longResult.output.find("crate_1000.skin") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+// Regression test for CORPUS_TODO.md #3b's second approved fix: a wrong-
+// .skin pairing references hundreds of out-of-range vertex indices in real
+// corpus files, not one -- the error message now names how many and the
+// worst offender, not just the first index iteration happened to hit.
+TEST_CASE("husk export: a .skin referencing multiple out-of-range M2 vertices reports the count "
+          "and the worst offender, not just the first") {
+    auto dir = defaultsDir("outofrangevtx");
+    writeFile(dir / "mismatch.m2", tinyValidM2());
+    writeFile(dir / "mismatch00.skin", outOfRangeVertexSkin());
+
+    auto result = runHusk("export " + (dir / "mismatch.m2").string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("references 6 out-of-range M2 vertex index(es)") != std::string::npos);
+    CHECK(result.output.find("up to 6") != std::string::npos);
+    CHECK(result.output.find("only has 1 vertices") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk export: no .skin path given and none found next to the model fails cleanly, "
           "naming what was expected") {
     auto dir = defaultsDir("noskin");
@@ -2334,6 +2453,107 @@ TEST_CASE("husk export: a non-monotonic (out-of-order) translation keyframe time
 // export: end-to-end animated model produces a real glTF animation clip"),
 // not repeated here.
 
+// Regression test for CORPUS_TODO.md #4: real shipped Blizzard data (5 real
+// files -- world bosses, base character rigs, one world doodad, all on
+// `rotation`) has an exact-duplicate keyframe timestamp -- a genuinely-
+// authored "hard cut" pose (two values meant to apply at the same instant),
+// not corruption. This used to be rejected identically to real disorder (a
+// timestamp genuinely *decreasing*, still covered by the test above); it's
+// now repaired instead (the later duplicate nudged forward 1ms) so both
+// authored values survive, rather than collapsing one away.
+TEST_CASE("husk export: an exact-duplicate keyframe timestamp is repaired (nudged forward 1ms), "
+          "not rejected like genuine disorder") {
+    auto b = tinyValidM2();
+    uint32_t seqOff = static_cast<uint32_t>(b.size());
+    uint32_t seqCount = 1;
+    std::memcpy(b.data() + 0x01C, &seqCount, 4);
+    std::memcpy(b.data() + 0x020, &seqOff, 4);
+    b.resize(seqOff + 0x40, 0);
+    uint16_t seqId = 100;
+    std::memcpy(b.data() + seqOff + 0x00, &seqId, 2);
+    uint32_t seqFlags = 0x20;
+    std::memcpy(b.data() + seqOff + 0x0C, &seqFlags, 4);
+
+    uint32_t boneOff = static_cast<uint32_t>(b.size());
+    uint32_t boneCount = 1;
+    std::memcpy(b.data() + 0x02C, &boneCount, 4);
+    std::memcpy(b.data() + 0x030, &boneOff, 4);
+    b.resize(boneOff + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(b.data() + boneOff + 0x00, &keyBoneId, 4);
+    int16_t parentBone = -1;
+    std::memcpy(b.data() + boneOff + 0x08, &parentBone, 2);
+
+    fillTrack(b, boneOff + 0x10, {0}, {vec3Bytes(0, 0, 0)});
+    // Rotation keyframes 1 and 2 share timestamp 500 -- the real shape found
+    // on yoggsaronbrain.m2/maldraxxusskeleton.m2/mechagnomemale.m2/etc.
+    fillTrack(b, boneOff + 0x24, {0, 500, 500},
+              {identityQuatBytes(), identityQuatBytes(), identityQuatBytes()});
+    fillTrack(b, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+
+    auto m2Path = tempPath("duplicate-keyframe.m2");
+    writeFile(m2Path, b);
+    auto skinPath = tempPath("duplicate-keyframe.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("duplicate-keyframe.glb").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("isn't strictly greater than") == std::string::npos);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+// A genuine 3-way cascading duplicate run (T, T, T) must repair cleanly
+// into strictly-increasing timestamps (T, T+1, T+2), not misfire the
+// disorder check on the second duplicate -- see
+// repairDuplicateTimestampsAndValidate's own doc comment for why comparing
+// against the *original* (not already-nudged) previous timestamp matters.
+TEST_CASE("husk export: a 3-way cascading duplicate keyframe timestamp run repairs cleanly, not "
+          "just a single pair") {
+    auto b = tinyValidM2();
+    uint32_t seqOff = static_cast<uint32_t>(b.size());
+    uint32_t seqCount = 1;
+    std::memcpy(b.data() + 0x01C, &seqCount, 4);
+    std::memcpy(b.data() + 0x020, &seqOff, 4);
+    b.resize(seqOff + 0x40, 0);
+    uint16_t seqId = 100;
+    std::memcpy(b.data() + seqOff + 0x00, &seqId, 2);
+    uint32_t seqFlags = 0x20;
+    std::memcpy(b.data() + seqOff + 0x0C, &seqFlags, 4);
+
+    uint32_t boneOff = static_cast<uint32_t>(b.size());
+    uint32_t boneCount = 1;
+    std::memcpy(b.data() + 0x02C, &boneCount, 4);
+    std::memcpy(b.data() + 0x030, &boneOff, 4);
+    b.resize(boneOff + 0x58, 0);
+    int32_t keyBoneId = -1;
+    std::memcpy(b.data() + boneOff + 0x00, &keyBoneId, 4);
+    int16_t parentBone = -1;
+    std::memcpy(b.data() + boneOff + 0x08, &parentBone, 2);
+
+    fillTrack(b, boneOff + 0x10, {0}, {vec3Bytes(0, 0, 0)});
+    fillTrack(b, boneOff + 0x24, {0, 500, 500, 500},
+              {identityQuatBytes(), identityQuatBytes(), identityQuatBytes(), identityQuatBytes()});
+    fillTrack(b, boneOff + 0x38, {0}, {vec3Bytes(1, 1, 1)});
+
+    auto m2Path = tempPath("cascading-duplicate-keyframe.m2");
+    writeFile(m2Path, b);
+    auto skinPath = tempPath("cascading-duplicate-keyframe.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("cascading-duplicate-keyframe.glb").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("isn't strictly greater than") == std::string::npos);
+    CHECK(result.output.find("couldn't be repaired") == std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
 // Regression test for FAILURES2.md #1: a .skin file whose submeshes carry
 // different skinSectionId ("geoset ID") values -- the normal shape for a
 // real character model bundling multiple selectable hairstyles/gear geosets
@@ -2370,6 +2590,49 @@ TEST_CASE("husk export: batches that all share one skinSectionId print no geoset
     auto result = runHusk("export " + (dir / "onegeoset.m2").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("distinct geoset IDs") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+// Regression tests for CORPUS_TODO.md #1: a genuinely geometry-less M2 (0
+// vertices, an empty .skin) used to make buildMaterialsAndPrimitives
+// manufacture one primitive with empty `indices`, which writeGlbMulti's
+// hard "primitive indices must not be empty" check then rejected outright
+// -- 3,807 real corpus files (particle/ribbon-only VFX models) failed this
+// way. Fixed by skipping mesh output for a geometry-less LOD tier entirely
+// (see cmd_export.cpp/gltf.cpp) rather than trying to represent "zero
+// triangles" as a mesh at all.
+TEST_CASE("husk export: a genuinely geometry-less model (0 vertices, empty .skin) exports "
+          "successfully with no mesh, keeping its skeleton") {
+    auto dir = defaultsDir("novtx");
+    writeFile(dir / "vfx.m2", zeroVertexOneBoneM2());
+    writeFile(dir / "vfx00.skin", emptySkin());
+
+    auto result = runHusk("export " + (dir / "vfx.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("no renderable geometry") != std::string::npos);
+    CHECK(result.output.find("bad_alloc") == std::string::npos);
+    CHECK(fs::exists(dir / "vfx.glb"));
+    CHECK(fs::file_size(dir / "vfx.glb") > 0);
+
+    fs::remove_all(dir);
+}
+
+// A model with genuinely nothing to export at all -- 0 vertices, 0 bones --
+// still fails loudly (writeGlbMulti's "meshes must not be empty without a
+// skeleton to fall back to" case): there's no mesh *and* no skeleton for the
+// zero-mesh path above to fall back to, so this isn't the real corpus shape
+// (every real particle-only file found in the corpus had at least one bone)
+// and should stay a hard error rather than silently emitting an empty glTF.
+TEST_CASE("husk export: a model with 0 vertices and 0 bones (nothing at all to export) still "
+          "fails cleanly") {
+    auto dir = defaultsDir("nothingatall");
+    writeFile(dir / "nothing.m2", minimalMd20());
+    writeFile(dir / "nothing00.skin", emptySkin());
+
+    auto result = runHusk("export " + (dir / "nothing.m2").string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("bad_alloc") == std::string::npos);
 
     fs::remove_all(dir);
 }

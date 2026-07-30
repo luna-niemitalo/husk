@@ -1081,6 +1081,27 @@ TEST_CASE("writeGlbMulti: empty meshes throws") {
     CHECK_THROWS_AS(husk::gltf::writeGlbMulti({}), husk::gltf::Error);
 }
 
+TEST_CASE("writeGlbMulti: empty meshes with a skeleton succeeds -- no mesh node, but joints and "
+          "emitter anchors still export (CORPUS_TODO.md #1's geometry-less-model shape)") {
+    auto skel = buildChainSkeleton();
+    skel.particleAnchors = {{7, 1, {0.1f, 0.2f, 0.3f}}};
+    auto glb = husk::gltf::writeGlbMulti({}, &skel);
+    auto model = loadBack(glb);
+
+    CHECK(model.meshes.empty());
+    REQUIRE(model.nodes.size() == 3);  // just the 3 joint nodes, no mesh node
+    REQUIRE(model.skins.size() == 1);
+    CHECK(model.skins[0].joints.size() == 3);
+    REQUIRE(model.scenes[model.defaultScene].nodes.size() == 1);  // root joint only
+    CHECK(model.scenes[model.defaultScene].nodes[0] == 0);
+}
+
+TEST_CASE("writeGlbMulti: empty meshes with a skeleton that has no joints throws (same as no "
+          "skeleton at all -- nothing to fall back to)") {
+    husk::gltf::Skeleton emptySkel;
+    CHECK_THROWS_AS(husk::gltf::writeGlbMulti({}, &emptySkel), husk::gltf::Error);
+}
+
 TEST_CASE("writeGlbMulti: each entry's materials are numbered locally, remapped into one shared "
           "glTF materials array") {
     auto quadA = buildTwoPrimitiveQuad();  // primitives reference materialIndex 0 and 1

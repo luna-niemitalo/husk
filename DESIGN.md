@@ -423,6 +423,54 @@ process boundary is kept even now that `--textures` embeds real PNGs —
 husk reads a file `husk-blp` already wrote, it never invokes `husk-blp` or
 links against Pillow.
 
+**A genuinely geometry-less model gets zero mesh nodes, not an empty one —
+"zero meshes," not "one empty mesh."** A 130k-file corpus sweep
+(`CORPUS_TODO.md` #1) found 3,807 real files (pure particle/ribbon VFX
+models, e.g. `particles/lootglow_boss.m2`) with 0 vertices at the M2 level,
+which `buildMaterialsAndPrimitives` used to turn into one glTF primitive
+with empty `indices` — a shape glTF itself has no valid representation for
+(a primitive's `indices` must be non-empty when present at all), so every
+one of these failed outright. The fix skips adding a `NamedMesh` for a LOD
+tier that resolves to zero primitives (both the whole-file-empty case and
+the rarer per-submesh `indexCount == 0` case) rather than manufacturing
+one; `gltf::writeGlbMulti` now accepts an empty `meshes` list as long as a
+real skeleton (at least one joint) exists to fall back to — the model's
+skeleton and ribbon/particle emitter anchors (already unconditional, see
+above) still export, just with no mesh in the document at all. `Error`s
+outright if both are empty (nothing to export) rather than silently
+producing a degenerate `.glb`.
+
+**A same-basename numeric-suffix `.skin` match prefers exactly 2 digits
+when one exists.** `findSameBasenameSkins`'s digit-suffix scan used to
+accept any digit-run length, which a real corpus scan (`CORPUS_TODO.md`
+#3b) found genuinely ambiguous whenever one model's basename is itself a
+numeric-suffix prefix of a sibling model's basename in the same directory
+(`mogu_library_crate_10.m2` vs. `mogu_library_crate_1.m2` — the shorter
+model's own `...1` + `00` LOD suffix parses as a spurious 1-digit match
+for the longer model's `...10` basename too, and used to win the
+lexicographic tie-break over the correct `...10` + `00` file). WoW's own
+convention is always exactly 2 digits, so the scan now discards
+1-digit/3+-digit matches whenever at least one 2-digit match exists for
+that basename — kept as a fallback (not a hard reject) when no 2-digit
+match exists at all, since that shape has no real-corpus evidence either
+way and a hard reject risks a new false-negative regression for it.
+
+**A duplicate animation keyframe timestamp is repaired, not rejected.**
+`i > 0 && keyframes[i].first <= keyframes[i-1].first` used to throw
+unconditionally — correct for genuine disorder (a timestamp that actually
+*decreases*, real corruption), but a real corpus scan (`CORPUS_TODO.md`
+#4, 5 files) found an *exact*-duplicate timestamp is real, shipped
+Blizzard data: a "hard cut" pose authored as two rotation keyframes at the
+same instant. Collapsing either keyframe would silently discard one of the
+two real authored values; the fix instead nudges the later duplicate's
+timestamp forward by 1ms (cascading, so a run of N duplicates spreads out
+N-1ms apart), classified against each keyframe's *original* (pre-repair)
+timestamp so the cascading case doesn't misfire the disorder check against
+an already-nudged value. A timestamp that's genuinely less than the
+previous one still throws — repairing that would mean guessing which of
+the two conflicting values is "right," not resolving a known, consistent
+shape.
+
 ## CLI argument grammar for `export` (implemented)
 
 **Previous grammar**, for contrast (replaced, not additive — every existing

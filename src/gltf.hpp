@@ -354,10 +354,18 @@ struct NamedMesh {
 // its own glTF mesh/primitives/materials) -- husk export --lod all's case
 // (see README.md): one node per LOD tier of the same M2, so a DCC tool's
 // outliner shows them as separate, individually-toggleable objects instead
-// of silently overwriting one another. `meshes` must not be empty; every
-// entry is validated exactly like writeGlb's single `mesh`/`materials`
-// (same Error conditions, "writeGlbMulti" in place of "writeGlb" in the
-// message).
+// of silently overwriting one another. `meshes` may only be empty when
+// `skeleton` is non-null and has at least one joint -- a genuinely
+// geometry-less M2 (a pure particle/ribbon VFX model, CORPUS_TODO.md #1;
+// real corpus files have zero vertices at the M2 level, not just an empty
+// .skin) still exports its skeleton and ribbon/particle emitter anchors
+// (Skeleton::ribbonAnchors/particleAnchors), just with no mesh node at all
+// -- glTF has no valid "mesh with zero primitives" representation to fall
+// back to instead (see cmd_export.cpp's per-LOD-tier skip). Otherwise
+// (`meshes` empty and no skeleton), Error -- there'd be nothing to put in
+// the document. Every non-empty entry is validated exactly like writeGlb's
+// single `mesh`/`materials` (same Error conditions, "writeGlbMulti" in
+// place of "writeGlb" in the message).
 //
 // `skeleton`/`animations` are shared across every entry, not per-mesh --
 // valid because every LOD of one M2 draws from the same `bones` array (only

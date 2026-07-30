@@ -57,7 +57,7 @@ elsewhere is just unattempted work.
 
 | Feature | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|
-| Mesh geometry (positions, indices) | full | native | native — 100% | `src/m2.cpp`/`src/skin.cpp` |
+| Mesh geometry (positions, indices) | full | native | native — 100% | `src/m2.cpp`/`src/skin.cpp`; a genuinely geometry-less model (0 vertices, real corpus shape for particle/ribbon-only VFX) exports skeleton + emitter anchors with zero mesh nodes instead of failing — `CORPUS_TODO.md` #1 |
 | Normals | full | native | native — 100% | part of `M2Vertex` |
 | UV / texture coordinates (both sets) | full | native | native — 100% | `TEXCOORD_0`/`TEXCOORD_1` |
 | Tangents | n/a | n/a | n/a | not in the documented base header at all — nothing to parse |
@@ -70,7 +70,7 @@ elsewhere is just unattempted work.
 
 | Feature | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|
-| Animation sequences + per-bone tracks (inline or `.skel`-sourced) | full | native | native — 100% | `resolveVec3TrackSequence`/`resolveQuatTrackSequence` |
+| Animation sequences + per-bone tracks (inline or `.skel`-sourced) | full | native | native — 100% | `resolveVec3TrackSequence`/`resolveQuatTrackSequence`; a real, exact-duplicate keyframe timestamp (an authored "hard cut" pose, 5 real corpus files) is repaired via a 1ms forward nudge rather than rejected — `CORPUS_TODO.md` #4 |
 | External `.anim` sequences (`AFM2`) | full | native | native — 100% | via `--anim <dir>` + `AFID`/`.skel`'s own `AFID` |
 | External `.anim` sequences (`AFSB`, `.skel`-linked) | full | native | native — 100% | byte layout was undocumented anywhere, cracked this session — `SKB1`'s own descriptors point directly into `AFSB`'s payload, no new parser needed (`WIKI_FINDINGS.md` §2's follow-up) |
 | Global-sequence bone tracks (independent continuous loops) | full | native | native — 100% | `buildGlobalSequenceAnimations`, one clip per global-sequence index |

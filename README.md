@@ -154,6 +154,21 @@ optional enrichment. `--skin-dir`/`--lod` only mean anything alongside
 `--skin auto` (the default); giving either alongside an explicit `.skin`
 path is a usage error.
 
+**A model with real geometry but no resolvable `.skin` at all is a real,
+known extraction gap, not a husk bug.** A 130k-file corpus sweep
+(`CORPUS_TODO.md` #2) found ~267 files -- spell-effect models, but also
+ordinary item pieces (shoulder armor, collections/recolor variants) -- whose
+`SFID` chunk names real FileDataIDs that simply don't exist anywhere in the
+extraction, under any name: not next to the model, not FileDataID-renamed in
+a `--skin-dir`, and not in the extraction tool's own "files it couldn't
+place" bucket either (checked directly). This is the extraction never having
+pulled those specific files, not husk failing to find or guess a real path
+it has access to -- husk has no CASC/listfile access by design (see
+`DESIGN.md`'s Non-goals) and can't re-request anything the extraction
+skipped. `auto`'s error message already names exactly what it tried; there's
+nothing more to try. Re-running the extraction tool (not husk) is the only
+fix, if these specific assets are needed.
+
 **Materials.** Correct `alphaMode`/`doubleSided` from WoW's blend mode/render
 flags, plus a static `baseColorFactor` tint/fade from the batch's `M2Color`/
 `M2TextureWeight` references (not animated -- see `DESIGN.md`'s entry on why).

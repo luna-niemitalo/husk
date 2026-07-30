@@ -69,6 +69,25 @@ primitive, keep the others), not just the whole-file empty case.
 
 Go with 'zero meshes' approach for these
 
+[DONE] Fixed: `buildMaterialsAndPrimitives` returns zero primitives (instead
+of one with empty `indices`) both for the whole-file-empty case and the
+per-primitive `sm.indexCount == 0` minority case; `cmd_export.cpp` skips
+adding a `NamedMesh` for a LOD tier that comes back empty, and
+`writeGlbMulti`/`gltf::Skeleton` now accept zero meshes as long as a real
+skeleton exists to fall back to (Error otherwise — nothing to export).
+Sampled 25 real FAIL-0001 files at random: all 25 had 0 vertices at the M2
+level (confirms the dominant-shape assumption; no per-submesh-mixed case
+turned up in this sample, but the per-primitive skip is defensive/cheap so
+it's handled anyway), all 25 now export cleanly and pass `gltf_validator`
+with 0 errors. New tests in `tests/test_gltf.cpp`/`tests/test_cli.cpp`.
+**Side finding, out of this item's scope**: 10 of those 25 (+lootglow_boss,
+26 total sampled) hit a *different*, pre-existing `gltf_validator` error
+("Joints do not have a common root") — the same multi-root-bone-hierarchy
+gap `DESIGN.md`'s Hazards section already documents for 2 of 4 weapon
+fixtures, here showing up in ~38% of geometry-less VFX models too. Not
+fixed this session (unscoped, needs bone-hierarchy reconciliation design);
+worth a future session.
+
 ---
 
 ## 2. `.skin`-not-found "buffer truncation" — DISPROVED, real bug is elsewhere (in the test harness, not husk)
@@ -129,11 +148,38 @@ extraction itself gets redone.
 
 > _last_meaningful_line
 
-I will manually fix this
+[DONE] I will manually fix this
 
 > wow_export didn't pull skins for these spell-effect models
 
 Explore if possible to fix, aka pulling skin files for spell effect models, or if they are somehow misplaced, or referenced differently, if there genuinely is no way to find the correct one, or if the model doesn't need one, add explanatin note in README
+
+[DONE] Explored, confirmed genuinely unfixable in husk (not misplaced,
+not differently named, not something husk not-finding is the bug).
+Widened the sample first: a random pull from the current (renumbered)
+`FAIL-0003` bucket (265 files) turned up more than just spell-effect
+models — `item/objectcomponents/shoulder/shoulder_armor_spiritrune_a_01_r.m2`
+and several `item/objectcomponents/collections/*.m2` are in this same
+bucket too, so "spell-effect models" undersold the real scope; corrected
+in the README note added. Checked both a spell file
+(`fx_barrierblossom_areatrigger.m2`, original doc's own example) and the
+shoulder-armor one the same way: `husk info` confirms the model has real
+geometry (4,583 vertices, not particle-only) and a real `SFID` array
+(`6709938`-`6709941`); targeted `find` for each declared FileDataID,
+decimal-to-hex converted, checked both directly in the model's own
+directory (already known absent, that's the whole bug) *and* in
+`_unresolved/` (`wow_export`'s own "extracted but couldn't place" bucket,
+`FILE<8-hex-digit-zero-padded>.dat` naming — the one place a "misplaced,
+not really missing" file would show up) — zero matches, for every
+FileDataID checked, in both files. Deliberately scoped this as a few
+*targeted* `find` lookups for specific known FileDataIDs, not another
+130k-file sweep — Luna flagged an earlier full-tree Python walk in this
+same session as wasteful, and a targeted lookup answers this specific
+question just as conclusively. Confirmed: genuinely absent from this
+corpus dump, not a husk-side false negative. Added a note to
+`README.md`'s `--skin`/`auto` section explaining this is a known
+extraction-completeness gap, not a husk bug, and that re-running the
+extraction (not husk) is the only real fix.
 
 
 
@@ -234,6 +280,23 @@ reader.
 
 Aproved both fix ideas, add improvement to both husk, and to the test suite so we get comprehensive visibility
 
+[DONE] Fixed: `findSameBasenameSkins` now prefers exactly-2-digit suffix
+matches when at least one exists for a given basename, discarding
+1-digit/3+-digit matches as collisions rather than treating them as equally
+valid (kept as a fallback, not a hard reject, when no 2-digit match exists
+at all — untested/unconfirmed edge case, safer than turning a hypothetical
+1-or-3-digit-only model into a new "no .skin found" regression). Checked
+this against the real collision directory (`world/nodxt/detail/`, all
+`vebgrs1-17`/`vebbsh1-9` siblings) rather than a full 130k-file walk — every
+genuine skin there resolves under the 2-digit rule with no exceptions.
+Verified against both real confirmed-collision files:
+`mogu_library_crate_10.m2` now resolves to `...crate_1000.skin` (68
+vertices, matches doc's own figure) and `vebgrs10.m2` to `...vebgrs1000.skin`
+(8 vertices), both exporting cleanly. Error-message improvement also done:
+reports out-of-range count + worst offender instead of just the first hit.
+New regression tests in `tests/test_cli.cpp` reproducing the exact
+collision shape and the improved message.
+
 ### 3c. What's left after 3b is subtracted: genuinely bad source pairing, not fixable in husk
 
 Checked `helm_cloth_questbloodelf_b_01_*` (17 files, all in the
@@ -291,6 +354,30 @@ doc's own suggestion) — not done yet.
 
 Approved
 
+[DONE] Fixed: chose **nudge**, not collapse. Reasoning: collapsing either
+keyframe would silently discard one of the two real authored values
+(whichever the drop picked), while nudging the later duplicate forward by
+1ms keeps both, turning an authored instantaneous cut into a 1ms transition
+that's visually indistinguishable and correct under both glTF LINEAR and
+STEP sampler interpolation (husk already emits STEP when the M2's own
+`interpolation_type` says so, unrelated to this fix). No independent-reader
+cross-check was found (`checkKeyframesWellFormed` → renamed
+`repairDuplicateTimestampsAndValidate`, `src/cmd_export.cpp`) — general
+glTF-authoring precedent (Blender's own exporter deliberately inserts
+duplicate/near-zero-gap keyframes to force STEP-like behavior) supports
+nudge-not-drop as the standard way to satisfy strictly-increasing sampler
+input while preserving both values, so proceeded without a second M2-
+specific reader to compare against. A genuinely *decreasing* timestamp
+(disorder, not a duplicate) still throws, classified against the
+*original* pre-repair timestamps so a cascading run of 3+ duplicates
+repairs correctly instead of misfiring the disorder check on its second
+entry. Verified against all 5 real files named above: all export cleanly
+now, `gltf_validator` shows zero animation-sampler-related errors on any of
+them (remaining errors on 2 of the 5 are pre-existing, unrelated —
+`ACCESSOR_JOINTS_INDEX_DUPLICATE`/`SKIN_NO_COMMON_ROOT`, the same classes
+already documented elsewhere in this repo). New regression tests in
+`tests/test_cli.cpp` (single duplicate pair, 3-way cascading run).
+
 ---
 
 ## 5. `materialIndex`/`textureComboIndex` out of range — genuinely bad data, not fixable (confirmed on one example)
@@ -314,6 +401,40 @@ matches the original doc's assessment here — no correction needed.
 ### DEVELOPER NOTES
 
 Check other examples if existing before declaring unfixable
+
+[DONE] Checked all 16 real files identifiable via current
+`failures.txt`/`failure_codes.txt` (renumbered since this doc was
+written: `FAIL-0004` x12 `armor_flameskull_d_01_green_*`, `FAIL-0010` x2
+`cloth_raidpriestethereal_d_01_ed_*`, `FAIL-0011` x2
+`leather_raiddruidethereal_d_01_ed_*`), not just the original one. All 16
+confirm the same conclusion, with a striking, perfectly uniform signature
+none of them deviate from: `materialIndex` is always **exactly** the
+model's own material count (e.g. 3-materials models always hit
+`materialIndex (3)`, a 7-materials model hits `materialIndex (7)`) --
+never further out of range than "one past the end." `husk info` confirms
+each file's own material array really does stop one short
+(`armor_flameskull_d_01_green_wo_m.m2`: exactly 3 materials, indices
+0-2). No sibling-basename digit-suffix collision on any of the 16 (all
+end in letter race/gender codes, not digits), so this is independent of
+the `findSameBasenameSkins` bug fixed in #3b -- confirmed, not just
+assumed, since the fix for #3b was already in place when these were
+re-checked. No wiki-documented sentinel value explains an "index == count"
+`materialIndex` (unlike `colorIndex`'s own documented `-1`/"none"), so
+this isn't a husk misinterpretation of a special value either. Verdict
+unchanged from the original single-example check: genuinely bad/
+mismatched shared batch data across collections/recolor item variants,
+not fixable in husk. The remaining ~7 `textureComboIndex` cases the
+original doc lumped into this item's ~23-file estimate couldn't be
+re-verified the same way -- `failures_unique.txt` strips file paths
+during anonymization, and none of the 14 codes in the current
+`failure_codes.txt` are a `textureComboIndex` message, so there's no
+example path available from current tooling output to check. Structurally
+identical failure shape (an index-out-of-range on a per-batch lookup
+table) to the now-16x-confirmed `materialIndex` case, so almost certainly
+the same root cause -- but genuinely unverified, not just unfixed. Worth
+a `tools/corpus_checks.py` improvement if this needs re-checking later:
+keep at least one real path per distinct message *shape* (not just
+per fully-identical message), not only the top codes by count.
 
 ---
 
@@ -339,6 +460,18 @@ Small, contained, single-file fix (`src/cmd_dump.cpp`).
 ### DEVELOPER NOTES
 
 Approved
+
+[DONE] Fixed: `dumpWfv3` now reads `unk1`-`unk4` conditionally on
+`c.size >= 0x50`, emitting `null` for the short variant. Correction to
+this doc's own file list: re-running against current `failures.txt` found
+only 1 of the 9 real files in `world/expansion08/doodads/maw/`
+(`9maw_torghast_clouds_01.m2`) — the other 8 are
+`world/expansion07/doodads/nazjatar/8nzj_water*.m2`/
+`8nzj_titan_water_bubble_01.m2` (Nazjatar, not the Maw). Same shape either
+way (64 bytes, all fields before `unk1` intact). New WIKI_FINDINGS.md §8
+(undocumented on wowdev.wiki), new `tests/test_dump.cpp` case. Verified
+against all 9 real files directly (`husk dump-chunks`, exit 0, `unk1`-`unk4`
+all `null`).
 
 ---
 

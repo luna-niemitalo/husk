@@ -655,6 +655,48 @@ real file.
 
 ---
 
+## 8. `M2` — `WFV3` has a real, undocumented 64-byte short variant, missing exactly the trailing `unk1`-`unk4` floats
+
+**Confidence: confirmed**, against all 9 real files in the corpus sweep
+(`CORPUS_TODO.md`'s own tools, `/media/luna/data/wow_export`) that carry a
+`WFV3` chunk at all: 1 Shadowlands "Maw" zone waterfall doodad
+(`world/expansion08/doodads/maw/9maw_torghast_clouds_01.m2`) and 8
+Nazjatar zone waterfall/water-effect doodads
+(`world/expansion07/doodads/nazjatar/8nzj_water*`/`8nzj_titan_water_bubble_01.m2`).
+
+**Current wiki text** (`documentation/wowdev-wiki/wikitext/M2.wiki`,
+`===WFV3===`) gives one fixed-size `WaterFallDataV3` struct, unconditionally
+80 bytes (20 `float`/`uint16_t`-pair fields through `unk4` at the very end),
+with no mention of a shorter or version-conditional variant.
+
+**Evidence.** husk's `dumpWfv3` (`src/cmd_dump.cpp`) originally read every
+field at its documented fixed offset, including `unk1`-`unk4` at
+`0x40`-`0x4C`, unconditionally. Run against real files, every one of the 9
+above threw the same shape of error: `"unk1": husk: dump-chunks failed:
+chunk field at offset 64 needs 4 bytes but the chunk is only 64 bytes"` --
+not a corrupted read, a genuinely and consistently 64-byte chunk (`c.size ==
+0x40`) across all 9, every time. All fields *before* `unk1` (`bumpScale`
+through `values4_y`, ending at byte offset 0x3C+4=0x40) decode cleanly on
+every file; the chunk simply ends exactly where the last of those fields
+does, 16 bytes (4 floats) short of the wiki's documented 80.
+
+**Proposed addition to the wiki's `WFV3` section**: a
+`{{Template:SectionBox/VersionRange}}` note (matching the page's own
+convention for `WFV2`'s "unknown" placeholder just above it) that a 64-byte
+variant exists, omitting `unk1`-`unk4`, seen on Battle for Azeroth
+(Nazjatar, 8.2) and Shadowlands (the Maw, 9.0) zone water-effect doodads --
+not confirmed which build first introduced the 80-byte fields, only that
+both shapes are real and the shorter one isn't a version husk's corpus
+happens to lack coverage for elsewhere (all 9 hit files are the *entire*
+set of `WFV3`-bearing files in this ~130k-file corpus, not a sample).
+
+**Fix**: `dumpWfv3` now reads `unk1`-`unk4` conditionally on `c.size >=
+0x50`, emitting `null` for the shorter variant instead of throwing -- same
+"genuinely absent, not a parse failure" treatment `dumpTextureWeights`'s
+optional `weight`/`alpha` fields already use elsewhere in the same file.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -666,3 +708,4 @@ real file.
 | §5 `bounding_box` containment, not tight fit | `src/cmd_export.cpp` (unaffected — no code depends on `bounding_box` being tight), `tests/test_conformance.cpp` (`transformedM2BoundingBox`) | `tests/test_conformance.cpp` |
 | §6 `M2Particle` offsets + `FBlock` `uint16_t` timestamps | `src/m2.hpp`/`m2.cpp` (`ParticleEmitter`, `parseParticles`, `resolveFloatTrackSequence`/`resolveRawIntTrackSequence`/`resolveFBlockVec3`/`Vec2`/`Fixed16`/`Uint16`), `src/cmd_dump.cpp` (full-record JSON), `src/cmd_export.cpp`/`gltf.hpp`/`gltf.cpp` (`EmitterAnchor` extras) | `tests/test_m2.cpp`, `tests/test_dump.cpp`, `tests/test_gltf.cpp`, `tests/test_integration.cpp` (real weapon corpus) |
 | §7 multi-texture-layer arithmetic confirmed; `textureCoordCombos` value range | `src/cmd_export.cpp` (`buildMaterialsAndPrimitives`'s additional-layer loop, unchanged) | `tests/test_integration.cpp` (`checkMultiTextureLayerArithmetic`, real pennant/ironhorde fixtures) |
+| §8 `WFV3`'s real 64-byte short variant | `src/cmd_dump.cpp` (`dumpWfv3`) | `tests/test_dump.cpp` |

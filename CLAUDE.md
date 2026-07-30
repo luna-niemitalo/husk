@@ -53,7 +53,16 @@ tool, `blp/`) converts BLP2 textures to PNG.
   already tracks (`M2Camera`, low-priority by design; `.bone` correction
   *selection* — the extras-export half is done, see Resume; picking which
   slot applies is blocked on client-side DB2 data husk doesn't have, not on
-  more investigation) — nothing currently in flight.
+  more investigation), or the corpus-hardening follow-ups a real 130k-file
+  corpus sweep (`CORPUS_TODO.md`, see Resume) turned up this session --
+  five real export-robustness bugs found and fixed (a geometry-less-model
+  crash affecting 3,807 real files, a `.skin`-pairing collision bug, an
+  undocumented `WFV3` short-chunk variant, a duplicate-animation-keyframe
+  crash), two more findings confirmed genuinely unfixable in husk
+  (mismatched shared batch data, an extraction-completeness gap), and one
+  concrete follow-up identified but not fixed (a multi-root-bone-hierarchy
+  gap now confirmed wider than previously known -- see Resume's Next
+  step) -- nothing currently in flight.
 - Anything not listed under Current does not exist yet. In particular: `M2Camera`
   is still count-only (not dereferenced). Three FAILURES2.md gaps
   (geoset selection #1, multi-texture-layer rendering #6, global-sequence animation
@@ -94,7 +103,195 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: Particles/ribbons (`M2Particle`/`M2Ribbon`) — the single
+- **Last state**: Worked `CORPUS_TODO.md` as a punch card — a from-scratch
+  grounding of an earlier raw sweep (`HUSK_CORPUS_FINDINGS.md`) across a
+  real 130k-file corpus (`/media/luna/data/wow_export`), re-checked against
+  actual code and real bytes, with Luna's own DEVELOPER NOTES per item
+  giving direction/approval and an explicit bottom-of-file priority order.
+  Requested as "use this file as a punch card... prio order in the
+  bottom." Every item in the file now has a final disposition — the same
+  signal that triggered `VERIFICATION_IDEAS.md`'s deletion in an earlier
+  session — but `CORPUS_TODO.md` itself was left in place rather than
+  deleted unilaterally: it's Luna's own working punch-card doc with her
+  manual annotations throughout, a different situation from a purely
+  generated scratch survey.
+  - **#1 (empty-primitive crash, 3,807 real files, highest-priority
+    item) — fixed.** `buildMaterialsAndPrimitives`
+    (`src/cmd_export.cpp`) used to manufacture one glTF primitive with
+    empty `indices` for a genuinely geometry-less `.skin` (real corpus
+    shape: pure particle/ribbon VFX models, 0 vertices at the M2 level,
+    not just an empty batch table) — glTF has no valid "primitive with
+    zero indices" representation, so every one of these failed outright.
+    Went with the "zero meshes" design Luna approved directly: skip
+    adding a `NamedMesh` for a LOD tier that resolves to zero primitives
+    (both the whole-file-empty case and the rarer per-submesh
+    `indexCount == 0` case), and relaxed `gltf::writeGlbMulti`
+    (`src/gltf.cpp`/`gltf.hpp`) to accept an empty `meshes` list as long
+    as a real skeleton (≥1 joint) exists to fall back to -- the model's
+    skeleton and ribbon/particle emitter anchors (already unconditional,
+    prior session) still export with zero mesh nodes; `Error`s outright
+    only when both are empty (nothing to export at all). Verified: a
+    random 25-file sample of real `FAIL-0001` corpus files all had 0
+    vertices at the M2 level (confirms the dominant-shape assumption),
+    all 25 now export cleanly and pass `gltf_validator` with 0 errors.
+    **Real side-finding, out of this item's own scope:** 10 of those 25
+    (+1 more checked individually, 26 total) hit a *different*,
+    pre-existing `gltf_validator` error (`SKIN_NO_COMMON_ROOT`, "Joints
+    do not have a common root") -- the same multi-root-bone-hierarchy gap
+    `DESIGN.md`'s Hazards section already documented for 2 of 4 real
+    weapon fixtures, here showing up in ~38% of geometry-less VFX models
+    too. Not fixed this session (unscoped, needs a real bone-hierarchy-
+    reconciliation design) -- flagged in both `CORPUS_TODO.md` and here
+    for a future session.
+  - **#3b (`findSameBasenameSkins` prefix-collision bug) — fixed.** A
+    same-basename numeric-suffix `.skin` match used to accept a digit
+    run of any length, which a real corpus scan found genuinely
+    ambiguous whenever one model's basename is itself a numeric-suffix
+    prefix of a sibling model's basename in the same directory (real
+    files: `mogu_library_crate_10.m2` vs. `mogu_library_crate_1.m2`,
+    `vebgrs10.m2` vs. `vebgrs1.m2`/`vebgrs11-17.m2`, `vebbsh10.m2` vs.
+    `vebbsh1-9.m2`) -- the shorter model's own real 2-digit-suffix file
+    parses as a spurious 1-digit match for the longer model's basename
+    too, and used to win `std::sort`'s lexicographic tie-break over the
+    correct file. Fixed by preferring an exactly-2-digit suffix match
+    (WoW's own real convention) whenever at least one exists for a given
+    basename, discarding 1-digit/3+-digit matches as collisions -- kept
+    as a fallback, not a hard reject, when no 2-digit match exists at
+    all (no real-corpus evidence either way for that shape, and a hard
+    reject risks a new false-negative regression). Checked against the
+    real collision directory directly (`world/nodxt/detail/`, all 26
+    `vebgrs`/`vebbsh` siblings) rather than a full corpus walk -- every
+    genuine skin there resolves correctly under the new rule, no
+    exceptions. Also implemented the doc's second approved idea: the
+    vertex-out-of-range error message now reports the *count* of
+    out-of-range indices and the *worst offender*, not just the first
+    one iteration happened to hit (real wrong-`.skin` pairings reference
+    hundreds of out-of-range indices, not one -- the old message made two
+    identical bugs look like different shapes purely as an iteration-order
+    artifact). Verified against both real confirmed-collision files:
+    `mogu_library_crate_10.m2` now resolves to `...crate_1000.skin` (68
+    vertices, matches the doc's own figure) and `vebgrs10.m2` to
+    `...vebgrs1000.skin` (8 vertices), both exporting cleanly.
+  - **#6 (`dump-chunks` `WFV3` short-chunk variant, 9 real files) —
+    fixed.** `dumpWfv3` (`src/cmd_dump.cpp`) assumed every `WFV3` chunk
+    is a fixed 80-byte struct; all 9 real files carrying one (1
+    Shadowlands "Maw"-zone doodad, 8 Nazjatar-zone water-effect doodads
+    -- corrected from this doc's own file-list, which had all 9
+    mis-attributed to the Maw zone alone) are consistently 64 bytes,
+    missing exactly the trailing `unk1`-`unk4` floats. Fixed by reading
+    those four conditionally on `c.size >= 0x50`, emitting `null` for
+    the short variant (same "genuinely absent, not a parse failure"
+    treatment `dumpTextureWeights`'s optional fields already use)
+    instead of throwing. **New, previously-undocumented-on-the-wiki
+    finding** (`WIKI_FINDINGS.md` §8, new): the wiki's own `WFV3` struct
+    listing is unconditionally 80 bytes with no mention of a shorter
+    variant at all -- every field before `unk1` decodes cleanly on all 9
+    real files, the chunk simply ends exactly 16 bytes short of the
+    documented size, every time. Verified: all 9 real files now dump
+    cleanly, `unk1`-`unk4` all `null` as expected.
+  - **#4 (duplicate-timestamp animation keyframes, 5 real files) --
+    fixed.** `checkKeyframesWellFormed` (renamed
+    `repairDuplicateTimestampsAndValidate`, `src/cmd_export.cpp`) used
+    to reject *any* non-strictly-increasing keyframe timestamp
+    identically, whether genuine disorder (a timestamp that actually
+    decreases -- real corruption) or an exact duplicate (real, shipped
+    Blizzard data: an authored "hard cut" pose, always on `rotation`,
+    confirmed on all 5 real files named in the doc -- 2 world bosses,
+    2 base character rigs, 1 world doodad). Chose **nudge over collapse**
+    (the doc's own two options, left an open decision pending a
+    reader cross-check that turned up nothing specific to M2): collapsing
+    either keyframe would silently discard one of the two real authored
+    values, while nudging the later duplicate's timestamp forward 1ms
+    (cascading, so a run of N duplicates spreads out N-1ms apart) keeps
+    both -- correct under both glTF LINEAR and STEP sampler
+    interpolation, and general glTF-authoring precedent (Blender's own
+    exporter deliberately inserts near-zero-gap duplicate keyframes to
+    force STEP-like behavior) supports nudge as the standard shape for
+    this exact problem. A genuinely *decreasing* timestamp still throws,
+    classified against each keyframe's *original* (pre-repair) timestamp
+    -- comparing against an already-nudged value would misfire the
+    disorder check on a cascading run's second entry, a real bug caught
+    while implementing (fixed before it reached any test). Verified
+    against all 5 real files: all export cleanly now, `gltf_validator`
+    shows zero animation-sampler-related errors on any of them (remaining
+    errors on 2 of the 5 are pre-existing/unrelated --
+    `ACCESSOR_JOINTS_INDEX_DUPLICATE`/`SKIN_NO_COMMON_ROOT`, same classes
+    already documented elsewhere in this repo).
+  - **#5 (`materialIndex` out of range, investigated further per Luna's
+    request to check more examples before declaring unfixable) --
+    confirmed unfixable, now with much stronger evidence.** Original
+    doc spot-checked one file; this session checked all 16 real files
+    identifiable via current `failures.txt`/`failure_codes.txt`
+    (renumbered since the doc was written). All 16 confirm the exact
+    same striking, perfectly uniform signature: `materialIndex` is
+    always **exactly** the model's own material count (never further out
+    of range), and `husk info` confirms each file's own material array
+    really does stop one short. No sibling-basename digit collision on
+    any of the 16 (all end in letter race/gender codes), so independent
+    of #3b's bug -- confirmed, not assumed, since #3b's fix was already
+    live when these were re-checked. No wiki-documented sentinel value
+    explains an "index == count" `materialIndex` either. Genuinely bad/
+    mismatched shared batch data across collections/recolor item
+    variants -- not fixable in husk. The doc's ~7 additional
+    `textureComboIndex` cases couldn't be re-verified the same way --
+    `failures_unique.txt` strips file paths during anonymization, and no
+    example path is available from current tooling output -- flagged
+    honestly as unverified (structurally identical shape, almost
+    certainly the same root cause, but not re-confirmed) rather than
+    quietly assumed.
+  - **#2's remaining half (missing spell-effect/item `.skin` files) --
+    explored, confirmed genuinely unfixable in husk, README note added.**
+    Requested as "explore if possible to fix... or if genuinely no way to
+    find the correct one, add explanation note in README." Widened the
+    sample first and found the doc's own "spell-effect models" framing
+    undersold the real scope -- the current `FAIL-0003` bucket also
+    includes ordinary item pieces (`item/objectcomponents/shoulder/`,
+    `.../collections/`). Checked two real files (the doc's own spell
+    example, plus a shoulder-armor item) the same rigorous way: real
+    geometry confirmed via `husk info`, then a *targeted* `find` (not
+    another 130k-file walk -- see the environment note below) for each
+    declared `SFID` FileDataID, decimal-to-hex converted, checked both
+    next to the model (already known absent) and in `_unresolved/`
+    (`wow_export`'s own "extracted but couldn't place" bucket,
+    `FILE<8-hex>.dat` naming -- the one place a "misplaced, not really
+    missing" file would surface) -- zero matches anywhere, for every
+    FileDataID on both files. Genuinely absent from the extraction, not
+    a husk-side false negative. Added a paragraph to `README.md`'s
+    `--skin`/`auto` section explaining this is a known extraction-
+    completeness gap, not a husk bug, and that re-running the extraction
+    tool (not husk) is the only real fix.
+  - **Tests**: 378 → 387 cases (`./build/husk-tests`: 387/387 + 1
+    permanently-inapplicable skip; `ctest`: 388/388). New cases per fix
+    above in `tests/test_gltf.cpp` (empty-meshes-with-skeleton,
+    empty-meshes-without-skeleton-throws) and `tests/test_cli.cpp`
+    (basename-collision reproduction both directions, out-of-range-count
+    error message, single + 3-way-cascading duplicate-timestamp repair),
+    `tests/test_dump.cpp` (`WFV3` short-variant round-trip).
+  - **Docs**: `CORPUS_TODO.md` (every item's own DEVELOPER NOTES section
+    now has a `[DONE]`-tagged disposition, matching this repo's existing
+    "fixed items get a disposition, not silently dropped" convention),
+    `WIKI_FINDINGS.md` (new §8, `WFV3`'s undocumented short variant),
+    `README.md` (the `.skin`-not-found extraction-gap note above),
+    `DESIGN.md` (3 new Key design decisions bullets: zero-meshes,
+    2-digit-suffix preference, duplicate-timestamp nudge-repair),
+    `M2_COMPLETENESS.md` (2 rows -- mesh geometry, animation tracks --
+    annotated with the new edge-case handling, no status-symbol changes
+    since both were already at `native — 100%`).
+  - **Environment note, reconfirmed and reinforced**: started an
+    unscoped full-130k-file `os.walk` Python scan (checking
+    same-basename-suffix-length distribution for #3b) before Luna
+    interrupted directly -- "you do realize there is 130 THOUSAND m2
+    files in that tree, which is exactly why i provided the exact
+    failures.txt file to map to relevant files." Stopped the background
+    task immediately, rescoped to the specific directories/files
+    `failures.txt`/`failure_codes.txt` already flagged for the rest of
+    the session (every subsequent investigation in this session --
+    #5, #2's remainder -- used this same targeted approach, not another
+    broad sweep). `direnv exec . uv run --no-project python3 <script>`
+    remains the sanctioned ad hoc-analysis pattern for the cases that
+    did need a script (reading a `gltf_validator` JSON report), scripts
+    left in the scratchpad, not committed.
+- **Previous state**: Particles/ribbons (`M2Particle`/`M2Ribbon`) — the single
   biggest remaining visual-identity gap this tool had (weapon glow trails,
   magic/fire/smoke) — went from 0%/static-fields-only to fully parsed:
   every static field, plus every M2Track/FBlock animation curve, for both
@@ -605,44 +802,45 @@ real-file-driven spec correction found along the way.
   `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel` got the
   three/four-state (`auto`/explicit/`none`) treatment `DESIGN.md`'s CLI
   grammar section still documents in full.
-- **Next step**: nothing in flight. Particles/ribbons are fully parsed and
-  verified (see Last state) — no further work needed there barring: (a) a
-  real pre-Cataclysm particle-bearing file ever showing up, which would
-  let `kMinVerifiedParticleVersion`'s floor be lowered with real evidence
-  instead of guessed; (b) full per-sequence/global-sequence curve
-  resolution was *not* deferred this session (it's already real, both for
-  `M2Track`-based and `FBlock`-based curves — see Last state), so there's
-  no "finish the curves" follow-up the way `M2Ribbon`'s own earlier
-  static-fields-first pass once left one. Remaining known gaps are exactly
-  what `TODO_correctness.md` tracks post-renumbering (item 1: `M2Camera`,
-  low-priority by design, not oversight; item 4: `.bone` slot *selection*
-  — the extras-export half is done, picking a slot is blocked on
-  client-side DB2 data husk doesn't have and, per `DESIGN.md`'s
-  non-goals, never will at runtime; two awareness-only footnotes), plus
-  optional scope expansion (WMO/M3, or Blender-side tooling for the
-  geoset/multi-texture-layer/bone-correction/ribbon/particle `extras`).
-  One real, minor loose end from an earlier session worth picking up if
-  `cmd_export.cpp` is touched again: `resolveSkin`'s failure messages
-  could name the specific candidate path/FileDataID they tried, not just
-  the directory — small, not urgent.
-- **Hazards**: none new from this session's own changes beyond what's
-  already folded into the code/docs (the ribbon/particle anchor
-  out-of-range-joint validation and the `dumpEmitters`-before-
-  `header.chunked`-early-return restructuring are both covered by real
-  tests, not just asserted safe). Two pre-existing, unrelated
-  `gltf_validator` "Joints do not have a common root" errors on 2 of the
-  4 real weapon fixtures (`offhand_1h_revendreth_d_01.m2`,
-  `mace_2h_bolvar_d_01.m2`) were confirmed via `git stash`/rebuild against
-  the unmodified baseline to predate this session entirely — a genuine,
-  still-open gap (some weapon models have a multi-root bone hierarchy
-  husk's `buildSkeleton` doesn't currently reconcile into one glTF-spec-
-  conformant root) but out of this session's own scope; worth a future
-  session if weapon-model export quality becomes a focus. One thing worth
-  knowing if
+- **Next step**: nothing in flight. `CORPUS_TODO.md`'s punch list is fully
+  worked (see Last state) — every item has a final disposition, five real
+  fixes landed, two investigations widened and confirmed. Genuinely open
+  threads, in the priority order the doc's own bottom section would put
+  them: (a) the `SKIN_NO_COMMON_ROOT` multi-root-bone-hierarchy gap,
+  confirmed this session as reaching ~38% of geometry-less VFX models on
+  top of the 2-of-4 real weapon fixtures already known — `buildSkeleton`
+  doesn't reconcile a multi-root bone hierarchy into one glTF-spec-
+  conformant root; a real, non-trivial design question (how to pick/
+  synthesize a single root) worth a dedicated session if export
+  conformance on these models becomes a priority; (b) the ~7
+  `textureComboIndex`-out-of-range cases `CORPUS_TODO.md` #5 couldn't
+  re-verify this session (`failures_unique.txt` strips paths) — almost
+  certainly the same "mismatched shared batch data" root cause as the
+  now-16x-confirmed `materialIndex` case, but genuinely unconfirmed;
+  (c) `tools/corpus_checks.py` keeping at least one real example path per
+  distinct failure *message shape*, not just the top-N codes by count, so
+  a case like (b) doesn't stay unverifiable next time. Also still open,
+  carried over from earlier sessions and untouched by this one:
+  `TODO_correctness.md`'s own tracked items (`M2Camera`, `.bone` slot
+  *selection* — both low-priority by design, not oversight), optional
+  scope expansion (WMO/M3, Blender-side tooling for the various `extras`
+  this project already exports), and `resolveSkin`'s failure messages not
+  naming the specific candidate path/FileDataID they tried.
+- **Hazards**: the `SKIN_NO_COMMON_ROOT` gap above is now confirmed wider
+  than previously known — not just 2 of 4 real weapon fixtures, but ~38%
+  of a 26-file real geometry-less-VFX-model sample too (10/26, plus the
+  single file checked individually earlier) — same root cause
+  (`buildSkeleton` doesn't reconcile a multi-root bone hierarchy), still
+  out of scope for whichever session picks it up next, not this one. This
+  session's own changes are each covered by real tests, not just asserted
+  safe (`writeGlbMulti`'s empty-meshes-with-skeleton path,
+  `findSameBasenameSkins`'s 2-digit preference, the keyframe-repair
+  cascading-duplicate-run case, `dumpWfv3`'s short-variant branch — see
+  Last state for the specific test names). One thing worth knowing if
   `cmd_export.cpp`'s collision-mesh block is touched again: it always
   appends its `NamedMesh` *after* every render/LOD entry — anything
   indexing `namedMeshes` by position (like the "N LOD tier(s)" summary
-  print, already fixed this session via `renderMeshCount`) needs to
+  print, fixed in an earlier session via `renderMeshCount`) needs to
   account for that trailing entry, not assume `namedMeshes.size()` equals
   the render-mesh count. Carried over from earlier sessions:
   `completions/husk.bash`/`.zsh` are generated, checked-in

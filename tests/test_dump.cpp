@@ -459,6 +459,48 @@ TEST_CASE("husk dump-chunks: WFV3 (one fixed 80-byte struct) reads every field a
     fs::remove(path);
 }
 
+// Regression test for CORPUS_TODO.md #6: real corpus files (Shadowlands
+// waterfall doodads, 9 files -- see WIKI_FINDINGS.md's WFV3 entry) carry a
+// 64-byte WFV3 chunk, missing exactly the trailing unk1-unk4 floats the
+// wiki's own struct listing always includes. dumpWfv3 used to assume 80
+// bytes unconditionally, so every field read past 0x40 threw a bounds
+// error ("chunk field at offset 64 needs 4 bytes but the chunk is only 64
+// bytes") and failed the whole dump-chunks run for these files.
+TEST_CASE("husk dump-chunks: WFV3's real 64-byte short variant reads every documented field and "
+          "emits null for the missing unk1-unk4, instead of throwing") {
+    std::vector<uint8_t> wfv3;
+    for (int i = 0; i < 11; ++i) putF32(wfv3, static_cast<float>(i + 1));  // 0x00-0x28
+    wfv3.push_back(0xAA);
+    wfv3.push_back(0xBB);
+    wfv3.push_back(0xCC);
+    wfv3.push_back(0xDD);  // 0x2C basecolor_rgba
+    uint16_t flags = 0x1234, unk0 = 0x5678;
+    wfv3.push_back(static_cast<uint8_t>(flags));
+    wfv3.push_back(static_cast<uint8_t>(flags >> 8));
+    wfv3.push_back(static_cast<uint8_t>(unk0));
+    wfv3.push_back(static_cast<uint8_t>(unk0 >> 8));
+    putF32(wfv3, 12.0f);  // 0x34 values3_w
+    putF32(wfv3, 13.0f);  // 0x38 values3_z
+    putF32(wfv3, 14.0f);  // 0x3C values4_y
+    REQUIRE(wfv3.size() == 0x40);  // the short variant -- no unk1-unk4 at all
+
+    auto file = wrapChunked(minimalMd20(), {{"WFV3", wfv3}});
+    auto path = tempPath("wfv3-short.m2");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("bad_alloc") == std::string::npos);
+    CHECK(result.output.find("\"bumpScale\": 1") != std::string::npos);
+    CHECK(result.output.find("\"values4_y\": 14") != std::string::npos);
+    CHECK(result.output.find("\"unk1\": null") != std::string::npos);
+    CHECK(result.output.find("\"unk2\": null") != std::string::npos);
+    CHECK(result.output.find("\"unk3\": null") != std::string::npos);
+    CHECK(result.output.find("\"unk4\": null") != std::string::npos);
+
+    fs::remove(path);
+}
+
 TEST_CASE("husk dump-chunks: RPID (a flat FileDataID array sized by chunk byte length) reads "
           "every entry") {
     std::vector<uint8_t> rpid;

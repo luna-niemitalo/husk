@@ -69,11 +69,11 @@ const char* alphaModeString(Material::AlphaMode mode) {
 
 std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const Skeleton* skeleton,
                                     const std::vector<Animation>& animations) {
-    if (meshes.empty()) {
-        throw Error("writeGlbMulti: meshes must not be empty");
-    }
-
     bool hasSkeleton = skeleton != nullptr && !skeleton->joints.empty();
+    if (meshes.empty() && !hasSkeleton) {
+        throw Error("writeGlbMulti: meshes must not be empty without a skeleton to fall back to "
+                    "(nothing to export)");
+    }
     if (hasSkeleton) {
         for (size_t i = 0; i < skeleton->joints.size(); ++i) {
             int parent = skeleton->joints[i].parent;
