@@ -1082,7 +1082,7 @@ TEST_CASE("writeGlbMulti: empty meshes throws") {
 }
 
 TEST_CASE("writeGlbMulti: empty meshes with a skeleton succeeds -- no mesh node, but joints and "
-          "emitter anchors still export (CORPUS_TODO.md #1's geometry-less-model shape)") {
+          "emitter anchors still export (the real geometry-less-VFX-model shape, see DESIGN.md)") {
     auto skel = buildChainSkeleton();
     skel.particleAnchors = {{7, 1, {0.1f, 0.2f, 0.3f}}};
     auto glb = husk::gltf::writeGlbMulti({}, &skel);
@@ -1225,4 +1225,102 @@ TEST_CASE("writeGlbMulti: a mesh entry with no skinning data, alongside a skinne
         CHECK(attr.first != "JOINTS_0");
         CHECK(attr.first != "WEIGHTS_0");
     }
+}
+
+namespace {
+
+// 3 independent roots, no shared parent -- a real M2 shape (a bone forest,
+// not a tree; see gltf.hpp's Skeleton doc comment). Distinct
+// from buildChainSkeleton, which is single-root by construction.
+husk::gltf::Skeleton buildMultiRootSkeleton() {
+    husk::gltf::Skeleton skel;
+    skel.joints.push_back({-1, {0, 0, 0}, {0, 0, 0}});
+    skel.joints.push_back({-1, {5, 0, 0}, {5, 0, 0}});
+    skel.joints.push_back({-1, {0, 5, 0}, {0, 5, 0}});
+    return skel;
+}
+
+}  // namespace
+
+TEST_CASE("writeGlbMulti: a multi-root skeleton gets one synthesized non-joint parent node") {
+    auto skel = buildMultiRootSkeleton();
+    auto glb = husk::gltf::writeGlbMulti({}, &skel);
+    auto model = loadBack(glb);
+
+    // No mesh nodes -- 3 joint nodes plus exactly one synthetic node.
+    REQUIRE(model.nodes.size() == 4);
+    int syntheticIdx = 3;  // meshCount(0) + jointCount(3)
+
+    REQUIRE(model.skins.size() == 1);
+    const auto& skin = model.skins[0];
+    // The concrete difference from Option 2 (a fake extra joint): joints
+    // stays exactly skeleton->joints.size(), no bogus extra entry.
+    CHECK(skin.joints.size() == 3);
+    CHECK(skin.skeleton == syntheticIdx);
+
+    const auto& synth = model.nodes[syntheticIdx];
+    REQUIRE(synth.children.size() == 3);
+    CHECK(synth.children[0] == skin.joints[0]);
+    CHECK(synth.children[1] == skin.joints[1]);
+    CHECK(synth.children[2] == skin.joints[2]);
+    // Untouched/default transform -- a stray translation/rotation/scale
+    // here would silently shift every former-root joint's whole subtree.
+    CHECK(synth.translation.empty());
+    CHECK(synth.rotation.empty());
+    CHECK(synth.scale.empty());
+
+    // Scene has exactly one root entry: the synthetic node, standing in for
+    // all 3 real roots (reached via its own .children, not listed
+    // individually).
+    const auto& sceneNodes = model.scenes[model.defaultScene].nodes;
+    REQUIRE(sceneNodes.size() == 1);
+    CHECK(sceneNodes[0] == syntheticIdx);
+}
+
+TEST_CASE("writeGlbMulti: a single-root skeleton's output is unaffected by the multi-root "
+          "synthesis path -- no synthetic node, skin.skeleton left unset") {
+    auto skel = buildChainSkeleton();  // single root by construction
+    auto glb = husk::gltf::writeGlbMulti({}, &skel);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.nodes.size() == 3);  // exactly the 3 joint nodes, no synthetic node
+    REQUIRE(model.skins.size() == 1);
+    CHECK(model.skins[0].joints.size() == 3);
+    CHECK(model.skins[0].skeleton == -1);  // unset, same as before this feature existed
+
+    const auto& sceneNodes = model.scenes[model.defaultScene].nodes;
+    REQUIRE(sceneNodes.size() == 1);
+    CHECK(sceneNodes[0] == 0);  // the one real root joint node, not a synthetic one
+}
+
+TEST_CASE("writeGlbMulti: a multi-root skeleton alongside real mesh nodes -- synthetic node comes "
+          "after every joint node, mesh nodes/skinning are unaffected") {
+    husk::gltf::NamedMesh a{"lod0", buildSkinnedTriangleMesh(), {}};
+    auto skel = buildMultiRootSkeleton();
+    // Weight the mesh to a couple of the (now-root) joints directly, to
+    // prove vertex joint indices stay raw/unremapped M2 bone indices even
+    // though rootJointNodeIndices.size() > 1.
+    auto& mesh = a.mesh;
+    mesh.skinning[0].joints[0] = 0;
+    mesh.skinning[1].joints[0] = 2;
+
+    auto glb = husk::gltf::writeGlbMulti({a}, &skel);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.nodes.size() == 1 /* mesh */ + 3 /* joints */ + 1 /* synthetic */);
+    int syntheticIdx = 4;  // meshCount(1) + jointCount(3)
+    CHECK(model.nodes[0].mesh == 0);
+    CHECK(model.nodes[0].skin == 0);
+
+    const auto& skin = model.skins[0];
+    CHECK(skin.joints.size() == 3);
+    CHECK(skin.joints[0] == 1);  // meshCount + 0
+    CHECK(skin.joints[2] == 3);  // meshCount + 2
+    CHECK(skin.skeleton == syntheticIdx);
+    CHECK(model.nodes[syntheticIdx].children.size() == 3);
+
+    const auto& sceneNodes = model.scenes[model.defaultScene].nodes;
+    REQUIRE(sceneNodes.size() == 2);  // mesh node + the one synthetic root
+    CHECK(sceneNodes[0] == 0);
+    CHECK(sceneNodes[1] == syntheticIdx);
 }

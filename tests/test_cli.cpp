@@ -143,7 +143,7 @@ std::vector<uint8_t> tinyMatchingSkin() {
 }
 
 // A .skin with every array (vertices/indices/submeshes/batches) genuinely
-// empty (count 0) -- CORPUS_TODO.md #1's dominant real-corpus shape: a
+// empty (count 0) -- the dominant real-corpus shape (3,807 files): a
 // pure particle/ribbon VFX model with no renderable geometry at all, not
 // merely an empty batch table over real vertices (that's tinyMatchingSkin's
 // case). Pairs with a 0-vertex M2 (minimalMd20() itself, unmodified).
@@ -165,7 +165,7 @@ std::vector<uint8_t> emptySkin() {
 }
 
 // minimalMd20() (0 vertices) plus one M2CompBone -- the real shape a
-// geometry-less VFX model still has (CORPUS_TODO.md #1: the corpus's own
+// geometry-less VFX model still has (the corpus's own
 // particle-only .m2 files all carry at least one bone for emitter
 // attachment), so a mesh-less export still has a skeleton to fall back to
 // instead of hitting writeGlbMulti's "nothing to export at all" case.
@@ -183,8 +183,8 @@ std::vector<uint8_t> zeroVertexOneBoneM2() {
     return b;
 }
 
-// Pairs with tinyValidM2() (1 M2 vertex) to reproduce CORPUS_TODO.md #3b's
-// "wrong .skin" shape: 2 local vertex slots resolving to global vertices 5
+// Pairs with tinyValidM2() (1 M2 vertex) to reproduce the real "wrong .skin"
+// prefix-collision shape: 2 local vertex slots resolving to global vertices 5
 // and 6 (both out of range for a 1-vertex model), each referenced 3 times
 // by `indices` -- 6 out-of-range triangleIndices entries total, the worst
 // being 6, so the improved error message's count/max-offender fields have
@@ -2057,7 +2057,7 @@ TEST_CASE("husk export: multiple same-basename .skin candidates resolves to the 
     fs::remove_all(dir);
 }
 
-// Regression test for CORPUS_TODO.md #3b: a real corpus scan found
+// Regression test: a real corpus scan found
 // findSameBasenameSkins silently pairing "mogu_library_crate_10.m2" with
 // "mogu_library_crate_100.skin" -- which actually belongs to the shorter
 // sibling model "mogu_library_crate_1.m2" ("...crate_1" + "00" LOD suffix),
@@ -2087,7 +2087,7 @@ TEST_CASE("husk export: a model basename that's a numeric-suffix prefix of a sib
     fs::remove_all(dir);
 }
 
-// Regression test for CORPUS_TODO.md #3b's second approved fix: a wrong-
+// Regression test for the second fix above: a wrong-
 // .skin pairing references hundreds of out-of-range vertex indices in real
 // corpus files, not one -- the error message now names how many and the
 // worst offender, not just the first index iteration happened to hit.
@@ -2217,6 +2217,78 @@ TEST_CASE("husk export: a .bone file correcting a bone index out of range for th
     CHECK(result.exitCode != 0);
     CHECK(result.output.find("424242.bone") != std::string::npos);
     CHECK(result.output.find("bone 5") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
+    fs::remove_all(dir);
+}
+
+// --lod all + multi-root and --bones-dir + multi-root are otherwise-untested
+// combinations, since each half only had its own dedicated fixture before
+// this. A 3-independent-
+// root .skel (buildSkel's own multi-root shape, matching the real corpus
+// finding that root count can be large) exercises both without a large real
+// fixture: writeGlbMulti's synthesis is exercised alongside --lod's shared-
+// skeleton-across-LOD-tiers path and --bones-dir's CorrectionSet::joint
+// indices, neither of which this file otherwise checks against a multi-root
+// skeleton at all.
+TEST_CASE("husk export: --lod all combined with a multi-root .skel skeleton exports cleanly -- "
+          "the shared skeleton/synthetic-root logic runs once, not per LOD tier") {
+    auto m2Path = tempPath("lod-all-multiroot.m2");
+    uint32_t id0 = 888101, id1 = 888102;
+    writeFile(m2Path, chunkedM2WithSfid(tinyValidM2(), {id0, id1}));
+
+    auto skinDir = fs::temp_directory_path();
+    auto skinPath0 = skinDir / (std::to_string(id0) + ".skin");
+    auto skinPath1 = skinDir / (std::to_string(id1) + ".skin");
+    writeFile(skinPath0, tinyMatchingSkin());
+    writeFile(skinPath1, tinyMatchingSkin());
+
+    auto skelPath = tempPath("lod-all-multiroot.skel");
+    writeFile(skelPath, buildSkel({{-1, -1}, {-1, -1}, {-1, -1}}));  // 3 independent roots
+
+    auto outPath = tempPath("lod-all-multiroot.glb");
+    auto result = runHusk("export " + m2Path.string() + " --skin auto -o " + outPath.string() +
+                           " --skin-dir " + skinDir.string() + " --lod all --skel " + skelPath.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("2 LOD tier(s)") != std::string::npos);
+    CHECK(result.output.find("3 bones") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath0);
+    fs::remove(skinPath1);
+    fs::remove(skelPath);
+    fs::remove(outPath);
+}
+
+TEST_CASE("husk export: --bones-dir combined with a multi-root .skel skeleton attaches "
+          "corrections cleanly -- CorrectionSet::joint indices stay raw M2 bone indices, "
+          "unaffected by the synthesized root node") {
+    auto m2Path = tempPath("bonesdir-multiroot.m2");
+    writeFile(m2Path, tinyValidM2());
+    auto skinPath = tempPath("bonesdir-multiroot.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto skelPath = tempPath("bonesdir-multiroot.skel");
+    // 3 independent roots (indices 0, 1, 2), plus a BFID chunk so
+    // --bones-dir has something to resolve -- same shape as
+    // boneCorrectionSkel() above, just multi-root instead of single-root.
+    auto skel = buildSkel({{-1, -1}, {-1, -1}, {-1, -1}});
+    std::vector<uint8_t> bfid;
+    putU32(bfid, 424242);
+    appendChunkTo(skel, "BFID", bfid);
+    writeFile(skelPath, skel);
+    auto dir = defaultsDir("bonesdirmultiroot");
+    // Corrects joint 2 -- the last of the 3 roots, not joint 0 -- so this
+    // would fail loudly (an out-of-range or misattributed correction) if the
+    // synthesized node's presence ever shifted a real joint's index.
+    writeFile(dir / "424242.bone", buildBoneFile(2, 0.01f, 0.02f, 0.03f));
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("bonesdir-multiroot.glb").string() + " --skel " + skelPath.string() +
+                           " --bones-dir " + dir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("attached 1/1") != std::string::npos);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
@@ -2453,7 +2525,7 @@ TEST_CASE("husk export: a non-monotonic (out-of-order) translation keyframe time
 // export: end-to-end animated model produces a real glTF animation clip"),
 // not repeated here.
 
-// Regression test for CORPUS_TODO.md #4: real shipped Blizzard data (5 real
+// Regression test: real shipped Blizzard data (5 real
 // files -- world bosses, base character rigs, one world doodad, all on
 // `rotation`) has an exact-duplicate keyframe timestamp -- a genuinely-
 // authored "hard cut" pose (two values meant to apply at the same instant),
@@ -2594,7 +2666,7 @@ TEST_CASE("husk export: batches that all share one skinSectionId print no geoset
     fs::remove_all(dir);
 }
 
-// Regression tests for CORPUS_TODO.md #1: a genuinely geometry-less M2 (0
+// Regression tests: a genuinely geometry-less M2 (0
 // vertices, an empty .skin) used to make buildMaterialsAndPrimitives
 // manufacture one primitive with empty `indices`, which writeGlbMulti's
 // hard "primitive indices must not be empty" check then rejected outright

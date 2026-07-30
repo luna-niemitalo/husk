@@ -224,6 +224,19 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     int skinIdx = -1;
     std::vector<tinygltf::Node> jointNodes;
     std::vector<int> rootJointNodeIndices;
+    // Synthesized only when the M2's bone array has more than one real
+    // root -- a plain, non-joint node parenting every real root joint,
+    // appended past the end of the joint-node range so it's invisible to
+    // every consumer that indexes Skeleton::joints (see Skeleton's own doc
+    // comment in gltf.hpp: Skeleton::joints itself is never touched here).
+    // Left at its default identity transform deliberately -- each root
+    // joint's own
+    // localTranslation already equals its absolute bind-pose position
+    // (buildSkeleton's parent == -1 branch), which is only correct as long
+    // as whatever parents it contributes no additional offset.
+    bool hasSyntheticRoot = false;
+    int syntheticRootNodeIndex = -1;
+    tinygltf::Node syntheticRootNode;
     if (hasSkeleton) {
         std::vector<float> ibmFlat;
         ibmFlat.reserve(skeleton->joints.size() * 16);
@@ -261,11 +274,25 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
                 jointNodes[static_cast<size_t>(parent)].children.push_back(nodeIdx);
             }
         }
+        if (rootJointNodeIndices.size() > 1) {
+            hasSyntheticRoot = true;
+            syntheticRootNodeIndex = static_cast<int>(meshCount + skeleton->joints.size());
+            syntheticRootNode.children = rootJointNodeIndices;
+        }
 
         tinygltf::Skin skin;
         skin.inverseBindMatrices = ibmAccIdx;
         for (size_t i = 0; i < skeleton->joints.size(); ++i) {
             skin.joints.push_back(static_cast<int>(meshCount + i));
+        }
+        // Per the Khronos discussion (github.com/KhronosGroup/glTF/issues/1270):
+        // a skin's implicit
+        // skeleton root (when `skeleton` is unset) is the common parent of
+        // every joint, which doesn't exist for a real multi-root M2 -- set
+        // it explicitly to the synthesized node so consumers don't have to
+        // guess. Single-root models: left unset, unchanged behavior.
+        if (hasSyntheticRoot) {
+            skin.skeleton = syntheticRootNodeIndex;
         }
 
         // .bone correction data (gltf::Skeleton::CorrectionSet's doc
@@ -605,18 +632,29 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     // Node layout: mesh nodes first (indices 0..meshCount-1, in `meshes`
     // order), then the shared skeleton's joint nodes (meshCount..meshCount+
     // jointCount-1) -- see the skeleton/skin block above, which already
-    // computed every joint/skin reference against this same offset.
+    // computed every joint/skin reference against this same offset -- then,
+    // only for a multi-root skeleton, the one synthesized parent node at
+    // index meshCount+jointCount (see hasSyntheticRoot above).
     model.nodes = meshNodes;
     for (auto& jointNode : jointNodes) {
         model.nodes.push_back(jointNode);
+    }
+    if (hasSyntheticRoot) {
+        model.nodes.push_back(syntheticRootNode);
     }
 
     tinygltf::Scene scene;
     for (size_t mi = 0; mi < meshCount; ++mi) {
         scene.nodes.push_back(static_cast<int>(mi));
     }
-    for (int rootIdx : rootJointNodeIndices) {
-        scene.nodes.push_back(rootIdx);
+    if (hasSyntheticRoot) {
+        // One scene root standing in for every real root joint -- reached
+        // via the synthetic node's own .children, not listed individually.
+        scene.nodes.push_back(syntheticRootNodeIndex);
+    } else {
+        for (int rootIdx : rootJointNodeIndices) {
+            scene.nodes.push_back(rootIdx);
+        }
     }
     model.scenes = {scene};
     model.defaultScene = 0;

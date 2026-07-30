@@ -155,6 +155,13 @@ struct Mesh {
 // vector, or -1 for a root joint. Both translations are already in the
 // target coordinate system (Y-up), same caller responsibility as Mesh's
 // positions/normals.
+//
+// More than one joint may have parent == -1 -- a real, common M2 shape
+// (35% of a real 130k-file corpus, tools/find_multiroot_skeletons.py), not
+// corruption, and never rejected here. `joints` itself is never reordered
+// or added to on account of this -- see writeGlbMulti's doc comment for how
+// the resulting glTF-side multi-root forest is made tooling-friendly
+// without touching this vector at all.
 struct Skeleton {
     struct Joint {
         int parent = -1;
@@ -356,8 +363,8 @@ struct NamedMesh {
 // outliner shows them as separate, individually-toggleable objects instead
 // of silently overwriting one another. `meshes` may only be empty when
 // `skeleton` is non-null and has at least one joint -- a genuinely
-// geometry-less M2 (a pure particle/ribbon VFX model, CORPUS_TODO.md #1;
-// real corpus files have zero vertices at the M2 level, not just an empty
+// geometry-less M2 (a pure particle/ribbon VFX model, 3,807 real corpus
+// files have zero vertices at the M2 level, not just an empty
 // .skin) still exports its skeleton and ribbon/particle emitter anchors
 // (Skeleton::ribbonAnchors/particleAnchors), just with no mesh node at all
 // -- glTF has no valid "mesh with zero primitives" representation to fall
@@ -366,6 +373,24 @@ struct NamedMesh {
 // the document. Every non-empty entry is validated exactly like writeGlb's
 // single `mesh`/`materials` (same Error conditions, "writeGlbMulti" in
 // place of "writeGlb" in the message).
+//
+// If `skeleton` has more than one root joint (`Joint::parent == -1` on more
+// than one entry -- a real, common M2 bone-forest shape, not corruption,
+// see Skeleton's own doc comment above), one
+// additional plain (non-joint) glTF node is synthesized as the parent of
+// every real root joint, appended past the end of the joint-node range
+// (index `meshCount + skeleton->joints.size()`) with a default/identity
+// transform. It becomes the sole scene-root entry standing in for those
+// joints (each real root is still reached via this node's own `.children`,
+// not listed individually) and `skin.skeleton` is set to it -- the shape
+// glTF's own tooling ecosystem already anticipates for multi-rooted
+// skeletons (see github.com/KhronosGroup/glTF/issues/1270). It is never
+// added to `skin.joints` and never gets an inverse bind matrix -- every
+// vertex/emitter-anchor/correction/animation joint index still refers to a
+// real M2 bone by its original, unshifted position (the one invariant this
+// must never break -- see Skeleton's own doc comment above). A single-root skeleton (the
+// overwhelming majority of real models) is unaffected: no synthetic node,
+// `skin.skeleton` left unset, output identical to before this existed.
 //
 // `skeleton`/`animations` are shared across every entry, not per-mesh --
 // valid because every LOD of one M2 draws from the same `bones` array (only

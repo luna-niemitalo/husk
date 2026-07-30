@@ -471,6 +471,45 @@ previous one still throws — repairing that would mean guessing which of
 the two conflicting values is "right," not resolving a known, consistent
 shape.
 
+**A multi-root M2 bone forest gets one synthesized, non-joint glTF parent
+node — never a fake extra joint, never a filter that drops real bones.**
+WoW's engine never required a single bone tree; a corpus-wide sweep
+(`tools/find_multiroot_skeletons.py`) found
+**35% of a real 130k-file corpus** (45,804 files) has more than one root
+bone (`parentBone == -1`) — common, intentional M2 data (particle-emitter
+anchors, accessory bones), not corruption. Core glTF's skinning model and
+tooling built on it (`gltf_validator`'s `SKIN_NO_COMMON_ROOT`) generally
+expect one common root, though empirically the validator catches only a
+small, unexplained slice of the full 35% (a 150-file random sample found
+just 11 currently flagged — raw root count and vertex-weighted root count
+both fail to predict which files trigger it). `writeGlbMulti` now
+synthesizes one plain `tinygltf::Node` (default/identity transform, never
+added to `skin.joints`, never given an inverse bind matrix) as the parent
+of every real root joint whenever `rootJointNodeIndices.size() > 1`,
+appended past the end of the joint-node range and set as the sole
+`scene.nodes` entry standing in for those roots (`skin.skeleton` points at
+it too) — the shape glTF's own tooling ecosystem already anticipates for
+multi-rooted skeletons (Khronos discussion, github.com/KhronosGroup/glTF/
+issues/1270). `Skeleton::joints` itself is never touched, reordered, or
+added to: every vertex/emitter-anchor/correction/animation joint index
+stays a raw, unremapped M2 bone-array index — the one invariant this fix
+must never break, per `src/gltf.hpp`'s `Skeleton` doc comment — a synthetic node inserted into
+`Skeleton::joints` instead would silently misattribute every one of those
+consumers, with no crash and no validator error). Verified empirically,
+not just by spec-reading: Blender's own glTF importer, run headlessly
+against a real 15-bone/10-root weapon fixture, reports `bone_count`
+matching the real M2 bone count exactly — it does not count the
+synthesized node as a bone. Single-root models (the overwhelming
+majority) are completely unaffected: no synthetic node, `skin.skeleton`
+left unset, byte-identical output to before this existed. Two other
+options were surveyed and rejected: appending the synthetic node as one
+more real joint (an identity-IBM "Armature bone," matches some other
+exporters' convention, but grows `skin.joints` past `header.bones.count`
+for no fidelity gain) and filtering non-hierarchical bones out entirely
+(`wow.export`'s apparent approach — a real, community-precedented option,
+but drops real M2 bones from the glTF output, against this project's own
+1:1-fidelity goal).
+
 ## CLI argument grammar for `export` (implemented)
 
 **Previous grammar**, for contrast (replaced, not additive — every existing
@@ -841,10 +880,38 @@ re-run automatically. Tracked as a testing debt, not a correctness bug.
 See `TODO_correctness.md` for the current punch list (`M2Camera`, `.bone`
 slot selection, and two awareness-only footnotes), `WIKI_FINDINGS.md` for every
 real-data-driven spec correction found so far, `AFSB`'s included, and
-`MULTIROOT_SKELETON_TODO.md` for the pre-implementation risk survey behind
-the still-open `SKIN_NO_COMMON_ROOT` multi-root-bone-hierarchy gap
-(`buildSkeleton` doesn't reconcile a real M2 bone forest into one glTF-
-spec-conformant scene-graph root -- confirmed on real weapon and
-geometry-less-VFX fixtures alike, not implemented). All three are
-living documents; this file describes the shape of the system they operate
-within, not their current item-by-item status.
+`PHYS_TODO.md` for the same kind of living plan covering `.phys` physics/
+collision sidecar support -- byte layout fully verified against real data
+(`WIKI_FINDINGS.md` §9, 103 real files, zero cross-chunk index errors), not
+yet implemented anywhere in `src/`. `TODO_correctness.md`/`WIKI_FINDINGS.md`/
+`PHYS_TODO.md` are living documents; this file describes the shape of the
+system they operate within, not their current item-by-item status.
+
+The multi-root-bone-forest representation gap used to have its own living
+plan here too (`MULTIROOT_SKELETON_TODO.md`) -- now fully implemented and
+folded into this file's own Key design decisions (the
+synthesized-non-joint-parent-node entry above) and `src/gltf.hpp`'s
+`Skeleton`/`writeGlbMulti` doc comments, so the standalone file was
+removed. Two narrow questions from that investigation were never chased
+down and remain genuinely open -- low-priority, awareness-only, not
+blocking anything built:
+
+- **What `gltf_validator`'s `SKIN_NO_COMMON_ROOT` check actually measures.**
+  Empirically it flags only ~7% of a random 150-file multi-root sample, and
+  neither raw root count nor vertex-weighted root count predicts which
+  files trigger it (`bloodelffemale.m2` has 90 of 119 roots and zero
+  errors; `offhand_1h_revendreth_d_01.m2` has only 10 of 15 and does
+  error) -- its real trigger condition was never reverse-engineered.
+- **Why an 11-hit sample from that 150-file draw skewed toward one item
+  family** (9 of 11 were `helm_mail_zuldazarraidmythic_d_01_*` race/gender
+  variants of the same base item) -- never investigated; could be
+  bone-count- or hierarchy-shape-correlated, or just sample-size noise.
+
+Separately, `M2CompBone.flags & 0x200` ("transformed" per the wiki)
+correlates with 66 of 78 roots in the flattest real multi-root fixture
+found (`mace_2h_bolvar_d_01.m2`, every one of its 78 bones its own root),
+but what actually distinguishes the flagged from unflagged roots was never
+determined -- worth a real investigation only if a future design ever
+wants to treat root bones differently based on it, per this project's own
+don't-guess-at-semantics rule. None of these three are blockers; they're
+recorded here so a future session doesn't have to rediscover them.

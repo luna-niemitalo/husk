@@ -62,7 +62,7 @@ elsewhere is just unattempted work.
 | UV / texture coordinates (both sets) | full | native | native — 100% | `TEXCOORD_0`/`TEXCOORD_1` |
 | Tangents | n/a | n/a | n/a | not in the documented base header at all — nothing to parse |
 | Vertex skinning (bone weights/indices) | full | native | native — 100% | `JOINTS_0`/`WEIGHTS_0` |
-| Skeleton / bone hierarchy | full | native | native — 100% | inline or `.skel`-sourced, same joint hierarchy either way |
+| Skeleton / bone hierarchy | full | native | native — 100% | inline or `.skel`-sourced, same joint hierarchy either way; a multi-root bone forest (35% of a real 130k-file corpus, `tools/find_multiroot_skeletons.py`) gets one synthesized non-joint glTF parent node, never a fake extra joint or a dropped bone — see `DESIGN.md`'s Key design decisions |
 | LOD tiers (`.skin` selection, `--lod`) | full | native | native — 100% | `--lod all` exports every tier as its own node sharing one skeleton |
 | Per-vertex color (batch tint/fade, constant case) | full | native | native — 100% | not truly per-vertex — per-batch material tint, see Materials section for the animated case |
 
