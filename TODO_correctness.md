@@ -125,3 +125,54 @@ other way (e.g. a separate out-of-band tool scraping it from CASC/DB2 at
 build time, per `DESIGN.md`'s Non-goals, and handing husk a plain slot
 index/file to use), applying a specific slot to the render becomes a real
 follow-up; not attempted here.
+
+---
+
+### 4. Alias sequences (`M2Sequence.flags & 0x40`) — "unresolvable" needs re-checking, not assuming
+
+`buildAnimations` (`src/cmd_export.cpp`) treats any sequence with `flags &
+0x40` set (and `0x20` unset) as a dead end and skips it outright, citing
+wowdev.wiki directly in the code comment: `// wowdev.wiki: "I have no clue"
+where this lives.` That quote is real, but it's from an older bullet-point
+summary partway down the M2 wiki page (`M2#Animation_sequences`) — the same
+page's own struct listing and Flags table, a little further down, are more
+specific and arguably contradict it: `M2Sequence` has a real
+`uint16_t aliasNext` field at offset `0x22` ("id in the list of animations.
+Used to find actual animation if this sequence is an alias"), and the Flags
+table spells out an actual mechanism: "the client skips these by following
+`aliasNext` until an animation without `0x40` is found." husk's own
+`m2::Sequence` doesn't even parse this field currently — `m2.hpp`'s doc
+comment lists `aliasNext` under "deliberately skipped, extend as later
+commands need more."
+
+**Not yet resolved even at a should-we-bother level — this is an
+exploration task, not a confirmed dead end.** A first real-data check
+against `bloodelffemale_hd.skel` (7 alias sequences out of 396) found
+`aliasNext` values in the 48861–48983 range, which don't resolve cleanly
+either way tried: too large to be a local index into this file's own
+396-entry `sequences` array, and no match against any other sequence's own
+`id` field within the same file. That leaves at least two live
+possibilities, neither confirmed:
+
+- `aliasNext` indexes into a global, client-side `AnimationData.dbc`-scale
+  table husk has no access to — the same class of external-lookup blocker
+  item 3 above (`.bone` slot selection) already hit, in which case this
+  really is unresolvable from the file alone and the wiki's "I have no
+  clue" *is* correct in effect even though a mechanism is named.
+- It resolves against something reachable from the file(s) husk already
+  has, just not the naive things a first pass tried — e.g. matching against
+  a wider id-space than one `.skel`'s own 396 sequences (a model's
+  companion `.m2`/other `.skel`s?), a relationship involving the
+  neighboring `variationNext` field, or a per-sequence-block indexing
+  scheme this quick check didn't consider.
+
+Worth a real investigation pass before concluding either way: check whether
+anyone on wowdev.wiki's talk/revision history has resolved this since that
+older bullet point was written; check a wider real-file sample than one
+model's 7 aliases (do `aliasNext` values ever fall in-range for *some*
+file's own sequence count?); check whether other established M2 tooling
+(`wow.export`, `pywowlib`, etc.) resolves alias sequences at all, and how.
+Currently 7/396 sequences (~1.8%) on the project's own primary fixture —
+low blast radius either way, but worth knowing which bucket this is
+actually in rather than leaving `buildAnimations`'s skip un-investigated
+on the strength of one possibly-outdated wiki sentence.
