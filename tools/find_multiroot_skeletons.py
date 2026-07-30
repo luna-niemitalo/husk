@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Scans a real M2 corpus for files whose bone array has more than one root
-bone (M2CompBone.parentBone == -1) -- MULTIROOT_SKELETON_TODO.md's own
-"characterize the shape more broadly" first step. Writes matching paths,
-one per line, to multiroot_skeleton_files_for_exploration.txt (repo root),
-same plain format as phys_files_for_exploration.txt.
+bone (M2CompBone.parentBone == -1) -- the corpus-scale measurement behind
+the multi-root-bone-forest glTF representation gap (see DESIGN.md's Key
+design decisions). Writes matching paths, one per line, to
+multiroot_skeleton_files_for_exploration.txt (repo root), same plain format
+as phys_files_for_exploration.txt.
 
 Independent of husk's own code (same "second opinion" discipline
 corpus_checks.py's read_m2_header_summary uses) -- reads the M2 bone
@@ -61,7 +62,7 @@ def extract_md20_blob(data: bytes) -> bytes | None:
 def count_bone_roots(m2_path: Path) -> int | None:
 	"""How many of this M2's bones have parentBone == -1, or None if the
 	file couldn't even be read as a real M2 (0-byte, truncated, corrupted
-	-- CORPUS_TODO.md #2/#7's already-known gaps, not this script's
+	-- known corpus-extraction gaps, not this script's
 	concern -- or a bone array descriptor that doesn't fit the file, same
 	"don't trust foreign data's own claims" bounds check husk itself
 	applies).
