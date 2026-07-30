@@ -13,6 +13,8 @@ ROOT = Path("/media/luna/data/wow_export")
 RUN_DIR = Path.cwd()
 SUMMARY_PATH = RUN_DIR / "summary.txt"
 FAILURES_PATH = RUN_DIR / "failures.txt"
+FAILURE_CODES_PATH = RUN_DIR / "failure_codes.txt"
+FAILURES_UNIQUE_PATH = RUN_DIR / "failures_unique.txt"
 
 
 def new_counter():
@@ -76,11 +78,12 @@ def build_summary_lines():
 
 
 def normalize_detail(detail: str, path: str) -> str:
+    """Strip the file's own path/dirname/stem out of an error string so
+    otherwise-identical failures don't get treated as unique just because
+    the message happens to embed the path of the file that triggered it."""
     if not detail:
         return detail
     p = Path(path)
-    # longest-first so we replace the full path before its parent dir,
-    # avoiding a partial replace leaving a dangling fragment behind
     candidates = sorted({str(p), str(p.parent), p.name, p.stem}, key=len, reverse=True)
     normalized = detail
     for c in candidates:
@@ -89,13 +92,13 @@ def normalize_detail(detail: str, path: str) -> str:
     return normalized
 
 
-def build_failure_lines():
+def build_failure_outputs():
     if not failures:
-        return ["no failures."]
+        return ["no failures."], ["no failures."], ["no failures."]
 
-    failure_signatures = []  # (path, signature)
+    entries = []  # (path, signature)
     signature_count = defaultdict(int)
-    signature_example = {}  # sig -> first path seen for that signature
+    signature_example = {}
 
     for path, failed_tests in failures:
         sig = tuple(
@@ -103,28 +106,47 @@ def build_failure_lines():
             for test_name, asserts in failed_tests.items()
             for a in asserts
         )
-        failure_signatures.append((path, sig))
+        entries.append((path, sig))
         signature_count[sig] += 1
         signature_example.setdefault(sig, path)
 
     ranked = sorted(signature_count, key=lambda s: signature_count[s], reverse=True)
     signature_code = {sig: f"FAIL-{i + 1:04d}" for i, sig in enumerate(ranked)}
 
-    lines = [
-        f'FAILED: "{path}" [{signature_code[sig]}]'
-        for path, sig in failure_signatures
-    ]
+    failures_lines = []   # repeated-pattern failures: path + code, code detail lives elsewhere
+    unique_lines = []     # one-off failures: full detail inline, no shared code to look up
 
-    lines.append("")
-    lines.append("failure codes:")
+    for path, sig in entries:
+        if signature_count[sig] == 1:
+            unique_lines.append(f'FAILED: "{path}"')
+            for test_name, assert_name, code, detail in sig:
+                prefix = f"[{code}] " if code else ""
+                unique_lines.append(f'tests.{test_name}.asserts.{assert_name}: {prefix}"{detail}"')
+            unique_lines.append("")
+        else:
+            failures_lines.append(f'FAILED: "{path}" [{signature_code[sig]}]')
+
+    codes_lines = ["failure codes:"]
+    had_multi = False
     for sig in ranked:
-        lines.append(f"[{signature_code[sig]}] x{signature_count[sig]}  (e.g. {signature_example[sig]})")
+        if signature_count[sig] == 1:
+            continue
+        had_multi = True
+        codes_lines.append(f"[{signature_code[sig]}] x{signature_count[sig]}  (e.g. {signature_example[sig]})")
         for test_name, assert_name, code, detail in sig:
             prefix = f"[{code}] " if code else ""
-            lines.append(f'tests.{test_name}.asserts.{assert_name}: {prefix}"{detail}"')
-        lines.append("")
+            codes_lines.append(f'tests.{test_name}.asserts.{assert_name}: {prefix}"{detail}"')
+        codes_lines.append("")
 
-    return lines
+    if not failures_lines:
+        failures_lines = ["no repeated-pattern failures -- see failures_unique.txt"]
+    if not had_multi:
+        codes_lines.append("none -- all failures were one-off, see failures_unique.txt")
+    if not unique_lines:
+        unique_lines = ["no one-off failures."]
+
+    return failures_lines, codes_lines, unique_lines
+
 
 def main():
     status_files = list(ROOT.rglob("*.status.json"))
@@ -138,13 +160,17 @@ def main():
         process_status_file(status_path)
 
     summary_lines = build_summary_lines()
-    failure_lines = build_failure_lines()
+    failures_lines, codes_lines, unique_lines = build_failure_outputs()
 
     SUMMARY_PATH.write_text("\n".join(summary_lines) + "\n")
-    FAILURES_PATH.write_text("\n".join(failure_lines) + "\n")
+    FAILURES_PATH.write_text("\n".join(failures_lines) + "\n")
+    FAILURE_CODES_PATH.write_text("\n".join(codes_lines) + "\n")
+    FAILURES_UNIQUE_PATH.write_text("\n".join(unique_lines) + "\n")
 
     print(f"\nwrote {SUMMARY_PATH}")
     print(f"wrote {FAILURES_PATH}")
+    print(f"wrote {FAILURE_CODES_PATH}")
+    print(f"wrote {FAILURES_UNIQUE_PATH}")
     print(f"failed files: {len(failures)} / {len(status_files)}")
 
 
