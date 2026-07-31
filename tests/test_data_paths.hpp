@@ -227,6 +227,13 @@ constexpr const char* kTextureCoordComboSkin =
 constexpr const char* kWeaponPhys = "item/objectcomponents/weapon/mace_1h_warfrontsforsaken_d_01.m2";
 constexpr const char* kWeaponPhysSkin =
     "item/objectcomponents/weapon/mace_1h_warfrontsforsaken_d_0100.skin";
+// Real files pulled directly from a live CASC install (see WIKI_FINDINGS.md
+// §13) to verify EXP2/PFDC against real bytes and lock in the BLP2/listfile
+// -mismatch anomaly's correct-throw behavior. Sit under test_data/
+// verification/, same gitignored convention as every other fixture here.
+constexpr const char* kExp2VerificationM2 = "verification/exp2_126382.m2";
+constexpr const char* kPfdcVerificationM2 = "verification/pfdc_1003471.m2";
+constexpr const char* kBlp2AnomalyM2 = "verification/blp2_7507381.m2";
 }  // namespace fixtures
 
 inline std::string testM2() { return resolve("HUSK_TEST_M2", fixtures::kM2); }
@@ -270,6 +277,15 @@ inline std::string testTextureCoordComboM2() {
 }
 inline std::string testTextureCoordComboSkin() {
     return resolve("HUSK_TEST_COORDCOMBO_SKIN", fixtures::kTextureCoordComboSkin);
+}
+inline std::string testExp2VerificationM2() {
+    return resolve("HUSK_TEST_EXP2_M2", fixtures::kExp2VerificationM2);
+}
+inline std::string testPfdcVerificationM2() {
+    return resolve("HUSK_TEST_PFDC_M2", fixtures::kPfdcVerificationM2);
+}
+inline std::string testBlp2AnomalyM2() {
+    return resolve("HUSK_TEST_BLP2_ANOMALY_M2", fixtures::kBlp2AnomalyM2);
 }
 
 }  // namespace husk::test

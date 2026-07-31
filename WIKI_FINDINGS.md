@@ -1191,6 +1191,12 @@ Pulled two real files directly via `casc-tool extract` (storage
 No code changes were needed — both parsers already handle real data
 correctly. Only the "unverified"/"zero real files" claims were stale.
 
+**Follow-up (`M2_GAPS_TODO.md` item 9, now closed)**: the two real fixtures
+above (`test_data/verification/exp2_126382.m2`/`pfdc_1003471.m2`) are now
+permanent, gitignored test fixtures with real `doctest::skip()`-gated
+regression coverage in `tests/test_dump.cpp` — the hand-verification above
+is checked by `ctest` on every run now, not just this session's prose.
+
 ### `BLP2`: a genuine anomaly, resolved — not an M2 chunk at all
 
 The chunk census also reported one real `.m2`-masked file (FileDataID
@@ -1209,6 +1215,12 @@ sniffing real content — a texture registered under an `.m2`-shaped name
 slipped into the `.m2` scan and got its first 4 bytes read as if they were
 a chunk tag. Not a husk bug, not a real M2 anomaly — a listfile/FileDataID
 labeling mismatch upstream of both tools.
+
+**Follow-up (`M2_GAPS_TODO.md` item 10, now closed)**: the same real file
+(`test_data/verification/blp2_7507381.m2`) now has permanent regression
+coverage in `tests/test_integration.cpp` locking in husk's correct
+throw-not-misread behavior across `info`/`export`/`dump-chunks`, so a
+future chunk-walker refactor can't silently regress it.
 
 ### `M3`: 8 real files exist, out of scope
 
@@ -1236,4 +1248,4 @@ explicit, by-design non-goal for this project.
 | §10 `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL` real, present (corrected from a scanner bug's false "absent") | `src/cmd_dump.cpp` (`kFallback` notes, unchanged — none of the five implemented yet) | investigation-only, `tools/find_m2_unknown_chunks.py` (bug fixed), cross-checked via `casc-tool scan-chunks` |
 | §11 `DETL` real stride (0x0c) + 16-byte alignment padding | `src/cmd_dump.cpp` (`dumpDetl`, `readHalfFloat`) | `tools/check_detl_stride.py` (investigation), `tests/test_dump.cpp` (implementation) |
 | §12 `aliasNext` = local `sequences` array index, chain-resolved into real clips | `src/m2.hpp`/`m2.cpp` (`Sequence`'s 7 new fields, `parseSequences`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`Animation::SequenceMetadata` extras) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
-| §13 `EXP2`/`PFDC` real files exist (local-extraction gap corrected); `BLP2` anomaly resolved as listfile mismatch; `M3` noted, out of scope | `src/m2.hpp` (`ExtendedParticle` comment), `src/cmd_dump.cpp` (`physPayloadRealLength` comment), `DESIGN.md` Non-goals — no parser changes needed | verified via direct `casc-tool extract` pulls, no new automated tests (existing parsers already handle the real bytes) |
+| §13 `EXP2`/`PFDC` real files exist (local-extraction gap corrected); `BLP2` anomaly resolved as listfile mismatch; `M3` noted, out of scope | `src/m2.hpp` (`ExtendedParticle` comment), `src/cmd_dump.cpp` (`physPayloadRealLength` comment), `DESIGN.md` Non-goals — no parser changes needed | `tests/test_dump.cpp` (real `EXP2`-only and `EXP2`+`PFDC` fixtures, exact values), `tests/test_integration.cpp` (`BLP2`-anomaly throws-cleanly across `info`/`export`/`dump-chunks`) — `test_data/verification/` |

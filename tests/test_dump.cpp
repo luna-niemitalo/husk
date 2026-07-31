@@ -17,12 +17,15 @@
 // a real offset round-trip. Deliberately reuses tests/test_m2.cpp's
 // already-established fixture-building conventions.
 //
-// DETL/PFDC/EXP2 (M2_GAPS_TODO.md items 8/2/3) are all unverified against
-// any real corpus file (see each dump function's own doc comment in
-// cmd_dump.cpp) -- their tests are synthetic fixtures built from the
-// wiki's own struct listing (DETL) or WIKI_FINDINGS.md's own confirmed
-// byte layout (also DETL), or by construction from husk's own
-// already-real-file-verified .phys parser (PFDC).
+// DETL/PFDC/EXP2 (M2_GAPS_TODO.md items 8/2/3) all have synthetic-fixture
+// tests above, built from the wiki's own struct listing (DETL) or
+// WIKI_FINDINGS.md's own confirmed byte layout (also DETL), or by
+// construction from husk's own already-real-file-verified .phys parser
+// (PFDC). EXP2/PFDC are additionally covered further down by two real-data
+// TEST_CASEs (M2_GAPS_TODO.md item 9) against files pulled directly from a
+// live CASC install (WIKI_FINDINGS.md §13) -- exact values re-derived fresh
+// from `husk dump-chunks` at test-writing time, not copied from that TODO's
+// own orientation numbers.
 
 #include <cstring>
 #include <doctest/doctest.h>
@@ -31,10 +34,13 @@
 #include <vector>
 
 #include "run_husk.hpp"
+#include "test_data_paths.hpp"
 
 namespace {
 
 using husk::test::runHusk;
+using husk::test::testExp2VerificationM2;
+using husk::test::testPfdcVerificationM2;
 namespace fs = std::filesystem;
 
 fs::path tempPath(const std::string& name) {
@@ -919,6 +925,60 @@ TEST_CASE("husk dump-chunks: EXP2 (M2Array<M2ExtendedParticle>, chunk-local head
     CHECK(countOccurrences(result.output, "\"life_fraction\"") == 2);
 
     fs::remove(path);
+}
+
+// M2_GAPS_TODO.md item 9 -- real-data regression coverage for EXP2/PFDC,
+// pulled directly from a live CASC install (WIKI_FINDINGS.md §13) rather
+// than a synthetic fixture. exp2_126382.m2 carries EXP2 only, no PFDC.
+TEST_CASE(
+    "husk dump-chunks: real EXP2-only file (exp2_126382.m2, pulled from live CASC) decodes 9 "
+    "particle emitters each with default zSource/colorMult/alphaMult and an empty alphaCutoff "
+    "curve" *
+    doctest::skip(testExp2VerificationM2().empty())) {
+    auto result = runHusk("dump-chunks " + testExp2VerificationM2());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"EXP2\"") != std::string::npos);
+    CHECK(result.output.find("\"PFDC\"") == std::string::npos);
+    CHECK(countOccurrences(result.output, "\"particle_id\"") == 9);
+    CHECK(countOccurrences(result.output, "\"z_source\": 0") == 9);
+    CHECK(countOccurrences(result.output, "\"color_mult\": 1") == 9);
+    CHECK(countOccurrences(result.output, "\"alpha_mult\": 1") == 9);
+    // Every one of the 9 real EXP2 records has a genuinely empty
+    // alphaCutoff curve -- no "life_fraction" keyframe anywhere in the
+    // EXP2 section (the shared "particle_emitters" section has its own,
+    // unrelated per-track keyframes, so this checks EXP2's own count is
+    // zero rather than asserting an absolute zero across the whole file).
+    auto exp2Pos = result.output.find("\"EXP2\"");
+    REQUIRE(exp2Pos != std::string::npos);
+    CHECK(result.output.find("\"life_fraction\"", exp2Pos) == std::string::npos);
+}
+
+TEST_CASE(
+    "husk dump-chunks: real EXP2+PFDC file (pfdc_1003471.m2, pulled from live CASC) decodes a "
+    "real alphaCutoff curve and a real version-6/phyt-3 physics body/joint set" *
+    doctest::skip(testPfdcVerificationM2().empty())) {
+    auto result = runHusk("dump-chunks " + testPfdcVerificationM2());
+    CHECK(result.exitCode == 0);
+
+    // EXP2: 4 real particle emitters, each with a real, non-trivial
+    // 3-keyframe alphaCutoff curve (life_fraction 0 / 0.500015 / 1, all
+    // alpha_cutoff values 0 on this specific file).
+    CHECK(countOccurrences(result.output, "\"particle_id\"") == 4);
+    CHECK(countOccurrences(result.output, "\"life_fraction\": 0,") == 4);
+    CHECK(countOccurrences(result.output, "\"life_fraction\": 0.500015") == 4);
+    CHECK(countOccurrences(result.output, "\"life_fraction\": 1") == 4);
+    CHECK(countOccurrences(result.output, "\"alpha_cutoff\": 0") == 12);  // 4 emitters x 3 keyframes
+
+    // PFDC: version 6 / phyt 3, 5 real bodies (indices 0-4), 4 real
+    // shoulder joints chaining body 0->1->2->3->4, every non-root body's
+    // single shape resolving to a capsule.
+    CHECK(result.output.find("\"version\": 6") != std::string::npos);
+    CHECK(result.output.find("\"phyt\": 3") != std::string::npos);
+    CHECK(countOccurrences(result.output, "\"index\": 0") >= 1);
+    CHECK(countOccurrences(result.output, "\"kind\": \"capsule\"") == 4);
+    CHECK(countOccurrences(result.output, "\"kind\": \"shoulder\"") == 4);
+    CHECK(result.output.find("\"body_a\": 0") != std::string::npos);
+    CHECK(result.output.find("\"body_b\": 1") != std::string::npos);
 }
 
 TEST_CASE("husk dump-chunks: nonexistent path fails cleanly, not a crash") {

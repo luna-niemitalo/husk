@@ -1055,6 +1055,42 @@ TEST_CASE("husk export: skin file that doesn't belong to the given M2 fails clea
     CHECK(result.output.find("mismatch") != std::string::npos);
 }
 
+// M2_GAPS_TODO.md item 10 -- locks in husk's already-correct "throw, don't
+// misread" behavior on real non-M2 content, rather than trusting it stays
+// correct across future chunk-walker refactors. blp2_7507381.m2 is a real
+// FileDataID/listfile mismatch pulled from live CASC (WIKI_FINDINGS.md
+// §13): its actual stored content is a genuine BLP2 texture, not an M2 --
+// husk correctly refuses it with a ParseError-derived "chunk '..." message
+// (the malformed/non-ASCII chunk tag) rather than silently misreading
+// texture bytes as M2 structure. Checked across all three top-level
+// commands, since each has its own read path into the same chunk walker.
+TEST_CASE("husk info: real non-M2 content (a BLP2 texture under a mismatched .m2 FileDataID) "
+          "fails cleanly, not a crash or a silent misread" *
+          doctest::skip(husk::test::testBlp2AnomalyM2().empty())) {
+    auto result = runHusk("info " + husk::test::testBlp2AnomalyM2());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("chunk") != std::string::npos);
+}
+
+TEST_CASE("husk export: real non-M2 content (a BLP2 texture under a mismatched .m2 FileDataID) "
+          "fails cleanly, not a crash or a silent misread" *
+          doctest::skip(husk::test::testBlp2AnomalyM2().empty())) {
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-blp2-anomaly.glb").string();
+    auto result =
+        runHusk("export " + husk::test::testBlp2AnomalyM2() + " -o \"" + outPath + "\"");
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("chunk") != std::string::npos);
+    CHECK(!std::filesystem::exists(outPath));
+}
+
+TEST_CASE("husk dump-chunks: real non-M2 content (a BLP2 texture under a mismatched .m2 "
+          "FileDataID) fails cleanly, not a crash or a silent misread" *
+          doctest::skip(husk::test::testBlp2AnomalyM2().empty())) {
+    auto result = runHusk("dump-chunks " + husk::test::testBlp2AnomalyM2());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("chunk") != std::string::npos);
+}
+
 TEST_CASE("husk info: nonexistent path fails cleanly, not a crash") {
     auto result = runHusk("info /nonexistent/path/does-not-exist.m2");
     CHECK(result.exitCode != 0);
