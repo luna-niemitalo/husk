@@ -30,26 +30,18 @@ every item is gone, delete this file the same way `PHYS_TODO.md`/
    chunk-walking, no new glTF construct needed (extras only) — and it's the
    one piece of this whole investigation that affects animation *feel*
    (blending, movement-speed sync), not just data completeness.
-2. **Item 2 — `PFDC`.** husk already has the full `.phys` parser
-   (`src/phys.hpp`/`phys.cpp`) — this is "point it at a different chunk,"
-   not new reverse-engineering.
-3. **Item 3 — `EXP2`.** Needs one real-file check before implementing (see
-   below) but the struct shape is simple.
-4. **Item 4 — `PCOL`.** Blocked on finding a real file with this chunk at
-   all (War Within 11.1.7+, player-housing furniture) — do the corpus
-   search first; if nothing turns up, this one just waits.
-5. **Item 8 — `DETL`.** New (from `M2_UNKNOWNS_EXPLORATION.md`'s
-   investigation, now closed): real byte layout fully confirmed against
-   1,043 real files, zero ambiguity left. Small effort/shape — one small
-   struct, straightforward `dumpDetl`-style addition, no glTF translation
-   needed (diagnostic-only, same class as `WFV3`).
+2. **Item 4 — `PCOL`.** Blocked on finding a real file with this chunk at
+   all (War Within 11.1.7+, player-housing furniture) — a corpus search
+   found zero real files carrying it (0/130,576, see the item's own section
+   below); it just waits for newer extraction data.
 
-(Items 5, 6, and 7 — `Texture.type` export, Attachments/Events/Lights as
-real glTF nodes, and the animated material tint/fade extras curve dump —
-are implemented, tested, and documented; their sections have been removed
-from this file. See `M2_COMPLETENESS.md`'s Materials & textures /
-Interaction points & effects sections and `README.md`'s Materials
-paragraph for the permanent record.)
+(Items 2 (`PFDC`), 3 (`EXP2`), 5 (`Texture.type` export), 6 (Attachments/
+Events/Lights as real glTF nodes), 7 (animated material tint/fade extras
+dump), and 8 (`DETL`) are all implemented, tested, and documented; their
+sections have been removed from this file. See `M2_COMPLETENESS.md`,
+`WIKI_FINDINGS.md` §11, `README.md`'s Materials paragraph, and
+`src/cmd_dump.cpp`'s `dumpPfdc`/`dumpExp2`/`dumpDetl` for the permanent
+record.)
 
 ---
 
@@ -194,150 +186,6 @@ pre-Cata non-goal.)
 
 ---
 
-## Item 2: `PFDC` — reuse husk's own `.phys` parser
-
-### Current state
-
-`cmd_dump.cpp`'s `kFallback` table dumps `PFDC` as an opaque raw blob with
-the note: "embeds a `.phys`-shaped `PHYS` sub-structure that itself has no
-documented byte layout on wowdev.wiki." That note undersells husk's own
-position — wowdev.wiki's `PFDC` entry says outright: "Contains inline
-physics information in the same structure as the `.phys` files," and husk
-independently reverse-engineered and verified that exact structure against
-103 real files this session (`src/phys.hpp`/`phys.cpp`, `WIKI_FINDINGS.md`
-§9). The blocker was never "the structure is unknown" — it's "nobody's
-pointed the existing parser at this chunk yet."
-
-### Implementation plan
-
-1. Check `PFDC`'s payload shape against `phys::parse`'s expectations: the
-   wiki notes `PFDC` = `PHYS physics; char PADDING[6];` — i.e. the chunk's
-   payload *is* a `.phys` file's own byte layout (chunk container and all,
-   per `PHYS.md`), plus up to 6 trailing padding bytes. `phys::parse`
-   currently takes a `std::vector<uint8_t>` (a whole file) — check whether
-   it assumes the input starts exactly at a `.phys`-specific leading
-   structure (`PHYS.md`'s own header) that would also be present verbatim
-   inside `PFDC`'s payload, or whether any assumption needs relaxing to
-   accept "here's the same bytes, just embedded in another chunk instead
-   of being the whole file." The 6 trailing padding bytes need to be
-   tolerated (not consumed as if they were another chunk) — `phys::parse`
-   already reads chunks by walking to the end of the buffer or by chunk
-   count; confirm it stops cleanly rather than choking on trailing
-   padding, or trim the last 6 bytes defensively before handing the slice
-   to `phys::parse` if not.
-2. `cmd_dump.cpp`: move `PFDC` out of `kFallback` into a new dedicated
-   entry that slices the chunk's payload and calls `phys::parse` +
-   `writePhysFile` (the same function `dump-chunks <file.phys>`'s direct
-   path already uses) instead of `dumpRawFallback`.
-3. Real-file check before calling this done: find a real M2 with a `PFDC`
-   chunk (Shadowlands 9.0.1.33978+) — likely candidates are creature/
-   world-object models with inline physics rather than an external
-   `.phys` sidecar; a quick corpus grep for the `PFDC` tag (reversed or
-   not — confirm which, `.m2` chunk tags are **not** byte-reversed per
-   `M2.md`'s own note, unlike `.phys` itself) across
-   `/media/luna/data/wow_export` will find one if it exists in the corpus.
-   If none exists in the real corpus, this item still ships (structure is
-   known either way) but stays flagged "unverified against real data,"
-   same "verified floor" honesty this project already applies elsewhere.
-
-### Test plan
-
-- `tests/test_dump.cpp`: a synthetic `PFDC` chunk (a real `.phys` fixture's
-  bytes, embedded inside a hand-built `PFDC` chunk wrapper + trailing
-  padding) round-tripping through the new dump path — reuse an existing
-  `.phys` test fixture's bytes rather than authoring new ones from
-  scratch.
-- If a real `PFDC`-bearing file turns up: a real-data
-  `tests/test_integration.cpp` case, gated the same `HUSK_TEST_*` way
-  every other real-fixture check in this project is.
-
-### Docs to update
-
-- `cmd_dump.cpp`'s own `kFallback`-table comment (remove the `PFDC` entry
-  and its now-inaccurate note).
-- `M2_COMPLETENESS.md`'s "Particle/ribbon side-chunks" row or a new row —
-  `PFDC` isn't a particle/ribbon thing, it may deserve its own row under
-  Collision & physics instead, next to the `.phys` sidecar row.
-- `README.md`'s `dump-chunks` section, if it enumerates specific chunk
-  names anywhere.
-
----
-
-## Item 3: `EXP2` — extended-particle curve data
-
-### Current state
-
-`cmd_dump.cpp`'s `kFallback` table cites "contains a nested
-`M2PartTrack<fixed16>` whose own byte layout isn't given on wowdev.wiki"
-as the blocker. That's not quite right — `M2PartTrack` **is** defined, in
-`M2.md`'s `Types` section:
-
-```
-template<typename T>
-struct M2PartTrack {
-  M2Array<fixed16> times;
-  M2Array<T> values;
-};
-```
-
-This is the flat `{times, values}` pair — a simpler shape than the
-per-sequence-indirected `M2Track<T>` husk already resolves elsewhere
-(`resolveFloatTrackSequence` and friends, `src/m2.cpp`), not the same
-`FBlock` shape `M2Particle`'s Cata+ curves use either. `EXP2`'s full
-struct:
-
-```cpp
-struct M2ExtendedParticle {
-  float zSource;
-  float colorMult;
-  float alphaMult;
-  M2PartTrack<fixed16> alphaCutoff;
-};
-struct M2InitExtendedParticleArray {
-  M2Array<M2ExtendedParticle> content;  // same length as particle_emitters
-};
-```
-
-### What needs checking before implementing
-
-1. Confirm `fixed16`'s exact interpretation (husk likely already has this
-   type from `M2Particle`'s own Cata+ curve work — reuse, don't
-   re-derive).
-2. Find a real file with an `EXP2` chunk (7.3+) and confirm: `content`'s
-   length equals `particle_emitters.count` (per the wiki's own claim —
-   verify, don't assume, same discipline every other real-data check in
-   this project uses), and that `alphaCutoff.times`/`values` decode to
-   plausible monotonic-timestamp / bounded-alpha curves the way `M2Particle`'s
-   own FBlock curves did when that was verified (`WIKI_FINDINGS.md` §6).
-
-### Implementation plan
-
-1. `src/m2.hpp`/`m2.cpp`: new `ExtendedParticle` struct + parser, using
-   the existing `M2PartTrack`-style flat-array resolver if one already
-   exists from another chunk, else add one (this is the simplest track
-   shape in the whole format — should be a small addition).
-2. `cmd_dump.cpp`: move `EXP2` from `kFallback` to a dedicated `dumpExp2`
-   entry in `kDocumented`, indexed by particle-emitter position (same
-   convention `TXAC`'s per-material/per-particle indexing already uses,
-   if applicable).
-
-### Test plan
-
-Real-fixture-gated case in `tests/test_dump.cpp` (or synthetic if no real
-`EXP2`-bearing file exists in the corpus — flag which, honestly, the same
-way `PHYS_TODO.md` flagged its own real-data gaps up front rather than
-discovering them mid-implementation).
-
-### Docs to update
-
-`M2_COMPLETENESS.md`'s "Particle/ribbon side-chunks" row (currently lists
-`TXAC`/`EXPT`/`RPID`/`GPID`/`PGD1` — add `EXP2`, and update `EXPT`'s own
-note if `EXP2` is confirmed to supersede it for files that have both, per
-the wiki's own "probably outdated... client tries to reconstruct EXPT from
-EXP2" text).
-
----
-
 ## Item 4: `PCOL` — player-housing collision (War Within 11.1.7+)
 
 ### Current state
@@ -359,6 +207,13 @@ coverage for a "preliminary" wiki struct with zero real-byte
 cross-checking, same caution this project already applies elsewhere
 (`kMinVerifiedParticleVersion`'s whole reason for existing).
 
+**Checked**: a top-level-chunk-tag scan across the full real corpus
+(`/media/luna/data/wow_export`, all 130,576 `.m2` files, same fast scan
+`tools/find_m2_unknown_chunks.py` already established) found **zero** real
+files carrying a `PCOL` chunk. This item stays parked exactly as scoped
+above — waiting for newer extraction data, not implemented against a
+"preliminary" wiki struct with no real bytes to ground it.
+
 ### If real data is found
 
 Follow the same "self-describing offset region, full byte-accounting
@@ -376,73 +231,3 @@ not a `PLYT`-style single dense blob.
 `n/a` glTF-ceiling initially (extras, no native slot, same class as
 `.phys`) unless a real file surfaces and a translation to husk's existing
 `collision` extras-tagged mesh makes sense.
-
----
-
-## Item 8: `DETL` — per-light shadow-RT/diffuse-multiplier data (≥ 9.0.1.34365)
-
-### Current state
-
-`cmd_dump.cpp`'s `kFallback` table dumps `DETL` as an opaque raw blob,
-citing a 6-byte discrepancy between wowdev.wiki's stated field list (sums
-to 0x0c) and its own end-offset comment (`/*0x0a*/`) as the reason it isn't
-parsed structurally. `M2_UNKNOWNS_EXPLORATION.md`'s investigation (now
-closed, folded into `WIKI_FINDINGS.md` §11) resolved this completely
-against all 1,043 real `DETL`-bearing files in the corpus:
-
-- **Real per-record stride is 0x0c (12 bytes)** — the wiki's own field
-  list, not its `/*0x0a*/` comment (which is simply wrong).
-- **The whole chunk is zero-padded up to the next 16-byte alignment
-  boundary** — real chunk size is `((12 × lights.count + 15) / 16) × 16`,
-  not `12 × lights.count`. This part isn't on the wiki at all.
-- One real record per light (`lights.count` from the header, no off-by-one
-  once the alignment padding above is accounted for).
-- Field values, decoded at the confirmed stride, are sane across all 1,386
-  real records sampled: `flags` takes only two values (`0x0000`/`0x0008`),
-  `scale` (half-float) is a constant 0.013885498046875, `diffuseColorMultiplier`
-  (half-float) is a constant 1.0, `unk0`/`unk1` are always zero.
-
-No ambiguity or real-file gap remains — this is purely "write the parser,"
-same shape as `WFV3`'s own already-implemented short-variant handling.
-
-### Implementation plan
-
-1. `src/cmd_dump.cpp`: new `dumpDetl` (move `DETL` from `kFallback` to
-   `kDocumented`), reading records at stride 12 for `min(lights.count,
-   chunk.size / 12)` entries (defensive floor in case a foreign/corrupted
-   file's declared `lights.count` doesn't match its own `DETL` chunk size —
-   this project's usual "don't trust foreign data's own claims" discipline,
-   even though 1,043/1,043 real files agree cleanly). Decode `scale`/
-   `diffuseColorMultiplier` as half-floats — husk already has a half-float
-   decoder from `M2Particle`'s `FBlock` work (`resolveFBlockVec3`/`Vec2`/
-   friends, `src/m2.cpp`); reuse rather than re-derive.
-2. No glTF translation — `DETL` is diagnostic-only (`dump-chunks`), same
-   class as `WFV3`/`TEXL`, no core glTF slot for per-light shadow-matrix
-   scale or diffuse multiplier data.
-3. The 16-byte alignment padding at the end of the chunk (when present)
-   should simply be ignored/unread — it's not additional record data
-   (verified: reading the padding bytes as if they were a partial record
-   would either decode nothing meaningful or run past the chunk, and no
-   real file's `lights.count` implies a partial trailing record).
-
-### Test plan
-
-- `tests/test_dump.cpp`: a synthetic `DETL` chunk (a few records, at least
-  one file with alignment padding present — e.g. 1 light → 16-byte chunk
-  with 4 padding bytes, to exercise the padding-ignored path directly) plus
-  a real-fixture case if a committed test fixture happens to carry a real
-  `DETL` chunk (check first — none of this project's current character/
-  weapon fixtures are player-housing doodads, the dominant `DETL`-bearing
-  category found in the corpus scan, so a synthetic fixture built from real
-  observed byte values is the likely path, same as `WFV3`'s own test
-  fixture approach).
-
-### Docs to update
-
-- `cmd_dump.cpp`'s own `kFallback`-table comment (remove the `DETL` entry
-  and its now-resolved note).
-- `M2_COMPLETENESS.md` — likely a new row under Lighting, or extend
-  whichever row already covers `M2Light` itself.
-- `WIKI_FINDINGS.md`'s "Where these live in husk" table (§11's row,
-  currently pointing at "not yet implemented — see `M2_GAPS_TODO.md`")
-  once this ships.
