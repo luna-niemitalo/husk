@@ -71,10 +71,11 @@ elsewhere is just unattempted work.
 | Feature | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|
 | Animation sequences + per-bone tracks (inline or `.skel`-sourced) | full | native | native — 100% | `resolveVec3TrackSequence`/`resolveQuatTrackSequence`; a real, exact-duplicate keyframe timestamp (an authored "hard cut" pose, 5 real corpus files) is repaired via a 1ms forward nudge rather than rejected — see `DESIGN.md`'s Key design decisions |
+| `M2Sequence`'s own metadata (`movespeed`/`frequency`/`replay`/`blendTimeIn`/`blendTimeOut`/`bounds`/`variationNext`/`aliasNext`) | full | extras | extras-capped, permanent | no core-glTF clip field for playback speed/blend timing/replay count/bounding volume exists — attached as `sequence_metadata` extras on each clip (`gltf::Animation::SequenceMetadata`), same "tag it, don't guess at semantics" treatment as `bone_correction_sets`/`ribbon_emitters` |
 | External `.anim` sequences (`AFM2`) | full | native | native — 100% | via `--anim <dir>` + `AFID`/`.skel`'s own `AFID` |
 | External `.anim` sequences (`AFSB`, `.skel`-linked) | full | native | native — 100% | byte layout was undocumented anywhere, cracked this session — `SKB1`'s own descriptors point directly into `AFSB`'s payload, no new parser needed (`WIKI_FINDINGS.md` §2's follow-up) |
 | Global-sequence bone tracks (independent continuous loops) | full | native | native — 100% | `buildGlobalSequenceAnimations`, one clip per global-sequence index |
-| Alias sequences (`flags & 0x40`) | none | none | n/a | wowdev.wiki itself: "I have no clue" where this data lives — an upstream-spec gap, not a husk gap |
+| Alias sequences (`flags & 0x40`) | full | native | native — 100% | `aliasNext` resolved (`WIKI_FINDINGS.md` §12): a local `sequences` array index, chain-walked to its terminal non-alias sequence, whose keyframe data (inline or external, whichever it uses) is reused for the alias's own clip — a sequence carrying *both* `0x20` (inline) and `0x40` (alias) uses its own inline data, `0x20` winning priority exactly as it did before this existed (real data: 31 of 38 real alias sequences in `bloodelffemale_hd.skel` carry both bits) |
 | Animated material tint/fade (`M2Color`/`M2TextureWeight`, global-sequence-driven) | deref (animated flag detected) | diagnostic (stderr note only) | native-possible, not done | no core-glTF animation-channel target for a material property exists either way, but husk hasn't even attempted the extras-based keyframe dump that would at least surface the data |
 
 ## Materials & textures

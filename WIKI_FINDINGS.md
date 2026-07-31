@@ -1085,12 +1085,24 @@ external data needed at all.
 Whether `aliasNext`'s "id" wording in its own doc comment reflects some
 historical meaning (perhaps an older client version really did use a
 global id here, later changed to a local index without the wiki text being
-updated) — speculative, not checked. Also not checked: whether husk's
-`buildAnimations` (`cmd_export.cpp`) should actually *use* this to produce a
-real animation clip for alias sequences (currently skipped outright) by
-resolving the chain and reusing the terminal sequence's own animation
-data — a real, now-unblocked implementation opportunity, tracked as a
-follow-up in `M2_GAPS_TODO.md`'s Item 1 rather than decided here.
+updated) — speculative, not checked.
+
+### Follow-up: implemented
+
+`buildAnimations` (`cmd_export.cpp`) now resolves the chain (bounded to
+`sequences.size()` hops, throwing rather than looping forever on a cycle
+real data has never shown) and reuses the terminal sequence's own animation
+data for a "pure" alias sequence (`flags & 0x40` set, `flags & 0x20` not) —
+one real subtlety this needed a committed real fixture to surface: 31 of
+`bloodelffemale_hd.skel`'s 38 real alias sequences also carry `flags & 0x20`
+("stored inline"), so they already have real data of their own and must keep
+using it, unaffected by alias resolution, exactly as before it existed (see
+`DESIGN.md`'s Key design decisions for the full writeup). Measured against
+this exact fixture, the net effect on `bloodelffemale_hd.m2`'s own clip count
+is zero: all 7 "pure" alias sequences resolve (in the full real corpus) to a
+terminal sequence needing one of 6 distinct external `.anim` files, none of
+which happen to be among the ~104 already committed to this repo's own
+`test_data/` — a real, checked answer, not an assumption.
 
 ---
 
@@ -1109,4 +1121,4 @@ follow-up in `M2_GAPS_TODO.md`'s Item 1 rather than decided here.
 | §9 `.phys` format verified (`PLYT` stride fix + full sweep) | `src/phys.hpp`/`phys.cpp` (full parser), `src/gltf.hpp`/`gltf.cpp` (`PhysicsBody` extras), `src/cmd_export.cpp` (`--phys`), `src/cmd_dump.cpp` (full body/shape/joint/`PHYV` JSON, `.phys` file accepted directly) | `tests/test_phys.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_dump.cpp`, `tests/test_integration.cpp`/`test_conformance.cpp` (real weapon fixture) |
 | §10 `WFV1`/`WFV2`/`DPIV`/`AFRA` confirmed absent, full corpus | `src/cmd_dump.cpp` (`kFallback` notes, unchanged) | investigation-only, `tools/find_m2_unknown_chunks.py` |
 | §11 `DETL` real stride (0x0c) + 16-byte alignment padding | not yet implemented — see `M2_GAPS_TODO.md` | investigation-only, `tools/check_detl_stride.py` |
-| §12 `aliasNext` = local `sequences` array index | not yet implemented — see `M2_GAPS_TODO.md` Item 1 | investigation-only, `tools/check_alias_next.py` |
+| §12 `aliasNext` = local `sequences` array index, chain-resolved into real clips | `src/m2.hpp`/`m2.cpp` (`Sequence`'s 7 new fields, `parseSequences`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`Animation::SequenceMetadata` extras) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |

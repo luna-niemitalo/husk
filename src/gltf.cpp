@@ -694,6 +694,36 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
         tinygltf::Animation ga;
         ga.name = anim.name;
 
+        // M2Sequence's own per-sequence metadata (see
+        // Animation::SequenceMetadata's doc comment) -- inert extras, same
+        // "tag it, don't guess at semantics" treatment as skinSectionId/
+        // correctionSets above.
+        if (anim.sequenceMetadata) {
+            const auto& sm = *anim.sequenceMetadata;
+            auto vec3Array = [](const Vec3& v) {
+                return tinygltf::Value(tinygltf::Value::Array{
+                    tinygltf::Value(static_cast<double>(v.x)),
+                    tinygltf::Value(static_cast<double>(v.y)),
+                    tinygltf::Value(static_cast<double>(v.z))});
+            };
+            tinygltf::Value::Object meta;
+            meta["movespeed"] = tinygltf::Value(static_cast<double>(sm.movespeed));
+            meta["frequency"] = tinygltf::Value(static_cast<int>(sm.frequency));
+            meta["replay_min"] = tinygltf::Value(static_cast<int>(sm.replayMin));
+            meta["replay_max"] = tinygltf::Value(static_cast<int>(sm.replayMax));
+            meta["blend_time_in"] = tinygltf::Value(static_cast<int>(sm.blendTimeIn));
+            meta["blend_time_out"] = tinygltf::Value(static_cast<int>(sm.blendTimeOut));
+            meta["bounds_min"] = vec3Array(sm.boundsMin);
+            meta["bounds_max"] = vec3Array(sm.boundsMax);
+            meta["bounds_radius"] = tinygltf::Value(static_cast<double>(sm.boundsRadius));
+            meta["variation_next"] = tinygltf::Value(static_cast<int>(sm.variationNext));
+            meta["alias_next"] = tinygltf::Value(static_cast<int>(sm.aliasNext));
+            meta["is_alias"] = tinygltf::Value(sm.isAlias);
+            tinygltf::Value::Object animExtras;
+            animExtras["sequence_metadata"] = tinygltf::Value(meta);
+            ga.extras = tinygltf::Value(animExtras);
+        }
+
         auto addChannel = [&](int nodeIdx, const char* path, const std::vector<float>& times,
                                const void* valuesData, size_t valueCount, size_t valueStride,
                                int type, bool step) {

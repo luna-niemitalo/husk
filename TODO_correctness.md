@@ -47,8 +47,9 @@ including what the earlier "doesn't resolve" finding actually got wrong
 (reading the field at the wrong offset). Removed outright per this file's
 own convention rather than left as a resolved-but-lingering item; the
 follow-up (using this to produce real animation clips for currently-
-skipped alias sequences) is tracked in `M2_GAPS_TODO.md`'s Item 1, not
-here. Formerly-tracked items that got fixed and folded back into
+skipped alias sequences) was itself implemented and removed from
+`M2_GAPS_TODO.md` (its former Item 1) — see `DESIGN.md`'s Key design
+decisions. Formerly-tracked items that got fixed and folded back into
 `README.md`/`DESIGN.md` (shell completion, `.phys`/`PFID` surfacing,
 `M2Ribbon`, `M2Particle`, multi-texture-layer arithmetic, and everything
 `FINDINGS.md` used to track before it was retired) were removed from this

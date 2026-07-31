@@ -1364,12 +1364,13 @@ TEST_CASE("parseHeader: AFID chunk with a byte length not a multiple of 8 throws
 
 // M2Sequence (wowdev.wiki M2#Animation_sequences), 0x40 bytes: 0x00 id
 // (u16), 0x02 variationIndex (u16), 0x04 duration (u32), 0x0C flags (u32)
-// -- the fields husk::m2::parseSequences actually reads (movespeed/replay/
-// blendTime/bounds/variationNext/aliasNext are skipped, left zeroed here).
-// The 0x40 stride itself (not just these 4 fields) is the part worth
-// getting right -- see Sequence's doc comment in m2.hpp for the real-data
-// story of why it's 64 bytes, not the 36 a naive reading of the wiki
-// struct listing suggests.
+// -- movespeed/frequency/replay/blendTime/bounds/variationNext/aliasNext
+// (M2_GAPS_TODO.md's former Item 1) left zeroed here since this helper is
+// only used for the 4-field happy-path/throw tests below; putSequenceFull
+// (below) covers every field. The 0x40 stride itself (not just these 4
+// fields) is the part worth getting right -- see Sequence's doc comment in
+// m2.hpp for the real-data story of why it's 64 bytes, not the 36 a naive
+// reading of the wiki struct listing suggests.
 void putSequence(std::vector<uint8_t>& buf, size_t off, uint16_t id, uint16_t variationIndex,
                   uint32_t duration, uint32_t flags) {
     if (buf.size() < off + 0x40) buf.resize(off + 0x40, 0);
@@ -1398,6 +1399,62 @@ TEST_CASE("parseSequences: reads id/variationIndex/duration/flags for every entr
     CHECK(sequences[1].variationIndex == 1);
     CHECK(sequences[1].duration == 3200);
     CHECK(sequences[1].flags == 0);
+}
+
+// Writes every field of one M2Sequence record (M2_GAPS_TODO.md's former
+// Item 1), at the exact offsets m2.hpp's Sequence doc comment gives:
+// /*0x08*/ movespeed, /*0x10*/ frequency, /*0x14*/ replay (2x u32),
+// /*0x1C*/ blendTimeIn/Out, /*0x20*/ bounds (2x Vec3), /*0x38*/
+// boundsRadius, /*0x3C*/ variationNext, /*0x3E*/ aliasNext.
+void putSequenceFull(std::vector<uint8_t>& buf, size_t off, uint16_t id, uint16_t variationIndex,
+                      uint32_t duration, uint32_t flags, float movespeed, int16_t frequency,
+                      uint32_t replayMin, uint32_t replayMax, uint16_t blendTimeIn,
+                      uint16_t blendTimeOut, float boundsRadius, int16_t variationNext,
+                      uint16_t aliasNext) {
+    if (buf.size() < off + 0x40) buf.resize(off + 0x40, 0);
+    putU16(buf, off + 0x00, id);
+    putU16(buf, off + 0x02, variationIndex);
+    putU32(buf, off + 0x04, duration);
+    std::memcpy(buf.data() + off + 0x08, &movespeed, 4);
+    putU32(buf, off + 0x0C, flags);
+    std::memcpy(buf.data() + off + 0x10, &frequency, 2);
+    putU32(buf, off + 0x14, replayMin);
+    putU32(buf, off + 0x18, replayMax);
+    putU16(buf, off + 0x1C, blendTimeIn);
+    putU16(buf, off + 0x1E, blendTimeOut);
+    float boundsVals[6] = {1, 2, 3, 4, 5, 6};  // min (1,2,3), max (4,5,6)
+    std::memcpy(buf.data() + off + 0x20, boundsVals, sizeof(boundsVals));
+    std::memcpy(buf.data() + off + 0x38, &boundsRadius, 4);
+    std::memcpy(buf.data() + off + 0x3C, &variationNext, 2);
+    putU16(buf, off + 0x3E, aliasNext);
+}
+
+TEST_CASE("parseSequences: reads every M2_GAPS_TODO.md-former-Item-1 field at its real offset") {
+    std::vector<uint8_t> blob(200, 0);
+    putSequenceFull(blob, 200, 100, 0, 5000, 0x20, 4.5f, -3, 10, 20, 30, 40, 7.5f, -1, 0);
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = 200;
+    auto sequences = husk::m2::parseSequences(blob, array);
+
+    REQUIRE(sequences.size() == 1);
+    const auto& s = sequences[0];
+    CHECK(s.movespeed == doctest::Approx(4.5f));
+    CHECK(s.frequency == -3);
+    CHECK(s.replay.minimum == 10);
+    CHECK(s.replay.maximum == 20);
+    CHECK(s.blendTimeIn == 30);
+    CHECK(s.blendTimeOut == 40);
+    CHECK(s.bounds.min.x == doctest::Approx(1));
+    CHECK(s.bounds.min.y == doctest::Approx(2));
+    CHECK(s.bounds.min.z == doctest::Approx(3));
+    CHECK(s.bounds.max.x == doctest::Approx(4));
+    CHECK(s.bounds.max.y == doctest::Approx(5));
+    CHECK(s.bounds.max.z == doctest::Approx(6));
+    CHECK(s.boundsRadius == doctest::Approx(7.5f));
+    CHECK(s.variationNext == -1);
+    CHECK(s.aliasNext == 0);
 }
 
 TEST_CASE("parseSequences: empty array returns an empty vector without touching the blob") {

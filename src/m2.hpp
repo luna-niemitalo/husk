@@ -302,6 +302,13 @@ struct Bone {
     uint32_t scaleTrackOffset = 0;
 };
 
+// M2Range, per wowdev.wiki Common_Types -- a plain {minimum, maximum}
+// uint32_t pair. Only user so far is M2Sequence::replay below.
+struct Range {
+    uint32_t minimum = 0;
+    uint32_t maximum = 0;
+};
+
 // M2Sequence, per wowdev.wiki M2#Animation_sequences -- 0x40 (64) bytes for
 // every version this parser targets (WotLK+, matching Bone's own minimum;
 // the pre-6.0.1-vs-later blendTimeIn/blendTimeOut-vs-blendTime split
@@ -315,24 +322,47 @@ struct Bone {
 // bloodelffemale.m2, where a 36-byte stride decodes id/variationIndex into
 // nonsense (e.g. variationIndex in the tens of thousands) for every other
 // record, while 64 bytes decodes every one of its 339 sequences to sane
-// values (small ids/variationIndices, millisecond durations). Deliberately
-// minimal otherwise -- only what roadmap stage 6's animation export
-// actually needs; movespeed/replay/blendTime/bounds itself/variationNext/
-// aliasNext are skipped, same "extend as later commands need more" policy
-// as Header's own doc comment.
+// values (small ids/variationIndices, millisecond durations). Every field
+// below is documented cleanly on the wiki (M2_GAPS_TODO.md's former Item
+// 1) at the offsets given in each field's own comment, all fitting
+// cleanly into the confirmed 64-byte stride with no gap/overlap:
+// /*0x00*/ id, /*0x02*/ variationIndex, /*0x04*/ duration, /*0x08*/
+// movespeed, /*0x0C*/ flags, /*0x10*/ frequency (+2 bytes padding),
+// /*0x14*/ replay, /*0x1C*/ blendTimeIn, /*0x1E*/ blendTimeOut, /*0x20*/
+// bounds (Vec3 min + Vec3 max, 24 bytes), /*0x38*/ boundsRadius, /*0x3C*/
+// variationNext, /*0x3E*/ aliasNext.
 struct Sequence {
     uint16_t id = 0;             // AnimationData.dbc id -- husk has no DBC access, so this is
                                   // surfaced as a raw number, never resolved to a human name
     uint16_t variationIndex = 0; // which sub-animation in a row of same-id animations
     uint32_t duration = 0;       // milliseconds
+    float movespeed = 0;         // used to sync e.g. run-cycle animation speed to actual movement speed
     // M2Sequence flags (wowdev.wiki M2#Animation_sequences's Flags table).
-    // The only bit husk's animation export actually checks is 0x20
+    // The two bits husk's animation export actually checks are 0x20
     // ("primary bone sequence": if set, this sequence's M2Track keyframe
     // data lives inline in this M2; if not, it's in an external .anim file
-    // husk doesn't parse yet -- see Header::animFileIds) -- exposing the
-    // whole field rather than just a bool in case a future caller needs
-    // another bit (e.g. 0x40, alias-follows).
+    // -- see Header::animFileIds) and 0x40 ("is alias" -- see aliasNext's
+    // doc comment below) -- exposing the whole field rather than just
+    // bools in case a future caller needs another bit.
     uint32_t flags = 0;
+    int16_t frequency = 0;  // how often this sequence is played, relative to sibling variations
+    Range replay;            // wowdev.wiki: "may be overridden by sound data"
+    uint16_t blendTimeIn = 0;   // milliseconds
+    uint16_t blendTimeOut = 0;  // milliseconds
+    BoundingBox bounds;    // this sequence's own animated bounding box, model space
+    float boundsRadius = 0;  // bounding sphere radius, same M2Bounds record as `bounds`
+    int16_t variationNext = -1;  // id of the following variation, or -1 if this is the last
+    // Local index into this same file's own `sequences` array (not an
+    // AnimationData.dbc id, despite the wiki's own "id in the list of
+    // animations" doc comment -- WIKI_FINDINGS.md §12, confirmed against
+    // 157 real alias sequences across 4 real files, 100% valid in-range
+    // indices, zero cycles when chain-walked). Only meaningful when
+    // `flags & 0x40` is set ("is alias") -- per the wiki, "the client
+    // skips these by following aliasNext until an animation without 0x40
+    // is found," which is exactly what cmd_export.cpp's
+    // resolveAliasChain does to reuse the terminal sequence's own
+    // keyframe data for this (otherwise-dataless) alias sequence.
+    uint16_t aliasNext = 0;
 };
 
 // M2Color / M2TextureWeight, per wowdev.wiki M2#Colors_and_transparency --

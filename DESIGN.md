@@ -542,6 +542,55 @@ for no fidelity gain) and filtering non-hierarchical bones out entirely
 but drops real M2 bones from the glTF output, against this project's own
 1:1-fidelity goal).
 
+**`M2Sequence`'s own metadata (movespeed/frequency/replay/blendTime/bounds/
+variationNext/aliasNext) is per-clip glTF `extras`, and `aliasNext` is now
+chain-resolved into a real animation clip** (`M2_GAPS_TODO.md`'s former Item
+1, `WIKI_FINDINGS.md` §12). `m2::Sequence` gained the seven fields wowdev.wiki
+documents beyond `id`/`variationIndex`/`duration`/`flags`, at the exact
+offsets that fit cleanly into the already-verified 64-byte stride (see
+`Sequence`'s own doc comment) — no ambiguity, straightforward parse.
+`aliasNext` is the one with real behavior attached: it's a plain local index
+into the same file's own `sequences` array, not an `AnimationData.dbc` id
+(§12) — `buildAnimations` (`cmd_export.cpp`) used to skip every
+`flags & 0x40` ("is alias") sequence outright, citing the wiki's own
+now-superseded "I have no clue." It now resolves the chain
+(`resolveAliasChain`, bounded to `sequences.size()` hops, throwing rather
+than looping forever on a cycle real data has never shown) to the terminal
+non-alias sequence and reuses *that* sequence's own keyframe data — inline or
+external, whichever it uses — registered under the *alias's own* id/index, so
+a real clip appears where none did before. **One real priority subtlety a
+committed real fixture (`bloodelffemale_hd.skel`) forced, not anticipated by
+the original plan**: 31 of its 38 real alias sequences *also* carry
+`flags & 0x20` ("stored inline") — i.e. they already have real inline
+keyframe data of their own and don't need (or want) another sequence's data
+substituted. `0x20` wins priority exactly the way it did before `aliasNext`
+resolution existed (checked first, alias-chain resolution only triggers for a
+"pure" alias — `0x40` set, `0x20` not) — resolving the chain unconditionally
+for every `0x40`-flagged sequence would have silently changed those 31 real
+clips' content, a regression caught by re-deriving the fixture's own flag
+bytes directly (not assumed) once a real export's animation count didn't
+change after the fix, as expected (see below). The other 6 non-`aliasNext`
+fields (movespeed/frequency/replay/blendTimeIn/blendTimeOut/bounds) have no
+core-glTF clip-level equivalent (playback speed scaling, blend time, replay
+count, bounding volume) — exposed as `sequence_metadata` extras on the clip
+itself (`gltf::Animation::SequenceMetadata`), the alias's own field values
+even when its keyframe data is borrowed, same "tag it, don't guess at
+semantics" treatment `bone_correction_sets`/`ribbon_emitters` already get.
+**A real, honest finding, not a guess**: against the exact fixture set
+committed to this repo, the fix's *measured* effect on
+`bloodelffemale_hd.m2`'s own animation count is **zero net new clips** —
+of the 7 "pure" alias sequences, all 7 resolve (in the full real corpus) to a
+terminal sequence needing an external `.anim` file, and none of those 6
+distinct files happen to be among the ~104 already committed here (confirmed
+by hand against the full corpus at `/media/luna/data/wow_export`) — the
+original implementation plan's own "don't assume every alias necessarily
+gains a clip without checking" caveat turned out to be exactly right for
+this data. `tests/test_cli.cpp`'s synthetic fixtures (2-hop, multi-hop,
+both-flags-priority, self-referencing cycle, out-of-range `aliasNext`) prove
+the mechanism itself works; `tests/test_integration.cpp`'s real-fixture case
+pins the "zero net growth here, and it doesn't crash on the 7 unresolvable
+ones" finding directly.
+
 ## CLI argument grammar for `export` (implemented)
 
 **Previous grammar**, for contrast (replaced, not additive — every existing
@@ -920,10 +969,11 @@ re-run automatically. Tracked as a testing debt, not a correctness bug.
 See `TODO_correctness.md` for the current punch list (`M2Camera`, `.bone`
 slot selection, and two awareness-only footnotes), `M2_GAPS_TODO.md` for
 documented-but-unbuilt M2 coverage items with no external-data blocker
-(`M2Sequence`'s remaining fields including the now-resolved `aliasNext`
-chain-following, `PFDC`/`EXP2`/`PCOL`/`Texture.type`/Attachments-Events-
-Lights/animated-tint-fade/`DETL`), and `WIKI_FINDINGS.md` for every
-real-data-driven spec correction found so far, `AFSB`'s included.
+(`PFDC`/`EXP2`/`PCOL`/`Texture.type`/Attachments-Events-Lights/animated-
+tint-fade/`DETL` -- former Item 1, `M2Sequence`'s remaining fields
+including `aliasNext` chain-following, is now implemented, see Key design
+decisions below), and `WIKI_FINDINGS.md` for every real-data-driven spec
+correction found so far, `AFSB`'s included.
 `TODO_correctness.md`/`M2_GAPS_TODO.md`/`WIKI_FINDINGS.md` are living
 documents; this file describes the shape of the system they operate
 within, not their current item-by-item status.
@@ -938,8 +988,8 @@ from a full real 130,576-file corpus sweep (`WIKI_FINDINGS.md` §10);
 `DETL`'s real byte layout is fully resolved (12-byte stride, zero-padded to
 a 16-byte boundary -- §11, implementation tracked in `M2_GAPS_TODO.md`
 Item 8); `aliasNext` is a local `sequences`-array index, not an external
-id, at the `M2Bounds`-corrected offset 0x3E (§12, implementation tracked in
-`M2_GAPS_TODO.md` Item 1).
+id, at the `M2Bounds`-corrected offset 0x3E (§12), now implemented end to
+end (see Key design decisions below).
 
 `.phys` physics/collision sidecar support used to have its own living plan
 here too (`PHYS_TODO.md`) -- now fully implemented (`src/phys.hpp`/
