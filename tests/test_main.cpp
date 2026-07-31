@@ -50,6 +50,7 @@ int main(int argc, char** argv) {
     printFixture("HUSK_TEST_EXP2_M2", husk::test::testExp2VerificationM2());
     printFixture("HUSK_TEST_PFDC_M2", husk::test::testPfdcVerificationM2());
     printFixture("HUSK_TEST_BLP2_ANOMALY_M2", husk::test::testBlp2AnomalyM2());
+    printFixture("HUSK_TEST_PCOL_M2", husk::test::testPcolVerificationM2());
 #ifdef HUSK_GLTF_VALIDATOR
     std::cerr << "husk-tests:   HUSK_GLTF_VALIDATOR: " << HUSK_GLTF_VALIDATOR << "\n";
 #else

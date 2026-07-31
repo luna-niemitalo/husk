@@ -909,6 +909,38 @@ produce.
   documented count+offset struct shape — consistent with real, well-formed
   collision data, not yet implemented/cross-checked field-by-field.
 
+### Follow-up (`M2_GAPS_TODO.md` item 4, now closed): `PCOL` implemented and verified
+
+Ran a fresh, from-scratch Python decoder (independent of husk's own C++
+parser, same discipline this project's other corpus checks use) against all
+2,354 real `PCOL`-bearing files listed above: every one of the four regions
+(`vertexPositions`/`faceNormals`/`indices`/`flags`) decodes with its
+`offset + count*stride` fully in-bounds, on every file, zero exceptions.
+Two additional real facts confirmed that the wiki's own struct listing
+doesn't state: **`indexCount == faceNormCount * 3` on all 2,354 files**
+(each `faceNormal` is a per-triangle normal, the same shape M2's own core
+`collisionFaceNormals` already has — `indices` are triangle triples into
+`vertexPositions`), and every decoded index is in range for that same
+file's own `vertexPosCount` (zero out-of-range references, same clean
+result §9's `.phys` index/bounds sweep found). The wiki's own warning —
+"there can be extra bytes between the data, use the offsets" — is real, not
+defensive boilerplate: a real file (`pa_kite_lamp_creature.m2`, the same
+file named above for its non-zero `DPIV` bytes) has an 8-byte gap between
+`faceNormals`' own end and `indices`' own offset, so the four regions must
+each be read via their own offset field, never accumulated sequentially the
+way `.phys`'s `PLYT` header+data walk is.
+
+Implemented as `dumpPcol` (`src/cmd_dump.cpp`), diagnostic-only via
+`husk dump-chunks` — same class as `EXP2`/`PFDC`/`DETL`, no glTF slot
+(niche War Within 11.1.7+ player-housing furniture data, not core render
+geometry). `flags`' per-record meaning is still undocumented on the wiki
+(no field name given beyond `short flags[flagsCount]`) — exposed raw, not
+interpreted. Ran husk's own compiled binary against all 2,354 real files:
+zero exceptions. `tests/test_dump.cpp` has both a synthetic fixture
+(deliberately non-contiguous regions, proving the offset-based read) and a
+real-data regression test against a committed fixture
+(`test_data/verification/pcol_pa_kite_lamp_creature.m2`).
+
 ### Original text (for the record — this is what was wrong, not what should be trusted)
 
 > As of this corpus's extraction (2026, retail client — the corpus has
@@ -1245,7 +1277,7 @@ explicit, by-design non-goal for this project.
 | §7 multi-texture-layer arithmetic confirmed; `textureCoordCombos` value range | `src/cmd_export.cpp` (`buildMaterialsAndPrimitives`'s additional-layer loop, unchanged) | `tests/test_integration.cpp` (`checkMultiTextureLayerArithmetic`, real pennant/ironhorde fixtures) |
 | §8 `WFV3`'s real 64-byte short variant | `src/cmd_dump.cpp` (`dumpWfv3`) | `tests/test_dump.cpp` |
 | §9 `.phys` format verified (`PLYT` stride fix + full sweep) | `src/phys.hpp`/`phys.cpp` (full parser), `src/gltf.hpp`/`gltf.cpp` (`PhysicsBody` extras), `src/cmd_export.cpp` (`--phys`), `src/cmd_dump.cpp` (full body/shape/joint/`PHYV` JSON, `.phys` file accepted directly) | `tests/test_phys.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_dump.cpp`, `tests/test_integration.cpp`/`test_conformance.cpp` (real weapon fixture) |
-| §10 `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL` real, present (corrected from a scanner bug's false "absent") | `src/cmd_dump.cpp` (`kFallback` notes, unchanged — none of the five implemented yet) | investigation-only, `tools/find_m2_unknown_chunks.py` (bug fixed), cross-checked via `casc-tool scan-chunks` |
+| §10 `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL` real, present (corrected from a scanner bug's false "absent"); `PCOL` implemented | `src/cmd_dump.cpp` (`kFallback` notes for `WFV1`/`WFV2`/`DPIV`/`AFRA`, unchanged; `dumpPcol` for `PCOL`) | `tools/find_m2_unknown_chunks.py` (bug fixed), cross-checked via `casc-tool scan-chunks`; `tests/test_dump.cpp` (`PCOL` synthetic + real-data) |
 | §11 `DETL` real stride (0x0c) + 16-byte alignment padding | `src/cmd_dump.cpp` (`dumpDetl`, `readHalfFloat`) | `tools/check_detl_stride.py` (investigation), `tests/test_dump.cpp` (implementation) |
 | §12 `aliasNext` = local `sequences` array index, chain-resolved into real clips | `src/m2.hpp`/`m2.cpp` (`Sequence`'s 7 new fields, `parseSequences`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`Animation::SequenceMetadata` extras) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
 | §13 `EXP2`/`PFDC` real files exist (local-extraction gap corrected); `BLP2` anomaly resolved as listfile mismatch; `M3` noted, out of scope | `src/m2.hpp` (`ExtendedParticle` comment), `src/cmd_dump.cpp` (`physPayloadRealLength` comment), `DESIGN.md` Non-goals — no parser changes needed | `tests/test_dump.cpp` (real `EXP2`-only and `EXP2`+`PFDC` fixtures, exact values), `tests/test_integration.cpp` (`BLP2`-anomaly throws-cleanly across `info`/`export`/`dump-chunks`) — `test_data/verification/` |

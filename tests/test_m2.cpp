@@ -1031,7 +1031,7 @@ TEST_CASE("parseColors: an unambiguously constant track (one sub-array, one keyf
     CHECK(colors[0].color->z == doctest::Approx(0.75f));
     REQUIRE(colors[0].alpha.has_value());
     CHECK(*colors[0].alpha == doctest::Approx(16384.0f / 32767.0f));
-    // colorTrackOffset/alphaTrackOffset (M2_GAPS_TODO Item 7) are always set,
+    // colorTrackOffset/alphaTrackOffset are always set,
     // even for an unambiguously constant track -- a caller only consults
     // them when *Animated is true, but they're set unconditionally so
     // there's no separate "did this get populated" state to track.
@@ -1120,7 +1120,7 @@ TEST_CASE("parseTextureWeights: an unambiguously constant track resolves") {
     REQUIRE(weights.size() == 1);
     REQUIRE(weights[0].weight.has_value());
     CHECK(*weights[0].weight == doctest::Approx(6553.0f / 32767.0f));
-    // weightTrackOffset (M2_GAPS_TODO Item 7), always set -- see parseColors'
+    // weightTrackOffset, always set -- see parseColors'
     // matching colorTrackOffset/alphaTrackOffset test above.
     CHECK(weights[0].weightTrackOffset == off + 0x00);
 }
@@ -2132,7 +2132,7 @@ TEST_CASE("resolveRawIntTrackSequence: an unsupported element size throws") {
                      husk::m2::ParseError);
 }
 
-// M2_GAPS_TODO Item 7 end-to-end: parseColors' stored colorTrackOffset/
+// parseColors' stored colorTrackOffset/
 // alphaTrackOffset are real, directly-usable M2Track byte offsets --
 // exactly what cmd_export.cpp's resolveAnimatedColorCurve/
 // resolveAnimatedFixed16Curve feed straight into resolveVec3TrackSequence/

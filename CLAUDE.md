@@ -70,7 +70,12 @@ tool, `blp/`) converts BLP2 textures to PNG.
   concrete follow-up identified and now implemented (the multi-root-bone-
   hierarchy gap, `MULTIROOT_SKELETON_TODO.md` -- `writeGlbMulti` now
   synthesizes a non-joint glTF parent node for the 35% of the corpus with
-  more than one root bone, see Resume) -- nothing currently in flight.
+  more than one root bone, see Resume). `M2_GAPS_TODO.md`'s full item
+  bundle (ten items across several sessions, most recently `PCOL`
+  player-housing collision, diagnostic-only via `husk dump-chunks`,
+  verified against all 2,354 real `PCOL`-bearing files -- see Resume) is
+  now fully implemented and the file itself deleted -- nothing currently
+  in flight.
 - Anything not listed under Current does not exist yet. In particular: `M2Camera`
   is still count-only (not dereferenced). Three FAILURES2.md gaps
   (geoset selection #1, multi-texture-layer rendering #6, global-sequence animation
@@ -111,7 +116,115 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: Explored 4 untracked casc-tool scan outputs Luna dropped in
+- **Last state**: Closed out the remaining `M2_GAPS_TODO.md` work
+  autonomously (Luna: "start implementing the changes independently
+  starting from the easiest... continuing to the harder ones," then went
+  offline) — two units of work, each committed separately.
+  - **Items 9/10 (real-data regression tests for the previous session's
+    EXP2/PFDC/BLP2 findings)**: wired the three already-pulled real fixtures
+    (`test_data/verification/exp2_126382.m2`/`pfdc_1003471.m2`/
+    `blp2_7507381.m2`) into `tests/test_data_paths.hpp`, then wrote real
+    `doctest::skip()`-gated `TEST_CASE`s — exact field assertions
+    (re-derived fresh from a live `husk dump-chunks` run, not copied from
+    the TODO's own orientation numbers) for both EXP2-only and EXP2+PFDC
+    fixtures in `tests/test_dump.cpp`, plus three `BLP2`-anomaly
+    throws-cleanly cases (`info`/`export`/`dump-chunks`) in
+    `tests/test_integration.cpp` (not `test_cli.cpp` as the TODO's own plan
+    suggested — that file's own header comment explicitly states none of
+    its cases need real fixtures, so the real-fixture-shaped test belongs
+    in `test_integration.cpp` instead, which already has the
+    `test_data_paths.hpp`/`doctest::skip` infrastructure for exactly this).
+    456 → 460 test cases, both items removed from `M2_GAPS_TODO.md` per
+    this project's TODO lifecycle, permanent record folded into
+    `M2_COMPLETENESS.md`/`WIKI_FINDINGS.md` §13. Committed separately
+    (`84a16d9`) before starting Item 4, so a rate-limit or interruption
+    mid-PCOL-work wouldn't have put the already-finished Items 9/10 work at
+    risk.
+  - **Item 4 (`PCOL`, player-housing collision, War Within 11.1.7+) — the
+    last remaining item, now implemented.** The wiki gives a full,
+    byte-accountable struct (four independent `(count, offset)` regions:
+    `vertexPositions`/`faceNormals`/`indices`/`flags`) but flags it
+    "preliminary" — verification against real bytes came first, not
+    guessed at. `pcol_files_for_exploration.txt` (already sitting in the
+    repo root from the previous session's investigation, 2,354 real
+    paths) fed a new from-scratch Python decoder
+    (independent of husk's own C++ parser, same discipline every prior
+    corpus check here uses): **all 2,354 real files decode with every
+    region fully in-bounds, zero exceptions** — plus two facts the wiki
+    doesn't state: `indexCount == faceNormCount * 3` on all 2,354 (each
+    `faceNormal` is a per-triangle normal, the same shape M2's own core
+    `collisionFaceNormals` already has — `indices` are triangle triples),
+    and every decoded index is in range for that same file's own
+    `vertexPosCount` (zero out-of-range references). The wiki's own
+    warning — "there can be extra bytes between the data, use the
+    offsets" — is real, not defensive boilerplate: a real file
+    (`pa_kite_lamp_creature.m2`) has an 8-byte gap between `faceNormals`'
+    own end and `indices`' own offset, so the implementation reads each
+    region via its own offset field, never accumulated sequentially the
+    way `.phys`'s `PLYT` header+data walk is.
+    - **Design call made autonomously, not escalated**: diagnostic-only
+      (`husk dump-chunks`), no glTF slot — same class as `EXP2`/`PFDC`/
+      `DETL` (the TODO's own docs note hedged this: "likely n/a glTF-
+      ceiling... unless a real file surfaces and a translation... makes
+      sense"). Real files do exist and the shape is genuinely translatable
+      (position/index/normal triangles, structurally identical to how M2's
+      own core collision mesh already gets a real glTF translation) — but
+      `PCOL` is niche (War Within 11.1.7+ player-housing furniture only,
+      2,354/130,576 files) sidecar-shaped data, not core render geometry,
+      matching every sibling item in this same TODO file (`EXP2`/`PFDC`/
+      `DETL` all shipped diagnostic-only despite being translatable in
+      principle too) — picked the conservative, precedent-consistent
+      option rather than introduce a new mesh into `.glb` output
+      unprompted.
+    - Implemented as `dumpPcol` (`src/cmd_dump.cpp`), moved from
+      `kFallback` to `kDocumented`. Ran husk's own compiled binary against
+      all 2,354 real files directly (not just the Python decoder): zero
+      exceptions. New `tests/test_dump.cpp` cases: a synthetic fixture with
+      deliberately non-contiguous regions (proving the offset-based read,
+      not a PLYT-style sequential accumulation) and negative int16 values
+      (proving signed, not unsigned, reads for `indices`/`flags`), plus a
+      real-data regression test against a newly-committed fixture
+      (`test_data/verification/pcol_pa_kite_lamp_creature.m2`, chosen for
+      its small size — 2,016-byte chunk, 40 vertices/74 triangles — while
+      still real). 460 → 462 test cases, both `./build/husk-tests`
+      (462/462 + 1 permanently-inapplicable skip) and `ctest` (463/463)
+      green.
+    - **`M2_GAPS_TODO.md` deleted outright** once Item 4 (its last item)
+      closed — same "survey's job is done" lifecycle every prior TODO file
+      here has used. Permanent record: `M2_COMPLETENESS.md`'s Collision &
+      physics section, `WIKI_FINDINGS.md` §10's new Follow-up subsection,
+      `DESIGN.md`'s Key design decisions (new `PCOL` bullet) and Open work
+      section (rewritten now that the file is gone), `README.md` (Usage
+      section's `dump-chunks` paragraph, Collision/physics format-matrix
+      row).
+    - **Full cross-reference sweep**: grep-verified every one of the
+      ~50 `M2_GAPS_TODO.md`/`M2_GAPS_TODO` mentions across `src/`/`tests/`/
+      `tools/`/docs. Left ones already phrased as historical narrative
+      alone (`...'s former Item N`, `Follow-up (...'s item N, now closed)`
+      — same "historical log entries aren't rewritten" precedent every
+      prior TODO-file deletion here has used) but fixed every mention that
+      read as a live pointer to a file that no longer exists (bare
+      `M2_GAPS_TODO(.md) Item N` citations in `tests/test_dump.cpp`,
+      `tests/test_gltf.cpp`, `tests/test_m2.cpp`, `tests/test_integration.cpp`,
+      `src/cmd_export.cpp`, `src/gltf.hpp`, `src/cmd_dump.cpp`,
+      `tools/find_m2_unknown_chunks.py`) — same discipline the
+      `CORPUS_TODO.md`/`MULTIROOT_SKELETON_TODO.md` deletions already
+      established, applied at real scale here (many more live references
+      than either of those had, since this TODO file bundled 10 independent
+      items across several sessions).
+  - **Environment note, reconfirmed, no repeat of a prior mistake**: one
+    stray bare `python3 -c ""` (immediately followed by the correct
+    `direnv exec . uv run --python tools/venv/bin/python <script>` form) —
+    it errored harmlessly (no global Python, same guard as always) and
+    nothing was built on its output; still worth noting since a previous
+    session's whole correction was specifically about this exact mistake.
+    `uv run --python tools/venv/bin/python -c "..."` (inline `-c`, as
+    opposed to a script file) does **not** work — `uv run` doesn't accept
+    `-c` as a passthrough flag to the interpreter the way bare `python3`
+    does (`error: unexpected argument '-c' found`) — write ad hoc checks to
+    a scratchpad file and pass the file path instead, confirmed working
+    throughout this session.
+- **Previous state**: Explored 4 untracked casc-tool scan outputs Luna dropped in
   the work dir (`m2_chunk_discovery.csv`/`.log`, `m3_corpus_scan.csv`/`.log`
   — a separate thread's full-corpus scans against a live CASC install,
   product `wow` build 68887) and turned them into real doc corrections, per
@@ -177,12 +290,9 @@ real-file-driven spec correction found along the way.
     installed via Luna's own profile, not project-scoped) for the rest
     of this session's JSON inspection instead.
   - The 3 pulled real files (`exp2_126382.m2`, `pfdc_1003471.m2`,
-    `blp2_7507381.m2`) are sitting in this session's scratchpad, not
-    `test_data/` — deliberately not promoted to committed-but-gitignored
-    fixtures this session, since no new automated test was requested;
-    worth moving into `test_data/` under the usual "real, personally-
-    owned extraction, gitignored" convention if a future session adds
-    `EXP2`/`PFDC` regression coverage.
+    `blp2_7507381.m2`) were moved into `test_data/verification/` and wired
+    into real regression tests in the very next session — see the newer
+    Last state entry above, this note is stale as of that session.
   - The 4 untracked CSV/log files that prompted this session
     (`m2_chunk_discovery.*`, `m3_corpus_scan.*`) are still sitting
     untracked in the work dir, not cleaned up or committed — Luna's own
@@ -1718,12 +1828,15 @@ real-file-driven spec correction found along the way.
   `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel` got the
   three/four-state (`auto`/explicit/`none`) treatment `DESIGN.md`'s CLI
   grammar section still documents in full.
-- **Next step**: `M2_GAPS_TODO.md` Item 4 (`PCOL`) — no longer blocked (a
-  scanner bug, not real absence; 2,354 real files, real byte-accountable
-  wiki struct, `PLYT`-style implementation discipline already spelled out
-  in the file itself) and explicitly deferred at Luna's own direction this
-  session ("not yet") — the natural starting point for whoever picks this
-  up next. Both `ANIM_TODO.md`'s
+- **Next step**: `M2_GAPS_TODO.md` is now fully implemented and deleted
+  (see Last state above) — every item it ever bundled (`M2Sequence`
+  fields/`aliasNext`, `PFDC`, `EXP2`, `Texture.type`, Attachments/Events/
+  Lights, animated tint/fade, `DETL`, `PCOL`, plus regression-test
+  follow-ups) is done, tested, documented. There is no active TODO file
+  in this repo anymore — the only remaining tracked, undone work lives in
+  `TODO_correctness.md` (`M2Camera`, `.bone` slot *selection* — both
+  low-priority by design, not oversight) and the two carryover threads
+  below. Both `ANIM_TODO.md`'s
   `--anim` same-basename fallback and `PHYS_TODO.md`'s full `.phys`
   physics/collision support are implemented, tested, and documented. The M2→glTF
   multi-root-bone-forest representation gap is real, tested code now, not
@@ -1736,9 +1849,7 @@ real-file-driven spec correction found along the way.
   `materialIndex` case, but genuinely unconfirmed; (b) `tools/
   corpus_checks.py` keeping at least one real example path per distinct
   failure *message shape*, not just the top-N codes by count, so a case
-  like (a) doesn't stay unverifiable next time. Also still open:
-  `TODO_correctness.md`'s own tracked items (`M2Camera`, `.bone` slot
-  *selection* — both low-priority by design, not oversight), optional
+  like (a) doesn't stay unverifiable next time. Also still open: optional
   scope expansion (WMO/M3, Blender-side tooling for the various `extras`
   this project already exports), and `resolveSkin`'s failure messages not
   naming the specific candidate path/FileDataID they tried.

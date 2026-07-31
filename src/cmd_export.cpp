@@ -1011,7 +1011,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             }
             if (color.colorAnimated || color.alphaAnimated) {
                 ++result.animatedTintOrFadeBatchCount;
-                // Full curve dump (M2_GAPS_TODO Item 7) -- diagnostic-only
+                // Full curve dump -- diagnostic-only
                 // extras, see gltf::Material::tintAnimation/
                 // alphaFadeAnimation's doc comments. `m2.blob` is only
                 // unset for a hypothetical caller that never populated it
@@ -1081,7 +1081,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             }
             gm.name += "_tex" + std::to_string(textureIndex);
 
-            // M2Texture::type (M2_GAPS_TODO Item 5) -- see
+            // M2Texture::type -- see
             // gltf::Material::textureType's doc comment for why this is a
             // real "husk can't resolve this locally" signal for any nonzero
             // value, not just missing PNG data.
@@ -2036,7 +2036,7 @@ int exportGlb(int argc, char** args) {
                              "metadata (see FAILURES2.md #6), not applied to the render\n";
             }
 
-            // M2_GAPS_TODO Item 7: a batch's M2Color/M2TextureWeight can be
+            // A batch's M2Color/M2TextureWeight can be
             // real per-sequence or global-sequence keyframe animation (an
             // eye-glow or enchant-glow pulse, say), not the single constant
             // value gltf::Material::baseColorFactor can actually hold --

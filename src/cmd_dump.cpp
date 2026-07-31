@@ -1323,6 +1323,80 @@ void dumpExp2(json::Writer& w, const Chunk& c) {
     w.endArray();
 }
 
+// PCOL (wowdev.wiki M2#PCOL, >= 11.1.7.60520): player-housing collision
+// mesh. Four independent M2Array-shaped (count, offset) regions in a fixed
+// 32-byte header -- vertexPositions/faceNormals/indices/flags -- but,
+// unlike PSBC/PEDC/PADC's single chunk-relative array, *not* one combined
+// M2Array-of-structs: each region has its own count+offset pair, and the
+// wiki explicitly warns "there can be extra bytes between the data, use
+// the offsets" -- regions are read independently via their own offset, not
+// accumulated sequentially the way PLYT's header+data walk is (src/
+// phys.cpp's parsePolytopes). Confirmed empirically against all 2,354 real
+// PCOL-bearing files in the local corpus (WIKI_FINDINGS.md §10,
+// corrected from an earlier scanner bug's false "zero real files"):
+// every region's offset+count*stride lands fully in-bounds on every file,
+// every index value is in range for that same file's own vertexPosCount,
+// and indexCount == faceNormCount * 3 on all 2,354 (each faceNormal is a
+// per-triangle normal, matching M2's own core collisionFaceNormals shape)
+// -- but the two regions are *not* always contiguous (a real file was seen
+// with an 8-byte gap between the faceNormals region's end and indices'
+// own offset), consistent with the wiki's own warning, so no "regions
+// exactly fill the chunk" cross-check is meaningful here the way PLYT's
+// is. `flags`' per-record meaning is undocumented (wiki gives no field
+// name beyond "short flags[flagsCount]") -- exposed raw, not interpreted.
+// Diagnostic-only (`dump-chunks`), same class as EXP2/PFDC/DETL: no glTF
+// slot, since this is niche (War Within 11.1.7+ player-housing furniture
+// only) sidecar-shaped collision data, not core render geometry -- see
+// M2_COMPLETENESS.md.
+void dumpPcol(json::Writer& w, const Chunk& c) {
+    uint32_t vertexPosCount = readU32(c.data, c.size, 0x00);
+    uint32_t vertexPosOffset = readU32(c.data, c.size, 0x04);
+    uint32_t faceNormCount = readU32(c.data, c.size, 0x08);
+    uint32_t faceNormOffset = readU32(c.data, c.size, 0x0C);
+    uint32_t indexCount = readU32(c.data, c.size, 0x10);
+    uint32_t indexOffset = readU32(c.data, c.size, 0x14);
+    uint32_t flagsCount = readU32(c.data, c.size, 0x18);
+    uint32_t flagsOffset = readU32(c.data, c.size, 0x1C);
+
+    w.beginObject();
+
+    w.key("vertex_positions");
+    w.beginArray();
+    for (uint32_t i = 0; i < vertexPosCount; ++i) {
+        size_t off = static_cast<size_t>(vertexPosOffset) + static_cast<size_t>(i) * 12;
+        writeVec3(w, m2::Vec3{readF32(c.data, c.size, off + 0x00), readF32(c.data, c.size, off + 0x04),
+                               readF32(c.data, c.size, off + 0x08)});
+    }
+    w.endArray();
+
+    w.key("face_normals");
+    w.beginArray();
+    for (uint32_t i = 0; i < faceNormCount; ++i) {
+        size_t off = static_cast<size_t>(faceNormOffset) + static_cast<size_t>(i) * 12;
+        writeVec3(w, m2::Vec3{readF32(c.data, c.size, off + 0x00), readF32(c.data, c.size, off + 0x04),
+                               readF32(c.data, c.size, off + 0x08)});
+    }
+    w.endArray();
+
+    w.key("indices");
+    w.beginArray();
+    for (uint32_t i = 0; i < indexCount; ++i) {
+        size_t off = static_cast<size_t>(indexOffset) + static_cast<size_t>(i) * 2;
+        w.value(static_cast<int64_t>(static_cast<int16_t>(readU16(c.data, c.size, off))));
+    }
+    w.endArray();
+
+    w.key("flags");
+    w.beginArray();
+    for (uint32_t i = 0; i < flagsCount; ++i) {
+        size_t off = static_cast<size_t>(flagsOffset) + static_cast<size_t>(i) * 2;
+        w.value(static_cast<int64_t>(static_cast<int16_t>(readU16(c.data, c.size, off))));
+    }
+    w.endArray();
+
+    w.endObject();
+}
+
 }  // namespace
 
 int dumpChunks(int argc, char** args) {
@@ -1410,7 +1484,7 @@ int dumpChunks(int argc, char** args) {
             {"RPID", dumpFileDataIdArrayChunk}, {"GPID", dumpFileDataIdArrayChunk},
             {"PGD1", dumpU16ArrayChunk}, {"WFV3", dumpWfv3},   {"NERF", dumpNerf},
             {"EDGF", dumpEdgf},          {"DBOC", dumpDboc},   {"TEXL", dumpTexl},
-            {"PFDC", dumpPfdc},          {"EXP2", dumpExp2},
+            {"PFDC", dumpPfdc},          {"EXP2", dumpExp2},   {"PCOL", dumpPcol},
         };
         for (const auto& e : kDocumented) {
             auto c = findChunk(chunks, e.tag);
@@ -1443,8 +1517,6 @@ int dumpChunks(int argc, char** args) {
                      "bytes, mostly empty\") as of the 2026-07-25 fetch"},
             {"AFRA", "structure not documented on wowdev.wiki (\"Not observed in any files yet\") "
                      "as of the 2026-07-25 fetch"},
-            {"PCOL", "wowdev.wiki flags this struct as \"Preliminary structure as per Zee's "
-                     "research\" -- not treated as settled enough to parse structurally"},
         };
         for (const auto& e : kFallback) {
             auto c = findChunk(chunks, e.tag);

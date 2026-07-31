@@ -234,6 +234,12 @@ constexpr const char* kWeaponPhysSkin =
 constexpr const char* kExp2VerificationM2 = "verification/exp2_126382.m2";
 constexpr const char* kPfdcVerificationM2 = "verification/pfdc_1003471.m2";
 constexpr const char* kBlp2AnomalyM2 = "verification/blp2_7507381.m2";
+// PCOL (player-housing collision): a real player-housing-lamp doodad, one
+// of 2,354 real PCOL-bearing files found in the local corpus
+// (WIKI_FINDINGS.md §10's corrected count) -- chosen for its small chunk
+// size (2,016 bytes: 40 vertices, 74 triangles) while still real,
+// extracted data.
+constexpr const char* kPcolVerificationM2 = "verification/pcol_pa_kite_lamp_creature.m2";
 }  // namespace fixtures
 
 inline std::string testM2() { return resolve("HUSK_TEST_M2", fixtures::kM2); }
@@ -286,6 +292,9 @@ inline std::string testPfdcVerificationM2() {
 }
 inline std::string testBlp2AnomalyM2() {
     return resolve("HUSK_TEST_BLP2_ANOMALY_M2", fixtures::kBlp2AnomalyM2);
+}
+inline std::string testPcolVerificationM2() {
+    return resolve("HUSK_TEST_PCOL_M2", fixtures::kPcolVerificationM2);
 }
 
 }  // namespace husk::test

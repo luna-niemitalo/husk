@@ -732,7 +732,7 @@ TEST_CASE("husk export: a real weapon's .phys sidecar (auto-detected, same basen
     std::filesystem::remove(outPath);
 }
 
-// M2_GAPS_TODO Item 5: a real material's "texture_type" extras key, cross-
+// a real material's "texture_type" extras key, cross-
 // checked against an independent parse of the M2's own textures array
 // (husk::m2::parseTextures, not cmd_export.cpp's internal state) --
 // `bloodelffemale.m2` is known (via `husk info`'s own type= printout,
@@ -862,7 +862,7 @@ TEST_CASE("husk export: a real weapon's attachments/events/lights become exactly
     std::filesystem::remove(outPath);
 }
 
-// M2_GAPS_TODO Item 7: a real weapon's animated tint/fade curve
+// a real weapon's animated tint/fade curve
 // ('fade_animation' extras) decodes to plausible, finite, in-range values --
 // not garbage or NaN. Ashbringer (kWeaponRibbon) is known (checked by hand
 // running `husk export` and inspecting the resulting .glb before writing
@@ -1055,7 +1055,7 @@ TEST_CASE("husk export: skin file that doesn't belong to the given M2 fails clea
     CHECK(result.output.find("mismatch") != std::string::npos);
 }
 
-// M2_GAPS_TODO.md item 10 -- locks in husk's already-correct "throw, don't
+// locks in husk's already-correct "throw, don't
 // misread" behavior on real non-M2 content, rather than trusting it stays
 // correct across future chunk-walker refactors. blp2_7507381.m2 is a real
 // FileDataID/listfile mismatch pulled from live CASC (WIKI_FINDINGS.md

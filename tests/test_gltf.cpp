@@ -947,7 +947,7 @@ TEST_CASE("writeGlb: additionalTextureLayers and textureTransform extras coexist
     CHECK(extras.Get("texture_transform").Get("constant").Get<bool>() == false);
 }
 
-// M2_GAPS_TODO Item 5: M2Texture::type, when nonzero (a hardcoded/
+// M2Texture::type, when nonzero (a hardcoded/
 // replaceable slot -- character skin, hair, item tint), round-trips as a
 // "texture_type" material extras key.
 TEST_CASE("writeGlb: a material's nonzero textureType round-trips as 'texture_type' extras") {
@@ -982,7 +982,7 @@ TEST_CASE("writeGlb: a material with textureType == 0 gets no 'texture_type' ext
     CHECK_FALSE(model.materials[0].extras.IsObject());
 }
 
-// M2_GAPS_TODO Item 7: a genuinely-animated M2Color::color curve round-trips
+// a genuinely-animated M2Color::color curve round-trips
 // as "tint_animation" extras -- one entry per resolved M2Sequence, plus a
 // global-sequence entry (sequence_index omitted) when present.
 TEST_CASE("writeGlb: a material's tintAnimation round-trips as 'tint_animation' extras, "
@@ -1032,7 +1032,7 @@ TEST_CASE("writeGlb: a material with no tintAnimation gets no 'tint_animation' e
     CHECK_FALSE(model.materials[0].extras.IsObject());
 }
 
-// M2_GAPS_TODO Item 7: alphaFadeAnimation/weightFadeAnimation (M2Color::alpha/
+// alphaFadeAnimation/weightFadeAnimation (M2Color::alpha/
 // M2TextureWeight::weight) both nest under one "fade_animation" extras key,
 // each present independently -- husk doesn't combine the two curves itself
 // (see gltf.hpp's weightFadeAnimation doc comment).

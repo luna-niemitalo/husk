@@ -17,15 +17,15 @@
 // a real offset round-trip. Deliberately reuses tests/test_m2.cpp's
 // already-established fixture-building conventions.
 //
-// DETL/PFDC/EXP2 (M2_GAPS_TODO.md items 8/2/3) all have synthetic-fixture
-// tests above, built from the wiki's own struct listing (DETL) or
-// WIKI_FINDINGS.md's own confirmed byte layout (also DETL), or by
-// construction from husk's own already-real-file-verified .phys parser
-// (PFDC). EXP2/PFDC are additionally covered further down by two real-data
-// TEST_CASEs (M2_GAPS_TODO.md item 9) against files pulled directly from a
-// live CASC install (WIKI_FINDINGS.md §13) -- exact values re-derived fresh
-// from `husk dump-chunks` at test-writing time, not copied from that TODO's
-// own orientation numbers.
+// DETL/PFDC/EXP2 all have synthetic-fixture tests above, built from the
+// wiki's own struct listing (DETL) or WIKI_FINDINGS.md's own confirmed
+// byte layout (also DETL), or by construction from husk's own
+// already-real-file-verified .phys parser (PFDC). EXP2/PFDC are
+// additionally covered further down by two real-data TEST_CASEs against
+// files pulled directly from a live CASC install (WIKI_FINDINGS.md §13) --
+// exact values re-derived fresh from `husk dump-chunks` at test-writing
+// time, not copied from an old orientation estimate. PCOL (WIKI_FINDINGS.md
+// §10) has both a synthetic and a real-data TEST_CASE further down too.
 
 #include <cstring>
 #include <doctest/doctest.h>
@@ -755,7 +755,7 @@ TEST_CASE("husk dump-chunks: a .bone file (no MD20/MD21 magic) dumps its BIDA/BO
     fs::remove(path);
 }
 
-// M2_GAPS_TODO.md item 8 -- DETL's real 12-byte stride and its own 16-byte
+// DETL's real 12-byte stride and its own 16-byte
 // alignment padding, both confirmed against 1,043 real corpus files
 // (WIKI_FINDINGS.md §11). Real corpus half-float constants (0x231C ->
 // 0.013885498046875, 0x3C00 -> exactly 1.0) used directly rather than
@@ -823,7 +823,7 @@ TEST_CASE("husk dump-chunks: DETL's record count is lights.count, not chunk.size
     fs::remove(path);
 }
 
-// M2_GAPS_TODO.md item 2 -- PFDC embeds a real .phys file's own byte-for-
+// PFDC embeds a real .phys file's own byte-for-
 // byte chunk container (wowdev.wiki M2#PFDC), reusing husk's existing,
 // real-file-verified .phys parser (WIKI_FINDINGS.md §9) rather than a new
 // one. Trailing zero padding (up to 6 bytes per the wiki) must be trimmed
@@ -867,7 +867,7 @@ TEST_CASE("husk dump-chunks: PFDC with no trailing padding at all (an exact chun
     fs::remove(path);
 }
 
-// M2_GAPS_TODO.md item 3 -- EXP2's M2Array<M2ExtendedParticle> content,
+// EXP2's M2Array<M2ExtendedParticle> content,
 // chunk-local header (same readChunkArray shape PABC/PSBC/PADC/PEDC/PGD1
 // already use) followed by one 28-byte record: zSource/colorMult/
 // alphaMult (12 bytes, same as EXPT) then a 16-byte M2PartTrack<fixed16>
@@ -927,7 +927,88 @@ TEST_CASE("husk dump-chunks: EXP2 (M2Array<M2ExtendedParticle>, chunk-local head
     fs::remove(path);
 }
 
-// M2_GAPS_TODO.md item 9 -- real-data regression coverage for EXP2/PFDC,
+// PCOL's four independent (count, offset) regions,
+// deliberately laid out non-contiguous (real gaps between regions, matching
+// the wiki's own "there can be extra bytes between the data, use the
+// offsets" warning and this session's real-corpus finding of an 8-byte gap
+// on a real file) to prove the dumper reads each region via its own offset
+// rather than assuming they're packed back-to-back. indices/flags include a
+// negative value each to lock in the signed int16 (not uint16) read.
+TEST_CASE("husk dump-chunks: PCOL (four independent, non-contiguous M2Array-shaped regions) "
+          "reads vertex_positions/face_normals/indices/flags via their own offsets") {
+    std::vector<uint8_t> pcol(32, 0);  // header, filled in below
+
+    size_t vertexPosOff = pcol.size();
+    putF32(pcol, 1.0f);
+    putF32(pcol, 2.0f);
+    putF32(pcol, 3.0f);
+    putF32(pcol, -1.5f);
+    putF32(pcol, 0.5f);
+    putF32(pcol, 4.25f);
+
+    pcol.insert(pcol.end(), 8, 0xCC);  // 8-byte gap -- must not be misread as data
+
+    size_t faceNormOff = pcol.size();
+    putF32(pcol, 0.0f);
+    putF32(pcol, 0.0f);
+    putF32(pcol, 1.0f);
+
+    pcol.insert(pcol.end(), 4, 0xCC);  // 4-byte gap
+
+    size_t indexOff = pcol.size();
+    putU16(pcol, 0);
+    putU16(pcol, 1);
+    putU16(pcol, static_cast<uint16_t>(static_cast<int16_t>(-5)));
+
+    pcol.insert(pcol.end(), 2, 0xCC);  // 2-byte gap
+
+    size_t flagsOff = pcol.size();
+    putU16(pcol, 7);
+    putU16(pcol, static_cast<uint16_t>(static_cast<int16_t>(-3)));
+
+    putU32At(pcol, 0x00, 2);  // vertexPosCount
+    putU32At(pcol, 0x04, static_cast<uint32_t>(vertexPosOff));
+    putU32At(pcol, 0x08, 1);  // faceNormCount
+    putU32At(pcol, 0x0C, static_cast<uint32_t>(faceNormOff));
+    putU32At(pcol, 0x10, 3);  // indexCount
+    putU32At(pcol, 0x14, static_cast<uint32_t>(indexOff));
+    putU32At(pcol, 0x18, 2);  // flagsCount
+    putU32At(pcol, 0x1C, static_cast<uint32_t>(flagsOff));
+
+    auto file = wrapChunked(minimalMd20(), {{"PCOL", pcol}});
+    auto path = tempPath("pcol.m2");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"PCOL\"") != std::string::npos);
+    CHECK(result.output.find("\"vertex_positions\"") != std::string::npos);
+    CHECK(countOccurrences(result.output, "\"x\": 1,") == 1);
+    CHECK(result.output.find("\"x\": -1.5") != std::string::npos);
+    CHECK(result.output.find("\"face_normals\"") != std::string::npos);
+    CHECK(result.output.find("\"indices\"") != std::string::npos);
+    CHECK(result.output.find("-5") != std::string::npos);
+    CHECK(result.output.find("\"flags\"") != std::string::npos);
+    CHECK(result.output.find("-3") != std::string::npos);
+
+    fs::remove(path);
+}
+
+TEST_CASE(
+    "husk dump-chunks: real PCOL file (pa_kite_lamp_creature.m2, from the local corpus) decodes "
+    "40 vertices / 74 triangles with indexCount == faceNormCount * 3" *
+    doctest::skip(husk::test::testPcolVerificationM2().empty())) {
+    auto result = runHusk("dump-chunks " + husk::test::testPcolVerificationM2());
+    CHECK(result.exitCode == 0);
+    CHECK(countOccurrences(result.output, "\"x\":") >= 40 + 74);  // vertex_positions + face_normals
+    // First vertex and last face normal, hand-checked against a fresh
+    // dump-chunks run at test-writing time.
+    CHECK(result.output.find("\"x\": 1.46941") != std::string::npos);
+    CHECK(result.output.find("\"y\": 3.99775") != std::string::npos);
+    CHECK(result.output.find("\"z\": 32.2569") != std::string::npos);
+}
+
+// real-data regression coverage for EXP2/PFDC,
 // pulled directly from a live CASC install (WIKI_FINDINGS.md §13) rather
 // than a synthetic fixture. exp2_126382.m2 carries EXP2 only, no PFDC.
 TEST_CASE(

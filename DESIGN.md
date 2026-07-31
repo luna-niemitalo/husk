@@ -609,8 +609,8 @@ tracks are a separate, larger problem.
 
 **`M2Sequence`'s own metadata (movespeed/frequency/replay/blendTime/bounds/
 variationNext/aliasNext) is per-clip glTF `extras`, and `aliasNext` is now
-chain-resolved into a real animation clip** (`M2_GAPS_TODO.md`'s former Item
-1, `WIKI_FINDINGS.md` §12). `m2::Sequence` gained the seven fields wowdev.wiki
+chain-resolved into a real animation clip** (`WIKI_FINDINGS.md` §12).
+`m2::Sequence` gained the seven fields wowdev.wiki
 documents beyond `id`/`variationIndex`/`duration`/`flags`, at the exact
 offsets that fit cleanly into the already-verified 64-byte stride (see
 `Sequence`'s own doc comment) — no ambiguity, straightforward parse.
@@ -655,6 +655,22 @@ both-flags-priority, self-referencing cycle, out-of-range `aliasNext`) prove
 the mechanism itself works; `tests/test_integration.cpp`'s real-fixture case
 pins the "zero net growth here, and it doesn't crash on the 7 unresolvable
 ones" finding directly.
+
+**`PCOL` (player-housing collision, War Within 11.1.7+) is diagnostic-only
+(`husk dump-chunks`), no glTF slot** — same class as `EXP2`/`PFDC`/`DETL`,
+niche sidecar-shaped data rather than core render geometry. Its four
+regions (`vertexPositions`/`faceNormals`/`indices`/`flags`) are each an
+independent `(count, offset)` pair read via its own offset, never
+accumulated sequentially the way `.phys`'s `PLYT` header+data walk is — the
+wiki's own "there can be extra bytes between the data" warning is real,
+confirmed on a real file with an 8-byte gap between `faceNormals` and
+`indices`. Verified against all 2,354 real `PCOL`-bearing files in the
+local corpus (corrected from an earlier scanner bug's false "zero real
+files," `WIKI_FINDINGS.md` §10): every region in-bounds, every index in
+range for that file's own vertex count, `indexCount == faceNormCount * 3`
+on all 2,354 (triangle triples, one normal per triangle — the same shape
+M2's own core collision mesh already has). `flags`' per-record meaning is
+undocumented on the wiki — exposed raw, not guessed at.
 
 ## CLI argument grammar for `export` (implemented)
 
@@ -1032,16 +1048,21 @@ re-run automatically. Tracked as a testing debt, not a correctness bug.
 ## Open work
 
 See `TODO_correctness.md` for the current punch list (`M2Camera`, `.bone`
-slot selection, and two awareness-only footnotes), `M2_GAPS_TODO.md` for
-documented-but-unbuilt M2 coverage items with no external-data blocker
-(`PFDC`/`EXP2`/`PCOL`/`Texture.type`/Attachments-Events-Lights/animated-
-tint-fade/`DETL` -- former Item 1, `M2Sequence`'s remaining fields
-including `aliasNext` chain-following, is now implemented, see Key design
-decisions below), and `WIKI_FINDINGS.md` for every real-data-driven spec
-correction found so far, `AFSB`'s included.
-`TODO_correctness.md`/`M2_GAPS_TODO.md`/`WIKI_FINDINGS.md` are living
-documents; this file describes the shape of the system they operate
-within, not their current item-by-item status.
+slot selection, and two awareness-only footnotes) and `WIKI_FINDINGS.md`
+for every real-data-driven spec correction found so far, `AFSB`'s
+included. `TODO_correctness.md`/`WIKI_FINDINGS.md` are living documents;
+this file describes the shape of the system they operate within, not
+their current item-by-item status.
+
+`M2_GAPS_TODO.md` (documented-but-unbuilt M2 coverage items with no
+external-data blocker: `M2Sequence`'s remaining fields including
+`aliasNext` chain-following, `PFDC`, `EXP2`, `Texture.type`,
+Attachments/Events/Lights, animated tint/fade, `DETL`, `PCOL`, plus
+regression-test follow-ups for `EXP2`/`PFDC`/a `BLP2`-anomaly fixture) is
+now fully implemented and removed once every item had a final
+disposition -- same "survey's job is done" lifecycle every prior TODO
+file in this project has used. See Key design decisions below and
+`M2_COMPLETENESS.md` for the permanent per-feature record.
 
 A dedicated investigation brief for the last genuinely undocumented M2
 pieces (`M2_UNKNOWNS_EXPLORATION.md` -- wowdev.wiki itself had no
@@ -1051,14 +1072,14 @@ mechanism) has since run to completion and was removed once every target
 had a final disposition: `WFV1`/`WFV2`/`DPIV`/`AFRA` were originally reported
 confirmed-absent from a full real 130,576-file corpus sweep, but that was a
 scanner bug (a `bytes`-vs-`str` dict-key mismatch that made the check always
-false), not a real result -- corrected: all four (plus `PCOL`,
-`M2_GAPS_TODO.md` Item 4) are real and present, cross-checked independently
-via `casc-tool scan-chunks` (`WIKI_FINDINGS.md` §10);
+false), not a real result -- corrected: all four (plus `PCOL`, now
+implemented -- see Key design decisions below) are real and present,
+cross-checked independently via `casc-tool scan-chunks` (`WIKI_FINDINGS.md`
+§10);
 `DETL`'s real byte layout is fully resolved (12-byte stride, zero-padded to
-a 16-byte boundary -- §11, implementation tracked in `M2_GAPS_TODO.md`
-Item 8); `aliasNext` is a local `sequences`-array index, not an external
-id, at the `M2Bounds`-corrected offset 0x3E (§12), now implemented end to
-end (see Key design decisions below).
+a 16-byte boundary -- §11); `aliasNext` is a local `sequences`-array index,
+not an external id, at the `M2Bounds`-corrected offset 0x3E (§12), now
+implemented end to end (see Key design decisions below).
 
 `.phys` physics/collision sidecar support used to have its own living plan
 here too (`PHYS_TODO.md`) -- now fully implemented (`src/phys.hpp`/

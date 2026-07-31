@@ -335,8 +335,9 @@ struct Skeleton {
         // M2Light::type (0 = directional, 1 = point) and every animated
         // field (color/intensity/attenuation/visibility) are out of scope
         // for this struct -- a placement node has no slot for either, and
-        // resolving the animated tracks is a separate, larger problem (see
-        // M2_GAPS_TODO.md's Item 7 sibling scope).
+        // resolving the animated tracks is a separate, larger problem (same
+        // sibling scope as the animated material tint/fade curves,
+        // alphaFadeAnimation/weightFadeAnimation above).
     };
     std::vector<Light> lights;
 };

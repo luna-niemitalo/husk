@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Scans a real M2 corpus for five still-genuinely-undocumented-or-unverified
-top-level Legion+ chunk tags -- WFV1, WFV2, DPIV, AFRA, PCOL (see
-WIKI_FINDINGS.md sec.10 and M2_GAPS_TODO.md Item 4 -- both now corrected, see
-below). Bundled into one corpus pass since they're cheap to check together:
-one top-level chunk walk per file, five tags to test per chunk.
+"""Scans a real M2 corpus for five top-level Legion+ chunk tags -- WFV1,
+WFV2, DPIV, AFRA still genuinely undocumented-or-unverified; PCOL now
+implemented (husk's own dumpPcol, src/cmd_dump.cpp) -- see WIKI_FINDINGS.md
+sec.10, both corrected, see below. Bundled into one corpus pass since
+they're cheap to check together: one top-level chunk walk per file, five
+tags to test per chunk.
 
 CORRECTED 2026-07-31: this script previously reported a "confirmed absent"
 zero-hit result for all four original targets, which was wrong -- a real bug,
