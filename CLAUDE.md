@@ -13,7 +13,9 @@ tool, `blp/`) converts BLP2 textures to PNG.
 
 - **Current**: `husk info` (header/record-count/chunk-tag summary, incl. per-texture/
   material detail and sidecar FileDataIDs, plus a one-line ribbon/particle-emitter
-  summary), `husk export` (static mesh → skeleton +
+  summary, `global_flags` decoded into its wiki-named bits alongside the raw
+  hex value, and the conditional `textureCombinerCombos` header array when
+  its flag bit is set — see Resume), `husk export` (static mesh → skeleton +
   skinning, inline or external `.skel` → materials with real embedded textures →
   animation, inline/external-`.anim`/`.skel`-sourced (external `.anim`
   resolution now falls back to the real `wow.export`-shaped same-basename
@@ -29,11 +31,16 @@ tool, `blp/`) converts BLP2 textures to PNG.
   (id/bone/position, `ribbon_emitters`/`particle_emitters` skin `extras`,
   unconditional), `husk dump-chunks` (JSON dump of Legion+ chunks with no
   glTF equivalent, full `M2Ribbon`/`M2Particle` records including every
-  resolved animation curve, present in every M2 version; or `.bone`/`.phys`
+  resolved animation curve, present in every M2 version; `WFV1`/`WFV2`/
+  `DPIV`/`AFRA` — no wowdev.wiki struct at all, byte-decoded from real
+  files instead, see Resume — now get real structural parsing too, not a
+  raw hex dump; or `.bone`/`.phys`
   files directly — `.phys`'s full body/shape/joint/`PHYV` record set, each
   shape/joint resolved to its real type-specific data inline, see Resume).
   `blp/`'s `husk-blp` (BLP2 → PNG:
-  palettized/DXT1/DXT5/BGRA). `husk export`'s CLI grammar is CLI11-based named
+  palettized/DXT1/DXT3/DXT5/BGRA — DXT3 turned out to already be wired
+  through the same generic decode path as DXT1/DXT5, just unverified until
+  this session's real-corpus scan, see Resume). `husk export`'s CLI grammar is CLI11-based named
   flags (`--input`/`--output` positional-fallback, everything else named,
   `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel`/`--bones-dir`/`--phys`
   three-or-four-state — see `DESIGN.md`'s "CLI argument grammar for
@@ -116,7 +123,178 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: Closed out the remaining `M2_GAPS_TODO.md` work
+- **Last state**: Implemented all four items in `RO_COMPLETENESS_TODO.md`
+  (a punch list Luna wrote grounding four of README's own 🚧-marked
+  format-matrix rows against current source, then handed off with "shouldn't
+  be a big task") — every item done, tested, documented, and the TODO file
+  itself deleted per this project's own "survey's job is done" lifecycle.
+  Worked in the file's own priority order.
+  - **Item 2 (header metadata)**: `global_flags` now decodes into every
+    wiki-named bit (`m2::globalFlagNames`, `src/m2.hpp`/`m2.cpp`'s new
+    `GlobalFlag` namespace — bit positions derived by counting the wiki's
+    own reserved `uint32_t : 1` slots, not guessed from hex comments),
+    printed by `husk info` alongside the existing raw hex. Two real-file
+    cross-checks the item's own plan asked for, both confirmed: (1)
+    `flag_load_phys_data` correctly tracks real `.phys` presence —
+    set on `mace_1h_warfrontsforsaken_d_01.m2` (has a committed `.phys`
+    sidecar), unset on `bloodelffemale.m2` (doesn't); (2) whether
+    `flag_new_particle_record` is a reliable proxy for the 492-byte
+    `M2Particle` shape, or whether `kMinVerifiedParticleVersion`'s
+    version-only gate could disagree with it on a real file — it can:
+    `mace_2h_bolvar_d_01.m2` (version 274, the 64-particle-emitter stress
+    fixture) does *not* set the flag, confirming the wiki's own text is an
+    OR ("if 0x200 is set **or** if version is bigger than 271") and
+    `kMinVerifiedParticleVersion`'s existing version-only check was already
+    the correct half of that OR, not a bug. `Header::textureCombinerCombos`
+    (the header struct's own last field, `M2Array<uint16_t>` at offset
+    0x130, only present when its flag bit is set) is now parsed and
+    surfaced via `husk info` too — a full 130,576-file local-corpus scan
+    found zero real files with the flag set, so this one specific table's
+    real-file layout is unverified even though the parse itself is
+    low-risk (same well-tested `parseUint16Array` five other lookup tables
+    already share). The wiki's own "use this instead of index+1 for
+    multitexture blending" cross-reference into `cmd_export.cpp`'s
+    material resolution was deliberately **not** wired up — no indexing
+    key documented at all, and (per the scan) no real file to verify a
+    guess against either.
+  - **Item 3 (`WFV1`/`WFV2`/`DPIV`/`AFRA`)**: all four — no wowdev.wiki
+    struct at all — now get real structural parsing in `husk dump-chunks`
+    (`dumpWfv1`/`dumpWfv2`/`dumpDpiv`/`dumpAfra`, `src/cmd_dump.cpp`) built
+    from the real corpus files already sitting in this repo's root
+    (`*_files_for_exploration.txt`, from an earlier session's corrected
+    scanner-bug finding, `WIKI_FINDINGS.md` §10). `AFRA`/`WFV1`: a single
+    fixed 16-byte struct (one real float32 + 12 zero bytes). `DPIV`: the
+    wiki's own "always 32 bytes" undersold it — chunk size is *always* an
+    exact multiple of 32 (1-4 records seen across 2,632 real hits), a real
+    record array (`chunk.size / 32` records, 8x float32 each), not a
+    single fixed struct; the last 4 floats are zero in every one of 2,951
+    real records decoded, kept as real fields rather than assumed
+    reserved. `WFV1`/`WFV2` are a genuinely thin, 2-file,
+    byte-identical-content sample (both the same Nazjatar-zone waterfall
+    doodads) — flagged tentative rather than confidently typed field-by-
+    field (two `WFV2` fields show signs of not really being floats — a
+    plausible packed-RGBA-color byte pattern, and a small-integer-as-float
+    denormal `DPIV`'s own field_3 also shows — exposed as plain floats
+    rather than guessing a reinterpretation from so thin a sample).
+    `kFallback`'s raw-hex-dump path (`dumpRawFallback`) was removed
+    outright once nothing used it anymore, and its stale notes ("AFRA...
+    not observed in any files yet") — already known-wrong since an earlier
+    session's scanner-bug correction, just never updated in this specific
+    file — went with it.
+  - **Item 1 (`blp/` DXT3/JPEG)**: a real corpus scan, not the small
+    open question the item's own plan expected to resolve cheaply — this
+    ran **779,056** real `.blp` files (not `.m2`-scoped, the biggest and
+    single longest-running corpus check this project has done, ~2h55m
+    wall-clock, almost entirely disk I/O opening three-quarters of a
+    million individual small files one at a time). Result: **DXT3 is real
+    and needed** (6,759 real files — character hair/skin textures among
+    them), **JPEG is genuinely absent** (0 real files, recorded as a real
+    negative result per this project's own "checked, zero real files, not
+    implemented blind" discipline, not attempted). The real surprise:
+    DXT3 needed **no new decode code at all** — `blp/src/husk_blp/
+    decode.py`'s `_decode_dxt`/`_DXT_BLOCK_SIZE`/`_DXT_FOURCC` were
+    already generic over `PixelFormat.DXT1`/`DXT3`/`DXT5`, wired through
+    the exact same synthetic-DDS-wrapper path DXT1/DXT5 use — it had
+    simply never been exercised by a real test or verified against a real
+    file, so `README.md`'s own "DXT3... unimplemented" claim was stale
+    documentation, not a missing feature. Verified two ways before
+    trusting that: a new synthetic single-block test
+    (`test_decode_dxt3_solid_green_explicit_alpha_block`, `blp/tests/
+    test_decode.py`, same shape as the existing DXT1/DXT5 single-block
+    tests) round-trips exactly; a real file
+    (`character/troll/hair00_01.blp`, 128×128) decodes to a visibly
+    correct troll-hair texture (red strands + braid, 2,333 unique
+    colors) — not a crash, not garbage.
+  - **Item 4 (Sidecar FileDataID resolution)**: `README.md`'s format-
+    matrix row bumped 🚧 → 📖 (the CASC-resolution half this row measures
+    against is a deliberate non-goal, not a deferred read — local-file
+    resolution, the row's actual full scope, is already complete for all
+    six IDs). The one real diagnostics gap found: `resolveSkin`
+    (`--skin auto`'s SFID-based resolution stage, `src/cmd_export.cpp`)
+    used to report only the *directory* it searched on a "not found"
+    failure, not the specific `<FileDataID>.skin` path it actually
+    checked — a direct miss against this project's own Foreign Data
+    policy ("on failure, always print expected and actual values"). Now
+    names the exact candidate path; three existing `tests/test_cli.cpp`
+    cases whose assertions depended on the old, vaguer wording were
+    updated to check for the specific path instead. Checked the sibling
+    resolvers the item's own plan named alongside it
+    (`--anim`/`--bones-dir`/`--textures`) and found they don't share the
+    gap: all three are deliberately silent-skip-per-item by design
+    (matching `--textures`'s already-established "quiet when nothing
+    applies" precedent), with no "not found" failure message to improve
+    in the first place — the gap was real but narrower than the item's
+    own framing suggested.
+  - Also bumped 🚧 → 📖 for the "Chunk container / magic detection" and
+    "Header / global metadata" format-matrix rows (Item 3's/Item 2's own
+    work, respectively, directly closes the gap those symbols described).
+  - **Verification discipline**: every claim above was checked against
+    real bytes before being written down or shipped — the two real-file
+    header-flag cross-checks, the 130,576-file `textureCombinerCombos`
+    scan, the 779,056-file BLP scan, and the real troll-hair-texture
+    decode all happened *before* the corresponding doc text or code
+    change was finalized, not after. Full suite green throughout: 471/471
+    `./build/husk-tests` (1 permanently-inapplicable skip), 472/472
+    `ctest`, 17/17 `blp/`'s own pytest suite (3 pre-existing, unrelated
+    env-var-gated skips).
+  - **Docs**: `WIKI_FINDINGS.md` (§10 gained a "Follow-up: implemented"
+    subsection for `WFV1`/`WFV2`/`DPIV`/`AFRA`; new §14 for the
+    `global_flags`/`textureCombinerCombos`/BLP-scan/`resolveSkin`
+    findings; "Where these live in husk" table extended two rows),
+    `DESIGN.md` (three new Key design decisions bullets — `WFV1`/`WFV2`/
+    `DPIV`/`AFRA` parsing, `global_flags`/`textureCombinerCombos`,
+    `resolveSkin` diagnostics — plus a fourth for the DXT3 finding),
+    `M2_COMPLETENESS.md` (new `WFV1`/`WFV2`/`DPIV`/`AFRA` row, Header row
+    updated), `README.md` (three format-matrix symbol bumps, the `blp/`
+    usage paragraph rewritten for DXT3, the BLP `Texture pixel data` row
+    rewritten). `RO_COMPLETENESS_TODO.md` deleted outright, same lifecycle
+    every prior fully-closed TODO file in this project has used — its five
+    remaining code/test cross-references (`src/cmd_dump.cpp`,
+    `tests/test_cli.cpp`, `tests/test_dump.cpp` x2,
+    `blp/tests/test_decode.py`) were already phrased as `former Item N`
+    historical citations before the deletion, so none needed rewriting
+    (same "historical log entries aren't rewritten" precedent every prior
+    TODO-file deletion here has used).
+  - **A real, unrelated observation, not acted on**: partway through this
+    session's long-running BLP scan, ten new untracked files appeared in
+    the work dir that this session didn't create —
+    `ADT_LOD_TODO.md`/`ADT_TERRAIN_TODO.md`/`COLLISION_CULLING_TODO.md`/
+    `ENGINE_TODO.md`/`FOG_VOLUMES_TODO.md`/`LIGHTING_TODO.md`/
+    `LIQUID_TODO.md`/`LUNA_NOTES.md`/`WDT_TODO.md`/`WMO_GEOMETRY_TODO.md`/
+    `WORLD_COMPLETENESS.md`/`WORLD_PLACEMENT_TODO.md` (plus a
+    `README.md` intro-paragraph edit pointing at the new
+    `WORLD_COMPLETENESS.md`) — evidently Luna's own concurrent work in a
+    separate session, scaffolding a WMO/ADT/world-geometry expansion,
+    landing while this session's background scan ran for several hours.
+    Confirmed via `git status`/`git diff` that none of it conflicts with
+    or was touched by this session's own edits (the one shared file,
+    `README.md`, had her intro-paragraph addition and this session's
+    format-matrix/`blp/`-paragraph edits land in disjoint sections,
+    cleanly coexisting) — left entirely alone, per this project's own
+    "Luna-created content, not mine to touch" rule, including five
+    "same disposition `RO_COMPLETENESS_TODO.md`... already established"
+    -style precedent citations inside her new files that now point at a
+    file this session deleted (`LIQUID_TODO.md`/`WDT_TODO.md`/
+    `ADT_TERRAIN_TODO.md`/`WMO_GEOMETRY_TODO.md`/`ADT_LOD_TODO.md`) —
+    flagged here rather than silently fixed, since they're her files, not
+    read closely enough to know if she'd even want them touched.
+  - **Environment note, reconfirmed**: the BLP scan needed `time direnv
+    exec . uv run --python tools/venv/bin/python <script>`, backgrounded
+    (it exceeded the default 120s tool timeout almost immediately and
+    took ~2h55m total) — checked on via `/proc/<pid>/fd` (which real file
+    it currently had open) rather than polling its own stdout, since the
+    script only prints once at the very end; a `Monitor` task
+    (`while kill -0 <pid>; do sleep ...; done`) was used for the final
+    long stretch so a task-completion notification would arrive instead
+    of manual re-checking. `uv run --python .venv/bin/python <script>`
+    (not `tools/venv/bin/python`) is `blp/`'s own venv path, needed for
+    the two ad hoc real-file verification scripts this session wrote
+    (checking Pillow's own decode against a real DXT3 file, saving a PNG
+    to eyeball) — `blp/`'s Python package and the top-level `tools/`
+    scripts each have their own separate venv, confirmed by `-c` failing
+    against the wrong one with an unrelated import error before catching
+    it.
+- **Previous state**: Closed out the remaining `M2_GAPS_TODO.md` work
   autonomously (Luna: "start implementing the changes independently
   starting from the easiest... continuing to the harder ones," then went
   offline) — two units of work, each committed separately.
@@ -1828,12 +2006,15 @@ real-file-driven spec correction found along the way.
   `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel` got the
   three/four-state (`auto`/explicit/`none`) treatment `DESIGN.md`'s CLI
   grammar section still documents in full.
-- **Next step**: `M2_GAPS_TODO.md` is now fully implemented and deleted
-  (see Last state above) — every item it ever bundled (`M2Sequence`
+- **Next step**: `M2_GAPS_TODO.md` and, as of this session, `RO_COMPLETENESS_TODO.md`
+  are both fully implemented and deleted (see Last state above and
+  further above) — every item either ever bundled (`M2Sequence`
   fields/`aliasNext`, `PFDC`, `EXP2`, `Texture.type`, Attachments/Events/
-  Lights, animated tint/fade, `DETL`, `PCOL`, plus regression-test
-  follow-ups) is done, tested, documented. There is no active TODO file
-  in this repo anymore — the only remaining tracked, undone work lives in
+  Lights, animated tint/fade, `DETL`, `PCOL`, header-metadata decode,
+  `WFV1`/`WFV2`/`DPIV`/`AFRA`, `blp/` DXT3 verification, `resolveSkin`
+  diagnostics, plus regression-test follow-ups) is done, tested,
+  documented. There is no active TODO file for M2/`blp/` in this repo
+  anymore — the only remaining tracked, undone work in that scope lives in
   `TODO_correctness.md` (`M2Camera`, `.bone` slot *selection* — both
   low-priority by design, not oversight) and the two carryover threads
   below. Both `ANIM_TODO.md`'s
@@ -1849,10 +2030,17 @@ real-file-driven spec correction found along the way.
   `materialIndex` case, but genuinely unconfirmed; (b) `tools/
   corpus_checks.py` keeping at least one real example path per distinct
   failure *message shape*, not just the top-N codes by count, so a case
-  like (a) doesn't stay unverifiable next time. Also still open: optional
+  like (a) doesn't stay unverifiable next time. `resolveSkin`'s failure
+  messages now do name the specific candidate path/FileDataID they tried
+  (this session, see Last state) — that specific gap is closed. Optional
   scope expansion (WMO/M3, Blender-side tooling for the various `extras`
-  this project already exports), and `resolveSkin`'s failure messages not
-  naming the specific candidate path/FileDataID they tried.
+  this project already exports) is still nominally open from this file's
+  own perspective, but see Last state's own note: Luna appears to have
+  already started a WMO/ADT/world-geometry scaffolding pass in a
+  concurrent session (`WORLD_COMPLETENESS.md` and several new
+  `*_TODO.md` files landed in the work dir mid-session, untouched by this
+  one) — worth checking her intent directly before assuming this is still
+  unclaimed, rather than duplicating or stepping on it.
 - **Hazards**: the Attachment/Event/Light glTF nodes added this session
   (see Last state) follow the exact same rule as the multi-root
   synthesized parent node below — **never add them to `skin.joints`**,

@@ -635,9 +635,35 @@ TEST_CASE("husk dump-chunks: TEXL (light-cookie texture lookups) reads its four 
     fs::remove(path);
 }
 
-TEST_CASE("husk dump-chunks: an undocumented chunk (e.g. WFV1) is included as a raw hex dump "
-          "plus a note, not silently dropped") {
-    std::vector<uint8_t> wfv1 = {0xDE, 0xAD, 0xBE, 0xEF};
+// WFV1/WFV2/DPIV/AFRA have no wowdev.wiki struct at all (RO_COMPLETENESS_TODO.md's
+// former Item 3) -- their layout was byte-decoded from real corpus files
+// instead (see WIKI_FINDINGS.md's WFV1/WFV2/DPIV/AFRA section) and they now
+// get real structural parsing, not a raw-hex-dump fallback.
+TEST_CASE("husk dump-chunks: AFRA (a single fixed 16-byte struct) round-trips its float field") {
+    std::vector<uint8_t> afra;
+    putF32(afra, 0.6f);
+    putF32(afra, 0.0f);
+    putF32(afra, 0.0f);
+    putF32(afra, 0.0f);
+    auto file = wrapChunked(minimalMd20(), {{"AFRA", afra}});
+    auto path = tempPath("afra.m2");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"AFRA\"") != std::string::npos);
+    CHECK(result.output.find("\"value\"") != std::string::npos);
+    CHECK(result.output.find("0.6") != std::string::npos);
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk dump-chunks: WFV1 (a single fixed 16-byte struct) round-trips its float field") {
+    std::vector<uint8_t> wfv1;
+    putF32(wfv1, 10.25f);
+    putF32(wfv1, 0.0f);
+    putF32(wfv1, 0.0f);
+    putF32(wfv1, 0.0f);
     auto file = wrapChunked(minimalMd20(), {{"WFV1", wfv1}});
     auto path = tempPath("wfv1.m2");
     writeFile(path, file);
@@ -645,8 +671,51 @@ TEST_CASE("husk dump-chunks: an undocumented chunk (e.g. WFV1) is included as a 
     auto result = runHusk("dump-chunks " + path.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("\"WFV1\"") != std::string::npos);
-    CHECK(result.output.find("deadbeef") != std::string::npos);
-    CHECK(result.output.find("not documented") != std::string::npos);
+    CHECK(result.output.find("\"value\"") != std::string::npos);
+    CHECK(result.output.find("10.25") != std::string::npos);
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk dump-chunks: WFV2 (a flat 16x float32 array, no wowdev.wiki struct) reads all 16 "
+          "fields at the right offsets") {
+    std::vector<uint8_t> wfv2;
+    for (int i = 0; i < 16; ++i) {
+        putF32(wfv2, static_cast<float>(i) + 0.5f);
+    }
+    auto file = wrapChunked(minimalMd20(), {{"WFV2", wfv2}});
+    auto path = tempPath("wfv2.m2");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"WFV2\"") != std::string::npos);
+    for (int i = 0; i < 16; ++i) {
+        CHECK(result.output.find(std::to_string(i) + ".5") != std::string::npos);
+    }
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk dump-chunks: DPIV (a real record array, chunk.size/32 records, not a single fixed "
+          "struct) reads multiple records' fields") {
+    std::vector<uint8_t> dpiv;
+    // Record 0: all zero (the dominant real-corpus shape).
+    for (int i = 0; i < 8; ++i) putF32(dpiv, 0.0f);
+    // Record 1: distinct nonzero values in every field, proving each
+    // record is read at its own 32-byte-stride offset, not just record 0.
+    for (int i = 0; i < 8; ++i) putF32(dpiv, static_cast<float>(i) + 1.25f);
+    auto file = wrapChunked(minimalMd20(), {{"DPIV", dpiv}});
+    auto path = tempPath("dpiv.m2");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"DPIV\"") != std::string::npos);
+    CHECK(result.output.find("\"field_0\"") != std::string::npos);
+    for (int i = 1; i <= 8; ++i) {
+        CHECK(result.output.find(std::to_string(i) + ".25") != std::string::npos);
+    }
 
     fs::remove(path);
 }
@@ -1006,6 +1075,24 @@ TEST_CASE(
     CHECK(result.output.find("\"x\": 1.46941") != std::string::npos);
     CHECK(result.output.find("\"y\": 3.99775") != std::string::npos);
     CHECK(result.output.find("\"z\": 32.2569") != std::string::npos);
+}
+
+// The same real fixture PCOL's own regression test uses also happens to
+// carry a real DPIV chunk (RO_COMPLETENESS_TODO.md's former Item 3, see
+// WIKI_FINDINGS.md) -- one record, non-degenerate values in field_1/field_2,
+// confirming dumpDpiv's record-array parsing against real bytes rather than
+// only a synthetic fixture. Values hand-checked against a fresh
+// dump-chunks run at test-writing time.
+TEST_CASE(
+    "husk dump-chunks: real DPIV data (same pa_kite_lamp_creature.m2 fixture as the PCOL "
+    "regression test) decodes one record with real nonzero field_1/field_2 values" *
+    doctest::skip(husk::test::testPcolVerificationM2().empty())) {
+    auto result = runHusk("dump-chunks " + husk::test::testPcolVerificationM2());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"DPIV\"") != std::string::npos);
+    CHECK(countOccurrences(result.output, "\"field_0\"") == 1);
+    CHECK(result.output.find("2.79845") != std::string::npos);
+    CHECK(result.output.find("22.0376") != std::string::npos);
 }
 
 // real-data regression coverage for EXP2/PFDC,

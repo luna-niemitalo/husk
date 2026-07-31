@@ -19,19 +19,22 @@
 // silently unread. Two categories, both real:
 //
 // - Legion+-only chunks (TXAC/EXPT/PABC/PADC/PSBC/PEDC/RPID/GPID/PGD1/
-//   WFV3/NERF/EDGF/DBOC/TEXL/PFDC/EXP2, all reasonably well documented on
-//   wowdev.wiki) -- rendering-effect/gameplay-metadata concerns glTF's own
-//   material model has no real equivalent for (edge fade, PBR-ish
+//   WFV3/NERF/EDGF/DBOC/TEXL/PFDC/EXP2/PCOL, all reasonably well documented
+//   on wowdev.wiki) -- rendering-effect/gameplay-metadata concerns glTF's
+//   own material model has no real equivalent for (edge fade, PBR-ish
 //   waterfall shading, parent-model animation overrides, inline physics,
 //   extended-particle alpha-cutoff curves, ...). DETL (per-light shadow-RT
 //   scale/diffuse-multiplier data) is likewise fully parsed but handled
 //   separately from the lookup table below, since its own defensive
 //   record-count floor needs the header's own lights.count -- the same
 //   reason ribbon_emitters/particle_emitters aren't chunk-tag-driven
-//   either (see dumpDetl's doc comment). Chunks with no documented byte
-//   layout, or one the wiki itself still calls preliminary
-//   (WFV1/WFV2/DPIV/AFRA/PCOL), are still included as a raw hex dump plus
-//   a note, not silently dropped. Only present in Legion+ chunked files.
+//   either (see dumpDetl's doc comment). WFV1/WFV2/DPIV/AFRA have no wowdev
+//   wiki struct at all, but real bytes fully resolved their layout instead
+//   (RO_COMPLETENESS_TODO.md's former Item 3, see WIKI_FINDINGS.md) -- they
+//   now get real structural parsing too (WFV1/AFRA: generically-named
+//   float32 fields; DPIV: a real record array, chunk.size/32 records;
+//   WFV2: a flat 16x float32 array), not a raw hex dump. Only present in
+//   Legion+ chunked files.
 // - `ribbon_emitters`/`particle_emitters` -- core MD20 header arrays
 //   present in every version, not Legion+ chunks, but the same "no glTF
 //   slot" rationale applies: procedural emitter systems, not renderable
@@ -69,11 +72,10 @@ void printUsage(std::ostream& out = std::cerr) {
            "  Cataclysm (see m2::kMinVerifiedParticleVersion).\n"
            "\n"
            "  Legion+ chunk tags -- TXAC/EXPT/PABC/PADC/PSBC/PEDC/RPID/GPID/PGD1/\n"
-           "  WFV3/NERF/EDGF/DBOC/TEXL/PFDC/EXP2/DETL, all reasonably well\n"
-           "  documented on wowdev.wiki. Chunks with no documented byte layout,\n"
-           "  or one the wiki itself still calls preliminary (WFV1/WFV2/DPIV/\n"
-           "  AFRA/PCOL), are still included, as a raw hex dump plus a note,\n"
-           "  not silently skipped. Only present in Legion+ chunked files.\n"
+           "  WFV3/NERF/EDGF/DBOC/TEXL/PFDC/EXP2/DETL/PCOL, all reasonably well\n"
+           "  documented on wowdev.wiki, plus WFV1/WFV2/DPIV/AFRA -- no wowdev.wiki\n"
+           "  struct at all, resolved from real bytes instead (see\n"
+           "  WIKI_FINDINGS.md). Only present in Legion+ chunked files.\n"
            "\n"
            "A .bone file (see M2/.skel's BFID chunk) is also accepted --\n"
            "husk dumps its per-bone correction matrices (see src/bone.hpp;\n"
@@ -169,17 +171,6 @@ void writeVec3(json::Writer& w, const m2::Vec3& v) {
     w.value(static_cast<double>(v.y));
     w.key("z");
     w.value(static_cast<double>(v.z));
-    w.endObject();
-}
-
-void dumpRawFallback(json::Writer& w, const Chunk& c, const char* note) {
-    w.beginObject();
-    w.key("note");
-    w.value(note);
-    w.key("size");
-    w.value(static_cast<int64_t>(c.size));
-    w.key("raw_hex");
-    w.value(hexDump(c.data, c.size));
     w.endObject();
 }
 
@@ -453,15 +444,13 @@ void dumpDboc(json::Writer& w, const Chunk& c) {
 }
 
 // TEXL (wowdev.wiki M2#TEXL, Midnight/12.0+): 16-byte records, one per
-// `lights.count` entry -- unlike DETL's internally-inconsistent offsets or
-// WFV1/AFRA's outright-undocumented layout, TEXL's struct (two floats, then
-// an index into TXID for the light cookie texture, then one more unknown
-// int) is unambiguous, so it gets real structural parsing rather than the
-// raw-hex-plus-note fallback below -- was a complete blind spot before
-// (FAILURES2.md #5): recognized by cmd_info.cpp's documentedM2ChunkTags
-// (so it never tripped the "undocumented chunk" note) but absent from both
-// of this file's own lists, meaning a real file's TEXL data was invisible
-// to every husk command, not just unparsed.
+// `lights.count` entry -- an unambiguous wiki struct (two floats, then an
+// index into TXID for the light cookie texture, then one more unknown int)
+// -- was a complete blind spot before (FAILURES2.md #5): recognized by
+// cmd_info.cpp's documentedM2ChunkTags (so it never tripped the
+// "undocumented chunk" note) but absent from both of this file's own
+// lists, meaning a real file's TEXL data was invisible to every husk
+// command, not just unparsed.
 void dumpTexl(json::Writer& w, const Chunk& c) {
     constexpr size_t kSize = 16;
     size_t n = c.size / kSize;
@@ -478,6 +467,105 @@ void dumpTexl(json::Writer& w, const Chunk& c) {
         w.key("unk2");
         w.value(static_cast<int64_t>(readU32(c.data, c.size, off + 0x0C)));
         w.endObject();
+    }
+    w.endArray();
+}
+
+// AFRA (wowdev.wiki M2#AFRA -- no struct documented at all as of the
+// 2026-07-25 fetch, "not observed in any files yet", now stale: see
+// WIKI_FINDINGS.md's AFRA section). Byte-decoded from scratch against all 32
+// real corpus hits (afra_files_for_exploration.txt): every single one is
+// exactly 16 bytes, a real float32 in [0.2, 0.98] at offset 0x00, followed
+// by 12 bytes that are zero in every sample. Field names below are
+// deliberately generic (`value`/`unk1..3`, not a guessed semantic like
+// "alpha") -- the wiki gives no name for this chunk's field, and the
+// filenames it turns up on (aura/void-portal VFX doodads) only weakly
+// suggest an opacity-like role, not enough to assert as fact.
+void dumpAfra(json::Writer& w, const Chunk& c) {
+    w.beginObject();
+    w.key("value");
+    w.value(static_cast<double>(readF32(c.data, c.size, 0x00)));
+    w.key("unk1");
+    w.value(static_cast<double>(readF32(c.data, c.size, 0x04)));
+    w.key("unk2");
+    w.value(static_cast<double>(readF32(c.data, c.size, 0x08)));
+    w.key("unk3");
+    w.value(static_cast<double>(readF32(c.data, c.size, 0x0C)));
+    w.endObject();
+}
+
+// DPIV (wowdev.wiki M2#DPIV -- "Unknown, seemingly always 32 bytes, mostly
+// empty", now corrected: see WIKI_FINDINGS.md's DPIV section). Byte-decoded
+// from scratch against all 2,632 real corpus hits
+// (dpiv_files_for_exploration.txt): chunk size is *always* an exact multiple
+// of 32 bytes (32/64/96/128 across the sample, i.e. 1-4 records; zero
+// exceptions), so this is a real record array, not a single fixed struct --
+// the wiki's "always 32 bytes" undersells it, that's just the single-record
+// case. Per-record layout: 8x float32. Across all 2,951 real records
+// decoded, the last 4 floats (offsets 0x10-0x1F) are zero in every single
+// one -- kept as real fields rather than assumed-reserved, since a future
+// file could easily populate them. Field names are deliberately generic
+// (`field_0..7`, not a guessed semantic) -- no wiki text describes what any
+// of these represent, and one field (offset 0x0C) decodes to suspicious
+// small-integer-as-float denormals (raw bits 1 or 2) in the real sample,
+// suggesting it may actually be an integer count/type rather than a float;
+// exposed as a plain float here rather than guessing its real type.
+void dumpDpiv(json::Writer& w, const Chunk& c) {
+    constexpr size_t kSize = 32;
+    size_t n = c.size / kSize;
+    w.beginArray();
+    for (size_t i = 0; i < n; ++i) {
+        size_t off = i * kSize;
+        w.beginObject();
+        for (int f = 0; f < 8; ++f) {
+            w.key("field_" + std::to_string(f));
+            w.value(static_cast<double>(readF32(c.data, c.size, off + f * 4)));
+        }
+        w.endObject();
+    }
+    w.endArray();
+}
+
+// WFV1 (wowdev.wiki M2#WFV1 -- no struct documented, "// unknown" as of the
+// 2026-07-25 fetch). Byte-decoded from scratch against both real corpus
+// hits (wfv1_files_for_exploration.txt): a genuinely thin, 2-file sample,
+// and both files decode to byte-identical 16-byte payloads (two Nazjatar-
+// zone waterfall doodads) -- flagged tentative per this project's own
+// "small sample, don't overclaim" precedent (e.g. WFV3's own two-shape
+// finding was checked against all 9 of its real hits before being trusted;
+// this is 2 of 2, but both identical, so there's no cross-file variation to
+// even confirm field boundaries against). Decodes as one real float32
+// (10.0) at offset 0x00 followed by 12 zero bytes -- same shape as AFRA,
+// generic field names for the same reason.
+void dumpWfv1(json::Writer& w, const Chunk& c) {
+    w.beginObject();
+    w.key("value");
+    w.value(static_cast<double>(readF32(c.data, c.size, 0x00)));
+    w.key("unk1");
+    w.value(static_cast<double>(readF32(c.data, c.size, 0x04)));
+    w.key("unk2");
+    w.value(static_cast<double>(readF32(c.data, c.size, 0x08)));
+    w.key("unk3");
+    w.value(static_cast<double>(readF32(c.data, c.size, 0x0C)));
+    w.endObject();
+}
+
+// WFV2 (wowdev.wiki M2#WFV2 -- no struct documented, "// unknown" as of the
+// 2026-07-25 fetch). Same 2-file, byte-identical-content sample as WFV1
+// (same two Nazjatar waterfall doodads' sibling "_custom_" variants) --
+// tentative for the same reason. Decodes cleanly as 64 bytes / 16x float32
+// with no leftover bytes, but two of the sixteen (offsets 0x2C/0x30) show
+// signs of not really being floats: 0x2C's raw bytes read as a plausible
+// packed RGBA color (0xff, 0x9b, 0x8d, 0x72) rather than a sane float
+// magnitude, and 0x30 decodes to the small-integer-as-float denormal
+// pattern (raw bits = 3) DPIV's field_3 also shows -- exposed here as plain
+// floats rather than guessing a color/int reinterpretation from a 2-file
+// sample.
+void dumpWfv2(json::Writer& w, const Chunk& c) {
+    constexpr size_t kFloatCount = 16;
+    w.beginArray();
+    for (size_t i = 0; i < kFloatCount; ++i) {
+        w.value(static_cast<double>(readF32(c.data, c.size, i * 4)));
     }
     w.endArray();
 }
@@ -1485,6 +1573,8 @@ int dumpChunks(int argc, char** args) {
             {"PGD1", dumpU16ArrayChunk}, {"WFV3", dumpWfv3},   {"NERF", dumpNerf},
             {"EDGF", dumpEdgf},          {"DBOC", dumpDboc},   {"TEXL", dumpTexl},
             {"PFDC", dumpPfdc},          {"EXP2", dumpExp2},   {"PCOL", dumpPcol},
+            {"WFV1", dumpWfv1},          {"WFV2", dumpWfv2},   {"DPIV", dumpDpiv},
+            {"AFRA", dumpAfra},
         };
         for (const auto& e : kDocumented) {
             auto c = findChunk(chunks, e.tag);
@@ -1502,27 +1592,6 @@ int dumpChunks(int argc, char** args) {
         if (auto c = findChunk(chunks, "DETL")) {
             w.key("DETL");
             dumpDetl(w, *c, header.lights.count);
-        }
-
-        struct FallbackEntry {
-            const char* tag;
-            const char* note;
-        };
-        static const FallbackEntry kFallback[] = {
-            {"WFV1", "structure not documented on wowdev.wiki (\"// unknown\") as of the "
-                     "2026-07-25 fetch"},
-            {"WFV2", "structure not documented on wowdev.wiki (\"// unknown\") as of the "
-                     "2026-07-25 fetch"},
-            {"DPIV", "structure not documented on wowdev.wiki (\"Unknown, seemingly always 32 "
-                     "bytes, mostly empty\") as of the 2026-07-25 fetch"},
-            {"AFRA", "structure not documented on wowdev.wiki (\"Not observed in any files yet\") "
-                     "as of the 2026-07-25 fetch"},
-        };
-        for (const auto& e : kFallback) {
-            auto c = findChunk(chunks, e.tag);
-            if (!c) continue;
-            w.key(e.tag);
-            dumpRawFallback(w, *c, e.note);
         }
 
         w.endObject();

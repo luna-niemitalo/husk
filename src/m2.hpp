@@ -141,6 +141,30 @@ struct Header {
     Array ribbonEmitters;      // M2Ribbon
     Array particleEmitters;    // M2Particle
 
+    // M2Array<uint16_t>, wowdev.wiki M2#Header ("Second Texture Material
+    // Override Combos") -- only present in the wire header at all when
+    // GlobalFlag::kUseTextureCombinerCombos is set in globalFlags (offset
+    // 0x130, right after particleEmitters); left as a default-constructed
+    // empty Array (count 0) otherwise, indistinguishable from "flag set but
+    // genuinely empty" -- callers that care about the distinction should
+    // check the flag bit directly rather than infer it from count == 0. A
+    // full 130,576-file local-corpus scan found zero real files with this
+    // flag set -- the parsing itself is low-risk (a plain M2Array<uint16_t>,
+    // the same well-tested shape/decoder five other lookup tables in this
+    // struct already use, at a documented offset with no ambiguity), but
+    // real-file verification of the *layout* specifically (as opposed to
+    // every other already-parsed-but-unpopulated table in this struct)
+    // hasn't happened -- flag this honestly if it ever matters.
+    // Per the wiki: when set, multitexture blending uses *this* table's
+    // material index instead of "current index material + 1" for combining
+    // with the first texture -- surfaced here (see globalFlagNames, `husk
+    // info`) but not wired into cmd_export.cpp's material resolution, since
+    // the wiki gives no indexing key at all (indexed by what -- batch
+    // order? materialIndex? something else?) and this project's own
+    // "verify against real bytes before implementing, don't guess at
+    // semantics" discipline means an unverified index scheme doesn't ship.
+    Array textureCombinerCombos;
+
     bool chunked = false;  // true if this file was Legion+ MD21-wrapped
 
     // FileDataID of an external .skel file (wowdev.wiki M2#SKID) that this
@@ -232,6 +256,54 @@ struct Header {
     // future client update looks like from here.
     std::vector<std::string> chunkTags;
 };
+
+// Header::globalFlags named bits (wowdev.wiki M2#Header), transcribed
+// directly from the wiki's own bitfield struct -- bit positions derived by
+// counting `uint32_t : 1` reserved slots alongside the named ones, not
+// guessed from the hex comments alone (cross-checked: every constant below
+// matches the wiki's own inline hex annotation exactly, e.g.
+// kUseTextureCombinerCombos at bit 3 == 0x8). Three single-bit gaps (bits
+// 2, 4, 6) and a large unnamed gap (bits 22-29, between
+// kFlagUnk0x200000 and kFlagUnk0x40000000) are real -- the wiki gives no
+// name for those bits at all, not an omission here. Version-gating
+// (BC+/Mists+/WoD+/Legion+ per the wiki) isn't enforced when decoding: a
+// bit being set on an older file than the wiki claims it's valid for would
+// be new information worth seeing, not a case to silently mask.
+namespace GlobalFlag {
+constexpr uint32_t kTiltX = 0x1;
+constexpr uint32_t kTiltY = 0x2;
+constexpr uint32_t kUseTextureCombinerCombos = 0x8;  // >= BC
+constexpr uint32_t kLoadPhysData = 0x20;              // >= Mists
+constexpr uint32_t kUnk0x80 = 0x80;  // >= WoD; unset: demon hunter tattoos stop glowing
+constexpr uint32_t kCameraRelated = 0x100;
+constexpr uint32_t kNewParticleRecord = 0x200;  // >= Legion; Cata+ 492-byte M2Particle shape
+constexpr uint32_t kUnk0x400 = 0x400;
+constexpr uint32_t kTextureTransformsUseBoneSequences = 0x800;  // >= WoD
+constexpr uint32_t kUnk0x1000 = 0x1000;
+constexpr uint32_t kChunkedAnimFiles = 0x2000;
+constexpr uint32_t kUnk0x4000 = 0x4000;
+constexpr uint32_t kUnk0x8000 = 0x8000;
+constexpr uint32_t kUnk0x10000 = 0x10000;
+constexpr uint32_t kUnk0x20000 = 0x20000;
+constexpr uint32_t kUnk0x40000 = 0x40000;
+constexpr uint32_t kUnk0x80000 = 0x80000;
+constexpr uint32_t kUnk0x100000 = 0x100000;
+constexpr uint32_t kUnk0x200000 = 0x200000;  // "use 24500 upgraded model format" per the wiki
+constexpr uint32_t kUnk0x40000000 = 0x40000000;  // seen on 11.1.7+ player-housing furniture
+}  // namespace GlobalFlag
+
+// Names every set bit in `flags` using GlobalFlag's constants (wiki-given
+// names where documented, "unk_0x<hex>" for the reserved-but-unnamed ones),
+// in bit order low to high. A bit not covered by any GlobalFlag constant at
+// all (the true reserved gaps -- bits 2, 4, 6, 22-29, or anything past bit
+// 30) is silently omitted, same as an M2CompBone flag billboardModeName
+// doesn't recognize -- this is a diagnostic aid (`husk info`), not a
+// bounds-checked parse, so an unrecognized bit isn't an error. Shared
+// helper rather than inlined into cmd_info.cpp so a future caller (e.g.
+// cmd_export.cpp, if a specific bit ever needs to gate real behavior) has
+// one place to check a name against, mirroring billboardModeName's own
+// precedent.
+std::vector<std::string> globalFlagNames(uint32_t flags);
 
 // M2CompBone::flags bits (wowdev.wiki M2#Bones), the ones relevant to
 // rendering rather than animation-blending internals. Billboarding is a

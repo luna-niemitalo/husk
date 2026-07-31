@@ -11,7 +11,9 @@ reasoning instead of just the current state. Real-file reverse-engineering
 findings live in `WIKI_FINDINGS.md`; open correctness gaps live in
 `TODO_correctness.md`; a granular per-M2-feature completion breakdown
 (parse depth vs. consumption depth vs. glTF ceiling) lives in
-`M2_COMPLETENESS.md`.
+`M2_COMPLETENESS.md`, with the same breakdown for WMO + ADT (combined, not
+yet implemented — a target-setting scaffold, not a progress report) in
+`WORLD_COMPLETENESS.md`.
 
 ## Goal
 
@@ -46,7 +48,14 @@ Non-goals, by design, not oversight:
   this project was first scoped, not a deliberate exclusion: crucial for
   any actual rendered world, not just props/buildings. `.wdt`/`.wdl` (which
   ADT tiles exist per map; coarse whole-continent distant heightmap) are
-  ADT's own real dependencies, not yet scoped either.
+  ADT's own real dependencies, not yet scoped either. **WMO and ADT are
+  scoped together, not separately** — `WORLD_COMPLETENESS.md` (new,
+  2026-07-31, a pre-implementation scaffold, no code yet either format)
+  covers both plus `.wdt`/`.wdl`, since ADT's whole relevance to husk is
+  placing M2/WMO instances into world space (`MDDF`/`MODF`) and WMO has
+  the identical concern turned inward (its own internal doodad set,
+  `MODS`/`MODN`/`MODI`/`MODD`) — the two will get implemented as one
+  effort, not two.
 - **PM4/PD4 (server-side navigation/pathing mesh) declared in scope**,
   2026-07-31, explicitly for pathing use cases ("we want pathing") — not
   yet researched at all (no wiki page read, no real file inspected this
@@ -698,6 +707,59 @@ on all 2,354 (triangle triples, one normal per triangle — the same shape
 M2's own core collision mesh already has). `flags`' per-record meaning is
 undocumented on the wiki — exposed raw, not guessed at.
 
+**`WFV1`/`WFV2`/`DPIV`/`AFRA` (no wowdev.wiki struct at all) are now
+structurally parsed by `husk dump-chunks`, not left as a raw hex dump** —
+byte-decoded from real corpus files: `AFRA`/`WFV1` are a single fixed
+16-byte struct (one real float32 + 12 zero bytes); `DPIV` is a real record
+array (`chunk.size / 32` records, 8x float32 each — the wiki's own "always
+32 bytes" undersold it, that's just the single-record case); `WFV2` is a
+flat 16x float32 array. `WFV1`/`WFV2` are a genuinely thin, 2-file,
+byte-identical-content sample, flagged tentative rather than confidently
+typed field-by-field (two fields show signs of not really being floats —
+see `WIKI_FINDINGS.md` §10's follow-up — exposed as plain floats rather
+than guessing a color/int reinterpretation). `dumpRawFallback`
+(`src/cmd_dump.cpp`) was removed outright once nothing used it anymore.
+
+**`global_flags` decoded into its wiki-named bits, and `textureCombinerCombos`
+(the header struct's last field) implemented** — `m2::globalFlagNames`
+names every set bit `husk info` already prints as raw hex; a real-file
+cross-check confirms `flag_load_phys_data` tracks real `.phys` presence
+correctly, and confirms `flag_new_particle_record` is genuinely an
+*alternate* signal to `version > 271` (the wiki's own OR), not a second
+gate `kMinVerifiedParticleVersion` needs to also check.
+`Header::textureCombinerCombos` is read conditionally on the flag bit
+(offset 0x130, right after `particleEmitters`) using the same
+`parseUint16Array` five other lookup tables already share — a full
+130,576-file local-corpus scan found zero real files with the flag set, so
+the wiki's own "use this instead of index+1 for multitexture blending"
+cross-reference into `cmd_export.cpp`'s material resolution was
+deliberately *not* wired up (no indexing key documented at all, and no
+real file to verify a guess against) — surfaced via `husk info` only, same
+awareness-only treatment `TODO_correctness.md`'s five-lookup-tables item
+already established for this struct.
+
+**`resolveSkin`'s "not found" failure message now names the specific
+candidate path it checked**, not just the directory searched — a direct
+Foreign Data policy gap (`~/.claude/CLAUDE.md`'s "on failure, always print
+expected and actual values"). The sibling resolvers this was checked
+against (`--anim`/`--bones-dir`/`--textures`) turned out not to share the
+gap: all three are deliberately silent-skip-per-item by design, with no
+"not found" failure message to improve in the first place.
+
+**`blp/`'s DXT3 support turned out to already exist — the "unimplemented"
+claim was stale documentation, not a missing feature.** A 779,056-file
+local-corpus scan (the single longest-running corpus check in this
+project's history, ~2h55m, almost entirely disk I/O) found 6,759 real
+DXT3 BLP2 files (confirmed-needed, not hypothetical) and zero real JPEG
+ones (confirmed genuinely absent, recorded as a real negative result, not
+implemented blind). `blp/src/husk_blp/decode.py`'s `_decode_dxt` was
+already generic over `PixelFormat.DXT1`/`DXT3`/`DXT5` — DXT3 just had no
+test and no real-file verification, so `README.md` kept calling it
+unimplemented. Verified both ways before trusting it: a new synthetic
+single-block test (matching the existing DXT1/DXT5 precedent), and a real
+file (`character/troll/hair00_01.blp`) decoding to a visibly correct hair
+texture, not garbage.
+
 ## CLI argument grammar for `export` (implemented)
 
 **Previous grammar**, for contrast (replaced, not additive — every existing
@@ -1098,10 +1160,11 @@ mechanism) has since run to completion and was removed once every target
 had a final disposition: `WFV1`/`WFV2`/`DPIV`/`AFRA` were originally reported
 confirmed-absent from a full real 130,576-file corpus sweep, but that was a
 scanner bug (a `bytes`-vs-`str` dict-key mismatch that made the check always
-false), not a real result -- corrected: all four (plus `PCOL`, now
-implemented -- see Key design decisions below) are real and present,
-cross-checked independently via `casc-tool scan-chunks` (`WIKI_FINDINGS.md`
-§10);
+false), not a real result -- corrected: all four (plus `PCOL`) are real and
+present, cross-checked independently via `casc-tool scan-chunks`
+(`WIKI_FINDINGS.md` §10), and now all five are fully implemented
+(`husk dump-chunks`'s `dumpPcol`/`dumpWfv1`/`dumpWfv2`/`dumpDpiv`/`dumpAfra`
+-- see Key design decisions below);
 `DETL`'s real byte layout is fully resolved (12-byte stride, zero-padded to
 a 16-byte boundary -- §11); `aliasNext` is a local `sequences`-array index,
 not an external id, at the `M2Bounds`-corrected offset 0x3E (§12), now

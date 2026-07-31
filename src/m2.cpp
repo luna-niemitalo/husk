@@ -54,11 +54,16 @@ constexpr size_t cameraLookup = 0x118;
 constexpr size_t ribbonEmitters = 0x120;
 constexpr size_t particleEmitters = 0x128;
 
-// End of the last field this parser reads (particleEmitters, an 8-byte
-// Array). The real header continues further, version-gated (e.g.
-// textureCombinerCombos, only present when a global flag bit is set) --
-// this is the minimum a header must be for every field above to be safely
-// readable, not the full struct size.
+// Only present in the wire header when GlobalFlag::kUseTextureCombinerCombos
+// is set (wowdev.wiki M2#Header) -- read conditionally in parseBlob, not
+// part of the unconditional field walk above.
+constexpr size_t textureCombinerCombos = 0x130;
+
+// End of the last field this parser unconditionally reads (particleEmitters,
+// an 8-byte Array). The real header can continue further --
+// textureCombinerCombos, read conditionally above -- this is the minimum a
+// header must be for every unconditional field to be safely readable, not
+// the full struct size.
 constexpr size_t minHeaderSize = particleEmitters + 8;
 }  // namespace offset
 
@@ -198,6 +203,22 @@ Header parseBlob(const uint8_t* blob, size_t blobSize, bool chunked) {
     h.cameraLookup = readArray(blob, blobSize, offset::cameraLookup);
     h.ribbonEmitters = readArray(blob, blobSize, offset::ribbonEmitters);
     h.particleEmitters = readArray(blob, blobSize, offset::particleEmitters);
+
+    // textureCombinerCombos only exists in the wire header at all when this
+    // flag bit is set (wowdev.wiki M2#Header) -- a real file with the flag
+    // set but a blob too short for the extra 8 bytes is foreign data that
+    // doesn't fit its own claim (same ParseError-on-truncation discipline
+    // every array/record read in this file already uses), not something to
+    // silently leave as an empty Array.
+    if (h.globalFlags & GlobalFlag::kUseTextureCombinerCombos) {
+        if (blobSize < offset::textureCombinerCombos + 8) {
+            throw ParseError(
+                "header sets flag_use_texture_combiner_combos but the blob (" +
+                std::to_string(blobSize) + " bytes) is too short to hold the textureCombinerCombos "
+                "array at offset 0x130");
+        }
+        h.textureCombinerCombos = readArray(blob, blobSize, offset::textureCombinerCombos);
+    }
     return h;
 }
 
@@ -484,6 +505,38 @@ std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& arra
     }
 
     return bones;
+}
+
+std::vector<std::string> globalFlagNames(uint32_t flags) {
+    static const std::pair<uint32_t, const char*> kNames[] = {
+        {GlobalFlag::kTiltX, "tilt_x"},
+        {GlobalFlag::kTiltY, "tilt_y"},
+        {GlobalFlag::kUseTextureCombinerCombos, "use_texture_combiner_combos"},
+        {GlobalFlag::kLoadPhysData, "load_phys_data"},
+        {GlobalFlag::kUnk0x80, "unk_0x80"},
+        {GlobalFlag::kCameraRelated, "camera_related"},
+        {GlobalFlag::kNewParticleRecord, "new_particle_record"},
+        {GlobalFlag::kUnk0x400, "unk_0x400"},
+        {GlobalFlag::kTextureTransformsUseBoneSequences, "texture_transforms_use_bone_sequences"},
+        {GlobalFlag::kUnk0x1000, "unk_0x1000"},
+        {GlobalFlag::kChunkedAnimFiles, "chunked_anim_files"},
+        {GlobalFlag::kUnk0x4000, "unk_0x4000"},
+        {GlobalFlag::kUnk0x8000, "unk_0x8000"},
+        {GlobalFlag::kUnk0x10000, "unk_0x10000"},
+        {GlobalFlag::kUnk0x20000, "unk_0x20000"},
+        {GlobalFlag::kUnk0x40000, "unk_0x40000"},
+        {GlobalFlag::kUnk0x80000, "unk_0x80000"},
+        {GlobalFlag::kUnk0x100000, "unk_0x100000"},
+        {GlobalFlag::kUnk0x200000, "unk_0x200000"},
+        {GlobalFlag::kUnk0x40000000, "unk_0x40000000"},
+    };
+    std::vector<std::string> names;
+    for (const auto& [bit, name] : kNames) {
+        if (flags & bit) {
+            names.push_back(name);
+        }
+    }
+    return names;
 }
 
 const char* billboardModeName(uint32_t flags) {

@@ -112,7 +112,30 @@ int info(int argc, char** args) {
                      "than failing loudly (see FAILURES2.md #3)\n";
     }
     std::cout << "  name: " << (h.name.empty() ? "(empty)" : h.name) << "\n";
-    std::cout << "  global_flags: 0x" << std::hex << h.globalFlags << std::dec << "\n";
+    std::cout << "  global_flags: 0x" << std::hex << h.globalFlags << std::dec;
+    {
+        auto names = m2::globalFlagNames(h.globalFlags);
+        if (names.empty()) {
+            std::cout << " (none set)";
+        } else {
+            std::cout << " (";
+            for (size_t i = 0; i < names.size(); ++i) {
+                if (i > 0) std::cout << ", ";
+                std::cout << names[i];
+            }
+            std::cout << ")";
+        }
+    }
+    std::cout << "\n";
+    if (h.textureCombinerCombos.count > 0) {
+        printArray("textureCombinerCombos", h.textureCombinerCombos);
+        auto combos = m2::parseUint16Array(blob, h.textureCombinerCombos);
+        std::cout << "    values:";
+        for (uint16_t v : combos) {
+            std::cout << " " << v;
+        }
+        std::cout << "\n";
+    }
 
     printArray("sequences", h.sequences);
     printArray("bones", h.bones);

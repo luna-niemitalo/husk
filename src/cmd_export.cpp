@@ -1390,16 +1390,17 @@ std::vector<std::pair<std::string, std::string>> resolveSkin(const m2::Header& h
                                                                const std::string& skinDir,
                                                                bool skinDirNone) {
     bool sfidPresent = header.skinFileDataIds && !header.skinFileDataIds->empty();
+    std::string sfidCandidate;
 
     if (!skinDirNone && sfidPresent) {
-        std::string candidate =
+        sfidCandidate =
             (std::filesystem::path(skinDir) / (std::to_string((*header.skinFileDataIds)[0]) + ".skin"))
                 .string();
         std::error_code ec;
-        if (std::filesystem::exists(candidate, ec) && !ec) {
-            std::cerr << "husk: note: 'auto' resolved '" << candidate
+        if (std::filesystem::exists(sfidCandidate, ec) && !ec) {
+            std::cerr << "husk: note: 'auto' resolved '" << sfidCandidate
                       << "' (SFID entry 0, highest-detail LOD)\n";
-            return {{"", candidate}};
+            return {{"", sfidCandidate}};
         }
     }
 
@@ -1422,7 +1423,8 @@ std::vector<std::pair<std::string, std::string>> resolveSkin(const m2::Header& h
         reason = "'" + modelPath + "' has no SFID chunk (or it's empty) -- this M2 doesn't carry "
                                     "skin FileDataIDs to auto-select from (pre-Legion M2s never do)";
     } else {
-        reason = "the SFID-declared FileDataID's .skin wasn't found in '" + skinDir + "'";
+        reason = "the SFID-declared FileDataID's .skin wasn't found at the expected path '" +
+                 sfidCandidate + "'";
     }
     throw std::runtime_error("'auto' couldn't resolve a .skin file for '" + modelPath + "': " + reason +
                               ", and no same-named '<model-basename><N>.skin' file exists next to it "

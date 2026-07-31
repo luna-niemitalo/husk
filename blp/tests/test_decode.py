@@ -42,6 +42,16 @@ def _dxt5_solid_block(r5, g6, b5, alpha):
     return alpha_block + _dxt1_solid_block(r5, g6, b5)
 
 
+def _dxt3_solid_block(r5, g6, b5, alpha4):
+    """DXT3 = one explicit alpha block (8 bytes, 16x 4-bit alpha values, one
+    nibble per pixel, low nibble first) + one DXT1-shaped color block (8
+    bytes). Every nibble set to `alpha4` (0-15) -> a uniform alpha of
+    `alpha4 * 17` (0-255) everywhere."""
+    nibble_pair = alpha4 | (alpha4 << 4)
+    alpha_block = bytes([nibble_pair] * 8)
+    return alpha_block + _dxt1_solid_block(r5, g6, b5)
+
+
 def test_mip_dimensions_halves_per_level_floored_at_1():
     h = parse_header(build_header(width=64, height=17))
     assert mip_dimensions(h, 0) == (64, 17)
@@ -72,6 +82,26 @@ def test_decode_dxt5_solid_blue_half_alpha_block():
     r, g, b, a = img.getpixel((0, 0))
     assert (r, g, b) == (0, 0, 255)
     assert a == 128
+
+
+def test_decode_dxt3_solid_green_explicit_alpha_block():
+    # PixelFormat.DXT3 = 1 -- 6,759 real BLP2 files in a local corpus scan
+    # carry this (RO_COMPLETENESS_TODO.md's former Item 1), confirming
+    # DXT3 is a real, needed gap, not a hypothetical -- the decode path
+    # itself was already generically wired for it (_DXT_BLOCK_SIZE/
+    # _DXT_FOURCC both already list DXT3), just never exercised by a real
+    # test until now.
+    block = _dxt3_solid_block(0, 63, 0, 8)  # green, alpha nibble 8 -> 136
+    header_bytes = build_header(color_encoding=2, preferred_format=1, width=4, height=4,
+                                 mip_offsets=[len(build_header())] + [0] * 15)
+    file_bytes = header_bytes + block
+    h = parse_header(file_bytes)
+    img = decode_mip_level(h, file_bytes, 0)
+    assert img.size == (4, 4)
+    r, g, b, a = img.getpixel((0, 0))
+    assert (r, g, b) == (0, 255, 0)
+    assert a == 136
+    assert img.getpixel((3, 3)) == (0, 255, 0, 136)
 
 
 def test_decode_dxt_unsupported_preferred_format_throws():

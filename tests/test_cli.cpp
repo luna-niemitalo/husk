@@ -1718,6 +1718,96 @@ TEST_CASE("husk info: prints collision_box/collision_sphere_radius/collision_ind
     fs::remove(path);
 }
 
+TEST_CASE("husk info: global_flags prints named bits alongside the raw hex value") {
+    auto m2 = minimalMd20();
+    // tilt_x (0x1) | load_phys_data (0x20) | new_particle_record (0x200) --
+    // three bits spanning the reserved-gap/version-gated boundaries in
+    // GlobalFlag's own bit layout, not just the first bit.
+    uint32_t globalFlags = 0x1 | 0x20 | 0x200;
+    std::memcpy(m2.data() + 0x010, &globalFlags, 4);
+    auto path = tempPath("global-flags.m2");
+    writeFile(path, m2);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("global_flags: 0x221") != std::string::npos);
+    CHECK(result.output.find("tilt_x") != std::string::npos);
+    CHECK(result.output.find("load_phys_data") != std::string::npos);
+    CHECK(result.output.find("new_particle_record") != std::string::npos);
+    // A bit that isn't set must not show up in the name list.
+    CHECK(result.output.find("camera_related") == std::string::npos);
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk info: global_flags with no bits set prints \"(none set)\", not an empty parenthesis") {
+    auto path = tempPath("no-global-flags.m2");
+    writeFile(path, minimalMd20());  // globalFlags = 0
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("global_flags: 0x0 (none set)") != std::string::npos);
+
+    fs::remove(path);
+}
+
+// textureCombinerCombos (wowdev.wiki M2#Header) only exists in the wire
+// header at all when flag_use_texture_combiner_combos (0x8) is set --
+// RO_COMPLETENESS_TODO.md's former Item 2b. Builds a real header past
+// minimalMd20()'s own 0x130-byte end: the array descriptor at 0x130
+// pointing at 3 real uint16 values appended right after it.
+TEST_CASE("husk info: textureCombinerCombos is read and printed when "
+          "flag_use_texture_combiner_combos is set") {
+    auto b = minimalMd20();
+    uint32_t globalFlags = 0x8;  // flag_use_texture_combiner_combos
+    std::memcpy(b.data() + 0x010, &globalFlags, 4);
+    uint32_t count = 3;
+    uint32_t offset = static_cast<uint32_t>(b.size() + 8);
+    b.resize(b.size() + 8);
+    std::memcpy(b.data() + 0x130, &count, 4);
+    std::memcpy(b.data() + 0x134, &offset, 4);
+    putU16(b, 5);
+    putU16(b, 6);
+    putU16(b, 7);
+    auto path = tempPath("texture-combiner-combos.m2");
+    writeFile(path, b);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("textureCombinerCombos: 3") != std::string::npos);
+    CHECK(result.output.find("5 6 7") != std::string::npos);
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk info: textureCombinerCombos is absent (not printed) when the flag isn't set, "
+          "even though the header is otherwise unchanged") {
+    auto path = tempPath("no-texture-combiner-combos.m2");
+    writeFile(path, minimalMd20());  // globalFlags = 0 -- flag unset
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("textureCombinerCombos") == std::string::npos);
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk info: flag_use_texture_combiner_combos set but the blob too short for the array "
+          "fails cleanly, not a silent misread") {
+    auto b = minimalMd20();
+    uint32_t globalFlags = 0x8;
+    std::memcpy(b.data() + 0x010, &globalFlags, 4);
+    // No bytes appended past 0x130 -- the array descriptor itself doesn't fit.
+    auto path = tempPath("truncated-texture-combiner-combos.m2");
+    writeFile(path, b);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("textureCombinerCombos") != std::string::npos);
+
+    fs::remove(path);
+}
+
 TEST_CASE("husk info: flags a chunk tag that isn't in husk's known M2 chunk list") {
     // "ZZZZ" stands in for whatever chunk a future client build adds that
     // isn't yet in cmd_info.cpp's documentedM2ChunkTags -- see that file's
@@ -1799,12 +1889,10 @@ TEST_CASE("husk export: --skin auto (explicit) without --skin-dir defaults to th
     // --skin-dir now defaults to the model's own directory (same one
     // tempPath() writes m2Path into) rather than being required -- since no
     // '12345.skin' actually exists there, this fails on the file itself,
-    // not on a missing flag. resolveSkin's own "not found" reason only
-    // names the *directory* searched, not the specific FileDataID/filename
-    // (cmd_export.cpp's requireSkinFileDataIds/resolveSkin) -- so this
-    // checks for the directory + "wasn't found", not "12345.skin" itself.
-    CHECK(result.output.find("wasn't found in") != std::string::npos);
-    CHECK(result.output.find(fs::temp_directory_path().string()) != std::string::npos);
+    // not on a missing flag. resolveSkin's own "not found" reason names
+    // the specific candidate path it checked, not just the directory.
+    CHECK(result.output.find("wasn't found at the expected path") != std::string::npos);
+    CHECK(result.output.find("12345.skin") != std::string::npos);
 
     fs::remove(m2Path);
 }
@@ -1816,7 +1904,8 @@ TEST_CASE("husk export: --skin omitted resolves identically to --skin auto expli
     auto result = runHusk("export " + m2Path.string() + " -o " +
                            tempPath("auto-omitted.glb").string());
     CHECK(result.exitCode == 1);
-    CHECK(result.output.find("wasn't found in") != std::string::npos);
+    CHECK(result.output.find("wasn't found at the expected path") != std::string::npos);
+    CHECK(result.output.find("12345.skin") != std::string::npos);
 
     fs::remove(m2Path);
 }
@@ -1955,14 +2044,12 @@ TEST_CASE("husk export: 'auto' with --skin-dir pointing at a directory missing t
                            fs::temp_directory_path().string());
     CHECK(result.exitCode == 1);
     // resolveSkin falls back to the same-basename scan (which also finds
-    // nothing here) before giving up -- neither of its two failure reasons
-    // ever names the specific FileDataID/candidate filename it tried
-    // (cmd_export.cpp's resolveSkin only mentions the *directory*), so this
-    // checks the actual "couldn't resolve" wording rather than "couldn't
-    // open" + "999999999" (what the old, pre-CLI11-migration code produced
-    // by actually attempting to open the candidate path).
+    // nothing here) before giving up -- its "not found" reason names the
+    // specific candidate path it checked (<skin-dir>/999999999.skin), not
+    // just the directory.
     CHECK(result.output.find("'auto' couldn't resolve a .skin file") != std::string::npos);
-    CHECK(result.output.find("wasn't found in") != std::string::npos);
+    CHECK(result.output.find("wasn't found at the expected path") != std::string::npos);
+    CHECK(result.output.find("999999999.skin") != std::string::npos);
 
     fs::remove(m2Path);
 }

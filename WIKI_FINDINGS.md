@@ -18,6 +18,14 @@ Confidence is called out per finding, same convention the README uses:
 **inferred** (structurally justified but not cross-checked against a second
 independent source), or **hypothesis** (plausible, not confirmed).
 
+The local wowdev.wiki mirror itself (`documentation/wowdev-wiki/md/` —
+gitignored, tool-fetched, not this file) has also been amended in place with
+the corrections below, clearly delimited from the original mirrored text, so
+that browsing that mirror directly still surfaces accurate information even
+without reading this file. See `documentation/wowdev-wiki/HUSK_AMENDMENTS.md`
+for the index of what was touched and why; this file remains the tracked,
+canonical copy of every finding.
+
 ---
 
 ## 1. `M2` — `M2Sequence` is 0x40 (64) bytes, not the ~0x24–0x36 a literal reading of the struct listing implies
@@ -336,6 +344,22 @@ references:
 There is no wiki page for `.bone`'s own content at all — not empty like
 `M2/.anim`, just entirely absent. Nothing describes the file's magic (it
 has none), its container shape, or what any of its data means.
+
+### Correction (found later, while amending the local wiki mirror)
+
+**The paragraph above is wrong.** wowdev.wiki has a page titled `BONE`
+(`documentation/wowdev-wiki/md/BONE.md`, mirrored the same day as the rest of
+this corpus) that documents the container shape — header/`BIDA`/`BOMT`,
+matching what this section's own "Proposed addition" independently derived
+almost field-for-field. This investigation apparently searched for a page
+named `.bone` and never found the page actually titled `BONE`, and never
+double-checked that assumption before writing "entirely absent" down. The
+real value this section still adds — the semantic "corrective delta
+transform" reading, the LOD-hypothesis-ruled-out follow-up, the facial-bone
+finding, none of which are on the wiki page — is unaffected; only the "no
+wiki page at all" framing was false. `BONE.md` itself now carries the
+reverse-engineered findings as a local amendment (see
+`documentation/wowdev-wiki/HUSK_AMENDMENTS.md`).
 
 ### Proposed addition
 
@@ -941,6 +965,52 @@ zero exceptions. `tests/test_dump.cpp` has both a synthetic fixture
 real-data regression test against a committed fixture
 (`test_data/verification/pcol_pa_kite_lamp_creature.m2`).
 
+### Follow-up (now closed): `WFV1`/`WFV2`/`DPIV`/`AFRA` byte-decoded and implemented too
+
+`PCOL` was implemented in the session that corrected this section (above);
+`WFV1`/`WFV2`/`DPIV`/`AFRA` were left for a later pass — done now, same
+from-scratch-decoder discipline, real files only.
+
+- **`AFRA`** (all 32 real hits, `afra_files_for_exploration.txt`): confirmed
+  the earlier hypothesis exactly — every one of the 32 is 16 bytes, a real
+  float32 in `[0.2, 0.98]` at offset 0x00, 12 zero bytes after. `dumpAfra`
+  (`src/cmd_dump.cpp`) exposes `value`/`unk1`/`unk2`/`unk3` — deliberately
+  generic names, since the wiki gives this field no name at all and the
+  filenames (aura/void-portal VFX doodads) only weakly suggest an
+  opacity-like role.
+- **`DPIV`** (all 2,632 real hits): the wiki's "always 32 bytes" text
+  undersold it — chunk size is *always* an exact multiple of 32
+  (32/64/96/128 seen, 1-4 records), a real record array, not a single fixed
+  struct. Per-record layout: 8x float32. Across all 2,951 real records
+  decoded, the last 4 floats (0x10-0x1F) are zero in every single one —
+  kept as real fields, not assumed reserved. One field (offset 0x0C) is
+  suspicious: real values decode to small-integer-as-float denormals (raw
+  bits 1 or 2), suggesting it may actually be an integer, not a float —
+  exposed as `field_0`..`field_7` (plain floats) rather than guessing a
+  reinterpretation. `dumpDpiv` reads `chunk.size / 32` records.
+- **`WFV1`/`WFV2`**: genuinely thin, 2-file samples (both the same
+  Nazjatar-zone waterfall doodads named in the section above), and both
+  files' payloads are byte-identical within each tag — flagged tentative
+  per this project's own "small sample, don't overclaim" precedent (unlike
+  `WFV3`'s two-shape finding, checked against all 9 of its hits, there's no
+  cross-file variation here to even confirm field boundaries against).
+  `WFV1` decodes as one real float32 (10.0) at 0x00 + 12 zero bytes, same
+  shape as `AFRA` (`dumpWfv1`). `WFV2` decodes cleanly as 64 bytes / 16x
+  float32 with no leftover bytes, but two of the sixteen (0x2C/0x30) show
+  signs of not really being floats: 0x2C's raw bytes read as a plausible
+  packed RGBA color (`0xff, 0x9b, 0x8d, 0x72`) rather than a sane float
+  magnitude, and 0x30 decodes to the same small-integer-as-float denormal
+  pattern (raw bits = 3) `DPIV`'s field_3 shows — exposed as a flat 16x
+  float32 array (`dumpWfv2`) rather than guessing a color/int
+  reinterpretation from a 2-file sample.
+- All four moved from `src/cmd_dump.cpp`'s `kFallback` (raw hex + note) to
+  `kDocumented` (real structural parsing) — the fallback path itself
+  (`dumpRawFallback`) was removed outright once nothing used it anymore.
+  Verified: `./build/husk-tests` green (synthetic fixtures for all four,
+  plus a real-data regression reusing the same `pcol_pa_kite_lamp_creature.m2`
+  fixture — it also happens to carry one real, non-degenerate `DPIV`
+  record).
+
 ### Original text (for the record — this is what was wrong, not what should be trusted)
 
 > As of this corpus's extraction (2026, retail client — the corpus has
@@ -1264,6 +1334,129 @@ explicit, by-design non-goal for this project.
 
 ---
 
+## 14. `M2` — `global_flags` decoded, `textureCombinerCombos` implemented, `flag_new_particle_record`-vs-version cross-check, `blp/` DXT3/JPEG corpus scan
+
+**Confidence: verified against real files.** Grounded a stale-`README.md`
+"partially read" (🚧) framing across four rows that were all further along
+(or more cheaply resolvable) than the matrix's own phrasing implied.
+
+### `global_flags`: every named bit from the wiki's own struct, decoded
+
+`documentation/wowdev-wiki/md/M2.md` (lines 33-68) documents `global_flags`
+as a bitfield with real, named bits (`flag_tilt_x`/`flag_tilt_y`/
+`flag_use_texture_combiner_combos`/`flag_load_phys_data`/`flag_unk_0x80`/
+`flag_camera_related`/`flag_new_particle_record`/
+`flag_texture_transforms_use_bone_sequences`/`ChunkedAnimFiles_0x2000`, plus
+several unnamed `flag_unk_0x*` bits). Bit positions were derived by counting
+the wiki's own reserved `uint32_t : 1` slots alongside the named ones (three
+single-bit gaps at bits 2/4/6, a large unnamed gap between bits 21 and 30),
+not guessed from the hex comments — every constant cross-checks exactly
+against the wiki's own inline hex annotation. `m2::globalFlagNames`
+(`src/m2.hpp`/`m2.cpp`) names every set bit; `husk info` prints them
+alongside the existing raw hex value.
+
+**Real-data cross-check, not just a synthetic round-trip**: `husk info` on
+the two already-committed weapon fixtures directly confirms
+`flag_load_phys_data` (0x20) tracks real `.phys` presence —
+`mace_1h_warfrontsforsaken_d_01.m2` (has a committed `.phys` sidecar) sets
+it, `bloodelffemale.m2` (no `.phys`) doesn't.
+
+**The version-vs-flag question this session's own plan flagged, answered**:
+does `flag_new_particle_record` (0x200) reliably predict the 492-byte
+`M2Particle` shape, or is `version > 271` alone sufficient? Checked against
+`mace_2h_bolvar_d_01.m2` (the 64-particle-emitter stress fixture, version
+274 — already known-good against the 492-byte shape per §6): the flag is
+**not** set, even though the file is well above the version-271 cutoff. Not
+a contradiction — the wiki's own text is an OR: *"if 0x200 is set **or** if
+version is bigger than 271"*. `husk`'s existing `kMinVerifiedParticleVersion`
+gate (checking version, not the flag) already implements the correct half
+of that OR; the flag is a redundant/alternate signal for older files, not
+the sole gate for modern ones. Confirms the existing implementation was
+already right, not a bug.
+
+### `textureCombinerCombos`: implemented, but zero real corpus hits
+
+`Header::textureCombinerCombos` (`M2Array<uint16_t>`, offset 0x130, the
+header struct's own last field) is read conditionally on
+`flag_use_texture_combiner_combos` being set — parsed the same way five
+other already-parsed-but-unpopulated lookup tables in this struct are
+(`parseUint16Array`, no new decode primitive needed), surfaced via
+`husk info`. A full 130,576-file local-corpus scan (reading `global_flags`
+directly at header offset 0x10, independent of husk's own parser) found
+**zero** real files with this flag set — the array's own byte-layout is
+unambiguous (a plain, documented `M2Array<uint16_t>` at a fixed offset, no
+struct ambiguity to resolve), so implementing it doesn't carry the same
+risk an under-specified reverse-engineered format would, but real-file
+verification of *this specific* table hasn't happened. The wiki's own
+"instead of current index material + 1" cross-reference into
+`cmd_export.cpp`'s existing multi-texture-layer material resolution was
+deliberately **not** wired up — the wiki gives no indexing key at all
+(indexed by what: batch order, `materialIndex`, something else?), and this
+project's "verify against real bytes before implementing, don't guess at
+semantics" discipline means an unverified index scheme doesn't ship. Zero
+real hits also means there's currently no file to verify a guess against
+even if one were made.
+
+### `blp/` DXT3/JPEG: corpus scan result — DXT3 real and needed, JPEG genuinely absent
+
+A from-scratch scanner (reading `colorEncoding`/`preferredFormat` directly
+at the BLP2 header's own fixed offsets, independent of `blp/`'s own
+`header.py`) walked **779,056** real `.blp` files under the local corpus —
+a much bigger sweep than any prior `.m2`-scoped scan in this project, and
+the single longest-running one: ~2h55m wall-clock, almost entirely disk
+I/O opening three-quarters of a million individual small files.
+
+- **`colorEncoding` distribution**: DXT (2) 707,958; palettized (1) 51,434;
+  BGRA (3) 2,009. 17,655 files (2.3%) were unreadable or didn't parse as a
+  BLP2 header at all — consistent with this project's other, already-
+  documented local-extraction-completeness gaps (§13's `EXP2`/`PFDC`,
+  `CORPUS_TODO`'s former #2), not investigated further here.
+- **DXT3 (`colorEncoding=DXT`, `preferredFormat=DXT3`): 6,759 real
+  files** — a genuinely confirmed-needed gap, not a hypothetical. Real
+  examples span character hair/skin textures (`character/troll/hair00_*.blp`,
+  `character/tauren/*/...skin00_*_extra.blp`) and creature skins.
+- **JPEG (`colorEncoding=JPEG`): 0 real files** — genuinely, confirmedly
+  absent from this corpus, matching the wiki's own "rare in BLP2" text.
+  Recorded as a real negative result, same disposition every other
+  "checked, zero real files" finding in this project gets (§10's original
+  `WFV1`/`WFV2`/`DPIV`/`AFRA` disposition, before that specific case turned
+  out to be a scanner bug rather than a real absence) — not implemented
+  blind, per this project's own discipline.
+
+**The real surprise: DXT3 didn't need new decode code at all.** `blp/src/
+husk_blp/decode.py`'s `_decode_dxt`/`_DXT_BLOCK_SIZE`/`_DXT_FOURCC` were
+already generic over `PixelFormat.DXT1`/`DXT3`/`DXT5` — DXT3 support was
+already wired through the exact same synthetic-DDS-wrapper path DXT1/DXT5
+use, just never exercised by a real test or verified against a real file.
+`README.md`'s own "DXT3 ... unimplemented" claim was simply stale
+documentation, not a missing feature. Verified two ways before trusting
+this: (1) a new synthetic single-block test
+(`test_decode_dxt3_solid_green_explicit_alpha_block`, `blp/tests/
+test_decode.py`, matching the existing DXT1/DXT5 single-block test
+precedent) — a solid green 4x4 block with a uniform explicit-alpha value
+decodes to the exact expected RGBA; (2) a real file
+(`character/troll/hair00_01.blp`, 128×128) decoded cleanly to a visibly
+correct troll-hair texture (red hair strands + braid, 2,333 unique
+colors) — not a crash, not garbage, an obviously-right image.
+
+### Resolver diagnostics: `resolveSkin`'s failure messages now name the specific candidate path
+
+`resolveSkin` (`src/cmd_export.cpp`, `--skin auto`'s SFID-based resolution
+stage) used to report only the *directory* it searched on failure
+("...wasn't found in '<dir>'"), not the specific `<FileDataID>.skin` path
+it actually checked — a direct miss against this project's own Foreign
+Data policy ("on failure, always print expected and actual values"). Now
+names the exact candidate path. The other sidecar resolvers this session's
+own plan named alongside it (`--anim`/`--bones-dir`/`--textures`) turned
+out not to have an equivalent gap: all three are deliberately best-effort/
+silent-skip-per-item by design (matching `--textures`'s existing "quiet
+when nothing applies" behavior, an explicit precedent from an earlier
+session, not an oversight here) — they never emit a "not found" failure
+message to improve in the first place, only `resolveSkin`'s hard-failure
+path does.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -1281,3 +1474,4 @@ explicit, by-design non-goal for this project.
 | §11 `DETL` real stride (0x0c) + 16-byte alignment padding | `src/cmd_dump.cpp` (`dumpDetl`, `readHalfFloat`) | `tools/check_detl_stride.py` (investigation), `tests/test_dump.cpp` (implementation) |
 | §12 `aliasNext` = local `sequences` array index, chain-resolved into real clips | `src/m2.hpp`/`m2.cpp` (`Sequence`'s 7 new fields, `parseSequences`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`Animation::SequenceMetadata` extras) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
 | §13 `EXP2`/`PFDC` real files exist (local-extraction gap corrected); `BLP2` anomaly resolved as listfile mismatch; `M3` noted, out of scope | `src/m2.hpp` (`ExtendedParticle` comment), `src/cmd_dump.cpp` (`physPayloadRealLength` comment), `DESIGN.md` Non-goals — no parser changes needed | `tests/test_dump.cpp` (real `EXP2`-only and `EXP2`+`PFDC` fixtures, exact values), `tests/test_integration.cpp` (`BLP2`-anomaly throws-cleanly across `info`/`export`/`dump-chunks`) — `test_data/verification/` |
+| §14 `global_flags` named bits, `textureCombinerCombos`, `blp/` DXT3 (already worked, now verified) + JPEG (confirmed absent), `resolveSkin` diagnostics | `src/m2.hpp`/`m2.cpp` (`GlobalFlag`, `globalFlagNames`, `Header::textureCombinerCombos`), `src/cmd_info.cpp` (prints both), `src/cmd_export.cpp` (`resolveSkin`'s candidate-path message); `blp/` needed no code changes, only a test | `tests/test_cli.cpp` (`global_flags`/`textureCombinerCombos`/`resolveSkin` message cases), `blp/tests/test_decode.py` (`test_decode_dxt3_solid_green_explicit_alpha_block`) |
