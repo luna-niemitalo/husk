@@ -37,9 +37,6 @@ every item is gone, delete this file the same way `PHYS_TODO.md`/
 3. **Item 2 — `PFDC`.** husk already has the full `.phys` parser
    (`src/phys.hpp`/`phys.cpp`) — this is "point it at a different chunk,"
    not new reverse-engineering.
-4. **Item 6 — Attachments/Events/Lights as real glTF nodes.** Well
-   understood, no ambiguity, moderate effort (new node-emission code, not
-   just extras).
 5. **Item 3 — `EXP2`.** Needs one real-file check before implementing (see
    below) but the struct shape is simple.
 6. **Item 7 — animated material tint/fade extras dump.** Lowest urgency —
@@ -430,64 +427,6 @@ existing "Texture references" row, since it's a genuinely distinct piece
 of information (marks *why* a texture is absent, doesn't add a texture).
 `README.md`'s Materials paragraph, if it currently implies every texture
 slot either resolves or is silently missing.
-
----
-
-## Item 6: Attachments / Events / Lights — real glTF nodes, not diagnostic-only
-
-### Current state
-
-All three are parsed (static fields: `bone`, `position`, plus `id`/
-`identifier`/`data`/`type` per-struct) and visible only via `husk info` —
-`M2_COMPLETENESS.md` calls this "node-possible, unclaimed": nothing about
-glTF or Blender blocks a plain empty-transform child node per entry, it's
-just not been built.
-
-### Implementation plan
-
-1. `src/gltf.hpp`/`gltf.cpp`: extend `Skeleton` (or wherever
-   `EmitterAnchor`/`PhysicsBody`-style lists already live) with
-   `Attachment`/`Event`/`Light` anchor lists — same shape as
-   `EmitterAnchor` (`id`/`joint`/`position`), since all three are
-   structurally identical to what ribbon/particle anchors already are:
-   `bone`-relative position markers.
-2. Decide: real glTF child **nodes** (parented under the relevant joint,
-   zero-length/identity local transform, named descriptively) vs. more
-   `extras` entries on the skin (like `ribbon_emitters`/`particle_emitters`
-   currently are). `M2_COMPLETENESS.md`'s own "node-possible, unclaimed"
-   ceiling value implies real nodes are the intended target, not more
-   extras — that's a meaningfully different code path (new
-   `tinygltf::Node` entries, not just JSON `extras` values) and a bigger
-   change than items 1/2/5 above. Worth a quick plan-mode check before
-   committing to nodes-vs-extras, per this project's own established
-   practice for anything touching the glTF-schema surface.
-3. If nodes: each needs a name (`attachment_<id>`/`event_<identifier>`/
-   `light_<index>`, or similar), correct parenting under the bone's joint
-   node (reuse whatever joint-node-index bookkeeping `writeGlbMulti`
-   already does for `EmitterAnchor`'s `joint` field validation), and
-   should **not** be added to `skin.joints` (same "never pollute the real
-   joint list" invariant `DESIGN.md`/`src/gltf.hpp` already document for
-   the multi-root synthesized parent node).
-4. Lights specifically: the 5 animated fields (color/intensity/
-   attenuation/visibility) stay out of scope for this item — that's a
-   separate, larger animated-material-track-style problem (see Item 7's
-   sibling scope), don't scope-creep this item into resolving those too.
-
-### Test plan
-
-Mirror `EmitterAnchor`'s existing test shape (`tests/test_gltf.cpp`:
-present/absent/out-of-range-joint-throws/coexists-with-other-extras-or-
-nodes) for each of the three, plus a real-fixture check
-(`tests/test_integration.cpp`) confirming node count matches
-`header.attachments.count`/`events.count`/`lights.count` exactly.
-
-### Docs to update
-
-`M2_COMPLETENESS.md`'s Interaction points & effects section — all three
-rows move from `node-possible, unclaimed` to `native — 100%` (if real
-nodes) or stay `extras` with an updated Consumption value (if the
-plan-mode check above lands on extras instead). `DESIGN.md` Key design
-decisions, if a new node-naming/parenting convention is introduced.
 
 ---
 

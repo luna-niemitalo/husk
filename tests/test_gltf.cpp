@@ -7,6 +7,7 @@
 // spec independently of how husk built the Model), not just "husk agrees
 // with itself."
 
+#include <algorithm>
 #include <cstring>
 #include <doctest/doctest.h>
 #include <tiny_gltf.h>
@@ -468,6 +469,144 @@ TEST_CASE("writeGlb: physics bodies coexist with bone_correction_sets/ribbon_emi
     CHECK(extras.Get("ribbon_emitters").IsArray());
     CHECK(extras.Get("particle_emitters").IsArray());
     CHECK(extras.Get("physics_bodies").IsArray());
+}
+
+TEST_CASE("writeGlb: a skeleton's attachments/events/lights become real child nodes, parented "
+          "under their joint, not skin extras") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.attachments = {{5, 1, {0.1f, 0.2f, 0.3f}}};
+    skel.events = {{"$DTH", 0, {1, 2, 3}}};
+    skel.lights = {{2, {4, 5, 6}}};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    // No pollution of the skin's extras object -- these are real nodes,
+    // not another anchor list like ribbonAnchors/particleAnchors/physicsBodies.
+    CHECK_FALSE(model.skins[0].extras.IsObject());
+
+    auto findNamed = [&](const std::string& name) -> const tinygltf::Node* {
+        for (const auto& n : model.nodes) {
+            if (n.name == name) return &n;
+        }
+        return nullptr;
+    };
+    const tinygltf::Node* attachment = findNamed("attachment_5");
+    const tinygltf::Node* event = findNamed("event_$DTH");
+    const tinygltf::Node* light = findNamed("light_0");
+    REQUIRE(attachment != nullptr);
+    REQUIRE(event != nullptr);
+    REQUIRE(light != nullptr);
+
+    REQUIRE(attachment->translation.size() == 3);
+    CHECK(attachment->translation[0] == doctest::Approx(0.1));
+    CHECK(attachment->translation[1] == doctest::Approx(0.2));
+    CHECK(attachment->translation[2] == doctest::Approx(0.3));
+    REQUIRE(event->translation.size() == 3);
+    CHECK(event->translation[0] == doctest::Approx(1));
+    REQUIRE(light->translation.size() == 3);
+    CHECK(light->translation[2] == doctest::Approx(6));
+
+    auto nodeIndex = [&](const tinygltf::Node* n) {
+        return static_cast<int>(n - model.nodes.data());
+    };
+    int attachmentIdx = nodeIndex(attachment);
+    int eventIdx = nodeIndex(event);
+    int lightIdx = nodeIndex(light);
+
+    // Parented under their owning joint node (joint 1/0/2 respectively) --
+    // reached only via that node's `.children`, not listed as a scene root.
+    int joint1Node = model.skins[0].joints[1];
+    int joint0Node = model.skins[0].joints[0];
+    int joint2Node = model.skins[0].joints[2];
+    CHECK(std::find(model.nodes[joint1Node].children.begin(),
+                     model.nodes[joint1Node].children.end(),
+                     attachmentIdx) != model.nodes[joint1Node].children.end());
+    CHECK(std::find(model.nodes[joint0Node].children.begin(),
+                     model.nodes[joint0Node].children.end(),
+                     eventIdx) != model.nodes[joint0Node].children.end());
+    CHECK(std::find(model.nodes[joint2Node].children.begin(),
+                     model.nodes[joint2Node].children.end(),
+                     lightIdx) != model.nodes[joint2Node].children.end());
+
+    // Never added to skin.joints -- same invariant as the multi-root
+    // synthesized parent node.
+    CHECK(model.skins[0].joints.size() == 3);
+    for (int j : model.skins[0].joints) {
+        CHECK(j != attachmentIdx);
+        CHECK(j != eventIdx);
+        CHECK(j != lightIdx);
+    }
+}
+
+TEST_CASE("writeGlb: a skeleton with no attachments/events/lights adds no anchor nodes") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    // 1 mesh node + 3 joint nodes, nothing else (single-root chain, no
+    // synthesized parent node either).
+    CHECK(model.nodes.size() == 4);
+}
+
+TEST_CASE("writeGlb: an attachment with an out-of-range joint throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.attachments = {{0, 99, {0, 0, 0}}};
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: an event with an out-of-range joint throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.events = {{"$DTH", 99, {0, 0, 0}}};
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: a light with an out-of-range joint throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.lights = {{-1, {0, 0, 0}}};
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: attachment/event/light nodes coexist with bone_correction_sets/"
+          "ribbon_emitters/particle_emitters/physics_bodies extras without clobbering "
+          "each other") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    husk::gltf::Skeleton::CorrectionSet set;
+    set.fileDataId = 7;
+    skel.correctionSets = {set};
+    skel.ribbonAnchors = {{0, 0, {0, 0, 0}}};
+    skel.particleAnchors = {{0, 0, {0, 0, 0}}};
+    skel.physicsBodies = {{0, 0, {0, 0, 0}, 0}};
+    skel.attachments = {{0, 1, {0, 0, 0}}};
+    skel.events = {{"$DTH", 0, {0, 0, 0}}};
+    skel.lights = {{2, {0, 0, 0}}};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.skins[0].extras;
+    REQUIRE(extras.IsObject());
+    CHECK(extras.Get("bone_correction_sets").IsArray());
+    CHECK(extras.Get("ribbon_emitters").IsArray());
+    CHECK(extras.Get("particle_emitters").IsArray());
+    CHECK(extras.Get("physics_bodies").IsArray());
+
+    // 1 mesh + 3 joints + 1 attachment + 1 event + 1 light.
+    CHECK(model.nodes.size() == 7);
+    int found = 0;
+    for (const auto& n : model.nodes) {
+        if (n.name == "attachment_0" || n.name == "event_$DTH" || n.name == "light_0") {
+            ++found;
+        }
+    }
+    CHECK(found == 3);
 }
 
 // A single writeGlb mesh may legitimately share a skeleton without being

@@ -627,6 +627,54 @@ TEST_CASE("husk export: a real weapon's .phys sidecar (auto-detected, same basen
     std::filesystem::remove(outPath);
 }
 
+TEST_CASE("husk export: a real weapon's attachments/events/lights become exactly "
+          "header.attachments.count/events.count/lights.count real child nodes, never "
+          "counted as skeleton joints" *
+          doctest::skip(testWeaponParticleStress().empty())) {
+    auto m2Path = testWeaponParticleStress();
+    auto header = husk::m2::loadFile(m2Path);
+    // This fixture's own real counts (checked by hand via `husk info`) --
+    // the case picked deliberately because it's the only committed fixture
+    // with all three non-zero at once.
+    CHECK(header.attachments.count == 5);
+    CHECK(header.events.count == 2);
+    CHECK(header.lights.count == 4);
+
+    auto outPath =
+        (std::filesystem::temp_directory_path() / "husk-test-export-anchor-nodes.glb").string();
+    std::filesystem::remove(outPath);
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+
+    size_t attachmentNodes = 0, eventNodes = 0, lightNodes = 0;
+    for (const auto& n : model.nodes) {
+        if (n.name.rfind("attachment_", 0) == 0) {
+            ++attachmentNodes;
+        } else if (n.name.rfind("event_", 0) == 0) {
+            ++eventNodes;
+        } else if (n.name.rfind("light_", 0) == 0) {
+            ++lightNodes;
+        }
+    }
+    CHECK(attachmentNodes == header.attachments.count);
+    CHECK(eventNodes == header.events.count);
+    CHECK(lightNodes == header.lights.count);
+
+    // Never added to skin.joints -- this fixture's real bone count is 78.
+    REQUIRE(model.skins.size() == 1);
+    CHECK(model.skins[0].joints.size() == 78);
+
+    std::filesystem::remove(outPath);
+}
+
 TEST_CASE("husk dump-chunks: a real weapon's particle_emitters JSON resolves plausible, "
           "finite color/alpha/scale curve values, not garbage or NaN" *
           doctest::skip(testWeaponParticleStress().empty())) {

@@ -105,7 +105,11 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     }
 
     if (skeleton) {
-        auto checkAnchors = [&](const std::vector<Skeleton::EmitterAnchor>& anchors, const char* what) {
+        // Generic over any "has a .joint field" anchor shape (EmitterAnchor,
+        // Attachment, Event, Light -- PhysicsBody too, though its own check
+        // below predates this and is left as is) so ribbon/particle/
+        // attachment/event/light entries all share one bounds-check.
+        auto checkAnchors = [&](const auto& anchors, const char* what) {
             for (size_t i = 0; i < anchors.size(); ++i) {
                 int joint = anchors[i].joint;
                 if (joint < 0 || static_cast<size_t>(joint) >= skeleton->joints.size()) {
@@ -117,6 +121,9 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
         };
         checkAnchors(skeleton->ribbonAnchors, "ribbon anchor");
         checkAnchors(skeleton->particleAnchors, "particle anchor");
+        checkAnchors(skeleton->attachments, "attachment");
+        checkAnchors(skeleton->events, "event");
+        checkAnchors(skeleton->lights, "light");
         for (size_t i = 0; i < skeleton->physicsBodies.size(); ++i) {
             int joint = skeleton->physicsBodies[i].joint;
             if (joint < 0 || static_cast<size_t>(joint) >= skeleton->joints.size()) {
@@ -245,6 +252,11 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     bool hasSyntheticRoot = false;
     int syntheticRootNodeIndex = -1;
     tinygltf::Node syntheticRootNode;
+    // Attachment/Event/Light placement nodes (Skeleton::Attachment/Event/
+    // Light's doc comments) -- appended past the joint-node range (and past
+    // the synthesized multi-root node, if any), each parented as a
+    // `.children` entry of its owning joint node below.
+    std::vector<tinygltf::Node> anchorNodes;
     if (hasSkeleton) {
         std::vector<float> ibmFlat;
         ibmFlat.reserve(skeleton->joints.size() * 16);
@@ -373,6 +385,35 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
 
         model.skins = {skin};
         skinIdx = 0;
+
+        // Attachments/Events/Lights: real child nodes, not skin extras (see
+        // gltf.hpp's Skeleton::Attachment/Event/Light doc comments for why
+        // these differ from every anchor list above) -- translation-only,
+        // same convention as a joint node's own `.translation`, parented as
+        // a `.children` entry of the owning joint node. Node index is
+        // computed relative to this call's own running `anchorNodes.size()`
+        // since these are appended past the joint-node (and, if present,
+        // synthesized multi-root) range -- see the node-index layout
+        // comment near the bottom of this function.
+        auto appendAnchorNode = [&](const std::string& name, int joint, const Vec3& position) {
+            int nodeIdx = static_cast<int>(meshCount + skeleton->joints.size() +
+                                            (hasSyntheticRoot ? 1 : 0) + anchorNodes.size());
+            tinygltf::Node node;
+            node.name = name;
+            node.translation = {position.x, position.y, position.z};
+            anchorNodes.push_back(node);
+            jointNodes[static_cast<size_t>(joint)].children.push_back(nodeIdx);
+        };
+        for (const auto& a : skeleton->attachments) {
+            appendAnchorNode("attachment_" + std::to_string(a.id), a.joint, a.position);
+        }
+        for (const auto& e : skeleton->events) {
+            appendAnchorNode("event_" + e.identifier, e.joint, e.position);
+        }
+        for (size_t i = 0; i < skeleton->lights.size(); ++i) {
+            appendAnchorNode("light_" + std::to_string(i), skeleton->lights[i].joint,
+                              skeleton->lights[i].position);
+        }
     }
 
     std::vector<tinygltf::Image> images;
@@ -658,13 +699,19 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     // jointCount-1) -- see the skeleton/skin block above, which already
     // computed every joint/skin reference against this same offset -- then,
     // only for a multi-root skeleton, the one synthesized parent node at
-    // index meshCount+jointCount (see hasSyntheticRoot above).
+    // index meshCount+jointCount (see hasSyntheticRoot above), then any
+    // attachment/event/light placement nodes (appendAnchorNode above; not
+    // scene roots themselves -- each is reached only via its owning joint
+    // node's `.children`).
     model.nodes = meshNodes;
     for (auto& jointNode : jointNodes) {
         model.nodes.push_back(jointNode);
     }
     if (hasSyntheticRoot) {
         model.nodes.push_back(syntheticRootNode);
+    }
+    for (auto& anchorNode : anchorNodes) {
+        model.nodes.push_back(anchorNode);
     }
 
     tinygltf::Scene scene;

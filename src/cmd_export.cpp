@@ -1649,6 +1649,49 @@ int exportGlb(int argc, char** args) {
                              "dump-chunks`)\n";
             }
 
+            // Attachment/Event/Light placement nodes (gltf::Skeleton::
+            // Attachment/Event/Light's doc comments): unconditional, no CLI
+            // flag, same "always attached" treatment as ribbon/particle
+            // anchors above -- but unlike those, these become real child
+            // glTF nodes, not skin extras, since a bone-relative position
+            // marker is all M2Attachment/M2Event/M2Light static data ever
+            // is (see M2_GAPS_TODO.md's former Item 6). `bone == -1`
+            // ("not attached to any bone," real for M2Light and possibly
+            // M2Attachment) is treated as out of range and throws -- husk
+            // has no established "unparented placement node" concept yet.
+            for (const auto& a : m2::parseAttachments(blob, header.attachments)) {
+                if (a.bone < 0 || static_cast<size_t>(a.bone) >= skeleton.joints.size()) {
+                    throw std::runtime_error("attachment " + std::to_string(a.id) +
+                                              " references bone " + std::to_string(a.bone) +
+                                              ", out of range for " +
+                                              std::to_string(skeleton.joints.size()) + " bones");
+                }
+                skeleton.attachments.push_back({a.id, static_cast<int>(a.bone), toGltf(a.position)});
+            }
+            for (const auto& e : m2::parseEvents(blob, header.events)) {
+                if (e.bone >= skeleton.joints.size()) {
+                    throw std::runtime_error("event '" + e.identifier + "' references bone " +
+                                              std::to_string(e.bone) + ", out of range for " +
+                                              std::to_string(skeleton.joints.size()) + " bones");
+                }
+                skeleton.events.push_back({e.identifier, static_cast<int>(e.bone), toGltf(e.position)});
+            }
+            for (const auto& l : m2::parseLights(blob, header.lights)) {
+                if (l.bone < 0 || static_cast<size_t>(l.bone) >= skeleton.joints.size()) {
+                    throw std::runtime_error("light references bone " + std::to_string(l.bone) +
+                                              ", out of range for " +
+                                              std::to_string(skeleton.joints.size()) + " bones");
+                }
+                skeleton.lights.push_back({static_cast<int>(l.bone), toGltf(l.position)});
+            }
+            if (!skeleton.attachments.empty() || !skeleton.events.empty() ||
+                !skeleton.lights.empty()) {
+                std::cerr << "husk: note: attached " << skeleton.attachments.size()
+                          << " attachment, " << skeleton.events.size() << " event, and "
+                          << skeleton.lights.size()
+                          << " light placement node(s) to the exported skeleton\n";
+            }
+
             // --phys: three-state resolution mirroring --skel (DESIGN.md's
             // Key design decisions -- PFID is a single scalar FileDataID,
             // like SKID, not an array like BFID/AFID/SFID, so a directory

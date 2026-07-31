@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 // Minimal glTF 2.0 binary (.glb) export, via tinygltf (see nix/flake.nix) --
@@ -247,6 +248,45 @@ struct Skeleton {
         uint16_t bodyType = 0;  // husk::phys::Body::type -- do NOT assume 0 is "the root"
     };
     std::vector<PhysicsBody> physicsBodies;
+
+    // Attachments/Events/Lights (M2_GAPS_TODO.md's former Item 6) -- unlike
+    // every anchor list above, a bone-relative M2Attachment/M2Event/M2Light
+    // position marker has no non-glTF-representable data at all (no curves,
+    // no blend modes -- M2_COMPLETENESS.md used to call this
+    // "node-possible, unclaimed"), so writeGlbMulti gives each one a real,
+    // plain child glTF node instead of another skin `extras` entry -- see
+    // writeGlbMulti's doc comment for the exact node shape/naming/parenting.
+    // `joint` must be a valid index into `joints` -- M2's own `bone == -1`
+    // ("not attached to any bone," wowdev.wiki M2#Lights) is not yet
+    // representable here (there's no established "unparented placement
+    // node" concept in this codebase) and is treated like any other
+    // out-of-range joint: Error. No real fixture this project has seen
+    // exercises `bone == -1` for an Attachment/Light; flagged here rather
+    // than guessed at.
+    struct Attachment {
+        uint32_t id = 0;  // M2Attachment::id -- meaning depends on model type, wowdev.wiki's table
+        int joint = -1;   // index into Skeleton::joints
+        Vec3 position;    // relative to `joint`, already Y-up (same convention as EmitterAnchor::position)
+    };
+    std::vector<Attachment> attachments;
+
+    struct Event {
+        std::string identifier;  // M2Event::identifier, e.g. "$DTH" -- not unique, see writeGlbMulti's node-naming note
+        int joint = -1;
+        Vec3 position;
+    };
+    std::vector<Event> events;
+
+    struct Light {
+        int joint = -1;
+        Vec3 position;
+        // M2Light::type (0 = directional, 1 = point) and every animated
+        // field (color/intensity/attenuation/visibility) are out of scope
+        // for this struct -- a placement node has no slot for either, and
+        // resolving the animated tracks is a separate, larger problem (see
+        // M2_GAPS_TODO.md's Item 7 sibling scope).
+    };
+    std::vector<Light> lights;
 };
 
 struct Quat {
@@ -346,6 +386,10 @@ Vec3 zUpToYUp(const Vec3& v);
 // out-of-range-joint condition. `skeleton->physicsBodies`, if non-empty,
 // becomes a `physics_bodies` key on the same skin `extras` object (see
 // Skeleton::PhysicsBody's doc comment) -- Error under the same
+// out-of-range-joint condition. `skeleton->attachments`/`events`/`lights`,
+// if non-empty, instead become real child glTF nodes, one per entry (see
+// Skeleton::Attachment/Event/Light's doc comments and writeGlbMulti's doc
+// comment for the exact node shape) -- Error under the same
 // out-of-range-joint condition.
 //
 // `animations`, if non-empty, requires a non-null/non-empty `skeleton` --
@@ -416,6 +460,20 @@ struct NamedMesh {
 // must never break -- see Skeleton's own doc comment above). A single-root skeleton (the
 // overwhelming majority of real models) is unaffected: no synthetic node,
 // `skin.skeleton` left unset, output identical to before this existed.
+//
+// `skeleton->attachments`/`events`/`lights` each become one real, plain
+// child glTF node -- named `attachment_<id>`/`event_<identifier>`/
+// `light_<index>` (M2Attachment::id, M2Event::identifier -- not
+// deduplicated, a real M2 file can repeat one, e.g. multiple "$CSD" sound
+// events -- and the entry's own position in `Skeleton::lights`,
+// respectively), translation-only (no rotation/scale, same convention as a
+// joint node's own `.translation`) at `Attachment/Event/Light::position`,
+// and parented as a `.children` entry of their owning joint node -- never
+// added to `skin.joints` or given an inverse bind matrix, same invariant as
+// the synthesized multi-root parent node below. Appended past the end of
+// the joint-node range (and past the synthesized multi-root node, if any),
+// attachments first, then events, then lights. Error under the same
+// out-of-range-joint condition as every other anchor list above.
 //
 // `skeleton`/`animations` are shared across every entry, not per-mesh --
 // valid because every LOD of one M2 draws from the same `bones` array (only

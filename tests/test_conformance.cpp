@@ -40,6 +40,7 @@ using husk::test::runHusk;
 using husk::test::testM2;
 using husk::test::testSkin;
 using husk::test::testWeaponParticleB;
+using husk::test::testWeaponParticleStress;
 using husk::test::testWeaponPhys;
 using husk::test::testWeaponPhysSkin;
 
@@ -250,6 +251,39 @@ TEST_CASE("husk export: --phys's physics_bodies extras don't introduce new glTF-
 #else
 TEST_CASE("husk export: --phys's physics_bodies extras don't introduce new glTF-Validator "
           "errors on a real weapon .m2/.skin/.phys fixture" *
+          doctest::skip(true)) {
+    // gltf_validator not found on PATH at configure time (see
+    // CMakeLists.txt's find_program) -- available via this project's nix
+    // flake devShell.
+}
+#endif
+
+#ifdef HUSK_GLTF_VALIDATOR
+TEST_CASE("husk export: real attachment/event/light child nodes don't introduce new "
+          "glTF-Validator errors on a real weapon .m2/.skin fixture" *
+          doctest::skip(testWeaponParticleStress().empty())) {
+    std::string m2Path = testWeaponParticleStress();
+
+    auto outPath =
+        (std::filesystem::temp_directory_path() / "husk-test-conformance-anchor-nodes.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\"");
+    INFO("husk export output:\n", exportResult.output);
+    REQUIRE(exportResult.exitCode == 0);
+    REQUIRE(exportResult.output.find("attached 5 attachment, 2 event, and 4 light") !=
+             std::string::npos);
+
+    auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + outPath + "\"");
+    INFO("gltf_validator output:\n", validation.output);
+    CHECK(validation.exitCode == 0);
+    CHECK(validation.output.find("Errors: 0") != std::string::npos);
+
+    std::filesystem::remove(outPath);
+}
+#else
+TEST_CASE("husk export: real attachment/event/light child nodes don't introduce new "
+          "glTF-Validator errors on a real weapon .m2/.skin fixture" *
           doctest::skip(true)) {
     // gltf_validator not found on PATH at configure time (see
     // CMakeLists.txt's find_program) -- available via this project's nix

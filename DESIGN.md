@@ -542,6 +542,42 @@ for no fidelity gain) and filtering non-hierarchical bones out entirely
 but drops real M2 bones from the glTF output, against this project's own
 1:1-fidelity goal).
 
+**Attachments/Events/Lights (`M2Attachment`/`M2Event`/`M2Light`) become real,
+plain child glTF nodes — unlike every other placement-anchor list
+(`EmitterAnchor`/`PhysicsBody`), which stay skin `extras`.** These three
+differ from ribbons/particles/`.phys` bodies in one concrete way: a
+bone-relative position marker is *all* their static data ever is — no
+blend mode, no texture, no curves left over that `extras` would still need
+to carry. `M2_COMPLETENESS.md` used to call this "node-possible,
+unclaimed"; a plain glTF node is a full, lossless translation of that data,
+so `writeGlbMulti` now builds one real `tinygltf::Node` per entry instead
+of another anchor list on the skin's `extras` object. Each node is
+translation-only (no rotation/scale — the same convention a joint node's
+own `.translation` already uses) at `Attachment/Event/Light::position`,
+named `attachment_<id>`/`event_<identifier>`/`light_<index>` (`M2Event
+::identifier` is not deduplicated — a real file can repeat one, e.g. six
+"$CSD" sound-cue events on one weapon — duplicate glTF node names are
+legal, so this isn't a problem), and parented as a `.children` entry of its
+owning joint node — appended past the joint-node range (and past the
+synthesized multi-root node, if any), attachments first, then events, then
+lights, and **never added to `skin.joints`** — the same invariant the
+multi-root synthesized parent node above must never break, since every
+vertex/emitter-anchor/correction/animation joint index is still a raw,
+unremapped M2 bone-array index. Verified empirically the same way the
+multi-root fix was: Blender's own glTF importer, run headlessly against a
+real weapon fixture (5 attachments/2 events/4 lights, 78 real bones),
+reports `bone_count == 78` — the anchor nodes are not counted as bones —
+and the Khronos `gltf_validator` reports zero errors on the same export.
+`bone == -1` ("not attached to any bone," real per wowdev.wiki for
+`M2Light`, and plausible for `M2Attachment`) is treated like any other
+out-of-range joint and throws — husk has no established "unparented
+placement node" concept yet, and no real fixture seen so far exercises
+this case, so it's flagged rather than guessed at (see `src/gltf.hpp`'s
+`Skeleton::Attachment`/`Event`/`Light` doc comments). `M2Light`'s `type`
+and every animated field (color/intensity/attenuation/visibility) stay out
+of scope — a placement node has no slot for either, and the animated
+tracks are a separate, larger problem.
+
 ## CLI argument grammar for `export` (implemented)
 
 **Previous grammar**, for contrast (replaced, not additive — every existing
