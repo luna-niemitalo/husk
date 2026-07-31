@@ -111,7 +111,83 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: Implemented 7 of `M2_GAPS_TODO.md`'s 8 items (everything
+- **Last state**: Explored 4 untracked casc-tool scan outputs Luna dropped in
+  the work dir (`m2_chunk_discovery.csv`/`.log`, `m3_corpus_scan.csv`/`.log`
+  — a separate thread's full-corpus scans against a live CASC install,
+  product `wow` build 68887) and turned them into real doc corrections, per
+  Luna's own explicit "explore results and summarize into a coherent action
+  plan" request. Found and verified three things, none previously known:
+  - **`EXP2`/`PFDC`'s "zero real files" claim was a local-extraction gap,
+    not a real absence.** `M2_COMPLETENESS.md`/`src/m2.hpp`/`cmd_dump.cpp`
+    all previously stated husk's local corpus (`/media/luna/data/
+    wow_export`) has zero real files for either tag — both parsers were
+    implemented from the wiki struct alone, unverified. The new
+    live-CASC chunk census (all 130,576 real `.m2` files, 31 distinct
+    tags — broader than the earlier 5-tag `--watch` cross-check `WIKI_
+    FINDINGS.md` §10 already used) found **17,065** real `EXP2` files and
+    **2,430** real `PFDC` files — too big a gap to be the ~1% extraction
+    slack §10's `PCOL`/`DPIV` case already accounted for. Confirmed by
+    directly pulling two real files via `casc-tool extract` (storage
+    `/media/luna/games/World of Warcraft`, requested from Luna
+    mid-session): both parse cleanly through husk's existing, unmodified
+    code — one shows a real monotonic 3-keyframe `EXP2` `alphaCutoff`
+    curve, the other a real version-6/`phyt`-3 `PFDC` body record
+    matching `WIKI_FINDINGS.md` §9's already-verified `.phys` shape. No
+    parser changes needed, only the stale "unverified"/"zero files"
+    claims — corrected in `M2_COMPLETENESS.md`, `src/m2.hpp`, `src/
+    cmd_dump.cpp`.
+  - **A genuine anomaly (`BLP2` as a 1-byte top-level M2 chunk, 1 real
+    hit) resolved as a listfile mismatch, not an M2 finding at all.**
+    `husk` itself refused to open the file outright (a real
+    `ParseError`, not a silent misread — the boundary discipline working
+    as designed). Pulled the file directly and hex-dumped it: its actual
+    content **is** a genuine BLP2 texture (real magic + compression/
+    width-height/mipmap-offset header, plausible 512×256), not an M2
+    file — FileDataID 7507381 isn't in this project's own listfile
+    snapshot, consistent with the upstream chunk-census tool's
+    `*.m2`-masked enumeration trusting a stale/wrong listfile-derived
+    extension rather than sniffing content. Not a husk bug, not a real
+    M2 chunk — written up and closed in one pass.
+  - **8 real `.m3` files exist** (a full-storage, non-`.m2`-scoped
+    `M3DT`-magic byte-signature scan, 1,891,552 files) — an entirely
+    different, undocumented model format, unresolved listfile names
+    (`models\unknown\unk_exp*\<fdid>.m3`). Explicitly scoped by Luna as
+    "note it, stay out of scope" (not a new investigation) — recorded as
+    a `DESIGN.md` Non-goals addendum only.
+  - Also reconfirmed, no new information: the full 31-tag census's
+    `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL` counts land on the *exact* same
+    numbers `WIKI_FINDINGS.md` §10's earlier 5-tag `--watch` cross-check
+    already found — an independent second run via a broader tool,
+    converging on the same result, not new news but a stronger
+    confidence signal for that section.
+  - **Explicitly deferred at Luna's direction**: `PCOL` (`M2_GAPS_TODO.md`
+    Item 4, the one item already fully unblocked and ready) was *not*
+    implemented this session — "not yet," per her own answer when asked
+    directly. Next session picking this up should start there; nothing
+    else blocks it.
+  - **One real process correction mid-session**: reflexively ran
+    `find / -maxdepth 4 ...` looking for the CASC storage path before
+    asking — correctly blocked by the sandbox/user per this file's own
+    "never run commands against system root" hard rule. Stopped, asked
+    Luna directly for `--storage`/`--listfile` instead of guessing
+    further. Separately corrected for using a bare `python3 -c` (no
+    global Python on this system) instead of this project's own
+    established `direnv exec . uv run --no-project python3` pattern —
+    caught immediately, no repeat; used `jq` (already on `PATH`,
+    installed via Luna's own profile, not project-scoped) for the rest
+    of this session's JSON inspection instead.
+  - The 3 pulled real files (`exp2_126382.m2`, `pfdc_1003471.m2`,
+    `blp2_7507381.m2`) are sitting in this session's scratchpad, not
+    `test_data/` — deliberately not promoted to committed-but-gitignored
+    fixtures this session, since no new automated test was requested;
+    worth moving into `test_data/` under the usual "real, personally-
+    owned extraction, gitignored" convention if a future session adds
+    `EXP2`/`PFDC` regression coverage.
+  - The 4 untracked CSV/log files that prompted this session
+    (`m2_chunk_discovery.*`, `m3_corpus_scan.*`) are still sitting
+    untracked in the work dir, not cleaned up or committed — Luna's own
+    artifacts from the separate casc-tool thread, hers to dispose of.
+- **Previous state**: Implemented 7 of `M2_GAPS_TODO.md`'s 8 items (everything
   except Item 4, `PCOL`, blocked on real data — see below) in one session,
   via **parallel subagents** rather than sequentially — requested directly:
   "start implementing @M2_GAPS_TODO.md," then, mid-triage, "considering it's
@@ -1642,11 +1718,12 @@ real-file-driven spec correction found along the way.
   `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel` got the
   three/four-state (`auto`/explicit/`none`) treatment `DESIGN.md`'s CLI
   grammar section still documents in full.
-- **Next step**: Nothing currently in flight. `M2_GAPS_TODO.md` is down to
-  its one genuinely blocked item — `PCOL` (Item 4), waiting on newer
-  extraction data covering War Within 11.1.7+ player-housing furniture,
-  confirmed absent from the full real corpus as of this session — see Last
-  state. Both `ANIM_TODO.md`'s
+- **Next step**: `M2_GAPS_TODO.md` Item 4 (`PCOL`) — no longer blocked (a
+  scanner bug, not real absence; 2,354 real files, real byte-accountable
+  wiki struct, `PLYT`-style implementation discipline already spelled out
+  in the file itself) and explicitly deferred at Luna's own direction this
+  session ("not yet") — the natural starting point for whoever picks this
+  up next. Both `ANIM_TODO.md`'s
   `--anim` same-basename fallback and `PHYS_TODO.md`'s full `.phys`
   physics/collision support are implemented, tested, and documented. The M2→glTF
   multi-root-bone-forest representation gap is real, tested code now, not

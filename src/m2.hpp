@@ -626,13 +626,15 @@ struct ParticleEmitter {
 // expected per `particle_emitters` array entry (same indexing convention
 // TXAC/EXPT/RPID/GPID/PGD1 already use) -- not cross-checked here, same
 // "trust this chunk's own byte length" policy dumpTxac already uses.
-// Unverified against any real file: husk's own 130k-file corpus
-// (/media/luna/data/wow_export, the usual verification base for this
-// project's WIKI_FINDINGS.md entries) has zero EXP2-bearing files as of
-// this session's own corpus scan -- implemented from the wiki's own struct
-// listing (simple, unambiguous byte layout) rather than a real byte
-// decode, same honesty this project already applies to e.g.
-// kMinVerifiedParticleVersion. See M2_COMPLETENESS.md.
+// Verified against real files: husk's own local extraction corpus
+// (/media/luna/data/wow_export) has zero EXP2-bearing files, but that was a
+// local-extraction gap, not a real absence -- a live-CASC full-corpus chunk
+// scan (casc-tool, product wow build 68887) found 17,065 real EXP2-bearing
+// files. Two pulled directly from CASC (FileDataIDs 126382/1003471) decode
+// cleanly through husk's existing parser with no changes needed: sane
+// zSource/colorMult/alphaMult defaults and a real, monotonic 3-keyframe
+// alphaCutoff curve on one of the two. See WIKI_FINDINGS.md and
+// M2_COMPLETENESS.md.
 struct ExtendedParticle {
     float zSource = 0;
     float colorMult = 0;

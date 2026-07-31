@@ -1251,10 +1251,14 @@ void dumpDetl(json::Writer& w, const Chunk& c, uint32_t lightCount) {
 // remain -- exactly the shape PADDING[6] produces -- confirmed empirically
 // (tests/test_dump.cpp) against a real committed .phys fixture's bytes
 // wrapped in a synthetic PFDC chunk before trusting this in dumpPfdc.
-// Unverified against any real M2 file: husk's own 130k-file corpus
-// (/media/luna/data/wow_export) has zero PFDC-bearing files as of this
-// session's own corpus scan -- implemented from the wiki's own struct
-// text, not a real byte decode; see M2_COMPLETENESS.md.
+// Verified against real M2 files: husk's own local extraction corpus
+// (/media/luna/data/wow_export) has zero PFDC-bearing files, but that was a
+// local-extraction gap, not a real absence -- a live-CASC full-corpus chunk
+// scan (casc-tool, product wow build 68887) found 2,430 real PFDC-bearing
+// files. One pulled directly from CASC (FileDataID 1003471) decodes cleanly
+// through this parser: a real version-6/phyt-3 body record, same shape
+// WIKI_FINDINGS.md §9's 103-file .phys sweep already verified. See
+// M2_COMPLETENESS.md.
 size_t physPayloadRealLength(const uint8_t* d, size_t n) {
     size_t pos = 0;
     while (n - pos >= 8) {

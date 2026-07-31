@@ -1154,6 +1154,72 @@ which happen to be among the ~104 already committed to this repo's own
 
 ---
 
+## 13. `M2` — `EXP2`/`PFDC` real files exist (a local-extraction gap, not a real absence); one true anomaly (`BLP2`) resolved as a listfile mismatch, not an M2 chunk
+
+**Confidence: verified, both corrections and the resolved anomaly.** A
+separate casc-tool thread ran two independent full-corpus scans directly
+against a live CASC install (product `wow`, build 68887): a top-level
+chunk-tag census across all 130,576 real `.m2` files (31 distinct tags, not
+just the 5 §10 targeted), and a full-storage (1,891,552-file, not
+`.m2`-scoped) byte-signature scan.
+
+### `EXP2`/`PFDC`: "zero real files" was a local-extraction gap
+
+`M2_COMPLETENESS.md` and `src/m2.hpp`/`cmd_dump.cpp` previously stated
+husk's own corpus (`/media/luna/data/wow_export`, the extraction this
+project's other WIKI_FINDINGS entries verify against) has **zero** real
+`EXP2`- or `PFDC`-bearing files — both were implemented from the wiki's
+struct listing alone, unverified. The live-CASC chunk census found
+**17,065** real `EXP2` files and **2,430** real `PFDC` files — a much
+bigger gap than the ~1% extraction slack §10 already knew about for
+`PCOL`/`DPIV`, consistent with these two tags' files being systematically
+absent from the local extraction rather than just randomly missed.
+
+Pulled two real files directly via `casc-tool extract` (storage
+`/media/luna/games/World of Warcraft`) and ran them through husk unmodified:
+
+- FileDataID 126382 (`EXP2` only): `husk info`/`dump-chunks` parse cleanly,
+  9 particle emitters, `EXP2` records all sane defaults
+  (`zSource`=0/`colorMult`=1/`alphaMult`=1), `alphaCutoffOffset` correctly
+  resolves to an empty curve where the source has none.
+- FileDataID 1003471 (`EXP2` **and** `PFDC` together): parses cleanly, 4
+  particle emitters; `EXP2` shows a real monotonic 3-keyframe
+  `alphaCutoff` curve (life_fraction 0 → 0.500015 → 1); `PFDC` decodes a
+  real version-6/`phyt`-3 physics body record, same shape the 103-file
+  `.phys` sweep (§9) already established for standalone `.phys` files.
+
+No code changes were needed — both parsers already handle real data
+correctly. Only the "unverified"/"zero real files" claims were stale.
+
+### `BLP2`: a genuine anomaly, resolved — not an M2 chunk at all
+
+The chunk census also reported one real `.m2`-masked file (FileDataID
+7507381) with a 1-byte top-level `BLP2` chunk — `BLP2` is a texture
+container magic, not any documented M2 chunk tag, and husk's own parser
+outright refused to open the file (`chunk tag` error, not silently
+misread). Pulling the file directly and hex-dumping its first 32 bytes
+found the real explanation: the file's actual content **is** a genuine
+BLP2 texture (`42 4c 50 32` = "BLP2", followed by a real
+compression-type/width-height/mipmap-offset-table header, decoding to a
+plausible 512×256 texture) — not an M2 file at all. FileDataID 7507381 is
+absent from this project's own listfile snapshot, consistent with the
+chunk-census tool's `*.m2`-masked enumeration trusting a (stale or
+mis-guessed) extension in whatever listfile *it* used, rather than
+sniffing real content — a texture registered under an `.m2`-shaped name
+slipped into the `.m2` scan and got its first 4 bytes read as if they were
+a chunk tag. Not a husk bug, not a real M2 anomaly — a listfile/FileDataID
+labeling mismatch upstream of both tools.
+
+### `M3`: 8 real files exist, out of scope
+
+The full-storage `M3DT`-magic scan found 8 real `.m3` files (unresolved
+listfile names, `models\unknown\unk_exp*\<fdid>.m3`) — an entirely
+different, undocumented model format. Recorded in `DESIGN.md`'s Non-goals
+for the record; no investigation started, consistent with WMO/M3 being an
+explicit, by-design non-goal for this project.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -1170,3 +1236,4 @@ which happen to be among the ~104 already committed to this repo's own
 | §10 `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL` real, present (corrected from a scanner bug's false "absent") | `src/cmd_dump.cpp` (`kFallback` notes, unchanged — none of the five implemented yet) | investigation-only, `tools/find_m2_unknown_chunks.py` (bug fixed), cross-checked via `casc-tool scan-chunks` |
 | §11 `DETL` real stride (0x0c) + 16-byte alignment padding | `src/cmd_dump.cpp` (`dumpDetl`, `readHalfFloat`) | `tools/check_detl_stride.py` (investigation), `tests/test_dump.cpp` (implementation) |
 | §12 `aliasNext` = local `sequences` array index, chain-resolved into real clips | `src/m2.hpp`/`m2.cpp` (`Sequence`'s 7 new fields, `parseSequences`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`Animation::SequenceMetadata` extras) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
+| §13 `EXP2`/`PFDC` real files exist (local-extraction gap corrected); `BLP2` anomaly resolved as listfile mismatch; `M3` noted, out of scope | `src/m2.hpp` (`ExtendedParticle` comment), `src/cmd_dump.cpp` (`physPayloadRealLength` comment), `DESIGN.md` Non-goals — no parser changes needed | verified via direct `casc-tool extract` pulls, no new automated tests (existing parsers already handle the real bytes) |

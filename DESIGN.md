@@ -36,7 +36,11 @@ Non-goals, by design, not oversight:
   every other sidecar. What husk itself never does, at runtime, under any
   circumstance, is talk to CASC/DB2 directly.
 - No write-back to WoW's native formats. glTF-out only.
-- No WMO or M3 support (tracked, not started).
+- No WMO or M3 support (tracked, not started). A full-storage `M3DT`-magic
+  scan (casc-tool, product `wow` build 68887, 1,891,552 files) found 8 real
+  `.m3` files exist in this corpus (unresolved listfile names, `models\
+  unknown\unk_exp*\<fdid>.m3`) — noted for the record, still out of scope,
+  no investigation started.
 - No Blender addon. A `.glb` file Blender's stock importer can open is the
   entire deliverable.
 
