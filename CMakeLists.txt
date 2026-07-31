@@ -48,6 +48,7 @@ add_library(husk-lib STATIC
   src/skin.cpp
   src/skel.cpp
   src/bone.cpp
+  src/phys.cpp
   src/gltf.cpp
   src/cmd_info.cpp
   src/cmd_export.cpp
@@ -73,6 +74,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_skin.cpp
     tests/test_skel.cpp
     tests/test_bone.cpp
+    tests/test_phys.cpp
     tests/test_gltf.cpp
     tests/test_integration.cpp
     tests/test_cli.cpp

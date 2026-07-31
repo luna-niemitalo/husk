@@ -40,6 +40,8 @@ using husk::test::runHusk;
 using husk::test::testM2;
 using husk::test::testSkin;
 using husk::test::testWeaponParticleB;
+using husk::test::testWeaponPhys;
+using husk::test::testWeaponPhysSkin;
 
 // Pulls an integer out of a "HUSK_PROBE key=value" line (see
 // tests/blender_import_check.py) -- REQUIREs the key is present so a
@@ -213,6 +215,41 @@ TEST_CASE("husk export: a real multi-root-bone-forest weapon "
 TEST_CASE("husk export: a real multi-root-bone-forest weapon "
           "produces a glb the Khronos glTF-Validator accepts with zero errors and no "
           "SKIN_NO_COMMON_ROOT" *
+          doctest::skip(true)) {
+    // gltf_validator not found on PATH at configure time (see
+    // CMakeLists.txt's find_program) -- available via this project's nix
+    // flake devShell.
+}
+#endif
+
+#ifdef HUSK_GLTF_VALIDATOR
+TEST_CASE("husk export: --phys's physics_bodies extras don't introduce new glTF-Validator "
+          "errors on a real weapon .m2/.skin/.phys fixture" *
+          doctest::skip(testWeaponPhys().empty() || testWeaponPhysSkin().empty())) {
+    std::string m2Path = testWeaponPhys();
+    std::string skinPath = testWeaponPhysSkin();
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-conformance-phys.glb").string();
+    std::filesystem::remove(outPath);
+
+    // --phys unset -> auto-detects the same-basename '.phys' this fixture's
+    // own .m2 sits next to (see cmd_export.cpp's --phys resolution).
+    auto exportResult =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
+    INFO("husk export output:\n", exportResult.output);
+    REQUIRE(exportResult.exitCode == 0);
+    REQUIRE(exportResult.output.find("attached 10 physics body") != std::string::npos);
+
+    auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + outPath + "\"");
+    INFO("gltf_validator output:\n", validation.output);
+    CHECK(validation.exitCode == 0);
+    CHECK(validation.output.find("Errors: 0") != std::string::npos);
+
+    std::filesystem::remove(outPath);
+}
+#else
+TEST_CASE("husk export: --phys's physics_bodies extras don't introduce new glTF-Validator "
+          "errors on a real weapon .m2/.skin/.phys fixture" *
           doctest::skip(true)) {
     // gltf_validator not found on PATH at configure time (see
     // CMakeLists.txt's find_program) -- available via this project's nix

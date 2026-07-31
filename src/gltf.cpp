@@ -117,6 +117,14 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
         };
         checkAnchors(skeleton->ribbonAnchors, "ribbon anchor");
         checkAnchors(skeleton->particleAnchors, "particle anchor");
+        for (size_t i = 0; i < skeleton->physicsBodies.size(); ++i) {
+            int joint = skeleton->physicsBodies[i].joint;
+            if (joint < 0 || static_cast<size_t>(joint) >= skeleton->joints.size()) {
+                throw Error("writeGlbMulti: physics body " + std::to_string(i) + " (joint " +
+                            std::to_string(joint) + ") is out of range for " +
+                            std::to_string(skeleton->joints.size()) + " joints");
+            }
+        }
     }
 
     if (!animations.empty() && !hasSkeleton) {
@@ -342,6 +350,22 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
         }
         if (!skeleton->particleAnchors.empty()) {
             skinExtras["particle_emitters"] = tinygltf::Value(writeAnchors(skeleton->particleAnchors));
+        }
+        if (!skeleton->physicsBodies.empty()) {
+            tinygltf::Value::Array arr;
+            for (const auto& b : skeleton->physicsBodies) {
+                tinygltf::Value::Object obj;
+                obj["id"] = tinygltf::Value(static_cast<int>(b.id));
+                obj["joint"] = tinygltf::Value(b.joint);
+                tinygltf::Value::Object pos;
+                pos["x"] = tinygltf::Value(static_cast<double>(b.position.x));
+                pos["y"] = tinygltf::Value(static_cast<double>(b.position.y));
+                pos["z"] = tinygltf::Value(static_cast<double>(b.position.z));
+                obj["position"] = tinygltf::Value(pos);
+                obj["body_type"] = tinygltf::Value(static_cast<int>(b.bodyType));
+                arr.push_back(tinygltf::Value(obj));
+            }
+            skinExtras["physics_bodies"] = tinygltf::Value(arr);
         }
         if (!skinExtras.empty()) {
             skin.extras = tinygltf::Value(skinExtras);

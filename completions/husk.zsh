@@ -4,7 +4,7 @@
 _husk_skin_value() { _alternative 'value:value:(auto)' 'files:file:_files' }
 _husk_anim_value() { _alternative 'value:value:(auto inline none)' 'dirs:directory:_files -/' }
 _husk_dir_or_none_value() { _alternative 'value:value:(none)' 'dirs:directory:_files -/' }
-_husk_skel_value() { _alternative 'value:value:(none)' 'files:file:_files' }
+_husk_file_or_none_value() { _alternative 'value:value:(none)' 'files:file:_files' }
 
 _husk() {
     local -a subcommands
@@ -29,9 +29,10 @@ _husk() {
                 '(-t --textures)'{-t,--textures}'[texture directory, or none]:value:_husk_dir_or_none_value' \
                 '--skin-dir[skin-search directory, or none]:value:_husk_dir_or_none_value' \
                 '(-a --anim)'{-a,--anim}'[auto, inline, none, or a directory]:value:_husk_anim_value' \
-                '--skel[external .skel path, or none]:value:_husk_skel_value' \
+                '--skel[external .skel path, or none]:value:_husk_file_or_none_value' \
                 '--lod[LOD index, or all]:value:(all)' \
                 '--bones-dir[bone-correction directory, or none]:value:_husk_dir_or_none_value' \
+                '--phys[external .phys path, or none]:value:_husk_file_or_none_value' \
                 '1:model:_files'
             ;;
         info)

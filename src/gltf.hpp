@@ -226,6 +226,27 @@ struct Skeleton {
     };
     std::vector<EmitterAnchor> ribbonAnchors;
     std::vector<EmitterAnchor> particleAnchors;
+
+    // Minimal per-body placement anchors for `.phys` physics/collision
+    // bodies (`husk export --phys`) -- same "inert glTF extras, never
+    // applied to anything writeGlb itself renders" treatment as
+    // CorrectionSet/EmitterAnchor above. A `.phys` body is already
+    // structurally an anchor (position + owning bone), like M2Ribbon/
+    // M2Particle, not a flat correction-matrix table like `.bone` -- the
+    // full body/shape/joint/PHYV record set has no native glTF slot either,
+    // and is high-volume enough (a single real file can have 40+ bodies,
+    // each with several shapes/joints) that it lives in `husk dump-chunks`'s
+    // JSON output instead, same split as EmitterAnchor -- see DESIGN.md's
+    // Key design decisions.
+    struct PhysicsBody {
+        uint32_t id = 0;  // this body's own index into the .phys file's BODY/BDY3/BDY4 array
+        int joint = -1;   // index into Skeleton::joints
+        // Relative to `joint`, already in the target coordinate system
+        // (Y-up) -- same caller responsibility as EmitterAnchor::position.
+        Vec3 position;
+        uint16_t bodyType = 0;  // husk::phys::Body::type -- do NOT assume 0 is "the root"
+    };
+    std::vector<PhysicsBody> physicsBodies;
 };
 
 struct Quat {
@@ -322,6 +343,9 @@ Vec3 zUpToYUp(const Vec3& v);
 // `particleAnchors`, if non-empty, likewise become `ribbon_emitters`/
 // `particle_emitters` keys on the same skin `extras` object (see
 // Skeleton::EmitterAnchor's doc comment) -- Error under the same
+// out-of-range-joint condition. `skeleton->physicsBodies`, if non-empty,
+// becomes a `physics_bodies` key on the same skin `extras` object (see
+// Skeleton::PhysicsBody's doc comment) -- Error under the same
 // out-of-range-joint condition.
 //
 // `animations`, if non-empty, requires a non-null/non-empty `skeleton` --
@@ -365,8 +389,9 @@ struct NamedMesh {
 // `skeleton` is non-null and has at least one joint -- a genuinely
 // geometry-less M2 (a pure particle/ribbon VFX model, 3,807 real corpus
 // files have zero vertices at the M2 level, not just an empty
-// .skin) still exports its skeleton and ribbon/particle emitter anchors
-// (Skeleton::ribbonAnchors/particleAnchors), just with no mesh node at all
+// .skin) still exports its skeleton and ribbon/particle emitter anchors/
+// physics body anchors (Skeleton::ribbonAnchors/particleAnchors/
+// physicsBodies), just with no mesh node at all
 // -- glTF has no valid "mesh with zero primitives" representation to fall
 // back to instead (see cmd_export.cpp's per-LOD-tier skip). Otherwise
 // (`meshes` empty and no skeleton), Error -- there'd be nothing to put in

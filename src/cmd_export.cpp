@@ -15,6 +15,7 @@
 #include "commands.hpp"
 #include "gltf.hpp"
 #include "m2.hpp"
+#include "phys.hpp"
 #include "skel.hpp"
 #include "skin.hpp"
 
@@ -55,6 +56,7 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
 }
 
 gltf::Vec3 toGltf(const m2::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z}); }
+gltf::Vec3 toGltf(const phys::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z}); }
 
 // Converts an M2 bone-rotation quaternion (already decompressed, see
 // m2::Quat) from WoW's Z-up space to glTF's Y-up space. Derived (and
@@ -258,9 +260,11 @@ constexpr uint32_t kSequenceAliasFlag = 0x40;
 // an external .anim file, when its data isn't inline -- bundled for the
 // same reason M2MaterialInputs is (a handful of related inputs, one call
 // site). `animDir` is the same local-directory-by-FileDataID convention
-// `--skin-dir`/`--textures` already use -- husk doesn't resolve a FileDataID
-// to a CASC path itself, so a missing file here is treated as "skip this
-// sequence" (see buildAnimations), not an error.
+// `--skin-dir`/`--textures` already use, with a same-basename fallback (see
+// findAnimFileByBasename) for the real wow.export-shaped naming convention --
+// husk doesn't resolve a FileDataID to a CASC path itself, so a file missing
+// under both conventions is treated as "skip this sequence" (see
+// buildAnimations), not an error.
 struct M2AnimInputs {
     std::optional<std::vector<m2::Header::AnimFileEntry>> animFileIds;
     // header.globalFlags & 0x200000 -- wowdev.wiki's flag_unk_0x200000,
@@ -270,6 +274,7 @@ struct M2AnimInputs {
     // chunked .anim file.
     bool animChunked = false;
     std::string animDir;
+    std::string modelPath;  // for findAnimFileByBasename's fallback below
 };
 
 // Finds the FileDataID for sequence (animId, subAnimId) in `animFileIds`,
@@ -283,6 +288,30 @@ uint32_t findAnimFileId(const std::vector<m2::Header::AnimFileEntry>& animFileId
         }
     }
     return 0;
+}
+
+// Zero-pads `value` to at least `width` digits (e.g. zeroPad(69, 4) == "0069").
+std::string zeroPad(unsigned value, size_t width) {
+    std::string s = std::to_string(value);
+    if (s.size() < width) s.insert(0, width - s.size(), '0');
+    return s;
+}
+
+// Real wow.export-style extractions name external .anim files
+// <model-basename><animId:04d>-<subAnimId:02d>.anim next to the model, not by
+// FileDataID (confirmed against the committed bloodelffemale_hd0069-00.anim/
+// -01.anim fixtures, which match this exactly -- no bare <FileDataID>.anim
+// file exists anywhere in the real corpus sample; see WIKI_FINDINGS.md §2).
+// Direct filename construction, not a directory scan like
+// findSameBasenameSkins -- (animId, subAnimId) fully determines the name, so
+// there's no ambiguity to resolve the way .skin's open-ended LOD-suffix scan
+// has. Returns the constructed path unconditionally; existence is checked by
+// the caller's own ifstream-open attempt, same as the FileDataID path.
+std::filesystem::path findAnimFileByBasename(const std::string& modelPath, const std::string& animDir,
+                                              uint16_t animId, uint16_t subAnimId) {
+    std::string baseName = std::filesystem::path(modelPath).stem().string();
+    std::string fileName = baseName + zeroPad(animId, 4) + "-" + zeroPad(subAnimId, 2) + ".anim";
+    return std::filesystem::path(animDir) / fileName;
 }
 
 // Builds one JointAnimation for bone `bi` from already-resolved translation/
@@ -464,18 +493,41 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
         } else if ((seq.flags & kSequenceAliasFlag) != 0) {
             continue;  // wowdev.wiki: "I have no clue" where this lives.
         } else {
-            if (animInputs.animDir.empty() || !animInputs.animFileIds) {
+            if (animInputs.animDir.empty()) {
                 continue;
             }
-            uint32_t fileId = findAnimFileId(*animInputs.animFileIds, seq.id, seq.variationIndex);
-            if (fileId == 0) {
-                continue;
+            // FileDataID-named file first (primary -- some extraction tools
+            // do use this convention); same-basename convention second (the
+            // real wow.export-shaped fallback, see findAnimFileByBasename).
+            // Neither requires the other: an AFID-less model/.skel
+            // (animFileIds == std::nullopt) skips straight to the basename
+            // attempt below, rather than skipping external resolution
+            // outright.
+            std::filesystem::path animPath;
+            if (animInputs.animFileIds) {
+                uint32_t fileId = findAnimFileId(*animInputs.animFileIds, seq.id, seq.variationIndex);
+                if (fileId != 0) {
+                    animPath =
+                        std::filesystem::path(animInputs.animDir) / (std::to_string(fileId) + ".anim");
+                }
             }
-            auto animPath =
-                std::filesystem::path(animInputs.animDir) / (std::to_string(fileId) + ".anim");
-            std::ifstream f(animPath, std::ios::binary);
-            if (!f) {
-                continue;  // not available locally -- same skip policy as --textures
+            // is_open(), not the stream's own bool conversion: a default-
+            // constructed ifstream that never had open() called on it (the
+            // animFileIds-absent/fileId==0 case above) reports goodbit, not
+            // failbit, so `!f` would be false and silently fall through to
+            // reading an unopened stream (empty bytes) instead of trying the
+            // basename fallback.
+            std::ifstream f;
+            if (!animPath.empty()) {
+                f.open(animPath, std::ios::binary);
+            }
+            if (!f.is_open()) {
+                animPath = findAnimFileByBasename(animInputs.modelPath, animInputs.animDir, seq.id,
+                                                   seq.variationIndex);
+                f.open(animPath, std::ios::binary);
+            }
+            if (!f.is_open()) {
+                continue;  // not available locally under either naming convention
             }
             std::vector<uint8_t> animFileBytes((std::istreambuf_iterator<char>(f)),
                                                 std::istreambuf_iterator<char>());
@@ -1207,7 +1259,8 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "'auto': inline + global-sequence + best-effort external directory search; "
                     "'inline': inline + global-sequence only, no external search; 'none': no "
                     "animation clips at all (bind pose only); or a directory of "
-                    "'<FileDataID>.anim' files")
+                    "'<FileDataID>.anim' files, falling back to "
+                    "'<model-basename><animId>-<subId>.anim' when a FileDataID-named file isn't found")
         ->capture_default_str();
     app.add_option("--skel", opts.skelArg,
                     "external .skel path (only relevant for a model with 0 inline bones), or "
@@ -1221,6 +1274,11 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "'.skel's BFID array), or 'none' to skip (default: the model's own directory) "
                     "-- attached as inert glTF extras only, never applied to the render (see "
                     "TODO_correctness.md #3)");
+    app.add_option("--phys", opts.physArg,
+                    "external .phys path (per the model's own PFID scalar), or 'none' to never "
+                    "look for one (default: a same-basename '.phys' next to the model, if any) -- "
+                    "a minimal per-body placement anchor is attached as inert glTF extras; the "
+                    "full body/shape/joint record set is available via 'husk dump-chunks' instead");
 }
 
 int exportGlb(int argc, char** args) {
@@ -1312,6 +1370,10 @@ int exportGlb(int argc, char** args) {
     bool skelGiven = app.count("--skel") > 0;
     bool skelNone = skelGiven && opts.skelArg == "none";
     std::string skelPath = (skelGiven && !skelNone) ? opts.skelArg : "";
+
+    bool physGiven = app.count("--phys") > 0;
+    bool physNone = physGiven && opts.physArg == "none";
+    std::string physPath = (physGiven && !physNone) ? opts.physArg : "";
 
     try {
         auto modelBytes = readFileBytes(modelPath);
@@ -1457,6 +1519,7 @@ int exportGlb(int argc, char** args) {
                 animInputs.animFileIds = header.animFileIds;
                 animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
                 animInputs.animDir = animDir;
+                animInputs.modelPath = modelPath;
                 animations = buildAnimations(blob, bones, skeleton, sequences, animInputs);
                 // Global-sequence-driven tracks (continuous looping
                 // animation independent of any M2Sequence -- see
@@ -1489,6 +1552,7 @@ int exportGlb(int argc, char** args) {
                     animInputs.animFileIds = skel::findAnimFileIds(skelBytes);
                     animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
                     animInputs.animDir = animDir;
+                    animInputs.modelPath = modelPath;
                     animations = buildAnimations(skelTrackBlob, bones, skeleton, sequences, animInputs);
                 }
                 auto globalSeqAnims = buildGlobalSequenceAnimations(skelTrackBlob, bones, skeleton);
@@ -1583,6 +1647,56 @@ int exportGlb(int argc, char** args) {
                           << " particle emitter placement anchor(s) as inert glTF extras (id/"
                              "bone/position only -- full field/curve data via `husk "
                              "dump-chunks`)\n";
+            }
+
+            // --phys: three-state resolution mirroring --skel (DESIGN.md's
+            // Key design decisions -- PFID is a single scalar FileDataID,
+            // like SKID, not an array like BFID/AFID/SFID, so a directory
+            // flag doesn't apply here the way it does for --bones-dir).
+            // 'none' means never look, even if a same-basename .phys
+            // exists; an explicit path overrides; unset auto-detects a
+            // same-basename '.phys' next to the model. Not finding one isn't
+            // an error -- most models have no physics data at all. Only the
+            // minimal per-body placement anchor (gltf::Skeleton::
+            // PhysicsBody's doc comment) is attached here; the full body/
+            // shape/joint/PHYV record set is available via `husk
+            // dump-chunks` instead (same split as ribbon/particle above).
+            std::string resolvedPhysPath;
+            if (physNone) {
+                // Deliberately skip -- forces no physics_bodies extras
+                // regardless of whether a same-basename '.phys' exists.
+            } else if (physGiven) {
+                resolvedPhysPath = physPath;
+            } else {
+                auto defaultPhys = std::filesystem::path(modelPath).replace_extension(".phys");
+                std::error_code ec;
+                if (std::filesystem::exists(defaultPhys, ec) && !ec) {
+                    resolvedPhysPath = defaultPhys.string();
+                }
+            }
+            if (!resolvedPhysPath.empty()) {
+                auto physBytes = readFileBytes(resolvedPhysPath);
+                auto physFile = phys::parse(physBytes);
+                skeleton.physicsBodies.reserve(physFile.bodies.size());
+                for (size_t bi = 0; bi < physFile.bodies.size(); ++bi) {
+                    const auto& b = physFile.bodies[bi];
+                    if (b.boneIndex >= skeleton.joints.size()) {
+                        throw std::runtime_error(
+                            "'" + resolvedPhysPath + "' body " + std::to_string(bi) +
+                            " references bone " + std::to_string(b.boneIndex) +
+                            ", out of range for " + std::to_string(skeleton.joints.size()) +
+                            " bones");
+                    }
+                    skeleton.physicsBodies.push_back({static_cast<uint32_t>(bi),
+                                                        static_cast<int>(b.boneIndex),
+                                                        toGltf(b.position), b.type});
+                }
+                if (!skeleton.physicsBodies.empty()) {
+                    std::cerr << "husk: note: attached " << skeleton.physicsBodies.size()
+                              << " physics body placement anchor(s) from '" << resolvedPhysPath
+                              << "' as inert glTF extras (id/bone/position/type only -- full "
+                                 "body/shape/joint record data via `husk dump-chunks`)\n";
+                }
             }
         }
 

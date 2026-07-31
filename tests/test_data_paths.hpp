@@ -218,6 +218,15 @@ constexpr const char* kTextureCoordComboM2 =
     "world/expansion05/doodads/ironhorde/6ih_ironhorde_siegeweapon03.m2";
 constexpr const char* kTextureCoordComboSkin =
     "world/expansion05/doodads/ironhorde/6ih_ironhorde_siegeweapon0300.skin";
+// A real weapon .m2 with a matching .skin -- extracted into test_data/ this
+// session, next to its already-committed .phys (a real, paired fixture:
+// none of the other 6 committed .phys weapon fixtures had a real .skin
+// sibling committed alongside them, only .m2+.phys). 10 real physics
+// bodies, boneIndex values {0..9} of 17 real bones (confirmed by hand --
+// see WIKI_FINDINGS.md §9).
+constexpr const char* kWeaponPhys = "item/objectcomponents/weapon/mace_1h_warfrontsforsaken_d_01.m2";
+constexpr const char* kWeaponPhysSkin =
+    "item/objectcomponents/weapon/mace_1h_warfrontsforsaken_d_0100.skin";
 }  // namespace fixtures
 
 inline std::string testM2() { return resolve("HUSK_TEST_M2", fixtures::kM2); }
@@ -251,6 +260,10 @@ inline std::string testMultiTextureLayerM2() {
 }
 inline std::string testMultiTextureLayerSkin() {
     return resolve("HUSK_TEST_MULTITEX_SKIN", fixtures::kMultiTextureLayerSkin);
+}
+inline std::string testWeaponPhys() { return resolve("HUSK_TEST_WEAPON_PHYS", fixtures::kWeaponPhys); }
+inline std::string testWeaponPhysSkin() {
+    return resolve("HUSK_TEST_WEAPON_PHYS_SKIN", fixtures::kWeaponPhysSkin);
 }
 inline std::string testTextureCoordComboM2() {
     return resolve("HUSK_TEST_COORDCOMBO_M2", fixtures::kTextureCoordComboM2);

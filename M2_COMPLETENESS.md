@@ -93,7 +93,7 @@ elsewhere is just unattempted work.
 |---|---|---|---|---|
 | Collision box / sphere radius (scalars) | full | diagnostic | n/a — verification-signal only | not an export target; cross-checked against husk's own bind-pose vertex parsing (containment, not tight fit — see `WIKI_FINDINGS.md` §5) by `tests/test_conformance.cpp` |
 | Collision mesh (positions/indices/face normals) | full | native | native — 100% | a plain unskinned triangle mesh, one more `gltf::NamedMesh` tagged `{"collision": true}` in node `extras` for a renderer/Blender script to filter — per-vertex normals approximated (averaged adjacent face normals) since the source data is per-triangle, not per-vertex |
-| `.phys` sidecar content | none (only the `PFID` FileDataID itself is read) | none | n/a — unscoped | nobody has reverse-engineered `.phys`'s own byte layout yet, unlike every other sidecar |
+| `.phys` sidecar content | full | extras + diagnostic | extras-capped, permanent | documented on wowdev.wiki (`documentation/wowdev-wiki/md/PHYS.md`), verified against 103 real files (`WIKI_FINDINGS.md` §9) — every body/shape/joint/`PHYV` record parsed (`src/phys.hpp`/`phys.cpp`); `husk export --phys` attaches a minimal per-body placement anchor (`physics_bodies` skin extras, same pattern as ribbon/particle emitters), full records via `husk dump-chunks <file.phys>` — no core-glTF concept for physics simulation input exists, so this is permanently `extras`/diagnostic, not a renderable gap |
 
 ## Interaction points & effects
 

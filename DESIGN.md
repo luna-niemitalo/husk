@@ -192,7 +192,16 @@ entire real 104-file `bloodelffemale_hd_*.anim` corpus (zero
 bounds/monotonicity/finiteness problems) and, end to end, three independent
 ways: husk itself (336 real clips), the Khronos `gltf_validator` (no new
 errors), and Blender's own glTF importer running headlessly (336 actions,
-matching exactly).
+matching exactly). That 336-clip verification checked the `AFSB`/`AFM2`
+*decode* logic, not `--anim`'s own file-resolution: `--anim` used to look
+only for `<FileDataID>.anim`, and a real `wow.export`-style extraction names
+external `.anim` files `<model-basename><animId>-<subId>.anim` instead (the
+committed `bloodelffemale_hd0069-00.anim`/`-01.anim` fixtures match this
+exactly) — `findAnimFileByBasename` (`cmd_export.cpp`) now tries that
+convention whenever a `<FileDataID>.anim` file isn't found (or there's no
+`AFID` entry at all), so a real character-model extraction actually resolves
+its external clips through `--anim auto`'s own default, not just through a
+`.anim` directory hand-populated with FileDataID-named files.
 
 **`M2Sequence` is 64 bytes, not 36** — the wiki's own struct listing has an
 un-renumbered offset comment that reads as if `M2Bounds bounds` weren't
@@ -393,6 +402,29 @@ per-sequence — "unable to change between different animations," per the
 wiki — while `M2Track`-based ones are, resolved per `M2Sequence` or via the
 global-sequence resolver) were both confirmed against.
 
+**`.phys` physics/collision data follows the same minimal-anchor/
+full-record split as ribbons/particles, for the same volume reason.**
+`.phys` is a sidecar file (like `.bone`, not a core M2 header array like
+ribbons/particles), but its content structurally resembles ribbons/
+particles more than `.bone`: `BODY`/`BDY3`/`BDY4` records are already
+`position + boneIndex` anchors, not a flat correction-matrix-per-bone table.
+And the volume is real — a single real file can have 40+ bodies, each with
+several shapes/joints, more than `bone_correction_sets` ever carried.
+`husk export --phys` (three-state, mirroring `--skel` — `PFID` is a single
+scalar FileDataID, like `SKID`, not an array like `BFID`/`AFID`/`SFID`, so
+no directory flag) attaches only a **minimal placement anchor** (`id`/
+`joint`/`position`/`bodyType`, `gltf::Skeleton::PhysicsBody`) to the skin's
+`extras`; the **full record** (every body/shape/joint/`PHYV` field,
+resolved) goes to `husk dump-chunks`'s JSON output instead, which also
+accepts a `.phys` file directly, same as `.bone`. Unlike `.bone`, `.phys`'s
+byte layout is genuinely documented (`documentation/wowdev-wiki/md/
+PHYS.md`), not reverse-engineered — `src/phys.hpp`/`phys.cpp` implement that
+spec directly, verified against 103 real files with zero cross-chunk index
+errors (`WIKI_FINDINGS.md` §9). Chunk tags are byte-reversed on disk (WMO/
+ADT convention), the opposite of M2's own inline chunks — `chunk.hpp`'s
+`readChunks`/`findChunk` are reused as-is, just called with the
+already-reversed literal.
+
 **The collision mesh is real exported geometry, not inert extras — the one
 place this differs from the geoset/texture-transform/`.bone`-correction
 family above.** Those all became `extras` because no unambiguous glTF
@@ -539,11 +571,12 @@ flag regardless of position."
 | `--output` | `-o` | output `.glb` path |
 | `--skin` | `-s` | `.skin` path, or the literal word `auto` |
 | `--textures` | `-t` | directory of `<FileDataID>.png` |
-| `--anim` | `-a` | directory of `<FileDataID>.anim`, or one of `auto`/`inline`/`none` (see below) |
+| `--anim` | `-a` | directory of `<FileDataID>.anim` (falling back to `<model-basename><animId>-<subId>.anim`), or one of `auto`/`inline`/`none` (see below) |
 | `--skin-dir` | *(none)* | directory `auto` searches for the `SFID`-declared `<FileDataID>.skin` |
 | `--skel` | *(none)* | external `.skel` path (0-inline-bone models only) |
 | `--lod` | *(none)* | `<n>` or `all`, only meaningful with `--skin auto` |
 | `--bones-dir` | *(none)* | directory of `<FileDataID>.bone` files, attached as inert extras |
+| `--phys` | *(none)* | external `.phys` path, or `none` — attached as inert extras (minimal anchor; full records via `dump-chunks`) |
 
 Every flag is order-independent. The only positional-shaped things left are
 the two every CLI on every platform already trains a user to expect
@@ -815,8 +848,15 @@ dispatch isn't itself CLI11-driven (see the previous-grammar note above:
   render (see Key design decisions).
 - `.anim` sidecar — external per-sequence keyframe blob, `AFM2` (flat) and
   `AFSB` (`.skel`-linked models' real shape) both resolved.
+- `.phys` sidecar — physics/collision bodies/shapes/joints, documented on
+  wowdev.wiki (not reverse-engineered), byte-reversed chunk tags (WMO/ADT
+  convention). Minimal placement anchors surfaced as inert glTF `extras` via
+  `--phys`, full records via `dump-chunks`, never applied to the render (see
+  Key design decisions).
 - `--textures`/`--skin-dir`/`--anim`/`--bones-dir` directories —
   user-populated, FileDataID-named, local filesystem only. Never CASC.
+  `--phys` is a same-basename-*file* convention instead (mirroring
+  `--skel`), not a directory.
 - `.blp` texture files (separate `blp/` Python tool) — container + mip
   table hand-rolled, block decode delegated to Pillow via synthetic DDS.
 
@@ -878,14 +918,26 @@ re-run automatically. Tracked as a testing debt, not a correctness bug.
 ## Open work
 
 See `TODO_correctness.md` for the current punch list (`M2Camera`, `.bone`
-slot selection, and two awareness-only footnotes), `WIKI_FINDINGS.md` for every
-real-data-driven spec correction found so far, `AFSB`'s included, and
-`PHYS_TODO.md` for the same kind of living plan covering `.phys` physics/
-collision sidecar support -- byte layout fully verified against real data
-(`WIKI_FINDINGS.md` §9, 103 real files, zero cross-chunk index errors), not
-yet implemented anywhere in `src/`. `TODO_correctness.md`/`WIKI_FINDINGS.md`/
-`PHYS_TODO.md` are living documents; this file describes the shape of the
-system they operate within, not their current item-by-item status.
+slot selection, and two awareness-only footnotes) and `WIKI_FINDINGS.md` for
+every real-data-driven spec correction found so far, `AFSB`'s included.
+`TODO_correctness.md`/`WIKI_FINDINGS.md` are living documents; this file
+describes the shape of the system they operate within, not their current
+item-by-item status.
+
+`.phys` physics/collision sidecar support used to have its own living plan
+here too (`PHYS_TODO.md`) -- now fully implemented (`src/phys.hpp`/
+`phys.cpp`, `husk export --phys`, `husk dump-chunks <file.phys>`) and folded
+into this file's own Key design decisions (the `.phys`-anchor/dump-chunks-
+split entry above) and `WIKI_FINDINGS.md` §9's "Where these live in husk"
+row, so the standalone file was removed. Its own coverage table (verified
+vs. unverified per chunk type, `WIKI_FINDINGS.md` §9) is unaffected — real
+corpus never surfaced `BDY2`/`BOXS`/`WLJ3`/`SHOJ` (0x6c)/`SHJ2`/`REV2`/
+`SPHJ`/`PRSJ`/`PRS2`/`DSTJ`, so those chunk types are parsed (the byte
+offsets are real, transcribed from the wiki) but structurally unverified
+against a real file — `src/phys.hpp`'s own doc comment carries this forward
+now, same "verified floor, awareness only" treatment
+`kMinVerifiedRecordStrideVersion`/`kMinVerifiedParticleVersion` already
+established for other version-gated shapes.
 
 The multi-root-bone-forest representation gap used to have its own living
 plan here too (`MULTIROOT_SKELETON_TODO.md`) -- now fully implemented and

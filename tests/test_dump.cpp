@@ -65,6 +65,24 @@ void putU32At(std::vector<uint8_t>& b, size_t off, uint32_t v) {
 
 void putTag(std::vector<uint8_t>& b, const char* tag) { b.insert(b.end(), tag, tag + 4); }
 
+void putU16(std::vector<uint8_t>& b, uint16_t v) {
+    b.push_back(static_cast<uint8_t>(v));
+    b.push_back(static_cast<uint8_t>(v >> 8));
+}
+
+// .phys's own chunk tags are byte-reversed on disk (WMO/ADT convention,
+// opposite of M2's own inline chunks putTag/wrapChunked above assume -- see
+// src/phys.hpp's doc comment) -- `tag` is given in wowdev.wiki's own
+// un-reversed spelling and reversed here before writing.
+void appendPhysChunk(std::vector<uint8_t>& file, const char tag[4], const std::vector<uint8_t>& payload) {
+    file.push_back(tag[3]);
+    file.push_back(tag[2]);
+    file.push_back(tag[1]);
+    file.push_back(tag[0]);
+    putU32(file, static_cast<uint32_t>(payload.size()));
+    file.insert(file.end(), payload.begin(), payload.end());
+}
+
 // Same minimal fully-zeroed MD20 blob as test_cli.cpp's minimalMd20 (through
 // particleEmitters, 0x130 bytes) -- duplicated locally rather than shared,
 // since these two test files exercise different subcommands and don't
@@ -558,6 +576,80 @@ TEST_CASE("husk dump-chunks: an undocumented chunk (e.g. WFV1) is included as a 
     CHECK(result.output.find("\"WFV1\"") != std::string::npos);
     CHECK(result.output.find("deadbeef") != std::string::npos);
     CHECK(result.output.find("not documented") != std::string::npos);
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk dump-chunks: a .phys file (byte-reversed tags, no MD20/MD21 magic) dumps its "
+          "full body/shape/joint record set, each shape/joint resolved to its real type-specific "
+          "data inline") {
+    std::vector<uint8_t> file;
+    std::vector<uint8_t> physPayload;
+    putU16(physPayload, 5);  // version
+    appendPhysChunk(file, "PHYS", physPayload);
+    std::vector<uint8_t> phyt;
+    putU32(phyt, 4);
+    appendPhysChunk(file, "PHYT", phyt);
+
+    std::vector<uint8_t> body;
+    putU16(body, 1);   // type
+    putU16(body, 0);   // padding
+    putF32(body, 0);   // position.x
+    putF32(body, 0);   // position.y
+    putF32(body, 0);   // position.z
+    putU16(body, 3);   // boneIndex
+    putU16(body, 0);   // padding
+    putU32(body, 0);   // shapes_base
+    putU32(body, 1);   // shapes_count
+    appendPhysChunk(file, "BODY", body);
+
+    std::vector<uint8_t> shap;
+    putU16(shap, 1);  // type: capsule
+    putU16(shap, 0);  // index
+    putU32(shap, 0);  // unk[4]
+    putF32(shap, 0);  // friction
+    putF32(shap, 0);  // restitution
+    putF32(shap, 0);  // density
+    appendPhysChunk(file, "SHAP", shap);
+
+    std::vector<uint8_t> caps;
+    putF32(caps, 0);
+    putF32(caps, 0);
+    putF32(caps, -1);  // localPosition1
+    putF32(caps, 0);
+    putF32(caps, 0);
+    putF32(caps, 1);       // localPosition2
+    putF32(caps, 0.4242f);  // radius -- the distinguishing value this test looks for
+    appendPhysChunk(file, "CAPS", caps);
+
+    std::vector<uint8_t> join;
+    putU32(join, 0);  // bodyA
+    putU32(join, 0);  // bodyB
+    putU32(join, 0);  // unk[4]
+    putU16(join, 2);  // type: weld
+    putU16(join, 0);  // index
+    appendPhysChunk(file, "JOIN", join);
+
+    std::vector<uint8_t> welj;
+    for (int i = 0; i < 12; ++i) putF32(welj, 0);  // frameA
+    for (int i = 0; i < 12; ++i) putF32(welj, 0);  // frameB
+    putF32(welj, 7.5f);  // angularFrequencyHz -- the other distinguishing value
+    putF32(welj, 0);     // angularDampingRatio
+    appendPhysChunk(file, "WELJ", welj);
+
+    auto path = tempPath("test.phys");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"version\"") != std::string::npos);
+    CHECK(result.output.find("\"bodies\"") != std::string::npos);
+    CHECK(result.output.find("\"bone\": 3") != std::string::npos);  // the body's boneIndex
+    CHECK(result.output.find("\"kind\"") != std::string::npos);
+    CHECK(result.output.find("capsule") != std::string::npos);
+    CHECK(result.output.find("0.4242") != std::string::npos);  // capsule radius, resolved inline
+    CHECK(result.output.find("weld") != std::string::npos);
+    CHECK(result.output.find("7.5") != std::string::npos);  // weld joint's angularFrequencyHz
 
     fs::remove(path);
 }

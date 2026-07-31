@@ -407,6 +407,69 @@ TEST_CASE("writeGlb: ribbon/particle anchors coexist with bone_correction_sets w
     CHECK(extras.Get("particle_emitters").IsArray());
 }
 
+TEST_CASE("writeGlb: a skeleton's physicsBodies round-trip as physics_bodies on the skin's "
+          "extras -- minimal placement data only (DESIGN.md's anchor/dump-chunks split)") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.physicsBodies = {{0, 1, {0.1f, 0.2f, 0.3f}, 0}, {1, 0, {1.0f, -1.0f, 0.5f}, 2}};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.skins[0].extras;
+    REQUIRE(extras.IsObject());
+    const auto& bodies = extras.Get("physics_bodies");
+    REQUIRE(bodies.IsArray());
+    REQUIRE(bodies.ArrayLen() == 2);
+    CHECK(bodies.Get(0).Get("id").GetNumberAsInt() == 0);
+    CHECK(bodies.Get(0).Get("joint").GetNumberAsInt() == 1);
+    CHECK(bodies.Get(0).Get("body_type").GetNumberAsInt() == 0);
+    const auto& pos = bodies.Get(0).Get("position");
+    CHECK(pos.Get("x").GetNumberAsDouble() == doctest::Approx(0.1));
+    CHECK(pos.Get("z").GetNumberAsDouble() == doctest::Approx(0.3));
+    CHECK(bodies.Get(1).Get("id").GetNumberAsInt() == 1);
+    CHECK(bodies.Get(1).Get("body_type").GetNumberAsInt() == 2);
+}
+
+TEST_CASE("writeGlb: a skeleton with no physics bodies gets no physics_bodies extras key") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    CHECK_FALSE(model.skins[0].extras.IsObject());
+}
+
+TEST_CASE("writeGlb: a physics body with an out-of-range joint throws") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.physicsBodies = {{0, 99, {0, 0, 0}, 0}};
+    CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlb: physics bodies coexist with bone_correction_sets/ribbon_emitters/"
+          "particle_emitters without clobbering each other") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    husk::gltf::Skeleton::CorrectionSet set;
+    set.fileDataId = 7;
+    skel.correctionSets = {set};
+    skel.ribbonAnchors = {{0, 0, {0, 0, 0}}};
+    skel.particleAnchors = {{0, 0, {0, 0, 0}}};
+    skel.physicsBodies = {{0, 0, {0, 0, 0}, 0}};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.skins[0].extras;
+    REQUIRE(extras.IsObject());
+    CHECK(extras.Get("bone_correction_sets").IsArray());
+    CHECK(extras.Get("ribbon_emitters").IsArray());
+    CHECK(extras.Get("particle_emitters").IsArray());
+    CHECK(extras.Get("physics_bodies").IsArray());
+}
+
 // A single writeGlb mesh may legitimately share a skeleton without being
 // skinned by it (empty mesh.skinning opts out -- see writeGlbMulti's doc
 // comment); the still-real error case is skinning data that's *present*

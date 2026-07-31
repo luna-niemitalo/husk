@@ -45,6 +45,8 @@ int main(int argc, char** argv) {
     printFixture("HUSK_TEST_MULTITEX_SKIN", husk::test::testMultiTextureLayerSkin());
     printFixture("HUSK_TEST_COORDCOMBO_M2", husk::test::testTextureCoordComboM2());
     printFixture("HUSK_TEST_COORDCOMBO_SKIN", husk::test::testTextureCoordComboSkin());
+    printFixture("HUSK_TEST_WEAPON_PHYS", husk::test::testWeaponPhys());
+    printFixture("HUSK_TEST_WEAPON_PHYS_SKIN", husk::test::testWeaponPhysSkin());
 #ifdef HUSK_GLTF_VALIDATOR
     std::cerr << "husk-tests:   HUSK_GLTF_VALIDATOR: " << HUSK_GLTF_VALIDATOR << "\n";
 #else

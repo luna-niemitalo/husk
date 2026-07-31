@@ -87,7 +87,7 @@ std::string bashValueCompletion(const std::string& longName) {
         return "COMPREPLY=($(compgen -W \"none\" -- \"$cur\")); compopt -o filenames "
                "2>/dev/null; COMPREPLY+=($(compgen -d -- \"$cur\"))";
     }
-    if (longName == "--skel") {
+    if (longName == "--skel" || longName == "--phys") {
         return "COMPREPLY=($(compgen -W \"none\" -- \"$cur\")); compopt -o filenames "
                "2>/dev/null; COMPREPLY+=($(compgen -f -- \"$cur\"))";
     }
@@ -179,7 +179,7 @@ const std::vector<ZshHelper>& zshHelpers() {
         {"_husk_anim_value",
          "_alternative 'value:value:(auto inline none)' 'dirs:directory:_files -/'"},
         {"_husk_dir_or_none_value", "_alternative 'value:value:(none)' 'dirs:directory:_files -/'"},
-        {"_husk_skel_value", "_alternative 'value:value:(none)' 'files:file:_files'"},
+        {"_husk_file_or_none_value", "_alternative 'value:value:(none)' 'files:file:_files'"},
     };
     return helpers;
 }
@@ -189,7 +189,7 @@ std::string zshValueAction(const std::string& longName) {
     if (longName == "--anim") return "_husk_anim_value";
     if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir")
         return "_husk_dir_or_none_value";
-    if (longName == "--skel") return "_husk_skel_value";
+    if (longName == "--skel" || longName == "--phys") return "_husk_file_or_none_value";
     if (longName == "--lod") return "(all)";
     return "_files";
 }
@@ -210,6 +210,7 @@ std::string zshFlagLabel(const std::string& longName) {
     if (longName == "--skel") return "external .skel path, or none";
     if (longName == "--lod") return "LOD index, or all";
     if (longName == "--bones-dir") return "bone-correction directory, or none";
+    if (longName == "--phys") return "external .phys path, or none";
     if (longName == "--help") return "print help and exit";
     return longName;
 }

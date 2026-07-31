@@ -56,6 +56,8 @@ using husk::test::testTexturesDir;
 using husk::test::testWeaponParticleA;
 using husk::test::testWeaponParticleB;
 using husk::test::testWeaponParticleStress;
+using husk::test::testWeaponPhys;
+using husk::test::testWeaponPhysSkin;
 using husk::test::testWeaponRibbon;
 
 // Shape-only skinning check: a real character model has bones, so this
@@ -240,6 +242,27 @@ TEST_CASE(
     // doesn't become a silent tripwire if the fixture's own AFID/anim-file
     // set ever changes slightly.
     CHECK(model.animations.size() > 100);
+
+    // The count check above passes on inline + global-sequence clips alone
+    // and doesn't actually prove the external-.anim-file path ran: --anim's
+    // resolution used to only look for '<FileDataID>.anim', but this .skel
+    // has no AFID entries mapping to the committed
+    // bloodelffemale_hd0069-00.anim/-01.anim fixtures -- they only resolve
+    // via findAnimFileByBasename's same-basename fallback (DESIGN.md's AFSB
+    // design note, WIKI_FINDINGS.md §2). These two
+    // clip names are exact and known in advance: animId=69,
+    // variationIndex={0,1}, named "anim_" + id + "_" + variationIndex
+    // (buildAnimations, cmd_export.cpp) -- concrete proof the basename
+    // fallback resolved real, correctly-named, on-disk files through husk's
+    // actual --anim CLI mechanism, not just a loose count.
+    bool foundAnim69_0 = false;
+    bool foundAnim69_1 = false;
+    for (const auto& anim : model.animations) {
+        if (anim.name == "anim_69_0") foundAnim69_0 = true;
+        if (anim.name == "anim_69_1") foundAnim69_1 = true;
+    }
+    CHECK(foundAnim69_0);
+    CHECK(foundAnim69_1);
 
     size_t rotationKeyframesChecked = 0;
     size_t translationKeyframesChecked = 0;
@@ -556,6 +579,52 @@ TEST_CASE("husk export: a real 64-particle-emitter weapon (stress case) gets exa
           doctest::skip(testWeaponParticleStress().empty())) {
     checkEmitterAnchorCounts(testWeaponParticleStress(), /*expectedRibbons=*/0,
                               /*expectedParticles=*/64);
+}
+
+TEST_CASE("husk export: a real weapon's .phys sidecar (auto-detected, same basename) attaches "
+          "exactly 10 physics_bodies extras, one per real body, boneIndex values {0..9} of 17 "
+          "real bones" *
+          doctest::skip(testWeaponPhys().empty() || testWeaponPhysSkin().empty())) {
+    std::string m2Path = testWeaponPhys();
+    std::string skinPath = testWeaponPhysSkin();
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-export-phys.glb").string();
+    std::filesystem::remove(outPath);
+    auto result =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(model.skins.size() == 1);
+    const auto& extras = model.skins[0].extras;
+    REQUIRE(extras.IsObject());
+    const auto& bodies = extras.Get("physics_bodies");
+    REQUIRE(bodies.IsArray());
+    REQUIRE(static_cast<size_t>(bodies.ArrayLen()) == 10);
+
+    std::set<int> boneIndices;
+    for (int i = 0; i < bodies.ArrayLen(); ++i) {
+        const auto& b = bodies.Get(i);
+        CHECK(b.Get("id").GetNumberAsInt() == i);
+        int joint = b.Get("joint").GetNumberAsInt();
+        CHECK(joint >= 0);
+        CHECK(joint < 17);  // this fixture's own real bone count
+        REQUIRE(b.Get("position").IsObject());
+        boneIndices.insert(joint);
+    }
+    // Every body claims a distinct bone -- confirmed by hand against the
+    // real .phys file (boneIndex values {0..9} of 17 real bones).
+    CHECK(boneIndices.size() == 10);
+    CHECK(*boneIndices.begin() == 0);
+    CHECK(*boneIndices.rbegin() == 9);
+
+    std::filesystem::remove(outPath);
 }
 
 TEST_CASE("husk dump-chunks: a real weapon's particle_emitters JSON resolves plausible, "

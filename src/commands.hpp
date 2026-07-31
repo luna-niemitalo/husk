@@ -44,6 +44,7 @@ struct ExportOptions {
     std::string skelArg;
     std::string lodArg;
     std::string bonesDirArg;
+    std::string physArg;
 };
 
 // Declares every export flag (names, defaults, descriptions, the `--skin

@@ -5,7 +5,7 @@ Read `DESIGN.md` before any structural change.
 
 ## Purpose
 
-CLI that reads WoW M2 model files (+ `.skin`/`.skel`/`.bone`/`.anim` sidecars) and
+CLI that reads WoW M2 model files (+ `.skin`/`.skel`/`.bone`/`.anim`/`.phys` sidecars) and
 exports them to glTF 2.0 (`.glb`) for Blender import; `husk-blp` (separate Python
 tool, `blp/`) converts BLP2 textures to PNG.
 
@@ -15,20 +15,27 @@ tool, `blp/`) converts BLP2 textures to PNG.
   material detail and sidecar FileDataIDs, plus a one-line ribbon/particle-emitter
   summary), `husk export` (static mesh → skeleton +
   skinning, inline or external `.skel` → materials with real embedded textures →
-  animation, inline/external-`.anim`/`.skel`-sourced, verified against real
+  animation, inline/external-`.anim`/`.skel`-sourced (external `.anim`
+  resolution now falls back to the real `wow.export`-shaped same-basename
+  filename convention, not just `<FileDataID>.anim`, when a FileDataID-mapped
+  file isn't found — see Resume), verified against real
   `bloodelffemale.m2`/`bloodelffemale_hd.m2` data), `husk export --lod`
   (single-tier or `all`), `husk export --bones-dir` (real `.bone` correction
   data attached as inert `bone_correction_sets` glTF skin `extras`, never
-  applied to the render — see Resume), every export also attaching minimal
-  ribbon/particle placement anchors (id/bone/position, `ribbon_emitters`/
-  `particle_emitters` skin `extras`, unconditional — see Resume), `husk
-  dump-chunks` (JSON dump of Legion+ chunks with no glTF equivalent, *and* —
-  broadened this session — full `M2Ribbon`/`M2Particle` records including
-  every resolved animation curve, present in every M2 version; or `.bone`
-  files directly). `blp/`'s `husk-blp` (BLP2 → PNG:
+  applied to the render), `husk export --phys` (real `.phys` physics/collision
+  body data attached as inert `physics_bodies` glTF skin `extras` — minimal
+  per-body placement anchors only, never applied to the render — see Resume),
+  every export also attaching minimal ribbon/particle placement anchors
+  (id/bone/position, `ribbon_emitters`/`particle_emitters` skin `extras`,
+  unconditional), `husk dump-chunks` (JSON dump of Legion+ chunks with no
+  glTF equivalent, full `M2Ribbon`/`M2Particle` records including every
+  resolved animation curve, present in every M2 version; or `.bone`/`.phys`
+  files directly — `.phys`'s full body/shape/joint/`PHYV` record set, each
+  shape/joint resolved to its real type-specific data inline, see Resume).
+  `blp/`'s `husk-blp` (BLP2 → PNG:
   palettized/DXT1/DXT5/BGRA). `husk export`'s CLI grammar is CLI11-based named
   flags (`--input`/`--output` positional-fallback, everything else named,
-  `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel`/`--bones-dir`
+  `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel`/`--bones-dir`/`--phys`
   three-or-four-state — see `DESIGN.md`'s "CLI argument grammar for
   `export`"), with generated bash/zsh completions in `completions/`. See
   `README.md`'s format-support matrix and roadmap for the exact per-feature
@@ -104,7 +111,199 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: Closed out `MULTIROOT_SKELETON_TODO.md` the same way
+- **Last state**: Implemented both `ANIM_TODO.md` and `PHYS_TODO.md` end to
+  end, independently, in one autonomous overnight session — requested
+  directly: "read both PHYS_TODO and ANIM_TODO, implement them
+  independently but carefully... extend the tests to actually cover stuff,
+  not just be 'we have more than 100 animations, that counts as a pass
+  right?'." No interactive user available partway through, so the two
+  plan-mode-flagged open questions each document left for a real design
+  pass (`ANIM_TODO.md`'s implementation was already fully speced;
+  `PHYS_TODO.md`'s extras-vs-dump-chunks split/CLI flag shape was not) were
+  resolved by following each document's own stated recommendation rather
+  than blocking — `PHYS_TODO.md`'s explicitly: "the same pattern as
+  particles and ribbons, attachment points in glb but data i separate,"
+  confirmed by the user mid-session, matching the doc's own Architecture
+  recommendation already.
+  - **`ANIM_TODO.md` (the `--anim` same-basename fallback)**: implemented
+    exactly as planned (`findAnimFileByBasename`, `M2AnimInputs::modelPath`,
+    `buildAnimations`'s external branch rewired to try `<FileDataID>.anim`
+    then `<model-basename><animId>-<subId>.anim`) — with one real bug the
+    plan itself had that only surfaced once the existing test suite ran
+    against the change: the file-open fallback logic used `if (!f)` to
+    decide whether the FileDataID attempt succeeded, but a default-
+    constructed `std::ifstream` that never had `.open()` called on it (the
+    `animFileIds == nullopt` case) reports `goodbit`, not `failbit` — `!f`
+    is false, so it silently skipped the basename fallback and tried to
+    read an unopened stream, producing empty bytes fed straight into
+    `extractAnimBlob`/chunk parsing, which threw a real "claims more
+    keyframes than this blob holds"-style error. Caught by a genuine
+    pre-existing test (`tests/test_cli.cpp`'s "a sequence without
+    flags&0x20 ... produces no animation clip" case, which doesn't pass
+    `--anim` at all so `animArg` defaults to `auto` and resolves `animDir`
+    to a real, non-empty directory) going from pass to fail the moment the
+    rewired branch landed — not found by inspection. Fixed by checking
+    `f.is_open()` instead of `!f` at both fallback points. Verified as a
+    real, non-cosmetic bug (not just "the fix looks more correct") by
+    `git stash`-ing the fix, confirming the exact failure, then restoring
+    it and confirming green — same "prove a regression test actually
+    regresses" discipline the multi-root/collision-mesh sessions already
+    established for their own changes.
+    - **4 new `tests/test_cli.cpp` cases** (basename fallback with no AFID
+      at all, basename fallback when the AFID-mapped file is missing,
+      FileDataID-file priority over a basename file when both exist —
+      proven by making the basename file deliberately too short to
+      resolve, so a wrongly-reversed priority would crash instead of
+      silently reading wrong data — and neither resolving), all built on
+      the existing `tinyExternalAnimM2`/`AFID`-chunk fixture already used
+      by two adjacent tests, not a new fixture shape.
+    - **`tests/test_integration.cpp`'s existing AFSB-follow-up case
+      strengthened**, exactly per the plan and per this session's own
+      explicit instruction to stop asserting fragile loose counts: it used
+      to only check `model.animations.size() > 100` (true from inline +
+      global-sequence clips alone, proving nothing about the fix). Added
+      exact-name assertions for `anim_69_0`/`anim_69_1` (the two real,
+      committed `bloodelffemale_hd0069-00/-01.anim` fixtures) — verified as
+      a real regression test the same `git stash` way: **both** names are
+      absent pre-fix (336 total clips, matching the inline-only baseline
+      exactly), both present post-fix (338 — the fix adds exactly the 2
+      real external clips this fixture set has, nothing else).
+    - **Docs**: `DESIGN.md` (AFSB design note gained the resolution-vs-
+      decode distinction; CLI grammar table's `--anim` row), `WIKI_FINDINGS.md`
+      §2's follow-up (corrected the "336 clips, verified three independent
+      ways" claim to note that verified the decode via a separate script,
+      not `--anim`'s own CLI resolution — the actual pre-fix reachable
+      count through the CLI was 336, i.e. zero of the genuinely-external
+      clips), `README.md` (`--anim` usage paragraph, Animation-sequences-row,
+      Sidecar-FileDataID-resolution row). `ANIM_TODO.md` deleted outright
+      once every doc-sync item had a final disposition, its own two live
+      code comments repointed to `WIKI_FINDINGS.md`/`DESIGN.md`.
+  - **`PHYS_TODO.md` (`.phys` physics/collision sidecar support)**: the
+    full implementation plan, built essentially as specified. New
+    `src/phys.hpp`/`phys.cpp` (mirrors `bone.hpp`'s shape, not `skel.hpp`'s
+    — chunk-tag-selected record arrays, not a multi-array header): every
+    documented chunk type (`PHYS`/`PHYT`/`BODY`/`BDY2`/`BDY3`/`BDY4`/
+    `SHAP`/`SHP2`/`BOXS`/`CAPS`/`SPHS`/`PLYT`/`JOIN`/`WELJ`/`WLJ2`/`WLJ3`/
+    `SPHJ`/`SHOJ`/`SHJ2`/`PRSJ`/`PRS2`/`REVJ`/`REV2`/`DSTJ`/`PHYV`) parsed,
+    chunk-tag-preference variant selection (`BDY4`→`BDY3`→`BDY2`→`BODY`,
+    etc.), `SHOJ`'s real stride ambiguity (0x6c vs. 0x74, same tag)
+    disambiguated by which stride the chunk's own size divides evenly —
+    throws if a real file ever divides evenly by both (never seen in 103
+    real files, per the investigation). `PLYT`'s self-describing variable-
+    length header+data region implemented with a full byte-accounting
+    check (expected total size computed field-by-field must exactly equal
+    the chunk's real size), the same cross-check the original investigation
+    used to catch the 0x38-vs-0x50 header-stride bug in the first place.
+    Every `Body.shapeBase`/`shapeCount`, `Shape.index`, `Joint.bodyA`/
+    `bodyB`/`index` reference validated in-range at parse time (real files
+    have zero violations per the investigation, so a real one is corruption
+    or a parser bug, not data to accept).
+    - **Architecture**: followed the plan's own recommendation, confirmed
+      directly by the user mid-session ("we want the same pattern as
+      particles and ribbons, attachment points in glb but data i
+      separate") — `husk export --phys` (three-state, mirroring `--skel`
+      exactly, since `PFID` is a single scalar FileDataID like `SKID`, not
+      an array like `BFID`/`AFID`/`SFID`: unset auto-detects a
+      same-basename `.phys` next to the model, `none` skips, an explicit
+      path overrides) attaches a **minimal** per-body placement anchor
+      (`gltf::Skeleton::PhysicsBody` — id/joint/position/bodyType) as
+      `physics_bodies` skin `extras`; `husk dump-chunks <file.phys>` (new
+      direct-file-input path, sniffed by the reversed `PHYS` tag before the
+      `.bone`/M2-magic checks) dumps the **full** body/shape/joint/`PHYV`
+      record set, each shape/joint resolved to its real type-specific data
+      inline (a body's shapes fully expanded; a joint's `bodyA`/`bodyB`
+      left as plain indices, matching how the source data itself relates
+      them).
+    - **Real test fixture gap found and fixed mid-session**: none of the 7
+      already-committed `.phys` weapon fixtures had a matching `.skin`
+      committed alongside them (only `.m2`+`.phys`), so no real file could
+      exercise the full CLI→gltf-extras→gltf_validator path end to end.
+      Checked the real corpus (`/media/luna/data/wow_export`, read-only)
+      and found every one of those 7 `.m2` files does have a real `.skin`
+      sibling there, just not extracted into `test_data/` yet — copied
+      `mace_1h_warfrontsforsaken_d_0100.skin` in (gitignored, same
+      "personal WoW extraction, never committed" convention every other
+      `test_data/` fixture already follows), giving one real, fully-paired
+      `.m2`+`.skin`+`.phys` fixture. Confirmed by hand: 10 real bodies,
+      `boneIndex` values `{0..9}` of 17 real bones, exactly matching what
+      `PHYS_TODO.md`'s own test plan had predicted from the investigation
+      but never verified against a live export.
+    - **Verification, not just "it compiles"**: ran the real, already-
+      committed 7-file weapon `.phys` set *and* the full 96-file real-corpus
+      exploration sample (`phys_files_for_exploration.txt`,
+      `/media/luna/data/wow_export`, read-only) through `husk dump-chunks`
+      — zero failures across all 103 files, the same sample size and same
+      zero-violation result the original investigation reported for its own
+      independent Python decoder, now reproduced by husk's real C++ parser.
+      Spot-checked the one real `PLYT`-bearing file the investigation named
+      by path (`.../8xp_heartofazeroth_prop_floatychain.phys`): decodes to
+      the exact `vertexCount=8/count_10=6/nodeCount=24` the investigation's
+      own worked example reported. The real paired fixture's `.glb` export
+      passes the actual Khronos `gltf_validator` with 0 errors.
+    - **Tests**: `tests/test_phys.cpp` (new, 13 cases — happy-path
+      round-trip, `BODY`-vs-`BDY4` selection-order preference, `SHOJ`
+      stride disambiguation both directions plus the genuinely-ambiguous
+      throw path, out-of-range shape/joint/body-index throws, malformed
+      stride throws, `PLYT` round-trip and truncation), `tests/test_gltf.cpp`
+      (4 new: `PhysicsBody` extras round-trip, absent-means-no-key,
+      out-of-range-joint throws, coexists with `correctionSets`/
+      `ribbonAnchors`/`particleAnchors`), `tests/test_cli.cpp` (4 new:
+      `--phys` default/`none`/explicit-path/out-of-range-throws, synthetic
+      fixtures matching `--bones-dir`'s own established fixture-building
+      style), `tests/test_dump.cpp` (1 new: full JSON shape round-trip
+      through a real capsule shape + weld joint, checking specific resolved
+      field values, not just presence), `tests/test_integration.cpp` (1
+      new: the real paired fixture, exact 10-body count, exact bone-index
+      set `{0..9}`, joint-range bounds), `tests/test_conformance.cpp` (1
+      new, `#ifdef`-gated both ways like every other conformance case: the
+      real fixture's export passes `gltf_validator` with 0 errors). Full
+      suite: 394 → 422 cases, both `./build/husk-tests` (422/422 + 1
+      permanently-inapplicable skip) and `ctest` (423/423) green, verified
+      via a full clean rebuild (`rm -rf build`), not an incremental one.
+    - **Completions**: `--phys` added to `src/main.cpp`'s hand-maintained
+      `bashValueCompletion`/`zshValueAction`/`zshFlagLabel` tables (same
+      `--skel`-shaped file-or-none treatment — the existing `_husk_skel_value`
+      zsh helper was shared and renamed to `_husk_file_or_none_value` since
+      it's no longer skel-specific), `completions/husk.bash`/`.zsh`
+      regenerated via `--print-completion`. Verified by `bash -n`/`zsh -n`
+      syntax-checking both (this sandbox's nix bash build has no
+      `compgen`/`complete` builtins compiled in, so the usual "drive
+      `_husk_completions` with scripted `COMP_WORDS`" functional check
+      wasn't possible this session) plus a direct structural diff against
+      `--skel`'s own already-verified-working block, byte-for-byte
+      identical shape.
+    - **Docs**: `DESIGN.md` (new Key design decisions bullet mirroring the
+      ribbon/particle one; Boundaries list; CLI grammar table; Open work
+      section's `PHYS_TODO.md` pointer removed, replaced with the same
+      "used to live here, now implemented, standalone file removed"
+      framing `MULTIROOT_SKELETON_TODO.md`'s own removal used), `WIKI_FINDINGS.md`
+      §9 (pointer to `PHYS_TODO.md` replaced with the real Code/Tests
+      columns in "Where these live in husk"), `README.md` (Collision/
+      physics format-matrix row bumped 📖, Sidecar-FileDataID-resolution
+      row, new "`.phys` physics/collision data" Usage paragraph, flag
+      table row, `dump-chunks` section heading/paragraph), `M2_COMPLETENESS.md`
+      (`.phys` sidecar content row: `none/none/n/a-unscoped` →
+      `full/extras+diagnostic/extras-capped-permanent`), `src/cmd_info.cpp`
+      (the `phys_file_id` note's stale "not yet resolved by husk" text
+      corrected to describe the real `--phys`/`dump-chunks` paths now —
+      deliberately did **not** add a new sidecar-content-reading capability
+      to `husk info` itself, since `info` has never opened *any* sidecar's
+      content, `.skel` included, only ever printed the FileDataID scalar —
+      inventing that only for `.phys` would have been unscoped, inconsistent
+      new behavior, not a doc-sync fix). `PHYS_TODO.md` deleted outright
+      once every doc-sync item had a final disposition, its ~9 live code/test
+      comment cross-references repointed to `DESIGN.md`/`WIKI_FINDINGS.md`
+      the same way `MULTIROOT_SKELETON_TODO.md`'s deletion repointed its own.
+  - **Environment note, reconfirmed**: `direnv exec . uv run --no-project
+    python3 <script>` for every ad hoc real-file verification pass this
+    session (the 96-file corpus sweep, the `PLYT` spot-check, the JSON
+    field inspection) — scripts run inline via `-c`, not written to the
+    scratchpad, since none needed more than a few lines and this session
+    had no standing instruction against it (unlike an earlier session's
+    explicit "write scripts to files, inline `-c` prompts on every
+    iteration" note, which applies to *iterative* byte-level derivation
+    work, not one-shot JSON inspection).
+- **Previous state**: Closed out `MULTIROOT_SKELETON_TODO.md` the same way
   `CORPUS_TODO.md` was closed out below — requested directly: "explore
   MULTIROOT_SKELETON_TODO.md, and make sure appropriate documentation is
   in DESIGN and README, for items that are done/resolved... document
@@ -1198,13 +1397,10 @@ real-file-driven spec correction found along the way.
   `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel` got the
   three/four-state (`auto`/explicit/`none`) treatment `DESIGN.md`'s CLI
   grammar section still documents in full.
-- **Next step**: `PHYS_TODO.md`'s Implementation plan — `.phys` byte
-  layout is fully verified (`WIKI_FINDINGS.md` §9), nothing left to
-  investigate before writing `src/phys.hpp`/`phys.cpp`, except the one
-  real open call this session deliberately left for a plan-mode pass
-  rather than deciding unilaterally: the exact `extras`-vs-`dump-chunks`
-  split and CLI flag shape (recommendation: the ribbon/particle hybrid,
-  see `PHYS_TODO.md`'s Architecture recommendation section). The M2→glTF
+- **Next step**: Nothing currently in flight. Both `ANIM_TODO.md`'s
+  `--anim` same-basename fallback and `PHYS_TODO.md`'s full `.phys`
+  physics/collision support are implemented, tested, and documented — see
+  Last state. The M2→glTF
   multi-root-bone-forest representation gap is real, tested code now, not
   a survey — see `DESIGN.md`'s Key design decisions (the
   synthesized-non-joint-parent-node entry). Genuinely open threads, all carried over from earlier
@@ -1258,3 +1454,22 @@ real-file-driven spec correction found along the way.
   you override any `HUSK_TEST_*` env var by hand for `ctest` specifically
   (not `./build/husk-tests` directly), it still needs to be absolute, or
   that one test fails on a bad relative path, not a real regression.
+  If `buildAnimations`'s external-sequence branch (`cmd_export.cpp`) is
+  touched again: the FileDataID-vs-basename fallback logic must check
+  `f.is_open()`, never `!f` — a default-constructed `std::ifstream` that
+  never had `.open()` called on it (the `animFileIds == nullopt` case)
+  reports `goodbit`, not `failbit`, so `!f` silently evaluates false and
+  the code falls through to reading an unopened stream instead of trying
+  the next fallback (a real bug this session's own implementation had
+  before an existing test caught it — see Last state). `.phys` chunk tags
+  are byte-reversed on disk (WMO/ADT convention) — the opposite of every
+  other sidecar husk reads (`.bone`/`.skel`/M2 itself) — `src/phys.cpp`'s
+  chunk-tag constants are already the reversed literals; don't pass a
+  forward-spelled tag to `findChunk` when touching that file. The
+  `mace_1h_warfrontsforsaken_d_0100.skin` fixture (`test_data/item/
+  objectcomponents/weapon/`) was added this session specifically to pair
+  with the already-committed `mace_1h_warfrontsforsaken_d_01.m2`/`.phys` —
+  it's the only committed `.phys` weapon fixture with a matching `.skin`,
+  used by `tests/test_integration.cpp`/`test_conformance.cpp`'s real
+  `--phys` checks (`HUSK_TEST_WEAPON_PHYS`/`_SKIN`, `tests/
+  test_data_paths.hpp`).

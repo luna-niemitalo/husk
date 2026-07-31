@@ -937,6 +937,142 @@ TEST_CASE("husk export: an external sequence with no matching --anim <dir> file 
     fs::remove_all(animDir);
 }
 
+// --anim's resolution used to only ever look for '<FileDataID>.anim', but a
+// real wow.export-style extraction names external .anim files
+// '<model-basename><animId:04d>-<subAnimId:02d>.anim' instead (see
+// findAnimFileByBasename, WIKI_FINDINGS.md §2, DESIGN.md's AFSB design note)
+// -- these four cases cover its three-way priority (FileDataID file,
+// basename file, neither) against the same tinyExternalAnimM2 fixture the
+// two tests above already use.
+
+TEST_CASE("husk export: --anim <dir> resolves via the basename convention when the model has no "
+          "AFID chunk at all") {
+    // Unwrapped (no MD21/AFID chunk) -- tinyExternalAnimM2's seqId=200,
+    // subAnimId=0 has no FileDataID mapping to try in the first place, so
+    // this exercises the animFileIds==nullopt path straight into the
+    // basename fallback.
+    auto m2 = tinyExternalAnimM2();
+
+    auto m2Path = tempPath("anim-basename-no-afid.m2");
+    writeFile(m2Path, m2);
+    auto skinPath = tempPath("anim-basename-no-afid.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-basename-no-afid-dir";
+    fs::create_directories(animDir);
+    writeFile(animDir / (m2Path.stem().string() + "0200-00.anim"), tinyAnimFile());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("anim-basename-no-afid.glb").string() + " --anim " +
+                           animDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove_all(animDir);
+}
+
+TEST_CASE("husk export: --anim <dir> falls back to the basename convention when an AFID entry "
+          "exists but its FileDataID-named file is missing") {
+    auto md20 = tinyExternalAnimM2();
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    putTag(file, "AFID");
+    putU32(file, 8);
+    putU16(file, 200);
+    putU16(file, 0);
+    putU32(file, 777);  // maps to 777.anim -- deliberately never written below
+
+    auto m2Path = tempPath("anim-basename-afid-file-missing.m2");
+    writeFile(m2Path, file);
+    auto skinPath = tempPath("anim-basename-afid-file-missing.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-basename-afid-file-missing-dir";
+    fs::create_directories(animDir);
+    writeFile(animDir / (m2Path.stem().string() + "0200-00.anim"), tinyAnimFile());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("anim-basename-afid-file-missing.glb").string() + " --anim " +
+                           animDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove_all(animDir);
+}
+
+TEST_CASE("husk export: --anim <dir> prefers the FileDataID-named file over the basename-named "
+          "one when both exist") {
+    auto md20 = tinyExternalAnimM2();
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    putTag(file, "AFID");
+    putU32(file, 8);
+    putU16(file, 200);
+    putU16(file, 0);
+    putU32(file, 777);
+
+    auto m2Path = tempPath("anim-basename-priority.m2");
+    writeFile(m2Path, file);
+    auto skinPath = tempPath("anim-basename-priority.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-basename-priority-dir";
+    fs::create_directories(animDir);
+    writeFile(animDir / "777.anim", tinyAnimFile());  // real, resolvable data
+    // Deliberately too small to hold the 1 timestamp (4 bytes) + 1 C3Vector
+    // (12 bytes) tinyExternalAnimM2's track descriptors claim -- if the
+    // basename file were read instead of 777.anim, resolving it would throw
+    // a bounds error (a non-zero exit), not silently produce a wrong value.
+    writeFile(animDir / (m2Path.stem().string() + "0200-00.anim"), {0, 0});
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("anim-basename-priority.glb").string() + " --anim " +
+                           animDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 animation(s)") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove_all(animDir);
+}
+
+TEST_CASE("husk export: --anim <dir> produces no animation clip, not an error, when neither the "
+          "FileDataID-named nor the basename-named file exists") {
+    auto md20 = tinyExternalAnimM2();
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    putTag(file, "AFID");
+    putU32(file, 8);
+    putU16(file, 200);
+    putU16(file, 0);
+    putU32(file, 777);
+
+    auto m2Path = tempPath("anim-basename-neither.m2");
+    writeFile(m2Path, file);
+    auto skinPath = tempPath("anim-basename-neither.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto animDir = fs::temp_directory_path() / "husk-cli-test-anim-basename-neither-dir";
+    fs::create_directories(animDir);  // neither 777.anim nor the basename file exists
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("anim-basename-neither.glb").string() + " --anim " +
+                           animDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("animation(s)") == std::string::npos);
+    CHECK(result.output.find("bind pose only, no animation") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove_all(animDir);
+}
+
 TEST_CASE("husk export: a sequence without flags&0x20 (external .anim data) produces no "
           "animation clip, even with real inline bone track data") {
     auto m2 = tinyAnimatedM2();
@@ -2294,6 +2430,119 @@ TEST_CASE("husk export: --bones-dir combined with a multi-root .skel skeleton at
     fs::remove(skinPath);
     fs::remove(skelPath);
     fs::remove_all(dir);
+}
+
+// A minimal, real-shaped .phys file: PHYS (version) + a single BODY record
+// (no shapes, so no SHAP/SHP2 chunk is needed) -- .phys's own chunk tags are
+// byte-reversed on disk (WMO/ADT convention, opposite of M2's own inline
+// chunks -- see src/phys.hpp's doc comment), so this appends reversed
+// literals directly rather than reusing this file's own appendChunkTo
+// (which assumes M2's non-reversed convention).
+void appendChunkReversed(std::vector<uint8_t>& file, const char tag[4],
+                          const std::vector<uint8_t>& payload) {
+    file.push_back(tag[3]);
+    file.push_back(tag[2]);
+    file.push_back(tag[1]);
+    file.push_back(tag[0]);
+    putU32(file, static_cast<uint32_t>(payload.size()));
+    file.insert(file.end(), payload.begin(), payload.end());
+}
+
+std::vector<uint8_t> buildPhysFile(uint16_t boneIndex, float x, float y, float z) {
+    std::vector<uint8_t> file;
+    std::vector<uint8_t> phys;
+    putU16(phys, 1);  // version
+    appendChunkReversed(file, "PHYS", phys);
+
+    std::vector<uint8_t> body;
+    putU16(body, 0);  // type
+    putU16(body, 0);  // padding
+    auto pos = vec3Bytes(x, y, z);
+    body.insert(body.end(), pos.begin(), pos.end());
+    putU16(body, boneIndex);
+    putU16(body, 0);  // padding
+    putU32(body, 0);  // shapes_base
+    putU32(body, 0);  // shapes_count -- 0, no SHAP/SHP2 chunk needed
+    appendChunkReversed(file, "BODY", body);
+    return file;
+}
+
+TEST_CASE("husk export: --phys resolves a same-basename '.phys' file and attaches it as inert "
+          "physics_bodies extras, end to end") {
+    auto dir = defaultsDir("physdefault");
+    writeFile(dir / "physdefault.m2", tinyValidM2());
+    writeFile(dir / "physdefault00.skin", tinyMatchingSkin());
+    writeFile(dir / "physdefault.skel", boneCorrectionSkel());
+    writeFile(dir / "physdefault.phys", buildPhysFile(0, 0.01f, 0.02f, 0.03f));
+
+    auto result = runHusk("export " + (dir / "physdefault.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("attached 1 physics body") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --phys none never attaches physics bodies, even when a matching "
+          "same-basename '.phys' sits in the default (model's own) directory") {
+    auto dir = defaultsDir("physnone");
+    writeFile(dir / "physnone.m2", tinyValidM2());
+    writeFile(dir / "physnone00.skin", tinyMatchingSkin());
+    writeFile(dir / "physnone.skel", boneCorrectionSkel());
+    writeFile(dir / "physnone.phys", buildPhysFile(0, 0.01f, 0.02f, 0.03f));
+
+    auto result = runHusk("export " + (dir / "physnone.m2").string() + " --phys none");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("physics body") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --phys <path> resolves an explicitly-named .phys file, not requiring "
+          "the same-basename convention") {
+    auto m2Path = tempPath("phys-explicit.m2");
+    writeFile(m2Path, tinyValidM2());
+    auto skinPath = tempPath("phys-explicit.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto skelPath = tempPath("phys-explicit.skel");
+    writeFile(skelPath, boneCorrectionSkel());
+    auto physPath = tempPath("physdata-under-a-different-name.phys");
+    writeFile(physPath, buildPhysFile(0, 1, 2, 3));
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("phys-explicit.glb").string() + " --skel " + skelPath.string() +
+                           " --phys " + physPath.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("attached 1 physics body") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
+    fs::remove(physPath);
+}
+
+TEST_CASE("husk export: a .phys body referencing a bone index out of range for the model's "
+          "skeleton fails the export with a clear message, naming the offending file/index") {
+    auto m2Path = tempPath("phys-oor.m2");
+    writeFile(m2Path, tinyValidM2());
+    auto skinPath = tempPath("phys-oor.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+    auto skelPath = tempPath("phys-oor.skel");
+    writeFile(skelPath, boneCorrectionSkel());  // 1 bone (index 0) only
+    auto physPath = tempPath("phys-oor.phys");
+    writeFile(physPath, buildPhysFile(5, 0, 0, 0));  // bone 5 doesn't exist
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("phys-oor.glb").string() + " --skel " + skelPath.string() +
+                           " --phys " + physPath.string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("phys-oor.phys") != std::string::npos);
+    CHECK(result.output.find("body 0") != std::string::npos);
+    CHECK(result.output.find("bone 5") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
+    fs::remove(physPath);
 }
 
 TEST_CASE("husk export: --textures defaults to the model's own directory -- a FileDataID-named "

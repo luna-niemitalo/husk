@@ -229,6 +229,23 @@ here — see git history's scratch analysis if ever needed):
    independent glTF importer, run headlessly, reports **336 actions** —
    matching exactly, from a completely separate glTF implementation.
 
+**Correction to point 6, above**: "husk itself reports 336 real animation
+clips" verified the `AFSB`/`AFM2` *decode* logic — that count came from a
+separate script reading all 104 real `.anim` files directly, not from
+`husk export --anim`'s own file-resolution actually finding them. That
+resolution had its own, separate gap: `--anim` only ever looked for
+`<FileDataID>.anim`, but real `wow.export`-style extractions (this fixture
+set included) name external `.anim` files
+`<model-basename><animId>-<subId>.anim` instead — of the 336 real clips,
+only the 335 inline + 2 global-sequence-driven ones were ever reachable
+through husk's actual CLI before this was fixed (`findAnimFileByBasename`,
+`cmd_export.cpp`); none of the genuinely-external clips were, including the
+2 present in this repo's own pruned fixture set
+(`bloodelffemale_hd0069-00.anim`/`-01.anim`). `tests/test_integration.cpp`'s
+`AFSB`-follow-up case now asserts those two clips by exact name
+(`anim_69_0`/`anim_69_1`) to prove the CLI path itself resolves them, not
+just that a from-scratch decode of the raw bytes works.
+
 Prior art: no published byte layout for `AFSB` was found anywhere reachable
 (wowdev.wiki's own summary confirms only the *semantic* split — `AFSA` for
 attachment animation, `AFSB` for bone animation — not a byte structure; the
@@ -707,8 +724,12 @@ in `phys_files_for_exploration.txt`). Unlike every other sidecar husk has
 investigated so far, `.phys` is not undocumented —
 `documentation/wowdev-wiki/md/PHYS.md` (wiki_revision 30458) already gives
 byte offsets for nearly every field, so this entry verifies/extends an
-existing page rather than reverse-engineering one from nothing. Full
-investigation notes and per-finding evidence: `PHYS_TODO.md`.
+existing page rather than reverse-engineering one from nothing. Now fully
+implemented (`src/phys.hpp`/`phys.cpp`, `husk export --phys`, `husk
+dump-chunks <file.phys>` — see "Where these live in husk" below and
+`DESIGN.md`'s Key design decisions for the anchor/dump-chunks split); the
+verified-vs-unverified-per-chunk-type coverage table this investigation
+produced now lives in `src/phys.hpp`'s own doc comment.
 
 ### Current text (PHYS#PLYT)
 
@@ -830,4 +851,4 @@ attempt.
 | §6 `M2Particle` offsets + `FBlock` `uint16_t` timestamps | `src/m2.hpp`/`m2.cpp` (`ParticleEmitter`, `parseParticles`, `resolveFloatTrackSequence`/`resolveRawIntTrackSequence`/`resolveFBlockVec3`/`Vec2`/`Fixed16`/`Uint16`), `src/cmd_dump.cpp` (full-record JSON), `src/cmd_export.cpp`/`gltf.hpp`/`gltf.cpp` (`EmitterAnchor` extras) | `tests/test_m2.cpp`, `tests/test_dump.cpp`, `tests/test_gltf.cpp`, `tests/test_integration.cpp` (real weapon corpus) |
 | §7 multi-texture-layer arithmetic confirmed; `textureCoordCombos` value range | `src/cmd_export.cpp` (`buildMaterialsAndPrimitives`'s additional-layer loop, unchanged) | `tests/test_integration.cpp` (`checkMultiTextureLayerArithmetic`, real pennant/ironhorde fixtures) |
 | §8 `WFV3`'s real 64-byte short variant | `src/cmd_dump.cpp` (`dumpWfv3`) | `tests/test_dump.cpp` |
-| §9 `.phys` format verified (`PLYT` stride fix + full sweep) | not yet implemented — see `PHYS_TODO.md` | — |
+| §9 `.phys` format verified (`PLYT` stride fix + full sweep) | `src/phys.hpp`/`phys.cpp` (full parser), `src/gltf.hpp`/`gltf.cpp` (`PhysicsBody` extras), `src/cmd_export.cpp` (`--phys`), `src/cmd_dump.cpp` (full body/shape/joint/`PHYV` JSON, `.phys` file accepted directly) | `tests/test_phys.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_dump.cpp`, `tests/test_integration.cpp`/`test_conformance.cpp` (real weapon fixture) |

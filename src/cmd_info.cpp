@@ -194,7 +194,9 @@ int info(int argc, char** args) {
     }
     if (h.physFileId) {
         std::cout << "  phys_file_id: " << *h.physFileId
-                  << " (.phys sidecar -- physics/collision data, not yet resolved by husk)\n";
+                  << " (.phys sidecar -- physics/collision data; a minimal per-body placement "
+                     "anchor is attached via `husk export --phys`, full body/shape/joint records "
+                     "via `husk dump-chunks <file.phys>`)\n";
     }
 
     if (!h.chunkTags.empty()) {
