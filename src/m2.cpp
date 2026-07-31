@@ -898,7 +898,20 @@ std::vector<Sequence> parseSequences(const std::vector<uint8_t>& blob, const Arr
         s.id = readU16(data, blobSize, off + 0x00);
         s.variationIndex = readU16(data, blobSize, off + 0x02);
         s.duration = readU32(data, blobSize, off + 0x04);
+        s.movespeed = readF32(data, blobSize, off + 0x08);
         s.flags = readU32(data, blobSize, off + 0x0C);
+        s.frequency = static_cast<int16_t>(readU16(data, blobSize, off + 0x10));
+        s.replay.minimum = readU32(data, blobSize, off + 0x14);
+        s.replay.maximum = readU32(data, blobSize, off + 0x18);
+        s.blendTimeIn = readU16(data, blobSize, off + 0x1C);
+        s.blendTimeOut = readU16(data, blobSize, off + 0x1E);
+        s.bounds.min = {readF32(data, blobSize, off + 0x20), readF32(data, blobSize, off + 0x24),
+                         readF32(data, blobSize, off + 0x28)};
+        s.bounds.max = {readF32(data, blobSize, off + 0x2C), readF32(data, blobSize, off + 0x30),
+                         readF32(data, blobSize, off + 0x34)};
+        s.boundsRadius = readF32(data, blobSize, off + 0x38);
+        s.variationNext = static_cast<int16_t>(readU16(data, blobSize, off + 0x3C));
+        s.aliasNext = readU16(data, blobSize, off + 0x3E);
         sequences.push_back(s);
     }
 

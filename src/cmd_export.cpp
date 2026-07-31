@@ -251,11 +251,70 @@ gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones) {
 // table). 0x20, historically named "looped animation" by a wiki
 // contributor without a cited source, actually means "the animation data
 // is in the .m2 file" -- unset means external. 0x40 ("has next / is
-// alias") layered on top of an unset 0x20 is a case the wiki itself
-// admits it doesn't understand ("stored... somewhere. I have no clue.") --
-// sequences in that state are skipped entirely, not guessed at.
+// alias") used to be treated as unresolvable (the wiki's own "stored...
+// somewhere. I have no clue." bullet) -- WIKI_FINDINGS.md §12 resolved it:
+// m2::Sequence::aliasNext is a plain local index into this same file's own
+// `sequences` array, and following the wiki's own documented chain-walk
+// (repeatedly jumping to sequences[aliasNext] until a non-alias record is
+// reached) always terminates cleanly against real data (157/157 real
+// aliases checked, zero cycles). See resolveAliasChain below, which
+// buildAnimations now uses to reuse the terminal sequence's own keyframe
+// data for an alias sequence, registered under the alias's own id/index.
 constexpr uint32_t kSequenceStoredInlineFlag = 0x20;
 constexpr uint32_t kSequenceAliasFlag = 0x40;
+
+// Resolves an alias sequence (M2Sequence::flags & kSequenceAliasFlag) to
+// its terminal non-alias sequence's own index into `sequences`, by
+// repeatedly following aliasNext (WIKI_FINDINGS.md §12) until a sequence
+// without the alias flag is reached. `startIndex` need not itself be an
+// alias (returns `startIndex` unchanged in that case). Real data never
+// cycles, but this is foreign file data -- bounded to `sequences.size()`
+// hops (an acyclic chain can visit at most that many distinct sequences
+// before it would have to repeat one), throwing rather than looping
+// forever if a real cycle, or an out-of-range aliasNext, ever shows up.
+size_t resolveAliasChain(const std::vector<m2::Sequence>& sequences, size_t startIndex) {
+    size_t cur = startIndex;
+    for (size_t hop = 0; hop <= sequences.size(); ++hop) {
+        if ((sequences[cur].flags & kSequenceAliasFlag) == 0) {
+            return cur;
+        }
+        uint16_t next = sequences[cur].aliasNext;
+        if (next >= sequences.size()) {
+            throw std::runtime_error("sequence " + std::to_string(cur) + "'s aliasNext (" +
+                                      std::to_string(next) + ") is out of range for " +
+                                      std::to_string(sequences.size()) + " sequences");
+        }
+        cur = next;
+    }
+    throw std::runtime_error("sequence " + std::to_string(startIndex) +
+                              "'s aliasNext chain didn't reach a non-alias sequence within " +
+                              std::to_string(sequences.size()) + " hops (cycle?)");
+}
+
+// Lifts an m2::Sequence's own per-sequence metadata (movespeed/frequency/
+// replay/blendTime/bounds/variationNext/aliasNext -- M2_GAPS_TODO.md's
+// former Item 1) into gltf::Animation::SequenceMetadata, see that struct's
+// doc comment for why these are exposed as inert clip `extras` rather than
+// applied to anything. `bounds` is remapped Z-up -> Y-up the same way
+// every other spatial value in this pipeline is (toGltf) -- it's a real
+// bounding volume a downstream consumer might actually want to use
+// spatially, unlike e.g. TextureTransform's raw model-space fields.
+gltf::Animation::SequenceMetadata buildSequenceMetadata(const m2::Sequence& seq) {
+    gltf::Animation::SequenceMetadata sm;
+    sm.movespeed = seq.movespeed;
+    sm.frequency = seq.frequency;
+    sm.replayMin = seq.replay.minimum;
+    sm.replayMax = seq.replay.maximum;
+    sm.blendTimeIn = seq.blendTimeIn;
+    sm.blendTimeOut = seq.blendTimeOut;
+    sm.boundsMin = toGltf(seq.bounds.min);
+    sm.boundsMax = toGltf(seq.bounds.max);
+    sm.boundsRadius = seq.boundsRadius;
+    sm.variationNext = seq.variationNext;
+    sm.aliasNext = seq.aliasNext;
+    sm.isAlias = (seq.flags & kSequenceAliasFlag) != 0;
+    return sm;
+}
 
 // Everything buildAnimations needs to resolve a sequence's keyframes from
 // an external .anim file, when its data isn't inline -- bundled for the
@@ -474,6 +533,24 @@ std::vector<gltf::Animation> buildGlobalSequenceAnimations(const std::vector<uin
 // a chunked .anim with neither an `AFM2` nor an `AFSB` chunk (a future
 // .anim variant this parser doesn't recognize yet), is treated as "husk
 // doesn't have this one," consistent with --textures/--skin-dir.
+//
+// An alias sequence (flags & kSequenceAliasFlag) is resolved via
+// resolveAliasChain to its terminal non-alias sequence -- but only when
+// this sequence doesn't *also* carry kSequenceStoredInlineFlag: real data
+// (bloodelffemale_hd.skel) shows 31 of its 38 real alias sequences also
+// have 0x20 set, meaning they already carry their own real inline M2Track
+// data and don't need (or want) another sequence's data substituted --
+// 0x20 already winning that priority is exactly what the pre-alias-
+// resolution code did (by checking it first), and real per-clip content
+// for those 31 would silently change if alias resolution pre-empted it
+// instead. Only a sequence that is *purely* an alias (0x40 set, 0x20 not)
+// gets its keyframe source redirected to the resolved terminal sequence
+// (`sourceSeq`/`sourceIndex`) -- every inline-vs-external decision below,
+// and the M2Track outer-array index passed to resolveVec3TrackSequence/
+// resolveQuatTrackSequence, use that terminal. Either way, the resulting
+// clip's *name* and `sequenceMetadata` extras always come from this
+// sequence's own M2Sequence record (`originalSeq`), so it's registered
+// under its own id/index even when reusing borrowed data.
 std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                                               const std::vector<m2::Bone>& bones,
                                               const gltf::Skeleton& skeleton,
@@ -482,17 +559,22 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
     std::vector<gltf::Animation> animations;
 
     for (size_t si = 0; si < sequences.size(); ++si) {
-        const auto& seq = sequences[si];
+        const auto& originalSeq = sequences[si];
+        size_t sourceIndex = si;
+        bool isPureAlias = (originalSeq.flags & kSequenceStoredInlineFlag) == 0 &&
+                            (originalSeq.flags & kSequenceAliasFlag) != 0;
+        if (isPureAlias) {
+            sourceIndex = resolveAliasChain(sequences, si);
+        }
+        const auto& sourceSeq = sequences[sourceIndex];
 
         // Keeps a loaded external .anim blob alive for this sequence's
         // iteration -- externalBlob, when set, points into this.
         std::vector<uint8_t> loadedAnimBlob;
         const std::vector<uint8_t>* externalBlob = nullptr;
 
-        if ((seq.flags & kSequenceStoredInlineFlag) != 0) {
+        if ((sourceSeq.flags & kSequenceStoredInlineFlag) != 0) {
             // Inline -- externalBlob stays null, resolves against `blob`.
-        } else if ((seq.flags & kSequenceAliasFlag) != 0) {
-            continue;  // wowdev.wiki: "I have no clue" where this lives.
         } else {
             if (animInputs.animDir.empty()) {
                 continue;
@@ -506,7 +588,8 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
             // outright.
             std::filesystem::path animPath;
             if (animInputs.animFileIds) {
-                uint32_t fileId = findAnimFileId(*animInputs.animFileIds, seq.id, seq.variationIndex);
+                uint32_t fileId =
+                    findAnimFileId(*animInputs.animFileIds, sourceSeq.id, sourceSeq.variationIndex);
                 if (fileId != 0) {
                     animPath =
                         std::filesystem::path(animInputs.animDir) / (std::to_string(fileId) + ".anim");
@@ -523,8 +606,8 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                 f.open(animPath, std::ios::binary);
             }
             if (!f.is_open()) {
-                animPath = findAnimFileByBasename(animInputs.modelPath, animInputs.animDir, seq.id,
-                                                   seq.variationIndex);
+                animPath = findAnimFileByBasename(animInputs.modelPath, animInputs.animDir, sourceSeq.id,
+                                                   sourceSeq.variationIndex);
                 f.open(animPath, std::ios::binary);
             }
             if (!f.is_open()) {
@@ -563,16 +646,17 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
         }
 
         gltf::Animation anim;
-        anim.name = "anim_" + std::to_string(seq.id) + "_" + std::to_string(seq.variationIndex);
+        anim.name = "anim_" + std::to_string(originalSeq.id) + "_" + std::to_string(originalSeq.variationIndex);
+        anim.sequenceMetadata = buildSequenceMetadata(originalSeq);
 
         for (size_t bi = 0; bi < bones.size(); ++bi) {
             const auto& bone = bones[bi];
-            auto translation = m2::resolveVec3TrackSequence(blob, bone.translationTrackOffset,
-                                                              static_cast<uint32_t>(si), externalBlob);
-            auto rotation = m2::resolveQuatTrackSequence(blob, bone.rotationTrackOffset,
-                                                          static_cast<uint32_t>(si), externalBlob);
-            auto scale = m2::resolveVec3TrackSequence(blob, bone.scaleTrackOffset,
-                                                       static_cast<uint32_t>(si), externalBlob);
+            auto translation = m2::resolveVec3TrackSequence(
+                blob, bone.translationTrackOffset, static_cast<uint32_t>(sourceIndex), externalBlob);
+            auto rotation = m2::resolveQuatTrackSequence(
+                blob, bone.rotationTrackOffset, static_cast<uint32_t>(sourceIndex), externalBlob);
+            auto scale = m2::resolveVec3TrackSequence(
+                blob, bone.scaleTrackOffset, static_cast<uint32_t>(sourceIndex), externalBlob);
             if (auto ja = buildJointAnimation(blob, bone, bi, skeleton, translation, rotation, scale)) {
                 anim.joints.push_back(std::move(*ja));
             }

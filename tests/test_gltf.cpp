@@ -1418,6 +1418,82 @@ TEST_CASE("writeGlb: an animation joint with mismatched time/value counts throws
     CHECK_THROWS_AS(husk::gltf::writeGlb(mesh, {}, &skel, {anim}), husk::gltf::Error);
 }
 
+TEST_CASE("writeGlb: an animation's sequenceMetadata round-trips as sequence_metadata on the clip's "
+          "own extras (M2_GAPS_TODO.md's former Item 1)") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    husk::gltf::JointAnimation ja;
+    ja.joint = 0;
+    ja.translationTimes = {0.0f};
+    ja.translationValues = {{0, 0, 0}};
+
+    husk::gltf::Animation anim;
+    anim.name = "anim_100_0";
+    anim.joints = {ja};
+    husk::gltf::Animation::SequenceMetadata sm;
+    sm.movespeed = 4.5f;
+    sm.frequency = -3;
+    sm.replayMin = 10;
+    sm.replayMax = 20;
+    sm.blendTimeIn = 30;
+    sm.blendTimeOut = 40;
+    sm.boundsMin = {1, 2, 3};
+    sm.boundsMax = {4, 5, 6};
+    sm.boundsRadius = 7.5f;
+    sm.variationNext = 5;
+    sm.aliasNext = 9;
+    sm.isAlias = true;
+    anim.sequenceMetadata = sm;
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel, {anim});
+    auto model = loadBack(glb);
+
+    REQUIRE(model.animations.size() == 1);
+    const auto& extras = model.animations[0].extras;
+    REQUIRE(extras.IsObject());
+    const auto& meta = extras.Get("sequence_metadata");
+    CHECK(meta.Get("movespeed").GetNumberAsDouble() == doctest::Approx(4.5));
+    CHECK(meta.Get("frequency").GetNumberAsInt() == -3);
+    CHECK(meta.Get("replay_min").GetNumberAsInt() == 10);
+    CHECK(meta.Get("replay_max").GetNumberAsInt() == 20);
+    CHECK(meta.Get("blend_time_in").GetNumberAsInt() == 30);
+    CHECK(meta.Get("blend_time_out").GetNumberAsInt() == 40);
+    const auto& boundsMin = meta.Get("bounds_min");
+    REQUIRE(boundsMin.IsArray());
+    CHECK(boundsMin.Get(0).GetNumberAsDouble() == doctest::Approx(1));
+    CHECK(boundsMin.Get(1).GetNumberAsDouble() == doctest::Approx(2));
+    CHECK(boundsMin.Get(2).GetNumberAsDouble() == doctest::Approx(3));
+    const auto& boundsMax = meta.Get("bounds_max");
+    REQUIRE(boundsMax.IsArray());
+    CHECK(boundsMax.Get(0).GetNumberAsDouble() == doctest::Approx(4));
+    CHECK(boundsMax.Get(1).GetNumberAsDouble() == doctest::Approx(5));
+    CHECK(boundsMax.Get(2).GetNumberAsDouble() == doctest::Approx(6));
+    CHECK(meta.Get("bounds_radius").GetNumberAsDouble() == doctest::Approx(7.5));
+    CHECK(meta.Get("variation_next").GetNumberAsInt() == 5);
+    CHECK(meta.Get("alias_next").GetNumberAsInt() == 9);
+    CHECK(meta.Get("is_alias").Get<bool>() == true);
+}
+
+TEST_CASE("writeGlb: an animation with no sequenceMetadata gets no extras on the clip") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    husk::gltf::JointAnimation ja;
+    ja.joint = 0;
+    ja.translationTimes = {0.0f};
+    ja.translationValues = {{0, 0, 0}};
+    husk::gltf::Animation anim;
+    anim.joints = {ja};
+    // sequenceMetadata left nullopt (default) -- e.g. a global_seq_<n> clip.
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel, {anim});
+    auto model = loadBack(glb);
+
+    REQUIRE(model.animations.size() == 1);
+    CHECK_FALSE(model.animations[0].extras.IsObject());
+}
+
 TEST_CASE("writeGlb: baseColorTexCoord=1 without mesh.texCoords2 falls back to TEXCOORD_0, not "
           "a dangling reference") {
     auto mesh = buildTriangleMesh();  // no texCoords2

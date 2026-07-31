@@ -389,6 +389,40 @@ struct JointAnimation {
 struct Animation {
     std::string name;
     std::vector<JointAnimation> joints;
+
+    // M2Sequence's own per-sequence metadata (movement-speed sync, blend
+    // timing, replay hint, animated bounding volume, variation/alias
+    // linkage) -- core glTF has no clip-level field for any of these
+    // (playback speed scaling, blend time, replay count, ...), so they're
+    // exposed as inert `extras` on the animation itself, same "tag it,
+    // don't guess at semantics" treatment Skeleton::CorrectionSet/
+    // EmitterAnchor already get. `aliasNext`/`isAlias` mirror
+    // husk::m2::Sequence's own fields raw (WIKI_FINDINGS.md §12) -- when
+    // `isAlias` is true, this clip's actual keyframe data (JointAnimation
+    // entries above) was borrowed from the resolved terminal sequence, not
+    // from this sequence's own (empty) tracks, but every other field here
+    // still describes this sequence's own M2Sequence record, not the
+    // terminal's. nullopt for a clip that isn't backed by a single
+    // M2Sequence record at all (buildGlobalSequenceAnimations's
+    // global_seq_<n> clips) -- there's no per-sequence movespeed/blend
+    // timing/bounds to expose for those.
+    struct SequenceMetadata {
+        float movespeed = 0;
+        int16_t frequency = 0;
+        uint32_t replayMin = 0;
+        uint32_t replayMax = 0;
+        uint16_t blendTimeIn = 0;
+        uint16_t blendTimeOut = 0;
+        // Already in the target coordinate system (Y-up) -- same caller
+        // responsibility as Skeleton::Joint::localTranslation.
+        Vec3 boundsMin;
+        Vec3 boundsMax;
+        float boundsRadius = 0;
+        int16_t variationNext = -1;
+        uint16_t aliasNext = 0;
+        bool isAlias = false;
+    };
+    std::optional<SequenceMetadata> sequenceMetadata;
 };
 
 struct Error : std::runtime_error {
@@ -448,6 +482,9 @@ Vec3 zUpToYUp(const Vec3& v);
 // each becomes one glTF animation clip (see Animation's doc comment).
 // Throws Error if any JointAnimation::joint is out of range for `skeleton`,
 // or any of its three time/value pairs have mismatched lengths.
+// `animations[i].sequenceMetadata`, if set, becomes a `sequence_metadata`
+// key in that clip's own glTF `extras` (see Animation::SequenceMetadata's
+// doc comment).
 std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& materials = {},
                                const Skeleton* skeleton = nullptr,
                                const std::vector<Animation>& animations = {});

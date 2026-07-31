@@ -303,6 +303,109 @@ TEST_CASE(
     std::filesystem::remove(outPath);
 }
 
+TEST_CASE(
+    "husk export: bloodelffemale_hd's real M2Sequence fields (movespeed/aliasNext/isAlias) come "
+    "through as per-clip sequence_metadata extras, and real alias sequences don't regress the "
+    "clip count (M2_GAPS_TODO.md's former Item 1, WIKI_FINDINGS.md §12's follow-up)" *
+    doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
+                  testAnimDir().empty())) {
+    // WIKI_FINDINGS.md §12 found 38 real alias sequences (flags & 0x40) in
+    // this exact .skel: 31 also carry flags & 0x20 (inline) -- those are
+    // unaffected by the aliasNext fix (their own inline data already wins
+    // priority, same as before it existed) -- and the remaining 7 are
+    // "pure" aliases whose resolved terminal sequence requires an external
+    // .anim file. All 7 of those terminal files genuinely exist in the
+    // full real corpus (confirmed by hand against
+    // /media/luna/data/wow_export), but none of the 6 distinct files they
+    // need (bloodelffemale_hd0060/61/62/84/113/123-00.anim) happen to be
+    // among the ~104 .anim files committed to this repo's own test_data/
+    // subset -- so against *this* fixture set specifically, the real,
+    // measured effect of the fix is zero net new clips, not "up to 38" (a
+    // real answer to the open question the original implementation plan
+    // flagged: "don't assume every alias necessarily gains a clip without
+    // checking"). What the fix *does* change for this fixture: those 7
+    // pure aliases now attempt real resolution (and cleanly fall back to
+    // "not available locally," same as any other unresolvable external
+    // sequence) instead of being skipped outright -- this test's job is to
+    // prove that path doesn't crash and doesn't change the clip count, not
+    // to prove growth that isn't actually there for this specific data.
+    std::string m2Path = testSkelM2();
+    std::string skinPath = testSkelSkin();
+    std::string skelPath = testSkel();
+    std::string animDir = testAnimDir();
+
+    auto outPath =
+        (std::filesystem::temp_directory_path() / "husk-test-export-seqmeta.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto result = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
+                           "\" --skel \"" + skelPath + "\" --anim \"" + animDir + "\"");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+
+    // The exact, previously-measured clip count for this exact fixture set
+    // (WIKI_FINDINGS.md §2's follow-up) -- pinned deliberately, unlike the
+    // AFSB test's own conservative ">100" bound above, since this test's
+    // whole point is confirming the aliasNext fix doesn't change it for
+    // this specific data (see the comment above).
+    CHECK(model.animations.size() == 338);
+
+    auto findAnim = [&](const std::string& name) -> const tinygltf::Animation* {
+        for (const auto& a : model.animations) {
+            if (a.name == name) return &a;
+        }
+        return nullptr;
+    };
+
+    // anim_804_0: a real sequence with flags 0x60 (both inline AND alias)
+    // -- confirmed by hand (tools/check_alias_next.py-style byte read)
+    // to be one of the 31 "both flags" real sequences. Its own
+    // sequence_metadata.is_alias should read true (raw flags exposed
+    // verbatim), even though its keyframe data comes from its own inline
+    // tracks, not a resolved alias chain (see cmd_export.cpp's
+    // buildAnimations doc comment for why 0x20 wins priority).
+    const auto* bothFlags = findAnim("anim_804_0");
+    REQUIRE(bothFlags != nullptr);
+    REQUIRE(bothFlags->extras.IsObject());
+    {
+        const auto& meta = bothFlags->extras.Get("sequence_metadata");
+        CHECK(meta.Get("is_alias").Get<bool>() == true);
+    }
+
+    // anim_0_0 ("Stand", AnimationData.dbc id 0 -- WoW's own universal
+    // convention) and anim_5_0 (a locomotion sequence) are both real,
+    // plain (non-alias) inline sequences -- real movespeed values
+    // confirmed by hand: 0.0 and 7.0 respectively, exactly matching
+    // M2_GAPS_TODO.md's own test-plan prediction ("a locomotion sequence
+    // should have nonzero movespeed, a 'Stand' sequence should have zero").
+    const auto* stand = findAnim("anim_0_0");
+    REQUIRE(stand != nullptr);
+    REQUIRE(stand->extras.IsObject());
+    {
+        const auto& meta = stand->extras.Get("sequence_metadata");
+        CHECK(meta.Get("movespeed").GetNumberAsDouble() == doctest::Approx(0.0));
+        CHECK(meta.Get("is_alias").Get<bool>() == false);
+    }
+
+    const auto* locomotion = findAnim("anim_5_0");
+    REQUIRE(locomotion != nullptr);
+    REQUIRE(locomotion->extras.IsObject());
+    {
+        const auto& meta = locomotion->extras.Get("sequence_metadata");
+        CHECK(meta.Get("movespeed").GetNumberAsDouble() == doctest::Approx(7.0));
+        CHECK(meta.Get("is_alias").Get<bool>() == false);
+    }
+
+    std::filesystem::remove(outPath);
+}
+
 TEST_CASE("husk info: real game-extracted M2 has no chunk tags outside husk's known M2 chunk "
           "list" *
           doctest::skip(testM2().empty())) {
