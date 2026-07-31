@@ -572,6 +572,34 @@ struct ParticleEmitter {
     float multiTexScrollRange[4] = {0, 0, 0, 0};
 };
 
+// M2ExtendedParticle (wowdev.wiki M2#EXP2, >= 7.3.0), 28 (0x1C) bytes on
+// disk -- effectively supersedes M2Particle's own zSource/colorMult/
+// alphaMult (see EXPT, dumpExpt in cmd_dump.cpp): the wiki's own text says
+// "if EXP2 doesn't exist, the client tries to reconstruct it with data from
+// the EXPT chunk," i.e. EXP2 is EXPT's superset, not an unrelated record --
+// the same three floats are duplicated here rather than only living in
+// EXPT, plus one field EXPT has no room for at all: `alphaCutoff`, an
+// M2PartTrack<fixed16> (a flat {times, values} pair, no per-sequence/
+// global-sequence indirection at all -- simpler than a real M2Track, see
+// resolveFixed16PartTrack's doc comment) mapping the particle's own
+// 0.0..1.0 normalized lifetime to an alpha-test cutoff threshold. One entry
+// expected per `particle_emitters` array entry (same indexing convention
+// TXAC/EXPT/RPID/GPID/PGD1 already use) -- not cross-checked here, same
+// "trust this chunk's own byte length" policy dumpTxac already uses.
+// Unverified against any real file: husk's own 130k-file corpus
+// (/media/luna/data/wow_export, the usual verification base for this
+// project's WIKI_FINDINGS.md entries) has zero EXP2-bearing files as of
+// this session's own corpus scan -- implemented from the wiki's own struct
+// listing (simple, unambiguous byte layout) rather than a real byte
+// decode, same honesty this project already applies to e.g.
+// kMinVerifiedParticleVersion. See M2_COMPLETENESS.md.
+struct ExtendedParticle {
+    float zSource = 0;
+    float colorMult = 0;
+    float alphaMult = 0;
+    uint32_t alphaCutoffOffset = 0;  // M2PartTrack<fixed16>, see resolveFixed16PartTrack
+};
+
 struct ParseError : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
@@ -866,6 +894,23 @@ std::vector<std::pair<uint16_t, float>> resolveFBlockFixed16(const std::vector<u
 std::vector<std::pair<uint16_t, uint16_t>> resolveFBlockUint16(const std::vector<uint8_t>& blob,
                                                                  uint32_t blockOffset);
 
+// Resolves an M2PartTrack<fixed16> (wowdev.wiki M2#EXP2's `alphaCutoff`) --
+// a flat {M2Array<fixed16> times; M2Array<fixed16> values;} pair (16
+// bytes), structurally identical to FBlockMeta's own two-Array layout
+// (readFBlockMeta is reused directly for the header read) but with
+// fixed16-decoded *timestamps* too, unlike FBlock's raw-uint16_t ones --
+// M2PartTrack has no interpolation_type/global_sequence header at all,
+// simpler even than an FBlock. Both `times` and `values` decode as
+// 0.0..1.0 fixed16 fractions (the same 0x0000..0x7FFF -> 0.0..1.0 scaling
+// readFixed16TrackValue/resolveFBlockFixed16 already use elsewhere) -- per
+// the wiki, `times` indexes the particle's own normalized lifetime (0 =
+// spawn, 1 = death) and `values` is the alpha-test cutoff at that point in
+// its life. Throws ParseError if the claimed times/values ranges run past
+// the end of the blob. Empty (zero values) returns an empty vector, not an
+// error.
+std::vector<std::pair<float, float>> resolveFixed16PartTrack(const std::vector<uint8_t>& blob,
+                                                                uint32_t blockOffset);
+
 // Reads `array.count` M2Loop records (wowdev.wiki M2#Global_sequences: a
 // bare `uint32_t timestamp` each, the total duration in milliseconds a
 // global sequence loops over) out of `blob` at `array.offset` -- the
@@ -955,6 +1000,24 @@ constexpr uint32_t kMinVerifiedParticleVersion = 272;
 // fields, runs past the end of the blob. An empty array (count 0) returns
 // an empty vector without touching `array.offset`.
 std::vector<ParticleEmitter> parseParticles(const std::vector<uint8_t>& blob, const Array& array);
+
+// Reads `array.count` M2ExtendedParticle records out of `blob` starting at
+// `array.offset`, at a fixed 28 (0x1C)-byte stride (see ExtendedParticle's
+// doc comment) -- `alphaCutoffOffset` is stored as a raw blob offset only
+// (resolve via resolveFixed16PartTrack), same "descriptor now, real
+// resolution happens downstream in husk dump-chunks" split every other
+// M2Track/FBlock-bearing field in this file already uses. Throws
+// ParseError if that range runs past the end of the blob. An empty array
+// (count 0) returns an empty vector without touching `array.offset` at
+// all. Note: unlike parseParticles, EXP2's own containing chunk carries
+// its own local M2Array<M2ExtendedParticle> header (see cmd_dump.cpp's
+// dumpExp2) -- `blob`/`array` here are typically that chunk's own payload
+// bytes and its own local array descriptor, not necessarily the model's
+// full MD20 blob, since this function (like parseTextureWeights/
+// parseUint16Array when cmd_dump.cpp reuses them for PADC/PABC) only cares
+// about byte offsets relative to whatever buffer it's given.
+std::vector<ExtendedParticle> parseExtendedParticles(const std::vector<uint8_t>& blob,
+                                                       const Array& array);
 
 // Best-effort expansion label(s) for a raw header version number, per the
 // wiki's own version table -- which the wiki itself calls "rough estimates"

@@ -3,19 +3,26 @@
 // as tests/test_cli.cpp uses for info/export -- the per-chunk parsing
 // logic lives entirely inside cmd_dump.cpp's anonymous namespace, so this
 // is the only way to reach it. Every documented dumper (TXAC/EXPT/PADC/
-// PSBC/PEDC/RPID/GPID/PGD1/WFV3/NERF/EDGF/DBOC/TEXL) gets its own
-// round-trip test except GPID/PGD1, which call the *exact same function
-// pointer* as RPID/PABC (dumpFileDataIdArrayChunk/dumpU16ArrayChunk, see
-// cmd_dump.cpp's kDocumented table) rather than merely sharing a similar
-// shape -- a second test there would exercise identical code, not
-// additional coverage. WFV3 in particular (FINDINGS.md §4.4) was
-// previously untested despite being the highest-risk dumper here: ~20
-// sequential hand-transcribed field offsets, exactly the shape of silent
-// transcription bug this project's own history (the
-// M2Sequence-is-64-not-36-bytes investigation, WIKI_FINDINGS.md) shows is
-// easy to introduce and hard to notice without a real offset round-trip.
-// Deliberately reuses tests/test_m2.cpp's already-established
-// fixture-building conventions.
+// PSBC/PEDC/RPID/GPID/PGD1/WFV3/NERF/EDGF/DBOC/TEXL/DETL/PFDC/EXP2) gets
+// its own round-trip test except GPID/PGD1, which call the *exact same
+// function pointer* as RPID/PABC (dumpFileDataIdArrayChunk/
+// dumpU16ArrayChunk, see cmd_dump.cpp's kDocumented table) rather than
+// merely sharing a similar shape -- a second test there would exercise
+// identical code, not additional coverage. WFV3 in particular
+// (FINDINGS.md §4.4) was previously untested despite being the
+// highest-risk dumper here: ~20 sequential hand-transcribed field
+// offsets, exactly the shape of silent transcription bug this project's
+// own history (the M2Sequence-is-64-not-36-bytes investigation,
+// WIKI_FINDINGS.md) shows is easy to introduce and hard to notice without
+// a real offset round-trip. Deliberately reuses tests/test_m2.cpp's
+// already-established fixture-building conventions.
+//
+// DETL/PFDC/EXP2 (M2_GAPS_TODO.md items 8/2/3) are all unverified against
+// any real corpus file (see each dump function's own doc comment in
+// cmd_dump.cpp) -- their tests are synthetic fixtures built from the
+// wiki's own struct listing (DETL) or WIKI_FINDINGS.md's own confirmed
+// byte layout (also DETL), or by construction from husk's own
+// already-real-file-verified .phys parser (PFDC).
 
 #include <cstring>
 #include <doctest/doctest.h>
@@ -70,6 +77,19 @@ void putU16(std::vector<uint8_t>& b, uint16_t v) {
     b.push_back(static_cast<uint8_t>(v >> 8));
 }
 
+// Non-overlapping substring count -- used by the DETL padding-vs-overcount
+// regression test below, where "does the key appear the right *number* of
+// times" is the actual assertion, not just "does it appear at all."
+size_t countOccurrences(const std::string& haystack, const std::string& needle) {
+    size_t count = 0;
+    size_t pos = 0;
+    while ((pos = haystack.find(needle, pos)) != std::string::npos) {
+        ++count;
+        pos += needle.size();
+    }
+    return count;
+}
+
 // .phys's own chunk tags are byte-reversed on disk (WMO/ADT convention,
 // opposite of M2's own inline chunks putTag/wrapChunked above assume -- see
 // src/phys.hpp's doc comment) -- `tag` is given in wowdev.wiki's own
@@ -81,6 +101,51 @@ void appendPhysChunk(std::vector<uint8_t>& file, const char tag[4], const std::v
     file.push_back(tag[0]);
     putU32(file, static_cast<uint32_t>(payload.size()));
     file.insert(file.end(), payload.begin(), payload.end());
+}
+
+// A minimal but real .phys byte layout (PHYS/BODY/SHAP/CAPS chunks) -- used
+// both by the standalone ".phys file" test below and by the PFDC tests,
+// since PFDC's own documented payload (wowdev.wiki M2#PFDC: "PHYS physics;
+// char PADDING[6];") is byte-for-byte the same container a standalone
+// .phys file's bytes are.
+std::vector<uint8_t> buildMinimalPhysBytes() {
+    std::vector<uint8_t> file;
+    std::vector<uint8_t> physPayload;
+    putU16(physPayload, 5);  // version
+    appendPhysChunk(file, "PHYS", physPayload);
+
+    std::vector<uint8_t> body;
+    putU16(body, 1);   // type
+    putU16(body, 0);   // padding
+    putF32(body, 0);
+    putF32(body, 0);
+    putF32(body, 0);   // position
+    putU16(body, 3);   // boneIndex -- the distinguishing value this test looks for
+    putU16(body, 0);   // padding
+    putU32(body, 0);   // shapes_base
+    putU32(body, 1);   // shapes_count
+    appendPhysChunk(file, "BODY", body);
+
+    std::vector<uint8_t> shap;
+    putU16(shap, 1);  // type: capsule
+    putU16(shap, 0);  // index
+    putU32(shap, 0);  // unk[4]
+    putF32(shap, 0);  // friction
+    putF32(shap, 0);  // restitution
+    putF32(shap, 0);  // density
+    appendPhysChunk(file, "SHAP", shap);
+
+    std::vector<uint8_t> caps;
+    putF32(caps, 0);
+    putF32(caps, 0);
+    putF32(caps, -1);      // localPosition1
+    putF32(caps, 0);
+    putF32(caps, 0);
+    putF32(caps, 1);       // localPosition2
+    putF32(caps, 0.4242f);  // radius -- the other distinguishing value
+    appendPhysChunk(file, "CAPS", caps);
+
+    return file;
 }
 
 // Same minimal fully-zeroed MD20 blob as test_cli.cpp's minimalMd20 (through
@@ -680,6 +745,178 @@ TEST_CASE("husk dump-chunks: a .bone file (no MD20/MD21 magic) dumps its BIDA/BO
     CHECK(result.output.find("\"bone_index\"") != std::string::npos);
     CHECK(result.output.find("58") != std::string::npos);
     CHECK(result.output.find("0.001") != std::string::npos);
+
+    fs::remove(path);
+}
+
+// M2_GAPS_TODO.md item 8 -- DETL's real 12-byte stride and its own 16-byte
+// alignment padding, both confirmed against 1,043 real corpus files
+// (WIKI_FINDINGS.md §11). Real corpus half-float constants (0x231C ->
+// 0.013885498046875, 0x3C00 -> exactly 1.0) used directly rather than
+// made-up numbers, so this test also proves readHalfFloat decodes the
+// exact bit patterns real files carry, not just some arbitrary half-float.
+TEST_CASE("husk dump-chunks: DETL decodes real corpus half-float constants and ignores its own "
+          "16-byte alignment padding") {
+    auto md20 = minimalMd20();
+    putU32At(md20, /*offset::lights=*/0x108, 1);  // Array::count -- lights.count
+
+    std::vector<uint8_t> detl;
+    putU16(detl, 0x0008);  // flags -- one of the two real corpus values
+    putU16(detl, 0x231C);  // scale, half-float bits -- real corpus constant 0.013885498046875
+    putU16(detl, 0x3C00);  // diffuseColorMultiplier, half-float bits -- real corpus constant 1.0
+    putU16(detl, 0);       // unk0
+    putU32(detl, 0);       // unk1
+    REQUIRE(detl.size() == 12);
+    detl.resize(16, 0);  // alignment padding to the next 16-byte boundary
+
+    auto file = wrapChunked(md20, {{"DETL", detl}});
+    auto path = tempPath("detl.m2");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"DETL\"") != std::string::npos);
+    CHECK(result.output.find("\"flags\": 8") != std::string::npos);
+    CHECK(result.output.find("\"scale\": 0.0138855") != std::string::npos);
+    CHECK(result.output.find("\"diffuse_color_multiplier\": 1") != std::string::npos);
+    CHECK(countOccurrences(result.output, "\"flags\"") == 1);  // padding not misread as a 2nd record
+
+    fs::remove(path);
+}
+
+// Regression test for the defensive-floor logic itself: 3 real 12-byte
+// records (36 bytes) pad up to 48 bytes (the next 16-byte boundary).
+// 48 / 12 == 4, so a dumpDetl that trusted chunk.size / kSize alone
+// (without lights.count as the authority) would silently report 4 records
+// instead of 3, misreading 4 bytes of the alignment padding as if it were
+// a real trailing record.
+TEST_CASE("husk dump-chunks: DETL's record count is lights.count, not chunk.size / 12 -- 3 real "
+          "records padded to 48 bytes must not decode as 4") {
+    auto md20 = minimalMd20();
+    putU32At(md20, /*offset::lights=*/0x108, 3);  // Array::count
+
+    std::vector<uint8_t> detl;
+    for (int i = 0; i < 3; ++i) {
+        putU16(detl, 0);       // flags
+        putU16(detl, 0x3C00);  // scale (half-float 1.0, arbitrary but valid)
+        putU16(detl, 0x3C00);  // diffuseColorMultiplier
+        putU16(detl, 0);       // unk0
+        putU32(detl, 0);       // unk1
+    }
+    REQUIRE(detl.size() == 36);
+    detl.resize(48, 0);  // alignment padding -- 48 / 12 == 4, the overcount this test guards against
+
+    auto file = wrapChunked(md20, {{"DETL", detl}});
+    auto path = tempPath("detl-3lights.m2");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(countOccurrences(result.output, "\"flags\"") == 3);
+
+    fs::remove(path);
+}
+
+// M2_GAPS_TODO.md item 2 -- PFDC embeds a real .phys file's own byte-for-
+// byte chunk container (wowdev.wiki M2#PFDC), reusing husk's existing,
+// real-file-verified .phys parser (WIKI_FINDINGS.md §9) rather than a new
+// one. Trailing zero padding (up to 6 bytes per the wiki) must be trimmed
+// before handing the bytes to phys::parse, or husk::readChunks throws on
+// the short trailing header -- this proves both the happy path and that
+// the padding-trim logic doesn't eat real data.
+TEST_CASE("husk dump-chunks: PFDC (inline physics, same byte-for-byte .phys container a standalone "
+          "file uses) dumps the same body/shape data, trailing zero padding tolerated") {
+    auto pfdcPayload = buildMinimalPhysBytes();
+    pfdcPayload.insert(pfdcPayload.end(), {0, 0, 0, 0});  // 4 bytes of trailing PADDING
+
+    auto file = wrapChunked(minimalMd20(), {{"PFDC", pfdcPayload}});
+    auto path = tempPath("pfdc.m2");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"PFDC\"") != std::string::npos);
+    CHECK(result.output.find("\"bodies\"") != std::string::npos);
+    CHECK(result.output.find("\"bone\": 3") != std::string::npos);  // the body's boneIndex
+    CHECK(result.output.find("capsule") != std::string::npos);
+    CHECK(result.output.find("0.4242") != std::string::npos);  // capsule radius, resolved inline
+
+    fs::remove(path);
+}
+
+TEST_CASE("husk dump-chunks: PFDC with no trailing padding at all (an exact chunk boundary) still "
+          "dumps cleanly -- the padding-trim logic must not eat real data when there's nothing to "
+          "trim") {
+    auto pfdcPayload = buildMinimalPhysBytes();  // no trailing bytes appended
+
+    auto file = wrapChunked(minimalMd20(), {{"PFDC", pfdcPayload}});
+    auto path = tempPath("pfdc-no-padding.m2");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"bone\": 3") != std::string::npos);
+    CHECK(result.output.find("0.4242") != std::string::npos);
+
+    fs::remove(path);
+}
+
+// M2_GAPS_TODO.md item 3 -- EXP2's M2Array<M2ExtendedParticle> content,
+// chunk-local header (same readChunkArray shape PABC/PSBC/PADC/PEDC/PGD1
+// already use) followed by one 28-byte record: zSource/colorMult/
+// alphaMult (12 bytes, same as EXPT) then a 16-byte M2PartTrack<fixed16>
+// alphaCutoff descriptor (times Array + values Array, both dereferenced
+// against this same chunk's own payload bytes). times=[0, 32767] and
+// values=[32767, 0] decode to clean 0.0/1.0 fixed16 fractions, avoiding
+// any float-rounding ambiguity in the assertions.
+TEST_CASE("husk dump-chunks: EXP2 (M2Array<M2ExtendedParticle>, chunk-local header) reads "
+          "zSource/colorMult/alphaMult and resolves the alphaCutoff M2PartTrack<fixed16> curve") {
+    std::vector<uint8_t> exp2;
+    putU32(exp2, 1);  // content.count
+    putU32(exp2, 8);  // content.offset -- right after this 8-byte header
+
+    size_t recordOff = exp2.size();
+    putF32(exp2, 1.5f);    // zSource
+    putF32(exp2, 0.5f);    // colorMult
+    putF32(exp2, -0.75f);  // alphaMult
+    // alphaCutoff: M2Array<fixed16> times, M2Array<fixed16> values -- offsets
+    // filled in below once the actual arrays' positions are known.
+    size_t timesArrayFieldOff = exp2.size();
+    putU32(exp2, 0);
+    putU32(exp2, 0);
+    size_t valuesArrayFieldOff = exp2.size();
+    putU32(exp2, 0);
+    putU32(exp2, 0);
+    REQUIRE(exp2.size() - recordOff == 0x1C);
+
+    size_t timesOff = exp2.size();
+    putU16(exp2, 0);       // times[0] = 0.0 (fixed16 0x0000)
+    putU16(exp2, 32767);   // times[1] = 1.0 (fixed16 0x7FFF)
+    size_t valuesOff = exp2.size();
+    putU16(exp2, 32767);   // values[0] = 1.0
+    putU16(exp2, 0);       // values[1] = 0.0
+
+    putU32At(exp2, timesArrayFieldOff, 2);
+    putU32At(exp2, timesArrayFieldOff + 4, static_cast<uint32_t>(timesOff));
+    putU32At(exp2, valuesArrayFieldOff, 2);
+    putU32At(exp2, valuesArrayFieldOff + 4, static_cast<uint32_t>(valuesOff));
+
+    auto file = wrapChunked(minimalMd20(), {{"EXP2", exp2}});
+    auto path = tempPath("exp2.m2");
+    writeFile(path, file);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("\"EXP2\"") != std::string::npos);
+    CHECK(result.output.find("\"z_source\": 1.5") != std::string::npos);
+    CHECK(result.output.find("\"color_mult\": 0.5") != std::string::npos);
+    CHECK(result.output.find("\"alpha_mult\": -0.75") != std::string::npos);
+    CHECK(result.output.find("\"alpha_cutoff_track\"") != std::string::npos);
+    CHECK(result.output.find("\"life_fraction\"") != std::string::npos);
+    CHECK(result.output.find("\"alpha_cutoff\"") != std::string::npos);
+    // Both curve points present as clean 0/1 fixed16 fractions (life_fraction
+    // 0.0 pairs with alpha_cutoff 1.0, and vice versa).
+    CHECK(countOccurrences(result.output, "\"life_fraction\"") == 2);
 
     fs::remove(path);
 }

@@ -1262,13 +1262,31 @@ std::vector<std::pair<uint32_t, uint32_t>> resolveRawIntGlobalSequenceTrack(
 }
 
 namespace {
-void checkFBlockArrayFits(const Array& a, size_t elementSize, size_t blobSize, const char* what) {
+// `structureLabel` defaults to "FBlock" for every existing caller
+// (resolveFBlockGeneric below); resolveFixed16PartTrack passes
+// "M2PartTrack" instead, since it shares this exact two-Array byte layout
+// but isn't actually an FBlock (no interpolation_type/global_sequence
+// header) -- see resolveFixed16PartTrack's own doc comment in m2.hpp.
+void checkFBlockArrayFits(const Array& a, size_t elementSize, size_t blobSize, const char* what,
+                           const char* structureLabel = "FBlock") {
     if (a.offset > blobSize || a.count > (blobSize - a.offset) / elementSize) {
-        throw ParseError(std::string("FBlock claims ") + std::to_string(a.count) + " " + what + " (" +
-                          std::to_string(elementSize) + " bytes each) at offset " +
+        throw ParseError(std::string(structureLabel) + " claims " + std::to_string(a.count) + " " +
+                          what + " (" + std::to_string(elementSize) + " bytes each) at offset " +
                           std::to_string(a.offset) + ", which needs more room than the blob's " +
                           std::to_string(blobSize) + " bytes");
     }
+}
+
+// Shared by resolveFBlockFixed16 (FBlock<fixed16>, e.g. M2Particle's
+// alphaTrack) and resolveFixed16PartTrack (M2PartTrack<fixed16>, EXP2's
+// alphaCutoff) -- same 0x0000..0x7FFF -> 0.0..1.0 scaling
+// readFixed16TrackValue's own raw bit read uses, just against a flat
+// element offset instead of an M2Track's inner sub-array.
+float decodeFixed16Element(const uint8_t* d, size_t s, size_t o) {
+    int16_t raw;
+    uint16_t bits = readU16(d, s, o);
+    std::memcpy(&raw, &bits, sizeof(raw));
+    return std::clamp(static_cast<float>(raw) / 32767.0f, 0.0f, 1.0f);
 }
 }  // namespace
 
@@ -1326,18 +1344,35 @@ std::vector<std::pair<uint16_t, Vec2>> resolveFBlockVec2(const std::vector<uint8
 
 std::vector<std::pair<uint16_t, float>> resolveFBlockFixed16(const std::vector<uint8_t>& blob,
                                                                uint32_t blockOffset) {
-    return resolveFBlockGeneric<float>(blob, blockOffset, 2, [](const uint8_t* d, size_t s, size_t o) {
-        int16_t raw;
-        uint16_t bits = readU16(d, s, o);
-        std::memcpy(&raw, &bits, sizeof(raw));
-        return std::clamp(static_cast<float>(raw) / 32767.0f, 0.0f, 1.0f);
-    });
+    return resolveFBlockGeneric<float>(blob, blockOffset, 2, decodeFixed16Element);
 }
 
 std::vector<std::pair<uint16_t, uint16_t>> resolveFBlockUint16(const std::vector<uint8_t>& blob,
                                                                  uint32_t blockOffset) {
     return resolveFBlockGeneric<uint16_t>(blob, blockOffset, 2,
                                            [](const uint8_t* d, size_t s, size_t o) { return readU16(d, s, o); });
+}
+
+std::vector<std::pair<float, float>> resolveFixed16PartTrack(const std::vector<uint8_t>& blob,
+                                                                uint32_t blockOffset) {
+    // M2PartTrack<fixed16> is byte-for-byte the same {Array; Array;}
+    // 16-byte header FBlockMeta already models -- reused directly rather
+    // than duplicating the 8/8-byte offset reads.
+    FBlockMeta meta = readFBlockMeta(blob, blockOffset);
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+    checkFBlockArrayFits(meta.timestamps, 2, blobSize, "times", "M2PartTrack");
+    checkFBlockArrayFits(meta.keys, 2, blobSize, "values", "M2PartTrack");
+    size_t n = std::min<size_t>(meta.timestamps.count, meta.keys.count);
+
+    std::vector<std::pair<float, float>> out;
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        float t = decodeFixed16Element(data, blobSize, meta.timestamps.offset + i * 2);
+        float v = decodeFixed16Element(data, blobSize, meta.keys.offset + i * 2);
+        out.emplace_back(t, v);
+    }
+    return out;
 }
 
 std::vector<uint32_t> parseGlobalLoops(const std::vector<uint8_t>& blob, const Array& array) {
@@ -1713,6 +1748,46 @@ std::vector<ParticleEmitter> parseParticles(const std::vector<uint8_t>& blob, co
     }
 
     return particles;
+}
+
+std::vector<ExtendedParticle> parseExtendedParticles(const std::vector<uint8_t>& blob,
+                                                       const Array& array) {
+    std::vector<ExtendedParticle> out;
+    if (array.count == 0) {
+        return out;
+    }
+
+    // M2ExtendedParticle, wowdev.wiki M2#EXP2 -- see ExtendedParticle's doc
+    // comment in m2.hpp for the full offset derivation (unverified against
+    // real data, structurally unambiguous either way).
+    constexpr size_t kSize = 0x1C;
+    constexpr size_t kZSourceOffset = 0x00;
+    constexpr size_t kColorMultOffset = 0x04;
+    constexpr size_t kAlphaMultOffset = 0x08;
+    constexpr size_t kAlphaCutoffOffset = 0x0C;
+
+    const uint8_t* data = blob.data();
+    size_t blobSize = blob.size();
+
+    if (array.offset > blobSize || array.count > (blobSize - array.offset) / kSize) {
+        throw ParseError("EXP2 content array claims " + std::to_string(array.count) + " records (" +
+                          std::to_string(kSize) + " bytes each) at offset " +
+                          std::to_string(array.offset) + ", which needs more room than the blob's " +
+                          std::to_string(blobSize) + " bytes");
+    }
+    out.reserve(array.count);
+
+    for (uint32_t i = 0; i < array.count; ++i) {
+        size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kSize;
+        ExtendedParticle p;
+        p.zSource = readF32(data, blobSize, off + kZSourceOffset);
+        p.colorMult = readF32(data, blobSize, off + kColorMultOffset);
+        p.alphaMult = readF32(data, blobSize, off + kAlphaMultOffset);
+        p.alphaCutoffOffset = static_cast<uint32_t>(off + kAlphaCutoffOffset);
+        out.push_back(p);
+    }
+
+    return out;
 }
 
 Header loadFile(const std::string& path) {

@@ -1108,5 +1108,5 @@ follow-up in `M2_GAPS_TODO.md`'s Item 1 rather than decided here.
 | §8 `WFV3`'s real 64-byte short variant | `src/cmd_dump.cpp` (`dumpWfv3`) | `tests/test_dump.cpp` |
 | §9 `.phys` format verified (`PLYT` stride fix + full sweep) | `src/phys.hpp`/`phys.cpp` (full parser), `src/gltf.hpp`/`gltf.cpp` (`PhysicsBody` extras), `src/cmd_export.cpp` (`--phys`), `src/cmd_dump.cpp` (full body/shape/joint/`PHYV` JSON, `.phys` file accepted directly) | `tests/test_phys.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_dump.cpp`, `tests/test_integration.cpp`/`test_conformance.cpp` (real weapon fixture) |
 | §10 `WFV1`/`WFV2`/`DPIV`/`AFRA` confirmed absent, full corpus | `src/cmd_dump.cpp` (`kFallback` notes, unchanged) | investigation-only, `tools/find_m2_unknown_chunks.py` |
-| §11 `DETL` real stride (0x0c) + 16-byte alignment padding | not yet implemented — see `M2_GAPS_TODO.md` | investigation-only, `tools/check_detl_stride.py` |
+| §11 `DETL` real stride (0x0c) + 16-byte alignment padding | `src/cmd_dump.cpp` (`dumpDetl`, `readHalfFloat`) | `tools/check_detl_stride.py` (investigation), `tests/test_dump.cpp` (implementation) |
 | §12 `aliasNext` = local `sequences` array index | not yet implemented — see `M2_GAPS_TODO.md` Item 1 | investigation-only, `tools/check_alias_next.py` |

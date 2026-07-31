@@ -19,14 +19,19 @@
 // silently unread. Two categories, both real:
 //
 // - Legion+-only chunks (TXAC/EXPT/PABC/PADC/PSBC/PEDC/RPID/GPID/PGD1/
-//   WFV3/NERF/EDGF/DBOC/TEXL, all reasonably well documented on
+//   WFV3/NERF/EDGF/DBOC/TEXL/PFDC/EXP2, all reasonably well documented on
 //   wowdev.wiki) -- rendering-effect/gameplay-metadata concerns glTF's own
 //   material model has no real equivalent for (edge fade, PBR-ish
-//   waterfall shading, parent-model animation overrides, player-housing
-//   collision, ...). Chunks with no documented byte layout, or an
-//   internally-inconsistent one (WFV1/WFV2/DPIV/AFRA/DETL/PFDC/PCOL/EXP2),
-//   are still included as a raw hex dump plus a note, not silently
-//   dropped. Only present in Legion+ chunked files.
+//   waterfall shading, parent-model animation overrides, inline physics,
+//   extended-particle alpha-cutoff curves, ...). DETL (per-light shadow-RT
+//   scale/diffuse-multiplier data) is likewise fully parsed but handled
+//   separately from the lookup table below, since its own defensive
+//   record-count floor needs the header's own lights.count -- the same
+//   reason ribbon_emitters/particle_emitters aren't chunk-tag-driven
+//   either (see dumpDetl's doc comment). Chunks with no documented byte
+//   layout, or one the wiki itself still calls preliminary
+//   (WFV1/WFV2/DPIV/AFRA/PCOL), are still included as a raw hex dump plus
+//   a note, not silently dropped. Only present in Legion+ chunked files.
 // - `ribbon_emitters`/`particle_emitters` -- core MD20 header arrays
 //   present in every version, not Legion+ chunks, but the same "no glTF
 //   slot" rationale applies: procedural emitter systems, not renderable
@@ -64,11 +69,11 @@ void printUsage(std::ostream& out = std::cerr) {
            "  Cataclysm (see m2::kMinVerifiedParticleVersion).\n"
            "\n"
            "  Legion+ chunk tags -- TXAC/EXPT/PABC/PADC/PSBC/PEDC/RPID/GPID/PGD1/\n"
-           "  WFV3/NERF/EDGF/DBOC/TEXL, all reasonably well documented on\n"
-           "  wowdev.wiki. Chunks with no documented byte layout, or an\n"
-           "  internally-inconsistent one (WFV1/WFV2/DPIV/AFRA/DETL/PFDC/PCOL/\n"
-           "  EXP2), are still included, as a raw hex dump plus a note, not\n"
-           "  silently skipped. Only present in Legion+ chunked files.\n"
+           "  WFV3/NERF/EDGF/DBOC/TEXL/PFDC/EXP2/DETL, all reasonably well\n"
+           "  documented on wowdev.wiki. Chunks with no documented byte layout,\n"
+           "  or one the wiki itself still calls preliminary (WFV1/WFV2/DPIV/\n"
+           "  AFRA/PCOL), are still included, as a raw hex dump plus a note,\n"
+           "  not silently skipped. Only present in Legion+ chunked files.\n"
            "\n"
            "A .bone file (see M2/.skel's BFID chunk) is also accepted --\n"
            "husk dumps its per-bone correction matrices (see src/bone.hpp;\n"
@@ -1156,6 +1161,164 @@ void dumpEmitters(json::Writer& w, const std::vector<uint8_t>& blob, const m2::H
     }
 }
 
+// Decodes an IEEE-754 binary16 (half-precision) value -- distinct from this
+// codebase's other "16-bit float-ish" type, fixed16 (M2Track<fixed16>,
+// readFixed16TrackValue/decodeFixed16Element): fixed16 is a *linear*
+// 0x0000..0x7FFF -> 0.0..1.0 fixed-point fraction, not a real float, while
+// DETL's scale/diffuseColorMultiplier are genuine half-precision floats --
+// confirmed against real bytes (WIKI_FINDINGS.md §11): wire value 0x231c
+// decodes to 0.013885498046875 and 0x3c00 to exactly 1.0, neither of which
+// makes sense under fixed16's linear scaling (0x231c/32767 would be
+// ~0.276, 0x3c00/32767 would be > 1.0 and get clamped, matching neither
+// observed constant).
+float readHalfFloat(uint16_t bits) {
+    uint32_t sign = static_cast<uint32_t>(bits & 0x8000u) << 16;
+    uint32_t exponent = (bits >> 10) & 0x1Fu;
+    uint32_t mantissa = bits & 0x3FFu;
+    uint32_t out;
+    if (exponent == 0) {
+        if (mantissa == 0) {
+            out = sign;  // +-0
+        } else {
+            // Subnormal half -> normalized float (not observed in any real
+            // DETL record so far, but a foreign file could still carry one).
+            uint32_t e = 1;
+            while ((mantissa & 0x400u) == 0) {
+                mantissa <<= 1;
+                --e;
+            }
+            mantissa &= 0x3FFu;
+            out = sign | ((e + (127 - 15)) << 23) | (mantissa << 13);
+        }
+    } else if (exponent == 0x1Fu) {
+        out = sign | 0x7F800000u | (mantissa << 13);  // Inf/NaN
+    } else {
+        out = sign | ((exponent + (127 - 15)) << 23) | (mantissa << 13);
+    }
+    float v;
+    std::memcpy(&v, &out, sizeof(v));
+    return v;
+}
+
+// DETL (wowdev.wiki M2#DETL, >= 9.0.1.34365): per-light shadow-RT-scale/
+// diffuse-color-multiplier data, one 12-byte record per `lights.count`
+// entry -- real stride and the chunk's own 16-byte alignment padding both
+// confirmed against all 1,043 real DETL-bearing files in the corpus
+// (WIKI_FINDINGS.md §11), correcting the wiki's own internally-
+// inconsistent trailing `/*0x0a*/` end-offset comment (0x0c is right,
+// matching the field list -- the comment is simply wrong). `lightCount`
+// (the header's own `lights.count`) is the authoritative record count;
+// `chunk.size / kSize` is only a defensive floor against a foreign/
+// corrupted file's `lights.count` disagreeing with its own chunk's real
+// size -- trusting `lightCount` alone would silently read past a short
+// chunk, and trusting `chunk.size / kSize` alone can overcount by exactly
+// one when the alignment padding happens to be >= 12 bytes (real corpus
+// data: a real 3-light file pads to 48 bytes, and 48 / 12 == 4, not 3).
+// The padding itself is never read as data.
+void dumpDetl(json::Writer& w, const Chunk& c, uint32_t lightCount) {
+    constexpr size_t kSize = 12;
+    size_t n = std::min(static_cast<size_t>(lightCount), c.size / kSize);
+    w.beginArray();
+    for (size_t i = 0; i < n; ++i) {
+        size_t off = i * kSize;
+        w.beginObject();
+        w.key("flags");
+        w.value(static_cast<int64_t>(readU16(c.data, c.size, off + 0x00)));
+        w.key("scale");
+        w.value(static_cast<double>(readHalfFloat(readU16(c.data, c.size, off + 0x02))));
+        w.key("diffuse_color_multiplier");
+        w.value(static_cast<double>(readHalfFloat(readU16(c.data, c.size, off + 0x04))));
+        w.key("unk0");
+        w.value(static_cast<int64_t>(readU16(c.data, c.size, off + 0x06)));
+        w.key("unk1");
+        w.value(static_cast<int64_t>(readU32(c.data, c.size, off + 0x08)));
+        w.endObject();
+    }
+    w.endArray();
+}
+
+// PFDC (wowdev.wiki M2#PFDC, >= 9.0.1.33978): inline physics data, byte-
+// for-byte the same chunked container a standalone .phys file's own bytes
+// are (wiki: "PHYS physics; char PADDING[6];"), plus up to 6 bytes of
+// trailing zero padding to the next alignment boundary. husk already has a
+// full, real-file-verified .phys parser (src/phys.hpp/phys.cpp,
+// WIKI_FINDINGS.md §9) -- this just points it at a different byte range.
+// husk::readChunks (which phys::parse calls internally) throws if trailing
+// bytes can't form another full chunk header, so the padding has to be
+// trimmed first, not handed to phys::parse verbatim.
+// physPayloadRealLength walks the same chunk sequence husk::readChunks
+// does but stops cleanly (rather than throwing) once fewer than 8 bytes
+// remain -- exactly the shape PADDING[6] produces -- confirmed empirically
+// (tests/test_dump.cpp) against a real committed .phys fixture's bytes
+// wrapped in a synthetic PFDC chunk before trusting this in dumpPfdc.
+// Unverified against any real M2 file: husk's own 130k-file corpus
+// (/media/luna/data/wow_export) has zero PFDC-bearing files as of this
+// session's own corpus scan -- implemented from the wiki's own struct
+// text, not a real byte decode; see M2_COMPLETENESS.md.
+size_t physPayloadRealLength(const uint8_t* d, size_t n) {
+    size_t pos = 0;
+    while (n - pos >= 8) {
+        uint32_t chunkSize;
+        std::memcpy(&chunkSize, d + pos + 4, sizeof(chunkSize));
+        size_t payloadStart = pos + 8;
+        if (chunkSize > n - payloadStart) break;  // trailing PADDING, not a real next chunk
+        pos = payloadStart + chunkSize;
+    }
+    return pos;
+}
+
+void dumpPfdc(json::Writer& w, const Chunk& c) {
+    size_t len = physPayloadRealLength(c.data, c.size);
+    std::vector<uint8_t> physBytes(c.data, c.data + len);
+    auto physFile = phys::parse(physBytes);
+    writePhysFile(w, physFile);
+}
+
+// EXP2 (wowdev.wiki M2#EXP2, >= 7.3.0): M2Array<M2ExtendedParticle>
+// content, same "chunk carries its own small header then raw data" shape
+// PABC/PADC/PSBC/PEDC/PGD1 already use (readChunkArray at chunk-payload
+// offset 0) -- records dereferenced via m2::parseExtendedParticles against
+// a local "blob" that's really just this chunk's own payload bytes (same
+// pattern dumpPadc/dumpU16ArrayChunk already establish for reusing
+// m2.cpp's blob+Array-shaped parsers against chunk-local data, rather than
+// the model's full MD20 blob). One entry expected per particle_emitters
+// entry (per the wiki) -- not cross-checked here, same "trust this
+// chunk's own byte length" policy dumpTxac already uses. Supersedes EXPT
+// when both are present (wiki: "if EXP2 doesn't exist, the client tries
+// to reconstruct it with data from the EXPT chunk"): zSource/colorMult/
+// alphaMult are duplicated here rather than living only in EXPT, plus the
+// new alphaCutoff curve EXPT has no room for at all. Unverified against
+// any real file -- see ExtendedParticle's own doc comment in m2.hpp.
+void dumpExp2(json::Writer& w, const Chunk& c) {
+    ChunkArray arr = readChunkArray(c.data, c.size, 0);
+    std::vector<uint8_t> payload(c.data, c.data + c.size);
+    auto particles = m2::parseExtendedParticles(payload, m2::Array{arr.count, arr.offset});
+    w.beginArray();
+    for (const auto& p : particles) {
+        w.beginObject();
+        w.key("z_source");
+        w.value(static_cast<double>(p.zSource));
+        w.key("color_mult");
+        w.value(static_cast<double>(p.colorMult));
+        w.key("alpha_mult");
+        w.value(static_cast<double>(p.alphaMult));
+        w.key("alpha_cutoff_track");
+        w.beginArray();
+        for (const auto& [lifeFraction, cutoff] :
+             m2::resolveFixed16PartTrack(payload, p.alphaCutoffOffset)) {
+            w.beginObject();
+            w.key("life_fraction");
+            w.value(static_cast<double>(lifeFraction));
+            w.key("alpha_cutoff");
+            w.value(static_cast<double>(cutoff));
+            w.endObject();
+        }
+        w.endArray();
+        w.endObject();
+    }
+    w.endArray();
+}
+
 }  // namespace
 
 int dumpChunks(int argc, char** args) {
@@ -1243,12 +1406,24 @@ int dumpChunks(int argc, char** args) {
             {"RPID", dumpFileDataIdArrayChunk}, {"GPID", dumpFileDataIdArrayChunk},
             {"PGD1", dumpU16ArrayChunk}, {"WFV3", dumpWfv3},   {"NERF", dumpNerf},
             {"EDGF", dumpEdgf},          {"DBOC", dumpDboc},   {"TEXL", dumpTexl},
+            {"PFDC", dumpPfdc},          {"EXP2", dumpExp2},
         };
         for (const auto& e : kDocumented) {
             auto c = findChunk(chunks, e.tag);
             if (!c) continue;
             w.key(e.tag);
             e.dump(w, *c);
+        }
+
+        // DETL doesn't fit kDocumented's fixed 2-arg dump-function shape --
+        // its own defensive record-count floor needs the header's
+        // lights.count (see dumpDetl's doc comment), the same reason
+        // ribbon_emitters/particle_emitters above are handled outside this
+        // table too, rather than a real structural difference from the
+        // "documented" chunks in that list.
+        if (auto c = findChunk(chunks, "DETL")) {
+            w.key("DETL");
+            dumpDetl(w, *c, header.lights.count);
         }
 
         struct FallbackEntry {
@@ -1264,15 +1439,8 @@ int dumpChunks(int argc, char** args) {
                      "bytes, mostly empty\") as of the 2026-07-25 fetch"},
             {"AFRA", "structure not documented on wowdev.wiki (\"Not observed in any files yet\") "
                      "as of the 2026-07-25 fetch"},
-            {"DETL", "wowdev.wiki's own byte offsets for this struct don't add up to its stated "
-                     "field list (0x0a end offset vs. fields summing to 0x0c) -- not parsed "
-                     "structurally without real data to resolve the discrepancy against"},
-            {"PFDC", "embeds a .phys-shaped PHYS sub-structure that itself has no documented byte "
-                     "layout on wowdev.wiki"},
             {"PCOL", "wowdev.wiki flags this struct as \"Preliminary structure as per Zee's "
                      "research\" -- not treated as settled enough to parse structurally"},
-            {"EXP2", "contains a nested M2PartTrack<fixed16> whose own byte layout isn't given on "
-                     "wowdev.wiki"},
         };
         for (const auto& e : kFallback) {
             auto c = findChunk(chunks, e.tag);
