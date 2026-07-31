@@ -581,6 +581,76 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
                 materialExtras["texture_transform"] = tinygltf::Value(xfObj);
             }
 
+            // Texture.type marker (wowdev.wiki M2#Textures) -- see
+            // gltf.hpp's Material::textureType doc comment for the
+            // present-only-when-nonzero decision (0, the ordinary
+            // filename-based case, is the assumed default when this key is
+            // absent, matching every other extras field here).
+            if (mat.textureType != 0) {
+                materialExtras["texture_type"] = tinygltf::Value(static_cast<int>(mat.textureType));
+            }
+
+            // Animated tint/fade curves -- diagnostic-only dump, see
+            // gltf.hpp's AnimatedColorCurve/AnimatedScalarCurve doc comments
+            // for why this can never become real playback (core glTF has no
+            // animation-channel target for a material property).
+            if (!mat.tintAnimation.empty()) {
+                tinygltf::Value::Array curves;
+                for (const auto& c : mat.tintAnimation) {
+                    tinygltf::Value::Object co;
+                    if (c.sequenceIndex >= 0) {
+                        co["sequence_index"] = tinygltf::Value(c.sequenceIndex);
+                    }
+                    tinygltf::Value::Array kfs;
+                    for (const auto& [t, v] : c.keyframes) {
+                        tinygltf::Value::Object kf;
+                        kf["time"] = tinygltf::Value(static_cast<double>(t));
+                        kf["value"] = tinygltf::Value(tinygltf::Value::Array{
+                            tinygltf::Value(static_cast<double>(v.x)),
+                            tinygltf::Value(static_cast<double>(v.y)),
+                            tinygltf::Value(static_cast<double>(v.z))});
+                        kfs.push_back(tinygltf::Value(kf));
+                    }
+                    co["keyframes"] = tinygltf::Value(kfs);
+                    curves.push_back(tinygltf::Value(co));
+                }
+                materialExtras["tint_animation"] = tinygltf::Value(curves);
+            }
+
+            // Shared by alphaFadeAnimation/weightFadeAnimation just below --
+            // both are Material::AnimatedScalarCurve, only the source M2
+            // field differs (see gltf.hpp's doc comment).
+            auto scalarCurvesToValue =
+                [](const std::vector<Material::AnimatedScalarCurve>& curves) {
+                    tinygltf::Value::Array out;
+                    for (const auto& c : curves) {
+                        tinygltf::Value::Object co;
+                        if (c.sequenceIndex >= 0) {
+                            co["sequence_index"] = tinygltf::Value(c.sequenceIndex);
+                        }
+                        tinygltf::Value::Array kfs;
+                        for (const auto& [t, v] : c.keyframes) {
+                            tinygltf::Value::Object kf;
+                            kf["time"] = tinygltf::Value(static_cast<double>(t));
+                            kf["value"] = tinygltf::Value(static_cast<double>(v));
+                            kfs.push_back(tinygltf::Value(kf));
+                        }
+                        co["keyframes"] = tinygltf::Value(kfs);
+                        out.push_back(tinygltf::Value(co));
+                    }
+                    return out;
+                };
+            if (!mat.alphaFadeAnimation.empty() || !mat.weightFadeAnimation.empty()) {
+                tinygltf::Value::Object fadeObj;
+                if (!mat.alphaFadeAnimation.empty()) {
+                    fadeObj["alpha"] = tinygltf::Value(scalarCurvesToValue(mat.alphaFadeAnimation));
+                }
+                if (!mat.weightFadeAnimation.empty()) {
+                    fadeObj["weight"] = tinygltf::Value(scalarCurvesToValue(mat.weightFadeAnimation));
+                }
+                materialExtras["fade_animation"] = tinygltf::Value(fadeObj);
+            }
+
             if (!materialExtras.empty()) {
                 tm.extras = tinygltf::Value(materialExtras);
             }

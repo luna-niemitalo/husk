@@ -21,12 +21,14 @@
 // different model (the default, bloodelffemale_hd00.skin, is -- it's a
 // separate, higher-poly M2's sidecar, not an LOD of the base model).
 
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <doctest/doctest.h>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <tiny_gltf.h>
@@ -623,6 +625,151 @@ TEST_CASE("husk export: a real weapon's .phys sidecar (auto-detected, same basen
     CHECK(boneIndices.size() == 10);
     CHECK(*boneIndices.begin() == 0);
     CHECK(*boneIndices.rbegin() == 9);
+
+    std::filesystem::remove(outPath);
+}
+
+// M2_GAPS_TODO Item 5: a real material's "texture_type" extras key, cross-
+// checked against an independent parse of the M2's own textures array
+// (husk::m2::parseTextures, not cmd_export.cpp's internal state) --
+// `bloodelffemale.m2` is known (via `husk info`'s own type= printout,
+// confirmed by hand before writing this test) to carry both a mix of
+// hardcoded slots (nonzero type -- skin/hair/etc.) and at least one real,
+// filename/FileDataID-based texture (type 0), so this exercises both the
+// present-when-nonzero and absent-when-zero halves of the convention on
+// real data, not just the synthetic fixtures in test_gltf.cpp. Material
+// names encode their own textureIndex (`..._tex<N>...`, see
+// cmd_export.cpp's buildMaterialsAndPrimitives) -- parsed directly rather
+// than assuming batch index == material index, since a batch with
+// indexCount == 0 is skipped and would desync that assumption.
+std::optional<int> textureIndexFromMaterialName(const std::string& name) {
+    size_t pos = name.find("_tex");
+    if (pos == std::string::npos) {
+        return std::nullopt;
+    }
+    pos += 4;
+    size_t end = pos;
+    while (end < name.size() && std::isdigit(static_cast<unsigned char>(name[end]))) {
+        ++end;
+    }
+    if (end == pos) {
+        return std::nullopt;
+    }
+    return std::stoi(name.substr(pos, end - pos));
+}
+
+TEST_CASE("husk export: a real character model's per-material 'texture_type' extras match an "
+          "independent parse of M2Texture::type, present only when nonzero" *
+          doctest::skip(testM2().empty() || testSkin().empty())) {
+    std::ifstream mf(testM2(), std::ios::binary);
+    REQUIRE(mf.good());
+    std::vector<uint8_t> fileBytes((std::istreambuf_iterator<char>(mf)),
+                                    std::istreambuf_iterator<char>());
+    auto header = husk::m2::parseHeader(fileBytes);
+    auto blob = husk::m2::extractBlob(fileBytes);
+    auto textures = husk::m2::parseTextures(blob, header.textures);
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-texture-type.glb").string();
+    std::filesystem::remove(outPath);
+    auto result =
+        runHusk("export \"" + testM2() + "\" -o \"" + outPath + "\" --skin \"" + testSkin() + "\"");
+    INFO("output:\n", result.output);
+    REQUIRE(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+
+    bool foundNonzero = false;
+    bool foundZero = false;
+    for (const auto& mat : model.materials) {
+        auto texIdx = textureIndexFromMaterialName(mat.name);
+        if (!texIdx || static_cast<size_t>(*texIdx) >= textures.size()) {
+            continue;
+        }
+        uint32_t expectedType = textures[*texIdx].type;
+        INFO("material ", mat.name, " -> texture ", *texIdx, " expected type ", expectedType);
+        if (expectedType != 0) {
+            foundNonzero = true;
+            REQUIRE(mat.extras.IsObject());
+            CHECK(mat.extras.Get("texture_type").GetNumberAsInt() == static_cast<int>(expectedType));
+        } else {
+            foundZero = true;
+            if (mat.extras.IsObject()) {
+                CHECK_FALSE(mat.extras.Get("texture_type").IsInt());
+            }
+        }
+    }
+    // Both halves of the present-only-when-nonzero convention are actually
+    // exercised by this real fixture, not just theoretically possible.
+    CHECK(foundNonzero);
+    CHECK(foundZero);
+
+    std::filesystem::remove(outPath);
+}
+
+// M2_GAPS_TODO Item 7: a real weapon's animated tint/fade curve
+// ('fade_animation' extras) decodes to plausible, finite, in-range values --
+// not garbage or NaN. Ashbringer (kWeaponRibbon) is known (checked by hand
+// running `husk export` and inspecting the resulting .glb before writing
+// this test) to have real animated M2TextureWeight/M2Color batches.
+TEST_CASE("husk export: a real weapon's 'fade_animation' extras decode to finite, in-range "
+          "keyframe values" *
+          doctest::skip(testWeaponRibbon().empty())) {
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-fade-animation.glb").string();
+    std::filesystem::remove(outPath);
+    auto result = runHusk("export \"" + testWeaponRibbon() + "\" -o \"" + outPath + "\"");
+    INFO("output:\n", result.output);
+    REQUIRE(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+
+    auto checkScalarCurves = [](const tinygltf::Value& curves) {
+        REQUIRE(curves.IsArray());
+        for (int i = 0; i < curves.ArrayLen(); ++i) {
+            const auto& c = curves.Get(i);
+            REQUIRE(c.Get("keyframes").IsArray());
+            double lastTime = -1.0;
+            for (int k = 0; k < c.Get("keyframes").ArrayLen(); ++k) {
+                const auto& kf = c.Get("keyframes").Get(k);
+                double t = kf.Get("time").GetNumberAsDouble();
+                double v = kf.Get("value").GetNumberAsDouble();
+                CHECK(std::isfinite(t));
+                CHECK(std::isfinite(v));
+                CHECK(v >= 0.0);
+                CHECK(v <= 1.0);
+                CHECK(t >= lastTime);
+                lastTime = t;
+            }
+        }
+    };
+
+    bool foundFadeAnimation = false;
+    for (const auto& mat : model.materials) {
+        if (!mat.extras.IsObject()) {
+            continue;
+        }
+        const auto& fade = mat.extras.Get("fade_animation");
+        if (!fade.IsObject()) {
+            continue;
+        }
+        foundFadeAnimation = true;
+        if (fade.Get("alpha").IsArray()) {
+            checkScalarCurves(fade.Get("alpha"));
+        }
+        if (fade.Get("weight").IsArray()) {
+            checkScalarCurves(fade.Get("weight"));
+        }
+    }
+    REQUIRE(foundFadeAnimation);
 
     std::filesystem::remove(outPath);
 }

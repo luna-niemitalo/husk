@@ -353,19 +353,29 @@ struct Sequence {
 // caller that wants to *say something* about the second one: core glTF
 // has no way to animate a material's baseColorFactor at all (unlike a
 // bone's translation/rotation/scale, which are real animatable node
-// properties -- see FAILURES2.md #7's global-sequence bone-track fix),
-// so there's no real translation to build here, only a diagnostic --
-// see cmd_export.cpp's animatedTintOrFadeBatchCount note.
+// properties -- see FAILURES2.md #7's global-sequence bone-track fix), so
+// there's no real *playback* to build -- but the full curve is still real,
+// useful data for a custom renderer or Blender script, resolved via
+// `*TrackOffset` below the same way buildAnimations resolves bone tracks
+// (resolveVec3TrackSequence/resolveRawIntTrackSequence, see
+// cmd_export.cpp's buildMaterialsAndPrimitives) and attached as inert
+// glTF material `extras` (`tint_animation`/`fade_animation`).
 struct Color {
     std::optional<Vec3> color;   // 0..1 per channel, rgb order
     std::optional<float> alpha;  // 0 (transparent) .. 1 (opaque)
     bool colorAnimated = false;  // true iff `color` is nullopt *because* the track has real keyframe data
     bool alphaAnimated = false;  // true iff `alpha` is nullopt *because* the track has real keyframe data
+    // Raw M2Track<C3Vector>/M2Track<fixed16> byte offsets for `color`/
+    // `alpha` -- always set (regardless of *Animated), so a caller can
+    // resolve the real curve itself when the flag is true.
+    uint32_t colorTrackOffset = 0;
+    uint32_t alphaTrackOffset = 0;
 };
 
 struct TextureWeight {
     std::optional<float> weight;  // 0..1; wiki: "I assume these are multiplied together" with Color::alpha
     bool weightAnimated = false;  // true iff `weight` is nullopt *because* the track has real keyframe data
+    uint32_t weightTrackOffset = 0;  // raw M2Track<fixed16> byte offset for `weight`, see Color's doc comment
 };
 
 // M2TextureTransform, per wowdev.wiki M2#Texture_Transforms -- UV

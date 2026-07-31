@@ -30,30 +30,28 @@ every item is gone, delete this file the same way `PHYS_TODO.md`/
    chunk-walking, no new glTF construct needed (extras only) — and it's the
    one piece of this whole investigation that affects animation *feel*
    (blending, movement-speed sync), not just data completeness.
-2. **Item 5 — `Texture.type` export.** Trivial (one field already parsed,
-   just not threaded through to material extras), meaningfully closes a
-   "why is this material's texture just missing" confusion for any
-   downstream consumer.
-3. **Item 2 — `PFDC`.** husk already has the full `.phys` parser
+2. **Item 2 — `PFDC`.** husk already has the full `.phys` parser
    (`src/phys.hpp`/`phys.cpp`) — this is "point it at a different chunk,"
    not new reverse-engineering.
-4. **Item 6 — Attachments/Events/Lights as real glTF nodes.** Well
+3. **Item 6 — Attachments/Events/Lights as real glTF nodes.** Well
    understood, no ambiguity, moderate effort (new node-emission code, not
    just extras).
-5. **Item 3 — `EXP2`.** Needs one real-file check before implementing (see
+4. **Item 3 — `EXP2`.** Needs one real-file check before implementing (see
    below) but the struct shape is simple.
-6. **Item 7 — animated material tint/fade extras dump.** Lowest urgency —
-   diagnostic value only, no glTF slot exists for the animated case anyway
-   (`M2_COMPLETENESS.md` already logs this ceiling as `native-possible, not
-   done`, meaning "worth doing eventually," not "blocks anything").
-7. **Item 4 — `PCOL`.** Blocked on finding a real file with this chunk at
+5. **Item 4 — `PCOL`.** Blocked on finding a real file with this chunk at
    all (War Within 11.1.7+, player-housing furniture) — do the corpus
    search first; if nothing turns up, this one just waits.
-8. **Item 8 — `DETL`.** New (from `M2_UNKNOWNS_EXPLORATION.md`'s
+6. **Item 8 — `DETL`.** New (from `M2_UNKNOWNS_EXPLORATION.md`'s
    investigation, now closed): real byte layout fully confirmed against
-   1,043 real files, zero ambiguity left. Similar effort/shape to Item 5 —
-   one small struct, straightforward `dumpDetl`-style addition, no glTF
-   translation needed (diagnostic-only, same class as `WFV3`).
+   1,043 real files, zero ambiguity left. Small effort/shape — one small
+   struct, straightforward `dumpDetl`-style addition, no glTF translation
+   needed (diagnostic-only, same class as `WFV3`).
+
+(Items 5 and 7 — `Texture.type` export and the animated material tint/fade
+extras curve dump — are implemented, tested, and documented; their sections
+have been removed from this file. See `M2_COMPLETENESS.md`'s Materials &
+textures section and `README.md`'s Materials paragraph for the permanent
+record.)
 
 ---
 
@@ -383,56 +381,6 @@ not a `PLYT`-style single dense blob.
 
 ---
 
-## Item 5: `Texture.type` — export the hardcoded/replaceable-slot marker
-
-### Current state
-
-`m2::Texture::type` (`src/m2.hpp`) is parsed and printed by `husk info`
-(`cmd_info.cpp:138`), but **`husk export` never reads it** — confirmed by
-grep, `type` appears nowhere in `cmd_export.cpp`'s material-building code.
-A texture with `type != 0` (hardcoded slot — character skin, hair, item
-tint, etc.) exports with no texture and no signal to a downstream consumer
-about *why* — indistinguishable from "the `--textures` directory just
-didn't have this file."
-
-### Implementation plan
-
-1. `src/cmd_export.cpp`'s material-building path (`buildMaterialsAndPrimitives`
-   or wherever `Texture` records currently get turned into glTF material
-   inputs): thread `type` through to the constructed material's `extras`,
-   alongside `additional_textures`/`texture_transform`'s existing pattern
-   (`gltf.cpp:558`/`581`).
-2. `src/gltf.hpp`/`gltf.cpp`: new field on whatever struct feeds
-   `materialExtras` (mirror the existing `additionalTextureLayers`/
-   `textureTransform` fields' shape) — a plain integer, `texture_type` or
-   similar key, written unconditionally (even `type == 0`, so a consumer
-   can distinguish "confirmed filename-based" from "field absent because
-   this predates the change") or only when nonzero (cheaper, matches
-   `additional_textures`' "only present when relevant" convention) — pick
-   whichever matches this project's existing extras-emission convention
-   more closely (check a couple of existing extras fields for precedent
-   before deciding).
-
-### Test plan
-
-- `tests/test_gltf.cpp`: material extras round-trip for `texture_type`.
-- `tests/test_cli.cpp` or `test_integration.cpp`: a real fixture with a
-  known hardcoded texture slot (character models are the obvious source —
-  `bloodelffemale`'s own textures likely include hardcoded skin/hair
-  slots; confirm via `husk info`'s existing `type=` printout on that
-  fixture before writing the assertion).
-
-### Docs to update
-
-`M2_COMPLETENESS.md`'s Materials & textures section — likely a new row
-("Hardcoded/replaceable texture slot marker") rather than folding into the
-existing "Texture references" row, since it's a genuinely distinct piece
-of information (marks *why* a texture is absent, doesn't add a texture).
-`README.md`'s Materials paragraph, if it currently implies every texture
-slot either resolves or is silently missing.
-
----
-
 ## Item 6: Attachments / Events / Lights — real glTF nodes, not diagnostic-only
 
 ### Current state
@@ -470,8 +418,12 @@ just not been built.
    the multi-root synthesized parent node).
 4. Lights specifically: the 5 animated fields (color/intensity/
    attenuation/visibility) stay out of scope for this item — that's a
-   separate, larger animated-material-track-style problem (see Item 7's
-   sibling scope), don't scope-creep this item into resolving those too.
+   separate, larger animated-material-track-style problem (the same
+   per-sequence/global-sequence M2Track curve-resolution shape the
+   now-implemented animated material tint/fade extras dump used, see
+   `M2_COMPLETENESS.md`'s "Animated material tint/fade" row and
+   `gltf::Material::tintAnimation`/`alphaFadeAnimation` in `src/gltf.hpp`),
+   don't scope-creep this item into resolving those too.
 
 ### Test plan
 
@@ -488,48 +440,6 @@ rows move from `node-possible, unclaimed` to `native — 100%` (if real
 nodes) or stay `extras` with an updated Consumption value (if the
 plan-mode check above lands on extras instead). `DESIGN.md` Key design
 decisions, if a new node-naming/parenting convention is introduced.
-
----
-
-## Item 7: Animated material tint/fade — extras curve dump
-
-### Current state
-
-`m2::Color`'s doc comment (`src/m2.hpp:359`) already explains this
-clearly: a constant-track value is surfaced; a genuinely-animated track is
-detected (`colorAnimated`/`alphaAnimated` flags) but the actual keyframe
-data is never resolved or exposed anywhere, not even diagnostically.
-`cmd_export.cpp`'s `animatedTintOrFadeBatchCount` note only counts how
-many batches hit this case, doesn't dump the curve.
-
-### Implementation plan
-
-1. `src/m2.cpp`: for a batch whose `Color`/`TextureWeight` reference is
-   genuinely animated, resolve the full `M2Track<Vec3>`/`M2Track<float>`
-   curve — reuse `resolveVec3TrackSequence`/`resolveFloatTrackSequence`,
-   the same functions bone translation/scale tracks and `M2Particle`'s
-   simulation-parameter curves already use. No new resolver needed, this
-   is the same track shape.
-2. **Export target**: core glTF has no `baseColorFactor` animation-channel
-   target (per `M2_COMPLETENESS.md`'s own honest note) — this stays
-   `extras`-only regardless of parse depth. Attach as material `extras`
-   (a new key, e.g. `tint_animation`/`fade_animation`, holding the
-   resolved keyframe arrays), same shape `additional_textures`/
-   `texture_transform` already use for "real data, no native slot."
-
-### Test plan
-
-`tests/test_m2.cpp` (curve resolution — likely near-zero new test
-surface if it's truly reusing existing resolvers verbatim), a real-fixture
-case if `bloodelffemale`/an existing weapon fixture has a genuinely
-animated tint/fade batch (check via `animatedTintOrFadeBatchCount`'s
-existing stderr note on a known fixture before assuming one needs to be
-found fresh).
-
-### Docs to update
-
-`M2_COMPLETENESS.md`'s "Animated material tint/fade" row: Parse depth
-`deref` → `full`, Consumption `diagnostic` → `extras`.
 
 ---
 

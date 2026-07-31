@@ -796,6 +796,8 @@ std::vector<Color> parseColors(const std::vector<uint8_t>& blob, const Array& ar
         c.alpha = readFixed16TrackValue(data, blobSize, off + 0x14);
         c.colorAnimated = !c.color && trackHasAnimatedData(data, blobSize, off + 0x00);
         c.alphaAnimated = !c.alpha && trackHasAnimatedData(data, blobSize, off + 0x14);
+        c.colorTrackOffset = static_cast<uint32_t>(off + 0x00);
+        c.alphaTrackOffset = static_cast<uint32_t>(off + 0x14);
         colors.push_back(c);
     }
 
@@ -825,6 +827,7 @@ std::vector<TextureWeight> parseTextureWeights(const std::vector<uint8_t>& blob,
         TextureWeight w;
         w.weight = readFixed16TrackValue(data, blobSize, off + 0x00);
         w.weightAnimated = !w.weight && trackHasAnimatedData(data, blobSize, off + 0x00);
+        w.weightTrackOffset = static_cast<uint32_t>(off + 0x00);
         weights.push_back(w);
     }
 

@@ -808,6 +808,191 @@ TEST_CASE("writeGlb: additionalTextureLayers and textureTransform extras coexist
     CHECK(extras.Get("texture_transform").Get("constant").Get<bool>() == false);
 }
 
+// M2_GAPS_TODO Item 5: M2Texture::type, when nonzero (a hardcoded/
+// replaceable slot -- character skin, hair, item tint), round-trips as a
+// "texture_type" material extras key.
+TEST_CASE("writeGlb: a material's nonzero textureType round-trips as 'texture_type' extras") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].textureType = 2;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.materials[0].extras;
+    REQUIRE(extras.IsObject());
+    CHECK(extras.Get("texture_type").GetNumberAsInt() == 2);
+}
+
+// The present-only-when-nonzero decision (gltf.hpp's Material::textureType
+// doc comment): 0 is the ordinary, filename-based case, and matches every
+// other extras field's own "absence means nothing extra to say" convention
+// -- so a batch whose primary texture is real (type 0) gets no
+// "texture_type" key at all, same as a material with no textureType set
+// (the struct's own default).
+TEST_CASE("writeGlb: a material with textureType == 0 gets no 'texture_type' extras key") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].textureType = 0;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    CHECK_FALSE(model.materials[0].extras.IsObject());
+}
+
+// M2_GAPS_TODO Item 7: a genuinely-animated M2Color::color curve round-trips
+// as "tint_animation" extras -- one entry per resolved M2Sequence, plus a
+// global-sequence entry (sequence_index omitted) when present.
+TEST_CASE("writeGlb: a material's tintAnimation round-trips as 'tint_animation' extras, "
+          "per-sequence and global-sequence alike") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+
+    husk::gltf::Material::AnimatedColorCurve perSeq;
+    perSeq.sequenceIndex = 3;
+    perSeq.keyframes = {{0.0f, {1.0f, 0.0f, 0.0f}}, {0.5f, {0.0f, 1.0f, 0.0f}}};
+    husk::gltf::Material::AnimatedColorCurve global;
+    global.sequenceIndex = -1;
+    global.keyframes = {{0.0f, {0.2f, 0.3f, 0.4f}}};
+    materials[0].tintAnimation = {perSeq, global};
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.materials[0].extras;
+    REQUIRE(extras.IsObject());
+    const auto& curves = extras.Get("tint_animation");
+    REQUIRE(curves.IsArray());
+    REQUIRE(curves.ArrayLen() == 2);
+
+    const auto& c0 = curves.Get(0);
+    CHECK(c0.Get("sequence_index").GetNumberAsInt() == 3);
+    REQUIRE(c0.Get("keyframes").IsArray());
+    REQUIRE(c0.Get("keyframes").ArrayLen() == 2);
+    CHECK(c0.Get("keyframes").Get(0).Get("time").GetNumberAsDouble() == doctest::Approx(0.0));
+    CHECK(c0.Get("keyframes").Get(0).Get("value").Get(0).GetNumberAsDouble() == doctest::Approx(1.0));
+    CHECK(c0.Get("keyframes").Get(1).Get("value").Get(1).GetNumberAsDouble() == doctest::Approx(1.0));
+
+    const auto& c1 = curves.Get(1);
+    CHECK_FALSE(c1.Get("sequence_index").IsInt());  // global-sequence entry omits it
+    CHECK(c1.Get("keyframes").Get(0).Get("value").Get(2).GetNumberAsDouble() == doctest::Approx(0.4));
+}
+
+TEST_CASE("writeGlb: a material with no tintAnimation gets no 'tint_animation' extras key") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    CHECK_FALSE(model.materials[0].extras.IsObject());
+}
+
+// M2_GAPS_TODO Item 7: alphaFadeAnimation/weightFadeAnimation (M2Color::alpha/
+// M2TextureWeight::weight) both nest under one "fade_animation" extras key,
+// each present independently -- husk doesn't combine the two curves itself
+// (see gltf.hpp's weightFadeAnimation doc comment).
+TEST_CASE("writeGlb: alphaFadeAnimation/weightFadeAnimation round-trip as 'fade_animation'.'alpha'/"
+          "'weight' extras") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+
+    husk::gltf::Material::AnimatedScalarCurve alpha;
+    alpha.sequenceIndex = 0;
+    alpha.keyframes = {{0.0f, 1.0f}, {1.0f, 0.0f}};
+    materials[0].alphaFadeAnimation = {alpha};
+
+    husk::gltf::Material::AnimatedScalarCurve weight;
+    weight.sequenceIndex = -1;
+    weight.keyframes = {{0.0f, 0.5f}};
+    materials[0].weightFadeAnimation = {weight};
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.materials[0].extras;
+    REQUIRE(extras.IsObject());
+    const auto& fade = extras.Get("fade_animation");
+    REQUIRE(fade.IsObject());
+
+    const auto& alphaCurves = fade.Get("alpha");
+    REQUIRE(alphaCurves.IsArray());
+    CHECK(alphaCurves.Get(0).Get("sequence_index").GetNumberAsInt() == 0);
+    CHECK(alphaCurves.Get(0).Get("keyframes").Get(1).Get("value").GetNumberAsDouble() ==
+          doctest::Approx(0.0));
+
+    const auto& weightCurves = fade.Get("weight");
+    REQUIRE(weightCurves.IsArray());
+    CHECK_FALSE(weightCurves.Get(0).Get("sequence_index").IsInt());
+    CHECK(weightCurves.Get(0).Get("keyframes").Get(0).Get("value").GetNumberAsDouble() ==
+          doctest::Approx(0.5));
+}
+
+TEST_CASE("writeGlb: only alphaFadeAnimation set means 'fade_animation' has no 'weight' key") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+    husk::gltf::Material::AnimatedScalarCurve alpha;
+    alpha.keyframes = {{0.0f, 1.0f}};
+    materials[0].alphaFadeAnimation = {alpha};
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    const auto& fade = model.materials[0].extras.Get("fade_animation");
+    REQUIRE(fade.IsObject());
+    CHECK(fade.Get("alpha").IsArray());
+    CHECK_FALSE(fade.Get("weight").IsArray());
+}
+
+TEST_CASE("writeGlb: a material with neither alphaFadeAnimation nor weightFadeAnimation gets no "
+          "'fade_animation' extras key") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    CHECK_FALSE(model.materials[0].extras.IsObject());
+}
+
+TEST_CASE("writeGlb: textureType/tintAnimation/fade_animation extras coexist with "
+          "additionalTextureLayers/textureTransform on the same material") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].textureType = 5;
+    husk::gltf::Material::AdditionalTextureLayer layer;
+    layer.fileDataId = 42;
+    materials[0].additionalTextureLayers = {layer};
+    husk::gltf::Material::TextureTransform xf;
+    materials[0].textureTransform = xf;
+    husk::gltf::Material::AnimatedColorCurve tint;
+    tint.keyframes = {{0.0f, {1, 1, 1}}};
+    materials[0].tintAnimation = {tint};
+    husk::gltf::Material::AnimatedScalarCurve alpha;
+    alpha.keyframes = {{0.0f, 1.0f}};
+    materials[0].alphaFadeAnimation = {alpha};
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.materials[0].extras;
+    REQUIRE(extras.IsObject());
+    CHECK(extras.Get("texture_type").GetNumberAsInt() == 5);
+    CHECK(extras.Get("additional_textures").IsArray());
+    CHECK(extras.Get("texture_transform").IsObject());
+    CHECK(extras.Get("tint_animation").IsArray());
+    CHECK(extras.Get("fade_animation").Get("alpha").IsArray());
+}
+
 // Regression test for FAILURES2.md #2: glTF 2.0 requires every accessor's
 // total byte offset to be a multiple of its component type's size (4 bytes
 // for the FLOAT/UNSIGNED_INT accessors husk emits) -- the

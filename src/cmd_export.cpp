@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -672,14 +673,15 @@ struct BuiltMaterials {
     // weightAnimated) -- e.g. an eye-glow or enchant-glow pulse. Unlike a
     // bone's translation/rotation/scale, core glTF has no way to *play back*
     // an animated material property, so there's no real translation to
-    // build -- and unlike the multi-texture-layer/textureTransform extras
-    // below, husk doesn't currently extract the actual keyframe data here
-    // either (that would need the same per-sequence/global-sequence
-    // resolution buildAnimations already does for bones, applied to a
-    // material property instead -- real future work, not attempted this
-    // pass). This only exists so exportGlb can at least say the static
-    // default is a lossy approximation, not silently pretend the export is
-    // complete.
+    // build -- but the actual keyframe data is resolved (same per-sequence/
+    // global-sequence machinery buildAnimations already uses for bones,
+    // resolveAnimatedColorCurve/resolveAnimatedFixed16Curve below) and
+    // attached as inert `tint_animation`/`fade_animation` material extras
+    // (see gltf::Material's doc comments), same treatment as the multi-
+    // texture-layer/textureTransform extras below. This still exists so
+    // exportGlb can note the static baseColorFactor default is a lossy
+    // approximation of the real animation, not silently pretend the export
+    // is complete.
     size_t animatedTintOrFadeBatchCount = 0;
     // Number of batches whose textureTransformComboIndex resolved to a real
     // M2TextureTransform (UV scroll/rotate/scale animation) -- see
@@ -718,7 +720,98 @@ struct M2MaterialInputs {
     std::vector<m2::TextureTransform> textureTransforms;
     std::vector<uint16_t> textureTransformCombos;
     std::optional<std::vector<uint32_t>> textureFileDataIds;
+    // For resolving a genuinely-animated M2Color/M2TextureWeight curve
+    // (colorAnimated/alphaAnimated/weightAnimated) into real keyframe data --
+    // see resolveAnimatedColorCurve/resolveAnimatedFixed16Curve below.
+    // `blob` is the same MD20 bytes `colors`/`textureWeights` above were
+    // parsed from (M2Track offsets are relative to it, not the .skin file);
+    // `sequenceCount` is the model's own header.sequences.count, the
+    // M2Track outer-array bound buildAnimations already iterates the same
+    // way for bone tracks.
+    const std::vector<uint8_t>* blob = nullptr;
+    size_t sequenceCount = 0;
 };
+
+// Decodes one raw fixed16 wire value (as resolveRawIntTrackSequence/
+// resolveRawIntGlobalSequenceTrack return it, zero-extended into a
+// uint32_t) into a 0.0..1.0 float -- the same conversion m2.cpp's
+// readFixed16TrackValue uses for the constant-value case
+// (wowdev.wiki M2#Colors_and_transparency's own "0 - transparent, 0x7FFF -
+// opaque" scale). Duplicated here rather than shared across the m2/
+// cmd_export module boundary since resolveRawIntTrackSequence's own doc
+// comment already assigns this scaling step to the caller.
+float decodeFixed16(uint32_t bits) {
+    uint16_t b = static_cast<uint16_t>(bits);
+    int16_t raw;
+    std::memcpy(&raw, &b, sizeof(raw));
+    return std::clamp(static_cast<float>(raw) / 32767.0f, 0.0f, 1.0f);
+}
+
+// Resolves a genuinely-animated M2Color::color track (colorAnimated) into
+// real (seconds, rgb) keyframes -- one gltf::Material::AnimatedColorCurve
+// per M2Sequence that has real inline data for this track (the model's own
+// sequence-array order, matching buildAnimations' own per-sequence loop for
+// bone tracks), plus a synthetic global-sequence entry (sequenceIndex left
+// at -1) when the track loops independently of any M2Sequence instead (see
+// resolveVec3GlobalSequenceTrack's doc comment). `color`'s x/y/z are
+// already 0..1 RGB, NOT a spatial vector -- deliberately NOT run through
+// toGltf()'s Z-up -> Y-up remap, which only applies to real positions/
+// directions.
+std::vector<gltf::Material::AnimatedColorCurve> resolveAnimatedColorCurve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
+    std::vector<gltf::Material::AnimatedColorCurve> curves;
+    for (size_t si = 0; si < sequenceCount; ++si) {
+        auto raw = m2::resolveVec3TrackSequence(blob, trackOffset, static_cast<uint32_t>(si));
+        if (raw.empty()) continue;
+        gltf::Material::AnimatedColorCurve curve;
+        curve.sequenceIndex = static_cast<int>(si);
+        curve.keyframes.reserve(raw.size());
+        for (const auto& [ts, v] : raw) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, gltf::Vec3{v.x, v.y, v.z});
+        }
+        curves.push_back(std::move(curve));
+    }
+    auto global = m2::resolveVec3GlobalSequenceTrack(blob, trackOffset);
+    if (!global.empty()) {
+        gltf::Material::AnimatedColorCurve curve;
+        curve.keyframes.reserve(global.size());
+        for (const auto& [ts, v] : global) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, gltf::Vec3{v.x, v.y, v.z});
+        }
+        curves.push_back(std::move(curve));
+    }
+    return curves;
+}
+
+// Same shape as resolveAnimatedColorCurve, but for a genuinely-animated
+// M2Color::alpha or M2TextureWeight::weight track (both M2Track<fixed16>) --
+// shared by both since only the source field differs, see
+// gltf::Material::alphaFadeAnimation/weightFadeAnimation's doc comment.
+std::vector<gltf::Material::AnimatedScalarCurve> resolveAnimatedFixed16Curve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
+    std::vector<gltf::Material::AnimatedScalarCurve> curves;
+    for (size_t si = 0; si < sequenceCount; ++si) {
+        auto raw = m2::resolveRawIntTrackSequence(blob, trackOffset, static_cast<uint32_t>(si), 2);
+        if (raw.empty()) continue;
+        gltf::Material::AnimatedScalarCurve curve;
+        curve.sequenceIndex = static_cast<int>(si);
+        curve.keyframes.reserve(raw.size());
+        for (const auto& [ts, bits] : raw) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, decodeFixed16(bits));
+        }
+        curves.push_back(std::move(curve));
+    }
+    auto global = m2::resolveRawIntGlobalSequenceTrack(blob, trackOffset, 2);
+    if (!global.empty()) {
+        gltf::Material::AnimatedScalarCurve curve;
+        curve.keyframes.reserve(global.size());
+        for (const auto& [ts, bits] : global) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, decodeFixed16(bits));
+        }
+        curves.push_back(std::move(curve));
+    }
+    return curves;
+}
 
 // Resolves the .skin file's batches (M2's actual material/texture
 // linkage, see src/skin.hpp's Batch doc comment) into one glTF material +
@@ -834,6 +927,23 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             }
             if (color.colorAnimated || color.alphaAnimated) {
                 ++result.animatedTintOrFadeBatchCount;
+                // Full curve dump (M2_GAPS_TODO Item 7) -- diagnostic-only
+                // extras, see gltf::Material::tintAnimation/
+                // alphaFadeAnimation's doc comments. `m2.blob` is only
+                // unset for a hypothetical caller that never populated it
+                // (none exists today, see M2MaterialInputs's doc comment) --
+                // best-effort like additionalTextureLayers/textureTransform
+                // above, not required for a usable export.
+                if (m2.blob) {
+                    if (color.colorAnimated) {
+                        gm.tintAnimation = resolveAnimatedColorCurve(*m2.blob, color.colorTrackOffset,
+                                                                       m2.sequenceCount);
+                    }
+                    if (color.alphaAnimated) {
+                        gm.alphaFadeAnimation = resolveAnimatedFixed16Curve(
+                            *m2.blob, color.alphaTrackOffset, m2.sequenceCount);
+                    }
+                }
             }
         }
         // Like textureCoordCombos above, treat a completely empty table as
@@ -863,6 +973,10 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             }
             if (weight.weightAnimated) {
                 ++result.animatedTintOrFadeBatchCount;
+                if (m2.blob) {
+                    gm.weightFadeAnimation = resolveAnimatedFixed16Curve(
+                        *m2.blob, weight.weightTrackOffset, m2.sequenceCount);
+                }
             }
         }
 
@@ -882,6 +996,12 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                     std::to_string(m2.textures.size()) + " textures");
             }
             gm.name += "_tex" + std::to_string(textureIndex);
+
+            // M2Texture::type (M2_GAPS_TODO Item 5) -- see
+            // gltf::Material::textureType's doc comment for why this is a
+            // real "husk can't resolve this locally" signal for any nonzero
+            // value, not just missing PNG data.
+            gm.textureType = m2.textures[textureIndex].type;
 
             // Second UV set (roadmap "Second UV set" feature): only
             // meaningful pre-Cataclysm, see M2MaterialInputs::
@@ -1400,6 +1520,8 @@ int exportGlb(int argc, char** args) {
         m2Inputs.textureTransforms = m2::parseTextureTransforms(blob, header.textureTransforms);
         m2Inputs.textureTransformCombos = m2::parseUint16Array(blob, header.textureTransformCombos);
         m2Inputs.textureFileDataIds = header.textureFileDataIds;
+        m2Inputs.blob = &blob;
+        m2Inputs.sequenceCount = header.sequences.count;
 
         // One (node name, .skin path) pair per LOD tier to export -- just
         // one, unnamed ("lod" only appears in a node name once --lod
@@ -1787,15 +1909,18 @@ int exportGlb(int argc, char** args) {
                              "metadata (see FAILURES2.md #6), not applied to the render\n";
             }
 
-            // FINDINGS.md §3.2: a batch's M2Color/M2TextureWeight can be
+            // M2_GAPS_TODO Item 7: a batch's M2Color/M2TextureWeight can be
             // real per-sequence or global-sequence keyframe animation (an
             // eye-glow or enchant-glow pulse, say), not the single constant
             // value gltf::Material::baseColorFactor can actually hold --
             // unlike a bone's translation/rotation/scale (a real, animatable
             // glTF node property, see resolveVec3GlobalSequenceTrack/
-            // FAILURES2.md #7), core glTF has no way to animate a material
-            // property at all, so there's no translation to build, only a
-            // diagnostic that the static default is a lossy approximation.
+            // FAILURES2.md #7), core glTF has no way to *play back* a
+            // material property's animation, so the rendered material still
+            // uses each batch's static default -- but the real curve is now
+            // resolved and attached as inert `tint_animation`/
+            // `fade_animation` extras (see gltf::Material's doc comments),
+            // not just dropped.
             if (built.animatedTintOrFadeBatchCount > 0) {
                 std::cerr << "husk: note: '" << path << "'"
                           << (name.empty() ? "" : " (" + name + ")") << "' has "
@@ -1804,7 +1929,8 @@ int exportGlb(int argc, char** args) {
                              "(M2TextureWeight) is animated (per-sequence or global-sequence "
                              "keyframes, not a single constant value) -- core glTF has no way to "
                              "animate a material's baseColorFactor, so each batch's static "
-                             "default is used instead and the real animation is dropped\n";
+                             "default is used on the render, but the real curve is attached as "
+                             "'tint_animation'/'fade_animation' extras\n";
             }
 
             // FINDINGS.md §3.1: a batch's textureTransformComboIndex
