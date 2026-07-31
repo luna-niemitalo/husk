@@ -327,24 +327,49 @@ textureTransform` carries whichever raw values resolved through to
 `extras`, untransformed, for a downstream renderer or Blender script that
 wants to apply the pivot correction itself.
 
-**A batch's animated `M2Color`/`M2TextureWeight` gets a diagnostic note,
-not a translation attempt.** The global-sequence bone-track fix (above)
-doesn't have a material-side counterpart: a
-bone's translation/rotation/scale are real, independently animatable glTF
-node properties, but core glTF has no way to *play back* an animated
-material property at all (unlike the texture-transform case just above,
-this isn't even a question of extension support — there's no core-glTF
-animation-channel target for a material's `baseColorFactor`, full stop).
-`m2::Color::colorAnimated`/`alphaAnimated`/`m2::TextureWeight::
-weightAnimated` (via the shared `trackHasAnimatedData` helper) distinguish
-"nullopt because genuinely empty" from "nullopt because it's animated and
-dropped," so `cmd_export.cpp` can at least say so
-(`animatedTintOrFadeBatchCount`'s note) instead of silently exporting the
-batch's static default as if nothing were lost. Extracting the actual
-keyframe data as `extras` (the way the texture-transform case does) would
-need the same per-sequence/global-sequence resolution `buildAnimations`
-already does for bones, applied to a material property instead — real
-future work, not attempted this pass.
+**A texture's `M2Texture::type` (nonzero -- a hardcoded/replaceable slot)
+is surfaced as `extras`, distinguishing "husk can't resolve this locally"
+from "the `--textures` directory just didn't have the file."** `type == 0`
+("NONE") is a real, filename/FileDataID-based texture, resolvable the
+ordinary way; any other value means the client substitutes the real image
+at runtime from DBC-driven character-customization/item-tint data husk has
+no access to, per this file's Non-goals -- so an empty `baseColorImagePng`
+for one of these means something categorically different than a missing
+PNG for a `type == 0` texture. `gltf::Material::textureType` is set from
+the batch's primary texture's `m2::Texture::type` unconditionally, but only
+serialized into `extras` (`texture_type`) when nonzero -- 0 is the ordinary
+case, matching `additionalTextureLayers`/`textureTransform`'s own "presence
+means something extra to say" convention, rather than writing a redundant
+key on every material.
+
+**A batch's animated `M2Color`/`M2TextureWeight` gets its real curve
+extracted as `extras`, never a native playback attempt.** The
+global-sequence bone-track fix (above) doesn't have a material-side
+*playback* counterpart: a bone's translation/rotation/scale are real,
+independently animatable glTF node properties, but core glTF has no way to
+*play back* an animated material property at all (unlike the
+texture-transform case just above, this isn't even a question of extension
+support — there's no core-glTF animation-channel target for a material's
+`baseColorFactor`, full stop, so this stays permanently `extras`-capped
+regardless of how much more husk parses). `m2::Color::colorAnimated`/
+`alphaAnimated`/`m2::TextureWeight::weightAnimated` (via the shared
+`trackHasAnimatedData` helper) distinguish "nullopt because genuinely
+empty" from "nullopt because it's animated," and `cmd_export.cpp`'s
+`resolveAnimatedColorCurve`/`resolveAnimatedFixed16Curve` resolve the real
+keyframe data the same per-sequence/global-sequence way `buildAnimations`
+already does for bones (`resolveVec3TrackSequence`/
+`resolveRawIntTrackSequence`, the latter since `M2Color::alpha`/
+`M2TextureWeight::weight` are `M2Track<fixed16>`, not `M2Track<float>` —
+reusing `resolveFloatTrackSequence` here would misread the wire bytes).
+The resolved curves attach as `gltf::Material::tintAnimation`/
+`alphaFadeAnimation`/`weightFadeAnimation` → `tint_animation`/
+`fade_animation` (`"alpha"`/`"weight"` sub-keys) material `extras`, one
+entry per M2Sequence that has real inline data plus a synthetic
+`sequenceIndex == -1` entry for a global-sequence-driven track — the same
+"tag it, don't guess at playback" treatment the texture-transform case
+gets, for a custom renderer or Blender script to apply itself.
+`cmd_export.cpp` still prints `animatedTintOrFadeBatchCount`'s note (now
+naming the extras keys instead of saying the data is dropped).
 
 **`.bone` correction data is surfaced as `extras`, never applied to the bind
 pose.** Same "tag it, don't guess at semantics" family as geoset selection/

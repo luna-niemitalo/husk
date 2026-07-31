@@ -103,6 +103,58 @@ struct Material {
         Vec3 scaling{1, 1, 1};
     };
     std::optional<TextureTransform> textureTransform;
+
+    // M2Texture::type (wowdev.wiki M2#Textures) for this batch's primary
+    // texture -- 0 ("NONE") means a real, filename/FileDataID-based texture
+    // (the ordinary case); any other value means the client resolves this
+    // slot at runtime from DBC-driven character-customization/item-tint data
+    // husk has no access to (see m2::Texture's doc comment), so an empty
+    // baseColorImagePng here is a real "husk can't resolve this slot at
+    // all" signal, not "the --textures directory just didn't have the
+    // file." Extras-only (`texture_type`), and -- like additionalTextureLayers/
+    // textureTransform above -- present only when there's something extra
+    // to say: a nonzero value. 0 is the assumed default when the key is
+    // absent, matching every other extras field's own "absence means
+    // ordinary" convention, so writing it out for the common case would be
+    // redundant.
+    uint32_t textureType = 0;
+
+    // A batch's M2Color::color/M2TextureWeight::weight (colorAnimated/
+    // weightAnimated) is real per-sequence or global-sequence keyframe
+    // animation, not the single constant value baseColorFactor can hold --
+    // see m2::Color/TextureWeight's doc comments. Core glTF has no
+    // animation-channel target for a material property at all, so there's
+    // no real *playback* to build (unlike a bone's translation/rotation/
+    // scale) -- but the full curve is still real, useful data, resolved via
+    // resolveVec3TrackSequence/resolveRawIntTrackSequence the same way bone
+    // tracks are (see cmd_export.cpp's buildMaterialsAndPrimitives) and
+    // attached as inert extras for a custom renderer or Blender script to
+    // play back itself. One entry per M2Sequence that has real inline data
+    // for this track, in the model's own sequence-array order, plus --
+    // when the track is global-sequence-driven instead -- one synthetic
+    // entry with `sequenceIndex == -1` (a continuous loop independent of
+    // any M2Sequence, see resolveVec3GlobalSequenceTrack's doc comment).
+    struct AnimatedColorCurve {
+        int sequenceIndex = -1;  // -1 == global-sequence-driven, not tied to one M2Sequence
+        std::vector<std::pair<float, Vec3>> keyframes;  // seconds -> rgb 0..1, NOT a spatial vector
+    };
+    struct AnimatedScalarCurve {
+        int sequenceIndex = -1;
+        std::vector<std::pair<float, float>> keyframes;  // seconds -> 0..1
+    };
+    // M2Color::color's animated curve -- extras key "tint_animation". Empty
+    // when colorAnimated is false (either genuinely no data, or a constant
+    // value already folded into baseColorFactor above).
+    std::vector<AnimatedColorCurve> tintAnimation;
+    // M2Color::alpha's animated curve -- extras key "fade_animation"."alpha".
+    std::vector<AnimatedScalarCurve> alphaFadeAnimation;
+    // M2TextureWeight::weight's animated curve -- extras key
+    // "fade_animation"."weight". Multiplies with alphaFadeAnimation the same
+    // way the static baseColorFactor[3] path does (see cmd_export.cpp) --
+    // husk doesn't combine the two itself (that needs resampling both onto
+    // a shared timeline, real work with no glTF slot to justify it here),
+    // exposed separately for a downstream consumer to combine.
+    std::vector<AnimatedScalarCurve> weightFadeAnimation;
 };
 
 // One glTF primitive's worth of triangles: a slice of triangle-corner

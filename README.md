@@ -183,10 +183,22 @@ failing loudly with the specific out-of-range index/count instead.
 
 **Materials.** Correct `alphaMode`/`doubleSided` from WoW's blend mode/render
 flags, plus a static `baseColorFactor` tint/fade from the batch's `M2Color`/
-`M2TextureWeight` references (not animated -- see `DESIGN.md`'s entry on why).
-Both UV sets are exported (`TEXCOORD_0`/`TEXCOORD_1`); `baseColorTexture`
-samples whichever one the batch's `textureCoordComboIndex` points at
-(pre-Cataclysm models only -- see `src/cmd_export.cpp`'s `M2MaterialInputs`).
+`M2TextureWeight` references. When that reference is genuinely animated
+(a real per-sequence or global-sequence keyframe curve, not a single
+constant value -- e.g. an eye-glow or enchant-glow pulse), core glTF still
+has no way to *play back* an animated material property, but the real
+resolved curve is attached as `tint_animation`/`fade_animation` material
+`extras` (see `M2_COMPLETENESS.md`'s "Animated material tint/fade" row) for
+a custom renderer or Blender script to apply itself, rather than silently
+dropped. A texture whose `M2Texture::type` is nonzero (a hardcoded/
+replaceable slot -- character skin, hair, item tint, resolved at runtime
+from client-side DB2 data husk doesn't have) is tagged with a `texture_type`
+material extras key, so a missing `baseColorImagePng` reads as "husk can't
+resolve this slot at all," not "the `--textures` directory just didn't have
+the file." Both UV sets are exported (`TEXCOORD_0`/`TEXCOORD_1`);
+`baseColorTexture` samples whichever one the batch's `textureCoordComboIndex`
+points at (pre-Cataclysm models only -- see `src/cmd_export.cpp`'s
+`M2MaterialInputs`).
 
 **Geosets.** Every primitive carries its submesh's real
 `M2SkinSection.skinSectionId` as glTF `extras`

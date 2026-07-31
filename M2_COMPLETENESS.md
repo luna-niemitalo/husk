@@ -75,7 +75,7 @@ elsewhere is just unattempted work.
 | External `.anim` sequences (`AFSB`, `.skel`-linked) | full | native | native — 100% | byte layout was undocumented anywhere, cracked this session — `SKB1`'s own descriptors point directly into `AFSB`'s payload, no new parser needed (`WIKI_FINDINGS.md` §2's follow-up) |
 | Global-sequence bone tracks (independent continuous loops) | full | native | native — 100% | `buildGlobalSequenceAnimations`, one clip per global-sequence index |
 | Alias sequences (`flags & 0x40`) | none | none | n/a | wowdev.wiki itself: "I have no clue" where this data lives — an upstream-spec gap, not a husk gap |
-| Animated material tint/fade (`M2Color`/`M2TextureWeight`, global-sequence-driven) | deref (animated flag detected) | diagnostic (stderr note only) | native-possible, not done | no core-glTF animation-channel target for a material property exists either way, but husk hasn't even attempted the extras-based keyframe dump that would at least surface the data |
+| Animated material tint/fade (`M2Color`/`M2TextureWeight`, per-sequence or global-sequence-driven) | full | extras | extras-capped, permanent | no core-glTF animation-channel target for a material property exists — `resolveAnimatedColorCurve`/`resolveAnimatedFixed16Curve` (`src/cmd_export.cpp`, reusing `resolveVec3TrackSequence`/`resolveRawIntTrackSequence`) resolve the full curve and attach it as `tint_animation`/`fade_animation` material extras (`gltf::Material`) for a custom renderer/Blender script to play back itself |
 
 ## Materials & textures
 
@@ -83,6 +83,7 @@ elsewhere is just unattempted work.
 |---|---|---|---|---|
 | Base material (blend mode, alpha mode, doubleSided) | full | native | native — 100% | `alphaMode`/`doubleSided` |
 | Texture references (names/FileDataIDs, `TXID`) | full | native | native — 100% | real embedded `baseColorTexture` via `--textures <dir>` |
+| Hardcoded/replaceable texture slot marker (`M2Texture::type != 0`) | full | extras | extras-capped, permanent | no core-glTF concept for "this slot is resolved by client-side DB2/character-customization data at runtime" — a nonzero `type` (skin/hair/item-tint/...) is attached as `texture_type` material extras (present only when nonzero, matching every other "absence means ordinary" extras convention here) so a missing `baseColorImagePng` reads as "husk can't resolve this locally," not "the `--textures` directory just didn't have the file" |
 | Multi-texture-layer (`textureCount > 1`, 2nd+ layer) | full | extras | extras-capped, permanent | core glTF has no slot for WoW's fixed-function combiner math (`Mod2x`/`Add`/env-map); index arithmetic confirmed exact against real data, `WIKI_FINDINGS.md` §7 |
 | Texture transform (UV scroll/rotate/scale, animated case) | full | extras | extras-capped, permanent | `KHR_texture_transform` has no animation-channel target — the common case has no representation regardless of effort |
 | Texture transform (UV scroll/rotate/scale, constant case) | full | extras | native-possible, unverified | pivot-correction math (texture-center vs. extension's origin) not checked against a real file yet |

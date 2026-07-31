@@ -1031,6 +1031,12 @@ TEST_CASE("parseColors: an unambiguously constant track (one sub-array, one keyf
     CHECK(colors[0].color->z == doctest::Approx(0.75f));
     REQUIRE(colors[0].alpha.has_value());
     CHECK(*colors[0].alpha == doctest::Approx(16384.0f / 32767.0f));
+    // colorTrackOffset/alphaTrackOffset (M2_GAPS_TODO Item 7) are always set,
+    // even for an unambiguously constant track -- a caller only consults
+    // them when *Animated is true, but they're set unconditionally so
+    // there's no separate "did this get populated" state to track.
+    CHECK(colors[0].colorTrackOffset == off + 0x00);
+    CHECK(colors[0].alphaTrackOffset == off + 0x14);
 }
 
 TEST_CASE(
@@ -1114,6 +1120,9 @@ TEST_CASE("parseTextureWeights: an unambiguously constant track resolves") {
     REQUIRE(weights.size() == 1);
     REQUIRE(weights[0].weight.has_value());
     CHECK(*weights[0].weight == doctest::Approx(6553.0f / 32767.0f));
+    // weightTrackOffset (M2_GAPS_TODO Item 7), always set -- see parseColors'
+    // matching colorTrackOffset/alphaTrackOffset test above.
+    CHECK(weights[0].weightTrackOffset == off + 0x00);
 }
 
 TEST_CASE("parseTextureWeights: an animated (multi-sub-array) track has no value") {
@@ -2064,6 +2073,61 @@ TEST_CASE("resolveRawIntTrackSequence: an unsupported element size throws") {
     putFullTrack(blob, trackOff, {{{0, rawIntBytes(1, 2)}}});
     CHECK_THROWS_AS(husk::m2::resolveRawIntTrackSequence(blob, static_cast<uint32_t>(trackOff), 0, 4),
                      husk::m2::ParseError);
+}
+
+// M2_GAPS_TODO Item 7 end-to-end: parseColors' stored colorTrackOffset/
+// alphaTrackOffset are real, directly-usable M2Track byte offsets --
+// exactly what cmd_export.cpp's resolveAnimatedColorCurve/
+// resolveAnimatedFixed16Curve feed straight into resolveVec3TrackSequence/
+// resolveRawIntTrackSequence. Builds a full M2Color record's worth of real
+// per-sequence keyframe data (both tracks genuinely animated, 2 sub-arrays
+// each) and confirms the round trip through parseColors -> stored offset ->
+// resolver reproduces the exact keyframes, for both sequence indices.
+TEST_CASE("parseColors: colorTrackOffset/alphaTrackOffset resolve real per-sequence keyframes via "
+          "resolveVec3TrackSequence/resolveRawIntTrackSequence") {
+    size_t off = 1000;
+    // Slack past the M2Color record's own 0x28 bytes so the first track's
+    // own appended inner-array data (which putFullTrack places starting at
+    // the buffer's current end) never grows back into the second track's
+    // still-unwritten header/outer-array region at off+0x14 -- both tracks
+    // share one contiguous record, unlike putFullTrack's other test cases
+    // above, which each use a fresh, far-apart trackOff.
+    std::vector<uint8_t> blob(off + 0x28 + 256, 0);
+    putFullTrack(blob, off + 0x00,
+                 {{{0, vec3Bytes({1, 0, 0})}}, {{500, vec3Bytes({0, 1, 0})}}});
+    putFullTrack(blob, off + 0x14,
+                 {{{0, fixed16Bytes(32767)}}, {{500, fixed16Bytes(0)}}});
+
+    husk::m2::Array array;
+    array.count = 1;
+    array.offset = static_cast<uint32_t>(off);
+    auto colors = husk::m2::parseColors(blob, array);
+
+    REQUIRE(colors.size() == 1);
+    CHECK(colors[0].colorAnimated);
+    CHECK(colors[0].alphaAnimated);
+    CHECK(colors[0].colorTrackOffset == off + 0x00);
+    CHECK(colors[0].alphaTrackOffset == off + 0x14);
+
+    auto colorSeq0 = husk::m2::resolveVec3TrackSequence(blob, colors[0].colorTrackOffset, 0);
+    REQUIRE(colorSeq0.size() == 1);
+    CHECK(colorSeq0[0].first == 0);
+    CHECK(colorSeq0[0].second.x == doctest::Approx(1));
+
+    auto colorSeq1 = husk::m2::resolveVec3TrackSequence(blob, colors[0].colorTrackOffset, 1);
+    REQUIRE(colorSeq1.size() == 1);
+    CHECK(colorSeq1[0].first == 500);
+    CHECK(colorSeq1[0].second.y == doctest::Approx(1));
+
+    auto alphaSeq0 =
+        husk::m2::resolveRawIntTrackSequence(blob, colors[0].alphaTrackOffset, 0, 2);
+    REQUIRE(alphaSeq0.size() == 1);
+    CHECK(alphaSeq0[0].second == 32767u);
+
+    auto alphaSeq1 =
+        husk::m2::resolveRawIntTrackSequence(blob, colors[0].alphaTrackOffset, 1, 2);
+    REQUIRE(alphaSeq1.size() == 1);
+    CHECK(alphaSeq1[0].second == 0u);
 }
 
 TEST_CASE("resolveRawIntGlobalSequenceTrack: reads real keyframes for a global-sequence-driven "
