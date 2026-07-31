@@ -118,7 +118,7 @@ elsewhere is just unattempted work.
 | Sidecar FileDataIDs actually resolved to a local file (`SFID`/`TXID`/`AFID`/`BFID`) | full | native (`SFID`/`TXID`/`AFID`) or extras-only (`BFID`, see the `.bone` row below) | native — 100% (`SFID`/`TXID`/`AFID`); extras-only, by design (`BFID`) | `--skin-dir`/`--textures`/`--anim`/`--bones-dir`, local-directory convention only, never CASC |
 | Sidecar FileDataIDs surfaced but not resolved (`SKID`/`PFID`) | full (raw ID only) | diagnostic (`husk info`) | n/a — CASC resolution is a hard non-goal | no local-directory convention exists for these two |
 | `.bone` correction matrices (`BIDA`/`BOMT`) | full | diagnostic (`dump-chunks`) + inert `extras` (`husk export --bones-dir`) | extras-only, by design — never applied to the render | LOD ruled out as the selector by real data; slot selection likely a client-side customization-choice DB2 lookup husk can't reach — `TODO_correctness.md` #6 |
-| Lookup tables (`boneLookup`/`attachmentLookup`/`cameraLookup`/`textureLookup`/`sequenceLookup`) | descriptor | none | n/a, unclaimed | not even printed by `husk info` today — `TODO_correctness.md` #4 |
+| Lookup tables (`boneLookup`/`attachmentLookup`/`cameraLookup`/`textureLookup`/`sequenceLookup`) | descriptor | none | n/a, unclaimed | not even printed by `husk info` today — `TODO_correctness.md` #2 |
 
 ## Infrastructure (not independently renderable)
 

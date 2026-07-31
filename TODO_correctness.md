@@ -137,3 +137,69 @@ other way (e.g. a separate out-of-band tool scraping it from CASC/DB2 at
 build time, per `DESIGN.md`'s Non-goals, and handing husk a plain slot
 index/file to use), applying a specific slot to the render becomes a real
 follow-up; not attempted here.
+
+---
+
+### 4. Texture-transform pivot-correction math (constant case) — real fixture found, math not yet implemented
+
+`M2_COMPLETENESS.md`'s "Texture transform (constant case)" row is capped
+at `native-possible, unverified`, not `extras-capped, permanent` like the
+animated case right below it — `gltf::Material::textureTransform` is
+currently written as inert `extras` only (`src/m2.hpp`'s `TextureTransform`
+doc comment, `DESIGN.md` lines ~308-328), but a real `KHR_texture_transform`
+*is* representable for the constant case, unlike the animated one (core
+glTF's `KHR_texture_transform` has no animation-channel target at all, so
+that half stays permanently extras-only regardless of effort). What's
+blocked implementation so far: per wowdev.wiki, M2's rotation pivots around
+the texture's own center (0.5, 0.5), while `KHR_texture_transform`'s
+rotation pivots around (0,0) — folding that pivot difference correctly
+into the extension's `offset` field is exactly the kind of math this
+project's own methodology says shouldn't ship without a real file to check
+it against (`WIKI_FINDINGS.md`: decode real records, don't guess from text
+alone), and no such fixture existed.
+
+**A real fixture now exists.** `tools/find_texture_transform_files.py`
+(new, same self-contained one-off-scanner convention as
+`find_multiroot_skeletons.py`) scanned the full real corpus
+(`/media/luna/data/wow_export`, 130,576 files, ~35s): 517 files carry any
+`M2TextureTransform` data at all; 761 individual transform records are
+unambiguously constant (`constantTrackValueOffset`'s exactly-one-keyframe
+rule, `src/m2.cpp:639`) with a non-identity rotation; 401 of those are
+confirmed actually referenced by a real `.skin` batch's
+`textureTransformComboIndex` (not dead/unused array entries) — full path
+list in the gitignored `texture_transform_files_for_exploration.txt`
+(repo root), same convention as every other `*_for_exploration.txt`. The
+rotations found are clean, discrete angles (mostly exact 90°/180°/67.5°
+about Z), consistent with authored UV-orientation flips rather than
+continuous scroll effects — real, sane data, spot-checked against an
+independent hand-decode of one file (`brewfestmount.m2`, matched exactly,
+magnitude-1.0 quaternion) before being trusted.
+
+**Best candidate fixtures**, in order of simplicity:
+- `creature/brewfestmount/brewfestmount.m2`, transform index 0 — rotation
+  `(0,0,-1,0)` (180° about Z) with no translation/scaling on that record
+  at all. Simplest possible case, isolates rotation-pivot math from
+  everything else.
+- `creature/boundairelemental/unboundairelemental_low.m2`, transform
+  index 0 — rotation `(0,0,0.7071,0.7071)` (90° about Z), same shape.
+- `creature/bloodknightcharger/bloodknightcharger.m2`, transform index 2
+  — rotation `(0,0,-1,0)` *plus* constant scaling `(1.0, 1.5, 0.0)`, a
+  good second fixture once rotation-alone is verified, since it exercises
+  rotation and scale combined.
+
+**Not yet done, and what it would take:** (1) derive and hand-verify the
+pivot-correction formula (texture-center-pivot rotation → equivalent
+`KHR_texture_transform` offset+rotation pair) against `brewfestmount.m2`'s
+known values, the same way every other wiki-sourced formula in this
+project gets cross-checked before shipping; (2) copy the chosen fixture(s)
+into `test_data/` (none of the three above are committed yet — same
+"real test data was the actual blocker" pattern the particle/ribbon and
+`.phys` sessions hit); (3) wire the corrected math into
+`cmd_export.cpp`'s existing texture-transform-extras block
+(`src/cmd_export.cpp:1178`) as a real `KHR_texture_transform` on the
+material when the transform is unambiguously constant, falling back to
+today's inert-extras behavior when it's animated; (4) verify via
+`gltf_validator` and a Blender readback (UV coordinates match the source
+data's own intent), same conformance discipline `tests/
+test_conformance.cpp` already applies elsewhere. Investigation only this
+round — no `src/` changes, no fixture committed yet.
