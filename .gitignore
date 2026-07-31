@@ -2,6 +2,7 @@ build/
 /.direnv/
 /.reference/
 test_data/
+reference/
 /result
 documentation
 

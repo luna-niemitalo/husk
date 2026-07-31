@@ -41,6 +41,32 @@ Non-goals, by design, not oversight:
   `.m3` files exist in this corpus (unresolved listfile names, `models\
   unknown\unk_exp*\<fdid>.m3`) — noted for the record, still out of scope,
   no investigation started.
+- No ADT (terrain) support yet either (tracked, not started, `README.md`'s
+  format matrix gained an ADT column 2026-07-31) — genuinely missed when
+  this project was first scoped, not a deliberate exclusion: crucial for
+  any actual rendered world, not just props/buildings. `.wdt`/`.wdl` (which
+  ADT tiles exist per map; coarse whole-continent distant heightmap) are
+  ADT's own real dependencies, not yet scoped either.
+- **PM4/PD4 (server-side navigation/pathing mesh) declared in scope**,
+  2026-07-31, explicitly for pathing use cases ("we want pathing") — not
+  yet researched at all (no wiki page read, no real file inspected this
+  session). Genuinely different in kind from every other format above:
+  never touched by the client renderer, only by server-side movement/AI,
+  so "renders correctly" isn't the bar for it the way it is for M2/WMO/
+  ADT — a future investigation should ground itself in that distinction
+  before assuming the M2/WMO byte-verification playbook transfers as-is.
+- **Shader bytecode (`BLS`/`GFAT`, WoW's compiled-shader files) investigated
+  and deliberately deprioritized, not ruled out on principle.** Luna's own
+  real investigation (not this session's) found actual intermediary
+  compiled shader files — `.dxbc` (DirectX bytecode) and `.spv` (SPIR-V),
+  both stripped of debug symbols/comments/cross-references, sitting at
+  `wow_modding/export/shaders/` — confirming decoding them is *possible*,
+  not just theoretical. Would answer a real correctness question this
+  project can't currently answer any other way (Blizzard's actual LOD-
+  dithering math), but the effort-to-visual-fidelity-gain ratio is judged
+  too poor to prioritize right now, at this stage of the project. Revisit
+  if/when core M2/WMO/ADT coverage stops being the bottleneck on visual
+  fidelity.
 - No Blender addon. A `.glb` file Blender's stock importer can open is the
   entire deliverable.
 
@@ -1124,3 +1150,23 @@ determined -- worth a real investigation only if a future design ever
 wants to treat root bones differently based on it, per this project's own
 don't-guess-at-semantics rule. None of these three are blockers; they're
 recorded here so a future session doesn't have to rediscover them.
+
+`TOOL_COMPARISON.md` (new) is a static source-level comparison against
+wow.export (Kruithne/wow.export, cloned into gitignored `reference/
+wow.export/`), the real community-standard tool for the same M2→glTF
+problem — requested directly, scoped to source-reading only (no live
+export diff; wow.export is unstable enough on Luna's own account that a
+real side-by-side run is deferred as future work, tracked in that file's
+own closing section). Headline finding: husk and wow.export solve
+adjacent but different problems — wow.export has live CASC+DB2 access
+(real character-customization-driven texture/geoset resolution, exactly
+the external data source `TODO_correctness.md`'s `.bone`-slot-selection
+gap and this file's `Texture.type` non-goal both point at) and broader
+format scope (WMO/ADT/M3), but its own M2 loader has zero code path at
+all for ribbons, particles, events, lights, cameras, or the `.phys`
+sidecar — confirmed by reading its source directly (dead
+`// this.data.move(8)` skip-comments, and no `PHYSLoader.js` file exists),
+not inferred. Also surfaced 3 real corpus files with a genuinely new,
+not-yet-tracked animation-data failure shape (NaN keyframes / a ~2.2
+billion ms backward timestamp jump) — see that file's own closing
+section for the exact files.
