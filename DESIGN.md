@@ -1044,8 +1044,12 @@ pieces (`M2_UNKNOWNS_EXPLORATION.md` -- wowdev.wiki itself had no
 field-level struct, or an internally-inconsistent one, for `WFV1`/`WFV2`/
 `DPIV`/`AFRA`/`DETL`, plus the `M2Sequence.aliasNext` resolution
 mechanism) has since run to completion and was removed once every target
-had a final disposition: `WFV1`/`WFV2`/`DPIV`/`AFRA` are confirmed absent
-from a full real 130,576-file corpus sweep (`WIKI_FINDINGS.md` §10);
+had a final disposition: `WFV1`/`WFV2`/`DPIV`/`AFRA` were originally reported
+confirmed-absent from a full real 130,576-file corpus sweep, but that was a
+scanner bug (a `bytes`-vs-`str` dict-key mismatch that made the check always
+false), not a real result -- corrected: all four (plus `PCOL`,
+`M2_GAPS_TODO.md` Item 4) are real and present, cross-checked independently
+via `casc-tool scan-chunks` (`WIKI_FINDINGS.md` §10);
 `DETL`'s real byte layout is fully resolved (12-byte stride, zero-padded to
 a 16-byte boundary -- §11, implementation tracked in `M2_GAPS_TODO.md`
 Item 8); `aliasNext` is a local `sequences`-array index, not an external

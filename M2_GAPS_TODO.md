@@ -25,11 +25,14 @@ every item is gone, delete this file the same way `PHYS_TODO.md`/
 
 ## Priority order (bottom-line-up-front, per this project's own convention)
 
-1. **Item 4 — `PCOL`.** Blocked on finding a real file with this chunk at
-   all (War Within 11.1.7+, player-housing furniture) — a corpus search
-   found zero real files carrying it (0/130,576, see the item's own section
-   below); it just waits for newer extraction data. The only item left in
-   this file.
+1. **Item 4 — `PCOL`.** **No longer blocked** — the "0/130,576" result below
+   was a real bug in `tools/find_m2_unknown_chunks.py` (a `bytes`-vs-`str`
+   dict-key mismatch that made its membership check always `False`), not a
+   real absence. Corrected count: **2,354/130,576 real files** carry a real
+   `PCOL` chunk (see `WIKI_FINDINGS.md` §10 for the full corrected writeup,
+   cross-checked independently via `casc-tool scan-chunks` against a live
+   CASC install). Ready to implement against real data now — see the
+   "If real data is found" section below, which still applies as written.
 
 (Items 1 (`M2Sequence`'s missing fields, including `aliasNext` chain
 resolution), 2 (`PFDC`), 3 (`EXP2`), 5 (`Texture.type` export), 6
@@ -52,23 +55,22 @@ structure as per Zee's research" — but a full byte-accountable struct
 flags, each a self-describing region the same way `PLYT`'s polytope shapes
 already are in `.phys`).
 
-### Blocker
+### Blocker (resolved — was a false negative, not real absence)
 
-**Real test data, not structural uncertainty.** This chunk only appears on
-11.1.7+ player-housing furniture models — check whether the corpus at
-`/media/luna/data/wow_export` has any real coverage of that expansion
-range at all before investing implementation time. If it doesn't, this
-item just waits for newer extraction data; don't invent synthetic-only
-coverage for a "preliminary" wiki struct with zero real-byte
-cross-checking, same caution this project already applies elsewhere
-(`kMinVerifiedParticleVersion`'s whole reason for existing).
-
-**Checked**: a top-level-chunk-tag scan across the full real corpus
-(`/media/luna/data/wow_export`, all 130,576 `.m2` files, same fast scan
-`tools/find_m2_unknown_chunks.py` already established) found **zero** real
-files carrying a `PCOL` chunk. This item stays parked exactly as scoped
-above — waiting for newer extraction data, not implemented against a
-"preliminary" wiki struct with no real bytes to ground it.
+A top-level-chunk-tag scan across the full real corpus (`/media/luna/data/
+wow_export`, all 130,576 `.m2` files, `tools/find_m2_unknown_chunks.py`)
+originally reported **zero** real files carrying a `PCOL` chunk. That result
+was wrong: the script's `hits` dict is keyed by `str`, but the per-chunk
+check compared the raw `bytes` tag against it (`if tag in hits`) — `bytes`
+never equals `str` in Python 3, so the check could never fire, for any tag,
+in any file. Fixed (compare against `TARGET_TAGS` directly instead); rerunning
+against the same corpus now finds **2,354 real files** with a genuine `PCOL`
+chunk (sizes observed: 2,016–12,608+ bytes, varying per file — consistent
+with the wiki's self-describing count+offset struct, not a fixed-size
+record). Independently reconfirmed via `casc-tool scan-chunks` against a live
+CASC install (2,333/130,576 — the ~1% gap matches this corpus's own known
+334-file extraction-completeness gap, not a disagreement). Full writeup:
+`WIKI_FINDINGS.md` §10.
 
 ### If real data is found
 

@@ -1,9 +1,22 @@
 #!/usr/bin/env python3
-"""Scans a real M2 corpus for four still-genuinely-undocumented top-level
-Legion+ chunk tags -- WFV1, WFV2, DPIV, AFRA (see WIKI_FINDINGS.md sec.10 for
-the confirmed-absent result this scan produced). Bundled into one corpus
-pass since they're cheap to check together: one top-level chunk walk per
-file, four tags to test per chunk.
+"""Scans a real M2 corpus for five still-genuinely-undocumented-or-unverified
+top-level Legion+ chunk tags -- WFV1, WFV2, DPIV, AFRA, PCOL (see
+WIKI_FINDINGS.md sec.10 and M2_GAPS_TODO.md Item 4 -- both now corrected, see
+below). Bundled into one corpus pass since they're cheap to check together:
+one top-level chunk walk per file, five tags to test per chunk.
+
+CORRECTED 2026-07-31: this script previously reported a "confirmed absent"
+zero-hit result for all four original targets, which was wrong -- a real bug,
+not a real finding. `hits` was keyed by `str` (`tag.decode()`), but the
+membership check compared the raw `bytes` tag against it (`if tag in hits`);
+`bytes` and `str` never compare equal in Python 3, so the check was always
+False regardless of what the real data contained. Caught by casc-tool's
+independently-built `scan-chunks` command (a structural, dual-orientation
+chunk walker with no Python involved) finding real hits for all five tags in
+the exact same 130,576-file corpus this script scans by default -- including
+one WFV1 hit landing on FileDataID 2445860, the very file wowdev.wiki names
+as its own concrete first-tested example. Fixed by checking membership
+against `TARGET_TAGS` (still raw bytes) directly, not the `str`-keyed dict.
 
 Independent of husk's own code (same "second opinion" discipline
 tools/find_multiroot_skeletons.py already established) -- reads the raw
@@ -32,7 +45,7 @@ except ImportError:
 
 DEFAULT_ROOT = Path("/media/luna/data/wow_export")
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TARGET_TAGS = (b"WFV1", b"WFV2", b"DPIV", b"AFRA")
+TARGET_TAGS = (b"WFV1", b"WFV2", b"DPIV", b"AFRA", b"PCOL")
 MAX_HEX_BYTES = 96
 
 
@@ -80,7 +93,7 @@ def main() -> int:
             continue
         try:
             for tag, payload in iter_top_level_chunks(data):
-                if tag in hits:
+                if tag in TARGET_TAGS:  # bug fix: `hits` is str-keyed, `tag` is bytes -- compare against TARGET_TAGS
                     hits[tag.decode()].append({
                         "path": str(path),
                         "size": len(payload),

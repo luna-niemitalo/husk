@@ -839,24 +839,77 @@ attempt.
 
 ---
 
-## 10. `M2` — `WFV1`/`WFV2`/`DPIV`/`AFRA` confirmed absent from the full real corpus
+## 10. `M2` — `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL`: the original "confirmed absent" result was a scanner bug, not a real finding — all five are real and present
 
-**Confidence: verified negative result**, against all 130,576 real `.m2`
-files in `/media/luna/data/wow_export` (a complete corpus sweep, not a
-sample — `tools/find_m2_unknown_chunks.py`, ~30s runtime). Four separate
-wowdev.wiki targets (`M2_UNKNOWNS_EXPLORATION.md` targets 1–4), bundled into
-one top-level-chunk-tag scan since none needed more than a presence check.
+**Confidence: corrected, verified positive result.** The original version of
+this section (below, for the record) reported all four original targets as a
+verified zero-hit result across the full 130,576-file corpus. That was
+**wrong** — a real bug in `tools/find_m2_unknown_chunks.py`, not a real
+absence. Caught by `casc-tool`'s independently-built `scan-chunks` command (a
+structural, dual-orientation chunk walker with no Python and no shared code
+with this script), which found real hits for all five tags — `PCOL`
+(`M2_GAPS_TODO.md` Item 4) folded in here too, since it's the same class of
+check and was blocked on the same "zero real files" belief.
 
-### Current text
+### The bug
 
-- `WFV1`/`WFV2`: `struct WFV1 { // unknown };` (and identically for `WFV2`)
-  — first tested on a real waterfall in 8.2.0 (fdid 2445860).
-- `DPIV`: "Unknown, seemingly always 32 bytes, mostly empty" (≥ 11.1.7.60520,
-  War Within).
-- `AFRA`: "Not observed in any files yet, presumably added in DF" (no struct
-  at all).
+`find_m2_unknown_chunks.py`'s `hits` dict is keyed by `str`
+(`tag.decode()`), but the per-chunk membership check compared the raw
+`bytes` tag against it: `if tag in hits`. `bytes` and `str` never compare
+equal in Python 3 (different type, different hash) — that check was **always
+`False`**, for every chunk, in every file, regardless of what the real data
+contained. The scan never had a chance to record a hit; the "0/130,576"
+result it reported was a property of the bug, not of the corpus. Fixed by
+comparing against `TARGET_TAGS` (still raw `bytes`) directly instead of the
+`str`-keyed `hits` dict.
 
-### Proposed addition
+### Corrected real counts (same corpus, `/media/luna/data/wow_export`, 130,576 real `.m2` files, 334 unreadable/skipped — unchanged from the original scan)
+
+| Tag | Hits | Notes |
+|---|---|---|
+| `WFV1` | 2 | Both `world/expansion07/doodads/nazjatar/` (BfA 8.2 Nazjatar zone) |
+| `WFV2` | 2 | Both `world/expansion07/doodads/nazjatar/`, same zone as `WFV1` |
+| `AFRA` | 32 | Spell-effect/void-themed assets (`spells/fx_*_aura.m2`, `world/expansion11/doodads/void/...`, several `models/*/unk_exp11_*` unnamed models) |
+| `DPIV` | 2,632 | Always exactly 32 bytes, matching the wiki's own "mostly empty" description |
+| `PCOL` | 2,354 | Variable size (2,016–12,608+ bytes seen), consistent with the wiki's self-describing count+offset struct |
+
+Independently re-confirmed against a second, differently-sourced corpus: a
+live CASC install scanned directly via `casc-tool scan-chunks --mask '*.m2'
+--watch WFV1,WFV2,DPIV,AFRA,PCOL` (product `wow`, build 68887) found the
+*exact same* `WFV1`/`WFV2`/`AFRA` counts and paths, and `DPIV`/`PCOL` counts
+within ~1% (2,610/2,333 vs. 2,632/2,354 — the small gap is consistent with
+this corpus's own known 334-file extraction-completeness gap, not a
+disagreement about real content). Two independently-written tools, in two
+different languages, against two different extractions of the game data,
+converging on the same result — about as strong a confirmation as this
+project's own discipline asks for.
+
+**The single strongest individual data point**: one of the two `WFV1` hits
+is FileDataID **2445860** — `world/expansion07/doodads/nazjatar/
+8nzj_waterfall_test_01.m2` — the exact file wowdev.wiki names as its own
+concrete "first tested" example for `WFV1`. An independent scanner landing
+exactly on the wiki's own named example is not a coincidence a bug could
+produce.
+
+### Raw content observed (not yet a confirmed semantic reading — flagged as a hypothesis, not fact, per this project's own "don't guess at semantics" discipline)
+
+- `AFRA` (16 bytes, all 32 real hits): first 4 bytes decode as a real
+  little-endian `float32` in a plausible 0.0–1.0 range across every hit
+  (`0000003f`=0.5, `9a99193f`≈0.6, `48e17a3f`≈0.979, `cdcc4c3e`≈0.2,
+  `9a99993e`≈0.3), remaining 12 bytes zero. Consistent with a single
+  fade/radius parameter given the tag's own "AFRA" naming and the
+  spell-effect/aura context every real hit's path shares, but not confirmed
+  against any authoritative source.
+- `DPIV` (32 bytes, every one of 2,632 hits): mostly zero-filled, matching
+  the wiki's "mostly empty" text exactly; a minority of real files
+  (e.g. `creature/pa_kite_lamp/pa_kite_lamp_creature.m2`) have non-zero
+  leading bytes that decode as plausible real float values, not garbage.
+- `PCOL`: leading bytes decode as a run of small, plausible array-count
+  integers (e.g. `40, 32, 74, ...`) exactly matching the wiki's own
+  documented count+offset struct shape — consistent with real, well-formed
+  collision data, not yet implemented/cross-checked field-by-field.
+
+### Original text (for the record — this is what was wrong, not what should be trusted)
 
 > As of this corpus's extraction (2026, retail client — the corpus has
 > real coverage of both 8.2.0-era and War Within-era content, confirmed
@@ -864,38 +917,33 @@ one top-level-chunk-tag scan since none needed more than a presence check.
 > `DETL`-bearing doodads elsewhere in this corpus), **zero real files carry
 > a `WFV1`, `WFV2`, `DPIV`, or `AFRA` top-level chunk** — not "rare," not
 > "sampled and missed," a complete zero-hit result across all 130,576 real
-> `.m2` files. `WFV1`/`WFV2` were apparently short-lived even in their own
-> narrow niche (waterfall/PBR-shader tech) — every real `WFV`-family chunk
-> in this corpus is the later, fully-documented `WFV3` (see §8's short-
-> variant finding, itself found in only 9 real files). `DPIV` and `AFRA`
-> may simply be rarer/newer than this corpus's own coverage depth, or
-> genuinely still unused this late in the corpus's build — this negative
-> result can't distinguish those two explanations, only rule out "common
-> enough that a full corpus sweep would find one."
+> `.m2` files.
 
-### Evidence
+### What went wrong the first time
 
-`tools/find_m2_unknown_chunks.py` walks every real `.m2` file's top-level
-chunk sequence (M2 tags are not byte-reversed, unlike `.phys` — see
-`chunk.hpp`'s own doc comment) and tests each chunk's tag against all four
-targets in one pass. Sanity-checked against a known-good fixture first
-(`test_data/bloodelffemale.m2`'s own `MD21`/`TXAC`/`AFID`/`LDV1`/`SFID`/
-`TXID` chunk sequence decodes exactly as `husk info`/`husk dump-chunks`
-already report) before trusting the corpus-wide zero. All 130,576 files
-begin with `MD21` (chunked) — this corpus has no pre-Legion flat `MD20`
-files at all, so "no non-chunked files to explain the zero" isn't a
-confound either. 334 files were unreadable (0-byte/truncated — the same
-known extraction-completeness gap `README.md` already documents, not
-specific to this scan).
+The scanner's own sanity check (running it against `test_data/
+bloodelffemale.m2`'s known-good chunk sequence first) didn't catch the bug
+because that fixture doesn't carry any of the four original target tags —
+the sanity check confirmed `iter_top_level_chunks` walks correctly, but
+never exercised the broken `if tag in hits` line at all, since it only
+checked that the *walk* was clean, not that a *positive* case would actually
+be recorded. A single synthetic positive-case unit test (a fake buffer
+containing a real `DPIV` tag, asserting the scanner records it) would have
+caught this immediately — worth keeping in mind for any future from-scratch
+corpus scanner in this project: prove the detector fires on a case
+constructed to be positive, not just that it walks real negative data
+cleanly.
 
-### Not resolved by this investigation
+### Still not resolved by this investigation
 
-Whether `WFV1`/`WFV2`/`DPIV`/`AFRA` exist in *any* real client build/region
-this specific personal extraction doesn't cover — a genuinely different
-corpus (a different account's extraction, a different build/branch) could
-answer this where this one can't. See the standalone casc-tool note (not
-committed to this repo, handed to Luna directly) for the concrete "search a
-broader CASC pull for these four tags" follow-up.
+Whether `WFV1`/`WFV2` exist anywhere outside the single `expansion07/
+doodads/nazjatar/` zone both real hits share — genuinely rare either way (2
+files out of 130,576), unlike `DPIV`/`PCOL`/`AFRA` which are common enough
+that "rare/newer than this corpus's coverage" is no longer a live
+hypothesis. Implementation (per `M2_GAPS_TODO.md`'s former Item 4 discipline
+for `PCOL`) still needs the same self-describing offset-region byte
+accounting `PLYT` already established, not yet attempted for any of these
+five.
 
 ---
 
@@ -1119,6 +1167,6 @@ which happen to be among the ~104 already committed to this repo's own
 | §7 multi-texture-layer arithmetic confirmed; `textureCoordCombos` value range | `src/cmd_export.cpp` (`buildMaterialsAndPrimitives`'s additional-layer loop, unchanged) | `tests/test_integration.cpp` (`checkMultiTextureLayerArithmetic`, real pennant/ironhorde fixtures) |
 | §8 `WFV3`'s real 64-byte short variant | `src/cmd_dump.cpp` (`dumpWfv3`) | `tests/test_dump.cpp` |
 | §9 `.phys` format verified (`PLYT` stride fix + full sweep) | `src/phys.hpp`/`phys.cpp` (full parser), `src/gltf.hpp`/`gltf.cpp` (`PhysicsBody` extras), `src/cmd_export.cpp` (`--phys`), `src/cmd_dump.cpp` (full body/shape/joint/`PHYV` JSON, `.phys` file accepted directly) | `tests/test_phys.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_dump.cpp`, `tests/test_integration.cpp`/`test_conformance.cpp` (real weapon fixture) |
-| §10 `WFV1`/`WFV2`/`DPIV`/`AFRA` confirmed absent, full corpus | `src/cmd_dump.cpp` (`kFallback` notes, unchanged) | investigation-only, `tools/find_m2_unknown_chunks.py` |
+| §10 `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL` real, present (corrected from a scanner bug's false "absent") | `src/cmd_dump.cpp` (`kFallback` notes, unchanged — none of the five implemented yet) | investigation-only, `tools/find_m2_unknown_chunks.py` (bug fixed), cross-checked via `casc-tool scan-chunks` |
 | §11 `DETL` real stride (0x0c) + 16-byte alignment padding | `src/cmd_dump.cpp` (`dumpDetl`, `readHalfFloat`) | `tools/check_detl_stride.py` (investigation), `tests/test_dump.cpp` (implementation) |
 | §12 `aliasNext` = local `sequences` array index, chain-resolved into real clips | `src/m2.hpp`/`m2.cpp` (`Sequence`'s 7 new fields, `parseSequences`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`Animation::SequenceMetadata` extras) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
