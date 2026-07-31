@@ -111,7 +111,114 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: Ran `M2_UNKNOWNS_EXPLORATION.md`'s investigation brief to
+- **Last state**: Implemented 7 of `M2_GAPS_TODO.md`'s 8 items (everything
+  except Item 4, `PCOL`, blocked on real data — see below) in one session,
+  via **parallel subagents** rather than sequentially — requested directly:
+  "start implementing @M2_GAPS_TODO.md," then, mid-triage, "considering it's
+  individual tasks, could do subagents." Grouped the 8 items into 4
+  worktree-isolated agents by file-overlap (to keep merge conflicts
+  tractable, not by the TODO's own priority order): Item 1 alone
+  (`M2Sequence` fields + `aliasNext` chain resolution, the biggest/highest-
+  value piece); Items 5+7 together (both touch material-extras plumbing);
+  Item 6 alone (Attachments/Events/Lights as real glTF nodes, its own
+  glTF-schema surface); Items 2+8+3 together (all three are
+  `cmd_dump.cpp`-only diagnostic additions). Did the two real-corpus checks
+  Items 3/4 explicitly needed *before* dispatching, not after: a fresh
+  130,576-file top-level-chunk-tag scan (same scanner shape as
+  `tools/find_m2_unknown_chunks.py`) found **zero** real files with either
+  `EXP2` or `PCOL` — per each item's own contingency plan, Item 3 still
+  shipped (simple, unambiguous struct, synthetic fixture, flagged
+  unverified) while Item 4 stayed parked (a wiki-flagged "preliminary"
+  struct with zero real bytes to ground it, explicitly not to be
+  implemented synthetic-only) and got folded into the Items-2+8+3 agent's
+  brief accordingly.
+  - **All four agents hit a shared API rate limit simultaneously and were
+    killed mid-work** (a genuine platform limit, not a code problem) —
+    each had made real, uncommitted progress in its own worktree at the
+    moment of the cutoff. Confirmed via `git status`/`git log` in every
+    worktree before doing anything else: nothing was lost, nothing had
+    been committed prematurely. Resumed all four via `SendMessage` from
+    their own transcripts (not fresh respawns — a respawn would have
+    re-derived context from scratch) with an explicit "you were cut off by
+    a rate limit, not a real failure, resume exactly where you left off"
+    framing; all four finished cleanly on resume.
+  - **Each agent independently found a real bug or a real, non-obvious
+    finding while implementing its own plan** — this project's own
+    "verify against real bytes, don't trust the plan document blindly"
+    discipline held up under delegation, not just under direct work:
+    - Item 1's agent caught that chain-resolving *every* `flags & 0x40`
+      ("alias") sequence unconditionally would have been a real
+      regression — 31 of `bloodelffemale_hd.skel`'s 38 real alias
+      sequences *also* carry `flags & 0x20` ("stored inline"), meaning
+      they already have real keyframe data of their own; `0x20` has to
+      keep winning priority exactly as it did before `aliasNext`
+      resolution existed, or those 31 real clips would have silently had
+      the wrong sequence's data substituted in. Caught before shipping,
+      not found by a later regression test. Also found, honestly: the
+      fix's *measured* effect on the committed fixture is **zero net new
+      clips** (all 7 genuinely-alias sequences resolve to a terminal
+      sequence needing an external `.anim` file not among the ~104
+      already committed) — the original plan's own "don't assume every
+      alias necessarily gains a clip" caveat held exactly.
+    - Items-5+7's agent caught that `M2Color::alpha`/`M2TextureWeight
+      ::weight` are `M2Track<fixed16>` (2-byte wire values), not
+      `M2Track<float>` (4 bytes) — the TODO's own suggested plan said to
+      reuse `resolveFloatTrackSequence` for these, which would have
+      silently misread the 2-byte wire bytes as garbage 4-byte IEEE
+      floats. Used `resolveRawIntTrackSequence(..., elementSize=2)`
+      instead, decoding fixed16 → 0..1 the same way the existing
+      constant-value path already does.
+    - Items-2+8+3's agent found that `DETL`'s defensive floor needs to be
+      `min(lightCount, chunk.size/12)`, not `chunk.size/12` alone — a real
+      3-light file pads 36→48 bytes for 16-byte alignment, and 48/12
+      happens to equal exactly 4, silently overcounting by one record if
+      the floor isn't taken against the header's own `lights.count` too.
+  - **Merging required real, careful conflict resolution, not blind
+    `git merge`** — 4 branches all touched the shared `M2_GAPS_TODO.md`
+    (each removing its own item's section) and several touched
+    `M2_COMPLETENESS.md`/`DESIGN.md`/`WIKI_FINDINGS.md` (each adding its
+    own row/entry) and `gltf.hpp`/`gltf.cpp`/`cmd_export.cpp` (each adding
+    its own feature). Merged and rebuilt+retested after *every* branch,
+    not all 4 at once, so a bad merge would be caught immediately rather
+    than compounding: `git branch --merged`-verified fully clean before
+    deleting. Two real hand-resolution mistakes happened and were caught
+    by re-reading the file afterward, not assumed correct from the diff
+    alone: (1) `test_integration.cpp`'s Items-5+7 merge conflict was
+    actually two independent branches both appending a "load the exported
+    glb, then assert" test case at the same location — git's diff matched
+    the two tests' identical boilerplate as shared context, so the naive
+    conflict markers implied *interleaving* two unrelated test bodies;
+    reconstructed by hand into three separate, complete, non-overlapping
+    `TEST_CASE`s (Item 5's, Item 6's already-merged one, Item 7's). (2) The
+    final Item-1 merge's `M2_GAPS_TODO.md` conflict was resolved wrong on
+    the first pass — kept HEAD's still-full Item 1 section body instead of
+    collapsing it now that Item 1 is done, leaving a stale, already-
+    obsolete section sitting in the file; caught by re-reading the merged
+    file end-to-end afterward (`grep "^## Item"`) rather than trusting the
+    conflict resolution had done the right thing, then fixed by trimming
+    the section out and rewriting the priority-order list and its
+    "here's where the finished items live" note to name all 7 finished
+    items, not just the ones each individual merge happened to know about.
+  - **Final state, verified via a full clean rebuild** (`rm -rf build`,
+    reconfigure, rebuild, both `./build/husk-tests` and `ctest`): 335 → 455
+    test cases (456/456 via `ctest`, 1 permanently-inapplicable skip),
+    zero failures. All 4 worktrees/branches removed after confirming
+    `git branch --merged master` covered every one of them — nothing left
+    behind.
+  - **Docs**: `M2_GAPS_TODO.md` now holds only Item 4 (`PCOL`), with a
+    "checked: 0/130,576 real files" note added to its own Blocker section
+    and a combined note naming all 7 finished items and where their
+    permanent record lives (not deleted outright, since one real item is
+    still genuinely open — unlike every prior fully-emptied TODO file in
+    this project's history). `M2_COMPLETENESS.md` (Attachments/Events/
+    Lights rows to `native — 100%`; new `M2Sequence`-metadata,
+    hardcoded-texture-slot, animated-tint/fade, `DETL`, and `PFDC` rows;
+    `EXP2` folded into the particle/ribbon side-chunks row; `Alias
+    sequences` row corrected from "n/a, upstream-spec gap" to
+    `native — 100%`), `DESIGN.md` (5 new Key design decisions, one per
+    shipped feature area), `WIKI_FINDINGS.md` (§11/§12's "Where these live
+    in husk" table rows filled in), `README.md` (Materials paragraph).
+- **Previous state**: Ran `M2_UNKNOWNS_EXPLORATION.md`'s investigation brief to
   completion — six targets (wowdev.wiki chunk types/fields with no
   field-level struct, or an internally-inconsistent one), each given a real
   disposition grounded in real corpus bytes, not guessed at. Requested
@@ -1535,10 +1642,13 @@ real-file-driven spec correction found along the way.
   `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel` got the
   three/four-state (`auto`/explicit/`none`) treatment `DESIGN.md`'s CLI
   grammar section still documents in full.
-- **Next step**: Nothing currently in flight. Both `ANIM_TODO.md`'s
+- **Next step**: Nothing currently in flight. `M2_GAPS_TODO.md` is down to
+  its one genuinely blocked item — `PCOL` (Item 4), waiting on newer
+  extraction data covering War Within 11.1.7+ player-housing furniture,
+  confirmed absent from the full real corpus as of this session — see Last
+  state. Both `ANIM_TODO.md`'s
   `--anim` same-basename fallback and `PHYS_TODO.md`'s full `.phys`
-  physics/collision support are implemented, tested, and documented — see
-  Last state. The M2→glTF
+  physics/collision support are implemented, tested, and documented. The M2→glTF
   multi-root-bone-forest representation gap is real, tested code now, not
   a survey — see `DESIGN.md`'s Key design decisions (the
   synthesized-non-joint-parent-node entry). Genuinely open threads, all carried over from earlier
@@ -1555,7 +1665,30 @@ real-file-driven spec correction found along the way.
   scope expansion (WMO/M3, Blender-side tooling for the various `extras`
   this project already exports), and `resolveSkin`'s failure messages not
   naming the specific candidate path/FileDataID they tried.
-- **Hazards**: for the multi-root rework (now implemented), never insert a
+- **Hazards**: the Attachment/Event/Light glTF nodes added this session
+  (see Last state) follow the exact same rule as the multi-root
+  synthesized parent node below — **never add them to `skin.joints`**,
+  they're plain translation-only child nodes of a real joint, not bones
+  themselves (verified via headless Blender's `bone_count` probe staying
+  exactly `header.bones.count` with these nodes present). `M2Light`'s
+  `bone == -1` ("not attached to any bone," real per wowdev.wiki) is
+  currently treated as an out-of-range-joint throw, same as any other bad
+  index — no real fixture has exercised this case yet, so if one ever
+  does and the throw is wrong, that's new information, not a regression.
+  Per-clip `sequence_metadata` extras (`gltf::Animation::SequenceMetadata`,
+  `M2Sequence`'s movespeed/frequency/replay/blend-time/bounds fields) are
+  carried through unchanged even for an alias clip built from its
+  terminal sequence's keyframe data — the alias's *own* metadata fields
+  are what's attached, not the terminal sequence's, since those two are
+  independent per-`M2Sequence` facts even when the keyframe data itself is
+  shared. If `buildAnimations`'s alias-resolution branch
+  (`resolveAliasChain`) is touched again: it must keep checking
+  `flags & 0x20` ("stored inline") *before* treating a sequence as a "pure"
+  alias needing chain resolution — a real fixture
+  (`bloodelffemale_hd.skel`) has 31 of 38 alias-flagged sequences also
+  carrying `0x20`, meaning they already have real inline data of their own
+  that must not be overwritten by a different sequence's keyframes (see
+  Last state for how this was caught before shipping). For the multi-root rework (now implemented), never insert a
   synthetic node into `Skeleton::joints` itself (see `src/gltf.hpp`'s
   `Skeleton` doc comment and `DESIGN.md`'s Key design decisions for why:
   every vertex/emitter-anchor/correction/animation joint
