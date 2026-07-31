@@ -839,6 +839,261 @@ attempt.
 
 ---
 
+## 10. `M2` — `WFV1`/`WFV2`/`DPIV`/`AFRA` confirmed absent from the full real corpus
+
+**Confidence: verified negative result**, against all 130,576 real `.m2`
+files in `/media/luna/data/wow_export` (a complete corpus sweep, not a
+sample — `tools/find_m2_unknown_chunks.py`, ~30s runtime). Four separate
+wowdev.wiki targets (`M2_UNKNOWNS_EXPLORATION.md` targets 1–4), bundled into
+one top-level-chunk-tag scan since none needed more than a presence check.
+
+### Current text
+
+- `WFV1`/`WFV2`: `struct WFV1 { // unknown };` (and identically for `WFV2`)
+  — first tested on a real waterfall in 8.2.0 (fdid 2445860).
+- `DPIV`: "Unknown, seemingly always 32 bytes, mostly empty" (≥ 11.1.7.60520,
+  War Within).
+- `AFRA`: "Not observed in any files yet, presumably added in DF" (no struct
+  at all).
+
+### Proposed addition
+
+> As of this corpus's extraction (2026, retail client — the corpus has
+> real coverage of both 8.2.0-era and War Within-era content, confirmed
+> via other version-gated chunks like `DETL`/`WFV3` and player-housing
+> `DETL`-bearing doodads elsewhere in this corpus), **zero real files carry
+> a `WFV1`, `WFV2`, `DPIV`, or `AFRA` top-level chunk** — not "rare," not
+> "sampled and missed," a complete zero-hit result across all 130,576 real
+> `.m2` files. `WFV1`/`WFV2` were apparently short-lived even in their own
+> narrow niche (waterfall/PBR-shader tech) — every real `WFV`-family chunk
+> in this corpus is the later, fully-documented `WFV3` (see §8's short-
+> variant finding, itself found in only 9 real files). `DPIV` and `AFRA`
+> may simply be rarer/newer than this corpus's own coverage depth, or
+> genuinely still unused this late in the corpus's build — this negative
+> result can't distinguish those two explanations, only rule out "common
+> enough that a full corpus sweep would find one."
+
+### Evidence
+
+`tools/find_m2_unknown_chunks.py` walks every real `.m2` file's top-level
+chunk sequence (M2 tags are not byte-reversed, unlike `.phys` — see
+`chunk.hpp`'s own doc comment) and tests each chunk's tag against all four
+targets in one pass. Sanity-checked against a known-good fixture first
+(`test_data/bloodelffemale.m2`'s own `MD21`/`TXAC`/`AFID`/`LDV1`/`SFID`/
+`TXID` chunk sequence decodes exactly as `husk info`/`husk dump-chunks`
+already report) before trusting the corpus-wide zero. All 130,576 files
+begin with `MD21` (chunked) — this corpus has no pre-Legion flat `MD20`
+files at all, so "no non-chunked files to explain the zero" isn't a
+confound either. 334 files were unreadable (0-byte/truncated — the same
+known extraction-completeness gap `README.md` already documents, not
+specific to this scan).
+
+### Not resolved by this investigation
+
+Whether `WFV1`/`WFV2`/`DPIV`/`AFRA` exist in *any* real client build/region
+this specific personal extraction doesn't cover — a genuinely different
+corpus (a different account's extraction, a different build/branch) could
+answer this where this one can't. See the standalone casc-tool note (not
+committed to this repo, handed to Luna directly) for the concrete "search a
+broader CASC pull for these four tags" follow-up.
+
+---
+
+## 11. `M2` — `DETL`'s real stride is 12 bytes, matching the wiki's own field sum; the stated `/*0x0a*/` end-offset is the actual error, and chunks are zero-padded to a 16-byte boundary (undocumented)
+
+**Confidence: verified**, against all 1,043 real files carrying a `DETL`
+chunk in `/media/luna/data/wow_export` (`tools/check_detl_stride.py`, full
+corpus sweep) — every one of the wiki's two candidate sizes (0x0a stated,
+0x0c computed from the field list) was tested against real bytes, plus a
+third possibility neither candidate anticipated.
+
+### Current text (M2#DETL)
+
+```
+struct
+{
+/*0x00*/  uint16_t flags;
+/*0x02*/  float16 scale;
+/*0x04*/  float16 diffuseColorMultiplier;
+/*0x06*/  uint16_t unk0;
+/*0x08*/  uint32_t unk1;
+/*0x0a*/
+} DETL_recs[m2data.header.lights.count];
+```
+
+Fields sum to 12 bytes (0x0c), but the trailing offset comment says 0x0a —
+a 6-byte discrepancy that made `husk::cmd_dump.cpp` treat this chunk as
+"wiki's own math doesn't check out" and fall back to a raw hex dump rather
+than parse it structurally.
+
+### Proposed addition
+
+> **The record stride really is 0x0c (12 bytes), matching the field list,
+> not the stated `/*0x0a*/` comment** — the same "trust the field list over
+> one inline offset annotation" resolution as §1 (`M2Sequence`). The
+> `/*0x0a*/` annotation is simply wrong (most likely intended as `0x0c` and
+> mistyped, or a leftover from an earlier, shorter draft of the struct).
+>
+> **New finding, not on the wiki at all**: the `DETL` chunk's total byte
+> size is **zero-padded up to the next 16-byte alignment boundary** when
+> `12 × lights.count` isn't already a multiple of 16 — i.e. real chunk size
+> is `((12 × lights.count + 15) / 16) × 16`, not simply `12 ×
+> lights.count`. `lights.count` itself is otherwise accurate (one real
+> record per light, no off-by-one).
+
+### Evidence
+
+Every one of 1,043 real `DETL`-bearing files was checked three ways:
+
+1. **Naive `size / lights.count` division**, testing whether the result is
+   a clean integer at all: 1,012 files (97%) divide evenly at 16 bytes,
+   18 at 12 bytes, 13 at neither — an apparent three-way split that looked,
+   at first, like *two* real struct variants (12-byte and 16-byte) plus a
+   handful of broken files.
+2. **Direct byte decode at both candidate strides**, on a real multi-light
+   file (`creature/goblinspidertank/goblinspidertank.m2`, 4 lights, 48-byte
+   `DETL` chunk — one of the "divides evenly at 16" bucket from step 1).
+   Decoding at stride 16 produces garbage after the first record (`unk1`
+   values in the hundreds of millions, nonsense `flags`); decoding at
+   stride 12 produces **four identical, clean records** (`flags=0`,
+   `scale`=half-float `0x231c` = 0.013885498046875, `diffuseColorMultiplier`
+   = half-float `0x3c00` = exactly 1.0, `unk0`/`unk1` both 0) — the
+   "divides evenly at 16" result for this file was a coincidence of
+   `48 = 12×4 = 16×3` both being true, not evidence for a 16-byte struct.
+3. **The alignment-padding hypothesis, tested against all 1,043 files at
+   once**: `predicted_size = ((12 × lights.count + 15) // 16) × 16` matches
+   the real `DETL` chunk size for **1,043 / 1,043 files (100%)** — stride
+   10 matches only 998/1043, stride 14 only 1,012/1043, neither anywhere
+   near a clean sweep. Decoding every real record in the corpus at stride
+   12 (1,386 total records across all files) finds exactly two distinct
+   `flags` values (`0x0000`, 1,101 records; `0x0008`, 285 records — a
+   small, sane bitfield), a **single constant `scale`** value
+   (0.013885498046875) across every real record with no exceptions, a
+   **single constant `diffuseColorMultiplier`** value (exactly 1.0) across
+   every real record, and `unk0`/`unk1` always zero — about as clean a
+   confirmation as real data gets, though this corpus's own sample may
+   simply not include files that vary these fields (not proof they never
+   do).
+
+### Not resolved by this investigation
+
+Why `scale`/`diffuseColorMultiplier`/`unk0`/`unk1` never vary across 1,386
+real records in this corpus — either these fields are genuinely
+near-constant defaults in practice (plausible: "scale for shadow RT
+matrix" and a 1.0 "no-op" multiplier both sound like sensible defaults an
+artist would rarely touch), or this corpus's own `DETL`-bearing files
+(mostly player-housing lighting fixtures) happen to share one lighting
+preset. `flags`' two observed values (0/0x8) aren't matched against any
+documented bit semantics — the wiki gives none.
+
+---
+
+## 12. `M2` — `M2Sequence.aliasNext` is a local array index into the same file's own `sequences` array, not an `AnimationData.dbc` id or anything cross-file
+
+**Confidence: verified**, against 157 real alias sequences (`flags & 0x40`)
+across 4 real files from one character-model family (`character/bloodelf/
+female/bloodelffemale.m2`, `.../female/bloodelffemale_hd.skel`, `.../male/
+bloodelfmale.m2`, `.../male/bloodelfmale_hd.skel` — `tools/
+check_alias_next.py`). Directly resolves `M2_UNKNOWNS_EXPLORATION.md`
+target 6 / `TODO_correctness.md` former item 4's open question — see "What
+went wrong the first time" below for why an earlier pass on this exact
+question concluded the opposite.
+
+### Current text (M2#Animation_sequences)
+
+`aliasNext` (`uint16_t`, "id in the list of animations. Used to find actual
+animation if this sequence is an alias") sits at `/*0x22*/` in the wiki's
+own field-offset annotations, and the Flags table adds a real mechanism:
+"the client skips these by following `aliasNext` until an animation without
+`0x40` is found." A separate, older bullet elsewhere on the same page says
+flatly "I have no clue" where this resolves.
+
+### Proposed addition
+
+> **`aliasNext` is a plain index into this same file's own `sequences`
+> array** (`sequences[aliasNext]`), not an `AnimationData.dbc` id and not
+> anything resolved cross-file. Despite the field's own doc-comment saying
+> "id," it behaves exactly like an index: every real alias sequence
+> checked resolves to an in-range local array position, and following the
+> documented chain-walk (repeatedly jumping to `sequences[aliasNext]` until
+> reaching a record without `flags & 0x40`) always terminates cleanly, with
+> no cycles, at a real non-alias sequence. The wiki's own "I have no clue"
+> bullet is simply stale/wrong for this field, superseded by its own more
+> specific struct annotation and Flags-table text elsewhere on the page.
+>
+> **Byte-offset correction this depends on**: the wiki's literal `/*0x22*/`
+> annotation is pre-§1-correction — it doesn't account for the real
+> 28-byte `M2Bounds bounds` field §1 already established. At the real,
+> `M2Bounds`-corrected 64-byte stride, `aliasNext` sits at **offset 0x3E**
+> (not 0x22), immediately after `variationNext` at 0x3C. Reading at the
+> literal, uncorrected 0x22 offset (inside what is actually the middle of
+> `M2Range replay`/`blendTimeIn` at the real stride) is exactly what
+> produces the nonsensical 48,861–48,983-range values an earlier pass on
+> this file reported — see below.
+
+### Evidence
+
+`tools/check_alias_next.py` decodes `id`/`flags`/`variationNext`/
+`aliasNext` at the corrected offsets (`0x00`/`0x0C`/`0x3C`/`0x3E` within the
+64-byte record) for all four real family files (339/396/343/405 sequences
+respectively). Across all **157** real alias sequences (`flags & 0x40`)
+found:
+
+- **157/157 (100%)** have an `aliasNext` value that is a valid index into
+  their own file's `sequences` array (`aliasNext < sequences.size()`).
+- Following the documented chain (`cur = aliasNext` repeatedly while
+  `sequences[cur].flags & 0x40`) terminates at a non-alias sequence for
+  **all 157**, with **zero cycles and zero runaway chains** (bounded by
+  `len(sequences)` steps as a safety cap, never hit).
+- The terminal (non-alias) sequence's own `id` is **never** the same as the
+  alias's own `id` (0/81 for `bloodelffemale_hd.skel`, 0/86 for
+  `bloodelfmale_hd.skel`) — consistent with aliasing being a genuine
+  cross-animation-id redirect ("play a *different* animation's data for
+  this id"), not a same-id variant selector.
+- 10 of the 157 alias records also have a real (non-`-1`) `variationNext`
+  set simultaneously — the two fields aren't mutually exclusive, though
+  most records (147/157) leave `variationNext` at `-1` while aliasing.
+- A cross-file `id`-matching check (does `aliasNext`, read as if it were
+  meant as an `AnimationData.dbc`-scale id rather than an index, match any
+  sequence's `id` in a sibling race/gender file?) found matches for 101/157
+  records — but this is very likely **coincidental**, not the real
+  mechanism: small integers like local sequence indices (which is what
+  `aliasNext` actually is, per the local-index result above) collide
+  constantly with small real `id` values purely by chance in a
+  several-hundred-entry `id` space, and the match rate tracks exactly the
+  set of low-numbered `aliasNext` values already explained by the local-
+  index finding, not an independent signal.
+
+### What went wrong the first time
+
+The 7/396-alias pre-existing finding (`TODO_correctness.md`'s former item
+4, `bloodelffemale_hd.skel`) reported `aliasNext` values in the
+48,861–48,983 range and concluded they resolve neither as a local index nor
+a same-file `id` match. That check read `aliasNext` at the wiki's literal,
+uncorrected `/*0x22*/` offset — which, at the real 64-byte stride established
+by §1, lands inside `M2Range replay`'s second `uint32_t` field, not anywhere
+near the real `aliasNext`. The huge, nonsensical values it found are exactly
+what reading a `replay` bound as a `uint16_t` alias index would produce —
+not evidence of an external/unresolvable mechanism, just a stale-offset bug
+carried forward from before §1's own correction was made. Once read at the
+corrected offset 0x3E, the same file's real `aliasNext` values are small,
+sane, in-range local indices (e.g. sequence #222 → 221, #294 → 293) — no
+external data needed at all.
+
+### Not resolved by this investigation
+
+Whether `aliasNext`'s "id" wording in its own doc comment reflects some
+historical meaning (perhaps an older client version really did use a
+global id here, later changed to a local index without the wiki text being
+updated) — speculative, not checked. Also not checked: whether husk's
+`buildAnimations` (`cmd_export.cpp`) should actually *use* this to produce a
+real animation clip for alias sequences (currently skipped outright) by
+resolving the chain and reusing the terminal sequence's own animation
+data — a real, now-unblocked implementation opportunity, tracked as a
+follow-up in `M2_GAPS_TODO.md`'s Item 1 rather than decided here.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -852,3 +1107,6 @@ attempt.
 | §7 multi-texture-layer arithmetic confirmed; `textureCoordCombos` value range | `src/cmd_export.cpp` (`buildMaterialsAndPrimitives`'s additional-layer loop, unchanged) | `tests/test_integration.cpp` (`checkMultiTextureLayerArithmetic`, real pennant/ironhorde fixtures) |
 | §8 `WFV3`'s real 64-byte short variant | `src/cmd_dump.cpp` (`dumpWfv3`) | `tests/test_dump.cpp` |
 | §9 `.phys` format verified (`PLYT` stride fix + full sweep) | `src/phys.hpp`/`phys.cpp` (full parser), `src/gltf.hpp`/`gltf.cpp` (`PhysicsBody` extras), `src/cmd_export.cpp` (`--phys`), `src/cmd_dump.cpp` (full body/shape/joint/`PHYV` JSON, `.phys` file accepted directly) | `tests/test_phys.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_dump.cpp`, `tests/test_integration.cpp`/`test_conformance.cpp` (real weapon fixture) |
+| §10 `WFV1`/`WFV2`/`DPIV`/`AFRA` confirmed absent, full corpus | `src/cmd_dump.cpp` (`kFallback` notes, unchanged) | investigation-only, `tools/find_m2_unknown_chunks.py` |
+| §11 `DETL` real stride (0x0c) + 16-byte alignment padding | not yet implemented — see `M2_GAPS_TODO.md` | investigation-only, `tools/check_detl_stride.py` |
+| §12 `aliasNext` = local `sequences` array index | not yet implemented — see `M2_GAPS_TODO.md` Item 1 | investigation-only, `tools/check_alias_next.py` |

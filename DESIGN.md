@@ -918,11 +918,28 @@ re-run automatically. Tracked as a testing debt, not a correctness bug.
 ## Open work
 
 See `TODO_correctness.md` for the current punch list (`M2Camera`, `.bone`
-slot selection, and two awareness-only footnotes) and `WIKI_FINDINGS.md` for
-every real-data-driven spec correction found so far, `AFSB`'s included.
-`TODO_correctness.md`/`WIKI_FINDINGS.md` are living documents; this file
-describes the shape of the system they operate within, not their current
-item-by-item status.
+slot selection, and two awareness-only footnotes), `M2_GAPS_TODO.md` for
+documented-but-unbuilt M2 coverage items with no external-data blocker
+(`M2Sequence`'s remaining fields including the now-resolved `aliasNext`
+chain-following, `PFDC`/`EXP2`/`PCOL`/`Texture.type`/Attachments-Events-
+Lights/animated-tint-fade/`DETL`), and `WIKI_FINDINGS.md` for every
+real-data-driven spec correction found so far, `AFSB`'s included.
+`TODO_correctness.md`/`M2_GAPS_TODO.md`/`WIKI_FINDINGS.md` are living
+documents; this file describes the shape of the system they operate
+within, not their current item-by-item status.
+
+A dedicated investigation brief for the last genuinely undocumented M2
+pieces (`M2_UNKNOWNS_EXPLORATION.md` -- wowdev.wiki itself had no
+field-level struct, or an internally-inconsistent one, for `WFV1`/`WFV2`/
+`DPIV`/`AFRA`/`DETL`, plus the `M2Sequence.aliasNext` resolution
+mechanism) has since run to completion and was removed once every target
+had a final disposition: `WFV1`/`WFV2`/`DPIV`/`AFRA` are confirmed absent
+from a full real 130,576-file corpus sweep (`WIKI_FINDINGS.md` §10);
+`DETL`'s real byte layout is fully resolved (12-byte stride, zero-padded to
+a 16-byte boundary -- §11, implementation tracked in `M2_GAPS_TODO.md`
+Item 8); `aliasNext` is a local `sequences`-array index, not an external
+id, at the `M2Bounds`-corrected offset 0x3E (§12, implementation tracked in
+`M2_GAPS_TODO.md` Item 1).
 
 `.phys` physics/collision sidecar support used to have its own living plan
 here too (`PHYS_TODO.md`) -- now fully implemented (`src/phys.hpp`/

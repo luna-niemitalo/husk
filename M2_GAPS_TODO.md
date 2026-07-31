@@ -49,6 +49,11 @@ every item is gone, delete this file the same way `PHYS_TODO.md`/
 7. **Item 4 — `PCOL`.** Blocked on finding a real file with this chunk at
    all (War Within 11.1.7+, player-housing furniture) — do the corpus
    search first; if nothing turns up, this one just waits.
+8. **Item 8 — `DETL`.** New (from `M2_UNKNOWNS_EXPLORATION.md`'s
+   investigation, now closed): real byte layout fully confirmed against
+   1,043 real files, zero ambiguity left. Similar effort/shape to Item 5 —
+   one small struct, straightforward `dumpDetl`-style addition, no glTF
+   translation needed (diagnostic-only, same class as `WFV3`).
 
 ---
 
@@ -89,17 +94,31 @@ pre-Cata non-goal.)
   `bounds`, `variationNext` — byte offsets and semantics both documented
   cleanly on the wiki, no ambiguity. Parse and expose these with full
   confidence.
-- `aliasNext` — the **byte offset and raw value** are just as
-  mechanically parseable as the others above (it's a fixed-offset
-  `uint16_t`, nothing exotic). What's *not* settled is what the value
-  means/resolves to once you have it — see `TODO_correctness.md` #4 for
-  the existing open investigation, and `M2_UNKNOWNS_EXPLORATION.md` for a
-  dedicated investigation brief on exactly this question. **Parse it
-  anyway** (it's free, and cheap to add later is more expensive than now)
-  but do not build any resolution/lookup logic on top of it here — surface
-  the raw `uint16_t` only, same "expose the number, don't guess at
-  semantics" policy this project already applies to `Sequence.id`
-  (AnimationData.dbc id, surfaced raw, never resolved to a name).
+- `aliasNext` — **now fully resolved**, not just parseable
+  (`WIKI_FINDINGS.md` §12, superseding `TODO_correctness.md`'s former item
+  4 and `M2_UNKNOWNS_EXPLORATION.md` target 6, both since removed/resolved).
+  Two things were wrong in the original open question, both now fixed: (1)
+  the wiki's literal `/*0x22*/` offset is pre-`M2Bounds`-correction — at
+  the real 64-byte stride (§1), `aliasNext` is at **offset 0x3E** (right
+  after `variationNext` at 0x3C), not 0x22; (2) reading at the corrected
+  offset shows `aliasNext` is a **local array index into this same file's
+  own `sequences` array** (`sequences[aliasNext]`), not an
+  `AnimationData.dbc` id and not anything cross-file — confirmed on 157
+  real alias sequences across 4 real character-model files, 100% valid
+  in-range indices, chain-following (`flags & 0x40` → jump to
+  `sequences[aliasNext]` → repeat) terminates cleanly with zero cycles in
+  every case. **This unblocks a real feature, not just a data field**:
+  `buildAnimations` (`cmd_export.cpp`) currently skips any sequence with
+  `flags & 0x40` outright, citing the wiki's now-superseded "I have no
+  clue" — it could instead resolve the alias chain to its terminal
+  non-alias sequence and reuse *that* sequence's animation data (inline or
+  external, whichever the terminal sequence itself uses), producing a real
+  clip instead of nothing. Both the raw-field parse (trivial, same as the
+  other seven fields) and the chain-resolution behavior change in
+  `buildAnimations` belong in this item's implementation — the latter is a
+  bigger, real behavioral addition (more real animation clips export than
+  today), not just another struct field, so budget it as such rather than
+  folding it into the "parse eight scalars" estimate above.
 
 ### Implementation plan
 
@@ -126,15 +145,28 @@ pre-Cata non-goal.)
    check whether `tinygltf::Animation` has an `extras` field before
    assuming a workaround is needed (it should — `tinygltf` mirrors the
    glTF 2.0 spec, and `extras` is universal on every top-level object).
-4. `aliasNext`: expose raw, unresolved, per the "what's known vs not"
-   section above.
+4. `aliasNext`: expose the raw field, **and** implement chain resolution
+   (`WIKI_FINDINGS.md` §12 — offset 0x3E at the real 64-byte stride, a
+   local `sequences` array index, chain-walk while `flags & 0x40` until a
+   non-alias record) so `buildAnimations` can produce a real clip for
+   currently-skipped alias sequences by reusing the terminal sequence's own
+   animation data. Since the terminal sequence may itself be inline or
+   external (`.anim`), reuse whatever branch `buildAnimations` already uses
+   to decide that for a normal sequence — an alias sequence's own clip
+   should come out identical to building the terminal sequence's clip
+   directly, just registered under the alias's own `id`/index too.
 
 ### Test plan
 
 - `tests/test_m2.cpp`: extend the existing `Sequence`-parsing test(s) with
   the new fields — happy path (real or synthetic values at the right
   offsets), a bounds-check throw case if the chunk/blob is too short to
-  contain them.
+  contain them. New cases for chain resolution: a simple 2-hop alias, a
+  multi-hop chain, and (since real data proves it's never seen but the
+  code must still not hang on foreign/corrupted input) a synthetic
+  self-referencing or cyclic `aliasNext` — should throw or otherwise fail
+  loudly, not loop forever, matching this project's foreign-data
+  discipline even though 0 real files exhibit this.
 - `tests/test_gltf.cpp`: per-clip extras round-trip (present values, and
   confirm nothing breaks for the existing fixtures that don't exercise
   this path — regression, not just new coverage).
@@ -143,7 +175,13 @@ pre-Cata non-goal.)
   spot-check a couple of known ones (e.g. a locomotion sequence should have
   nonzero `movespeed`, a "Stand" sequence should have zero) the same way
   other real-data tests in this file check specific, named values rather
-  than just "some value present."
+  than just "some value present." Also: `bloodelffemale_hd.skel` has 38
+  real alias sequences (per `WIKI_FINDINGS.md` §12) that currently produce
+  no clip at all — after this item, the exported animation count should
+  grow by exactly that many (or fewer, if some terminal sequences are
+  themselves unresolvable for an unrelated reason, e.g. a missing external
+  `.anim` file — don't assume every alias necessarily gains a clip without
+  checking).
 
 ### Docs to update
 
@@ -151,11 +189,12 @@ pre-Cata non-goal.)
   existing "Animation sequences + per-bone tracks" row's Note.
 - `DESIGN.md` — if a new per-clip `extras` convention is introduced,
   document it as a Key design decision (same pattern every other extras
-  shape got).
-- `TODO_correctness.md` #4 — once `aliasNext` is at least *parsed*, update
-  the item's text to reflect that (it currently says husk "doesn't even
-  parse this field currently" — that becomes false, even though the
-  resolution question stays open).
+  shape got); also document the alias chain-resolution behavior itself as
+  a Key design decision (real animation clips now come from
+  `flags & 0x40` sequences, not just `flags & 0x20`/external ones).
+- `TODO_correctness.md` #4 — already removed once `aliasNext`'s resolution
+  mechanism was confirmed (`WIKI_FINDINGS.md` §12); no further doc-sync
+  needed there.
 
 ---
 
@@ -491,3 +530,73 @@ found fresh).
 
 `M2_COMPLETENESS.md`'s "Animated material tint/fade" row: Parse depth
 `deref` → `full`, Consumption `diagnostic` → `extras`.
+
+---
+
+## Item 8: `DETL` — per-light shadow-RT/diffuse-multiplier data (≥ 9.0.1.34365)
+
+### Current state
+
+`cmd_dump.cpp`'s `kFallback` table dumps `DETL` as an opaque raw blob,
+citing a 6-byte discrepancy between wowdev.wiki's stated field list (sums
+to 0x0c) and its own end-offset comment (`/*0x0a*/`) as the reason it isn't
+parsed structurally. `M2_UNKNOWNS_EXPLORATION.md`'s investigation (now
+closed, folded into `WIKI_FINDINGS.md` §11) resolved this completely
+against all 1,043 real `DETL`-bearing files in the corpus:
+
+- **Real per-record stride is 0x0c (12 bytes)** — the wiki's own field
+  list, not its `/*0x0a*/` comment (which is simply wrong).
+- **The whole chunk is zero-padded up to the next 16-byte alignment
+  boundary** — real chunk size is `((12 × lights.count + 15) / 16) × 16`,
+  not `12 × lights.count`. This part isn't on the wiki at all.
+- One real record per light (`lights.count` from the header, no off-by-one
+  once the alignment padding above is accounted for).
+- Field values, decoded at the confirmed stride, are sane across all 1,386
+  real records sampled: `flags` takes only two values (`0x0000`/`0x0008`),
+  `scale` (half-float) is a constant 0.013885498046875, `diffuseColorMultiplier`
+  (half-float) is a constant 1.0, `unk0`/`unk1` are always zero.
+
+No ambiguity or real-file gap remains — this is purely "write the parser,"
+same shape as `WFV3`'s own already-implemented short-variant handling.
+
+### Implementation plan
+
+1. `src/cmd_dump.cpp`: new `dumpDetl` (move `DETL` from `kFallback` to
+   `kDocumented`), reading records at stride 12 for `min(lights.count,
+   chunk.size / 12)` entries (defensive floor in case a foreign/corrupted
+   file's declared `lights.count` doesn't match its own `DETL` chunk size —
+   this project's usual "don't trust foreign data's own claims" discipline,
+   even though 1,043/1,043 real files agree cleanly). Decode `scale`/
+   `diffuseColorMultiplier` as half-floats — husk already has a half-float
+   decoder from `M2Particle`'s `FBlock` work (`resolveFBlockVec3`/`Vec2`/
+   friends, `src/m2.cpp`); reuse rather than re-derive.
+2. No glTF translation — `DETL` is diagnostic-only (`dump-chunks`), same
+   class as `WFV3`/`TEXL`, no core glTF slot for per-light shadow-matrix
+   scale or diffuse multiplier data.
+3. The 16-byte alignment padding at the end of the chunk (when present)
+   should simply be ignored/unread — it's not additional record data
+   (verified: reading the padding bytes as if they were a partial record
+   would either decode nothing meaningful or run past the chunk, and no
+   real file's `lights.count` implies a partial trailing record).
+
+### Test plan
+
+- `tests/test_dump.cpp`: a synthetic `DETL` chunk (a few records, at least
+  one file with alignment padding present — e.g. 1 light → 16-byte chunk
+  with 4 padding bytes, to exercise the padding-ignored path directly) plus
+  a real-fixture case if a committed test fixture happens to carry a real
+  `DETL` chunk (check first — none of this project's current character/
+  weapon fixtures are player-housing doodads, the dominant `DETL`-bearing
+  category found in the corpus scan, so a synthetic fixture built from real
+  observed byte values is the likely path, same as `WFV3`'s own test
+  fixture approach).
+
+### Docs to update
+
+- `cmd_dump.cpp`'s own `kFallback`-table comment (remove the `DETL` entry
+  and its now-resolved note).
+- `M2_COMPLETENESS.md` — likely a new row under Lighting, or extend
+  whichever row already covers `M2Light` itself.
+- `WIKI_FINDINGS.md`'s "Where these live in husk" table (§11's row,
+  currently pointing at "not yet implemented — see `M2_GAPS_TODO.md`")
+  once this ships.

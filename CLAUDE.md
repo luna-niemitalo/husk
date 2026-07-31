@@ -111,7 +111,145 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: Implemented both `ANIM_TODO.md` and `PHYS_TODO.md` end to
+- **Last state**: Ran `M2_UNKNOWNS_EXPLORATION.md`'s investigation brief to
+  completion — six targets (wowdev.wiki chunk types/fields with no
+  field-level struct, or an internally-inconsistent one), each given a real
+  disposition grounded in real corpus bytes, not guessed at. Requested
+  directly: "Start on @M2_UNKNOWNS_EXPLORATION.md." Same methodology every
+  prior wiki-correction session here has used (independent from-scratch
+  scanner, cross-checked against many real files, full byte-accounting
+  before trusting a stride) — see `WIKI_FINDINGS.md` §10/§11/§12 for the
+  full writeups.
+  - **Targets 1–4 (`WFV1`/`WFV2`/`DPIV`/`AFRA`) — confirmed absent, a real
+    negative result.** New `tools/find_m2_unknown_chunks.py` walked the
+    full real corpus (`/media/luna/data/wow_export`, all 130,576 `.m2`
+    files, one top-level-chunk-tag pass, ~30s) and found **zero** real
+    files carrying any of the four tags. Sanity-checked the scanner's own
+    chunk-walk logic against `test_data/bloodelffemale.m2`'s known-good
+    `MD21`/`TXAC`/`AFID`/`LDV1`/`SFID`/`TXID` sequence first, so the
+    corpus-wide zero isn't a scanner bug — confirmed all 130,576 files are
+    `MD21`-chunked (no pre-Legion flat files in this corpus to explain the
+    zero as "wrong file era" either). `WFV3` (`WFV1`/`WFV2`'s later,
+    fully-documented successor) was found in exactly 9 real files
+    elsewhere in this same corpus, already implemented — so the zero here
+    is "this corpus's own extraction doesn't happen to have one," not
+    "the format never existed." Written up as `WIKI_FINDINGS.md` §10.
+    Per Luna's own explicit follow-up request ("also write the unknown
+    chunks if not solvable with this data as todo list for casc-tool...
+    write it here, i will personally move it to correct place"), a
+    **standalone `CASC_TOOL_TODO.md`** (repo root, deliberately
+    **not** committed, not referenced from any husk doc) hands this
+    negative result to Luna's separate `casc-tool` project as a "worth a
+    broader CASC pull across other builds/regions" lead, with the one
+    concrete FileDataID the wiki names (`WFV1`, 2445860) and husk's own
+    scanner script ready to point at any other corpus root if a hit ever
+    turns up.
+  - **Target 5 (`DETL`) — fully resolved, a real byte-layout correction
+    plus one wholly new finding.** The wiki's own struct lists fields
+    summing to 0x0c bytes but ends with a `/*0x0a*/` comment — a
+    pre-existing 6-byte discrepancy `cmd_dump.cpp`'s `kFallback` table
+    already flagged as the reason this wasn't parsed. New `tools/
+    check_detl_stride.py` found 1,043 real `DETL`-bearing files (mostly
+    player-housing lighting fixtures, War Within-era). A first crude
+    `chunk.size / lights.count` division looked like a confusing 3-way
+    split (1,012 files "clean" at 16 bytes, 18 at 12 bytes, 13 at neither)
+    — until a direct byte decode on a real multi-light file
+    (`goblinspidertank.m2`, 4 lights) showed stride 16 produces garbage
+    past the first record while stride 12 decodes all 4 records
+    identically clean, revealing the "16-byte" bucket was a numerical
+    coincidence (`48 = 12×4 = 16×3` both hold), not a second real struct
+    variant. Testing the corrected hypothesis — **real stride is 12 bytes,
+    whole chunk zero-padded up to the next 16-byte alignment boundary**
+    (undocumented on the wiki) — against all 1,043 files at once: **100%
+    match**, vs. 998/1043 and 1012/1043 for the two wrong candidate
+    strides. Decoding all 1,386 real records at the confirmed stride found
+    `flags` takes only two real values (0/0x8), and `scale`/
+    `diffuseColorMultiplier` are a **constant** half-float value
+    (0.013885498046875 / exactly 1.0) in every single real record sampled
+    — about as clean a confirmation as real data gets. Written up as
+    `WIKI_FINDINGS.md` §11; a full implementation plan (trivial — reuses
+    `M2Particle`'s existing half-float decoder, diagnostic-only
+    `dump-chunks` output, no glTF slot needed) added as `M2_GAPS_TODO.md`
+    Item 8, not implemented in `src/` this session per the investigation
+    brief's own "investigation, not implementation" scope.
+  - **Target 6 (`M2Sequence.aliasNext`) — fully resolved, and it corrects a
+    real bug in an *earlier* husk investigation, not just the wiki.** The
+    existing `TODO_correctness.md` #4 (from a prior session) had already
+    tried and failed to resolve this on `bloodelffemale_hd.skel` alone,
+    finding `aliasNext` values in the 48,861–48,983 range that didn't
+    resolve as a local index or a same-file id match. New `tools/
+    check_alias_next.py`, reading the field at `M2Sequence`'s real,
+    `WIKI_FINDINGS.md` §1-corrected 64-byte stride (`aliasNext` at offset
+    **0x3E**, not the wiki's literal, pre-correction 0x22 — 0x22 lands
+    inside `M2Range replay`'s second field at the real stride, exactly
+    explaining the earlier session's nonsensical 5-digit values), across
+    all four real blood-elf family files (`bloodelffemale.m2`/
+    `bloodelfmale.m2` inline, `bloodelffemale_hd.skel`/
+    `bloodelfmale_hd.skel` external — 1,483 sequences, 157 real aliases):
+    **157/157 (100%) resolve as valid local indices into the same file's
+    own `sequences` array**, and following the wiki's own documented
+    chain-walk (`flags & 0x40` → jump to `sequences[aliasNext]` → repeat)
+    terminates cleanly at a non-alias sequence for all 157, zero cycles,
+    zero runaways. `aliasNext` is a plain local array index, not an
+    `AnimationData.dbc` id and not anything cross-file, despite its own
+    "id in the list of animations" doc comment — the wiki's older "I have
+    no clue" bullet is simply stale, and the earlier husk session's
+    "unresolvable" conclusion was a stale-offset bug, not a real dead end.
+    A secondary cross-file `id`-match check (101/157 `aliasNext` values
+    also happen to match some sequence's `id` in a sibling file) was
+    checked and set aside as very likely coincidental — small integers
+    collide constantly with small real ids in a several-hundred-entry
+    space, and the match rate exactly tracks the already-explained
+    local-index values, not an independent signal. A bounded 2-query web
+    search (matching this project's own "don't over-spend" precedent from
+    the multi-root-skeleton investigation) found no public prior-art
+    resolution to corroborate against, but the real-byte result stands on
+    its own. Written up as `WIKI_FINDINGS.md` §12, including the explicit
+    "what went wrong the first time" section explaining the earlier
+    session's bug. `TODO_correctness.md` #4 **removed outright** per that
+    file's own stated convention (fixed items don't linger as `[Fixed]`
+    noise) — it was the last item, no renumbering needed — with a
+    summary folded into the file's own intro paragraph. `M2_GAPS_TODO.md`
+    Item 1's `aliasNext` bullet rewritten from "parse raw, don't resolve"
+    to "parse and resolve" — a real, not-yet-implemented follow-up now
+    unblocked: `buildAnimations` currently skips every alias sequence
+    outright, and could instead reuse the resolved terminal sequence's own
+    animation data to produce a real clip.
+  - **Docs**: `WIKI_FINDINGS.md` (three new sections, §10/§11/§12, full
+    "current text / proposed addition / evidence" format matching every
+    prior section on this page; "Where these live in husk" table extended
+    3 rows), `M2_GAPS_TODO.md` (Item 1's `aliasNext` bullet rewritten, new
+    Item 8 for `DETL`, priority-order list extended), `TODO_correctness.md`
+    (#4 removed, intro paragraph updated), `DESIGN.md` (Open work section
+    gained a `M2_GAPS_TODO.md` pointer it was oddly missing even before
+    this session, plus a closing paragraph for
+    `M2_UNKNOWNS_EXPLORATION.md`'s own now-completed disposition).
+    `M2_UNKNOWNS_EXPLORATION.md` itself **deleted outright** once every one
+    of its six targets had a final disposition — same "survey's job is
+    done" lifecycle every prior investigation-then-TODO file in this repo
+    has used. Its ~3 live cross-references inside the three new `tools/
+    *.py` scripts' own docstrings were grep-verified and repointed to
+    `WIKI_FINDINGS.md`'s new section numbers rather than left dangling —
+    same discipline every prior file-deletion session here has used.
+  - **New standalone tools, kept** (same "small, self-contained, one-off,
+    independent of husk's own C++ parser" convention `tools/
+    find_multiroot_skeletons.py` already established): `tools/
+    find_m2_unknown_chunks.py`, `tools/check_detl_stride.py`, `tools/
+    check_alias_next.py`. Their generated `*_for_exploration.txt`/
+    `*_report.json` output files at repo root are already covered by this
+    repo's existing blanket `*.txt`/`*.json` `.gitignore` rules (same as
+    `phys_files_for_exploration.txt`/`multiroot_skeleton_files_for_
+    exploration.txt` before them) — no cleanup needed, left as local
+    scratch artifacts.
+  - **Environment note, reconfirmed**: `direnv exec . uv run --python
+    tools/venv/bin/python <script>` for the three full-corpus scanner runs
+    (all under 30s each), `direnv exec . uv run --no-project python3 -c
+    "..."` for ad hoc byte-level verification one-liners (the stride
+    cross-check, the half-float decode, the goblinspidertank direct-decode
+    sanity check) — same split this project's environment notes have used
+    every prior session, inline `-c` fine for quick checks per this
+    session having no standing instruction against it.
+- **Previous state**: Implemented both `ANIM_TODO.md` and `PHYS_TODO.md` end to
   end, independently, in one autonomous overnight session — requested
   directly: "read both PHYS_TODO and ANIM_TODO, implement them
   independently but carefully... extend the tests to actually cover stuff,
