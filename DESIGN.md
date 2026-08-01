@@ -1164,6 +1164,25 @@ README's roadmap stage 6 (50/50 and 54/54 real files, parsed back apart in
 Python) has no `HUSK_TEST_ANIM_DIR`-gated repeatable test yet — it doesn't
 re-run automatically. Tracked as a testing debt, not a correctness bug.
 
+**A second, more fundamental known gap, named honestly by Luna 2026-08-01**:
+every Blender-side check this tier ever runs is against **headless**
+Blender (`tests/blender_import_check.py`, invoked with no display) — count/
+topology/validator-style assertions, never an actual human looking at the
+rendered result in Blender's own GUI. This has been true since
+`test_conformance` was introduced and applies to every feature husk has
+ever shipped (collision meshes, ribbons/particles, multi-root skeletons,
+`.bone` corrections, `.phys` bodies, geoset/texture-transform `extras`),
+not just anything new — no session so far has had real eyes on whether any
+of this actually *looks* right once imported, only whether it's
+structurally present and countable. Headless checks are real and valuable
+(they catch the contamination/regression bugs `WIKI_FINDINGS.md` §5 and
+earlier sessions found) but they cannot catch a visually-wrong-but-
+structurally-valid export — wrong-looking UVs, a flipped normal, a
+correctly-counted but misplaced vertex. Worth a real interactive-Blender
+pass at some point on a representative fixture or two, entirely separate
+from (and not a replacement for) the automated headless tier — not done as
+part of any session so far, tracked here so it isn't silently forgotten.
+
 ## Open work
 
 See `TODO_correctness.md` for the current punch list (`M2Camera`, `.bone`
@@ -1303,3 +1322,16 @@ matches anywhere), not an extraction-completeness gap like `EXP2`/`PFDC`
 (`WIKI_FINDINGS.md` §13) — real fixture data for this one format will need
 a different acquisition path than everything else in this project's usual
 corpus-verification playbook.
+
+**A companion Blender-side script that hides `extras`-tagged-but-visible
+geometry (collision meshes, PM4/PD4 pathing meshes, and any future item
+that lands on this same "present, identifiable, not literally hidden"
+shape) post-import is real, deliberate usability tooling for later, not
+part of any export-path decision made so far** — noted directly by Luna,
+2026-08-01, alongside the PM4/PD4 visibility decision above. Every one of
+husk's "tagged, not hidden" items (the M2 collision mesh, and now PM4/PD4
+pathing meshes once implemented) would benefit from exactly this, but it's
+explicitly deferred until the tool is at a point where someone actually
+wants to *use* exports interactively, not built speculatively now — same
+"don't build ahead of a real need" discipline this project applies
+elsewhere (`CLAUDE.md`'s "Abstractions are earned").
