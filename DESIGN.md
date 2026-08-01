@@ -769,6 +769,28 @@ single-block test (matching the existing DXT1/DXT5 precedent), and a real
 file (`character/troll/hair00_01.blp`) decoding to a visibly correct hair
 texture, not garbage.
 
+**World-scene composition (placing many M2/WMO instances into one rendered
+world) will be built bottom-up, never as a monolithic "export the whole
+game" operation — confirmed directly by Luna, 2026-08-01.** The actual
+CLI subcommand/flag shape for the composing layer is still an open,
+deferred design question (see `WORLD_PLACEMENT_TODO.md`'s own
+"Scene-composition CLI surface" section), but the *shape of the effort* is
+decided: build small, individually testable/exportable primitives first
+(a single WMO's own export, a single ADT tile's own terrain export, a
+placement-record resolver correct and tested on its own), then add thin
+**helper** chaining/composition on top of those once they exist — the same
+way husk's own M2 pipeline actually grew historically (`export` started as
+"one `.m2` in, one `.glb` out," and `.skel`/`.phys`/`.anim` sidecar
+resolution were each pulled in later as independently-testable pieces, not
+a single big-bang design). A further, explicitly speculative idea flagged
+in the same conversation and *not* decided — whether the real end target
+should eventually be a genuine scene-descriptor file format with dynamic
+loading (an index/manifest referencing many separately-exported `.glb`s,
+loaded on demand, closer to how a game engine actually streams a world)
+rather than one large pre-baked `.glb` per tile or map — is recorded as a
+potential future exploration goal in `WORLD_PLACEMENT_TODO.md`, not a
+requirement blocking any placement-parsing work.
+
 ## CLI argument grammar for `export` (implemented)
 
 **Previous grammar**, for contrast (replaced, not additive — every existing

@@ -19,8 +19,9 @@ read-only), not carried forward from the wiki uncritically.
 **The real headline question this document had to settle** (flagged
 explicitly by the investigation brief): does glTF's `KHR_lights_punctual`
 extension fit `MOLT`'s shape well enough to reach `native`, not just
-`extras`? Short answer, argued in full below: **partially — real, but with
-real gaps that need a human decision, not something to unilaterally ship.**
+`extras`? Short answer, argued in full below: **partially — real, with
+known gaps, but Luna confirmed 2026-08-01 that it's worth adopting anyway
+(see the Verdict below) — decided, not just flagged.**
 
 ---
 
@@ -129,23 +130,20 @@ shape from memory.
 | `attenStart`/`attenEnd` (two-radius model) | `range` (single cutoff distance, `>0`, optional) + a **fixed** inverse-square+smoothed-cutoff falloff formula | **The single biggest real mismatch.** `KHR_lights_punctual` explicitly does *not* support a two-parameter attenuation model — only inverse-square falloff with an optional single `range` cutoff. `attenEnd` maps reasonably onto `range`; `attenStart` has **no target field at all** in the extension. |
 | *(no field)* | `innerConeAngle`/`outerConeAngle` (spot only) | **`SMOLight` has no cone-angle field at all** — the documented struct has nothing analogous. A `KHR_lights_punctual` spot light would fall back to the extension's own defaults (0 / π/4 radians) for every WMO spot light, not real authored data. |
 
-**Verdict, a closely-reasoned recommendation, not a unilateral decision**
-(flagged per the investigation brief's own instruction, since this would
-be husk's first use of a glTF extension for anything beyond materials —
-see correction below): `KHR_lights_punctual` is **worth reaching for**
-for `type` ∈ {omni, spot, direct} — position/color/type map cleanly, and
-even the mismatches (attenuation shape, missing cone angles, intensity
-units) are the kind of "real but bounded approximation" this codebase
-already accepts elsewhere (see `baseColorFactor`'s own WoW-blend-mode
-approximation). **`type=3` (ambient) has no target and must stay
-`extras`-only** — there is no honest way to represent an ambient light
-under this extension. Recommend: `native` via `KHR_lights_punctual` for
-omni/spot/direct, with `attenStart`, the exact WoW `intensity` value, and
-`type=3` (ambient) records all carried alongside as inert `extras` on the
-same light node (same "native construct plus an extras sidecar for what
-doesn't fit" pattern `Material::additionalTextureLayers` already
-establishes) — **but this is a recommendation for a real design pass,
-not a decision already made**, per the investigation brief's own framing.
+**Decision, confirmed by Luna 2026-08-01: adopt `KHR_lights_punctual`.**
+`type` ∈ {omni, spot, direct} get real `native` glTF lights — position/
+color/type map cleanly, and the known gaps (attenuation shape, missing
+cone angles, intensity units) are accepted as the kind of "real but
+bounded approximation" this codebase already ships elsewhere (see
+`baseColorFactor`'s own WoW-blend-mode approximation), not a reason to
+withhold a genuine native-reachable win. **`type=3` (ambient) has no
+target and must stay `extras`-only** — there is no honest way to represent
+an ambient light under this extension, decision or not. Implementation:
+`native` via `KHR_lights_punctual` for omni/spot/direct, with
+`attenStart`, the exact WoW `intensity` value, and `type=3` (ambient)
+records all carried alongside as inert `extras` on the same light node
+(same "native construct plus an extras sidecar for what doesn't fit"
+pattern `Material::additionalTextureLayers` already establishes).
 
 ### Correction to the investigation brief's own premise
 
@@ -168,8 +166,8 @@ extension with a real per-document data array and a node-level
 - **Parse**: `full` (once implemented against the confirmed 48-byte
   struct).
 - **Consumption**: `native` (`KHR_lights_punctual`, omni/spot/direct) +
-  `extras` (ambient records, `attenStart`, raw `intensity`) — pending the
-  human design decision above.
+  `extras` (ambient records, `attenStart`, raw `intensity`) — decided, see
+  above.
 - **glTF ceiling**: `native — gap remains` (ambient lights and the
   attenuation-shape/cone-angle mismatches are real, permanent gaps even
   with the extension in play) rather than `native — 100%`.
@@ -283,8 +281,8 @@ consumer choose" precedent `.bone` correction sets already established.
 - **Parse**: `full` for `MOLP`/`MLSS`/`MLSP` (confirmed); `descriptor`
   only for `MOLS` (struct genuinely unknown); `n/a` for `MLSO`/`MLSK`
   (never present in real files).
-- **Consumption**: `native` (`MOLP` via `KHR_lights_punctual`, pending
-  the same human decision as item 1) + `extras` (`MOLS`, lightset
+- **Consumption**: `native` (`MOLP` via `KHR_lights_punctual`, same
+  confirmed decision as item 1) + `extras` (`MOLS`, lightset
   selection metadata).
 - **glTF ceiling**: `native — gap remains` (same ceiling as item 1, plus
   the additional "which set is active" gap).
@@ -509,7 +507,7 @@ doesn't edit `README.md` itself).
    around).
 2. **`MOLT` (item 1)** — second: real, common enough (19.4% chunk
    presence, 1.7% populated), and the natural place to prototype the
-   `KHR_lights_punctual` translation + human design decision, since it's
+   (now-confirmed) `KHR_lights_punctual` translation, since it's
    structurally the simplest of the three light-record formats.
 3. **Lightset system (item 2)** — third: real and confirmed, but rare
    (0.3–1.9%) and has its own open question (`MOLP`'s `attenStart`/

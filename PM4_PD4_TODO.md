@@ -460,10 +460,17 @@ real options, none of them free:
    script" is a materially weaker promise than "hidden by default" as
    Luna wrote it.
 
-No option here is silently picked. Whoever implements this should decide
-with Luna directly before writing `writeGlbMulti`-side code, the same way
-the multi-root-skeleton rework's own design questions got settled before
-implementation, not during it.
+**Decision, confirmed by Luna 2026-08-01: option 1, reuse the
+collision-mesh precedent as-is** (`{"pathing": true}` extras tag,
+guaranteed to open cleanly in Blender, matching every existing husk
+`extras` convention) — accepted explicitly as "identifiable, not
+literally hidden," the same honest tradeoff the collision mesh itself
+already lives with. `KHR_node_visibility` (option 2) and a separate
+opt-in Blender script (option 3) are not adopted, but are recorded above
+as real, considered alternatives should a future session want genuine
+hidden-by-default behavior for a specific downstream consumer that
+supports the extension — this decision covers husk's own default export
+path only, not a hard rule against ever revisiting it.
 
 ## Test plan
 

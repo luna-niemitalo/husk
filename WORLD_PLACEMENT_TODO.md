@@ -417,19 +417,18 @@ not done` -- same placement-node shape as `MDDF`, one level down in scope
 `MWDR`/`MWDS` indirection and the "always-include-set-0" rule are both real,
 non-optional pieces of correct resolution, not edge cases to defer.
 
-**Open design question**: does a doodad *set*'s mutual exclusivity (per the
-wiki: "sets are exclusive except for the very first one... client
-determines that set by index") mean husk should export every set as
+**Decision, confirmed by Luna 2026-08-01**: export every doodad set as
 separate, individually-toggleable glTF nodes (mirroring `--lod all`'s own
 "every tier as its own node" precedent, `gltf::writeGlbMulti`'s existing
-doc comment) rather than baking in one fixed selection? This is the same
-"which variant" problem M2's own geoset selection already has
-(`M2_COMPLETENESS.md`'s Core geometry row, `skinSectionId` extras) -- and
-the same answer (export every set as inert, taggable data; let a Blender
-script or custom renderer pick) is very likely right here too, but this
-document flags it rather than assuming it, since a world-scene context (many
-instanced buildings, not one hero model) may make "export everything" a
-much bigger multiplier on export size/time than M2's own single-model case.
+doc comment) rather than baking in one fixed selection -- the same
+"which variant" answer M2's own geoset selection already uses
+(`M2_COMPLETENESS.md`'s Core geometry row, `skinSectionId` extras): no
+external DB2/customization data to ground a "correct" choice in, so export
+every set as inert, taggable data and let a Blender script or custom
+renderer pick. The size/time-multiplier concern this document originally
+flagged (a world-scene context has many instanced buildings, not one hero
+model) is accepted as a real cost of this choice, not a reason to deviate
+from husk's own established precedent.
 
 ## Map-level global WMO placement (`.wdt`'s `MWMO` + `MODF`)
 
@@ -482,6 +481,40 @@ parse entry point (`parseGlobalWmoPlacement(wdtChunks) -> optional<WmoPlacement>
 ceiling as ADT's own `MODF`, structurally identical once parsed.
 
 ## Scene-composition CLI surface -- needs a real design pass, not a snap decision
+
+**Direction confirmed by Luna, 2026-08-01 (still not a full CLI-shape
+decision -- see below for what remains genuinely open):** explicitly
+**not** "cascade-export the whole game" as a goal -- that's too big a
+chore to build (or trust) as one monolithic operation. Build small,
+individually testable/exportable primitives first (single-WMO export,
+single-ADT-tile terrain export, a placement-record resolver that's
+correct and tested on its own), then layer thin **helper**
+chaining/composition on top of those primitives once they exist --
+explicitly the same shape husk's own M2 pipeline actually grew: `export`
+started as "read one `.m2`, write one `.glb`," and `.skel`/`.phys`/`.anim`
+sidecar resolution were each pulled in later, incrementally, as their own
+independently-testable pieces, never as a single big-bang "resolve
+everything" design. This reframes items 1-4 below from "which shape does
+the *one* CLI surface take" to "what are the *individually testable* units
+this eventually composes from" -- the actual subcommand/flag shape for the
+*composing* layer is still explicitly deferred to its own design pass
+once those units exist, per the recommendation at the end of this
+section, which still stands.
+
+**A further, explicitly speculative direction flagged by Luna, not decided,
+recorded here so a future session doesn't have to rediscover it**: whether
+world assembly's real end target should be a genuine **scene-descriptor
+file format with dynamic loading** (an index/manifest referencing many
+separately-exported `.glb`s, loaded on demand -- closer to how a game
+engine actually streams a world) rather than one large pre-baked/chunked
+`.glb` per tile or map. This is framed explicitly as a **potential
+exploration goal**, not a requirement blocking any of the placement-parsing
+work in this document -- worth a dedicated investigation (what such a
+descriptor would need to contain, whether an existing convention like
+glTF's own multi-file/`.gltf`-plus-external-buffers shape already covers
+part of this, or whether a wholly custom manifest is warranted) once the
+individually-testable primitives above exist and there's real data on how
+big a "cascade the whole game" scene actually gets.
 
 This is flagged explicitly per the task brief's own instruction: **the CLI
 shape for turning placement records into one assembled scene is a much
@@ -646,6 +679,9 @@ cleanly this session):
    generalizes to any other name-table husk might encounter, but genuinely
    lower priority than the FileDataID path given how lopsided the real
    corpus distribution is.
-6. **Scene-composition CLI surface** -- explicitly not decided in this
-   document (see its own section above); the real prerequisite work is
-   items 1-5, this is the follow-up design pass once they exist.
+6. **Scene-composition CLI surface** -- explicit direction confirmed
+   (build individually-testable primitives first, thin helper-chaining on
+   top, no monolithic whole-game-cascade export -- see its own section
+   above), but the actual subcommand/flag shape for the composing layer is
+   still deferred, same as before; the real prerequisite work is items
+   1-5, this is the follow-up design pass once they exist.
