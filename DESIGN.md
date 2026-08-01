@@ -38,32 +38,41 @@ Non-goals, by design, not oversight:
   every other sidecar. What husk itself never does, at runtime, under any
   circumstance, is talk to CASC/DB2 directly.
 - No write-back to WoW's native formats. glTF-out only.
-- No WMO or M3 support (tracked, not started). A full-storage `M3DT`-magic
-  scan (casc-tool, product `wow` build 68887, 1,891,552 files) found 8 real
-  `.m3` files exist in this corpus (unresolved listfile names, `models\
-  unknown\unk_exp*\<fdid>.m3`) — noted for the record, still out of scope,
-  no investigation started.
+- No WMO or M3 support implemented yet. WMO is tracked and now fully
+  investigated/planned (not started in `src/`) — see `WMO_GEOMETRY_TODO.md`/
+  `WORLD_PLACEMENT_TODO.md`/`COLLISION_CULLING_TODO.md` and the rest of the
+  Open work pointer below. M3 remains genuinely untracked, no investigation
+  started: a full-storage `M3DT`-magic scan (casc-tool, product `wow` build
+  68887, 1,891,552 files) found 8 real `.m3` files exist in this corpus
+  (unresolved listfile names, `models\unknown\unk_exp*\<fdid>.m3`) — noted
+  for the record, still out of scope.
 - No ADT (terrain) support yet either (tracked, not started, `README.md`'s
   format matrix gained an ADT column 2026-07-31) — genuinely missed when
   this project was first scoped, not a deliberate exclusion: crucial for
   any actual rendered world, not just props/buildings. `.wdt`/`.wdl` (which
   ADT tiles exist per map; coarse whole-continent distant heightmap) are
   ADT's own real dependencies, not yet scoped either. **WMO and ADT are
-  scoped together, not separately** — `WORLD_COMPLETENESS.md` (new,
-  2026-07-31, a pre-implementation scaffold, no code yet either format)
-  covers both plus `.wdt`/`.wdl`, since ADT's whole relevance to husk is
+  scoped together, not separately** — `WORLD_COMPLETENESS.md` (2026-07-31,
+  a pre-implementation scaffold; expanded into eleven implementation-ready
+  `*_TODO.md` companion documents 2026-08-01 after a real corpus
+  investigation pass, see Open work below — still no code yet either
+  format) covers both plus `.wdt`/`.wdl`, since ADT's whole relevance to husk is
   placing M2/WMO instances into world space (`MDDF`/`MODF`) and WMO has
   the identical concern turned inward (its own internal doodad set,
   `MODS`/`MODN`/`MODI`/`MODD`) — the two will get implemented as one
   effort, not two.
 - **PM4/PD4 (server-side navigation/pathing mesh) declared in scope**,
-  2026-07-31, explicitly for pathing use cases ("we want pathing") — not
-  yet researched at all (no wiki page read, no real file inspected this
-  session). Genuinely different in kind from every other format above:
-  never touched by the client renderer, only by server-side movement/AI,
-  so "renders correctly" isn't the bar for it the way it is for M2/WMO/
-  ADT — a future investigation should ground itself in that distinction
-  before assuming the M2/WMO byte-verification playbook transfers as-is.
+  2026-07-31, explicitly for pathing use cases ("we want pathing").
+  Genuinely different in kind from every other format above: never
+  touched by the client renderer, only by server-side movement/AI, so
+  "renders correctly" isn't the bar for it the way it is for M2/WMO/ADT —
+  but (corrected 2026-08-01, `LUNA_NOTES.md`) that doesn't mean "excluded
+  from export," it means "real geometry, hidden by default," the same
+  spirit as M2's own collision mesh. Now has a full investigation and
+  implementation plan, `PM4_PD4_TODO.md` (see Open work below) — including
+  a genuine structural wall found this pass: these files are never shipped
+  to the client at all (a full live-storage sweep found zero real `.pm4`/
+  `.pd4` files anywhere), not an extraction-completeness gap.
 - **Shader bytecode (`BLS`/`GFAT`, WoW's compiled-shader files) investigated
   and deliberately deprioritized, not ruled out on principle.** Luna's own
   real investigation (not this session's) found actual intermediary
@@ -1233,3 +1242,42 @@ not inferred. Also surfaced 3 real corpus files with a genuinely new,
 not-yet-tracked animation-data failure shape (NaN keyframes / a ~2.2
 billion ms backward timestamp jump) — see that file's own closing
 section for the exact files.
+
+`WORLD_COMPLETENESS.md` (WMO/ADT/WDT/WDL/PM4/PD4, previously a target-
+setting scaffold with every row reading `none`/`none` and "documented, not
+verified") went through one full real-data investigation pass and was
+expanded into eleven implementation-ready companion documents: `WDT_TODO.md`,
+`ADT_TERRAIN_TODO.md`, `ADT_LOD_TODO.md`, `WMO_GEOMETRY_TODO.md`,
+`WORLD_PLACEMENT_TODO.md`, `LIQUID_TODO.md`, `LIGHTING_TODO.md`,
+`FOG_VOLUMES_TODO.md`, `COLLISION_CULLING_TODO.md`,
+`WORLD_MISC_METADATA_TODO.md`, `PM4_PD4_TODO.md` — same "survey first,
+implementation-ready plan before code" shape `PHYS_TODO.md`/`ANIM_TODO.md`
+used for their own formats, just at the scale of an entire new format
+family rather than one sidecar. Nothing in `src/` reads a WMO/ADT/WDT/WDL/
+PM4/PD4 byte yet; `WORLD_COMPLETENESS.md` itself still reads `none`/`none`
+everywhere. Every real correction found (chunk-tag byte reversal confirmed
+universal across all four containers, several wiki struct errors fixed,
+four gameplay/misc-metadata items promoted out of a reflexive `n/a`, two
+genuinely undocumented chunks found, the portal-culling/Blender-visibility
+question checked directly rather than assumed) is recorded permanently in
+`WIKI_FINDINGS.md` §15 — see that entry for the consolidated list, and each
+`*_TODO.md` file for the full per-item struct, C++ data-model sketch, and
+test plan. `WORLD_COMPLETENESS.md`'s own "Recommended implementation
+order" note (added this pass) is the starting point for whoever picks this
+up: `.wdt` first (nothing else can locate a real file without it), then
+ADT terrain, then world placement (`MDDF`/`MODF` — "the single most
+important row" in that whole file), then the rest in roughly
+prevalence-and-value order.
+
+PM4/PD4's own non-goal framing above is corrected by this same pass —
+`LUNA_NOTES.md` pointed out directly that "never touched by the client
+renderer" doesn't mean "excluded from a world-completeness file," the same
+way M2's own collision mesh is real, exportable geometry despite never
+being drawn by a normal render pass. `PM4_PD4_TODO.md` found a genuine
+structural wall worth flagging here directly: these files are **never
+shipped to the client at all** (confirmed via a full `casc-tool list`
+sweep of all 3,190,909 files in live retail storage — zero `.pm4`/`.pd4`
+matches anywhere), not an extraction-completeness gap like `EXP2`/`PFDC`
+(`WIKI_FINDINGS.md` §13) — real fixture data for this one format will need
+a different acquisition path than everything else in this project's usual
+corpus-verification playbook.

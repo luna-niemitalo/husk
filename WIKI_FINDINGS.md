@@ -1457,6 +1457,250 @@ path does.
 
 ---
 
+## 15. WMO/ADT/WDT/WDL/PM4/PD4 — first real-data investigation pass across the full non-M2 world-format expansion
+
+**Confidence: verified per sub-finding below; this is a planning-stage
+investigation, not an implementation session** — nothing in `src/` reads a
+WMO/ADT/WDT/WDL/PM4/PD4 byte yet. `WORLD_COMPLETENESS.md` was expanded into
+eleven implementation-ready companion documents (`WDT_TODO.md`,
+`ADT_TERRAIN_TODO.md`, `ADT_LOD_TODO.md`, `WMO_GEOMETRY_TODO.md`,
+`WORLD_PLACEMENT_TODO.md`, `LIQUID_TODO.md`, `LIGHTING_TODO.md`,
+`FOG_VOLUMES_TODO.md`, `COLLISION_CULLING_TODO.md`,
+`WORLD_MISC_METADATA_TODO.md`, `PM4_PD4_TODO.md`), each independently
+verified against the real, already-extracted local corpus
+(`/media/luna/data/wow_export`: 84,798 real `.wmo` files, ~270,625 real
+`.adt` files across split-file variants, 959 `.wdt`, 959 `.wdl`) via
+from-scratch Python decoders — no husk parser exists yet to reuse or bias
+the check. This entry records only the durable corrections and new facts
+that would otherwise be lost once those punch-list documents are
+implemented and deleted (this project's usual TODO-file lifecycle); the
+full struct listings, C++ data-model sketches, and test plans live in the
+TODO documents themselves, cited per item below.
+
+### Chunk-tag byte reversal is universal across every non-M2 container checked
+
+WMO, ADT, WDT, and WDL all reverse chunk-tag bytes on disk, the same
+convention `.phys` already established (§9) and the opposite of M2's own
+inline chunks — confirmed directly (`od`/hex-dump) on real files in every
+format, not assumed from `.phys`'s precedent alone (e.g. a real `.wdt`'s
+first 4 bytes are literally `52 45 56 4D` = `"REVM"`, not `"MVER"`). None of
+the relevant wiki pages (`WMO.md`, `ADT/v18.md`, `WDT.md`, `WDL/v18.md`)
+state this explicitly. Two independent sibling investigations each caught
+a real scanner bug from forgetting this (an ADT tag census that searched
+forward-spelled tags and found zero hits everywhere, in both
+`COLLISION_CULLING_TODO.md`'s and `WORLD_MISC_METADATA_TODO.md`'s own
+sessions) before either was trusted — worth a future session not repeating
+a third time. See `WDT_TODO.md`, `ADT_TERRAIN_TODO.md`.
+
+### WDT: occlusion heightmap is smaller than documented; a global-WMO flag can omit `MWMO` entirely
+
+`_occ.wdt`'s `MAOI`/`MAOH` occlusion heightmap is really `int16_t[17*17]`
+(578 bytes), not the wiki's stated `(17*17+16*16)` (1,090 bytes) —
+confirmed across all 959 real `_occ.wdt` files, 43,833 tile entries, zero
+exceptions. Separately: the root `.wdt`'s global single-WMO `MODF` record
+can omit `MWMO` entirely when `flags & 0x8` is set (35/228 real global-WMO
+files), with `nameId` then holding a real FileDataID directly rather than a
+name-table index — `WDT.md` never states this, only ADT's own parallel
+per-placement flag documents the equivalent behavior for `MDDF`/`MODF`.
+Also newly confirmed: `MAI2` (Midnight-era, wiki says "unshipped") is real
+in 2 files (`kalimdor.wdt`, `azeroth.wdt`). See `WDT_TODO.md`.
+
+### ADT: `MCVT`/`MCNR` never move to a split file; `MLLL`'s real LOD-band set is `{4,8,16,32}`, not `2.0`
+
+The Cata+ split-file structure (`_obj0`/`_obj1`/`_tex0`/`_tex1`/`_lod`)
+keeps `MCVT`/`MCNR` (heightmap + normals) root-resident always — confirmed
+on 2,500 sampled files across every split-file generation. Legion+ terrain
+LOD's `MLLL` band set is really `{4, 8, 16, 32}` on every real `_lod.adt`
+file checked (2,000 files) — `ADTLodImplementation.md`'s own prose
+mentioning "lod 2" reads as if `2.0` were a real band value; it isn't, "lod
+2" just refers to the base ADT tile itself, not an `MLLL` entry. See
+`ADT_TERRAIN_TODO.md`, `ADT_LOD_TODO.md`.
+
+### WMO: `GFID` is row-major (`lodTier*nGroups + groupIndex`); `MOGX` is a padded 256-byte chunk, not "one single value"; `MOMX` is common and per-texture-sized, not a rare one-off
+
+Three separate real corrections found independently by two sibling
+investigations this session:
+
+- **`GFID` (LOD-tier group-file resolution) is row-major**:
+  `index = lodTier * nGroups + groupIndex`, zero meaning "no file for that
+  cell" — not spelled out on the wiki as a formula. Confirmed against a
+  real 37-doodad-set WMO whose 12 `GFID` entries resolve (via the community
+  listfile) to exactly the LOD-tier files present on disk. See
+  `WMO_GEOMETRY_TODO.md`.
+- **`MOGX` is really a fixed 256-byte (64×`uint32_t`) chunk, not the
+  wiki's stated 4-byte "one single value."** Every real `MOGX` chunk found
+  this session (4 distinct real files) is exactly 256 bytes; only the first
+  slot is ever non-zero (real `queryFaceStart` values), the remaining 63
+  are always-zero padding — the same "declared/allocated size vs.
+  actually-used content" shape §11 already found for `DETL`'s own 16-byte
+  alignment padding. `MOQG` (correctly 4-byte-per-entry per the wiki) and
+  `MOGX` are **both group-level**, not "root/group" as
+  `WORLD_COMPLETENESS.md`'s own row originally stated — confirmed by a full
+  84,798-file corpus census (zero root-level hits for either tag). See
+  `WORLD_MISC_METADATA_TODO.md`.
+- **`MOMX` (wiki: "just a guess... observed in \[one named file\]") is
+  present in 3,931 of 12,869 real root WMO files (30.5%) — not a rare,
+  single-file anomaly.** New structural fact, confirmed on all 3 real
+  files checked with zero exceptions: **`MOMX`'s record count exactly
+  equals `MOHD.nTextures`** (a 16-byte-stride, per-texture-slot auxiliary
+  table). Per-field semantics remain genuinely unresolved — two different
+  real files populate different byte ranges within the 16-byte record,
+  ruling out a single simple "one populated field" hypothesis without
+  yet resolving what the populated bytes mean; the recurring non-zero
+  values were checked directly against both `GFID` and `MODI` and are
+  **not** FileDataID references, despite the wiki's own "most likely
+  pointers to something" guess. See `WORLD_MISC_METADATA_TODO.md`.
+
+Also confirmed corpus-wide, closing an open question rather than leaving it
+guessed at: `MPBV`/`MPBP`/`MPBI`/`MPBG` (wiki: "barely ever present,"
+citing one named alpha file) are **genuinely absent, 0 of 71,929 real group
+files** — the wiki's rarity claim holds at full corpus scale, not just in
+a small sample. See `WORLD_MISC_METADATA_TODO.md`.
+
+### WMO placement: `MODI`'s count can exceed `MOHD.nDoodadNames`; `MWDR`/`MWDS` two-level doodad-set indirection verified end-to-end
+
+`MODI`'s real entry count doesn't match `MOHD.nDoodadNames` on 14.5% of
+5,000 real WMO roots sampled — always `MODI` ≥ the header count, never
+less — meaning a correct parser must size the array off the chunk's own
+byte length, never trust the header field alone. Separately, the
+Shadowlands+ `MWDR`/`MWDS` doodad-set-activation indirection (WMO
+placements can activate additional mutually-non-exclusive doodad sets
+beyond the base `MODS` selection) was verified fully end-to-end: two real
+placements of the same WMO in different ADT tiles activate different
+multi-set combinations (`{2,8}` and `{5,6}`) into the same real 9-set
+`MODS` table. See `WORLD_PLACEMENT_TODO.md`.
+
+### Liquid/lighting/fog: `MH2O` covers two-thirds of real ADT tiles; several chunks are group-scoped, not root; one wholly undocumented chunk found in two independent scans
+
+`MLIQ` and `MH2O` headers/instances byte-match the wiki exactly on real
+data; `MH2O` is present in 67.1% of 4,000 real ADT root tiles sampled —
+confirming it as the clear implementation priority over WMO's own `MLIQ`
+(2.1% of 2,000 real WMO group files) and the legacy `MCLQ` (confirmed
+genuinely absent, 0/4,000 real files — don't implement it). A real scoping
+bug was caught before being trusted: `MOLS`/`MOLP`/`MLSS`/`MLSP`/`MPVR`/
+`MAVR`/`MBVR`/`MFVR`/`MNLR` are all **group**-file chunks (nested inside
+`MOGP`), not root-level, despite reading as root-level candidates from a
+shallow pass over the wiki's own page structure — confirmed empirically
+(zero hits scanning at root, real hits once the scan recursed into `MOGP`).
+`_mpv.wdt`'s `PVMI`/`PVPD`/`PVBD` chunks repeat as a group per volume
+(5–24 times per file), not once per tag as a naive single-chunk read would
+assume; `PVPD`'s two wiki-hedged constant values (`[-1,1]` range, `-0.0`)
+matched exactly on real data. **A wholly undocumented chunk, `VFE2` (176
+bytes), was found in real `_fogs.wdt` files by two independent sibling
+investigations this session** (the liquid/lighting/fog agent and the
+WDT/ADT-terrain agent, working from different corpus samples) — real,
+present, and absent from `WDT.md` entirely; not reverse-engineered this
+session, just confirmed present and flagged for a future investigation
+pass. `MPVD`'s own struct remains genuinely unresolved (a 48-byte-stride
+hypothesis produced an implausible subnormal float) — flagged open, not
+guessed past. See `LIQUID_TODO.md`, `LIGHTING_TODO.md`, `FOG_VOLUMES_TODO.md`.
+
+**`KHR_lights_punctual` fit for `MOLT`**: worth reaching for on point/spot/
+directional lights (position/color/type map cleanly onto the extension),
+but with real gaps needing a human decision before adoption — no
+ambient-light support in the extension, `MOLT`'s two-radius attenuation
+model doesn't fit the extension's single-`range` falloff, `SMOLight` has no
+cone-angle data for spotlights at all, and it would be the **second** real
+glTF extension husk uses (it already declares `KHR_materials_unlit`, not
+the "first extension" framing this investigation was initially given —
+corrected mid-session). See `LIGHTING_TODO.md`.
+
+### Collision & culling: WMO's `MOBN`/`MOBR` BSP collision mesh reuses husk's existing M2 collision-mesh pipeline almost verbatim; portal culling has no matching Blender mechanism, checked directly rather than assumed
+
+`MOBN`/`MOBR` (WMO's BSP collision tree) is present in 34,555 of 71,929
+real group files (48%) and needs almost no new design: it maps directly
+onto husk's already-shipped `m2::CollisionMesh`/`parseCollisionMesh`/
+`isCollision`-extras pipeline (M2_COMPLETENESS.md's Collision row) once
+`MOBR`'s one indirection (a triangle index into `MOVI`, not a raw vertex
+index) is handled — verified zero bounds violations across 4 real files
+(78–1,023 BSP nodes each), the same "real files have zero violations, a
+real one is corruption" discipline §9 already established for `.phys`.
+
+The portal-culling question (`MOPV`/`MOPT`/`MOPR`/`MOPE`) was raised
+mid-session as a direct correction to this investigation's own initial
+framing ("no renderer uses this beyond debug visualization") — actually
+investigated rather than left as an assumption. **Verdict, checked not
+assumed: Blender has no cell-and-portal visibility-culling mechanism at
+all** — its real-time engines (Eevee, Eevee Next) implement camera-frustum
+culling and various occlusion/ambient-occlusion techniques, never a
+portal-graph system; two specifically-named candidates (Cycles' Holdout
+shader, Cycles' per-object Ray Visibility toggles) were checked directly
+and ruled out for concrete, documented reasons (Holdout is a compositing/
+masking feature — a Holdout object is still fully raytraced, it just
+renders transparent; Ray Visibility is a flat per-object boolean with no
+spatial/graph structure). `node-possible, unclaimed` remains the honest
+ceiling, but now for a checked reason rather than a repeated assumption. A
+useful corroborating signal: `wow.export`'s own `WMOExporter.js` surfaces
+portal data as inert JSON metadata alongside the mesh, never as geometry
+and never consumed by anything else in that tool either — independently
+arriving at the same "diagnostic, not native" shape — and has **zero** code
+path for `MOBN`/`MOBR` at all, meaning husk implementing WMO's BSP
+collision mesh would be new ground for the WoW-modding-tool ecosystem, not
+catching up to existing practice. See `COLLISION_CULLING_TODO.md`.
+
+### Gameplay/misc metadata: four items promoted out of a blanket `n/a` after being checked for real rather than dismissed as "invisible, therefore unimportant"
+
+A direct correction mid-session ("coverage is the goal, not 'I can't see it
+so it's not important'") prompted re-examining every item
+`WORLD_COMPLETENESS.md` had marked `n/a` in its Gameplay & misc metadata
+section under one real test: is this genuinely discardable engine-internal
+cruft with a husk-side substitute already covering it (the M2
+hardware-bone-limit precedent — a real, considered exception, not the
+default), or is it real positional/identifying data with no native glTF
+slot but genuine value to a downstream engine (extras territory)? Four
+items were reconsidered and promoted:
+
+- **`MDAL`** (WMO per-group ambient-color override, `CArgb`) — genuinely
+  affects rendered lighting tint, not gameplay-only; promoted to `extras`.
+- **`MCSE`** (ADT sound-emitter placement) — a real `id + position` shape,
+  structurally identical to M2's own ribbon/particle `EmitterAnchor`
+  precedent; promoted to `extras`, matching that pattern exactly (audio
+  playback stays out of scope, placement doesn't).
+- **`MCSH`** (ADT per-`MCNK` baked shadow bitmap, 64×64×1-bit) — real,
+  decodes to a strongly bimodal shadow-density distribution on real data
+  (confirming genuine baked-lighting content, not noise), but its
+  resolution (4,096 texels) doesn't map cleanly onto `MCVT`'s 145-vertex
+  grid the way WMO's per-vertex `MOCV` does — promoted to `extras`/
+  `native-possible, not done` as a small per-`MCNK` texture rather than a
+  vertex-color channel, once ADT terrain UV/texturing export exists.
+- **`MCMT`** (ADT per-texture-layer material-ID override, Cata+) — a real
+  foreign key into `TerrainMaterialRec` driving shader/material selection,
+  not gameplay-only; promoted to `extras`.
+
+One item (`MOQG`, WMO per-face ground type) was reconsidered under the same
+lens and confirmed to genuinely belong at `n/a` — footstep-sound/audio-FX
+selection with no visual or geometric consequence and no existing glTF/
+Blender convention for it, a real considered disposition rather than the
+original reflexive one. See `WORLD_MISC_METADATA_TODO.md`.
+
+### PM4/PD4: genuinely never shipped to the client — a structural negative, not an extraction gap
+
+`LUNA_NOTES.md` corrected `WORLD_COMPLETENESS.md`'s original framing (PM4/
+PD4 declared fully out of scope as "never touched by the client
+renderer") — pathing-mesh data should get real parse+export coverage,
+defaulting to hidden/inert in a normal render rather than being excluded
+outright. Investigating what real data is even available found a genuine
+structural wall: the pre-extracted local corpus has zero `.pm4`/`.pd4`
+files, and a full `casc-tool list` sweep of all 3,190,909 files in the live
+retail storage (`/media/luna/games/World of Warcraft`, product `wow`,
+build 68887) found **zero** matches for either extension anywhere — not an
+extraction-completeness gap like `EXP2`/`PFDC` (§13), a confirmed structural
+absence. Both wiki pages' own "not supposed to be shipped to the client"
+text is confirmed literally true. The community listfile still carries
+26,412 known paths (20,857 `.pm4`, 5,555 `.pd4`) — enumerable, permanently
+unfetchable this way. `wow.export` has zero PM4 handling and only a
+raw-byte PD4 pass-through (never parsed) — husk building real support here
+would be genuinely novel, not catching up to prior art. The "hidden by
+default" design question itself was left open, not resolved: glTF's real
+`KHR_node_visibility` extension exists and matches the intent, but
+Blender's stock importer doesn't support it (confirmed via a live
+`glTF-Blender-IO` GitHub issue), so declaring it risks breaking Blender
+import outright — three concrete options were written up with tradeoffs,
+explicitly flagged for a human decision rather than silently picked. See
+`PM4_PD4_TODO.md`.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -1475,3 +1719,4 @@ path does.
 | §12 `aliasNext` = local `sequences` array index, chain-resolved into real clips | `src/m2.hpp`/`m2.cpp` (`Sequence`'s 7 new fields, `parseSequences`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`Animation::SequenceMetadata` extras) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
 | §13 `EXP2`/`PFDC` real files exist (local-extraction gap corrected); `BLP2` anomaly resolved as listfile mismatch; `M3` noted, out of scope | `src/m2.hpp` (`ExtendedParticle` comment), `src/cmd_dump.cpp` (`physPayloadRealLength` comment), `DESIGN.md` Non-goals — no parser changes needed | `tests/test_dump.cpp` (real `EXP2`-only and `EXP2`+`PFDC` fixtures, exact values), `tests/test_integration.cpp` (`BLP2`-anomaly throws-cleanly across `info`/`export`/`dump-chunks`) — `test_data/verification/` |
 | §14 `global_flags` named bits, `textureCombinerCombos`, `blp/` DXT3 (already worked, now verified) + JPEG (confirmed absent), `resolveSkin` diagnostics | `src/m2.hpp`/`m2.cpp` (`GlobalFlag`, `globalFlagNames`, `Header::textureCombinerCombos`), `src/cmd_info.cpp` (prints both), `src/cmd_export.cpp` (`resolveSkin`'s candidate-path message); `blp/` needed no code changes, only a test | `tests/test_cli.cpp` (`global_flags`/`textureCombinerCombos`/`resolveSkin` message cases), `blp/tests/test_decode.py` (`test_decode_dxt3_solid_green_explicit_alpha_block`) |
+| §15 WMO/ADT/WDT/WDL/PM4/PD4 investigation pass (chunk-tag reversal, WDT/ADT/WMO/liquid/lighting/fog/collision/misc/PM4-PD4 corrections) | none yet — planning-stage only, no WMO/ADT/WDT/WDL/PM4/PD4 parser exists in `src/` | none yet — see `WDT_TODO.md`/`ADT_TERRAIN_TODO.md`/`ADT_LOD_TODO.md`/`WMO_GEOMETRY_TODO.md`/`WORLD_PLACEMENT_TODO.md`/`LIQUID_TODO.md`/`LIGHTING_TODO.md`/`FOG_VOLUMES_TODO.md`/`COLLISION_CULLING_TODO.md`/`WORLD_MISC_METADATA_TODO.md`/`PM4_PD4_TODO.md` for the full per-item implementation plans and test plans |
