@@ -1335,3 +1335,61 @@ explicitly deferred until the tool is at a point where someone actually
 wants to *use* exports interactively, not built speculatively now — same
 "don't build ahead of a real need" discipline this project applies
 elsewhere (`CLAUDE.md`'s "Abstractions are earned").
+
+That "real interactive use" moment arrived the same day: Luna's own first
+hands-on Blender pass over real M2 export output (not headless-Blender
+structural checks, an actual human looking at the result) found several
+real things purely-structural verification can't catch — written up as
+`BLENDER_EXPORT_TODO.md` (new), then, per her own explicit "implement
+what doesn't need my input, have fun tinkering" while she slept, worked
+through the same night. Final state of that file:
+
+- **The headline finding, and the reason anyone opening this repo next
+  should read `BLENDER_EXPORT_TODO.md` §8 before anything else**: husk's
+  M2→glTF position export is measurably **upside down** — confirmed via a
+  real headless-Blender import of a real export (not eyeballed): a
+  head-height landmark bone lands *below* the root/feet-level bone in
+  Blender's own imported world space, and the render mesh's bounding box
+  sits entirely on the wrong side of the origin. `src/gltf.cpp`'s
+  `zUpToYUp` matches its own cited wowdev.wiki source formula exactly —
+  this isn't a transcription bug — but composing it with Blender's own
+  glTF-import axis conversion doesn't net out to identity the way
+  round-tripping the same physical up-axis should. A one-line sign flip
+  was tested and empirically confirmed to fix it (476/477 tests still
+  pass — only the `zUpToYUp` unit test itself, which hardcodes the current
+  formula, fails) — **then deliberately reverted, not shipped**: `DESIGN.md`'s
+  own rotation/scale quaternion conversion (two paragraphs below) was
+  explicitly derived *from* this exact position permutation, so a real fix
+  needs those re-derived and re-verified too, not just the position half,
+  and this touches every position/rotation/scale husk has ever exported —
+  a whole-tool-blast-radius change that needs Luna's own review, not a
+  same-night autonomous fix. Full receipts, the exact math, and the
+  verified-then-reverted fix are in `BLENDER_EXPORT_TODO.md` §8.
+- The original leading hypothesis for two other symptoms ("boot vertex
+  parented to the other leg's bone," the base body mesh appearing to go
+  missing) — that `.skin`'s own "Bones" lookup array and the M2 header's
+  `boneCombos` table are parsed but never dereferenced, so vertex joint
+  indices might need an indirection husk skips — was investigated and
+  **closed as not a bug**: an independent real-data cross-check found
+  husk's raw `M2Vertex.bone_indices` read already matches the
+  wiki-disputed indirection formula's own result, 9,143/9,143 real
+  weighted bone slots, no divergence. The missing-body symptom's likely
+  explanation is now the orientation bug above instead, unconfirmed until
+  someone looks again after §8 has a real fix.
+- Four smaller items shipped, tested, and verified against real exports
+  this same night: `husk export --collision none` (debuggability — the
+  collision mesh renders like any other mesh in Blender's stock importer,
+  with no way to opt out before this); real material names
+  (`m2::textureTypeName`, e.g. `_skin`/`_char_hair`, replacing a bare
+  `_tex2`) plus a real filename-matching fallback for texture slots husk
+  has no FileDataID for (Luna's own idea, mid-session: real texture
+  directories are sometimes named descriptively rather than by
+  FileDataID — a same-session self-caught bug in the first draft, where a
+  single real candidate file got wired into *every* unresolved slot at
+  once instead of just one, is also recorded there); and real bone/joint
+  node names (`m2::keyBoneName`, wowdev.wiki's own 193-row key-bone table)
+  instead of Blender's generic "Bone"/"Node" numbering.
+- Bone tail directions all pointing the same default direction regardless
+  of hierarchy shape was investigated headlessly and is very likely a
+  genuine Blender-importer limitation (glTF carries no bone-length data at
+  all) rather than a husk bug — not being pursued further.

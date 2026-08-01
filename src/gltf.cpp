@@ -279,6 +279,11 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
             const auto& src = skeleton->joints[i];
             jointNodes[i].translation = {src.localTranslation.x, src.localTranslation.y,
                                           src.localTranslation.z};
+            // A real semantic name when known (see Skeleton::Joint::name's
+            // doc comment), else an index-correlatable fallback -- either
+            // beats Blender's own generic "Bone"/"Node" numbering, which
+            // isn't guaranteed to match husk's own bone-index order.
+            jointNodes[i].name = !src.name.empty() ? src.name : "bone_" + std::to_string(i);
             if (!src.billboardMode.empty()) {
                 tinygltf::Value::Object extras;
                 extras["billboard"] = tinygltf::Value(src.billboardMode);

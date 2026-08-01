@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <utility>
@@ -224,6 +225,9 @@ gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones) {
         j.globalPosition = toGltf(b.pivot);
         if (const char* mode = m2::billboardModeName(b.flags)) {
             j.billboardMode = mode;
+        }
+        if (const char* name = m2::keyBoneName(b.keyBoneId)) {
+            j.name = name;
         }
         skeleton.joints.push_back(j);
     }
@@ -897,6 +901,78 @@ std::vector<gltf::Material::AnimatedScalarCurve> resolveAnimatedFixed16Curve(
     return curves;
 }
 
+// Best-effort filename-based fallback for a hardcoded/runtime-resolved
+// texture slot (M2Texture::type != 0, TXID entry 0 -- husk has no
+// FileDataID to look up an exact "<FileDataID>.png" for, see
+// m2::textureTypeName's doc comment and BLENDER_EXPORT_TODO.md §4). Real
+// texture directories aren't always FileDataID-named -- Luna's own
+// observation, 2026-08-01: some are named descriptively instead (e.g.
+// "bloodelffemalefaceupper00_00_hd.png"), which the exact-match lookup
+// above can never find no matter what's sitting in the directory.
+// `textureTypeName`'s own vocabulary (skin/char_hair/...) doesn't reliably
+// correspond to WoW's *actual* texture-section naming (that example's own
+// "faceupper" comes from CharComponentTextureSections, an entirely
+// different, DB2-only vocabulary husk has no access to either) -- so this
+// deliberately does NOT try to match a slot to a candidate by keyword.
+//
+// `scanFuzzyTexturePool` finds every '.png' file whose stem
+// (case-insensitive) starts with the model's own basename and isn't
+// itself a bare FileDataID (that case is already handled by the
+// exact-match path above); `claimSoleFuzzyTextureCandidate` hands out the
+// pool's sole remaining entry (removing it) only when exactly one is
+// left -- the one case where "which slot does this belong to" isn't
+// actually ambiguous. Two or more remaining candidates: reported once
+// (see the caller) but never guessed at. Claim-and-remove, not a fresh
+// scan per batch, matters here: a real texture directory built for one
+// character typically has *several* real files sharing that character's
+// basename (skin, hair, face, ...) -- a fresh "is there exactly one
+// match" scan per batch would find the same single still-unclaimed-looking
+// file every time and wire the *same* image into every unresolved slot
+// (skin, hair, guild colors, ...) at once, which is worse than embedding
+// nothing. One pool, scanned once per skin/LOD (buildMaterialsAndPrimitives's
+// own call), shared and depleted across every batch in that call, is what
+// keeps a real match going to at most one slot.
+struct FuzzyTexturePool {
+    std::vector<std::filesystem::path> files;
+};
+
+FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std::string& modelPath) {
+    FuzzyTexturePool pool;
+    if (texturesDir.empty()) return pool;
+
+    std::string modelBasename = std::filesystem::path(modelPath).stem().string();
+    std::transform(modelBasename.begin(), modelBasename.end(), modelBasename.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (modelBasename.empty()) return pool;
+
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(texturesDir, ec)) {
+        if (ec || !entry.is_regular_file()) continue;
+        const auto& path = entry.path();
+        if (path.extension() != ".png") continue;
+        std::string stem = path.stem().string();
+        bool allDigits =
+            !stem.empty() && std::all_of(stem.begin(), stem.end(),
+                                          [](unsigned char c) { return std::isdigit(c) != 0; });
+        if (allDigits) continue;  // exact-FileDataID path already covers these
+        std::string stemLower = stem;
+        std::transform(stemLower.begin(), stemLower.end(), stemLower.begin(),
+                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (stemLower.rfind(modelBasename, 0) == 0) {  // starts with the model's own basename
+            pool.files.push_back(path);
+        }
+    }
+    std::sort(pool.files.begin(), pool.files.end());
+    return pool;
+}
+
+std::optional<std::filesystem::path> claimSoleFuzzyTextureCandidate(FuzzyTexturePool& pool) {
+    if (pool.files.size() != 1) return std::nullopt;
+    auto result = pool.files.front();
+    pool.files.clear();
+    return result;
+}
+
 // Resolves the .skin file's batches (M2's actual material/texture
 // linkage, see src/skin.hpp's Batch doc comment) into one glTF material +
 // primitive per batch: batch -> submesh (a slice of `triangleIndices`) ->
@@ -915,8 +991,15 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                                             const std::vector<skin::Submesh>& submeshes,
                                             const std::vector<skin::Batch>& batches,
                                             const M2MaterialInputs& m2,
-                                            const std::string& texturesDir) {
+                                            const std::string& texturesDir,
+                                            const std::string& modelPath) {
     BuiltMaterials result;
+
+    // Scanned once per skin/LOD, shared and depleted across every batch
+    // below -- see scanFuzzyTexturePool's doc comment for why a fresh
+    // per-batch scan would wrongly reuse the same real file across every
+    // unresolved slot.
+    FuzzyTexturePool fuzzyTexturePool = scanFuzzyTexturePool(texturesDir, modelPath);
 
     if (batches.empty()) {
         // A genuinely geometry-less .skin (real corpus
@@ -1086,6 +1169,15 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             // real "husk can't resolve this locally" signal for any nonzero
             // value, not just missing PNG data.
             gm.textureType = m2.textures[textureIndex].type;
+            // A real semantic name (e.g. "_skin", "_char_hair") instead of
+            // a bare "_tex<N>" whenever the type is known -- per Luna's own
+            // "clearly named slots based on the texture they utilize" ask.
+            // Type 0 (a real embedded/FileDataID-resolvable texture) gets
+            // no suffix here; its own filename/FileDataID below already
+            // says more than the generic type name would.
+            if (const char* typeName = m2::textureTypeName(gm.textureType)) {
+                gm.name += std::string("_") + typeName;
+            }
 
             // Second UV set (roadmap "Second UV set" feature): only
             // meaningful pre-Cataclysm, see M2MaterialInputs::
@@ -1107,19 +1199,55 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 }
             }
 
-            if (m2.textureFileDataIds && textureIndex < m2.textureFileDataIds->size()) {
-                uint32_t fdid = (*m2.textureFileDataIds)[textureIndex];
-                if (fdid != 0) {
-                    gm.name += "_fdid" + std::to_string(fdid);
-                    if (!texturesDir.empty()) {
-                        auto pngPath =
-                            std::filesystem::path(texturesDir) / (std::to_string(fdid) + ".png");
-                        std::ifstream f(pngPath, std::ios::binary);
-                        if (f) {
-                            gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
-                                                         std::istreambuf_iterator<char>());
-                        }
+            uint32_t fdid = (m2.textureFileDataIds && textureIndex < m2.textureFileDataIds->size())
+                                 ? (*m2.textureFileDataIds)[textureIndex]
+                                 : 0;
+            const std::string& embeddedFilename = m2.textures[textureIndex].filename;
+            std::optional<std::filesystem::path> embeddedPngPath;
+            if (!embeddedFilename.empty() && !texturesDir.empty()) {
+                auto candidate = std::filesystem::path(texturesDir) /
+                                  (std::filesystem::path(embeddedFilename).stem().string() + ".png");
+                if (std::ifstream(candidate, std::ios::binary)) embeddedPngPath = candidate;
+            }
+
+            if (fdid != 0) {
+                gm.name += "_fdid" + std::to_string(fdid);
+                if (!texturesDir.empty()) {
+                    auto pngPath =
+                        std::filesystem::path(texturesDir) / (std::to_string(fdid) + ".png");
+                    std::ifstream f(pngPath, std::ios::binary);
+                    if (f) {
+                        gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
+                                                     std::istreambuf_iterator<char>());
                     }
+                }
+            } else if (embeddedPngPath) {
+                // type==0 (a real embedded path, wowdev.wiki M2#Textures)
+                // with no TXID FileDataID -- older/classic-era files, per
+                // m2::Texture's own doc comment. Not a guess: `filename` is
+                // real data straight from this M2, so the same basename
+                // (BLP -> PNG, the husk-blp naming convention) is an exact
+                // lookup, not a fuzzy one -- tried before the model-basename
+                // fuzzy fallback below since it's strictly more precise.
+                gm.name += "_" + embeddedPngPath->stem().string();
+                std::ifstream f(*embeddedPngPath, std::ios::binary);
+                if (f) {
+                    gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
+                                                 std::istreambuf_iterator<char>());
+                }
+            } else if (auto fuzzy = claimSoleFuzzyTextureCandidate(fuzzyTexturePool)) {
+                // No FileDataID and no embedded filename to look up (a
+                // hardcoded/runtime-resolved slot -- gm.textureType != 0)
+                // but exactly one real basename-matching file sits in
+                // texturesDir -- see findSoleFuzzyTextureCandidate's doc
+                // comment. Named from the real file, not "_fdid<N>" (there
+                // is no FileDataID here), and embedded the same way an
+                // exact match would be.
+                gm.name += "_" + fuzzy->stem().string();
+                std::ifstream f(*fuzzy, std::ios::binary);
+                if (f) {
+                    gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
+                                                 std::istreambuf_iterator<char>());
                 }
             }
 
@@ -1211,6 +1339,19 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
     }
 
     result.distinctSkinSectionIds.assign(skinSectionIds.begin(), skinSectionIds.end());
+
+    // Whatever's left in the pool never got claimed -- either nothing
+    // needed it (fine, silent) or 2+ files shared the model's basename and
+    // husk couldn't tell which unresolved slot(s) they belonged to (see
+    // scanFuzzyTexturePool's doc comment). Reported once per skin/LOD,
+    // not per batch, so their existence is visible without being noisy.
+    if (fuzzyTexturePool.files.size() > 1) {
+        std::cout << "husk: note: " << fuzzyTexturePool.files.size()
+                  << " texture file(s) in '" << texturesDir
+                  << "' share this model's basename but husk can't tell which hardcoded texture "
+                     "slot each belongs to -- none were embedded (see BLENDER_EXPORT_TODO.md §4)\n";
+    }
+
     return result;
 }
 
@@ -1485,6 +1626,21 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "look for one (default: a same-basename '.phys' next to the model, if any) -- "
                     "a minimal per-body placement anchor is attached as inert glTF extras; the "
                     "full body/shape/joint record set is available via 'husk dump-chunks' instead");
+    app.add_option("--collision", opts.collisionArg,
+                    "'none' to omit the collision mesh entirely, or default (unset) to include it "
+                    "when present -- tagged {\"collision\": true} in glTF extras either way, never "
+                    "applied to the render, but Blender's stock importer has no concept of that tag "
+                    "and renders it like any other mesh; 'none' is for debugging what the render "
+                    "meshes alone look like (see BLENDER_EXPORT_TODO.md §3)")
+        ->check(
+            [](const std::string& v) -> std::string {
+                if (v != "none") {
+                    return "--collision only accepts 'none' (there's no path to give -- collision "
+                           "data lives inline in the .m2 itself, not a sidecar file)";
+                }
+                return "";
+            },
+            "COLLISION");
 }
 
 int exportGlb(int argc, char** args) {
@@ -1996,7 +2152,7 @@ int exportGlb(int argc, char** args) {
             }
 
             auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs,
-                                                       texturesDir);
+                                                       texturesDir, modelPath);
 
             // FAILURES2.md #1: husk doesn't filter geosets (skinSectionId) --
             // every submesh in the .skin file is exported unconditionally,
@@ -2117,8 +2273,15 @@ int exportGlb(int argc, char** args) {
         // writeGlbMulti marks its node `{"collision": true}` in extras.
         // Silently skipped when the model has no collision data at all
         // (count 0 -- not every M2 necessarily has some), same "quiet when
-        // nothing applies" policy as --textures.
-        if (header.collisionPositions.count > 0 && header.collisionIndices.count > 0) {
+        // nothing applies" policy as --textures. Also skipped outright on
+        // `--collision none` -- real debuggability need, not speculative:
+        // Blender's stock glTF importer has no concept of the `{"collision":
+        // true}` extras tag below, so the collision mesh renders exactly
+        // like every other mesh, which can visually block or overlap the
+        // render meshes it's meant to sit inert alongside (see
+        // BLENDER_EXPORT_TODO.md §3).
+        if (opts.collisionArg != "none" && header.collisionPositions.count > 0 &&
+            header.collisionIndices.count > 0) {
             auto collisionMesh = m2::parseCollisionMesh(blob, header.collisionPositions,
                                                           header.collisionIndices,
                                                           header.collisionFaceNormals);

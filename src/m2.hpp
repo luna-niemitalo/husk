@@ -336,6 +336,30 @@ constexpr uint32_t kBillboardMask = kSphericalBillboard | kCylindricalBillboardL
 // don't carry two copies of the same bit-to-name mapping.
 const char* billboardModeName(uint32_t flags);
 
+// Names a bone's `keyBoneId` (Bone::keyBoneId, a back-reference into
+// wowdev.wiki M2#Key-Bone_Lookup's "Key Bone Names" table -- ArmL, Head,
+// FootL, Root, etc.), or nullptr if `keyBoneId` is -1 (no key bone) or a
+// value the table doesn't cover (the table itself has real gaps -- e.g.
+// IDs 46/47/90-189/191-289/294/295 are undocumented on the wiki, not an
+// omission here). Transcribed directly from the wiki's own 193-row table,
+// IDs and names both -- not guessed at or reordered. Used for glTF joint
+// node names (`gltf::writeGlbMulti`) so a real bone at least sometimes
+// gets a real semantic name instead of Blender's own generic "Bone"/"Node"
+// fallback -- see BLENDER_EXPORT_TODO.md §6.
+const char* keyBoneName(int32_t keyBoneId);
+
+// Names a texture's `type` (Texture::type, wowdev.wiki M2#Textures'
+// "Texture types" table) -- "skin", "char_hair", "guild_emblem", etc., or
+// nullptr for type 0 (a real embedded filename, no name needed here) or a
+// value the table doesn't cover (IDs 24-26 are real but the wiki gives no
+// name for them, just "seen in DracthyrDragon.m2" -- not an omission
+// here). Used to give a hardcoded/runtime-resolved texture slot (one husk
+// can't embed a real image for -- no CASC/DB2 access, see
+// BLENDER_EXPORT_TODO.md §4) a real semantic material name instead of a
+// bare "_tex<N>", per Luna's own "clearly named slots based on the
+// texture they utilize" ask -- see cmd_export.cpp's material-naming code.
+const char* textureTypeName(uint32_t type);
+
 // M2CompBone, per wowdev.wiki M2#Bones -- 88 bytes on disk (>= Wrath shape,
 // which is every version this parser targets). Only the fields stage 2 of
 // the roadmap (skeleton + skinning, see README.md) needs for a bind-pose

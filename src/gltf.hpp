@@ -234,6 +234,20 @@ struct Skeleton {
         // so this is metadata for the consumer, not something writeGlb
         // itself applies). Empty string (the default): no extras added.
         std::string billboardMode;
+        // A real semantic bone name (e.g. "ArmL", "Head", "FootL" -- from
+        // m2::keyBoneName(Bone::keyBoneId)), or empty if this bone isn't in
+        // that ~193-entry table. Becomes this joint's glTF node `.name`
+        // when non-empty; writeGlbMulti falls back to "bone_<index>"
+        // otherwise. Resolved by the caller (m2-specific), not here --
+        // gltf.cpp stays M2-format-agnostic, same split billboardMode
+        // already follows (a resolved string in, not raw M2 bit flags).
+        // Blender's stock glTF importer otherwise falls back to its own
+        // generic "Bone"/"Node" numbering, which isn't guaranteed to match
+        // husk's own bone-index order, making every index-keyed extras
+        // payload (correction-set/emitter-anchor joint indices, `husk
+        // info`'s own bone listing) hard to correlate back to what's
+        // actually selected in Blender. See BLENDER_EXPORT_TODO.md §6.
+        std::string name;
     };
     std::vector<Joint> joints;
 

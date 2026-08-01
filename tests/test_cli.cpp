@@ -59,6 +59,12 @@ void putU16(std::vector<uint8_t>& b, uint16_t v) {
     b.push_back(static_cast<uint8_t>(v >> 8));
 }
 
+void putF32(std::vector<uint8_t>& b, float v) {
+    uint8_t bytes[4];
+    std::memcpy(bytes, &v, 4);
+    b.insert(b.end(), bytes, bytes + 4);
+}
+
 void putTag(std::vector<uint8_t>& b, const char* tag) { b.insert(b.end(), tag, tag + 4); }
 
 // A minimal valid-shaped MD20 blob: every field husk::m2::parseBlob reads,
@@ -92,6 +98,34 @@ std::vector<uint8_t> tinyValidM2() {
     std::memcpy(b.data() + 0x03C, &count, 4);
     std::memcpy(b.data() + 0x040, &off, 4);
     b.resize(b.size() + 0x30, 0);
+    return b;
+}
+
+// tinyValidM2() plus one real collision triangle (3 positions/3 indices/1
+// face normal), for --collision's own tests (BLENDER_EXPORT_TODO.md §3) --
+// tinyValidM2() alone leaves collisionPositions/collisionIndices at count 0,
+// so the collision-mesh block in cmd_export.cpp never fires against it.
+std::vector<uint8_t> tinyValidM2WithCollision() {
+    auto b = tinyValidM2();
+
+    uint32_t positionsOffset = static_cast<uint32_t>(b.size());
+    putF32(b, 0.0f); putF32(b, 0.0f); putF32(b, 0.0f);
+    putF32(b, 1.0f); putF32(b, 0.0f); putF32(b, 0.0f);
+    putF32(b, 0.0f); putF32(b, 1.0f); putF32(b, 0.0f);
+
+    uint32_t indicesOffset = static_cast<uint32_t>(b.size());
+    putU16(b, 0); putU16(b, 1); putU16(b, 2);
+
+    uint32_t faceNormalsOffset = static_cast<uint32_t>(b.size());
+    putF32(b, 0.0f); putF32(b, 0.0f); putF32(b, 1.0f);
+
+    uint32_t indicesCount = 3, positionsCount = 3, faceNormalsCount = 1;
+    std::memcpy(b.data() + 0x0D8, &indicesCount, 4);
+    std::memcpy(b.data() + 0x0DC, &indicesOffset, 4);
+    std::memcpy(b.data() + 0x0E0, &positionsCount, 4);
+    std::memcpy(b.data() + 0x0E4, &positionsOffset, 4);
+    std::memcpy(b.data() + 0x0E8, &faceNormalsCount, 4);
+    std::memcpy(b.data() + 0x0EC, &faceNormalsOffset, 4);
     return b;
 }
 
@@ -799,6 +833,35 @@ std::vector<uint8_t> oneTexturedModel(uint32_t fileDataId) {
     putTag(file, "TXID");
     putU32(file, 4);
     putU32(file, fileDataId);
+    return file;
+}
+
+// Same shape as oneTexturedModel() but the single M2Texture has a real
+// `type` (a hardcoded/runtime-resolved slot, wowdev.wiki M2#Textures) and
+// no TXID chunk at all -- fdid stays 0, exercising the textureTypeName
+// material-naming path and the fuzzy-filename-match fallback (neither of
+// which oneTexturedModel()'s type=0/fdid-resolvable shape can reach).
+std::vector<uint8_t> oneTexturedModelWithType(uint32_t type) {
+    auto md20 = tinyValidM2();
+    uint32_t one = 1;
+    uint32_t texOff = static_cast<uint32_t>(md20.size());
+    md20.resize(texOff + 16, 0);
+    std::memcpy(md20.data() + texOff, &type, 4);  // M2Texture::type
+    std::memcpy(md20.data() + 0x050, &one, 4);     // textures.count
+    std::memcpy(md20.data() + 0x054, &texOff, 4);  // textures.offset
+    uint32_t matOff = static_cast<uint32_t>(md20.size());
+    md20.resize(matOff + 4, 0);
+    std::memcpy(md20.data() + 0x070, &one, 4);     // materials.count
+    std::memcpy(md20.data() + 0x074, &matOff, 4);  // materials.offset
+    uint32_t comboOff = static_cast<uint32_t>(md20.size());
+    putU16(md20, 0);
+    std::memcpy(md20.data() + 0x080, &one, 4);      // textureCombos.count
+    std::memcpy(md20.data() + 0x084, &comboOff, 4);  // textureCombos.offset
+
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
     return file;
 }
 
@@ -2787,6 +2850,55 @@ TEST_CASE("husk export: a .phys body referencing a bone index out of range for t
     fs::remove(physPath);
 }
 
+TEST_CASE("husk export: a collision mesh is attached by default when present "
+          "(BLENDER_EXPORT_TODO.md §3)") {
+    auto m2Path = tempPath("collision-default.m2");
+    writeFile(m2Path, tinyValidM2WithCollision());
+    auto skinPath = tempPath("collision-default.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("collision-default.glb").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("attached a 3-position/1-triangle collision mesh") !=
+          std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: --collision none omits the collision mesh even when the model has one "
+          "(BLENDER_EXPORT_TODO.md §3)") {
+    auto m2Path = tempPath("collision-none.m2");
+    writeFile(m2Path, tinyValidM2WithCollision());
+    auto skinPath = tempPath("collision-none.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("collision-none.glb").string() + " --collision none");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("collision mesh") == std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: --collision only accepts 'none', rejecting any other value with a clear "
+          "message (BLENDER_EXPORT_TODO.md §3)") {
+    auto m2Path = tempPath("collision-bad.m2");
+    writeFile(m2Path, tinyValidM2WithCollision());
+    auto skinPath = tempPath("collision-bad.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("collision-bad.glb").string() + " --collision bogus");
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("--collision") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
 TEST_CASE("husk export: --textures defaults to the model's own directory -- a FileDataID-named "
           "file already sitting there is embedded without passing the flag") {
     auto dir = defaultsDir("textures");
@@ -2811,6 +2923,58 @@ TEST_CASE("husk export: --textures none never embeds an image, even when a match
     auto result = runHusk("export " + (dir / "textured.m2").string() + " --textures none");
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("0 with an embedded texture") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a hardcoded texture slot's material name includes its real semantic "
+          "type name (BLENDER_EXPORT_TODO.md §5)") {
+    auto m2Path = tempPath("typename.m2");
+    writeFile(m2Path, oneTexturedModelWithType(6));  // 6 = TEX_COMPONENT_CHAR_HAIR
+    auto skinPath = tempPath("typename.skin");
+    writeFile(skinPath, oneTexturedModelSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("typename.glb").string());
+    CHECK(result.exitCode == 0);
+
+    fs::path glbPath = tempPath("typename.glb");
+    std::ifstream glbFile(glbPath, std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
+    CHECK(text.find("char_hair") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(glbPath);
+}
+
+TEST_CASE("husk export: a hardcoded texture slot embeds the sole basename-matching file in "
+          "--textures when husk can't resolve a FileDataID (BLENDER_EXPORT_TODO.md §4/§5)") {
+    auto dir = defaultsDir("fuzzytex-sole");
+    writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));  // 1 = TEX_COMPONENT_SKIN
+    writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
+    writeFile(dir / "fuzzytexfaceupper00_00_hd.png", {1, 2, 3, 4});
+
+    auto result = runHusk("export " + (dir / "fuzzytex.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot embed neither "
+          "and are reported, not guessed at (BLENDER_EXPORT_TODO.md §4/§5)") {
+    auto dir = defaultsDir("fuzzytex-ambiguous");
+    writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));
+    writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
+    writeFile(dir / "fuzzytexfaceupper00_00_hd.png", {1, 2, 3, 4});
+    writeFile(dir / "fuzzytexhair00_00.png", {5, 6, 7, 8});
+
+    auto result = runHusk("export " + (dir / "fuzzytex.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("0 with an embedded texture") != std::string::npos);
+    CHECK(result.output.find("2 texture file(s)") != std::string::npos);
+    CHECK(result.output.find("can't tell which hardcoded texture slot") != std::string::npos);
 
     fs::remove_all(dir);
 }

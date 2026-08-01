@@ -292,6 +292,7 @@ Flags:
 | `--lod <n>` &#124; `all` | -- | With `--skin auto`, pick `SFID` entry `n` instead of 0, or resolve every entry into the same `.glb` as its own node (`lod0`, `lod1`, ...) sharing one skeleton/animation set (`husk info`'s `skin_file_data_ids` shows how many entries exist) | entry `0` |
 | `--bones-dir <dir>` &#124; `none` | -- | Directory of `<FileDataID>.bone` files (per the model's/`.skel`'s `BFID` array), attached as inert skin `extras`; or `none` to skip | model's own directory |
 | `--phys <path>` &#124; `none` | -- | External `.phys` path, attached as a minimal `physics_bodies` skin `extras` anchor (full records via `dump-chunks`), or `none` to never look for one | same-basename `.phys` next to the model, if any |
+| `--collision none` | -- | Omit the collision mesh entirely (it's still tagged `{"collision": true}` in glTF extras when present, but Blender's stock importer has no concept of that tag and renders it like any other mesh -- `none` is for debugging what the render meshes alone look like) | included when the model has one |
 
 If no matching image is found in the resolved `--textures` directory,
 materials still carry the correct blend mode, culling, and tint/fade -- they
