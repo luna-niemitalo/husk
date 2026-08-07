@@ -44,7 +44,11 @@ find_package(CLI11 CONFIG REQUIRED)
 # re-including sources or testing a copy.
 add_library(husk-lib STATIC
   src/chunk.cpp
-  src/m2.cpp
+  src/m2_primitives.cpp
+  src/m2_header.cpp
+  src/m2_skeleton.cpp
+  src/m2_animation.cpp
+  src/m2_scene.cpp
   src/skin.cpp
   src/skel.cpp
   src/bone.cpp
