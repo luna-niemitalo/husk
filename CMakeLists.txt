@@ -100,6 +100,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_gltf_mesh.cpp
     tests/test_gltf_skeleton.cpp
     tests/test_integration.cpp
+    tests/test_integration_weapons.cpp
     tests/test_cli.cpp
     tests/test_cli_skin.cpp
     tests/test_cli_anim.cpp
