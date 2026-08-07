@@ -86,7 +86,11 @@ if(HUSK_BUILD_TESTS)
   add_executable(husk-tests
     tests/test_main.cpp
     tests/test_chunk.cpp
-    tests/test_m2.cpp
+    tests/test_m2_primitives.cpp
+    tests/test_m2_header.cpp
+    tests/test_m2_skeleton.cpp
+    tests/test_m2_animation.cpp
+    tests/test_m2_scene.cpp
     tests/test_skin.cpp
     tests/test_skel.cpp
     tests/test_bone.cpp
