@@ -192,6 +192,35 @@ Rough expectation, to be confirmed at split time:
   it may not need splitting at all once the others shrink; re-measure
   after items 1–4 land before deciding.
 
+**Post-completion audit (follow-up)**: after Item 5's own splits landed, a
+separate audit found four files still over the 1000-line hard limit —
+`tests/test_cli.cpp` (1575), `tests/test_cli_fixtures.hpp` (1137),
+`tests/test_m2_animation.cpp` (1038), `tests/test_cli_anim.cpp` (1022) — the
+flag-family/module split above was real progress but not enough on its own
+for these four. Each got one further real, content-based split (not an
+arbitrary line-count cut):
+
+- `tests/test_cli.cpp` → itself (general `husk export` default-resolution/
+  flag behavior) + `tests/test_cli_info.cpp` (`husk info` output) +
+  `tests/test_cli_errors.cpp` (corrupted/adversarial file-content "fails
+  cleanly" cases) + `tests/test_cli_argv.cpp` (argv-grammar: named/
+  positional flags, --help/--version, CLI11/argc-guard parse errors).
+- `tests/test_cli_fixtures.hpp` → itself (cross-cutting byte-builder
+  primitives, used by 3+ files) + `tests/test_cli_fixtures_scenes.hpp`
+  (composite, scenario-specific fixtures, each used by only 1-2 files).
+- `tests/test_m2_animation.cpp` → itself (outer struct-array parsers:
+  parseColors/parseTextureWeights/parseTextureTransforms/parseSequences) +
+  `tests/test_m2_animation_tracks.cpp` (per-track/per-curve keyframe
+  resolvers, FBlock family, extractAnimBlob).
+- `tests/test_cli_anim.cpp` → itself (inline-M2/pure-alias sequence
+  resolution, no `.skel` involved) + `tests/test_cli_anim_skel.cpp`
+  (`.skel`-sourced SKS1/AFSB external sequences, keyframe-data validation,
+  `--anim` flag-value tests).
+
+All four (plus their two new siblings each) verified under 1000 lines, full
+`./build/husk-tests` green (490/490, 1 skipped, 3732 assertions) after each
+individual file's split, one commit per file.
+
 ---
 
 ## Done: `CLAUDE.md` and `WIKI_FINDINGS.md` — current/history split, not a topic split
