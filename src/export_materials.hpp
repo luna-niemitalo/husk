@@ -107,12 +107,19 @@ struct M2MaterialInputs {
 // sample it with, via textureCoordCombos). If the .skin has no batches at
 // all, falls back to stage-1-through-4 behavior: one primitive covering
 // every triangle, no material.
+// `texturesOutDir`, when non-empty (--textures-out), also writes each
+// freshly-decoded `.blp` texture to disk as a real `.png`, mirroring its
+// location relative to `texturesDir` -- never the source directory itself,
+// and never for a texture that was already a `.png` (nothing was decoded
+// for those). Purely a convenience copy: embedding itself always happens
+// in-memory regardless of whether this is set.
 BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangleIndices,
                                             const std::vector<skin::Submesh>& submeshes,
                                             const std::vector<skin::Batch>& batches,
                                             const M2MaterialInputs& m2,
                                             const std::string& texturesDir,
-                                            const std::string& modelPath);
+                                            const std::string& modelPath,
+                                            const std::string& texturesOutDir = "");
 
 // A directory scan finding zero matches looks identical to "the directory
 // doesn't exist"/"can't be read" unless this distinguishes them. Shared by

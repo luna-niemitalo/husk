@@ -4,6 +4,7 @@
 _husk_skin_value() { _alternative 'value:value:(auto)' 'files:file:_files' }
 _husk_anim_value() { _alternative 'value:value:(auto inline none)' 'dirs:directory:_files -/' }
 _husk_dir_or_none_value() { _alternative 'value:value:(none)' 'dirs:directory:_files -/' }
+_husk_dir_value() { _alternative 'dirs:directory:_files -/' }
 _husk_file_or_none_value() { _alternative 'value:value:(none)' 'files:file:_files' }
 _husk_none_only_value() { _alternative 'value:value:(none)' }
 
@@ -28,6 +29,7 @@ _husk() {
                 '(-o --output)'{-o,--output}'[output .glb path]:value:_files' \
                 '(-s --skin)'{-s,--skin}'[a .skin path, or auto]:value:_husk_skin_value' \
                 '(-t --textures)'{-t,--textures}'[texture directory, or none]:value:_husk_dir_or_none_value' \
+                '--textures-out[directory to also write decoded .png copies to]:value:_husk_dir_value' \
                 '--skin-dir[skin-search directory, or none]:value:_husk_dir_or_none_value' \
                 '(-a --anim)'{-a,--anim}'[auto, inline, none, or a directory]:value:_husk_anim_value' \
                 '--skel[external .skel path, or none]:value:_husk_file_or_none_value' \

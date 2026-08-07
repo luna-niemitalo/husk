@@ -33,6 +33,7 @@
 #include <doctest/doctest.h>
 #include <filesystem>
 #include <fstream>
+#include <tiny_gltf.h>
 #include <vector>
 
 #include "run_husk.hpp"
@@ -282,6 +283,115 @@ TEST_CASE("husk export: a FileDataID-exact texture match prints no fuzzy-match w
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
     CHECK(result.output.find("husk: warning:") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+namespace {
+
+// Minimal valid single-block BLP2 file: DXT1, 4x4, solid red -- enough to
+// exercise husk's own in-memory decode path (src/blp.cpp), not a stand-in
+// PNG-shaped blob like the other fixtures in this file use (husk never
+// inspects .png bytes, but a .blp file's own header/pixel data is real
+// input it now parses, so this fixture needs to actually be one).
+std::vector<uint8_t> oneRedBlpFile() {
+    std::vector<uint8_t> f(1172, 0);  // fixed header + palette region
+    std::memcpy(f.data(), "BLP2", 4);
+    f[0x04] = 1;                                     // version
+    f[0x08] = 2;                                      // colorEncoding = DXT
+    f[0x09] = 8;                                       // alphaBitDepth
+    f[0x0A] = 0;                                       // preferredFormat = DXT1
+    f[0x0B] = 1;                                       // hasMipmaps
+    f[0x0C] = 4;                                       // width
+    f[0x10] = 4;                                       // height
+    uint32_t mipOffset = static_cast<uint32_t>(f.size());
+    std::memcpy(f.data() + 0x14, &mipOffset, 4);       // mipOffsets[0]
+    // DXT1 block: color0 == color1 == pure red (r5=31,g6=0,b5=0), all
+    // indices 0 -> every pixel resolves to color0 regardless of mode.
+    uint16_t red565 = 31 << 11;
+    f.push_back(static_cast<uint8_t>(red565));
+    f.push_back(static_cast<uint8_t>(red565 >> 8));
+    f.push_back(static_cast<uint8_t>(red565));
+    f.push_back(static_cast<uint8_t>(red565 >> 8));
+    f.insert(f.end(), {0, 0, 0, 0});
+    return f;
+}
+
+}  // namespace
+
+TEST_CASE("husk export: a .blp texture is decoded and embedded in-memory, no --textures-out "
+          "needed") {
+    auto dir = defaultsDir("blp-embed");
+    writeFile(dir / "blptex.m2", oneTexturedModel(4242));
+    writeFile(dir / "blptex00.skin", oneTexturedModelSkin());
+    writeFile(dir / "4242.blp", oneRedBlpFile());
+
+    auto result = runHusk("export " + (dir / "blptex.m2").string());
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    auto glbPath = dir / "blptex.glb";
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, glbPath.string());
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(model.images.size() == 1);
+    CHECK(model.images[0].width == 4);
+    CHECK(model.images[0].height == 4);
+    CHECK(model.images[0].component == 4);
+    // Decoded straight from the DXT1 block above: pure red, fully opaque.
+    CHECK(model.images[0].image[0] == 255);
+    CHECK(model.images[0].image[1] == 0);
+    CHECK(model.images[0].image[2] == 0);
+    CHECK(model.images[0].image[3] == 255);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a corrupted .blp fails to decode, warns, and embeds nothing (not a hard "
+          "export failure)") {
+    auto dir = defaultsDir("blp-corrupt");
+    writeFile(dir / "badblp.m2", oneTexturedModel(4243));
+    writeFile(dir / "badblp00.skin", oneTexturedModelSkin());
+    writeFile(dir / "4243.blp", {1, 2, 3, 4});  // not a real BLP2 file
+
+    auto result = runHusk("export " + (dir / "badblp.m2").string());
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("0 with an embedded texture") != std::string::npos);
+    CHECK(result.output.find("husk: warning: failed to decode") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --textures-out mirrors a decoded .blp as a real .png, source untouched") {
+    auto dir = defaultsDir("blp-textures-out");
+    writeFile(dir / "blpout.m2", oneTexturedModel(4244));
+    writeFile(dir / "blpout00.skin", oneTexturedModelSkin());
+    writeFile(dir / "4244.blp", oneRedBlpFile());
+    auto outDir = dir / "converted";
+
+    auto result = runHusk("export " + (dir / "blpout.m2").string() + " --textures-out " +
+                           outDir.string());
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
+
+    auto mirroredPng = outDir / "4244.png";
+    REQUIRE(fs::exists(mirroredPng));
+    CHECK(fs::exists(dir / "4244.blp"));  // source untouched, still the raw .blp
+
+    // The mirrored copy is real PNG bytes, not just a same-named placeholder.
+    std::ifstream f(mirroredPng, std::ios::binary);
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    REQUIRE(bytes.size() > 8);
+    CHECK(bytes[0] == 0x89);
+    CHECK(bytes[1] == 'P');
+    CHECK(bytes[2] == 'N');
+    CHECK(bytes[3] == 'G');
 
     fs::remove_all(dir);
 }

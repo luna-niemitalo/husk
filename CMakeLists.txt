@@ -53,6 +53,7 @@ add_library(husk-lib STATIC
   src/skel.cpp
   src/bone.cpp
   src/phys.cpp
+  src/blp.cpp
   src/gltf_math.cpp
   src/gltf_mesh.cpp
   src/gltf_skeleton.cpp
@@ -96,6 +97,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_skel.cpp
     tests/test_bone.cpp
     tests/test_phys.cpp
+    tests/test_blp.cpp
     tests/test_gltf.cpp
     tests/test_gltf_math.cpp
     tests/test_gltf_mesh.cpp

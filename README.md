@@ -43,9 +43,11 @@ cmake --build build -j$(nproc)
 
 The binary lands at `build/husk`.
 
-`blp/` (texture conversion, see Usage below) is a separate Python
-subproject with its own setup (`cd blp && uv sync`) -- `uv` is provided by
-the same dev shell, but it isn't part of the CMake build above.
+`husk export` decodes `.blp` textures itself, in-memory, no separate step
+needed -- see Usage below. `blp/` (a separate Python subproject, `cd blp &&
+uv sync`) still exists as an independent reference implementation
+`tests/test_blp.cpp` checks the C++ decoder against, not something you need
+to run.
 
 ## Usage
 
@@ -285,7 +287,8 @@ Flags:
 | `--input <file.m2>` | `-i` | The model to export (required; 1st bare positional if omitted) | -- |
 | `--output <file.glb>` | `-o` | Output path (last bare positional if omitted) | `<model-basename>.glb` |
 | `--skin <path>` &#124; `auto` | `-s` | `.skin` path, or `auto` (see above); never `none` | `auto` |
-| `--textures <dir>` &#124; `none` | `-t` | Directory of PNGs (from `husk-blp`, see below) for real `baseColorTexture` images, or `none` to never embed one -- matched by real filename first (the M2's own embedded name, or the model's own basename-prefixed convention), `<FileDataID>.png` only as a fallback, see below | model's own directory |
+| `--textures <dir>` &#124; `none` | `-t` | Directory of `.png` or raw `.blp` files (the latter decoded in-memory, no separate step) for real `baseColorTexture` images, or `none` to never embed one -- matched by real filename first (the M2's own embedded name, or the model's own basename-prefixed convention), `<FileDataID>.{png,blp}` only as a fallback, see below | model's own directory |
+| `--textures-out <dir>` | -- | Also write each decoded `.blp`'s `.png` to `<dir>`, mirroring its location under `--textures` -- a convenience copy only, embedding itself always happens in-memory regardless | unset (in-memory only) |
 | `--skin-dir <dir>` &#124; `none` | -- | Directory `auto` searches for the SFID-declared `<FileDataID>.skin`, or `none` to skip that stage | model's own directory |
 | `--anim <dir>` &#124; `auto`/`inline`/`none` | `-a` | See the four states above | `auto` |
 | `--skel <path>` &#124; `none` | -- | External `.skel` path (0-inline-bone models only), or `none` to never look for one | same-basename `.skel` next to the model, if any |
@@ -295,15 +298,18 @@ Flags:
 | `--collision none` | -- | Omit the collision mesh entirely (it's still tagged `{"collision": true}` in glTF extras when present, but Blender's stock importer has no concept of that tag and renders it like any other mesh -- `none` is for debugging what the render meshes alone look like) | included when the model has one |
 
 Texture resolution deliberately tries real-filename matches before
-`<FileDataID>.png`, for every texture slot, not just ones husk can't
+`<FileDataID>.png`/`.blp`, for every texture slot, not just ones husk can't
 resolve a FileDataID for -- a real extraction workflow (`reference/
-wow.export`, or a `.blp` converted via `husk-blp` keeping its own real
-name) commonly produces descriptively-named files, not FileDataID-named
-ones. In order: (1) an exact match on the M2's own embedded filename, when
-the file has one (real M2 data, older/classic-era files); (2)
-`<FileDataID>.png`, when that specific file is actually present; (3) the
-sole real file in `--textures` sharing the model's own basename prefix, if
-exactly one remains unclaimed (two or more: reported, never guessed at).
+wow.export`, or a raw CASC export directory of `.blp` files) commonly
+produces descriptively-named files, not FileDataID-named ones. In order:
+(1) an exact match on the M2's own embedded filename, when the file has one
+(real M2 data, older/classic-era files); (2) `<FileDataID>.png` or
+`<FileDataID>.blp`, when that specific file is actually present (`.png`
+wins if both exist); (3) the sole real file in `--textures` sharing the
+model's own basename prefix, if exactly one remains unclaimed (two or more:
+reported, never guessed at). A `.blp` candidate at any of these three steps
+is decoded and PNG-re-encoded in memory (`src/blp.cpp`) -- no `husk-blp`
+invocation, no intermediate file, unless `--textures-out` is given.
 Whichever FileDataID husk resolved for a slot is recorded either way
 (material name suffix, and `texture_file_data_id` glTF extras) even when a
 differently-named file supplied the actual image. Only (1) and (2) above
@@ -369,32 +375,31 @@ real files (`WIKI_FINDINGS/PHYS.md`). `husk export --phys` separately attaches
 a minimal per-body placement anchor to the `.glb`'s skin `extras`; this
 command is where the full record set lives.
 
-### Texture conversion (`husk-blp`)
+### Texture conversion
 
-Textures are a separate tool, not a `husk` subcommand -- `blp/` is a small
-uv-managed Python package (see [roadmap stage
-4](#roadmap-modern-m2--blender-via-gltf) below for why):
+`husk export` decodes BLP2 textures itself, in-memory, via `src/blp.cpp` --
+no separate tool or step. Supports palettized, DXT1, DXT3, DXT5, and
+uncompressed-BGRA content (JPEG content remains unimplemented -- see the
+format matrix; a 779,056-file local-corpus scan found zero real hits, so
+it's a real, confirmed non-gap, not an oversight). husk reads a material's
+texture FileDataID off the M2's own `TXID` chunk; pass `--textures <dir>` to
+`export` pointing at a directory of `<FileDataID>.png` or raw
+`<FileDataID>.blp` files to have them embedded -- husk doesn't go looking
+for the matching file on its own (same non-goal as `.skin`/`.skel`
+resolution above). Pass `--textures-out <dir>` too if you also want the
+decoded `.png` written to disk, mirroring `--textures`'s own layout.
+
+`blp/` (`husk-blp`, a small uv-managed Python package) still exists, kept
+deliberately as an independent reference implementation:
 
 ```
 cd blp && uv sync
 uv run husk-blp <file.blp> <output.png> [--mip N]
 ```
 
-Converts a BLP2 texture to PNG (mip level 0, full resolution, by default).
-Supports palettized, DXT1, DXT3, DXT5, and uncompressed-BGRA content —
-DXT3 turned out to already be wired through the same generic DXT decode
-path DXT1/DXT5 use (`_DXT_BLOCK_SIZE`/`_DXT_FOURCC` both already listed
-it), just never exercised by a real test or verified against a real file
-until a 779,056-file local-corpus scan found 6,759 real DXT3 BLP2 files
-(character hair/skin textures among them) and one, decoded, turned out to
-be an obviously-correct troll hair texture. JPEG content is genuinely
-absent from that same corpus (zero real hits) and remains unimplemented —
-see the format matrix. husk reads a
-material's texture FileDataID off the M2's own `TXID` chunk; pass
-`--textures <dir>` to `export` pointing at a directory of `husk-blp`-converted
-PNGs named `<FileDataID>.png` to have them embedded -- husk doesn't go
-looking for the matching file on its own (same non-goal as `.skin`/`.skel`
-resolution above).
+`tests/test_blp.cpp` ports `blp/tests/test_decode.py`'s own fixtures
+directly, checking the C++ decoder against the same expected pixel outputs
+-- not running `husk-blp` itself as part of `husk export` in any way.
 
 Every claim above is backed by a real-data run against
 `character/bloodelf/female/bloodelffemale.m2` and its HD variant --
@@ -449,7 +454,7 @@ verified" rather than "confirmed correct."
 | Collision / physics | 📖 `bounding_box`/`collision_box`/`collision_sphere_radius` scalars printed by `husk info`; the low-poly hit-test mesh's own content is real, dereferenced data (`m2::CollisionMesh`/`parseCollisionMesh`, `src/m2.cpp`) — `husk export` writes it as a plain indexed triangle mesh in the `.glb` (one more `gltf::NamedMesh`, unskinned even when the render mesh shares a skeleton, per-vertex normals averaged from the M2's own per-face `collision_face_normals`), tagged `{"collision": true}` in glTF node `extras` so a renderer/Blender script can filter it out — not applied to any render/physics behavior itself, this tool has no runtime. The `.phys` sidecar's own *content* (rigid bodies, collision shapes, joints for Blizzard's "Domino" physics engine) is now fully parsed too (`src/phys.hpp`/`phys.cpp`, documented on wowdev.wiki, verified against 103 real files — `WIKI_FINDINGS/PHYS.md`): `husk export --phys` attaches a minimal per-body placement anchor (`physics_bodies` skin extras, same id/bone/position pattern as ribbon/particle emitters below), full body/shape/joint/`PHYV` records via `husk dump-chunks <file.phys>` (see the Usage section's "`.phys` physics/collision data" paragraph). `PCOL` (player-housing collision, War Within 11.1.7+) is also fully parsed, diagnostic-only via `husk dump-chunks` — four independent `(count, offset)` regions (`vertexPositions`/`faceNormals`/`indices`/`flags`), verified against all 2,354 real `PCOL`-bearing files in the local corpus (`WIKI_FINDINGS/M2.md`); no glTF slot, same class as `EXP2`/`PFDC`/`DETL` | ⬜ `M3CL` collision mesh (`CPOS`/`CNML`/`CINX`) | ⬜ `MOBN`/`MOBR` BSP tree, `MCVP` convex volumes, `MOPL` terrain-cutting planes | ⬛ no separate chunk found — terrain collision is presumably the render mesh itself (inferred, not confirmed) | ⬛ |
 | Materials | 📖 `materials` array (`flags`/`blending_mode`, `src/m2.cpp`'s `parseMaterials`) resolved per-batch and translated to glTF `alphaMode`/`doubleSided`, plus a static color tint/alpha-fade into `baseColorFactor` (see Per-vertex colors above), by `husk export` (`src/cmd_export.cpp`) — write-back to M2 not applicable (glTF-only tool); a batch's additional texture layers (`M2Batch.textureCount > 1` — a real second env-mapped/blended layer, wowdev.wiki M2/.skin#Texture_units) are resolved and surfaced as glTF `extras` (FileDataID/UV set, plus a real embedded-but-unused image if `--textures` has a match) but not rendered — core glTF has no slot for WoW's fixed-function combiner math (`Mod2x`/`Add`/env-map blending) to translate into; a batch's UV scroll/rotate/scale animation (`M2TextureTransform`, `Header::textureTransforms` + `.skin`'s `Batch.textureTransformComboIndex` — flowing lava/water, some portal/aura effects) is likewise resolved (`m2::parseTextureTransforms`) and surfaced as `extras` (`gltf::Material::textureTransform`) rather than a real `KHR_texture_transform`, for the same "no verified-safe translation" reason: core glTF's own extension has no animation-channel target either (so the animated case, almost certainly the common one for a real scrolling-UV model, has no representation regardless), and correctly folding WoW's texture-center rotation pivot into the extension's own origin-based one hasn't been checked against a real animated file yet — see `src/m2.hpp`'s `TextureTransform` doc comment | ⬜ `M3SI` Instances → external `MaterialLibrary` (`.mtl3lib`) | ⬜ `MOMT`, `MOM3` (v3 override), `MOUV` (UV anim), per-face `MOPY`/`MPY2`/`MOBS` | ⬜ `MCLY` (per-layer blend/material flags) + `MTXP`/`MTXF` (texture params/flags) | ⬛ |
 | Texture references (names/FileDataIDs) | 📖 `textures` array (`type`/`flags`/`filename`) + `textureCombos` lookup table resolved (`src/m2.cpp`); Legion+ `TXID` chunk FileDataIDs surfaced (`Header::textureFileDataIds`) — same non-resolved-to-a-path treatment as `SKID`, see the Sidecar row below | ⬜ indirect, via `MaterialLibrary` → compiled shader files (`GFAT`/`BLS`) — separate formats, not yet even scoped | ⬜ `MOTX` | ⬜ `MTEX` (texture filename table) | ⬛ BLP is the referenced asset, not a referencer |
-| Texture pixel data | ⬛ | ⬛ | ⬛ | ⬛ BLP is the referenced asset, not a referencer (same as M2/WMO) | 📖 `blp/` (Python, `husk-blp` CLI) — header + mip table resolved, palette/DXT1/DXT3/DXT5/BGRA decode to PNG done (DXT3 was already generically wired through the same DXT decode path as DXT1/DXT5, just never verified — a 779,056-file local-corpus scan found 6,759 real DXT3 files, confirmed correct against a real one); JPEG content unimplemented and confirmed genuinely absent from that same corpus (zero real hits, not just unseen in this repo's own small test set) |
+| Texture pixel data | ⬛ | ⬛ | ⬛ | ⬛ BLP is the referenced asset, not a referencer (same as M2/WMO) | 📖 `src/blp.cpp` (C++, embedded in `husk export` itself) — header + mip table resolved, palette/DXT1/DXT3/DXT5/BGRA decode to PNG done in-memory (DXT3 confirmed correct against a real one, part of a 779,056-file local-corpus scan that found 6,759 real DXT3 files); JPEG content unimplemented and confirmed genuinely absent from that same corpus (zero real hits, not just unseen in this repo's own small test set). `blp/` (Python, `husk-blp` CLI) still exists as an independent reference implementation `tests/test_blp.cpp` checks the C++ decoder against |
 | Animation sequences / tracks | 📖 `sequences` resolved to real `M2Sequence` records (`id`/`variationIndex`/`duration`/`flags`) whether inline (`src/m2.cpp`'s `parseSequences`) or `.skel`-sourced (`SKS1`, `src/skel.cpp`'s `parseSequences`); each bone's `translation`/`rotation`/`scale` `M2Track` resolved per-sequence (`resolveVec3TrackSequence`/`resolveQuatTrackSequence`) into real glTF `animation` clips by `husk export`, for sequences whose data lives inline (`flags & 0x20`) *or* an external `.anim` file resolved via `--anim` + the model's own `AFID` chunk (or the `.skel`'s own separate `AFID` table, for a `.skel`-sourced skeleton), falling back to a same-basename filename convention when no `AFID`-mapped file resolves — verified against real files both ways (see the Usage section and roadmap stage 6), `AFM2`- and `AFSB`-shaped external files alike (`AFSB` is the real shape for `.skel`-linked models; its undocumented byte layout was cracked — `SKB1`'s own per-bone/per-sequence descriptors point directly into it, no new parser needed, see `WIKI_FINDINGS/M2/anim.md`'s follow-up). A bone track whose `global_sequence` field is set (continuous, `M2Sequence`-independent looping — glow pulses, idle sway) also resolves to its own real glTF clip (`resolveVec3GlobalSequenceTrack`/`resolveQuatGlobalSequenceTrack`, one clip per distinct global-sequence index actually used), for inline and `.skel`-sourced bones alike. Still unresolved: sequences with `flags & 0x40` ("alias", wowdev.wiki: "I have no clue" where that data lives) | ❔ no sequence/track chunk documented in the fetched spec at all | ⬛ (`MOUV` texture-translation anim is the closest thing; counted under Materials) | ⬛ no animation in core terrain data | ⬛ |
 | Interaction points (attachments, cameras, events) | 🚧 `attachments`/`events` resolved to real records (`id`/`bone`/`position` for attachments, `identifier`/`data`/`bone`/`position` for events — both static-fields-only, their own `M2Track` sub-fields skipped, `src/m2.cpp`'s `parseAttachments`/`parseEvents`, surfaced via `husk info`); `cameras` still count/offset-only — `M2Camera` is almost entirely `M2SplineKey`-animated data with a version-ambiguous field layout, not attempted yet | ❔ not present in the fetched chunk list | ⬛ | ⬛ | ⬛ |
 | Lights | 🚧 `lights` resolved to `type`/`bone`/`position` (`src/m2.cpp`'s `parseLights`, static fields only — ambient/diffuse color+intensity and attenuation are all `M2Track`-animated and skipped), surfaced via `husk info` | ❔ | ⬜ `MOLT` + `MOLR`/`MOLS`/`MOLP` + Shadowlands lightset system (`MLSS`/`MLSP`/`MLSO`/`MLSK`), `MNLD` dynamic lights, legacy v14 `MOLM`/`MOLD` lightmaps | ❔ not checked — outdoor lighting may be zone/`Light.dbc`-driven rather than stored per-ADT, unconfirmed | ⬛ |
@@ -578,10 +583,16 @@ above; this section is about *sequencing* that work, not duplicating it.
    tinygltf's own loader the same as stage 2's inline-bones case.
 4. **Textures: BLP → PNG. Done** — a hard prerequisite for materials to
    show anything other than gray, and genuinely separate work from M2
-   parsing, so genuinely separate it's not even C++: `blp/` is a small
-   Python package (`husk-blp <file.blp> <out.png> [--mip N]`, uv-managed,
-   `nix develop` provides `uv` — see the flake and `blp/pyproject.toml`),
-   not part of the `husk` binary. Split of responsibility inside it: the
+   parsing. Originally shipped as a separate Python tool, kept out of the
+   `husk` binary entirely: `blp/` is a small Python package (`husk-blp
+   <file.blp> <out.png> [--mip N]`, uv-managed, `nix develop` provides `uv`
+   — see the flake and `blp/pyproject.toml`). Later embedded directly into
+   `husk export` itself (`src/blp.cpp`, in-memory, no separate step —
+   see the Usage section's "Texture conversion") once that process boundary
+   started conflicting with husk's own single-tool-usable-standalone goal;
+   `blp/` is kept as an independent reference implementation, not part of
+   the real `husk export` pipeline anymore. Split of responsibility inside
+   `blp/` itself, still true of the ported C++ version: the
    BLP2 container format itself (148-byte header + 1024-byte
    palette/JPEG-header region, mip offset/size tables) is hand-rolled and
    independently spec-transcribed, same rigor as husk's C++ modules — it's

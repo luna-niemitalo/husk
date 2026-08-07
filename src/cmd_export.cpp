@@ -409,7 +409,8 @@ void attachPhysicsBodies(bool physNone, bool physGiven, const std::string& physP
 std::vector<gltf::NamedMesh> buildLodTierMeshes(
     const std::vector<std::pair<std::string, std::string>>& skinsToExport,
     const std::vector<m2::Vertex>& vertices, const gltf::Mesh& baseMesh, const M2MaterialInputs& m2Inputs,
-    const std::string& texturesDir, const std::string& modelPath, const std::string& modelBasename) {
+    const std::string& texturesDir, const std::string& modelPath, const std::string& modelBasename,
+    const std::string& texturesOutDir) {
     std::vector<gltf::NamedMesh> namedMeshes;
     namedMeshes.reserve(skinsToExport.size());
     for (const auto& [name, path] : skinsToExport) {
@@ -444,7 +445,7 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
         }
 
         auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs,
-                                                   texturesDir, modelPath);
+                                                   texturesDir, modelPath, texturesOutDir);
 
         // See BuiltMaterials::distinctSkinSectionIds's own doc comment for
         // why this note exists.
@@ -712,8 +713,13 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
             },
             "SKIN");
     app.add_option("-t,--textures", opts.texturesArg,
-                    "directory of already-converted '<FileDataID>.png' files, or 'none' to skip "
-                    "embedding images (default: the model's own directory)");
+                    "directory of already-converted '<FileDataID>.png' files, raw '<FileDataID>.blp' "
+                    "files (decoded and embedded in-memory, no separate husk-blp step needed), or "
+                    "'none' to skip embedding images (default: the model's own directory)");
+    app.add_option("--textures-out", opts.texturesOutArg,
+                    "directory to also write each --textures .blp's decoded .png to, mirroring its "
+                    "location under --textures (default: unset -- decoded textures stay in-memory "
+                    "only, embedded straight into the .glb, nothing written to disk)");
     app.add_option("--skin-dir", opts.skinDirArg,
                     "directory 'auto' searches for the SFID-declared '<FileDataID>.skin' file, or "
                     "'none' to skip that stage (default: the model's own directory)");
@@ -819,6 +825,12 @@ int exportGlb(int argc, char** args) {
     std::string texturesDir = app.count("--textures") ? opts.texturesArg : modelDirStr;
     if (texturesDir == "none") texturesDir.clear();
 
+    // --textures-out: unset (the default) means "no disk copy at all" --
+    // unlike --textures/--skin-dir/--bones-dir, there's no directory this
+    // should silently default to, since writing files unasked is a much
+    // bigger deal than reading them.
+    std::string texturesOutDir = app.count("--textures-out") ? opts.texturesOutArg : "";
+
     std::string bonesDir = app.count("--bones-dir") ? opts.bonesDirArg : modelDirStr;
     if (bonesDir == "none") bonesDir.clear();
 
@@ -904,7 +916,7 @@ int exportGlb(int argc, char** args) {
         std::string modelBasename = std::filesystem::path(modelPath).stem().string();
         auto namedMeshes =
             buildLodTierMeshes(skinsToExport, vertices, baseMesh, m2Inputs, texturesDir, modelPath,
-                                modelBasename);
+                                modelBasename, texturesOutDir);
 
         // Captured before the collision mesh (if any) is appended below --
         // the final summary needs to know how many of `namedMeshes` are

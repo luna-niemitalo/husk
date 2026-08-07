@@ -525,12 +525,27 @@ per triangle, not per vertex — acceptable because a collision mesh isn't
 shaded, this is only to satisfy `gltf::Mesh`'s own same-length invariant
 with real, finite data rather than a placeholder.
 
-**BLP/texture conversion is a separate Python process, permanently.** Two
-independent reasons: real DXT/BC block decoding needs library maturity
-(Pillow) C++ doesn't have an equivalent of already in this project, and the
-process boundary is kept even now that `--textures` embeds real PNGs —
-husk reads a file `husk-blp` already wrote, it never invokes `husk-blp` or
-links against Pillow.
+**BLP2 texture decode is embedded directly in husk, in-memory, no `husk-blp`
+invocation needed.** Reversed from an earlier "permanently a separate
+Python process" stance once that stance itself broke husk's other goal of
+being a single tool usable standalone — running `husk-blp` first, in the
+right order, before `husk export` isn't that. The two Pillow dependencies
+that motivated the original split turned out to have easy from-scratch C++
+answers already sitting in this project's own build: DXT1/DXT3/DXT5 (BC1/
+BC2/BC3) block decode is small, fully public, deterministic math, hand-
+rolled in `src/blp.cpp` the same way every other small binary format here
+is; PNG encoding (`stbi_write_png_to_mem`) ships inside the `tinygltf`
+package husk already links (`libtinygltf.a` already compiles it in — no new
+dependency, see `src/blp.cpp`'s own doc comment for why its prototype is
+declared by hand instead of via a second `#include`). `--textures` now
+resolves a `.blp` candidate exactly like a `.png` one
+(`src/export_materials.cpp`'s `resolveTextureBytes`/`readTextureFileBytes`),
+decoding and re-encoding entirely in memory — nothing is written to disk
+unless `--textures-out` is explicitly given. `blp/`'s Python tool
+(`husk-blp`) is kept, unmodified, as the independent ground truth the C++
+decoder's tests are checked against (`tests/test_blp.cpp` ports its
+fixtures directly) — not retired, since it predates this decoder and gives
+an independent second implementation to catch a divergence in either one.
 
 **A genuinely geometry-less model gets zero mesh nodes, not an empty one —
 "zero meshes," not "one empty mesh."** A 130k-file corpus sweep

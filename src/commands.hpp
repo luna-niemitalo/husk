@@ -39,6 +39,7 @@ struct ExportOptions {
     std::string outputPath;
     std::string skinArg = "auto";
     std::string texturesArg;
+    std::string texturesOutArg;
     std::string skinDirArg;
     std::string animArg = "auto";
     std::string skelArg;

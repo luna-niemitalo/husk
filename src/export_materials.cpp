@@ -6,11 +6,80 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <set>
+
+#include "blp.hpp"
 
 namespace husk::commands {
 
 namespace {
+
+// Writes `pngBytes` to `texturesOutDir`, mirroring `path`'s location
+// relative to `texturesDir` (so a real recursive --textures scan, if one
+// ever exists, stays mirrored too -- today's flat scan just means a single
+// path segment). Best-effort: a write failure is reported and otherwise
+// ignored, since --textures-out is a convenience copy, not the thing the
+// export itself depends on (the in-memory bytes are already embedded
+// regardless of whether this succeeds).
+void writeTextureOutCopy(const std::filesystem::path& path, const std::string& texturesDir,
+                          const std::string& texturesOutDir, const std::vector<uint8_t>& pngBytes) {
+    if (texturesOutDir.empty()) return;
+    std::error_code ec;
+    auto rel = std::filesystem::relative(path, texturesDir, ec);
+    if (ec) rel = path.filename();
+    rel.replace_extension(".png");
+    auto outPath = std::filesystem::path(texturesOutDir) / rel;
+    std::filesystem::create_directories(outPath.parent_path(), ec);
+    std::ofstream out(outPath, std::ios::binary);
+    if (!out) {
+        std::cout << "husk: warning: couldn't write '" << outPath.string() << "' (--textures-out)\n";
+        return;
+    }
+    out.write(reinterpret_cast<const char*>(pngBytes.data()), static_cast<std::streamsize>(pngBytes.size()));
+}
+
+// Reads a texture file's embeddable PNG bytes directly -- `.png` as-is,
+// `.blp` decoded and PNG-re-encoded in memory (see src/blp.hpp; this is the
+// only reason `husk export` used to need a separate `husk-blp` conversion
+// step first). Never writes an intermediate file unless `texturesOutDir` is
+// given (--textures-out), in which case a freshly-decoded `.blp` also gets
+// mirrored there as a real `.png` -- a `.png` source is never re-copied,
+// nothing new was decoded for it. Returns nullopt if the file can't be
+// opened or (for `.blp`) fails to decode -- a decode failure is reported
+// once here and treated as "no texture available for this slot," same as a
+// missing file, not a hard export failure.
+std::optional<std::vector<uint8_t>> readTextureFileBytes(const std::filesystem::path& path,
+                                                          const std::string& texturesDir,
+                                                          const std::string& texturesOutDir) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return std::nullopt;
+    std::vector<uint8_t> raw((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (path.extension() != ".blp") return raw;
+    try {
+        auto png = blp::encodePng(blp::decode(raw));
+        writeTextureOutCopy(path, texturesDir, texturesOutDir, png);
+        return png;
+    } catch (const blp::ParseError& e) {
+        std::cout << "husk: warning: failed to decode '" << path.string() << "': " << e.what() << "\n";
+        return std::nullopt;
+    }
+}
+
+// Tries `<stemPath>.png` first, falling back to `<stemPath>.blp` -- the
+// same "PNG wins if both exist" priority scanFuzzyTexturePool's dedup uses,
+// so a directory containing both an already-converted PNG and its source
+// BLP never decodes the BLP redundantly.
+std::optional<std::vector<uint8_t>> resolveTextureBytes(const std::filesystem::path& stemPath,
+                                                          const std::string& texturesDir,
+                                                          const std::string& texturesOutDir) {
+    auto pngPath = stemPath;
+    pngPath += ".png";
+    if (auto bytes = readTextureFileBytes(pngPath, texturesDir, texturesOutDir)) return bytes;
+    auto blpPath = stemPath;
+    blpPath += ".blp";
+    return readTextureFileBytes(blpPath, texturesDir, texturesOutDir);
+}
 
 // WoW's M2BLEND_* blend modes (wowdev.wiki M2/Rendering#M2BLEND) collapsed
 // to glTF's three-way alphaMode: 0 (OPAQUE) maps directly, 1 (ALPHA_KEY,
@@ -147,10 +216,14 @@ FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std:
                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (modelBasename.empty()) return pool;
 
+    // stem (lowercase) -> chosen path -- a directory holding both an
+    // already-converted "<name>.png" and its source "<name>.blp" counts as
+    // one real candidate, not two, and PNG wins (no decode needed).
+    std::map<std::string, std::filesystem::path> byStem;
     for (const auto& entry : scanDirOrWarn(texturesDir, "textures directory")) {
         if (!entry.is_regular_file()) continue;
         const auto& path = entry.path();
-        if (path.extension() != ".png") continue;
+        if (path.extension() != ".png" && path.extension() != ".blp") continue;
         std::string stem = path.stem().string();
         bool allDigits =
             !stem.empty() && std::all_of(stem.begin(), stem.end(),
@@ -159,10 +232,11 @@ FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std:
         std::string stemLower = stem;
         std::transform(stemLower.begin(), stemLower.end(), stemLower.begin(),
                         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if (stemLower.rfind(modelBasename, 0) == 0) {  // starts with the model's own basename
-            pool.files.push_back(path);
-        }
+        if (stemLower.rfind(modelBasename, 0) != 0) continue;  // starts with the model's basename
+        auto [it, inserted] = byStem.try_emplace(stemLower, path);
+        if (!inserted && path.extension() == ".png") it->second = path;  // PNG wins over BLP
     }
+    for (auto& [stem, path] : byStem) pool.files.push_back(std::move(path));
     std::sort(pool.files.begin(), pool.files.end());
     return pool;
 }
@@ -203,7 +277,8 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                                             const std::vector<skin::Batch>& batches,
                                             const M2MaterialInputs& m2,
                                             const std::string& texturesDir,
-                                            const std::string& modelPath) {
+                                            const std::string& modelPath,
+                                            const std::string& texturesOutDir) {
     BuiltMaterials result;
 
     // Scanned once per skin/LOD, shared and depleted across every batch
@@ -412,11 +487,12 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                                  ? (*m2.textureFileDataIds)[textureIndex]
                                  : 0;
             const std::string& embeddedFilename = m2.textures[textureIndex].filename;
-            std::optional<std::filesystem::path> embeddedPngPath;
+            std::string embeddedStem;
+            std::optional<std::vector<uint8_t>> embeddedBytes;
             if (!embeddedFilename.empty() && !texturesDir.empty()) {
-                auto candidate = std::filesystem::path(texturesDir) /
-                                  (std::filesystem::path(embeddedFilename).stem().string() + ".png");
-                if (std::ifstream(candidate, std::ios::binary)) embeddedPngPath = candidate;
+                embeddedStem = std::filesystem::path(embeddedFilename).stem().string();
+                embeddedBytes = resolveTextureBytes(std::filesystem::path(texturesDir) / embeddedStem,
+                                                     texturesDir, texturesOutDir);
             }
 
             // Priority order: every *deterministic* signal (never a guess,
@@ -442,33 +518,27 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             }
 
             bool embedded = false;
-            if (embeddedPngPath) {
+            if (embeddedBytes) {
                 // A real embedded path (wowdev.wiki M2#Textures, older/
                 // classic-era files per m2::Texture's own doc comment).
                 // Not a guess: `filename` is real data straight from this
-                // M2, so the same basename (BLP -> PNG, the husk-blp
-                // naming convention) is an exact lookup -- the single most
-                // precise signal available, tried first regardless of
-                // whether a FileDataID also resolved.
-                gm.name += "_" + embeddedPngPath->stem().string();
-                std::ifstream f(*embeddedPngPath, std::ios::binary);
-                if (f) {
-                    gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
-                                                 std::istreambuf_iterator<char>());
-                    embedded = true;
-                }
+                // M2, so the same basename (BLP or PNG) is an exact lookup
+                // -- the single most precise signal available, tried first
+                // regardless of whether a FileDataID also resolved.
+                gm.name += "_" + embeddedStem;
+                gm.baseColorImagePng = std::move(*embeddedBytes);
+                embedded = true;
             }
             if (!embedded && fdid != 0 && !texturesDir.empty()) {
                 // Deterministic whenever the file is actually present --
                 // still the right answer for a real extraction that *does*
                 // use the FileDataID-named convention (this project's own
                 // test fixtures and the common "casc-tool-style"
-                // "<FileDataID>.png" layout both do).
-                auto pngPath = std::filesystem::path(texturesDir) / (std::to_string(fdid) + ".png");
-                std::ifstream f(pngPath, std::ios::binary);
-                if (f) {
-                    gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
-                                                 std::istreambuf_iterator<char>());
+                // "<FileDataID>.{png,blp}" layout both do).
+                if (auto bytes = resolveTextureBytes(std::filesystem::path(texturesDir) /
+                                                          std::to_string(fdid),
+                                                      texturesDir, texturesOutDir)) {
+                    gm.baseColorImagePng = std::move(*bytes);
                     embedded = true;
                 }
             }
@@ -476,16 +546,14 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 // Last resort, for whatever's left unresolved after both
                 // deterministic paths above -- a genuinely hardcoded slot
                 // (fdid == 0, as before this change), *or* a slot whose
-                // FileDataID resolved but no "<fdid>.png" actually exists
-                // in texturesDir (new: previously this case silently
+                // FileDataID resolved but no "<fdid>.{png,blp}" actually
+                // exists in texturesDir (new: previously this case silently
                 // embedded nothing, even when a real, descriptively-named
                 // file for it was sitting right there unclaimed).
                 if (auto fuzzy = claimSoleFuzzyTextureCandidate(fuzzyTexturePool)) {
-                    gm.name += "_" + fuzzy->stem().string();
-                    std::ifstream f(*fuzzy, std::ios::binary);
-                    if (f) {
-                        gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
-                                                     std::istreambuf_iterator<char>());
+                    if (auto bytes = readTextureFileBytes(*fuzzy, texturesDir, texturesOutDir)) {
+                        gm.name += "_" + fuzzy->stem().string();
+                        gm.baseColorImagePng = std::move(*bytes);
                         result.fuzzyMatches.push_back({gm.name, fuzzy->filename().string(), fdid});
                     }
                 }
@@ -516,12 +584,10 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 if (m2.textureFileDataIds && layerTextureIndex < m2.textureFileDataIds->size()) {
                     al.fileDataId = (*m2.textureFileDataIds)[layerTextureIndex];
                     if (al.fileDataId != 0 && !texturesDir.empty()) {
-                        auto pngPath = std::filesystem::path(texturesDir) /
-                                       (std::to_string(al.fileDataId) + ".png");
-                        std::ifstream f(pngPath, std::ios::binary);
-                        if (f) {
-                            al.imagePng.assign(std::istreambuf_iterator<char>(f),
-                                                std::istreambuf_iterator<char>());
+                        if (auto bytes = resolveTextureBytes(std::filesystem::path(texturesDir) /
+                                                                  std::to_string(al.fileDataId),
+                                                              texturesDir, texturesOutDir)) {
+                            al.imagePng = std::move(*bytes);
                         }
                     }
                 }

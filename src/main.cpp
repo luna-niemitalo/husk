@@ -87,6 +87,9 @@ std::string bashValueCompletion(const std::string& longName) {
         return "COMPREPLY=($(compgen -W \"none\" -- \"$cur\")); compopt -o filenames "
                "2>/dev/null; COMPREPLY+=($(compgen -d -- \"$cur\"))";
     }
+    if (longName == "--textures-out") {
+        return "compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- \"$cur\"))";
+    }
     if (longName == "--skel" || longName == "--phys") {
         return "COMPREPLY=($(compgen -W \"none\" -- \"$cur\")); compopt -o filenames "
                "2>/dev/null; COMPREPLY+=($(compgen -f -- \"$cur\"))";
@@ -184,6 +187,7 @@ const std::vector<ZshHelper>& zshHelpers() {
         {"_husk_anim_value",
          "_alternative 'value:value:(auto inline none)' 'dirs:directory:_files -/'"},
         {"_husk_dir_or_none_value", "_alternative 'value:value:(none)' 'dirs:directory:_files -/'"},
+        {"_husk_dir_value", "_alternative 'dirs:directory:_files -/'"},
         {"_husk_file_or_none_value", "_alternative 'value:value:(none)' 'files:file:_files'"},
         {"_husk_none_only_value", "_alternative 'value:value:(none)'"},
     };
@@ -195,6 +199,7 @@ std::string zshValueAction(const std::string& longName) {
     if (longName == "--anim") return "_husk_anim_value";
     if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir")
         return "_husk_dir_or_none_value";
+    if (longName == "--textures-out") return "_husk_dir_value";
     if (longName == "--skel" || longName == "--phys") return "_husk_file_or_none_value";
     if (longName == "--lod") return "(all)";
     if (longName == "--collision") return "_husk_none_only_value";
@@ -212,6 +217,7 @@ std::string zshFlagLabel(const std::string& longName) {
     if (longName == "--output") return "output .glb path";
     if (longName == "--skin") return "a .skin path, or auto";
     if (longName == "--textures") return "texture directory, or none";
+    if (longName == "--textures-out") return "directory to also write decoded .png copies to";
     if (longName == "--skin-dir") return "skin-search directory, or none";
     if (longName == "--anim") return "auto, inline, none, or a directory";
     if (longName == "--skel") return "external .skel path, or none";
