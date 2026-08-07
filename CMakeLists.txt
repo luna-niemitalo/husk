@@ -53,6 +53,9 @@ add_library(husk-lib STATIC
   src/skel.cpp
   src/bone.cpp
   src/phys.cpp
+  src/gltf_math.cpp
+  src/gltf_mesh.cpp
+  src/gltf_skeleton.cpp
   src/gltf.cpp
   src/cmd_info.cpp
   src/export_transform.cpp

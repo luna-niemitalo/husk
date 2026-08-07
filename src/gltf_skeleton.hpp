@@ -1,0 +1,254 @@
+#pragma once
+
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "gltf_math.hpp"
+
+// Skeleton-side glTF export data model (FILE_SPLIT_TODO.md Item 3): the
+// bind-pose Skeleton, its `.bone`/ribbon/particle/`.phys`/Attachment/Event/
+// Light extras, and per-clip JointAnimation/Animation data writeGlbMulti
+// (gltf.hpp) consumes. Depends only on gltf_math.hpp's Vec3/Quat.
+namespace husk::gltf {
+
+// A bind-pose skeleton: joints[i].parent is an index into this same
+// vector, or -1 for a root joint. Both translations are already in the
+// target coordinate system (Y-up), same caller responsibility as Mesh's
+// positions/normals.
+//
+// More than one joint may have parent == -1 -- a real, common M2 shape, not
+// corruption, and never rejected here. `joints` itself is never reordered
+// or added to on account of this -- see writeGlbMulti's doc comment for how
+// the resulting glTF-side multi-root forest is made tooling-friendly
+// without touching this vector at all.
+// TODO: Remove: corpus-scan stat backing "common" (35% of a real 130k-file
+// corpus, tools/find_multiroot_skeletons.py).
+struct Skeleton {
+    struct Joint {
+        int parent = -1;
+        // Relative to `parent`'s globalPosition (or to the armature's local
+        // origin, for a root joint) -- becomes the joint node's glTF
+        // `translation`.
+        Vec3 localTranslation;
+        // Absolute bind-pose position, used only to compute this joint's
+        // inverse bind matrix (a pure translation, since M2's bind pose has
+        // no baked rotation/scale -- see README.md roadmap stage 2).
+        Vec3 globalPosition;
+        // Non-empty ("spherical"/"cylindrical_lock_x"/"_y"/"_z" -- see
+        // husk::m2::billboardModeName) for a billboarded joint: this
+        // becomes a `"billboard"` key in the joint's glTF node `extras`,
+        // for a custom renderer to act on (billboarding is a
+        // renderer-camera-relative behavior with no core-glTF equivalent,
+        // so this is metadata for the consumer, not something writeGlb
+        // itself applies). Empty string (the default): no extras added.
+        std::string billboardMode;
+        // A real semantic bone name (e.g. "ArmL", "Head", "FootL" -- from
+        // m2::keyBoneName(Bone::keyBoneId)), or empty if this bone isn't in
+        // that ~193-entry table. Becomes this joint's glTF node `.name`
+        // when non-empty; writeGlbMulti falls back to "bone_<index>"
+        // otherwise. Resolved by the caller (m2-specific), not here --
+        // gltf.cpp stays M2-format-agnostic, same split billboardMode
+        // already follows (a resolved string in, not raw M2 bit flags).
+        // Blender's stock glTF importer otherwise falls back to its own
+        // generic "Bone"/"Node" numbering, which isn't guaranteed to match
+        // husk's own bone-index order, making every index-keyed extras
+        // payload (correction-set/emitter-anchor joint indices, `husk
+        // info`'s own bone listing) hard to correlate back to what's
+        // actually selected in Blender.
+        // TODO: Remove: BLENDER_EXPORT_TODO.md §6.
+        std::string name;
+    };
+    std::vector<Joint> joints;
+
+    // Real husk::bone::Correction data (one entry per resolved `.bone`
+    // sidecar file, `husk export`'s `--bones-dir`) -- inert glTF `extras`
+    // on the skin object (`bone_correction_sets`), never applied to the
+    // bind pose or any animation. Which of a model's several `.bone` files
+    // is "correct" for a given character is selected by client-side
+    // customization-choice data husk has no access to (no CASC/DBC access,
+    // a hard non-goal -- see DESIGN.md#Non-goals); husk surfaces every slot
+    // it can resolve from disk and stops there, same "tag it, don't guess
+    // at semantics" treatment as skinSectionId/textureTransform above.
+    // Empty (the default) if `--bones-dir none`, or none of a model's
+    // BFID-declared FileDataIDs resolved to a real file on disk.
+    // TODO: Remove: TODO_correctness.md #3, `WIKI_FINDINGS/BONE.md` (dev-trace
+    // citations backing the non-goal above).
+    struct CorrectionSet {
+        uint32_t fileDataId = 0;
+        struct Correction {
+            int joint = -1;  // index into Skeleton::joints
+            // Row-major, same convention as husk::bone::Correction::matrix.
+            std::array<float, 16> matrix{};
+        };
+        std::vector<Correction> corrections;
+    };
+    std::vector<CorrectionSet> correctionSets;
+
+    // Minimal placement anchors for M2Ribbon/M2Particle emitters -- just
+    // enough (id, attach joint, relative position) for a custom Blender
+    // script to place a marker/empty at the right spot, same "inert glTF
+    // extras, never applied to anything writeGlb itself renders" treatment
+    // as CorrectionSet above. Every other field (blend mode, texture,
+    // curves, ...) has no native glTF slot either, but is high-volume
+    // enough (potentially dozens of emitters, each with several animation
+    // curves) that it lives in `husk dump-chunks`'s JSON output instead of
+    // bloating every .glb with data a plain glTF viewer can't use -- see
+    // DESIGN.md's Key design decisions and src/cmd_dump.cpp's doc comment.
+    struct EmitterAnchor {
+        uint32_t id = 0;   // M2Ribbon::ribbonId / M2Particle::particleId, usually -1
+        int joint = -1;    // index into Skeleton::joints
+        // Relative to `joint`, already in the target coordinate system
+        // (Y-up) -- same caller responsibility as Joint::localTranslation.
+        Vec3 position;
+    };
+    std::vector<EmitterAnchor> ribbonAnchors;
+    std::vector<EmitterAnchor> particleAnchors;
+
+    // Minimal per-body placement anchors for `.phys` physics/collision
+    // bodies (`husk export --phys`) -- same "inert glTF extras, never
+    // applied to anything writeGlb itself renders" treatment as
+    // CorrectionSet/EmitterAnchor above. A `.phys` body is already
+    // structurally an anchor (position + owning bone), like M2Ribbon/
+    // M2Particle, not a flat correction-matrix table like `.bone` -- the
+    // full body/shape/joint/PHYV record set has no native glTF slot either,
+    // and is high-volume enough (a single real file can have 40+ bodies,
+    // each with several shapes/joints) that it lives in `husk dump-chunks`'s
+    // JSON output instead, same split as EmitterAnchor -- see DESIGN.md's
+    // Key design decisions.
+    struct PhysicsBody {
+        uint32_t id = 0;  // this body's own index into the .phys file's BODY/BDY3/BDY4 array
+        int joint = -1;   // index into Skeleton::joints
+        // Relative to `joint`, already in the target coordinate system
+        // (Y-up) -- same caller responsibility as EmitterAnchor::position.
+        Vec3 position;
+        uint16_t bodyType = 0;  // husk::phys::Body::type -- do NOT assume 0 is "the root"
+    };
+    std::vector<PhysicsBody> physicsBodies;
+
+    // Attachments/Events/Lights -- unlike every anchor list above, a
+    // bone-relative M2Attachment/M2Event/M2Light position marker has no
+    // non-glTF-representable data at all (no curves, no blend modes), so
+    // writeGlbMulti gives each one a real, plain child glTF node instead of
+    // another skin `extras` entry -- see writeGlbMulti's doc comment for
+    // the exact node shape/naming/parenting.
+    // TODO: Remove: former M2_GAPS_TODO.md Item 6; M2_COMPLETENESS.md used
+    // to call this "node-possible, unclaimed".
+    // `joint` must be a valid index into `joints` -- M2's own `bone == -1`
+    // ("not attached to any bone," wowdev.wiki M2#Lights) is not yet
+    // representable here (there's no established "unparented placement
+    // node" concept in this codebase) and is treated like any other
+    // out-of-range joint: Error. No real fixture this project has seen
+    // exercises `bone == -1` for an Attachment/Light; flagged here rather
+    // than guessed at.
+    struct Attachment {
+        uint32_t id = 0;  // M2Attachment::id -- meaning depends on model type, wowdev.wiki's table
+        int joint = -1;   // index into Skeleton::joints
+        Vec3 position;    // relative to `joint`, already Y-up (same convention as EmitterAnchor::position)
+    };
+    std::vector<Attachment> attachments;
+
+    struct Event {
+        std::string identifier;  // M2Event::identifier, e.g. "$DTH" -- not unique, see writeGlbMulti's node-naming note
+        int joint = -1;
+        Vec3 position;
+    };
+    std::vector<Event> events;
+
+    struct Light {
+        int joint = -1;
+        Vec3 position;
+        // M2Light::type (0 = directional, 1 = point) and every animated
+        // field (color/intensity/attenuation/visibility) are out of scope
+        // for this struct -- a placement node has no slot for either, and
+        // resolving the animated tracks is a separate, larger problem (same
+        // sibling scope as the animated material tint/fade curves,
+        // alphaFadeAnimation/weightFadeAnimation above).
+    };
+    std::vector<Light> lights;
+};
+
+// One joint's worth of keyframe data for one animation clip -- glTF's own
+// sampler+channel pair, pre-split by TRS property since husk never shares
+// a sampler between properties or joints. Each `*Times`/`*Values` pair
+// must be the same length; leave a property's pair empty to skip emitting
+// that channel entirely for this joint (the ordinary case: most joints
+// won't have data for most sequences, see husk::m2::Sequence's doc
+// comment). Times are seconds, strictly increasing; values are already in
+// the target coordinate system/quaternion convention (Y-up) and, for
+// translation, already relative to the joint's parent the same way
+// Skeleton::Joint::localTranslation is -- writeGlb samples these directly
+// as the node's translation/rotation/scale, it does not add them to the
+// bind pose.
+struct JointAnimation {
+    int joint = -1;  // index into Skeleton::joints, not a glTF node index
+    std::vector<float> translationTimes;
+    std::vector<Vec3> translationValues;
+    // Per-property "step" flag (M2Track::interpolation_type == 0, "values
+    // change instantly at the timestamp, with no interpolation whatsoever"
+    // -- wowdev.wiki M2#Interpolation), each independent since translation/
+    // rotation/scale are three separate M2Tracks with their own
+    // interpolation_type. false (the default) means glTF's own LINEAR
+    // sampler interpolation; true means STEP. There's no third glTF-side
+    // option here -- interpolation_type 2/3 (cubic bezier/hermite) never
+    // reaches this struct, since husk::m2::resolveVec3TrackSequence/
+    // resolveQuatTrackSequence throw rather than resolve one (see their doc
+    // comments): those types are only valid for M2SplineKey tracks, which
+    // bone/color/weight tracks never are.
+    bool translationStep = false;
+    std::vector<float> rotationTimes;
+    std::vector<Quat> rotationValues;
+    bool rotationStep = false;
+    std::vector<float> scaleTimes;
+    std::vector<Vec3> scaleValues;
+    bool scaleStep = false;
+};
+
+// One glTF animation clip. `joints` may be sparse -- only joints with real
+// keyframe data for this clip need an entry (see husk::m2::Sequence's
+// flags for why most of a real model's sequences will only cover a subset
+// of its joints, or none at all) -- but every JointAnimation::joint must be
+// in range for whatever Skeleton is passed to writeGlb alongside this.
+struct Animation {
+    std::string name;
+    std::vector<JointAnimation> joints;
+
+    // M2Sequence's own per-sequence metadata (movement-speed sync, blend
+    // timing, replay hint, animated bounding volume, variation/alias
+    // linkage) -- core glTF has no clip-level field for any of these
+    // (playback speed scaling, blend time, replay count, ...), so they're
+    // exposed as inert `extras` on the animation itself, same "tag it,
+    // don't guess at semantics" treatment Skeleton::CorrectionSet/
+    // EmitterAnchor already get. `aliasNext`/`isAlias` mirror
+    // husk::m2::Sequence's own fields raw -- when `isAlias` is true, this
+    // clip's actual keyframe data (JointAnimation entries above) was
+    // borrowed from the resolved terminal sequence, not from this
+    // sequence's own (empty) tracks, but every other field here still
+    // describes this sequence's own M2Sequence record, not the terminal's.
+    // nullopt for a clip that isn't backed by a single M2Sequence record at
+    // all (buildGlobalSequenceAnimations's global_seq_<n> clips) -- there's
+    // no per-sequence movespeed/blend timing/bounds to expose for those.
+    // TODO: Remove: `WIKI_FINDINGS/M2.md` citation for the aliasNext/isAlias
+    // raw-mirroring finding.
+    struct SequenceMetadata {
+        float movespeed = 0;
+        int16_t frequency = 0;
+        uint32_t replayMin = 0;
+        uint32_t replayMax = 0;
+        uint16_t blendTimeIn = 0;
+        uint16_t blendTimeOut = 0;
+        // Already in the target coordinate system (Y-up) -- same caller
+        // responsibility as Skeleton::Joint::localTranslation.
+        Vec3 boundsMin;
+        Vec3 boundsMax;
+        float boundsRadius = 0;
+        int16_t variationNext = -1;
+        uint16_t aliasNext = 0;
+        bool isAlias = false;
+    };
+    std::optional<SequenceMetadata> sequenceMetadata;
+};
+
+}  // namespace husk::gltf
