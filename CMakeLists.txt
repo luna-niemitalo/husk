@@ -64,6 +64,10 @@ add_library(husk-lib STATIC
   src/export_materials.cpp
   src/export_skin_resolution.cpp
   src/cmd_export.cpp
+  src/dump_writer_utils.cpp
+  src/dump_emitters.cpp
+  src/dump_phys.cpp
+  src/dump_chunks_misc.cpp
   src/cmd_dump.cpp
 )
 target_include_directories(husk-lib PUBLIC src)
