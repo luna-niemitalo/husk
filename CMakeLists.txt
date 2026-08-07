@@ -96,6 +96,9 @@ if(HUSK_BUILD_TESTS)
     tests/test_bone.cpp
     tests/test_phys.cpp
     tests/test_gltf.cpp
+    tests/test_gltf_math.cpp
+    tests/test_gltf_mesh.cpp
+    tests/test_gltf_skeleton.cpp
     tests/test_integration.cpp
     tests/test_cli.cpp
     tests/test_dump.cpp
