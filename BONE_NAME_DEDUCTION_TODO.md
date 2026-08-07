@@ -70,48 +70,89 @@ block, `bone_117`-`bone_173` (57 bones), dominates. Traced its ancestry: it
 hangs directly off the real `Head` joint, almost certainly WoW's per-model
 facial-animation bone expansion (lip/eye/brow control bones added for HD
 character models). These were never attachment points or event targets to
-begin with, so **no signal husk has today, or that wowdev's own tables
-document, can name them individually** -- and a generic humanoid reference
-rig (Rigify) has no fine-grained facial-bone equivalent either, so tier 2
-as scoped above would likely leave this specific block unnamed too. Worth
-keeping in mind when tier 2 is actually picked up: it closes gaps like
-`bone_29` (a real limb bone with no facial-rig ambiguity), not this block --
-a second, separate investigation (a facial-bone-specific reference, if one
-exists at all) would be needed for that, out of scope for tier 2 as written
-above.
+begin with, so no signal husk has today, or that wowdev's own tables
+document, can name them individually.
+
+**Correction (checked directly, not assumed): Rigify's bundled human
+meta-rig does have a real, extensive facial rig** -- instantiating
+Blender 5.1.1's bundled Rigify (v0.6.10, already reachable via
+`HUSK_BLENDER`) "Human (Meta-Rig)" template gives 159 bones, 84 of them
+face-related: eyes, eyelids (upper/lower, both sides), brows (upper/lower,
+both sides), lips, jaw, nose, chin, ears -- all real, individually named
+(`lid.T.L.001`, `brow.B.R.002`, `lip.T.L`, ...). An earlier draft of this
+file claimed the opposite; that was wrong, not verified before being
+written down. So tier 2 scoped against Rigify plausibly *can* reach this
+facial-bone block too, not just limb bones like `bone_29` -- the open
+question is match quality (84 generic facial control bones vs. this
+model's own 57, not a 1:1 correspondence), not "no reference exists at
+all." Only one human sample template was found in this Rigify version (no
+separate "with/without face bones" toggle at the metarig-template level);
+that distinction may exist in a different/older addon or a different stage
+of Rigify's own workflow, not confirmed either way.
+
+**A same-species reference was also considered and ruled out at the naive
+level**: comparing `bloodelffemale.m2` (SD) against `bloodelffemale_hd.m2`
+(HD) bone-for-bone by raw index does *not* work -- checked directly, SD's
+bone 29 (the unnamed wrist) and HD's bone 29 (`ArmL`, a completely
+different joint) share nothing; the two skeletons are independently
+authored bone arrays, not the same layout with HD appending bones at the
+end. A *smarter* version of the same idea is still worth keeping on the
+list, though: using a model's own higher-detail sibling (when one exists,
+e.g. an SD/HD pair) as tier 2's reference skeleton, matched by the same
+position/hierarchy algorithm below, instead of or alongside Rigify. Its
+advantage over Rigify is real: both sides already share WoW's own bone
+vocabulary, so step 1 below (the hand-maintained name-translation table,
+the most fragile part of the Rigify approach) disappears entirely for any
+model that actually has such a sibling. Its downside: most models don't
+have one, so it can't be the *only* reference tier 2 supports.
 
 ## Tier 2 approach
 
-Match remaining unnamed bones against **Blender's Rigify human meta-rig**
-by hierarchy/relative-position similarity, using the tier-0-named bones as
-known correspondence anchors:
+Match remaining unnamed bones against a **reference skeleton** by
+hierarchy/relative-position similarity, using the tier-0/attachment/event-
+named bones as known correspondence anchors. Two candidate references,
+not mutually exclusive:
 
-1. For each tier-0-named M2 bone, find its counterpart in the Rigify
-   meta-rig by name (a small hand-maintained mapping table — WoW's key-bone
-   names and Rigify's bone names don't share a vocabulary, e.g. `ForearmL`
-   vs `forearm.L`). This gives a set of known-good (M2 bone, Rigify bone)
-   anchor pairs.
+- **Blender's bundled Rigify human meta-rig** — generic, but real and
+  detailed (159 bones including a full 84-bone facial rig, confirmed by
+  direct instantiation, see above). Works for any model. Needs step 1
+  below (a hand-maintained WoW-name ↔ Rigify-name translation table) since
+  the two skeletons don't share vocabulary.
+- **A model's own higher-detail sibling** (e.g. an SD/HD pair like
+  `bloodelffemale.m2`/`bloodelffemale_hd.m2`), when one exists — both
+  sides already share WoW's own bone vocabulary (`ForearmL` means the same
+  thing on both), so step 1's translation table isn't needed at all for
+  models that have one. Only covers models with a known sibling, so can't
+  be the sole reference tier 2 supports.
+
+Algorithm (same shape regardless of which reference is used):
+
+1. For each already-named M2 bone (any tier above), find its counterpart
+   in the reference skeleton — by a hand-maintained name-translation table
+   (Rigify case) or directly by matching name (sibling-skeleton case).
+   This gives a set of known-good (M2 bone, reference bone) anchor pairs.
 2. For each remaining unnamed M2 bone, compute a position relative to its
    nearest anchor(s) — hierarchy distance (how many bones up/down the
    chain) and/or normalized spatial position between two anchors — and find
-   the Rigify bone with the most similar relative position to *its* nearest
-   anchors.
+   the reference bone with the most similar relative position to *its*
+   nearest anchors.
 3. Only accept a match under a similarity threshold; below it, leave the
    bone unlabeled rather than guessing (same "no claim beyond what's
    supportable" discipline as tier 1). Define a policy for a tie between
-   two similarly-close Rigify bones (report both as ambiguous, most likely
-   — same shape as tier 1's branch-abandonment, not a coin flip).
-4. Borrow the matched Rigify bone's real name for the label, but keep the
-   numeric index visible in the output (`bone_<i>_<rigifyName>` or similar)
-   so a tier-2 guess is never confused with tier-0 real M2 data, matching
-   tier 0/1's own convention.
+   two similarly-close reference bones (report both as ambiguous, most
+   likely — same shape as tier 1's branch-abandonment, not a coin flip).
+4. Borrow the matched reference bone's real name for the label, but keep
+   the numeric index visible in the output (`bone_<i>_<referenceName>` or
+   similar) so a tier-2 guess is never confused with tier-0 real M2 data,
+   matching every earlier tier's own convention.
 
 Rigify ships with Blender itself (GPL) and is already reachable from the
 same headless-Blender environment `tests/blender_import_check.py` already
-drives (`HUSK_BLENDER` in `CMakeLists.txt`) — no new asset needs vendoring,
-but the *mapping table* (step 1) and the *similarity metric* (step 2) both
-need real design work and a real fixture to validate against before this is
-more than a sketch.
+drives (`HUSK_BLENDER` in `CMakeLists.txt`) — no new asset needs vendoring
+for that path. Either way, the *similarity metric* (step 2) needs real
+design work and a real fixture to validate against before this is more
+than a sketch; the Rigify path additionally needs the translation table
+(step 1).
 
 ## Why this is a separate pass from tier 1
 
