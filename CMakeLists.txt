@@ -51,6 +51,11 @@ add_library(husk-lib STATIC
   src/phys.cpp
   src/gltf.cpp
   src/cmd_info.cpp
+  src/export_transform.cpp
+  src/export_skeleton.cpp
+  src/export_animation.cpp
+  src/export_materials.cpp
+  src/export_skin_resolution.cpp
   src/cmd_export.cpp
   src/cmd_dump.cpp
 )
