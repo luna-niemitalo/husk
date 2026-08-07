@@ -133,7 +133,59 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Fixed the M2→glTF "upside down" export bug for real
+- **Current state**: Follow-up in the same session, reported directly from
+  Blender: embedded images were showing up as auto-generated
+  `Image_<N>` names instead of their real, useful source filenames (e.g.
+  `bloodelffemale_hd_hair_color_5196731`), because none of
+  `gltf_mesh.cpp`'s three image-embedding sites ever set `tinygltf::
+  Image::name`/`Texture::name`. Fixed: `Material::baseColorImageName`
+  (new field, `src/gltf_mesh.hpp`) is populated at every
+  `export_materials.cpp` resolution site that sets `baseColorImagePng`
+  (M2's own embedded filename, a `<FileDataID>` exact match, a sole
+  fuzzy match, or the chosen candidate out of an ambiguous pool) and
+  used to name the emitted image/texture; the `alternate_textures`
+  candidates and `additionalTextureLayers` (FileDataID only, no
+  filename tracked) get the same treatment. Verified two ways: a new
+  unit assertion (`tests/test_gltf_mesh.cpp`) and a real headless-Blender
+  import of the actual `bloodelffemale_hd.m2` export, both before/after
+  -- 99 images all named `Image_<N>` before, 0 generic names after. Full
+  suite green (520/520).
+- **Current state (prior, same session)**: Fixed `EYES_ON_FINDINGS.md` #3/#6's ambiguous-texture
+  cross-contamination (Luna's own concrete example: a face `.blp`
+  showing up as a candidate for a shoes-region `skin`-type material).
+  `src/export_materials.cpp` now filters each hardcoded slot's fuzzy-pool
+  candidates by a real filename category token
+  (`classifyCandidateCategory`, e.g. `"skin_color"`/`"face"`/
+  `"hair_color"`/`"jewelry_color"`/`"blindfold"`) matched against which
+  `M2Texture::type` values that category is actually compatible with
+  (`candidateCategoryTypes`, transcribed from `reference/wow.export`'s
+  own character-customization code, not guessed) — a hair-color file no
+  longer leaks into an eyes or jewelry slot's `alternate_textures` just
+  because both are independently ambiguous. Types 1/8 (`skin`/
+  `skin_extra`) are a real, separate case: `wow.export`'s own
+  `apply_skinned_model_textures` shows the real client composites
+  several layers together for these two, which husk still can't do (no
+  DB2 blend-order data, by design) — so `"skin_color"`/`"face"` both stay
+  valid candidates there, but a bare/`skin_color` file is now preferred
+  as the wired default over a narrower `face` overlay
+  (`preferBaseLayerCandidate`), and every candidate's parsed category is
+  now attached to its own `alternate_textures` extras entry so a human/
+  Blender script can tell what each one actually is. Verified against
+  the real `bloodelffemale_hd.m2` + its real CASC texture directory: the
+  `skin` slot's pool went from 94 undifferentiated candidates to 57
+  correctly-typed ones, `char_eyes`/`char_jewelry`/`ui_skin` slots each
+  now see only their own real candidates (9/19/2 respectively), zero
+  cross-category leakage. New synthetic regression test
+  (`tests/test_cli.cpp`, two hardcoded slots of genuinely different
+  `M2Texture::type`s sharing one pool) proven to actually fail without
+  the fix before being confirmed green. Full suite 520/520
+  (`./build/husk-tests`). See `EYES_ON_FINDINGS.md`'s finding #3/#6 for
+  the full writeup, including what's still genuinely unresolvable
+  (*which* composited skin/face layer is correct for a given character's
+  real customization choices — needs DB2 data husk doesn't have) versus
+  what this fix actually closes (structurally-impossible cross-category
+  offers).
+- **Current state (prior session)**: Fixed the M2→glTF "upside down" export bug for real
   (`TRANSFORM_TRIAGE.md`) — the historical three hand-typed position/
   rotation/scale conversion formulas are now one mechanically-derived
   system (`src/gltf.cpp`'s `kWowToGltf` matrix, corrected from `(x,-z,y)`

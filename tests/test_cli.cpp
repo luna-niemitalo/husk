@@ -424,6 +424,69 @@ TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot 
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export: two hardcoded slots of genuinely different M2Texture::types each only see "
+          "their own type-compatible candidates from the shared fuzzy pool, not each other's "
+          "(EYES_ON_FINDINGS.md #3/#6: a jewelry-color file must never end up offered to a skin "
+          "slot's alternate_textures just because both slots are independently ambiguous)") {
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+
+    auto dir = defaultsDir("category-filtered-fuzzy");
+    writeFile(dir / "twohard.m2", twoHardcodedTexturedModel(1, 20));  // 1=skin, 20=char_jewelry
+    writeFile(dir / "twohard00.skin", twoBatchSkin());
+    writeFile(dir / "twohard_skin_color_1000.png", onePixelPng);
+    writeFile(dir / "twohard_skin_color_1001.png", onePixelPng);
+    writeFile(dir / "twohard_jewelry_color_2000.png", onePixelPng);
+    writeFile(dir / "twohard_jewelry_color_2001.png", onePixelPng);
+
+    auto result = runHusk("export " + (dir / "twohard.m2").string());
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string err, warn;
+    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "twohard.glb").string()));
+    REQUIRE(model.materials.size() == 2);
+
+    for (const auto& mat : model.materials) {
+        REQUIRE(mat.extras.Has("alternate_textures"));
+        auto alt = mat.extras.Get("alternate_textures");
+        REQUIRE(alt.ArrayLen() == 2);  // each slot's own pair, never the other slot's
+
+        // Exactly two materials in this fixture, one per textureType --
+        // "char_jewelry" (m2::textureTypeName(20)) unambiguously identifies
+        // the jewelry slot's material name, the other is the skin slot's.
+        bool isJewelry = mat.name.find("char_jewelry") != std::string::npos;
+
+        for (int i = 0; i < alt.ArrayLen(); ++i) {
+            std::string filename = alt.Get(i).Get("filename").Get<std::string>();
+            if (isJewelry) {
+                CHECK(filename.find("jewelry_color") != std::string::npos);
+                CHECK(filename.find("skin_color") == std::string::npos);
+            } else {
+                CHECK(filename.find("skin_color") != std::string::npos);
+                CHECK(filename.find("jewelry_color") == std::string::npos);
+            }
+            // Each candidate's embedded glTF image is named after its own
+            // real source filename (stem), not left blank -- Blender's
+            // importer falls back to an auto-generated "Image_<N>" for any
+            // unnamed image, which is what prompted this.
+            int texIdx = alt.Get(i).Get("texture_index").GetNumberAsInt();
+            REQUIRE(texIdx >= 0);
+            REQUIRE(static_cast<size_t>(texIdx) < model.textures.size());
+            std::string expectedName = fs::path(filename).stem().string();
+            CHECK(model.images[model.textures[texIdx].source].name == expectedName);
+        }
+    }
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk export: a fdid-resolvable slot keeps its own FileDataID-named file even when a "
           "hardcoded slot in the same model claims a real-named file from the shared fuzzy pool "
           "(regression: an earlier version of the name-priority fix let this cross-contaminate)") {

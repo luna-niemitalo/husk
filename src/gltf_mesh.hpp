@@ -53,6 +53,17 @@ struct Material {
     // a separate Python tool) -- this is opaque bytes handed straight to
     // tinygltf to embed.
     std::vector<uint8_t> baseColorImagePng;
+    // The real source filename (no extension) that supplied
+    // baseColorImagePng -- e.g. "bloodelffemale_hd_hair_color_5196731" --
+    // set at every resolution site in export_materials.cpp (M2's own
+    // embedded filename, a "<FileDataID>" exact match, a sole fuzzy match,
+    // or the chosen candidate out of an ambiguous pool). Used only to name
+    // the emitted glTF `Image`/`Texture` (gltf_mesh.cpp's emitMaterial) so
+    // Blender's importer shows this real name instead of an auto-generated
+    // "Image_<N>" -- purely cosmetic, glTF's own `baseColorTexture.index`
+    // reference doesn't depend on it at all. Empty only when
+    // baseColorImagePng itself is (nothing resolved).
+    std::string baseColorImageName;
     // Which of Mesh::texCoords (0) or Mesh::texCoords2 (1) baseColorImagePng
     // should be sampled with -- from the .skin Batch's own
     // textureCoordComboIndex (wowdev.wiki M2/.skin#geosetIndex's "Texture
@@ -136,15 +147,34 @@ struct Material {
     // the same source a sole (unambiguous) match already uses. Same "export
     // everything, let the client filter" treatment `Submesh::skinSectionId`
     // already gets for mutually-exclusive geosets: every candidate is
-    // embedded (real image bytes, not just a filename), one arbitrary one
-    // (alphabetically first, deterministic) also becomes the actual
-    // baseColorImagePng so the export still renders as *something* by
-    // default rather than bare, and the extras array lets a human or script
-    // swap in the real one once known. Empty in every other case (a sole
-    // match, or a genuinely FileDataID-resolved slot, stay exactly as
-    // precise as before -- this only fires on real ambiguity).
+    // embedded (real image bytes, not just a filename), and the extras array
+    // lets a human or script swap in the real one once known. Empty in every
+    // other case (a sole match, or a genuinely FileDataID-resolved slot,
+    // stay exactly as precise as before -- this only fires on real
+    // ambiguity).
+    //
+    // The pool this list is drawn from is filtered to candidates whose
+    // filename category (see AlternateTextureCandidate::category) is
+    // actually compatible with this slot's own textureType before this
+    // struct is ever populated (`export_materials.cpp`'s
+    // `candidateAllowedForType`) -- a hair-color file no longer ends up in a
+    // jewelry slot's list just because both are ambiguous. One arbitrary
+    // *remaining* candidate (bare/`skin_color`-category preferred over a
+    // narrower overlay like `face` when this is a compositing slot -- see
+    // that function's doc comment -- alphabetically first otherwise,
+    // deterministic either way) also becomes the actual baseColorImagePng so
+    // the export still renders as *something* plausible by default rather
+    // than bare or confidently wrong.
     struct AlternateTextureCandidate {
         std::string filename;  // real file basename, e.g. "bloodelffemale_hd_skin_color_3500123.png"
+        // The community-listfile category token parsed out of `filename`
+        // (e.g. "skin_color", "face", "hair_color") -- empty for a bare
+        // "<model>_<FileDataID>" file, or when the filename doesn't carry a
+        // recognized token at all. See `export_materials.cpp`'s
+        // `classifyCandidateCategory`/`candidateCategoryTypes` for where
+        // this vocabulary comes from (`reference/wow.export`'s own
+        // character-customization code, not a husk guess).
+        std::string category;
         std::vector<uint8_t> imagePng;
     };
     std::vector<AlternateTextureCandidate> alternateTextureCandidates;

@@ -456,6 +456,42 @@ std::vector<uint8_t> twoTexturedModel(uint32_t fileDataId) {
     return file;
 }
 
+// Two *both-hardcoded* texture slots (no TXID chunk at all, fdid stays 0
+// for both), of independently chosen M2Texture::type values, sharing one
+// material -- regression fixture for export_materials.cpp's per-slot
+// fuzzy-candidate category filter: two slots of genuinely different types
+// (e.g. skin vs. char_jewelry) must each only ever see the candidates
+// compatible with *their own* type, never the other slot's, even though
+// both draw from one shared same-basename pool.
+std::vector<uint8_t> twoHardcodedTexturedModel(uint32_t type0, uint32_t type1) {
+    auto md20 = tinyValidM2();
+    uint32_t texOff = static_cast<uint32_t>(md20.size());
+    md20.resize(texOff + 32, 0);  // 2x M2Texture (type/flags/filename M2Array)
+    std::memcpy(md20.data() + texOff, &type0, 4);         // textures[0].type
+    std::memcpy(md20.data() + texOff + 16, &type1, 4);    // textures[1].type
+    uint32_t two = 2;
+    std::memcpy(md20.data() + 0x050, &two, 4);     // textures.count
+    std::memcpy(md20.data() + 0x054, &texOff, 4);  // textures.offset
+
+    uint32_t matOff = static_cast<uint32_t>(md20.size());
+    md20.resize(matOff + 4, 0);  // 1 M2Material, shared by both batches
+    uint32_t one = 1;
+    std::memcpy(md20.data() + 0x070, &one, 4);
+    std::memcpy(md20.data() + 0x074, &matOff, 4);
+
+    uint32_t comboOff = static_cast<uint32_t>(md20.size());
+    putU16(md20, 0);  // textureCombos[0] -> texture index 0
+    putU16(md20, 1);  // textureCombos[1] -> texture index 1
+    std::memcpy(md20.data() + 0x080, &two, 4);       // textureCombos.count
+    std::memcpy(md20.data() + 0x084, &comboOff, 4);  // textureCombos.offset
+
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    return file;  // no TXID chunk -- both slots stay fdid == 0
+}
+
 // A .skin with two submesh/batch pairs over twoTexturedModel()'s two
 // texture slots -- batch 0 -> textureComboIndex 0 (hardcoded), batch 1 ->
 // textureComboIndex 1 (fdid-resolvable). Same degenerate single-vertex

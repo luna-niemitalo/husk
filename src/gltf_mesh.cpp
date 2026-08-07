@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <unordered_map>
 
 #include "gltf_buffer_utils.hpp"
@@ -44,11 +45,16 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
         tinygltf::Image img;
         img.mimeType = "image/png";
         img.bufferView = imgView;
+        // Real source filename (Material::baseColorImageName's own doc
+        // comment) -- without this, Blender's glTF importer falls back to
+        // an auto-generated "Image_<N>" name, which is what prompted this.
+        img.name = mat.baseColorImageName;
         int imgIdx = static_cast<int>(images.size());
         images.push_back(img);
 
         tinygltf::Texture tex;
         tex.source = imgIdx;
+        tex.name = mat.baseColorImageName;
         int texIdx = static_cast<int>(textures.size());
         textures.push_back(tex);
 
@@ -87,11 +93,16 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
                 tinygltf::Image img;
                 img.mimeType = "image/png";
                 img.bufferView = imgView;
+                // No source filename tracked for this layer, only a
+                // FileDataID -- still better than an auto-generated
+                // "Image_<N>" in Blender's importer.
+                if (layer.fileDataId != 0) img.name = std::to_string(layer.fileDataId);
                 int imgIdx = static_cast<int>(images.size());
                 images.push_back(img);
 
                 tinygltf::Texture tex;
                 tex.source = imgIdx;
+                tex.name = img.name;
                 int texIdx = static_cast<int>(textures.size());
                 textures.push_back(tex);
 
@@ -157,6 +168,9 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
         for (const auto& cand : mat.alternateTextureCandidates) {
             tinygltf::Value::Object candObj;
             candObj["filename"] = tinygltf::Value(cand.filename);
+            if (!cand.category.empty()) {
+                candObj["category"] = tinygltf::Value(cand.category);
+            }
             if (!cand.imagePng.empty()) {
                 auto cached = alternateTextureCache.find(cand.filename);
                 int texIdx;
@@ -167,11 +181,17 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
                     tinygltf::Image img;
                     img.mimeType = "image/png";
                     img.bufferView = imgView;
+                    // Real source filename, same reasoning as the primary
+                    // baseColorImagePng image above -- these are the exact
+                    // candidates Luna asked to be able to tell apart in
+                    // Blender, so this one matters most.
+                    img.name = std::filesystem::path(cand.filename).stem().string();
                     int imgIdx = static_cast<int>(images.size());
                     images.push_back(img);
 
                     tinygltf::Texture tex;
                     tex.source = imgIdx;
+                    tex.name = img.name;
                     texIdx = static_cast<int>(textures.size());
                     textures.push_back(tex);
 

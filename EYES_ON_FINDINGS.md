@@ -483,21 +483,90 @@ the concrete next step — this note exists so anyone reading #6 in
 isolation knows where the actual continuation lives, without re-deriving
 the connection.
 
-**A real, separate, related usability gap found while investigating, not
-yet fixed**: `alternate_textures` currently attaches the *entire* undifferentiated
-94-file candidate pool to *every* ambiguous material, regardless of which
-hardcoded `textureType` that specific slot actually is. A `hair_style`
-slot's alternate list includes `skin_color`/`jewelry_color`/`blindfold`
-files that could never be a valid answer for it — structurally impossible,
-not just unlikely. Filtering the pool per-slot by a cheap keyword
-heuristic (matching a candidate's filename against `m2::textureTypeName`'s
-own vocabulary, e.g. only offering `hair_style_*`/`hair_color_*` files to
-a slot whose `textureType` names hair) would cut real noise, without
-crossing into "guessing the one correct answer" — an earlier investigation
-this project already did (real texture-directory naming vs.
-`M2Texture::type`'s own enum vocabulary, found to be two genuinely
-unrelated naming schemes) settled that *picking* between candidates by
-keyword would just be a different, equally unfounded guess; *filtering*
-which candidates are even offered is a different, much safer claim than
-picking a single winner within a category. Not implemented this session —
-a real, scoped follow-up if this becomes annoying in practice.
+**Fixed, a later session**: `alternate_textures` used to attach the *entire*
+undifferentiated 94-file candidate pool to *every* ambiguous material,
+regardless of which hardcoded `textureType` that specific slot actually
+is — a `char_eyes` slot's alternate list included `hair_color`/
+`jewelry_color`/`face` files that could never be a valid answer for it,
+structurally impossible, not just unlikely (concretely: a real face
+`.blp` was showing up as a candidate for a shoes-region `skin`-type
+batch's material, exactly the case Luna asked to have fixed).
+
+`src/export_materials.cpp` now filters per-slot before a candidate is
+ever offered: `classifyCandidateCategory` parses the real community-
+listfile category token out of a candidate's own filename (e.g.
+`"skin_color"` out of `bloodelffemale_hd_skin_color_3500123.blp` — this
+is metadata a human already attached to the file, not husk guessing
+anything about M2 internals), and `candidateCategoryTypes` maps that
+token to the `M2Texture::type` values it's actually compatible with,
+transcribed (not guessed) from `reference/wow.export`'s own character-
+customization code (`tab_characters.js`'s legacy `skin`/`face`/
+`hair color`/`hair style`/`facial` option-group map, and its explicit
+"blindfold = type 9" comment). A candidate whose category names a
+*different*, non-overlapping type is excluded from that slot's pool
+entirely; an unrecognized token (e.g. a non-character model's plain
+alternates) stays a wildcard, unchanged from before.
+
+Types 1 (`skin`) and 8 (`skin_extra`) turned out to be a real, separate
+structural fact once traced through `wow.export`'s own
+`apply_skinned_model_textures`: the real client binds these two a
+*composite* built by blending several layers (base skin tone + face +
+others) at runtime, not one raw file — so "which one candidate is
+correct" has no answer husk can ever produce without real
+ChrModelTextureLayer/DB2 blend-order data it deliberately doesn't have
+(`DESIGN.md`'s Non-goals). `"skin_color"`/`"face"`/bare files all stay
+valid candidates for these two types (compositing needs all of them,
+even though husk can't composite), but a bare or `skin_color` file is
+now preferred as the wired default over a narrower overlay like `face`
+(`preferBaseLayerCandidate`) — a full-body base skin tone is a much more
+plausible stand-in than a small face-only overlay, even though neither
+is the real composited answer. Each candidate's parsed category is also
+now attached to its `alternate_textures` extras entry
+(`AlternateTextureCandidate::category`), so a human or Blender script
+can immediately see *what* each unlinked candidate is instead of an
+opaque filename.
+
+Verified against the real `bloodelffemale_hd.m2` + its real CASC-export
+texture directory: the `skin`-type slot's pool shrank from 94 to 57
+candidates (down to only skin/skin_extra-compatible files, default now
+the bare base-layer file rather than an arbitrary alphabetical pick),
+the `char_eyes` slot's pool shrank to its own 9 `eye_color_*` files
+only, `char_jewelry` to its own 19 `jewelry_color`/`body_jewelry`/
+`bracelets` files, and the `ui_skin` (blindfold) slot to its own 2
+`blindfold_*` files — no cross-category leakage in any of them. Full
+test suite green (520/520), including a new synthetic regression test
+(`tests/test_cli.cpp`, two hardcoded slots of genuinely different
+`M2Texture::type`s sharing one pool) proven to actually fail without the
+fix (temporarily disabling the filter reproduces exactly this
+cross-contamination, `alt.ArrayLen() == 4` instead of `2` on both
+materials) before being confirmed fixed.
+
+**Still open, by design, not by oversight**: within the `skin`/
+`skin_extra` compositing types specifically, husk still can't tell
+*which* `skin_color` file or *whether* `face` should really be layered
+in for a given character's actual customization choices — that
+remains genuinely unresolvable without real DB2 data, exactly as
+described above. The fix here narrows "which candidates are even
+offered" to a structurally-grounded set, same "filtering is safer than
+picking" principle the original proposal below already settled on; it
+does not and cannot pick the one correct composited look. The shader-
+graph side of Luna's original ask (default texture linked, every other
+same-slot candidate present as an unlinked node in the material graph)
+is a Blender-import-script concern, not something `husk export` itself
+builds — the per-candidate `category` field this session added is
+exactly the data such a script would need to label those unlinked nodes
+meaningfully, but no such script exists in this repo yet.
+
+**Immediate follow-up, same session**: reported directly from Blender
+after inspecting this fix's own output — every embedded image (both the
+primary `baseColorTexture` and every `alternate_textures` candidate) was
+showing up in Blender's image list as an auto-generated `Image_<N>`,
+not its real filename, because `gltf_mesh.cpp` never set `tinygltf::
+Image::name`/`Texture::name` at any of its three embedding sites. Fixed:
+`Material::baseColorImageName` (new field) is populated at every
+`export_materials.cpp` resolution site and used to name the primary
+image/texture; `alternate_textures` candidates are named from their own
+filename, `additionalTextureLayers` from their FileDataID (no filename
+tracked there). Verified with a real headless-Blender import of the
+fixed `bloodelffemale_hd.m2` export: 99 images, all previously
+`Image_0`..`Image_98`, all now real names, 0 left generic.

@@ -8,6 +8,7 @@
 #include <iostream>
 #include <map>
 #include <set>
+#include <unordered_map>
 
 #include "blp.hpp"
 
@@ -200,10 +201,154 @@ struct FuzzyTexturePool {
     std::vector<std::filesystem::path> files;
 };
 
-std::optional<std::filesystem::path> claimSoleFuzzyTextureCandidate(FuzzyTexturePool& pool) {
-    if (pool.files.size() != 1) return std::nullopt;
-    auto result = pool.files.front();
-    pool.files.clear();
+// Shared by scanFuzzyTexturePool (which files belong to this model's pool
+// at all) and classifyCandidateCategory (parsing a category token out of
+// one of them) -- one lowercasing, not two independently maintained copies.
+std::string lowercaseModelBasename(const std::string& modelPath) {
+    std::string basename = std::filesystem::path(modelPath).stem().string();
+    std::transform(basename.begin(), basename.end(), basename.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return basename;
+}
+
+// Real community-listfile category token embedded in a candidate's own
+// filename (e.g. "skin_color" out of "bloodelffemale_hd_skin_color_3500123.
+// blp") -- this is metadata a human already attached to the file (the same
+// listfile convention `scanFuzzyTexturePool`'s model-basename-prefix match
+// already trusts), not husk inferring anything about M2 internals. Returns
+// "" for a bare "<modelBasename>_<FileDataID>" file (no category at all),
+// or std::nullopt if `path` doesn't even start with the model's own
+// basename (shouldn't happen -- scanFuzzyTexturePool already filtered for
+// that -- kept so this stays safe to call on its own).
+std::optional<std::string> classifyCandidateCategory(const std::filesystem::path& path,
+                                                       const std::string& modelBasenameLower) {
+    std::string stem = path.stem().string();
+    std::transform(stem.begin(), stem.end(), stem.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (stem.rfind(modelBasenameLower, 0) != 0) return std::nullopt;
+    std::string rest = stem.substr(modelBasenameLower.size());
+    if (!rest.empty() && rest.front() == '_') rest.erase(0, 1);
+
+    auto isAllDigits = [](const std::string& s) {
+        return !s.empty() &&
+               std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
+    };
+    if (isAllDigits(rest)) return std::string();  // bare "<modelBasename>_<FileDataID>"
+
+    auto lastUnderscore = rest.find_last_of('_');
+    if (lastUnderscore != std::string::npos && isAllDigits(rest.substr(lastUnderscore + 1))) {
+        rest.erase(lastUnderscore);  // drop the trailing "_<FileDataID>"
+    }
+    return rest;
+}
+
+// Category token -> the M2Texture::type values (m2::textureTypeName) it's
+// actually compatible with. Transcribed, not guessed, from
+// `reference/wow.export/src/js/modules/tab_characters.js`: the legacy
+// option-group map (~line 1354, `'skin'`/`'face'`/`'hair color'`/
+// `'hair style'`/`'facial'`) and the explicit "blindfold = type 9" comment
+// on `apply_skinned_model_textures` (~line 791). Types 1 (skin) and 8
+// (skin_extra) are the two the same function shows binding a *composite* of
+// several blended layers at runtime, not one raw file -- husk has no
+// compositing engine (would need real ChrModelTextureLayer blend-order/DB2
+// data it deliberately doesn't have, see DESIGN.md's Non-goals), so
+// "skin_color"/"face" both stay valid candidates for those two types, but
+// see `pickDefaultCandidate` for why the base layer is still preferred over
+// the overlay when choosing which one becomes the wired default.
+const std::unordered_map<std::string, std::vector<uint32_t>>& candidateCategoryTypes() {
+    static const std::unordered_map<std::string, std::vector<uint32_t>> kMap = {
+        {"skin_color", {1, 8}},
+        {"face", {1, 8}},
+        {"hair_color", {6, 22}},
+        {"hair_style", {6, 22}},
+        {"facial_hair", {7}},
+        {"eye_color", {19}},
+        {"jewelry_color", {20}},
+        {"body_jewelry", {20}},
+        {"bracelets", {20}},
+        {"blindfold", {9}},
+    };
+    return kMap;
+}
+
+// An unrecognized category (no token match in candidateCategoryTypes() at
+// all -- e.g. a non-character model's own plainly-named alternates, or a
+// real listfile token this table hasn't been taught yet) is always allowed:
+// the old, unfiltered-pool behavior for those, unchanged. A *recognized*
+// category naming a different, non-overlapping type is the one real
+// exclusion this adds -- e.g. a "hair_color"-tagged file no longer gets
+// offered to a "char_jewelry" (type 20) slot just because both slots are
+// independently ambiguous.
+//
+// A bare "<model>_<FileDataID>" candidate (category == "") is the one
+// genuinely ambiguous case: on a simple, non-character model it's the only
+// kind of candidate that ever exists, so it has to stay a wildcard, but on
+// a real character-customization directory (recognized category siblings
+// present elsewhere in the same pool -- `bareMeansSkinOnly`, set once per
+// model, not guessed per file) it's the real base skin/skin_extra layer
+// specifically (confirmed against `bloodelffemale_hd`'s own real export
+// directory: the bare files are consistently the small composite-target
+// candidates, never a hair/eye/jewelry file), so it's restricted the same
+// way "skin_color" is instead of leaking into every other ambiguous slot.
+bool candidateAllowedForType(const std::optional<std::string>& category, uint32_t textureType,
+                              bool bareMeansSkinOnly) {
+    if (!category) return true;
+    if (category->empty()) return !bareMeansSkinOnly || textureType == 1 || textureType == 8;
+    const auto& map = candidateCategoryTypes();
+    auto it = map.find(*category);
+    if (it == map.end()) return true;
+    return std::find(it->second.begin(), it->second.end(), textureType) != it->second.end();
+}
+
+// True when the model's own fuzzy pool has at least one file carrying a
+// recognized category token -- see candidateAllowedForType's doc comment
+// for why this flips a bare candidate from "wildcard" to "skin-only".
+bool poolHasRecognizedCategory(const std::vector<std::filesystem::path>& files,
+                                const std::string& modelBasenameLower) {
+    const auto& map = candidateCategoryTypes();
+    for (const auto& p : files) {
+        auto category = classifyCandidateCategory(p, modelBasenameLower);
+        if (category && !category->empty() && map.count(*category)) return true;
+    }
+    return false;
+}
+
+// Reorders `candidates` (in place) so the preferred default-pick lands at
+// front() -- alphabetical (already `scanFuzzyTexturePool`'s own sort order)
+// for every ordinary slot, but for the two compositing types (1/8, see
+// candidateCategoryTypes' doc comment) a bare or "skin_color" file is moved
+// ahead of a narrower overlay like "face": a full-body base skin tone is a
+// far more plausible stand-in for "the whole skin texture" than a small
+// face-only overlay would be, even though neither is the real composited
+// answer.
+void preferBaseLayerCandidate(std::vector<std::filesystem::path>& candidates, uint32_t textureType,
+                               const std::string& modelBasenameLower) {
+    if (textureType != 1 && textureType != 8) return;
+    std::stable_sort(candidates.begin(), candidates.end(),
+                      [&](const std::filesystem::path& a, const std::filesystem::path& b) {
+                          auto rank = [&](const std::filesystem::path& p) {
+                              auto cat = classifyCandidateCategory(p, modelBasenameLower);
+                              bool isBaseLayer = cat && (cat->empty() || *cat == "skin_color");
+                              return isBaseLayer ? 0 : 1;
+                          };
+                          return rank(a) < rank(b);
+                      });
+}
+
+std::optional<std::filesystem::path> claimSoleFuzzyTextureCandidate(FuzzyTexturePool& pool, uint32_t textureType,
+                                                                      const std::string& modelBasenameLower,
+                                                                      bool bareMeansSkinOnly) {
+    std::optional<size_t> soleMatch;
+    for (size_t i = 0; i < pool.files.size(); ++i) {
+        if (!candidateAllowedForType(classifyCandidateCategory(pool.files[i], modelBasenameLower), textureType,
+                                      bareMeansSkinOnly))
+            continue;
+        if (soleMatch) return std::nullopt;  // 2+ type-compatible candidates -- still ambiguous
+        soleMatch = i;
+    }
+    if (!soleMatch) return std::nullopt;
+    auto result = pool.files[*soleMatch];
+    pool.files.erase(pool.files.begin() + *soleMatch);
     return result;
 }
 
@@ -211,9 +356,7 @@ FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std:
     FuzzyTexturePool pool;
     if (texturesDir.empty()) return pool;
 
-    std::string modelBasename = std::filesystem::path(modelPath).stem().string();
-    std::transform(modelBasename.begin(), modelBasename.end(), modelBasename.begin(),
-                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::string modelBasename = lowercaseModelBasename(modelPath);
     if (modelBasename.empty()) return pool;
 
     // stem (lowercase) -> chosen path -- a directory holding both an
@@ -286,6 +429,8 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
     // per-batch scan would wrongly reuse the same real file across every
     // unresolved slot.
     FuzzyTexturePool fuzzyTexturePool = scanFuzzyTexturePool(texturesDir, modelPath);
+    std::string modelBasenameLower = lowercaseModelBasename(modelPath);
+    bool bareMeansSkinOnly = poolHasRecognizedCategory(fuzzyTexturePool.files, modelBasenameLower);
 
     // Ambiguous-candidate byte cache, keyed by path -- a real character
     // model can have dozens of hardcoded slots that are *all* ambiguous
@@ -540,6 +685,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 // regardless of whether a FileDataID also resolved.
                 gm.name += "_" + embeddedStem;
                 gm.baseColorImagePng = std::move(*embeddedBytes);
+                gm.baseColorImageName = embeddedStem;
                 embedded = true;
             }
             if (!embedded && fdid != 0 && !texturesDir.empty()) {
@@ -552,6 +698,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                                                           std::to_string(fdid),
                                                       texturesDir, texturesOutDir)) {
                     gm.baseColorImagePng = std::move(*bytes);
+                    gm.baseColorImageName = std::to_string(fdid);
                     embedded = true;
                 }
             }
@@ -563,43 +710,68 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 // exists in texturesDir (new: previously this case silently
                 // embedded nothing, even when a real, descriptively-named
                 // file for it was sitting right there unclaimed).
-                if (auto fuzzy = claimSoleFuzzyTextureCandidate(fuzzyTexturePool)) {
+                if (auto fuzzy = claimSoleFuzzyTextureCandidate(fuzzyTexturePool, gm.textureType, modelBasenameLower,
+                                                                  bareMeansSkinOnly)) {
                     if (auto bytes = readTextureFileBytes(*fuzzy, texturesDir, texturesOutDir)) {
                         gm.name += "_" + fuzzy->stem().string();
                         gm.baseColorImagePng = std::move(*bytes);
+                        gm.baseColorImageName = fuzzy->stem().string();
                         result.fuzzyMatches.push_back({gm.name, fuzzy->filename().string(), fdid});
                     }
-                } else if (fuzzyTexturePool.files.size() > 1) {
-                    // Genuinely ambiguous: 2+ candidates, no way to tell
-                    // which one this slot actually wants. Not claimed
-                    // (removed) from the shared pool -- every other
-                    // ambiguous slot is equally uninformed and deserves the
-                    // same full candidate list, not whichever's left after
-                    // an earlier slot's arbitrary pick. Embed every
-                    // candidate (gltf_mesh.hpp's AlternateTextureCandidate
-                    // doc comment has the full rationale), same "export
-                    // everything, let the client filter" treatment
-                    // mutually-exclusive geosets already get.
-                    std::vector<std::string> allFileNames;
+                } else {
+                    // Not claimed (removed) from the shared pool -- every
+                    // other ambiguous slot is equally uninformed about
+                    // *this* slot's own real candidates and deserves its
+                    // own independently-filtered view, not whichever's left
+                    // after an earlier slot's pick. Narrowed first to only
+                    // the candidates whose own filename category is
+                    // actually compatible with this slot's textureType
+                    // (candidateAllowedForType's doc comment) -- a real,
+                    // grounded exclusion, not a guess about which one is
+                    // correct.
+                    std::vector<std::filesystem::path> matching;
                     for (const auto& candidatePath : fuzzyTexturePool.files) {
-                        auto cached = ambiguousCandidateCache.find(candidatePath);
-                        if (cached == ambiguousCandidateCache.end()) {
-                            auto bytes = readTextureFileBytes(candidatePath, texturesDir, texturesOutDir);
-                            if (!bytes) continue;
-                            cached = ambiguousCandidateCache.emplace(candidatePath, std::move(*bytes)).first;
+                        if (candidateAllowedForType(classifyCandidateCategory(candidatePath, modelBasenameLower),
+                                                     gm.textureType, bareMeansSkinOnly)) {
+                            matching.push_back(candidatePath);
                         }
-                        gltf::Material::AlternateTextureCandidate cand;
-                        cand.filename = candidatePath.filename().string();
-                        cand.imagePng = cached->second;
-                        allFileNames.push_back(cand.filename);
-                        gm.alternateTextureCandidates.push_back(std::move(cand));
                     }
-                    if (!gm.alternateTextureCandidates.empty()) {
-                        const auto& chosen = gm.alternateTextureCandidates.front();
-                        gm.name += "_" + std::filesystem::path(chosen.filename).stem().string();
-                        gm.baseColorImagePng = chosen.imagePng;
-                        result.ambiguousMatches.push_back(
-                            {gm.name, chosen.filename, std::move(allFileNames), fdid});
+                    if (matching.size() > 1) {
+                        // Genuinely ambiguous: 2+ type-compatible
+                        // candidates, no way to tell which one this slot
+                        // actually wants. Embed every one of them
+                        // (gltf_mesh.hpp's AlternateTextureCandidate doc
+                        // comment has the full rationale), same "export
+                        // everything, let the client filter" treatment
+                        // mutually-exclusive geosets already get --
+                        // reordered first so the most plausible default
+                        // (preferBaseLayerCandidate's doc comment) lands at
+                        // front(), the one that becomes the wired default.
+                        preferBaseLayerCandidate(matching, gm.textureType, modelBasenameLower);
+                        std::vector<std::string> allFileNames;
+                        for (const auto& candidatePath : matching) {
+                            auto cached = ambiguousCandidateCache.find(candidatePath);
+                            if (cached == ambiguousCandidateCache.end()) {
+                                auto bytes = readTextureFileBytes(candidatePath, texturesDir, texturesOutDir);
+                                if (!bytes) continue;
+                                cached = ambiguousCandidateCache.emplace(candidatePath, std::move(*bytes)).first;
+                            }
+                            gltf::Material::AlternateTextureCandidate cand;
+                            cand.filename = candidatePath.filename().string();
+                            auto category = classifyCandidateCategory(candidatePath, modelBasenameLower);
+                            cand.category = category.value_or(std::string());
+                            cand.imagePng = cached->second;
+                            allFileNames.push_back(cand.filename);
+                            gm.alternateTextureCandidates.push_back(std::move(cand));
+                        }
+                        if (!gm.alternateTextureCandidates.empty()) {
+                            const auto& chosen = gm.alternateTextureCandidates.front();
+                            gm.name += "_" + std::filesystem::path(chosen.filename).stem().string();
+                            gm.baseColorImagePng = chosen.imagePng;
+                            gm.baseColorImageName = std::filesystem::path(chosen.filename).stem().string();
+                            result.ambiguousMatches.push_back(
+                                {gm.name, chosen.filename, std::move(allFileNames), fdid});
+                        }
                     }
                 }
             }

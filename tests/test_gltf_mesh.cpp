@@ -205,6 +205,7 @@ TEST_CASE("writeGlb: a material's baseColorImagePng is embedded as a real glTF i
 
     std::vector<husk::gltf::Material> materials(1);
     materials[0].baseColorImagePng = onePixelPng;
+    materials[0].baseColorImageName = "bloodelffemale_hd_hair_color_5196731";
 
     auto glb = husk::gltf::writeGlb(mesh, materials);
     auto model = loadBack(glb);
@@ -215,9 +216,16 @@ TEST_CASE("writeGlb: a material's baseColorImagePng is embedded as a real glTF i
     // happen to round-trip, but an image a real glTF consumer can read.
     CHECK(model.images[0].width == 1);
     CHECK(model.images[0].height == 1);
+    // Real source filename, not left blank -- without this, Blender's own
+    // glTF importer falls back to an auto-generated "Image_<N>" name
+    // (reported directly against a real export: every embedded image
+    // showed up in Blender as "Image_0".."Image_113", not the real,
+    // useful filename husk already knew).
+    CHECK(model.images[0].name == "bloodelffemale_hd_hair_color_5196731");
 
     REQUIRE(model.textures.size() == 1);
     CHECK(model.textures[0].source == 0);
+    CHECK(model.textures[0].name == "bloodelffemale_hd_hair_color_5196731");
     REQUIRE(model.materials[0].pbrMetallicRoughness.baseColorTexture.index == 0);
 }
 
@@ -292,6 +300,9 @@ TEST_CASE("writeGlb: a material's additionalTextureLayers round-trip as extras, 
     REQUIRE(texIdx >= 0);
     REQUIRE(static_cast<size_t>(texIdx) < model.textures.size());
     CHECK(model.images[model.textures[texIdx].source].width == 1);
+    // No filename tracked for this layer -- the FileDataID is still a real
+    // improvement over an auto-generated "Image_<N>".
+    CHECK(model.images[model.textures[texIdx].source].name == "555");
 
     const auto& layer1 = layers.Get(1);
     CHECK(layer1.Get("file_data_id").GetNumberAsInt() == 777);
