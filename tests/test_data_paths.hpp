@@ -240,6 +240,14 @@ constexpr const char* kBlp2AnomalyM2 = "verification/blp2_7507381.m2";
 // size (2,016 bytes: 40 vertices, 74 triangles) while still real,
 // extracted data.
 constexpr const char* kPcolVerificationM2 = "verification/pcol_pa_kite_lamp_creature.m2";
+// A real quadruped creature (a base wolf.m2, 66 bones/557 vertices) --
+// TRANSFORM_TRIAGE.md §5e: pipeline coverage for a body plan/hierarchy
+// shape bloodelffemale.m2 doesn't represent, not orientation-correctness
+// coverage (the synthetic axis-probe in test_conformance.cpp already
+// covers that for any asset type, by construction -- see its own doc
+// comment for why a real fixture can't add to that specific check).
+constexpr const char* kQuadrupedM2 = "creature/wolf/wolf.m2";
+constexpr const char* kQuadrupedSkin = "creature/wolf/wolf00.skin";
 }  // namespace fixtures
 
 inline std::string testM2() { return resolve("HUSK_TEST_M2", fixtures::kM2); }
@@ -295,6 +303,10 @@ inline std::string testBlp2AnomalyM2() {
 }
 inline std::string testPcolVerificationM2() {
     return resolve("HUSK_TEST_PCOL_M2", fixtures::kPcolVerificationM2);
+}
+inline std::string testQuadrupedM2() { return resolve("HUSK_TEST_QUADRUPED_M2", fixtures::kQuadrupedM2); }
+inline std::string testQuadrupedSkin() {
+    return resolve("HUSK_TEST_QUADRUPED_SKIN", fixtures::kQuadrupedSkin);
 }
 
 }  // namespace husk::test

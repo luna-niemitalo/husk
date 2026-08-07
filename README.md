@@ -285,7 +285,7 @@ Flags:
 | `--input <file.m2>` | `-i` | The model to export (required; 1st bare positional if omitted) | -- |
 | `--output <file.glb>` | `-o` | Output path (last bare positional if omitted) | `<model-basename>.glb` |
 | `--skin <path>` &#124; `auto` | `-s` | `.skin` path, or `auto` (see above); never `none` | `auto` |
-| `--textures <dir>` &#124; `none` | `-t` | Directory of `<FileDataID>.png` (from `husk-blp`, see below) for real `baseColorTexture` images, or `none` to never embed one | model's own directory |
+| `--textures <dir>` &#124; `none` | `-t` | Directory of PNGs (from `husk-blp`, see below) for real `baseColorTexture` images, or `none` to never embed one -- matched by real filename first (the M2's own embedded name, or the model's own basename-prefixed convention), `<FileDataID>.png` only as a fallback, see below | model's own directory |
 | `--skin-dir <dir>` &#124; `none` | -- | Directory `auto` searches for the SFID-declared `<FileDataID>.skin`, or `none` to skip that stage | model's own directory |
 | `--anim <dir>` &#124; `auto`/`inline`/`none` | `-a` | See the four states above | `auto` |
 | `--skel <path>` &#124; `none` | -- | External `.skel` path (0-inline-bone models only), or `none` to never look for one | same-basename `.skel` next to the model, if any |
@@ -293,6 +293,25 @@ Flags:
 | `--bones-dir <dir>` &#124; `none` | -- | Directory of `<FileDataID>.bone` files (per the model's/`.skel`'s `BFID` array), attached as inert skin `extras`; or `none` to skip | model's own directory |
 | `--phys <path>` &#124; `none` | -- | External `.phys` path, attached as a minimal `physics_bodies` skin `extras` anchor (full records via `dump-chunks`), or `none` to never look for one | same-basename `.phys` next to the model, if any |
 | `--collision none` | -- | Omit the collision mesh entirely (it's still tagged `{"collision": true}` in glTF extras when present, but Blender's stock importer has no concept of that tag and renders it like any other mesh -- `none` is for debugging what the render meshes alone look like) | included when the model has one |
+
+Texture resolution deliberately tries real-filename matches before
+`<FileDataID>.png`, for every texture slot, not just ones husk can't
+resolve a FileDataID for -- a real extraction workflow (`reference/
+wow.export`, or a `.blp` converted via `husk-blp` keeping its own real
+name) commonly produces descriptively-named files, not FileDataID-named
+ones. In order: (1) an exact match on the M2's own embedded filename, when
+the file has one (real M2 data, older/classic-era files); (2)
+`<FileDataID>.png`, when that specific file is actually present; (3) the
+sole real file in `--textures` sharing the model's own basename prefix, if
+exactly one remains unclaimed (two or more: reported, never guessed at).
+Whichever FileDataID husk resolved for a slot is recorded either way
+(material name suffix, and `texture_file_data_id` glTF extras) even when a
+differently-named file supplied the actual image. Only (1) and (2) above
+are genuinely deterministic; a match via (3) prints a `husk: warning:`
+line naming the material and file (plus the resolved FileDataID, if the
+slot has one, so it can be checked against a listfile/wow.tools by hand --
+husk itself has no CASC/listfile access to verify a FileDataID's real name
+against the file it claimed).
 
 If no matching image is found in the resolved `--textures` directory,
 materials still carry the correct blend mode, culling, and tint/fade -- they
@@ -490,12 +509,19 @@ above; this section is about *sequencing* that work, not duplicating it.
    chunk (that's still open, see the format matrix's "Sidecar FileDataID
    resolution" row). Positions/normals/UVs/indices get written into a
    minimal glTF (no material, no image — Blender will render it flat gray).
-   The Z-up (WoW) → Y-up (glTF) coordinate flip from wowdev.wiki's own note
-   (`(X, Y, Z)` → `(X, -Z, Y)`) is applied in `src/gltf.cpp`'s `zUpToYUp`.
-   Verified against `bloodelffemale.m2` + `bloodelffemale00.skin` (8061
-   vertices, 10,458 triangles, glTF binary framing round-trips through
-   tinygltf's own loader intact); **not yet verified**: actually opening the
-   output in Blender (no Blender in the environment this was built in).
+   The Z-up (WoW) → Y-up (glTF) coordinate flip is applied in
+   `src/gltf.cpp`'s `zUpToYUp` — **`(X, Y, Z)` → `(X, Z, -Y)`**, not the
+   `(X, -Z, Y)` wowdev.wiki's own note literally states: that literal
+   formula, composed with Blender's own glTF-import axis convention,
+   produced a real, measurably upside-down import (found much later, once
+   Blender actually entered the picture — see `TRANSFORM_TRIAGE.md` for the
+   full investigation and fix). Verified against `bloodelffemale.m2` +
+   `bloodelffemale00.skin` (8061 vertices, 10,458 triangles, glTF binary
+   framing round-trips through tinygltf's own loader intact); the
+   Blender-specific verification this stage's own text originally flagged
+   as missing is now real, automated, headless coverage (see "Testing"
+   below and `TRANSFORM_TRIAGE.md`) — a real animated pose visually
+   confirmed in Blender's own GUI is still the one open item.
 2. **Skeleton + skinning, still untextured. Done** — `husk export` now
    resolves the `bones` array (`M2CompBone`: `parent_bone`, `pivot`,
    `flags`, `key_bone_id`; the embedded `M2Track` animation blocks are
@@ -867,7 +893,20 @@ Same two-tier split as `casc-tool`:
   see `io_scene_gltf2`'s own `armature_display()`). Both tools are optional
   in the nix flake devShell (`blender`, `gltf-validator` in `nix/flake.nix`)
   -- skipped, not failed, if either isn't on `PATH`, on top of the same
-  `HUSK_TEST_M2`/`HUSK_TEST_SKIN` gating as Integration.
+  `HUSK_TEST_M2`/`HUSK_TEST_SKIN` gating as Integration. Also includes a
+  real orientation-correctness tier (`TRANSFORM_TRIAGE.md`): a synthetic,
+  asset-agnostic coordinate-frame probe (a fabricated skeleton, not tied to
+  any real M2 file or body plan) asserts local X/Y/Z offsets survive a real
+  husk-export → Blender-import round trip as the identical coordinate --
+  the property a real husk transform bug once violated undetected, since
+  every check before this one was either purely structural (counts) or
+  compared two values that both went through the same conversion (blind to
+  a consistent sign error). A second, explicitly non-load-bearing check
+  confirms a real humanoid landmark bone (`_Name`) lands above the armature
+  origin on real data, and `HUSK_TEST_QUADRUPED_M2`/`_SKIN` (a real
+  `wolf.m2`, defaulting to `test_data/creature/wolf/`) exercises the same
+  conformance checks against a body-plan/bone-hierarchy shape
+  `bloodelffemale.m2` doesn't represent.
 - **Integration** (`tests/test_integration.cpp`) — runs the compiled
   `husk` binary against a real, game-extracted `.m2` (+ matching `.skin`,
   for `export`) as a subprocess. Deliberately asserts only on shape (exit

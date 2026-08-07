@@ -61,27 +61,22 @@ gltf::Vec3 toGltf(const m2::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z}); }
 gltf::Vec3 toGltf(const phys::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z}); }
 
 // Converts an M2 bone-rotation quaternion (already decompressed, see
-// m2::Quat) from WoW's Z-up space to glTF's Y-up space. Derived (and
-// numerically checked against several test rotations, not just asserted)
-// from the general rule for re-expressing a rotation under a change of
-// basis that is itself a proper rotation (det +1, which zUpToYUp's (X, -Z,
-// Y) permutation is): apply the same permutation to the quaternion's
-// vector part and leave the scalar part untouched. No wowdev.wiki page
-// spells this out explicitly for M2 bone tracks specifically -- this
-// wasn't visually verified against a real animated model in a 3D viewer,
-// only mathematically (see tests/test_cmd_export.cpp), so treat a first
-// real animated .glb as still worth a sanity look in Blender.
-gltf::Quat toGltf(const m2::Quat& q) { return {q.x, -q.z, q.y, q.w}; }
+// m2::Quat) from WoW's Z-up space to glTF's Y-up space. A thin wrapper --
+// gltf::rotationZUpToYUp (gltf.hpp/gltf.cpp) is the single source of truth
+// for this conversion, mechanically derived from the same matrix
+// gltf::zUpToYUp uses for positions, not a separately hand-typed formula.
+// See TRANSFORM_TRIAGE.md for why that distinction matters: an earlier,
+// independently hand-derived version of this function shared the sign bug
+// zUpToYUp itself had, undetected until a real headless-Blender check
+// caught the composed result upside down.
+gltf::Quat toGltf(const m2::Quat& q) { return gltf::rotationZUpToYUp({q.x, q.y, q.z, q.w}); }
 
-// Converts an M2 bone scale vector from Z-up to Y-up. Deliberately *not*
-// gltf::zUpToYUp -- that function's sign flip on the (former) Z component
-// is correct for a position/direction, but scale is a set of per-axis
-// magnitudes (the diagonal of a scale matrix), and conjugating a diagonal
-// matrix by a signed-permutation change-of-basis just permutes the
-// diagonal entries -- the signs cancel out (checked numerically the same
-// way as the quaternion conversion above). Swapping Y and Z, unsigned, is
-// the whole conversion.
-gltf::Vec3 toGltfScale(const m2::Vec3& s) { return {s.x, s.z, s.y}; }
+// Converts an M2 bone scale vector from Z-up to Y-up. A thin wrapper --
+// gltf::scaleZUpToYUp is the single source of truth (see toGltf(m2::Quat)
+// above for why that matters, and gltf.hpp's own doc comment for why scale
+// isn't gltf::zUpToYUp itself: it needs the same matrix's permutation with
+// signs dropped, not a position/direction's signed transform).
+gltf::Vec3 toGltfScale(const m2::Vec3& s) { return gltf::scaleZUpToYUp({s.x, s.y, s.z}); }
 
 bool isFinite(const m2::Vec3& v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); }
 
@@ -776,6 +771,27 @@ struct BuiltMaterials {
     // gltf::Material::TextureTransform's doc comment for why this is
     // exposed as inert extras rather than a real KHR_texture_transform.
     size_t textureTransformBatchCount = 0;
+
+    // One entry per batch whose embedded texture came from the basename-
+    // fuzzy pool (claimSoleFuzzyTextureCandidate), not one of the two real
+    // deterministic matches (an exact FileDataID or an exact embedded-
+    // filename match). "Sole remaining candidate" is a real, bounded
+    // heuristic (BLENDER_EXPORT_TODO.md §4) -- never multiple ambiguous
+    // candidates guessed between -- but it's still a guess, not a
+    // verification: husk has no CASC/listfile access to confirm a resolved
+    // FileDataID's *real* name actually matches the file that got claimed,
+    // by design (DESIGN.md's Non-goals). Surfaced here so exportGlb can
+    // warn loudly, per match, rather than let a silently-wrong guess look
+    // identical to a verified one in the export's own summary output.
+    struct FuzzyMatch {
+        std::string materialName;
+        std::string fileName;
+        // The batch's own resolved FileDataID, or 0 if this was a
+        // genuinely hardcoded slot (M2Texture::type != 0) with no
+        // FileDataID to cross-reference at all -- not just "not checked."
+        uint32_t fileDataId = 0;
+    };
+    std::vector<FuzzyMatch> fuzzyMatches;
 };
 
 // Everything buildMaterialsAndPrimitives needs out of the M2 itself (as
@@ -901,19 +917,24 @@ std::vector<gltf::Material::AnimatedScalarCurve> resolveAnimatedFixed16Curve(
     return curves;
 }
 
-// Best-effort filename-based fallback for a hardcoded/runtime-resolved
-// texture slot (M2Texture::type != 0, TXID entry 0 -- husk has no
-// FileDataID to look up an exact "<FileDataID>.png" for, see
-// m2::textureTypeName's doc comment and BLENDER_EXPORT_TODO.md §4). Real
-// texture directories aren't always FileDataID-named -- Luna's own
-// observation, 2026-08-01: some are named descriptively instead (e.g.
-// "bloodelffemalefaceupper00_00_hd.png"), which the exact-match lookup
-// above can never find no matter what's sitting in the directory.
-// `textureTypeName`'s own vocabulary (skin/char_hair/...) doesn't reliably
-// correspond to WoW's *actual* texture-section naming (that example's own
-// "faceupper" comes from CharComponentTextureSections, an entirely
-// different, DB2-only vocabulary husk has no access to either) -- so this
-// deliberately does NOT try to match a slot to a candidate by keyword.
+// Best-effort filename-based resolution for a texture slot, tried before
+// any FileDataID-named lookup (see buildMaterialsAndPrimitives's own
+// priority-order comment). Originally scoped to hardcoded/runtime-resolved
+// slots only (M2Texture::type != 0, no TXID FileDataID at all -- see
+// m2::textureTypeName's doc comment and BLENDER_EXPORT_TODO.md §4), now
+// used for every slot: real texture directories aren't always
+// FileDataID-named -- Luna's own observation, 2026-08-01: some are named
+// descriptively instead (e.g. "bloodelffemalefaceupper00_00_hd.png"), and
+// a follow-up the same session: a real extraction workflow (a .blp
+// converted via husk-blp, keeping its own real name through to .png) is
+// exactly this shape, for *any* texture slot, not just hardcoded ones --
+// the exact-FileDataID-match convention alone can never find it no matter
+// what's sitting in the directory. `textureTypeName`'s own vocabulary
+// (skin/char_hair/...) doesn't reliably correspond to WoW's *actual*
+// texture-section naming (that example's own "faceupper" comes from
+// CharComponentTextureSections, an entirely different, DB2-only
+// vocabulary husk has no access to either) -- so this deliberately does
+// NOT try to match a slot to a candidate by keyword.
 //
 // `scanFuzzyTexturePool` finds every '.png' file whose stem
 // (case-insensitive) starts with the model's own basename and isn't
@@ -1210,44 +1231,90 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 if (std::ifstream(candidate, std::ios::binary)) embeddedPngPath = candidate;
             }
 
+            // Priority order: every *deterministic* signal (never a guess,
+            // never touches the shared fuzzy pool) before the one
+            // heuristic signal (a real-name-only extraction has no other
+            // way to identify a texture, see BLENDER_EXPORT_TODO.md §4 /
+            // Luna's own 2026-08-07 follow-up: a real workflow -- a .blp
+            // converted via husk-blp, keeping its own real name through to
+            // .png -- often has no FileDataID-named files at all, for any
+            // slot, not just hardcoded ones). `fdid`, when resolved, is
+            // recorded in the material name and
+            // `gm.baseColorTextureFileDataId` regardless of which path
+            // below actually supplies the embedded bytes -- see gltf.hpp's
+            // own doc comment for why that traceability matters once a
+            // differently-named file can win.
+            //
+            // The fuzzy pool specifically is deliberately tried *last*, not
+            // first: it's a real, if bounded, guess (BLENDER_EXPORT_TODO.md's
+            // own "sole remaining candidate" heuristic), and the pool is
+            // shared and depleted across every batch in this call (see
+            // scanFuzzyTexturePool's doc comment) -- letting a slot draw
+            // from it before checking whether it already has a *working*,
+            // deterministic match would let an early, genuinely-hardcoded
+            // slot claim a real file that actually belongs (by a
+            // later-processed slot's own resolvable FileDataID) to someone
+            // else, silently mismatching *both* slots. Found live, not
+            // theorized: an initial version of this fix tried the fuzzy
+            // pool before the FileDataID fallback for every slot, and a
+            // real bloodelffemale.m2 export with both a "<fdid>.png" and a
+            // same-basename descriptively-named file present reassigned
+            // the named file to an unrelated hardcoded slot that happened
+            // to be processed first, leaving the slot the name actually
+            // belonged to with the FileDataID file instead -- both slots
+            // "worked," neither got the file it should have.
             if (fdid != 0) {
                 gm.name += "_fdid" + std::to_string(fdid);
-                if (!texturesDir.empty()) {
-                    auto pngPath =
-                        std::filesystem::path(texturesDir) / (std::to_string(fdid) + ".png");
-                    std::ifstream f(pngPath, std::ios::binary);
-                    if (f) {
-                        gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
-                                                     std::istreambuf_iterator<char>());
-                    }
-                }
-            } else if (embeddedPngPath) {
-                // type==0 (a real embedded path, wowdev.wiki M2#Textures)
-                // with no TXID FileDataID -- older/classic-era files, per
-                // m2::Texture's own doc comment. Not a guess: `filename` is
-                // real data straight from this M2, so the same basename
-                // (BLP -> PNG, the husk-blp naming convention) is an exact
-                // lookup, not a fuzzy one -- tried before the model-basename
-                // fuzzy fallback below since it's strictly more precise.
+                gm.baseColorTextureFileDataId = fdid;
+            }
+
+            bool embedded = false;
+            if (embeddedPngPath) {
+                // A real embedded path (wowdev.wiki M2#Textures, older/
+                // classic-era files per m2::Texture's own doc comment).
+                // Not a guess: `filename` is real data straight from this
+                // M2, so the same basename (BLP -> PNG, the husk-blp
+                // naming convention) is an exact lookup -- the single most
+                // precise signal available, tried first regardless of
+                // whether a FileDataID also resolved.
                 gm.name += "_" + embeddedPngPath->stem().string();
                 std::ifstream f(*embeddedPngPath, std::ios::binary);
                 if (f) {
                     gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
                                                  std::istreambuf_iterator<char>());
+                    embedded = true;
                 }
-            } else if (auto fuzzy = claimSoleFuzzyTextureCandidate(fuzzyTexturePool)) {
-                // No FileDataID and no embedded filename to look up (a
-                // hardcoded/runtime-resolved slot -- gm.textureType != 0)
-                // but exactly one real basename-matching file sits in
-                // texturesDir -- see findSoleFuzzyTextureCandidate's doc
-                // comment. Named from the real file, not "_fdid<N>" (there
-                // is no FileDataID here), and embedded the same way an
-                // exact match would be.
-                gm.name += "_" + fuzzy->stem().string();
-                std::ifstream f(*fuzzy, std::ios::binary);
+            }
+            if (!embedded && fdid != 0 && !texturesDir.empty()) {
+                // Deterministic whenever the file is actually present --
+                // still the right answer for a real extraction that *does*
+                // use the FileDataID-named convention (this project's own
+                // test fixtures and the common "casc-tool-style"
+                // "<FileDataID>.png" layout both do).
+                auto pngPath = std::filesystem::path(texturesDir) / (std::to_string(fdid) + ".png");
+                std::ifstream f(pngPath, std::ios::binary);
                 if (f) {
                     gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
                                                  std::istreambuf_iterator<char>());
+                    embedded = true;
+                }
+            }
+            if (!embedded) {
+                // Last resort, for whatever's left unresolved after both
+                // deterministic paths above -- a genuinely hardcoded slot
+                // (fdid == 0, as before this change), *or* a slot whose
+                // FileDataID resolved but no "<fdid>.png" actually exists
+                // in texturesDir (new: previously this case silently
+                // embedded nothing, even when a real, descriptively-named
+                // file for it was sitting right there unclaimed).
+                if (auto fuzzy = claimSoleFuzzyTextureCandidate(fuzzyTexturePool)) {
+                    gm.name += "_" + fuzzy->stem().string();
+                    std::ifstream f(*fuzzy, std::ios::binary);
+                    if (f) {
+                        gm.baseColorImagePng.assign(std::istreambuf_iterator<char>(f),
+                                                     std::istreambuf_iterator<char>());
+                        result.fuzzyMatches.push_back({gm.name, fuzzy->filename().string(), fdid});
+                    }
                 }
             }
 
@@ -2112,6 +2179,17 @@ int exportGlb(int argc, char** args) {
         // its own primitives/materials, but reuses baseMesh's shared
         // positions/normals/texCoords/texCoords2/skinning as-is -- see the
         // comment above baseMesh's construction for why that's valid.
+        //
+        // `skinsToExport`'s own `name` is only real ("lod0", "lod1", ...)
+        // for the --lod all case (resolveAutoSkinPaths) -- every other
+        // producer (resolveSkin's two 'auto' branches, the explicit --skin
+        // path below) returns "", which used to leave this LOD tier's glTF
+        // *node* with no name at all (unlike its own bones, which already
+        // get real names -- see BLENDER_EXPORT_TODO.md §6). Falls back to
+        // the model's own basename here, the one place every producer's
+        // output already passes through, rather than fixing each producer
+        // separately.
+        std::string modelBasename = std::filesystem::path(modelPath).stem().string();
         std::vector<gltf::NamedMesh> namedMeshes;
         namedMeshes.reserve(skinsToExport.size());
         for (const auto& [name, path] : skinsToExport) {
@@ -2232,6 +2310,34 @@ int exportGlb(int argc, char** args) {
                              "render (see FINDINGS.md §3.1)\n";
             }
 
+            // Every batch that got its texture from the basename-fuzzy
+            // pool, not one of the two real deterministic matches (an
+            // exact FileDataID or an exact embedded-filename match) --
+            // see BuiltMaterials::FuzzyMatch's doc comment. A real,
+            // bounded heuristic (never guessed at when 2+ candidates
+            // remain), but still a heuristic: husk has no CASC/listfile
+            // access to confirm a resolved FileDataID's real name actually
+            // matches the file that got claimed, so this can't be
+            // self-verified the way the exact-match paths can -- printed
+            // per match (not just a count) precisely so each one is easy
+            // to go check by hand.
+            for (const auto& fm : built.fuzzyMatches) {
+                std::cerr << "husk: warning: material '" << fm.materialName << "' linked '"
+                          << fm.fileName
+                          << "' via non-deterministic basename matching, not a verified "
+                             "FileDataID or exact-name match -- please confirm this is the "
+                             "correct texture";
+                if (fm.fileDataId != 0) {
+                    std::cerr << " (resolved FileDataID " << fm.fileDataId
+                              << ", NOT independently verified against it -- husk has no "
+                                 "CASC/listfile access to check a FileDataID's real name)";
+                } else {
+                    std::cerr << " (no FileDataID at all for this hardcoded slot to "
+                                 "cross-reference)";
+                }
+                std::cerr << "\n";
+            }
+
             // No primitives came out of this LOD tier's
             // .skin (genuinely geometry-less M2, or every batch's submesh
             // had zero indices) -- glTF requires a mesh's own primitives
@@ -2249,7 +2355,13 @@ int exportGlb(int argc, char** args) {
             }
 
             gltf::NamedMesh nm;
-            nm.name = name;
+            // A real tier label ("lod0", ...) for --lod all; falls back to
+            // the model's own basename otherwise, so the render mesh's
+            // glTF node isn't left unnamed the way it used to be (see this
+            // loop's own opening comment) -- diagnostics above keep using
+            // `name` itself (empty means "the default, unlabeled tier",
+            // not printed), only the node's own name gets the fallback.
+            nm.name = name.empty() ? modelBasename : name;
             nm.mesh = baseMesh;
             nm.mesh.primitives = built.primitives;
             nm.materials = std::move(built.materials);

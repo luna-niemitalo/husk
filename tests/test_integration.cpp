@@ -143,6 +143,33 @@ TEST_CASE("husk export: real game-extracted M2 + matching .skin produce a well-f
     std::filesystem::remove(outPath);
 }
 
+TEST_CASE("husk export: the render mesh's own glTF node is named after the model's basename, not "
+          "left blank -- an explicit --skin path is the common case that used to have no node "
+          "name at all (unlike its own bones, which already get real names)" *
+          doctest::skip(testM2().empty() || testSkin().empty())) {
+    std::string m2Path = testM2();
+    std::string skinPath = testSkin();
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-mesh-node-name.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto result =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
+    INFO("output:\n", result.output);
+    REQUIRE(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(!model.nodes.empty());
+    CHECK(model.nodes[0].name == std::filesystem::path(m2Path).stem().string());
+
+    std::filesystem::remove(outPath);
+}
+
 TEST_CASE("husk export: real M2 + .skin produces real glTF animation clips with sane (unit-norm, "
           "finite) rotation keyframes" *
           doctest::skip(testM2().empty() || testSkin().empty())) {

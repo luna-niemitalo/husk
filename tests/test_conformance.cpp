@@ -38,6 +38,8 @@ namespace {
 using husk::test::runCommand;
 using husk::test::runHusk;
 using husk::test::testM2;
+using husk::test::testQuadrupedM2;
+using husk::test::testQuadrupedSkin;
 using husk::test::testSkin;
 using husk::test::testWeaponParticleB;
 using husk::test::testWeaponParticleStress;
@@ -54,6 +56,22 @@ int parseProbeInt(const std::string& output, const std::string& key) {
     INFO("looking for '", marker, "' in blender output:\n", output);
     REQUIRE(pos != std::string::npos);
     return std::stoi(output.substr(pos + marker.size()));
+}
+
+// Pulls a "x,y,z" triple out of a "HUSK_PROBE key=x,y,z" line (see
+// blender_import_check.py's husk_probe_-prefixed bone printing) -- same
+// fail-loudly-if-missing contract as parseProbeInt.
+husk::gltf::Vec3 parseProbeVec3(const std::string& output, const std::string& key) {
+    std::string marker = "HUSK_PROBE " + key + "=";
+    auto pos = output.find(marker);
+    INFO("looking for '", marker, "' in blender output:\n", output);
+    REQUIRE(pos != std::string::npos);
+    std::string rest = output.substr(pos + marker.size());
+    size_t c1 = rest.find(',');
+    size_t c2 = rest.find(',', c1 + 1);
+    REQUIRE(c1 != std::string::npos);
+    REQUIRE(c2 != std::string::npos);
+    return {std::stof(rest.substr(0, c1)), std::stof(rest.substr(c1 + 1, c2 - c1 - 1)), std::stof(rest.substr(c2 + 1))};
 }
 
 // Reads an M2 header straight from disk, independent of anything husk
@@ -465,6 +483,234 @@ TEST_CASE("husk export: a real multi-root-bone-forest weapon imports into Blende
 TEST_CASE("husk export: a real multi-root-bone-forest weapon imports into Blender with bone_count "
           "matching skin.joints.size() exactly -- the synthesized non-joint parent node "
           "is not counted as a bone" *
+          doctest::skip(true)) {
+    // blender not found on PATH at configure time (see CMakeLists.txt's
+    // find_program) -- available via this project's nix flake devShell.
+}
+#endif
+
+// TRANSFORM_TRIAGE.md §5c: an asset-agnostic coordinate-frame probe, not a
+// check on any real M2 fixture's own semantics. This is deliberately NOT
+// built from a real character/weapon/creature -- it doesn't need a body
+// plan or an "up" convention to assert anything about, which is exactly
+// what makes it generalize (see TRANSFORM_TRIAGE.md's own §5c for why the
+// original "does this look anatomically upright" idea doesn't survive a
+// weapon or a quadruped, and why this replaces it as the primary check).
+//
+// The property under test: a root joint at the local origin, with three
+// children offset by one unit along the M2-local +X/+Y/+Z axes
+// respectively, should -- once exported through husk's real Z-up->Y-up
+// conversion and reimported through Blender's real, independent glTF
+// importer -- land at those *exact same* coordinates in Blender's own
+// world space. Not "somewhere plausible," not "consistent with itself" --
+// numerically identical to the original M2-local offset. This is the
+// literal round-trip-identity property TRANSFORM_TRIAGE.md §2 says a
+// correct conversion must satisfy (WoW Z-up -> husk's zUpToYUp -> glTF
+// Y-up -> Blender's own Y-up->Z-up import -> Blender Z-up should net to
+// the identity transform, since it's the same physical up-axis on both
+// ends) -- and is exactly the property the historical bug violated: the
+// old formula produced a net 180-degree flip instead of identity here.
+#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
+TEST_CASE("husk gltf::writeGlbMulti: a synthetic axis-probe skeleton's local +X/+Y/+Z offsets "
+          "survive a real husk-export -> Blender-import round trip as the identical coordinate "
+          "(TRANSFORM_TRIAGE.md's asset-agnostic orientation check)") {
+    husk::gltf::Skeleton skel;
+    skel.joints.push_back({-1, {0, 0, 0}, {0, 0, 0}, "", "husk_probe_root"});
+    auto addAxisProbe = [&](const husk::m2::Vec3& m2Offset, const std::string& name) {
+        husk::gltf::Vec3 offset = husk::gltf::zUpToYUp({m2Offset.x, m2Offset.y, m2Offset.z});
+        skel.joints.push_back({0, offset, offset, "", name});
+    };
+    addAxisProbe({1, 0, 0}, "husk_probe_x");
+    addAxisProbe({0, 1, 0}, "husk_probe_y");
+    addAxisProbe({0, 0, 1}, "husk_probe_z");
+
+    auto glb = husk::gltf::writeGlbMulti({}, &skel);
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-axis-probe.glb").string();
+    std::ofstream out(outPath, std::ios::binary);
+    REQUIRE(static_cast<bool>(out));
+    out.write(reinterpret_cast<const char*>(glb.data()), static_cast<std::streamsize>(glb.size()));
+    out.close();
+
+    auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
+                                     " --background --factory-startup --python-exit-code 1 --python \"" +
+                                     std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + outPath + "\"");
+    INFO("blender output:\n", blenderResult.output);
+    REQUIRE(blenderResult.exitCode == 0);
+    CHECK(parseProbeInt(blenderResult.output, "armature_count") == 1);
+
+    constexpr float kEpsilon = 1e-3f;
+    husk::gltf::Vec3 root = parseProbeVec3(blenderResult.output, "husk_probe_root");
+    CHECK(root.x == doctest::Approx(0).epsilon(kEpsilon));
+    CHECK(root.y == doctest::Approx(0).epsilon(kEpsilon));
+    CHECK(root.z == doctest::Approx(0).epsilon(kEpsilon));
+
+    husk::gltf::Vec3 px = parseProbeVec3(blenderResult.output, "husk_probe_x");
+    CHECK(px.x == doctest::Approx(1).epsilon(kEpsilon));
+    CHECK(px.y == doctest::Approx(0).epsilon(kEpsilon));
+    CHECK(px.z == doctest::Approx(0).epsilon(kEpsilon));
+
+    husk::gltf::Vec3 py = parseProbeVec3(blenderResult.output, "husk_probe_y");
+    CHECK(py.x == doctest::Approx(0).epsilon(kEpsilon));
+    CHECK(py.y == doctest::Approx(1).epsilon(kEpsilon));
+    CHECK(py.z == doctest::Approx(0).epsilon(kEpsilon));
+
+    husk::gltf::Vec3 pz = parseProbeVec3(blenderResult.output, "husk_probe_z");
+    CHECK(pz.x == doctest::Approx(0).epsilon(kEpsilon));
+    CHECK(pz.y == doctest::Approx(0).epsilon(kEpsilon));
+    CHECK(pz.z == doctest::Approx(1).epsilon(kEpsilon));
+
+    std::filesystem::remove(outPath);
+}
+#else
+TEST_CASE("husk gltf::writeGlbMulti: a synthetic axis-probe skeleton's local +X/+Y/+Z offsets "
+          "survive a real husk-export -> Blender-import round trip as the identical coordinate "
+          "(TRANSFORM_TRIAGE.md's asset-agnostic orientation check)" *
+          doctest::skip(true)) {
+    // blender not found on PATH at configure time (see CMakeLists.txt's
+    // find_program) -- available via this project's nix flake devShell.
+}
+#endif
+
+// TRANSFORM_TRIAGE.md §5c's optional, non-load-bearing secondary check:
+// a real humanoid fixture's own "_Name" key bone (near the top of the
+// head, keyBoneId 22 -- see m2::keyBoneName) should land above the
+// armature's own origin once imported into Blender, not below it. This is
+// explicitly NOT the primary orientation check (the asset-agnostic
+// synthetic probe above is) -- it only applies to fixtures that happen to
+// have this specific bone tagged (real humanoids; skipped, not failed,
+// otherwise), and exists purely as a second, real-content confirmation on
+// top of the probe's own math-only result. This is exactly the real-file
+// measurement that originally surfaced the bug (BLENDER_EXPORT_TODO.md
+// §8): a head-height landmark bone landing below the root/feet-level one.
+#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
+TEST_CASE("husk export: real M2 + .skin -- a real head-height key bone (\"_Name\") lands above "
+          "the armature origin in Blender, not below it (TRANSFORM_TRIAGE.md's optional "
+          "secondary, humanoid-only check)" *
+          doctest::skip(testM2().empty() || testSkin().empty())) {
+    std::string m2Path = testM2();
+    std::string skinPath = testSkin();
+
+    auto outPath =
+        (std::filesystem::temp_directory_path() / "husk-test-landmark-probe.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto exportResult =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
+    INFO("husk export output:\n", exportResult.output);
+    REQUIRE(exportResult.exitCode == 0);
+
+    auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
+                                     " --background --factory-startup --python-exit-code 1 --python \"" +
+                                     std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + outPath + "\"");
+    INFO("blender output:\n", blenderResult.output);
+    REQUIRE(blenderResult.exitCode == 0);
+
+    // This fixture is expected to have a real "_Name" bone -- if a future
+    // fixture swap ever drops it, this REQUIRE fails loudly (a real gap in
+    // this specific check's own applicability) rather than silently
+    // passing with zero assertions.
+    REQUIRE(blenderResult.output.find("HUSK_PROBE landmark_head_bone=") != std::string::npos);
+    husk::gltf::Vec3 landmark = parseProbeVec3(blenderResult.output, "landmark_head_bone");
+    // Blender is natively Z-up, not Y-up -- "above the origin" means a
+    // positive Z component in the raw (x, y, z) triple this parses
+    // directly out of Blender's own printed world position, the same
+    // convention the axis-probe test above uses (its own "z" probe checks
+    // .z, not .y, for exactly this reason).
+    CHECK(landmark.z > 0.0f);
+
+    std::filesystem::remove(outPath);
+}
+#else
+TEST_CASE("husk export: real M2 + .skin -- a real head-height key bone (\"_Name\") lands above "
+          "the armature origin in Blender, not below it (TRANSFORM_TRIAGE.md's optional "
+          "secondary, humanoid-only check)" *
+          doctest::skip(true)) {
+    // blender not found on PATH at configure time (see CMakeLists.txt's
+    // find_program) -- available via this project's nix flake devShell.
+}
+#endif
+
+// TRANSFORM_TRIAGE.md §5e: pipeline coverage for a body plan/bone-hierarchy
+// shape bloodelffemale.m2 (the fixture behind almost every other
+// conformance test in this file) doesn't represent, not orientation
+// coverage -- the synthetic axis-probe above already covers any asset type
+// by construction. A real quadruped exercises a genuinely different
+// skeleton shape end to end (does the export pipeline still produce a
+// spec-valid, Blender-importable file for a body plan this test suite has
+// never run against before), independent of whether it happens to be
+// right-side up.
+#ifdef HUSK_GLTF_VALIDATOR
+TEST_CASE("husk export: a real quadruped creature (wolf.m2) produces a glb the Khronos "
+          "glTF-Validator accepts with zero errors" *
+          doctest::skip(testQuadrupedM2().empty() || testQuadrupedSkin().empty())) {
+    std::string m2Path = testQuadrupedM2();
+    std::string skinPath = testQuadrupedSkin();
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-quadruped.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto exportResult =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
+    INFO("husk export output:\n", exportResult.output);
+    REQUIRE(exportResult.exitCode == 0);
+
+    auto validation = runCommand(std::string(HUSK_GLTF_VALIDATOR) + " -a \"" + outPath + "\"");
+    INFO("gltf_validator output:\n", validation.output);
+    CHECK(validation.exitCode == 0);
+
+    std::filesystem::remove(outPath);
+}
+#else
+TEST_CASE("husk export: a real quadruped creature (wolf.m2) produces a glb the Khronos "
+          "glTF-Validator accepts with zero errors" *
+          doctest::skip(true)) {
+    // gltf_validator not found on PATH at configure time (see
+    // CMakeLists.txt's find_program) -- available via this project's nix
+    // flake devShell.
+}
+#endif
+
+#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
+TEST_CASE("husk export: a real quadruped creature (wolf.m2) imports into Blender (headless) "
+          "with bone/vertex counts matching tinygltf's own reading of the same file" *
+          doctest::skip(testQuadrupedM2().empty() || testQuadrupedSkin().empty())) {
+    std::string m2Path = testQuadrupedM2();
+    std::string skinPath = testQuadrupedSkin();
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-quadruped-blender.glb").string();
+    std::filesystem::remove(outPath);
+
+    auto exportResult =
+        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
+    INFO("husk export output:\n", exportResult.output);
+    REQUIRE(exportResult.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(model.skins.size() == 1);
+
+    auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
+                                     " --background --factory-startup --python-exit-code 1 --python \"" +
+                                     std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + outPath + "\"");
+    INFO("blender output:\n", blenderResult.output);
+    REQUIRE(blenderResult.exitCode == 0);
+
+    CHECK(parseProbeInt(blenderResult.output, "armature_count") == 1);
+    CHECK(parseProbeInt(blenderResult.output, "bone_count") ==
+          static_cast<int>(model.skins[0].joints.size()));
+
+    husk::m2::Header header = readM2Header(m2Path);
+    CHECK(model.skins[0].joints.size() == header.bones.count);
+
+    std::filesystem::remove(outPath);
+}
+#else
+TEST_CASE("husk export: a real quadruped creature (wolf.m2) imports into Blender (headless) "
+          "with bone/vertex counts matching tinygltf's own reading of the same file" *
           doctest::skip(true)) {
     // blender not found on PATH at configure time (see CMakeLists.txt's
     // find_program) -- available via this project's nix flake devShell.

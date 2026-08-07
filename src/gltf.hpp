@@ -119,6 +119,23 @@ struct Material {
     // redundant.
     uint32_t textureType = 0;
 
+    // The resolved M2/.skin FileDataID for baseColorImagePng's texture,
+    // when one exists -- set whenever the batch's own textureCombos ->
+    // texture -> TXID lookup resolved a real FileDataID, *regardless* of
+    // which local file (the exact "<FileDataID>.png", the M2's own
+    // embedded filename, or a basename-fuzzy match) actually supplied the
+    // embedded bytes. Real texture directories are frequently named
+    // descriptively rather than by FileDataID (Luna's own observation,
+    // BLENDER_EXPORT_TODO.md §4) -- once resolution stops always
+    // preferring the FileDataID-named file, the material name alone no
+    // longer reliably says which real texture this is when a differently-
+    // named file won instead. Extras-only (`texture_file_data_id`), same
+    // "present only when there's something extra to say, 0 means absent"
+    // convention as textureType above -- a real client-side FileDataID is
+    // never 0, so 0 unambiguously means "husk never resolved one for this
+    // slot," not "the real ID happens to be zero."
+    uint32_t baseColorTextureFileDataId = 0;
+
     // A batch's M2Color::color/M2TextureWeight::weight (colorAnimated/
     // weightAnimated) is real per-sequence or global-sequence keyframe
     // animation, not the single constant value baseColorFactor can hold --
@@ -444,11 +461,39 @@ struct Error : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
-// WoW models are Z-up; glTF is Y-up. Per wowdev.wiki M2#Vertices: "to
-// convert to Y-up, the X, Y, Z values become (X, -Z, Y)". Applies equally to
-// positions and normals (both are plain directions/points in the same
-// space); texture coordinates are untouched by this, not spatial.
+// WoW models are Z-up; glTF is Y-up. These three functions are the single
+// source of truth for that conversion -- every position, normal, rotation,
+// and scale husk ever exports goes through exactly one of them, and all
+// three are mechanically derived from one shared 3x3 change-of-basis matrix
+// (kWowToGltf, gltf.cpp) rather than being three independently hand-typed
+// formulas that could silently drift out of sync with each other. See
+// TRANSFORM_TRIAGE.md for the full investigation this replaced: an earlier,
+// hand-derived version of this conversion (matching wowdev.wiki M2#Vertices'
+// literal "(X, Y, Z) become (X, -Z, Y)" text) composed with Blender's own
+// glTF-import axis conversion to a net 180-degree flip, not the identity a
+// correct round trip requires -- confirmed both by a real headless-Blender
+// import and by an independently-written second implementation
+// (reference/wow.export). The values below are the corrected formula.
+//
+// Applies equally to positions and normals (both are plain directions/
+// points in the same space); texture coordinates are untouched by this, not
+// spatial.
 Vec3 zUpToYUp(const Vec3& v);
+
+// A bone-rotation quaternion's vector part gets the same kWowToGltf
+// transform as a position, mechanically (convert to a 3x3 rotation matrix,
+// conjugate by kWowToGltf, convert back), not a separately hand-typed
+// formula -- see TRANSFORM_TRIAGE.md §5a. The scalar part (w) is basis-
+// independent and untouched either way.
+Quat rotationZUpToYUp(const Quat& q);
+
+// A scale vector (the diagonal of a scale matrix) gets kWowToGltf's
+// permutation with the signs stripped -- valid specifically because
+// kWowToGltf is a *signed permutation* matrix (conjugating a diagonal
+// matrix by one just permutes the diagonal; the signs cancel). This
+// assumption would need revisiting if kWowToGltf ever became a general
+// rotation matrix -- see TRANSFORM_TRIAGE.md §5a.
+Vec3 scaleZUpToYUp(const Vec3& s);
 
 // Serializes `mesh` as a minimal glTF binary (.glb): one buffer holding
 // positions/normals/texCoords/indices, one mesh with one TRIANGLES

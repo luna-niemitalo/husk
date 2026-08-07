@@ -915,6 +915,98 @@ std::vector<uint8_t> oneTexturedModelSkin() {
     return skin;
 }
 
+// Two texture slots in one model, sharing one material: texture[0] is
+// hardcoded (type=6, no TXID entry, fdid stays 0 -- exercises the fuzzy-
+// match-only path); texture[1] is real/FileDataID-resolvable (type=0, a
+// TXID entry). Regression fixture for the mixed-priority-order fix below:
+// before it, letting *every* slot draw from the shared fuzzy pool (not
+// just fdid==0 ones) let texture[0]'s hardcoded slot steal a real-named
+// file that a later-processed, fdid-resolvable slot should have kept its
+// own deterministic "<fdid>.png" match for instead.
+std::vector<uint8_t> twoTexturedModel(uint32_t fileDataId) {
+    auto md20 = tinyValidM2();
+    uint32_t texOff = static_cast<uint32_t>(md20.size());
+    md20.resize(texOff + 32, 0);  // 2x M2Texture (type/flags/filename M2Array)
+    uint32_t hardcodedType = 6;   // TEX_COMPONENT_CHAR_HAIR
+    std::memcpy(md20.data() + texOff, &hardcodedType, 4);  // textures[0].type
+    // textures[1].type left at 0 (real/embedded-or-TXID-resolvable)
+    uint32_t two = 2;
+    std::memcpy(md20.data() + 0x050, &two, 4);     // textures.count
+    std::memcpy(md20.data() + 0x054, &texOff, 4);  // textures.offset
+
+    uint32_t matOff = static_cast<uint32_t>(md20.size());
+    md20.resize(matOff + 4, 0);  // 1 M2Material, shared by both batches
+    uint32_t one = 1;
+    std::memcpy(md20.data() + 0x070, &one, 4);
+    std::memcpy(md20.data() + 0x074, &matOff, 4);
+
+    uint32_t comboOff = static_cast<uint32_t>(md20.size());
+    putU16(md20, 0);  // textureCombos[0] -> texture index 0 (hardcoded)
+    putU16(md20, 1);  // textureCombos[1] -> texture index 1 (fdid-resolvable)
+    std::memcpy(md20.data() + 0x080, &two, 4);       // textureCombos.count
+    std::memcpy(md20.data() + 0x084, &comboOff, 4);  // textureCombos.offset
+
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    putTag(file, "TXID");
+    putU32(file, 8);
+    putU32(file, 0);           // textures[0]: not file-based
+    putU32(file, fileDataId);  // textures[1]'s FileDataID
+    return file;
+}
+
+// A .skin with two submesh/batch pairs over twoTexturedModel()'s two
+// texture slots -- batch 0 -> textureComboIndex 0 (hardcoded), batch 1 ->
+// textureComboIndex 1 (fdid-resolvable). Same degenerate single-vertex
+// triangle shared by both submeshes as oneTexturedModelSkin() uses.
+std::vector<uint8_t> twoBatchSkin() {
+    std::vector<uint8_t> skin;
+    putTag(skin, "SKIN");
+    skin.resize(44, 0);
+    auto patchArray = [&](size_t off, uint32_t count, uint32_t offset) {
+        std::memcpy(skin.data() + off, &count, 4);
+        std::memcpy(skin.data() + off + 4, &offset, 4);
+    };
+
+    uint32_t submeshOff = static_cast<uint32_t>(skin.size());
+    skin.resize(skin.size() + 2 * 0x30, 0);
+    for (int i = 0; i < 2; ++i) {
+        uint16_t indexStart = 0, indexCount = 3;
+        std::memcpy(skin.data() + submeshOff + i * 0x30 + 0x08, &indexStart, 2);
+        std::memcpy(skin.data() + submeshOff + i * 0x30 + 0x0A, &indexCount, 2);
+    }
+    patchArray(0x1C, 2, submeshOff);
+
+    uint32_t batchOff = static_cast<uint32_t>(skin.size());
+    skin.resize(skin.size() + 2 * 0x18, 0);
+    uint16_t zero16 = 0, one16 = 1, noColor = 0xFFFF;
+    for (int i = 0; i < 2; ++i) {
+        uint16_t submeshIndex = static_cast<uint16_t>(i);
+        uint16_t comboIndex = static_cast<uint16_t>(i);
+        std::memcpy(skin.data() + batchOff + i * 0x18 + 0x04, &submeshIndex, 2);
+        std::memcpy(skin.data() + batchOff + i * 0x18 + 0x08, &noColor, 2);   // colorIndex: none
+        std::memcpy(skin.data() + batchOff + i * 0x18 + 0x0A, &zero16, 2);   // materialIndex: 0 (shared)
+        std::memcpy(skin.data() + batchOff + i * 0x18 + 0x0E, &one16, 2);    // textureCount: 1
+        std::memcpy(skin.data() + batchOff + i * 0x18 + 0x10, &comboIndex, 2);  // textureComboIndex
+    }
+    patchArray(0x24, 2, batchOff);
+
+    uint32_t vertOff = static_cast<uint32_t>(skin.size());
+    putU16(skin, 0);
+    patchArray(0x04, 1, vertOff);
+
+    uint32_t idxOff = static_cast<uint32_t>(skin.size());
+    putU16(skin, 0);
+    putU16(skin, 0);
+    putU16(skin, 0);
+    patchArray(0x0C, 3, idxOff);
+
+    patchArray(0x14, 0, 0);
+    return skin;
+}
+
 }  // namespace
 
 TEST_CASE("husk export: an inline bone with a flags&0x20 sequence produces a real glTF "
@@ -2949,7 +3041,8 @@ TEST_CASE("husk export: a hardcoded texture slot's material name includes its re
 }
 
 TEST_CASE("husk export: a hardcoded texture slot embeds the sole basename-matching file in "
-          "--textures when husk can't resolve a FileDataID (BLENDER_EXPORT_TODO.md §4/§5)") {
+          "--textures when husk can't resolve a FileDataID (BLENDER_EXPORT_TODO.md §4/§5), and "
+          "warns that the match is non-deterministic and has no FileDataID to cross-reference") {
     auto dir = defaultsDir("fuzzytex-sole");
     writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));  // 1 = TEX_COMPONENT_SKIN
     writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
@@ -2958,6 +3051,25 @@ TEST_CASE("husk export: a hardcoded texture slot embeds the sole basename-matchi
     auto result = runHusk("export " + (dir / "fuzzytex.m2").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
+    CHECK(result.output.find("husk: warning:") != std::string::npos);
+    CHECK(result.output.find("fuzzytexfaceupper00_00_hd.png") != std::string::npos);
+    CHECK(result.output.find("non-deterministic basename matching") != std::string::npos);
+    CHECK(result.output.find("no FileDataID at all for this hardcoded slot") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a FileDataID-exact texture match prints no fuzzy-match warning "
+          "(deterministic, nothing to double-check)") {
+    auto dir = defaultsDir("fdid-no-warning");
+    writeFile(dir / "fdidtex.m2", oneTexturedModel(1034713));
+    writeFile(dir / "fdidtex00.skin", oneTexturedModelSkin());
+    writeFile(dir / "1034713.png", {1, 2, 3, 4});
+
+    auto result = runHusk("export " + (dir / "fdidtex.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
+    CHECK(result.output.find("husk: warning:") == std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -2975,6 +3087,67 @@ TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot 
     CHECK(result.output.find("0 with an embedded texture") != std::string::npos);
     CHECK(result.output.find("2 texture file(s)") != std::string::npos);
     CHECK(result.output.find("can't tell which hardcoded texture slot") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a fdid-resolvable slot keeps its own FileDataID-named file even when a "
+          "hardcoded slot in the same model claims a real-named file from the shared fuzzy pool "
+          "(regression: an earlier version of the name-priority fix let this cross-contaminate)") {
+    auto dir = defaultsDir("mixedtex");
+    writeFile(dir / "mixedtex.m2", twoTexturedModel(1034713));
+    writeFile(dir / "mixedtex00.skin", twoBatchSkin());
+    // texture[1]'s own FileDataID-named file (deterministic match).
+    writeFile(dir / "1034713.png", {'F', 'D', 'I', 'D'});
+    // A real-named file sharing the model's basename -- the only thing
+    // texture[0]'s hardcoded slot can ever resolve to, and the only real
+    // candidate in the fuzzy pool.
+    writeFile(dir / "mixedtexfaceupper00_00_hd.png", {'N', 'A', 'M', 'E'});
+
+    auto result = runHusk("export " + (dir / "mixedtex.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("2 with an embedded texture") != std::string::npos);
+
+    std::ifstream glbFile(dir / "mixedtex.glb", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
+    // Both real images present, each exactly once -- neither slot's file
+    // got embedded into the other's material instead.
+    CHECK(text.find("FDID") != std::string::npos);
+    CHECK(text.find("NAME") != std::string::npos);
+    // The fdid-resolvable slot's own material name still carries its real
+    // FileDataID -- it wasn't renamed to the fuzzy-matched file's name.
+    CHECK(text.find("_fdid1034713") != std::string::npos);
+    CHECK(text.find("_mixedtexfaceupper00_00_hd") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a fdid-resolvable slot with no matching \"<fdid>.png\" file falls through "
+          "to a real basename-matching file instead of embedding nothing (previously: silent gap)") {
+    auto dir = defaultsDir("fallbacktex");
+    writeFile(dir / "fallbacktex.m2", oneTexturedModel(9999999));  // no 9999999.png on disk
+    writeFile(dir / "fallbacktex00.skin", oneTexturedModelSkin());
+    writeFile(dir / "fallbacktexfaceupper00_00_hd.png", {'N', 'A', 'M', 'E'});
+
+    auto result = runHusk("export " + (dir / "fallbacktex.m2").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
+    // Fell through to the fuzzy match, so it gets the same warning as any
+    // other non-deterministic match -- this time naming the resolved
+    // FileDataID it couldn't be cross-checked against, since one exists
+    // (unlike a genuinely hardcoded slot).
+    CHECK(result.output.find("husk: warning:") != std::string::npos);
+    CHECK(result.output.find("resolved FileDataID 9999999") != std::string::npos);
+
+    std::ifstream glbFile(dir / "fallbacktex.glb", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
+    CHECK(text.find("NAME") != std::string::npos);
+    // The real FileDataID is still recorded (material name + extras),
+    // even though the embedded bytes came from the named file, not
+    // "9999999.png" -- see gltf.hpp's Material::baseColorTextureFileDataId
+    // doc comment.
+    CHECK(text.find("_fdid9999999") != std::string::npos);
+    CHECK(text.find("texture_file_data_id") != std::string::npos);
 
     fs::remove_all(dir);
 }

@@ -466,6 +466,96 @@ approach for the common case, but could still be worth adding as a way to
 *disambiguate* the "2+ candidates" case above without relying on
 filenames alone. Not scoped further this session.
 
+### Follow-up, a later session: name-based resolution now applies to *every* slot, not just hardcoded ones
+
+Requested directly, after a real interactive check confirmed node/bone/
+material naming and texture linking all work: "one can export textures as
+`<texture_name>.blp` which should convert to `<texture_name>.png`, and thus
+we should prioritize linking by actual name, rather than fileid where
+possible" — a real, deployed extraction workflow (`reference/wow.export`,
+or a personal `casc-tool`-style pull) commonly produces descriptively-named
+files, not `<FileDataID>.png` files, for *any* texture slot, not just the
+hardcoded ones this section originally scoped the fuzzy-match fallback to.
+
+Previously, a slot with a resolvable FileDataID took the `<FileDataID>.png`
+path unconditionally — never even attempting a name-based match, and
+silently embedding nothing if that specific file happened to be missing,
+even with a perfectly good real-named file sitting right there. Now every
+slot tries, in order: (1) an exact match on the M2's own embedded filename
+(real M2 data, most precise, unchanged from this section's own original
+behavior); (2) the FileDataID-named file, if it actually exists on disk;
+(3) the shared basename-fuzzy pool, as a last resort.
+
+**A real regression was found and fixed before landing this**: an initial
+version tried the fuzzy pool *before* the FileDataID-exact check, for every
+slot — a live test against `bloodelffemale.m2` with both a real
+`<fdid>.png` and a same-basename descriptively-named file present showed a
+hardcoded (no-FileDataID) slot processed earlier in the batch loop claiming
+the named file that actually belonged, in practice, to a *different*,
+later-processed slot with its own resolvable FileDataID — that slot then
+silently fell back to nothing (this was before the fdid-exact-match-missing
+fallback existed) instead of getting the file it should have. Fixed by
+trying the FileDataID-exact path first whenever the file is actually
+present (cheap, deterministic, never touches the shared/ambiguous fuzzy
+pool), only falling through to fuzzy matching for whatever's left
+unresolved after that — so a slot that already has a working, unambiguous
+match is never at risk of losing it to an unrelated slot's guess, while a
+name-only extraction (no `<FileDataID>.png` files at all) still resolves
+every slot it can via the fuzzy pool exactly as before.
+
+**New**: `gltf::Material::baseColorTextureFileDataId` (`texture_file_data_id`
+extras) — the resolved FileDataID is now recorded regardless of which path
+actually supplied the embedded bytes, so a name-based match doesn't lose
+its own FileDataID traceability the way it would have before (a differently-
+named file's own name carries no FileDataID inside it the way
+`<FileDataID>.png` does).
+
+**Tests**: `tests/test_cli.cpp` gained a mixed-convention regression test
+(a synthetic two-texture-slot model, one hardcoded/fuzzy-only, one
+FileDataID-resolvable, both signals present at once — proving neither
+slot's file goes to the other) and a FileDataID-missing-falls-through test;
+both were verified to actually catch the bug (temporarily reintroducing the
+fuzzy-before-fdid ordering and confirming the new test fails exactly as
+predicted, then restoring the fix and reconfirming green). `tests/
+test_gltf.cpp` gained `baseColorTextureFileDataId` round-trip/absent-means-
+no-key cases, same shape as `textureType`'s own existing pair.
+
+**Also fixed the same session**: the render mesh's own glTF node had no
+`name` at all in the common `--skin <path>` export case (bones and the
+collision mesh were already named, per §3/§6, but not the render mesh node
+itself — found during the same live interactive check, not one of this
+file's original items). Now falls back to the model's own basename
+whenever a real per-LOD-tier label (`lod0`, `lod1`, ... — `--lod all`)
+isn't available. `tests/test_integration.cpp` gained a real-fixture
+regression case.
+
+**A same-day follow-up to the follow-up**: since a fuzzy-matched texture is
+a real, if bounded, guess — never picked between 2+ ambiguous candidates,
+but still not one of the two genuinely deterministic matches (an exact
+FileDataID, or an exact match on the M2's own embedded filename) — Luna's
+own explicit ask: warn whenever a match actually falls onto the fuzzy path,
+since fuzzy matching is more usable than requiring FileDataID-named files,
+but still needs a human to confirm it's right; validate against the
+resolved FileDataID when one's available, if that's possible at all.
+`BuiltMaterials::FuzzyMatch` (`src/cmd_export.cpp`) now records every batch
+that resolved this way, and `exportGlb` prints one `husk: warning:` line
+per match naming the material, the file, and — when the slot has a real
+resolved FileDataID (i.e. it fell through to fuzzy only because
+`<FileDataID>.png` was missing, not because it's a genuinely hardcoded
+slot) — that FileDataID, explicitly flagged as *not* independently verified
+against it. The "validate against the FileDataID if possible" half was
+checked and found genuinely not possible within husk's own boundary: doing
+so would mean confirming a FileDataID's *real* name matches the claimed
+file, which needs a listfile/CASC lookup husk has no access to by design
+(`DESIGN.md`'s Non-goals) — the warning surfaces the FileDataID instead, so
+a human can go check it against a listfile/wow.tools themselves, which is
+the closest thing to validation husk itself can actually do. Three new
+`tests/test_cli.cpp` cases: the warning fires with the right wording for a
+genuinely hardcoded slot (no FileDataID to name), fires with the resolved
+FileDataID named for a slot that fell through from a missing
+`<FileDataID>.png`, and is *absent* for a real FileDataID-exact match
+(nothing to double-check).
+
 ## 5. Material naming should reflect the texture in use
 
 **Symptom**: "material/texture export should have clearly named slots

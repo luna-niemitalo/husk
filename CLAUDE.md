@@ -82,7 +82,13 @@ tool, `blp/`) converts BLP2 textures to PNG.
   player-housing collision, diagnostic-only via `husk dump-chunks`,
   verified against all 2,354 real `PCOL`-bearing files -- see Resume) is
   now fully implemented and the file itself deleted -- nothing currently
-  in flight.
+  in flight. A real interactive Blender pass this session found the
+  M2→glTF position/rotation/scale conversion was measurably upside down
+  despite the whole conformance suite above passing -- root-caused,
+  fixed, and covered by a new asset-agnostic orientation-correctness test
+  tier (`TRANSFORM_TRIAGE.md`, see Resume); the one piece still open by
+  design is a real animated clip visually confirmed in Blender's own GUI,
+  deliberately left for Luna rather than automated.
 - Anything not listed under Current does not exist yet. In particular: `M2Camera`
   is still count-only (not dereferenced). Three FAILURES2.md gaps
   (geoset selection #1, multi-texture-layer rendering #6, global-sequence animation
@@ -123,7 +129,139 @@ real-file-driven spec correction found along the way.
 
 ## Resume
 
-- **Last state**: Implemented all four items in `RO_COMPLETENESS_TODO.md`
+- **Last state**: Fixed the "upside down" M2→glTF export bug — real code,
+  tested, shipped this session, not the reverted one-line patch a prior
+  session left off at. Requested directly, after that prior session's
+  `BLENDER_EXPORT_TODO.md` §8 finding: not a quick patch, but "a more
+  robust system that can test the correctness of the mesh regardless of
+  the rotation... if the code has a plethora of hardcoded signals, that is
+  prone to break the instant we get a model in an unexpected
+  orientation... research and explore how to fix this permanently, so if
+  Blizzard changes what their models' up means, it will not be this
+  rework again." Wrote `TRANSFORM_TRIAGE.md` first (a full root-cause /
+  process-failure / durable-fix investigation, no code touched) — Luna
+  pushed back hard on two parts of the first draft before anything was
+  built, both real corrections: (1) `reference/wow.export` was drafted as
+  a "standing cross-validation check" — corrected to "flaky,
+  non-authoritative, corroborating signal only, never a gate," per her own
+  "don't assume wow.export is correct... it works *somewhat*"; (2) the
+  proposed semantic ground-truth check ("head bone above foot bone") was
+  drafted as the primary orientation invariant — corrected after her
+  direct "weapons? Other meshes with skeletons? ... weapon orientations
+  are not necessarily up as the correct axis" into an asset-agnostic
+  synthetic coordinate-frame probe (a fabricated skeleton, not a real
+  model, tested for round-trip-identity through a real headless-Blender
+  import) as the primary check, with the humanoid-landmark idea demoted to
+  an explicitly optional, non-load-bearing secondary signal. Both
+  corrections are recorded inline in `TRANSFORM_TRIAGE.md` itself, not
+  just in this log.
+  - Luna then answered all four of the document's own open questions
+    directly and gave explicit go-ahead to implement autonomously: "yes,
+    you build while i nap" (tests before the formula fix, per the
+    document's own recommended sequencing); "part of this" (fold the
+    single-matrix refactor into the same change, don't scope it
+    separately); "worth adding, but not critical" (the humanoid-landmark
+    secondary check); "no preferences, any will do" (a quadruped fixture).
+    Closed with an explicit scope boundary for what she'd verify herself:
+    "start implementing, and after all of it is tested and implemented i
+    will verify... until then you'll have to rely on headless Blender" —
+    everything below was built and verified exactly within that boundary,
+    nothing claimed beyond it.
+  - **`src/gltf.hpp`/`gltf.cpp`**: the historical three independently
+    hand-typed conversion functions (`zUpToYUp`, and `cmd_export.cpp`'s
+    separate `toGltf(m2::Quat)`/`toGltfScale`) are now one mechanically-
+    derived system — a private `Mat3` plus one matrix (`kWowToGltf`,
+    corrected from `(x,-z,y)` to `(x,z,-y)`), with `zUpToYUp`/
+    `rotationZUpToYUp`/`scaleZUpToYUp` all derived from it (position/
+    normal: direct application; rotation: quaternion → matrix → conjugate
+    by the matrix → quaternion; scale: the matrix's permutation, signs
+    dropped). A `static_assert` on the matrix's determinant enforces "must
+    be a proper rotation" at compile time. `cmd_export.cpp`'s own
+    `toGltf(m2::Quat)`/`toGltfScale` are now thin wrappers, not separate
+    formulas — the exact fix for the root cause `TRANSFORM_TRIAGE.md`
+    traced this bug to (rotation/scale were hand-derived *from* the old,
+    wrong position formula, on paper, then never independently
+    re-verified against anything real).
+  - **The corrected formula is now corroborated three independent ways**,
+    not just the prior session's single headless-Blender empirical test:
+    the hand-derived change-of-basis math (already existing), the
+    headless-Blender round-trip (already existing, re-confirmed), and —
+    new this session — `reference/wow.export` (already checked out in this
+    repo, never previously mined for this), which has its own,
+    independently-written coordinate-conversion code for position,
+    normal, rotation, *and* scale, matching the corrected formula exactly
+    on every one (scale needed zero code changes — it was already correct,
+    informative about the bug's own shape: a sign error, not a wrong axis
+    pairing, since scale is sign-insensitive).
+  - **New tests, and each proven to actually catch the bug, not just
+    proven to pass** — the same "prove a regression test actually
+    regresses" discipline this project's history already uses elsewhere:
+    a synthetic, asset-agnostic coordinate-frame probe
+    (`tests/test_conformance.cpp`, a fabricated `gltf::Skeleton` with no
+    dependency on any real M2 file) asserts local X/Y/Z offsets survive a
+    real husk-export → Blender-import round trip as the *identical*
+    coordinate — before trusting it, `kWowToGltf` was temporarily reverted
+    to the historical formula and rerun: it failed exactly as the
+    root-cause math predicts (`+X`, the rotation's own invariant axis,
+    still correct; `+Y`/`+Z` both flipped), then the fix was restored and
+    reverified green. A property-based unit test
+    (`tests/test_gltf.cpp`) independently confirms `rotationZUpToYUp`'s
+    own matrix-conjugation implementation is self-consistent for several
+    real test rotations and probe vectors, regardless of which underlying
+    matrix is used — catches a bug in the conversion *machinery*, not in
+    which matrix is chosen. (One real false alarm this same test caught in
+    itself, before either mattered: a hand-typed "arbitrary rotation" test
+    quaternion wasn't quite unit-length, silently violating
+    `quatToMat3`'s implicit unit-quaternion assumption and producing a
+    small, confusing failure that looked like a real bug — fixed by
+    normalizing every test quaternion at test time rather than trusting a
+    literal's precision.) A second, explicitly non-load-bearing check
+    confirms a real humanoid landmark bone (`_Name`, keyBoneId 22) lands
+    above the armature origin on the real `bloodelffemale.m2` fixture —
+    caught one more real bug in its own first draft before shipping:
+    Blender is natively Z-up, not Y-up, so the check's first version
+    compared the wrong raw component (`.y` instead of `.z`) and would have
+    silently asserted the wrong thing; caught because the real fixture's
+    own landmark prints as `(0, 0, 2.05)`, obviously wrong against a
+    `.y > 0` check and obviously right against `.z > 0`.
+  - **A real quadruped fixture** (`test_data/creature/wolf/wolf.m2`,
+    gitignored, same personal-extraction convention as every other
+    `test_data/` fixture — 66 bones, 557 vertices, pulled from the local
+    corpus per Luna's own "no preferences, any will do") plus
+    `HUSK_TEST_QUADRUPED_M2`/`_SKIN` wiring
+    (`tests/test_data_paths.hpp`, `test_main.cpp`'s banner) and two new
+    `test_conformance.cpp` cases (gltf_validator zero-errors,
+    headless-Blender bone/vertex-count agreement) — explicitly *not*
+    additional orientation coverage (the synthetic probe already covers
+    any asset type by construction), but real pipeline coverage for a
+    body-plan/bone-hierarchy shape `bloodelffemale.m2` doesn't represent.
+  - **Full suite green with zero hand-updated literals**: every existing
+    test touching a position/rotation/scale value passed unmodified
+    against the corrected formula the moment it was flipped — 335 →
+    484/484 (+1 permanently-inapplicable skip) via `./build/husk-tests`,
+    485/485 via `ctest`. Nothing needed updating, which is itself a real
+    signal: no other test in this codebase was silently depending on the
+    old formula's specific wrong values.
+  - **Docs**: `TRANSFORM_TRIAGE.md` itself updated throughout with
+    "Implemented" notes per subsection (not deleted — unlike this
+    project's usual fully-closed-TODO lifecycle, one real item is
+    deliberately still open, see below, so the file stays as the living
+    record for it). `DESIGN.md` (the rotation/scale Key design decision
+    corrected to describe the current mechanically-derived implementation
+    rather than the stale hand-derived-formula description; a new,
+    detailed Follow-up entry after the original upside-down finding).
+    `README.md` (the roadmap stage 1 paragraph's literal formula citation
+    corrected — it still quoted the wrong, pre-fix formula as current
+    fact; the Testing section's Conformance-tier paragraph extended with
+    the new probe/landmark/quadruped coverage).
+  - **What's deliberately still open, not an oversight**: a real animated
+    clip, visually confirmed by Luna in Blender's actual GUI viewport —
+    every check this session added is numeric (headless probes, a
+    property test, a JS/C++ diff); nothing here substitutes for that last
+    look, and it was never meant to be automated away. `TRANSFORM_TRIAGE.md`
+    §7/§8 both say this explicitly. Whoever picks this up next — likely
+    Luna herself — should start there.
+- **Previous state**: Implemented all four items in `RO_COMPLETENESS_TODO.md`
   (a punch list Luna wrote grounding four of README's own 🚧-marked
   format-matrix rows against current source, then handed off with "shouldn't
   be a big task") — every item done, tested, documented, and the TODO file

@@ -260,17 +260,21 @@ spec ambiguity here: decode real records at every plausible stride/shape
 and check for garbage, don't guess from text alone.
 
 **Bone rotation/scale keyframes get their own Z-up→Y-up conversion,
-distinct from position's `zUpToYUp`.** No wowdev.wiki formula exists for
-this specific step. Derived from the general change-of-basis rule for a
-proper-rotation basis change (`zUpToYUp`'s `(X,-Z,Y)` permutation has
-determinant +1): a rotation quaternion's vector part gets the same
-permutation (scalar/`w` untouched); a scale vector gets the same
-permutation with signs dropped. Checked numerically against several test
-rotations (bit-identical conjugated-matrix vs. permutation-shortcut
-results), not taken on faith — this is weaker evidence than a cited spec
-formula and depends on the assumption that WoW bones use plain
+mechanically derived from the same matrix `zUpToYUp` uses for
+positions/normals, not a separately hand-typed formula.** No wowdev.wiki
+formula exists for this specific step; the general change-of-basis rule for
+a proper-rotation basis change applies (a rotation quaternion's vector part
+gets the same matrix's conjugation, scalar/`w` untouched; a scale vector
+gets the same permutation with signs dropped). Historical note, corrected
+below: an earlier hand-typed version of this rule, applied to an earlier
+(wrong) position matrix, shared that matrix's own sign bug undetected for a
+real stretch of active development — see the "Follow-up" entry near the end
+of this document (`TRANSFORM_TRIAGE.md`) for the fix, and `gltf.hpp`'s own
+doc comments for the current, corrected, single-source-of-truth
+implementation. Still depends on the assumption that WoW bones use plain
 parent-relative TRS with no separate pivot concept beyond
-`M2CompBone.pivot`.
+`M2CompBone.pivot` — unverified against a real animated pose in Blender's
+own viewport (deliberately left to Luna, see the Follow-up entry).
 
 **glTF output is never hand-rolled.** `src/gltf.cpp` builds a
 `tinygltf::Model` and hands the actual `.glb` binary framing to
@@ -1393,3 +1397,103 @@ through the same night. Final state of that file:
   of hierarchy shape was investigated headlessly and is very likely a
   genuine Blender-importer limitation (glTF carries no bone-length data at
   all) rather than a husk bug — not being pursued further.
+
+**Follow-up, next session: the upside-down bug above is fixed, tested, and
+shipped** — not just the reverted one-line sign flip §8 above describes.
+Requested directly, after the finding above: not a quick patch, but "a more
+robust system that can test the correctness of the mesh regardless of the
+rotation... research and explore how to fix this permanently" — written up
+as `TRANSFORM_TRIAGE.md` (a full root-cause/process-failure/durable-fix
+investigation), then, once Luna reviewed and answered its open questions
+directly ("yes, you build while i nap"), implemented the same session.
+- **`src/gltf.cpp`'s `zUpToYUp` is now one leg of a genuinely single source
+  of truth**: a private `Mat3` plus one matrix (`kWowToGltf`), with
+  `zUpToYUp`/`rotationZUpToYUp`/`scaleZUpToYUp` all mechanically derived
+  from it (position/normal: direct matrix application; rotation: quaternion
+  → matrix → conjugate by the matrix → quaternion; scale: the matrix's
+  permutation with signs dropped) — not three independently hand-typed
+  formulas that could silently drift out of sync with each other, which is
+  exactly the shape of bug this whole investigation traced back to (the
+  rotation/scale conversions in `cmd_export.cpp` used to be hand-derived
+  *from* the position formula's own math, on paper, then never
+  independently re-verified). `cmd_export.cpp`'s `toGltf(m2::Quat)`/
+  `toGltfScale` are now thin wrappers. A `static_assert` on the matrix's
+  determinant enforces "this must be a proper rotation, not a reflection"
+  at compile time.
+- **The corrected matrix** — `(x, y, z) -> (x, z, -y)`, replacing the old
+  `(x, -z, y)` — is now independently corroborated a third way beyond §8's
+  own headless-Blender empirical test and the hand-derived math: this
+  repo's own `reference/wow.export` (already checked out, previously never
+  mined for this) has its own, independently-written coordinate-conversion
+  code for positions, normals, rotations, *and* scale, and matches the
+  corrected formula exactly on every one of them (scale needed no change at
+  all — already correct before this fix, see `TRANSFORM_TRIAGE.md` §4 for
+  why that's informative about the bug's own shape). `reference/wow.export`
+  is explicitly **not** treated as ground truth on its own (it's known to
+  be flaky) — this is corroboration, not the basis for the fix.
+- **A new, asset-agnostic regression test replaces "trust the math," and
+  was proven to actually catch the historical bug, not just proven to
+  pass**: `tests/test_conformance.cpp` builds a synthetic `gltf::Skeleton`
+  (a root plus three children offset one unit along local X/Y/Z) with no
+  dependency on any real M2 file, real body plan, or "up" convention for
+  any particular asset type — the property under test is a pure
+  round-trip-identity fact (an M2-local axis offset must land at the
+  *identical* coordinate in Blender's own world space after a real
+  husk-export → Blender-import round trip), not "does this look
+  anatomically correct." Before trusting it, this test's own `kWowToGltf`
+  matrix was temporarily reverted to the historical formula and rerun: it
+  failed exactly as the root-cause math predicts (the `+X` probe, on the
+  rotation's own invariant axis, still landed correctly; `+Y` and `+Z` both
+  flipped) — then the fix was restored and reverified green. A second,
+  explicitly non-load-bearing check (`_Name`, a real key-bone landmark)
+  confirms the same thing on the real `bloodelffemale.m2` fixture, gated to
+  skip cleanly on any model without that specific bone tagged. A new
+  property-based unit test (`tests/test_gltf.cpp`) independently confirms
+  `rotationZUpToYUp`'s own conjugation math is self-consistent for several
+  real test rotations, regardless of which underlying matrix is used.
+- **A real quadruped fixture** (`test_data/creature/wolf/wolf.m2`, 66
+  bones/557 vertices) was added for pipeline-shape diversity — explicitly
+  *not* additional orientation-correctness coverage (the synthetic probe
+  above already covers any asset type by construction), but real coverage
+  for a bone-hierarchy/body-plan shape `bloodelffemale.m2` doesn't
+  represent, so a future *different* class of bug doesn't get the same
+  one-fixture free pass this session's own bug did.
+- **Full suite green with zero hand-updated literals**: every existing
+  test that touches a position/rotation/scale value passed unmodified
+  against the corrected formula (484/484 + 1 skip via `husk-tests`, 485/485
+  via `ctest`) — informative on its own: nothing else in this codebase was
+  silently depending on the old formula's specific wrong values.
+- **Deliberately still open, by design, not an oversight**: a real animated
+  clip, visually confirmed in Blender's actual GUI viewport — Luna's own
+  explicit "after all of it is tested and implemented i will verify...
+  until then rely on headless Blender." Every check this session added is
+  numeric; nothing here substitutes for that last look. See
+  `TRANSFORM_TRIAGE.md` for the full investigation, every implementation
+  note, and this one remaining open item.
+
+**Second follow-up, same day**: node/bone/material naming and texture
+linking were manually confirmed working (a live export with a real
+`--textures` directory showed 2/70 materials correctly embedding real
+image bytes), which surfaced two real, previously-unflagged gaps, both
+fixed the same session. (1) The render mesh's own glTF node had no `name`
+at all in the common `--skin <path>` case, unlike bones (§6) and the
+collision mesh — now falls back to the model's own basename. (2) Texture
+resolution always preferred `<FileDataID>.png` outright for any slot with
+a resolvable FileDataID, even when that specific file was missing and a
+real, descriptively-named file (the shape a real extraction workflow --
+`reference/wow.export`, or a `.blp` converted via `husk-blp` keeping its
+own name -- actually produces) sat right there unclaimed; the fuzzy-match
+fallback `BLENDER_EXPORT_TODO.md` §4 built was scoped to hardcoded slots
+only. Now every slot tries embedded-filename, then FileDataID-exact (only
+if the file is actually present), then the fuzzy pool, in that order —
+deterministic matches are checked before ever touching the shared,
+ambiguity-prone fuzzy pool, specifically to avoid a real regression an
+earlier version of this fix introduced (an unrelated hardcoded slot
+claiming a named file that actually belonged to a different,
+FileDataID-resolvable slot processed later in the same batch loop — found
+by a live test, not theorized, and now a permanent `tests/test_cli.cpp`
+regression case). `gltf::Material::baseColorTextureFileDataId`
+(`texture_file_data_id` extras) records the resolved FileDataID regardless
+of which path actually supplied the image, so that traceability survives
+even when a differently-named file wins. See `BLENDER_EXPORT_TODO.md` §4's
+own follow-up section for the full account.
