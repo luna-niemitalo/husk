@@ -133,7 +133,109 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Follow-up in the same session, reported directly from
+- **Current state**: Resolved the previous entry's own open question with
+  two real screenshots -- `bloodelffemale_hd_skin_color_3500119`/`_3500115`
+  each pixel-match one specific rectangular region of `_3500123` (the base
+  atlas) exactly, non-transparent overlay *patches*, not junk or unrelated
+  assets as the "tiny decal" framing implied. Investigated the real
+  mechanism directly in `reference/wow.export`
+  (`CharMaterialRenderer.js`/`DBCharacterCustomization.js`): real client
+  compositing is driven by `ChrModelMaterial` (base atlas size),
+  `CharComponentTextureSections` (`X`/`Y`/`Width`/`Height` placement
+  rects), and `ChrModelTextureLayer` (blend mode per layer) -- confirmed,
+  named DB2 tables, not a guess, and squarely CASC/DB2 data husk has no
+  access to by design. What husk *can* do: `AlternateTextureCandidate`
+  now carries real `width`/`height` (`src/gltf_mesh.hpp`/
+  `export_materials.cpp`'s new `pngDimensions`, emitted as
+  `alternate_textures[].width`/`.height`) so a human/script can tell a
+  full atlas apart from a small patch without decoding each candidate by
+  hand -- not the real placement data, but real, useful, already-load-
+  bearing metadata. Full suite green, 524/524.
+- **Current state (prior, same session)**: A fourth correction, prompted by Luna trying to
+  manually locate `bloodelffemale_hd_skin_color_3500121` in Blender and
+  getting confused about where it fit (a real full-body atlas variant per
+  her description, "just the body, with the underwear... completely
+  different uv layout"). Investigating turned up a real bug beyond
+  answering the question: `bloodelffemale_hd`'s twelve `skin_color`-
+  category files split into two size classes when actually decoded --
+  eight are 256x128 small strap/underwear-decal graphics, four
+  (`3500122`-`3500125`) are the real 1024x512 full-body atlases -- and the
+  previous entry's "prefer skin_color" rule picked whichever sorted
+  alphabetically first among *all* of them, landing on a tiny decal, not
+  an atlas. Fixed with a new signal: `pngPixelArea` (`src/export_materials.cpp`)
+  reads a candidate's real width x height from its own PNG IHDR chunk
+  (already-decoded bytes, no extra pass), and `orderCandidatesForDefault`
+  now ranks by pixel area first (largest wins), falling back to the
+  `skin_color` category preference only as a same-area tiebreak (needed
+  since `body_jewelry` is a correct, same-resolution candidate for this
+  slot too). A real performance regression was caught in the same pass:
+  the first version re-decoded every candidate once per batch (~27 batches
+  x ~60 files) just to sort them, timing out past 120s -- fixed by sharing
+  the existing `ambiguousCandidateCache` into the ranking function instead
+  of a fresh local one, back down to ~4.6s. Two new regression tests using
+  a new `solidColorPng` fixture generator (`tests/test_cli_fixtures.hpp`
+  -- every prior fixture used one fixed 1x1 PNG, insufficient for testing
+  size-based ranking), each proven to fail with its own signal disabled.
+  Full suite green, 524/524. Still unresolved: whether `3500121`
+  specifically (decoded: a small decal) is really what Luna meant, given
+  her own description sounds like a full-body-scale asset -- flagged back
+  to her, not assumed reconciled.
+- **Current state (prior, same session)**: Immediate refinement to the entry below's own fix --
+  told directly that `body_jewelry`/`bracelets` are texture *overlays*
+  composited onto the skin texture (no UV map of their own, same family
+  as `skin_color`/`face`), while `jewelry_color` textures a genuinely
+  separate 3D jewelry mesh with its own UV map -- excluding
+  `body_jewelry`/`bracelets` from type 20 was right, but leaving them
+  unclassified was incomplete. `candidateCategoryTypes`
+  (`src/export_materials.cpp`) now maps them to `{1, 8}` (skin/skin_extra)
+  explicitly. Verified: the `skin`-type material's candidate pool includes
+  them again as real overlay candidates, `char_jewelry` still sees only
+  its own two `jewelry_color` files. Existing regression tests unaffected
+  (none assumed *where* these tokens mapped, only that they weren't type
+  20). Full suite green, 523/523.
+- **Current state (prior, same session)**: One more real correction, same session --
+  `LUNA_FINDINGS.md` (not `LUNA_NOTES.md`, a misnamed pointer corrected
+  directly after this session reported the wrong file had no new content)
+  confirmed the material-dedup and `char_hair`/`eyereflect` fixes below by
+  real Blender verification, and found `candidateCategoryTypes`
+  (`src/export_materials.cpp`) had also wrongly mapped `body_jewelry`/
+  `bracelets` to type 20 (`char_jewelry`) alongside `jewelry_color` on an
+  unverified English-name assumption -- viewed directly (`husk-blp`),
+  `body_jewelry_3602029` is a visually distinct necklace-chain item, not
+  a color variant of `jewelry_color`'s gold/silver collar design, no
+  confirmed type-20 evidence for it. Fixed by removing both from the
+  category table entirely (no reassignment without evidence). Verified:
+  `char_jewelry`'s `alternate_textures` now lists exactly the two
+  `jewelry_color` files, matching `LUNA_FINDINGS.md` exactly. New
+  regression test, proven to fail without the fix. Full suite green,
+  523/523.
+- **Current state (two sessions ago, same session)**: Two more real bugs found and fixed, same investigation
+  thread, prompted directly with a reference screenshot (correctly-matched
+  tan skin/blue hair/silver jewelry) and a concrete complaint ("we REALLY
+  need to get ridd of the 500 materials produced by batches... only 1
+  material per mat<num>_tex<num>_<id> combination", plus repeated
+  `..._body_jewelry_3602029.<N>`-suffixed duplicate images in Blender).
+  (1) `src/export_materials.cpp` now computes a real content signature
+  (`materialDedupKey`) per fully-built material and reuses an existing one
+  via `materialByKey` instead of emitting a new `gltf::Material` per batch
+  -- real `bloodelffemale_hd.m2` export: 114 materials → 10. (2) The
+  primary embedded image now shares the same cross-material cache
+  `alternate_textures` already used, closing the one remaining duplicate-
+  image case dedup alone didn't (two genuinely *different* materials
+  independently resolving to the same unrecognized-fallback file). (3) A
+  real correction to the previous session's own "prefer bare over face"
+  default logic: viewed directly via `husk-blp`, the bare
+  `bloodelffemale_hd_3255415.blp` file that kept winning the `skin` slot's
+  default turned out to be a tiny sparkle icon, not a skin texture -- the
+  real full-body atlas was under the *recognized* `skin_color` category
+  the whole time (confirmed: default's average color went from
+  transparent-black to a real tan (0.44, 0.27, 0.15) matching the
+  reference screenshot). `filterCandidatesForType` now always prefers
+  recognized-category candidates over bare/unrecognized ones, falling back
+  to unlabeled files only when nothing recognized exists at all -- no more
+  guessing what an unlabeled file *is*. Two new regression tests, both
+  proven to fail without their respective fix. Full suite green, 522/522.
+- **Current state (prior, same session)**: Follow-up in the same session, reported directly from
   Blender: embedded images were showing up as auto-generated
   `Image_<N>` names instead of their real, useful source filenames (e.g.
   `bloodelffemale_hd_hair_color_5196731`), because none of
@@ -202,7 +304,31 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   all updated to match. See `CLAUDE_HISTORY.md`'s top entry for the full
   narrative, including the two real corrections Luna made to the plan
   before any code was written.
-- **Next step**: `M2_GAPS_TODO.md` and, as of this session, `RO_COMPLETENESS_TODO.md`
+- **Next step**: `CHAR_TEXTURE_COMPOSITING_TODO.md` (new this session) --
+  the real, staged plan for full DB2-driven character texture compositing.
+  Real WDC5 DB2 tables (`ChrModelMaterial`/`CharComponentTextureSection`/
+  `ChrModelTextureLayer`, plus the full `ChrCustomization*` choice chain)
+  confirmed present as local files in Luna's own real local `casc-tool`
+  export (**not** `reference/wow.export`, an unrelated third-party JS tool
+  checked out for source-code reference only -- don't conflate the two)
+  -- in scope per Luna's own direct clarification ("the only hard boundary
+  is not loading casc tool as a dependency," not "no DB2 data ever";
+  `DESIGN.md`'s existing Non-goals wording needs a real update once this
+  lands, see that TODO's own Background section). Not started in `src/`
+  yet -- five stages (WDC5 parser, placement geometry, the customization-
+  choice chain, real pixel compositing, Blender-side picker tooling),
+  each independently useful, see the TODO file for why staged rather than
+  one large change.
+- **Next step (also open, from an earlier session)**: a genuinely open, freshly-found gap from this session --
+  `bloodelffemale_hd.m2`'s three real (`textureType == 0`) FileDataID-based
+  slots (`3536810`/`4530998`/`5210137`) have no matching local file at all
+  in the real `/media/luna/data/wow_export` texture directory, so they
+  fall back to the same ambiguous same-basename pool as the hardcoded
+  slots and land on the fallback tier's arbitrary pick -- not a resolution
+  bug (`EYES_ON_FINDINGS.md`'s newest addendum has the full detail), but
+  whether these FileDataIDs are just absent from this export or live under
+  a different naming convention entirely is unconfirmed, not guessed at.
+  `M2_GAPS_TODO.md` and, as of an earlier session, `RO_COMPLETENESS_TODO.md`
   are both fully implemented and deleted (see Last state above and
   further above) — every item either ever bundled (`M2Sequence`
   fields/`aliasNext`, `PFDC`, `EXP2`, `Texture.type`, Attachments/Events/

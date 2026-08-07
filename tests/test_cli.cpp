@@ -487,6 +487,169 @@ TEST_CASE("husk export: two hardcoded slots of genuinely different M2Texture::ty
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export: a char_jewelry (type 20) slot only offers 'jewelry_color'-category "
+          "candidates, not 'body_jewelry'/'bracelets' ones (LUNA_FINDINGS.md: real Blender "
+          "verification against bloodelffemale_hd found only jewelry_color_3613861/_3613862 are "
+          "actually correct for its one char_jewelry material -- body_jewelry_3602029 turned out "
+          "to be a visually distinct necklace-chain item, not a color variant of the same design, "
+          "so husk has no confirmed type for it and shouldn't claim type 20 compatibility)") {
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+
+    auto dir = defaultsDir("jewelry-color-only");
+    writeFile(dir / "jewtest.m2", oneTexturedModelWithType(20));  // 20 = TEX_COMPONENT_CHAR_JEWELRY
+    writeFile(dir / "jewtest00.skin", oneTexturedModelSkin());
+    writeFile(dir / "jewtest_jewelry_color_1000.png", onePixelPng);
+    writeFile(dir / "jewtest_jewelry_color_1001.png", onePixelPng);
+    writeFile(dir / "jewtest_body_jewelry_2000.png", onePixelPng);
+    writeFile(dir / "jewtest_bracelets_3000.png", onePixelPng);
+
+    auto result = runHusk("export " + (dir / "jewtest.m2").string());
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string err, warn;
+    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "jewtest.glb").string()));
+    REQUIRE(model.materials.size() == 1);
+    REQUIRE(model.materials[0].extras.Has("alternate_textures"));
+    auto alt = model.materials[0].extras.Get("alternate_textures");
+    // Only the two jewelry_color candidates -- body_jewelry/bracelets
+    // excluded entirely, not merely deprioritized.
+    REQUIRE(alt.ArrayLen() == 2);
+    for (int i = 0; i < alt.ArrayLen(); ++i) {
+        std::string filename = alt.Get(i).Get("filename").Get<std::string>();
+        CHECK(filename.find("jewelry_color") != std::string::npos);
+    }
+    CHECK(result.output.find("body_jewelry") == std::string::npos);
+    CHECK(result.output.find("bracelets") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: an ambiguous slot's default prefers the largest real candidate, and among "
+          "same-size candidates prefers 'skin_color' as the true base layer over an overlay -- "
+          "real bug: the same 'skin_color' category token can span both several 1024x512 full-body "
+          "atlases AND several unrelated 256x128 underwear-strap decals on bloodelffemale_hd, so "
+          "category alone wasn't enough, and a same-resolution overlay like body_jewelry can tie "
+          "with the real atlas on pixel area alone") {
+    auto dir = defaultsDir("size-ranked-default");
+    writeFile(dir / "sizetest.m2", oneTexturedModelWithType(1));  // 1 = TEX_COMPONENT_SKIN
+    writeFile(dir / "sizetest00.skin", oneTexturedModelSkin());
+    // Small skin_color decal -- must lose to the larger one below.
+    writeFile(dir / "sizetest_skin_color_1000.png", solidColorPng(2, 2, 200, 150, 100));
+    // Large skin_color atlas -- the real base layer, must win overall.
+    writeFile(dir / "sizetest_skin_color_1001.png", solidColorPng(8, 8, 200, 150, 100));
+    // Same-size overlay -- ties on pixel area with the atlas above, must
+    // still lose to it (skin_color is the base layer, this is layered on
+    // top of it, never the right default by itself).
+    writeFile(dir / "sizetest_body_jewelry_2000.png", solidColorPng(8, 8, 220, 190, 60));
+
+    auto result = runHusk("export " + (dir / "sizetest.m2").string());
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string err, warn;
+    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "sizetest.glb").string()));
+    REQUIRE(model.materials.size() == 1);
+    CHECK(model.materials[0].name.find("skin_color_1001") != std::string::npos);
+    REQUIRE(model.materials[0].extras.Has("alternate_textures"));
+    auto alt = model.materials[0].extras.Get("alternate_textures");
+    REQUIRE(alt.ArrayLen() > 0);
+    CHECK(alt.Get(0).Get("filename").Get<std::string>() == "sizetest_skin_color_1001.png");
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: an ambiguous slot's default prefers a real recognized-category candidate "
+          "over a bare/unlabeled one sharing the model's basename (real bug: bloodelffemale_hd's "
+          "own bare '<model>_<fdid>.blp' file turned out to be an unrelated small icon, not a "
+          "skin texture, while the real skin atlas was sitting under the recognized 'skin_color' "
+          "category the whole time)") {
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+
+    auto dir = defaultsDir("bare-vs-category");
+    writeFile(dir / "baretest.m2", oneTexturedModelWithType(1));  // 1 = TEX_COMPONENT_SKIN
+    writeFile(dir / "baretest00.skin", oneTexturedModelSkin());
+    // Bare candidate -- alphabetically first (numeric sorts before letters),
+    // exactly the shape that used to win by pure alphabetical accident.
+    writeFile(dir / "baretest_1000.png", onePixelPng);
+    writeFile(dir / "baretest_skin_color_2000.png", onePixelPng);
+
+    auto result = runHusk("export " + (dir / "baretest.m2").string());
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string err, warn;
+    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "baretest.glb").string()));
+    REQUIRE(model.materials.size() == 1);
+    // The bare file is a real unrecognized-category candidate with no
+    // evidence behind it -- filterCandidatesForType drops it entirely from
+    // this slot's candidate set once a recognized "skin_color" candidate
+    // exists (not just deprioritized), so this narrows all the way down to
+    // a *sole* match and resolves deterministically -- no alternate_textures
+    // ambiguity left to report at all, which is an even stronger outcome
+    // than "merely preferred".
+    CHECK_FALSE(model.materials[0].extras.Has("alternate_textures"));
+    CHECK(model.materials[0].name.find("skin_color") != std::string::npos);
+    CHECK(result.output.find("baretest_skin_color_2000.png") != std::string::npos);
+    CHECK(result.output.find("baretest_1000.png") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: two batches resolving to the exact same material (same materialIndex, "
+          "same textureComboIndex) share one gltf::Material instead of getting one each "
+          "(EYES_ON_FINDINGS.md: real corpus models had ~500 batches producing ~500 materials "
+          "where a handful of truly distinct ones would do)") {
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+
+    auto dir = defaultsDir("material-dedup");
+    writeFile(dir / "dedup.m2", oneTexturedModel(4242));
+    writeFile(dir / "dedup00.skin", twoBatchesSameComboSkin());
+    writeFile(dir / "4242.png", onePixelPng);
+
+    auto result = runHusk("export " + (dir / "dedup.m2").string());
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string err, warn;
+    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "dedup.glb").string()));
+    // One material, shared by both primitives -- not two content-identical
+    // ones.
+    REQUIRE(model.materials.size() == 1);
+    REQUIRE(!model.meshes.empty());
+    REQUIRE(model.meshes[0].primitives.size() == 2);
+    CHECK(model.meshes[0].primitives[0].material == 0);
+    CHECK(model.meshes[0].primitives[1].material == 0);
+    // The stored material's name describes what it is, not which batch
+    // happened to produce it first -- no "batch0_"/"batch1_" prefix.
+    CHECK(model.materials[0].name.find("batch") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk export: a fdid-resolvable slot keeps its own FileDataID-named file even when a "
           "hardcoded slot in the same model claims a real-named file from the shared fuzzy pool "
           "(regression: an earlier version of the name-priority fix let this cross-contaminate)") {

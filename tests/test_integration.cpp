@@ -780,8 +780,19 @@ void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::stri
             continue;
         }
         foundMultiLayerBatch = true;
-        REQUIRE(bi < model.materials.size());
-        const auto& extras = model.materials[bi].extras;
+        // Batch index bi still lines up with the *primitive* at the same
+        // position (dedup, export_materials.cpp's buildMaterialsAndPrimitives,
+        // never skips or reorders primitives, only which material a
+        // primitive's own `.material` points at) -- but bi no longer
+        // reliably indexes `model.materials` directly, since two batches
+        // producing content-identical materials now share one entry
+        // instead of getting one each.
+        REQUIRE(!model.meshes.empty());
+        REQUIRE(bi < model.meshes[0].primitives.size());
+        int matIdx = model.meshes[0].primitives[bi].material;
+        REQUIRE(matIdx >= 0);
+        REQUIRE(static_cast<size_t>(matIdx) < model.materials.size());
+        const auto& extras = model.materials[matIdx].extras;
         REQUIRE(extras.IsObject());
         const auto& additional = extras.Get("additional_textures");
         REQUIRE(additional.IsArray());

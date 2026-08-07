@@ -570,3 +570,260 @@ filename, `additionalTextureLayers` from their FileDataID (no filename
 tracked there). Verified with a real headless-Blender import of the
 fixed `bloodelffemale_hd.m2` export: 99 images, all previously
 `Image_0`..`Image_98`, all now real names, 0 left generic.
+
+**Real correction, a later session — the "prefer bare/skin_color as the
+base layer" default logic above was wrong, not just imprecise.** Prompted
+directly ("we REALLY need to get ridd of the 500 materials produced by
+batches... only 1 material per mat<num>_tex<num>_<id> combination", plus
+"the texture in those instances is identical" about repeated
+`bloodelffemale_hd_body_jewelry_3602029.<N>`-suffixed images in Blender)
+and a reference screenshot of what correctly-matched skin/hair/jewelry
+should actually look like (tan skin, blue hair, silver jewelry/bracelet).
+Two real, separate problems, both fixed this session:
+
+1. **~500 materials from ~500 batches, one gltf::Material per batch with
+   no reuse.** `src/export_materials.cpp` now computes a real content
+   signature (`materialDedupKey`) for every fully-built `gltf::Material` —
+   every field that isn't purely batch-numbering (blend/tint/texture *and*
+   per-batch animation curves, since M2Color/M2TextureWeight combo indices
+   are batch-level, not material-level, so two batches sharing
+   (materialIndex, textureIndex) can still legitimately carry different
+   tint/fade animation) — and reuses an existing material via
+   `materialByKey` instead of creating a new one whenever a batch's built
+   content exactly matches one already emitted. The stored material's name
+   also drops the `batch<N>_` prefix once dedup applies, matching what was
+   asked for directly (`mat<num>_tex<num>_<id>`). Verified on the real
+   `bloodelffemale_hd.m2` export: 114 materials → 10. New regression test
+   (`tests/test_cli.cpp`, two batches resolving to the exact same
+   material), proven to fail without the fix (114→2 collapsed back to
+   "2 == 1" REQUIRE failure when the dedup lookup was temporarily
+   hard-disabled) before being confirmed passing.
+
+2. **The repeated `body_jewelry_3602029.<N>`-suffixed images turned out to
+   be the *same* root cause as #1**, not a separate texture-embedding bug —
+   every one of those was a separate, content-identical `gltf::Material`
+   (pre-dedup) independently embedding its own copy of the same image
+   bytes; #1's dedup means there's only one material, hence only one
+   embedded copy, to begin with. A second, smaller, genuinely separate case
+   remained even after dedup: two *different* materials (different
+   `textureType`, e.g. `char_hair` and `object_skin`) can still legitimately
+   resolve to the exact same source file when both fall back to the same
+   unrecognized-category wildcard candidate — `gltf_mesh.cpp`'s primary-
+   image embedding now shares the same `alternateTextureCache` (filename →
+   texture index) the `alternate_textures` candidates already used, so two
+   materials embedding the identical file share one glTF image instead of
+   two. Verified: 0 `.NNN`-suffixed duplicate image names left in Blender
+   after both fixes, down from 1 residual case with only #1 applied.
+
+3. **The "prefer bare/skin_color, unrecognized-category candidates stay a
+   full wildcard" logic itself was wrong, caught by actually looking at
+   the images `husk-blp` decodes them to, not just their file sizes/names.**
+   `bloodelffemale_hd_3255415.blp` (the bare `<model>_<FileDataID>` file
+   that kept winning the `skin`-type slot's default via alphabetical-first,
+   then via the session-before-this's explicit "prefer bare over face"
+   rule) turned out, viewed directly, to be a tiny, mostly-transparent
+   sparkle/glint icon — nothing like a skin texture. The real full-body
+   skin atlas (torso/ears/face combined, 1024×512, matching the reference
+   screenshot's tan skin tone almost exactly) was sitting the whole time
+   under the **recognized** `skin_color` category. Same story for
+   `char_hair`: the unrecognized `eyereflect.blp` (a 128×128 pure-white eye-
+   reflection sprite) was winning over the real, recognized `hair_color`
+   candidates purely because `"eyereflect" < "hair_color"` alphabetically.
+
+   Root cause: `candidateAllowedForType`'s bare-file handling was guessing
+   what an unlabeled file *is* (assumed "the base skin/skin_extra layer")
+   instead of just correctly excluding what a labeled file *isn't* for a
+   given slot — the one guess this project's own established discipline
+   (see finding #6's own "filtering is safer than picking" framing) had
+   explicitly tried to avoid making, made anyway, and disproven by direct
+   evidence. Fixed by removing the guess entirely: `filterCandidatesForType`
+   now always prefers whatever's *recognized and compatible* for a slot's
+   `textureType`, falling back to unlabeled/unrecognized candidates only
+   when nothing recognized exists at all (the one case they're still
+   needed — a non-character model with no category vocabulary in its
+   texture directory). `orderCandidatesForDefault` (renamed from
+   `preferBaseLayerCandidate`) keeps exactly one real, evidence-backed
+   preference within the recognized set: `skin_color` (a real full-body
+   atlas) ranks above `face` (a real but narrower, darker face-only
+   variant) specifically for the two compositing types, both confirmed by
+   viewing the actual decoded images side by side, not inferred from
+   naming alone.
+
+   Verified on the real `bloodelffemale_hd.m2` export: `mat5_tex2_skin`'s
+   embedded default changed from the sparkle icon to
+   `bloodelffemale_hd_skin_color_3500114` (average RGB (0.44, 0.27, 0.15),
+   a real tan skin tone matching the reference screenshot), `mat0_tex1_
+   char_hair`'s default changed from the white eye-reflection sprite to
+   `bloodelffemale_hd_hair_color_4556603` (a real hair-strand texture).
+   New regression test (`tests/test_cli.cpp`, ambiguous slot with a bare
+   candidate *and* a recognized-category one), proven to fail without the
+   fix (the bare file leaked back into `alternate_textures` when the
+   two-tier recognized/fallback split was temporarily disabled) before
+   being confirmed passing. Full suite green throughout, 522/522.
+
+**A second, more specific correction, prompted directly by real Blender
+verification written up in `LUNA_FINDINGS.md`** (not `LUNA_NOTES.md` --
+misread as the latter at first when asked to "read LUNA_NOTES.md and
+start investigating", corrected directly: "You should have asked me when
+it didn't have findings, i could have pointed out that i fucked up the
+naming, it's LUNA_FINDINGS.md"). That file confirmed the material-dedup
+fix above directly (batches that should merge, by exact name) and named
+the `char_hair`/`eyereflect` bug above independently too, but added one
+more real, specific fact this session hadn't found on its own: for
+`bloodelffemale_hd`'s one real `char_jewelry` (type 20) material,
+**only** `jewelry_color_3613861`/`_3613862` are correct — not
+`body_jewelry_3602029`, which `candidateCategoryTypes` had also mapped to
+type 20 on the (English-name) assumption that anything "jewelry" belongs
+to the same slot. Viewed directly (`husk-blp`): `jewelry_color_3613861`/
+`_3613862` are a matched gold/silver collar-and-gem pair (real color
+variants of one design), while `body_jewelry_3602029` is a visually
+distinct necklace-chain item and `bracelets_3613863` a wrist band --
+neither is a color variant of the jewelry_color design. First fixed by
+removing both from `candidateCategoryTypes` entirely (leaving them
+unclassified rather than reassigning them without evidence) -- correct as
+far as it went (excludes them from `char_jewelry`), but incomplete: told
+directly, immediately after, *why* they're different -- `body_jewelry`/
+`bracelets` are flat texture overlays meant to be composited onto the
+skin texture itself (no UV map of their own), the same family as
+`skin_color`/`face`, while `jewelry_color` textures a genuinely separate
+3D jewelry mesh with its own UV map. Corrected again: both now map to
+types 1/8 (skin/skin_extra) alongside `skin_color`/`face`, not left
+unclassified. Verified on the real export: the `char_jewelry` material's
+`alternate_textures` lists only the two `jewelry_color` files (matching
+`LUNA_FINDINGS.md`'s "the *only* valid options"), while the `skin`-type
+material's own candidate count grew back to include `body_jewelry`/
+`bracelets` as real compositable overlay candidates instead of losing
+them entirely. New regression test (`tests/test_cli.cpp`), proven to
+fail without the type-20 exclusion fix (temporarily re-adding
+`body_jewelry`/`bracelets` to the type-20 mapping reproduced
+`alt.ArrayLen() == 4` instead of `2`) before being confirmed passing.
+Full suite green, 523/523.
+
+**A fourth correction, same investigation, prompted by Luna trying to
+manually locate `bloodelffemale_hd_skin_color_3500121` in Blender and not
+being able to make sense of where it fit**: she described `3500123` as
+"the 'base' skin color that gets rendered under armors... the whole
+character + face + face jewelry" (matching this session's own earlier
+`husk-blp` inspection exactly) and `3500121` as "just the body, with the
+underwear... but it has completely different uv layout" -- a real, second
+kind of full-body atlas (nude/underwear vs. worn-under-armor), not an
+overlay. Investigating turned up a *third* problem, not just an answer to
+"where does 3500121 go": `bloodelffemale_hd`'s twelve real
+`skin_color_350011X`/`350012X` files split into two starkly different
+size classes when actually decoded -- eight of them (`3500114`-`3500121`)
+are 256x128 small strap/underwear-detail decals, not full atlases at all
+(one directly inspected: a tiny bra-strap graphic on a mostly-transparent
+background), while the other four (`3500122`-`3500125`) are the real
+1024x512 full-body atlases, matched skin-tone color variants of one
+design. `orderCandidatesForDefault`'s "prefer `skin_color`" rule
+(previous entry) picked *whichever* `skin_color` file sorted
+alphabetically first among all of these -- `3500114`, one of the tiny
+decals, not a real atlas at all.
+
+Fixed with a new, more fundamental signal: `pngPixelArea` reads a
+candidate's real width×height straight out of its already-decoded PNG's
+IHDR chunk (no extra decode pass), and `orderCandidatesForDefault` now
+ranks by that first -- largest wins -- falling back to the `skin_color`
+category preference only as a tiebreak among same-area candidates (needed
+because a same-resolution overlay like `body_jewelry_3602029`, itself a
+correct 1024x512 candidate for this slot, would otherwise tie with the
+real atlas on size alone). This replaces the purely category-based
+ranking the previous entry added -- category alone was never sufficient,
+since the very finding that motivated it (a face texture being offered to
+a shoes-region skin material) turned out to be one instance of a broader
+fact: even one recognized category can contain assets of completely
+different kinds and scales. Verified on the real export: the `skin`
+material's default changed from the tiny `3500114` decal to
+`skin_color_3500122`, a real 1024x512 full-body atlas, matching the class
+of asset Luna described as correct. Two new regression tests
+(`tests/test_cli.cpp`, using a new `solidColorPng` PNG-of-arbitrary-size
+fixture generator, `tests/test_cli_fixtures.hpp`, since every prior
+fixture used one fixed 1x1 literal), each proven to fail independently
+when its own signal (area, then category-tiebreak) was temporarily
+disabled. A real performance regression was caught and fixed in the same
+pass before it shipped: the first working version read every candidate's
+bytes into a *function-local* cache to check its size, meaning every one
+of the ~27 batches sharing this slot re-decoded the same ~60 `.blp`
+files from scratch just to sort them -- the same "1786 redundant decodes"
+shape this project already found and fixed once before (finding #6) --
+fixed by sharing `buildMaterialsAndPrimitives`'s own
+`ambiguousCandidateCache` into `orderCandidatesForDefault` instead of a
+fresh local one; real export time went from >120s (timed out) back down
+to ~4.6s. Full suite green, 524/524.
+
+**Resolved, with a screenshot -- and a real mechanism found, not just an
+answer to one file.** The "these are just small decals, not skin
+content" read on the small `skin_color` files above was itself wrong,
+shown directly: `bloodelffemale_hd_skin_color_3500119`'s content
+pixel-matches one specific rectangular region of `_3500123` (the real
+base atlas) exactly -- a non-transparent overlay meant to sit precisely
+on top of that one sub-region (a chest strap), not an unrelated or junk
+asset. A second screenshot confirmed `_3500115` the same way, aligned to
+a *different* region of the same base atlas. These are real, deliberately
+composited **patches**, each keyed to one specific placement rectangle on
+the base atlas -- Luna's own framing: "worth investigating how this is
+mapped originally."
+
+Investigated directly in `reference/wow.export`
+(`src/js/3D/renderers/CharMaterialRenderer.js:114-118`, and
+`src/js/db/caches/DBCharacterCustomization.js:203-215`): the real client
+mechanism is exactly this, driven by three real DB2 tables --
+`ChrModelMaterial` (the base atlas's own Width/Height), 
+`CharComponentTextureSections` (`SectionType`, `X`, `Y`, `Width`,
+`Height` -- the literal placement rectangle each patch composites into),
+and `ChrModelTextureLayer` (`BlendMode`, which section/target a given
+texture-type layer uses). This is real, confirmed, DB2-driven placement
+data -- and squarely CASC/DB2 data husk has no access to and never will,
+by design (`DESIGN.md`'s Non-goals). Not a dead end from guessing; a
+confirmed, named mechanism husk structurally cannot reach.
+
+**What husk can still do, and now does**: `AlternateTextureCandidate`
+gained real `width`/`height` fields (`src/gltf_mesh.hpp`, populated by
+the new `pngDimensions` in `src/export_materials.cpp`, emitted as
+`alternate_textures[].width`/`.height` extras, `src/gltf_mesh.cpp`) --
+not the real placement rectangle (husk has no `CharComponentTextureSections`
+data to source one from), but real, decoded, load-bearing data
+(`orderCandidatesForDefault`'s own ranking already depends on it) that at
+least saves a human from decoding each candidate by hand to tell a full
+atlas apart from a small region-patch, the exact manual cross-referencing
+work that surfaced this whole finding. Verified on the real export: 71
+`alternate_textures` entries at 512x512, 20 at 256x256, 13 at 1024x512, 10
+at 128x128 -- a real, visible size spread a Blender script or human can
+now filter/sort by directly from the glTF extras, without husk-blp.
+
+**Real DB2 access confirmed in scope, not a dead end after all**: asked
+directly whether these DB2 tables exist in Luna's own real local
+`casc-tool` export (**not** `reference/wow.export`, the untrustworthy
+third-party JS tool checked out elsewhere in this repo for source-code
+reference only -- corrected directly after conflating the two similarly-
+named things), given the actual non-goal is "no CASC *tool* dependency,"
+not "no DB2 data ever" -- they do
+(`/media/luna/data/wow_export/dbfilesclient/chrmodelmaterial.db2` etc.,
+confirmed `WDC5` format by header, plus the full customization-choice
+chain needed to resolve *which* file goes in a given slot for a specific
+character). This reopens the compositing problem this whole thread has
+been working around rather than solving. Full plan, staged, written up in
+`CHAR_TEXTURE_COMPOSITING_TODO.md` rather than here -- goal (Luna,
+directly): a real compositing pipeline, plus Blender-side tooling that
+lets a human pick from the real, correctly-UV-placed candidate options
+per slot. Not started in `src/` yet.
+
+**Genuinely still open, found while investigating, not yet fixed**: several
+of the real, deterministically-resolved slots (`M2Texture::type == 0`,
+textures 10–12 in `bloodelffemale_hd.m2` — real FileDataIDs `3536810`/
+`4530998`/`5210137`) have **no local file at all** in the real
+`/media/luna/data/wow_export` export directory under either their exact
+`<FileDataID>.blp` name or the model's own basename convention — these
+aren't customization slots, they're supposed to be simple, concrete
+assets (e.g. a specific cloak/necklace mesh's own texture), so falling
+back to the same ambiguous same-basename pool as the hardcoded slots is
+questionable: since none of that pool's *recognized* categories are ever
+compatible with `textureType == 0` (`candidateCategoryTypes` has no
+entry mapping to it), these three slots always land in the unrecognized-
+fallback tier and pick the same sparkle-icon default as before this
+session's fix, for a different reason this time — genuinely missing local
+data, not a resolution bug. Whether these three FileDataIDs are simply
+absent from this particular local export, or live under a completely
+different (non-basename-matching) filename this project's fuzzy pool was
+never designed to search for, is unconfirmed — flagged for whoever picks
+this up next rather than guessed at.

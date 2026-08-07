@@ -73,6 +73,101 @@ void putF32(std::vector<uint8_t>& b, float v) {
 
 void putTag(std::vector<uint8_t>& b, const char* tag) { b.insert(b.end(), tag, tag + 4); }
 
+void putU32BE(std::vector<uint8_t>& b, uint32_t v) {
+    b.push_back(static_cast<uint8_t>(v >> 24));
+    b.push_back(static_cast<uint8_t>(v >> 16));
+    b.push_back(static_cast<uint8_t>(v >> 8));
+    b.push_back(static_cast<uint8_t>(v));
+}
+
+uint32_t crc32Of(const std::vector<uint8_t>& data) {
+    static uint32_t table[256];
+    static bool init = false;
+    if (!init) {
+        for (uint32_t n = 0; n < 256; n++) {
+            uint32_t c = n;
+            for (int k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+            table[n] = c;
+        }
+        init = true;
+    }
+    uint32_t crc = 0xFFFFFFFFu;
+    for (uint8_t byte : data) crc = table[(crc ^ byte) & 0xFF] ^ (crc >> 8);
+    return crc ^ 0xFFFFFFFFu;
+}
+
+void putPngChunk(std::vector<uint8_t>& png, const char* tag, const std::vector<uint8_t>& data) {
+    putU32BE(png, static_cast<uint32_t>(data.size()));
+    std::vector<uint8_t> tagAndData(tag, tag + 4);
+    tagAndData.insert(tagAndData.end(), data.begin(), data.end());
+    png.insert(png.end(), tagAndData.begin(), tagAndData.end());
+    putU32BE(png, crc32Of(tagAndData));
+}
+
+// A real, valid, tinygltf/stb_image-decodable RGBA PNG of exactly
+// `width`x`height`, one solid color -- unlike the hand-transcribed 1x1
+// literal several tests already use, this lets a test construct real
+// candidates of *different* pixel dimensions, needed for anything
+// exercising export_materials.cpp's pixel-area-based default ranking
+// (orderCandidatesForDefault). No zlib dependency: the IDAT stream uses
+// uncompressed ("stored") deflate blocks, a real, spec-legal deflate
+// encoding (RFC 1951 §3.2.4) most decoders (including stb_image, which
+// tinygltf uses) accept exactly the same as a compressed one.
+std::vector<uint8_t> solidColorPng(uint32_t width, uint32_t height, uint8_t r, uint8_t g, uint8_t b) {
+    std::vector<uint8_t> png = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+
+    std::vector<uint8_t> ihdr;
+    putU32BE(ihdr, width);
+    putU32BE(ihdr, height);
+    ihdr.push_back(8);  // bit depth
+    ihdr.push_back(6);  // color type: RGBA
+    ihdr.push_back(0);  // compression method
+    ihdr.push_back(0);  // filter method
+    ihdr.push_back(0);  // interlace method
+    putPngChunk(png, "IHDR", ihdr);
+
+    std::vector<uint8_t> raw;  // one filter-type-0 byte + RGBA bytes per row
+    raw.reserve(height * (1 + width * 4));
+    for (uint32_t y = 0; y < height; ++y) {
+        raw.push_back(0);
+        for (uint32_t x = 0; x < width; ++x) {
+            raw.push_back(r);
+            raw.push_back(g);
+            raw.push_back(b);
+            raw.push_back(255);
+        }
+    }
+
+    std::vector<uint8_t> zdata = {0x78, 0x01};  // zlib header (deflate, default window)
+    size_t pos = 0;
+    do {
+        size_t remaining = raw.size() - pos;
+        size_t blockLen = std::min(remaining, static_cast<size_t>(65535));
+        bool isFinal = (pos + blockLen) >= raw.size();
+        zdata.push_back(isFinal ? 1 : 0);  // BFINAL bit, BTYPE=00 (stored)
+        uint16_t len = static_cast<uint16_t>(blockLen);
+        uint16_t nlen = static_cast<uint16_t>(~len);
+        zdata.push_back(static_cast<uint8_t>(len));
+        zdata.push_back(static_cast<uint8_t>(len >> 8));
+        zdata.push_back(static_cast<uint8_t>(nlen));
+        zdata.push_back(static_cast<uint8_t>(nlen >> 8));
+        zdata.insert(zdata.end(), raw.begin() + static_cast<long>(pos),
+                      raw.begin() + static_cast<long>(pos + blockLen));
+        pos += blockLen;
+    } while (pos < raw.size());
+
+    uint32_t adlerA = 1, adlerB = 0;
+    for (uint8_t byte : raw) {
+        adlerA = (adlerA + byte) % 65521;
+        adlerB = (adlerB + adlerA) % 65521;
+    }
+    putU32BE(zdata, (adlerB << 16) | adlerA);
+
+    putPngChunk(png, "IDAT", zdata);
+    putPngChunk(png, "IEND", {});
+    return png;
+}
+
 // A minimal valid-shaped MD20 blob: every field husk::m2::parseBlob reads,
 // zeroed, through particleEmitters (minHeaderSize = 0x130 = 304 bytes --
 // see src/m2.cpp's offset table, or tests/test_m2.cpp's independent

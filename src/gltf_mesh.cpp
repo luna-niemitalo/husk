@@ -41,22 +41,49 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
     tm.pbrMetallicRoughness.baseColorFactor = {mat.baseColorFactor[0], mat.baseColorFactor[1],
                                                  mat.baseColorFactor[2], mat.baseColorFactor[3]};
     if (!mat.baseColorImagePng.empty()) {
-        int imgView = appendBufferView(buffer, views, mat.baseColorImagePng, /*target=*/0);
-        tinygltf::Image img;
-        img.mimeType = "image/png";
-        img.bufferView = imgView;
-        // Real source filename (Material::baseColorImageName's own doc
-        // comment) -- without this, Blender's glTF importer falls back to
-        // an auto-generated "Image_<N>" name, which is what prompted this.
-        img.name = mat.baseColorImageName;
-        int imgIdx = static_cast<int>(images.size());
-        images.push_back(img);
+        // Two genuinely different materials (different textureType, e.g.
+        // char_hair vs. object_skin) can still legitimately resolve to the
+        // exact same source file -- an unrecognized-category fuzzy
+        // candidate stays a wildcard for every type (candidateAllowedForType's
+        // doc comment), so nothing stops two unrelated ambiguous slots from
+        // picking the same one. materialDedupKey (export_materials.cpp)
+        // already merges materials that are otherwise identical, but these
+        // two aren't (different textureType) -- so without this cache each
+        // would still embed its own separate copy of the same image, which
+        // is exactly the "same filename, incrementing Blender suffix"
+        // report this cache is here to close. Keyed by the same real source
+        // filename `alternateTextureCache` already uses for
+        // alternateTextureCandidates -- one shared cache, one shared
+        // meaning, not two independently-behaving lookups.
+        auto cached = mat.baseColorImageName.empty()
+                          ? alternateTextureCache.end()
+                          : alternateTextureCache.find(mat.baseColorImageName);
+        int texIdx;
+        if (cached != alternateTextureCache.end()) {
+            texIdx = cached->second;
+        } else {
+            int imgView = appendBufferView(buffer, views, mat.baseColorImagePng, /*target=*/0);
+            tinygltf::Image img;
+            img.mimeType = "image/png";
+            img.bufferView = imgView;
+            // Real source filename (Material::baseColorImageName's own doc
+            // comment) -- without this, Blender's glTF importer falls back
+            // to an auto-generated "Image_<N>" name, which is what
+            // prompted this.
+            img.name = mat.baseColorImageName;
+            int imgIdx = static_cast<int>(images.size());
+            images.push_back(img);
 
-        tinygltf::Texture tex;
-        tex.source = imgIdx;
-        tex.name = mat.baseColorImageName;
-        int texIdx = static_cast<int>(textures.size());
-        textures.push_back(tex);
+            tinygltf::Texture tex;
+            tex.source = imgIdx;
+            tex.name = mat.baseColorImageName;
+            texIdx = static_cast<int>(textures.size());
+            textures.push_back(tex);
+
+            if (!mat.baseColorImageName.empty()) {
+                alternateTextureCache.emplace(mat.baseColorImageName, texIdx);
+            }
+        }
 
         tm.pbrMetallicRoughness.baseColorTexture.index = texIdx;
         if (mat.baseColorTexCoord == 1 && uv2AccIdx >= 0) {
@@ -170,6 +197,10 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
             candObj["filename"] = tinygltf::Value(cand.filename);
             if (!cand.category.empty()) {
                 candObj["category"] = tinygltf::Value(cand.category);
+            }
+            if (cand.width != 0 && cand.height != 0) {
+                candObj["width"] = tinygltf::Value(static_cast<int>(cand.width));
+                candObj["height"] = tinygltf::Value(static_cast<int>(cand.height));
             }
             if (!cand.imagePng.empty()) {
                 auto cached = alternateTextureCache.find(cand.filename);

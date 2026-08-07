@@ -542,6 +542,58 @@ std::vector<uint8_t> twoBatchSkin() {
     return skin;
 }
 
+// Two submesh/batch pairs, both pointing at textureComboIndex 0 and
+// materialIndex 0 -- i.e. two batches that resolve to the exact same
+// material in every way husk models one. Regression fixture for
+// export_materials.cpp's material dedup (materialDedupKey/materialByKey):
+// over oneTexturedModel()/oneTexturedModelWithType()'s single texture slot,
+// this should collapse to one gltf::Material shared by two primitives,
+// not two separate (but content-identical) materials.
+std::vector<uint8_t> twoBatchesSameComboSkin() {
+    std::vector<uint8_t> skin;
+    putTag(skin, "SKIN");
+    skin.resize(44, 0);
+    auto patchArray = [&](size_t off, uint32_t count, uint32_t offset) {
+        std::memcpy(skin.data() + off, &count, 4);
+        std::memcpy(skin.data() + off + 4, &offset, 4);
+    };
+
+    uint32_t submeshOff = static_cast<uint32_t>(skin.size());
+    skin.resize(skin.size() + 2 * 0x30, 0);
+    for (int i = 0; i < 2; ++i) {
+        uint16_t indexStart = 0, indexCount = 3;
+        std::memcpy(skin.data() + submeshOff + i * 0x30 + 0x08, &indexStart, 2);
+        std::memcpy(skin.data() + submeshOff + i * 0x30 + 0x0A, &indexCount, 2);
+    }
+    patchArray(0x1C, 2, submeshOff);
+
+    uint32_t batchOff = static_cast<uint32_t>(skin.size());
+    skin.resize(skin.size() + 2 * 0x18, 0);
+    uint16_t zero16 = 0, one16 = 1, noColor = 0xFFFF;
+    for (int i = 0; i < 2; ++i) {
+        uint16_t submeshIndex = static_cast<uint16_t>(i);
+        std::memcpy(skin.data() + batchOff + i * 0x18 + 0x04, &submeshIndex, 2);
+        std::memcpy(skin.data() + batchOff + i * 0x18 + 0x08, &noColor, 2);  // colorIndex: none
+        std::memcpy(skin.data() + batchOff + i * 0x18 + 0x0A, &zero16, 2);  // materialIndex: 0 (shared)
+        std::memcpy(skin.data() + batchOff + i * 0x18 + 0x0E, &one16, 2);   // textureCount: 1
+        std::memcpy(skin.data() + batchOff + i * 0x18 + 0x10, &zero16, 2);  // textureComboIndex: 0 (shared)
+    }
+    patchArray(0x24, 2, batchOff);
+
+    uint32_t vertOff = static_cast<uint32_t>(skin.size());
+    putU16(skin, 0);
+    patchArray(0x04, 1, vertOff);
+
+    uint32_t idxOff = static_cast<uint32_t>(skin.size());
+    putU16(skin, 0);
+    putU16(skin, 0);
+    putU16(skin, 0);
+    patchArray(0x0C, 3, idxOff);
+
+    patchArray(0x14, 0, 0);
+    return skin;
+}
+
 // Shared by every --bones-dir test below: a 0-inline-bone model + a .skel
 // with one root bone (index 0) and a BFID chunk declaring FileDataID
 // 424242 -- the minimum shape needed to prove --bones-dir's resolution

@@ -175,6 +175,20 @@ struct Material {
         // this vocabulary comes from (`reference/wow.export`'s own
         // character-customization code, not a husk guess).
         std::string category;
+        // Real decoded pixel dimensions (export_materials.cpp's
+        // `pngDimensions`) -- not decoration, load-bearing for
+        // `orderCandidatesForDefault`'s own ranking (largest wins), and
+        // surfaced here so a human comparing candidates in Blender doesn't
+        // have to decode each one by hand to tell a full atlas apart from
+        // a same-category *patch* meant to be composited onto one small
+        // sub-region of it: real evidence found several same-category
+        // "skin_color" files are exactly that -- non-transparent overlay
+        // patches whose own content pixel-matches one specific region of
+        // a much larger sibling (e.g. a chest-strap design confirmed to
+        // align exactly with a torso region of the real base atlas), not
+        // independent whole-slot alternatives at all.
+        uint32_t width = 0;
+        uint32_t height = 0;
         std::vector<uint8_t> imagePng;
     };
     std::vector<AlternateTextureCandidate> alternateTextureCandidates;

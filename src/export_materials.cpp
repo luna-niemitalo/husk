@@ -8,6 +8,7 @@
 #include <iostream>
 #include <map>
 #include <set>
+#include <sstream>
 #include <unordered_map>
 
 #include "blp.hpp"
@@ -252,20 +253,36 @@ std::optional<std::string> classifyCandidateCategory(const std::filesystem::path
 // several blended layers at runtime, not one raw file -- husk has no
 // compositing engine (would need real ChrModelTextureLayer blend-order/DB2
 // data it deliberately doesn't have, see DESIGN.md's Non-goals), so
-// "skin_color"/"face" both stay valid candidates for those two types, but
-// see `pickDefaultCandidate` for why the base layer is still preferred over
-// the overlay when choosing which one becomes the wired default.
+// "skin_color"/"face"/"body_jewelry"/"bracelets" all stay valid candidates
+// for those two types -- see `orderCandidatesForDefault` for how the
+// default is actually chosen among them (real decoded pixel area, not a
+// category-name preference: a same-category token can span genuinely
+// different kinds of asset, see that function's own doc comment).
+//
+// "body_jewelry"/"bracelets" are mapped to 1/8 (skin/skin_extra), not 20
+// (char_jewelry) alongside "jewelry_color" -- an earlier version of this
+// table did put them under type 20, on the assumption that anything
+// English-named "jewelry" belongs to the same slot; real, direct
+// verification (`LUNA_FINDINGS.md`, Blender inspection of a real
+// `bloodelffemale_hd.m2` export) first found only `jewelry_color_3613861`/
+// `_3613862` are actually correct for its one `char_jewelry` material, then
+// explained *why*: `body_jewelry`/`bracelets` are flat texture overlays
+// meant to be composited onto the skin texture itself (same family as
+// `skin_color`/`face`, no UV map of their own), while `jewelry_color`
+// textures a genuinely separate 3D jewelry mesh with its own UV map --
+// different kind of thing entirely, not just a different customization
+// category of the same kind.
 const std::unordered_map<std::string, std::vector<uint32_t>>& candidateCategoryTypes() {
     static const std::unordered_map<std::string, std::vector<uint32_t>> kMap = {
         {"skin_color", {1, 8}},
         {"face", {1, 8}},
+        {"body_jewelry", {1, 8}},
+        {"bracelets", {1, 8}},
         {"hair_color", {6, 22}},
         {"hair_style", {6, 22}},
         {"facial_hair", {7}},
         {"eye_color", {19}},
         {"jewelry_color", {20}},
-        {"body_jewelry", {20}},
-        {"bracelets", {20}},
         {"blindfold", {9}},
     };
     return kMap;
@@ -280,75 +297,139 @@ const std::unordered_map<std::string, std::vector<uint32_t>>& candidateCategoryT
 // offered to a "char_jewelry" (type 20) slot just because both slots are
 // independently ambiguous.
 //
-// A bare "<model>_<FileDataID>" candidate (category == "") is the one
-// genuinely ambiguous case: on a simple, non-character model it's the only
-// kind of candidate that ever exists, so it has to stay a wildcard, but on
-// a real character-customization directory (recognized category siblings
-// present elsewhere in the same pool -- `bareMeansSkinOnly`, set once per
-// model, not guessed per file) it's the real base skin/skin_extra layer
-// specifically (confirmed against `bloodelffemale_hd`'s own real export
-// directory: the bare files are consistently the small composite-target
-// candidates, never a hair/eye/jewelry file), so it's restricted the same
-// way "skin_color" is instead of leaking into every other ambiguous slot.
-bool candidateAllowedForType(const std::optional<std::string>& category, uint32_t textureType,
-                              bool bareMeansSkinOnly) {
-    if (!category) return true;
-    if (category->empty()) return !bareMeansSkinOnly || textureType == 1 || textureType == 8;
+// A bare "<model>_<FileDataID>" candidate is deliberately treated as just
+// another unrecognized category (same as a truly unclassifiable token),
+// NOT specially trusted as "the" skin/skin_extra layer -- an earlier
+// version of this function did assume that, and real evidence proved it
+// wrong: on `bloodelffemale_hd`, the bare `..._3255415.blp` file that kept
+// winning as the alphabetically-first default turned out (viewed via
+// `husk-blp`) to be a tiny mostly-transparent sparkle/glint icon, nothing
+// like a skin texture, while the real full-body atlas was sitting right
+// there under the *recognized* `skin_color` category the whole time. Bare
+// files aren't reliably anything in particular -- see
+// `filterCandidatesForType`'s doc comment for how this is actually kept
+// out of the way now, by falling back to it only when nothing recognized
+// exists at all, rather than by guessing what it is upfront.
+bool candidateAllowedForType(const std::optional<std::string>& category, uint32_t textureType) {
+    if (!category || category->empty()) return true;
     const auto& map = candidateCategoryTypes();
     auto it = map.find(*category);
     if (it == map.end()) return true;
     return std::find(it->second.begin(), it->second.end(), textureType) != it->second.end();
 }
 
-// True when the model's own fuzzy pool has at least one file carrying a
-// recognized category token -- see candidateAllowedForType's doc comment
-// for why this flips a bare candidate from "wildcard" to "skin-only".
-bool poolHasRecognizedCategory(const std::vector<std::filesystem::path>& files,
-                                const std::string& modelBasenameLower) {
+// The actual per-slot candidate set: every pool file whose category is
+// *recognized* and compatible with `textureType`, per candidateAllowedForType
+// -- but if that set is empty, falls back to whatever's left (bare or
+// genuinely unrecognized tokens), since those are the only candidates that
+// exist at all for a non-character model with no category vocabulary in its
+// texture directory. This two-tier scheme (prefer real category matches,
+// only fall back to unlabeled files when nothing labeled exists) is the
+// direct fix for the real bug `candidateAllowedForType`'s own doc comment
+// describes: an unlabeled file with no evidence behind it should never
+// outrank or crowd out a file a human already labeled correctly, but it's
+// still better than nothing when it's truly all that's available.
+std::vector<std::filesystem::path> filterCandidatesForType(const std::vector<std::filesystem::path>& files,
+                                                             uint32_t textureType,
+                                                             const std::string& modelBasenameLower) {
+    std::vector<std::filesystem::path> recognized;
+    std::vector<std::filesystem::path> fallback;
     const auto& map = candidateCategoryTypes();
     for (const auto& p : files) {
         auto category = classifyCandidateCategory(p, modelBasenameLower);
-        if (category && !category->empty() && map.count(*category)) return true;
+        if (!candidateAllowedForType(category, textureType)) continue;
+        bool isRecognized = category && !category->empty() && map.count(*category) != 0;
+        (isRecognized ? recognized : fallback).push_back(p);
     }
-    return false;
+    return recognized.empty() ? fallback : recognized;
 }
 
-// Reorders `candidates` (in place) so the preferred default-pick lands at
-// front() -- alphabetical (already `scanFuzzyTexturePool`'s own sort order)
-// for every ordinary slot, but for the two compositing types (1/8, see
-// candidateCategoryTypes' doc comment) a bare or "skin_color" file is moved
-// ahead of a narrower overlay like "face": a full-body base skin tone is a
-// far more plausible stand-in for "the whole skin texture" than a small
-// face-only overlay would be, even though neither is the real composited
-// answer.
-void preferBaseLayerCandidate(std::vector<std::filesystem::path>& candidates, uint32_t textureType,
-                               const std::string& modelBasenameLower) {
-    if (textureType != 1 && textureType != 8) return;
+// Reads a PNG's real width/height straight out of its IHDR chunk (bytes
+// 16..23, big-endian -- PNG signature (8) + length (4) + "IHDR" tag (4) =
+// offset 16) without decoding any pixel data. `readTextureFileBytes`
+// always hands back PNG bytes regardless of the source format (its own doc
+// comment), so this works uniformly for an original `.png` or a decoded
+// `.blp` alike. Returns {0, 0} for anything too short to hold a real IHDR
+// -- not expected in practice, since every caller here already got these
+// bytes from a successful `readTextureFileBytes`.
+std::pair<uint32_t, uint32_t> pngDimensions(const std::vector<uint8_t>& png) {
+    if (png.size() < 24) return {0, 0};
+    auto be32 = [&](size_t off) {
+        return (static_cast<uint32_t>(png[off]) << 24) | (static_cast<uint32_t>(png[off + 1]) << 16) |
+               (static_cast<uint32_t>(png[off + 2]) << 8) | static_cast<uint32_t>(png[off + 3]);
+    };
+    return {be32(16), be32(20)};
+}
+
+// Reorders `candidates` (in place, already filterCandidatesForType's
+// output) so the preferred default-pick lands at front(), by two real,
+// measured/verified signals, in order:
+//
+// 1. Decoded pixel area, largest first. Not a category-name heuristic --
+//    real evidence against `bloodelffemale_hd` found the *same* recognized
+//    category can span genuinely different kinds of asset: its own
+//    "skin_color" token covers both several real 1024x512 full-body
+//    atlases (matched skin-tone color variants of one design) *and*
+//    several unrelated 256x128 underwear-strap decal overlays. A small
+//    accent/decal texture is essentially never the right stand-in for "the
+//    whole slot" when a large, atlas-shaped candidate exists in the same
+//    set -- pixel count is a real, measured fact about the file, not a
+//    guess about what it depicts.
+// 2. Among same-area candidates, "skin_color" still wins -- confirmed
+//    directly: `body_jewelry_3602029` (a real necklace-overlay texture,
+//    correctly a type 1/8 candidate per candidateCategoryTypes' own doc
+//    comment) happens to be the *same* 1024x512 resolution as the real
+//    base skin atlas, so pixel area alone can't tell them apart, but
+//    Luna's own direct explanation of the asset roles can: "skin_color"
+//    ("the 'base' skin color that gets rendered under armors... the whole
+//    character + face + face jewelry") is specifically the one meant to
+//    stand alone as a complete look, while `body_jewelry`/`bracelets`/
+//    `face` are overlays layered *on top of* it -- never the right
+//    default by themselves, whatever their resolution.
+//
+// `readTextureFileBytes` result is cached in `byteCache` -- the *same*
+// `ambiguousCandidateCache` map `buildMaterialsAndPrimitives` already
+// shares across every ambiguous batch for the actual embed step, passed
+// in by reference rather than a fresh local cache. This isn't just a
+// convenience: a real character model can have dozens of batches sharing
+// one candidate pool (the exact shape `ambiguousCandidateCache`'s own doc
+// comment describes), and each one calls this function -- a fresh local
+// cache would mean re-reading and re-decoding every candidate's `.blp`
+// once per batch just to sort it, the same "1786 redundant decodes"
+// regression this project already found and fixed once before with a
+// different feature (finding #6). Sharing the cache means each candidate
+// is decoded at most once for the *whole* export, not once per batch.
+void orderCandidatesForDefault(std::vector<std::filesystem::path>& candidates, const std::string& texturesDir,
+                                const std::string& texturesOutDir, const std::string& modelBasenameLower,
+                                std::map<std::filesystem::path, std::vector<uint8_t>>& byteCache) {
+    auto areaOf = [&](const std::filesystem::path& p) -> uint64_t {
+        auto cached = byteCache.find(p);
+        if (cached == byteCache.end()) {
+            auto bytes = readTextureFileBytes(p, texturesDir, texturesOutDir);
+            if (!bytes) return 0;
+            cached = byteCache.emplace(p, std::move(*bytes)).first;
+        }
+        auto [w, h] = pngDimensions(cached->second);
+        return static_cast<uint64_t>(w) * h;
+    };
     std::stable_sort(candidates.begin(), candidates.end(),
                       [&](const std::filesystem::path& a, const std::filesystem::path& b) {
-                          auto rank = [&](const std::filesystem::path& p) {
+                          uint64_t areaA = areaOf(a), areaB = areaOf(b);
+                          if (areaA != areaB) return areaA > areaB;
+                          auto isBaseLayer = [&](const std::filesystem::path& p) {
                               auto cat = classifyCandidateCategory(p, modelBasenameLower);
-                              bool isBaseLayer = cat && (cat->empty() || *cat == "skin_color");
-                              return isBaseLayer ? 0 : 1;
+                              return cat && *cat == "skin_color";
                           };
-                          return rank(a) < rank(b);
+                          return isBaseLayer(a) && !isBaseLayer(b);
                       });
 }
 
 std::optional<std::filesystem::path> claimSoleFuzzyTextureCandidate(FuzzyTexturePool& pool, uint32_t textureType,
-                                                                      const std::string& modelBasenameLower,
-                                                                      bool bareMeansSkinOnly) {
-    std::optional<size_t> soleMatch;
-    for (size_t i = 0; i < pool.files.size(); ++i) {
-        if (!candidateAllowedForType(classifyCandidateCategory(pool.files[i], modelBasenameLower), textureType,
-                                      bareMeansSkinOnly))
-            continue;
-        if (soleMatch) return std::nullopt;  // 2+ type-compatible candidates -- still ambiguous
-        soleMatch = i;
-    }
-    if (!soleMatch) return std::nullopt;
-    auto result = pool.files[*soleMatch];
-    pool.files.erase(pool.files.begin() + *soleMatch);
+                                                                      const std::string& modelBasenameLower) {
+    auto matching = filterCandidatesForType(pool.files, textureType, modelBasenameLower);
+    if (matching.size() != 1) return std::nullopt;  // 0 or 2+ -- nothing to unambiguously claim
+    auto result = matching.front();
+    pool.files.erase(std::find(pool.files.begin(), pool.files.end(), result));
     return result;
 }
 
@@ -382,6 +463,65 @@ FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std:
     for (auto& [stem, path] : byStem) pool.files.push_back(std::move(path));
     std::sort(pool.files.begin(), pool.files.end());
     return pool;
+}
+
+// Real content-equality signature for a fully-built gltf::Material,
+// deliberately excluding `name` (that's "batch<N>_..." -- unique per batch
+// by construction, meaningless for identity) -- every *other* field that
+// actually affects what the material looks like or carries as metadata.
+// Two batches producing the same signature are the same material in every
+// way husk models one: same blend/tint/texture *and* same per-batch
+// animation curves (M2Color/M2TextureWeight are batch-level combo indices,
+// not material-level -- two batches sharing (materialIndex, textureIndex)
+// can still legitimately carry different tint/fade animation, so this has
+// to be checked, not assumed away just because the texture matches).
+// `buildMaterialsAndPrimitives`'s dedup loop uses this to decide "reuse an
+// existing gltf::Material" vs. "this is genuinely a new one" -- the fix for
+// EYES_ON_FINDINGS.md's "500 materials from 500 batches" complaint, one
+// gltf::Material per *distinct* batch content instead of per batch.
+std::string materialDedupKey(const gltf::Material& gm) {
+    std::ostringstream key;
+    key << static_cast<int>(gm.alphaMode) << '|' << gm.doubleSided << '|' << gm.unlit << '|';
+    for (float c : gm.baseColorFactor) key << c << ',';
+    key << '|' << gm.baseColorImageName << '|' << gm.baseColorImagePng.size() << '|'
+        << gm.baseColorTexCoord << '|' << gm.textureType << '|' << gm.baseColorTextureFileDataId
+        << '|';
+    for (const auto& layer : gm.additionalTextureLayers) {
+        key << layer.fileDataId << ':' << layer.texCoord << ':' << layer.imagePng.size() << ';';
+    }
+    key << '|';
+    if (gm.textureTransform) {
+        const auto& t = *gm.textureTransform;
+        key << t.constant << ':' << t.translation.x << ',' << t.translation.y << ','
+            << t.translation.z << ':';
+        for (float r : t.rotation) key << r << ',';
+        key << ':' << t.scaling.x << ',' << t.scaling.y << ',' << t.scaling.z;
+    }
+    key << '|';
+    for (const auto& cand : gm.alternateTextureCandidates) {
+        key << cand.filename << ':' << cand.category << ';';
+    }
+    key << '|';
+    auto appendColorCurves = [&](const auto& curves) {
+        for (const auto& curve : curves) {
+            key << curve.sequenceIndex << '[';
+            for (const auto& [t, v] : curve.keyframes) key << t << ':' << v.x << ',' << v.y << ',' << v.z << ';';
+            key << ']';
+        }
+        key << '|';
+    };
+    auto appendScalarCurves = [&](const auto& curves) {
+        for (const auto& curve : curves) {
+            key << curve.sequenceIndex << '[';
+            for (const auto& [t, v] : curve.keyframes) key << t << ':' << v << ';';
+            key << ']';
+        }
+        key << '|';
+    };
+    appendColorCurves(gm.tintAnimation);
+    appendScalarCurves(gm.alphaFadeAnimation);
+    appendScalarCurves(gm.weightFadeAnimation);
+    return key.str();
 }
 
 }  // namespace
@@ -430,7 +570,19 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
     // unresolved slot.
     FuzzyTexturePool fuzzyTexturePool = scanFuzzyTexturePool(texturesDir, modelPath);
     std::string modelBasenameLower = lowercaseModelBasename(modelPath);
-    bool bareMeansSkinOnly = poolHasRecognizedCategory(fuzzyTexturePool.files, modelBasenameLower);
+
+    // Content signature (materialDedupKey) -> that material's index in
+    // result.materials -- real M2 corpus models routinely have dozens of
+    // batches drawing with the exact same effective material (a shared base
+    // material split only by which submesh/geoset each batch happens to
+    // cover), and until this, husk emitted one full gltf::Material (and one
+    // full embedded image) per *batch*, not per distinct material -- a real
+    // `bloodelffemale_hd.m2` export had 114 materials where a handful of
+    // truly distinct ones would do. A batch whose built gm matches an
+    // already-emitted one by every field that isn't purely batch-numbering
+    // (materialDedupKey's own doc comment) has its primitive point at the
+    // existing material instead of creating a new one.
+    std::unordered_map<std::string, size_t> materialByKey;
 
     // Ambiguous-candidate byte cache, keyed by path -- a real character
     // model can have dozens of hardcoded slots that are *all* ambiguous
@@ -511,7 +663,16 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
         gm.alphaMode = alphaModeForBlend(mat.blendMode);
         gm.doubleSided = (mat.flags & kMaterialTwoSidedFlag) != 0;
         gm.unlit = (mat.flags & kMaterialUnlitFlag) != 0;
-        gm.name = "batch" + std::to_string(bi) + "_mat" + std::to_string(b.materialIndex);
+        // Kept as a live prefix on gm.name while the rest of this loop body
+        // appends the resolved-texture suffixes below (diagnostics further
+        // down still reference the per-batch name) -- stripped back off
+        // right before this material is actually stored, once dedup
+        // (materialByKey below) has decided whether a new material entry
+        // is needed at all. The stored material's own name should describe
+        // *what it is* (mat<M>_tex<T>_<id>), not which batch happened to
+        // be the first one to produce it.
+        std::string batchPrefix = "batch" + std::to_string(bi) + "_";
+        gm.name = batchPrefix + "mat" + std::to_string(b.materialIndex);
 
         // Vertex-color tint + combined alpha/texture-weight fade (static
         // approximation -- see m2::Color/TextureWeight). colorIndex is
@@ -710,8 +871,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 // exists in texturesDir (new: previously this case silently
                 // embedded nothing, even when a real, descriptively-named
                 // file for it was sitting right there unclaimed).
-                if (auto fuzzy = claimSoleFuzzyTextureCandidate(fuzzyTexturePool, gm.textureType, modelBasenameLower,
-                                                                  bareMeansSkinOnly)) {
+                if (auto fuzzy = claimSoleFuzzyTextureCandidate(fuzzyTexturePool, gm.textureType, modelBasenameLower)) {
                     if (auto bytes = readTextureFileBytes(*fuzzy, texturesDir, texturesOutDir)) {
                         gm.name += "_" + fuzzy->stem().string();
                         gm.baseColorImagePng = std::move(*bytes);
@@ -723,19 +883,13 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                     // other ambiguous slot is equally uninformed about
                     // *this* slot's own real candidates and deserves its
                     // own independently-filtered view, not whichever's left
-                    // after an earlier slot's pick. Narrowed first to only
-                    // the candidates whose own filename category is
-                    // actually compatible with this slot's textureType
-                    // (candidateAllowedForType's doc comment) -- a real,
-                    // grounded exclusion, not a guess about which one is
-                    // correct.
-                    std::vector<std::filesystem::path> matching;
-                    for (const auto& candidatePath : fuzzyTexturePool.files) {
-                        if (candidateAllowedForType(classifyCandidateCategory(candidatePath, modelBasenameLower),
-                                                     gm.textureType, bareMeansSkinOnly)) {
-                            matching.push_back(candidatePath);
-                        }
-                    }
+                    // after an earlier slot's pick. Narrowed to only the
+                    // candidates compatible with this slot's textureType,
+                    // preferring real recognized-category matches over
+                    // unlabeled ones (filterCandidatesForType's doc
+                    // comment) -- a real, grounded exclusion, not a guess
+                    // about which one is correct.
+                    auto matching = filterCandidatesForType(fuzzyTexturePool.files, gm.textureType, modelBasenameLower);
                     if (matching.size() > 1) {
                         // Genuinely ambiguous: 2+ type-compatible
                         // candidates, no way to tell which one this slot
@@ -745,9 +899,10 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                         // everything, let the client filter" treatment
                         // mutually-exclusive geosets already get --
                         // reordered first so the most plausible default
-                        // (preferBaseLayerCandidate's doc comment) lands at
+                        // (orderCandidatesForDefault's doc comment) lands at
                         // front(), the one that becomes the wired default.
-                        preferBaseLayerCandidate(matching, gm.textureType, modelBasenameLower);
+                        orderCandidatesForDefault(matching, texturesDir, texturesOutDir, modelBasenameLower,
+                                                   ambiguousCandidateCache);
                         std::vector<std::string> allFileNames;
                         for (const auto& candidatePath : matching) {
                             auto cached = ambiguousCandidateCache.find(candidatePath);
@@ -760,6 +915,9 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                             cand.filename = candidatePath.filename().string();
                             auto category = classifyCandidateCategory(candidatePath, modelBasenameLower);
                             cand.category = category.value_or(std::string());
+                            auto [candWidth, candHeight] = pngDimensions(cached->second);
+                            cand.width = candWidth;
+                            cand.height = candHeight;
                             cand.imagePng = cached->second;
                             allFileNames.push_back(cand.filename);
                             gm.alternateTextureCandidates.push_back(std::move(cand));
@@ -844,8 +1002,17 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             }
         }
 
-        prim.materialIndex = static_cast<int>(result.materials.size());
-        result.materials.push_back(std::move(gm));
+        std::string dedupKey = materialDedupKey(gm);
+        auto existing = materialByKey.find(dedupKey);
+        if (existing != materialByKey.end()) {
+            prim.materialIndex = static_cast<int>(existing->second);
+        } else {
+            size_t idx = result.materials.size();
+            materialByKey.emplace(std::move(dedupKey), idx);
+            gm.name = gm.name.substr(batchPrefix.size());
+            prim.materialIndex = static_cast<int>(idx);
+            result.materials.push_back(std::move(gm));
+        }
         result.primitives.push_back(std::move(prim));
     }
 
