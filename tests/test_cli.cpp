@@ -37,6 +37,7 @@
 
 #include "run_husk.hpp"
 #include "test_cli_fixtures.hpp"
+#include "test_cli_fixtures_scenes.hpp"
 
 using husk::test::runHusk;
 namespace fs = std::filesystem;
