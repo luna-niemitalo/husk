@@ -54,6 +54,32 @@ and it's a dead end (no children) so tier 1 has no descendant to interpolate
 toward. **Tier 2 is the only remaining path to naming it** — this is the
 real motivating case for actually building tier 2, not just a nice-to-have.
 
+**Real yield on `bloodelffemale_hd.m2`/`.skel` (245 bones -- the actually-
+current-content skeleton; the plain SD model is legacy data nobody's really
+shipped against in a long time, comparable to pre-Cata) is proportionally
+*worse*, not better: only ~39% named (95/245) versus ~60% on the SD model.
+One genuine cross-tier win did show up here that didn't exist before the
+attachment/event tiers landed: `bone_236_betweenSpellHandL_
+PlaySoundKit_spellCastDirected` -- tier 1 chained an attachment-derived
+landmark (`SpellHandL`) to an event-derived one (`$SCD`), confirming the
+"run tier 1 last so it can use attachment/event names as landmarks too"
+design decision produces real value, not just theoretical value.
+
+The remaining 152 unnamed HD bones aren't evenly spread -- one contiguous
+block, `bone_117`-`bone_173` (57 bones), dominates. Traced its ancestry: it
+hangs directly off the real `Head` joint, almost certainly WoW's per-model
+facial-animation bone expansion (lip/eye/brow control bones added for HD
+character models). These were never attachment points or event targets to
+begin with, so **no signal husk has today, or that wowdev's own tables
+document, can name them individually** -- and a generic humanoid reference
+rig (Rigify) has no fine-grained facial-bone equivalent either, so tier 2
+as scoped above would likely leave this specific block unnamed too. Worth
+keeping in mind when tier 2 is actually picked up: it closes gaps like
+`bone_29` (a real limb bone with no facial-rig ambiguity), not this block --
+a second, separate investigation (a facial-bone-specific reference, if one
+exists at all) would be needed for that, out of scope for tier 2 as written
+above.
+
 ## Tier 2 approach
 
 Match remaining unnamed bones against **Blender's Rigify human meta-rig**
