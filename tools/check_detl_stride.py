@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Resolves DETL's real byte layout (see WIKI_FINDINGS.md sec.11 for the
+"""Resolves DETL's real byte layout (see `WIKI_FINDINGS/M2.md` for the
 result this scan produced) -- wowdev.wiki's DETL struct
 lists fields summing to 0x0C bytes but gives an explicit end-offset comment
 of /*0x0a*/ -- a 6-byte discrepancy. Same stride-disambiguation technique
-that resolved .phys's SHOJ/PLYT stride ambiguities (WIKI_FINDINGS.md sec.9):
+that resolved .phys's SHOJ/PLYT stride ambiguities (`WIKI_FINDINGS/PHYS.md`):
 DETL_recs is sized `[m2data.header.lights.count]`, so `chunk.size /
 lights.count` must come out to a clean integer at the real stride -- try
 both 0x0a and 0x0c as candidates and see which one (if either) divides

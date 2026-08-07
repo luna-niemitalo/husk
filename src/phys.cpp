@@ -359,7 +359,7 @@ std::vector<ShoulderJoint> parseShoulderJoints(const std::vector<Chunk>& chunks)
     // chunk name"). A real file hitting both strides at once is new
     // information, not a case to silently pick one for.
     // TODO: Remove: checked all 86 real SHOJ chunks found this session --
-    // never both at once, see WIKI_FINDINGS.md §9.
+    // never both at once, see `WIKI_FINDINGS/PHYS.md`.
     bool fits6c = c->size % 0x6c == 0;
     bool fits74 = c->size % 0x74 == 0;
     if (fits6c && fits74) {

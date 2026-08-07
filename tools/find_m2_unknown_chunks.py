@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Scans a real M2 corpus for five top-level Legion+ chunk tags -- WFV1,
 WFV2, DPIV, AFRA still genuinely undocumented-or-unverified; PCOL now
-implemented (husk's own dumpPcol, src/cmd_dump.cpp) -- see WIKI_FINDINGS.md
-sec.10, both corrected, see below. Bundled into one corpus pass since
+implemented (husk's own dumpPcol, src/cmd_dump.cpp) -- see `WIKI_FINDINGS/M2.md`, both corrected, see below. Bundled into one corpus pass since
 they're cheap to check together: one top-level chunk walk per file, five
 tags to test per chunk.
 

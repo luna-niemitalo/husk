@@ -299,7 +299,7 @@ TEST_CASE(
     // test mirrors the inline-animation sanity check above rather than
     // asserting on one specific clip's exact values (those belong in
     // test_cli.cpp's synthetic fixtures).
-    // TODO: Remove: cites WIKI_FINDINGS.md §2; historical framing ("the
+    // TODO: Remove: cites `WIKI_FINDINGS/M2/anim.md`; historical framing ("the
     // single biggest unresolved animation gap... essentially 0% coverage").
     std::string m2Path = testSkelM2();
     std::string skinPath = testSkelSkin();
@@ -339,7 +339,7 @@ TEST_CASE(
     // mutation-tested (see TEST_DESIGN.md#Mutation-tested-regressions):
     // both names are absent without the basename-fallback fix, present
     // with it.
-    // TODO: Remove: cites WIKI_FINDINGS.md §2.
+    // TODO: Remove: cites `WIKI_FINDINGS/M2/anim.md`.
     bool foundAnim69_0 = false;
     bool foundAnim69_1 = false;
     for (const auto& anim : model.animations) {
@@ -370,7 +370,7 @@ TEST_CASE(
     // resolution is zero net new clips. This test's job is to prove that
     // path doesn't crash and doesn't change the clip count, not to prove
     // growth that isn't there for this specific data.
-    // TODO: Remove: full investigation narrative cited WIKI_FINDINGS.md §12
+    // TODO: Remove: full investigation narrative cited `WIKI_FINDINGS/M2.md`
     // (38 alias sequences, corpus cross-check against
     // /media/luna/data/wow_export, M2_GAPS_TODO.md's original open question).
     std::string m2Path = testSkelM2();
@@ -399,7 +399,7 @@ TEST_CASE(
     // bound above, since this test's whole point is confirming the
     // aliasNext fix doesn't change it for this specific data (see the
     // comment above).
-    // TODO: Remove: cites WIKI_FINDINGS.md §2's follow-up.
+    // TODO: Remove: cites `WIKI_FINDINGS/M2/anim.md`'s follow-up.
     CHECK(model.animations.size() == 338);
 
     auto findAnim = [&](const std::string& name) -> const tinygltf::Animation* {
@@ -1103,7 +1103,7 @@ TEST_CASE("husk export: skin file that doesn't belong to the given M2 fails clea
 // tag) rather than silently misreading texture bytes as M2 structure.
 // Checked across all three top-level commands, since each has its own read
 // path into the same chunk walker.
-// TODO: Remove: cites WIKI_FINDINGS.md §13.
+// TODO: Remove: cites `WIKI_FINDINGS/M2.md`.
 TEST_CASE("husk info: real non-M2 content (a BLP2 texture under a mismatched .m2 FileDataID) "
           "fails cleanly, not a crash or a silent misread" *
           doctest::skip(husk::test::testBlp2AnomalyM2().empty())) {

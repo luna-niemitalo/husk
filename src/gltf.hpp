@@ -280,7 +280,7 @@ struct Skeleton {
     // at semantics" treatment as skinSectionId/textureTransform above.
     // Empty (the default) if `--bones-dir none`, or none of a model's
     // BFID-declared FileDataIDs resolved to a real file on disk.
-    // TODO: Remove: TODO_correctness.md #3, WIKI_FINDINGS.md §4 (dev-trace
+    // TODO: Remove: TODO_correctness.md #3, `WIKI_FINDINGS/BONE.md` (dev-trace
     // citations backing the non-goal above).
     struct CorrectionSet {
         uint32_t fileDataId = 0;
@@ -440,7 +440,7 @@ struct Animation {
     // nullopt for a clip that isn't backed by a single M2Sequence record at
     // all (buildGlobalSequenceAnimations's global_seq_<n> clips) -- there's
     // no per-sequence movespeed/blend timing/bounds to expose for those.
-    // TODO: Remove: WIKI_FINDINGS.md §12 citation for the aliasNext/isAlias
+    // TODO: Remove: `WIKI_FINDINGS/M2.md` citation for the aliasNext/isAlias
     // raw-mirroring finding.
     struct SequenceMetadata {
         float movespeed = 0;

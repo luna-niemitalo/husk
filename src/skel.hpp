@@ -46,7 +46,7 @@
 //     resolution to a real path, no default-slot selection -- that's
 //     client-side customization-choice data husk doesn't have -- just the
 //     raw FileDataID list.
-//     TODO: Remove: see WIKI_FINDINGS.md §4/TODO_correctness.md #3.
+//     TODO: Remove: see `WIKI_FINDINGS/BONE.md`/TODO_correctness.md #3.
 // `SKB1`'s `key_bone_lookup` field, and every other .skel chunk (`SKL1`,
 // `SKA1`, `SKPD`), are out of scope for now.
 namespace husk::skel {

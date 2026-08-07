@@ -40,7 +40,7 @@
 // keyframe data actually resolves: inline, or via --anim for an external
 // .anim file, AFM2- or AFSB-shaped alike (see buildAnimations's doc
 // comment below).
-// TODO: Remove: WIKI_FINDINGS.md §2 for how AFSB's undocumented byte
+// TODO: Remove: `WIKI_FINDINGS/M2/anim.md` for how AFSB's undocumented byte
 // layout was cracked.
 namespace husk::commands {
 
@@ -258,7 +258,7 @@ gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones) {
 //
 // TODO: Remove: 0x20 was historically (mis)named "looped animation" by an
 // uncited wiki contributor; 0x40's chain-walk was "I have no clue" on the
-// wiki until WIKI_FINDINGS.md §12 resolved it (157/157 real aliases
+// wiki until `WIKI_FINDINGS/M2.md` resolved it (157/157 real aliases
 // checked, zero cycles).
 constexpr uint32_t kSequenceStoredInlineFlag = 0x20;
 constexpr uint32_t kSequenceAliasFlag = 0x40;
@@ -272,7 +272,7 @@ constexpr uint32_t kSequenceAliasFlag = 0x40;
 // chain can visit at most that many distinct sequences before it would
 // have to repeat one), throwing rather than looping forever if a real
 // cycle, or an out-of-range aliasNext, ever shows up.
-// TODO: Remove: WIKI_FINDINGS.md §12.
+// TODO: Remove: `WIKI_FINDINGS/M2.md`.
 size_t resolveAliasChain(const std::vector<m2::Sequence>& sequences, size_t startIndex) {
     size_t cur = startIndex;
     for (size_t hop = 0; hop <= sequences.size(); ++hop) {
@@ -366,7 +366,7 @@ std::string zeroPad(unsigned value, size_t width) {
 //
 // TODO: Remove: confirmed against the committed bloodelffemale_hd0069-00/
 // -01.anim fixtures; no bare <FileDataID>.anim file exists anywhere in the
-// real corpus sample checked (WIKI_FINDINGS.md §2).
+// real corpus sample checked (`WIKI_FINDINGS/M2/anim.md`).
 // Direct filename construction, not a directory scan like
 // findSameBasenameSkins -- (animId, subAnimId) fully determines the name, so
 // there's no ambiguity to resolve the way .skin's open-ended LOD-suffix scan
@@ -554,7 +554,7 @@ std::vector<gltf::Animation> buildGlobalSequenceAnimations(const std::vector<uin
 // paragraphs above.
 //
 // TODO: Remove: AFSB's byte layout was cracked from scratch, not documented
-// anywhere upstream (WIKI_FINDINGS.md §2) -- verified against the entire
+// anywhere upstream (`WIKI_FINDINGS/M2/anim.md`) -- verified against the entire
 // real bloodelffemale_hd.m2/.skel/.anim corpus (every bone/sequence
 // combination's timestamps decode monotonic-and-in-bounds, every value
 // finite, rotation quaternions unit-length). The 0x20-before-alias priority
@@ -636,7 +636,7 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                 // directly as the external blob below. AFSB takes priority
                 // whenever both are present.
                 //
-                // TODO: Remove: see WIKI_FINDINGS.md §2 for the full
+                // TODO: Remove: see `WIKI_FINDINGS/M2/anim.md` for the full
                 // byte-level derivation (real files: AFM2 stub 16-1344
                 // bytes, always a multiple of 16).
                 auto topChunks = readChunks(animFileBytes.data(), animFileBytes.size());
@@ -831,7 +831,7 @@ struct M2MaterialInputs {
     // so this data (real or vestigial) safely falls back to UV set 0
     // either way.
     // TODO: Remove: a full ~130k-file real-data scan found only 3
-    // exceptions, WIKI_FINDINGS.md §7.
+    // exceptions, `WIKI_FINDINGS/M2/skin.md`.
     std::vector<uint16_t> textureCoordCombos;
     std::vector<m2::Color> colors;
     std::vector<m2::TextureWeight> textureWeights;
@@ -1379,7 +1379,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             // arithmetic verified against a real 6-layer guild-pennant batch
             // (matches a from-scratch independent parse exactly) and a real
             // file with a nonzero textureCoordCombos table outside the
-            // documented -1/0/1 range (WIKI_FINDINGS.md §7,
+            // documented -1/0/1 range (`WIKI_FINDINGS/M2/skin.md`,
             // tests/test_integration.cpp's checkMultiTextureLayerArithmetic).
             for (uint16_t layer = 1; layer < b.textureCount; ++layer) {
                 size_t comboIdx = static_cast<size_t>(b.textureComboIndex) + layer;

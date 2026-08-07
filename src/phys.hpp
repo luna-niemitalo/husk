@@ -10,7 +10,7 @@
 // (MoP+). Unlike .bone, this format IS documented:
 // documentation/wowdev-wiki/md/PHYS.md (wiki_revision 30458) gives byte
 // offsets for nearly every field; this parser implements that spec.
-// TODO: Remove: verified against 103 real files, see WIKI_FINDINGS.md §9.
+// TODO: Remove: verified against 103 real files, see `WIKI_FINDINGS/PHYS.md`.
 //
 // Layout: WoW's usual chunked container (husk::readChunks/findChunk, see
 // chunk.hpp), but with WMO/ADT-style *reversed* chunk tags on disk (e.g.
@@ -47,7 +47,7 @@ struct Vec3 {
 // files have several type-0 bodies. `shapeBase`/`shapeCount` index into
 // File::shapes (BODY/BDY2's `shapes_base`, BDY3/BDY4's `shapeIndex` --
 // same role, different field width/name upstream).
-// TODO: Remove: WIKI_FINDINGS.md §9.
+// TODO: Remove: `WIKI_FINDINGS/PHYS.md`.
 struct Body {
     uint16_t type = 0;
     uint16_t boneIndex = 0;
@@ -91,7 +91,7 @@ struct SphereShape {  // unverified -- see this file's own doc comment
 // data chunk, it is combining both parts"). `unk1`/`unk2`/`nodes`'
 // semantics beyond "a tree structure that connects the vertices together"
 // aren't resolved -- surfaced raw, not modeled further.
-// TODO: Remove: WIKI_FINDINGS.md §9.
+// TODO: Remove: `WIKI_FINDINGS/PHYS.md`.
 struct PolytopeShape {
     uint32_t vertexCount = 0;
     uint32_t count10 = 0;

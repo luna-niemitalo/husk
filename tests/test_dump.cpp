@@ -552,7 +552,7 @@ TEST_CASE("husk dump-chunks: WFV3 (one fixed 80-byte struct) reads every field a
 // wiki's own struct listing always includes. dumpWfv3 used to assume 80
 // bytes unconditionally, so every field read past 0x40 threw a bounds
 // error and failed the whole dump-chunks run for these files.
-// TODO: Remove: see WIKI_FINDINGS.md §8's WFV3 entry (9 real files).
+// TODO: Remove: see `WIKI_FINDINGS/M2.md`'s WFV3 entry (9 real files).
 TEST_CASE("husk dump-chunks: WFV3's real 64-byte short variant reads every documented field and "
           "emits null for the missing unk1-unk4, instead of throwing") {
     std::vector<uint8_t> wfv3;
@@ -827,7 +827,7 @@ TEST_CASE("husk dump-chunks: a .bone file (no MD20/MD21 magic) dumps its BIDA/BO
 // also proves readHalfFloat decodes the exact bit patterns real files
 // carry, not just some arbitrary half-float.
 // TODO: Remove: stride/padding confirmed against 1,043 real corpus files,
-// see WIKI_FINDINGS.md §11.
+// see `WIKI_FINDINGS/M2.md`.
 TEST_CASE("husk dump-chunks: DETL decodes real corpus half-float constants and ignores its own "
           "16-byte alignment padding") {
     auto md20 = minimalMd20();
@@ -897,7 +897,7 @@ TEST_CASE("husk dump-chunks: DETL's record count is lights.count, not chunk.size
 // throws on the short trailing header -- this proves both the happy path
 // and that the padding-trim logic doesn't eat real data.
 // TODO: Remove: reuses husk's real-file-verified .phys parser, see
-// WIKI_FINDINGS.md §9.
+// `WIKI_FINDINGS/PHYS.md`.
 TEST_CASE("husk dump-chunks: PFDC (inline physics, same byte-for-byte .phys container a standalone "
           "file uses) dumps the same body/shape data, trailing zero padding tolerated") {
     auto pfdcPayload = buildMinimalPhysBytes();
@@ -1098,7 +1098,7 @@ TEST_CASE(
 // real-data regression coverage for EXP2/PFDC, pulled directly from a live
 // CASC install rather than a synthetic fixture. exp2_126382.m2 carries
 // EXP2 only, no PFDC.
-// TODO: Remove: see WIKI_FINDINGS.md §13.
+// TODO: Remove: see `WIKI_FINDINGS/M2.md`.
 TEST_CASE(
     "husk dump-chunks: real EXP2-only file (exp2_126382.m2, pulled from live CASC) decodes 9 "
     "particle emitters each with default zSource/colorMult/alphaMult and an empty alphaCutoff "

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Investigates what M2Sequence.aliasNext actually resolves against (see
-WIKI_FINDINGS.md sec.12 for the result: a local sequences-array index at the
+`WIKI_FINDINGS/M2.md` for the result: a local sequences-array index at the
 M2Bounds-corrected offset 0x3E). A prior pass (formerly TODO_correctness.md
 #4, since removed) read the field at the wiki's literal, uncorrected 0x22
 offset and wrongly concluded it resolves neither as "a local index into
@@ -12,7 +12,7 @@ value might resolve against a *different* file's own Sequence.id, since
 AnimationData.dbc ids are shared across the whole game, not per-file.
 
 Independent of husk's own parsing, same discipline as every other tool
-here -- reads M2Sequence directly at the real, WIKI_FINDINGS.md sec.1-
+here -- reads M2Sequence directly at the real, `WIKI_FINDINGS/M2.md`-
 corrected 64-byte stride (id@0x00 u16, flags@0x0C u32, variationNext@0x3C
 i16, aliasNext@0x3E u16), for both inline M2 sequences (MD21 payload, header
 offset 0x01C) and external .skel SKS1 sequences (payload offset 0x08) --

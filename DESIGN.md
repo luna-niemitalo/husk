@@ -228,7 +228,7 @@ real per-bone data lives in `AFSB`, not `AFM2` — a small, always-near-zero
 `AFM2` "stub" can be present alongside it and must not be mistaken for real
 track data (confirmed via a real bounds error when tried anyway), so `AFSB`
 takes priority whenever both are present. `AFSB`'s own byte layout has no
-published spec anywhere (`WIKI_FINDINGS.md` §2's follow-up has the full
+published spec anywhere (`WIKI_FINDINGS/M2/anim.md`'s follow-up has the full
 reverse-engineering writeup), but it turned out not to need one: `SKB1`'s
 own per-bone, per-sequence `M2Track` `(count, offset)` descriptors — the
 exact same ones the paragraph above already resolves for `AFM2` — point
@@ -255,7 +255,7 @@ its external clips through `--anim auto`'s own default, not just through a
 un-renumbered offset comment that reads as if `M2Bounds bounds` weren't
 really there. Decoding all of a real file's sequences at both candidate
 strides (not re-reading the prose harder) is what settled it. See
-`WIKI_FINDINGS.md` §1. This is the model for how to resolve any future
+`WIKI_FINDINGS/M2.md`. This is the model for how to resolve any future
 spec ambiguity here: decode real records at every plausible stride/shape
 and check for garbage, don't guess from text alone.
 
@@ -429,7 +429,7 @@ texture-transform above, for the same underlying reason: which of a model's
 several `.bone` files (its `BFID` array) is "correct" for a given character
 is selected by client-side customization-choice data (a DB2-shaped lookup)
 husk has no access to and, per this file's Non-goals, never will. Real
-investigation (`WIKI_FINDINGS.md` §4's follow-up) ruled out the two more
+investigation (`WIKI_FINDINGS/BONE.md`'s follow-up) ruled out the two more
 tractable-looking hypotheses first — LOD/render-distance (the slot count
 doesn't fit the model's real LOD tier count, and slots collapse into far
 fewer distinct bone-index sets than a detail ladder would produce) and
@@ -497,7 +497,7 @@ accepts a `.phys` file directly, same as `.bone`. Unlike `.bone`, `.phys`'s
 byte layout is genuinely documented (`documentation/wowdev-wiki/md/
 PHYS.md`), not reverse-engineered — `src/phys.hpp`/`phys.cpp` implement that
 spec directly, verified against 103 real files with zero cross-chunk index
-errors (`WIKI_FINDINGS.md` §9). Chunk tags are byte-reversed on disk (WMO/
+errors (`WIKI_FINDINGS/PHYS.md`). Chunk tags are byte-reversed on disk (WMO/
 ADT convention), the opposite of M2's own inline chunks — `chunk.hpp`'s
 `readChunks`/`findChunk` are reused as-is, just called with the
 already-reversed literal.
@@ -657,7 +657,7 @@ tracks are a separate, larger problem.
 
 **`M2Sequence`'s own metadata (movespeed/frequency/replay/blendTime/bounds/
 variationNext/aliasNext) is per-clip glTF `extras`, and `aliasNext` is now
-chain-resolved into a real animation clip** (`WIKI_FINDINGS.md` §12).
+chain-resolved into a real animation clip** (`WIKI_FINDINGS/M2.md`).
 `m2::Sequence` gained the seven fields wowdev.wiki
 documents beyond `id`/`variationIndex`/`duration`/`flags`, at the exact
 offsets that fit cleanly into the already-verified 64-byte stride (see
@@ -714,7 +714,7 @@ wiki's own "there can be extra bytes between the data" warning is real,
 confirmed on a real file with an 8-byte gap between `faceNormals` and
 `indices`. Verified against all 2,354 real `PCOL`-bearing files in the
 local corpus (corrected from an earlier scanner bug's false "zero real
-files," `WIKI_FINDINGS.md` §10): every region in-bounds, every index in
+files," `WIKI_FINDINGS/M2.md`): every region in-bounds, every index in
 range for that file's own vertex count, `indexCount == faceNormCount * 3`
 on all 2,354 (triangle triples, one normal per triangle — the same shape
 M2's own core collision mesh already has). `flags`' per-record meaning is
@@ -729,7 +729,7 @@ array (`chunk.size / 32` records, 8x float32 each — the wiki's own "always
 flat 16x float32 array. `WFV1`/`WFV2` are a genuinely thin, 2-file,
 byte-identical-content sample, flagged tentative rather than confidently
 typed field-by-field (two fields show signs of not really being floats —
-see `WIKI_FINDINGS.md` §10's follow-up — exposed as plain floats rather
+see `WIKI_FINDINGS/M2.md`'s follow-up — exposed as plain floats rather
 than guessing a color/int reinterpretation). `dumpRawFallback`
 (`src/cmd_dump.cpp`) was removed outright once nothing used it anymore.
 
@@ -1158,7 +1158,7 @@ Four tiers, the first three the same shape used by `casc-tool`:
    the M2 source file's own header counts, cross-checked against what
    Blender/tinygltf actually read back (vertex/bone counts exactly,
    bind-pose bounds via containment, collision-mesh count/topology
-   exactly — see `WIKI_FINDINGS.md` §5 for the bounding-box finding. See
+   exactly — see `WIKI_FINDINGS/M2.md` for the bounding-box finding. See
    `README.md`'s Testing section for the full per-check writeup, including
    two real Blender-importer-side contamination sources found while making
    these checks exact.
@@ -1179,7 +1179,7 @@ ever shipped (collision meshes, ribbons/particles, multi-root skeletons,
 not just anything new — no session so far has had real eyes on whether any
 of this actually *looks* right once imported, only whether it's
 structurally present and countable. Headless checks are real and valuable
-(they catch the contamination/regression bugs `WIKI_FINDINGS.md` §5 and
+(they catch the contamination/regression bugs `WIKI_FINDINGS/M2.md` and
 earlier sessions found) but they cannot catch a visually-wrong-but-
 structurally-valid export — wrong-looking UVs, a flipped normal, a
 correctly-counted but misplaced vertex. Worth a real interactive-Blender
@@ -1216,7 +1216,7 @@ confirmed-absent from a full real 130,576-file corpus sweep, but that was a
 scanner bug (a `bytes`-vs-`str` dict-key mismatch that made the check always
 false), not a real result -- corrected: all four (plus `PCOL`) are real and
 present, cross-checked independently via `casc-tool scan-chunks`
-(`WIKI_FINDINGS.md` §10), and now all five are fully implemented
+(`WIKI_FINDINGS/M2.md`), and now all five are fully implemented
 (`husk dump-chunks`'s `dumpPcol`/`dumpWfv1`/`dumpWfv2`/`dumpDpiv`/`dumpAfra`
 -- see Key design decisions below);
 `DETL`'s real byte layout is fully resolved (12-byte stride, zero-padded to
@@ -1228,9 +1228,9 @@ implemented end to end (see Key design decisions below).
 here too (`PHYS_TODO.md`) -- now fully implemented (`src/phys.hpp`/
 `phys.cpp`, `husk export --phys`, `husk dump-chunks <file.phys>`) and folded
 into this file's own Key design decisions (the `.phys`-anchor/dump-chunks-
-split entry above) and `WIKI_FINDINGS.md` §9's "Where these live in husk"
+split entry above) and `WIKI_FINDINGS/PHYS.md`'s "Where these live in husk"
 row, so the standalone file was removed. Its own coverage table (verified
-vs. unverified per chunk type, `WIKI_FINDINGS.md` §9) is unaffected — real
+vs. unverified per chunk type, `WIKI_FINDINGS/PHYS.md`) is unaffected — real
 corpus never surfaced `BDY2`/`BOXS`/`WLJ3`/`SHOJ` (0x6c)/`SHJ2`/`REV2`/
 `SPHJ`/`PRSJ`/`PRS2`/`DSTJ`, so those chunk types are parsed (the byte
 offsets are real, transcribed from the wiki) but structurally unverified
@@ -1305,7 +1305,7 @@ universal across all four containers, several wiki struct errors fixed,
 four gameplay/misc-metadata items promoted out of a reflexive `n/a`, two
 genuinely undocumented chunks found, the portal-culling/Blender-visibility
 question checked directly rather than assumed) is recorded permanently in
-`WIKI_FINDINGS.md` §15 — see that entry for the consolidated list, and each
+`WIKI_FINDINGS/WORLD.md` — see that entry for the consolidated list, and each
 `*_TODO.md` file for the full per-item struct, C++ data-model sketch, and
 test plan. `WORLD_COMPLETENESS.md`'s own "Recommended implementation
 order" note (added this pass) is the starting point for whoever picks this
@@ -1323,7 +1323,7 @@ structural wall worth flagging here directly: these files are **never
 shipped to the client at all** (confirmed via a full `casc-tool list`
 sweep of all 3,190,909 files in live retail storage — zero `.pm4`/`.pd4`
 matches anywhere), not an extraction-completeness gap like `EXP2`/`PFDC`
-(`WIKI_FINDINGS.md` §13) — real fixture data for this one format will need
+(`WIKI_FINDINGS/M2.md`) — real fixture data for this one format will need
 a different acquisition path than everything else in this project's usual
 corpus-verification playbook.
 

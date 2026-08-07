@@ -105,7 +105,7 @@ inline std::string autoSkinDir(const std::string& m2Path, const std::string& ski
 // end to end against real '.bone' bytes, not that any particular slot is
 // semantically correct. Returns "" if skelPath is empty, has no BFID chunk,
 // or none of the expected same-basename '_NN.bone' files exist next to it.
-// TODO: Remove: cites WIKI_FINDINGS.md §4/TODO_correctness.md #3.
+// TODO: Remove: cites `WIKI_FINDINGS/BONE.md`/TODO_correctness.md #3.
 inline std::string autoBonesDir(const std::string& skelPath) {
     if (const char* env = std::getenv("HUSK_TEST_BONES_DIR")) {
         return std::string(env);
@@ -168,7 +168,7 @@ constexpr const char* kSkel = "character/bloodelf/female/bloodelffemale_hd.skel"
 // The real bloodelffemale_hd_*.anim files (AFSB-shaped) sit right next to
 // the .m2/.skin/.skel above -- same directory, not a separate one, since
 // that's exactly the layout a real casc-tool extraction produces.
-// TODO: Remove: cites WIKI_FINDINGS.md §2.
+// TODO: Remove: cites `WIKI_FINDINGS/M2/anim.md`.
 constexpr const char* kAnimDir = "character/bloodelf/female";
 // Real weapon models with ribbon/particle emitters, under this repo's own
 // gitignored test_data/item/objectcomponents/weapon/ (Luna's own
@@ -194,7 +194,7 @@ constexpr const char* kWeaponParticleStress = "item/objectcomponents/weapon/mace
 // range, real but apparently vestigial data), chosen to prove the
 // textureCoordComboIndex+layer path is exercised (not just skipped via the
 // empty-table fast path) and still resolves safely.
-// TODO: Remove: cites TODO_correctness.md #3 and WIKI_FINDINGS.md §7;
+// TODO: Remove: cites TODO_correctness.md #3 and `WIKI_FINDINGS/M2/skin.md`;
 // found via a full ~287k-file .skin scan (226,294 textureCount>1 hits) and
 // a ~130k-file .m2 scan (3 nonzero textureCoordCombos hits).
 constexpr const char* kMultiTextureLayerM2 =
@@ -211,7 +211,7 @@ constexpr const char* kTextureCoordComboSkin =
 // .m2+.phys). 10 real physics bodies, boneIndex values {0..9} of 17 real
 // bones.
 // TODO: Remove: narrative ("extracted into test_data/ this session"); cites
-// WIKI_FINDINGS.md §9.
+// `WIKI_FINDINGS/PHYS.md`.
 constexpr const char* kWeaponPhys = "item/objectcomponents/weapon/mace_1h_warfrontsforsaken_d_01.m2";
 constexpr const char* kWeaponPhysSkin =
     "item/objectcomponents/weapon/mace_1h_warfrontsforsaken_d_0100.skin";
@@ -219,7 +219,7 @@ constexpr const char* kWeaponPhysSkin =
 // against real bytes and lock in the BLP2/listfile-mismatch anomaly's
 // correct-throw behavior. Sit under test_data/verification/, same
 // gitignored convention as every other fixture here.
-// TODO: Remove: cites WIKI_FINDINGS.md §13.
+// TODO: Remove: cites `WIKI_FINDINGS/M2.md`.
 constexpr const char* kExp2VerificationM2 = "verification/exp2_126382.m2";
 constexpr const char* kPfdcVerificationM2 = "verification/pfdc_1003471.m2";
 constexpr const char* kBlp2AnomalyM2 = "verification/blp2_7507381.m2";
@@ -227,7 +227,7 @@ constexpr const char* kBlp2AnomalyM2 = "verification/blp2_7507381.m2";
 // of 2,354 real PCOL-bearing files found in the local corpus, chosen for
 // its small chunk size (2,016 bytes: 40 vertices, 74 triangles) while
 // still real, extracted data.
-// TODO: Remove: cites WIKI_FINDINGS.md §10's corrected count.
+// TODO: Remove: cites `WIKI_FINDINGS/M2.md`'s corrected count.
 constexpr const char* kPcolVerificationM2 = "verification/pcol_pa_kite_lamp_creature.m2";
 // A real quadruped creature (a base wolf.m2, 66 bones/557 vertices):
 // pipeline coverage for a body plan/hierarchy shape bloodelffemale.m2

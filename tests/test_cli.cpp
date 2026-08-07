@@ -1108,7 +1108,7 @@ TEST_CASE("husk export: an external sequence with no matching --anim <dir> file 
 // array convention, same as tinyAnimatedM2), so any *other* sequence that
 // produces a clip at all can only be getting there via alias-chain
 // resolution borrowing index 0's data, not its own.
-// TODO: Remove: former M2_GAPS_TODO.md Item 1 / WIKI_FINDINGS.md §12.
+// TODO: Remove: former M2_GAPS_TODO.md Item 1 / `WIKI_FINDINGS/M2.md`.
 struct AliasSeqSpec {
     uint16_t id;
     uint16_t variationIndex;
@@ -1195,7 +1195,7 @@ TEST_CASE("husk export: a sequence flagged both inline (0x20) AND alias (0x40) r
           "its own sequence index, not the (possibly invalid) alias chain") {
     // TODO: Remove: this priority rule was forced by real data -- 31/38 real
     // alias sequences in bloodelffemale_hd.skel also carry 0x20
-    // (WIKI_FINDINGS.md §12's follow-up).
+    // (`WIKI_FINDINGS/M2.md`'s follow-up).
     auto m2Path = tempPath("alias-both-flags.m2");
     // seq1 has both 0x20 and 0x40 set, and a deliberately out-of-range
     // aliasNext (99, only 2 sequences exist) that would throw immediately
@@ -1260,7 +1260,7 @@ TEST_CASE("husk export: a pure-alias sequence's out-of-range aliasNext fails cle
 // note) -- these four cases cover its three-way priority (FileDataID file,
 // basename file, neither) against the same tinyExternalAnimM2 fixture the
 // two tests above already use.
-// TODO: Remove: WIKI_FINDINGS.md §2.
+// TODO: Remove: `WIKI_FINDINGS/M2/anim.md`.
 
 TEST_CASE("husk export: --anim <dir> resolves via the basename convention when the model has no "
           "AFID chunk at all") {
@@ -1526,7 +1526,7 @@ TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFS
           "resolves a real animation clip, end to end -- SKB1's own per-sequence (count,offset) "
           "descriptors point directly into the AFSB payload, same mechanism as an AFM2-shaped "
           "external file just pointed at a different blob") {
-    // TODO: Remove: WIKI_FINDINGS.md §2's follow-up.
+    // TODO: Remove: `WIKI_FINDINGS/M2/anim.md`'s follow-up.
     size_t boneOff = 0;
     auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);
     size_t transOff = boneOff + 0x10;

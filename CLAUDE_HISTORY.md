@@ -1,0 +1,2031 @@
+# CLAUDE.md — session history
+
+Full session-by-session narrative log for husk, most recent first (the
+same entries that used to live inline in CLAUDE.md's own Resume section).
+`CLAUDE.md`'s Resume section now holds only a condensed current-state
+summary plus Next step/Hazards — this file is where the full story lives.
+
+**Append new entries at the top** (right after this intro, before the
+existing most-recent entry) each session — this file is an append-only
+log, historical entries are never rewritten (only living cross-references
+inside them get repointed if something they name is deleted/renamed, per
+this project's own established convention — see e.g. how prior TODO-file
+deletions handled their own back-references).
+
+---
+
+- **Last state**: Fixed the "upside down" M2→glTF export bug — real code,
+  tested, shipped this session, not the reverted one-line patch a prior
+  session left off at. Requested directly, after that prior session's
+  `BLENDER_EXPORT_TODO.md` §8 finding: not a quick patch, but "a more
+  robust system that can test the correctness of the mesh regardless of
+  the rotation... if the code has a plethora of hardcoded signals, that is
+  prone to break the instant we get a model in an unexpected
+  orientation... research and explore how to fix this permanently, so if
+  Blizzard changes what their models' up means, it will not be this
+  rework again." Wrote `TRANSFORM_TRIAGE.md` first (a full root-cause /
+  process-failure / durable-fix investigation, no code touched) — Luna
+  pushed back hard on two parts of the first draft before anything was
+  built, both real corrections: (1) `reference/wow.export` was drafted as
+  a "standing cross-validation check" — corrected to "flaky,
+  non-authoritative, corroborating signal only, never a gate," per her own
+  "don't assume wow.export is correct... it works *somewhat*"; (2) the
+  proposed semantic ground-truth check ("head bone above foot bone") was
+  drafted as the primary orientation invariant — corrected after her
+  direct "weapons? Other meshes with skeletons? ... weapon orientations
+  are not necessarily up as the correct axis" into an asset-agnostic
+  synthetic coordinate-frame probe (a fabricated skeleton, not a real
+  model, tested for round-trip-identity through a real headless-Blender
+  import) as the primary check, with the humanoid-landmark idea demoted to
+  an explicitly optional, non-load-bearing secondary signal. Both
+  corrections are recorded inline in `TRANSFORM_TRIAGE.md` itself, not
+  just in this log.
+  - Luna then answered all four of the document's own open questions
+    directly and gave explicit go-ahead to implement autonomously: "yes,
+    you build while i nap" (tests before the formula fix, per the
+    document's own recommended sequencing); "part of this" (fold the
+    single-matrix refactor into the same change, don't scope it
+    separately); "worth adding, but not critical" (the humanoid-landmark
+    secondary check); "no preferences, any will do" (a quadruped fixture).
+    Closed with an explicit scope boundary for what she'd verify herself:
+    "start implementing, and after all of it is tested and implemented i
+    will verify... until then you'll have to rely on headless Blender" —
+    everything below was built and verified exactly within that boundary,
+    nothing claimed beyond it.
+  - **`src/gltf.hpp`/`gltf.cpp`**: the historical three independently
+    hand-typed conversion functions (`zUpToYUp`, and `cmd_export.cpp`'s
+    separate `toGltf(m2::Quat)`/`toGltfScale`) are now one mechanically-
+    derived system — a private `Mat3` plus one matrix (`kWowToGltf`,
+    corrected from `(x,-z,y)` to `(x,z,-y)`), with `zUpToYUp`/
+    `rotationZUpToYUp`/`scaleZUpToYUp` all derived from it (position/
+    normal: direct application; rotation: quaternion → matrix → conjugate
+    by the matrix → quaternion; scale: the matrix's permutation, signs
+    dropped). A `static_assert` on the matrix's determinant enforces "must
+    be a proper rotation" at compile time. `cmd_export.cpp`'s own
+    `toGltf(m2::Quat)`/`toGltfScale` are now thin wrappers, not separate
+    formulas — the exact fix for the root cause `TRANSFORM_TRIAGE.md`
+    traced this bug to (rotation/scale were hand-derived *from* the old,
+    wrong position formula, on paper, then never independently
+    re-verified against anything real).
+  - **The corrected formula is now corroborated three independent ways**,
+    not just the prior session's single headless-Blender empirical test:
+    the hand-derived change-of-basis math (already existing), the
+    headless-Blender round-trip (already existing, re-confirmed), and —
+    new this session — `reference/wow.export` (already checked out in this
+    repo, never previously mined for this), which has its own,
+    independently-written coordinate-conversion code for position,
+    normal, rotation, *and* scale, matching the corrected formula exactly
+    on every one (scale needed zero code changes — it was already correct,
+    informative about the bug's own shape: a sign error, not a wrong axis
+    pairing, since scale is sign-insensitive).
+  - **New tests, and each proven to actually catch the bug, not just
+    proven to pass** — the same "prove a regression test actually
+    regresses" discipline this project's history already uses elsewhere:
+    a synthetic, asset-agnostic coordinate-frame probe
+    (`tests/test_conformance.cpp`, a fabricated `gltf::Skeleton` with no
+    dependency on any real M2 file) asserts local X/Y/Z offsets survive a
+    real husk-export → Blender-import round trip as the *identical*
+    coordinate — before trusting it, `kWowToGltf` was temporarily reverted
+    to the historical formula and rerun: it failed exactly as the
+    root-cause math predicts (`+X`, the rotation's own invariant axis,
+    still correct; `+Y`/`+Z` both flipped), then the fix was restored and
+    reverified green. A property-based unit test
+    (`tests/test_gltf.cpp`) independently confirms `rotationZUpToYUp`'s
+    own matrix-conjugation implementation is self-consistent for several
+    real test rotations and probe vectors, regardless of which underlying
+    matrix is used — catches a bug in the conversion *machinery*, not in
+    which matrix is chosen. (One real false alarm this same test caught in
+    itself, before either mattered: a hand-typed "arbitrary rotation" test
+    quaternion wasn't quite unit-length, silently violating
+    `quatToMat3`'s implicit unit-quaternion assumption and producing a
+    small, confusing failure that looked like a real bug — fixed by
+    normalizing every test quaternion at test time rather than trusting a
+    literal's precision.) A second, explicitly non-load-bearing check
+    confirms a real humanoid landmark bone (`_Name`, keyBoneId 22) lands
+    above the armature origin on the real `bloodelffemale.m2` fixture —
+    caught one more real bug in its own first draft before shipping:
+    Blender is natively Z-up, not Y-up, so the check's first version
+    compared the wrong raw component (`.y` instead of `.z`) and would have
+    silently asserted the wrong thing; caught because the real fixture's
+    own landmark prints as `(0, 0, 2.05)`, obviously wrong against a
+    `.y > 0` check and obviously right against `.z > 0`.
+  - **A real quadruped fixture** (`test_data/creature/wolf/wolf.m2`,
+    gitignored, same personal-extraction convention as every other
+    `test_data/` fixture — 66 bones, 557 vertices, pulled from the local
+    corpus per Luna's own "no preferences, any will do") plus
+    `HUSK_TEST_QUADRUPED_M2`/`_SKIN` wiring
+    (`tests/test_data_paths.hpp`, `test_main.cpp`'s banner) and two new
+    `test_conformance.cpp` cases (gltf_validator zero-errors,
+    headless-Blender bone/vertex-count agreement) — explicitly *not*
+    additional orientation coverage (the synthetic probe already covers
+    any asset type by construction), but real pipeline coverage for a
+    body-plan/bone-hierarchy shape `bloodelffemale.m2` doesn't represent.
+  - **Full suite green with zero hand-updated literals**: every existing
+    test touching a position/rotation/scale value passed unmodified
+    against the corrected formula the moment it was flipped — 335 →
+    484/484 (+1 permanently-inapplicable skip) via `./build/husk-tests`,
+    485/485 via `ctest`. Nothing needed updating, which is itself a real
+    signal: no other test in this codebase was silently depending on the
+    old formula's specific wrong values.
+  - **Docs**: `TRANSFORM_TRIAGE.md` itself updated throughout with
+    "Implemented" notes per subsection (not deleted — unlike this
+    project's usual fully-closed-TODO lifecycle, one real item is
+    deliberately still open, see below, so the file stays as the living
+    record for it). `DESIGN.md` (the rotation/scale Key design decision
+    corrected to describe the current mechanically-derived implementation
+    rather than the stale hand-derived-formula description; a new,
+    detailed Follow-up entry after the original upside-down finding).
+    `README.md` (the roadmap stage 1 paragraph's literal formula citation
+    corrected — it still quoted the wrong, pre-fix formula as current
+    fact; the Testing section's Conformance-tier paragraph extended with
+    the new probe/landmark/quadruped coverage).
+  - **What's deliberately still open, not an oversight**: a real animated
+    clip, visually confirmed by Luna in Blender's actual GUI viewport —
+    every check this session added is numeric (headless probes, a
+    property test, a JS/C++ diff); nothing here substitutes for that last
+    look, and it was never meant to be automated away. `TRANSFORM_TRIAGE.md`
+    §7/§8 both say this explicitly. Whoever picks this up next — likely
+    Luna herself — should start there.
+- **Previous state**: Implemented all four items in `RO_COMPLETENESS_TODO.md`
+  (a punch list Luna wrote grounding four of README's own 🚧-marked
+  format-matrix rows against current source, then handed off with "shouldn't
+  be a big task") — every item done, tested, documented, and the TODO file
+  itself deleted per this project's own "survey's job is done" lifecycle.
+  Worked in the file's own priority order.
+  - **Item 2 (header metadata)**: `global_flags` now decodes into every
+    wiki-named bit (`m2::globalFlagNames`, `src/m2.hpp`/`m2.cpp`'s new
+    `GlobalFlag` namespace — bit positions derived by counting the wiki's
+    own reserved `uint32_t : 1` slots, not guessed from hex comments),
+    printed by `husk info` alongside the existing raw hex. Two real-file
+    cross-checks the item's own plan asked for, both confirmed: (1)
+    `flag_load_phys_data` correctly tracks real `.phys` presence —
+    set on `mace_1h_warfrontsforsaken_d_01.m2` (has a committed `.phys`
+    sidecar), unset on `bloodelffemale.m2` (doesn't); (2) whether
+    `flag_new_particle_record` is a reliable proxy for the 492-byte
+    `M2Particle` shape, or whether `kMinVerifiedParticleVersion`'s
+    version-only gate could disagree with it on a real file — it can:
+    `mace_2h_bolvar_d_01.m2` (version 274, the 64-particle-emitter stress
+    fixture) does *not* set the flag, confirming the wiki's own text is an
+    OR ("if 0x200 is set **or** if version is bigger than 271") and
+    `kMinVerifiedParticleVersion`'s existing version-only check was already
+    the correct half of that OR, not a bug. `Header::textureCombinerCombos`
+    (the header struct's own last field, `M2Array<uint16_t>` at offset
+    0x130, only present when its flag bit is set) is now parsed and
+    surfaced via `husk info` too — a full 130,576-file local-corpus scan
+    found zero real files with the flag set, so this one specific table's
+    real-file layout is unverified even though the parse itself is
+    low-risk (same well-tested `parseUint16Array` five other lookup tables
+    already share). The wiki's own "use this instead of index+1 for
+    multitexture blending" cross-reference into `cmd_export.cpp`'s
+    material resolution was deliberately **not** wired up — no indexing
+    key documented at all, and (per the scan) no real file to verify a
+    guess against either.
+  - **Item 3 (`WFV1`/`WFV2`/`DPIV`/`AFRA`)**: all four — no wowdev.wiki
+    struct at all — now get real structural parsing in `husk dump-chunks`
+    (`dumpWfv1`/`dumpWfv2`/`dumpDpiv`/`dumpAfra`, `src/cmd_dump.cpp`) built
+    from the real corpus files already sitting in this repo's root
+    (`*_files_for_exploration.txt`, from an earlier session's corrected
+    scanner-bug finding, `WIKI_FINDINGS.md` §10). `AFRA`/`WFV1`: a single
+    fixed 16-byte struct (one real float32 + 12 zero bytes). `DPIV`: the
+    wiki's own "always 32 bytes" undersold it — chunk size is *always* an
+    exact multiple of 32 (1-4 records seen across 2,632 real hits), a real
+    record array (`chunk.size / 32` records, 8x float32 each), not a
+    single fixed struct; the last 4 floats are zero in every one of 2,951
+    real records decoded, kept as real fields rather than assumed
+    reserved. `WFV1`/`WFV2` are a genuinely thin, 2-file,
+    byte-identical-content sample (both the same Nazjatar-zone waterfall
+    doodads) — flagged tentative rather than confidently typed field-by-
+    field (two `WFV2` fields show signs of not really being floats — a
+    plausible packed-RGBA-color byte pattern, and a small-integer-as-float
+    denormal `DPIV`'s own field_3 also shows — exposed as plain floats
+    rather than guessing a reinterpretation from so thin a sample).
+    `kFallback`'s raw-hex-dump path (`dumpRawFallback`) was removed
+    outright once nothing used it anymore, and its stale notes ("AFRA...
+    not observed in any files yet") — already known-wrong since an earlier
+    session's scanner-bug correction, just never updated in this specific
+    file — went with it.
+  - **Item 1 (`blp/` DXT3/JPEG)**: a real corpus scan, not the small
+    open question the item's own plan expected to resolve cheaply — this
+    ran **779,056** real `.blp` files (not `.m2`-scoped, the biggest and
+    single longest-running corpus check this project has done, ~2h55m
+    wall-clock, almost entirely disk I/O opening three-quarters of a
+    million individual small files one at a time). Result: **DXT3 is real
+    and needed** (6,759 real files — character hair/skin textures among
+    them), **JPEG is genuinely absent** (0 real files, recorded as a real
+    negative result per this project's own "checked, zero real files, not
+    implemented blind" discipline, not attempted). The real surprise:
+    DXT3 needed **no new decode code at all** — `blp/src/husk_blp/
+    decode.py`'s `_decode_dxt`/`_DXT_BLOCK_SIZE`/`_DXT_FOURCC` were
+    already generic over `PixelFormat.DXT1`/`DXT3`/`DXT5`, wired through
+    the exact same synthetic-DDS-wrapper path DXT1/DXT5 use — it had
+    simply never been exercised by a real test or verified against a real
+    file, so `README.md`'s own "DXT3... unimplemented" claim was stale
+    documentation, not a missing feature. Verified two ways before
+    trusting that: a new synthetic single-block test
+    (`test_decode_dxt3_solid_green_explicit_alpha_block`, `blp/tests/
+    test_decode.py`, same shape as the existing DXT1/DXT5 single-block
+    tests) round-trips exactly; a real file
+    (`character/troll/hair00_01.blp`, 128×128) decodes to a visibly
+    correct troll-hair texture (red strands + braid, 2,333 unique
+    colors) — not a crash, not garbage.
+  - **Item 4 (Sidecar FileDataID resolution)**: `README.md`'s format-
+    matrix row bumped 🚧 → 📖 (the CASC-resolution half this row measures
+    against is a deliberate non-goal, not a deferred read — local-file
+    resolution, the row's actual full scope, is already complete for all
+    six IDs). The one real diagnostics gap found: `resolveSkin`
+    (`--skin auto`'s SFID-based resolution stage, `src/cmd_export.cpp`)
+    used to report only the *directory* it searched on a "not found"
+    failure, not the specific `<FileDataID>.skin` path it actually
+    checked — a direct miss against this project's own Foreign Data
+    policy ("on failure, always print expected and actual values"). Now
+    names the exact candidate path; three existing `tests/test_cli.cpp`
+    cases whose assertions depended on the old, vaguer wording were
+    updated to check for the specific path instead. Checked the sibling
+    resolvers the item's own plan named alongside it
+    (`--anim`/`--bones-dir`/`--textures`) and found they don't share the
+    gap: all three are deliberately silent-skip-per-item by design
+    (matching `--textures`'s already-established "quiet when nothing
+    applies" precedent), with no "not found" failure message to improve
+    in the first place — the gap was real but narrower than the item's
+    own framing suggested.
+  - Also bumped 🚧 → 📖 for the "Chunk container / magic detection" and
+    "Header / global metadata" format-matrix rows (Item 3's/Item 2's own
+    work, respectively, directly closes the gap those symbols described).
+  - **Verification discipline**: every claim above was checked against
+    real bytes before being written down or shipped — the two real-file
+    header-flag cross-checks, the 130,576-file `textureCombinerCombos`
+    scan, the 779,056-file BLP scan, and the real troll-hair-texture
+    decode all happened *before* the corresponding doc text or code
+    change was finalized, not after. Full suite green throughout: 471/471
+    `./build/husk-tests` (1 permanently-inapplicable skip), 472/472
+    `ctest`, 17/17 `blp/`'s own pytest suite (3 pre-existing, unrelated
+    env-var-gated skips).
+  - **Docs**: `WIKI_FINDINGS.md` (§10 gained a "Follow-up: implemented"
+    subsection for `WFV1`/`WFV2`/`DPIV`/`AFRA`; new §14 for the
+    `global_flags`/`textureCombinerCombos`/BLP-scan/`resolveSkin`
+    findings; "Where these live in husk" table extended two rows),
+    `DESIGN.md` (three new Key design decisions bullets — `WFV1`/`WFV2`/
+    `DPIV`/`AFRA` parsing, `global_flags`/`textureCombinerCombos`,
+    `resolveSkin` diagnostics — plus a fourth for the DXT3 finding),
+    `M2_COMPLETENESS.md` (new `WFV1`/`WFV2`/`DPIV`/`AFRA` row, Header row
+    updated), `README.md` (three format-matrix symbol bumps, the `blp/`
+    usage paragraph rewritten for DXT3, the BLP `Texture pixel data` row
+    rewritten). `RO_COMPLETENESS_TODO.md` deleted outright, same lifecycle
+    every prior fully-closed TODO file in this project has used — its five
+    remaining code/test cross-references (`src/cmd_dump.cpp`,
+    `tests/test_cli.cpp`, `tests/test_dump.cpp` x2,
+    `blp/tests/test_decode.py`) were already phrased as `former Item N`
+    historical citations before the deletion, so none needed rewriting
+    (same "historical log entries aren't rewritten" precedent every prior
+    TODO-file deletion here has used).
+  - **A real, unrelated observation, not acted on**: partway through this
+    session's long-running BLP scan, ten new untracked files appeared in
+    the work dir that this session didn't create —
+    `ADT_LOD_TODO.md`/`ADT_TERRAIN_TODO.md`/`COLLISION_CULLING_TODO.md`/
+    `ENGINE_TODO.md`/`FOG_VOLUMES_TODO.md`/`LIGHTING_TODO.md`/
+    `LIQUID_TODO.md`/`LUNA_NOTES.md`/`WDT_TODO.md`/`WMO_GEOMETRY_TODO.md`/
+    `WORLD_COMPLETENESS.md`/`WORLD_PLACEMENT_TODO.md` (plus a
+    `README.md` intro-paragraph edit pointing at the new
+    `WORLD_COMPLETENESS.md`) — evidently Luna's own concurrent work in a
+    separate session, scaffolding a WMO/ADT/world-geometry expansion,
+    landing while this session's background scan ran for several hours.
+    Confirmed via `git status`/`git diff` that none of it conflicts with
+    or was touched by this session's own edits (the one shared file,
+    `README.md`, had her intro-paragraph addition and this session's
+    format-matrix/`blp/`-paragraph edits land in disjoint sections,
+    cleanly coexisting) — left entirely alone, per this project's own
+    "Luna-created content, not mine to touch" rule, including five
+    "same disposition `RO_COMPLETENESS_TODO.md`... already established"
+    -style precedent citations inside her new files that now point at a
+    file this session deleted (`LIQUID_TODO.md`/`WDT_TODO.md`/
+    `ADT_TERRAIN_TODO.md`/`WMO_GEOMETRY_TODO.md`/`ADT_LOD_TODO.md`) —
+    flagged here rather than silently fixed, since they're her files, not
+    read closely enough to know if she'd even want them touched.
+  - **Environment note, reconfirmed**: the BLP scan needed `time direnv
+    exec . uv run --python tools/venv/bin/python <script>`, backgrounded
+    (it exceeded the default 120s tool timeout almost immediately and
+    took ~2h55m total) — checked on via `/proc/<pid>/fd` (which real file
+    it currently had open) rather than polling its own stdout, since the
+    script only prints once at the very end; a `Monitor` task
+    (`while kill -0 <pid>; do sleep ...; done`) was used for the final
+    long stretch so a task-completion notification would arrive instead
+    of manual re-checking. `uv run --python .venv/bin/python <script>`
+    (not `tools/venv/bin/python`) is `blp/`'s own venv path, needed for
+    the two ad hoc real-file verification scripts this session wrote
+    (checking Pillow's own decode against a real DXT3 file, saving a PNG
+    to eyeball) — `blp/`'s Python package and the top-level `tools/`
+    scripts each have their own separate venv, confirmed by `-c` failing
+    against the wrong one with an unrelated import error before catching
+    it.
+- **Previous state**: Closed out the remaining `M2_GAPS_TODO.md` work
+  autonomously (Luna: "start implementing the changes independently
+  starting from the easiest... continuing to the harder ones," then went
+  offline) — two units of work, each committed separately.
+  - **Items 9/10 (real-data regression tests for the previous session's
+    EXP2/PFDC/BLP2 findings)**: wired the three already-pulled real fixtures
+    (`test_data/verification/exp2_126382.m2`/`pfdc_1003471.m2`/
+    `blp2_7507381.m2`) into `tests/test_data_paths.hpp`, then wrote real
+    `doctest::skip()`-gated `TEST_CASE`s — exact field assertions
+    (re-derived fresh from a live `husk dump-chunks` run, not copied from
+    the TODO's own orientation numbers) for both EXP2-only and EXP2+PFDC
+    fixtures in `tests/test_dump.cpp`, plus three `BLP2`-anomaly
+    throws-cleanly cases (`info`/`export`/`dump-chunks`) in
+    `tests/test_integration.cpp` (not `test_cli.cpp` as the TODO's own plan
+    suggested — that file's own header comment explicitly states none of
+    its cases need real fixtures, so the real-fixture-shaped test belongs
+    in `test_integration.cpp` instead, which already has the
+    `test_data_paths.hpp`/`doctest::skip` infrastructure for exactly this).
+    456 → 460 test cases, both items removed from `M2_GAPS_TODO.md` per
+    this project's TODO lifecycle, permanent record folded into
+    `M2_COMPLETENESS.md`/`WIKI_FINDINGS.md` §13. Committed separately
+    (`84a16d9`) before starting Item 4, so a rate-limit or interruption
+    mid-PCOL-work wouldn't have put the already-finished Items 9/10 work at
+    risk.
+  - **Item 4 (`PCOL`, player-housing collision, War Within 11.1.7+) — the
+    last remaining item, now implemented.** The wiki gives a full,
+    byte-accountable struct (four independent `(count, offset)` regions:
+    `vertexPositions`/`faceNormals`/`indices`/`flags`) but flags it
+    "preliminary" — verification against real bytes came first, not
+    guessed at. `pcol_files_for_exploration.txt` (already sitting in the
+    repo root from the previous session's investigation, 2,354 real
+    paths) fed a new from-scratch Python decoder
+    (independent of husk's own C++ parser, same discipline every prior
+    corpus check here uses): **all 2,354 real files decode with every
+    region fully in-bounds, zero exceptions** — plus two facts the wiki
+    doesn't state: `indexCount == faceNormCount * 3` on all 2,354 (each
+    `faceNormal` is a per-triangle normal, the same shape M2's own core
+    `collisionFaceNormals` already has — `indices` are triangle triples),
+    and every decoded index is in range for that same file's own
+    `vertexPosCount` (zero out-of-range references). The wiki's own
+    warning — "there can be extra bytes between the data, use the
+    offsets" — is real, not defensive boilerplate: a real file
+    (`pa_kite_lamp_creature.m2`) has an 8-byte gap between `faceNormals`'
+    own end and `indices`' own offset, so the implementation reads each
+    region via its own offset field, never accumulated sequentially the
+    way `.phys`'s `PLYT` header+data walk is.
+    - **Design call made autonomously, not escalated**: diagnostic-only
+      (`husk dump-chunks`), no glTF slot — same class as `EXP2`/`PFDC`/
+      `DETL` (the TODO's own docs note hedged this: "likely n/a glTF-
+      ceiling... unless a real file surfaces and a translation... makes
+      sense"). Real files do exist and the shape is genuinely translatable
+      (position/index/normal triangles, structurally identical to how M2's
+      own core collision mesh already gets a real glTF translation) — but
+      `PCOL` is niche (War Within 11.1.7+ player-housing furniture only,
+      2,354/130,576 files) sidecar-shaped data, not core render geometry,
+      matching every sibling item in this same TODO file (`EXP2`/`PFDC`/
+      `DETL` all shipped diagnostic-only despite being translatable in
+      principle too) — picked the conservative, precedent-consistent
+      option rather than introduce a new mesh into `.glb` output
+      unprompted.
+    - Implemented as `dumpPcol` (`src/cmd_dump.cpp`), moved from
+      `kFallback` to `kDocumented`. Ran husk's own compiled binary against
+      all 2,354 real files directly (not just the Python decoder): zero
+      exceptions. New `tests/test_dump.cpp` cases: a synthetic fixture with
+      deliberately non-contiguous regions (proving the offset-based read,
+      not a PLYT-style sequential accumulation) and negative int16 values
+      (proving signed, not unsigned, reads for `indices`/`flags`), plus a
+      real-data regression test against a newly-committed fixture
+      (`test_data/verification/pcol_pa_kite_lamp_creature.m2`, chosen for
+      its small size — 2,016-byte chunk, 40 vertices/74 triangles — while
+      still real). 460 → 462 test cases, both `./build/husk-tests`
+      (462/462 + 1 permanently-inapplicable skip) and `ctest` (463/463)
+      green.
+    - **`M2_GAPS_TODO.md` deleted outright** once Item 4 (its last item)
+      closed — same "survey's job is done" lifecycle every prior TODO file
+      here has used. Permanent record: `M2_COMPLETENESS.md`'s Collision &
+      physics section, `WIKI_FINDINGS.md` §10's new Follow-up subsection,
+      `DESIGN.md`'s Key design decisions (new `PCOL` bullet) and Open work
+      section (rewritten now that the file is gone), `README.md` (Usage
+      section's `dump-chunks` paragraph, Collision/physics format-matrix
+      row).
+    - **Full cross-reference sweep**: grep-verified every one of the
+      ~50 `M2_GAPS_TODO.md`/`M2_GAPS_TODO` mentions across `src/`/`tests/`/
+      `tools/`/docs. Left ones already phrased as historical narrative
+      alone (`...'s former Item N`, `Follow-up (...'s item N, now closed)`
+      — same "historical log entries aren't rewritten" precedent every
+      prior TODO-file deletion here has used) but fixed every mention that
+      read as a live pointer to a file that no longer exists (bare
+      `M2_GAPS_TODO(.md) Item N` citations in `tests/test_dump.cpp`,
+      `tests/test_gltf.cpp`, `tests/test_m2.cpp`, `tests/test_integration.cpp`,
+      `src/cmd_export.cpp`, `src/gltf.hpp`, `src/cmd_dump.cpp`,
+      `tools/find_m2_unknown_chunks.py`) — same discipline the
+      `CORPUS_TODO.md`/`MULTIROOT_SKELETON_TODO.md` deletions already
+      established, applied at real scale here (many more live references
+      than either of those had, since this TODO file bundled 10 independent
+      items across several sessions).
+  - **Environment note, reconfirmed, no repeat of a prior mistake**: one
+    stray bare `python3 -c ""` (immediately followed by the correct
+    `direnv exec . uv run --python tools/venv/bin/python <script>` form) —
+    it errored harmlessly (no global Python, same guard as always) and
+    nothing was built on its output; still worth noting since a previous
+    session's whole correction was specifically about this exact mistake.
+    `uv run --python tools/venv/bin/python -c "..."` (inline `-c`, as
+    opposed to a script file) does **not** work — `uv run` doesn't accept
+    `-c` as a passthrough flag to the interpreter the way bare `python3`
+    does (`error: unexpected argument '-c' found`) — write ad hoc checks to
+    a scratchpad file and pass the file path instead, confirmed working
+    throughout this session.
+- **Previous state**: Explored 4 untracked casc-tool scan outputs Luna dropped in
+  the work dir (`m2_chunk_discovery.csv`/`.log`, `m3_corpus_scan.csv`/`.log`
+  — a separate thread's full-corpus scans against a live CASC install,
+  product `wow` build 68887) and turned them into real doc corrections, per
+  Luna's own explicit "explore results and summarize into a coherent action
+  plan" request. Found and verified three things, none previously known:
+  - **`EXP2`/`PFDC`'s "zero real files" claim was a local-extraction gap,
+    not a real absence.** `M2_COMPLETENESS.md`/`src/m2.hpp`/`cmd_dump.cpp`
+    all previously stated husk's local corpus (`/media/luna/data/
+    wow_export`) has zero real files for either tag — both parsers were
+    implemented from the wiki struct alone, unverified. The new
+    live-CASC chunk census (all 130,576 real `.m2` files, 31 distinct
+    tags — broader than the earlier 5-tag `--watch` cross-check `WIKI_
+    FINDINGS.md` §10 already used) found **17,065** real `EXP2` files and
+    **2,430** real `PFDC` files — too big a gap to be the ~1% extraction
+    slack §10's `PCOL`/`DPIV` case already accounted for. Confirmed by
+    directly pulling two real files via `casc-tool extract` (storage
+    `/media/luna/games/World of Warcraft`, requested from Luna
+    mid-session): both parse cleanly through husk's existing, unmodified
+    code — one shows a real monotonic 3-keyframe `EXP2` `alphaCutoff`
+    curve, the other a real version-6/`phyt`-3 `PFDC` body record
+    matching `WIKI_FINDINGS.md` §9's already-verified `.phys` shape. No
+    parser changes needed, only the stale "unverified"/"zero files"
+    claims — corrected in `M2_COMPLETENESS.md`, `src/m2.hpp`, `src/
+    cmd_dump.cpp`.
+  - **A genuine anomaly (`BLP2` as a 1-byte top-level M2 chunk, 1 real
+    hit) resolved as a listfile mismatch, not an M2 finding at all.**
+    `husk` itself refused to open the file outright (a real
+    `ParseError`, not a silent misread — the boundary discipline working
+    as designed). Pulled the file directly and hex-dumped it: its actual
+    content **is** a genuine BLP2 texture (real magic + compression/
+    width-height/mipmap-offset header, plausible 512×256), not an M2
+    file — FileDataID 7507381 isn't in this project's own listfile
+    snapshot, consistent with the upstream chunk-census tool's
+    `*.m2`-masked enumeration trusting a stale/wrong listfile-derived
+    extension rather than sniffing content. Not a husk bug, not a real
+    M2 chunk — written up and closed in one pass.
+  - **8 real `.m3` files exist** (a full-storage, non-`.m2`-scoped
+    `M3DT`-magic byte-signature scan, 1,891,552 files) — an entirely
+    different, undocumented model format, unresolved listfile names
+    (`models\unknown\unk_exp*\<fdid>.m3`). Explicitly scoped by Luna as
+    "note it, stay out of scope" (not a new investigation) — recorded as
+    a `DESIGN.md` Non-goals addendum only.
+  - Also reconfirmed, no new information: the full 31-tag census's
+    `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL` counts land on the *exact* same
+    numbers `WIKI_FINDINGS.md` §10's earlier 5-tag `--watch` cross-check
+    already found — an independent second run via a broader tool,
+    converging on the same result, not new news but a stronger
+    confidence signal for that section.
+  - **Explicitly deferred at Luna's direction**: `PCOL` (`M2_GAPS_TODO.md`
+    Item 4, the one item already fully unblocked and ready) was *not*
+    implemented this session — "not yet," per her own answer when asked
+    directly. Next session picking this up should start there; nothing
+    else blocks it.
+  - **One real process correction mid-session**: reflexively ran
+    `find / -maxdepth 4 ...` looking for the CASC storage path before
+    asking — correctly blocked by the sandbox/user per this file's own
+    "never run commands against system root" hard rule. Stopped, asked
+    Luna directly for `--storage`/`--listfile` instead of guessing
+    further. Separately corrected for using a bare `python3 -c` (no
+    global Python on this system) instead of this project's own
+    established `direnv exec . uv run --no-project python3` pattern —
+    caught immediately, no repeat; used `jq` (already on `PATH`,
+    installed via Luna's own profile, not project-scoped) for the rest
+    of this session's JSON inspection instead.
+  - The 3 pulled real files (`exp2_126382.m2`, `pfdc_1003471.m2`,
+    `blp2_7507381.m2`) were moved into `test_data/verification/` and wired
+    into real regression tests in the very next session — see the newer
+    Last state entry above, this note is stale as of that session.
+  - The 4 untracked CSV/log files that prompted this session
+    (`m2_chunk_discovery.*`, `m3_corpus_scan.*`) are still sitting
+    untracked in the work dir, not cleaned up or committed — Luna's own
+    artifacts from the separate casc-tool thread, hers to dispose of.
+- **Previous state**: Implemented 7 of `M2_GAPS_TODO.md`'s 8 items (everything
+  except Item 4, `PCOL`, blocked on real data — see below) in one session,
+  via **parallel subagents** rather than sequentially — requested directly:
+  "start implementing @M2_GAPS_TODO.md," then, mid-triage, "considering it's
+  individual tasks, could do subagents." Grouped the 8 items into 4
+  worktree-isolated agents by file-overlap (to keep merge conflicts
+  tractable, not by the TODO's own priority order): Item 1 alone
+  (`M2Sequence` fields + `aliasNext` chain resolution, the biggest/highest-
+  value piece); Items 5+7 together (both touch material-extras plumbing);
+  Item 6 alone (Attachments/Events/Lights as real glTF nodes, its own
+  glTF-schema surface); Items 2+8+3 together (all three are
+  `cmd_dump.cpp`-only diagnostic additions). Did the two real-corpus checks
+  Items 3/4 explicitly needed *before* dispatching, not after: a fresh
+  130,576-file top-level-chunk-tag scan (same scanner shape as
+  `tools/find_m2_unknown_chunks.py`) found **zero** real files with either
+  `EXP2` or `PCOL` — per each item's own contingency plan, Item 3 still
+  shipped (simple, unambiguous struct, synthetic fixture, flagged
+  unverified) while Item 4 stayed parked (a wiki-flagged "preliminary"
+  struct with zero real bytes to ground it, explicitly not to be
+  implemented synthetic-only) and got folded into the Items-2+8+3 agent's
+  brief accordingly.
+  - **All four agents hit a shared API rate limit simultaneously and were
+    killed mid-work** (a genuine platform limit, not a code problem) —
+    each had made real, uncommitted progress in its own worktree at the
+    moment of the cutoff. Confirmed via `git status`/`git log` in every
+    worktree before doing anything else: nothing was lost, nothing had
+    been committed prematurely. Resumed all four via `SendMessage` from
+    their own transcripts (not fresh respawns — a respawn would have
+    re-derived context from scratch) with an explicit "you were cut off by
+    a rate limit, not a real failure, resume exactly where you left off"
+    framing; all four finished cleanly on resume.
+  - **Each agent independently found a real bug or a real, non-obvious
+    finding while implementing its own plan** — this project's own
+    "verify against real bytes, don't trust the plan document blindly"
+    discipline held up under delegation, not just under direct work:
+    - Item 1's agent caught that chain-resolving *every* `flags & 0x40`
+      ("alias") sequence unconditionally would have been a real
+      regression — 31 of `bloodelffemale_hd.skel`'s 38 real alias
+      sequences *also* carry `flags & 0x20` ("stored inline"), meaning
+      they already have real keyframe data of their own; `0x20` has to
+      keep winning priority exactly as it did before `aliasNext`
+      resolution existed, or those 31 real clips would have silently had
+      the wrong sequence's data substituted in. Caught before shipping,
+      not found by a later regression test. Also found, honestly: the
+      fix's *measured* effect on the committed fixture is **zero net new
+      clips** (all 7 genuinely-alias sequences resolve to a terminal
+      sequence needing an external `.anim` file not among the ~104
+      already committed) — the original plan's own "don't assume every
+      alias necessarily gains a clip" caveat held exactly.
+    - Items-5+7's agent caught that `M2Color::alpha`/`M2TextureWeight
+      ::weight` are `M2Track<fixed16>` (2-byte wire values), not
+      `M2Track<float>` (4 bytes) — the TODO's own suggested plan said to
+      reuse `resolveFloatTrackSequence` for these, which would have
+      silently misread the 2-byte wire bytes as garbage 4-byte IEEE
+      floats. Used `resolveRawIntTrackSequence(..., elementSize=2)`
+      instead, decoding fixed16 → 0..1 the same way the existing
+      constant-value path already does.
+    - Items-2+8+3's agent found that `DETL`'s defensive floor needs to be
+      `min(lightCount, chunk.size/12)`, not `chunk.size/12` alone — a real
+      3-light file pads 36→48 bytes for 16-byte alignment, and 48/12
+      happens to equal exactly 4, silently overcounting by one record if
+      the floor isn't taken against the header's own `lights.count` too.
+  - **Merging required real, careful conflict resolution, not blind
+    `git merge`** — 4 branches all touched the shared `M2_GAPS_TODO.md`
+    (each removing its own item's section) and several touched
+    `M2_COMPLETENESS.md`/`DESIGN.md`/`WIKI_FINDINGS.md` (each adding its
+    own row/entry) and `gltf.hpp`/`gltf.cpp`/`cmd_export.cpp` (each adding
+    its own feature). Merged and rebuilt+retested after *every* branch,
+    not all 4 at once, so a bad merge would be caught immediately rather
+    than compounding: `git branch --merged`-verified fully clean before
+    deleting. Two real hand-resolution mistakes happened and were caught
+    by re-reading the file afterward, not assumed correct from the diff
+    alone: (1) `test_integration.cpp`'s Items-5+7 merge conflict was
+    actually two independent branches both appending a "load the exported
+    glb, then assert" test case at the same location — git's diff matched
+    the two tests' identical boilerplate as shared context, so the naive
+    conflict markers implied *interleaving* two unrelated test bodies;
+    reconstructed by hand into three separate, complete, non-overlapping
+    `TEST_CASE`s (Item 5's, Item 6's already-merged one, Item 7's). (2) The
+    final Item-1 merge's `M2_GAPS_TODO.md` conflict was resolved wrong on
+    the first pass — kept HEAD's still-full Item 1 section body instead of
+    collapsing it now that Item 1 is done, leaving a stale, already-
+    obsolete section sitting in the file; caught by re-reading the merged
+    file end-to-end afterward (`grep "^## Item"`) rather than trusting the
+    conflict resolution had done the right thing, then fixed by trimming
+    the section out and rewriting the priority-order list and its
+    "here's where the finished items live" note to name all 7 finished
+    items, not just the ones each individual merge happened to know about.
+  - **Final state, verified via a full clean rebuild** (`rm -rf build`,
+    reconfigure, rebuild, both `./build/husk-tests` and `ctest`): 335 → 455
+    test cases (456/456 via `ctest`, 1 permanently-inapplicable skip),
+    zero failures. All 4 worktrees/branches removed after confirming
+    `git branch --merged master` covered every one of them — nothing left
+    behind.
+  - **Docs**: `M2_GAPS_TODO.md` now holds only Item 4 (`PCOL`), with a
+    "checked: 0/130,576 real files" note added to its own Blocker section
+    and a combined note naming all 7 finished items and where their
+    permanent record lives (not deleted outright, since one real item is
+    still genuinely open — unlike every prior fully-emptied TODO file in
+    this project's history). `M2_COMPLETENESS.md` (Attachments/Events/
+    Lights rows to `native — 100%`; new `M2Sequence`-metadata,
+    hardcoded-texture-slot, animated-tint/fade, `DETL`, and `PFDC` rows;
+    `EXP2` folded into the particle/ribbon side-chunks row; `Alias
+    sequences` row corrected from "n/a, upstream-spec gap" to
+    `native — 100%`), `DESIGN.md` (5 new Key design decisions, one per
+    shipped feature area), `WIKI_FINDINGS.md` (§11/§12's "Where these live
+    in husk" table rows filled in), `README.md` (Materials paragraph).
+- **Previous state**: Ran `M2_UNKNOWNS_EXPLORATION.md`'s investigation brief to
+  completion — six targets (wowdev.wiki chunk types/fields with no
+  field-level struct, or an internally-inconsistent one), each given a real
+  disposition grounded in real corpus bytes, not guessed at. Requested
+  directly: "Start on @M2_UNKNOWNS_EXPLORATION.md." Same methodology every
+  prior wiki-correction session here has used (independent from-scratch
+  scanner, cross-checked against many real files, full byte-accounting
+  before trusting a stride) — see `WIKI_FINDINGS.md` §10/§11/§12 for the
+  full writeups.
+  - **Targets 1–4 (`WFV1`/`WFV2`/`DPIV`/`AFRA`) — confirmed absent, a real
+    negative result.** New `tools/find_m2_unknown_chunks.py` walked the
+    full real corpus (`/media/luna/data/wow_export`, all 130,576 `.m2`
+    files, one top-level-chunk-tag pass, ~30s) and found **zero** real
+    files carrying any of the four tags. Sanity-checked the scanner's own
+    chunk-walk logic against `test_data/bloodelffemale.m2`'s known-good
+    `MD21`/`TXAC`/`AFID`/`LDV1`/`SFID`/`TXID` sequence first, so the
+    corpus-wide zero isn't a scanner bug — confirmed all 130,576 files are
+    `MD21`-chunked (no pre-Legion flat files in this corpus to explain the
+    zero as "wrong file era" either). `WFV3` (`WFV1`/`WFV2`'s later,
+    fully-documented successor) was found in exactly 9 real files
+    elsewhere in this same corpus, already implemented — so the zero here
+    is "this corpus's own extraction doesn't happen to have one," not
+    "the format never existed." Written up as `WIKI_FINDINGS.md` §10.
+    Per Luna's own explicit follow-up request ("also write the unknown
+    chunks if not solvable with this data as todo list for casc-tool...
+    write it here, i will personally move it to correct place"), a
+    **standalone `CASC_TOOL_TODO.md`** (repo root, deliberately
+    **not** committed, not referenced from any husk doc) hands this
+    negative result to Luna's separate `casc-tool` project as a "worth a
+    broader CASC pull across other builds/regions" lead, with the one
+    concrete FileDataID the wiki names (`WFV1`, 2445860) and husk's own
+    scanner script ready to point at any other corpus root if a hit ever
+    turns up.
+  - **Target 5 (`DETL`) — fully resolved, a real byte-layout correction
+    plus one wholly new finding.** The wiki's own struct lists fields
+    summing to 0x0c bytes but ends with a `/*0x0a*/` comment — a
+    pre-existing 6-byte discrepancy `cmd_dump.cpp`'s `kFallback` table
+    already flagged as the reason this wasn't parsed. New `tools/
+    check_detl_stride.py` found 1,043 real `DETL`-bearing files (mostly
+    player-housing lighting fixtures, War Within-era). A first crude
+    `chunk.size / lights.count` division looked like a confusing 3-way
+    split (1,012 files "clean" at 16 bytes, 18 at 12 bytes, 13 at neither)
+    — until a direct byte decode on a real multi-light file
+    (`goblinspidertank.m2`, 4 lights) showed stride 16 produces garbage
+    past the first record while stride 12 decodes all 4 records
+    identically clean, revealing the "16-byte" bucket was a numerical
+    coincidence (`48 = 12×4 = 16×3` both hold), not a second real struct
+    variant. Testing the corrected hypothesis — **real stride is 12 bytes,
+    whole chunk zero-padded up to the next 16-byte alignment boundary**
+    (undocumented on the wiki) — against all 1,043 files at once: **100%
+    match**, vs. 998/1043 and 1012/1043 for the two wrong candidate
+    strides. Decoding all 1,386 real records at the confirmed stride found
+    `flags` takes only two real values (0/0x8), and `scale`/
+    `diffuseColorMultiplier` are a **constant** half-float value
+    (0.013885498046875 / exactly 1.0) in every single real record sampled
+    — about as clean a confirmation as real data gets. Written up as
+    `WIKI_FINDINGS.md` §11; a full implementation plan (trivial — reuses
+    `M2Particle`'s existing half-float decoder, diagnostic-only
+    `dump-chunks` output, no glTF slot needed) added as `M2_GAPS_TODO.md`
+    Item 8, not implemented in `src/` this session per the investigation
+    brief's own "investigation, not implementation" scope.
+  - **Target 6 (`M2Sequence.aliasNext`) — fully resolved, and it corrects a
+    real bug in an *earlier* husk investigation, not just the wiki.** The
+    existing `TODO_correctness.md` #4 (from a prior session) had already
+    tried and failed to resolve this on `bloodelffemale_hd.skel` alone,
+    finding `aliasNext` values in the 48,861–48,983 range that didn't
+    resolve as a local index or a same-file id match. New `tools/
+    check_alias_next.py`, reading the field at `M2Sequence`'s real,
+    `WIKI_FINDINGS.md` §1-corrected 64-byte stride (`aliasNext` at offset
+    **0x3E**, not the wiki's literal, pre-correction 0x22 — 0x22 lands
+    inside `M2Range replay`'s second field at the real stride, exactly
+    explaining the earlier session's nonsensical 5-digit values), across
+    all four real blood-elf family files (`bloodelffemale.m2`/
+    `bloodelfmale.m2` inline, `bloodelffemale_hd.skel`/
+    `bloodelfmale_hd.skel` external — 1,483 sequences, 157 real aliases):
+    **157/157 (100%) resolve as valid local indices into the same file's
+    own `sequences` array**, and following the wiki's own documented
+    chain-walk (`flags & 0x40` → jump to `sequences[aliasNext]` → repeat)
+    terminates cleanly at a non-alias sequence for all 157, zero cycles,
+    zero runaways. `aliasNext` is a plain local array index, not an
+    `AnimationData.dbc` id and not anything cross-file, despite its own
+    "id in the list of animations" doc comment — the wiki's older "I have
+    no clue" bullet is simply stale, and the earlier husk session's
+    "unresolvable" conclusion was a stale-offset bug, not a real dead end.
+    A secondary cross-file `id`-match check (101/157 `aliasNext` values
+    also happen to match some sequence's `id` in a sibling file) was
+    checked and set aside as very likely coincidental — small integers
+    collide constantly with small real ids in a several-hundred-entry
+    space, and the match rate exactly tracks the already-explained
+    local-index values, not an independent signal. A bounded 2-query web
+    search (matching this project's own "don't over-spend" precedent from
+    the multi-root-skeleton investigation) found no public prior-art
+    resolution to corroborate against, but the real-byte result stands on
+    its own. Written up as `WIKI_FINDINGS.md` §12, including the explicit
+    "what went wrong the first time" section explaining the earlier
+    session's bug. `TODO_correctness.md` #4 **removed outright** per that
+    file's own stated convention (fixed items don't linger as `[Fixed]`
+    noise) — it was the last item, no renumbering needed — with a
+    summary folded into the file's own intro paragraph. `M2_GAPS_TODO.md`
+    Item 1's `aliasNext` bullet rewritten from "parse raw, don't resolve"
+    to "parse and resolve" — a real, not-yet-implemented follow-up now
+    unblocked: `buildAnimations` currently skips every alias sequence
+    outright, and could instead reuse the resolved terminal sequence's own
+    animation data to produce a real clip.
+  - **Docs**: `WIKI_FINDINGS.md` (three new sections, §10/§11/§12, full
+    "current text / proposed addition / evidence" format matching every
+    prior section on this page; "Where these live in husk" table extended
+    3 rows), `M2_GAPS_TODO.md` (Item 1's `aliasNext` bullet rewritten, new
+    Item 8 for `DETL`, priority-order list extended), `TODO_correctness.md`
+    (#4 removed, intro paragraph updated), `DESIGN.md` (Open work section
+    gained a `M2_GAPS_TODO.md` pointer it was oddly missing even before
+    this session, plus a closing paragraph for
+    `M2_UNKNOWNS_EXPLORATION.md`'s own now-completed disposition).
+    `M2_UNKNOWNS_EXPLORATION.md` itself **deleted outright** once every one
+    of its six targets had a final disposition — same "survey's job is
+    done" lifecycle every prior investigation-then-TODO file in this repo
+    has used. Its ~3 live cross-references inside the three new `tools/
+    *.py` scripts' own docstrings were grep-verified and repointed to
+    `WIKI_FINDINGS.md`'s new section numbers rather than left dangling —
+    same discipline every prior file-deletion session here has used.
+  - **New standalone tools, kept** (same "small, self-contained, one-off,
+    independent of husk's own C++ parser" convention `tools/
+    find_multiroot_skeletons.py` already established): `tools/
+    find_m2_unknown_chunks.py`, `tools/check_detl_stride.py`, `tools/
+    check_alias_next.py`. Their generated `*_for_exploration.txt`/
+    `*_report.json` output files at repo root are already covered by this
+    repo's existing blanket `*.txt`/`*.json` `.gitignore` rules (same as
+    `phys_files_for_exploration.txt`/`multiroot_skeleton_files_for_
+    exploration.txt` before them) — no cleanup needed, left as local
+    scratch artifacts.
+  - **Environment note, reconfirmed**: `direnv exec . uv run --python
+    tools/venv/bin/python <script>` for the three full-corpus scanner runs
+    (all under 30s each), `direnv exec . uv run --no-project python3 -c
+    "..."` for ad hoc byte-level verification one-liners (the stride
+    cross-check, the half-float decode, the goblinspidertank direct-decode
+    sanity check) — same split this project's environment notes have used
+    every prior session, inline `-c` fine for quick checks per this
+    session having no standing instruction against it.
+- **Previous state**: Implemented both `ANIM_TODO.md` and `PHYS_TODO.md` end to
+  end, independently, in one autonomous overnight session — requested
+  directly: "read both PHYS_TODO and ANIM_TODO, implement them
+  independently but carefully... extend the tests to actually cover stuff,
+  not just be 'we have more than 100 animations, that counts as a pass
+  right?'." No interactive user available partway through, so the two
+  plan-mode-flagged open questions each document left for a real design
+  pass (`ANIM_TODO.md`'s implementation was already fully speced;
+  `PHYS_TODO.md`'s extras-vs-dump-chunks split/CLI flag shape was not) were
+  resolved by following each document's own stated recommendation rather
+  than blocking — `PHYS_TODO.md`'s explicitly: "the same pattern as
+  particles and ribbons, attachment points in glb but data i separate,"
+  confirmed by the user mid-session, matching the doc's own Architecture
+  recommendation already.
+  - **`ANIM_TODO.md` (the `--anim` same-basename fallback)**: implemented
+    exactly as planned (`findAnimFileByBasename`, `M2AnimInputs::modelPath`,
+    `buildAnimations`'s external branch rewired to try `<FileDataID>.anim`
+    then `<model-basename><animId>-<subId>.anim`) — with one real bug the
+    plan itself had that only surfaced once the existing test suite ran
+    against the change: the file-open fallback logic used `if (!f)` to
+    decide whether the FileDataID attempt succeeded, but a default-
+    constructed `std::ifstream` that never had `.open()` called on it (the
+    `animFileIds == nullopt` case) reports `goodbit`, not `failbit` — `!f`
+    is false, so it silently skipped the basename fallback and tried to
+    read an unopened stream, producing empty bytes fed straight into
+    `extractAnimBlob`/chunk parsing, which threw a real "claims more
+    keyframes than this blob holds"-style error. Caught by a genuine
+    pre-existing test (`tests/test_cli.cpp`'s "a sequence without
+    flags&0x20 ... produces no animation clip" case, which doesn't pass
+    `--anim` at all so `animArg` defaults to `auto` and resolves `animDir`
+    to a real, non-empty directory) going from pass to fail the moment the
+    rewired branch landed — not found by inspection. Fixed by checking
+    `f.is_open()` instead of `!f` at both fallback points. Verified as a
+    real, non-cosmetic bug (not just "the fix looks more correct") by
+    `git stash`-ing the fix, confirming the exact failure, then restoring
+    it and confirming green — same "prove a regression test actually
+    regresses" discipline the multi-root/collision-mesh sessions already
+    established for their own changes.
+    - **4 new `tests/test_cli.cpp` cases** (basename fallback with no AFID
+      at all, basename fallback when the AFID-mapped file is missing,
+      FileDataID-file priority over a basename file when both exist —
+      proven by making the basename file deliberately too short to
+      resolve, so a wrongly-reversed priority would crash instead of
+      silently reading wrong data — and neither resolving), all built on
+      the existing `tinyExternalAnimM2`/`AFID`-chunk fixture already used
+      by two adjacent tests, not a new fixture shape.
+    - **`tests/test_integration.cpp`'s existing AFSB-follow-up case
+      strengthened**, exactly per the plan and per this session's own
+      explicit instruction to stop asserting fragile loose counts: it used
+      to only check `model.animations.size() > 100` (true from inline +
+      global-sequence clips alone, proving nothing about the fix). Added
+      exact-name assertions for `anim_69_0`/`anim_69_1` (the two real,
+      committed `bloodelffemale_hd0069-00/-01.anim` fixtures) — verified as
+      a real regression test the same `git stash` way: **both** names are
+      absent pre-fix (336 total clips, matching the inline-only baseline
+      exactly), both present post-fix (338 — the fix adds exactly the 2
+      real external clips this fixture set has, nothing else).
+    - **Docs**: `DESIGN.md` (AFSB design note gained the resolution-vs-
+      decode distinction; CLI grammar table's `--anim` row), `WIKI_FINDINGS.md`
+      §2's follow-up (corrected the "336 clips, verified three independent
+      ways" claim to note that verified the decode via a separate script,
+      not `--anim`'s own CLI resolution — the actual pre-fix reachable
+      count through the CLI was 336, i.e. zero of the genuinely-external
+      clips), `README.md` (`--anim` usage paragraph, Animation-sequences-row,
+      Sidecar-FileDataID-resolution row). `ANIM_TODO.md` deleted outright
+      once every doc-sync item had a final disposition, its own two live
+      code comments repointed to `WIKI_FINDINGS.md`/`DESIGN.md`.
+  - **`PHYS_TODO.md` (`.phys` physics/collision sidecar support)**: the
+    full implementation plan, built essentially as specified. New
+    `src/phys.hpp`/`phys.cpp` (mirrors `bone.hpp`'s shape, not `skel.hpp`'s
+    — chunk-tag-selected record arrays, not a multi-array header): every
+    documented chunk type (`PHYS`/`PHYT`/`BODY`/`BDY2`/`BDY3`/`BDY4`/
+    `SHAP`/`SHP2`/`BOXS`/`CAPS`/`SPHS`/`PLYT`/`JOIN`/`WELJ`/`WLJ2`/`WLJ3`/
+    `SPHJ`/`SHOJ`/`SHJ2`/`PRSJ`/`PRS2`/`REVJ`/`REV2`/`DSTJ`/`PHYV`) parsed,
+    chunk-tag-preference variant selection (`BDY4`→`BDY3`→`BDY2`→`BODY`,
+    etc.), `SHOJ`'s real stride ambiguity (0x6c vs. 0x74, same tag)
+    disambiguated by which stride the chunk's own size divides evenly —
+    throws if a real file ever divides evenly by both (never seen in 103
+    real files, per the investigation). `PLYT`'s self-describing variable-
+    length header+data region implemented with a full byte-accounting
+    check (expected total size computed field-by-field must exactly equal
+    the chunk's real size), the same cross-check the original investigation
+    used to catch the 0x38-vs-0x50 header-stride bug in the first place.
+    Every `Body.shapeBase`/`shapeCount`, `Shape.index`, `Joint.bodyA`/
+    `bodyB`/`index` reference validated in-range at parse time (real files
+    have zero violations per the investigation, so a real one is corruption
+    or a parser bug, not data to accept).
+    - **Architecture**: followed the plan's own recommendation, confirmed
+      directly by the user mid-session ("we want the same pattern as
+      particles and ribbons, attachment points in glb but data i
+      separate") — `husk export --phys` (three-state, mirroring `--skel`
+      exactly, since `PFID` is a single scalar FileDataID like `SKID`, not
+      an array like `BFID`/`AFID`/`SFID`: unset auto-detects a
+      same-basename `.phys` next to the model, `none` skips, an explicit
+      path overrides) attaches a **minimal** per-body placement anchor
+      (`gltf::Skeleton::PhysicsBody` — id/joint/position/bodyType) as
+      `physics_bodies` skin `extras`; `husk dump-chunks <file.phys>` (new
+      direct-file-input path, sniffed by the reversed `PHYS` tag before the
+      `.bone`/M2-magic checks) dumps the **full** body/shape/joint/`PHYV`
+      record set, each shape/joint resolved to its real type-specific data
+      inline (a body's shapes fully expanded; a joint's `bodyA`/`bodyB`
+      left as plain indices, matching how the source data itself relates
+      them).
+    - **Real test fixture gap found and fixed mid-session**: none of the 7
+      already-committed `.phys` weapon fixtures had a matching `.skin`
+      committed alongside them (only `.m2`+`.phys`), so no real file could
+      exercise the full CLI→gltf-extras→gltf_validator path end to end.
+      Checked the real corpus (`/media/luna/data/wow_export`, read-only)
+      and found every one of those 7 `.m2` files does have a real `.skin`
+      sibling there, just not extracted into `test_data/` yet — copied
+      `mace_1h_warfrontsforsaken_d_0100.skin` in (gitignored, same
+      "personal WoW extraction, never committed" convention every other
+      `test_data/` fixture already follows), giving one real, fully-paired
+      `.m2`+`.skin`+`.phys` fixture. Confirmed by hand: 10 real bodies,
+      `boneIndex` values `{0..9}` of 17 real bones, exactly matching what
+      `PHYS_TODO.md`'s own test plan had predicted from the investigation
+      but never verified against a live export.
+    - **Verification, not just "it compiles"**: ran the real, already-
+      committed 7-file weapon `.phys` set *and* the full 96-file real-corpus
+      exploration sample (`phys_files_for_exploration.txt`,
+      `/media/luna/data/wow_export`, read-only) through `husk dump-chunks`
+      — zero failures across all 103 files, the same sample size and same
+      zero-violation result the original investigation reported for its own
+      independent Python decoder, now reproduced by husk's real C++ parser.
+      Spot-checked the one real `PLYT`-bearing file the investigation named
+      by path (`.../8xp_heartofazeroth_prop_floatychain.phys`): decodes to
+      the exact `vertexCount=8/count_10=6/nodeCount=24` the investigation's
+      own worked example reported. The real paired fixture's `.glb` export
+      passes the actual Khronos `gltf_validator` with 0 errors.
+    - **Tests**: `tests/test_phys.cpp` (new, 13 cases — happy-path
+      round-trip, `BODY`-vs-`BDY4` selection-order preference, `SHOJ`
+      stride disambiguation both directions plus the genuinely-ambiguous
+      throw path, out-of-range shape/joint/body-index throws, malformed
+      stride throws, `PLYT` round-trip and truncation), `tests/test_gltf.cpp`
+      (4 new: `PhysicsBody` extras round-trip, absent-means-no-key,
+      out-of-range-joint throws, coexists with `correctionSets`/
+      `ribbonAnchors`/`particleAnchors`), `tests/test_cli.cpp` (4 new:
+      `--phys` default/`none`/explicit-path/out-of-range-throws, synthetic
+      fixtures matching `--bones-dir`'s own established fixture-building
+      style), `tests/test_dump.cpp` (1 new: full JSON shape round-trip
+      through a real capsule shape + weld joint, checking specific resolved
+      field values, not just presence), `tests/test_integration.cpp` (1
+      new: the real paired fixture, exact 10-body count, exact bone-index
+      set `{0..9}`, joint-range bounds), `tests/test_conformance.cpp` (1
+      new, `#ifdef`-gated both ways like every other conformance case: the
+      real fixture's export passes `gltf_validator` with 0 errors). Full
+      suite: 394 → 422 cases, both `./build/husk-tests` (422/422 + 1
+      permanently-inapplicable skip) and `ctest` (423/423) green, verified
+      via a full clean rebuild (`rm -rf build`), not an incremental one.
+    - **Completions**: `--phys` added to `src/main.cpp`'s hand-maintained
+      `bashValueCompletion`/`zshValueAction`/`zshFlagLabel` tables (same
+      `--skel`-shaped file-or-none treatment — the existing `_husk_skel_value`
+      zsh helper was shared and renamed to `_husk_file_or_none_value` since
+      it's no longer skel-specific), `completions/husk.bash`/`.zsh`
+      regenerated via `--print-completion`. Verified by `bash -n`/`zsh -n`
+      syntax-checking both (this sandbox's nix bash build has no
+      `compgen`/`complete` builtins compiled in, so the usual "drive
+      `_husk_completions` with scripted `COMP_WORDS`" functional check
+      wasn't possible this session) plus a direct structural diff against
+      `--skel`'s own already-verified-working block, byte-for-byte
+      identical shape.
+    - **Docs**: `DESIGN.md` (new Key design decisions bullet mirroring the
+      ribbon/particle one; Boundaries list; CLI grammar table; Open work
+      section's `PHYS_TODO.md` pointer removed, replaced with the same
+      "used to live here, now implemented, standalone file removed"
+      framing `MULTIROOT_SKELETON_TODO.md`'s own removal used), `WIKI_FINDINGS.md`
+      §9 (pointer to `PHYS_TODO.md` replaced with the real Code/Tests
+      columns in "Where these live in husk"), `README.md` (Collision/
+      physics format-matrix row bumped 📖, Sidecar-FileDataID-resolution
+      row, new "`.phys` physics/collision data" Usage paragraph, flag
+      table row, `dump-chunks` section heading/paragraph), `M2_COMPLETENESS.md`
+      (`.phys` sidecar content row: `none/none/n/a-unscoped` →
+      `full/extras+diagnostic/extras-capped-permanent`), `src/cmd_info.cpp`
+      (the `phys_file_id` note's stale "not yet resolved by husk" text
+      corrected to describe the real `--phys`/`dump-chunks` paths now —
+      deliberately did **not** add a new sidecar-content-reading capability
+      to `husk info` itself, since `info` has never opened *any* sidecar's
+      content, `.skel` included, only ever printed the FileDataID scalar —
+      inventing that only for `.phys` would have been unscoped, inconsistent
+      new behavior, not a doc-sync fix). `PHYS_TODO.md` deleted outright
+      once every doc-sync item had a final disposition, its ~9 live code/test
+      comment cross-references repointed to `DESIGN.md`/`WIKI_FINDINGS.md`
+      the same way `MULTIROOT_SKELETON_TODO.md`'s deletion repointed its own.
+  - **Environment note, reconfirmed**: `direnv exec . uv run --no-project
+    python3 <script>` for every ad hoc real-file verification pass this
+    session (the 96-file corpus sweep, the `PLYT` spot-check, the JSON
+    field inspection) — scripts run inline via `-c`, not written to the
+    scratchpad, since none needed more than a few lines and this session
+    had no standing instruction against it (unlike an earlier session's
+    explicit "write scripts to files, inline `-c` prompts on every
+    iteration" note, which applies to *iterative* byte-level derivation
+    work, not one-shot JSON inspection).
+- **Previous state**: Closed out `MULTIROOT_SKELETON_TODO.md` the same way
+  `CORPUS_TODO.md` was closed out below — requested directly: "explore
+  MULTIROOT_SKELETON_TODO.md, and make sure appropriate documentation is
+  in DESIGN and README, for items that are done/resolved... document
+  remaining items and decisions and unfixables in DESIGN, and remove the
+  file once empty." Confirmed the file's own "Implemented" framing against
+  the actual repo state (not just trusted the file's own claim): its
+  Decision, Implementation plan (all 5 steps), and the invariant section
+  were all already faithfully reflected in `DESIGN.md`'s Key design
+  decisions and `src/gltf.hpp`'s `Skeleton`/`writeGlbMulti` doc comments —
+  confirmed by reading both directly, not by inspection of the TODO file
+  alone. The one gap: `README.md`'s format-support matrix — this project's
+  own source-of-truth table for per-feature state — had zero mention of
+  multi-root handling at all, unlike `M2_COMPLETENESS.md`'s parallel row,
+  which already had one. Added a matching sentence to README's "Skeleton /
+  bone hierarchy" row. `DESIGN.md`'s Open work section gained a new
+  paragraph for the three things the original survey explicitly left
+  unchased (kept, not discarded, since they're genuinely still open, just
+  not blocking): what `gltf_validator`'s `SKIN_NO_COMMON_ROOT` check
+  actually measures (empirically ~7% of a random multi-root sample, no
+  hypothesis tested explains the rate), why an 11-file hit sample skewed
+  toward one item family, and what `M2CompBone.flags & 0x200`
+  ("transformed") actually distinguishes among root bones — all three
+  low-priority, awareness-only, recorded so a future session doesn't
+  re-derive them from scratch.
+  `MULTIROOT_SKELETON_TODO.md` itself was then deleted outright, same
+  "survey's job is done" disposition `VERIFICATION_IDEAS.md`/
+  `DESIGN_CHANGES.md`/`CORPUS_TODO.md` already got. Its ~19 live
+  cross-references across `src/gltf.cpp`, `src/gltf.hpp`,
+  `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_conformance.cpp`,
+  `tools/find_multiroot_skeletons.py`, `M2_COMPLETENESS.md`, `PHYS_TODO.md`,
+  and this file's own living Next-step/Hazards bullets (below) were each
+  grep-verified and rewritten to describe the fact directly or point at
+  `DESIGN.md`/`src/gltf.hpp` instead — comment/string-literal-only changes,
+  no logic touched. This session's own historical Resume entries further
+  down (and their references to `MULTIROOT_SKELETON_TODO.md` by name) were
+  deliberately left as-is, same "historical log entries aren't rewritten,
+  only living cross-references are repointed" precedent every prior
+  file-deletion session here has used. No `src/` behavior changed — pure
+  documentation and cleanup, comment-only edits to `src/`/`tests/`, no
+  rebuild performed (none of the edits touch code, only comments and
+  string literals inside `TEST_CASE`/docstrings).
+- **Previous state**: Closed out `CORPUS_TODO.md` — requested directly: "read
+  CORPUS_TODO.md, discard items that are genuinely done and documented,
+  document rest of them in DESIGN and README." Re-read all 7 items plus
+  their DEVELOPER NOTES: every single one already carried a `[DONE]` (or,
+  for #7, "Noted") disposition from the earlier punch-card session (commit
+  `9c52615`), and every item that changed behavior or established a new
+  fact already had a permanent home — #1 (zero-mesh), #3b (2-digit `.skin`
+  suffix preference), and #4 (duplicate-keyframe nudge) in `DESIGN.md`'s
+  Key design decisions and `M2_COMPLETENESS.md`; #6 (`WFV3` short variant)
+  in `WIKI_FINDINGS.md` §8; #2's extraction-gap finding in `README.md`.
+  Confirmed the one loose end from the developer notes ("I will manually
+  fix this," for `tools/corpus_checks.py`'s truncating
+  `_last_meaningful_line`) really is fixed by reading the current source —
+  `[:400]` is gone. The only genuinely undocumented items were #3c
+  (mismatched `.skin`/`.m2` vertex counts) and #5 (`materialIndex`/
+  `textureComboIndex` one-past-the-end) — both confirmed-unfixable
+  bad-source-data findings with no behavior change, so no `DESIGN.md`
+  entry, but worth the same public-facing honesty #2 already gets: added a
+  paragraph to `README.md` right after #2's existing extraction-gap note
+  (0-byte files folded in alongside, same extraction-completeness class).
+  With every item accounted for, nothing was left to discard piecemeal —
+  the whole file's job was done, same "survey's job is done" disposition
+  `VERIFICATION_IDEAS.md`/`DESIGN_CHANGES.md`/`PHYS_SIDECAR_FINDINGS.md`
+  already got, so `CORPUS_TODO.md` was deleted outright rather than left
+  as an all-`[DONE]` husk. Unlike those three, though, its item numbers
+  were baked into ~20 live `CORPUS_TODO.md #N` comments across `src/`
+  (`cmd_export.cpp`, `gltf.hpp`, `cmd_dump.cpp`), `tests/` (`test_cli.cpp`,
+  `test_gltf.cpp`, `test_dump.cpp`), and `tools/find_multiroot_skeletons.py`
+  — every one grep-verified and rewritten to describe the fact directly
+  (or point at `WIKI_FINDINGS.md`/`DESIGN.md` where the permanent record
+  already lives) rather than left dangling, same discipline the
+  `VERIFICATION_IDEAS.md` deletion used for its own much smaller
+  reference count. `M2_COMPLETENESS.md`'s two `CORPUS_TODO.md #N`
+  citations repointed to `DESIGN.md` the same way. This session's own
+  historical entries below (and this file's Status section's one
+  narrative mention) were deliberately left naming `CORPUS_TODO.md` by
+  name where they're describing what happened in the past — same
+  "historical log entries aren't rewritten, only living cross-references
+  are repointed" precedent `VERIFICATION_IDEAS.md`'s own deletion already
+  set. No `src/` behavior changed this session — pure documentation and
+  cleanup, verified by a full rebuild + `./build/husk-tests` afterward.
+- **Previous state**: Read-only investigation into `.phys` (physics/collision
+  sidecar, `M2_COMPLETENESS.md`'s Collision & physics section, previously
+  completely unscoped -- husk only ever read the `PFID` FileDataID scalar,
+  never the file's own content), requested directly: "do an read only
+  investigation on this ... poke around, ask if something is unclear."
+  Two-part follow-up in the same session, once the investigation confirmed
+  implementation was viable: "would we be able to implement the .phys
+  handling into husk with this information? if so, go ahead and write the
+  WIKI_FINDINGS, and convert the PHYS_SIDECAR_FINDINGS into a comprehensive
+  and testable todo." No `src/` changes -- investigation and documentation
+  only, same "findings and plan before code" shape `MULTIROOT_SKELETON_TODO.md`
+  used for the multi-root gap above.
+  - **Different starting position than every prior sidecar investigation**:
+    `.phys` is not undocumented. `documentation/wowdev-wiki/md/PHYS.md`
+    (wiki_revision 30458) already gives byte offsets for nearly every
+    field, so this was verify-against-real-bytes, not reverse-engineer-
+    from-nothing (`.bone`'s situation) or crack-a-format-the-wiki-doesn't-
+    cover (`AFSB`'s).
+  - **Independent scratch decoder** (Python, not committed, no dependency
+    on husk's own not-yet-written parser -- same discipline
+    `tools/find_multiroot_skeletons.py` already established), run against
+    103 real files: the 7 already-committed weapon fixtures under
+    `test_data/item/objectcomponents/weapon/`, plus 96 real corpus files
+    Luna had already listed in `phys_files_for_exploration.txt`
+    (world doodads, item components, creatures, spell-effect arena flags).
+  - **One real transcription bug found and fixed in understanding**:
+    `PLYT`'s self-describing header struct is 80 bytes (0x50) per entry,
+    not 38 (0x38) -- the wiki's own struct listing has the extra trailing
+    `float unk_38[6]` field, but it's easy to misread the struct as ending
+    one field earlier. Caught by the second header entry in a real 4-
+    polytope file decoding to garbage at the wrong stride and to clean,
+    wiki-comment-matching values (`vertexCount=8 count_10=6 nodeCount=24`,
+    "mostly 8/6/24" per the wiki's own text) at the corrected one.
+  - **One real semantic correction**: `BODY`/`BDY3`/`BDY4`'s `type` field
+    comment ("only one body should be of type 0, the root") is contradicted
+    by 78 of 98 real files with a body chunk -- multiple type-0 bodies is
+    the common case (up to 27 of 44 in one creature file), cross-tabulated
+    against `BDY3`'s own `unk1`-as-kinematic-weight field with a 96% clean
+    correlation across 1256 real body records, consistent with type-0
+    meaning "kinematic, bone-driven" as a real per-body classification,
+    not a single distinguished root.
+  - **Everything else in PHYS.md's struct listing verified clean**: chunk-
+    tag byte-reversal (WMO/ADT convention, opposite of M2's own inline
+    chunks -- confirmed via hex dump), the `PHYV` chunk's mutual-
+    exclusivity claim and worked example (confirmed on the exact file the
+    wiki names by filename, `7vs_detail_nightmareplant01_phys.phys`, plus
+    its sibling), version↔chunk-name-variant pairing (zero exceptions),
+    `SHOJ`'s documented-but-ambiguous version-2 stride cutover (0x6c vs.
+    0x74 -- every one of 86 real chunks divided evenly by exactly one,
+    never both), and -- the strongest single piece of corroborating
+    evidence -- a full cross-chunk index/bounds validation pass
+    (`BODY`/`BDY3`/`BDY4`'s shape ranges, `SHAP`/`SHP2`'s `shapeIndex`,
+    `JOIN`'s `bodyAIdx`/`bodyBIdx`/`jointId`) across all 103 files found
+    **zero** out-of-range references anywhere.
+  - **Findings written to `WIKI_FINDINGS.md` §9** (new), following the
+    page's own "current text / proposed addition / evidence" convention,
+    with a "Follow-up" subsection for the full verification sweep --
+    same shape §2 (`AFSB`) and §8 (`WFV3`) already use. `PHYS_SIDECAR_FINDINGS.md`
+    (this session's own intermediate scratch-investigation file) was then
+    deleted outright once its content had a permanent home split two ways
+    -- same "survey's job is done" disposition `VERIFICATION_IDEAS.md` and
+    `DESIGN_CHANGES.md` got in earlier sessions, not left in place with
+    `[DONE]` tags.
+  - **`PHYS_TODO.md`** (new) is the actionable half -- a concrete
+    implementation plan, not another open-ended survey, since the
+    investigation resolved essentially every structural question. Covers:
+    a verified-vs-unverified coverage table per chunk type (driving
+    implementation priority -- `PLYT`/`CAPS`/`SHP2`/`BDY4`/`SHOJ`/`REVJ`/
+    `WLJ2` all verified against real files; `BOXS`/`SPHJ`/`PRSJ`/`PRS2`/
+    `DSTJ`/`SHJ2`/`WLJ3`/`REV2`/`BDY2` never observed anywhere in the
+    103-file sample, flagged for the same "verified floor, warn below it"
+    treatment `kMinVerifiedParticleVersion` already uses elsewhere, per
+    chunk type rather than per file version); an architecture
+    recommendation (the ribbon/particle hybrid pattern -- minimal
+    placement-anchor `extras` unconditional in every `.glb`, full body/
+    shape/joint/`PHYV` records in `dump-chunks`'s JSON, `.phys` files
+    also accepted directly by `dump-chunks` like `.bone` already is --
+    reasoned from `.phys` bodies already being `position`+`boneIndex`
+    anchors structurally closer to `M2Ribbon`/`M2Particle` than to
+    `.bone`'s flat correction-matrix table), explicitly flagged as a
+    recommendation for a real plan-mode design pass, not a decision
+    already made; a `src/phys.hpp`/`phys.cpp` data-model sketch mirroring
+    `bone.hpp`'s shape; a concrete real-fixture test plan, including an
+    honest gap callout that zero committed fixtures currently carry
+    `PLYT`/`SPHS`/`BOXS`/`SPHJ`/`PRSJ`/`PRS2`/`DSTJ`/`SHJ2`/`WLJ3`/`REV2`/
+    `PHYV` (candidate real corpus paths named for the ones this session's
+    sample did find, e.g. `PLYT` in
+    `world/expansion07/doodads/8xp_heartofazeroth_prop_floatychain.phys`)
+    -- same "real test data was the actual blocker" pattern the particle/
+    ribbon session hit, flagged proactively this time rather than
+    discovered mid-implementation; and a full doc-sync checklist
+    (`M2_COMPLETENESS.md`, `README.md`, `DESIGN.md`, completions tables'
+    hand-maintained-gotcha) for whenever implementation actually happens.
+  - **Docs**: `DESIGN.md`'s Open work section now also points at
+    `PHYS_TODO.md`, alongside `TODO_correctness.md`/`WIKI_FINDINGS.md`/
+    `MULTIROOT_SKELETON_TODO.md`.
+  - **Environment note, reconfirmed**: `direnv exec . uv run --python
+    tools/venv/bin/python <script>` for every ad hoc analysis pass this
+    session (the decoder, the index/bounds cross-check, the `husk info`
+    bone-count cross-reference) -- scripts lived in the scratchpad, not
+    committed, matching every prior session's convention.
+- **Previous state**: Implemented `MULTIROOT_SKELETON_TODO.md`'s Implementation
+  plan end to end -- the multi-root-bone-forest → glTF representation gap
+  (35% of a real 130k-file corpus, per the previous state's own
+  measurement) is no longer a decision-and-survey document, it's real code.
+  Requested directly: "start working on the implementation step of this
+  file."
+  - **`src/gltf.cpp`'s `writeGlbMulti`**: exactly the previous state's
+    Option 1 -- when `rootJointNodeIndices.size() > 1`, one
+    `tinygltf::Node` (default/identity transform) is synthesized with
+    `.children = rootJointNodeIndices`, appended past the end of the
+    joint-node range (`meshCount + skeleton->joints.size()`), and becomes
+    the sole `scene.nodes` entry standing in for those roots;
+    `skin.skeleton` is set to it. Single-root models (`size() <= 1`,
+    the overwhelming majority): completely unchanged, verified by the
+    full pre-existing test suite passing unmodified. `Skeleton::joints`
+    itself was never touched, per the file's own "one invariant that
+    must never break" -- the whole change lives inside `writeGlbMulti`'s
+    node/scene/skin construction.
+  - **Empirically resolved the one thing the Decision section had
+    explicitly deferred, not guessed at**: does Blender's glTF importer
+    count the synthesized node as a bone? Ran the real fixture
+    (`offhand_1h_revendreth_d_01.m2`, 15 bones/10 roots) through
+    `husk export` then both the real `gltf_validator` and headless
+    Blender by hand before writing any test assertion. Confirmed:
+    `gltf_validator` reports 0 errors (`SKIN_NO_COMMON_ROOT` gone,
+    previously present); Blender's `bone_count` probe reports exactly 15
+    -- the synthesized node is *not* counted as a bone, `skin.joints.size()`
+    stays exactly `header.bones.count`. Option 1 and Option 2 are
+    confirmed *not* equivalent in practice; Option 1 has no Blender-visible
+    downside. Both `MULTIROOT_SKELETON_TODO.md`'s Decision section and its
+    design-question-A writeup were updated with this finding rather than
+    left as an open hedge.
+  - **Tests**: 387 → 394 cases (both `./build/husk-tests` and `ctest`
+    green, 1 permanently-inapplicable skip unchanged). New
+    `tests/test_gltf.cpp` cases (a `buildMultiRootSkeleton()` fixture, 3
+    independent roots): synthetic-node-exists-with-correct-children/
+    skin.skeleton/untouched-transform, single-root-output-unaffected
+    (explicit regression case, not just "the old tests still pass"), and
+    a mixed mesh-nodes-plus-multi-root-skeleton case proving vertex joint
+    indices stay raw/unshifted. New `tests/test_conformance.cpp` cases
+    (real `testWeaponParticleB()` fixture, gated the same
+    `doctest::skip`/`#ifdef HUSK_GLTF_VALIDATOR`/`HUSK_BLENDER` way every
+    other conformance case is): the `gltf_validator`
+    zero-errors-no-`SKIN_NO_COMMON_ROOT` check, and the Blender
+    bone-count-matches-header-exactly check, each gated on a
+    `countRealRootBones()` sanity check (parses the real bone array
+    directly, independent of husk's own code) so the test fails loudly
+    rather than passing vacuously if a future fixture swap ever replaces
+    this file with a single-root one. New `tests/test_cli.cpp` cases for
+    the two combinations `MULTIROOT_SKELETON_TODO.md` flagged as
+    genuinely untested: `--lod all` + a synthetic 3-independent-root
+    `.skel` (via the existing `buildSkel` helper, since no real fixture
+    combines multi-LOD and multi-root), and `--bones-dir` + the same
+    multi-root `.skel`, with the `.bone` file deliberately correcting the
+    *last* root joint (not joint 0) to prove `CorrectionSet::joint`
+    indices are unaffected by the synthesized node's presence, not just
+    "should be unaffected in principle."
+  - **Docs**: `src/gltf.hpp`'s `Skeleton`/`writeGlbMulti` doc comments
+    (the new synthesized-root behavior, now the authoritative contract,
+    not just this TODO file's prose); `DESIGN.md` (new Key design
+    decisions bullet, matching this session's own corpus numbers and the
+    Blender finding; Open work section's multi-root paragraph rewritten
+    from "still open" to "implemented"); `M2_COMPLETENESS.md`'s "Skeleton
+    / bone hierarchy" row (note now mentions multi-root synthesis, status
+    unchanged at `native — 100%`); `MULTIROOT_SKELETON_TODO.md` itself
+    (opening framing now says "Implemented," every Implementation-plan
+    step and every now-resolved hazard bullet marked `[DONE]`, the
+    Decision section's "still genuinely unverified" paragraph rewritten
+    with the real Blender numbers).
+  - Nothing else in `src/` touched -- `cmd_export.cpp`/`buildSkeleton`
+    exactly as before, per the plan's own step 2.
+- **Previous state**: Corrected the framing on `MULTIROOT_SKELETON_TODO.md`'s
+  whole premise, did bounded prior-art research, and recorded a real
+  decision — Luna, not implemented yet, handing off from here. Prompted by
+  a direct question after the previous state's corpus-scale measurement:
+  "is it right to call it an issue, if the source material does not have a
+  problem with multi root files... we want as close as possible 1 to 1
+  representation." Correct catch: multi-root bone forests are legitimate,
+  common M2 data (WoW's engine never required a single tree), not a
+  defect — the file's whole opening section now states this explicitly
+  and judges every design option against "closest possible 1:1 fidelity to
+  the source," not "make gltf_validator happy." Bounded web research (2
+  searches + 1 fetch, deliberately capped per Luna's own "don't spend too
+  much time" instruction) found real prior art: glTF's own spec/tooling
+  explicitly anticipates a skeleton root's parent not being a joint itself
+  (Khronos issue #1270), and `wow.export` (the established community
+  WoW-export tool) has a real, shipped "prefix bones" inclusion toggle for
+  this exact shape (v0.2.0) — added as a third design option (filter,
+  `wow.export`-style) alongside the two from the previous state's survey.
+  Luna then chose directly: **Option 1** (a plain non-joint glTF node
+  parenting every real root joint, `skin.skeleton` pointed at it) — the
+  spec-anticipated, fully-fidelity-preserving choice, overriding the
+  previous state's own "needs empirical Blender verification before
+  deciding" recommendation (that verification now happens *during*
+  implementation's real test-writing, not as a precondition to choosing).
+  `MULTIROOT_SKELETON_TODO.md` restructured around this: a new Decision
+  section up top, both design questions marked decided (kept for their
+  reasoning, not deleted), a concrete numbered Implementation plan
+  (supersedes the old "Recommended first steps"). Nothing in `src/`
+  touched this turn — pure documentation, per Luna's own "I'll take over
+  from there" close. **Whoever picks this up next should start at
+  `MULTIROOT_SKELETON_TODO.md`'s Implementation plan section directly.**
+- **Previous state**: Measured `MULTIROOT_SKELETON_TODO.md`'s scope for real,
+  corpus-wide, and found the previous state's own framing needed a real
+  correction. Requested directly: "generate a script that prints all of
+  the multiroot skeleton files into a newline separated txt file... similar
+  to ./phys_files_for_exploration.txt." New `tools/
+  find_multiroot_skeletons.py` (self-contained, same independent-parse
+  discipline `corpus_checks.py` uses -- not calling husk) scanned the full
+  real corpus in ~40s: **45,804 of 130,576 `.m2` files (35%) have more than
+  one root bone**, written to `multiroot_skeleton_files_for_exploration.txt`
+  (repo root, plain newline-separated paths, same format as its
+  `phys_files_for_exploration.txt` precedent).
+  - **The real correction**: Luna asked directly whether "a lot of models
+    have multiroot but pass [gltf_validator] because of skinning
+    shenanigans, and a common root fix could theoretically apply to every
+    file for correctness" -- confirmed, empirically, not just plausibly.
+    `bloodelffemale.m2` (the project's own primary fixture) has **90 root
+    bones out of 119** and exports with **zero** `gltf_validator` errors;
+    `offhand_1h_revendreth_d_01.m2` has only **10** and *does* trigger
+    `SKIN_NO_COMMON_ROOT`. Neither raw root count nor root count restricted
+    to vertex-weighted joints explains the difference -- both hypotheses
+    directly falsified against real bytes before being written down. A
+    real 150-file random sample (from the 45,804), each actually exported
+    and checked with the real `gltf_validator` (not a proxy), found only
+    **11/150 (≈7.3%) currently trigger the error** -- extrapolated, ~3,300
+    files corpus-wide are visibly flagged today, a small fraction of the
+    45,804 that are genuinely structurally multi-root. `gltf_validator`'s
+    own exact trigger condition wasn't reverse-engineered (flagged as an
+    open question, not guessed at) -- what *is* now established is that
+    "passes the validator" isn't the same as "has one real joint root,"
+    which reframes the whole rework: the fix target is the full 35%, not
+    just the ~2-3% currently visible, and testing it only against
+    known-currently-erroring files would badly under-scope it.
+  - **Docs**: `MULTIROOT_SKELETON_TODO.md` rewritten (opening section, a
+    new "Open questions this session didn't chase down," step 1 of
+    Recommended first steps marked done) to reflect the corrected,
+    corpus-measured scope rather than the earlier 2-fixture/26-file
+    estimate.
+  - Nothing committed this turn -- the new script, the generated `.txt`
+    file, and the `MULTIROOT_SKELETON_TODO.md`/`CLAUDE.md` edits are
+    sitting in the working tree, same as the previous state's own
+    (already-committed) work being built on.
+- **Previous state**: Committed the `CORPUS_TODO.md` work below (single commit,
+  `git log` for the message), then wrote `MULTIROOT_SKELETON_TODO.md` — a
+  pre-implementation risk survey for the `SKIN_NO_COMMON_ROOT` gap the
+  previous state below flagged but didn't fix, requested directly: "this
+  would need a more robust workaround... write a todo file for this
+  rework, what it could affect, and where it would be likely to fail
+  invisibly... attempting to pre-empt failure modes we might miss by
+  doing something the original file format didn't do." Pure investigation
+  and documentation this turn — no `src/` changes, nothing to test-run.
+  - **The core risk, identified and documented as the file's own opening
+    section**: `Skeleton::joints`' ordering is raw M2 bone-array indices,
+    copied verbatim into glTF `JOINTS_0` (`buildSkinning`), and into
+    `EmitterAnchor`/`CorrectionSet`/`JointAnimation`'s own `joint` fields
+    — none of these are ever remapped, only bounds-checked. A synthetic
+    "common root" node inserted into `Skeleton::joints` itself (rather
+    than purely on the glTF-node side, past the end of the real range)
+    would silently misattribute every one of those to the wrong bone —
+    no crash, no validator error, just visually wrong. Confined the fix's
+    entire footprint to `gltf.cpp`'s `writeGlbMulti` for exactly this
+    reason.
+  - **Grounded against real bytes before writing anything else** (a
+    from-scratch bone-array parent-chain parser, not reusing husk's own
+    code — same independent-check discipline `WIKI_FINDINGS.md`'s other
+    entries use): `offhand_1h_revendreth_d_01.m2` (15 bones, 10 roots —
+    a mixed shape, a few real small hierarchies plus isolated bones) and
+    `mace_2h_bolvar_d_01.m2` (78 bones, **78 roots** — every bone its own
+    tree, no hierarchy at all, consistent with "one bone per particle
+    emitter, no relation needed between them"). Real, intentional M2 data
+    either way, not corruption — and root count can be the *entire* bone
+    count, not "usually 2, sometimes a few," which rules out any design
+    that only comfortably handles a small fixed number of extra roots.
+  - **Two design questions deliberately left open, not decided**: (a)
+    whether the synthetic node joins `skin.joints` as one more real bone
+    (identity IBM, appended past every real M2 index) or stays a plain
+    non-joint parent node outside the skin — the actual deciding factor
+    is empirical (does Blender's importer count it as a bone either way?
+    `tests/blender_import_check.py`'s `bone_count` probe would answer
+    this directly, but only once a real spike exists to run through it —
+    not guessed at this session); (b) whether `tinygltf::Skin::skeleton`
+    (currently never set at all) should point at the synthetic node —
+    glTF spec text and `gltf_validator`/Blender's actual behavior around
+    it weren't checked this session, flagged as genuinely unresearched
+    rather than assumed either way.
+  - **Other concrete invisible-failure scenarios documented**: single-
+    root models must produce byte-identical output (the fix has to be
+    strictly gated on `rootJointNodeIndices.size() > 1`, and every
+    existing `test_gltf.cpp` skeleton test hard-codes exact node
+    counts/indices assuming a single root); `test_conformance.cpp`'s
+    exact-match bone-count assertions only run against the single-root
+    bloodelf fixture today, so a multi-root regression wouldn't be caught
+    by anything currently passing; a stray non-identity transform on the
+    synthetic node would silently shift every former-root joint's whole
+    subtree; `--lod all` and `--bones-dir` combined with a synthesized
+    root are both untested combinations with no fixture today.
+  - **Recommended sequencing, in the file itself**: characterize the
+    shape more broadly first (the 10 geometry-less-VFX files this
+    session's own #1 fix uncovered, not sampled for bone-hierarchy shape
+    yet), answer the Blender-bone-count question empirically with a
+    throwaway spike before committing to a real implementation, check
+    glTF's `skin.skeleton` semantics for real, only then implement --
+    gated strictly, in `gltf.cpp` alone, with new tests using the two
+    real fixtures above (`testWeaponParticleB()`/
+    `testWeaponParticleStress()`, already wired up) through both
+    `gltf_validator` and the real headless-Blender probe, not just "no
+    crash."
+  - **Docs**: `DESIGN.md`'s Open work section now points at
+    `MULTIROOT_SKELETON_TODO.md` alongside `TODO_correctness.md`/
+    `WIKI_FINDINGS.md`.
+- **Previous state**: Worked `CORPUS_TODO.md` as a punch card — a from-scratch
+  grounding of an earlier raw sweep (`HUSK_CORPUS_FINDINGS.md`) across a
+  real 130k-file corpus (`/media/luna/data/wow_export`), re-checked against
+  actual code and real bytes, with Luna's own DEVELOPER NOTES per item
+  giving direction/approval and an explicit bottom-of-file priority order.
+  Requested as "use this file as a punch card... prio order in the
+  bottom." Every item in the file now has a final disposition — the same
+  signal that triggered `VERIFICATION_IDEAS.md`'s deletion in an earlier
+  session — but `CORPUS_TODO.md` itself was left in place rather than
+  deleted unilaterally: it's Luna's own working punch-card doc with her
+  manual annotations throughout, a different situation from a purely
+  generated scratch survey.
+  - **#1 (empty-primitive crash, 3,807 real files, highest-priority
+    item) — fixed.** `buildMaterialsAndPrimitives`
+    (`src/cmd_export.cpp`) used to manufacture one glTF primitive with
+    empty `indices` for a genuinely geometry-less `.skin` (real corpus
+    shape: pure particle/ribbon VFX models, 0 vertices at the M2 level,
+    not just an empty batch table) — glTF has no valid "primitive with
+    zero indices" representation, so every one of these failed outright.
+    Went with the "zero meshes" design Luna approved directly: skip
+    adding a `NamedMesh` for a LOD tier that resolves to zero primitives
+    (both the whole-file-empty case and the rarer per-submesh
+    `indexCount == 0` case), and relaxed `gltf::writeGlbMulti`
+    (`src/gltf.cpp`/`gltf.hpp`) to accept an empty `meshes` list as long
+    as a real skeleton (≥1 joint) exists to fall back to -- the model's
+    skeleton and ribbon/particle emitter anchors (already unconditional,
+    prior session) still export with zero mesh nodes; `Error`s outright
+    only when both are empty (nothing to export at all). Verified: a
+    random 25-file sample of real `FAIL-0001` corpus files all had 0
+    vertices at the M2 level (confirms the dominant-shape assumption),
+    all 25 now export cleanly and pass `gltf_validator` with 0 errors.
+    **Real side-finding, out of this item's own scope:** 10 of those 25
+    (+1 more checked individually, 26 total) hit a *different*,
+    pre-existing `gltf_validator` error (`SKIN_NO_COMMON_ROOT`, "Joints
+    do not have a common root") -- the same multi-root-bone-hierarchy gap
+    `DESIGN.md`'s Hazards section already documented for 2 of 4 real
+    weapon fixtures, here showing up in ~38% of geometry-less VFX models
+    too. Not fixed this session (unscoped, needs a real bone-hierarchy-
+    reconciliation design) -- flagged in both `CORPUS_TODO.md` and here
+    for a future session.
+  - **#3b (`findSameBasenameSkins` prefix-collision bug) — fixed.** A
+    same-basename numeric-suffix `.skin` match used to accept a digit
+    run of any length, which a real corpus scan found genuinely
+    ambiguous whenever one model's basename is itself a numeric-suffix
+    prefix of a sibling model's basename in the same directory (real
+    files: `mogu_library_crate_10.m2` vs. `mogu_library_crate_1.m2`,
+    `vebgrs10.m2` vs. `vebgrs1.m2`/`vebgrs11-17.m2`, `vebbsh10.m2` vs.
+    `vebbsh1-9.m2`) -- the shorter model's own real 2-digit-suffix file
+    parses as a spurious 1-digit match for the longer model's basename
+    too, and used to win `std::sort`'s lexicographic tie-break over the
+    correct file. Fixed by preferring an exactly-2-digit suffix match
+    (WoW's own real convention) whenever at least one exists for a given
+    basename, discarding 1-digit/3+-digit matches as collisions -- kept
+    as a fallback, not a hard reject, when no 2-digit match exists at
+    all (no real-corpus evidence either way for that shape, and a hard
+    reject risks a new false-negative regression). Checked against the
+    real collision directory directly (`world/nodxt/detail/`, all 26
+    `vebgrs`/`vebbsh` siblings) rather than a full corpus walk -- every
+    genuine skin there resolves correctly under the new rule, no
+    exceptions. Also implemented the doc's second approved idea: the
+    vertex-out-of-range error message now reports the *count* of
+    out-of-range indices and the *worst offender*, not just the first
+    one iteration happened to hit (real wrong-`.skin` pairings reference
+    hundreds of out-of-range indices, not one -- the old message made two
+    identical bugs look like different shapes purely as an iteration-order
+    artifact). Verified against both real confirmed-collision files:
+    `mogu_library_crate_10.m2` now resolves to `...crate_1000.skin` (68
+    vertices, matches the doc's own figure) and `vebgrs10.m2` to
+    `...vebgrs1000.skin` (8 vertices), both exporting cleanly.
+  - **#6 (`dump-chunks` `WFV3` short-chunk variant, 9 real files) —
+    fixed.** `dumpWfv3` (`src/cmd_dump.cpp`) assumed every `WFV3` chunk
+    is a fixed 80-byte struct; all 9 real files carrying one (1
+    Shadowlands "Maw"-zone doodad, 8 Nazjatar-zone water-effect doodads
+    -- corrected from this doc's own file-list, which had all 9
+    mis-attributed to the Maw zone alone) are consistently 64 bytes,
+    missing exactly the trailing `unk1`-`unk4` floats. Fixed by reading
+    those four conditionally on `c.size >= 0x50`, emitting `null` for
+    the short variant (same "genuinely absent, not a parse failure"
+    treatment `dumpTextureWeights`'s optional fields already use)
+    instead of throwing. **New, previously-undocumented-on-the-wiki
+    finding** (`WIKI_FINDINGS.md` §8, new): the wiki's own `WFV3` struct
+    listing is unconditionally 80 bytes with no mention of a shorter
+    variant at all -- every field before `unk1` decodes cleanly on all 9
+    real files, the chunk simply ends exactly 16 bytes short of the
+    documented size, every time. Verified: all 9 real files now dump
+    cleanly, `unk1`-`unk4` all `null` as expected.
+  - **#4 (duplicate-timestamp animation keyframes, 5 real files) --
+    fixed.** `checkKeyframesWellFormed` (renamed
+    `repairDuplicateTimestampsAndValidate`, `src/cmd_export.cpp`) used
+    to reject *any* non-strictly-increasing keyframe timestamp
+    identically, whether genuine disorder (a timestamp that actually
+    decreases -- real corruption) or an exact duplicate (real, shipped
+    Blizzard data: an authored "hard cut" pose, always on `rotation`,
+    confirmed on all 5 real files named in the doc -- 2 world bosses,
+    2 base character rigs, 1 world doodad). Chose **nudge over collapse**
+    (the doc's own two options, left an open decision pending a
+    reader cross-check that turned up nothing specific to M2): collapsing
+    either keyframe would silently discard one of the two real authored
+    values, while nudging the later duplicate's timestamp forward 1ms
+    (cascading, so a run of N duplicates spreads out N-1ms apart) keeps
+    both -- correct under both glTF LINEAR and STEP sampler
+    interpolation, and general glTF-authoring precedent (Blender's own
+    exporter deliberately inserts near-zero-gap duplicate keyframes to
+    force STEP-like behavior) supports nudge as the standard shape for
+    this exact problem. A genuinely *decreasing* timestamp still throws,
+    classified against each keyframe's *original* (pre-repair) timestamp
+    -- comparing against an already-nudged value would misfire the
+    disorder check on a cascading run's second entry, a real bug caught
+    while implementing (fixed before it reached any test). Verified
+    against all 5 real files: all export cleanly now, `gltf_validator`
+    shows zero animation-sampler-related errors on any of them (remaining
+    errors on 2 of the 5 are pre-existing/unrelated --
+    `ACCESSOR_JOINTS_INDEX_DUPLICATE`/`SKIN_NO_COMMON_ROOT`, same classes
+    already documented elsewhere in this repo).
+  - **#5 (`materialIndex` out of range, investigated further per Luna's
+    request to check more examples before declaring unfixable) --
+    confirmed unfixable, now with much stronger evidence.** Original
+    doc spot-checked one file; this session checked all 16 real files
+    identifiable via current `failures.txt`/`failure_codes.txt`
+    (renumbered since the doc was written). All 16 confirm the exact
+    same striking, perfectly uniform signature: `materialIndex` is
+    always **exactly** the model's own material count (never further out
+    of range), and `husk info` confirms each file's own material array
+    really does stop one short. No sibling-basename digit collision on
+    any of the 16 (all end in letter race/gender codes), so independent
+    of #3b's bug -- confirmed, not assumed, since #3b's fix was already
+    live when these were re-checked. No wiki-documented sentinel value
+    explains an "index == count" `materialIndex` either. Genuinely bad/
+    mismatched shared batch data across collections/recolor item
+    variants -- not fixable in husk. The doc's ~7 additional
+    `textureComboIndex` cases couldn't be re-verified the same way --
+    `failures_unique.txt` strips file paths during anonymization, and no
+    example path is available from current tooling output -- flagged
+    honestly as unverified (structurally identical shape, almost
+    certainly the same root cause, but not re-confirmed) rather than
+    quietly assumed.
+  - **#2's remaining half (missing spell-effect/item `.skin` files) --
+    explored, confirmed genuinely unfixable in husk, README note added.**
+    Requested as "explore if possible to fix... or if genuinely no way to
+    find the correct one, add explanation note in README." Widened the
+    sample first and found the doc's own "spell-effect models" framing
+    undersold the real scope -- the current `FAIL-0003` bucket also
+    includes ordinary item pieces (`item/objectcomponents/shoulder/`,
+    `.../collections/`). Checked two real files (the doc's own spell
+    example, plus a shoulder-armor item) the same rigorous way: real
+    geometry confirmed via `husk info`, then a *targeted* `find` (not
+    another 130k-file walk -- see the environment note below) for each
+    declared `SFID` FileDataID, decimal-to-hex converted, checked both
+    next to the model (already known absent) and in `_unresolved/`
+    (`wow_export`'s own "extracted but couldn't place" bucket,
+    `FILE<8-hex>.dat` naming -- the one place a "misplaced, not really
+    missing" file would surface) -- zero matches anywhere, for every
+    FileDataID on both files. Genuinely absent from the extraction, not
+    a husk-side false negative. Added a paragraph to `README.md`'s
+    `--skin`/`auto` section explaining this is a known extraction-
+    completeness gap, not a husk bug, and that re-running the extraction
+    tool (not husk) is the only real fix.
+  - **Tests**: 378 → 387 cases (`./build/husk-tests`: 387/387 + 1
+    permanently-inapplicable skip; `ctest`: 388/388). New cases per fix
+    above in `tests/test_gltf.cpp` (empty-meshes-with-skeleton,
+    empty-meshes-without-skeleton-throws) and `tests/test_cli.cpp`
+    (basename-collision reproduction both directions, out-of-range-count
+    error message, single + 3-way-cascading duplicate-timestamp repair),
+    `tests/test_dump.cpp` (`WFV3` short-variant round-trip).
+  - **Docs**: `CORPUS_TODO.md` (every item's own DEVELOPER NOTES section
+    now has a `[DONE]`-tagged disposition, matching this repo's existing
+    "fixed items get a disposition, not silently dropped" convention),
+    `WIKI_FINDINGS.md` (new §8, `WFV3`'s undocumented short variant),
+    `README.md` (the `.skin`-not-found extraction-gap note above),
+    `DESIGN.md` (3 new Key design decisions bullets: zero-meshes,
+    2-digit-suffix preference, duplicate-timestamp nudge-repair),
+    `M2_COMPLETENESS.md` (2 rows -- mesh geometry, animation tracks --
+    annotated with the new edge-case handling, no status-symbol changes
+    since both were already at `native — 100%`).
+  - **Environment note, reconfirmed and reinforced**: started an
+    unscoped full-130k-file `os.walk` Python scan (checking
+    same-basename-suffix-length distribution for #3b) before Luna
+    interrupted directly -- "you do realize there is 130 THOUSAND m2
+    files in that tree, which is exactly why i provided the exact
+    failures.txt file to map to relevant files." Stopped the background
+    task immediately, rescoped to the specific directories/files
+    `failures.txt`/`failure_codes.txt` already flagged for the rest of
+    the session (every subsequent investigation in this session --
+    #5, #2's remainder -- used this same targeted approach, not another
+    broad sweep). `direnv exec . uv run --no-project python3 <script>`
+    remains the sanctioned ad hoc-analysis pattern for the cases that
+    did need a script (reading a `gltf_validator` JSON report), scripts
+    left in the scratchpad, not committed.
+- **Previous state**: Particles/ribbons (`M2Particle`/`M2Ribbon`) — the single
+  biggest remaining visual-identity gap this tool had (weapon glow trails,
+  magic/fire/smoke) — went from 0%/static-fields-only to fully parsed:
+  every static field, plus every M2Track/FBlock animation curve, for both
+  types. Requested as "what's the next biggest step in M2 coverage to WoW
+  feel/look" with the user's own hunch (particles and ribbons) confirmed
+  and pursued.
+  - **Real test data was the actual blocker, and got solved mid-session.**
+    Every M2 fixture previously in `test_data/` (blood elf female, base +
+    HD) has zero particle/ribbon emitters. Luna extracted the game's full
+    weapon set into `test_data/item/objectcomponents/weapon/` (gitignored,
+    1.6G, 4112 `.m2` files, same "real, personally-owned extraction, never
+    committed" convention as the character fixtures) mid-session, in
+    response. A scan found 1270 files with real particle/ribbon data, all
+    sampled at M2 version 272/274 (Cataclysm+) — four fixtures selected
+    and now permanently referenced by `tests/test_data_paths.hpp`
+    (`kWeaponRibbon` = Ashbringer, 3 ribbons/0 particles;
+    `kWeaponParticleA`/`B` = two combined ribbon+particle weapons;
+    `kWeaponParticleStress` = a 64-particle-emitter mace).
+  - **Architecture went through a real design pivot, twice, before
+    implementation** (both via `EnterPlanMode`/`AskUserQuestion`, not
+    silently decided): first draft put everything in glTF `extras`
+    (matching `.bone`-correction/geoset/texture-transform precedent) —
+    the user pushed back, asking whether an auxiliary file (the BLP→PNG
+    precedent) fit better given `dump-chunks` already exists for "M2 data
+    with no glTF slot." Second draft routed everything through
+    `dump-chunks` — but that command's own stated scope (`src/
+    cmd_dump.cpp`'s doc comment, its usage text) is Legion+ chunk tags
+    only, and `M2Ribbon`/`M2Particle` are core `MD20` header arrays
+    present in *every* version, a real, narrower boundary than "no glTF
+    slot." Landed on a hybrid, confirmed by the user directly ("point it
+    at a dir, get generic file equivalents... completeness and
+    automatability are the key"): a **minimal placement anchor**
+    (id/bone/position, `gltf::Skeleton::EmitterAnchor`) unconditionally in
+    the `.glb` skin's `extras`, and the **full record** (every field,
+    every resolved curve) in `dump-chunks`'s JSON output — which required
+    deliberately broadening that command's own documented scope (usage
+    text and doc comment both rewritten to state it explicitly, not left
+    to imply chunk-tags-only while secretly doing more).
+  - **Offset derivation was hand-done, not guessed, and cross-checked
+    twice** — the wiki gives `M2Particle`'s explicit hex offsets only up
+    to `childEmittersModelFilename`; everything after (all
+    version-conditional branches: late-BC field-width change, Cata's
+    `multiTexScale`, Wrath's extra floats and `FBlock`-based curves) was
+    summed field-by-field by hand. That derivation landed on exactly the
+    wiki's own independently-stated total record size (476 bytes default,
+    492 with the Cata+ wrapper) without being fudged to fit — a real
+    independent check, not circular. Then cross-checked a second way,
+    against real bytes (`mace_2h_bolvar_d_01.m2`, 64 particles): decoded
+    colors form a genuine fire/ember gradient, alpha/scale curves are
+    clean envelopes, and the `MultiTexture` flag bit correlates exactly
+    with non-zero `multiTexScale` — see `WIKI_FINDINGS.md` §6 for the full
+    writeup, including a real bug an early ad hoc verification script had
+    (skipped the real per-sequence `M2Track` inner-array indirection,
+    producing a plausible-but-wrong near-zero alpha value instead of the
+    real resolver's correct 0.8) that the "verify against real data before
+    trusting a claim" discipline caught before it reached any shipped
+    code. Also found and confirmed independently: `FBlock` (the Wrath+
+    particle color/alpha/scale/UV curve shape) timestamps are `uint16_t`,
+    not the `uint32_t` a real `M2Track` uses — matches the wiki's own "the
+    timestamps are shorts" text and decodes to a clean monotonic
+    `0..0x7FFF` run against real bytes; interpreted as likely a normalized
+    lifetime fraction (hypothesis, not confirmed against an authoritative
+    source) but exposed raw regardless, per this project's own "don't
+    guess at semantics" discipline.
+  - **New shared infrastructure** (`src/m2.hpp`/`m2.cpp`): `readU8`,
+    `resolveFloatTrackSequence`/`resolveFloatGlobalSequenceTrack` (a real
+    named function, not another hand-duplicated Vec3/Quat-style copy —
+    `M2Particle` alone has ~10 real `M2Track<float>` fields, past this
+    codebase's own "third occurrence earns an abstraction" bar),
+    `resolveRawIntTrackSequence`/`resolveRawIntGlobalSequenceTrack`
+    (`elementSize`-as-runtime-parameter, matching `checkInnerArrayFits`'s
+    own existing style, for the lower-occurrence uint8_t/uint16_t/fixed16
+    cases that didn't individually earn a named function), and
+    `FBlockMeta`/`resolveFBlockVec3`/`Vec2`/`Fixed16`/`Uint16` (a
+    private templated `resolveFBlockGeneric` helper backing all four —
+    the one place this session used a template, since the alternative was
+    four near-identical hand-copies of a flat, no-indirection curve
+    reader, more duplication than even this codebase's own
+    duplication-tolerant style usually accepts).
+  - **`m2::Ribbon`/`m2::ParticleEmitter` (`src/m2.hpp`)**: Ribbon gained
+    `textureIndices`/`materialIndices` lookup arrays, 6 new track-offset
+    fields, and the Wrath+ trailing `priorityPlane`/`ribbonColorIndex`/
+    `textureTransformLookupIndex`. `ParticleEmitter` is new outright —
+    every Cata+-shape field, ~30 in total, gated to a new
+    `kMinVerifiedParticleVersion = 272` (same "verified floor, warn below
+    it" policy `kMinVerifiedRecordStrideVersion` already established for
+    Bone/Sequence/Ribbon, just a newer floor since `M2Particle`'s own byte
+    layout genuinely changed at Cataclysm, unlike those three).
+  - **`src/cmd_info.cpp`**: ribbon printout extended (track/lookup
+    counts); new particle one-line-per-emitter summary, gated the same
+    way, with a loud warning (matching the existing below-Wrath one)
+    for real `particle_emitters` data below Cataclysm.
+  - **`src/cmd_dump.cpp`**: `dumpEmitters` (+ `writeRibbon`/`writeParticle`/
+    `writeTrackCurve`/`writeFloatTrack`/`writeVec3Track`/`writeRawIntTrack`/
+    `writeFBlockCurve`) — full JSON, written unconditionally (before the
+    existing `header.chunked` early-return, which now only gates the
+    Legion+ chunk-tag section, not the whole command) so pre-Legion flat
+    files still get real `ribbon_emitters`/`particle_emitters` output.
+  - **`src/gltf.hpp`/`gltf.cpp`**: `Skeleton::EmitterAnchor` (one shared
+    struct for both `ribbonAnchors`/`particleAnchors` — structurally
+    identical, so not duplicated into two types) serialized as
+    `ribbon_emitters`/`particle_emitters` keys on the same `skinExtras`
+    object `bone_correction_sets` already uses (verified all three
+    coexist without clobbering); `writeGlbMulti` gained the matching
+    out-of-range-joint validation `correctionSets` already had.
+  - **`src/cmd_export.cpp`**: unconditional (no new CLI flag, unlike
+    `--bones-dir`) — builds ribbon/particle anchors right after the
+    `--bones-dir` block, reusing the already-parsed `header`/`blob`, with
+    a real bug caught by the compiler, not by inspection: the first
+    attempt aggregate-initialized `EmitterAnchor` directly from
+    `m2::Vec3`/`m2::Ribbon::position` without the existing `toGltf()`
+    conversion helper — `m2::Vec3` and `gltf::Vec3` are distinct
+    aggregate types (no implicit conversion), so it failed to compile
+    rather than silently skipping the Z-up→Y-up remap every other
+    exported position already goes through. Fixed by using `toGltf()`,
+    same as every other position in this pipeline.
+  - **Tests**: 337 → 376 cases. New `test_m2.cpp` cases for every new
+    resolver (`resolveFloatTrackSequence`/`resolveRawIntTrackSequence`/
+    `resolveFBlockVec3`/`Vec2`/`Fixed16`/`Uint16`, global-sequence variants,
+    bounds-checking throws), `parseRibbons`'s new fields, and
+    `parseParticles` (happy path, extra fields, empty, out-of-bounds).
+    New `test_gltf.cpp` cases for `EmitterAnchor` round-trip (present/
+    absent/out-of-range-throws/coexists-with-correctionSets). New
+    `test_dump.cpp` cases for the JSON output shape, plus a real-byte-
+    offset synthetic fixture on a flat (non-chunked) file proving
+    `ribbon_emitters`/`particle_emitters` aren't chunk-gated. New
+    `test_cli.cpp` cases for the `kMinVerifiedParticleVersion` warning.
+    New `test_integration.cpp` real-data cases (`doctest::skip`-gated on
+    the new weapon fixtures): exact ribbon/particle anchor counts against
+    all four real files via tinygltf, plus a `dump-chunks` NaN/finite
+    sanity check on the 64-particle stress file. Both `./build/husk-tests`
+    (376/376, 1 permanently-inapplicable skip) and `ctest` (377/377) green.
+  - **Verification discipline**: a `gltf_validator` sweep across all four
+    real exports found one pre-existing "Joints do not have a common
+    root" error on two of the four weapon models — confirmed via
+    `git stash`/rebuild/re-export against the unmodified baseline that
+    this predates the session entirely (this session's diff never touches
+    joint-parent assignment), then `git stash pop`/rebuilt/re-verified
+    376/376 green before continuing, rather than assuming.
+  - **Docs**: `README.md` (format matrix row rewritten from 🚧 to 📖, `husk
+    info`/`dump-chunks` usage sections, a new roadmap-stage-6 paragraph),
+    `M2_COMPLETENESS.md` (Ribbons/Particles rows), `DESIGN.md` (new Key
+    design decisions bullet on the anchor/full-data split and why,
+    Boundaries/data-flow bullets, the flag-gating table), `WIKI_FINDINGS.md`
+    (new §6: the offset derivation, the `FBlock`-`uint16_t`-timestamp
+    finding, the real bug an early verification script had),
+    `TODO_correctness.md` (former item 1, particles, removed outright per
+    this file's own "fixed items get removed" convention — not marked
+    `[Fixed]` — remaining items renumbered 2-5 → 1-4, every
+    `TODO_correctness.md #N` cross-reference across `src/`/`tests/`
+    grep-verified and updated to match, same careful-renumbering
+    precedent the AFSB removal already set).
+  - **Environment note, reconfirmed**: `direnv exec . uv run --no-project
+    python3 <script>`, scripts written to files in the scratchpad rather
+    than passed inline (`python3 -c ...`), per explicit instruction this
+    session — inline `-c` invocations otherwise prompt for confirmation
+    on every single iteration, which adds up fast during real-data
+    byte-level verification work like this session's offset derivation.
+- **Previous state**: `VERIFICATION_IDEAS.md`'s survey (source-M2-counts vs.
+  exported-glb vs. Blender-readback cross-checks) went from "none of this
+  is implemented" to cases 1/2/3/5 all real, in exactly the file's own
+  triviality-ranked order (case 4 stayed deliberately skipped, per its own
+  reasoning). Requested as "implement the rest of the verification ideas
+  findings, in order of triviality." Once every case had a final
+  disposition, `VERIFICATION_IDEAS.md` was deleted outright in a same-session
+  follow-up (initially left in place with `[IMPLEMENTED]` tags and
+  duplicated writeups — a real inconsistency with this project's own
+  stated punch-list convention, caught by Luna asking "did you update it
+  according to that?" rather than caught proactively) — its survey's job
+  (decide what to build) was complete, every real fact already lived in
+  its permanent home (`tests/test_conformance.cpp` comments,
+  `WIKI_FINDINGS.md` §5, `README.md`, `DESIGN.md`, `M2_COMPLETENESS.md`),
+  exactly the situation `DESIGN_CHANGES.md` was in when *it* got deleted.
+  Every cross-reference to the file (source comments included, not just
+  docs) got repointed rather than left dangling.
+  - **Case 1 (vertex count) + case 2 (bone count)**: exactly as
+    scoped — two `CHECK`s added to `tests/test_conformance.cpp`'s existing
+    Blender `TEST_CASE`, comparing `m2::parseHeader(...)`'s own
+    `vertices.count`/`bones.count` against Blender's/tinygltf's readback.
+    Getting these *exact* (not `> 0`) surfaced a real, previously-invisible
+    contamination bug in `tests/blender_import_check.py`: Blender's
+    `--factory-startup` scene (default Cube/Camera/Light) survives into the
+    probe unless cleared first, and `bpy.ops.import_scene.gltf`'s own
+    `armature_display()` creates a real 42-vertex Icosphere mesh object per
+    armature import (a bone custom-shape widget, parked in a hidden
+    collection but still a real `bpy.data.objects` entry) unless
+    `disable_bone_shape=True` is passed — found by writing the exact-match
+    assertion and getting `8111 == 8061` instead of a pass, not by
+    inspection. Both fixed in the probe script before either `CHECK` could
+    hold.
+  - **Case 3 (bounding box)**: the file's own "tolerance match" premise
+    was wrong, found by actually computing both sides against real data
+    (both `bloodelffemale.m2` and `bloodelffemale_hd.m2`) before writing
+    the assertion rather than after — the header's `bounding_box` runs
+    roughly 2x–4x the bind-pose mesh's own extent per axis, consistent
+    with it covering the model's full *animated* range rather than a tight
+    rest-pose fit (documented as a hypothesis, not confirmed against an
+    authoritative source — `WIKI_FINDINGS.md` §5, new). Shipped the
+    corrected, still tolerance-free invariant instead: the bind-pose
+    mesh's own AABB is fully *contained* inside the header's box, per
+    axis, after the same Z-up→Y-up remap (`transformedM2BoundingBox`,
+    remapping all 8 corners — the axis swap negates one component, so
+    naively pairing `zUpToYUp(min)`/`zUpToYUp(max)` would silently produce
+    an inside-out box on that axis). Verified the check itself actually
+    catches a regression, not just passing vacuously: temporarily
+    perturbed `cmd_export.cpp`'s `toGltf` by +50 units on X, confirmed the
+    new `TEST_CASE` fails with the exact expected numbers, reverted.
+  - **Case 5 (collision mesh)**: the biggest piece — collision data used
+    to be `Array` descriptors only (`husk info` counts, nothing
+    dereferenced). New `m2::parseVec3Array`/`m2::parseCollisionMesh`
+    (`src/m2.hpp`/`m2.cpp`, unit-tested in `tests/test_m2.cpp`) dereference
+    `collisionPositions`/`collisionIndices`/`collisionFaceNormals` into
+    real data; `cmd_export.cpp` writes it as one more `gltf::NamedMesh`
+    (positions via the existing `toGltf`; per-vertex normals *approximated*
+    by averaging each vertex's adjacent face normals, since the source is
+    one normal per triangle, not per vertex — acceptable since a collision
+    mesh isn't shaded, this only satisfies `gltf::Mesh`'s own same-length
+    invariant with real data), tagged via new `gltf::NamedMesh::isCollision`
+    → `{"collision": true}` in that node's glTF `extras`. Real, unambiguous
+    glTF translation (unlike geoset selection/`.bone` corrections/texture
+    transforms, which stay `extras`-only because no such translation
+    exists) — the geometry itself is native, only the "don't draw this"
+    purpose tag is `extras`.
+    - **One real API relaxation this forced**: `gltf::writeGlbMulti`
+      previously required *every* `NamedMesh` entry to be skinned whenever
+      any shared skeleton was in scope (`hasSkeleton && mesh.skinning
+      .size() != n` → unconditional `Error`) — too strict for an unskinned
+      collision mesh sharing a skinned render mesh's armature. Now each
+      entry independently opts in (non-empty, matching-length
+      `mesh.skinning`) or out (empty — no glTF `skin` reference on that
+      node, not deformed by the armature); the real error case (skinning
+      *present* but the wrong length) still throws. Two existing
+      `tests/test_gltf.cpp` cases whose whole premise was "mixed
+      skinned/unskinned entries must throw" got rewritten (their premise
+      is now the supported case) rather than deleted, plus two new cases
+      proving both the new positive path and that the real error case
+      still fires.
+    - `tests/blender_import_check.py` gained `collision_mesh_count`/
+      `collision_mesh_vertex_count`/`collision_mesh_triangle_count` probes
+      (found via the `collision` extras tag, not by name), checked exactly
+      against `header.collisionPositions.count`/`header.collisionIndices
+      .count / 3` in `test_conformance.cpp` — small enough (8 positions,
+      12 triangles for the real fixture) that exact match is realistic,
+      no tolerance needed, pure count/topology.
+    - **One real regression this surfaced and fixed in the same pass**:
+      `cmd_export.cpp`'s own "N LOD tier(s)" summary print used to key off
+      `namedMeshes.size()` directly — with a collision mesh now always
+      appended when present, that over-counted by one and would have
+      mislabeled it as another LOD tier. Fixed by capturing
+      `renderMeshCount` before the collision entry is appended, used for
+      both the branch decision and the per-entry print loop.
+  - **Case 4 (sequences)**: left alone, exactly as the file's own
+    reasoning says — the metric needs to change shape (a resolved/
+    skipped/aliased breakdown) before a comparison would mean anything,
+    not a suspected bug.
+  - **Verification discipline throughout**: every premise got checked
+    against real data (`bloodelffemale.m2`/`bloodelffemale_hd.m2`) before
+    being written into an assertion, not assumed from the survey doc's own
+    text — this is what caught case 3's wrong premise and case 1/2's
+    Blender-importer contamination, both invisible from reading code alone.
+  - **Tests**: 338 → 345 cases (5 in `test_m2.cpp` for
+    `parseVec3Array`/`parseCollisionMesh`, 1 new `test_conformance.cpp`
+    bounding-box `TEST_CASE`, 1 new `test_gltf.cpp` mixed-skinning case;
+    2 more `test_gltf.cpp` cases rewrote their premise without changing
+    count). Both `./build/husk-tests` and `ctest` green (346 total
+    including 1 permanently-inapplicable skip).
+  - **Docs**: `VERIFICATION_IDEAS.md` deleted outright once every case had
+    a final disposition (see this entry's own opening paragraph for why —
+    the punch-list convention this repo already uses for
+    `TODO_correctness.md`/`DESIGN_CHANGES.md`, not additive `[IMPLEMENTED]`
+    tags), its content folded into: `WIKI_FINDINGS.md` (new §5, the
+    bounding-box-isn't-tight finding, tagged hypothesis-confidence since
+    the *why* isn't confirmed against an authoritative source), `README.md`
+    (Collision/physics format-matrix row bumped from 🚧 to 📖, Testing
+    section's Conformance paragraph rewritten), `DESIGN.md` (new Key
+    design decisions bullet for the collision-mesh/`writeGlbMulti`
+    relaxation, Testing architecture section gained the previously-missing
+    4th "Conformance" tier), `M2_COMPLETENESS.md` (Collision & physics
+    rows bumped to `full`/`native`/`native — 100%`), and self-contained
+    comments in `tests/test_conformance.cpp`/`tests/blender_import_check.py`/
+    `src/cmd_export.cpp` (every one of those files' comments used to point
+    at `VERIFICATION_IDEAS.md` by name — all repointed rather than left
+    dangling once the file was gone).
+  - **Environment note, reconfirmed**: `direnv exec . uv run --no-project
+    python3 <script>` for ad hoc byte-level scratch analysis (this
+    session's minimal-glTF/Blender-object-introspection scripts lived in
+    the scratchpad, not committed) — used this session to isolate the
+    Blender Icosphere/Cube contamination down to its exact source
+    (`io_scene_gltf2/blender/imp/node.py`'s `armature_display()`) before
+    trusting the fix, not just patching around the symptom.
+- **Previous state**: `TODO_correctness.md`'s former #1 — `.skel`-sourced
+  external `.anim` files' undocumented `AFSB` chunk shape, the single
+  biggest remaining animation gap (essentially 0% external-animation
+  coverage for any modern character model) — is now **cracked and fully
+  resolved**, not just detected-and-skipped. Session ran autonomously
+  overnight per explicit standing permission (read-only web search
+  pre-approved; no new flake packages, since no one was available to
+  approve them) picking up right after the `--bones-dir` work above.
+  - **Prior-art search first, properly exhausted before guessing.**
+    `WebSearch`/`WebFetch` against wowdev.wiki (direct fetches 403 — same
+    bot-blocking this project already knew about, no local proxy available
+    this session), GitHub code search, `warcraft-rs`/`wow.export`/
+    `WoWDBDefs` repos, and a couple of WoW-modding forums. Found only a
+    *semantic* confirmation (wowdev.wiki's own indexed summary: `AFSA` =
+    attachment animation, `AFSB` = bone animation) — no byte-level struct
+    anywhere reachable. Moved to from-scratch analysis once that was
+    genuinely dry, not before.
+  - **The crack, in one sentence: `AFSB` isn't a new format at all.** A
+    full 104-file chunk survey of `bloodelffemale_hd_*.anim` (correcting an
+    earlier claim in `WIKI_FINDINGS.md` §2 that `AFM2`'s stub is always 64
+    bytes — it's actually 16–1344, always a multiple of 16) found `AFSB`'s
+    first bytes are a clean, monotonic keyframe-timestamp run (0 up to the
+    sequence's own `duration`, in ms) — not the "per-bone offset table" an
+    earlier shallow peek guessed. Cross-referencing `bloodelffemale_hd.skel`'s
+    own `SKB1` bone records against the real `SKS1` sequence array (mapping
+    each `.anim` filename's `<animId>-<subId>` to its `SKS1` position) found
+    that `src/m2.hpp`'s own doc-comment claim — "every M2Track [a `.skel`
+    bone points at] is expected to be genuinely empty" for external
+    sequences — is simply wrong: **211 of 245 real bones have non-zero
+    per-sequence `(count, offset)` tuples**, and for real bone/sequence
+    pairs, that `offset` lands *exactly* on a clean timestamp run inside
+    that sequence's own `.anim` file's `AFSB` payload. `husk::m2::
+    trackSequenceInnerArrays`/`resolveVec3TrackSequence`/
+    `resolveQuatTrackSequence` (unchanged, existing code — the same
+    mechanism already used for `AFM2`-external files via their
+    `externalDataBlob` parameter) needed zero new parsing logic; the value
+    region past each timestamp run (byte length padded to the next multiple
+    of 16, confirmed by the next track's offset always starting exactly
+    there) decodes as a raw 12-byte `C3Vector` (translation/scale) or the
+    existing 8-byte `M2CompQuat` decoder (rotation) — every decoded
+    rotation quaternion comes out unit-length to 4 decimal places, every
+    translation curve smooth and finite.
+  - **Verified three independent ways**, not just "the numbers looked
+    consistent": (1) a full self-consistency sweep across all 54
+    non-`_sdr` `bloodelffemale_hd*.anim` files (every bone × every track ×
+    its own matching sequence) found zero bounds/monotonicity/finiteness
+    problems; (2) `husk export` itself, pointed at the real `--anim`
+    directory, now reports **336 real animation clips** for
+    `bloodelffemale_hd.m2` (up from whatever inline/global-sequence-only
+    count was possible before); (3) the Khronos `gltf_validator` reports
+    zero *new* errors on that export (the fixture's own pre-existing,
+    unrelated `JOINTS_0` duplicate-value issue is identical with or
+    without `--anim`, confirmed by diffing against a `--anim`-less
+    export); (4) Blender's own glTF importer, run headlessly the same way
+    `test_conformance.cpp` already does, independently reports **336
+    actions** — an exact match from a completely separate glTF
+    implementation.
+  - **Code change was small and surgical, given how much existing code
+    already generalized correctly**: `src/cmd_export.cpp`'s
+    `buildAnimations` — the `AFSB`-peek branch that used to `continue`
+    (skip) now extracts `AFSB`'s own chunk payload directly as
+    `externalDataBlob` (taking priority whenever both `AFM2` and `AFSB` are
+    present, since `AFM2`'s stub still isn't real data — confirmed via the
+    same "claims more keyframes than this blob holds" bounds error a prior
+    session already found); the `AFM2`-only and neither-chunk-present
+    branches are otherwise unchanged. No changes at all to `src/m2.cpp`'s
+    resolution functions.
+  - **Tests**: rewrote the two `test_cli.cpp` cases that used to assert
+    "`AFSB` present → no animation clip" (that assertion is now false) into
+    cases asserting a real clip *is* produced — one plain `AFSB`-only file,
+    one with a genuine `AFM2` stub alongside real `AFSB` data (proving
+    priority) — plus a new third case for the one remaining skip path
+    (neither `AFM2` nor `AFSB` present, an unrecognized future shape).
+    New `tests/test_integration.cpp` case (`HUSK_TEST_ANIM_DIR`-gated, new
+    env var + `testAnimDir()`/banner line, defaults to the same directory
+    the `.skel` fixtures already live in since that's where the real
+    `.anim` files sit) runs the real 104-file corpus end to end and checks
+    every decoded rotation/translation keyframe via tinygltf — asserts a
+    conservative `> 100` clip lower bound, not the exact 336, so it doesn't
+    become a silent tripwire if the fixture set changes slightly. Full
+    suite: 337 → 337 cases (no new cases needed beyond the 3 rewritten + 1
+    real-data one — the fix reuses existing resolution machinery, not new
+    surface), but assertion count went 368,997 → 7,164,311 (the new
+    real-data test checks every keyframe across all 336 clips). Both
+    `./build/husk-tests` and `ctest` green.
+  - **Docs**: `WIKI_FINDINGS.md` §2 rewritten with the corrected `AFM2`-size
+    claim and a full "Follow-up: cracked" section (the receipts above, in
+    more detail); `TODO_correctness.md`'s former item 1 removed outright
+    (per this file's own "fixed items get removed, not marked `[Fixed]`"
+    convention) and items 2-6 renumbered to 1-5 — a deliberate exception to
+    "don't renumber, it touches live code strings," done carefully with a
+    full grep-verified sweep across every `TODO_correctness.md #N`
+    reference in `src/`/`tests/` (bone-corrections references moved
+    `#6`→`#5`); `README.md` (Usage section's `.anim`/roadmap-stage-6
+    prose, format matrix row, Testing-architecture paragraph — the
+    "there's no repeatable real-file `.anim` test, a real gap" line was
+    itself stale after this session and got corrected), `DESIGN.md` (Key
+    design decisions entry rewritten from "skipped outright" to "resolved,
+    here's how," Boundaries list, Open-work pointer).
+  - **Environment note, reconfirmed**: same `uv run --no-project python3`
+    pattern as prior sessions for ad hoc byte-level scratch analysis (this
+    session's scripts lived in the scratchpad, not committed); `nu` used
+    for a couple of quick chunk-offset dumps needing no Python at all.
+- **Previous state**: `TODO_correctness.md` #6's extras-export half is now
+  implemented — real `.bone` correction data attaches to `husk export`'s
+  glTF output as inert `extras`, never applied to the render. New
+  `husk export --bones-dir <dir>` flag (three-state, same shape as
+  `--textures`/`--skin-dir`): resolves every FileDataID the model's/
+  `.skel`'s `BFID` array declares to a real `<dir>/<FileDataID>.bone` file
+  (silently skipping any that don't resolve, same policy `--textures`
+  already uses for a missing PNG), parses each with the existing
+  `husk::bone::parse`, and attaches every resolved slot as a
+  `bone_correction_sets` key on the glTF **skin**'s own `extras` — one
+  entry per `.bone` file, each a `(file_data_id, [{joint, matrix}, ...])`
+  record. Deliberately *not* applied to the bind pose or any animation:
+  which slot is "correct" for a given character is external,
+  client-side customization-choice data husk still doesn't have (this
+  session's own prior investigation, see Previous state below, and
+  `WIKI_FINDINGS.md` §4/`TODO_correctness.md` #6) — same "tag it, don't
+  guess at semantics" treatment as geoset selection/`textureTransform`.
+  Went through a full plan-mode design pass before implementation, given
+  the CLI-grammar/parsing-pipeline/glTF-schema surface touched; the
+  approved plan is what got built, no deviations. All verified: clean
+  rebuild, full 335-case `husk-tests` suite green via both
+  `./build/husk-tests` and `ctest` (up from 324), plus a real
+  `bloodelffemale_hd.m2`/`.skel` export re-checked by hand (20/20
+  `.bone` slots attached, round-tripped through `gltf_validator` — the
+  1.7M pre-existing `JOINTS_0` duplicate-value errors on that specific
+  fixture are unrelated, confirmed identical with `--bones-dir none`,
+  not a regression from this work).
+  - **`src/skel.hpp`/`skel.cpp`**: new `findBoneFileDataIds` reads
+    `.skel`'s own `BFID` chunk (previously explicitly out of scope, per
+    this file's own doc comment) — same flat-`uint32`-array shape as an
+    M2's own `BFID`, duplicated locally rather than shared from `m2.cpp`'s
+    anonymous-namespace helper, matching this file's existing
+    `findAnimFileIds` precedent (same "small parser helper, one per
+    translation unit" pattern already established here, not a new one).
+  - **`src/gltf.hpp`/`gltf.cpp`**: new `gltf::Skeleton::CorrectionSet`
+    (`fileDataId` + `vector<{joint, matrix[16]}>`) as a field on
+    `Skeleton` alongside `joints`; `writeGlbMulti` validates every
+    correction's `joint` is in range (same `Error` shape as the existing
+    parent-range check) and serializes non-empty `correctionSets` into
+    `skin.extras["bone_correction_sets"]`, nested `tinygltf::Value`
+    construction following the exact existing pattern
+    `additional_textures`/`texture_transform` material extras already use.
+  - **`src/commands.hpp`/`src/cmd_export.cpp`**: `ExportOptions::
+    bonesDirArg` + `--bones-dir` registered in `addExportOptions` (so the
+    completion generator picks it up automatically); resolution/
+    attachment logic sits right after the existing skeleton-building
+    block, keyed off the same `bonesAreInline`/`haveSkel` branch already
+    used for choosing inline-vs-`.skel` bones/animation elsewhere in this
+    function. Prints a summary note (`attached N/M '.bone' correction
+    set(s)...`) only when `N > 0` — silent otherwise, matching
+    `--textures`'s existing "quiet when nothing applies" behavior.
+  - **`src/main.cpp`**: the hand-maintained bash/zsh completion-generator
+    tables (`bashValueCompletion`/`zshValueAction`/`zshFlagLabel` — these
+    are *not* derived from CLI11 introspection alone, a real gap this
+    session had to discover by testing the regenerated completion
+    function directly rather than assuming the flag-table change alone
+    was sufficient) needed `--bones-dir` added explicitly, same
+    `none`-plus-directory treatment as `--textures`/`--skin-dir`.
+    `completions/husk.bash`/`.zsh` regenerated and functionally verified
+    the same way prior sessions did (sourcing the script, driving
+    `_husk_completions` with scripted `COMP_WORDS`/`COMP_CWORD` — confirmed
+    `--bones-dir` offers `none` + real directories, not plain filenames).
+  - **Tests**: `tests/test_skel.cpp` (`findBoneFileDataIds`: found/absent/
+    malformed-length-throws, mirroring `findAnimFileIds`'s existing
+    cases), `tests/test_gltf.cpp` (3 new cases: `correctionSets` round-trip
+    as skin extras, no-`correctionSets`-means-no-key, out-of-range joint
+    throws — same style as the existing billboard/geoset/textureTransform
+    extras tests), `tests/test_cli.cpp` (4 new cases: explicit
+    `--bones-dir` attaches + notes, `--bones-dir none` suppresses, unset
+    defaults to the model's own directory, an out-of-range `.bone`
+    correction fails the export naming the file/bone index — new local
+    `buildBoneFile`/`boneCorrectionSkel` fixture helpers), `tests/
+    test_data_paths.hpp`+`test_integration.cpp` (new `autoBonesDir`
+    mirroring `autoSkinDir`: reads real `BFID` entries out of
+    `bloodelffemale_hd.skel` and copies a few of this repo's own real
+    `.bone` fixtures under those FileDataIDs — comment notes the NN→
+    `BFID[NN]` positional assignment is arbitrary for test purposes, not a
+    claimed real mapping; one new `doctest::skip`-gated real-data
+    `TEST_CASE` checks the produced `.glb`'s skin extras directly via
+    tinygltf). `test_main.cpp`'s startup banner gained a
+    `HUSK_TEST_BONES_DIR` line.
+  - **Environment note carried over, reconfirmed**: bare `python`/`python3`
+    is still guarded off even under `direnv exec .`/`nix develop ./nix -c`
+    — `direnv exec . uv run --no-project python3 <script>` is the
+    sanctioned path for ad hoc Python in this repo (used again this
+    session for the real-file `--bones-dir` smoke test), `nu` remains fine
+    for direct byte-level work with no `uv` involved at all.
+  - **Docs updated**: `README.md` (`.bone` corrections paragraph + flag
+    table row + defaults/`none` lists + sidecar-resolution format-matrix
+    row), `DESIGN.md` (CLI grammar table + three-state section + a new
+    Key design decisions bullet matching the geoset/texture-transform
+    precedent + a Non-goals clarifying sentence: an out-of-band
+    CASC/DB2-scraping build tool is fine, husk itself talking to CASC at
+    runtime never is), `TODO_correctness.md` #6 (extras-export marked
+    done, remaining gap reframed as "external lookup, not more
+    investigation"), `M2_COMPLETENESS.md` (`.bone` row + the sidecar
+    FileDataID-resolution rows), `WIKI_FINDINGS.md` §4 (added the
+    previously chat-only weapon-type/armor-type ruling-out finding — the
+    corrected bones cluster on Head/Jaw, not hand/wrist — since
+    `TODO_correctness.md` #6 now cites it as an established fact and it
+    needs real receipts backing it, not just a claim).
+- **Earlier state** (condensed — full detail in git history/`WIKI_FINDINGS.md`/
+  `DESIGN.md`/`README.md`, which all already captured the durable facts):
+  a `.bone`-slot-selection investigation ruled out the LOD/render-distance
+  hypothesis by real data (20 `.bone` slots don't fit a 7-tier LOD count,
+  collapse into only 5 distinct bone-index sets with heavy exact
+  duplication) — the real selector is external client-side DB2 data husk
+  has no access to, per `DESIGN.md`'s non-goals (`WIKI_FINDINGS.md` §4,
+  `TODO_correctness.md` #5). Earlier still, `export`'s CLI grammar
+  migrated from a positional parser to named CLI11 flags (a breaking
+  change to every invocation's argument order, done in one deliberate
+  pass) — CLI11 added as a new flake dependency with sign-off,
+  `addExportOptions` became the one place the flag surface is declared
+  (shared by real parsing and the `--print-completion` generator), and
+  `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel` got the
+  three/four-state (`auto`/explicit/`none`) treatment `DESIGN.md`'s CLI
+  grammar section still documents in full.

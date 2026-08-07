@@ -333,7 +333,7 @@ void dumpFileDataIdArrayChunk(json::Writer& w, const Chunk& c) {
 // documented only as "passed directly to fragment shader" with no further
 // meaning given.
 // TODO: Remove: 64-byte variant found across all 9 real corpus hits, see
-// WIKI_FINDINGS.md §8.
+// `WIKI_FINDINGS/M2.md`.
 void dumpWfv3(json::Writer& w, const Chunk& c) {
     w.beginObject();
     w.key("bumpScale");
@@ -1252,7 +1252,7 @@ void dumpEmitters(json::Writer& w, const std::vector<uint8_t>& blob, const m2::H
 // 1.0, neither of which makes sense under fixed16's linear scaling
 // (0x231c/32767 would be ~0.276, 0x3c00/32767 would be > 1.0 and get
 // clamped, matching neither observed constant).
-// TODO: Remove: confirmed against real bytes, WIKI_FINDINGS.md §11.
+// TODO: Remove: confirmed against real bytes, `WIKI_FINDINGS/M2.md`.
 float readHalfFloat(uint16_t bits) {
     uint32_t sign = static_cast<uint32_t>(bits & 0x8000u) << 16;
     uint32_t exponent = (bits >> 10) & 0x1Fu;
@@ -1297,7 +1297,7 @@ float readHalfFloat(uint16_t bits) {
 // itself is never read as data.
 // TODO: Remove: real stride and the chunk's own 16-byte alignment padding
 // both confirmed against all 1,043 real DETL-bearing files in the corpus,
-// WIKI_FINDINGS.md §11.
+// `WIKI_FINDINGS/M2.md`.
 void dumpDetl(json::Writer& w, const Chunk& c, uint32_t lightCount) {
     constexpr size_t kSize = 12;
     size_t n = std::min(static_cast<size_t>(lightCount), c.size / kSize);
@@ -1337,7 +1337,7 @@ void dumpDetl(json::Writer& w, const Chunk& c, uint32_t lightCount) {
 // extraction corpus has zero PFDC-bearing files (a local-extraction gap,
 // not a real absence) -- a live-CASC scan found 2,430 real PFDC files, one
 // pulled directly (FileDataID 1003471) decodes cleanly, see
-// WIKI_FINDINGS.md §9.
+// `WIKI_FINDINGS/PHYS.md`.
 size_t physPayloadRealLength(const uint8_t* d, size_t n) {
     size_t pos = 0;
     while (n - pos >= 8) {
@@ -1423,7 +1423,7 @@ void dumpExp2(json::Writer& w, const Chunk& c) {
 // TODO: Remove: confirmed empirically against all 2,354 real PCOL-bearing
 // files (every region in-bounds, every index in range, indexCount ==
 // faceNormCount * 3) -- corrected from an earlier scanner bug's false
-// "zero real files," see WIKI_FINDINGS.md §10.
+// "zero real files," see `WIKI_FINDINGS/M2.md`.
 void dumpPcol(json::Writer& w, const Chunk& c) {
     uint32_t vertexPosCount = readU32(c.data, c.size, 0x00);
     uint32_t vertexPosOffset = readU32(c.data, c.size, 0x04);

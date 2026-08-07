@@ -24,7 +24,7 @@ Former item 3 (multi-texture-layer arithmetic) is now resolved the same
 way: a full real-data scan (Luna's own extraction, ~287k `.skin` files and
 ~130k `.m2` files) found and confirmed both a real `textureCount > 1` batch
 and a real nonzero `textureCoordCombos` table, hand-verified byte-for-byte
-against an independent parse (see `WIKI_FINDINGS.md` §7) and now backed by
+against an independent parse (see `WIKI_FINDINGS/M2/skin.md`) and now backed by
 permanent real-data regression tests (`tests/test_integration.cpp`'s
 `checkMultiTextureLayerArithmetic`, gated on `test_data/world/
 replaceabletextureprops/guild/pennant_guild_alliance_a_01.m2` and
@@ -42,7 +42,7 @@ resolution) is resolved outright, not just further investigated: a
 `M2_UNKNOWNS_EXPLORATION.md` investigation pass found the field is a plain
 local index into the same file's own `sequences` array (at the real,
 `M2Bounds`-corrected byte offset 0x3E, not the wiki's literal
-pre-correction 0x22) — see `WIKI_FINDINGS.md` §12 for the full evidence,
+pre-correction 0x22) — see `WIKI_FINDINGS/M2.md` for the full evidence,
 including what the earlier "doesn't resolve" finding actually got wrong
 (reading the field at the wrong offset). Removed outright per this file's
 own convention rather than left as a resolved-but-lingering item; the
@@ -103,7 +103,7 @@ model's several `.bone` files (per its `BFID` array) applies to which
 context is documented anywhere, on the wiki or otherwise.
 
 The LOD/render-distance hypothesis is ruled out by real data
-(`WIKI_FINDINGS.md` §4's follow-up). All 20 `.bone` files
+(`WIKI_FINDINGS/BONE.md`'s follow-up). All 20 `.bone` files
 `bloodelffemale_hd.skel`'s `BFID` lists don't fit `LDV1`'s `lod_count: 7`
 at all (20 vs. 7, no clean relationship), collapse into only 5 distinct
 bone-index sets with heavy exact-duplication (one 33-bone set repeats

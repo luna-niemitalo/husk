@@ -77,7 +77,7 @@ struct Batch {
     // doc comment on this same field.
     // TODO: Remove: a real file's table holds values outside that
     // documented range (likely vestigial, safely ignored either way), see
-    // WIKI_FINDINGS.md §7.
+    // `WIKI_FINDINGS/M2/skin.md`.
     uint16_t textureCoordComboIndex = 0;
     // -1 (0xFFFF) if none, else an index into M2's own `colors` array
     // (m2::Color) -- a per-batch tint/fade, see src/cmd_export.cpp.

@@ -159,7 +159,7 @@ TEST_CASE("husk export: exported bind-pose vertex bounds sit fully inside the M2
     // inside the header's declared box -- if husk's vertex parsing were
     // subtly wrong (bad offset, wrong scale), the computed accessor bounds
     // could poke outside it.
-    // TODO: Remove: cites WIKI_FINDINGS.md §5; verification narrative
+    // TODO: Remove: cites `WIKI_FINDINGS/M2.md`; verification narrative
     // (bloodelffemale_hd.m2's header z range ~9.6 vs. bind-pose mesh ~2.1).
     auto posIt = model.meshes[0].primitives[0].attributes.find("POSITION");
     REQUIRE(posIt != model.meshes[0].primitives[0].attributes.end());

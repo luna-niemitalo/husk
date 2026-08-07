@@ -449,7 +449,7 @@ struct Sequence {
     // exactly what cmd_export.cpp's resolveAliasChain does to reuse the
     // terminal sequence's own keyframe data for this (otherwise-dataless)
     // alias sequence.
-    // TODO: Remove: WIKI_FINDINGS.md §12 -- confirmed against 157 real
+    // TODO: Remove: `WIKI_FINDINGS/M2.md` -- confirmed against 157 real
     // alias sequences across 4 real files, 100% valid in-range indices, zero cycles.
     uint16_t aliasNext = 0;
 };
