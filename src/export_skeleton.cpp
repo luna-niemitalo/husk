@@ -47,6 +47,61 @@ void checkNoBoneCycles(const std::vector<gltf::Skeleton::Joint>& joints) {
     }
 }
 
+// Tier 1 of BONE_NAME_DEDUCTION_TODO.md's bone-naming scheme: for a bone
+// with no real keyBoneId name (tier 0), borrow one *only* in the narrow,
+// unambiguous case of a simple (non-branching) run of unnamed bones
+// directly between one already-named ancestor and one already-named
+// descendant -- e.g. an unnamed wrist bone directly between a named
+// "ForearmL" and a named "HandL" becomes "bone_<i>_betweenForearmL_HandL".
+// Deliberately structural, not anatomical: this never invents vocabulary
+// (Wrist/Elbow/Knee/...) that isn't actually in the data, only says where
+// the bone sits relative to two real key-bone names. A branch (more than
+// one child) anywhere in the run, or no named descendant at all, leaves
+// every bone on that path unlabeled -- they fall through to tier 2 (not yet
+// implemented, see BONE_NAME_DEDUCTION_TODO.md) or the plain
+// `bone_<index>` fallback (gltf_skeleton.cpp), never a guess.
+//
+// Reads a frozen snapshot of tier 0's own names (`tier0Name`/`hasTier0`),
+// never a name this function itself just assigned -- a two-pass algorithm
+// borrowing its own tier-1 output as a landmark for a different chain would
+// let one deduced (not real) name propagate into another, compounding
+// uncertainty instead of bounding it.
+void deduceBoneNamesByTopology(std::vector<gltf::Skeleton::Joint>& joints) {
+    std::vector<std::string> tier0Name(joints.size());
+    std::vector<bool> hasTier0(joints.size(), false);
+    for (size_t i = 0; i < joints.size(); ++i) {
+        if (!joints[i].name.empty()) {
+            hasTier0[i] = true;
+            tier0Name[i] = joints[i].name;
+        }
+    }
+
+    std::vector<std::vector<size_t>> children(joints.size());
+    for (size_t i = 0; i < joints.size(); ++i) {
+        if (joints[i].parent != -1) children[static_cast<size_t>(joints[i].parent)].push_back(i);
+    }
+
+    for (size_t ancestor = 0; ancestor < joints.size(); ++ancestor) {
+        if (!hasTier0[ancestor]) continue;
+        for (size_t start : children[ancestor]) {
+            std::vector<size_t> path;
+            size_t cur = start;
+            while (true) {
+                if (hasTier0[cur]) {
+                    for (size_t idx : path) {
+                        joints[idx].name = "bone_" + std::to_string(idx) + "_between" +
+                                            tier0Name[ancestor] + "_" + tier0Name[cur];
+                    }
+                    break;
+                }
+                if (children[cur].size() != 1) break;  // branch or dead end -- ambiguous, skip
+                path.push_back(cur);
+                cur = children[cur][0];
+            }
+        }
+    }
+}
+
 }  // namespace
 
 gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones) {
@@ -81,6 +136,11 @@ gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones) {
                                j.globalPosition.z - parentPos.z};
     }
     checkNoBoneCycles(skeleton.joints);
+    // Runs only once every parent index is confirmed in-range and acyclic
+    // (both checked above) -- deduceBoneNamesByTopology indexes `children`
+    // by `parent` directly and would need its own redundant bounds check
+    // otherwise.
+    deduceBoneNamesByTopology(skeleton.joints);
     return skeleton;
 }
 

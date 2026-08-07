@@ -652,6 +652,15 @@ not a bug in the lookup (confirmed by cross-referencing `husk info`'s own
 bone list against the M2's raw `keyBoneId` bytes directly). Full suite
 green (471/471 + 1 skip at the time this landed).
 
+**Follow-up (later session)**: a second, still-structural naming tier was
+added on top of this one -- `deduceBoneNamesByTopology`
+(`src/export_skeleton.cpp`) labels a bone with no real `keyBoneId` name
+when it sits on a simple, non-branching chain directly between two already-
+named bones (e.g. `bone_29_betweenForearmL_HandL`), never inventing
+anatomical vocabulary the file doesn't actually contain. A further,
+fuzzier tier matching against an external reference skeleton is tracked
+separately, not yet implemented: `BONE_NAME_DEDUCTION_TODO.md`.
+
 ## 7. All bone tails point straight up
 
 **Symptom**: "all of the bone tail directions point directly up."

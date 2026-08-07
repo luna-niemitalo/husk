@@ -1,0 +1,72 @@
+# TODO: bone-name deduction, tier 2 (reference-skeleton matching)
+
+**Status: an open punch list, not a historical record.** Fixed items get
+removed outright once closed — git history is the record of what was fixed
+and when, not this file.
+
+## Background
+
+`husk export`'s glTF joint names come in three tiers (`src/export_skeleton.cpp`,
+`buildSkeleton`):
+
+- **Tier 0** (implemented): `m2::Bone::keyBoneId` → a real Blizzard name via
+  `m2::keyBoneName` (wowdev.wiki's 193-row Key Bone Lookup table). Real data,
+  used as-is.
+- **Tier 1** (implemented, `deduceBoneNamesByTopology`): for a bone with no
+  tier-0 name, borrow one only in the narrow, unambiguous case of a simple
+  (non-branching) run of unnamed bones directly between one already-named
+  ancestor and one already-named descendant — e.g. an unnamed bone between
+  `ForearmL` and `HandL` becomes `bone_<i>_betweenForearmL_HandL`.
+  Deliberately structural, not anatomical: never invents vocabulary
+  (Wrist/Elbow/Knee/...) that isn't actually in the file. A branch or a
+  dead end (no named descendant reachable) leaves every bone on that path
+  unlabeled.
+- **Tier 2** (this file, not started): a bone tier 1 couldn't reach — a
+  branch point, or no named landmark nearby at all — falls through to a
+  plain `bone_<index>` today. Real anatomical names (elbow, knee, spine
+  segments, finger bones, ...) are only reachable at all by comparing this
+  model's skeleton against a *reference* skeleton that has them.
+
+## Tier 2 approach
+
+Match remaining unnamed bones against **Blender's Rigify human meta-rig**
+by hierarchy/relative-position similarity, using the tier-0-named bones as
+known correspondence anchors:
+
+1. For each tier-0-named M2 bone, find its counterpart in the Rigify
+   meta-rig by name (a small hand-maintained mapping table — WoW's key-bone
+   names and Rigify's bone names don't share a vocabulary, e.g. `ForearmL`
+   vs `forearm.L`). This gives a set of known-good (M2 bone, Rigify bone)
+   anchor pairs.
+2. For each remaining unnamed M2 bone, compute a position relative to its
+   nearest anchor(s) — hierarchy distance (how many bones up/down the
+   chain) and/or normalized spatial position between two anchors — and find
+   the Rigify bone with the most similar relative position to *its* nearest
+   anchors.
+3. Only accept a match under a similarity threshold; below it, leave the
+   bone unlabeled rather than guessing (same "no claim beyond what's
+   supportable" discipline as tier 1). Define a policy for a tie between
+   two similarly-close Rigify bones (report both as ambiguous, most likely
+   — same shape as tier 1's branch-abandonment, not a coin flip).
+4. Borrow the matched Rigify bone's real name for the label, but keep the
+   numeric index visible in the output (`bone_<i>_<rigifyName>` or similar)
+   so a tier-2 guess is never confused with tier-0 real M2 data, matching
+   tier 0/1's own convention.
+
+Rigify ships with Blender itself (GPL) and is already reachable from the
+same headless-Blender environment `tests/blender_import_check.py` already
+drives (`HUSK_BLENDER` in `CMakeLists.txt`) — no new asset needs vendoring,
+but the *mapping table* (step 1) and the *similarity metric* (step 2) both
+need real design work and a real fixture to validate against before this is
+more than a sketch.
+
+## Why this is a separate pass from tier 1
+
+Tier 1 is deterministic chain-interpolation over data this model already
+has. Tier 2 is a real correspondence-matching algorithm against an
+*external* skeleton — fuzzy by nature, needs a similarity threshold and an
+ambiguity policy, and touches an asset (Rigify) nothing in this codebase
+has depended on before. Different order of complexity, different failure mode
+if wrong (a plausible-looking but incorrect anatomical name, versus tier
+1's worst case of just not labeling something) — worth its own design pass
+rather than folding into the tier-1 change.
