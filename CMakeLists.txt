@@ -90,6 +90,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_m2_header.cpp
     tests/test_m2_skeleton.cpp
     tests/test_m2_animation.cpp
+    tests/test_m2_animation_tracks.cpp
     tests/test_m2_scene.cpp
     tests/test_skin.cpp
     tests/test_skel.cpp
