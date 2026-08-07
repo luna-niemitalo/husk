@@ -108,6 +108,57 @@ improvements, not mutually exclusive:
 
 Neither is implemented yet — this is a finding, not a fix.
 
+**Confirmed directly in Blender, a later session, real interactive
+inspection**: clicking a face-region primitive in the fixed
+`bloodelffemale_hd.m2` full-auto export shows material name
+`batch77_mat5_tex2_skin_bloodelffemale_hd_3255415` — the naming itself is
+correct (batch/material/texture/type/resolved-filename all line up with
+what that mesh part visually is). But **several other primitives, mapped
+to visibly different body parts, carry the exact same
+`mat5_tex2_skin_bloodelffemale_hd_3255415` suffix** — i.e. this dedup gap
+isn't hypothetical or rare, it's real and directly observable by clicking
+around a real export. This is the same root cause already described
+above (identical `(materialIndex, textureIndex, blendMode, flags,
+textureType)` tuples, one `gltf::Material` per batch, no merge step) —
+not a new finding, but real confirmation that it manifests exactly as
+predicted, plus a concrete real fixture/material name to reproduce it
+against directly (`bloodelffemale_hd.m2`, full auto-resolution export,
+material name above).
+
+**A second session compounded this, worth understanding before touching
+either area**: finding #6 below (`alternate_textures`) makes *every*
+genuinely ambiguous hardcoded-slot material pick the same arbitrary
+default candidate (deliberately — the whole shared pool is identical
+across every ambiguous slot, since husk has no way to tell them apart).
+That means batches which already dedup-collide on `(materialIndex,
+textureIndex, blendMode, flags, textureType)` **now also collide on the
+resolved texture bytes**, for a reason unrelated to the M2's own batch
+data — they're not "the same material because the model author made
+them so," they're "the same material because husk's ambiguous-texture
+fallback can't do better than one shared guess." Untangling which
+`mat5_tex2_skin_...` duplicates are *real* (the model genuinely draws
+several geosets with one shared material, e.g. mutually-exclusive skin
+options) versus *artifacts of the ambiguous-texture fallback* (every
+hardcoded `skin`-type slot ends up structurally identical regardless of
+which real skin-tone file is actually correct for each) is exactly the
+kind of thing dedup work should account for, not paper over — the dedup
+key may need to include something about *which* ambiguous-resolution path
+was taken (e.g. `textureType` alone vs. `textureType` + "this was an
+ambiguous fallback, not a real resolved id"), or ambiguous-slot materials
+may need to stay unmerged specifically because merging them would hide
+that they're independently unresolved, not confirm they're really
+identical.
+
+**For whoever picks this up next**: start from `src/export_materials.cpp`'s
+`buildMaterialsAndPrimitives` (the per-batch material-construction loop) —
+that's both where the dedup key would need to live and where the
+ambiguous-default assignment happens (see finding #6's own "Root cause"
+for the exact lines). Real repro fixture: `bloodelffemale_hd.m2` with its
+real `wow_export`-style texture directory, default (auto) resolution, no
+extra flags — `batch77_mat5_tex2_skin_bloodelffemale_hd_3255415` and its
+siblings are the concrete case to check dedup logic against once it
+exists.
+
 ## 4. `husk info`/`export` given a non-M2 file (e.g. a `.skin` directly) fails with a confusing byte-garbage-looking error, not a clean "wrong file type"
 
 **Symptom**: `husk info bloodelffemale_hd_sdr02.skin` (a real `.skin` file
@@ -329,7 +380,7 @@ times across this project's history on the strength of its name alone;
 the actual answer was sitting in a working reference implementation
 (`reference/wow.export`, already cloned in this repo) the whole time.
 
-## 6. `alternate_textures` (this session's own new feature, item 3 above) caused a real 1.9GB/5m39s export — fixed, plus a related usability gap found while investigating
+## 6. `alternate_textures` (this session's own new feature, item 3 above) caused a real 1.9GB/5m39s export (fixed) — and every ambiguous material sharing one identical default texture (found, not yet fixed — see finding #3)
 
 **Symptom**: `husk export` with full auto-resolution against a real
 `bloodelffemale_hd.m2` + real CASC-export texture directory produced a
@@ -374,8 +425,9 @@ if this code is touched again (a synthetic fixture with 2+ ambiguous
 materials sharing one candidate pool, asserting the `.glb`'s `images`
 array has one entry per distinct filename, not one per material).
 
-**The second observation — investigated, not a decode bug**: cross-checked
-directly, not assumed:
+**The second observation — first pass wrongly cleared it, second pass
+(prompted directly) found a real bug.** First check, on the
+`alternate_textures` *candidate list itself*:
 1. The real source `.blp` files are genuinely distinct — `md5sum` across
    60+ real candidate files in the CASC export directory found zero
    collisions.
@@ -391,16 +443,48 @@ directly, not assumed:
    content, not a bug; the size difference (~40KB vs. ~550KB) is just
    real resolution difference.
 
-**Verdict**: no decode bug found. The most likely explanation for "looks
-like the same image" is that WoW's own customization-variant textures
-*are* often deliberately near-duplicate (subtle skin-tone/hair-color
-recolors of the same base image) — that's the actual point of a
-color-variant slot — and skimming dozens of small thumbnails in Blender's
-material preview panel makes genuinely-different-but-similar images easy
-to mistake for literal duplicates at a glance.
+That check was real but answered the wrong question — it verified the
+*alternate candidates* are distinct, not what was actually being observed
+in Blender. Told directly to look again with a sharper lead ("a plethora
+of textures named `Image_<N>`, all the same 256×128 texture, pull a few
+from Blender and inspect there") — a headless-Blender probe (pixel-hash,
+not just dimensions, on every `bpy.data.images` entry) found the real
+thing: **114 images, every one 256×128, every one pixel-identical**
+(md5 of the first 4000 pixel components matched across all 114). That
+count exactly matches this export's material count (114) — this is every
+material's *default* `baseColorTexture`, not the `alternate_textures`
+list checked above.
 
-**A real, related usability gap found while investigating, not yet
-fixed**: `alternate_textures` currently attaches the *entire* undifferentiated
+**Actual root cause**: every genuinely ambiguous material shares the
+*same* candidate pool (by design — the pool isn't depleted for the
+ambiguous case, so every equally-uninformed slot sees every real
+candidate). The arbitrary-default logic picks "alphabetically first
+candidate in the pool" — and since the pool is identical across every
+ambiguous material, **every one of them picks the exact same file**
+(confirmed: `bloodelffemale_hd_3255415.blp`, 256×128) as its default. Not
+a decode bug, not a caching/aliasing bug — the dedup fix above is working
+exactly as designed; the design itself produces one texture "winning" as
+the default for every ambiguous slot in the whole export.
+
+**This is the same failure shape this project already found and fixed
+once before** (`batch<N>` fuzzy-match's first draft: "68 of 70 materials
+all showing the same one texture... worse than embedding nothing since it
+looks confidently wrong rather than honestly blank") — reintroduced here
+in a new form by this session's own `alternate_textures` feature.
+
+**Deliberately left unfixed this session, per direct instruction** — the
+real question turned out to be bigger than "which arbitrary default to
+pick": interactive inspection in Blender showed the *same* material
+identity (`mat5_tex2_skin_bloodelffemale_hd_3255415`) legitimately
+spanning several different mesh parts, which is finding #3's own
+already-documented material-dedup gap, now compounded by this ambiguous-
+default behavior. See finding #3's own follow-up for the full writeup and
+the concrete next step — this note exists so anyone reading #6 in
+isolation knows where the actual continuation lives, without re-deriving
+the connection.
+
+**A real, separate, related usability gap found while investigating, not
+yet fixed**: `alternate_textures` currently attaches the *entire* undifferentiated
 94-file candidate pool to *every* ambiguous material, regardless of which
 hardcoded `textureType` that specific slot actually is. A `hair_style`
 slot's alternate list includes `skin_color`/`jewelry_color`/`blindfold`
