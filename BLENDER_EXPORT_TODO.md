@@ -652,14 +652,23 @@ not a bug in the lookup (confirmed by cross-referencing `husk info`'s own
 bone list against the M2's raw `keyBoneId` bytes directly). Full suite
 green (471/471 + 1 skip at the time this landed).
 
-**Follow-up (later session)**: a second, still-structural naming tier was
-added on top of this one -- `deduceBoneNamesByTopology`
-(`src/export_skeleton.cpp`) labels a bone with no real `keyBoneId` name
-when it sits on a simple, non-branching chain directly between two already-
-named bones (e.g. `bone_29_betweenForearmL_HandL`), never inventing
-anatomical vocabulary the file doesn't actually contain. A further,
-fuzzier tier matching against an external reference skeleton is tracked
-separately, not yet implemented: `BONE_NAME_DEDUCTION_TODO.md`.
+**Follow-up (later session)**: three more naming tiers were added on top of
+this one (`applyContextualBoneNames`, `src/export_skeleton.cpp`), in
+priority order: an attachment-id tier (`m2::attachmentTypeName`, a real
+61-entry wowdev.wiki table -- same authority as `keyBoneId`, just a
+different real per-file source), an event-identifier tier
+(`m2::eventName`, ~65 documented codes, weaker signal since the source
+table itself has real undocumented gaps), and a structural tier
+(`deduceBoneNamesByTopology`) that labels a bone with no name from any tier
+above when it sits on a simple, non-branching chain directly between two
+already-named bones (e.g. `bone_29_betweenForearmL_HandL`), never inventing
+anatomical vocabulary the file doesn't actually contain. On the real
+`bloodelffemale.m2` fixture the attachment+event tiers alone cut unnamed
+bones from 108 to 48. A further, fuzzier tier matching against an external
+reference skeleton is tracked separately, not yet implemented, and is the
+only remaining path to naming the specific bone that motivated this whole
+feature (`bone_29`, a wrist with no attachment/event/topology landmark
+reachable): `BONE_NAME_DEDUCTION_TODO.md`.
 
 ## 7. All bone tails point straight up
 

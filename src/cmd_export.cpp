@@ -911,6 +911,9 @@ int exportGlb(int argc, char** args) {
             attachEmitterAnchors(blob, header, skeleton);
             attachPlacementNodes(blob, header, skeleton);
             attachPhysicsBodies(physNone, physGiven, physPath, modelPath, skeleton);
+            // Needs skeleton.attachments/events already populated (just
+            // above), so it can't run inside buildSkeleton itself.
+            applyContextualBoneNames(skeleton);
         }
 
         std::string modelBasename = std::filesystem::path(modelPath).stem().string();

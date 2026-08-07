@@ -1,5 +1,6 @@
 #include "m2_header.hpp"
 
+#include <cctype>
 #include <unordered_map>
 
 namespace husk::m2 {
@@ -246,6 +247,161 @@ const char* keyBoneName(int32_t keyBoneId) {
     };
     auto it = kNames.find(keyBoneId);
     return it != kNames.end() ? it->second : nullptr;
+}
+
+// wowdev.wiki M2#Attachments' "Attachment Lookup" table, transcribed
+// directly. IDs 58/59 are real gaps in the wiki's own table (56/57/60 are
+// documented; 58/59 simply aren't), not an omission here.
+const char* attachmentTypeName(uint32_t id) {
+    static const std::unordered_map<uint32_t, const char*> kNames = {
+        {0, "Shield"},
+        {1, "HandRight"},
+        {2, "HandLeft"},
+        {3, "ElbowRight"},
+        {4, "ElbowLeft"},
+        {5, "ShoulderRight"},
+        {6, "ShoulderLeft"},
+        {7, "KneeRight"},
+        {8, "KneeLeft"},
+        {9, "HipRight"},
+        {10, "HipLeft"},
+        {11, "Helm"},
+        {12, "Back"},
+        {13, "ShoulderFlapRight"},
+        {14, "ShoulderFlapLeft"},
+        {15, "ChestBloodFront"},
+        {16, "ChestBloodBack"},
+        {17, "Breath"},
+        {18, "PlayerName"},
+        {19, "Base"},
+        {20, "Head"},
+        {21, "SpellLeftHand"},
+        {22, "SpellRightHand"},
+        {23, "Special1"},
+        {24, "Special2"},
+        {25, "Special3"},
+        {26, "SheathMainHand"},
+        {27, "SheathOffHand"},
+        {28, "SheathShield"},
+        {29, "PlayerNameMounted"},
+        {30, "LargeWeaponLeft"},
+        {31, "LargeWeaponRight"},
+        {32, "HipWeaponLeft"},
+        {33, "HipWeaponRight"},
+        {34, "Chest"},
+        {35, "HandArrow"},
+        {36, "Bullet"},
+        {37, "SpellHandOmni"},
+        {38, "SpellHandDirected"},
+        {39, "VehicleSeat1"},
+        {40, "VehicleSeat2"},
+        {41, "VehicleSeat3"},
+        {42, "VehicleSeat4"},
+        {43, "VehicleSeat5"},
+        {44, "VehicleSeat6"},
+        {45, "VehicleSeat7"},
+        {46, "VehicleSeat8"},
+        {47, "LeftFoot"},
+        {48, "RightFoot"},
+        {49, "ShieldNoGlove"},
+        {50, "SpineLow"},
+        {51, "AlteredShoulderR"},
+        {52, "AlteredShoulderL"},
+        {53, "BeltBuckle"},
+        {54, "SheathCrossbow"},
+        {55, "HeadTop"},
+        {56, "VirtualSpellDirected"},
+        {57, "Backpack"},
+        {60, "Unknown"},
+    };
+    auto it = kNames.find(id);
+    return it != kNames.end() ? it->second : nullptr;
+}
+
+// wowdev.wiki M2#Events' "Possible Events" table, transcribed directly
+// (the "what" column, trimmed to a short name). Deliberately excludes rows
+// with no documented meaning at all -- $CHD ("probably does not exist?!"),
+// $CVS/$KVS/$WWG ("not found"/"not seen"), and the non-'$'-prefixed
+// DEST/POIN/WHEE/BOTT/TOP oddities the wiki itself says are "purpose
+// unknown" -- inventing a name for those would be a guess this table
+// exists specifically to avoid making.
+const char* eventName(const std::string& identifier) {
+    static const std::unordered_map<std::string, const char*> kExact = {
+        {"$BMD", "BowMissleDestination"},
+        {"$AIM", "ComputeMissileTrajectory"},
+        {"$ALT", "DisplayTransition"},
+        {"$BRT", "PlaySoundKit_birth"},
+        {"$BTH", "Breath"},
+        {"$BWP", "PlayRangedItemPull"},
+        {"$BWR", "BowRelease"},
+        {"$CAH", "AttackHold"},
+        {"$CCH", "FishingString"},
+        {"$CFM", "UpdateMountHeightOrOffset"},
+        {"$CMA", "UpdateMountHeightOrOffset"},
+        {"$CPP", "PlayCombatActionAnimKit"},
+        {"$CSD", "PlayEmoteSound"},
+        {"$CSL", "ReleaseMissilesLeft"},
+        {"$CSR", "ReleaseMissilesRight"},
+        {"$CSS", "PlayWeaponSwooshSound"},
+        {"$CST", "ReleaseMissiles"},
+        {"$DSE", "DestroyEmitter"},
+        {"$DSL", "DoodadSoundLoop"},
+        {"$DSO", "DoodadSoundOneShot"},
+        {"$DTH", "DeathThud"},
+        {"$EAC", "ObjectPackageStateEnter3"},
+        {"$EDC", "ObjectPackageStateEnter5"},
+        {"$EMV", "ObjectPackageStateEnter4"},
+        {"$ESD", "PlayEmoteStateSound"},
+        {"$EWT", "ObjectPackageStateEnter2"},
+        {"$FDX", "PlayUnitSound_stand"},
+        {"$FSD", "HandleFootfallAnimEvent"},
+        {"$HIT", "PlayWoundAnimKit"},
+        {"$SCD", "PlaySoundKit_spellCastDirected"},
+        {"$SHK", "AddShake"},
+        {"$SHL", "ExchangeSheathedWeaponLeft"},
+        {"$SHR", "ExchangeSheathedWeaponRight"},
+        {"$SMD", "PlaySoundKit_submerged"},
+        {"$SMG", "PlaySoundKit_submerge"},
+        {"$SND", "PlaySoundKit_custom"},
+        {"$TRD", "HandleSpellEventSound"},
+        {"$WGG", "PlayUnitSound_wingGlide"},
+        {"$WLB", "WeaponLeftBot"},
+        {"$WLT", "WeaponLeftTop"},
+        {"$WNG", "PlayUnitSound_wingFlap"},
+        {"$WRB", "WeaponRightBot"},
+        {"$WRT", "WeaponRightTop"},
+        {"$WTB", "BowBottom"},
+        {"$WTT", "BowTop"},
+    };
+    auto exact = kExact.find(identifier);
+    if (exact != kExact.end()) return exact->second;
+
+    // Bracket-ranged codes (e.g. "$AH0".."$AH3", all documented as one
+    // "$AH[0-3]" wiki row) -- every real range in the source table is a
+    // single trailing digit, never multi-digit.
+    if (identifier.empty() || !std::isdigit(static_cast<unsigned char>(identifier.back()))) {
+        return nullptr;
+    }
+    static const std::unordered_map<std::string, const char*> kBracketPrefix = {
+        {"$AH", "PlaySoundKit_customAttack"},
+        {"$BL", "FootstepHitLeftBackwards"},
+        {"$BR", "FootstepHitRightBackwards"},
+        {"$FD", "PlayFidgetSound"},
+        {"$FL", "FootstepHitLeft"},
+        {"$FR", "FootstepHitRight"},
+        {"$GC", "PlayAnimatedSoundCustom"},
+        {"$GO", "PlayAnimatedSound"},
+        {"$RL", "FootstepHitLeftRunning"},
+        {"$RR", "FootstepHitRightRunning"},
+        {"$SL", "FootstepHitLeftStop"},
+        {"$SR", "FootstepHitRightStop"},
+        {"$VG", "HandleBoneAnimGrabEvent"},
+        {"$VT", "HandleBoneAnimThrowEvent"},
+        {"$WL", "FootstepHitLeft"},
+        {"$WR", "FootstepHitRight"},
+    };
+    auto bracketed = kBracketPrefix.find(identifier.substr(0, identifier.size() - 1));
+    return bracketed != kBracketPrefix.end() ? bracketed->second : nullptr;
 }
 
 // wowdev.wiki M2#Textures' "Texture types" table, transcribed directly.

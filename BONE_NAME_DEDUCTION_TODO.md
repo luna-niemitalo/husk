@@ -6,26 +6,53 @@ and when, not this file.
 
 ## Background
 
-`husk export`'s glTF joint names come in three tiers (`src/export_skeleton.cpp`,
-`buildSkeleton`):
+`husk export`'s glTF joint names come from a priority chain
+(`src/export_skeleton.cpp`, `buildSkeleton` + `applyContextualBoneNames`):
 
 - **Tier 0** (implemented): `m2::Bone::keyBoneId` → a real Blizzard name via
   `m2::keyBoneName` (wowdev.wiki's 193-row Key Bone Lookup table). Real data,
   used as-is.
+- **Attachment tier** (implemented): a bone with an `M2Attachment` pointing
+  at it gets named via `m2::attachmentTypeName` (wowdev.wiki's 61-entry
+  Attachment Lookup table — Shield, HandRight, Helm, Head, Chest, Breath,
+  etc.) — same authority level as tier 0, just a different real per-file
+  source. Verified against the real `bloodelffemale.m2` fixture: attachment
+  IDs there map to bones 51-90, all previously bare `bone_<index>`.
+- **Event tier** (implemented, weaker signal): a bone with an `M2Event`
+  pointing at it and no attachment name gets named via `m2::eventName`
+  (wowdev.wiki's "Possible Events" table, ~65 documented codes). Weaker
+  than the attachment tier because the source table itself has real
+  undocumented gaps (`$CHD`, `$CVS`, `$KVS`, `$WWG`, and the non-`$`-prefixed
+  `DEST`/`POIN`/`WHEE`/`BOTT`/`TOP` oddities — the wiki's own "purpose
+  unknown"), left unnamed rather than guessed at. Verified against the real
+  `bloodelffemale.m2` fixture: event codes there map to bones 91-118.
 - **Tier 1** (implemented, `deduceBoneNamesByTopology`): for a bone with no
-  tier-0 name, borrow one only in the narrow, unambiguous case of a simple
-  (non-branching) run of unnamed bones directly between one already-named
-  ancestor and one already-named descendant — e.g. an unnamed bone between
-  `ForearmL` and `HandL` becomes `bone_<i>_betweenForearmL_HandL`.
-  Deliberately structural, not anatomical: never invents vocabulary
-  (Wrist/Elbow/Knee/...) that isn't actually in the file. A branch or a
-  dead end (no named descendant reachable) leaves every bone on that path
-  unlabeled.
-- **Tier 2** (this file, not started): a bone tier 1 couldn't reach — a
-  branch point, or no named landmark nearby at all — falls through to a
-  plain `bone_<index>` today. Real anatomical names (elbow, knee, spine
-  segments, finger bones, ...) are only reachable at all by comparing this
-  model's skeleton against a *reference* skeleton that has them.
+  name from any tier above, borrow one only in the narrow, unambiguous case
+  of a simple (non-branching) run of unnamed bones directly between one
+  already-named ancestor and one already-named descendant — e.g. an unnamed
+  bone between `ForearmL` and `HandL` becomes
+  `bone_<i>_betweenForearmL_HandL`. Deliberately structural, not anatomical:
+  never invents vocabulary (Wrist/Elbow/Knee/...) that isn't actually in the
+  file. A branch or a dead end (no named descendant reachable) leaves every
+  bone on that path unlabeled. Runs last so it can use attachment/event-
+  derived names as landmarks too, not just tier-0 ones.
+- **Tier 2** (this file, not started): a bone none of the above reached —
+  no attachment, no event, and either a branch point or no named landmark
+  nearby for tier 1 — falls through to a plain `bone_<index>` today. Real
+  anatomical names (elbow, knee, spine segments, finger bones, ...) are
+  only reachable at all by comparing this model's skeleton against a
+  *reference* skeleton that has them.
+
+**Real yield on `bloodelffemale.m2` (119 bones, 108 unnamed before any of
+this)**: the attachment + event tiers alone took unnamed bones from 108
+down to 48 — more than half. Tier 1 found zero on this specific fixture
+(zero clean, unbranching, dually-landmarked gaps exist in it) but did find
+2 on the larger `bloodelffemale_hd.m2`/`.skel` fixture (245 bones). The
+originally-reported wrist bone (`bone_29`, a direct child of `ForearmR`)
+still isn't named by anything above — no attachment or event targets it,
+and it's a dead end (no children) so tier 1 has no descendant to interpolate
+toward. **Tier 2 is the only remaining path to naming it** — this is the
+real motivating case for actually building tier 2, not just a nice-to-have.
 
 ## Tier 2 approach
 

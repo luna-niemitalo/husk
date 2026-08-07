@@ -136,12 +136,31 @@ gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones) {
                                j.globalPosition.z - parentPos.z};
     }
     checkNoBoneCycles(skeleton.joints);
-    // Runs only once every parent index is confirmed in-range and acyclic
-    // (both checked above) -- deduceBoneNamesByTopology indexes `children`
-    // by `parent` directly and would need its own redundant bounds check
-    // otherwise.
-    deduceBoneNamesByTopology(skeleton.joints);
     return skeleton;
+}
+
+void applyContextualBoneNames(gltf::Skeleton& skeleton) {
+    for (const auto& a : skeleton.attachments) {
+        if (a.joint < 0 || static_cast<size_t>(a.joint) >= skeleton.joints.size()) continue;
+        auto& j = skeleton.joints[static_cast<size_t>(a.joint)];
+        if (j.name.empty()) {
+            if (const char* name = m2::attachmentTypeName(a.id)) j.name = name;
+        }
+    }
+    for (const auto& e : skeleton.events) {
+        if (e.joint < 0 || static_cast<size_t>(e.joint) >= skeleton.joints.size()) continue;
+        auto& j = skeleton.joints[static_cast<size_t>(e.joint)];
+        if (j.name.empty()) {
+            if (const char* name = m2::eventName(e.identifier)) j.name = name;
+        }
+    }
+    // Runs last, once every parent index is confirmed in-range and acyclic
+    // (buildSkeleton's own checks, already run by the time this is called)
+    // -- deduceBoneNamesByTopology indexes `children` by `parent` directly
+    // and would need its own redundant bounds check otherwise. Also
+    // deliberately last so it can use the attachment/event names just
+    // assigned above as landmarks, not just real keyBoneId ones.
+    deduceBoneNamesByTopology(skeleton.joints);
 }
 
 std::vector<gltf::JointWeights> buildSkinning(const std::vector<m2::Vertex>& vertices,

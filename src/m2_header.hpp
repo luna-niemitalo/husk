@@ -294,6 +294,29 @@ const char* billboardModeName(uint32_t flags);
 // TODO: Remove: BLENDER_EXPORT_TODO.md §6.
 const char* keyBoneName(int32_t keyBoneId);
 
+// Names an attachment's `id` (Attachment::id, wowdev.wiki M2#Attachments'
+// "Attachment Lookup" table -- Shield, HandRight, Helm, Head, Chest,
+// Breath, etc., 61 real entries), or nullptr for a value the table doesn't
+// cover (IDs 58/59 are real gaps in the wiki's own table, not an omission
+// here). Same authority level as `keyBoneName` -- real per-file data, not a
+// guess -- used to name a bone that has an attachment but no `keyBoneId` of
+// its own.
+const char* attachmentTypeName(uint32_t id);
+
+// Names an event's `identifier` (Event::identifier, wowdev.wiki M2#Events'
+// "Possible Events" table -- $BTH=Breath, $HIT=PlayWoundAnimKit, etc.), or
+// nullptr for an identifier the table doesn't document at all, or
+// documents as real but with no known meaning (e.g. $CHD -- the wiki's own
+// "probably does not exist?!" -- or $CVS/$KVS/$WWG/DEST/POIN/WHEE/BOTT/TOP,
+// all genuinely undocumented; see BONE_NAME_DEDUCTION_TODO.md for what
+// real corpus investigation filling these in would take). Weaker signal
+// than `attachmentTypeName`: the wiki table itself has real gaps, not just
+// omissions here. Bracket-ranged identifiers (e.g. "$AH[0-3]" documenting
+// "$AH0".."$AH3" at once) are matched by stripping a trailing digit and
+// checking a prefix table -- every real range in the source table is a
+// single trailing digit (0-9), never multi-digit.
+const char* eventName(const std::string& identifier);
+
 // Names a texture's `type` (Texture::type, wowdev.wiki M2#Textures'
 // "Texture types" table) -- "skin", "char_hair", "guild_emblem", etc., or
 // nullptr for type 0 (a real embedded filename, no name needed here) or a

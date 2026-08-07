@@ -18,6 +18,19 @@ namespace husk::commands {
 // parent chain loops back on itself (see checkNoBoneCycles in the .cpp).
 gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones);
 
+// Second bone-naming pass, run once `skeleton.attachments`/`skeleton.events`
+// are populated (attachPlacementNodes, cmd_export.cpp) -- separate from
+// buildSkeleton itself because those two arrays aren't resolved yet at that
+// point. For a joint with no real `keyBoneId` name: first tries the
+// joint's own attachment id (m2::attachmentTypeName, a real 61-entry
+// wowdev.wiki table, same authority as keyBoneId), then its own event
+// identifier (m2::eventName, a weaker signal -- the source table itself has
+// real undocumented gaps), then falls through to the existing tier-1
+// structural chain-interpolation (deduceBoneNamesByTopology) -- run last so
+// it can use attachment/event-derived names as landmarks too. See
+// BONE_NAME_DEDUCTION_TODO.md for the full tier breakdown.
+void applyContextualBoneNames(gltf::Skeleton& skeleton);
+
 // Lifts M2Vertex's raw bone_weights[4]/bone_indices[4] into glTF's
 // JOINTS_0/WEIGHTS_0 shape: weights normalized from 0-255 to 0.0-1.0,
 // joint indices copied verbatim (M2Vertex.bone_indices are direct indices
