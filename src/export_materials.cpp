@@ -287,6 +287,19 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
     // unresolved slot.
     FuzzyTexturePool fuzzyTexturePool = scanFuzzyTexturePool(texturesDir, modelPath);
 
+    // Ambiguous-candidate byte cache, keyed by path -- a real character
+    // model can have dozens of hardcoded slots that are *all* ambiguous
+    // against the *same* shared candidate pool (confirmed: 19 slots, 94
+    // candidates each, on a real `bloodelffemale_hd.m2` export), and
+    // without this every one of those slots independently re-reads and
+    // re-decodes every candidate from disk -- 1,786 redundant BLP decodes
+    // for that one real file, ~5.5 minutes of runtime for what should be
+    // ~94. Read once, reused by every ambiguous slot that needs the same
+    // file (see gltf_mesh.cpp's emitMaterial for the matching fix that
+    // also keeps the *embedded* bytes from being duplicated once per
+    // material in the final .glb, not just the read/decode cost here).
+    std::map<std::filesystem::path, std::vector<uint8_t>> ambiguousCandidateCache;
+
     if (batches.empty()) {
         // A genuinely geometry-less .skin (real corpus
         // shape -- pure particle/ribbon VFX models, zero vertices at the M2
@@ -555,6 +568,38 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                         gm.name += "_" + fuzzy->stem().string();
                         gm.baseColorImagePng = std::move(*bytes);
                         result.fuzzyMatches.push_back({gm.name, fuzzy->filename().string(), fdid});
+                    }
+                } else if (fuzzyTexturePool.files.size() > 1) {
+                    // Genuinely ambiguous: 2+ candidates, no way to tell
+                    // which one this slot actually wants. Not claimed
+                    // (removed) from the shared pool -- every other
+                    // ambiguous slot is equally uninformed and deserves the
+                    // same full candidate list, not whichever's left after
+                    // an earlier slot's arbitrary pick. Embed every
+                    // candidate (gltf_mesh.hpp's AlternateTextureCandidate
+                    // doc comment has the full rationale), same "export
+                    // everything, let the client filter" treatment
+                    // mutually-exclusive geosets already get.
+                    std::vector<std::string> allFileNames;
+                    for (const auto& candidatePath : fuzzyTexturePool.files) {
+                        auto cached = ambiguousCandidateCache.find(candidatePath);
+                        if (cached == ambiguousCandidateCache.end()) {
+                            auto bytes = readTextureFileBytes(candidatePath, texturesDir, texturesOutDir);
+                            if (!bytes) continue;
+                            cached = ambiguousCandidateCache.emplace(candidatePath, std::move(*bytes)).first;
+                        }
+                        gltf::Material::AlternateTextureCandidate cand;
+                        cand.filename = candidatePath.filename().string();
+                        cand.imagePng = cached->second;
+                        allFileNames.push_back(cand.filename);
+                        gm.alternateTextureCandidates.push_back(std::move(cand));
+                    }
+                    if (!gm.alternateTextureCandidates.empty()) {
+                        const auto& chosen = gm.alternateTextureCandidates.front();
+                        gm.name += "_" + std::filesystem::path(chosen.filename).stem().string();
+                        gm.baseColorImagePng = chosen.imagePng;
+                        result.ambiguousMatches.push_back(
+                            {gm.name, chosen.filename, std::move(allFileNames), fdid});
                     }
                 }
             }

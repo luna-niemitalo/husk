@@ -133,9 +133,13 @@ std::vector<Submesh> parseSubmeshes(const std::vector<uint8_t>& fileBytes, const
     }
 
     // M2SkinSection, wowdev.wiki M2/.skin#Submeshes: 0x30 (48) bytes; only
-    // vertexStart/vertexCount/indexStart/indexCount (offsets 0x04-0x0B) are
-    // read, see skin.hpp's Submesh doc comment for why the rest is skipped.
+    // skinSectionId/Level/vertexStart/vertexCount/indexStart/indexCount
+    // (offsets 0x00-0x0B) are read, see skin.hpp's Submesh doc comment for
+    // why the rest is skipped -- and for why `Level` (0x02) is read despite
+    // not being surfaced on `Submesh` itself: it's folded into `indexStart`
+    // as that field's high 16 bits, not exposed separately.
     constexpr size_t kSubmeshSize = 0x30;
+    constexpr size_t kLevelOffset = 0x02;
     const uint8_t* data = fileBytes.data();
     size_t size = fileBytes.size();
 
@@ -151,9 +155,11 @@ std::vector<Submesh> parseSubmeshes(const std::vector<uint8_t>& fileBytes, const
         size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kSubmeshSize;
         Submesh s;
         s.skinSectionId = readU16(data, size, off + 0x00);
+        uint16_t level = readU16(data, size, off + kLevelOffset);
         s.vertexStart = readU16(data, size, off + 0x04);
         s.vertexCount = readU16(data, size, off + 0x06);
-        s.indexStart = readU16(data, size, off + 0x08);
+        uint16_t indexStartLow = readU16(data, size, off + 0x08);
+        s.indexStart = (static_cast<uint32_t>(level) << 16) | indexStartLow;
         s.indexCount = readU16(data, size, off + 0x0A);
         submeshes.push_back(s);
     }

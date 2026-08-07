@@ -58,7 +58,6 @@ struct Skeleton {
         // payload (correction-set/emitter-anchor joint indices, `husk
         // info`'s own bone listing) hard to correlate back to what's
         // actually selected in Blender.
-        // TODO: Remove: BLENDER_EXPORT_TODO.md §6.
         std::string name;
     };
     std::vector<Joint> joints;

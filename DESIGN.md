@@ -525,6 +525,16 @@ per triangle, not per vertex — acceptable because a collision mesh isn't
 shaded, this is only to satisfy `gltf::Mesh`'s own same-length invariant
 with real, finite data rather than a placeholder.
 
+**Off by default, opt-in via `--collision`.** Originally shipped
+included-by-default with `--collision none` as an opt-out; flipped after a
+real headless-Blender render of `bloodelffemale_hd.m2` came out looking
+like a plain white slab — the collision hull (a coarse capsule/box, often
+larger than the character it approximates) was sitting in the scene,
+untextured, occluding the entire render, exactly as the `{"collision":
+true}`-tag caveat above always warned it could. A tag a *script* can filter
+on doesn't help someone who just opens the file and looks. Full body/shape/
+joint records remain available either way via `husk dump-chunks`.
+
 **BLP2 texture decode is embedded directly in husk, in-memory, no `husk-blp`
 invocation needed.** Reversed from an earlier "permanently a separate
 Python process" stance once that stance itself broke husk's other goal of
@@ -1382,8 +1392,12 @@ through the same night. Final state of that file:
   needs those re-derived and re-verified too, not just the position half,
   and this touches every position/rotation/scale husk has ever exported —
   a whole-tool-blast-radius change that needs Luna's own review, not a
-  same-night autonomous fix. Full receipts, the exact math, and the
-  verified-then-reverted fix are in `BLENDER_EXPORT_TODO.md` §8.
+  same-night autonomous fix. Full receipts and the exact math were in
+  `BLENDER_EXPORT_TODO.md` §8 (since resolved for real — see the
+  `kWowToGltf` entry earlier in this section — and, with every other item
+  in that file also resolved, the file itself deleted; the fix's own
+  history lives on in this entry, `TRANSFORM_TRIAGE.md`, and
+  `CLAUDE_HISTORY.md`).
 - The original leading hypothesis for two other symptoms ("boot vertex
   parented to the other leg's bone," the base body mesh appearing to go
   missing) — that `.skin`'s own "Bones" lookup array and the M2 header's
@@ -1510,5 +1524,49 @@ by a live test, not theorized, and now a permanent `tests/test_cli.cpp`
 regression case). `gltf::Material::baseColorTextureFileDataId`
 (`texture_file_data_id` extras) records the resolved FileDataID regardless
 of which path actually supplied the image, so that traceability survives
-even when a differently-named file wins. See `BLENDER_EXPORT_TODO.md` §4's
-own follow-up section for the full account.
+even when a differently-named file wins.
+
+**`skin::Submesh::indexStart` is a corrected 32-bit value, not the raw
+on-disk 16-bit field — `Level` is address-extension bits, not LOD
+metadata.** Found via a real interactive Blender render of
+`bloodelffemale_hd.m2` showing a large chunk of missing body geometry
+(hips/lower torso) — traced all the way back to `M2SkinSection::Level`
+(offset 0x02, between `skinSectionId` and `vertexStart`), which every
+earlier pass at this field name assumed was LOD-selection metadata and
+left unread. Checking a real, independent working implementation
+(`reference/wow.export`'s `Skin.js`) instead of assuming from the name
+found the real behavior: `triangleStart += level << 16`. `.skin`'s
+on-disk `indexStart`/`triangleStart` field is only 16 bits, so any model
+whose resolved triangle-index buffer exceeds 65,535 entries needs `Level`
+to address the back half of it — not rare: `bloodelffemale_hd00.skin`'s
+buffer is 136,254 entries, and 77 of its 114 submeshes (68%) needed the
+correction. Without it, husk silently sliced the *wrong* region of the
+buffer for every affected submesh (aliased into the first 65,536 entries)
+instead of throwing or visibly failing, so this went undetected through
+every earlier headless-Blender/`gltf_validator` check this project has —
+none of them compare *which* triangles got drawn against the model's own
+full vertex pool, only that *some* valid-looking triangles exist.
+`Submesh::indexStart` is now `uint32_t`, computed once in
+`parseSubmeshes` as `(level << 16) | rawIndexStart`; callers never see
+`Level` itself. Full account, including a first-pass "real content, not a
+bug" conclusion that was wrong and got corrected: `EYES_ON_FINDINGS.md`
+#5.
+
+**Ambiguous hardcoded-texture-slot candidates (2+ same-basename files) are
+now all embedded, not silently dropped.** Reversed from the
+`BLENDER_EXPORT_TODO.md` §4 stance directly above (`report the count, embed
+neither`) after direct pushback: the "no in-file candidate data" objection
+that blocks *picking* a correct hardcoded-slot texture doesn't block
+*enumerating* the candidates, since that list comes from husk's own
+`--textures` directory scan (`FuzzyTexturePool`), not from M2 data — it's
+already built by the time ambiguity is detected. Every real candidate is
+now embedded as a genuine glTF image/texture
+(`gltf::Material::AlternateTextureCandidate`, same "own image + extras
+index" shape `additionalTextureLayers` already used), listed under
+`alternate_textures` material extras; one arbitrary (alphabetically first,
+deterministic) candidate is also wired in as the actual `baseColorTexture`
+so the export renders as something by default rather than bare — the same
+"export everything, let the client filter" treatment mutually-exclusive
+geosets already get, applied here for the first time to texture data.
+`husk export`'s own warning now names every embedded alternative and which
+one was arbitrarily chosen as the default.

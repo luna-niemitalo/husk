@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <unordered_map>
 
 #include "gltf_buffer_utils.hpp"
 #include "gltf_mesh_internal.hpp"
@@ -30,7 +31,8 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
                                  std::vector<tinygltf::BufferView>& views,
                                  std::vector<tinygltf::Image>& images,
                                  std::vector<tinygltf::Texture>& textures, int uv2AccIdx,
-                                 bool& usedUnlitExtension) {
+                                 bool& usedUnlitExtension,
+                                 std::unordered_map<std::string, int>& alternateTextureCache) {
     tinygltf::Material tm;
     tm.name = mat.name;
     tm.alphaMode = alphaModeString(mat.alphaMode);
@@ -134,6 +136,52 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
     if (mat.baseColorTextureFileDataId != 0) {
         materialExtras["texture_file_data_id"] =
             tinygltf::Value(static_cast<int>(mat.baseColorTextureFileDataId));
+    }
+
+    // Ambiguous hardcoded-slot candidates -- see gltf_mesh.hpp's
+    // AlternateTextureCandidate doc comment. Each *distinct* candidate file
+    // is a real, separately embedded image/texture (same pattern as
+    // additionalTextureLayers above), named so a human or script can tell
+    // which real file it came from and swap it into
+    // pbrMetallicRoughness.baseColorTexture in place of the arbitrary
+    // default husk already picked. `alternateTextureCache` (filename ->
+    // texture index, shared across every material this whole export
+    // emits) makes this a real dedup, not just a naming convenience: many
+    // materials can share the exact same ambiguous candidate pool (a real
+    // character model had 19 such materials sharing one 94-file pool), and
+    // without this cache each one would re-embed every candidate's full
+    // bytes as its own separate image, multiplying file size by however
+    // many materials share the pool.
+    if (!mat.alternateTextureCandidates.empty()) {
+        tinygltf::Value::Array candidates;
+        for (const auto& cand : mat.alternateTextureCandidates) {
+            tinygltf::Value::Object candObj;
+            candObj["filename"] = tinygltf::Value(cand.filename);
+            if (!cand.imagePng.empty()) {
+                auto cached = alternateTextureCache.find(cand.filename);
+                int texIdx;
+                if (cached != alternateTextureCache.end()) {
+                    texIdx = cached->second;
+                } else {
+                    int imgView = appendBufferView(buffer, views, cand.imagePng, /*target=*/0);
+                    tinygltf::Image img;
+                    img.mimeType = "image/png";
+                    img.bufferView = imgView;
+                    int imgIdx = static_cast<int>(images.size());
+                    images.push_back(img);
+
+                    tinygltf::Texture tex;
+                    tex.source = imgIdx;
+                    texIdx = static_cast<int>(textures.size());
+                    textures.push_back(tex);
+
+                    alternateTextureCache.emplace(cand.filename, texIdx);
+                }
+                candObj["texture_index"] = tinygltf::Value(texIdx);
+            }
+            candidates.push_back(tinygltf::Value(candObj));
+        }
+        materialExtras["alternate_textures"] = tinygltf::Value(candidates);
     }
 
     // Animated tint/fade curves -- diagnostic-only dump, see gltf_mesh.hpp's
@@ -268,7 +316,8 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
                            std::vector<tinygltf::BufferView>& views,
                            std::vector<tinygltf::Accessor>& accessors, std::vector<tinygltf::Image>& images,
                            std::vector<tinygltf::Texture>& textures,
-                           std::vector<tinygltf::Material>& tinyMaterials, bool& usedUnlitExtension) {
+                           std::vector<tinygltf::Material>& tinyMaterials, bool& usedUnlitExtension,
+                           std::unordered_map<std::string, int>& alternateTextureCache) {
     const Mesh& mesh = nm.mesh;
     size_t n = mesh.positions.size();
     bool hasTexCoords2 = !mesh.texCoords2.empty();
@@ -373,8 +422,8 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
     // locally to this one NamedMesh (see gltf_mesh.hpp's doc comment).
     int materialBase = static_cast<int>(tinyMaterials.size());
     for (const auto& mat : nm.materials) {
-        tinyMaterials.push_back(
-            emitMaterial(mat, buffer, views, images, textures, uv2AccIdx, usedUnlitExtension));
+        tinyMaterials.push_back(emitMaterial(mat, buffer, views, images, textures, uv2AccIdx,
+                                              usedUnlitExtension, alternateTextureCache));
     }
 
     std::vector<tinygltf::Primitive> tinyPrims;

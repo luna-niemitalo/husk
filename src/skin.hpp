@@ -34,8 +34,8 @@ struct Header {
 // M2SkinSection, per wowdev.wiki M2/.skin#Submeshes -- 48 bytes on disk.
 // `skinSectionId` (the "Mesh part ID"/"geoset ID") plus the fields needed
 // to slice this submesh's triangles out of the skin's flat index buffer are
-// surfaced; `Level`/centerPosition/sortCenterPosition/sortRadius/boneCount/
-// boneComboIndex/boneInfluences/centerBoneIndex stay unread (LOD/culling/
+// surfaced; centerPosition/sortCenterPosition/sortRadius/boneCount/
+// boneComboIndex/boneInfluences/centerBoneIndex stay unread (culling/
 // skinning-optimization concerns, not materials). `skinSectionId` is what a
 // real client uses to decide *which* submeshes to actually draw for a given
 // character/creature configuration -- a `.skin` file routinely bundles every
@@ -46,11 +46,32 @@ struct Header {
 // `cmd_export.cpp`'s `buildMaterialsAndPrimitives`, which surfaces every
 // distinct value actually used as a loud note rather than silently merging
 // them with no indication multiple geosets got exported unfiltered.
+//
+// `Level` (offset 0x02, between skinSectionId and vertexStart) is NOT
+// LOD/culling metadata despite the field name and wowdev.wiki's own
+// placement of it near those concerns -- confirmed against a real, working
+// independent implementation (wow.export's Skin.js): it's the *high 16
+// bits* of `indexStart` (real client code: `triangleStart += level << 16`).
+// A .skin's on-disk `indexStart`/`triangleStart` field is only 16 bits, so
+// any model whose resolved triangle-index buffer exceeds 65,535 entries
+// (real, not rare -- confirmed on `bloodelffemale_hd.m2`'s own 136,254-
+// entry buffer, where 77 of 114 submeshes need this) needs `Level` to
+// address into the back half of that buffer at all. `indexStart` here is
+// already the corrected 32-bit value (`(level << 16) | rawIndexStart`),
+// computed once in `parseSubmeshes` -- callers never need to know `Level`
+// exists. Found the hard way: an earlier session read the field name,
+// assumed "per-LOD selection marker" without checking what a real client
+// does with it, and left it unread -- for any submesh needing correction,
+// husk silently sliced the *wrong* region of the triangle-index buffer
+// (aliased into the first 65,536 entries) instead of throwing or visibly
+// failing, so this went undetected until a real interactive Blender
+// render showed missing body geometry and the investigation traced all
+// the way back here.
 struct Submesh {
     uint16_t skinSectionId = 0;
     uint16_t vertexStart = 0;
     uint16_t vertexCount = 0;
-    uint16_t indexStart = 0;  // into the skin's resolved triangle-index buffer
+    uint32_t indexStart = 0;  // into the skin's resolved triangle-index buffer; see Level note above
     uint16_t indexCount = 0;
 };
 

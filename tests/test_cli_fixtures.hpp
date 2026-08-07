@@ -111,7 +111,6 @@ std::vector<uint8_t> tinyValidM2() {
 // face normal), for --collision's own tests -- tinyValidM2() alone leaves
 // collisionPositions/collisionIndices at count 0, so the collision-mesh
 // block in cmd_export.cpp never fires against it.
-// TODO: Remove: BLENDER_EXPORT_TODO.md §3.
 std::vector<uint8_t> tinyValidM2WithCollision() {
     auto b = tinyValidM2();
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <tiny_gltf.h>
@@ -29,7 +31,16 @@ void validateMeshes(const std::vector<NamedMesh>& meshes, bool hasSkeleton);
 // model-wide indices the returned mesh's primitives reference) -- mirrors
 // writeGlbMulti's former per-mesh loop body 1:1, no behavior change.
 // `usedUnlitExtension` is set (never cleared) if any of this mesh's
-// materials sets Material::unlit.
+// materials sets Material::unlit. `alternateTextureCache` (filename ->
+// already-created texture index) is shared and accumulated across every
+// call in one writeGlbMulti invocation -- a real character model can have
+// many ambiguous hardcoded-texture-slot materials all drawing candidates
+// from the *same* shared basename pool (gltf_mesh.hpp's
+// AlternateTextureCandidate doc comment), and without this cache each one
+// would re-embed the same file's full bytes as its own separate glTF
+// image/texture, ballooning file size by however many materials share
+// that candidate (confirmed: 19x on one real export). See emitMaterial's
+// own alternate-textures block (gltf_mesh.cpp) for where this is used.
 struct MeshEmission {
     tinygltf::Mesh mesh;
     tinygltf::Node node;
@@ -38,6 +49,7 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
                            std::vector<tinygltf::BufferView>& views,
                            std::vector<tinygltf::Accessor>& accessors, std::vector<tinygltf::Image>& images,
                            std::vector<tinygltf::Texture>& textures,
-                           std::vector<tinygltf::Material>& tinyMaterials, bool& usedUnlitExtension);
+                           std::vector<tinygltf::Material>& tinyMaterials, bool& usedUnlitExtension,
+                           std::unordered_map<std::string, int>& alternateTextureCache);
 
 }  // namespace husk::gltf

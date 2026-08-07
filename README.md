@@ -295,7 +295,7 @@ Flags:
 | `--lod <n>` &#124; `all` | -- | With `--skin auto`, pick `SFID` entry `n` instead of 0, or resolve every entry into the same `.glb` as its own node (`lod0`, `lod1`, ...) sharing one skeleton/animation set (`husk info`'s `skin_file_data_ids` shows how many entries exist) | entry `0` |
 | `--bones-dir <dir>` &#124; `none` | -- | Directory of `<FileDataID>.bone` files (per the model's/`.skel`'s `BFID` array), attached as inert skin `extras`; or `none` to skip | model's own directory |
 | `--phys <path>` &#124; `none` | -- | External `.phys` path, attached as a minimal `physics_bodies` skin `extras` anchor (full records via `dump-chunks`), or `none` to never look for one | same-basename `.phys` next to the model, if any |
-| `--collision none` | -- | Omit the collision mesh entirely (it's still tagged `{"collision": true}` in glTF extras when present, but Blender's stock importer has no concept of that tag and renders it like any other mesh -- `none` is for debugging what the render meshes alone look like) | included when the model has one |
+| `--collision` | -- | Include the collision mesh, when present, as real geometry tagged `{"collision": true}` in glTF extras -- off by default: Blender's stock importer has no concept of that tag and renders it like any other mesh, and the collision hull is often larger than and visually occludes the real character (full body/shape/joint records are also always available via `dump-chunks`) | omitted |
 
 Texture resolution deliberately tries real-filename matches before
 `<FileDataID>.png`/`.blp`, for every texture slot, not just ones husk can't
@@ -344,6 +344,19 @@ husk export bloodelffemale.m2 out.glb --skin-dir ./skins --lod all
 husk export bloodelffemale_hd.m2 out.glb --skin bloodelffemale_hd00.skin \
   --skel bloodelffemale_hd.skel --anim ./anims
 ```
+
+### Importing into Blender
+
+Use **File > Import > glTF 2.0** with its default settings. That's the
+only import path this project's own real-interactive-use testing found to
+work correctly end to end (rest pose, animation playback, orientation,
+node hierarchy) -- other paths found by that testing to *not* work:
+drag-and-drop with default settings looked
+massively wrong (a legacy glTF 1.0 confusion, not a glTF 2.0 issue), and
+"import with custom settings" crashed on every attempt tried (a Blender-side
+bug, not husk's). If Blender ever changes this, re-verify against
+`tests/blender_import_check.py`'s same headless import path before trusting
+a different one.
 
 ### `husk dump-chunks <file.m2>` / `husk dump-chunks <file.bone>` / `husk dump-chunks <file.phys>`
 

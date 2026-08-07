@@ -343,8 +343,12 @@ TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bon
     auto outPath = (std::filesystem::temp_directory_path() / "husk-test-blender.glb").string();
     std::filesystem::remove(outPath);
 
-    auto exportResult =
-        runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath + "\"");
+    // --collision: this test's own readback checks below assert on the
+    // collision mesh's presence/counts, which requires actually asking for
+    // it now that it's opt-in (off by default, see cmd_export.cpp's
+    // appendCollisionMesh doc comment).
+    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" +
+                                 skinPath + "\" --collision");
     INFO("husk export output:\n", exportResult.output);
     REQUIRE(exportResult.exitCode == 0);
 
@@ -560,8 +564,8 @@ TEST_CASE("husk gltf::writeGlbMulti: a synthetic axis-probe skeleton's local +X/
 // (real humanoids; skipped, not failed, otherwise), and exists purely as a
 // second, real-content confirmation on top of the probe's own math-only
 // result.
-// TODO: Remove: cites TRANSFORM_TRIAGE.md §5c and BLENDER_EXPORT_TODO.md §8
-// (the real-file measurement that originally surfaced the orientation bug).
+// TODO: Remove: cites TRANSFORM_TRIAGE.md §5c (the real-file measurement
+// that originally surfaced the orientation bug).
 #if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
 TEST_CASE("husk export: real M2 + .skin -- a real head-height key bone (\"_Name\") lands above "
           "the armature origin in Blender, not below it (optional secondary, humanoid-only "

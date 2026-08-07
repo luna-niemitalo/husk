@@ -156,7 +156,9 @@ TEST_CASE("husk export: a model basename that's a numeric-suffix prefix of a sib
     fs::remove_all(dir);
 }
 
-TEST_CASE("husk export: a collision mesh is attached by default when present") {
+TEST_CASE("husk export: the collision mesh is omitted by default even when the model has one -- "
+          "Blender's stock importer would otherwise render it like a real mesh and occlude the "
+          "character") {
     auto m2Path = tempPath("collision-default.m2");
     writeFile(m2Path, tinyValidM2WithCollision());
     auto skinPath = tempPath("collision-default.skin");
@@ -165,40 +167,23 @@ TEST_CASE("husk export: a collision mesh is attached by default when present") {
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("collision-default.glb").string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("attached a 3-position/1-triangle collision mesh") !=
-          std::string::npos);
-
-    fs::remove(m2Path);
-    fs::remove(skinPath);
-}
-
-TEST_CASE("husk export: --collision none omits the collision mesh even when the model has "
-          "one") {
-    auto m2Path = tempPath("collision-none.m2");
-    writeFile(m2Path, tinyValidM2WithCollision());
-    auto skinPath = tempPath("collision-none.skin");
-    writeFile(skinPath, tinyMatchingSkin());
-
-    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("collision-none.glb").string() + " --collision none");
-    CHECK(result.exitCode == 0);
     CHECK(result.output.find("collision mesh") == std::string::npos);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
 }
 
-TEST_CASE("husk export: --collision only accepts 'none', rejecting any other value with a clear "
-          "message") {
-    auto m2Path = tempPath("collision-bad.m2");
+TEST_CASE("husk export: --collision attaches the collision mesh when the model has one") {
+    auto m2Path = tempPath("collision-on.m2");
     writeFile(m2Path, tinyValidM2WithCollision());
-    auto skinPath = tempPath("collision-bad.skin");
+    auto skinPath = tempPath("collision-on.skin");
     writeFile(skinPath, tinyMatchingSkin());
 
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
-                           tempPath("collision-bad.glb").string() + " --collision bogus");
-    CHECK(result.exitCode != 0);
-    CHECK(result.output.find("--collision") != std::string::npos);
+                           tempPath("collision-on.glb").string() + " --collision");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("attached a 3-position/1-triangle collision mesh") !=
+          std::string::npos);
 
     fs::remove(m2Path);
     fs::remove(skinPath);
@@ -396,19 +381,45 @@ TEST_CASE("husk export: --textures-out mirrors a decoded .blp as a real .png, so
     fs::remove_all(dir);
 }
 
-TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot embed neither "
-          "and are reported, not guessed at") {
+TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot embed BOTH as "
+          "alternate_textures, with one arbitrary default, not neither") {
+    // A real, valid 1x1 PNG (not just arbitrary bytes) -- this test actually
+    // loads the resulting .glb via tinygltf below, which decodes embedded
+    // images and fails the whole load on genuinely invalid image data.
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+
     auto dir = defaultsDir("fuzzytex-ambiguous");
     writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));
     writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
-    writeFile(dir / "fuzzytexfaceupper00_00_hd.png", {1, 2, 3, 4});
-    writeFile(dir / "fuzzytexhair00_00.png", {5, 6, 7, 8});
+    writeFile(dir / "fuzzytexfaceupper00_00_hd.png", onePixelPng);
+    writeFile(dir / "fuzzytexhair00_00.png", onePixelPng);
 
     auto result = runHusk("export " + (dir / "fuzzytex.m2").string());
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("0 with an embedded texture") != std::string::npos);
-    CHECK(result.output.find("2 texture file(s)") != std::string::npos);
-    CHECK(result.output.find("can't tell which hardcoded texture slot") != std::string::npos);
+    // Exactly one embedded baseColorTexture (the arbitrary default) --
+    // the two candidates aren't guessed *between*, but they're also no
+    // longer silently dropped.
+    CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
+    CHECK(result.output.find("2 same-basename texture candidate(s)") != std::string::npos);
+    CHECK(result.output.find("alternate_textures") != std::string::npos);
+    CHECK(result.output.find("fuzzytexfaceupper00_00_hd.png") != std::string::npos);
+    CHECK(result.output.find("fuzzytexhair00_00.png") != std::string::npos);
+
+    // Real content check: both candidates' actual bytes reached the .glb,
+    // not just their names in the warning text.
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string err, warn;
+    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "fuzzytex.glb").string()));
+    REQUIRE(model.materials.size() == 1);
+    REQUIRE(model.materials[0].extras.Has("alternate_textures"));
+    auto alt = model.materials[0].extras.Get("alternate_textures");
+    CHECK(alt.ArrayLen() == 2);
 
     fs::remove_all(dir);
 }

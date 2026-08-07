@@ -81,9 +81,11 @@ std::vector<uint8_t> buildSkinFile(uint32_t verticesCount, uint32_t verticesOffs
 // defaults to 0 (the common "base body" group) so existing call sites that
 // don't care about geoset filtering don't need to change.
 void putSubmesh(std::vector<uint8_t>& buf, size_t off, uint16_t vertexStart, uint16_t vertexCount,
-                 uint16_t indexStart, uint16_t indexCount, uint16_t skinSectionId = 0) {
+                 uint16_t indexStart, uint16_t indexCount, uint16_t skinSectionId = 0,
+                 uint16_t level = 0) {
     if (buf.size() < off + 0x30) buf.resize(off + 0x30, 0);
     putU16(buf, off + 0x00, skinSectionId);
+    putU16(buf, off + 0x02, level);
     putU16(buf, off + 0x04, vertexStart);
     putU16(buf, off + 0x06, vertexCount);
     putU16(buf, off + 0x08, indexStart);
@@ -241,6 +243,43 @@ TEST_CASE("parseSubmeshes: reads vertexStart/vertexCount/indexStart/indexCount f
     CHECK(submeshes[1].vertexCount == 5);
     CHECK(submeshes[1].indexStart == 30);
     CHECK(submeshes[1].indexCount == 9);
+}
+
+// `Level` (offset 0x02) is NOT LOD/culling metadata despite the field name
+// and its own doc comment's earlier assumption -- confirmed against a real,
+// independent implementation (wow.export's Skin.js:
+// `triangleStart += level << 16`). It's the high 16 bits of `indexStart`,
+// needed for any model whose resolved triangle-index buffer exceeds 65,535
+// entries (`indexStart`/`triangleStart` on disk is only 16 bits) -- real,
+// not rare: confirmed on `bloodelffemale_hd.m2`'s own 136,254-entry buffer,
+// where 77 of 114 submeshes need this correction.
+// TODO: Remove: EYES_ON_FINDINGS.md #5 -- this field being silently
+// discarded (no correction applied) meant husk sliced the *wrong* region
+// of the triangle-index buffer for any submesh needing it, aliased into
+// the first 65,536 entries, with no error or crash -- discovered via a
+// real interactive Blender render showing missing body geometry.
+TEST_CASE("parseSubmeshes: Level (offset 0x02) is folded into indexStart's high 16 bits, not "
+          "discarded") {
+    std::vector<uint8_t> file(500, 0);
+    size_t off = 200;
+    // level=0: indexStart stays exactly the raw 16-bit value (every
+    // existing real fixture in this suite is this case -- must not
+    // regress).
+    putSubmesh(file, off, /*vertexStart=*/0, /*vertexCount=*/10, /*indexStart=*/500,
+               /*indexCount=*/30, /*skinSectionId=*/0, /*level=*/0);
+    // level=1: real indexStart is (1 << 16) | 236 = 65772 -- exactly the
+    // shape found in bloodelffemale_hd00.skin's own submesh #47.
+    putSubmesh(file, off + 0x30, /*vertexStart=*/10, /*vertexCount=*/5, /*indexStart=*/236,
+               /*indexCount=*/9, /*skinSectionId=*/903, /*level=*/1);
+
+    husk::m2::Array a;
+    a.count = 2;
+    a.offset = static_cast<uint32_t>(off);
+    auto submeshes = husk::skin::parseSubmeshes(file, a);
+
+    REQUIRE(submeshes.size() == 2);
+    CHECK(submeshes[0].indexStart == 500);
+    CHECK(submeshes[1].indexStart == 65772);
 }
 
 // skinSectionId (offset 0x00, the "Mesh part ID"/geoset ID -- wowdev.wiki

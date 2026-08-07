@@ -6,7 +6,6 @@ _husk_anim_value() { _alternative 'value:value:(auto inline none)' 'dirs:directo
 _husk_dir_or_none_value() { _alternative 'value:value:(none)' 'dirs:directory:_files -/' }
 _husk_dir_value() { _alternative 'dirs:directory:_files -/' }
 _husk_file_or_none_value() { _alternative 'value:value:(none)' 'files:file:_files' }
-_husk_none_only_value() { _alternative 'value:value:(none)' }
 
 _husk() {
     local -a subcommands
@@ -36,7 +35,7 @@ _husk() {
                 '--lod[LOD index, or all]:value:(all)' \
                 '--bones-dir[bone-correction directory, or none]:value:_husk_dir_or_none_value' \
                 '--phys[external .phys path, or none]:value:_husk_file_or_none_value' \
-                '--collision[none to omit the collision mesh]:value:_husk_none_only_value' \
+                '--collision[include the collision mesh (off by default)]' \
                 '1:model:_files'
             ;;
         info)

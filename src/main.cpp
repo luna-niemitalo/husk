@@ -97,11 +97,6 @@ std::string bashValueCompletion(const std::string& longName) {
     if (longName == "--lod") {
         return "COMPREPLY=($(compgen -W \"all\" -- \"$cur\"))";
     }
-    if (longName == "--collision") {
-        return "COMPREPLY=($(compgen -W \"none\" -- \"$cur\"))";  // no file/dir fallback -- there's
-                                                                    // no path to give, see --collision's
-                                                                    // own ->check() rejection
-    }
     return "COMPREPLY=($(compgen -f -- \"$cur\"))";  // --input/--output: plain filenames
 }
 
@@ -189,7 +184,6 @@ const std::vector<ZshHelper>& zshHelpers() {
         {"_husk_dir_or_none_value", "_alternative 'value:value:(none)' 'dirs:directory:_files -/'"},
         {"_husk_dir_value", "_alternative 'dirs:directory:_files -/'"},
         {"_husk_file_or_none_value", "_alternative 'value:value:(none)' 'files:file:_files'"},
-        {"_husk_none_only_value", "_alternative 'value:value:(none)'"},
     };
     return helpers;
 }
@@ -202,7 +196,6 @@ std::string zshValueAction(const std::string& longName) {
     if (longName == "--textures-out") return "_husk_dir_value";
     if (longName == "--skel" || longName == "--phys") return "_husk_file_or_none_value";
     if (longName == "--lod") return "(all)";
-    if (longName == "--collision") return "_husk_none_only_value";
     return "_files";
 }
 
@@ -224,7 +217,7 @@ std::string zshFlagLabel(const std::string& longName) {
     if (longName == "--lod") return "LOD index, or all";
     if (longName == "--bones-dir") return "bone-correction directory, or none";
     if (longName == "--phys") return "external .phys path, or none";
-    if (longName == "--collision") return "none to omit the collision mesh";
+    if (longName == "--collision") return "include the collision mesh (off by default)";
     if (longName == "--help") return "print help and exit";
     return longName;
 }

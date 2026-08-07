@@ -123,10 +123,31 @@ struct Material {
     // "present only when there's something extra to say, 0 means absent"
     // convention as textureType above -- a real client-side FileDataID is
     // never 0, so 0 unambiguously means "husk never resolved one for this
-    // slot," not "the real ID happens to be zero."
-    // TODO: Remove: BLENDER_EXPORT_TODO.md §4 -- real texture directories
-    // are often named descriptively rather than by FileDataID, which is why this matters.
+    // slot," not "the real ID happens to be zero." Matters because real
+    // texture directories are often named descriptively rather than by
+    // FileDataID.
     uint32_t baseColorTextureFileDataId = 0;
+
+    // A hardcoded/customization-driven texture slot (textureType != 0) with
+    // 2+ same-basename candidate files in --textures has no in-file data to
+    // pick "the" correct one from (see textureType's own doc comment) -- but
+    // unlike that structural gap, the candidate *list itself* is real,
+    // directory-scanned data (FuzzyTexturePool, src/export_materials.cpp),
+    // the same source a sole (unambiguous) match already uses. Same "export
+    // everything, let the client filter" treatment `Submesh::skinSectionId`
+    // already gets for mutually-exclusive geosets: every candidate is
+    // embedded (real image bytes, not just a filename), one arbitrary one
+    // (alphabetically first, deterministic) also becomes the actual
+    // baseColorImagePng so the export still renders as *something* by
+    // default rather than bare, and the extras array lets a human or script
+    // swap in the real one once known. Empty in every other case (a sole
+    // match, or a genuinely FileDataID-resolved slot, stay exactly as
+    // precise as before -- this only fires on real ambiguity).
+    struct AlternateTextureCandidate {
+        std::string filename;  // real file basename, e.g. "bloodelffemale_hd_skin_color_3500123.png"
+        std::vector<uint8_t> imagePng;
+    };
+    std::vector<AlternateTextureCandidate> alternateTextureCandidates;
 
     // A batch's M2Color::color/M2TextureWeight::weight (colorAnimated/
     // weightAnimated) is real per-sequence or global-sequence keyframe

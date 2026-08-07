@@ -1,6 +1,8 @@
 #include "gltf.hpp"
 
 #include <sstream>
+#include <string>
+#include <unordered_map>
 
 #include <tiny_gltf.h>
 
@@ -65,6 +67,11 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     std::vector<tinygltf::Material> tinyMaterials;
     std::vector<tinygltf::Mesh> tinyMeshes;
     std::vector<tinygltf::Node> meshNodes;
+    // filename -> already-created texture index, shared across every mesh/
+    // material this call emits -- see gltf_mesh_internal.hpp's
+    // emitMeshNode doc comment for why this matters (many ambiguous
+    // hardcoded-texture-slot materials can share the same candidate pool).
+    std::unordered_map<std::string, int> alternateTextureCache;
 
     // Per-mesh emission (gltf_mesh_internal.hpp's emitMeshNode): appends
     // this mesh's own vertex/index/skinning accessors and materials/images/
@@ -73,7 +80,8 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     // mesh's final index in the shared `tinyMeshes` list.
     for (const auto& nm : meshes) {
         MeshEmission em = emitMeshNode(nm, hasSkeleton, skinIdx, buffer, views, accessors, images,
-                                        textures, tinyMaterials, usedUnlitExtension);
+                                        textures, tinyMaterials, usedUnlitExtension,
+                                        alternateTextureCache);
         tinyMeshes.push_back(em.mesh);
         em.node.mesh = static_cast<int>(tinyMeshes.size()) - 1;
         meshNodes.push_back(em.node);

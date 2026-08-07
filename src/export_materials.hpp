@@ -65,6 +65,23 @@ struct BuiltMaterials {
         uint32_t fileDataId = 0;
     };
     std::vector<FuzzyMatch> fuzzyMatches;
+
+    // One entry per batch whose hardcoded/customization-driven slot had 2+
+    // same-basename candidates (a genuinely ambiguous case, never a guess
+    // between fewer than 2) -- unlike FuzzyMatch above, husk no longer
+    // silently embeds nothing here: every candidate is embedded as a real
+    // alternate image/texture (gltf::Material::alternateTextureCandidates),
+    // with one arbitrary (alphabetically first) candidate also wired in as
+    // the actual baseColorTexture so the export still renders as something
+    // by default. Surfaced here so exportGlb can warn loudly which default
+    // was picked and name every real alternative sitting in the file.
+    struct AmbiguousMatch {
+        std::string materialName;
+        std::string defaultFileName;
+        std::vector<std::string> allFileNames;
+        uint32_t fileDataId = 0;  // same meaning as FuzzyMatch::fileDataId
+    };
+    std::vector<AmbiguousMatch> ambiguousMatches;
 };
 
 // Everything buildMaterialsAndPrimitives needs out of the M2 itself (as

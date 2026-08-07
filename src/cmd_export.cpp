@@ -512,6 +512,32 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
             std::cerr << "\n";
         }
 
+        // Genuinely ambiguous hardcoded slots (2+ same-basename candidates)
+        // -- see BuiltMaterials::AmbiguousMatch's doc comment. Every real
+        // candidate is embedded as an alternate_textures extras entry;
+        // this just names which one husk arbitrarily wired in as the
+        // default baseColorTexture, and every other real option sitting in
+        // the file, so a human can go pick the actually-correct one.
+        for (const auto& am : built.ambiguousMatches) {
+            std::cerr << "husk: warning: material '" << am.materialName << "' had "
+                      << am.allFileNames.size() << " same-basename texture candidate(s) ("
+                      << am.defaultFileName << " picked arbitrarily as the default) -- all "
+                      << am.allFileNames.size()
+                      << " are embedded as 'alternate_textures' extras on this material";
+            if (am.fileDataId != 0) {
+                std::cerr << " (resolved FileDataID " << am.fileDataId
+                          << ", NOT independently verified against it)";
+            } else {
+                std::cerr << " (no FileDataID at all for this hardcoded slot to cross-reference)";
+            }
+            std::cerr << ": ";
+            for (size_t i = 0; i < am.allFileNames.size(); ++i) {
+                if (i) std::cerr << ", ";
+                std::cerr << am.allFileNames[i];
+            }
+            std::cerr << "\n";
+        }
+
         if (built.primitives.empty()) {
             std::cerr << "husk: note: '" << path << "'" << (name.empty() ? "" : " (" + name + ")")
                       << "' has no renderable geometry -- skipping mesh output for this LOD tier "
@@ -536,16 +562,20 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
 // The collision mesh (physics/hit-testing, m2::CollisionMesh) is a plain
 // triangle mesh with an unambiguous glTF translation -- unlike geoset
 // selection/multi-texture-layers (data with no unambiguous glTF shape,
-// hence inert extras only), so it's exported as real geometry: one more
-// NamedMesh, unskinned (a collision mesh is static, not deformed by the
-// armature), tagged `isCollision` so writeGlbMulti marks its node
-// `{"collision": true}` in extras. Appends nothing (leaves `namedMeshes`
-// untouched) when the model has no collision data at all, or on
-// `--collision none`.
+// hence inert extras only), so when requested it's exported as real
+// geometry: one more NamedMesh, unskinned (a collision mesh is static, not
+// deformed by the armature), tagged `isCollision` so writeGlbMulti marks
+// its node `{"collision": true}` in extras. Off by default -- Blender's
+// stock importer has no concept of that extras tag and renders the node
+// like any other mesh, and the collision hull is usually a coarse box/
+// capsule that's larger than and visually occludes the real character
+// (found the hard way: it fully hid a real character render). Appends
+// nothing (leaves `namedMeshes` untouched) unless `--collision` was given
+// and the model actually has collision data.
 void appendCollisionMesh(const m2::Header& header, const std::vector<uint8_t>& blob,
-                          const std::string& modelPath, const std::string& collisionArg,
+                          const std::string& modelPath, bool collisionRequested,
                           std::vector<gltf::NamedMesh>& namedMeshes) {
-    if (collisionArg == "none" || header.collisionPositions.count == 0 ||
+    if (!collisionRequested || header.collisionPositions.count == 0 ||
         header.collisionIndices.count == 0) {
         return;
     }
@@ -746,21 +776,13 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "look for one (default: a same-basename '.phys' next to the model, if any) -- "
                     "a minimal per-body placement anchor is attached as inert glTF extras; the "
                     "full body/shape/joint record set is available via 'husk dump-chunks' instead");
-    app.add_option("--collision", opts.collisionArg,
-                    "'none' to omit the collision mesh entirely, or default (unset) to include it "
-                    "when present -- tagged {\"collision\": true} in glTF extras either way, never "
-                    "applied to the render, but Blender's stock importer has no concept of that tag "
-                    "and renders it like any other mesh; 'none' is for debugging what the render "
-                    "meshes alone look like")
-        ->check(
-            [](const std::string& v) -> std::string {
-                if (v != "none") {
-                    return "--collision only accepts 'none' (there's no path to give -- collision "
-                           "data lives inline in the .m2 itself, not a sidecar file)";
-                }
-                return "";
-            },
-            "COLLISION");
+    app.add_flag("--collision", opts.collisionRequested,
+                 "include the collision mesh, when present, as real (unskinned) geometry tagged "
+                 "{\"collision\": true} in glTF extras -- off by default, since Blender's stock "
+                 "importer has no concept of that tag and renders it like any other mesh, and the "
+                 "collision hull is often larger than and visually occludes the real character; "
+                 "the full body/shape/joint record set is also always available via "
+                 "'husk dump-chunks'");
 }
 
 int exportGlb(int argc, char** args) {
@@ -926,7 +948,7 @@ int exportGlb(int argc, char** args) {
         // real render/LOD entries versus the trailing collision entry, so
         // it doesn't mislabel the collision mesh as another LOD tier.
         size_t renderMeshCount = namedMeshes.size();
-        appendCollisionMesh(header, blob, modelPath, opts.collisionArg, namedMeshes);
+        appendCollisionMesh(header, blob, modelPath, opts.collisionRequested, namedMeshes);
 
         auto glb = gltf::writeGlbMulti(namedMeshes, bones.empty() ? nullptr : &skeleton, animations);
 

@@ -291,7 +291,6 @@ const char* billboardModeName(uint32_t flags);
 // node names (`gltf::writeGlbMulti`) so a real bone at least sometimes
 // gets a real semantic name instead of Blender's own generic "Bone"/"Node"
 // fallback.
-// TODO: Remove: BLENDER_EXPORT_TODO.md §6.
 const char* keyBoneName(int32_t keyBoneId);
 
 // Names an attachment's `id` (Attachment::id, wowdev.wiki M2#Attachments'
@@ -326,7 +325,6 @@ const char* eventName(const std::string& identifier);
 // can't embed a real image for -- no CASC/DB2 access) a real semantic
 // material name instead of a bare "_tex<N>" -- see cmd_export.cpp's
 // material-naming code.
-// TODO: Remove: BLENDER_EXPORT_TODO.md §4.
 const char* textureTypeName(uint32_t type);
 
 // Reads `array.count` M2Texture records out of `blob` starting at
