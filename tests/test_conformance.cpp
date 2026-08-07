@@ -1,4 +1,5 @@
-// Real downstream consumers of a husk-exported .glb, as opposed to
+// This is the Conformance tier (see TEST_DESIGN.md#Four-tier-architecture)
+// -- real downstream consumers of a husk-exported .glb, as opposed to
 // tests/test_integration.cpp's "does husk itself run correctly" role:
 //
 //   - The Khronos glTF-Validator: independent spec-conformance check.
@@ -9,15 +10,13 @@
 //     the same file (see tests/blender_import_check.py for why that
 //     agreement is the actual point).
 //
-// Both tools are optional in the dev shell (HUSK_GLTF_VALIDATOR/
-// HUSK_BLENDER compile definitions, set by CMakeLists.txt via
-// find_program) -- absent either, or absent the real-data fixtures this
-// file shares with test_integration.cpp (see tests/test_data_paths.hpp),
-// these tests are marked `* doctest::skip(...)` rather than silently
-// "passing" with zero assertions -- see test_main.cpp's startup banner
-// for which case applies on this run.
+// See TEST_DESIGN.md#Conformance-gating for the HUSK_GLTF_VALIDATOR/
+// HUSK_BLENDER build-time gating, and TEST_DESIGN.md#Fixture-resolution-model
+// for the real-data fixture skip mechanics this file shares with
+// test_integration.cpp.
 
 #include <algorithm>
+#include <cerrno>
 #include <cstring>
 #include <doctest/doctest.h>
 #include <filesystem>
@@ -80,8 +79,9 @@ husk::gltf::Vec3 parseProbeVec3(const std::string& output, const std::string& ke
 // only: this fixture (testM2()) has inline bones, not .skel-sourced ones,
 // so header.bones.count is the real joint count here.
 husk::m2::Header readM2Header(const std::string& path) {
+    errno = 0;
     std::ifstream f(path, std::ios::binary);
-    REQUIRE_MESSAGE(static_cast<bool>(f), "couldn't open '", path, "'");
+    REQUIRE_MESSAGE(static_cast<bool>(f), "couldn't open '", path, "': ", std::strerror(errno));
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     return husk::m2::parseHeader(bytes);
 }
@@ -150,19 +150,17 @@ TEST_CASE("husk export: exported bind-pose vertex bounds sit fully inside the M2
     REQUIRE(!model.meshes[0].primitives.empty());
 
     // The header's bounding_box is NOT a tight fit around the bind-pose
-    // mesh -- a tempting first assumption, corrected against real data
-    // before this check was written (WIKI_FINDINGS.md §5; confirmed
-    // against both bloodelffemale.m2 and bloodelffemale_hd.m2 --
-    // the header box runs roughly 2x-4x wider per axis than the bind-pose
-    // vertices' own extent, e.g. bloodelffemale_hd.m2's header z range is
-    // ~9.6 units vs. the bind-pose mesh's ~2.1 -- consistent with the
-    // header accounting for the model's full animated range, not just its
-    // rest pose), so a tight-tolerance equality check would fail on real
-    // data, not catch a real bug. What *does* hold, and is a genuine
-    // correctness signal: the bind-pose mesh husk actually parsed and
-    // wrote must sit entirely inside the header's declared box -- if
-    // husk's vertex parsing were subtly wrong (bad offset, wrong scale),
-    // the computed accessor bounds could poke outside it.
+    // mesh -- it runs roughly 2x-4x wider per axis than the bind-pose
+    // vertices' own extent, consistent with the header accounting for the
+    // model's full animated range, not just its rest pose -- so a
+    // tight-tolerance equality check would fail on real data, not catch a
+    // real bug. What *does* hold, and is a genuine correctness signal: the
+    // bind-pose mesh husk actually parsed and wrote must sit entirely
+    // inside the header's declared box -- if husk's vertex parsing were
+    // subtly wrong (bad offset, wrong scale), the computed accessor bounds
+    // could poke outside it.
+    // TODO: Remove: cites WIKI_FINDINGS.md §5; verification narrative
+    // (bloodelffemale_hd.m2's header z range ~9.6 vs. bind-pose mesh ~2.1).
     auto posIt = model.meshes[0].primitives[0].attributes.find("POSITION");
     REQUIRE(posIt != model.meshes[0].primitives[0].attributes.end());
     const tinygltf::Accessor& posAcc = model.accessors[posIt->second];
@@ -193,8 +191,9 @@ TEST_CASE("husk export: exported bind-pose vertex bounds sit fully inside the M2
 // loudly rather than pass vacuously if a future re-extraction ever swaps in
 // a different file.
 int countRealRootBones(const std::string& path) {
+    errno = 0;
     std::ifstream f(path, std::ios::binary);
-    REQUIRE_MESSAGE(static_cast<bool>(f), "couldn't open '", path, "'");
+    REQUIRE_MESSAGE(static_cast<bool>(f), "couldn't open '", path, "': ", std::strerror(errno));
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     husk::m2::Header header = husk::m2::parseHeader(bytes);
     auto bones = husk::m2::parseBones(bytes, header.bones);
@@ -235,9 +234,7 @@ TEST_CASE("husk export: a real multi-root-bone-forest weapon "
           "produces a glb the Khronos glTF-Validator accepts with zero errors and no "
           "SKIN_NO_COMMON_ROOT" *
           doctest::skip(true)) {
-    // gltf_validator not found on PATH at configure time (see
-    // CMakeLists.txt's find_program) -- available via this project's nix
-    // flake devShell.
+    // see TEST_DESIGN.md#Conformance-gating
 }
 #endif
 
@@ -270,9 +267,6 @@ TEST_CASE("husk export: --phys's physics_bodies extras don't introduce new glTF-
 TEST_CASE("husk export: --phys's physics_bodies extras don't introduce new glTF-Validator "
           "errors on a real weapon .m2/.skin/.phys fixture" *
           doctest::skip(true)) {
-    // gltf_validator not found on PATH at configure time (see
-    // CMakeLists.txt's find_program) -- available via this project's nix
-    // flake devShell.
 }
 #endif
 
@@ -303,9 +297,6 @@ TEST_CASE("husk export: real attachment/event/light child nodes don't introduce 
 TEST_CASE("husk export: real attachment/event/light child nodes don't introduce new "
           "glTF-Validator errors on a real weapon .m2/.skin fixture" *
           doctest::skip(true)) {
-    // gltf_validator not found on PATH at configure time (see
-    // CMakeLists.txt's find_program) -- available via this project's nix
-    // flake devShell.
 }
 #endif
 
@@ -339,9 +330,6 @@ TEST_CASE("husk export: real M2 + .skin produces a glb the Khronos glTF-Validato
 TEST_CASE("husk export: real M2 + .skin produces a glb the Khronos glTF-Validator "
           "accepts with zero errors" *
           doctest::skip(true)) {
-    // gltf_validator not found on PATH at configure time (see
-    // CMakeLists.txt's find_program) -- available via this project's nix
-    // flake devShell.
 }
 #endif
 
@@ -428,8 +416,6 @@ TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bon
 TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bone/animation "
           "counts matching tinygltf's own reading of the same file" *
           doctest::skip(true)) {
-    // blender not found on PATH at configure time (see CMakeLists.txt's
-    // find_program) -- available via this project's nix flake devShell.
 }
 #endif
 
@@ -458,8 +444,8 @@ TEST_CASE("husk export: a real multi-root-bone-forest weapon imports into Blende
     REQUIRE(model.skins.size() == 1);
     husk::m2::Header header = readM2Header(m2Path);
     // The invariant the chosen design (a plain non-joint parent node, see
-    // DESIGN.md's Key design decisions) exists to preserve: skin.joints
-    // never grows a bogus extra entry for the synthesized node (unlike the
+    // DESIGN.md#Key-design-decisions) exists to preserve: skin.joints never
+    // grows a bogus extra entry for the synthesized node (unlike the
     // rejected alternative of appending it as one more real joint).
     CHECK(model.skins[0].joints.size() == header.bones.count);
 
@@ -484,18 +470,13 @@ TEST_CASE("husk export: a real multi-root-bone-forest weapon imports into Blende
           "matching skin.joints.size() exactly -- the synthesized non-joint parent node "
           "is not counted as a bone" *
           doctest::skip(true)) {
-    // blender not found on PATH at configure time (see CMakeLists.txt's
-    // find_program) -- available via this project's nix flake devShell.
 }
 #endif
 
-// TRANSFORM_TRIAGE.md §5c: an asset-agnostic coordinate-frame probe, not a
-// check on any real M2 fixture's own semantics. This is deliberately NOT
-// built from a real character/weapon/creature -- it doesn't need a body
-// plan or an "up" convention to assert anything about, which is exactly
-// what makes it generalize (see TRANSFORM_TRIAGE.md's own §5c for why the
-// original "does this look anatomically upright" idea doesn't survive a
-// weapon or a quadruped, and why this replaces it as the primary check).
+// An asset-agnostic coordinate-frame probe, not a check on any real M2
+// fixture's own semantics -- deliberately NOT built from a real
+// character/weapon/creature, since it doesn't need a body plan or an "up"
+// convention to assert anything about.
 //
 // The property under test: a root joint at the local origin, with three
 // children offset by one unit along the M2-local +X/+Y/+Z axes
@@ -503,17 +484,19 @@ TEST_CASE("husk export: a real multi-root-bone-forest weapon imports into Blende
 // conversion and reimported through Blender's real, independent glTF
 // importer -- land at those *exact same* coordinates in Blender's own
 // world space. Not "somewhere plausible," not "consistent with itself" --
-// numerically identical to the original M2-local offset. This is the
-// literal round-trip-identity property TRANSFORM_TRIAGE.md §2 says a
-// correct conversion must satisfy (WoW Z-up -> husk's zUpToYUp -> glTF
-// Y-up -> Blender's own Y-up->Z-up import -> Blender Z-up should net to
-// the identity transform, since it's the same physical up-axis on both
-// ends) -- and is exactly the property the historical bug violated: the
-// old formula produced a net 180-degree flip instead of identity here.
+// numerically identical to the original M2-local offset (WoW Z-up ->
+// husk's zUpToYUp -> glTF Y-up -> Blender's own Y-up->Z-up import ->
+// Blender Z-up should net to the identity transform, since it's the same
+// physical up-axis on both ends). Mutation-tested (see
+// TEST_DESIGN.md#Mutation-tested-regressions): reverting zUpToYUp to its
+// historical formula makes this test fail with a net 180-degree flip
+// instead of identity.
+// TODO: Remove: cites TRANSFORM_TRIAGE.md §2/§5c throughout, including "why
+// the original 'anatomically upright' idea doesn't survive a weapon or
+// quadruped."
 #if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
 TEST_CASE("husk gltf::writeGlbMulti: a synthetic axis-probe skeleton's local +X/+Y/+Z offsets "
-          "survive a real husk-export -> Blender-import round trip as the identical coordinate "
-          "(TRANSFORM_TRIAGE.md's asset-agnostic orientation check)") {
+          "survive a real husk-export -> Blender-import round trip as the identical coordinate") {
     husk::gltf::Skeleton skel;
     skel.joints.push_back({-1, {0, 0, 0}, {0, 0, 0}, "", "husk_probe_root"});
     auto addAxisProbe = [&](const husk::m2::Vec3& m2Offset, const std::string& name) {
@@ -563,29 +546,26 @@ TEST_CASE("husk gltf::writeGlbMulti: a synthetic axis-probe skeleton's local +X/
 }
 #else
 TEST_CASE("husk gltf::writeGlbMulti: a synthetic axis-probe skeleton's local +X/+Y/+Z offsets "
-          "survive a real husk-export -> Blender-import round trip as the identical coordinate "
-          "(TRANSFORM_TRIAGE.md's asset-agnostic orientation check)" *
+          "survive a real husk-export -> Blender-import round trip as the identical coordinate" *
           doctest::skip(true)) {
-    // blender not found on PATH at configure time (see CMakeLists.txt's
-    // find_program) -- available via this project's nix flake devShell.
 }
 #endif
 
-// TRANSFORM_TRIAGE.md §5c's optional, non-load-bearing secondary check:
-// a real humanoid fixture's own "_Name" key bone (near the top of the
-// head, keyBoneId 22 -- see m2::keyBoneName) should land above the
-// armature's own origin once imported into Blender, not below it. This is
-// explicitly NOT the primary orientation check (the asset-agnostic
-// synthetic probe above is) -- it only applies to fixtures that happen to
-// have this specific bone tagged (real humanoids; skipped, not failed,
-// otherwise), and exists purely as a second, real-content confirmation on
-// top of the probe's own math-only result. This is exactly the real-file
-// measurement that originally surfaced the bug (BLENDER_EXPORT_TODO.md
-// §8): a head-height landmark bone landing below the root/feet-level one.
+// An optional, non-load-bearing secondary check: a real humanoid fixture's
+// own "_Name" key bone (near the top of the head, keyBoneId 22 -- see
+// m2::keyBoneName) should land above the armature's own origin once
+// imported into Blender, not below it. This is explicitly NOT the primary
+// orientation check (the asset-agnostic synthetic probe above is) -- it
+// only applies to fixtures that happen to have this specific bone tagged
+// (real humanoids; skipped, not failed, otherwise), and exists purely as a
+// second, real-content confirmation on top of the probe's own math-only
+// result.
+// TODO: Remove: cites TRANSFORM_TRIAGE.md §5c and BLENDER_EXPORT_TODO.md §8
+// (the real-file measurement that originally surfaced the orientation bug).
 #if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
 TEST_CASE("husk export: real M2 + .skin -- a real head-height key bone (\"_Name\") lands above "
-          "the armature origin in Blender, not below it (TRANSFORM_TRIAGE.md's optional "
-          "secondary, humanoid-only check)" *
+          "the armature origin in Blender, not below it (optional secondary, humanoid-only "
+          "check)" *
           doctest::skip(testM2().empty() || testSkin().empty())) {
     std::string m2Path = testM2();
     std::string skinPath = testSkin();
@@ -622,23 +602,21 @@ TEST_CASE("husk export: real M2 + .skin -- a real head-height key bone (\"_Name\
 }
 #else
 TEST_CASE("husk export: real M2 + .skin -- a real head-height key bone (\"_Name\") lands above "
-          "the armature origin in Blender, not below it (TRANSFORM_TRIAGE.md's optional "
-          "secondary, humanoid-only check)" *
+          "the armature origin in Blender, not below it (optional secondary, humanoid-only "
+          "check)" *
           doctest::skip(true)) {
-    // blender not found on PATH at configure time (see CMakeLists.txt's
-    // find_program) -- available via this project's nix flake devShell.
 }
 #endif
 
-// TRANSFORM_TRIAGE.md §5e: pipeline coverage for a body plan/bone-hierarchy
-// shape bloodelffemale.m2 (the fixture behind almost every other
-// conformance test in this file) doesn't represent, not orientation
-// coverage -- the synthetic axis-probe above already covers any asset type
-// by construction. A real quadruped exercises a genuinely different
-// skeleton shape end to end (does the export pipeline still produce a
-// spec-valid, Blender-importable file for a body plan this test suite has
-// never run against before), independent of whether it happens to be
-// right-side up.
+// Pipeline coverage for a body plan/bone-hierarchy shape bloodelffemale.m2
+// (the fixture behind almost every other conformance test in this file)
+// doesn't represent, not orientation coverage -- the synthetic axis-probe
+// above already covers any asset type by construction. A real quadruped
+// exercises a genuinely different skeleton shape end to end (does the
+// export pipeline still produce a spec-valid, Blender-importable file for a
+// body plan this test suite has never run against before), independent of
+// whether it happens to be right-side up.
+// TODO: Remove: cites TRANSFORM_TRIAGE.md §5e.
 #ifdef HUSK_GLTF_VALIDATOR
 TEST_CASE("husk export: a real quadruped creature (wolf.m2) produces a glb the Khronos "
           "glTF-Validator accepts with zero errors" *
@@ -664,9 +642,6 @@ TEST_CASE("husk export: a real quadruped creature (wolf.m2) produces a glb the K
 TEST_CASE("husk export: a real quadruped creature (wolf.m2) produces a glb the Khronos "
           "glTF-Validator accepts with zero errors" *
           doctest::skip(true)) {
-    // gltf_validator not found on PATH at configure time (see
-    // CMakeLists.txt's find_program) -- available via this project's nix
-    // flake devShell.
 }
 #endif
 
@@ -712,7 +687,5 @@ TEST_CASE("husk export: a real quadruped creature (wolf.m2) imports into Blender
 TEST_CASE("husk export: a real quadruped creature (wolf.m2) imports into Blender (headless) "
           "with bone/vertex counts matching tinygltf's own reading of the same file" *
           doctest::skip(true)) {
-    // blender not found on PATH at configure time (see CMakeLists.txt's
-    // find_program) -- available via this project's nix flake devShell.
 }
 #endif

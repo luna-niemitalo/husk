@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -37,22 +38,25 @@
 // and (via skel::parseSequences/skel::boneTrackBlob/skel::findAnimFileIds)
 // a .skel-sourced skeleton alike -- either way, only for sequences whose
 // keyframe data actually resolves: inline, or via --anim for an external
-// .anim file, AFM2- or AFSB-shaped alike (see buildAnimations's doc comment
-// below, and WIKI_FINDINGS.md §2 for how AFSB's undocumented byte layout
-// was cracked).
+// .anim file, AFM2- or AFSB-shaped alike (see buildAnimations's doc
+// comment below).
+// TODO: Remove: WIKI_FINDINGS.md §2 for how AFSB's undocumented byte
+// layout was cracked.
 namespace husk::commands {
 
 namespace {
 
 std::vector<uint8_t> readFileBytes(const std::string& path) {
+    errno = 0;
     std::ifstream f(path, std::ios::binary);
     if (!f) {
-        throw std::runtime_error("couldn't open '" + path + "' for reading");
+        throw std::runtime_error("couldn't open '" + path + "' for reading: " + std::strerror(errno));
     }
+    errno = 0;
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
                                 std::istreambuf_iterator<char>());
     if (!f.good() && !f.eof()) {
-        throw std::runtime_error("error reading '" + path + "'");
+        throw std::runtime_error("error reading '" + path + "': " + std::strerror(errno));
     }
     return bytes;
 }
@@ -65,10 +69,10 @@ gltf::Vec3 toGltf(const phys::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z});
 // gltf::rotationZUpToYUp (gltf.hpp/gltf.cpp) is the single source of truth
 // for this conversion, mechanically derived from the same matrix
 // gltf::zUpToYUp uses for positions, not a separately hand-typed formula.
-// See TRANSFORM_TRIAGE.md for why that distinction matters: an earlier,
-// independently hand-derived version of this function shared the sign bug
-// zUpToYUp itself had, undetected until a real headless-Blender check
-// caught the composed result upside down.
+//
+// TODO: Remove: an earlier, independently hand-derived version of this
+// function had the same sign bug zUpToYUp itself had, undetected until a
+// headless-Blender check caught it (see TRANSFORM_TRIAGE.md).
 gltf::Quat toGltf(const m2::Quat& q) { return gltf::rotationZUpToYUp({q.x, q.y, q.z, q.w}); }
 
 // Converts an M2 bone scale vector from Z-up to Y-up. A thin wrapper --
@@ -85,48 +89,45 @@ bool isFinite(const m2::Quat& q) {
 }
 
 // Validates one bone property's resolved keyframe sequence before it's
-// trusted as real animation data: every value finite (FAILURES.md #4 fixed
-// this for vertex positions/normals; the identical exposure existed,
-// unfixed, for animation keyframes -- see FAILURES2.md #9), and timestamps
+// trusted as real animation data: every value finite, and timestamps
 // strictly increasing (gltf::JointAnimation's own doc comment already
 // documents this as a precondition its caller -- this function -- must
 // guarantee; glTF requires an animation sampler's input accessor `min`/
 // `max` to be its true bounds, and gltf.cpp's addChannel takes a shortcut
 // of `times.front()`/`times.back()` that's only correct if the data is
 // actually sorted ascending). A corrupted or truncated .anim/.skel/M2 file
-// -- the exact "extraction went wrong" scenario this project is built to
-// survive gracefully -- that flips a bit in a keyframe throws here, with
-// the offending bone/property/keyframe index named, rather than silently
-// producing a spec-non-compliant .glb only a downstream tool (Blender, the
-// Khronos validator) would ever notice.
+// that flips a bit in a keyframe throws here, with the offending
+// bone/property/keyframe index named, rather than silently producing a
+// spec-non-compliant .glb only a downstream tool (Blender, the Khronos
+// validator) would ever notice.
 //
-// A *duplicate* timestamp (keyframes[i].first ==
-// keyframes[i-1].first) is real, shipped Blizzard data, not corruption --
-// found on 5 real files (world bosses, base character rigs, one world
-// doodad), always exactly one pair, always on `rotation`, consistent with a
-// genuinely-authored "hard cut" pose (two values meant to apply at the same
-// instant). Repaired in place rather than rejected: nudges the later
-// duplicate's timestamp forward by 1ms (cascading, so a run of 3+
+// An *exact-duplicate* timestamp (keyframes[i].first ==
+// keyframes[i-1].first) is repaired in place rather than rejected: nudges
+// the later duplicate's timestamp forward by 1ms (cascading, so a run of 3+
 // duplicates spreads out 1ms apart each) instead of dropping either
 // keyframe -- collapsing would silently discard one of the two real
-// authored values (whichever the drop picks), while nudging keeps both,
-// turning an authored instantaneous cut into a 1ms transition that's
-// visually indistinguishable and correct under both glTF LINEAR and STEP
-// sampler interpolation (JointAnimation::translationStep etc. -- STEP just
-// delays the jump by 1ms, LINEAR ramps over 1ms instead of 0). A timestamp
-// that's *less than* the previous one in the original data (not just equal)
-// stays a hard error -- that's genuine disorder, not the observed
-// duplicate-hard-cut shape, and repairing it would require guessing which
-// of the two is "right." The disorder check classifies each keyframe
-// against the *original* (pre-repair) previous timestamp, captured up
-// front, not the already-nudged one -- comparing against a nudged value
-// would misclassify a legitimate cascading duplicate run (T, T, T) as
-// disorder once the first T became T+1. A final pass re-checks the fully
-// repaired sequence is actually strictly increasing and throws (rather than
-// silently emitting a spec-non-compliant .glb) in the one shape this repair
-// doesn't attempt to handle and has no real-data evidence for: a duplicate
-// immediately followed by a distinct timestamp too close for the nudge to
-// clear.
+// authored values, while nudging keeps both. The disorder check classifies
+// each keyframe against the *original* (pre-repair) previous timestamp,
+// captured up front, not the already-nudged one -- comparing against a
+// nudged value would misclassify a legitimate cascading duplicate run
+// (T, T, T) as disorder once the first T became T+1. A timestamp that's
+// *less than* the previous one in the original data (not just equal) stays
+// a hard error -- that's genuine disorder, not a repairable duplicate, and
+// repairing it would require guessing which of the two is "right." A final
+// pass re-checks the fully repaired sequence is actually strictly
+// increasing and throws in the one shape this repair doesn't attempt to
+// handle: a duplicate immediately followed by a distinct timestamp too
+// close for the nudge to clear.
+//
+// see DESIGN.md#Key-design-decisions ("A duplicate animation keyframe
+// timestamp is repaired, not rejected") for the nudge-vs-collapse tradeoff.
+//
+// TODO: Remove: FAILURES.md #4 fixed the finiteness check for vertex
+// positions/normals; the identical exposure existed, unfixed, for
+// animation keyframes until FAILURES2.md #9. The duplicate-timestamp shape
+// was found on 5 real files (world bosses, base character rigs, one world
+// doodad), always exactly one pair, always on `rotation`, consistent with a
+// genuinely-authored "hard cut" pose.
 template <typename T>
 void repairDuplicateTimestampsAndValidate(std::vector<std::pair<uint32_t, T>>& keyframes,
                                            size_t boneIndex, const char* property) {
@@ -169,15 +170,16 @@ void repairDuplicateTimestampsAndValidate(std::vector<std::pair<uint32_t, T>>& k
 
 // Detects a cycle in the bones' parent chains (bone A's parent is B, B's
 // parent is A, or any longer loop). No single parentBone bounds check can
-// catch this -- every individual index in a cycle is perfectly in-range
-// (see FAILURES.md #3) -- so this walks each joint's parent chain
-// separately, memoizing finished (acyclic) nodes so the whole pass stays
+// catch this -- every individual index in a cycle is perfectly in-range --
+// so this walks each joint's parent chain separately, memoizing finished
+// (acyclic) nodes so the whole pass stays
 // O(joints) instead of O(joints^2). A real (not just hand-crafted) way to
 // hit this: a .skel file that doesn't actually belong to the M2 it's
 // passed alongside -- the same mismatch category the model/.skin
 // vertex-count cross-check exists to catch, just for bones instead of
 // vertices. Assumes every joint's `parent` is already bounds-checked
 // (either -1 or a valid index) -- callers must validate that first.
+// TODO: Remove: FAILURES.md #3.
 void checkNoBoneCycles(const std::vector<gltf::Skeleton::Joint>& joints) {
     enum class State { kUnvisited, kInProgress, kDone };
     std::vector<State> state(joints.size(), State::kUnvisited);
@@ -247,30 +249,30 @@ gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones) {
 }
 
 // M2Sequence flags bits (wowdev.wiki M2#Animation_sequences's Flags
-// table). 0x20, historically named "looped animation" by a wiki
-// contributor without a cited source, actually means "the animation data
-// is in the .m2 file" -- unset means external. 0x40 ("has next / is
-// alias") used to be treated as unresolvable (the wiki's own "stored...
-// somewhere. I have no clue." bullet) -- WIKI_FINDINGS.md §12 resolved it:
-// m2::Sequence::aliasNext is a plain local index into this same file's own
-// `sequences` array, and following the wiki's own documented chain-walk
-// (repeatedly jumping to sequences[aliasNext] until a non-alias record is
-// reached) always terminates cleanly against real data (157/157 real
-// aliases checked, zero cycles). See resolveAliasChain below, which
-// buildAnimations now uses to reuse the terminal sequence's own keyframe
-// data for an alias sequence, registered under the alias's own id/index.
+// table). 0x20 means "the animation data is in the .m2 file" -- unset
+// means external. 0x40 ("is alias") means m2::Sequence::aliasNext is a
+// plain local index into this same file's own `sequences` array; see
+// resolveAliasChain below, which buildAnimations uses to reuse the
+// terminal sequence's own keyframe data for an alias sequence, registered
+// under the alias's own id/index.
+//
+// TODO: Remove: 0x20 was historically (mis)named "looped animation" by an
+// uncited wiki contributor; 0x40's chain-walk was "I have no clue" on the
+// wiki until WIKI_FINDINGS.md §12 resolved it (157/157 real aliases
+// checked, zero cycles).
 constexpr uint32_t kSequenceStoredInlineFlag = 0x20;
 constexpr uint32_t kSequenceAliasFlag = 0x40;
 
 // Resolves an alias sequence (M2Sequence::flags & kSequenceAliasFlag) to
 // its terminal non-alias sequence's own index into `sequences`, by
-// repeatedly following aliasNext (WIKI_FINDINGS.md §12) until a sequence
-// without the alias flag is reached. `startIndex` need not itself be an
-// alias (returns `startIndex` unchanged in that case). Real data never
-// cycles, but this is foreign file data -- bounded to `sequences.size()`
-// hops (an acyclic chain can visit at most that many distinct sequences
-// before it would have to repeat one), throwing rather than looping
-// forever if a real cycle, or an out-of-range aliasNext, ever shows up.
+// repeatedly following aliasNext until a sequence without the alias flag
+// is reached. `startIndex` need not itself be an alias (returns
+// `startIndex` unchanged in that case). Real data never cycles, but this
+// is foreign file data -- bounded to `sequences.size()` hops (an acyclic
+// chain can visit at most that many distinct sequences before it would
+// have to repeat one), throwing rather than looping forever if a real
+// cycle, or an out-of-range aliasNext, ever shows up.
+// TODO: Remove: WIKI_FINDINGS.md §12.
 size_t resolveAliasChain(const std::vector<m2::Sequence>& sequences, size_t startIndex) {
     size_t cur = startIndex;
     for (size_t hop = 0; hop <= sequences.size(); ++hop) {
@@ -291,13 +293,15 @@ size_t resolveAliasChain(const std::vector<m2::Sequence>& sequences, size_t star
 }
 
 // Lifts an m2::Sequence's own per-sequence metadata (movespeed/frequency/
-// replay/blendTime/bounds/variationNext/aliasNext -- M2_GAPS_TODO.md's
-// former Item 1) into gltf::Animation::SequenceMetadata, see that struct's
-// doc comment for why these are exposed as inert clip `extras` rather than
-// applied to anything. `bounds` is remapped Z-up -> Y-up the same way
-// every other spatial value in this pipeline is (toGltf) -- it's a real
-// bounding volume a downstream consumer might actually want to use
-// spatially, unlike e.g. TextureTransform's raw model-space fields.
+// replay/blendTime/bounds/variationNext/aliasNext) into
+// gltf::Animation::SequenceMetadata -- see that struct's doc comment for
+// why these are exposed as inert clip `extras` rather than applied to
+// anything. `bounds` is remapped Z-up -> Y-up the same way every other
+// spatial value in this pipeline is (toGltf) -- it's a real bounding volume
+// a downstream consumer might actually want to use spatially, unlike e.g.
+// TextureTransform's raw model-space fields.
+//
+// TODO: Remove: former M2_GAPS_TODO.md Item 1.
 gltf::Animation::SequenceMetadata buildSequenceMetadata(const m2::Sequence& seq) {
     gltf::Animation::SequenceMetadata sm;
     sm.movespeed = seq.movespeed;
@@ -357,10 +361,12 @@ std::string zeroPad(unsigned value, size_t width) {
 }
 
 // Real wow.export-style extractions name external .anim files
-// <model-basename><animId:04d>-<subAnimId:02d>.anim next to the model, not by
-// FileDataID (confirmed against the committed bloodelffemale_hd0069-00.anim/
-// -01.anim fixtures, which match this exactly -- no bare <FileDataID>.anim
-// file exists anywhere in the real corpus sample; see WIKI_FINDINGS.md §2).
+// <model-basename><animId:04d>-<subAnimId:02d>.anim next to the model, not
+// by FileDataID.
+//
+// TODO: Remove: confirmed against the committed bloodelffemale_hd0069-00/
+// -01.anim fixtures; no bare <FileDataID>.anim file exists anywhere in the
+// real corpus sample checked (WIKI_FINDINGS.md §2).
 // Direct filename construction, not a directory scan like
 // findSameBasenameSkins -- (animId, subAnimId) fully determines the name, so
 // there's no ambiguity to resolve the way .skin's open-ended LOD-suffix scan
@@ -380,8 +386,9 @@ std::filesystem::path findAnimFileByBasename(const std::string& modelPath, const
 // differently but build the resulting glTF channel data identically once
 // resolved. Returns nullopt if all three are empty (nothing to animate for
 // this bone in this clip) -- an empty JointAnimation isn't useful output.
-// Validates every keyframe first (finiteness + strictly-increasing
-// timestamps, see checkKeyframesWellFormed, FAILURES2.md #9).
+// Validates every keyframe first via repairDuplicateTimestampsAndValidate
+// (finiteness + strictly-increasing timestamps).
+// TODO: Remove: FAILURES2.md #9.
 std::optional<gltf::JointAnimation> buildJointAnimation(
     const std::vector<uint8_t>& blob, const m2::Bone& bone, size_t bi, const gltf::Skeleton& skeleton,
     std::vector<std::pair<uint32_t, m2::Vec3>>& translation,
@@ -433,20 +440,20 @@ std::optional<gltf::JointAnimation> buildJointAnimation(
 // used by any of `bones`' translation/rotation/scale tracks -- a
 // continuously-looping animation independent of any M2Sequence (eye glow
 // pulses, torch flicker, idle sway; wowdev.wiki "Global Sequences": "always
-// loops"). Fixes FAILURES2.md #7: these tracks used to correctly resolve to
-// nothing at all (avoiding misattributing them to whichever M2Sequence
-// happened to occupy outer-array position 0, see TrackMeta's doc comment --
-// a real bug this exact type was introduced to fix) but were never resolved
-// any other way either, so a real, intentional animation feature (glowing
-// eyes, idle sway) silently never appeared in any exported clip. `blob`/
-// `bones`/`skeleton` are the same triple buildAnimations takes (inline M2 or
-// .skel-sourced) -- global-sequence tracks have no external-.anim mechanism
-// of their own (they aren't tied to an AFID-resolvable M2Sequence at all),
-// so there's no `animInputs`/external-blob parameter here. Named
-// "global_seq_<index>" per clip. A clip that ends up with no bone actually
-// carrying data for it (shouldn't happen given how the candidate index set
-// is built, but keeps the same "no empty clips" policy as buildAnimations)
-// is skipped.
+// loops"). `blob`/`bones`/`skeleton` are the same triple buildAnimations
+// takes (inline M2 or .skel-sourced) -- global-sequence tracks have no
+// external-.anim mechanism of their own (they aren't tied to an
+// AFID-resolvable M2Sequence at all), so there's no `animInputs`/
+// external-blob parameter here. Named "global_seq_<index>" per clip. A clip
+// that ends up with no bone actually carrying data for it (shouldn't happen
+// given how the candidate index set is built, but keeps the same "no empty
+// clips" policy as buildAnimations) is skipped.
+//
+// TODO: Remove: fixes FAILURES2.md #7 -- these tracks used to resolve to
+// nothing at all rather than being misattributed to whichever M2Sequence
+// happened to occupy outer-array position 0 (see TrackMeta's doc comment),
+// so a real animation feature (glowing eyes, idle sway) silently never
+// appeared in any exported clip.
 std::vector<gltf::Animation> buildGlobalSequenceAnimations(const std::vector<uint8_t>& blob,
                                                             const std::vector<m2::Bone>& bones,
                                                             const gltf::Skeleton& skeleton) {
@@ -503,18 +510,12 @@ std::vector<gltf::Animation> buildGlobalSequenceAnimations(const std::vector<uin
 // skel::parseSequences, `animInputs.animFileIds` from skel::findAnimFileIds
 // -- a .skel's own AFID table, not the owning M2's, see skel.hpp) -- the
 // M2Track outer-array-indexed-by-sequence-position convention (and the
-// external-.anim-file mechanism) is the same either way, verified against a
-// real bloodelffemale_hd.m2/.skel pair (see skel.hpp's doc comment). A
-// .skel sequence whose external data lives in an AFSB-chunked .anim file
-// (the norm for modern character models, see WIKI_FINDINGS.md §2) resolves
-// the exact same way: SKB1's own per-bone M2Track (count, offset)
-// descriptors -- the ones trackSequenceInnerArrays already reads for the
-// inline/AFM2 cases above -- turn out to point directly into the AFSB
-// payload's own byte range, not into SKB1 itself (verified against the
-// entire real bloodelffemale_hd.m2/.skel/.anim corpus: every bone/sequence
-// combination's timestamps decode monotonic-and-in-bounds and every
-// resulting value is finite, rotation quaternions included, which decode
-// to unit length). `skeleton` must be the already-built bind-pose Skeleton
+// external-.anim-file mechanism) is the same either way. A .skel sequence's
+// external data may live in an AFSB-chunked .anim file instead of an
+// AFM2-shaped one: SKB1's own per-bone M2Track (count, offset) descriptors
+// -- the ones trackSequenceInnerArrays already reads for the inline/AFM2
+// cases above -- point directly into the AFSB payload's own byte range, not
+// into SKB1 itself. `skeleton` must be the already-built bind-pose Skeleton
 // for these same `bones`, in the same order, since each keyframe's
 // translation channel value is bind-pose-relative-to-parent
 // (`skeleton.joints[i].localTranslation`) plus the animated delta -- glTF's
@@ -535,14 +536,11 @@ std::vector<gltf::Animation> buildGlobalSequenceAnimations(const std::vector<uin
 //
 // An alias sequence (flags & kSequenceAliasFlag) is resolved via
 // resolveAliasChain to its terminal non-alias sequence -- but only when
-// this sequence doesn't *also* carry kSequenceStoredInlineFlag: real data
-// (bloodelffemale_hd.skel) shows 31 of its 38 real alias sequences also
-// have 0x20 set, meaning they already carry their own real inline M2Track
-// data and don't need (or want) another sequence's data substituted --
-// 0x20 already winning that priority is exactly what the pre-alias-
-// resolution code did (by checking it first), and real per-clip content
-// for those 31 would silently change if alias resolution pre-empted it
-// instead. Only a sequence that is *purely* an alias (0x40 set, 0x20 not)
+// this sequence doesn't *also* carry kSequenceStoredInlineFlag: a sequence
+// with both flags set already carries its own real inline M2Track data and
+// must not have it overwritten by the resolved terminal sequence's data, so
+// 0x20 is checked first, exactly as it was before alias-chain resolution
+// existed. Only a sequence that is *purely* an alias (0x40 set, 0x20 not)
 // gets its keyframe source redirected to the resolved terminal sequence
 // (`sourceSeq`/`sourceIndex`) -- every inline-vs-external decision below,
 // and the M2Track outer-array index passed to resolveVec3TrackSequence/
@@ -550,6 +548,19 @@ std::vector<gltf::Animation> buildGlobalSequenceAnimations(const std::vector<uin
 // clip's *name* and `sequenceMetadata` extras always come from this
 // sequence's own M2Sequence record (`originalSeq`), so it's registered
 // under its own id/index even when reusing borrowed data.
+//
+// see DESIGN.md#Key-design-decisions for the AFSB byte-layout investigation
+// and the aliasNext chain-resolution investigation behind the two
+// paragraphs above.
+//
+// TODO: Remove: AFSB's byte layout was cracked from scratch, not documented
+// anywhere upstream (WIKI_FINDINGS.md §2) -- verified against the entire
+// real bloodelffemale_hd.m2/.skel/.anim corpus (every bone/sequence
+// combination's timestamps decode monotonic-and-in-bounds, every value
+// finite, rotation quaternions unit-length). The 0x20-before-alias priority
+// rule was forced by a real fixture (bloodelffemale_hd.skel): 31 of its 38
+// real alias sequences also carry 0x20, and alias resolution pre-empting
+// that would have silently changed those 31 clips' content.
 std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                                               const std::vector<m2::Bone>& bones,
                                               const gltf::Skeleton& skeleton,
@@ -617,17 +628,17 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
             if (animInputs.animChunked) {
                 // Peek at the top-level chunks before handing off to
                 // extractAnimBlob (which only knows AFM2): a .skel-sourced
-                // model's .anim files were found, against real data, to
-                // carry an AFSB chunk -- either alongside a small (real
-                // files: 16-1344 bytes, always a multiple of 16) AFM2 chunk,
-                // or alone. That AFM2 "stub" does NOT hold the real per-bone
-                // track data (confirmed the hard way early on: resolving
-                // against it throws a real "claims more keyframes than this
-                // blob holds" bounds error) -- the real data is AFSB's own
-                // payload, used directly as the external blob below, same
-                // mechanism as an AFM2-shaped external file (WIKI_FINDINGS.md
-                // §2's follow-up has the full byte-level receipts). AFSB
-                // takes priority whenever both are present.
+                // model's .anim files may carry an AFSB chunk, either
+                // alongside a small AFM2 stub or alone. The AFM2 stub does
+                // NOT hold real per-bone track data (resolving against it
+                // throws a "claims more keyframes than this blob holds"
+                // bounds error) -- the real data is AFSB's own payload, used
+                // directly as the external blob below. AFSB takes priority
+                // whenever both are present.
+                //
+                // TODO: Remove: see WIKI_FINDINGS.md §2 for the full
+                // byte-level derivation (real files: AFM2 stub 16-1344
+                // bytes, always a multiple of 16).
                 auto topChunks = readChunks(animFileBytes.data(), animFileBytes.size());
                 if (auto afsb = findChunk(topChunks, "AFSB")) {
                     loadedAnimBlob.assign(afsb->data, afsb->data + afsb->size);
@@ -732,13 +743,14 @@ struct BuiltMaterials {
     // Every distinct Submesh::skinSectionId (the "geoset ID", wowdev.wiki
     // M2/.skin#Submeshes) actually referenced by a batch that became a
     // primitive, sorted ascending -- see skin.hpp's Submesh doc comment.
-    // husk doesn't filter geosets yet (FAILURES2.md #1): every submesh in
-    // the .skin file gets exported, unconditionally, even when several are
-    // mutually-exclusive character-customization options (different
-    // hairstyles, etc.) that a real client would only ever draw one of at a
-    // time. Surfaced here so exportGlb can at least warn loudly when more
-    // than one distinct geoset actually ended up in the output, rather than
-    // silently merging them with no indication anything unusual happened.
+    // husk doesn't filter geosets yet: every submesh in the .skin file gets
+    // exported, unconditionally, even when several are mutually-exclusive
+    // character-customization options (different hairstyles, etc.) that a
+    // real client would only ever draw one of at a time. Surfaced here so
+    // exportGlb can at least warn loudly when more than one distinct geoset
+    // actually ended up in the output, rather than silently merging them
+    // with no indication anything unusual happened.
+    // TODO: Remove: FAILURES2.md #1.
     std::vector<uint16_t> distinctSkinSectionIds;
     // Number of batches whose textureCount is > 1 -- per wowdev.wiki
     // M2/.skin#Texture_units, textureCount (1-4) means the real per-unit
@@ -746,8 +758,9 @@ struct BuiltMaterials {
     // entries starting at textureComboIndex, used for real, visually
     // meaningful multi-texture effects (a second env-mapped "shine" layer on
     // armor/weapons, genuinely independent two-texture blends) -- husk only
-    // ever resolves the first one (see FAILURES2.md #6), silently dropping
-    // any additional layer. Surfaced so exportGlb can at least say so.
+    // ever resolves the first one, silently dropping any additional layer.
+    // Surfaced so exportGlb can at least say so.
+    // TODO: Remove: FAILURES2.md #6.
     size_t multiTextureBatchCount = 0;
     // Number of batches whose color (M2Color) or transparency-fade
     // (M2TextureWeight) reference is real per-sequence or global-sequence
@@ -776,13 +789,14 @@ struct BuiltMaterials {
     // fuzzy pool (claimSoleFuzzyTextureCandidate), not one of the two real
     // deterministic matches (an exact FileDataID or an exact embedded-
     // filename match). "Sole remaining candidate" is a real, bounded
-    // heuristic (BLENDER_EXPORT_TODO.md §4) -- never multiple ambiguous
-    // candidates guessed between -- but it's still a guess, not a
-    // verification: husk has no CASC/listfile access to confirm a resolved
-    // FileDataID's *real* name actually matches the file that got claimed,
-    // by design (DESIGN.md's Non-goals). Surfaced here so exportGlb can
-    // warn loudly, per match, rather than let a silently-wrong guess look
-    // identical to a verified one in the export's own summary output.
+    // heuristic -- never multiple ambiguous candidates guessed between --
+    // but it's still a guess, not a verification: husk has no CASC/listfile
+    // access to confirm a resolved FileDataID's *real* name actually
+    // matches the file that got claimed, by design (see DESIGN.md's
+    // Non-goals). Surfaced here so exportGlb can warn loudly, per match,
+    // rather than let a silently-wrong guess look identical to a verified
+    // one in the export's own summary output.
+    // TODO: Remove: BLENDER_EXPORT_TODO.md §4.
     struct FuzzyMatch {
         std::string materialName;
         std::string fileName;
@@ -806,17 +820,18 @@ struct M2MaterialInputs {
     std::vector<m2::Texture> textures;
     std::vector<uint16_t> textureCombos;
     // Pre-Cataclysm only (wowdev.wiki M2/.skin#geosetIndex: "Still present
-    // but unused in Cataclysm") -- empty in almost every modern file (a
-    // full ~130k-file real-data scan found only 3 exceptions, see
-    // WIKI_FINDINGS.md §7); when empty, batch.textureCoordComboIndex is
-    // never dereferenced at all and every material just uses UV set 0.
-    // Real, nonzero data has been seen in those 3 files, but its values
-    // (e.g. 33/34) don't match the wiki's documented -1/0/1 range --
-    // consistent with the "present but unused" wording, likely leftover/
-    // vestigial rather than actually consulted, but not confirmed against
-    // an authoritative source. mapping==1 below still only special-cases
-    // the one documented value, so this data (real or vestigial) safely
-    // falls back to UV set 0 either way.
+    // but unused in Cataclysm") -- empty in almost every modern file; when
+    // empty, batch.textureCoordComboIndex is never dereferenced at all and
+    // every material just uses UV set 0. Real, nonzero data has been seen
+    // in a handful of files, but its values (e.g. 33/34) don't match the
+    // wiki's documented -1/0/1 range -- consistent with the "present but
+    // unused" wording, likely leftover/vestigial rather than actually
+    // consulted, but not confirmed against an authoritative source.
+    // mapping==1 below still only special-cases the one documented value,
+    // so this data (real or vestigial) safely falls back to UV set 0
+    // either way.
+    // TODO: Remove: a full ~130k-file real-data scan found only 3
+    // exceptions, WIKI_FINDINGS.md §7.
     std::vector<uint16_t> textureCoordCombos;
     std::vector<m2::Color> colors;
     std::vector<m2::TextureWeight> textureWeights;
@@ -919,22 +934,15 @@ std::vector<gltf::Material::AnimatedScalarCurve> resolveAnimatedFixed16Curve(
 
 // Best-effort filename-based resolution for a texture slot, tried before
 // any FileDataID-named lookup (see buildMaterialsAndPrimitives's own
-// priority-order comment). Originally scoped to hardcoded/runtime-resolved
-// slots only (M2Texture::type != 0, no TXID FileDataID at all -- see
-// m2::textureTypeName's doc comment and BLENDER_EXPORT_TODO.md §4), now
-// used for every slot: real texture directories aren't always
-// FileDataID-named -- Luna's own observation, 2026-08-01: some are named
-// descriptively instead (e.g. "bloodelffemalefaceupper00_00_hd.png"), and
-// a follow-up the same session: a real extraction workflow (a .blp
-// converted via husk-blp, keeping its own real name through to .png) is
-// exactly this shape, for *any* texture slot, not just hardcoded ones --
-// the exact-FileDataID-match convention alone can never find it no matter
-// what's sitting in the directory. `textureTypeName`'s own vocabulary
-// (skin/char_hair/...) doesn't reliably correspond to WoW's *actual*
-// texture-section naming (that example's own "faceupper" comes from
-// CharComponentTextureSections, an entirely different, DB2-only
-// vocabulary husk has no access to either) -- so this deliberately does
-// NOT try to match a slot to a candidate by keyword.
+// priority-order comment) -- applies to every slot, not just hardcoded
+// ones, since a real texture directory isn't always FileDataID-named (some
+// files are named descriptively instead, e.g.
+// "bloodelffemalefaceupper00_00_hd.png"). `textureTypeName`'s own
+// vocabulary (skin/char_hair/...) doesn't reliably correspond to WoW's
+// *actual* texture-section naming (that example's own "faceupper" comes
+// from CharComponentTextureSections, an entirely different, DB2-only
+// vocabulary husk has no access to either) -- so this deliberately does NOT
+// try to match a slot to a candidate by keyword.
 //
 // `scanFuzzyTexturePool` finds every '.png' file whose stem
 // (case-insensitive) starts with the model's own basename and isn't
@@ -953,9 +961,52 @@ std::vector<gltf::Material::AnimatedScalarCurve> resolveAnimatedFixed16Curve(
 // nothing. One pool, scanned once per skin/LOD (buildMaterialsAndPrimitives's
 // own call), shared and depleted across every batch in that call, is what
 // keeps a real match going to at most one slot.
+//
+// TODO: Remove: originally scoped to hardcoded/runtime-resolved slots only
+// (M2Texture::type != 0, BLENDER_EXPORT_TODO.md §4); widened to every slot
+// per Luna's 2026-08-01 observation that a real husk-blp-converted
+// extraction keeps its own real name for any slot, not just hardcoded ones.
 struct FuzzyTexturePool {
     std::vector<std::filesystem::path> files;
 };
+
+// A directory scan finding zero matches looks identical to "the directory
+// doesn't exist"/"can't be read" unless this distinguishes them. Two
+// separate checks are both needed, not one: `status()` only needs execute
+// permission on `dir`'s *parent* to report its type (so a chmod-000 `dir`
+// itself still reports "directory" here, catching missing-path/wrong-type/
+// broken-symlink), while actually *opening* `dir` for iteration additionally
+// needs permission on `dir` itself -- that's what the second, post-
+// construction `iterEc` check below catches (e.g. permission denied), which
+// `status()` alone would silently miss.
+std::filesystem::directory_iterator scanDirOrWarn(const std::string& dir, const char* purpose) {
+    std::error_code statEc;
+    auto st = std::filesystem::status(dir, statEc);
+    if (statEc) {
+        std::cerr << "husk: warning: " << purpose << " '" << dir << "': " << statEc.message() << "\n";
+        return {};
+    }
+    if (st.type() == std::filesystem::file_type::not_found) {
+        std::error_code linkEc;
+        auto lst = std::filesystem::symlink_status(dir, linkEc);
+        bool brokenSymlink = !linkEc && lst.type() == std::filesystem::file_type::symlink;
+        std::cerr << "husk: warning: " << purpose << " '" << dir << "': "
+                  << (brokenSymlink ? "broken symlink (target doesn't exist)" : "no such directory")
+                  << "\n";
+        return {};
+    }
+    if (st.type() != std::filesystem::file_type::directory) {
+        std::cerr << "husk: warning: " << purpose << " '" << dir << "': not a directory\n";
+        return {};
+    }
+    std::error_code iterEc;
+    std::filesystem::directory_iterator it(dir, iterEc);
+    if (iterEc) {
+        std::cerr << "husk: warning: " << purpose << " '" << dir << "': " << iterEc.message() << "\n";
+        return {};
+    }
+    return it;
+}
 
 FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std::string& modelPath) {
     FuzzyTexturePool pool;
@@ -966,9 +1017,8 @@ FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std:
                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (modelBasename.empty()) return pool;
 
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(texturesDir, ec)) {
-        if (ec || !entry.is_regular_file()) continue;
+    for (const auto& entry : scanDirOrWarn(texturesDir, "textures directory")) {
+        if (!entry.is_regular_file()) continue;
         const auto& path = entry.path();
         if (path.extension() != ".png") continue;
         std::string stem = path.stem().string();
@@ -1232,37 +1282,32 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             }
 
             // Priority order: every *deterministic* signal (never a guess,
-            // never touches the shared fuzzy pool) before the one
-            // heuristic signal (a real-name-only extraction has no other
-            // way to identify a texture, see BLENDER_EXPORT_TODO.md §4 /
-            // Luna's own 2026-08-07 follow-up: a real workflow -- a .blp
-            // converted via husk-blp, keeping its own real name through to
-            // .png -- often has no FileDataID-named files at all, for any
-            // slot, not just hardcoded ones). `fdid`, when resolved, is
-            // recorded in the material name and
-            // `gm.baseColorTextureFileDataId` regardless of which path
-            // below actually supplies the embedded bytes -- see gltf.hpp's
-            // own doc comment for why that traceability matters once a
-            // differently-named file can win.
+            // never touches the shared fuzzy pool) before the one heuristic
+            // signal (a real-name-only extraction has no other way to
+            // identify a texture). `fdid`, when resolved, is recorded in
+            // the material name and `gm.baseColorTextureFileDataId`
+            // regardless of which path below actually supplies the
+            // embedded bytes -- see gltf.hpp's own doc comment for why that
+            // traceability matters once a differently-named file can win.
             //
             // The fuzzy pool specifically is deliberately tried *last*, not
-            // first: it's a real, if bounded, guess (BLENDER_EXPORT_TODO.md's
-            // own "sole remaining candidate" heuristic), and the pool is
-            // shared and depleted across every batch in this call (see
+            // first: it's a real, if bounded, guess, and the pool is shared
+            // and depleted across every batch in this call (see
             // scanFuzzyTexturePool's doc comment) -- letting a slot draw
             // from it before checking whether it already has a *working*,
             // deterministic match would let an early, genuinely-hardcoded
             // slot claim a real file that actually belongs (by a
             // later-processed slot's own resolvable FileDataID) to someone
-            // else, silently mismatching *both* slots. Found live, not
-            // theorized: an initial version of this fix tried the fuzzy
-            // pool before the FileDataID fallback for every slot, and a
-            // real bloodelffemale.m2 export with both a "<fdid>.png" and a
-            // same-basename descriptively-named file present reassigned
-            // the named file to an unrelated hardcoded slot that happened
-            // to be processed first, leaving the slot the name actually
-            // belonged to with the FileDataID file instead -- both slots
-            // "worked," neither got the file it should have.
+            // else, silently mismatching *both* slots.
+            //
+            // TODO: Remove: BLENDER_EXPORT_TODO.md §4 / Luna's 2026-08-07
+            // follow-up motivated trying every slot, not just hardcoded
+            // ones. Found live, not theorized: an earlier version tried the
+            // fuzzy pool before the FileDataID fallback for every slot, and
+            // a real bloodelffemale.m2 export with both a "<fdid>.png" and
+            // a same-basename descriptive file present reassigned the
+            // named file to an unrelated hardcoded slot processed first, so
+            // neither slot got the file it should have.
             if (fdid != 0) {
                 gm.name += "_fdid" + std::to_string(fdid);
                 gm.baseColorTextureFileDataId = fdid;
@@ -1318,26 +1363,24 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 }
             }
 
-            // Additional texture layers (textureCount > 1, FAILURES2.md #6):
-            // per wowdev.wiki M2/.skin#Texture_units, textureComboIndex is a
-            // *base* index -- layer i's real combo index is
-            // textureComboIndex + i ("If the textureCount is e.g. 3 and the
-            // texunit's uv anim lookup is 2, then the 3 uv animation lookups
-            // are 2, 3, and 4"). Resolved best-effort, not with the same
-            // "foreign data must fit its own claims" strictness as the
-            // primary texture above: this is supplementary metadata (see
+            // Additional texture layers (textureCount > 1): per wowdev.wiki
+            // M2/.skin#Texture_units, textureComboIndex is a *base* index --
+            // layer i's real combo index is textureComboIndex + i ("If the
+            // textureCount is e.g. 3 and the texunit's uv anim lookup is 2,
+            // then the 3 uv animation lookups are 2, 3, and 4"). Resolved
+            // best-effort, not with the same "foreign data must fit its own
+            // claims" strictness as the primary texture above: this is
+            // supplementary metadata (see
             // gltf::Material::AdditionalTextureLayer), not required for a
             // usable export, so an out-of-range layer is skipped rather than
-            // failing the whole batch. The base-index arithmetic itself
-            // *is* now independently verified against a real multi-texture
-            // batch (TODO_correctness.md's former #3, resolved -- see
-            // WIKI_FINDINGS.md §7 and tests/test_integration.cpp's
-            // checkMultiTextureLayerArithmetic): a real 6-layer guild-
-            // pennant batch's resolved FileDataIDs match a from-scratch
-            // independent parse exactly, and a real file with a nonzero
-            // textureCoordCombos table (values outside the documented
-            // -1/0/1 range -- likely vestigial, see WIKI_FINDINGS.md)
-            // still resolves safely via the mapping==1 fallback below.
+            // failing the whole batch.
+            //
+            // TODO: Remove: former TODO_correctness.md #3. Base-index
+            // arithmetic verified against a real 6-layer guild-pennant batch
+            // (matches a from-scratch independent parse exactly) and a real
+            // file with a nonzero textureCoordCombos table outside the
+            // documented -1/0/1 range (WIKI_FINDINGS.md §7,
+            // tests/test_integration.cpp's checkMultiTextureLayerArithmetic).
             for (uint16_t layer = 1; layer < b.textureCount; ++layer) {
                 size_t comboIdx = static_cast<size_t>(b.textureComboIndex) + layer;
                 if (comboIdx >= m2.textureCombos.size()) break;
@@ -1368,13 +1411,16 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             }
         }
 
-        // UV scroll/rotate/scale animation (FINDINGS.md §3.1): resolved
-        // the same "sentinel means none" way colorIndex is, then exposed as
-        // inert extras -- see m2::TextureTransform's doc comment for why
-        // this never becomes a real KHR_texture_transform on the render.
-        // Best-effort like the additional-texture-layers loop just above
-        // (an out-of-range index is skipped, not a failure) -- this is
-        // supplementary metadata, not required for a usable export.
+        // UV scroll/rotate/scale animation: resolved the same "sentinel
+        // means none" way colorIndex is, then exposed as inert extras --
+        // see m2::TextureTransform's doc comment for why this never becomes
+        // a real KHR_texture_transform on the render. Best-effort like the
+        // additional-texture-layers loop just above (an out-of-range index
+        // is skipped, not a failure) -- this is supplementary metadata, not
+        // required for a usable export.
+        //
+        // TODO: Remove: cites FINDINGS.md §3.1; duplicates gltf.hpp's
+        // TextureTransform doc comment, which already states this once.
         if (b.textureTransformComboIndex != 0xFFFF &&
             b.textureTransformComboIndex < m2.textureTransformCombos.size()) {
             uint16_t transformIndex = m2.textureTransformCombos[b.textureTransformComboIndex];
@@ -1416,7 +1462,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
         std::cout << "husk: note: " << fuzzyTexturePool.files.size()
                   << " texture file(s) in '" << texturesDir
                   << "' share this model's basename but husk can't tell which hardcoded texture "
-                     "slot each belongs to -- none were embedded (see BLENDER_EXPORT_TODO.md §4)\n";
+                     "slot each belongs to -- none were embedded\n";
     }
 
     return result;
@@ -1522,22 +1568,21 @@ std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::
 // "pick the most-detailed one" policy `--skin-dir`'s auto-select already
 // follows. Empty if `modelPath`'s directory doesn't exist or has no match.
 //
-// A digit-suffix match of *any* length is ambiguous
-// when one model's basename is itself a numeric-suffix prefix of another
-// model's basename in the same directory (e.g. "mogu_library_crate_10" is
-// a prefix of "mogu_library_crate_100" and "mogu_library_crate_1000") --
-// a real corpus scan found this silently pairs a model with a *different*
-// model's skin, since the wrong-basename candidate happens to parse as a
-// valid (if shorter/longer) digit suffix too. WoW's own convention is
-// always exactly 2 digits (`00`-`0N`); real corpus directories checked
-// here (world/nodxt/detail's vebgrs*/vebbsh* families, 1-17 LOD-numbered
-// siblings each) confirm every genuine skin resolves cleanly under "prefer
-// a 2-digit suffix match when one exists" -- so 1-digit/3+-digit matches
-// are only ever collisions with a sibling model's own real 2-digit suffix,
-// never a real model's only skin. Kept as a fallback (not an outright
-// reject) for the unconfirmed case of a directory with no 2-digit match at
-// all, rather than turning a hypothetical 1-or-3-digit-only model into a
-// new "no .skin found" regression.
+// A digit-suffix match of *any* length is ambiguous when one model's
+// basename is itself a numeric-suffix prefix of another model's basename in
+// the same directory (e.g. "mogu_library_crate_10" is a prefix of
+// "mogu_library_crate_100" and "mogu_library_crate_1000"). WoW's own
+// convention is always exactly 2 digits (`00`-`0N`), so a 2-digit suffix
+// match is preferred whenever at least one exists for a basename;
+// 1-digit/3+-digit matches are treated as a fallback only when no 2-digit
+// match exists at all, rather than an outright reject, to avoid turning a
+// hypothetical 1-or-3-digit-only model into a new "no .skin found"
+// regression.
+//
+// TODO: Remove: a real corpus scan (world/nodxt/detail's vebgrs*/vebbsh*
+// families, 1-17 LOD-numbered siblings each) found the ambiguity silently
+// pairs a model with a different model's skin without the 2-digit
+// preference, and confirmed every genuine skin resolves cleanly with it.
 std::vector<std::pair<int, std::string>> findSameBasenameSkins(const std::string& modelPath) {
     std::filesystem::path model(modelPath);
     std::string baseName = model.stem().string();  // e.g. "bloodelffemale"
@@ -1547,12 +1592,9 @@ std::vector<std::pair<int, std::string>> findSameBasenameSkins(const std::string
     // (lod, path, digit-suffix length) -- the length is only used to filter
     // for the "prefer 2 digits" rule below, then discarded.
     std::vector<std::tuple<int, std::string, size_t>> found;
-    std::error_code ec;
-    if (!std::filesystem::is_directory(dir, ec)) {
-        return {};
-    }
-    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-        if (ec || !entry.is_regular_file()) continue;
+    for (const auto& entry :
+         scanDirOrWarn(dir.string(), "model's own directory (for same-basename .skin resolution)")) {
+        if (!entry.is_regular_file()) continue;
         std::string name = entry.path().filename().string();
         if (name.size() <= baseName.size() || name.compare(0, baseName.size(), baseName) != 0) {
             continue;
@@ -1686,8 +1728,7 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
     app.add_option("--bones-dir", opts.bonesDirArg,
                     "directory of already-extracted '<FileDataID>.bone' files (per the model's/"
                     "'.skel's BFID array), or 'none' to skip (default: the model's own directory) "
-                    "-- attached as inert glTF extras only, never applied to the render (see "
-                    "TODO_correctness.md #3)");
+                    "-- attached as inert glTF extras only, never applied to the render");
     app.add_option("--phys", opts.physArg,
                     "external .phys path (per the model's own PFID scalar), or 'none' to never "
                     "look for one (default: a same-basename '.phys' next to the model, if any) -- "
@@ -1698,7 +1739,7 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "when present -- tagged {\"collision\": true} in glTF extras either way, never "
                     "applied to the render, but Blender's stock importer has no concept of that tag "
                     "and renders it like any other mesh; 'none' is for debugging what the render "
-                    "meshes alone look like (see BLENDER_EXPORT_TODO.md §3)")
+                    "meshes alone look like")
         ->check(
             [](const std::string& v) -> std::string {
                 if (v != "none") {
@@ -1815,7 +1856,7 @@ int exportGlb(int argc, char** args) {
                       << ", below Wrath (264) -- this parser's bones/sequences/ribbon_emitters "
                          "record sizes are only documented and verified for Wrath+; the "
                          "exported bind pose/animation/ribbon data may be silently wrong rather "
-                         "than failing loudly (see FAILURES2.md #3)\n";
+                         "than failing loudly\n";
         }
 
         M2MaterialInputs m2Inputs;
@@ -1871,9 +1912,10 @@ int exportGlb(int argc, char** args) {
             const auto& v = vertices[vi];
             // glTF requires finite POSITION/NORMAL values (and their
             // accessor min/max); a NaN/Inf here is a real symptom of a
-            // corrupted read or truncated file, not valid mesh data (see
-            // FAILURES.md #4) -- catch it here, where the offending
-            // vertex index is still known, rather than downstream.
+            // corrupted read or truncated file, not valid mesh data --
+            // catch it here, where the offending vertex index is still
+            // known, rather than downstream.
+            // TODO: Remove: FAILURES.md #4.
             if (!isFinite(v.pos) || !isFinite(v.normal)) {
                 throw std::runtime_error("vertex " + std::to_string(vi) +
                                           " has a non-finite (NaN/Inf) position or normal -- "
@@ -1954,10 +1996,11 @@ int exportGlb(int argc, char** args) {
                 animations = buildAnimations(blob, bones, skeleton, sequences, animInputs);
                 // Global-sequence-driven tracks (continuous looping
                 // animation independent of any M2Sequence -- see
-                // buildGlobalSequenceAnimations's doc comment,
-                // FAILURES2.md #7) aren't tied to `sequences` at all, so
-                // this runs unconditionally alongside the per-sequence
-                // clips above, not gated on any of them existing.
+                // buildGlobalSequenceAnimations's doc comment) aren't tied
+                // to `sequences` at all, so this runs unconditionally
+                // alongside the per-sequence clips above, not gated on any
+                // of them existing.
+                // TODO: Remove: FAILURES2.md #7.
                 auto globalSeqAnims = buildGlobalSequenceAnimations(blob, bones, skeleton);
                 animations.insert(animations.end(), std::make_move_iterator(globalSeqAnims.begin()),
                                    std::make_move_iterator(globalSeqAnims.end()));
@@ -1997,8 +2040,8 @@ int exportGlb(int argc, char** args) {
             // resolve what's there" policy --textures already uses for a
             // missing PNG) -- attached as inert gltf::Skeleton::
             // CorrectionSet extras, never applied to the bind pose/
-            // animation above (see gltf.hpp's CorrectionSet doc comment,
-            // TODO_correctness.md #3).
+            // animation above (see gltf.hpp's CorrectionSet doc comment).
+            // TODO: Remove: TODO_correctness.md #3.
             if (!bonesDir.empty()) {
                 std::optional<std::vector<uint32_t>> boneFileDataIds =
                     bonesAreInline ? header.boneFileDataIds
@@ -2038,7 +2081,7 @@ int exportGlb(int argc, char** args) {
                                   << "' as inert glTF extras (not applied to the render -- "
                                      "which slot is 'correct' for a given character depends "
                                      "on client-side customization-choice data husk doesn't "
-                                     "have; see TODO_correctness.md #3)\n";
+                                     "have)\n";
                     }
                 }
             }
@@ -2086,10 +2129,11 @@ int exportGlb(int argc, char** args) {
             // anchors above -- but unlike those, these become real child
             // glTF nodes, not skin extras, since a bone-relative position
             // marker is all M2Attachment/M2Event/M2Light static data ever
-            // is (see M2_GAPS_TODO.md's former Item 6). `bone == -1`
-            // ("not attached to any bone," real for M2Light and possibly
-            // M2Attachment) is treated as out of range and throws -- husk
-            // has no established "unparented placement node" concept yet.
+            // is. `bone == -1` ("not attached to any bone," real for
+            // M2Light and possibly M2Attachment) is treated as out of
+            // range and throws -- husk has no established "unparented
+            // placement node" concept yet.
+            // TODO: Remove: M2_GAPS_TODO.md's former Item 6.
             for (const auto& a : m2::parseAttachments(blob, header.attachments)) {
                 if (a.bone < 0 || static_cast<size_t>(a.bone) >= skeleton.joints.size()) {
                     throw std::runtime_error("attachment " + std::to_string(a.id) +
@@ -2183,12 +2227,12 @@ int exportGlb(int argc, char** args) {
         // `skinsToExport`'s own `name` is only real ("lod0", "lod1", ...)
         // for the --lod all case (resolveAutoSkinPaths) -- every other
         // producer (resolveSkin's two 'auto' branches, the explicit --skin
-        // path below) returns "", which used to leave this LOD tier's glTF
-        // *node* with no name at all (unlike its own bones, which already
-        // get real names -- see BLENDER_EXPORT_TODO.md §6). Falls back to
-        // the model's own basename here, the one place every producer's
-        // output already passes through, rather than fixing each producer
-        // separately.
+        // path below) returns "". Falls back to the model's own basename
+        // here, the one place every producer's output already passes
+        // through, rather than fixing each producer separately.
+        // TODO: Remove: this used to leave the LOD tier's glTF *node* with
+        // no name at all (unlike its own bones, which already get real
+        // names), BLENDER_EXPORT_TODO.md §6.
         std::string modelBasename = std::filesystem::path(modelPath).stem().string();
         std::vector<gltf::NamedMesh> namedMeshes;
         namedMeshes.reserve(skinsToExport.size());
@@ -2232,13 +2276,8 @@ int exportGlb(int argc, char** args) {
             auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs,
                                                        texturesDir, modelPath);
 
-            // FAILURES2.md #1: husk doesn't filter geosets (skinSectionId) --
-            // every submesh in the .skin file is exported unconditionally,
-            // even when several are mutually-exclusive character-
-            // customization options (different hairstyles, facial hair,
-            // gear slots, ...) a real client would only ever draw one of at
-            // a time. Loudly note it rather than silently merging them with
-            // no indication multiple geosets ended up in the output.
+            // See BuiltMaterials::distinctSkinSectionIds's own doc comment
+            // above for why this note exists.
             if (built.distinctSkinSectionIds.size() > 1) {
                 std::cerr << "husk: note: '" << path << "'"
                           << (name.empty() ? "" : " (" + name + ")")
@@ -2249,19 +2288,11 @@ int exportGlb(int argc, char** args) {
                     std::cerr << built.distinctSkinSectionIds[i];
                 }
                 std::cerr << ") -- husk doesn't filter geosets yet, so every one of them is "
-                             "exported unfiltered into this mesh (see FAILURES2.md #1)\n";
+                             "exported unfiltered into this mesh\n";
             }
 
-            // FAILURES2.md #6: a batch with textureCount > 1 has real,
-            // additional texture layers (a second env-mapped "shine" pass,
-            // a genuine two-texture blend) that husk still only wires the
-            // *first* of into the actual glTF material (WoW's fixed-
-            // function combiner math has no core-glTF equivalent to
-            // translate it into) -- the rest are captured as inert
-            // `extras` metadata (gltf::Material::additionalTextureLayers)
-            // for a custom renderer or Blender script to use, not silently
-            // dropped, but still worth noting since the *rendered* result
-            // remains single-texture.
+            // See BuiltMaterials::multiTextureBatchCount's own doc comment
+            // above for why this note exists.
             if (built.multiTextureBatchCount > 0) {
                 std::cerr << "husk: note: '" << path << "'"
                           << (name.empty() ? "" : " (" + name + ")") << "' has "
@@ -2269,21 +2300,11 @@ int exportGlb(int argc, char** args) {
                           << " batch(es) with more than one texture (textureCount > 1) -- husk "
                              "only wires the first texture per batch into the rendered "
                              "material; additional layers are exported as inert 'extras' "
-                             "metadata (see FAILURES2.md #6), not applied to the render\n";
+                             "metadata, not applied to the render\n";
             }
 
-            // A batch's M2Color/M2TextureWeight can be
-            // real per-sequence or global-sequence keyframe animation (an
-            // eye-glow or enchant-glow pulse, say), not the single constant
-            // value gltf::Material::baseColorFactor can actually hold --
-            // unlike a bone's translation/rotation/scale (a real, animatable
-            // glTF node property, see resolveVec3GlobalSequenceTrack/
-            // FAILURES2.md #7), core glTF has no way to *play back* a
-            // material property's animation, so the rendered material still
-            // uses each batch's static default -- but the real curve is now
-            // resolved and attached as inert `tint_animation`/
-            // `fade_animation` extras (see gltf::Material's doc comments),
-            // not just dropped.
+            // See BuiltMaterials::animatedTintOrFadeBatchCount's own doc
+            // comment above for why this note exists.
             if (built.animatedTintOrFadeBatchCount > 0) {
                 std::cerr << "husk: note: '" << path << "'"
                           << (name.empty() ? "" : " (" + name + ")") << "' has "
@@ -2296,18 +2317,15 @@ int exportGlb(int argc, char** args) {
                              "'tint_animation'/'fade_animation' extras\n";
             }
 
-            // FINDINGS.md §3.1: a batch's textureTransformComboIndex
-            // resolved to a real M2TextureTransform (UV scroll/rotate/scale
-            // animation, e.g. flowing lava/water) -- exposed as inert
-            // extras (gltf::Material::textureTransform), not applied to the
-            // render, see m2::TextureTransform's doc comment for why.
+            // See BuiltMaterials::textureTransformBatchCount's own doc
+            // comment above for why this note exists.
             if (built.textureTransformBatchCount > 0) {
                 std::cerr << "husk: note: '" << path << "'"
                           << (name.empty() ? "" : " (" + name + ")") << "' has "
                           << built.textureTransformBatchCount
                           << " batch(es) with a UV transform (M2TextureTransform) -- exported as "
                              "inert 'extras' metadata on the material, not applied to the "
-                             "render (see FINDINGS.md §3.1)\n";
+                             "render\n";
             }
 
             // Every batch that got its texture from the basename-fuzzy
@@ -2390,8 +2408,8 @@ int exportGlb(int argc, char** args) {
         // Blender's stock glTF importer has no concept of the `{"collision":
         // true}` extras tag below, so the collision mesh renders exactly
         // like every other mesh, which can visually block or overlap the
-        // render meshes it's meant to sit inert alongside (see
-        // BLENDER_EXPORT_TODO.md §3).
+        // render meshes it's meant to sit inert alongside.
+        // TODO: Remove: BLENDER_EXPORT_TODO.md §3.
         if (opts.collisionArg != "none" && header.collisionPositions.count > 0 &&
             header.collisionIndices.count > 0) {
             auto collisionMesh = m2::parseCollisionMesh(blob, header.collisionPositions,
@@ -2473,9 +2491,11 @@ int exportGlb(int argc, char** args) {
 
         auto glb = gltf::writeGlbMulti(namedMeshes, bones.empty() ? nullptr : &skeleton, animations);
 
+        errno = 0;
         std::ofstream out(outputPath, std::ios::binary);
         if (!out) {
-            throw std::runtime_error("couldn't open '" + outputPath + "' for writing");
+            throw std::runtime_error("couldn't open '" + outputPath +
+                                      "' for writing: " + std::strerror(errno));
         }
         out.write(reinterpret_cast<const char*>(glb.data()),
                   static_cast<std::streamsize>(glb.size()));

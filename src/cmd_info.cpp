@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <vector>
@@ -57,14 +59,16 @@ void printVec3(const m2::Vec3& v) {
 }
 
 std::vector<uint8_t> readFileBytes(const std::string& path) {
+    errno = 0;
     std::ifstream f(path, std::ios::binary);
     if (!f) {
-        throw m2::ParseError("couldn't open '" + path + "' for reading");
+        throw m2::ParseError("couldn't open '" + path + "' for reading: " + std::strerror(errno));
     }
+    errno = 0;
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
                                 std::istreambuf_iterator<char>());
     if (!f.good() && !f.eof()) {
-        throw m2::ParseError("error reading '" + path + "'");
+        throw m2::ParseError("error reading '" + path + "': " + std::strerror(errno));
     }
     return bytes;
 }
@@ -93,9 +97,9 @@ int info(int argc, char** args) {
         // anything else that can escape loadFile -- e.g. husk::ChunkError
         // from a garbage/malformed chunked file, or std::ios_base::failure
         // from a genuine OS-level read error (a directory path, a special
-        // file, ...). Narrower catches here have crashed the whole process
-        // with an unhandled-exception abort instead of a clean message; see
-        // FAILURES.md #1.
+        // file, ...). A narrower catch here would abort the process on some
+        // of those instead of printing a clean message.
+        // TODO: Remove: found via FAILURES.md #1.
         std::cerr << "husk: couldn't read '" << path << "': " << e.what() << "\n";
         return 1;
     }
@@ -109,7 +113,7 @@ int info(int argc, char** args) {
                   << " is below Wrath (264) -- this parser's bones/sequences/ribbon_emitters "
                      "record sizes are only documented and verified for Wrath+; a real "
                      "Classic/TBC file may be silently misread at the wrong byte offset rather "
-                     "than failing loudly (see FAILURES2.md #3)\n";
+                     "than failing loudly\n";
     }
     std::cout << "  name: " << (h.name.empty() ? "(empty)" : h.name) << "\n";
     std::cout << "  global_flags: 0x" << std::hex << h.globalFlags << std::dec;
@@ -178,10 +182,10 @@ int info(int argc, char** args) {
                        << std::dec << " blend_mode=" << materials[i].blendMode << "\n";
         }
     }
-    // FINDINGS.md §3.1: parsed and (since this session) resolved by `husk
-    // export` into inert glTF extras for a batch that references one (see
-    // m2::TextureTransform's doc comment) -- previously not even counted
-    // here, the exact "parsed then dropped" gap that finding tracked.
+    // TODO: Remove: FINDINGS.md §3.1 tracked texture_transforms not being
+    // counted here at all; now resolved by `husk export` into inert glTF
+    // extras for a batch that references one (see m2::TextureTransform's
+    // doc comment).
     printArray("texture_transforms", h.textureTransforms);
     std::cout << "  num_skin_profiles: " << h.numSkinProfiles << "\n";
 
@@ -301,15 +305,12 @@ int info(int argc, char** args) {
     std::cout << "\n";
     std::cout << "  bounding_sphere_radius: " << h.boundingSphereRadius << "\n";
 
-    // FINDINGS.md §3.3: all four collision fields are parsed (m2.cpp's
-    // parseHeader) but until this session only collision_positions was ever
-    // printed here -- collision_box/collision_sphere_radius weren't printed
-    // at all, and collision_indices/collision_face_normals weren't even
-    // counted, despite `husk export` documenting real triangle topology for
-    // this low-poly hit-test mesh (not the render mesh) sitting right next
-    // to the fields that are surfaced. Still no `dump-chunks`-style content
-    // dump of the actual mesh -- these are counts/scalars only, same depth
-    // as every other still-🚧 array in the format matrix.
+    // These are counts/scalars only, not a full content dump -- same depth
+    // as other still-🚧 rows, see
+    // README.md#format-support-matrix-m2--m3--wmo--adt--blp.
+    // TODO: Remove: FINDINGS.md §3.3 tracked collision_box/
+    // collision_sphere_radius/collision_indices/collision_face_normals not
+    // being printed/counted here at all; now fixed.
     std::cout << "  collision_box: min=";
     printVec3(h.collisionBox.min);
     std::cout << " max=";

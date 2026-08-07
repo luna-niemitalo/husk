@@ -147,14 +147,7 @@ struct Header {
     // 0x130, right after particleEmitters); left as a default-constructed
     // empty Array (count 0) otherwise, indistinguishable from "flag set but
     // genuinely empty" -- callers that care about the distinction should
-    // check the flag bit directly rather than infer it from count == 0. A
-    // full 130,576-file local-corpus scan found zero real files with this
-    // flag set -- the parsing itself is low-risk (a plain M2Array<uint16_t>,
-    // the same well-tested shape/decoder five other lookup tables in this
-    // struct already use, at a documented offset with no ambiguity), but
-    // real-file verification of the *layout* specifically (as opposed to
-    // every other already-parsed-but-unpopulated table in this struct)
-    // hasn't happened -- flag this honestly if it ever matters.
+    // check the flag bit directly rather than infer it from count == 0.
     // Per the wiki: when set, multitexture blending uses *this* table's
     // material index instead of "current index material + 1" for combining
     // with the first texture -- surfaced here (see globalFlagNames, `husk
@@ -163,6 +156,8 @@ struct Header {
     // order? materialIndex? something else?) and this project's own
     // "verify against real bytes before implementing, don't guess at
     // semantics" discipline means an unverified index scheme doesn't ship.
+    // TODO: Remove: a full 130,576-file local-corpus scan found zero real
+    // files with this flag set, so the layout itself is unverified against real bytes.
     Array textureCombinerCombos;
 
     bool chunked = false;  // true if this file was Legion+ MD21-wrapped
@@ -345,7 +340,8 @@ const char* billboardModeName(uint32_t flags);
 // IDs and names both -- not guessed at or reordered. Used for glTF joint
 // node names (`gltf::writeGlbMulti`) so a real bone at least sometimes
 // gets a real semantic name instead of Blender's own generic "Bone"/"Node"
-// fallback -- see BLENDER_EXPORT_TODO.md §6.
+// fallback.
+// TODO: Remove: BLENDER_EXPORT_TODO.md §6.
 const char* keyBoneName(int32_t keyBoneId);
 
 // Names a texture's `type` (Texture::type, wowdev.wiki M2#Textures'
@@ -354,10 +350,10 @@ const char* keyBoneName(int32_t keyBoneId);
 // value the table doesn't cover (IDs 24-26 are real but the wiki gives no
 // name for them, just "seen in DracthyrDragon.m2" -- not an omission
 // here). Used to give a hardcoded/runtime-resolved texture slot (one husk
-// can't embed a real image for -- no CASC/DB2 access, see
-// BLENDER_EXPORT_TODO.md §4) a real semantic material name instead of a
-// bare "_tex<N>", per Luna's own "clearly named slots based on the
-// texture they utilize" ask -- see cmd_export.cpp's material-naming code.
+// can't embed a real image for -- no CASC/DB2 access) a real semantic
+// material name instead of a bare "_tex<N>" -- see cmd_export.cpp's
+// material-naming code.
+// TODO: Remove: BLENDER_EXPORT_TODO.md §4.
 const char* textureTypeName(uint32_t type);
 
 // M2CompBone, per wowdev.wiki M2#Bones -- 88 bytes on disk (>= Wrath shape,
@@ -414,19 +410,16 @@ struct Range {
 // stale-looking "/*0x20*/ int16_t variationNext" annotation immediately
 // follows it -- easy to misread as a documentation artifact (36-byte
 // stride, bounds omitted) rather than a real 28-byte field the wiki just
-// forgot to re-number after inserting. It's real: verified against
-// bloodelffemale.m2, where a 36-byte stride decodes id/variationIndex into
-// nonsense (e.g. variationIndex in the tens of thousands) for every other
-// record, while 64 bytes decodes every one of its 339 sequences to sane
-// values (small ids/variationIndices, millisecond durations). Every field
-// below is documented cleanly on the wiki (M2_GAPS_TODO.md's former Item
-// 1) at the offsets given in each field's own comment, all fitting
-// cleanly into the confirmed 64-byte stride with no gap/overlap:
+// forgot to re-number after inserting. It's real -- every field below
+// fits cleanly into the confirmed 64-byte stride with no gap/overlap:
 // /*0x00*/ id, /*0x02*/ variationIndex, /*0x04*/ duration, /*0x08*/
 // movespeed, /*0x0C*/ flags, /*0x10*/ frequency (+2 bytes padding),
 // /*0x14*/ replay, /*0x1C*/ blendTimeIn, /*0x1E*/ blendTimeOut, /*0x20*/
 // bounds (Vec3 min + Vec3 max, 24 bytes), /*0x38*/ boundsRadius, /*0x3C*/
 // variationNext, /*0x3E*/ aliasNext.
+// TODO: Remove: verified against bloodelffemale.m2 (a 36-byte stride
+// decodes garbage, 64 bytes decodes all 339 sequences sanely); former
+// M2_GAPS_TODO.md Item 1.
 struct Sequence {
     uint16_t id = 0;             // AnimationData.dbc id -- husk has no DBC access, so this is
                                   // surfaced as a raw number, never resolved to a human name
@@ -450,14 +443,14 @@ struct Sequence {
     int16_t variationNext = -1;  // id of the following variation, or -1 if this is the last
     // Local index into this same file's own `sequences` array (not an
     // AnimationData.dbc id, despite the wiki's own "id in the list of
-    // animations" doc comment -- WIKI_FINDINGS.md §12, confirmed against
-    // 157 real alias sequences across 4 real files, 100% valid in-range
-    // indices, zero cycles when chain-walked). Only meaningful when
-    // `flags & 0x40` is set ("is alias") -- per the wiki, "the client
-    // skips these by following aliasNext until an animation without 0x40
-    // is found," which is exactly what cmd_export.cpp's
-    // resolveAliasChain does to reuse the terminal sequence's own
-    // keyframe data for this (otherwise-dataless) alias sequence.
+    // animations" doc comment). Only meaningful when `flags & 0x40` is set
+    // ("is alias") -- per the wiki, "the client skips these by following
+    // aliasNext until an animation without 0x40 is found," which is
+    // exactly what cmd_export.cpp's resolveAliasChain does to reuse the
+    // terminal sequence's own keyframe data for this (otherwise-dataless)
+    // alias sequence.
+    // TODO: Remove: WIKI_FINDINGS.md §12 -- confirmed against 157 real
+    // alias sequences across 4 real files, 100% valid in-range indices, zero cycles.
     uint16_t aliasNext = 0;
 };
 
@@ -479,13 +472,14 @@ struct Sequence {
 // caller that wants to *say something* about the second one: core glTF
 // has no way to animate a material's baseColorFactor at all (unlike a
 // bone's translation/rotation/scale, which are real animatable node
-// properties -- see FAILURES2.md #7's global-sequence bone-track fix), so
-// there's no real *playback* to build -- but the full curve is still real,
-// useful data for a custom renderer or Blender script, resolved via
-// `*TrackOffset` below the same way buildAnimations resolves bone tracks
-// (resolveVec3TrackSequence/resolveRawIntTrackSequence, see
-// cmd_export.cpp's buildMaterialsAndPrimitives) and attached as inert
+// properties), so there's no real *playback* to build -- but the full
+// curve is still real, useful data for a custom renderer or Blender
+// script, resolved via `*TrackOffset` below the same way buildAnimations
+// resolves bone tracks (resolveVec3TrackSequence/resolveRawIntTrackSequence,
+// see cmd_export.cpp's buildMaterialsAndPrimitives) and attached as inert
 // glTF material `extras` (`tint_animation`/`fade_animation`).
+// TODO: Remove: FAILURES2.md #7 citation (the global-sequence bone-track
+// fix this parenthetical referenced).
 struct Color {
     std::optional<Vec3> color;   // 0..1 per channel, rgb order
     std::optional<float> alpha;  // 0 (transparent) .. 1 (opaque)
@@ -520,13 +514,13 @@ struct TextureWeight {
 // couldn't be represented as real playback either way, and per the wiki,
 // rotation here is around the texture's own center (0.5, 0.5) -- a
 // different pivot than KHR_texture_transform's own (0,0), and correctly
-// folding that pivot difference into the extension's offset field is
-// exactly the kind of thing this project's own methodology (see
-// WIKI_FINDINGS.md: decode real records, don't guess from text alone)
-// says shouldn't be shipped without a real animated test file to check
-// it against, which isn't available yet. Surfaced as raw resolved values
-// instead (gltf::Material::textureTransform, inert `extras`), for a
-// downstream renderer or Blender script to apply correctly itself.
+// folding that pivot difference into the extension's offset field isn't
+// attempted without a real animated test file to check it against, which
+// isn't available yet. Surfaced as raw resolved values instead
+// (gltf::Material::textureTransform, inert `extras`), for a downstream
+// renderer or Blender script to apply correctly itself.
+// TODO: Remove: process-methodology aside (WIKI_FINDINGS.md: "decode real
+// records, don't guess from text alone") -- belongs in DESIGN.md#Coding-Policy, not here.
 struct TextureTransform {
     std::optional<Vec3> translation;
     std::optional<Quat> rotation;  // C4Quaternion -- 4 raw floats (x,y,z,w), NOT the compressed M2CompQuat bones use
@@ -632,17 +626,16 @@ struct Ribbon {
 // (version >= kMinVerifiedParticleVersion) always uses the 492-byte shape
 // unconditionally, regardless of the per-particle flag -- so there's no
 // version OR per-record branching inside parseParticles, only the
-// file-level kMinVerifiedParticleVersion gate. Verified against real
-// weapon particle emitters (mace_2h_bolvar_d_01.m2, see
-// WIKI_FINDINGS.md): decoded colors form a real fire/ember gradient,
-// alpha/scale curves are clean fade/grow envelopes, and the MultiTexture
-// flag bit (0x10000000) correlates exactly with non-zero multiTexScale.
-// Older (pre-BC/pre-Wrath/pre-Cata) shapes are real but unverified against
-// any file this project has access to -- not implemented, same
-// "kMinVerified*"-gated policy as Bone/Sequence/Ribbon (see
-// kMinVerifiedRecordStrideVersion). M2Track/FBlock fields are stored as
-// raw offsets; full curve resolution lives downstream in
-// `husk dump-chunks` (src/cmd_dump.cpp), same split as Ribbon's tracks.
+// file-level kMinVerifiedParticleVersion gate. Older (pre-BC/pre-Wrath/
+// pre-Cata) shapes are real but unverified against any file this project
+// has access to -- not implemented, same "kMinVerified*"-gated policy as
+// Bone/Sequence/Ribbon (see kMinVerifiedRecordStrideVersion). M2Track/
+// FBlock fields are stored as raw offsets; full curve resolution lives
+// downstream in `husk dump-chunks` (src/cmd_dump.cpp), same split as
+// Ribbon's tracks.
+// TODO: Remove: verified against mace_2h_bolvar_d_01.m2 (WIKI_FINDINGS.md)
+// -- real fire/ember color gradient, clean fade/grow curves, MultiTexture
+// flag correlates with non-zero multiTexScale.
 struct ParticleEmitter {
     uint32_t particleId = 0;  // "Always (as I have seen): -1" per the wiki
     uint32_t flags = 0;       // see wowdev.wiki M2#Particle_Flags
@@ -722,15 +715,10 @@ struct ParticleEmitter {
 // expected per `particle_emitters` array entry (same indexing convention
 // TXAC/EXPT/RPID/GPID/PGD1 already use) -- not cross-checked here, same
 // "trust this chunk's own byte length" policy dumpTxac already uses.
-// Verified against real files: husk's own local extraction corpus
-// (/media/luna/data/wow_export) has zero EXP2-bearing files, but that was a
-// local-extraction gap, not a real absence -- a live-CASC full-corpus chunk
-// scan (casc-tool, product wow build 68887) found 17,065 real EXP2-bearing
-// files. Two pulled directly from CASC (FileDataIDs 126382/1003471) decode
-// cleanly through husk's existing parser with no changes needed: sane
-// zSource/colorMult/alphaMult defaults and a real, monotonic 3-keyframe
-// alphaCutoff curve on one of the two. See WIKI_FINDINGS.md and
-// M2_COMPLETENESS.md.
+// TODO: Remove: verification history -- a live-CASC corpus scan found
+// 17,065 real EXP2-bearing files (local extraction had none); 2 pulled
+// files decoded cleanly with no parser changes needed. See
+// WIKI_FINDINGS.md/M2_COMPLETENESS.md.
 struct ExtendedParticle {
     float zSource = 0;
     float colorMult = 0;
@@ -843,12 +831,13 @@ std::vector<Sequence> parseSequences(const std::vector<uint8_t>& blob, const Arr
 // global-sequence track is refused *by sequence index* without silently
 // mis-attributing the data to whichever M2Sequence happens to occupy index
 // 0 of the track's outer array (a real bug this type existed to fix, not a
-// hypothetical one -- see WIKI_FINDINGS.md/TODO_correctness.md), and
-// resolveVec3GlobalSequenceTrack/resolveQuatGlobalSequenceTrack below for
-// how it's actually resolved into a real, independently-looping glTF
-// clip instead (FAILURES2.md #7) -- for bone tracks; the same track shape
-// on a material's M2Color/M2TextureWeight has no glTF property to animate
-// at all, see Color::colorAnimated/alphaAnimated's doc comment.
+// hypothetical one), and resolveVec3GlobalSequenceTrack/
+// resolveQuatGlobalSequenceTrack below for how it's actually resolved into
+// a real, independently-looping glTF clip instead -- for bone tracks; the
+// same track shape on a material's M2Color/M2TextureWeight has no glTF
+// property to animate at all, see Color::colorAnimated/alphaAnimated's doc
+// comment.
+// TODO: Remove: WIKI_FINDINGS.md/TODO_correctness.md, FAILURES2.md #7.
 struct TrackMeta {
     uint16_t interpolationType = 1;
     // 0xFFFF ("none"), the same -1-as-unsigned sentinel convention this
@@ -891,8 +880,9 @@ TrackMeta readTrackMeta(const std::vector<uint8_t>& blob, uint32_t trackOffset);
 // either this parser's assumption is wrong for some version, or the file is
 // corrupted, and guessing at M2SplineKey's 3x-stride layout for a track
 // that per spec shouldn't have it risks exactly the kind of silent
-// misread this project's tests exist to catch (see the M2Sequence-stride
-// investigation in WIKI_FINDINGS.md for the same shape of mistake).
+// misread this project's tests exist to catch.
+// TODO: Remove: see the M2Sequence-stride investigation in WIKI_FINDINGS.md
+// for the same shape of mistake.
 //
 // `externalDataBlob`, when non-null, is where the *actual keyframe bytes*
 // are read from instead of `blob` -- `blob` still supplies every array
@@ -929,8 +919,9 @@ std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(
 // specific M2Sequence's timeline. This is the real-data counterpart to
 // resolveVec3TrackSequence's own global-sequence check, which correctly
 // refuses to resolve such a track *by sequence index* (see TrackMeta's doc
-// comment) but as a result never resolved it any other way either --
-// FAILURES2.md #7 was that gap. Returns the same (timestamp, value) pairs
+// comment) but as a result never resolved it any other way either.
+// TODO: Remove: FAILURES2.md #7 was that gap.
+// Returns the same (timestamp, value) pairs
 // resolveVec3TrackSequence does, or empty (not an error) if this track is
 // *not* global-sequence-driven, or if its single outer sub-array is itself
 // empty. Throws ParseError under the same conditions as
@@ -993,8 +984,7 @@ std::vector<std::pair<uint32_t, uint32_t>> resolveRawIntGlobalSequenceTrack(
 // ofsKeys}` (16 bytes) pointing directly at real keyframe data, no
 // per-M2Sequence outer/inner indirection at all ("they're unable to change
 // between different animations, so they directly point to the data").
-// Cross-checked against real particle data (mace_2h_bolvar_d_01.m2): the
-// timestamp values themselves are `uint16_t`, *not* the `uint32_t`
+// The timestamp values themselves are `uint16_t`, *not* the `uint32_t`
 // milliseconds a real M2Track uses -- confirmed both by the wiki text ("the
 // timestamps are shorts") and by real files, where they run 0..0x7FFF
 // monotonically per key set. That range strongly suggests a normalized
@@ -1003,7 +993,8 @@ std::vector<std::pair<uint32_t, uint32_t>> resolveRawIntGlobalSequenceTrack(
 // M2Sequence/global-sequence to be absolute against -- exposed as raw
 // `uint16_t` here (not rescaled to 0.0..1.0), since husk hasn't found an
 // authoritative source confirming that interpretation, only strong
-// circumstantial real-data evidence (see WIKI_FINDINGS.md).
+// circumstantial real-data evidence.
+// TODO: Remove: WIKI_FINDINGS.md citation backing the real-data evidence above.
 struct FBlockMeta {
     Array timestamps;
     Array keys;
@@ -1171,13 +1162,14 @@ std::string expansionForVersion(uint32_t version);
 // different stride for an older file -- so a genuine Classic/TBC M2 (a
 // completely normal thing to have from an older-client extraction) would be
 // silently decoded at the wrong byte stride: not necessarily a bounds error,
-// just quiet wrong data, the exact failure shape the M2Sequence-stride
-// investigation (see Sequence's doc comment, WIKI_FINDINGS.md) already
-// caught once for a different version-ambiguity reason. Callers that
-// resolve these three arrays (cmd_info.cpp, cmd_export.cpp) check
-// `header.version < kMinVerifiedRecordStrideVersion` and warn loudly rather
-// than silently trusting output this parser was never confirmed to read
-// correctly for that version -- see FAILURES2.md #3.
+// just quiet wrong data, the same failure shape a wrong stride guess always
+// risks (see Sequence's doc comment for one such case this parser already
+// had to correct). Callers that resolve these three arrays (cmd_info.cpp,
+// cmd_export.cpp) check `header.version < kMinVerifiedRecordStrideVersion`
+// and warn loudly rather than silently trusting output this parser was
+// never confirmed to read correctly for that version.
+// TODO: Remove: WIKI_FINDINGS.md / FAILURES2.md #3 citations for this
+// policy's origin.
 constexpr uint32_t kMinVerifiedRecordStrideVersion = 264;
 
 }  // namespace husk::m2

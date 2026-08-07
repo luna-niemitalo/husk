@@ -1,10 +1,10 @@
 // .phys IS documented (documentation/wowdev-wiki/md/PHYS.md, wiki_revision
-// 30458) -- these fixtures are built directly from that spec, verified
-// against 103 real files (WIKI_FINDINGS.md §9), not reverse-engineered.
-// Unlike M2's own inline chunks, .phys chunk tags are byte-reversed on disk
-// (WMO/ADT convention) -- appendChunk below takes the wiki's own,
-// un-reversed tag spelling and reverses it before writing, so every test
-// case reads naturally against the wiki text.
+// 30458) -- these fixtures are built directly from that spec, not
+// reverse-engineered. Unlike M2's own inline chunks, .phys chunk tags are
+// byte-reversed on disk (WMO/ADT convention) -- appendChunk below takes
+// the wiki's own, un-reversed tag spelling and reverses it before writing,
+// so every test case reads naturally against the wiki text.
+// TODO: Remove: verified against 103 real files, see WIKI_FINDINGS.md §9.
 
 #include <cstring>
 #include <doctest/doctest.h>
@@ -181,7 +181,7 @@ TEST_CASE("phys::parse: BODY (v0/1, no version-2 field) parses with a real body,
 }
 
 TEST_CASE("phys::parse: prefers BDY4 over BODY when both are present (selection order, not real "
-          "data -- never observed together in the real corpus, WIKI_FINDINGS.md §9)") {
+          "data -- never observed together in the real corpus)") {
     std::vector<uint8_t> file;
     appendChunk(file, "PHYS", physChunk(5));
 
@@ -256,7 +256,7 @@ TEST_CASE("phys::parse: SHOJ chunk sized as a multiple of only 0x74 (post-motor 
 }
 
 TEST_CASE("phys::parse: a SHOJ chunk dividing evenly by both known strides throws, rather than "
-          "silently picking one (never observed in 103 real files, WIKI_FINDINGS.md §9)") {
+          "silently picking one (never observed in any real file checked)") {
     std::vector<uint8_t> file;
     appendChunk(file, "PHYS", physChunk(2));
     // LCM(0x6c=108, 0x74=116) = 3132 -- the smallest size that's an exact

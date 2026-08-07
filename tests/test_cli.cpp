@@ -1,14 +1,15 @@
-// Command-layer tests: exercise husk::commands::info/exportGlb by spawning
-// the real compiled binary (see run_husk.hpp) against small, synthetic,
-// on-disk fixtures. Unlike tests/test_integration.cpp, none of these need
-// real game files or HUSK_TEST_* env vars -- they always run.
+// CLI tier: exercise husk::commands::info/exportGlb by spawning the real
+// compiled binary (see run_husk.hpp) against small, synthetic, on-disk
+// fixtures -- always run, no real game files or HUSK_TEST_* env vars
+// needed. See TEST_DESIGN.md#Four-tier-architecture for how this tier
+// relates to the others. Every fixture below targets one specific,
+// previously-confirmed-broken behavior; if any of these start failing
+// again, it's a real regression, not a flake.
 //
-// This file exists because of a real, confirmed gap (see FAILURES.md #5):
-// cmd_info.cpp/cmd_export.cpp -- the only place several bugs actually lived
-// (FAILURES.md #1-#4) -- had zero committed test coverage that didn't
-// require a personal WoW install. Every fixture below targets one specific,
-// previously-confirmed-broken behavior; if any of these start failing again,
-// it's a real regression, not a flake.
+// TODO: Remove: this file exists because of a real, confirmed gap
+// (FAILURES.md #5) -- cmd_info.cpp/cmd_export.cpp, the only place several
+// bugs actually lived (FAILURES.md #1-#4), had zero committed test
+// coverage that didn't require a personal WoW install.
 
 #include <cstdint>
 #include <cstring>
@@ -75,9 +76,9 @@ void putTag(std::vector<uint8_t>& b, const char* tag) { b.insert(b.end(), tag, t
 // are about cmd_info.cpp/cmd_export.cpp's own exception handling, not
 // M2 field semantics -- only that parseHeader gets past the header
 // successfully so a test can target one specific field beyond it. The
-// REQUIRE guards against silently building the wrong-sized fixture (the
-// exact mistake this generator's ad-hoc predecessor made during manual
-// testing -- see FAILURES.md's history).
+// REQUIRE guards against silently building the wrong-sized fixture.
+// TODO: Remove: the exact mistake this generator's ad-hoc predecessor made
+// during manual testing, see FAILURES.md's history.
 std::vector<uint8_t> minimalMd20(uint32_t version = 274) {
     std::vector<uint8_t> b;
     putTag(b, "MD20");
@@ -102,9 +103,10 @@ std::vector<uint8_t> tinyValidM2() {
 }
 
 // tinyValidM2() plus one real collision triangle (3 positions/3 indices/1
-// face normal), for --collision's own tests (BLENDER_EXPORT_TODO.md §3) --
-// tinyValidM2() alone leaves collisionPositions/collisionIndices at count 0,
-// so the collision-mesh block in cmd_export.cpp never fires against it.
+// face normal), for --collision's own tests -- tinyValidM2() alone leaves
+// collisionPositions/collisionIndices at count 0, so the collision-mesh
+// block in cmd_export.cpp never fires against it.
+// TODO: Remove: BLENDER_EXPORT_TODO.md §3.
 std::vector<uint8_t> tinyValidM2WithCollision() {
     auto b = tinyValidM2();
 
@@ -248,9 +250,10 @@ std::vector<uint8_t> outOfRangeVertexSkin() {
 
 // A minimalMd20 with two zeroed M2Vertex records (global vertices 0 and 1)
 // and one zeroed M2Material (blendMode 0 = Opaque, flags 0), for the
-// FAILURES2.md #1 (skinSectionId/geoset) regression test below -- needs two
-// real vertices (one per submesh) and at least one material for two batches
-// to resolve against.
+// skinSectionId/geoset regression test below -- needs two real vertices
+// (one per submesh) and at least one material for two batches to resolve
+// against.
+// TODO: Remove: FAILURES2.md #1.
 std::vector<uint8_t> twoVertexOneMaterialM2() {
     auto b = minimalMd20();
     uint32_t vertCount = 2;
@@ -271,8 +274,9 @@ std::vector<uint8_t> twoVertexOneMaterialM2() {
 // skinSectionId values (0 and 401 -- a plausible base-body vs. cloak-geoset
 // pairing per Character_Customization's own group numbering) each with one
 // degenerate triangle, referencing material 0 -- the minimal shape that
-// exercises cmd_export.cpp's new distinct-geoset-count note (FAILURES2.md
-// #1) without needing any texture/color/weight combo tables.
+// exercises cmd_export.cpp's distinct-geoset-count note without needing any
+// texture/color/weight combo tables.
+// TODO: Remove: FAILURES2.md #1.
 std::vector<uint8_t> twoGeosetSkin() {
     std::vector<uint8_t> b;
     putTag(b, "SKIN");
@@ -345,15 +349,16 @@ std::vector<uint8_t> twoGeosetSkin() {
 }
 
 // Configurable single-batch fixture for the buildMaterialsAndPrimitives
-// out-of-range tests below (FINDINGS.md §4.2): one submesh (skinSectionId
-// = 0, indexStart = 0, indexCount = submeshIndexCount) and one batch
-// built from `fields`. Every earlier check in buildMaterialsAndPrimitives's
-// own chain (skinSectionIndex -> submesh index range -> materialIndex ->
-// colorIndex -> textureWeightComboIndex[+resolved weightIndex] ->
+// out-of-range tests below: one submesh (skinSectionId = 0, indexStart = 0,
+// indexCount = submeshIndexCount) and one batch built from `fields`. Every
+// earlier check in buildMaterialsAndPrimitives's own chain
+// (skinSectionIndex -> submesh index range -> materialIndex -> colorIndex
+// -> textureWeightComboIndex[+resolved weightIndex] ->
 // textureComboIndex[+resolved textureIndex] -> textureCoordComboIndex)
 // must pass for a later one to even be reached, so each test below keeps
 // every field before the one under test valid and deliberately breaks
 // only that one.
+// TODO: Remove: FINDINGS.md §4.2.
 struct BatchFields {
     uint16_t skinSectionIndex = 0;
     uint16_t colorIndex = 0xFFFF;
@@ -463,9 +468,10 @@ std::vector<uint8_t> materialsFixtureM2(uint32_t materialCount, uint32_t colorCo
 // silently drift from materialsFixtureM2's own layout) so its color track
 // is genuinely per-sequence animated -- values outer M2Array count=2, not
 // the single-constant-value shape constantTrackValueOffset requires (see
-// m2::trackHasAnimatedData's outer.count > 1 case, FINDINGS.md §3.2).
-// Content of the two claimed sub-arrays is irrelevant; trackHasAnimatedData
-// only inspects outer.count once it's already > 1. Requires colorCount >= 1.
+// m2::trackHasAnimatedData's outer.count > 1 case). Content of the two
+// claimed sub-arrays is irrelevant; trackHasAnimatedData only inspects
+// outer.count once it's already > 1. Requires colorCount >= 1.
+// TODO: Remove: FINDINGS.md §3.2.
 void patchColorTrackAnimated(std::vector<uint8_t>& b) {
     uint32_t colorOff;
     std::memcpy(&colorOff, b.data() + 0x048 + 4, 4);
@@ -494,9 +500,10 @@ void patchWeightTrackAnimated(std::vector<uint8_t>& b) {
 // materialIndex=0 resolves) and 1 M2TextureTransform record whose
 // translation track is a real, unambiguously constant value (rotation/
 // scaling left at their "no data" default) and a 1-entry
-// textureTransformCombos table pointing at it -- the FINDINGS.md §3.1
-// export-side regression test fixture below. Pair with
+// textureTransformCombos table pointing at it -- the export-side
+// regression test fixture below. Pair with
 // oneBatchSkin({.textureTransformComboIndex = 0}).
+// TODO: Remove: FINDINGS.md §3.1.
 std::vector<uint8_t> oneTextureTransformM2() {
     auto b = tinyValidM2();
 
@@ -788,9 +795,9 @@ std::vector<uint8_t> buildSkb1PayloadForTracks(size_t* boneOff) {
 }
 
 // An SKS1 payload (see src/skel.cpp) with exactly one M2Sequence -- same
-// 0x40-byte record shape tests/test_m2.cpp's putSequence uses, transcribed
-// fresh here since this file builds fixtures byte-by-byte rather than
-// sharing helpers across test binaries.
+// 0x40-byte record shape tests/test_m2.cpp's putSequence uses. See
+// TEST_DESIGN.md#Independent-transcription-convention for why this is
+// transcribed fresh here rather than shared.
 std::vector<uint8_t> buildSks1Payload(uint16_t seqId, uint32_t seqFlags) {
     std::vector<uint8_t> payload(32, 0);
     // global_loops (0x00) and sequence_lookups (0x10) left at {0, 0}.
@@ -1092,16 +1099,16 @@ TEST_CASE("husk export: an external sequence with no matching --anim <dir> file 
     fs::remove_all(animDir);
 }
 
-// M2_GAPS_TODO.md's former Item 1 / WIKI_FINDINGS.md §12: a "pure alias"
-// sequence (flags & 0x40 set, flags & 0x20 NOT set) has no keyframe data of
-// its own -- buildAnimations now resolves aliasNext to the terminal
-// non-alias sequence and reuses *that* sequence's own keyframe data,
-// registered under the alias's own id. `spec` gives each sequence's own
-// (id, variationIndex, flags, aliasNext); only sequence array index 0 gets
-// real inline bone keyframe data (fillTrack's own single-outer-sub-array
-// convention, same as tinyAnimatedM2), so any *other* sequence that
+// A "pure alias" sequence (flags & 0x40 set, flags & 0x20 NOT set) has no
+// keyframe data of its own -- buildAnimations resolves aliasNext to the
+// terminal non-alias sequence and reuses *that* sequence's own keyframe
+// data, registered under the alias's own id. `spec` gives each sequence's
+// own (id, variationIndex, flags, aliasNext); only sequence array index 0
+// gets real inline bone keyframe data (fillTrack's own single-outer-sub-
+// array convention, same as tinyAnimatedM2), so any *other* sequence that
 // produces a clip at all can only be getting there via alias-chain
 // resolution borrowing index 0's data, not its own.
+// TODO: Remove: former M2_GAPS_TODO.md Item 1 / WIKI_FINDINGS.md §12.
 struct AliasSeqSpec {
     uint16_t id;
     uint16_t variationIndex;
@@ -1156,10 +1163,9 @@ TEST_CASE("husk export: a pure-alias sequence (flags 0x40, no 0x20) resolves via
     auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
                            tempPath("alias-2hop.glb").string());
     CHECK(result.exitCode == 0);
-    // Pre-fix, sequence 1 (pure alias) was skipped outright -- only
-    // sequence 0's own clip would exist ("1 animation(s)"). Both existing
-    // is the real regression signal (verified via git stash: this line
-    // reads "1 animation(s)" before the aliasNext-resolution fix, "2" after).
+    // Both sequences producing a clip is the real signal here -- see
+    // TEST_DESIGN.md#Mutation-tested-regressions for how this was verified
+    // to actually catch the bug it's named after.
     CHECK(result.output.find("2 animation(s)") != std::string::npos);
 
     fs::remove(m2Path);
@@ -1186,9 +1192,10 @@ TEST_CASE("husk export: a multi-hop alias chain (pure alias -> pure alias -> rea
 }
 
 TEST_CASE("husk export: a sequence flagged both inline (0x20) AND alias (0x40) resolves against "
-          "its own sequence index, not the (possibly invalid) alias chain (real data: 31/38 real "
-          "alias sequences in bloodelffemale_hd.skel also carry 0x20 -- WIKI_FINDINGS.md §12's "
-          "follow-up)") {
+          "its own sequence index, not the (possibly invalid) alias chain") {
+    // TODO: Remove: this priority rule was forced by real data -- 31/38 real
+    // alias sequences in bloodelffemale_hd.skel also carry 0x20
+    // (WIKI_FINDINGS.md §12's follow-up).
     auto m2Path = tempPath("alias-both-flags.m2");
     // seq1 has both 0x20 and 0x40 set, and a deliberately out-of-range
     // aliasNext (99, only 2 sequences exist) that would throw immediately
@@ -1247,13 +1254,13 @@ TEST_CASE("husk export: a pure-alias sequence's out-of-range aliasNext fails cle
     fs::remove(skinPath);
 }
 
-// --anim's resolution used to only ever look for '<FileDataID>.anim', but a
-// real wow.export-style extraction names external .anim files
-// '<model-basename><animId:04d>-<subAnimId:02d>.anim' instead (see
-// findAnimFileByBasename, WIKI_FINDINGS.md §2, DESIGN.md's AFSB design note)
-// -- these four cases cover its three-way priority (FileDataID file,
+// A real wow.export-style extraction names external .anim files
+// '<model-basename><animId:04d>-<subAnimId:02d>.anim' rather than
+// '<FileDataID>.anim' (see findAnimFileByBasename, DESIGN.md's AFSB design
+// note) -- these four cases cover its three-way priority (FileDataID file,
 // basename file, neither) against the same tinyExternalAnimM2 fixture the
 // two tests above already use.
+// TODO: Remove: WIKI_FINDINGS.md §2.
 
 TEST_CASE("husk export: --anim <dir> resolves via the basename convention when the model has no "
           "AFID chunk at all") {
@@ -1518,7 +1525,8 @@ TEST_CASE("husk export: a .skel external (flags without 0x20/0x40) SKS1 sequence
 TEST_CASE("husk export: a .skel external sequence whose --anim <dir> file is AFSB-tagged "
           "resolves a real animation clip, end to end -- SKB1's own per-sequence (count,offset) "
           "descriptors point directly into the AFSB payload, same mechanism as an AFM2-shaped "
-          "external file just pointed at a different blob (WIKI_FINDINGS.md §2's follow-up)") {
+          "external file just pointed at a different blob") {
+    // TODO: Remove: WIKI_FINDINGS.md §2's follow-up.
     size_t boneOff = 0;
     auto skb1Payload = buildSkb1PayloadForTracks(&boneOff);
     size_t transOff = boneOff + 0x10;
@@ -1679,7 +1687,7 @@ TEST_CASE("husk export: a .skel external sequence's chunked --anim <dir> file wi
     fs::remove_all(animDir);
 }
 
-TEST_CASE("husk info: directory as path fails cleanly, not a crash (FAILURES.md #1)") {
+TEST_CASE("husk info: directory as path fails cleanly, not a crash") {
     auto result = runHusk("info " + fs::temp_directory_path().string());
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("husk: couldn't read") != std::string::npos);
@@ -1687,7 +1695,7 @@ TEST_CASE("husk info: directory as path fails cleanly, not a crash (FAILURES.md 
 }
 
 TEST_CASE("husk info: chunked file with a truncated trailing chunk header fails cleanly, not a "
-          "crash (FAILURES.md #1)") {
+          "crash") {
     // Valid MD21 wrapper around a minimal MD20 blob, followed by a
     // truncated second chunk header (a tag with no size field) -- used to
     // throw husk::ChunkError straight through info()'s then-too-narrow
@@ -1711,12 +1719,13 @@ TEST_CASE("husk info: chunked file with a truncated trailing chunk header fails 
     fs::remove(path);
 }
 
-TEST_CASE("husk info: generic non-M2 garbage fails cleanly, not a crash (FAILURES.md #1)") {
+TEST_CASE("husk info: generic non-M2 garbage fails cleanly, not a crash") {
     // Not MD20, and not a well-formed chunk stream either -- exercises
     // "falls through to 'maybe this is chunked', then runs out of buffer
-    // mid-header" from FAILURES.md #1, using nothing more exotic than a
-    // wrong magic and zero-filled padding. This is the realistic case:
-    // pointing husk at the wrong file entirely, not a hand-crafted one.
+    // mid-header", using nothing more exotic than a wrong magic and
+    // zero-filled padding. This is the realistic case: pointing husk at the
+    // wrong file entirely, not a hand-crafted one.
+    // TODO: Remove: FAILURES.md #1.
     std::vector<uint8_t> bytes;
     putTag(bytes, "XXXX");
     bytes.resize(300, 0);
@@ -1733,7 +1742,7 @@ TEST_CASE("husk info: generic non-M2 garbage fails cleanly, not a crash (FAILURE
 }
 
 TEST_CASE("husk export: corrupted huge vertex count fails with a real message, not "
-          "std::bad_alloc (FAILURES.md #2)") {
+          "std::bad_alloc") {
     auto m2 = minimalMd20();
     uint32_t count = 0xFFFFFFF0;
     uint32_t off = 0;
@@ -1755,7 +1764,7 @@ TEST_CASE("husk export: corrupted huge vertex count fails with a real message, n
 }
 
 TEST_CASE("husk export: corrupted huge bone count fails with a real message, not "
-          "std::bad_alloc (FAILURES.md #2)") {
+          "std::bad_alloc") {
     auto m2 = tinyValidM2();
     uint32_t count = 0xFFFFFFF0;
     uint32_t off = 0;
@@ -1778,7 +1787,7 @@ TEST_CASE("husk export: corrupted huge bone count fails with a real message, not
 }
 
 TEST_CASE("husk export: .skin file with a corrupted huge indices count fails with a real "
-          "message, not std::bad_alloc (FAILURES.md #2)") {
+          "message, not std::bad_alloc") {
     auto m2Path = tempPath("for-huge-skin-indices.m2");
     writeFile(m2Path, minimalMd20());  // 0 vertices -- never reached, indices fails first
 
@@ -1807,8 +1816,8 @@ TEST_CASE("husk export: .skin file with a corrupted huge indices count fails wit
     fs::remove(skinPath);
 }
 
-TEST_CASE("husk export: a 2-cycle in the bones' parent chain is rejected, not silently exported "
-          "(FAILURES.md #3)") {
+TEST_CASE("husk export: a 2-cycle in the bones' parent chain is rejected, not silently "
+          "exported") {
     auto m2Path = tempPath("cycle.m2");
     writeFile(m2Path, tinyValidM2());
     auto skinPath = tempPath("cycle.skin");
@@ -1831,7 +1840,7 @@ TEST_CASE("husk export: a 2-cycle in the bones' parent chain is rejected, not si
 
 TEST_CASE("husk export: a bone that is its own parent (a 1-node cycle) is still rejected, "
           "guarded against regressing while fixing the longer-cycle case above") {
-    // A self-parent is the degenerate 1-node case of FAILURES.md #3's
+    // A self-parent is the degenerate 1-node case of a bone-parent-chain
     // cycle. It was already caught before this fix, by a dedicated check
     // in gltf::writeGlb -- cmd_export.cpp's new checkNoBoneCycles() (in
     // buildSkeleton(), which runs first) now catches it too and throws
@@ -1858,7 +1867,7 @@ TEST_CASE("husk export: a bone that is its own parent (a 1-node cycle) is still 
 }
 
 TEST_CASE("husk info: prints collision_box/collision_sphere_radius/collision_indices/"
-          "collision_face_normals, not just collision_positions (FINDINGS.md §3.3)") {
+          "collision_face_normals, not just collision_positions") {
     auto path = tempPath("collision.m2");
     writeFile(path, tinyValidM2());
 
@@ -1907,10 +1916,11 @@ TEST_CASE("husk info: global_flags with no bits set prints \"(none set)\", not a
 }
 
 // textureCombinerCombos (wowdev.wiki M2#Header) only exists in the wire
-// header at all when flag_use_texture_combiner_combos (0x8) is set --
-// RO_COMPLETENESS_TODO.md's former Item 2b. Builds a real header past
-// minimalMd20()'s own 0x130-byte end: the array descriptor at 0x130
-// pointing at 3 real uint16 values appended right after it.
+// header at all when flag_use_texture_combiner_combos (0x8) is set. Builds
+// a real header past minimalMd20()'s own 0x130-byte end: the array
+// descriptor at 0x130 pointing at 3 real uint16 values appended right
+// after it.
+// TODO: Remove: former RO_COMPLETENESS_TODO.md Item 2b.
 TEST_CASE("husk info: textureCombinerCombos is read and printed when "
           "flag_use_texture_combiner_combos is set") {
     auto b = minimalMd20();
@@ -2012,7 +2022,7 @@ TEST_CASE("husk info: a real, fully-documented chunk set gets no undocumented-ch
 }
 
 TEST_CASE("husk export: non-finite (NaN/Inf) vertex position is rejected, not silently baked "
-          "into the glb (FAILURES.md #4)") {
+          "into the glb") {
     auto m2 = tinyValidM2();
     size_t vertexOff = m2.size() - 0x30;
     uint32_t nanBits = 0x7FC00000;  // quiet NaN
@@ -2343,12 +2353,12 @@ TEST_CASE("husk info: prints skin_file_data_ids/lod_count/bone_file_data_ids/ani
     fs::remove(path);
 }
 
-// Regression tests for FAILURES2.md #3: parseBones/parseSequences/
-// parseRibbons' fixed record strides are only documented/verified for
-// Wrath+ (version 264), but nothing warned when a file below that version
-// went through them anyway -- expansionForVersion happily recognizes and
-// labels Classic (256-257)/TBC (260-263) already, so the information needed
-// to catch this was already on hand and simply unused.
+// parseBones/parseSequences/parseRibbons' fixed record strides are only
+// documented/verified for Wrath+ (version 264); expansionForVersion already
+// recognizes and labels Classic (256-257)/TBC (260-263), so a version below
+// Wrath gets a loud warning rather than silently trusting an unverified
+// stride.
+// TODO: Remove: regression tests for FAILURES2.md #3.
 TEST_CASE("husk info: a version below Wrath (264) prints a loud warning") {
     auto path = tempPath("pre-wrath.m2");
     writeFile(path, minimalMd20(/*version=*/260));  // The Burning Crusade
@@ -2372,13 +2382,12 @@ TEST_CASE("husk info: a Wrath+ version prints no such warning") {
     fs::remove(path);
 }
 
-// Regression test for FAILURES2.md #4: `husk info` used to print only the
-// raw `textures`/`materials` array *counts* (parseTextures/parseMaterials
-// were never called at all in cmd_info.cpp), unlike attachments/events/
-// lights/ribbons, which all get per-record detail -- and Header::
-// textureFileDataIds (the TXID chunk, already resolved and used internally
-// by `husk export --textures`) was never printed anywhere in `info`'s
-// output at all, unlike every other sidecar FileDataID list.
+// `husk info` prints per-texture/per-material detail (parseTextures/
+// parseMaterials), matching attachments/events/lights/ribbons, which all
+// get per-record detail; Header::textureFileDataIds (the TXID chunk,
+// already resolved and used internally by `husk export --textures`) is
+// printed too, matching every other sidecar FileDataID list.
+// TODO: Remove: regression test for FAILURES2.md #4.
 TEST_CASE("husk info: prints per-texture type/flags/filename, per-material flags/blend_mode, and "
           "texture_file_data_ids when TXID is present") {
     auto md20 = minimalMd20();
@@ -2517,8 +2526,8 @@ TEST_CASE("husk info: a Cata+ particle_emitters array prints no version warning 
 // a clean, isolated view -- no risk of an unrelated file from a different
 // test case being picked up.
 
-// Regression test for FAILURES2.md #3 (export side -- see the two `husk
-// info` versions of this test above for the info-command side).
+// Export-side version of the two `husk info` cases above.
+// TODO: Remove: regression test for FAILURES2.md #3.
 TEST_CASE("husk export: a version below Wrath (264) prints a loud warning") {
     auto dir = defaultsDir("prewrathexport");
     auto md20 = minimalMd20(/*version=*/256);  // Classic
@@ -2942,8 +2951,7 @@ TEST_CASE("husk export: a .phys body referencing a bone index out of range for t
     fs::remove(physPath);
 }
 
-TEST_CASE("husk export: a collision mesh is attached by default when present "
-          "(BLENDER_EXPORT_TODO.md §3)") {
+TEST_CASE("husk export: a collision mesh is attached by default when present") {
     auto m2Path = tempPath("collision-default.m2");
     writeFile(m2Path, tinyValidM2WithCollision());
     auto skinPath = tempPath("collision-default.skin");
@@ -2959,8 +2967,8 @@ TEST_CASE("husk export: a collision mesh is attached by default when present "
     fs::remove(skinPath);
 }
 
-TEST_CASE("husk export: --collision none omits the collision mesh even when the model has one "
-          "(BLENDER_EXPORT_TODO.md §3)") {
+TEST_CASE("husk export: --collision none omits the collision mesh even when the model has "
+          "one") {
     auto m2Path = tempPath("collision-none.m2");
     writeFile(m2Path, tinyValidM2WithCollision());
     auto skinPath = tempPath("collision-none.skin");
@@ -2976,7 +2984,7 @@ TEST_CASE("husk export: --collision none omits the collision mesh even when the 
 }
 
 TEST_CASE("husk export: --collision only accepts 'none', rejecting any other value with a clear "
-          "message (BLENDER_EXPORT_TODO.md §3)") {
+          "message") {
     auto m2Path = tempPath("collision-bad.m2");
     writeFile(m2Path, tinyValidM2WithCollision());
     auto skinPath = tempPath("collision-bad.skin");
@@ -3020,7 +3028,7 @@ TEST_CASE("husk export: --textures none never embeds an image, even when a match
 }
 
 TEST_CASE("husk export: a hardcoded texture slot's material name includes its real semantic "
-          "type name (BLENDER_EXPORT_TODO.md §5)") {
+          "type name") {
     auto m2Path = tempPath("typename.m2");
     writeFile(m2Path, oneTexturedModelWithType(6));  // 6 = TEX_COMPONENT_CHAR_HAIR
     auto skinPath = tempPath("typename.skin");
@@ -3041,8 +3049,8 @@ TEST_CASE("husk export: a hardcoded texture slot's material name includes its re
 }
 
 TEST_CASE("husk export: a hardcoded texture slot embeds the sole basename-matching file in "
-          "--textures when husk can't resolve a FileDataID (BLENDER_EXPORT_TODO.md §4/§5), and "
-          "warns that the match is non-deterministic and has no FileDataID to cross-reference") {
+          "--textures when husk can't resolve a FileDataID, and warns that the match is "
+          "non-deterministic and has no FileDataID to cross-reference") {
     auto dir = defaultsDir("fuzzytex-sole");
     writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));  // 1 = TEX_COMPONENT_SKIN
     writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
@@ -3075,7 +3083,7 @@ TEST_CASE("husk export: a FileDataID-exact texture match prints no fuzzy-match w
 }
 
 TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot embed neither "
-          "and are reported, not guessed at (BLENDER_EXPORT_TODO.md §4/§5)") {
+          "and are reported, not guessed at") {
     auto dir = defaultsDir("fuzzytex-ambiguous");
     writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));
     writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
@@ -3181,7 +3189,8 @@ TEST_CASE("husk export: --anim defaults to the model's own directory -- an exter
 // A tinyValidM2() (1 vertex) with one material, one texture (type=0, empty
 // filename), and a 1-entry textureCombos table pointing at it -- the
 // minimum an M2 needs for a batch's textureComboIndex to resolve at all.
-// Used by the FAILURES2.md #6 (multi-texture batch) regression test below.
+// Used by the multi-texture-batch regression test below.
+// TODO: Remove: FAILURES2.md #6.
 std::vector<uint8_t> oneTextureOneMaterialM2() {
     auto b = tinyValidM2();
 
@@ -3205,8 +3214,9 @@ std::vector<uint8_t> oneTextureOneMaterialM2() {
 
 // A .skin with one submesh/batch whose textureCount is 2 -- per
 // wowdev.wiki M2/.skin#Texture_units, a real second texture layer (e.g. an
-// env-mapped "shine" pass), which husk only ever resolves the first of
-// (FAILURES2.md #6). Pairs with oneTextureOneMaterialM2().
+// env-mapped "shine" pass), which husk only ever resolves the first of.
+// Pairs with oneTextureOneMaterialM2().
+// TODO: Remove: FAILURES2.md #6.
 std::vector<uint8_t> oneBatchTwoTexturesSkin() {
     std::vector<uint8_t> b;
     putTag(b, "SKIN");
@@ -3254,13 +3264,12 @@ std::vector<uint8_t> oneBatchTwoTexturesSkin() {
     return b;
 }
 
-// Regression tests for FAILURES2.md #9: FAILURES.md #4 fixed non-finite
-// (NaN/Inf) vertex positions/normals, but the identical exposure existed,
-// unfixed, for animation keyframe data -- neither the resolved value nor
-// the timestamp ordering was ever checked before this fix. Both fixtures
-// below are otherwise identical to tinyAnimatedM2() (see its own doc
-// comment), just with the translation track's second keyframe corrupted one
-// way at a time.
+// Non-finite (NaN/Inf) values and non-monotonic timestamps are checked for
+// animation keyframe data the same way they are for vertex positions/
+// normals. Both fixtures below are otherwise identical to tinyAnimatedM2()
+// (see its own doc comment), just with the translation track's second
+// keyframe corrupted one way at a time.
+// TODO: Remove: regression tests for FAILURES2.md #9/FAILURES.md #4.
 TEST_CASE("husk export: a non-finite (NaN) translation keyframe value fails with a real message, "
           "not a silently-invalid .glb") {
     auto b = tinyValidM2();
@@ -3454,12 +3463,11 @@ TEST_CASE("husk export: a 3-way cascading duplicate keyframe timestamp run repai
     fs::remove(skinPath);
 }
 
-// Regression test for FAILURES2.md #1: a .skin file whose submeshes carry
-// different skinSectionId ("geoset ID") values -- the normal shape for a
-// real character model bundling multiple selectable hairstyles/gear geosets
-// in one file -- used to be exported completely unfiltered with zero
-// indication anything unusual happened. husk still doesn't filter geosets
-// (that's a separate, bigger feature), but it must now say so loudly.
+// A .skin file whose submeshes carry different skinSectionId ("geoset ID")
+// values -- the normal shape for a real character model bundling multiple
+// selectable hairstyles/gear geosets in one file. husk doesn't filter
+// geosets (that's a separate, bigger feature), but it must say so loudly.
+// TODO: Remove: regression test for FAILURES2.md #1.
 TEST_CASE("husk export: batches spanning more than one distinct skinSectionId (geoset ID) print a "
           "loud note naming them") {
     auto dir = defaultsDir("geosets");
@@ -3537,10 +3545,9 @@ TEST_CASE("husk export: a model with 0 vertices and 0 bones (nothing at all to e
     fs::remove_all(dir);
 }
 
-// Regression test for FAILURES2.md #6: a batch with textureCount > 1 (a
-// real second texture layer, e.g. an env-mapped "shine" pass) used to be
-// silently reduced to a single texture with zero indication anything was
-// dropped.
+// TODO: Remove: regression test for FAILURES2.md #6 -- a batch with
+// textureCount > 1 used to be silently reduced to a single texture with
+// zero indication anything was dropped.
 TEST_CASE("husk export: a batch with textureCount > 1 prints a note that extra texture layers "
           "are dropped") {
     auto dir = defaultsDir("multitex");
@@ -3550,7 +3557,8 @@ TEST_CASE("husk export: a batch with textureCount > 1 prints a note that extra t
     auto result = runHusk("export " + (dir / "shiny.m2").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 batch(es) with more than one texture") != std::string::npos);
-    CHECK(result.output.find("FAILURES2.md #6") != std::string::npos);
+    CHECK(result.output.find("additional layers are exported as inert 'extras' metadata") !=
+          std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -3574,16 +3582,16 @@ TEST_CASE("husk export: a batch with textureCount == 1 prints no multi-texture n
     fs::remove_all(dir);
 }
 
-// Regression test for FAILURES2.md #7: a bone track whose global_sequence
-// field is set (continuous, M2Sequence-independent looping animation --
-// glow pulses, idle sway) correctly refuses to misattribute its keyframes
-// to whichever M2Sequence happens to occupy outer-array position 0 (fixed
-// separately, see TODO_correctness.md item 1 and m2::TrackMeta's doc
-// comment) -- but used to resolve to *no* animation at all as a result, not
-// a real global-sequence clip. `m2::resolveVec3GlobalSequenceTrack`/
-// `buildGlobalSequenceAnimations` (src/m2.cpp, src/cmd_export.cpp) fix that:
-// this checks it end to end through the real CLI, not just the underlying
-// parser (see tests/test_m2.cpp for that).
+// A bone track whose global_sequence field is set (continuous,
+// M2Sequence-independent looping animation -- glow pulses, idle sway)
+// resolves to a real global-sequence clip via
+// `m2::resolveVec3GlobalSequenceTrack`/`buildGlobalSequenceAnimations`
+// (src/m2.cpp, src/cmd_export.cpp) -- see m2::TrackMeta's doc comment for
+// why it must not be misattributed to whichever M2Sequence happens to
+// occupy outer-array position 0. This checks it end to end through the
+// real CLI, not just the underlying parser (see tests/test_m2.cpp for
+// that).
+// TODO: Remove: regression test for FAILURES2.md #7.
 TEST_CASE("husk export: a global-sequence-driven bone track resolves to a real animation clip") {
     auto m2 = tinyValidM2();
     uint32_t boneOff = static_cast<uint32_t>(m2.size());
@@ -3855,7 +3863,7 @@ TEST_CASE("husk --help prints the top-level command list and exits 0") {
     CHECK(result.output.find("dump-chunks") != std::string::npos);
 }
 
-TEST_CASE("husk --version prints a non-empty version string and exits 0 (FINDINGS.md §2.3)") {
+TEST_CASE("husk --version prints a non-empty version string and exits 0") {
     // HUSK_VERSION is baked in at CMake configure time (a git describe,
     // see CMakeLists.txt) and varies build to build (e.g. a "-dirty"
     // suffix) -- this only checks the command works and says *something*
@@ -3884,14 +3892,13 @@ TEST_CASE("husk with an unknown command fails cleanly, not a crash") {
     CHECK(result.output.find("unknown command") != std::string::npos);
 }
 
-// Remaining CLI argv edge cases (FINDINGS.md §4.3): each subcommand's argc
-// guard. export's own guard is now CLI11's own machinery -- --input is
-// ->required() (addExportOptions), and a flag given with no value is a
-// real CLI11 parse-time error with CLI11's own named exit code (see
-// CLI::ExitCodes in /nix/store/*-cli11-*/include/CLI/Error.hpp), not the
-// old code's uniform "usage: husk export" text + exit 1. info/dump-chunks
-// weren't touched by this migration, so their argc guards below are
-// unchanged.
+// Remaining CLI argv edge cases: each subcommand's argc guard. export's own
+// guard is CLI11's own machinery -- --input is ->required() (addExportOptions),
+// and a flag given with no value is a real CLI11 parse-time error with
+// CLI11's own named exit code (see CLI::ExitCodes in
+// /nix/store/*-cli11-*/include/CLI/Error.hpp). info/dump-chunks's argc
+// guards below are hand-written and unrelated.
+// TODO: Remove: FINDINGS.md §4.3.
 
 TEST_CASE("husk export with no arguments at all fails via CLI11's RequiredError (--input is "
           "required), not the old hand-written usage text") {
@@ -3966,10 +3973,10 @@ TEST_CASE("husk dump-chunks with more than one argument prints usage and exits 1
 }
 
 // Adversarial/out-of-range coverage for buildMaterialsAndPrimitives
-// (cmd_export.cpp, FINDINGS.md §4.2): six real, well-written bounds
-// checks chaining batch -> submesh -> material -> color/textureWeight/
-// texture/textureCoord, previously exercised only with in-range synthetic
-// fixtures. A real mismatched .skin/.m2 pairing hits exactly these paths.
+// (cmd_export.cpp): six real bounds checks chaining batch -> submesh ->
+// material -> color/textureWeight/texture/textureCoord. A real mismatched
+// .skin/.m2 pairing hits exactly these paths.
+// TODO: Remove: FINDINGS.md §4.2.
 
 TEST_CASE("husk export: batch skinSectionIndex out of range for submeshes fails cleanly") {
     auto dir = defaultsDir("badskinsection");
@@ -4100,14 +4107,14 @@ TEST_CASE("husk export: batch textureCoordComboIndex out of range for textureCoo
     fs::remove_all(dir);
 }
 
-// FINDINGS.md §3.2: a batch's M2Color/M2TextureWeight can be genuinely
-// animated (per-sequence or global-sequence keyframes), the same track
-// shape a bone's translation/rotation/scale can be -- but unlike a bone
-// track (a real, animatable glTF node property, see FAILURES2.md #7),
-// core glTF has no way to animate a material's baseColorFactor at all, so
-// there's no real clip to build. These tests confirm husk says so instead
-// of silently exporting the batch as if the track were the ordinary
-// constant-value case.
+// A batch's M2Color/M2TextureWeight can be genuinely animated (per-sequence
+// or global-sequence keyframes), the same track shape a bone's
+// translation/rotation/scale can be -- but unlike a bone track (a real,
+// animatable glTF node property), core glTF has no way to animate a
+// material's baseColorFactor at all, so there's no real clip to build.
+// These tests confirm husk says so instead of silently exporting the batch
+// as if the track were the ordinary constant-value case.
+// TODO: Remove: FINDINGS.md §3.2/FAILURES2.md #7.
 
 TEST_CASE("husk export: an animated (non-constant) M2Color track is dropped with a note, not "
           "silently treated as constant") {
@@ -4160,10 +4167,11 @@ TEST_CASE("husk export: a constant (non-animated) M2Color track gets no animated
     fs::remove_all(dir);
 }
 
-// FINDINGS.md §3.1: a batch's textureTransformComboIndex resolving to a
-// real M2TextureTransform gets noted and exported as inert extras, not
-// silently dropped -- see gltf.hpp's TextureTransform doc comment for
-// why it's never applied to the actual render.
+// A batch's textureTransformComboIndex resolving to a real
+// M2TextureTransform gets noted and exported as inert extras, not silently
+// dropped -- see gltf.hpp's TextureTransform doc comment for why it's
+// never applied to the actual render.
+// TODO: Remove: FINDINGS.md §3.1.
 
 TEST_CASE("husk export: a batch referencing a texture transform gets a note, and husk info "
           "counts texture_transforms") {

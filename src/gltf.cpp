@@ -13,16 +13,15 @@ namespace {
 
 // The single source of truth for WoW's Z-up -> glTF's Y-up axis conversion
 // -- see zUpToYUp/rotationZUpToYUp/scaleZUpToYUp's own doc comments
-// (gltf.hpp) and TRANSFORM_TRIAGE.md for why this is one matrix,
-// mechanically applied per value kind, rather than three independently
-// hand-derived functions. Row-major: out = M * in.
+// (gltf.hpp) for why this is one matrix, mechanically applied per value
+// kind, rather than three independently hand-derived functions. Row-major:
+// out = M * in.
 struct Mat3 {
     float m[3][3];
 };
 
-// (x, y, z) -> (x, z, -y). The corrected formula -- see gltf.hpp's doc
-// comment on zUpToYUp for what was wrong with the formula this replaced
-// and how the replacement was verified.
+// (x, y, z) -> (x, z, -y) -- see gltf.hpp's doc comment on zUpToYUp for the
+// full conversion contract this implements.
 constexpr Mat3 kWowToGltf = {{
     {1, 0, 0},
     {0, 0, 1},
@@ -38,11 +37,12 @@ constexpr float mat3Determinant(const Mat3& a) {
 // A negative determinant here would mean kWowToGltf is a reflection, not a
 // rotation -- the rotation conjugation below (R' = M R M^T) is only valid
 // for a proper rotation basis change. Doesn't, on its own, distinguish a
-// *correct* proper rotation from an incorrect one (the bug TRANSFORM_TRIAGE.md
-// documents was itself a valid proper rotation, just the wrong one -- the
-// exact inverse of the correct conversion) -- this catches a different,
-// simpler mistake (an accidental handedness flip), not that one. See
-// TRANSFORM_TRIAGE.md §5d.
+// correct proper rotation from an incorrect one that's still a valid
+// rotation (e.g. the exact inverse of the correct conversion) -- this
+// catches a different, simpler mistake (an accidental handedness flip),
+// not that one.
+// TODO: Remove: TRANSFORM_TRIAGE.md §5d (the specific historical bug this
+// determinant check does and doesn't catch).
 static_assert(mat3Determinant(kWowToGltf) > 0.0f,
               "WoW->glTF axis conversion must be a proper rotation (determinant +1)");
 
@@ -368,15 +368,12 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     std::vector<tinygltf::Node> jointNodes;
     std::vector<int> rootJointNodeIndices;
     // Synthesized only when the M2's bone array has more than one real
-    // root -- a plain, non-joint node parenting every real root joint,
-    // appended past the end of the joint-node range so it's invisible to
-    // every consumer that indexes Skeleton::joints (see Skeleton's own doc
-    // comment in gltf.hpp: Skeleton::joints itself is never touched here).
-    // Left at its default identity transform deliberately -- each root
-    // joint's own
-    // localTranslation already equals its absolute bind-pose position
-    // (buildSkeleton's parent == -1 branch), which is only correct as long
-    // as whatever parents it contributes no additional offset.
+    // root -- see writeGlbMulti's doc comment in gltf.hpp for the full
+    // rationale/shape. Left at its default identity transform deliberately
+    // -- each root joint's own localTranslation already equals its
+    // absolute bind-pose position (buildSkeleton's parent == -1 branch),
+    // which is only correct as long as whatever parents it contributes no
+    // additional offset.
     bool hasSyntheticRoot = false;
     int syntheticRootNodeIndex = -1;
     tinygltf::Node syntheticRootNode;
@@ -438,12 +435,13 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
         for (size_t i = 0; i < skeleton->joints.size(); ++i) {
             skin.joints.push_back(static_cast<int>(meshCount + i));
         }
-        // Per the Khronos discussion (github.com/KhronosGroup/glTF/issues/1270):
-        // a skin's implicit
-        // skeleton root (when `skeleton` is unset) is the common parent of
-        // every joint, which doesn't exist for a real multi-root M2 -- set
-        // it explicitly to the synthesized node so consumers don't have to
-        // guess. Single-root models: left unset, unchanged behavior.
+        // A skin's implicit skeleton root (when `skeleton` is unset) is the
+        // common parent of every joint, which doesn't exist for a real
+        // multi-root M2 -- set it explicitly to the synthesized node so
+        // consumers don't have to guess. Single-root models: left unset,
+        // unchanged behavior.
+        // TODO: Remove: github.com/KhronosGroup/glTF/issues/1270 citation
+        // (external tracker link for this discussion).
         if (hasSyntheticRoot) {
             skin.skeleton = syntheticRootNodeIndex;
         }
@@ -699,13 +697,14 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
             // the first.
             tinygltf::Value::Object materialExtras;
 
-            // Additional texture layers (textureCount > 1, FAILURES2.md #6)
-            // -- inert glTF extras, not wired into pbrMetallicRoughness (see
-            // gltf.hpp's AdditionalTextureLayer doc comment for why): each
-            // layer's FileDataID/UV-set is always listed, plus a real,
-            // separately embedded (but core-material-unused) image/texture
-            // when `--textures` had a match for it, the same "embed if
+            // Additional texture layers (textureCount > 1) -- inert glTF
+            // extras, not wired into pbrMetallicRoughness (see gltf.hpp's
+            // AdditionalTextureLayer doc comment for why): each layer's
+            // FileDataID/UV-set is always listed, plus a real, separately
+            // embedded (but core-material-unused) image/texture when
+            // `--textures` had a match for it, the same "embed if
             // available, metadata either way" policy baseColorImagePng uses.
+            // TODO: Remove: FAILURES2.md #6.
             if (!mat.additionalTextureLayers.empty()) {
                 tinygltf::Value::Array layers;
                 for (const auto& layer : mat.additionalTextureLayers) {
@@ -755,22 +754,14 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
                 materialExtras["texture_transform"] = tinygltf::Value(xfObj);
             }
 
-            // Texture.type marker (wowdev.wiki M2#Textures) -- see
-            // gltf.hpp's Material::textureType doc comment for the
-            // present-only-when-nonzero decision (0, the ordinary
-            // filename-based case, is the assumed default when this key is
-            // absent, matching every other extras field here).
+            // Texture.type marker -- see gltf.hpp's Material::textureType
+            // doc comment.
             if (mat.textureType != 0) {
                 materialExtras["texture_type"] = tinygltf::Value(static_cast<int>(mat.textureType));
             }
 
             // The primary texture's real FileDataID, when known -- see
-            // gltf.hpp's Material::baseColorTextureFileDataId doc comment
-            // for why this is recorded independently of which local file
-            // actually got embedded (a name-based match doesn't carry its
-            // own FileDataID in its filename the way "<FileDataID>.png"
-            // does, so this is the only place that traceability survives
-            // into the export once a differently-named file wins).
+            // gltf.hpp's Material::baseColorTextureFileDataId doc comment.
             if (mat.baseColorTextureFileDataId != 0) {
                 materialExtras["texture_file_data_id"] =
                     tinygltf::Value(static_cast<int>(mat.baseColorTextureFileDataId));
@@ -871,8 +862,8 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
             if (p.materialIndex >= 0) {
                 tp.material = materialBase + p.materialIndex;
             }
-            // Geoset metadata (FAILURES2.md #1) -- inert glTF extras, see
-            // gltf.hpp's Primitive::skinSectionId doc comment.
+            // Geoset metadata -- inert glTF extras, see gltf.hpp's
+            // Primitive::skinSectionId doc comment.
             if (p.skinSectionId >= 0) {
                 tinygltf::Value::Object extras;
                 extras["geoset_id"] = tinygltf::Value(p.skinSectionId);
@@ -1070,7 +1061,12 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     tinygltf::TinyGLTF writer;
     std::ostringstream out(std::ios::binary);
     if (!writer.WriteGltfSceneToStream(&model, out, /*prettyPrint=*/false, /*writeBinary=*/true)) {
-        throw Error("writeGlbMulti: tinygltf failed to serialize the model");
+        throw Error(
+            "writeGlbMulti: tinygltf failed to write the model to its output stream, for an "
+            "unknown reason -- WriteGltfSceneToStream() only returns bool, with no error-string "
+            "API to report why (unlike tinygltf's own LoadBinaryFromFile/LoadASCIIFromFile, which "
+            "take err/warn out-params); this is an upstream tinygltf limitation, not a diagnostic "
+            "husk is withholding");
     }
 
     std::string bytes = out.str();

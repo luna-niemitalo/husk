@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -28,20 +29,15 @@
 //   separately from the lookup table below, since its own defensive
 //   record-count floor needs the header's own lights.count -- the same
 //   reason ribbon_emitters/particle_emitters aren't chunk-tag-driven
-//   either (see dumpDetl's doc comment). WFV1/WFV2/DPIV/AFRA have no wowdev
-//   wiki struct at all, but real bytes fully resolved their layout instead
-//   (RO_COMPLETENESS_TODO.md's former Item 3, see WIKI_FINDINGS.md) -- they
-//   now get real structural parsing too (WFV1/AFRA: generically-named
-//   float32 fields; DPIV: a real record array, chunk.size/32 records;
-//   WFV2: a flat 16x float32 array), not a raw hex dump. Only present in
-//   Legion+ chunked files.
+//   either (see dumpDetl's doc comment). WFV1/WFV2/DPIV/AFRA have no
+//   wowdev.wiki struct at all; their layout was resolved from real bytes
+//   instead (WFV1/AFRA: generically-named float32 fields; DPIV: a real
+//   record array, chunk.size/32 records; WFV2: a flat 16x float32 array).
+//   Only present in Legion+ chunked files.
 // - `ribbon_emitters`/`particle_emitters` -- core MD20 header arrays
 //   present in every version, not Legion+ chunks, but the same "no glTF
 //   slot" rationale applies: procedural emitter systems, not renderable
-//   geometry (see DESIGN.md's Key design decisions). Originally out of
-//   scope for this command (chunk tags only); broadened once real
-//   particle/ribbon-bearing files (weapon models) made full-field/curve
-//   parsing possible to verify -- see WIKI_FINDINGS.md. `husk export`
+//   geometry (see gltf.hpp's EmitterAnchor doc comment). `husk export`
 //   still attaches a minimal position/bone anchor to the .glb itself (see
 //   gltf::Skeleton::RibbonAnchor/ParticleAnchor), so a consumer that only
 //   needs placement doesn't need this command at all; this is the home for
@@ -51,10 +47,14 @@
 // body/shape/joint/PHYV record set dumped here -- same ".glb gets a
 // minimal placement anchor, this command gets everything else" split as
 // ribbon/particle emitters above (see gltf::Skeleton::PhysicsBody's doc
-// comment, DESIGN.md's Key design decisions).
+// comment).
 //
 // This is deliberately a *separate* intermediary format, not a step toward
-// richer glTF export -- see README.md's format matrix and Design notes.
+// richer glTF export.
+// TODO: Remove: WFV1/WFV2/DPIV/AFRA parsing was former
+// RO_COMPLETENESS_TODO.md Item 3, see WIKI_FINDINGS.md. Ribbon/particle
+// scope was broadened from chunk-tags-only once real weapon fixtures made
+// full parsing verifiable, see WIKI_FINDINGS.md.
 namespace husk::commands {
 
 namespace {
@@ -74,8 +74,8 @@ void printUsage(std::ostream& out = std::cerr) {
            "  Legion+ chunk tags -- TXAC/EXPT/PABC/PADC/PSBC/PEDC/RPID/GPID/PGD1/\n"
            "  WFV3/NERF/EDGF/DBOC/TEXL/PFDC/EXP2/DETL/PCOL, all reasonably well\n"
            "  documented on wowdev.wiki, plus WFV1/WFV2/DPIV/AFRA -- no wowdev.wiki\n"
-           "  struct at all, resolved from real bytes instead (see\n"
-           "  WIKI_FINDINGS.md). Only present in Legion+ chunked files.\n"
+           "  struct at all, resolved from real bytes instead. Only present in\n"
+           "  Legion+ chunked files.\n"
            "\n"
            "A .bone file (see M2/.skel's BFID chunk) is also accepted --\n"
            "husk dumps its per-bone correction matrices (see src/bone.hpp;\n"
@@ -85,21 +85,22 @@ void printUsage(std::ostream& out = std::cerr) {
            "A .phys file (see M2's PFID chunk) is also accepted -- husk dumps\n"
            "every body/shape/joint/PHYV record, each shape/joint resolved to\n"
            "its real type-specific data inline (see src/phys.hpp; the byte\n"
-           "layout is documented on wowdev.wiki, verified against real files,\n"
-           "see WIKI_FINDINGS.md §9). `husk export --phys` attaches only a\n"
-           "minimal per-body placement anchor to the .glb itself -- this is\n"
-           "the home for everything else.\n";
+           "layout is documented on wowdev.wiki, verified against real files).\n"
+           "`husk export --phys` attaches only a minimal per-body placement\n"
+           "anchor to the .glb itself -- this is the home for everything else.\n";
 }
 
 std::vector<uint8_t> readFileBytes(const std::string& path) {
+    errno = 0;
     std::ifstream f(path, std::ios::binary);
     if (!f) {
-        throw std::runtime_error("couldn't open '" + path + "' for reading");
+        throw std::runtime_error("couldn't open '" + path + "' for reading: " + std::strerror(errno));
     }
+    errno = 0;
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
                                 std::istreambuf_iterator<char>());
     if (!f.good() && !f.eof()) {
-        throw std::runtime_error("error reading '" + path + "'");
+        throw std::runtime_error("error reading '" + path + "': " + std::strerror(errno));
     }
     return bytes;
 }
@@ -321,18 +322,18 @@ void dumpFileDataIdArrayChunk(json::Writer& w, const Chunk& c) {
 
 // WFV3 (wowdev.wiki M2#WFV3), WaterFallDataV3 -- one fixed 80-byte struct
 // per chunk (not an array), *except* a real, consistent 64-byte variant
-// found across all 9 real corpus files that carry it (Shadowlands "Maw"
-// zone waterfall doodads, world/expansion08/doodads/maw/*.m2, see
-// WIKI_FINDINGS.md §8): every one is missing exactly the trailing 4 floats
-// (unk1-unk4, the last 16 bytes of the 80-byte struct), never truncated
-// anywhere else. Reads those four conditionally on `c.size >= 80`,
-// emitting `null` (same "genuinely absent, not a parse failure" treatment
-// dumpTextureWeights's optional weight/alpha fields already use) for the
-// shorter variant instead of throwing -- consistent with this codebase's
-// "don't guess, dump what data actually exists" rule. Field names/order
-// for the rest transcribed verbatim from the wiki; most are documented
-// only as "passed directly to fragment shader" with no further meaning
-// given.
+// (Shadowlands "Maw" zone waterfall doodads,
+// world/expansion08/doodads/maw/*.m2): every one is missing exactly the
+// trailing 4 floats (unk1-unk4, the last 16 bytes of the 80-byte struct),
+// never truncated anywhere else. Reads those four conditionally on
+// `c.size >= 80`, emitting `null` (same "genuinely absent, not a parse
+// failure" treatment dumpTextureWeights's optional weight/alpha fields
+// already use) for the shorter variant instead of throwing. Field
+// names/order for the rest transcribed verbatim from the wiki; most are
+// documented only as "passed directly to fragment shader" with no further
+// meaning given.
+// TODO: Remove: 64-byte variant found across all 9 real corpus hits, see
+// WIKI_FINDINGS.md §8.
 void dumpWfv3(json::Writer& w, const Chunk& c) {
     w.beginObject();
     w.key("bumpScale");
@@ -445,12 +446,10 @@ void dumpDboc(json::Writer& w, const Chunk& c) {
 
 // TEXL (wowdev.wiki M2#TEXL, Midnight/12.0+): 16-byte records, one per
 // `lights.count` entry -- an unambiguous wiki struct (two floats, then an
-// index into TXID for the light cookie texture, then one more unknown int)
-// -- was a complete blind spot before (FAILURES2.md #5): recognized by
-// cmd_info.cpp's documentedM2ChunkTags (so it never tripped the
-// "undocumented chunk" note) but absent from both of this file's own
-// lists, meaning a real file's TEXL data was invisible to every husk
-// command, not just unparsed.
+// index into TXID for the light cookie texture, then one more unknown int).
+// TODO: Remove: was a complete blind spot before (FAILURES2.md #5) -- known
+// to cmd_info.cpp's chunk-tag list but absent from this file's own dump
+// tables, so real TEXL data was invisible everywhere, not just unparsed.
 void dumpTexl(json::Writer& w, const Chunk& c) {
     constexpr size_t kSize = 16;
     size_t n = c.size / kSize;
@@ -471,16 +470,16 @@ void dumpTexl(json::Writer& w, const Chunk& c) {
     w.endArray();
 }
 
-// AFRA (wowdev.wiki M2#AFRA -- no struct documented at all as of the
-// 2026-07-25 fetch, "not observed in any files yet", now stale: see
-// WIKI_FINDINGS.md's AFRA section). Byte-decoded from scratch against all 32
-// real corpus hits (afra_files_for_exploration.txt): every single one is
-// exactly 16 bytes, a real float32 in [0.2, 0.98] at offset 0x00, followed
-// by 12 bytes that are zero in every sample. Field names below are
-// deliberately generic (`value`/`unk1..3`, not a guessed semantic like
-// "alpha") -- the wiki gives no name for this chunk's field, and the
-// filenames it turns up on (aura/void-portal VFX doodads) only weakly
-// suggest an opacity-like role, not enough to assert as fact.
+// AFRA (wowdev.wiki M2#AFRA -- no wiki struct documented). Every real
+// sample decodes cleanly as exactly 16 bytes: a float32 in [0.2, 0.98] at
+// offset 0x00, followed by 12 bytes that are zero in every sample. Field
+// names below are deliberately generic (`value`/`unk1..3`, not a guessed
+// semantic like "alpha") -- the wiki gives no name for this chunk's field,
+// and the filenames it turns up on (aura/void-portal VFX doodads) only
+// weakly suggest an opacity-like role, not enough to assert as fact.
+// TODO: Remove: byte-decoded from scratch against 32 real corpus hits
+// (afra_files_for_exploration.txt); wiki said "not observed in any files
+// yet" as of the 2026-07-25 fetch, see WIKI_FINDINGS.md's AFRA section.
 void dumpAfra(json::Writer& w, const Chunk& c) {
     w.beginObject();
     w.key("value");
@@ -494,22 +493,20 @@ void dumpAfra(json::Writer& w, const Chunk& c) {
     w.endObject();
 }
 
-// DPIV (wowdev.wiki M2#DPIV -- "Unknown, seemingly always 32 bytes, mostly
-// empty", now corrected: see WIKI_FINDINGS.md's DPIV section). Byte-decoded
-// from scratch against all 2,632 real corpus hits
-// (dpiv_files_for_exploration.txt): chunk size is *always* an exact multiple
-// of 32 bytes (32/64/96/128 across the sample, i.e. 1-4 records; zero
-// exceptions), so this is a real record array, not a single fixed struct --
-// the wiki's "always 32 bytes" undersells it, that's just the single-record
-// case. Per-record layout: 8x float32. Across all 2,951 real records
-// decoded, the last 4 floats (offsets 0x10-0x1F) are zero in every single
-// one -- kept as real fields rather than assumed-reserved, since a future
-// file could easily populate them. Field names are deliberately generic
+// DPIV (wowdev.wiki M2#DPIV): chunk size is always an exact multiple of 32
+// bytes (1-4 records seen), so this is a real record array, not a single
+// fixed struct as the wiki's own text implies. Per-record layout: 8x
+// float32; the last 4 floats (offsets 0x10-0x1F) are zero in every real
+// record seen -- kept as real fields rather than assumed-reserved, since a
+// future file could populate them. Field names are deliberately generic
 // (`field_0..7`, not a guessed semantic) -- no wiki text describes what any
 // of these represent, and one field (offset 0x0C) decodes to suspicious
-// small-integer-as-float denormals (raw bits 1 or 2) in the real sample,
-// suggesting it may actually be an integer count/type rather than a float;
-// exposed as a plain float here rather than guessing its real type.
+// small-integer-as-float denormals (raw bits 1 or 2), suggesting it may
+// actually be an integer count/type rather than a float; exposed as a
+// plain float here rather than guessing its real type.
+// TODO: Remove: byte-decoded from scratch against 2,632 real corpus hits
+// (dpiv_files_for_exploration.txt, 2,951 records); wiki said "seemingly
+// always 32 bytes, mostly empty," see WIKI_FINDINGS.md's DPIV section.
 void dumpDpiv(json::Writer& w, const Chunk& c) {
     constexpr size_t kSize = 32;
     size_t n = c.size / kSize;
@@ -526,17 +523,15 @@ void dumpDpiv(json::Writer& w, const Chunk& c) {
     w.endArray();
 }
 
-// WFV1 (wowdev.wiki M2#WFV1 -- no struct documented, "// unknown" as of the
-// 2026-07-25 fetch). Byte-decoded from scratch against both real corpus
-// hits (wfv1_files_for_exploration.txt): a genuinely thin, 2-file sample,
-// and both files decode to byte-identical 16-byte payloads (two Nazjatar-
-// zone waterfall doodads) -- flagged tentative per this project's own
-// "small sample, don't overclaim" precedent (e.g. WFV3's own two-shape
-// finding was checked against all 9 of its real hits before being trusted;
-// this is 2 of 2, but both identical, so there's no cross-file variation to
-// even confirm field boundaries against). Decodes as one real float32
-// (10.0) at offset 0x00 followed by 12 zero bytes -- same shape as AFRA,
-// generic field names for the same reason.
+// WFV1 (wowdev.wiki M2#WFV1 -- no struct documented). A genuinely thin,
+// 2-file sample, both byte-identical (two Nazjatar-zone waterfall
+// doodads) -- flagged tentative since there's no cross-file variation to
+// confirm field boundaries against. Decodes as one real float32 (10.0) at
+// offset 0x00 followed by 12 zero bytes -- same shape as AFRA, generic
+// field names for the same reason.
+// TODO: Remove: byte-decoded from scratch against both real corpus hits
+// (wfv1_files_for_exploration.txt); wiki said "// unknown" as of the
+// 2026-07-25 fetch.
 void dumpWfv1(json::Writer& w, const Chunk& c) {
     w.beginObject();
     w.key("value");
@@ -550,17 +545,17 @@ void dumpWfv1(json::Writer& w, const Chunk& c) {
     w.endObject();
 }
 
-// WFV2 (wowdev.wiki M2#WFV2 -- no struct documented, "// unknown" as of the
-// 2026-07-25 fetch). Same 2-file, byte-identical-content sample as WFV1
-// (same two Nazjatar waterfall doodads' sibling "_custom_" variants) --
-// tentative for the same reason. Decodes cleanly as 64 bytes / 16x float32
-// with no leftover bytes, but two of the sixteen (offsets 0x2C/0x30) show
-// signs of not really being floats: 0x2C's raw bytes read as a plausible
-// packed RGBA color (0xff, 0x9b, 0x8d, 0x72) rather than a sane float
-// magnitude, and 0x30 decodes to the small-integer-as-float denormal
-// pattern (raw bits = 3) DPIV's field_3 also shows -- exposed here as plain
-// floats rather than guessing a color/int reinterpretation from a 2-file
-// sample.
+// WFV2 (wowdev.wiki M2#WFV2 -- no struct documented). Same 2-file,
+// byte-identical-content sample as WFV1 (same two Nazjatar waterfall
+// doodads' sibling "_custom_" variants) -- tentative for the same reason.
+// Decodes cleanly as 64 bytes / 16x float32 with no leftover bytes, but two
+// of the sixteen (offsets 0x2C/0x30) show signs of not really being
+// floats: 0x2C's raw bytes read as a plausible packed RGBA color (0xff,
+// 0x9b, 0x8d, 0x72) rather than a sane float magnitude, and 0x30 decodes to
+// a small-integer-as-float denormal pattern (raw bits = 3) also seen in
+// DPIV's field_3 -- exposed here as plain floats rather than guessing a
+// color/int reinterpretation from a 2-file sample.
+// TODO: Remove: wiki said "// unknown" as of the 2026-07-25 fetch.
 void dumpWfv2(json::Writer& w, const Chunk& c) {
     constexpr size_t kFloatCount = 16;
     w.beginArray();
@@ -896,9 +891,8 @@ void writeMat3x4(json::Writer& w, const std::array<float, 12>& m) {
 
 // Resolves shape `s` (a body's shape entry) to its full type-specific
 // record -- `f.boxes`/`capsules`/`spheres`/`polytopes[s.index]`, already
-// bounds-checked by husk::phys::parse itself (WIKI_FINDINGS.md §9's own
-// index/bounds cross-check found zero violations across 103 real files, so
-// this is trusted, not re-checked here).
+// bounds-checked by husk::phys::parse itself (see phys.hpp's file doc) --
+// trusted, not re-checked here.
 void writePhysShape(json::Writer& w, const phys::File& f, const phys::Shape& s) {
     w.beginObject();
     w.key("type");
@@ -1254,11 +1248,11 @@ void dumpEmitters(json::Writer& w, const std::vector<uint8_t>& blob, const m2::H
 // readFixed16TrackValue/decodeFixed16Element): fixed16 is a *linear*
 // 0x0000..0x7FFF -> 0.0..1.0 fixed-point fraction, not a real float, while
 // DETL's scale/diffuseColorMultiplier are genuine half-precision floats --
-// confirmed against real bytes (WIKI_FINDINGS.md §11): wire value 0x231c
-// decodes to 0.013885498046875 and 0x3c00 to exactly 1.0, neither of which
-// makes sense under fixed16's linear scaling (0x231c/32767 would be
-// ~0.276, 0x3c00/32767 would be > 1.0 and get clamped, matching neither
-// observed constant).
+// wire value 0x231c decodes to 0.013885498046875 and 0x3c00 to exactly
+// 1.0, neither of which makes sense under fixed16's linear scaling
+// (0x231c/32767 would be ~0.276, 0x3c00/32767 would be > 1.0 and get
+// clamped, matching neither observed constant).
+// TODO: Remove: confirmed against real bytes, WIKI_FINDINGS.md §11.
 float readHalfFloat(uint16_t bits) {
     uint32_t sign = static_cast<uint32_t>(bits & 0x8000u) << 16;
     uint32_t exponent = (bits >> 10) & 0x1Fu;
@@ -1290,19 +1284,20 @@ float readHalfFloat(uint16_t bits) {
 
 // DETL (wowdev.wiki M2#DETL, >= 9.0.1.34365): per-light shadow-RT-scale/
 // diffuse-color-multiplier data, one 12-byte record per `lights.count`
-// entry -- real stride and the chunk's own 16-byte alignment padding both
-// confirmed against all 1,043 real DETL-bearing files in the corpus
-// (WIKI_FINDINGS.md §11), correcting the wiki's own internally-
-// inconsistent trailing `/*0x0a*/` end-offset comment (0x0c is right,
-// matching the field list -- the comment is simply wrong). `lightCount`
-// (the header's own `lights.count`) is the authoritative record count;
-// `chunk.size / kSize` is only a defensive floor against a foreign/
-// corrupted file's `lights.count` disagreeing with its own chunk's real
-// size -- trusting `lightCount` alone would silently read past a short
-// chunk, and trusting `chunk.size / kSize` alone can overcount by exactly
-// one when the alignment padding happens to be >= 12 bytes (real corpus
-// data: a real 3-light file pads to 48 bytes, and 48 / 12 == 4, not 3).
-// The padding itself is never read as data.
+// entry, correcting the wiki's own internally-inconsistent trailing
+// `/*0x0a*/` end-offset comment (0x0c is right, matching the field list --
+// the comment is simply wrong). `lightCount` (the header's own
+// `lights.count`) is the authoritative record count; `chunk.size / kSize`
+// is only a defensive floor against a foreign/corrupted file's
+// `lights.count` disagreeing with its own chunk's real size -- trusting
+// `lightCount` alone would silently read past a short chunk, and trusting
+// `chunk.size / kSize` alone can overcount by exactly one when the
+// alignment padding happens to be >= 12 bytes (real corpus data: a real
+// 3-light file pads to 48 bytes, and 48 / 12 == 4, not 3). The padding
+// itself is never read as data.
+// TODO: Remove: real stride and the chunk's own 16-byte alignment padding
+// both confirmed against all 1,043 real DETL-bearing files in the corpus,
+// WIKI_FINDINGS.md §11.
 void dumpDetl(json::Writer& w, const Chunk& c, uint32_t lightCount) {
     constexpr size_t kSize = 12;
     size_t n = std::min(static_cast<size_t>(lightCount), c.size / kSize);
@@ -1329,24 +1324,20 @@ void dumpDetl(json::Writer& w, const Chunk& c, uint32_t lightCount) {
 // for-byte the same chunked container a standalone .phys file's own bytes
 // are (wiki: "PHYS physics; char PADDING[6];"), plus up to 6 bytes of
 // trailing zero padding to the next alignment boundary. husk already has a
-// full, real-file-verified .phys parser (src/phys.hpp/phys.cpp,
-// WIKI_FINDINGS.md §9) -- this just points it at a different byte range.
-// husk::readChunks (which phys::parse calls internally) throws if trailing
-// bytes can't form another full chunk header, so the padding has to be
-// trimmed first, not handed to phys::parse verbatim.
-// physPayloadRealLength walks the same chunk sequence husk::readChunks
-// does but stops cleanly (rather than throwing) once fewer than 8 bytes
-// remain -- exactly the shape PADDING[6] produces -- confirmed empirically
-// (tests/test_dump.cpp) against a real committed .phys fixture's bytes
-// wrapped in a synthetic PFDC chunk before trusting this in dumpPfdc.
-// Verified against real M2 files: husk's own local extraction corpus
-// (/media/luna/data/wow_export) has zero PFDC-bearing files, but that was a
-// local-extraction gap, not a real absence -- a live-CASC full-corpus chunk
-// scan (casc-tool, product wow build 68887) found 2,430 real PFDC-bearing
-// files. One pulled directly from CASC (FileDataID 1003471) decodes cleanly
-// through this parser: a real version-6/phyt-3 body record, same shape
-// WIKI_FINDINGS.md §9's 103-file .phys sweep already verified. See
-// M2_COMPLETENESS.md.
+// full .phys parser (src/phys.hpp/phys.cpp) -- this just points it at a
+// different byte range. husk::readChunks (which phys::parse calls
+// internally) throws if trailing bytes can't form another full chunk
+// header, so the padding has to be trimmed first, not handed to
+// phys::parse verbatim. physPayloadRealLength walks the same chunk
+// sequence husk::readChunks does but stops cleanly (rather than throwing)
+// once fewer than 8 bytes remain -- exactly the shape PADDING[6] produces.
+// See M2_COMPLETENESS.md.
+// TODO: Remove: confirmed empirically (tests/test_dump.cpp) against a real
+// committed .phys fixture wrapped in a synthetic PFDC chunk. husk's local
+// extraction corpus has zero PFDC-bearing files (a local-extraction gap,
+// not a real absence) -- a live-CASC scan found 2,430 real PFDC files, one
+// pulled directly (FileDataID 1003471) decodes cleanly, see
+// WIKI_FINDINGS.md §9.
 size_t physPayloadRealLength(const uint8_t* d, size_t n) {
     size_t pos = 0;
     while (n - pos >= 8) {
@@ -1419,23 +1410,20 @@ void dumpExp2(json::Writer& w, const Chunk& c) {
 // wiki explicitly warns "there can be extra bytes between the data, use
 // the offsets" -- regions are read independently via their own offset, not
 // accumulated sequentially the way PLYT's header+data walk is (src/
-// phys.cpp's parsePolytopes). Confirmed empirically against all 2,354 real
-// PCOL-bearing files in the local corpus (WIKI_FINDINGS.md §10,
-// corrected from an earlier scanner bug's false "zero real files"):
-// every region's offset+count*stride lands fully in-bounds on every file,
-// every index value is in range for that same file's own vertexPosCount,
-// and indexCount == faceNormCount * 3 on all 2,354 (each faceNormal is a
-// per-triangle normal, matching M2's own core collisionFaceNormals shape)
-// -- but the two regions are *not* always contiguous (a real file was seen
-// with an 8-byte gap between the faceNormals region's end and indices'
-// own offset), consistent with the wiki's own warning, so no "regions
-// exactly fill the chunk" cross-check is meaningful here the way PLYT's
-// is. `flags`' per-record meaning is undocumented (wiki gives no field
-// name beyond "short flags[flagsCount]") -- exposed raw, not interpreted.
-// Diagnostic-only (`dump-chunks`), same class as EXP2/PFDC/DETL: no glTF
-// slot, since this is niche (War Within 11.1.7+ player-housing furniture
-// only) sidecar-shaped collision data, not core render geometry -- see
-// M2_COMPLETENESS.md.
+// phys.cpp's parsePolytopes). The two regions are *not* always contiguous
+// (a real file was seen with an 8-byte gap between the faceNormals
+// region's end and indices' own offset), consistent with the wiki's own
+// warning, so no "regions exactly fill the chunk" cross-check is
+// meaningful here the way PLYT's is. `flags`' per-record meaning is
+// undocumented (wiki gives no field name beyond "short flags[flagsCount]")
+// -- exposed raw, not interpreted. Diagnostic-only (`dump-chunks`), same
+// class as EXP2/PFDC/DETL: no glTF slot, since this is niche (War Within
+// 11.1.7+ player-housing furniture only) sidecar-shaped collision data,
+// not core render geometry -- see M2_COMPLETENESS.md.
+// TODO: Remove: confirmed empirically against all 2,354 real PCOL-bearing
+// files (every region in-bounds, every index in range, indexCount ==
+// faceNormCount * 3) -- corrected from an earlier scanner bug's false
+// "zero real files," see WIKI_FINDINGS.md §10.
 void dumpPcol(json::Writer& w, const Chunk& c) {
     uint32_t vertexPosCount = readU32(c.data, c.size, 0x00);
     uint32_t vertexPosOffset = readU32(c.data, c.size, 0x04);

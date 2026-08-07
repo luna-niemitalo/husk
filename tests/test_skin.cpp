@@ -1,8 +1,7 @@
 // Spec source: https://wowdev.wiki/M2/.skin "Header", "Vertices", "Indices",
 // "Submeshes", "Texture units" sections (fetched 2026-07-24). Offsets below
-// are typed out fresh from that page, not copied from src/skin.cpp -- same
-// independent-transcription rationale as tests/test_m2.cpp (see the comment
-// at the top of that file).
+// are typed out fresh from that page, not copied from src/skin.cpp -- see
+// TEST_DESIGN.md#Independent-transcription-convention.
 //
 // M2SkinProfile header (>= Wrath, which is every field this parser reads):
 //   0x00 magic (char[4], literal "SKIN", not reversed -- same M2-family
@@ -244,12 +243,12 @@ TEST_CASE("parseSubmeshes: reads vertexStart/vertexCount/indexStart/indexCount f
     CHECK(submeshes[1].indexCount == 9);
 }
 
-// Regression test for FAILURES2.md #1: skinSectionId (offset 0x00, the
-// "Mesh part ID"/geoset ID -- wowdev.wiki M2/.skin#Submeshes) was skipped
-// entirely by the original parser, which started reading at vertexStart
-// (0x04). Without it, husk had no way to even tell that two submeshes
-// belong to mutually-exclusive character-customization geosets (different
-// hairstyles, etc.) rather than both being part of the base mesh.
+// skinSectionId (offset 0x00, the "Mesh part ID"/geoset ID -- wowdev.wiki
+// M2/.skin#Submeshes) distinguishes mutually-exclusive character-
+// customization geosets (different hairstyles, etc.) from the base mesh.
+// TODO: Remove: regression test for FAILURES2.md #1 -- this field used to
+// be skipped entirely by the original parser, which started reading at
+// vertexStart (0x04).
 TEST_CASE("parseSubmeshes: reads skinSectionId (the geoset ID) at offset 0x00, distinct per entry") {
     std::vector<uint8_t> file(500, 0);
     size_t off = 200;

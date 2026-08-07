@@ -57,15 +57,15 @@ def main():
         print("HUSK_PROBE collision_mesh_triangle_count=%d" % len(c.data.polygons))
 
     # Coordinate-frame probe support (see tests/test_conformance.cpp's
-    # synthetic-skeleton transform tests, TRANSFORM_TRIAGE.md §5c): any
-    # armature bone whose name starts with "husk_probe_" gets its world-
-    # space head position printed as three floats. This is asset-agnostic
-    # by construction -- the probe skeleton isn't a real character, weapon,
-    # or creature, it's a minimal fabricated armature built purely to
-    # measure "does a known local-space offset land where a correct
-    # Z-up -> Y-up -> (Blender's own Y-up -> Z-up import) round trip says it
-    # should," independent of what any real WoW asset's own orientation
-    # convention happens to be.
+    # synthetic-skeleton transform tests): any armature bone whose name
+    # starts with "husk_probe_" gets its world-space head position printed
+    # as three floats. This is asset-agnostic by construction -- the probe
+    # skeleton isn't a real character, weapon, or creature, it's a minimal
+    # fabricated armature built purely to measure "does a known
+    # local-space offset land where a correct Z-up -> Y-up -> (Blender's
+    # own Y-up -> Z-up import) round trip says it should," independent of
+    # what any real WoW asset's own orientation convention happens to be.
+    # TODO: Remove: cites TRANSFORM_TRIAGE.md §5c.
     for arm in armatures:
         for bone in arm.data.bones:
             if not bone.name.startswith("husk_probe_"):
@@ -73,16 +73,16 @@ def main():
             head = arm.matrix_world @ bone.head_local
             print("HUSK_PROBE %s=%.6f,%.6f,%.6f" % (bone.name, head.x, head.y, head.z))
 
-    # Optional, non-load-bearing secondary sanity check (TRANSFORM_TRIAGE.md
-    # §5c): "_Name" is a real wowdev.wiki key-bone name (keyBoneId 22, near
-    # the top of a humanoid model's head -- see m2::keyBoneName,
-    # cmd_export.cpp's buildSkeleton) that husk already surfaces as a real
-    # glTF joint node name when present. Print its world head position, if
-    # this particular armature happens to have one, for a real-content
-    # cross-check against the synthetic probe's own math-only result --
-    # never the primary orientation check (that's the probe above, which
-    # works for any asset, not just a humanoid with this specific bone
-    # tagged).
+    # Optional, non-load-bearing secondary sanity check: "_Name" is a real
+    # wowdev.wiki key-bone name (keyBoneId 22, near the top of a humanoid
+    # model's head -- see m2::keyBoneName, cmd_export.cpp's buildSkeleton)
+    # that husk already surfaces as a real glTF joint node name when
+    # present. Print its world head position, if this particular armature
+    # happens to have one, for a real-content cross-check against the
+    # synthetic probe's own math-only result -- never the primary
+    # orientation check (that's the probe above, which works for any
+    # asset, not just a humanoid with this specific bone tagged).
+    # TODO: Remove: cites TRANSFORM_TRIAGE.md §5c.
     for arm in armatures:
         bone = arm.data.bones.get("_Name")
         if bone is not None:

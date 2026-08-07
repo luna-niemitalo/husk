@@ -43,19 +43,19 @@ tinygltf::Model loadBack(const std::vector<uint8_t>& glb) {
 
 }  // namespace
 
-// TRANSFORM_TRIAGE.md: wowdev.wiki M2#Vertices' literal "(X, Y, Z) become
-// (X, -Z, Y)" text, implemented as-is (the formula this test used to
-// assert), composes with Blender's own glTF-import axis conversion to a
-// net 180-degree flip -- confirmed via a real headless-Blender import
-// landing a head-height landmark bone below a feet-height one -- rather
-// than the identity a correct round trip requires. (X, Z, -Y), asserted
-// below, is the corrected formula: independently confirmed against
-// reference/wow.export's own (differently-derived) conversion code, and
-// empirically confirmed to produce a right-side-up import via the same
-// headless-Blender check (see the synthetic coordinate-frame probe in
-// tests/test_conformance.cpp, which exercises this through the real
-// Blender import path, not just this function in isolation).
-TEST_CASE("zUpToYUp: (X, Y, Z) becomes (X, Z, -Y) -- the corrected formula, see TRANSFORM_TRIAGE.md") {
+// (X, Z, -Y) is the corrected WoW Z-up -> glTF Y-up formula: independently
+// confirmed against reference/wow.export's own (differently-derived)
+// conversion code, and empirically confirmed to produce a right-side-up
+// import via a real headless-Blender check (see the synthetic
+// coordinate-frame probe in tests/test_conformance.cpp, which exercises
+// this through the real Blender import path, not just this function in
+// isolation).
+// TODO: Remove: TRANSFORM_TRIAGE.md -- the formula this test used to
+// assert before the fix ((X, -Z, Y), per wowdev.wiki's literal text)
+// composed with Blender's own import conversion into a net 180-degree
+// flip, not the identity a correct round trip requires (confirmed via a
+// real headless-Blender import landing a head-height landmark bone below a feet-height one).
+TEST_CASE("zUpToYUp: (X, Y, Z) becomes (X, Z, -Y) -- the corrected formula") {
     husk::gltf::Vec3 in{1, 2, 3};
     auto out = husk::gltf::zUpToYUp(in);
     CHECK(out.x == doctest::Approx(1));
@@ -64,7 +64,7 @@ TEST_CASE("zUpToYUp: (X, Y, Z) becomes (X, Z, -Y) -- the corrected formula, see 
 }
 
 TEST_CASE("scaleZUpToYUp: (X, Y, Z) becomes (X, Z, Y) -- unsigned, unaffected by the "
-          "position-formula fix (TRANSFORM_TRIAGE.md §4)") {
+          "position-formula's sign convention") {
     husk::gltf::Vec3 in{1, 2, 3};
     auto out = husk::gltf::scaleZUpToYUp(in);
     CHECK(out.x == doctest::Approx(1));
@@ -105,19 +105,20 @@ bool approxEqual(const husk::gltf::Vec3& a, const husk::gltf::Vec3& b, float eps
 
 }  // namespace
 
-// The property TRANSFORM_TRIAGE.md §5a's "mechanically derive rotation from
-// the same matrix as position, don't hand-derive it separately" design
-// exists to guarantee: rotating a vector by q, then converting to glTF
-// space, must equal converting the vector to glTF space first and then
-// rotating by the converted quaternion. This isn't a claim about which
-// concrete matrix is "correct" for WoW (that's zUpToYUp's own literal-value
-// test, cross-checked against wow.export and a real Blender import
-// elsewhere) -- it's a check that rotationZUpToYUp's own implementation
-// (quaternion -> matrix -> conjugate -> quaternion) is internally
-// consistent with zUpToYUp for *any* rotation, catching an implementation
-// bug in the conversion machinery itself (a sign error in the matrix<->quat
-// round trip, say) independently of whether the underlying WoW->glTF matrix
-// is the historically-buggy one or the corrected one.
+// This test exists to guarantee a property, not a specific value:
+// "mechanically derive rotation from the same matrix as position, don't
+// hand-derive it separately" -- rotating a vector by q, then converting to
+// glTF space, must equal converting the vector to glTF space first and
+// then rotating by the converted quaternion. This isn't a claim about
+// which concrete matrix is "correct" for WoW (that's zUpToYUp's own
+// literal-value test, cross-checked against wow.export and a real Blender
+// import elsewhere) -- it's a check that rotationZUpToYUp's own
+// implementation (quaternion -> matrix -> conjugate -> quaternion) is
+// internally consistent with zUpToYUp for *any* rotation, catching an
+// implementation bug in the conversion machinery itself (a sign error in
+// the matrix<->quat round trip, say) independently of which underlying
+// WoW->glTF matrix is in use.
+// TODO: Remove: TRANSFORM_TRIAGE.md §5a citation for this design's origin.
 TEST_CASE("rotationZUpToYUp: converting-then-rotating equals rotating-then-converting, for "
           "several real test rotations") {
     struct Case {
@@ -397,7 +398,7 @@ TEST_CASE("writeGlb: a joint's billboardMode becomes a \"billboard\" key in its 
 }
 
 TEST_CASE("writeGlb: a skeleton's correctionSets round-trip as bone_correction_sets on the "
-          "skin's extras (WIKI_FINDINGS.md §4/TODO_correctness.md #3)") {
+          "skin's extras") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();
 
@@ -915,14 +916,14 @@ TEST_CASE("writeGlb: a material's baseColorImagePng is embedded as a real glTF i
     REQUIRE(model.materials[0].pbrMetallicRoughness.baseColorTexture.index == 0);
 }
 
-// Regression tests for FAILURES2.md #1/#6: geoset (skinSectionId) and
-// multi-texture-layer metadata are exposed as inert glTF `extras` -- husk
-// doesn't filter geosets or fake WoW's texture-combiner math, but a custom
-// renderer or Blender script (mesh mask / geometry nodes / driven material)
-// can use this to implement its own selection, the same "tag it, don't
-// guess at semantics" treatment `billboardMode` already gets (see
-// gltf.hpp's Primitive::skinSectionId / Material::AdditionalTextureLayer
-// doc comments).
+// geoset (skinSectionId) and multi-texture-layer metadata are exposed as
+// inert glTF `extras` -- husk doesn't filter geosets or fake WoW's
+// texture-combiner math, but a custom renderer or Blender script (mesh
+// mask / geometry nodes / driven material) can use this to implement its
+// own selection, the same "tag it, don't guess at semantics" treatment
+// `billboardMode` already gets (see gltf.hpp's Primitive::skinSectionId /
+// Material::AdditionalTextureLayer doc comments).
+// TODO: Remove: FAILURES2.md #1/#6 (the findings these are regression tests for).
 TEST_CASE("writeGlb: a primitive's skinSectionId round-trips as geoset_id/group/variant extras") {
     auto mesh = buildTriangleMesh();
     mesh.primitives[0].skinSectionId = 401;  // group 4, variant 1
@@ -1004,7 +1005,7 @@ TEST_CASE("writeGlb: a material with no additionalTextureLayers gets no such ext
     CHECK_FALSE(model.materials[0].extras.IsObject());
 }
 
-TEST_CASE("writeGlb: a material's textureTransform round-trips as extras (FINDINGS.md §3.1)") {
+TEST_CASE("writeGlb: a material's textureTransform round-trips as extras") {
     auto mesh = buildTriangleMesh();
     mesh.primitives[0].materialIndex = 0;
 
@@ -1108,9 +1109,8 @@ TEST_CASE("writeGlb: a material with textureType == 0 gets no 'texture_type' ext
 // gltf.hpp's Material::baseColorTextureFileDataId doc comment: this is
 // recorded independently of which local file actually supplied
 // baseColorImagePng -- a real FileDataID resolved by husk stays traceable
-// even when a differently-named file won the embed (TRANSFORM_TRIAGE.md-
-// style "tag it, don't guess at semantics" precedent, same shape as
-// textureType above).
+// even when a differently-named file won the embed (same "tag it, don't
+// guess at semantics" treatment as textureType above).
 TEST_CASE("writeGlb: a material's nonzero baseColorTextureFileDataId round-trips as "
           "'texture_file_data_id' extras") {
     auto mesh = buildTriangleMesh();
@@ -1289,19 +1289,19 @@ TEST_CASE("writeGlb: textureType/tintAnimation/fade_animation extras coexist wit
     CHECK(extras.Get("fade_animation").Get("alpha").IsArray());
 }
 
-// Regression test for FAILURES2.md #2: glTF 2.0 requires every accessor's
-// total byte offset to be a multiple of its component type's size (4 bytes
-// for the FLOAT/UNSIGNED_INT accessors husk emits) -- the
-// ACCESSOR_TOTAL_OFFSET_ALIGNMENT rule the Khronos glTF-Validator enforces.
-// Before the fix, appendBufferView never padded the shared buffer, so an
-// embedded image of a byte length that wasn't itself a multiple of 4 (true
-// of essentially every real PNG, and true of this fixture's own 70-byte
-// onePixelPng, reused from the test above) silently misaligned every
-// bufferView appended after it -- concretely, the very next primitive's
-// index accessor. Checked generically (every bufferView in the whole
-// document, not just the one known-affected pair) so this also guards the
-// inverse-bind-matrix/animation-sampler buffer views against the same class
-// of regression.
+// glTF 2.0 requires every accessor's total byte offset to be a multiple of
+// its component type's size (4 bytes for the FLOAT/UNSIGNED_INT accessors
+// husk emits) -- the ACCESSOR_TOTAL_OFFSET_ALIGNMENT rule the Khronos
+// glTF-Validator enforces. An embedded image of a byte length that isn't
+// itself a multiple of 4 (true of essentially every real PNG, and true of
+// this fixture's own 70-byte onePixelPng, reused from the test above)
+// would silently misalign every bufferView appended after it -- concretely,
+// the very next primitive's index accessor -- if appendBufferView didn't
+// pad the shared buffer. Checked generically (every bufferView in the
+// whole document, not just the one known-affected pair) so this also
+// guards the inverse-bind-matrix/animation-sampler buffer views against
+// the same class of regression.
+// TODO: Remove: FAILURES2.md #2 (the finding this is a regression test for).
 TEST_CASE("writeGlb: every bufferView stays 4-byte aligned even after an odd-length embedded image") {
     auto mesh = buildTriangleMesh();
     mesh.primitives[0].materialIndex = 0;
@@ -1576,7 +1576,7 @@ TEST_CASE("writeGlb: an animation joint with mismatched time/value counts throws
 }
 
 TEST_CASE("writeGlb: an animation's sequenceMetadata round-trips as sequence_metadata on the clip's "
-          "own extras (M2_GAPS_TODO.md's former Item 1)") {
+          "own extras") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();
 

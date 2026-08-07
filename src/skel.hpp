@@ -43,9 +43,10 @@
 //   - `BFID`: same flat-uint32-FileDataID-array shape as an M2's own BFID
 //     chunk (husk::m2::Header::boneFileDataIds) -- this .skel's own table
 //     of `.bone` sidecar files (see src/bone.hpp), used the same way: no
-//     resolution to a real path, no default-slot selection (WIKI_FINDINGS.md
-//     §4/TODO_correctness.md #3 -- that's client-side customization-choice
-//     data husk doesn't have), just the raw FileDataID list.
+//     resolution to a real path, no default-slot selection -- that's
+//     client-side customization-choice data husk doesn't have -- just the
+//     raw FileDataID list.
+//     TODO: Remove: see WIKI_FINDINGS.md §4/TODO_correctness.md #3.
 // `SKB1`'s `key_bone_lookup` field, and every other .skel chunk (`SKL1`,
 // `SKA1`, `SKPD`), are out of scope for now.
 namespace husk::skel {
@@ -93,7 +94,7 @@ std::vector<m2::Sequence> parseSequences(const std::vector<uint8_t>& fileBytes);
 // animations "does not even have an AFID chunk"). Throws ParseError if the
 // chunk exists but its byte length isn't a multiple of 8 (one {anim_id,
 // sub_anim_id, file_id} record) -- a truncated/corrupted chunk, not a case
-// to silently drop the last partial entry for (FAILURES2.md #8).
+// to silently drop the last partial entry for.
 std::optional<std::vector<m2::Header::AnimFileEntry>> findAnimFileIds(
     const std::vector<uint8_t>& fileBytes);
 
@@ -103,8 +104,8 @@ std::optional<std::vector<m2::Header::AnimFileEntry>> findAnimFileIds(
 // Returns nullopt if there's no BFID chunk at all. Throws ParseError if the
 // chunk exists but its byte length isn't a multiple of 4 (one FileDataID
 // per entry) -- a truncated/corrupted chunk, not a case to silently drop
-// the last partial entry for (same FAILURES2.md #8 discipline as
-// findAnimFileIds above).
+// the last partial entry for (same invariant findAnimFileIds above
+// checks).
 std::optional<std::vector<uint32_t>> findBoneFileDataIds(const std::vector<uint8_t>& fileBytes);
 
 }  // namespace husk::skel

@@ -1,25 +1,17 @@
-// Runs the actual compiled `husk` binary against a real, game-extracted M2
-// file. Deliberately not mocked, and deliberately not asserting on any
-// specific model's field values (those belong in test_m2.cpp's synthetic
-// fixtures, which encode the spec) -- this tier only answers "does it
-// survive contact with a real file from the live game," the same
-// smoke-test role test_integration.cpp plays in casc-tool.
-//
-// Every fixture below resolves via tests/test_data_paths.hpp: an explicit
-// HUSK_TEST_* env var (pointing at a different real model) always wins;
-// otherwise it falls back to this repo's own gitignored test_data/
-// directory when the matching file is actually there. Either way, a test
-// whose fixture doesn't resolve is marked `* doctest::skip(...)` -- it
-// shows up as a distinct, non-zero "skipped" count in doctest's own
-// summary (see test_main.cpp's startup banner for *why*), not folded
-// silently into "passed" the way a runtime `return` would report it.
+// Integration tier (see TEST_DESIGN.md#Four-tier-architecture) -- runs the
+// actual compiled `husk` binary against real, game-extracted fixtures.
+// Deliberately not mocked, and deliberately not asserting on any specific
+// model's field values (those belong in test_m2.cpp's synthetic fixtures) --
+// see TEST_DESIGN.md#Shape-only-vs-exact-checks for what these do assert
+// instead. Fixture resolution: see TEST_DESIGN.md#Fixture-resolution-model
+// and tests/test_data_paths.hpp.
 //
 // A mismatched .skin (wrong model/LOD) is a real failure mode, not
 // something to silently tolerate: skin::resolveTriangleIndices/cmd_export's
-// own bounds check will throw if the skin references M2 vertices that don't
-// exist, so HUSK_TEST_MISMATCHED_SKIN needs to actually be from a
-// different model (the default, bloodelffemale_hd00.skin, is -- it's a
-// separate, higher-poly M2's sidecar, not an LOD of the base model).
+// own bounds check throws if the skin references M2 vertices that don't
+// exist, so HUSK_TEST_MISMATCHED_SKIN needs to actually be from a different
+// model (the default, bloodelffemale_hd00.skin, is -- a separate,
+// higher-poly M2's sidecar, not an LOD of the base model).
 
 #include <cctype>
 #include <cmath>
@@ -62,10 +54,9 @@ using husk::test::testWeaponPhys;
 using husk::test::testWeaponPhysSkin;
 using husk::test::testWeaponRibbon;
 
-// Shape-only skinning check: a real character model has bones, so this
-// must have produced a glTF skin, not silently dropped it. Doesn't assert
-// any model-specific bone count -- that belongs in test_m2.cpp's/
-// test_skel.cpp's synthetic tests.
+// Shape-only check (see TEST_DESIGN.md#Shape-only-vs-exact-checks): a real
+// character model has bones, so this must have produced a glTF skin, not
+// silently dropped it.
 void checkSkinnedGlb(const std::string& outPath) {
     tinygltf::TinyGLTF loader;
     tinygltf::Model model;
@@ -81,6 +72,94 @@ void checkSkinnedGlb(const std::string& outPath) {
     const auto& prim = model.meshes[0].primitives[0];
     CHECK(prim.attributes.count("JOINTS_0") == 1);
     CHECK(prim.attributes.count("WEIGHTS_0") == 1);
+}
+
+// Full per-keyframe sanity coverage (every rotation component finite and
+// unit-norm, every translation component finite) for one real animation
+// clip, aggregated into a single pass/fail verdict instead of one CHECK
+// per scalar -- see TEST_DESIGN.md#Shape-only-vs-exact-checks. Nothing is
+// skipped: every keyframe of the clip is still walked and checked here,
+// just reported as one assertion per clip so a failure names the clip and
+// the specific bad keyframe directly, instead of the coverage depth alone
+// determining how many lines of "x works" output a passing run produces.
+struct AnimationSanityResult {
+    size_t rotationKeyframesChecked = 0;
+    size_t translationKeyframesChecked = 0;
+    std::vector<std::string> problems;
+};
+
+AnimationSanityResult checkAnimationKeyframesSane(const tinygltf::Model& model,
+                                                   const tinygltf::Animation& anim) {
+    AnimationSanityResult result;
+    for (const auto& ch : anim.channels) {
+        const auto& samp = anim.samplers[ch.sampler];
+        const auto& acc = model.accessors[samp.output];
+        const auto& view = model.bufferViews[acc.bufferView];
+        const auto& buf = model.buffers[view.buffer];
+        if (ch.target_path == "rotation") {
+            std::vector<float> vals(acc.count * 4);
+            std::memcpy(vals.data(), buf.data.data() + view.byteOffset + acc.byteOffset,
+                        vals.size() * sizeof(float));
+            for (size_t i = 0; i < vals.size(); i += 4) {
+                float x = vals[i], y = vals[i + 1], z = vals[i + 2], w = vals[i + 3];
+                size_t keyframe = i / 4;
+                if (!(std::isfinite(x) && std::isfinite(y) && std::isfinite(z) && std::isfinite(w))) {
+                    result.problems.push_back(
+                        "rotation keyframe " + std::to_string(keyframe) +
+                        ": expected a finite quaternion, got (" + std::to_string(x) + ", " +
+                        std::to_string(y) + ", " + std::to_string(z) + ", " + std::to_string(w) + ")");
+                } else {
+                    float norm = std::sqrt(x * x + y * y + z * z + w * w);
+                    if (std::abs(norm - 1.0f) > 0.05f) {
+                        result.problems.push_back("rotation keyframe " + std::to_string(keyframe) +
+                                                   ": expected unit norm (1.0 +/- 0.05), got " +
+                                                   std::to_string(norm));
+                    }
+                }
+                ++result.rotationKeyframesChecked;
+            }
+        } else if (ch.target_path == "translation") {
+            std::vector<float> vals(acc.count * 3);
+            std::memcpy(vals.data(), buf.data.data() + view.byteOffset + acc.byteOffset,
+                        vals.size() * sizeof(float));
+            for (size_t i = 0; i < vals.size(); ++i) {
+                if (!std::isfinite(vals[i])) {
+                    result.problems.push_back("translation keyframe " + std::to_string(i / 3) +
+                                               " component " + std::to_string(i % 3) +
+                                               ": expected a finite value, got " +
+                                               std::to_string(vals[i]));
+                }
+            }
+            result.translationKeyframesChecked += acc.count;
+        }
+    }
+    return result;
+}
+
+// Runs checkAnimationKeyframesSane over every clip in `model`, one CHECK
+// per clip: a failure's message names the clip and up to 5 concrete bad
+// keyframes (with a remaining-count if there are more), a direct trace
+// straight to the offending data instead of a wall of individual
+// pass/fail lines. Returns the total keyframe counts so callers can still
+// assert "at least one real clip/keyframe was actually exercised."
+AnimationSanityResult checkAllAnimationsSane(const tinygltf::Model& model) {
+    AnimationSanityResult totals;
+    for (const auto& anim : model.animations) {
+        auto result = checkAnimationKeyframesSane(model, anim);
+        totals.rotationKeyframesChecked += result.rotationKeyframesChecked;
+        totals.translationKeyframesChecked += result.translationKeyframesChecked;
+        std::string detail;
+        constexpr size_t kMaxShown = 5;
+        for (size_t i = 0; i < result.problems.size() && i < kMaxShown; ++i) {
+            detail += "\n  " + result.problems[i];
+        }
+        if (result.problems.size() > kMaxShown) {
+            detail += "\n  ... and " + std::to_string(result.problems.size() - kMaxShown) + " more";
+        }
+        CHECK_MESSAGE(result.problems.empty(), "clip '", anim.name, "' had ", result.problems.size(),
+                      " sanity problem(s)", detail);
+    }
+    return totals;
 }
 
 }  // namespace
@@ -205,46 +284,23 @@ TEST_CASE("husk export: real M2 + .skin produces real glTF animation clips with 
     // playable character) or something upstream broke silently.
     CHECK(model.animations.size() > 0);
 
-    size_t rotationKeyframesChecked = 0;
-    for (const auto& anim : model.animations) {
-        for (const auto& ch : anim.channels) {
-            if (ch.target_path != "rotation") continue;
-            const auto& samp = anim.samplers[ch.sampler];
-            const auto& acc = model.accessors[samp.output];
-            const auto& view = model.bufferViews[acc.bufferView];
-            const auto& buf = model.buffers[view.buffer];
-            std::vector<float> vals(acc.count * 4);
-            std::memcpy(vals.data(), buf.data.data() + view.byteOffset + acc.byteOffset,
-                        vals.size() * sizeof(float));
-            for (size_t i = 0; i < vals.size(); i += 4) {
-                float x = vals[i], y = vals[i + 1], z = vals[i + 2], w = vals[i + 3];
-                CHECK(std::isfinite(x));
-                CHECK(std::isfinite(y));
-                CHECK(std::isfinite(z));
-                CHECK(std::isfinite(w));
-                float norm = std::sqrt(x * x + y * y + z * z + w * w);
-                CHECK(norm == doctest::Approx(1.0f).epsilon(0.05));
-                ++rotationKeyframesChecked;
-            }
-        }
-    }
-    CHECK(rotationKeyframesChecked > 0);
+    AnimationSanityResult totals = checkAllAnimationsSane(model);
+    CHECK(totals.rotationKeyframesChecked > 0);
 
     std::filesystem::remove(outPath);
 }
 
 TEST_CASE(
     "husk export: a .skel-sourced model's external AFSB-shaped .anim files resolve real, "
-    "sane (unit-norm, finite) animation clips, end to end (WIKI_FINDINGS.md §2's follow-up)" *
+    "sane (unit-norm, finite) animation clips, end to end" *
     doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
                   testAnimDir().empty())) {
-    // Every real bloodelffemale_hd_*.anim file carries AFSB, not AFM2 --
-    // per WIKI_FINDINGS.md §2, this was the single biggest unresolved
-    // animation gap in the project (essentially 0% external-animation
-    // coverage for any modern, .skel-linked character model). This test is
-    // the real-data proof the crack holds, mirroring the inline-animation
-    // sanity check above rather than asserting on one specific clip's exact
-    // values (those belong in test_cli.cpp's synthetic fixtures).
+    // Every real bloodelffemale_hd_*.anim file carries AFSB, not AFM2. This
+    // test mirrors the inline-animation sanity check above rather than
+    // asserting on one specific clip's exact values (those belong in
+    // test_cli.cpp's synthetic fixtures).
+    // TODO: Remove: cites WIKI_FINDINGS.md §2; historical framing ("the
+    // single biggest unresolved animation gap... essentially 0% coverage").
     std::string m2Path = testSkelM2();
     std::string skinPath = testSkelSkin();
     std::string skelPath = testSkel();
@@ -273,17 +329,17 @@ TEST_CASE(
     CHECK(model.animations.size() > 100);
 
     // The count check above passes on inline + global-sequence clips alone
-    // and doesn't actually prove the external-.anim-file path ran: --anim's
-    // resolution used to only look for '<FileDataID>.anim', but this .skel
-    // has no AFID entries mapping to the committed
-    // bloodelffemale_hd0069-00.anim/-01.anim fixtures -- they only resolve
-    // via findAnimFileByBasename's same-basename fallback (DESIGN.md's AFSB
-    // design note, WIKI_FINDINGS.md §2). These two
-    // clip names are exact and known in advance: animId=69,
-    // variationIndex={0,1}, named "anim_" + id + "_" + variationIndex
-    // (buildAnimations, cmd_export.cpp) -- concrete proof the basename
-    // fallback resolved real, correctly-named, on-disk files through husk's
-    // actual --anim CLI mechanism, not just a loose count.
+    // and doesn't prove the external-.anim-file path ran -- this .skel has
+    // no AFID entries mapping to the committed
+    // bloodelffemale_hd0069-00.anim/-01.anim fixtures, so they only resolve
+    // via findAnimFileByBasename's same-basename fallback (see
+    // DESIGN.md#Key-design-decisions' AFSB design note). anim_69_0/
+    // anim_69_1 are exact, known-in-advance clip names (animId=69,
+    // variationIndex={0,1}, buildAnimations in cmd_export.cpp) --
+    // mutation-tested (see TEST_DESIGN.md#Mutation-tested-regressions):
+    // both names are absent without the basename-fallback fix, present
+    // with it.
+    // TODO: Remove: cites WIKI_FINDINGS.md §2.
     bool foundAnim69_0 = false;
     bool foundAnim69_1 = false;
     for (const auto& anim : model.animations) {
@@ -293,39 +349,9 @@ TEST_CASE(
     CHECK(foundAnim69_0);
     CHECK(foundAnim69_1);
 
-    size_t rotationKeyframesChecked = 0;
-    size_t translationKeyframesChecked = 0;
-    for (const auto& anim : model.animations) {
-        for (const auto& ch : anim.channels) {
-            const auto& samp = anim.samplers[ch.sampler];
-            const auto& acc = model.accessors[samp.output];
-            const auto& view = model.bufferViews[acc.bufferView];
-            const auto& buf = model.buffers[view.buffer];
-            if (ch.target_path == "rotation") {
-                std::vector<float> vals(acc.count * 4);
-                std::memcpy(vals.data(), buf.data.data() + view.byteOffset + acc.byteOffset,
-                            vals.size() * sizeof(float));
-                for (size_t i = 0; i < vals.size(); i += 4) {
-                    float x = vals[i], y = vals[i + 1], z = vals[i + 2], w = vals[i + 3];
-                    CHECK(std::isfinite(x));
-                    CHECK(std::isfinite(y));
-                    CHECK(std::isfinite(z));
-                    CHECK(std::isfinite(w));
-                    float norm = std::sqrt(x * x + y * y + z * z + w * w);
-                    CHECK(norm == doctest::Approx(1.0f).epsilon(0.05));
-                    ++rotationKeyframesChecked;
-                }
-            } else if (ch.target_path == "translation") {
-                std::vector<float> vals(acc.count * 3);
-                std::memcpy(vals.data(), buf.data.data() + view.byteOffset + acc.byteOffset,
-                            vals.size() * sizeof(float));
-                for (float v : vals) CHECK(std::isfinite(v));
-                translationKeyframesChecked += acc.count;
-            }
-        }
-    }
-    CHECK(rotationKeyframesChecked > 0);
-    CHECK(translationKeyframesChecked > 0);
+    AnimationSanityResult totals = checkAllAnimationsSane(model);
+    CHECK(totals.rotationKeyframesChecked > 0);
+    CHECK(totals.translationKeyframesChecked > 0);
 
     std::filesystem::remove(outPath);
 }
@@ -333,29 +359,20 @@ TEST_CASE(
 TEST_CASE(
     "husk export: bloodelffemale_hd's real M2Sequence fields (movespeed/aliasNext/isAlias) come "
     "through as per-clip sequence_metadata extras, and real alias sequences don't regress the "
-    "clip count (M2_GAPS_TODO.md's former Item 1, WIKI_FINDINGS.md §12's follow-up)" *
+    "clip count" *
     doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
                   testAnimDir().empty())) {
-    // WIKI_FINDINGS.md §12 found 38 real alias sequences (flags & 0x40) in
-    // this exact .skel: 31 also carry flags & 0x20 (inline) -- those are
-    // unaffected by the aliasNext fix (their own inline data already wins
-    // priority, same as before it existed) -- and the remaining 7 are
-    // "pure" aliases whose resolved terminal sequence requires an external
-    // .anim file. All 7 of those terminal files genuinely exist in the
-    // full real corpus (confirmed by hand against
-    // /media/luna/data/wow_export), but none of the 6 distinct files they
-    // need (bloodelffemale_hd0060/61/62/84/113/123-00.anim) happen to be
-    // among the ~104 .anim files committed to this repo's own test_data/
-    // subset -- so against *this* fixture set specifically, the real,
-    // measured effect of the fix is zero net new clips, not "up to 38" (a
-    // real answer to the open question the original implementation plan
-    // flagged: "don't assume every alias necessarily gains a clip without
-    // checking"). What the fix *does* change for this fixture: those 7
-    // pure aliases now attempt real resolution (and cleanly fall back to
-    // "not available locally," same as any other unresolvable external
-    // sequence) instead of being skipped outright -- this test's job is to
-    // prove that path doesn't crash and doesn't change the clip count, not
-    // to prove growth that isn't actually there for this specific data.
+    // This .skel has 38 real alias sequences (flags & 0x40); 31 also carry
+    // flags & 0x20 (inline) and are unaffected by alias resolution. Of the
+    // remaining 7 "pure" aliases, none of their resolved terminal .anim
+    // files are among the ~104 committed to this repo's test_data/ subset --
+    // so for this exact fixture set, the measured effect of alias
+    // resolution is zero net new clips. This test's job is to prove that
+    // path doesn't crash and doesn't change the clip count, not to prove
+    // growth that isn't there for this specific data.
+    // TODO: Remove: full investigation narrative cited WIKI_FINDINGS.md §12
+    // (38 alias sequences, corpus cross-check against
+    // /media/luna/data/wow_export, M2_GAPS_TODO.md's original open question).
     std::string m2Path = testSkelM2();
     std::string skinPath = testSkelSkin();
     std::string skelPath = testSkel();
@@ -377,11 +394,12 @@ TEST_CASE(
     INFO("tinygltf error: ", gltfErr);
     REQUIRE(loaded);
 
-    // The exact, previously-measured clip count for this exact fixture set
-    // (WIKI_FINDINGS.md §2's follow-up) -- pinned deliberately, unlike the
-    // AFSB test's own conservative ">100" bound above, since this test's
-    // whole point is confirming the aliasNext fix doesn't change it for
-    // this specific data (see the comment above).
+    // The exact, previously-measured clip count for this fixture set --
+    // pinned deliberately, unlike the AFSB test's own conservative ">100"
+    // bound above, since this test's whole point is confirming the
+    // aliasNext fix doesn't change it for this specific data (see the
+    // comment above).
+    // TODO: Remove: cites WIKI_FINDINGS.md §2's follow-up.
     CHECK(model.animations.size() == 338);
 
     auto findAnim = [&](const std::string& name) -> const tinygltf::Animation* {
@@ -391,13 +409,12 @@ TEST_CASE(
         return nullptr;
     };
 
-    // anim_804_0: a real sequence with flags 0x60 (both inline AND alias)
-    // -- confirmed by hand (tools/check_alias_next.py-style byte read)
-    // to be one of the 31 "both flags" real sequences. Its own
+    // anim_804_0: a real sequence with flags 0x60 (both inline AND alias) --
+    // one of the 31 "both flags" real sequences. Its own
     // sequence_metadata.is_alias should read true (raw flags exposed
     // verbatim), even though its keyframe data comes from its own inline
-    // tracks, not a resolved alias chain (see cmd_export.cpp's
-    // buildAnimations doc comment for why 0x20 wins priority).
+    // tracks, not a resolved alias chain (0x20 wins priority -- see
+    // cmd_export.cpp's buildAnimations doc comment).
     const auto* bothFlags = findAnim("anim_804_0");
     REQUIRE(bothFlags != nullptr);
     REQUIRE(bothFlags->extras.IsObject());
@@ -407,11 +424,10 @@ TEST_CASE(
     }
 
     // anim_0_0 ("Stand", AnimationData.dbc id 0 -- WoW's own universal
-    // convention) and anim_5_0 (a locomotion sequence) are both real,
-    // plain (non-alias) inline sequences -- real movespeed values
-    // confirmed by hand: 0.0 and 7.0 respectively, exactly matching
-    // M2_GAPS_TODO.md's own test-plan prediction ("a locomotion sequence
-    // should have nonzero movespeed, a 'Stand' sequence should have zero").
+    // convention) and anim_5_0 (a locomotion sequence) are both real, plain
+    // (non-alias) inline sequences -- real movespeed values: 0.0 and 7.0
+    // respectively.
+    // TODO: Remove: cites M2_GAPS_TODO.md's (deleted) test-plan prediction.
     const auto* stand = findAnim("anim_0_0");
     REQUIRE(stand != nullptr);
     REQUIRE(stand->extras.IsObject());
@@ -480,9 +496,7 @@ TEST_CASE("husk export: real M2 + .skin resolves per-batch materials with a plau
     // hair, tabard, ...) that don't all share one blend mode -- if every
     // primitive ended up OPAQUE, the batch->material resolution chain
     // silently fell back to defaults instead of actually reading the
-    // .skin's batches. Shape-only, per this file's own stated philosophy
-    // -- exact per-material values belong in tests/test_m2.cpp/test_skin.cpp's
-    // synthetic fixtures.
+    // .skin's batches (see TEST_DESIGN.md#Shape-only-vs-exact-checks).
     REQUIRE(model.meshes[0].primitives.size() > 1);
     REQUIRE(model.materials.size() > 1);
     std::set<std::string> alphaModes;
@@ -596,7 +610,7 @@ TEST_CASE(
 
 TEST_CASE(
     "husk export: --bones-dir attaches real .bone correction data as inert skin extras, end to "
-    "end (WIKI_FINDINGS.md §4/TODO_correctness.md #3)" *
+    "end" *
     doctest::skip(testSkelM2().empty() || testSkelSkin().empty() || testSkel().empty() ||
                   testBonesDir().empty())) {
     std::string m2Path = testSkelM2();
@@ -639,10 +653,10 @@ TEST_CASE(
 
 // Real ribbon/particle emitter data (weapon models -- see
 // tests/test_data_paths.hpp's kWeaponRibbon/kWeaponParticleA/B/Stress doc
-// comment for how these were chosen out of a 4112-file scan). Checks the
-// exported .glb's skin extras ribbon_emitters/particle_emitters anchor
-// arrays against the real header counts -- exact, not a tolerance, same
-// precedent the collision-mesh work established (see CLAUDE.md's Resume).
+// comment for how these were chosen). Checks the exported .glb's skin
+// extras ribbon_emitters/particle_emitters anchor arrays against the real
+// header counts -- exact, not a tolerance.
+// TODO: Remove: cites CLAUDE.md's Resume precedent.
 void checkEmitterAnchorCounts(const std::string& m2Path, size_t expectedRibbons,
                                size_t expectedParticles) {
     auto header = husk::m2::loadFile(m2Path);
@@ -967,22 +981,21 @@ TEST_CASE("husk dump-chunks: a real weapon's particle_emitters JSON resolves pla
     CHECK(result.output.find("\"value\": null") == std::string::npos);
 }
 
-// TODO_correctness.md #3: cross-checks cmd_export.cpp's
-// textureComboIndex+layer / textureCoordComboIndex+layer arithmetic (see
-// its own doc comment, "Additional texture layers") against an
-// independent resolution computed straight from husk::m2::parseHeader/
-// husk::m2::extractBlob/husk::m2::parseUint16Array and
-// husk::skin::parseHeader/parseBatches -- the same public, already
-// unit-tested parsing primitives test_m2.cpp/test_skin.cpp exercise, not
-// cmd_export.cpp's own internal buildMaterialsAndPrimitives (which isn't
-// exposed outside that translation unit). Deliberately model-agnostic:
-// this doesn't hardcode any fixture's specific FileDataIDs or batch
-// layout, so it stays meaningful if HUSK_TEST_MULTITEX_*/
-// HUSK_TEST_COORDCOMBO_* ever point at a different real file (see
-// test_data_paths.hpp's fixture doc comment for how these two were
-// found -- a 287k-file .skin scan and a 130k-file .m2 scan of Luna's own
-// real WoW extraction). Requires at least one real textureCount > 1
-// batch to actually exercise the arithmetic, not just skip it.
+// Cross-checks cmd_export.cpp's textureComboIndex+layer /
+// textureCoordComboIndex+layer arithmetic (see its own doc comment,
+// "Additional texture layers") against an independent resolution computed
+// straight from husk::m2::parseHeader/husk::m2::extractBlob/
+// husk::m2::parseUint16Array and husk::skin::parseHeader/parseBatches --
+// the same public, already unit-tested parsing primitives
+// test_m2.cpp/test_skin.cpp exercise, not cmd_export.cpp's own internal
+// buildMaterialsAndPrimitives (not exposed outside that translation unit).
+// Deliberately model-agnostic: doesn't hardcode any fixture's specific
+// FileDataIDs or batch layout, so it stays meaningful if
+// HUSK_TEST_MULTITEX_*/HUSK_TEST_COORDCOMBO_* ever point at a different
+// real file. Requires at least one real textureCount > 1 batch to actually
+// exercise the arithmetic, not just skip it.
+// TODO: Remove: cites TODO_correctness.md #3; corpus-scan narrative (287k-
+// file .skin scan, 130k-file .m2 scan of Luna's own real WoW extraction).
 void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::string& skinPath) {
     std::ifstream mf(m2Path, std::ios::binary);
     REQUIRE(mf.good());
@@ -1058,14 +1071,13 @@ void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::stri
     std::filesystem::remove(outPath);
 }
 
-TEST_CASE("husk export: real multi-texture-layer batch resolves textureComboIndex+layer exactly, "
-          "TODO_correctness.md #3" *
+TEST_CASE("husk export: real multi-texture-layer batch resolves textureComboIndex+layer exactly" *
           doctest::skip(testMultiTextureLayerM2().empty() || testMultiTextureLayerSkin().empty())) {
     checkMultiTextureLayerArithmetic(testMultiTextureLayerM2(), testMultiTextureLayerSkin());
 }
 
 TEST_CASE("husk export: real file with a nonzero textureCoordCombos table still resolves "
-          "textureCoordComboIndex+layer safely, TODO_correctness.md #3" *
+          "textureCoordComboIndex+layer safely" *
           doctest::skip(testTextureCoordComboM2().empty() || testTextureCoordComboSkin().empty())) {
     checkMultiTextureLayerArithmetic(testTextureCoordComboM2(), testTextureCoordComboSkin());
 }
@@ -1082,15 +1094,16 @@ TEST_CASE("husk export: skin file that doesn't belong to the given M2 fails clea
     CHECK(result.output.find("mismatch") != std::string::npos);
 }
 
-// locks in husk's already-correct "throw, don't
-// misread" behavior on real non-M2 content, rather than trusting it stays
-// correct across future chunk-walker refactors. blp2_7507381.m2 is a real
-// FileDataID/listfile mismatch pulled from live CASC (WIKI_FINDINGS.md
-// §13): its actual stored content is a genuine BLP2 texture, not an M2 --
-// husk correctly refuses it with a ParseError-derived "chunk '..." message
-// (the malformed/non-ASCII chunk tag) rather than silently misreading
-// texture bytes as M2 structure. Checked across all three top-level
-// commands, since each has its own read path into the same chunk walker.
+// Locks in husk's already-correct "throw, don't misread" behavior on real
+// non-M2 content, rather than trusting it stays correct across future
+// chunk-walker refactors. blp2_7507381.m2 is a real FileDataID/listfile
+// mismatch pulled from live CASC: its actual stored content is a genuine
+// BLP2 texture, not an M2 -- husk correctly refuses it with a
+// ParseError-derived "chunk '..." message (the malformed/non-ASCII chunk
+// tag) rather than silently misreading texture bytes as M2 structure.
+// Checked across all three top-level commands, since each has its own read
+// path into the same chunk walker.
+// TODO: Remove: cites WIKI_FINDINGS.md §13.
 TEST_CASE("husk info: real non-M2 content (a BLP2 texture under a mismatched .m2 FileDataID) "
           "fails cleanly, not a crash or a silent misread" *
           doctest::skip(husk::test::testBlp2AnomalyM2().empty())) {

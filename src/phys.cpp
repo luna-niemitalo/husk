@@ -208,8 +208,7 @@ std::vector<SphereShape> parseSpheres(const std::vector<Chunk>& chunks) {
 // region whose per-entry size depends on that same entry's own header
 // (PHYS.md's own text -- see phys.hpp's doc comment). Not a
 // parseFixedRecords case: verifies the *total* chunk size matches the sum
-// of every entry's header + data size exactly, the same cross-check
-// WIKI_FINDINGS.md §9 used to confirm the corrected 0x50 header stride.
+// of every entry's header + data size exactly.
 std::vector<PolytopeShape> parsePolytopes(const std::vector<Chunk>& chunks) {
     auto c = findChunk(chunks, kTagPlyt);
     if (!c) return {};
@@ -357,9 +356,10 @@ std::vector<ShoulderJoint> parseShoulderJoints(const std::vector<Chunk>& chunks)
     // no motor fields) and 0x74 (post, adds maxMotorTorque/motorMode) --
     // sharing one chunk tag (PHYS.md's own text: "even though this chunk is
     // handled differently since version 2, it does not have a version 2*
-    // chunk name"). WIKI_FINDINGS.md §9 checked all 86 real SHOJ chunks
-    // this session found: never both at once. A real file hitting both is
-    // new information, not a case to silently pick one for.
+    // chunk name"). A real file hitting both strides at once is new
+    // information, not a case to silently pick one for.
+    // TODO: Remove: checked all 86 real SHOJ chunks found this session --
+    // never both at once, see WIKI_FINDINGS.md §9.
     bool fits6c = c->size % 0x6c == 0;
     bool fits74 = c->size % 0x74 == 0;
     if (fits6c && fits74) {
@@ -457,9 +457,8 @@ std::vector<PhysV> parsePhysV(const std::vector<Chunk>& chunks) {
     });
 }
 
-// WIKI_FINDINGS.md §9's own index/bounds cross-check found zero violations
-// across 103 real files -- a real one here is corruption or a parser bug,
-// caught immediately rather than surfacing as an out-of-range read
+// A violation here is corruption or a parser bug (see phys.hpp's file
+// doc) -- caught immediately rather than surfacing as an out-of-range read
 // somewhere downstream (dump-chunks/gltf.cpp's own extras attachment).
 void validateReferences(const File& f) {
     for (size_t i = 0; i < f.bodies.size(); ++i) {

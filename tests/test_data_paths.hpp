@@ -1,23 +1,12 @@
 #pragma once
 
-// Central resolution for husk-tests' optional real-data fixtures, shared by
-// test_main.cpp (the startup banner), test_integration.cpp, and
-// test_conformance.cpp. An explicit HUSK_TEST_* env var always wins (the
-// override case, e.g. pointing at a different real model); when unset,
-// resolve() falls back to this repo's own (gitignored) test_data/
-// directory -- populated once from a real, personally-owned WoW
-// extraction, never committed, never CASC -- so the real-data test tier
-// doesn't need eight environment variables hand-set every session just to
-// exercise coverage the data for is already sitting in the checkout. Same
+// Central resolution for husk-tests' optional real-data fixtures -- see
+// TEST_DESIGN.md#Fixture-resolution-model for the doctest::skip/HUSK_TEST_*
+// convention this implements. This file is the single source of truth for
+// the actual env var names and their test_data/ fallback defaults. Same
 // auto/override/skip shape as husk export's own --skin-dir/--textures
-// resolution (see cmd_export.cpp), applied here to test fixtures instead
-// of CLI args.
-//
-// The same functions below back both the doctest::skip() decorators that
-// gate each real-data TEST_CASE and test_main.cpp's startup banner -- one
-// resolution, two consumers -- so "why did N tests just skip" is
-// answered by the banner honestly, not by a second, potentially-drifted
-// copy of the same logic.
+// resolution (cmd_export.cpp), applied here to test fixtures instead of
+// CLI args.
 
 #include <cstdint>
 #include <cstdio>
@@ -110,13 +99,13 @@ inline std::string autoSkinDir(const std::string& m2Path, const std::string& ski
 // '<FileDataID>.bone' naming convention a real casc-tool extraction would
 // produce. HUSK_TEST_BONES_DIR, if set explicitly, still overrides this
 // entirely. The NN -> BFID[NN] positional assignment is arbitrary for test
-// purposes, not a claimed real slot mapping (see WIKI_FINDINGS.md
-// §4/TODO_correctness.md #3: that mapping is exactly the client-side
-// customization-choice data husk doesn't have access to) -- this fixture
-// only needs to prove the resolution/parse/extras pipeline works end to
-// end against real '.bone' bytes, not that any particular slot is
+// purposes, not a claimed real slot mapping -- that mapping is exactly the
+// client-side customization-choice data husk doesn't have access to -- this
+// fixture only needs to prove the resolution/parse/extras pipeline works
+// end to end against real '.bone' bytes, not that any particular slot is
 // semantically correct. Returns "" if skelPath is empty, has no BFID chunk,
 // or none of the expected same-basename '_NN.bone' files exist next to it.
+// TODO: Remove: cites WIKI_FINDINGS.md §4/TODO_correctness.md #3.
 inline std::string autoBonesDir(const std::string& skelPath) {
     if (const char* env = std::getenv("HUSK_TEST_BONES_DIR")) {
         return std::string(env);
@@ -176,40 +165,38 @@ constexpr const char* kTexturesDir = "textures";
 constexpr const char* kSkelM2 = "character/bloodelf/female/bloodelffemale_hd.m2";
 constexpr const char* kSkelSkin = "character/bloodelf/female/bloodelffemale_hd00.skin";
 constexpr const char* kSkel = "character/bloodelf/female/bloodelffemale_hd.skel";
-// The real bloodelffemale_hd_*.anim files (AFSB-shaped, see WIKI_FINDINGS.md
-// §2) sit right next to the .m2/.skin/.skel above -- same directory, not a
-// separate one, since that's exactly the layout a real casc-tool extraction
-// produces.
+// The real bloodelffemale_hd_*.anim files (AFSB-shaped) sit right next to
+// the .m2/.skin/.skel above -- same directory, not a separate one, since
+// that's exactly the layout a real casc-tool extraction produces.
+// TODO: Remove: cites WIKI_FINDINGS.md §2.
 constexpr const char* kAnimDir = "character/bloodelf/female";
-// Real weapon models with ribbon/particle emitters (see WIKI_FINDINGS.md's
-// particle/ribbon section) -- sit under this repo's own gitignored
-// test_data/item/objectcomponents/weapon/ (Luna's own personally-owned
-// extraction of the game's full weapon set, same convention as the
-// character fixtures above, never committed). Chosen by a full 4112-file
-// scan: kWeaponRibbon is ribbon-only (3 ribbons, 0 particles) for a clean
-// first cross-check; kWeaponParticleA/B each have both (1-2 ribbons, 2
-// particles) for a combined check; kWeaponParticleStress has 64 particle
-// emitters and 0 ribbons, the largest real file available, for a
-// multi-emitter stress check. All four are Cataclysm+ (version 272/274),
-// at or above kMinVerifiedParticleVersion.
+// Real weapon models with ribbon/particle emitters, under this repo's own
+// gitignored test_data/item/objectcomponents/weapon/ (Luna's own
+// personally-owned extraction of the game's full weapon set, same
+// convention as the character fixtures above, never committed).
+// kWeaponRibbon is ribbon-only (3 ribbons, 0 particles) for a clean first
+// cross-check; kWeaponParticleA/B each have both (1-2 ribbons, 2 particles)
+// for a combined check; kWeaponParticleStress has 64 particle emitters and
+// 0 ribbons, the largest real file available, for a multi-emitter stress
+// check. All four are Cataclysm+ (version 272/274), at or above
+// kMinVerifiedParticleVersion.
+// TODO: Remove: cites WIKI_FINDINGS.md's particle/ribbon section; chosen via
+// a full 4112-file corpus scan.
 constexpr const char* kWeaponRibbon = "item/objectcomponents/weapon/sword_2h_ashbringer_a_01.m2";
 constexpr const char* kWeaponParticleA =
     "item/objectcomponents/weapon/sword_1h_artifactskywall_d_06.m2";
 constexpr const char* kWeaponParticleB = "item/objectcomponents/weapon/offhand_1h_revendreth_d_01.m2";
 constexpr const char* kWeaponParticleStress = "item/objectcomponents/weapon/mace_2h_bolvar_d_01.m2";
-// TODO_correctness.md #3 (multi-texture-layer arithmetic, textureComboIndex
-// +layer / textureCoordComboIndex+layer): found by a full ~287k-file .skin
-// scan of Luna's own real WoW extraction for batches with textureCount > 1
-// (226,294 hits -- common) and a full ~130k-file .m2 scan for a nonzero
-// textureCoordCombos array (only 3 hits -- rare, matching the "still
-// present but unused in Cataclysm" wiki text). kMultiTextureLayer is a
-// small guild-pennant doodad with a clean 6-layer batch, chosen for the
-// primary textureComboIndex+layer cross-check (WIKI_FINDINGS.md's new §7
-// has the receipts). kTextureCoordCombo is one of the 3 real files with a
-// nonzero textureCoordCombos table (values [33, 34] -- not the documented
-// -1/0/1 range, real but apparently vestigial data), chosen to prove the
+// kMultiTextureLayerM2 is a small guild-pennant doodad with a clean 6-layer
+// batch (textureCount > 1), chosen for the primary textureComboIndex+layer
+// cross-check. kTextureCoordComboM2 is a real file with a nonzero
+// textureCoordCombos table (values [33, 34] -- not the documented -1/0/1
+// range, real but apparently vestigial data), chosen to prove the
 // textureCoordComboIndex+layer path is exercised (not just skipped via the
 // empty-table fast path) and still resolves safely.
+// TODO: Remove: cites TODO_correctness.md #3 and WIKI_FINDINGS.md §7;
+// found via a full ~287k-file .skin scan (226,294 textureCount>1 hits) and
+// a ~130k-file .m2 scan (3 nonzero textureCoordCombos hits).
 constexpr const char* kMultiTextureLayerM2 =
     "world/replaceabletextureprops/guild/pennant_guild_alliance_a_01.m2";
 constexpr const char* kMultiTextureLayerSkin =
@@ -218,34 +205,36 @@ constexpr const char* kTextureCoordComboM2 =
     "world/expansion05/doodads/ironhorde/6ih_ironhorde_siegeweapon03.m2";
 constexpr const char* kTextureCoordComboSkin =
     "world/expansion05/doodads/ironhorde/6ih_ironhorde_siegeweapon0300.skin";
-// A real weapon .m2 with a matching .skin -- extracted into test_data/ this
-// session, next to its already-committed .phys (a real, paired fixture:
-// none of the other 6 committed .phys weapon fixtures had a real .skin
-// sibling committed alongside them, only .m2+.phys). 10 real physics
-// bodies, boneIndex values {0..9} of 17 real bones (confirmed by hand --
-// see WIKI_FINDINGS.md §9).
+// A real weapon .m2 with a matching .skin, next to its already-committed
+// .phys (a real, paired fixture: none of the other 6 committed .phys
+// weapon fixtures had a real .skin sibling committed alongside them, only
+// .m2+.phys). 10 real physics bodies, boneIndex values {0..9} of 17 real
+// bones.
+// TODO: Remove: narrative ("extracted into test_data/ this session"); cites
+// WIKI_FINDINGS.md §9.
 constexpr const char* kWeaponPhys = "item/objectcomponents/weapon/mace_1h_warfrontsforsaken_d_01.m2";
 constexpr const char* kWeaponPhysSkin =
     "item/objectcomponents/weapon/mace_1h_warfrontsforsaken_d_0100.skin";
-// Real files pulled directly from a live CASC install (see WIKI_FINDINGS.md
-// §13) to verify EXP2/PFDC against real bytes and lock in the BLP2/listfile
-// -mismatch anomaly's correct-throw behavior. Sit under test_data/
-// verification/, same gitignored convention as every other fixture here.
+// Real files pulled directly from a live CASC install, to verify EXP2/PFDC
+// against real bytes and lock in the BLP2/listfile-mismatch anomaly's
+// correct-throw behavior. Sit under test_data/verification/, same
+// gitignored convention as every other fixture here.
+// TODO: Remove: cites WIKI_FINDINGS.md §13.
 constexpr const char* kExp2VerificationM2 = "verification/exp2_126382.m2";
 constexpr const char* kPfdcVerificationM2 = "verification/pfdc_1003471.m2";
 constexpr const char* kBlp2AnomalyM2 = "verification/blp2_7507381.m2";
 // PCOL (player-housing collision): a real player-housing-lamp doodad, one
-// of 2,354 real PCOL-bearing files found in the local corpus
-// (WIKI_FINDINGS.md §10's corrected count) -- chosen for its small chunk
-// size (2,016 bytes: 40 vertices, 74 triangles) while still real,
-// extracted data.
+// of 2,354 real PCOL-bearing files found in the local corpus, chosen for
+// its small chunk size (2,016 bytes: 40 vertices, 74 triangles) while
+// still real, extracted data.
+// TODO: Remove: cites WIKI_FINDINGS.md §10's corrected count.
 constexpr const char* kPcolVerificationM2 = "verification/pcol_pa_kite_lamp_creature.m2";
-// A real quadruped creature (a base wolf.m2, 66 bones/557 vertices) --
-// TRANSFORM_TRIAGE.md §5e: pipeline coverage for a body plan/hierarchy
-// shape bloodelffemale.m2 doesn't represent, not orientation-correctness
-// coverage (the synthetic axis-probe in test_conformance.cpp already
-// covers that for any asset type, by construction -- see its own doc
-// comment for why a real fixture can't add to that specific check).
+// A real quadruped creature (a base wolf.m2, 66 bones/557 vertices):
+// pipeline coverage for a body plan/hierarchy shape bloodelffemale.m2
+// doesn't represent, not orientation-correctness coverage (the synthetic
+// axis-probe in test_conformance.cpp already covers that for any asset
+// type, by construction -- see its own doc comment).
+// TODO: Remove: cites TRANSFORM_TRIAGE.md §5e.
 constexpr const char* kQuadrupedM2 = "creature/wolf/wolf.m2";
 constexpr const char* kQuadrupedSkin = "creature/wolf/wolf00.skin";
 }  // namespace fixtures

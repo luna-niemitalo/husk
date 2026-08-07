@@ -1,9 +1,6 @@
-// Spec source: https://wowdev.wiki/M2 "Header" and "Chunks" sections
-// (fetched 2026-07-24). Offsets below are typed out fresh from that page,
-// not copied from src/m2.cpp -- the point is that this file independently
-// encodes the spec, so a mistake in m2.cpp's offset table shows up as a
-// test failure instead of being rubber-stamped by a fixture built from the
-// same wrong assumption.
+// see TEST_DESIGN.md#Independent-transcription-convention -- offsets below
+// are typed out fresh from https://wowdev.wiki/M2 "Header" and "Chunks"
+// sections (fetched 2026-07-24), not copied from src/m2.cpp.
 //
 // Header field offsets (expansion level >= 3, which covers every currently
 // shipping model per the wiki's own version-range note):
@@ -953,12 +950,13 @@ TEST_CASE("parseHeader: flat (non-chunked) MD20 file never has textureFileDataId
     CHECK_FALSE(h.textureFileDataIds.has_value());
 }
 
-// Regression test for FAILURES2.md #8: a TXID chunk whose byte length isn't
-// a multiple of 4 (one uint32 FileDataID per entry) used to silently
-// truncate -- the last partial entry just vanished, with no error and no
-// count mismatch a caller could notice -- rather than failing loudly like
-// every other fixed-record-array parser in this codebase does for the same
-// class of foreign-data mismatch (FAILURES.md #2).
+// A TXID chunk whose byte length isn't a multiple of 4 (one uint32
+// FileDataID per entry) must fail loudly, not silently truncate the last
+// partial entry with no error and no count mismatch a caller could
+// notice -- same class of foreign-data mismatch every other
+// fixed-record-array parser in this codebase already fails loudly on.
+// TODO: Remove: FAILURES2.md #8/FAILURES.md #2 (the findings this is a
+// regression test for).
 TEST_CASE("parseHeader: TXID chunk with a byte length not a multiple of 4 throws, rather than "
           "silently dropping the trailing partial entry") {
     auto md20 = buildMd20Blob();
@@ -1357,8 +1355,8 @@ TEST_CASE("parseHeader: no AFID chunk leaves animFileIds empty") {
     CHECK_FALSE(h.animFileIds.has_value());
 }
 
-// Regression test for FAILURES2.md #8 (AFID's 8-byte-record version of the
-// TXID test above).
+// AFID's 8-byte-record version of the TXID test above.
+// TODO: Remove: FAILURES2.md #8 citation.
 TEST_CASE("parseHeader: AFID chunk with a byte length not a multiple of 8 throws, rather than "
           "silently dropping the trailing partial entry") {
     auto md20 = buildMd20Blob();
@@ -1374,12 +1372,13 @@ TEST_CASE("parseHeader: AFID chunk with a byte length not a multiple of 8 throws
 // M2Sequence (wowdev.wiki M2#Animation_sequences), 0x40 bytes: 0x00 id
 // (u16), 0x02 variationIndex (u16), 0x04 duration (u32), 0x0C flags (u32)
 // -- movespeed/frequency/replay/blendTime/bounds/variationNext/aliasNext
-// (M2_GAPS_TODO.md's former Item 1) left zeroed here since this helper is
-// only used for the 4-field happy-path/throw tests below; putSequenceFull
-// (below) covers every field. The 0x40 stride itself (not just these 4
-// fields) is the part worth getting right -- see Sequence's doc comment in
-// m2.hpp for the real-data story of why it's 64 bytes, not the 36 a naive
-// reading of the wiki struct listing suggests.
+// left zeroed here since this helper is only used for the 4-field
+// happy-path/throw tests below; putSequenceFull (below) covers every
+// field. The 0x40 stride itself (not just these 4 fields) is the part
+// worth getting right -- see Sequence's doc comment in m2.hpp for the
+// real-data story of why it's 64 bytes, not the 36 a naive reading of the
+// wiki struct listing suggests.
+// TODO: Remove: former M2_GAPS_TODO.md Item 1 citation.
 void putSequence(std::vector<uint8_t>& buf, size_t off, uint16_t id, uint16_t variationIndex,
                   uint32_t duration, uint32_t flags) {
     if (buf.size() < off + 0x40) buf.resize(off + 0x40, 0);
@@ -1410,11 +1409,12 @@ TEST_CASE("parseSequences: reads id/variationIndex/duration/flags for every entr
     CHECK(sequences[1].flags == 0);
 }
 
-// Writes every field of one M2Sequence record (M2_GAPS_TODO.md's former
-// Item 1), at the exact offsets m2.hpp's Sequence doc comment gives:
-// /*0x08*/ movespeed, /*0x10*/ frequency, /*0x14*/ replay (2x u32),
-// /*0x1C*/ blendTimeIn/Out, /*0x20*/ bounds (2x Vec3), /*0x38*/
-// boundsRadius, /*0x3C*/ variationNext, /*0x3E*/ aliasNext.
+// Writes every field of one M2Sequence record, at the exact offsets
+// m2.hpp's Sequence doc comment gives: /*0x08*/ movespeed, /*0x10*/
+// frequency, /*0x14*/ replay (2x u32), /*0x1C*/ blendTimeIn/Out, /*0x20*/
+// bounds (2x Vec3), /*0x38*/ boundsRadius, /*0x3C*/ variationNext,
+// /*0x3E*/ aliasNext.
+// TODO: Remove: former M2_GAPS_TODO.md Item 1 citation.
 void putSequenceFull(std::vector<uint8_t>& buf, size_t off, uint16_t id, uint16_t variationIndex,
                       uint32_t duration, uint32_t flags, float movespeed, int16_t frequency,
                       uint32_t replayMin, uint32_t replayMax, uint16_t blendTimeIn,
@@ -1438,7 +1438,7 @@ void putSequenceFull(std::vector<uint8_t>& buf, size_t off, uint16_t id, uint16_
     putU16(buf, off + 0x3E, aliasNext);
 }
 
-TEST_CASE("parseSequences: reads every M2_GAPS_TODO.md-former-Item-1 field at its real offset") {
+TEST_CASE("parseSequences: reads every M2Sequence field at its real offset") {
     std::vector<uint8_t> blob(200, 0);
     putSequenceFull(blob, 200, 100, 0, 5000, 0x20, 4.5f, -3, 10, 20, 30, 40, 7.5f, -1, 0);
 
@@ -1993,15 +1993,16 @@ TEST_CASE("resolveQuatTrackSequence: a track with a real global_sequence also re
     CHECK(husk::m2::resolveQuatTrackSequence(blob, static_cast<uint32_t>(trackOff), 0).empty());
 }
 
-// resolveVec3GlobalSequenceTrack/resolveQuatGlobalSequenceTrack (FAILURES2.md
-// #7): the real-data counterpart to the two "resolves to empty, not
-// misattributed" tests just above -- resolveVec3TrackSequence/
-// resolveQuatTrackSequence correctly refuse to resolve a global-sequence
-// track *by M2Sequence index*, but that means such a track needs its *own*
-// resolution path to ever produce real keyframes at all. `putFullTrack`'s
-// single sub-array (index 0) is exactly the shape wowdev.wiki describes for
-// a global-sequence track ("blocks that use global sequences also only have
+// resolveVec3GlobalSequenceTrack/resolveQuatGlobalSequenceTrack: the
+// real-data counterpart to the two "resolves to empty, not misattributed"
+// tests just above -- resolveVec3TrackSequence/resolveQuatTrackSequence
+// correctly refuse to resolve a global-sequence track *by M2Sequence
+// index*, but that means such a track needs its *own* resolution path to
+// ever produce real keyframes at all. `putFullTrack`'s single sub-array
+// (index 0) is exactly the shape wowdev.wiki describes for a
+// global-sequence track ("blocks that use global sequences also only have
 // one track").
+// TODO: Remove: FAILURES2.md #7 citation (the finding this is a regression test for).
 TEST_CASE("resolveVec3GlobalSequenceTrack: reads real keyframes for a global-sequence-driven "
           "track") {
     std::vector<uint8_t> blob(100, 0);

@@ -1,7 +1,7 @@
 // Spec source: https://wowdev.wiki/M2/.skel "SKB1" section (fetched
-// 2026-07-24), plus M2#Bones for M2CompBone itself. Offsets below are typed
-// out fresh from that page, not copied from src/skel.cpp -- same
-// independent-transcription rationale as tests/test_m2.cpp.
+// 2026-07-24), plus M2#Bones for M2CompBone itself. Offsets below are
+// typed out fresh from that page, not copied from src/skel.cpp -- see
+// TEST_DESIGN.md#Independent-transcription-convention.
 //
 // A .skel file is chunked exactly like M2 itself (4-byte tag, uint32 size,
 // payload, non-reversed -- husk::readChunks handles both). The SKB1 chunk's
@@ -228,10 +228,11 @@ TEST_CASE("findAnimFileIds: no AFID chunk returns nullopt, not an error (not eve
     CHECK_FALSE(husk::skel::findAnimFileIds(file).has_value());
 }
 
-// Regression test for FAILURES2.md #8: same class of bug as m2.cpp's
-// findAnimFileIdChunk (see tests/test_m2.cpp) -- a .skel's own AFID chunk
-// with a byte length that isn't a multiple of 8 used to silently drop the
-// trailing partial entry instead of failing loudly.
+// Same class of bug as m2.cpp's findAnimFileIdChunk (see tests/test_m2.cpp)
+// -- a .skel's own AFID chunk with a byte length that isn't a multiple of 8
+// used to silently drop the trailing partial entry instead of failing
+// loudly.
+// TODO: Remove: regression test for FAILURES2.md #8.
 TEST_CASE("findAnimFileIds: AFID chunk with a byte length not a multiple of 8 throws, rather "
           "than silently dropping the trailing partial entry") {
     std::vector<uint8_t> file;
@@ -265,8 +266,9 @@ TEST_CASE("findBoneFileDataIds: no BFID chunk returns nullopt, not an error") {
     CHECK_FALSE(husk::skel::findBoneFileDataIds(file).has_value());
 }
 
-// Same FAILURES2.md #8 discipline as findAnimFileIds above, applied to
-// BFID's 4-byte-per-entry shape instead of AFID's 8-byte one.
+// Same discipline as findAnimFileIds above, applied to BFID's
+// 4-byte-per-entry shape instead of AFID's 8-byte one.
+// TODO: Remove: FAILURES2.md #8.
 TEST_CASE("findBoneFileDataIds: BFID chunk with a byte length not a multiple of 4 throws, "
           "rather than silently dropping the trailing partial entry") {
     std::vector<uint8_t> file;

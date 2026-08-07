@@ -1,6 +1,7 @@
 #include "m2.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstring>
 #include <fstream>
 #include <unordered_map>
@@ -251,9 +252,9 @@ std::optional<std::vector<uint32_t>> findFileDataIdArrayChunk(const std::vector<
     // for TXID vs `textures.count`). A byte length that isn't itself a
     // multiple of 4 means a truncated/corrupted chunk -- every other
     // fixed-record-array parser in this file errors loudly on foreign data
-    // that doesn't fit its own claims (FAILURES.md #2); silently dropping
-    // the last partial entry here would be the one place that convention
-    // broke down (FAILURES2.md #8).
+    // that doesn't fit its own claims; silently dropping the last partial
+    // entry here would be the one place that convention broke down.
+    // TODO: Remove: FAILURES.md #2, FAILURES2.md #8.
     if (chunk->size % 4 != 0) {
         throw ParseError(std::string(tag) + " chunk is " + std::to_string(chunk->size) +
                           " bytes, not a multiple of 4 (one uint32 FileDataID per entry) -- "
@@ -279,9 +280,10 @@ std::optional<std::vector<Header::AnimFileEntry>> findAnimFileIdChunk(
         return std::nullopt;
     }
     constexpr size_t kEntrySize = 8;
-    // See findFileDataIdArrayChunk's identical check above (FAILURES2.md #8)
-    // -- same reasoning, applied to AFID's 8-byte record instead of a flat
-    // 4-byte FileDataID.
+    // See findFileDataIdArrayChunk's identical check above -- same
+    // reasoning, applied to AFID's 8-byte record instead of a flat 4-byte
+    // FileDataID.
+    // TODO: Remove: FAILURES2.md #8.
     if (chunk->size % kEntrySize != 0) {
         throw ParseError(std::string(tag) + " chunk is " + std::to_string(chunk->size) +
                           " bytes, not a multiple of " + std::to_string(kEntrySize) +
@@ -430,10 +432,11 @@ std::vector<Vertex> parseVertices(const std::vector<uint8_t>& blob, const Array&
     size_t blobSize = blob.size();
 
     // Validate the whole claimed range up front, before reserve() -- a
-    // corrupted or misread count (see FAILURES.md #2: this is what a
-    // version this parser doesn't know about yet, shifting this offset,
-    // looks like) must not be able to make this allocate hundreds of GB
-    // before the very first per-element check below ever runs.
+    // corrupted or misread count (this is what a version this parser
+    // doesn't know about yet, shifting this offset, looks like) must not
+    // be able to make this allocate hundreds of GB before the very first
+    // per-element check below ever runs.
+    // TODO: Remove: FAILURES.md #2.
     if (array.offset > blobSize || array.count > (blobSize - array.offset) / kVertexSize) {
         throw ParseError("vertices array claims " + std::to_string(array.count) + " records (" +
                           std::to_string(kVertexSize) + " bytes each) at offset " +
@@ -480,8 +483,9 @@ std::vector<Bone> parseBones(const std::vector<uint8_t>& blob, const Array& arra
     size_t blobSize = blob.size();
 
     // Same up-front validation as parseVertices above, and for the same
-    // reason (FAILURES.md #2) -- a corrupted/misread count must fail with
-    // a real message here, not a bare std::bad_alloc from reserve().
+    // reason -- a corrupted/misread count must fail with a real message
+    // here, not a bare std::bad_alloc from reserve().
+    // TODO: Remove: FAILURES.md #2.
     if (array.offset > blobSize || array.count > (blobSize - array.offset) / kBoneSize) {
         throw ParseError("bones array claims " + std::to_string(array.count) + " records (" +
                           std::to_string(kBoneSize) + " bytes each) at offset " +
@@ -797,8 +801,8 @@ std::vector<Texture> parseTextures(const std::vector<uint8_t>& blob, const Array
     const uint8_t* data = blob.data();
     size_t blobSize = blob.size();
 
-    // Same up-front validation as parseVertices/parseBones, same reason
-    // (FAILURES.md #2).
+    // Same up-front validation as parseVertices/parseBones, same reason.
+    // TODO: Remove: FAILURES.md #2.
     if (array.offset > blobSize || array.count > (blobSize - array.offset) / kTextureSize) {
         throw ParseError("textures array claims " + std::to_string(array.count) + " records (" +
                           std::to_string(kTextureSize) + " bytes each) at offset " +
@@ -916,17 +920,17 @@ CollisionMesh parseCollisionMesh(const std::vector<uint8_t>& blob, const Array& 
 // == 1) with exactly one keyframe in it (inner.count == 1). Anything else
 // is real per-sequence or globally-looped keyframe animation (roadmap
 // stage 6, not this parser's job), and returns nullopt rather than
-// guessing. This distinction mattered in practice, not just in theory: an
-// earlier version of this code took element [0][0] unconditionally, which
-// for a real bloodelffemale.m2 batch meant reading sequence 0's *first*
-// alpha keyframe (0 -- fully transparent) as if it were a sensible default,
-// which would have silently rendered the entire model invisible. Requiring
-// both counts to be exactly 1 is what `interpolation_ranges`/
-// "Blocks that use global sequences also only have one track" (wowdev.wiki
-// M2#Interpolation) actually describes as a non-animated block; anything
-// looser risks repeating that exact mistake. Returns the byte offset of
-// the single value on success, checked the same bounds-checked way any
-// other M2Array element access in this file is.
+// guessing. Requiring both counts to be exactly 1 is what
+// `interpolation_ranges`/"Blocks that use global sequences also only have
+// one track" (wowdev.wiki M2#Interpolation) actually describes as a
+// non-animated block; anything looser risks silently reading an unrelated
+// keyframe (e.g. sequence 0's first, possibly-transparent alpha value) as
+// if it were a sensible default. Returns the byte offset of the single
+// value on success, checked the same bounds-checked way any other M2Array
+// element access in this file is.
+// TODO: Remove: an earlier version of this code took element [0][0]
+// unconditionally, which for a real bloodelffemale.m2 batch would have
+// silently rendered the entire model invisible -- fixed by this check.
 std::optional<size_t> constantTrackValueOffset(const uint8_t* data, size_t blobSize,
                                                 size_t trackOffset) {
     Array outer = readArray(data, blobSize, trackOffset + 0x0C);
@@ -1213,11 +1217,12 @@ namespace {
 
 // Shared bounds-checked "read n fixed-size records at a foreign-data
 // offset" guard -- same up-front-validate-before-reserve discipline as
-// every other parse* function in this file (FAILURES.md #2), factored out
-// here since resolveVec3TrackSequence/resolveQuatTrackSequence both need it
-// for data that isn't a top-level M2Array (it's an inner M2Track array
-// instead), which is otherwise the one shape parseVertices/parseBones/etc.
-// don't already cover.
+// every other parse* function in this file, factored out here since
+// resolveVec3TrackSequence/resolveQuatTrackSequence both need it for data
+// that isn't a top-level M2Array (it's an inner M2Track array instead),
+// which is otherwise the one shape parseVertices/parseBones/etc. don't
+// already cover.
+// TODO: Remove: FAILURES.md #2.
 void checkInnerArrayFits(const Array& inner, size_t elementSize, size_t blobSize,
                           const char* what) {
     if (inner.offset > blobSize || inner.count > (blobSize - inner.offset) / elementSize) {
@@ -1830,8 +1835,9 @@ std::vector<Ribbon> parseRibbons(const std::vector<uint8_t>& blob, const Array& 
     }
 
     // M2Ribbon, >= Wrath shape (wowdev.wiki M2#Ribbon_emitters -- see
-    // Ribbon's doc comment in m2.hpp for the full offset derivation, and
-    // WIKI_FINDINGS.md for the real-file cross-check that confirmed it).
+    // Ribbon's doc comment in m2.hpp for the full offset derivation).
+    // TODO: Remove: WIKI_FINDINGS.md for the real-file cross-check that
+    // confirmed it.
     constexpr size_t kRibbonSize = 0xB0;
     constexpr size_t kRibbonIdOffset = 0x00;
     constexpr size_t kBoneIndexOffset = 0x04;
@@ -2098,14 +2104,16 @@ std::vector<ExtendedParticle> parseExtendedParticles(const std::vector<uint8_t>&
 }
 
 Header loadFile(const std::string& path) {
+    errno = 0;
     std::ifstream f(path, std::ios::binary);
     if (!f) {
-        throw ParseError("couldn't open '" + path + "' for reading");
+        throw ParseError("couldn't open '" + path + "' for reading: " + std::strerror(errno));
     }
+    errno = 0;
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
                                 std::istreambuf_iterator<char>());
     if (!f.good() && !f.eof()) {
-        throw ParseError("error reading '" + path + "'");
+        throw ParseError("error reading '" + path + "': " + std::strerror(errno));
     }
     return parseHeader(bytes);
 }

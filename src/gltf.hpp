@@ -69,7 +69,8 @@ struct Material {
 
     // One M2Batch texture layer beyond the first (textureCount > 1, e.g. a
     // second env-mapped "shine" pass on armor, or a genuine two-texture
-    // blend -- wowdev.wiki M2/.skin#Texture_units) -- see FAILURES2.md #6.
+    // blend -- wowdev.wiki M2/.skin#Texture_units).
+    // TODO: Remove: FAILURES2.md #6.
     // husk doesn't fake WoW's fixed-function combiner math (Mod2x/Add/...)
     // by wiring this into pbrMetallicRoughness; it's exposed as inert
     // metadata instead (glTF extras + an unused auxiliary image/texture, if
@@ -124,16 +125,13 @@ struct Material {
     // texture -> TXID lookup resolved a real FileDataID, *regardless* of
     // which local file (the exact "<FileDataID>.png", the M2's own
     // embedded filename, or a basename-fuzzy match) actually supplied the
-    // embedded bytes. Real texture directories are frequently named
-    // descriptively rather than by FileDataID (Luna's own observation,
-    // BLENDER_EXPORT_TODO.md §4) -- once resolution stops always
-    // preferring the FileDataID-named file, the material name alone no
-    // longer reliably says which real texture this is when a differently-
-    // named file won instead. Extras-only (`texture_file_data_id`), same
+    // embedded bytes. Extras-only (`texture_file_data_id`), same
     // "present only when there's something extra to say, 0 means absent"
     // convention as textureType above -- a real client-side FileDataID is
     // never 0, so 0 unambiguously means "husk never resolved one for this
     // slot," not "the real ID happens to be zero."
+    // TODO: Remove: BLENDER_EXPORT_TODO.md §4 -- real texture directories
+    // are often named descriptively rather than by FileDataID, which is why this matters.
     uint32_t baseColorTextureFileDataId = 0;
 
     // A batch's M2Color::color/M2TextureWeight::weight (colorAnimated/
@@ -186,9 +184,10 @@ struct Primitive {
     // (renders with glTF's own default material).
     int materialIndex = -1;
     // The submesh's M2SkinSection::skinSectionId (the "geoset ID" -- see
-    // src/skin.hpp's Submesh doc comment, FAILURES2.md #1), or -1 if this
-    // primitive didn't come from a real .skin submesh (the batches.empty()
-    // fallback case, see cmd_export.cpp's buildMaterialsAndPrimitives).
+    // src/skin.hpp's Submesh doc comment), or -1 if this primitive didn't
+    // come from a real .skin submesh (the batches.empty() fallback case,
+    // see cmd_export.cpp's buildMaterialsAndPrimitives).
+    // TODO: Remove: FAILURES2.md #1.
     // husk doesn't filter by this -- every submesh is always exported,
     // including mutually-exclusive character-customization options -- this
     // is purely inert metadata (glTF extras) for a custom renderer or a
@@ -226,12 +225,13 @@ struct Mesh {
 // target coordinate system (Y-up), same caller responsibility as Mesh's
 // positions/normals.
 //
-// More than one joint may have parent == -1 -- a real, common M2 shape
-// (35% of a real 130k-file corpus, tools/find_multiroot_skeletons.py), not
+// More than one joint may have parent == -1 -- a real, common M2 shape, not
 // corruption, and never rejected here. `joints` itself is never reordered
 // or added to on account of this -- see writeGlbMulti's doc comment for how
 // the resulting glTF-side multi-root forest is made tooling-friendly
 // without touching this vector at all.
+// TODO: Remove: corpus-scan stat backing "common" (35% of a real 130k-file
+// corpus, tools/find_multiroot_skeletons.py).
 struct Skeleton {
     struct Joint {
         int parent = -1;
@@ -263,7 +263,8 @@ struct Skeleton {
         // husk's own bone-index order, making every index-keyed extras
         // payload (correction-set/emitter-anchor joint indices, `husk
         // info`'s own bone listing) hard to correlate back to what's
-        // actually selected in Blender. See BLENDER_EXPORT_TODO.md §6.
+        // actually selected in Blender.
+        // TODO: Remove: BLENDER_EXPORT_TODO.md §6.
         std::string name;
     };
     std::vector<Joint> joints;
@@ -274,12 +275,13 @@ struct Skeleton {
     // bind pose or any animation. Which of a model's several `.bone` files
     // is "correct" for a given character is selected by client-side
     // customization-choice data husk has no access to (no CASC/DBC access,
-    // a hard non-goal -- see DESIGN.md's Non-goals, TODO_correctness.md #3,
-    // WIKI_FINDINGS.md §4); husk surfaces every slot it can resolve from
-    // disk and stops there, same "tag it, don't guess at semantics"
-    // treatment as skinSectionId/textureTransform above. Empty (the
-    // default) if `--bones-dir none`, or none of a model's BFID-declared
-    // FileDataIDs resolved to a real file on disk.
+    // a hard non-goal -- see DESIGN.md#Non-goals); husk surfaces every slot
+    // it can resolve from disk and stops there, same "tag it, don't guess
+    // at semantics" treatment as skinSectionId/textureTransform above.
+    // Empty (the default) if `--bones-dir none`, or none of a model's
+    // BFID-declared FileDataIDs resolved to a real file on disk.
+    // TODO: Remove: TODO_correctness.md #3, WIKI_FINDINGS.md §4 (dev-trace
+    // citations backing the non-goal above).
     struct CorrectionSet {
         uint32_t fileDataId = 0;
         struct Correction {
@@ -332,13 +334,14 @@ struct Skeleton {
     };
     std::vector<PhysicsBody> physicsBodies;
 
-    // Attachments/Events/Lights (M2_GAPS_TODO.md's former Item 6) -- unlike
-    // every anchor list above, a bone-relative M2Attachment/M2Event/M2Light
-    // position marker has no non-glTF-representable data at all (no curves,
-    // no blend modes -- M2_COMPLETENESS.md used to call this
-    // "node-possible, unclaimed"), so writeGlbMulti gives each one a real,
-    // plain child glTF node instead of another skin `extras` entry -- see
-    // writeGlbMulti's doc comment for the exact node shape/naming/parenting.
+    // Attachments/Events/Lights -- unlike every anchor list above, a
+    // bone-relative M2Attachment/M2Event/M2Light position marker has no
+    // non-glTF-representable data at all (no curves, no blend modes), so
+    // writeGlbMulti gives each one a real, plain child glTF node instead of
+    // another skin `extras` entry -- see writeGlbMulti's doc comment for
+    // the exact node shape/naming/parenting.
+    // TODO: Remove: former M2_GAPS_TODO.md Item 6; M2_COMPLETENESS.md used
+    // to call this "node-possible, unclaimed".
     // `joint` must be a valid index into `joints` -- M2's own `bone == -1`
     // ("not attached to any bone," wowdev.wiki M2#Lights) is not yet
     // representable here (there's no established "unparented placement
@@ -429,15 +432,16 @@ struct Animation {
     // exposed as inert `extras` on the animation itself, same "tag it,
     // don't guess at semantics" treatment Skeleton::CorrectionSet/
     // EmitterAnchor already get. `aliasNext`/`isAlias` mirror
-    // husk::m2::Sequence's own fields raw (WIKI_FINDINGS.md §12) -- when
-    // `isAlias` is true, this clip's actual keyframe data (JointAnimation
-    // entries above) was borrowed from the resolved terminal sequence, not
-    // from this sequence's own (empty) tracks, but every other field here
-    // still describes this sequence's own M2Sequence record, not the
-    // terminal's. nullopt for a clip that isn't backed by a single
-    // M2Sequence record at all (buildGlobalSequenceAnimations's
-    // global_seq_<n> clips) -- there's no per-sequence movespeed/blend
-    // timing/bounds to expose for those.
+    // husk::m2::Sequence's own fields raw -- when `isAlias` is true, this
+    // clip's actual keyframe data (JointAnimation entries above) was
+    // borrowed from the resolved terminal sequence, not from this
+    // sequence's own (empty) tracks, but every other field here still
+    // describes this sequence's own M2Sequence record, not the terminal's.
+    // nullopt for a clip that isn't backed by a single M2Sequence record at
+    // all (buildGlobalSequenceAnimations's global_seq_<n> clips) -- there's
+    // no per-sequence movespeed/blend timing/bounds to expose for those.
+    // TODO: Remove: WIKI_FINDINGS.md §12 citation for the aliasNext/isAlias
+    // raw-mirroring finding.
     struct SequenceMetadata {
         float movespeed = 0;
         int16_t frequency = 0;
@@ -466,25 +470,24 @@ struct Error : std::runtime_error {
 // and scale husk ever exports goes through exactly one of them, and all
 // three are mechanically derived from one shared 3x3 change-of-basis matrix
 // (kWowToGltf, gltf.cpp) rather than being three independently hand-typed
-// formulas that could silently drift out of sync with each other. See
-// TRANSFORM_TRIAGE.md for the full investigation this replaced: an earlier,
-// hand-derived version of this conversion (matching wowdev.wiki M2#Vertices'
-// literal "(X, Y, Z) become (X, -Z, Y)" text) composed with Blender's own
-// glTF-import axis conversion to a net 180-degree flip, not the identity a
-// correct round trip requires -- confirmed both by a real headless-Blender
-// import and by an independently-written second implementation
-// (reference/wow.export). The values below are the corrected formula.
+// formulas that could silently drift out of sync with each other.
 //
 // Applies equally to positions and normals (both are plain directions/
 // points in the same space); texture coordinates are untouched by this, not
 // spatial.
+// TODO: Remove: TRANSFORM_TRIAGE.md -- an earlier, hand-derived version of
+// this conversion (matching wowdev.wiki M2#Vertices' literal "(X, Y, Z)
+// become (X, -Z, Y)" text) composed with Blender's own glTF-import axis
+// conversion to a net 180-degree flip, not the identity a correct round
+// trip requires; confirmed both by a real headless-Blender import and by
+// an independently-written second implementation (reference/wow.export).
 Vec3 zUpToYUp(const Vec3& v);
 
 // A bone-rotation quaternion's vector part gets the same kWowToGltf
 // transform as a position, mechanically (convert to a 3x3 rotation matrix,
 // conjugate by kWowToGltf, convert back), not a separately hand-typed
-// formula -- see TRANSFORM_TRIAGE.md §5a. The scalar part (w) is basis-
-// independent and untouched either way.
+// formula -- derived the same way as zUpToYUp. The scalar part (w) is
+// basis-independent and untouched either way.
 Quat rotationZUpToYUp(const Quat& q);
 
 // A scale vector (the diagonal of a scale matrix) gets kWowToGltf's
@@ -492,7 +495,7 @@ Quat rotationZUpToYUp(const Quat& q);
 // kWowToGltf is a *signed permutation* matrix (conjugating a diagonal
 // matrix by one just permutes the diagonal; the signs cancel). This
 // assumption would need revisiting if kWowToGltf ever became a general
-// rotation matrix -- see TRANSFORM_TRIAGE.md §5a.
+// rotation matrix -- derived the same way as zUpToYUp.
 Vec3 scaleZUpToYUp(const Vec3& s);
 
 // Serializes `mesh` as a minimal glTF binary (.glb): one buffer holding
@@ -580,8 +583,7 @@ struct NamedMesh {
 // outliner shows them as separate, individually-toggleable objects instead
 // of silently overwriting one another. `meshes` may only be empty when
 // `skeleton` is non-null and has at least one joint -- a genuinely
-// geometry-less M2 (a pure particle/ribbon VFX model, 3,807 real corpus
-// files have zero vertices at the M2 level, not just an empty
+// geometry-less M2 (a pure particle/ribbon VFX model, not just an empty
 // .skin) still exports its skeleton and ribbon/particle emitter anchors/
 // physics body anchors (Skeleton::ribbonAnchors/particleAnchors/
 // physicsBodies), just with no mesh node at all
@@ -591,6 +593,8 @@ struct NamedMesh {
 // the document. Every non-empty entry is validated exactly like writeGlb's
 // single `mesh`/`materials` (same Error conditions, "writeGlbMulti" in
 // place of "writeGlb" in the message).
+// TODO: Remove: 3,807 real corpus files have zero vertices at the M2 level
+// (the real-world scale of the geometry-less case above).
 //
 // If `skeleton` has more than one root joint (`Joint::parent == -1` on more
 // than one entry -- a real, common M2 bone-forest shape, not corruption,
@@ -602,13 +606,15 @@ struct NamedMesh {
 // joints (each real root is still reached via this node's own `.children`,
 // not listed individually) and `skin.skeleton` is set to it -- the shape
 // glTF's own tooling ecosystem already anticipates for multi-rooted
-// skeletons (see github.com/KhronosGroup/glTF/issues/1270). It is never
-// added to `skin.joints` and never gets an inverse bind matrix -- every
-// vertex/emitter-anchor/correction/animation joint index still refers to a
-// real M2 bone by its original, unshifted position (the one invariant this
-// must never break -- see Skeleton's own doc comment above). A single-root skeleton (the
-// overwhelming majority of real models) is unaffected: no synthetic node,
-// `skin.skeleton` left unset, output identical to before this existed.
+// skeletons. It is never added to `skin.joints` and never gets an inverse
+// bind matrix -- every vertex/emitter-anchor/correction/animation joint
+// index still refers to a real M2 bone by its original, unshifted position
+// (the one invariant this must never break -- see Skeleton's own doc
+// comment above). A single-root skeleton (the overwhelming majority of
+// real models) is unaffected: no synthetic node, `skin.skeleton` left
+// unset, output identical to before this existed.
+// TODO: Remove: github.com/KhronosGroup/glTF/issues/1270 (external tracker
+// citation for the multi-root shape glTF's tooling already anticipates).
 //
 // `skeleton->attachments`/`events`/`lights` each become one real, plain
 // child glTF node -- named `attachment_<id>`/`event_<identifier>`/

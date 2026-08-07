@@ -1,31 +1,31 @@
 // `husk dump-chunks` tests: exercises the real compiled binary (see
-// run_husk.hpp), same "spawn the actual CLI, check output shape" approach
-// as tests/test_cli.cpp uses for info/export -- the per-chunk parsing
-// logic lives entirely inside cmd_dump.cpp's anonymous namespace, so this
-// is the only way to reach it. Every documented dumper (TXAC/EXPT/PADC/
-// PSBC/PEDC/RPID/GPID/PGD1/WFV3/NERF/EDGF/DBOC/TEXL/DETL/PFDC/EXP2) gets
-// its own round-trip test except GPID/PGD1, which call the *exact same
-// function pointer* as RPID/PABC (dumpFileDataIdArrayChunk/
+// run_husk.hpp) -- the per-chunk parsing logic lives entirely inside
+// cmd_dump.cpp's anonymous namespace, so this is the only way to reach it
+// (see TEST_DESIGN.md#Four-tier-architecture). Every documented dumper
+// (TXAC/EXPT/PADC/PSBC/PEDC/RPID/GPID/PGD1/WFV3/NERF/EDGF/DBOC/TEXL/DETL/
+// PFDC/EXP2) gets its own round-trip test except GPID/PGD1, which call the
+// *exact same function pointer* as RPID/PABC (dumpFileDataIdArrayChunk/
 // dumpU16ArrayChunk, see cmd_dump.cpp's kDocumented table) rather than
 // merely sharing a similar shape -- a second test there would exercise
-// identical code, not additional coverage. WFV3 in particular
-// (FINDINGS.md §4.4) was previously untested despite being the
-// highest-risk dumper here: ~20 sequential hand-transcribed field
-// offsets, exactly the shape of silent transcription bug this project's
-// own history (the M2Sequence-is-64-not-36-bytes investigation,
-// WIKI_FINDINGS.md) shows is easy to introduce and hard to notice without
-// a real offset round-trip. Deliberately reuses tests/test_m2.cpp's
-// already-established fixture-building conventions.
+// identical code, not additional coverage. WFV3 in particular has ~20
+// sequential hand-transcribed field offsets, exactly the shape of a silent
+// transcription bug that's easy to introduce and hard to notice without a
+// real offset round-trip. Deliberately reuses tests/test_m2.cpp's
+// already-established fixture-building conventions (see
+// TEST_DESIGN.md#Independent-transcription-convention).
 //
 // DETL/PFDC/EXP2 all have synthetic-fixture tests above, built from the
-// wiki's own struct listing (DETL) or WIKI_FINDINGS.md's own confirmed
-// byte layout (also DETL), or by construction from husk's own
-// already-real-file-verified .phys parser (PFDC). EXP2/PFDC are
-// additionally covered further down by two real-data TEST_CASEs against
-// files pulled directly from a live CASC install (WIKI_FINDINGS.md §13) --
-// exact values re-derived fresh from `husk dump-chunks` at test-writing
-// time, not copied from an old orientation estimate. PCOL (WIKI_FINDINGS.md
-// §10) has both a synthetic and a real-data TEST_CASE further down too.
+// wiki's own struct listing or by construction from husk's own .phys
+// parser (PFDC). EXP2/PFDC are additionally covered further down by two
+// real-data TEST_CASEs against files pulled directly from a live CASC
+// install -- exact values re-derived fresh from `husk dump-chunks` at
+// test-writing time, not copied from an old orientation estimate. PCOL has
+// both a synthetic and a real-data TEST_CASE further down too.
+// TODO: Remove: WFV3 was previously untested (FINDINGS.md §4.4); the
+// transcription-bug precedent is the M2Sequence-is-64-not-36-bytes
+// investigation (WIKI_FINDINGS.md); DETL's byte layout was confirmed in
+// WIKI_FINDINGS.md; EXP2/PFDC real-data pulls and PCOL are WIKI_FINDINGS.md
+// §13/§10 respectively.
 
 #include <cstring>
 #include <doctest/doctest.h>
@@ -462,14 +462,13 @@ TEST_CASE("husk dump-chunks: DBOC (16-byte records sized by chunk byte length) r
     fs::remove(path);
 }
 
-// WFV3 is the highest-risk untested dumper before this test existed
-// (FINDINGS.md §4.4): ~20 sequential hand-transcribed float/int fields at
-// fixed offsets, exactly the shape of silent transcription bug this
-// project's own history (the M2Sequence-is-64-not-36-bytes investigation,
-// WIKI_FINDINGS.md) shows is easy to introduce and hard to notice without
-// a real byte-offset round-trip test. Every field gets a distinct value so
-// a field landing at the wrong offset shows up as a specific wrong number,
-// not a coincidental pass.
+// ~20 sequential hand-transcribed float/int fields at fixed offsets --
+// exactly the shape of a silent transcription bug. Every field gets a
+// distinct value so a field landing at the wrong offset shows up as a
+// specific wrong number, not a coincidental pass.
+// TODO: Remove: WFV3 was the highest-risk untested dumper before this test
+// existed (FINDINGS.md §4.4); precedent for this transcription-bug shape is
+// WIKI_FINDINGS.md's M2Sequence-is-64-not-36-bytes investigation.
 TEST_CASE("husk dump-chunks: WFV3 (one fixed 80-byte struct) reads every field at its own "
           "documented offset") {
     std::vector<uint8_t> wfv3;
@@ -548,13 +547,12 @@ TEST_CASE("husk dump-chunks: WFV3 (one fixed 80-byte struct) reads every field a
     fs::remove(path);
 }
 
-// Regression test: real corpus files (Shadowlands
-// waterfall doodads, 9 files -- see WIKI_FINDINGS.md §8's WFV3 entry) carry a
-// 64-byte WFV3 chunk, missing exactly the trailing unk1-unk4 floats the
+// Regression test: real corpus files (Shadowlands waterfall doodads) carry
+// a 64-byte WFV3 chunk, missing exactly the trailing unk1-unk4 floats the
 // wiki's own struct listing always includes. dumpWfv3 used to assume 80
 // bytes unconditionally, so every field read past 0x40 threw a bounds
-// error ("chunk field at offset 64 needs 4 bytes but the chunk is only 64
-// bytes") and failed the whole dump-chunks run for these files.
+// error and failed the whole dump-chunks run for these files.
+// TODO: Remove: see WIKI_FINDINGS.md §8's WFV3 entry (9 real files).
 TEST_CASE("husk dump-chunks: WFV3's real 64-byte short variant reads every documented field and "
           "emits null for the missing unk1-unk4, instead of throwing") {
     std::vector<uint8_t> wfv3;
@@ -607,14 +605,12 @@ TEST_CASE("husk dump-chunks: RPID (a flat FileDataID array sized by chunk byte l
     fs::remove(path);
 }
 
-// Regression test for FAILURES2.md #5: TEXL was recognized by
-// cmd_info.cpp's documentedM2ChunkTags (so it never tripped the
-// "undocumented chunk" note) but was in neither of this file's own
-// kDocumented/kFallback lists -- a real TEXL chunk was invisible to
-// dump-chunks entirely, not even as a hex dump. TEXL has a real,
-// unambiguous struct (unlike DETL's inconsistent offsets), so it now gets
-// real field-level parsing, same shape as DBOC (16-byte records sized by
-// chunk byte length).
+// TEXL has a real, unambiguous struct (unlike DETL's inconsistent
+// offsets), so it gets real field-level parsing, same shape as DBOC
+// (16-byte records sized by chunk byte length).
+// TODO: Remove: regression test for FAILURES2.md #5 -- TEXL was recognized
+// by cmd_info.cpp's chunk-tag list but absent from this file's own dump
+// tables, so real TEXL data was invisible everywhere.
 TEST_CASE("husk dump-chunks: TEXL (light-cookie texture lookups) reads its four fields per record") {
     std::vector<uint8_t> texl;
     putF32(texl, 1.5f);
@@ -635,10 +631,11 @@ TEST_CASE("husk dump-chunks: TEXL (light-cookie texture lookups) reads its four 
     fs::remove(path);
 }
 
-// WFV1/WFV2/DPIV/AFRA have no wowdev.wiki struct at all (RO_COMPLETENESS_TODO.md's
-// former Item 3) -- their layout was byte-decoded from real corpus files
-// instead (see WIKI_FINDINGS.md's WFV1/WFV2/DPIV/AFRA section) and they now
-// get real structural parsing, not a raw-hex-dump fallback.
+// WFV1/WFV2/DPIV/AFRA have no wowdev.wiki struct at all -- their layout
+// was byte-decoded from real corpus files instead, and they get real
+// structural parsing, not a raw-hex-dump fallback.
+// TODO: Remove: this was former RO_COMPLETENESS_TODO.md Item 3, see
+// WIKI_FINDINGS.md's WFV1/WFV2/DPIV/AFRA section.
 TEST_CASE("husk dump-chunks: AFRA (a single fixed 16-byte struct) round-trips its float field") {
     std::vector<uint8_t> afra;
     putF32(afra, 0.6f);
@@ -824,12 +821,13 @@ TEST_CASE("husk dump-chunks: a .bone file (no MD20/MD21 magic) dumps its BIDA/BO
     fs::remove(path);
 }
 
-// DETL's real 12-byte stride and its own 16-byte
-// alignment padding, both confirmed against 1,043 real corpus files
-// (WIKI_FINDINGS.md §11). Real corpus half-float constants (0x231C ->
-// 0.013885498046875, 0x3C00 -> exactly 1.0) used directly rather than
-// made-up numbers, so this test also proves readHalfFloat decodes the
-// exact bit patterns real files carry, not just some arbitrary half-float.
+// DETL's real 12-byte stride and its own 16-byte alignment padding. Real
+// corpus half-float constants (0x231C -> 0.013885498046875, 0x3C00 ->
+// exactly 1.0) used directly rather than made-up numbers, so this test
+// also proves readHalfFloat decodes the exact bit patterns real files
+// carry, not just some arbitrary half-float.
+// TODO: Remove: stride/padding confirmed against 1,043 real corpus files,
+// see WIKI_FINDINGS.md §11.
 TEST_CASE("husk dump-chunks: DETL decodes real corpus half-float constants and ignores its own "
           "16-byte alignment padding") {
     auto md20 = minimalMd20();
@@ -892,13 +890,14 @@ TEST_CASE("husk dump-chunks: DETL's record count is lights.count, not chunk.size
     fs::remove(path);
 }
 
-// PFDC embeds a real .phys file's own byte-for-
-// byte chunk container (wowdev.wiki M2#PFDC), reusing husk's existing,
-// real-file-verified .phys parser (WIKI_FINDINGS.md §9) rather than a new
-// one. Trailing zero padding (up to 6 bytes per the wiki) must be trimmed
-// before handing the bytes to phys::parse, or husk::readChunks throws on
-// the short trailing header -- this proves both the happy path and that
-// the padding-trim logic doesn't eat real data.
+// PFDC embeds a real .phys file's own byte-for-byte chunk container
+// (wowdev.wiki M2#PFDC), reusing husk's existing .phys parser rather than
+// a new one. Trailing zero padding (up to 6 bytes per the wiki) must be
+// trimmed before handing the bytes to phys::parse, or husk::readChunks
+// throws on the short trailing header -- this proves both the happy path
+// and that the padding-trim logic doesn't eat real data.
+// TODO: Remove: reuses husk's real-file-verified .phys parser, see
+// WIKI_FINDINGS.md §9.
 TEST_CASE("husk dump-chunks: PFDC (inline physics, same byte-for-byte .phys container a standalone "
           "file uses) dumps the same body/shape data, trailing zero padding tolerated") {
     auto pfdcPayload = buildMinimalPhysBytes();
@@ -996,13 +995,13 @@ TEST_CASE("husk dump-chunks: EXP2 (M2Array<M2ExtendedParticle>, chunk-local head
     fs::remove(path);
 }
 
-// PCOL's four independent (count, offset) regions,
-// deliberately laid out non-contiguous (real gaps between regions, matching
-// the wiki's own "there can be extra bytes between the data, use the
-// offsets" warning and this session's real-corpus finding of an 8-byte gap
-// on a real file) to prove the dumper reads each region via its own offset
-// rather than assuming they're packed back-to-back. indices/flags include a
-// negative value each to lock in the signed int16 (not uint16) read.
+// PCOL's four independent (count, offset) regions, deliberately laid out
+// non-contiguous (real gaps between regions, matching the wiki's own
+// "there can be extra bytes between the data, use the offsets" warning) to
+// prove the dumper reads each region via its own offset rather than
+// assuming they're packed back-to-back. indices/flags include a negative
+// value each to lock in the signed int16 (not uint16) read.
+// TODO: Remove: a real file was found with an 8-byte gap between regions.
 TEST_CASE("husk dump-chunks: PCOL (four independent, non-contiguous M2Array-shaped regions) "
           "reads vertex_positions/face_normals/indices/flags via their own offsets") {
     std::vector<uint8_t> pcol(32, 0);  // header, filled in below
@@ -1078,11 +1077,12 @@ TEST_CASE(
 }
 
 // The same real fixture PCOL's own regression test uses also happens to
-// carry a real DPIV chunk (RO_COMPLETENESS_TODO.md's former Item 3, see
-// WIKI_FINDINGS.md) -- one record, non-degenerate values in field_1/field_2,
-// confirming dumpDpiv's record-array parsing against real bytes rather than
-// only a synthetic fixture. Values hand-checked against a fresh
-// dump-chunks run at test-writing time.
+// carry a real DPIV chunk -- one record, non-degenerate values in
+// field_1/field_2, confirming dumpDpiv's record-array parsing against real
+// bytes rather than only a synthetic fixture. Values hand-checked against
+// a fresh dump-chunks run at test-writing time.
+// TODO: Remove: this was former RO_COMPLETENESS_TODO.md Item 3, see
+// WIKI_FINDINGS.md.
 TEST_CASE(
     "husk dump-chunks: real DPIV data (same pa_kite_lamp_creature.m2 fixture as the PCOL "
     "regression test) decodes one record with real nonzero field_1/field_2 values" *
@@ -1095,9 +1095,10 @@ TEST_CASE(
     CHECK(result.output.find("22.0376") != std::string::npos);
 }
 
-// real-data regression coverage for EXP2/PFDC,
-// pulled directly from a live CASC install (WIKI_FINDINGS.md §13) rather
-// than a synthetic fixture. exp2_126382.m2 carries EXP2 only, no PFDC.
+// real-data regression coverage for EXP2/PFDC, pulled directly from a live
+// CASC install rather than a synthetic fixture. exp2_126382.m2 carries
+// EXP2 only, no PFDC.
+// TODO: Remove: see WIKI_FINDINGS.md §13.
 TEST_CASE(
     "husk dump-chunks: real EXP2-only file (exp2_126382.m2, pulled from live CASC) decodes 9 "
     "particle emitters each with default zSource/colorMult/alphaMult and an empty alphaCutoff "

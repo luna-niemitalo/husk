@@ -1,13 +1,9 @@
-// Provides doctest's main(), plus a one-time startup banner naming which
-// optional real-data fixtures (tests/test_data_paths.hpp) and downstream
-// tools (gltf_validator, Blender) were found on this run. Every real-data
-// TEST_CASE in test_integration.cpp/test_conformance.cpp is gated by the
-// exact same resolution this banner prints, via `* doctest::skip(...)` --
-// so a skipped test shows up as a distinct, non-zero "skipped" count in
-// doctest's own summary instead of being folded silently into "passed",
-// and this banner is where "why did N tests just skip" gets answered
-// without a rerun. All actual test cases live in the other test_*.cpp
-// files.
+// Provides doctest's main() plus the startup banner naming which optional
+// real-data fixtures (tests/test_data_paths.hpp) and downstream tools
+// (gltf_validator, Blender) were found on this run -- see
+// TEST_DESIGN.md#Fixture-resolution-model for the doctest::skip/HUSK_TEST_*
+// convention this banner reports on. All actual test cases live in the
+// other test_*.cpp files.
 #define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest/doctest.h>
 

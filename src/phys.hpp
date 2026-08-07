@@ -9,15 +9,13 @@
 // collision shapes, joints) for Blizzard's "Domino" physics engine
 // (MoP+). Unlike .bone, this format IS documented:
 // documentation/wowdev-wiki/md/PHYS.md (wiki_revision 30458) gives byte
-// offsets for nearly every field; this parser implements that spec,
-// verified against 103 real files (WIKI_FINDINGS.md §9), not
-// reverse-engineered from nothing.
+// offsets for nearly every field; this parser implements that spec.
+// TODO: Remove: verified against 103 real files, see WIKI_FINDINGS.md §9.
 //
 // Layout: WoW's usual chunked container (husk::readChunks/findChunk, see
 // chunk.hpp), but with WMO/ADT-style *reversed* chunk tags on disk (e.g.
 // "PHYS" is stored as the literal bytes 'S','Y','H','P') -- the opposite of
-// M2's own inline chunks. Confirmed via hex dump against a real file
-// (WIKI_FINDINGS.md §9); phys.cpp's chunk-tag constants are the already-
+// M2's own inline chunks. phys.cpp's chunk-tag constants are the already-
 // reversed on-disk literals, one per wowdev.wiki name.
 //
 // Chunk-variant selection is by chunk *tag*, not the top-level PHYS.version
@@ -28,17 +26,16 @@
 // prismatic/revolute joints likewise prefer their newest variant. A bare
 // SHOJ tag is ambiguous between two strides (0x6c pre-7.0.1.20979, 0x74
 // post) -- disambiguated by which stride the chunk's own size divides
-// evenly (WIKI_FINDINGS.md §9: never both, across 103 real files); a real
-// file hitting both throws rather than guessing.
+// evenly; a real file hitting both throws rather than guessing.
 //
-// Coverage verified against real files (WIKI_FINDINGS.md §9): PHYS/PHYT,
-// BODY/BDY3/BDY4, SHAP/SHP2, CAPS, PLYT, SPHS, JOIN, WELJ/WLJ2, SHOJ (0x74),
-// REVJ, PHYV. Never observed in the 103-file sample this was checked
-// against -- byte offsets transcribed from the wiki only, structurally
-// plausible, not independently confirmed: BDY2, BOXS, WLJ3, SHOJ (0x6c)/
-// SHJ2, REV2, SPHJ, PRSJ/PRS2, DSTJ. husk still parses these (the offsets
-// are real, just unverified) -- see cmd_info.cpp for the per-chunk-type
-// "verified floor" warning this drives.
+// TODO: Remove: coverage verified against real files (WIKI_FINDINGS.md
+// §9): PHYS/PHYT, BODY/BDY3/BDY4, SHAP/SHP2, CAPS, PLYT, SPHS, JOIN,
+// WELJ/WLJ2, SHOJ (0x74), REVJ, PHYV confirmed against 103 real files;
+// BDY2, BOXS, WLJ3, SHOJ (0x6c)/SHJ2, REV2, SPHJ, PRSJ/PRS2, DSTJ
+// transcribed from the wiki only, never observed in that sample -- husk
+// still parses these (offsets are real, just unverified). No durable-doc
+// home found for this table (checked DESIGN.md#Boundaries and
+// M2_COMPLETENESS.md); revisit if one is added.
 namespace husk::phys {
 
 struct Vec3 {
@@ -46,10 +43,11 @@ struct Vec3 {
 };
 
 // One rigid body, connected to one bone. `type`/`unk1` together classify
-// kinematic-vs-dynamic (WIKI_FINDINGS.md §9: "type == 0" does NOT mean "the
-// root" -- most real files have several type-0 bodies). `shapeBase`/
-// `shapeCount` index into File::shapes (BODY/BDY2's `shapes_base`, BDY3/
-// BDY4's `shapeIndex` -- same role, different field width/name upstream).
+// kinematic-vs-dynamic; "type == 0" does NOT mean "the root" -- most real
+// files have several type-0 bodies. `shapeBase`/`shapeCount` index into
+// File::shapes (BODY/BDY2's `shapes_base`, BDY3/BDY4's `shapeIndex` --
+// same role, different field width/name upstream).
+// TODO: Remove: WIKI_FINDINGS.md §9.
 struct Body {
     uint16_t type = 0;
     uint16_t boneIndex = 0;
@@ -92,8 +90,8 @@ struct SphereShape {  // unverified -- see this file's own doc comment
 // does its own array handling ... instead of splitting in a header and a
 // data chunk, it is combining both parts"). `unk1`/`unk2`/`nodes`'
 // semantics beyond "a tree structure that connects the vertices together"
-// aren't resolved (WIKI_FINDINGS.md §9) -- surfaced raw, not modeled
-// further.
+// aren't resolved -- surfaced raw, not modeled further.
+// TODO: Remove: WIKI_FINDINGS.md §9.
 struct PolytopeShape {
     uint32_t vertexCount = 0;
     uint32_t count10 = 0;
@@ -184,12 +182,11 @@ struct File {
 // Parses a complete .phys file already read into memory. Throws ParseError
 // if there's no PHYS chunk, a chunk's size isn't an exact multiple of its
 // record stride, a SHOJ chunk's size divides evenly by both known strides
-// (an ambiguity never seen in 103 real files -- a real occurrence is new
-// information, not a case to guess at), or any Body::shapeBase/shapeCount,
-// Shape::index, or Joint::bodyA/bodyB/index reference falls outside its
-// target array -- WIKI_FINDINGS.md §9 found zero such violations across
-// 103 real files, so a real one is corruption or a parser bug, not data to
-// silently accept.
+// (an ambiguity never seen in any real file checked -- a real occurrence
+// is new information, not a case to guess at), or any
+// Body::shapeBase/shapeCount, Shape::index, or Joint::bodyA/bodyB/index
+// reference falls outside its target array (see this file's own doc
+// comment).
 File parse(const std::vector<uint8_t>& fileBytes);
 
 }  // namespace husk::phys

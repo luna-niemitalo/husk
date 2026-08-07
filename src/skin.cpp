@@ -91,7 +91,8 @@ std::vector<uint16_t> parseU16Array(const std::vector<uint8_t>& fileBytes, const
     size_t size = fileBytes.size();
 
     // Up-front validation before reserve(), same reasoning and same bug
-    // class as husk::m2::parseVertices/parseBones -- see FAILURES.md #2.
+    // class as husk::m2::parseVertices/parseBones.
+    // TODO: Remove: FAILURES.md #2.
     constexpr size_t kElementSize = 2;  // uint16
     if (array.offset > size || array.count > (size - array.offset) / kElementSize) {
         throw ParseError("array claims " + std::to_string(array.count) +

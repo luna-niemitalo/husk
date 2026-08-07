@@ -123,10 +123,9 @@ std::optional<std::vector<m2::Header::AnimFileEntry>> findAnimFileIds(
         return std::nullopt;
     }
     constexpr size_t kEntrySize = 8;
-    // Same up-front check as m2.cpp's findAnimFileIdChunk (FAILURES2.md #8)
-    // -- a byte length that isn't a multiple of the record size means a
-    // truncated/corrupted chunk, which must fail loudly rather than
-    // silently drop the last partial entry.
+    // A byte length that isn't a multiple of the record size means a
+    // truncated/corrupted chunk -- fail loudly rather than silently drop
+    // the last partial entry.
     if (afid->size % kEntrySize != 0) {
         throw ParseError("AFID chunk is " + std::to_string(afid->size) +
                           " bytes, not a multiple of " + std::to_string(kEntrySize) +
@@ -154,9 +153,9 @@ std::optional<std::vector<uint32_t>> findBoneFileDataIds(const std::vector<uint8
         return std::nullopt;
     }
     constexpr size_t kEntrySize = 4;
-    // Same up-front check as m2.cpp's findFileDataIdArrayChunk/this file's
-    // own findAnimFileIds (FAILURES2.md #8) -- a byte length that isn't a
-    // multiple of the record size means a truncated/corrupted chunk.
+    // A byte length that isn't a multiple of the record size means a
+    // truncated/corrupted chunk (same invariant findAnimFileIds above
+    // checks).
     if (bfid->size % kEntrySize != 0) {
         throw ParseError("BFID chunk is " + std::to_string(bfid->size) +
                           " bytes, not a multiple of " + std::to_string(kEntrySize) +
