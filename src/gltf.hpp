@@ -103,7 +103,11 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
 // why -- GEOSET_MASK_TODO.md) -- appended to the joint-node range right
 // after every real bone (indices 0..skeleton->joints.size()-1 above are
 // never touched or renumbered), each an identity-bind-pose node named
-// `geoset_<geosetId>`, parented under the single real root joint
+// `group_<geosetId/100>,variant_<geosetId%100>` (comma-separated,
+// prefix-tagged fields rather than one combined token -- so a Blender-
+// side script can recover the raw integers with a plain comma-split +
+// prefix-strip, no division/modulo needed at the consuming end),
+// parented under the single real root joint
 // (single-root skeletons) or the synthesized multi-root parent node
 // described below (multi-root skeletons) so the skin's "closest common
 // root" property still holds. Unlike every anchor list further below,

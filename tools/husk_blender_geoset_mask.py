@@ -13,13 +13,17 @@ mesh+armature objects are already in the current scene (a model already
 imported via Blender's own File > Import, or the Scripting tab).
 
 What it does, in order:
-  1. Finds every "geoset_<id>" vertex group husk's tag-joint mechanism
-     produced (one per distinct M2 geoset ID -- Skeleton::GeosetTag,
-     src/gltf_skeleton.hpp) on the mesh object(s) -- created automatically
-     by Blender's own glTF importer as a side effect of ordinary skin-
-     weight import, no custom parsing needed here.
-  2. Groups them by geoset *group* (id // 100, the same convention husk's
-     own glTF extras already use, e.g. geoset_id 1702 -> group 17) --
+  1. Finds every "group_<n>,variant_<n>" vertex group husk's tag-joint
+     mechanism produced (one per distinct M2 geoset ID -- Skeleton::
+     GeosetTag, src/gltf_skeleton.hpp) on the mesh object(s) -- created
+     automatically by Blender's own glTF importer as a side effect of
+     ordinary skin-weight import, no custom parsing needed here. The
+     comma-separated, prefix-tagged naming (rather than one combined
+     "geoset_<id>" token) is deliberate: a future geometry-nodes-based
+     rewrite of this same idea (GEOSET_MASK_TODO.md) can recover the raw
+     group/variant integers with a plain comma-split + prefix-strip.
+  2. Groups them by geoset *group* (the `group_<n>` field, same numbering
+     husk's own glTF extras use, e.g. geoset_id 1702 -> group 17) --
      variants within one group are mutually exclusive alternates (e.g. five
      hairstyle options).
   3. Picks the lowest-ID variant per group as the visible default -- husk
@@ -43,12 +47,33 @@ What it does, in order:
      works in.
 """
 
-import re
 import sys
 
 import bpy
 
-GEOSET_VGROUP_RE = re.compile(r"^geoset_(\d+)$")
+GROUP_PREFIX = "group_"
+VARIANT_PREFIX = "variant_"
+
+
+def parse_geoset_vgroup_name(name):
+    """'group_<n>,variant_<n>' -> (group, variant) ints, or None if not a match.
+
+    Plain comma-split + prefix-strip, not a regex, deliberately -- this is
+    meant to double as the reference implementation for how a future
+    geometry-nodes-based rewrite of this script (GEOSET_MASK_TODO.md) would
+    parse the same name, which is exactly why husk emits it in this
+    field-separated shape instead of one combined "geoset_<id>" token.
+    """
+    parts = name.split(",")
+    if len(parts) != 2:
+        return None
+    group_part, variant_part = parts
+    if not group_part.startswith(GROUP_PREFIX) or not variant_part.startswith(VARIANT_PREFIX):
+        return None
+    try:
+        return int(group_part[len(GROUP_PREFIX):]), int(variant_part[len(VARIANT_PREFIX):])
+    except ValueError:
+        return None
 
 
 def find_mesh_and_armature():
@@ -61,14 +86,14 @@ def find_mesh_and_armature():
 
 
 def geoset_groups(mesh_obj):
-    """{geoset_group: [(geoset_id, vertex_group_name), ...]} for this mesh object."""
+    """{group: [(variant, vertex_group_name), ...]} for this mesh object."""
     groups = {}
     for vg in mesh_obj.vertex_groups:
-        m = GEOSET_VGROUP_RE.match(vg.name)
-        if not m:
+        parsed = parse_geoset_vgroup_name(vg.name)
+        if parsed is None:
             continue
-        geoset_id = int(m.group(1))
-        groups.setdefault(geoset_id // 100, []).append((geoset_id, vg.name))
+        group, variant = parsed
+        groups.setdefault(group, []).append((variant, vg.name))
     return groups
 
 
@@ -80,7 +105,7 @@ def apply_geoset_masks(mesh_obj):
         if len(variants) < 2:
             continue  # a single variant has nothing mutually exclusive to hide
         variants.sort()
-        for geoset_id, vg_name in variants[1:]:  # keep variants[0] (lowest ID) visible
+        for _variant, vg_name in variants[1:]:  # keep variants[0] (lowest variant ID) visible
             mod = mesh_obj.modifiers.new(name=f"mask_{vg_name}", type='MASK')
             mod.vertex_group = vg_name
             mod.invert_vertex_group = True
@@ -89,8 +114,8 @@ def apply_geoset_masks(mesh_obj):
 
 
 def delete_geoset_tag_bones(armature_obj, all_groups):
-    """Removes every geoset_<id> bone -- their vertex groups/masks survive this untouched."""
-    tag_names = {f"geoset_{gid}" for variants in all_groups.values() for gid, _ in variants}
+    """Removes every group_<n>,variant_<n> bone -- their vertex groups/masks survive this untouched."""
+    tag_names = {vg_name for variants in all_groups.values() for _variant, vg_name in variants}
     if not tag_names:
         return 0
     prev_active = bpy.context.view_layer.objects.active

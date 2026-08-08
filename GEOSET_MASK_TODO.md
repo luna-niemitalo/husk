@@ -71,8 +71,12 @@ extra means "add a modifier." So unlike the vertex groups (free via
 skinning import), a small companion Blender Python script is still needed,
 run after import, to:
 
-1. Walk the imported object's vertex groups matching a `geoset_<id>` naming
-   convention.
+1. Walk the imported object's vertex groups matching a
+   `group_<n>,variant_<n>` naming convention (comma-separated, prefix-
+   tagged fields -- chosen specifically so a consumer, whether this script
+   or a future geometry-nodes-based rewrite, can recover the raw integers
+   with a plain comma-split + prefix-strip, no `id / 100` / `id % 100`
+   math needed).
 2. Group them by `geoset_group` (the alternates-of-each-other category --
    already known per-primitive from existing extras, just needs surfacing
    per tag joint too, see below).
@@ -165,7 +169,8 @@ resolved by deleting them post-import (previous section). Not pursued.
    `skinSectionId`/`geoset_id` seen across a model's primitives, populated
    by `cmd_export.cpp`, which already collects every batch's `skinSectionId`
    for the existing extras work). Each becomes one inert placeholder node,
-   identity transform, never posed/animated, named `geoset_<id>` --
+   identity transform, never posed/animated, named
+   `group_<geosetId/100>,variant_<geosetId%100>` --
    **appended to `skin.joints` after every real bone** (critical: must
    never disturb existing real-joint indices 0..N-1, the same invariant
    `bone_correction_sets`/emitter-anchor/animation joint indices already
@@ -262,9 +267,11 @@ next touches raw M2 bone-index handling.
 
 `tools/husk_blender_geoset_mask.py` -- run inside Blender (`blender
 --python tools/husk_blender_geoset_mask.py -- model.glb`, or against an
-already-imported scene). Walks every `geoset_<id>` vertex group, groups by
-`geoset_group` (`id // 100`, matching husk's own extras convention), adds
-one invert-mode Mask modifier per non-default variant (lowest ID kept
+already-imported scene). Walks every `group_<n>,variant_<n>` vertex group
+(comma-split + prefix-strip to recover the raw integers, `parse_geoset_
+vgroup_name`), groups by the `group_<n>` field (matching husk's own extras
+`geoset_group` numbering, `id // 100`), adds one invert-mode Mask modifier
+per non-default variant (lowest variant ID kept
 visible -- husk doesn't currently resolve real DB2 customization data to
 pick an actual default, same disclaimed-placeholder precedent as
 `orderCandidatesForDefault` elsewhere in this project), then deletes every

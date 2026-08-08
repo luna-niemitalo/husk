@@ -174,10 +174,16 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
     out.geosetTagNodes.resize(skeleton->geosetTags.size());
     for (size_t i = 0; i < skeleton->geosetTags.size(); ++i) {
         int nodeIdx = static_cast<int>(meshCount + skeleton->joints.size() + i);
-        out.geosetTagNodes[i].name = "geoset_" + std::to_string(skeleton->geosetTags[i].geosetId);
+        int geosetId = skeleton->geosetTags[i].geosetId;
+        // "group_<n>,variant_<n>" rather than a single "geoset_<id>" token
+        // -- a future Blender-side script (GEOSET_MASK_TODO.md's geometry-
+        // nodes follow-up) can recover the raw group/variant integers with
+        // a plain comma-split + prefix-strip, no `id / 100` / `id % 100`
+        // math needed at the consuming end.
+        out.geosetTagNodes[i].name =
+            "group_" + std::to_string(geosetId / 100) + ",variant_" + std::to_string(geosetId % 100);
         out.geosetTagNodes[i].translation = {0, 0, 0};
-        out.geosetTagJointIndex[skeleton->geosetTags[i].geosetId] =
-            static_cast<uint32_t>(skeleton->joints.size() + i);
+        out.geosetTagJointIndex[geosetId] = static_cast<uint32_t>(skeleton->joints.size() + i);
         if (out.hasSyntheticRoot) {
             out.syntheticRootNode.children.push_back(nodeIdx);
         } else if (tagParentLocalIdx >= 0) {

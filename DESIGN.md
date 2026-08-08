@@ -863,7 +863,7 @@ tables (`CharacterSections`/geoset-group data — locally-extracted DB2
 files are in scope per Non-goals above's clarified wording, this is a "not
 implemented yet" gap, not a hard non-goal, see
 `CHAR_TEXTURE_COMPOSITING_TODO.md`) — what follows is a human visually
-identifying what each `geoset_<group><variant>` vertex group actually
+identifying what each `group_<n>,variant_<n>` vertex group actually
 looks like in Blender on one specific real character export, then checked
 against two tables `reference/wow.export` already carries (checked out for
 source-code reference only, unrelated to and not to be confused with

@@ -451,7 +451,11 @@ TEST_CASE("writeGlb: a geoset tag becomes an extra skin joint with real JOINTS_1
     // (0..2) must stay exactly as they were before this feature existed.
     REQUIRE(skin.joints.size() == 4);
     int tagNode = skin.joints[3];
-    CHECK(model.nodes[tagNode].name == "geoset_401");
+    // "group_<n>,variant_<n>" (comma-separated, prefix-tagged fields), not
+    // a single "geoset_<id>" token -- so a future Blender-side script can
+    // recover the raw integers with a plain comma-split + prefix-strip
+    // (GEOSET_MASK_TODO.md). 401 -> group 4, variant 1.
+    CHECK(model.nodes[tagNode].name == "group_4,variant_1");
     // Never posed: identity translation, no rotation/scale override.
     REQUIRE(model.nodes[tagNode].translation.size() == 3);
     CHECK(model.nodes[tagNode].translation[0] == doctest::Approx(0));
