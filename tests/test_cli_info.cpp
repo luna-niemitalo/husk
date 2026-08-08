@@ -320,6 +320,67 @@ TEST_CASE("husk info: prints per-texture type/flags/filename, per-material flags
     fs::remove(path);
 }
 
+// The five uint16 lookup arrays (sequence/bone/texture/attachment/camera)
+// used to be parsed into Array descriptors and never dereferenced anywhere
+// (TODO_correctness.md's former item 2). Builds a real header with all five
+// populated -- each with one resolvable entry and one 0xFFFF ("-1", "not
+// used") sentinel -- past minimalMd20()'s 0x130-byte end, and points each
+// Array descriptor at its own two-entry payload.
+TEST_CASE("husk info: dereferences sequence_lookup/bone_lookup/texture_lookup/attachment_lookup/"
+          "camera_lookup, resolving names and skipping 0xFFFF sentinels") {
+    auto b = minimalMd20();
+
+    auto appendLookup = [&b](size_t descriptorOffset, uint16_t resolvedValue) {
+        uint32_t count = 2;
+        uint32_t offset = static_cast<uint32_t>(b.size());
+        std::memcpy(b.data() + descriptorOffset, &count, 4);
+        std::memcpy(b.data() + descriptorOffset + 4, &offset, 4);
+        putU16(b, resolvedValue);
+        putU16(b, 0xFFFF);  // "-1": no entry for bucket/id/type 1
+    };
+
+    appendLookup(0x024, 1);   // sequence_lookup: bucket 0 -> sequence[1]
+    appendLookup(0x034, 4);   // bone_lookup: key bone 0 (ArmL) -> bone 4
+    appendLookup(0x0F8, 3);   // attachment_lookup: id 0 (Shield) -> attachment 3
+    appendLookup(0x118, 0);   // camera_lookup: type 0 -> camera 0
+
+    // texture_lookup (0x068): textureTypeName(0) is deliberately nullptr (a
+    // real embedded filename, not a named replaceable slot) -- put the
+    // sentinel at type 0 and the resolvable entry at type 1 ("skin")
+    // instead, so this test also exercises a real name resolving.
+    {
+        uint32_t count = 2;
+        uint32_t offset = static_cast<uint32_t>(b.size());
+        std::memcpy(b.data() + 0x068, &count, 4);
+        std::memcpy(b.data() + 0x06C, &offset, 4);
+        putU16(b, 0xFFFF);
+        putU16(b, 2);
+    }
+
+    auto path = tempPath("lookup-tables.m2");
+    writeFile(path, b);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("sequence_lookup: 2") != std::string::npos);
+    CHECK(result.output.find("bucket 0 -> sequence[1]") != std::string::npos);
+    CHECK(result.output.find("bucket 1") == std::string::npos);
+    CHECK(result.output.find("bone_lookup: 2") != std::string::npos);
+    CHECK(result.output.find("key bone 0 (ArmL) -> bone 4") != std::string::npos);
+    CHECK(result.output.find("key bone 1") == std::string::npos);
+    CHECK(result.output.find("texture_lookup: 2") != std::string::npos);
+    CHECK(result.output.find("texture type 1 (skin) -> texture 2") != std::string::npos);
+    CHECK(result.output.find("texture type 0 ") == std::string::npos);
+    CHECK(result.output.find("attachment_lookup: 2") != std::string::npos);
+    CHECK(result.output.find("attachment type 0 (Shield) -> attachment 3") != std::string::npos);
+    CHECK(result.output.find("attachment type 1") == std::string::npos);
+    CHECK(result.output.find("camera_lookup: 2") != std::string::npos);
+    CHECK(result.output.find("camera type 0 -> camera 0") != std::string::npos);
+    CHECK(result.output.find("camera type 1") == std::string::npos);
+
+    fs::remove(path);
+}
+
 TEST_CASE("husk info: prints attachments/events/lights/cameras/ribbon_emitters/particle_emitters "
           "counts") {
     auto md20 = minimalMd20();

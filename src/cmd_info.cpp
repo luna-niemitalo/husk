@@ -142,6 +142,23 @@ int info(int argc, char** args) {
     }
 
     printArray("sequences", h.sequences);
+    printArray("sequence_lookup", h.sequenceLookup);
+    if (h.sequenceLookup.count > 0) {
+        // wowdev.wiki M2#Animation_Lookup: a hash table (bucket = anim_id %
+        // count, quadratic probing on collision), not a direct id-indexed
+        // array -- printing "bucket -> sequence" rather than pretending the
+        // bucket index means anything on its own.
+        auto lookup = m2::parseUint16Array(blob, h.sequenceLookup);
+        auto sequences = m2::parseSequences(blob, h.sequences);
+        for (size_t i = 0; i < lookup.size(); ++i) {
+            if (lookup[i] == 0xFFFF) continue;
+            std::cout << "    bucket " << i << " -> sequence[" << lookup[i] << "]";
+            if (lookup[i] < sequences.size()) {
+                std::cout << " (id=" << sequences[lookup[i]].id << ")";
+            }
+            std::cout << "\n";
+        }
+    }
     printArray("bones", h.bones);
     if (h.bones.count == 0 && h.skeletonFileId) {
         std::cout << "    note: 0 inline bones, but this model has an external skeleton"
@@ -154,6 +171,23 @@ int info(int argc, char** args) {
             if (const char* mode = m2::billboardModeName(bones[i].flags)) {
                 std::cout << "    bone " << i << ": billboard=" << mode << "\n";
             }
+        }
+    }
+    printArray("bone_lookup", h.boneLookup);
+    if (h.boneLookup.count > 0) {
+        // wowdev.wiki M2#Key-Bone_Lookup ("boneIndicesById"): index =
+        // keyBoneId (see m2::keyBoneName), value = bone index, 0xFFFF ("-1")
+        // = no bone assigned to that key-bone role in this model. The
+        // reverse direction of Bone::keyBoneId (bone -> role), already
+        // surfaced per-bone via billboardModeName's neighboring loop above.
+        auto keyBones = m2::parseUint16Array(blob, h.boneLookup);
+        for (size_t i = 0; i < keyBones.size(); ++i) {
+            if (keyBones[i] == 0xFFFF) continue;
+            std::cout << "    key bone " << i;
+            if (const char* name = m2::keyBoneName(static_cast<int32_t>(i))) {
+                std::cout << " (" << name << ")";
+            }
+            std::cout << " -> bone " << keyBones[i] << "\n";
         }
     }
     printArray("vertices", h.vertices);
@@ -172,6 +206,25 @@ int info(int argc, char** args) {
                 std::cout << " file_data_id=" << (*h.textureFileDataIds)[i];
             }
             std::cout << "\n";
+        }
+    }
+    printArray("texture_lookup", h.textureLookup);
+    if (h.textureLookup.count > 0) {
+        // wowdev.wiki M2#Replacable_texture_lookup ("textureIndicesById"): a
+        // reverse lookup, index = replaceable texture id (Texture::type --
+        // see m2::textureTypeName), value = index into `textures`, 0xFFFF
+        // ("-1") = that id isn't used by this model. Distinct from
+        // `textureCombos` (wiki's separately-named "Texture lookup table"),
+        // which is batch-order combiner data cmd_export.cpp already
+        // consumes for real rendering.
+        auto texLookup = m2::parseUint16Array(blob, h.textureLookup);
+        for (size_t i = 0; i < texLookup.size(); ++i) {
+            if (texLookup[i] == 0xFFFF) continue;
+            std::cout << "    texture type " << i;
+            if (const char* name = m2::textureTypeName(static_cast<uint32_t>(i))) {
+                std::cout << " (" << name << ")";
+            }
+            std::cout << " -> texture " << texLookup[i] << "\n";
         }
     }
     printArray("materials", h.materials);
@@ -257,6 +310,21 @@ int info(int argc, char** args) {
         printVec3(a.position);
         std::cout << "\n";
     }
+    printArray("attachment_lookup", h.attachmentLookup);
+    if (h.attachmentLookup.count > 0) {
+        // wowdev.wiki M2#Attachment_Lookup: index = attachment type id (see
+        // m2::attachmentTypeName), value = index into `attachments`, 0xFFFF
+        // ("-1") = that type isn't used by this model.
+        auto attLookup = m2::parseUint16Array(blob, h.attachmentLookup);
+        for (size_t i = 0; i < attLookup.size(); ++i) {
+            if (attLookup[i] == 0xFFFF) continue;
+            std::cout << "    attachment type " << i;
+            if (const char* name = m2::attachmentTypeName(static_cast<uint32_t>(i))) {
+                std::cout << " (" << name << ")";
+            }
+            std::cout << " -> attachment " << attLookup[i] << "\n";
+        }
+    }
     printArray("events", h.events);
     for (const auto& e : m2::parseEvents(blob, h.events)) {
         std::cout << "    " << (e.identifier.empty() ? "(empty)" : e.identifier) << " bone=" << e.bone
@@ -272,6 +340,19 @@ int info(int argc, char** args) {
         std::cout << "\n";
     }
     printArray("cameras", h.cameras);
+    printArray("camera_lookup", h.cameraLookup);
+    if (h.cameraLookup.count > 0) {
+        // wowdev.wiki M2#Camera_lookup_table: index = camera type (type 1 is
+        // always the character-tab camera per the wiki), value = index into
+        // `cameras`, 0xFFFF ("-1") = not referenced. The wiki notes a valid
+        // block may be all -1s (an exporter quirk, e.g.
+        // ui_mainmenu_warlords.m2) -- that's real data, not a parse bug.
+        auto camLookup = m2::parseUint16Array(blob, h.cameraLookup);
+        for (size_t i = 0; i < camLookup.size(); ++i) {
+            if (camLookup[i] == 0xFFFF) continue;
+            std::cout << "    camera type " << i << " -> camera " << camLookup[i] << "\n";
+        }
+    }
     printArray("ribbon_emitters", h.ribbonEmitters);
     for (const auto& r : m2::parseRibbons(blob, h.ribbonEmitters)) {
         std::cout << "    ribbonId=" << r.ribbonId << " bone=" << r.boneIndex << " position=";

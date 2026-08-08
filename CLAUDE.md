@@ -147,6 +147,14 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
+- **Independent, unsupervised task, uncommitted, awaiting Luna's review**:
+  `TODO_correctness.md`'s former item 2 (five unconsumed M2 lookup-table
+  arrays) is now implemented and tested — `husk info` dereferences
+  `sequenceLookup`/`boneLookup`/`textureLookup`/`attachmentLookup`/
+  `cameraLookup`, verified against real `wolf.m2`/`bloodelffemale_hd.m2`
+  data. Full suite green, 541/541. See `CLAUDE_HISTORY.md`'s top entry for
+  the full detail; unrelated to every thread below, none of which this
+  session touched.
 - **Current state**: `GEOSET_MASK_TODO.md` implemented (new this session)
   but **not yet correct** — real bugs found via actual interactive Blender
   use, investigation started but not resolved, continuing in a fresh

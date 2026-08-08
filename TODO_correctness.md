@@ -68,12 +68,32 @@ own glTF importer producing an exactly-matching Mapping node. Removed
 outright per this file's own convention; `M2_COMPLETENESS.md`'s "Texture
 transform (constant case)" row updated to `native — 100%` to match.
 
-Item 1 (cameras) is low-priority by design, not by oversight; item 2 is an
-awareness-only footnote, not an action item, kept here only so it isn't
-lost; item 3's LOD hypothesis has since been ruled out by real data, and
-the extras-export half is now implemented (`husk export --bones-dir`) —
-what's left needs a client-side DB2 lookup husk doesn't have access to,
-not more file-reading or export work. Former item 4 (`M2Sequence.aliasNext`
+Former item 2 (five lookup-table arrays parsed, never referenced) is now
+resolved: `husk info` (`cmd_info.cpp`) dereferences all five
+(`sequenceLookup`/`boneLookup`/`textureLookup`/`attachmentLookup`/
+`cameraLookup`) via the existing `m2::parseUint16Array`, resolving names
+through the already-transcribed `keyBoneName`/`textureTypeName`/
+`attachmentTypeName` tables where the id has one and skipping 0xFFFF
+("-1") sentinels; `sequenceLookup` is printed as its real hash-bucket
+shape (wowdev.wiki M2#Animation_Lookup: `bucket = anim_id % count`,
+quadratic probing), not a direct id-index map, since that's what the wire
+format actually is. Verified against real `wolf.m2`/`bloodelffemale_hd.m2`
+data (key-bone entries resolve to the expected Head/Jaw/Root joints,
+texture-type entries match each model's own hardcoded slots) plus a new
+synthetic regression test. Diagnostic-only, by design, same as
+`boneCombos`/`textureCombos` and every other indirection table here —
+`husk export` already substitutes full per-vertex global joint indices
+and real embedded textures for the batching schemes these tables exist to
+drive, so there's no render-pipeline consumer for them to feed. Removed
+outright per this file's own convention; `M2_COMPLETENESS.md`'s lookup-
+tables row updated to match. Remaining item renumbered accordingly (1-2,
+was 1-3) — same one-time exception as the removals above.
+
+Item 1 (cameras) is low-priority by design, not by oversight; item 2's LOD
+hypothesis has since been ruled out by real data, and the extras-export
+half is now implemented (`husk export --bones-dir`) — what's left needs a
+client-side DB2 lookup husk doesn't have access to, not more file-reading
+or export work. Former item 4 (`M2Sequence.aliasNext`
 resolution) is resolved outright, not just further investigated: a
 `M2_UNKNOWNS_EXPLORATION.md` investigation pass found the field is a plain
 local index into the same file's own `sequences` array (at the real,
@@ -114,24 +134,7 @@ leave as-is.
 
 ---
 
-### 2. Five lookup-table arrays parsed, never referenced
-
-`boneLookup`, `attachmentLookup`, `cameraLookup`, `textureLookup`,
-`sequenceLookup` (`src/m2.hpp`) are all read into descriptors and never
-dereferenced or counted anywhere downstream. Lowest priority here — these
-are indirection/name-lookup tables (key-bone role lookup, replaceable-
-texture lookup, name-lookup for cameras/attachments), not required for the
-mesh/skin/material/animation pipeline that's already implemented, and
-husk's own documented design choice (full per-vertex global joint indices
-instead of hardware bone-limit batching) already makes the closely-related
-`boneCombos` moot by intent, not oversight. Awareness-only, in case any of
-them become relevant to future work (e.g. `attachmentLookup` would matter
-if attachment-point *naming* — not just raw id/bone/position, which `husk
-info` already prints — ever gets added).
-
----
-
-### 3. `.bone` correction matrices — which slot applies is unresolvable, extras export is done
+### 2. `.bone` correction matrices — which slot applies is unresolvable, extras export is done
 
 `husk dump-chunks <file.bone>` surfaces the raw `(bone_index, matrix)`
 pairs (see `README.md`'s `.bone` section); nothing about which of a

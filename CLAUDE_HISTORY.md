@@ -14,6 +14,43 @@ deletions handled their own back-references).
 
 ---
 
+- **Last state**: Independent, unsupervised task -- picked TODO_correctness.md's
+  former item 2 (five uint16 lookup-table arrays -- `sequenceLookup`/
+  `boneLookup`/`textureLookup`/`attachmentLookup`/`cameraLookup`, wowdev.wiki
+  M2#Header -- parsed into `Array` descriptors but never dereferenced or
+  printed anywhere, confirmed via a real grep sweep before starting). Fixed:
+  `husk info` (`cmd_info.cpp`) now dereferences all five via the existing
+  `m2::parseUint16Array`, resolving each entry's index to a name where husk
+  already has one (`keyBoneName`/`textureTypeName`/`attachmentTypeName` --
+  no new name tables, reused what M2's per-record printing already uses) and
+  skipping 0xFFFF ("-1", "no entry") sentinels. `sequenceLookup` specifically
+  is printed as its real hash-bucket shape (`bucket = anim_id % count`,
+  quadratic-probe collision per the wiki), not pretended to be a direct
+  id-indexed array -- printing it as "bucket N -> sequence[value] (id=...)"
+  rather than mislabeling the bucket index as an animation id. Verified
+  against two real fixtures, not just synthetic data:
+  `test_data/creature/wolf/wolf.m2`'s `bone_lookup` resolves key bone 26 to
+  bone 0 named "Root" and key bone 6 to the real Head joint (26/27/35 real
+  key-bone slots depending on model, matches the wiki's own count note); its
+  `attachment_lookup`/`camera_lookup` resolve cleanly too.
+  `bloodelffemale_hd.m2`'s `texture_lookup` resolves texture type 1 ("skin")
+  through type 20 ("char_jewelry") to the exact texture indices matching its
+  own hardcoded per-texture `type=` fields printed just above. One new
+  regression test (`tests/test_cli_info.cpp`, synthetic header built past
+  `minimalMd20()`'s 0x130-byte end, one resolvable entry + one 0xFFFF
+  sentinel per array) -- confirmed to exercise the sentinel-skipping and
+  name-resolution paths, not just presence. `M2_COMPLETENESS.md`'s lookup-
+  tables row updated from `descriptor`/`none`/"unclaimed" to `deref`/
+  `diagnostic`/"pure indirection metadata, no independent renderable shape";
+  `TODO_correctness.md`'s former item 2 removed outright per the file's own
+  convention, remaining item renumbered (was 3, now 2). Full suite green,
+  541/541 (`./build/husk-tests`). Deliberately left uncommitted for Luna to
+  review, per this task's own instructions -- nothing here has had human
+  eyes on it yet. No overlap with the concurrent `[UNVERIFIED/STAGING] WDC5
+  DB2 parser` commit found already on `master` when this session started
+  (`src/db2.*`/`src/cmd_db2.cpp`) -- different M2/DB2 scope entirely, not
+  touched here.
+
 - **Last state**: Continuation of the same `GEOSET_MASK_TODO.md` effort,
   same session as the entry below, prompted by more of Luna's own real
   interactive Blender testing. Ground-truthed the tabard bug from the
