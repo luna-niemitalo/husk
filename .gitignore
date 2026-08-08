@@ -6,6 +6,12 @@ reference/
 /result
 documentation
 
+# Example output tree: every test_data/ fixture run through husk (export +
+# dump-chunks + husk-blp), so someone can actually open the results in
+# Blender -- generated, never committed, same disposable-output convention
+# every other generated-artifact entry in this file already follows.
+/example_exports/
+
 # blp/ (Python, uv-managed) -- .venv/ and .pytest_cache/ already carry
 # their own self-excluding .gitignore, these cover the rest.
 __pycache__/
@@ -21,3 +27,4 @@ __pycache__/
 *.old*
 *.json
 *.csv
+*.log
