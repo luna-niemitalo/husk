@@ -161,7 +161,60 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: `tools/husk_blender_geoset_mask.py` (already the
+- **Current state**: fixed both real findings from `TODO/BLENDER_SCRIPT_TODO.md`
+  (that file now deleted per this project's own "punch list, not historical
+  record" convention — both closed and verified). (1) The texture-layout
+  overlay's three new nodes (`ShaderNodeGroup`/`ShaderNodeEmission`/
+  `ShaderNodeMixShader`, `apply_texture_layout_overlay`) previously got no
+  `.location` at all, landing at the node tree's origin — very likely
+  overlapping this material's own existing graph, effectively invisible
+  without manually dragging nodes apart. Now anchored below the existing
+  graph's own lowest node (`min(n.location.y for n in node_tree.nodes) -
+  400`), offset left of the Material Output — guaranteed clear of whatever
+  this material's own layout already occupies. (2) The "skirt/tunic
+  fragment stays visible with every geoset toggled off" report traced to a
+  real, previously-undocumented design gap, not a rendering bug: geoset
+  groups with only *one* real M2 variant (this model's groups 10/23/33/34)
+  were skipped by `build_geoset_switch_node_group`'s old `len(variants) >=
+  2` gate entirely, so there was no way to tell "always shown, no
+  alternative exists" from "should be toggleable but the toggle is
+  missing" — every group now gets a switch as long as it has at least one
+  *switchable* variant (new `switchable_variants` helper), gaining a real
+  synthetic "none" choice same as any multi-variant group, per Luna's own
+  direct steer that Blizzard's own runtime customization system can offer
+  "none" without it needing to exist as a real geoset ID in the file
+  (same precedent as the already-closed tabard "no submesh for 'no
+  tabard'" gap in `GEOSET_MASK_TODO.md`). Separately, real headless
+  investigation (`husk`'s own `.glb` extras, not guessed) confirmed
+  Luna's own second suspicion — "arms is still part of hair 0, hair 0
+  needs to stay enabled while ALSO enabling other hair options" — as a
+  real, distinct bug with a concrete root cause: DESIGN.md's own
+  "Anecdotal geoset-group semantics" table already names geoset group 0
+  `SKIN_OR_HAIR` (two independent community reference tables agree, not
+  just "Hair" as this project's own earlier visual read assumed) —
+  variant 0 within that group is the character's own base skin body
+  (torso/arms/legs, confirmed via the real `.glb`'s own material
+  assignment: geoset_id 0's two primitives use `skin_color`/`blindfold`
+  materials, not the `hair_color` material every other variant 1-24 in
+  that group uses), not a real hairstyle option — WoW's own geoset
+  numbering just co-locates them under one group ID. Treating variant 0 as
+  just another mutually-exclusive hairstyle choice made the base body
+  vanish whenever a real hairstyle was picked. Fixed with a new
+  `ALWAYS_VISIBLE_VARIANTS` table (currently only `{0: {0}}`, explicitly
+  scoped to this one confirmed case, not generalized to every group
+  without more evidence) — variant 0 is now excluded from group 0's
+  switch entirely (never hidden, never a dropdown item), same as an
+  untagged base vertex; `CURATED_DEFAULT_VARIANTS`'s own group-0 entry
+  updated from `"variant_0"` to `"none"` to match (variant 0 is no longer
+  a selectable item at all). Verified headlessly against the real curated
+  `bloodelffemale_hd.glb` export: group 0's dropdown now offers only
+  `variant_1..24`/`none` (never `variant_0`), 23 dropdown switches built
+  (was 19 — the 4 newly-switchable single-variant groups), every overlay
+  node lands at a real non-origin location distinct per material's own
+  existing graph, full `main()` run completes with no errors. No `src/`
+  changes — this was pure `tools/husk_blender_geoset_mask.py` Python work,
+  C++ test suite unaffected.
+- **Prior session**: `tools/husk_blender_geoset_mask.py` (already the
   established "post-import companion script" per Luna's own direct steer,
   not a new file) got a second, independent job this session: parses
   `chr_texture_layout` (previous entry) and adds a toggleable magenta

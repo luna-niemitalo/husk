@@ -61,15 +61,35 @@ end. What it does, in order:
      husk's own glTF extras use, e.g. geoset_id 1702 -> group 17) --
      variants within one group are mutually exclusive alternates (e.g. five
      hairstyle options).
-  3. For every group with 2+ variants, adds a real "none" choice alongside
-     its real M2 variants -- prompted directly, a real gap found in
-     testing: `bloodelffemale_hd.m2`'s own tabard group (12) only has
-     variants for "both flaps"/"back only"/"front only", never "no
-     tabard at all", because the M2 itself simply has no submesh for that
-     case (there's no real geoset ID to tag -- husk can only tag what
-     exists in the file). "none" is a synthetic addition on the Blender
-     side, not something husk's export needs to change for.
-  4. Per group with 2+ variants (real or "none"), builds two small pieces:
+  3. For every group with at least one *switchable* variant (see point 3a),
+     adds a real "none" choice alongside its real M2 variants -- prompted
+     directly, a real gap found in testing: `bloodelffemale_hd.m2`'s own
+     tabard group (12) only has variants for "both flaps"/"back only"/
+     "front only", never "no tabard at all", because the M2 itself simply
+     has no submesh for that case (there's no real geoset ID to tag --
+     husk can only tag what exists in the file). "none" is a synthetic
+     addition on the Blender side, not something husk's export needs to
+     change for. This now also covers groups with only *one* real M2
+     variant (e.g. this model's groups 10/23/33/34) -- previously skipped
+     entirely, so there was no way to tell "always shown, no alternative
+     exists" apart from "should be toggleable but the toggle is missing";
+     a single-variant group now gets a real "none" toggle too, per Luna's
+     own direct steer that Blizzard's own runtime customization system can
+     offer a "none" option without one needing to exist as a real geoset
+     ID in the file, same reasoning as the tabard case).
+  3a. `ALWAYS_VISIBLE_VARIANTS` excludes specific `(group, variant)` pairs
+     from the switch entirely -- never hidden, never a dropdown item, just
+     baked in as always-visible, same as a vertex with no geoset tag at
+     all. Currently only `group 0, variant 0`: DESIGN.md's own "Anecdotal
+     geoset-group semantics" table independently names group 0
+     `SKIN_OR_HAIR` (two separate community reference tables agree) --
+     variant 0 in that group is the character's own base skin body
+     (torso/arms/legs), not a real hairstyle option, WoW's own geoset
+     numbering just happens to co-locate them. Treating it as just another
+     mutually-exclusive hairstyle choice made the base body vanish
+     whenever a real hairstyle was picked -- a real bug Luna ground-
+     truthed directly in Blender's own GUI.
+  4. Per group with at least one switchable variant (real or "none"), builds two small pieces:
      a `Menu Switch` (`data_type='STRING'`) whose *output* is not
      geometry but the **name of the currently-selected variant's own
      vertex group** (or a sentinel string matching no real attribute, for
@@ -189,6 +209,24 @@ NONE_ITEM_NAME = "none"
 # every vertex, which is exactly what "no variant selected" should mean.
 NONE_SENTINEL_ATTR = "__husk_geoset_none__"
 
+# Variants that must never be hidden by the mutual-exclusion switch, and are
+# excluded from the switch's own dropdown entirely -- found real, not
+# guessed, corroborated by DESIGN.md's own "Anecdotal geoset-group
+# semantics" table: geoset group 0
+# is independently named `SKIN_OR_HAIR` by two unrelated community
+# reference tables, not just "Hair" -- variant 0 within it is the
+# character's own base skin body (torso/arms/legs), not a real optional
+# hairstyle, WoW's own geoset ID numbering just co-locates them under one
+# group. Treating variant 0 as just another mutually-exclusive hairstyle
+# choice made the base body disappear whenever a real hairstyle (1-24) was
+# selected -- ground-truthed directly by Luna in Blender's own GUI. This is
+# a per-model-numbering fact this project has real evidence for, not a
+# generalization to every group -- see DESIGN.md's own table for the single
+# group this is confirmed on.
+ALWAYS_VISIBLE_VARIANTS = {
+    0: {0},
+}
+
 # Per-model curated default geoset selections, found by hand in Blender's
 # real GUI -- husk itself has no DB2 customization-choice data to ground a
 # "correct" default in (this module's own doc comment, point 8), so this is
@@ -201,7 +239,7 @@ NONE_SENTINEL_ATTR = "__husk_geoset_none__"
 # to the pre-existing "lowest real variant ID" default.
 CURATED_DEFAULT_VARIANTS = {
     "bloodelffemale_hd": {
-        0: "variant_0",
+        0: NONE_ITEM_NAME,
         4: "variant_1",
         5: "variant_1",
         7: "variant_2",
@@ -260,6 +298,16 @@ def find_mesh_and_armature():
         raise RuntimeError("no mesh/armature objects found in the current scene -- import a husk "
                             "export first")
     return mesh_objs, arm_objs[0]
+
+
+def switchable_variants(group, variants):
+    """`variants` (`[(variant, vg_name), ...]`) minus whatever
+    `ALWAYS_VISIBLE_VARIANTS` forces always-on for this group, sorted --
+    shared by `build_geoset_switch_node_group` and `main`'s own summary
+    count so both agree on which groups actually get a dropdown.
+    """
+    always_visible = ALWAYS_VISIBLE_VARIANTS.get(group, frozenset())
+    return sorted(v for v in variants if v[0] not in always_visible)
 
 
 def geoset_groups(mesh_obj):
@@ -390,12 +438,17 @@ def build_geoset_switch_node_group(name, groups, default_overrides=None):
     group_input = node_tree.nodes.new('NodeGroupInput')
     group_output = node_tree.nodes.new('NodeGroupOutput')
 
-    hidden_terms = [
-        _build_group_hidden_term(node_tree, group_input, group, sorted(groups[group]),
-                                  default_overrides.get(group))
-        for group in sorted(groups)
-        if len(groups[group]) >= 2  # a single variant has nothing mutually exclusive to hide
-    ]
+    hidden_terms = []
+    for group in sorted(groups):
+        switchable = switchable_variants(group, groups[group])
+        if not switchable:
+            # Every real variant in this group is either the group's own
+            # single option (nothing mutually exclusive to hide) or forced
+            # always-visible (ALWAYS_VISIBLE_VARIANTS) -- either way, no
+            # switch needed for this group.
+            continue
+        hidden_terms.append(_build_group_hidden_term(node_tree, group_input, group, switchable,
+                                                       default_overrides.get(group)))
 
     if hidden_terms:
         overall_visible = _bool_math(node_tree, 'NOT', _or_all(node_tree, hidden_terms))
@@ -596,14 +649,29 @@ def apply_texture_layout_overlay(layout, materials):
         original_link = output_node.inputs["Surface"].links[0]
         original_socket = original_link.from_socket
 
+        # These three nodes used to get no explicit `.location` at all, so
+        # Blender dropped them at the node tree's origin (0, 0) -- very
+        # likely on top of whatever this material's own existing graph
+        # already occupies there, real but effectively invisible without
+        # manually dragging nodes apart first (found via real interactive
+        # use). Anchored below the existing graph's own lowest node
+        # instead, so they land in guaranteed-empty space regardless of
+        # this material's own layout.
+        existing_ys = [n.location.y for n in node_tree.nodes]
+        overlay_y = (min(existing_ys) if existing_ys else 0.0) - 400.0
+        output_x = output_node.location.x
+
         group_node = node_tree.nodes.new("ShaderNodeGroup")
         group_node.node_tree = overlay_group
         group_node.inputs["Show Overlay"].default_value = False
+        group_node.location = (output_x - 600.0, overlay_y)
 
         emission = node_tree.nodes.new("ShaderNodeEmission")
         emission.inputs["Color"].default_value = (1.0, 0.0, 1.0, 1.0)
+        emission.location = (output_x - 300.0, overlay_y)
 
         mix = node_tree.nodes.new("ShaderNodeMixShader")
+        mix.location = (output_x, overlay_y + 150.0)
         node_tree.links.new(group_node.outputs["Factor"], mix.inputs["Fac"])
         node_tree.links.new(original_socket, mix.inputs[1])
         node_tree.links.new(emission.outputs["Emission"], mix.inputs[2])
@@ -628,7 +696,7 @@ def main():
     switch_groups = 0
     for mesh_obj in mesh_objs:
         groups = apply_geoset_switch(mesh_obj)
-        switch_groups += sum(1 for variants in groups.values() if len(variants) >= 2)
+        switch_groups += sum(1 for gid, variants in groups.items() if switchable_variants(gid, variants))
         for gid, variants in groups.items():
             all_groups.setdefault(gid, []).extend(variants)
 
