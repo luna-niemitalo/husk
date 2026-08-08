@@ -429,16 +429,45 @@ exactly; `namesreserved.db2` round-trips real UTF-8 strings correctly) --
 and confirmed directly by Luna against real `db2-info` output, not just the
 automated checks above.
 
-Current vs. target, explicitly: this is an inspection tool, not yet wired
-into `export` or `dump-chunks`. Fields are identified by index only -- WDC5
-carries no column names (see `db2.hpp`'s module comment) -- so naming a real
-table's columns needs an external schema this POC doesn't consume. Only
-WDC5 is implemented (every file checked so far under `dbfilesclient/` is
-WDC5); offset-map ("sparse") sections expose their raw record bytes but not
-per-field decoded values. `documentation/wowdev-wiki/md/DB2.md` is
-community-reverse-engineered documentation, not a Blizzard spec -- treated as
-a strong starting point, not unconditionally trusted (see `db2.hpp`'s module
-comment for what's been cross-checked against real bytes and what hasn't).
+Current vs. target, explicitly: `db2-info` itself still identifies fields by
+index only -- real column naming lives in `husk db2-export` instead (below),
+not here. Only WDC5 is implemented (every file checked so far under
+`dbfilesclient/` is WDC5); offset-map ("sparse") sections expose their raw
+record bytes but not per-field decoded values. `documentation/wowdev-wiki/
+md/DB2.md` is community-reverse-engineered documentation, not a Blizzard
+spec -- treated as a strong starting point, not unconditionally trusted
+(see `db2.hpp`'s module comment for what's been cross-checked against real
+bytes and what hasn't).
+
+### `husk db2-export <file.db2> <out.sqlite> [--dbd-dir DIR]`
+
+Converts a WDC5 DB2 file to a real, browsable SQLite database -- one table
+per file, one row per real record, every fixed-width unencrypted section
+exported (TACT-encrypted and offset-map/sparse sections are skipped, with a
+count printed, never silently dropped). Real column names/types come from
+`src/dbd.hpp`/`.cpp`, an independent parser for [WoWDBDefs](https://github.com/wowdev/WoWDBDefs)'
+own documented `.dbd` text-format grammar -- resolves a real `.db2` file's
+`table_hash`/`layout_hash` (already parsed by `db2.hpp`) against a local,
+optional `--dbd-dir` checkout (`<dir>/manifest.json` +
+`<dir>/definitions/<TableName>.dbd`, i.e. a plain WoWDBDefs clone) to get
+real per-field names and int/float/string types for that exact build.
+**Never a hard dependency**: husk itself doesn't clone, fetch, or bundle
+WoWDBDefs, and this file's own logic is an independent implementation of
+its documented grammar, not vendored/linked code -- without `--dbd-dir`, or
+when no matching layout is found, columns fall back to generic `field_<N>`
+names instead, the same "expose honestly, don't guess" convention this
+project already uses for undocumented M2 chunk fields (`AFRA`/`DPIV`/
+`WFV1`, `WIKI_FINDINGS/M2.md`).
+
+Verified against real data: `chrmodelmaterial.db2` exports 336 rows with
+real `ID`/`CharComponentTextureLayoutsID`/`TextureType`/`Width`/`Height`/
+`Flags`/`Field_9_0_1_34615_006` columns and plausible real atlas dimensions
+(2048x1024, 512x256, ...) when pointed at a real WoWDBDefs checkout;
+`namesreserved.db2` round-trips real UTF-8 strings (including non-Latin
+text) through the same string-value path `db2-info` already uses. Field
+arrays (WDC5's own `arrayCount` storage, not something DBD tracks the
+length of) get one `<name>_<i>` column per real decoded element -- SQLite
+has no native array column type.
 
 ### Texture conversion
 

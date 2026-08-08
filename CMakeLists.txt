@@ -38,6 +38,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(TinyGLTF CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
+find_package(SQLite3 REQUIRED)
 
 # Everything except main.cpp, as a library: lets the test binary link against
 # the exact same command/parsing code the real CLI runs, instead of
@@ -55,6 +56,7 @@ add_library(husk-lib STATIC
   src/phys.cpp
   src/blp.cpp
   src/db2.cpp
+  src/dbd.cpp
   src/cmd_db2.cpp
   src/gltf_math.cpp
   src/gltf_mesh.cpp
@@ -74,7 +76,7 @@ add_library(husk-lib STATIC
   src/cmd_dump.cpp
 )
 target_include_directories(husk-lib PUBLIC src)
-target_link_libraries(husk-lib PUBLIC tinygltf::tinygltf CLI11::CLI11)
+target_link_libraries(husk-lib PUBLIC tinygltf::tinygltf CLI11::CLI11 SQLite::SQLite3)
 
 add_executable(husk src/main.cpp)
 target_link_libraries(husk PRIVATE husk-lib)
@@ -101,6 +103,8 @@ if(HUSK_BUILD_TESTS)
     tests/test_phys.cpp
     tests/test_blp.cpp
     tests/test_db2.cpp
+    tests/test_dbd.cpp
+    tests/test_cli_db2.cpp
     tests/test_gltf.cpp
     tests/test_gltf_math.cpp
     tests/test_gltf_mesh.cpp
@@ -133,6 +137,12 @@ if(HUSK_BUILD_TESTS)
     # so a missing (gitignored, user-populated) test_data/ just means every
     # real-data test skips, not a configure-time error.
     HUSK_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test_data"
+    # Same "bake absolute at configure time" discipline as HUSK_TEST_DATA_DIR
+    # above, but for reference/WoWDBDefs -- a dev-only investigation checkout
+    # (gitignored, optional, never a hard dependency), not a test_data/-style
+    # per-model WoW extraction fixture, hence its own separate macro rather
+    # than routing through test_data_paths.hpp's test_data/-relative resolve().
+    HUSK_TEST_DBD_DIR="${CMAKE_CURRENT_SOURCE_DIR}/reference/WoWDBDefs"
   )
   add_dependencies(husk-tests husk)
 

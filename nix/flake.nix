@@ -101,7 +101,8 @@
           cli11
           casc-tool.packages.${pkgs.system}.default
           gltf-validator
-		  blender
+          blender
+          sqlite
         ];
 
         # blp/: BLP2 -> PNG texture conversion (roadmap stage 4). uv manages
@@ -127,6 +128,7 @@
           buildInputs = [
             pkgs.tinygltf
             pkgs.cli11
+            pkgs.sqlite
           ];
 
           cmakeFlags = [ "-DHUSK_BUILD_TESTS=OFF" ];

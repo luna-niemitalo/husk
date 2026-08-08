@@ -34,6 +34,13 @@ int dumpChunks(int argc, char** args);
 // inspection tool for now.
 int db2Info(int argc, char** args);
 
+// `db2-export` -- converts a WDC5 DB2 file to a real SQLite database (see
+// src/dbd.hpp, src/cmd_db2.cpp's own doc comment). Real column names/types
+// when an optional --dbd-dir resolves them (via src/dbd.hpp's WoWDBDefs
+// parser), generic `field_<N>` columns otherwise -- never a hard dependency
+// on that data being available.
+int db2Export(int argc, char** args);
+
 // `export`'s real flag surface (see DESIGN.md's "CLI argument grammar for
 // export"), captured here (rather than as a local in cmd_export.cpp) so
 // main.cpp's `--print-completion` can register the exact same options onto

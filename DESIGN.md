@@ -60,11 +60,18 @@ Non-goals, by design, not oversight:
   DB2 parser now exists on top of this clarified scope (`src/db2.hpp`/
   `.cpp`, `husk db2-info`) — header/section/field-storage layout verified
   byte-for-byte against real files, real UTF-8 strings round-tripped from
-  `namesreserved.db2`, confirmed by Luna directly. Still a proof of
-  concept, not a Stage-2+ consumer (`export` doesn't read DB2 data yet,
-  no table-name-to-column mapping) — see `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s
+  `namesreserved.db2`, confirmed by Luna directly. Real column naming is
+  also implemented now (`src/dbd.hpp`/`.cpp`, an independent parser for
+  WoWDBDefs' own documented `.dbd` grammar — optional, local-only, never a
+  hard dependency, same tier as every other sidecar convention above) and
+  exposed via `husk db2-export`, a real DB2-to-SQLite converter — but that
+  command is an explicitly separate side project for human inspection/
+  correctness-checking, not part of `export`'s own runtime path (`export`
+  still doesn't read DB2 data). Still not a Stage-2+ consumer in the sense
+  that matters for the real pipeline (no real per-table C++ struct feeds
+  `export_materials.cpp` yet) — see `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s
   Stage 1 for the exact current-vs-target line, and README.md's own
-  `husk db2-info` section for usage.
+  `husk db2-info`/`husk db2-export` sections for usage.
 - No write-back to WoW's native formats. glTF-out only.
 - No WMO or M3 support implemented yet. WMO is tracked and now fully
   investigated/planned (not started in `src/`) — see `TODO/WORLD/WMO_GEOMETRY_TODO.md`/

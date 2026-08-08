@@ -128,20 +128,60 @@ against real files under `/media/luna/data/wow_export/dbfilesclient/`
 round-tripped from `namesreserved.db2`; plausible-looking placement/size
 values decoded from `charcomponenttexturesections.db2`/
 `chrmodelmaterial.db2` -- not independently cross-checked against a second
-tool yet, see below). Genuinely a POC, not this stage's finish line: no
-table-name-to-struct mapping (WDC5 carries no column names at all -- naming
-`ChrModelMaterial`'s columns needs an external schema this doesn't consume
-yet), only WDC5 (no WDB2..WDC4 fallback), offset-map/sparse sections expose
-raw record bytes but not decoded fields, and the real per-table structs
-(`ChrModelMaterial`, `CharComponentTextureSection`, ...) Stage 2 actually
-needs don't exist yet -- `db2::decodeField` takes a raw field index, not a
-name. Worth noting for whoever picks up Stage 2: several of the exact tables
-this plan needs are 0-byte files in the current local `casc-tool` export
-(`chrcustomization.db2`, `chrcustomizationcategory.db2`,
-`chrcustomizationchoice.db2`, `chrcustomizationoption.db2`,
-`chrcustomizationreq.db2` all confirmed 0 bytes) -- a real extraction gap,
-not a husk bug, but it blocks Stage 3's choice chain specifically until
-re-extracted.
+tool yet, see below). Only WDC5 is implemented (no WDB2..WDC4 fallback),
+and offset-map/sparse sections still expose raw record bytes but not
+decoded fields -- both unchanged from the original POC.
+
+**Column naming closed, a separate session**: `src/dbd.hpp`/`.cpp`, an
+independent parser for WoWDBDefs' own documented `.dbd` text grammar
+(`github.com/wowdev/WoWDBDefs`, README.md's own grammar spec, not reverse-
+engineered), resolves a real file's `table_hash`/`layout_hash` against a
+local, optional WoWDBDefs checkout to get real per-field names/types --
+matched purely by *position* (declaration order, skipping `noninline`
+fields), not cross-validated against `field_storage_info`'s own bit sizes.
+Never a hard dependency: husk doesn't clone/fetch/bundle WoWDBDefs itself
+(a dev-only `reference/WoWDBDefs` checkout, gitignored, is investigation
+scaffolding only, never read at runtime) -- `--dbd-dir` is a local,
+optional, user-supplied directory, same "hand husk a plain local file"
+pattern `--textures`/`--skin-dir` already use; no matching layout falls
+back to generic `field_<N>` names, never a guess. New command, `husk
+db2-export <file.db2> <out.sqlite> [--dbd-dir DIR]`
+(`../README.md`'s own section on it), writes a real SQLite database via the
+now-flake-provided `pkgs.sqlite` -- verified against real data:
+`chrmodelmaterial.db2` exports 336 rows with real `ID`/
+`CharComponentTextureLayoutsID`/`TextureType`/`Width`/`Height`/`Flags`/
+`Field_9_0_1_34615_006` columns and plausible real atlas dimensions.
+
+**This closes the "no table-name-to-struct mapping" gap for the SQLite
+side project specifically, but not for Stage 2.** Per this file's own top
+note, the SQLite exporter is explicitly a separate side project ("read the
+file, transform in memory, write to gltf" is the real pipeline, no SQLite
+round-trip) -- `db2-export` produces one flat table per `.db2` file, with
+real names now, but **no relational schema across files yet** (the
+mapping/join tables for real cross-table foreign-key relationships, e.g.
+the `ChrCustomizationOption` -> `_Choice` -> `_Material` chain, the top
+note explicitly calls for and flags as valuable beyond this TODO once
+world-data work starts) -- still genuinely open. Stage 2 itself is also
+still unstarted: it needs real per-table **C++ structs** wired into
+`db2::decodeField`'s actual callers inside husk's own process (`db2::File`/
+`decodeField` deliberately stay name-agnostic, per db2.hpp's own module
+comment), not a SQLite table a human reads separately -- `dbd::
+resolveFieldNames` proves the *name resolution* half works end to end
+against real data, but nothing yet feeds those names into a typed
+`ChrModelMaterial` struct `export_materials.cpp` could consume.
+
+Worth noting for whoever picks up Stage 2 or the relational-schema side
+project: several of the exact tables this plan needs are 0-byte files in
+the current local `casc-tool` export (`chrcustomization.db2`,
+`chrcustomizationcategory.db2`, `chrcustomizationchoice.db2`,
+`chrcustomizationoption.db2`, `chrcustomizationreq.db2` all confirmed
+0 bytes) -- a real extraction gap, not a husk bug, but it blocks Stage 3's
+choice chain specifically until re-extracted. Same class of gap found again
+independently while investigating `PCOL`'s bit-semantics
+(`WIKI_FINDINGS_HISTORY.md` §18) -- `housedecor.db2` and five other
+housing-prefixed tables are also 0 bytes in this same local export, so this
+isn't a one-off, it's a recurring property of this specific local
+extraction.
 
 
 A new, real file-format parser (`src/db2.hpp`/`.cpp`, matching the

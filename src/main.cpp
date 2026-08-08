@@ -354,6 +354,8 @@ int main(int argc, char** argv) {
         "  export <file.m2> [args...]  export a mesh (+ skin/animation) to glTF (see --help)\n"
         "  dump-chunks <file.m2|.bone> extract misc chunks to JSON (see --help)\n"
         "  db2-info <file.db2>          parse and print a WDC5 DB2 file (proof of concept, see --help)\n"
+        "  db2-export <file.db2> <out.sqlite> [--dbd-dir DIR]\n"
+        "                               convert a WDC5 DB2 file to a real SQLite database (see --help)\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -378,6 +380,9 @@ int main(int argc, char** argv) {
     }
     if (command == "db2-info") {
         return husk::commands::db2Info(restArgc, rest);
+    }
+    if (command == "db2-export") {
+        return husk::commands::db2Export(restArgc, rest);
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;

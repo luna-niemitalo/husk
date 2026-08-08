@@ -30,10 +30,19 @@
 // WDC2+ per-field string-offset scheme), and full decoding of offset-map
 // ("sparse", flags & 0x01) sections -- those expose their raw variable-length
 // record bytes but not per-field values, since the fixed-width field_offset_bits
-// scheme below doesn't apply to them. No table-name-to-struct mapping (e.g. a
-// real `ChrModelMaterial` struct) exists here either -- WDC5 itself carries no
-// field *names*, only positions/sizes (see DB2.md's "Determining Field Types"),
-// so naming columns needs an external schema (DBD) this POC doesn't consume.
+// scheme below doesn't apply to them. WDC5 itself still carries no field
+// *names* here -- no `field_structure`/`field_storage_info` entry in
+// DB2.md's own struct definitions carries a name string anywhere (mis-cited
+// in an earlier version of this comment as DB2.md's "Determining Field
+// Types" section, which is actually about inferring a field's *type* --
+// int/float/string -- not its name; that section says nothing about naming
+// at all). Real column naming now lives one layer up: `dbd.hpp` parses
+// WoWDBDefs' .dbd schema files (optional, local-only, see that file's own
+// module comment) and `husk db2-export` (src/cmd_db2.cpp) uses it to
+// produce a real, named, browsable SQLite database -- this file's own
+// `File`/`decodeField` stay name-agnostic by design, exactly the "table-
+// name-to-struct mapping" gap this comment used to describe as entirely
+// unaddressed.
 namespace husk::db2 {
 
 struct ParseError : std::runtime_error {

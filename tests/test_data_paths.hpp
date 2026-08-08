@@ -29,6 +29,12 @@ constexpr const char* kTestDataDir = HUSK_TEST_DATA_DIR;
 constexpr const char* kTestDataDir = nullptr;
 #endif
 
+#ifdef HUSK_TEST_DBD_DIR
+constexpr const char* kDbdDirDefault = HUSK_TEST_DBD_DIR;
+#else
+constexpr const char* kDbdDirDefault = nullptr;
+#endif
+
 // envVar always wins when set; otherwise defaultRelativePath is checked
 // under kTestDataDir and used only if it's actually there on disk --
 // never guessed, never silently wrong for a checkout that doesn't have
@@ -265,6 +271,26 @@ constexpr const char* kTextureTransformScaleM2 =
 constexpr const char* kTextureTransformScaleSkin =
     "creature/bloodknightcharger/bloodknightcharger00.skin";
 }  // namespace fixtures
+
+// reference/WoWDBDefs (gitignored, dev-only checkout, see dbd.hpp's module
+// comment) -- not a test_data/-relative WoW-extraction fixture, so resolved
+// independently of resolve()'s test_data/-base-join, but the same "env var
+// wins, else a CMake-baked default, else empty (skip)" discipline.
+// HUSK_TEST_DBD_DIR, if set explicitly, overrides the baked default
+// entirely.
+inline std::string testDbdDir() {
+    if (const char* env = std::getenv("HUSK_TEST_DBD_DIR")) {
+        return std::string(env);
+    }
+    if (kDbdDirDefault == nullptr) {
+        return std::string();
+    }
+    std::error_code ec;
+    if (std::filesystem::exists(std::filesystem::path(kDbdDirDefault) / "manifest.json", ec)) {
+        return std::string(kDbdDirDefault);
+    }
+    return std::string();
+}
 
 inline std::string testM2() { return resolve("HUSK_TEST_M2", fixtures::kM2); }
 inline std::string testSkin() { return resolve("HUSK_TEST_SKIN", fixtures::kSkin); }

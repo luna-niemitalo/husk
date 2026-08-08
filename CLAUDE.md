@@ -147,6 +147,68 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
+- **Current state**: real DB2 column naming + a real DB2-to-SQLite exporter
+  landed, same session as the DETL/DPIV/PCOL investigation and the root-doc
+  reorg below. `src/dbd.hpp`/`.cpp` (new) is an independent parser for
+  WoWDBDefs' own documented `.dbd` text grammar (`github.com/wowdev/
+  WoWDBDefs`) — resolves a real `.db2` file's `table_hash`/`layout_hash`
+  (already parsed by the existing `src/db2.hpp` POC) against a local,
+  optional WoWDBDefs checkout to get real per-field names/types, matched by
+  position (declaration order, skipping `noninline` fields) — never a hard
+  dependency (husk doesn't clone/fetch/bundle WoWDBDefs; `reference/
+  WoWDBDefs`, gitignored, is dev-only investigation scaffolding, matching
+  `reference/wow.export`'s existing role, never read at runtime; `--dbd-dir`
+  is a local, optional, user-supplied directory, same tier as `--textures`/
+  `--skin-dir`). Verified against real data via a new manifest.json+.dbd
+  lookup, tested against the real `ChrModelMaterial` table. New command,
+  `husk db2-export <file.db2> <out.sqlite> [--dbd-dir DIR]`
+  (`src/cmd_db2.cpp`), writes a real SQLite database (`pkgs.sqlite`, newly
+  added to the flake with Luna's permission) — one table per file, real
+  column names when resolved, generic `field_<N>` otherwise, one `<name>_<i>`
+  column per real WDC5 array element (SQLite has no array column type).
+  Verified end to end against real data: `chrmodelmaterial.db2` exports 336
+  rows with real `ID`/`CharComponentTextureLayoutsID`/`TextureType`/`Width`/
+  `Height`/`Flags`/`Field_9_0_1_34615_006` columns and plausible real atlas
+  dimensions (2048x1024, 512x256, ...); `namesreserved.db2` round-trips real
+  UTF-8 strings (including non-Latin text) correctly. Per Luna's own direct
+  scope clarification, this SQLite exporter is an explicitly separate side
+  project (human inspection/correctness-checking, and a future data source
+  once world-data work starts) — `export`'s own runtime path still doesn't
+  read DB2 data, and Stage 2 of `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`
+  (real per-table C++ structs feeding `export_materials.cpp`) is still not
+  started. Also fixed a real doc-comment inaccuracy caught by Luna directly:
+  `db2.hpp`'s old comment cited DB2.md's "Determining Field Types" section
+  as the reason WDC5 carries no column names — that section is actually
+  about inferring a field's *type* (int/float/string), says nothing about
+  naming, and doesn't exist where the comment implied; corrected in
+  `db2.hpp` and `README.md`. Full suite green, 557/557, 3 new test files
+  (`tests/test_dbd.cpp` unit tests including one real-data case against
+  `reference/WoWDBDefs`, `tests/test_cli_db2.cpp`'s two synthetic
+  CLI-boundary tests reading the real SQLite output back via the sqlite3 C
+  API). **Next step, explicitly open**: the SQLite exporter's own stated
+  ambition — a real relational schema with mapping/join tables preserving
+  cross-file foreign-key relationships (e.g. `ChrCustomizationOption` ->
+  `_Choice` -> `_Material`), not just one flat table per `.db2` file — isn't
+  built yet; today's exporter is genuinely one-file-in, one-table-out.
+- **Same session, earlier**: root-directory cleanup — every self-described
+  "open punch list" `*_TODO.md` file moved from repo root into `TODO/`
+  (17 files), with the 11 world-specific ones plus
+  `TEXTURE_TYPE_COLLISIONS_REPORT.md`/`NOTE_ABOUT_WORLD_HANDLING.md` moved
+  one level deeper into `TODO/WORLD/`; every cross-reference across docs and
+  source comments fixed (several hundred sites). `EYES_ON_FINDINGS.md`
+  pruned of 3 fully-resolved items (bone naming, root-bone weighting, the
+  `Submesh::Level` bug), 3 genuinely open ones kept and renumbered.
+  `HUSK_CORPUS_FINDINGS{,2}.md` deleted (fully migrated into `README.md`/
+  `TOOL_COMPARISON.md`); `INLINE_COMMENT_RULES_VIOLATIONS.md` condensed into
+  a pending-cleanup note at the top of `README.md`, then deleted. Also a
+  short DETL/DPIV/PCOL investigation: DETL's `scale`/`diffuseColorMultiplier`
+  confirmed dead constants in every real file (only `flags` bit 3 varies,
+  plausibly a shadow-casting toggle); DPIV's byte structure characterized
+  (new `TODO/DPIV_TODO.md`, concrete next steps, not yet solved); `PCOL`'s
+  bit-semantics gap reframed from "permanent data-source gap" to "real but
+  currently unfulfillable DB2 dependency" after finding `housedecor.db2`
+  (the obvious candidate table) is 0 bytes in the local export — the same
+  finding that led into the DB2/DBD work above.
 - **Investigation-only session**: closed `PCOL`'s long-standing "`flags`'
   per-record meaning is undocumented — exposed raw" gap as far as real
   corpus data allows. A full 2,354-file scan (`pcol_files_for_exploration.txt`,
