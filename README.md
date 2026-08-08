@@ -57,6 +57,7 @@ husk export --input <file.m2> [OPTIONS]   (see below -- all flags order-independ
 husk dump-chunks <file.m2>
 husk dump-chunks <file.bone>
 husk dump-chunks <file.phys>
+husk db2-info <file.db2>   (proof of concept, see below -- not consumed by export yet)
 ```
 
 husk never touches CASC storage itself, and it never resolves a FileDataID to
@@ -397,6 +398,34 @@ wowdev.wiki (`documentation/wowdev-wiki/md/PHYS.md`), verified against 103
 real files (`WIKI_FINDINGS/PHYS.md`). `husk export --phys` separately attaches
 a minimal per-body placement anchor to the `.glb`'s skin `extras`; this
 command is where the full record set lives.
+
+### `husk db2-info <file.db2>` (proof of concept)
+
+WDC5 DB2 parser (`src/db2.hpp`/`.cpp`), Stage 1 of
+`CHAR_TEXTURE_COMPOSITING_TODO.md`'s DB2-driven character-texture-compositing
+plan -- built to let a human poke at real `.db2` files before any real
+consumer (`export`, a table-specific struct) exists. Prints the header,
+per-section layout, per-field storage info, and (`--rows N`, default 5, `all`
+for every record) a sample of decoded rows: raw values per field plus a
+best-effort string heuristic (`db2::resolveFieldString` -- interprets a field
+as a WDC2+-style string offset and checks whether it lands on a plausible,
+printable, null-terminated string; falls back to the raw integer otherwise).
+Verified against real files from `/media/luna/data/wow_export/dbfilesclient/`
+(the header/section/field-storage layout byte-matches `chrmodelmaterial.db2`
+exactly; `namesreserved.db2` round-trips real UTF-8 strings correctly) --
+and confirmed directly by Luna against real `db2-info` output, not just the
+automated checks above.
+
+Current vs. target, explicitly: this is an inspection tool, not yet wired
+into `export` or `dump-chunks`. Fields are identified by index only -- WDC5
+carries no column names (see `db2.hpp`'s module comment) -- so naming a real
+table's columns needs an external schema this POC doesn't consume. Only
+WDC5 is implemented (every file checked so far under `dbfilesclient/` is
+WDC5); offset-map ("sparse") sections expose their raw record bytes but not
+per-field decoded values. `documentation/wowdev-wiki/md/DB2.md` is
+community-reverse-engineered documentation, not a Blizzard spec -- treated as
+a strong starting point, not unconditionally trusted (see `db2.hpp`'s module
+comment for what's been cross-checked against real bytes and what hasn't).
 
 ### Texture conversion
 

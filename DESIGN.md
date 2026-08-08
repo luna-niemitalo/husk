@@ -53,7 +53,15 @@ Non-goals, by design, not oversight:
   selects, `TODO_correctness.md` #6) is likewise fine — it would just hand
   husk a plain local file/flag to read, same as every other sidecar. What
   husk itself never does, at runtime, under any circumstance, is talk to
-  *live* CASC/DB2 directly, or depend on the CASC tool itself.
+  *live* CASC/DB2 directly, or depend on the CASC tool itself. A real WDC5
+  DB2 parser now exists on top of this clarified scope (`src/db2.hpp`/
+  `.cpp`, `husk db2-info`) — header/section/field-storage layout verified
+  byte-for-byte against real files, real UTF-8 strings round-tripped from
+  `namesreserved.db2`, confirmed by Luna directly. Still a proof of
+  concept, not a Stage-2+ consumer (`export` doesn't read DB2 data yet,
+  no table-name-to-column mapping) — see `CHAR_TEXTURE_COMPOSITING_TODO.md`'s
+  Stage 1 for the exact current-vs-target line, and README.md's own
+  `husk db2-info` section for usage.
 - No write-back to WoW's native formats. glTF-out only.
 - No WMO or M3 support implemented yet. WMO is tracked and now fully
   investigated/planned (not started in `src/`) — see `WMO_GEOMETRY_TODO.md`/

@@ -117,6 +117,33 @@ rather than today's flat, unpositioned `alternate_textures` list.
 
 ### Stage 1 — WDC5 parser
 
+**Proof of concept landed and verified by Luna** (`src/db2.hpp`/`.cpp`,
+`husk db2-info`, see
+README.md's own section on it) -- header/section-header/field_structure/
+field_storage_info parsing, all six `field_compression` decode paths
+(None/Bitpacked/CommonData/BitpackedIndexed/BitpackedIndexedArray/
+BitpackedSigned), and a best-effort string-offset heuristic, all verified
+against real files under `/media/luna/data/wow_export/dbfilesclient/`
+(byte-exact header match against `chrmodelmaterial.db2`; real UTF-8 strings
+round-tripped from `namesreserved.db2`; plausible-looking placement/size
+values decoded from `charcomponenttexturesections.db2`/
+`chrmodelmaterial.db2` -- not independently cross-checked against a second
+tool yet, see below). Genuinely a POC, not this stage's finish line: no
+table-name-to-struct mapping (WDC5 carries no column names at all -- naming
+`ChrModelMaterial`'s columns needs an external schema this doesn't consume
+yet), only WDC5 (no WDB2..WDC4 fallback), offset-map/sparse sections expose
+raw record bytes but not decoded fields, and the real per-table structs
+(`ChrModelMaterial`, `CharComponentTextureSection`, ...) Stage 2 actually
+needs don't exist yet -- `db2::decodeField` takes a raw field index, not a
+name. Worth noting for whoever picks up Stage 2: several of the exact tables
+this plan needs are 0-byte files in the current local `casc-tool` export
+(`chrcustomization.db2`, `chrcustomizationcategory.db2`,
+`chrcustomizationchoice.db2`, `chrcustomizationoption.db2`,
+`chrcustomizationreq.db2` all confirmed 0 bytes) -- a real extraction gap,
+not a husk bug, but it blocks Stage 3's choice chain specifically until
+re-extracted.
+
+
 A new, real file-format parser (`src/db2.hpp`/`.cpp`, matching the
 existing `src/m2.cpp`/`src/skin.cpp` split-by-format convention) for the
 WDC5 container: header (record count, field count, record size, string
