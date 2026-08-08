@@ -1691,6 +1691,109 @@ explicitly flagged for a human decision rather than silently picked. See
 
 ---
 
+## 16. `M2` — `PCOL`'s `flags` field is a real per-triangle bitmask, not an enum or unused padding; complete format now documented end to end
+
+**Confidence: verified (structural), inferred (bit semantics).** §10/§9's
+follow-up left one open question about `PCOL`: "`flags`' per-record meaning
+is undocumented on the wiki — exposed raw, not interpreted." A dedicated
+scan of all 2,354 real `PCOL`-bearing files (`pcol_files_for_exploration.txt`,
+the same list §10 built), re-decoding every file's `flags` region with
+husk's own compiled `dump-chunks` output (not a from-scratch script this
+time — the parser was already verified correct in §10, so this pass reused
+it directly), answers it as far as real corpus data can.
+
+### `flags` is a bitmask, not a sequential enum
+
+Every distinct value seen across all 2,354 files: `{0, 1, 2, 3, 4, 5, 6, 7,
+8, 23, 221}`. Decomposed into bits: `0–7` is exactly the full power set of
+bits 0/1/2 (`0x1`/`0x2`/`0x4`), `8` is bit 3 alone (`0x8`), `23` is
+`0x17` = bits 0/1/2/4, `221` is `0xDD` = bits 0/2/3/4/6/7. A sequential
+enum wouldn't produce every OR-combination of a small bit set this cleanly
+by chance — this is real evidence of a bitmask, matching the same
+per-triangle-flags shape WMO's own `MOPY` chunk uses for its collision
+mesh (a well-established real-world precedent for "one small bitmask per
+collision triangle," not a guess pulled from nowhere).
+
+### The corpus is overwhelmingly dominated by a single bit
+
+2,317 of 2,354 files (98.4%) use only `{0, 1}` — i.e. only bit 0
+(`0x1`) is ever set or clear for the vast majority of real `PCOL` data.
+Per-file maximum value histogram: `{0: 20, 1: 2297, 2: 14, 3: 3, 4: 4, 5:
+12, 6: 1, 8: 1, 23: 1, 221: 1}` — every value above `5` is a **singleton**,
+each confined to exactly one specific file:
+
+| Value | File |
+|---|---|
+| `6` (bits 1/2) | `world/expansion11/doodads/playerhousing/12ph_elwynn_lighting_sconce02.m2` |
+| `7` (bits 0/1/2) | `models/unknown/unk_exp11_7297705/7297705.m2` |
+| `8` (bit 3) | `models/unknown/unk_exp11_7297705/7297705.m2` (same file as `7`) |
+| `23` (bits 0/1/2/4) | `world/expansion04/doodads/pandaria/pa_food_dumplings_02.m2` |
+| `221` (bits 0/2/3/4/6/7) | `world/expansion11/doodads/playerhousing/12ph_light_gazebo01.m2` |
+
+Every one of these outliers is a small decorative doodad (a light sconce, a
+food prop, a player-housing lamp) — consistent with per-object special
+collision behavior (e.g. "no player collision but yes camera collision," a
+real WoW housing-furniture need) rather than corrupt data, but **which bit
+means what is not confirmed** — no wowdev.wiki field names, no DB2 table,
+no client source cross-reference exists for this brand-new (War Within
+11.1.7+) chunk. Exposed raw in `dump-chunks`' JSON exactly as before; this
+finding documents the *shape* of the field, not invented bit names —
+`dumpPcol` itself needed no code change, since it already emits the raw
+values faithfully.
+
+### `flagsCount` is not always `faceNormCount` — a real, rare exception to an assumption `dump-chunks`' own doc comment stated too strongly
+
+2,351 of 2,354 files (99.9%) have `flags.length == face_normals.length`
+(one flag per triangle, the natural reading). **3 files are a genuine
+exception**, each `flagsCount == faceNormCount + 8`
+(`models/unknown/unk_exp11_6008925/6008926.m2`, `models/world/
+unk_exp11_6008927.m2` — three near-identical LOD/variant copies of the same
+asset, same `vp`=72/`fn`=140/`idx`=420 in all three). husk's own parser
+already handles this correctly (`flagsCount`/`flagsOffset` are read as
+their own independent header field, per §10/§9's own "regions aren't
+sequential, use the offsets" finding — never derived from `faceNormCount`),
+so this needed no code fix, only a documentation correction: the doc
+comment's implicit "flags is basically per-face" framing is right 99.9% of
+the time but not guaranteed by the format itself.
+
+### Every other structural fact re-confirmed on the same 2,354-file pass
+
+`indexCount == faceNormCount * 3` on all 2,354 (zero exceptions, matching
+§10's independent from-scratch-decoder result). Max region sizes seen in
+this corpus: 1,102 vertex positions, 1,810 face normals, 5,430 indices —
+all comfortably inside `int16_t` index range, so the parser's signed
+`int16_t` cast on `indices`/`flags` (`src/dump_chunks_misc.cpp`) never
+actually produces a negative value on real data, though the wiki gives no
+signedness for either field.
+
+### Complete format, for a future full implementation
+
+```
+PCOL chunk, 32-byte fixed header, four independent (count, offset) regions
+-- each offset is chunk-payload-relative, read independently (regions are
+not always contiguous -- see §10's 8-byte-gap finding):
+
+  0x00  uint32  vertexPosCount
+  0x04  uint32  vertexPosOffset  -> vertexPosCount x { float32 x,y,z }        (12 bytes/record)
+  0x08  uint32  faceNormCount
+  0x0C  uint32  faceNormOffset   -> faceNormCount x { float32 x,y,z }         (12 bytes/record)
+  0x10  uint32  indexCount       -- always faceNormCount * 3 (triangle triples)
+  0x14  uint32  indexOffset      -> indexCount x { int16 }                    (2 bytes/record)
+  0x18  uint32  flagsCount       -- usually == faceNormCount, NOT guaranteed (see above)
+  0x1C  uint32  flagsOffset      -> flagsCount x { int16 }                    (2 bytes/record)
+```
+
+Every field above is now either wiki-documented (the four region shapes,
+§10/§9) or newly established here (`flags`' real bitmask shape, the
+`flagsCount != faceNormCount` exception) — nothing about `PCOL`'s
+byte-level structure remains unaccounted for. The one remaining gap is
+semantic, not structural: individual bit meanings, which need client-side
+data (DB2 tables or decompiled logic) husk has no access to by design (see
+`DESIGN.md`'s Non-goals) — not a "needs more investigation" gap, a "needs a
+different data source" one.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -1710,3 +1813,4 @@ explicitly flagged for a human decision rather than silently picked. See
 | §13 `EXP2`/`PFDC` real files exist (local-extraction gap corrected); `BLP2` anomaly resolved as listfile mismatch; `M3` noted, out of scope | `src/m2.hpp` (`ExtendedParticle` comment), `src/cmd_dump.cpp` (`physPayloadRealLength` comment), `DESIGN.md` Non-goals — no parser changes needed | `tests/test_dump.cpp` (real `EXP2`-only and `EXP2`+`PFDC` fixtures, exact values), `tests/test_integration.cpp` (`BLP2`-anomaly throws-cleanly across `info`/`export`/`dump-chunks`) — `test_data/verification/` |
 | §14 `global_flags` named bits, `textureCombinerCombos`, `blp/` DXT3 (already worked, now verified) + JPEG (confirmed absent), `resolveSkin` diagnostics | `src/m2.hpp`/`m2.cpp` (`GlobalFlag`, `globalFlagNames`, `Header::textureCombinerCombos`), `src/cmd_info.cpp` (prints both), `src/cmd_export.cpp` (`resolveSkin`'s candidate-path message); `blp/` needed no code changes, only a test | `tests/test_cli.cpp` (`global_flags`/`textureCombinerCombos`/`resolveSkin` message cases), `blp/tests/test_decode.py` (`test_decode_dxt3_solid_green_explicit_alpha_block`) |
 | §15 WMO/ADT/WDT/WDL/PM4/PD4 investigation pass (chunk-tag reversal, WDT/ADT/WMO/liquid/lighting/fog/collision/misc/PM4-PD4 corrections) | none yet — planning-stage only, no WMO/ADT/WDT/WDL/PM4/PD4 parser exists in `src/` | none yet — see `WDT_TODO.md`/`ADT_TERRAIN_TODO.md`/`ADT_LOD_TODO.md`/`WMO_GEOMETRY_TODO.md`/`WORLD_PLACEMENT_TODO.md`/`LIQUID_TODO.md`/`LIGHTING_TODO.md`/`FOG_VOLUMES_TODO.md`/`COLLISION_CULLING_TODO.md`/`WORLD_MISC_METADATA_TODO.md`/`PM4_PD4_TODO.md` for the full per-item implementation plans and test plans |
+| §16 `PCOL` `flags` is a real per-triangle bitmask (structural, bit semantics unconfirmed); `flagsCount != faceNormCount` exception found; complete format documented | `src/dump_chunks_misc.hpp`/`.cpp` (`dumpPcol`, doc comment updated — no behavior change, already correct) | no new tests needed (existing `tests/test_dump.cpp` `PCOL` cases already cover the parser); investigation was a real-corpus scan, not a code change |

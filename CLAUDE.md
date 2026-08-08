@@ -147,6 +147,20 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
+- **Investigation-only session**: closed `PCOL`'s long-standing "`flags`'
+  per-record meaning is undocumented — exposed raw" gap as far as real
+  corpus data allows. A full 2,354-file scan (`pcol_files_for_exploration.txt`,
+  husk's own already-verified `dump-chunks` output) found `flags` is
+  structurally a real per-triangle bitmask, not an enum (every distinct
+  value decomposes into a small combinable bit set; 98.4% of files use
+  only bit 0; every rarer value is a singleton confined to one specific
+  decorative doodad) — individual bit *semantics* remain unconfirmed, a
+  DB2/client-data gap, not an M2-side one. Also found `flagsCount` isn't
+  always `faceNormCount` (3/2,354 real files differ) — already handled
+  correctly by the existing parser, no code change needed. Pure
+  documentation update: `WIKI_FINDINGS_HISTORY.md` §16 (new), `WIKI_FINDINGS/
+  M2.md`, `DESIGN.md`, `M2_COMPLETENESS.md`, `src/dump_chunks_misc.hpp`'s
+  doc comment. See `CLAUDE_HISTORY.md`'s top entry for the full detail.
 - **Independent, unsupervised tasks, same session, all three committed as
   `[UNVERIFIED/STAGING]` per Luna's own instruction, awaiting her review**:
   (1) `TODO_correctness.md`'s former item 2 (five unconsumed M2

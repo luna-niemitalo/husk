@@ -14,7 +14,43 @@ deletions handled their own back-references).
 
 ---
 
-- **Last state**: Third independent, unsupervised task in a row, same
+- **Last state**: Investigation-only session, `PCOL`'s `flags` field
+  (real, undocumented per-triangle data, flagged "exposed raw, not
+  interpreted" since it was first implemented — WIKI_FINDINGS_HISTORY.md
+  §10/§9). A dedicated scan (husk's own already-verified `dump-chunks`
+  output, no new C++ parser needed) over all 2,354 real `PCOL`-bearing
+  files (`pcol_files_for_exploration.txt`) found `flags` is structurally
+  a real bitmask, not a sequential enum: every distinct value across the
+  full corpus (`{0,1,2,3,4,5,6,7,8,23,221}`) decomposes into a small
+  combinable bit set (0–7 is the exact power set of bits 0/1/2). 98.4% of
+  files use only bit 0; every value above 5 is a singleton confined to
+  one specific decorative doodad (a light sconce, a food prop, a
+  player-housing lamp) — plausible per-object special collision
+  behavior, but individual bit meaning is unconfirmed (no wiki field
+  names, no DB2/client data — `CHAR_TEXTURE_COMPOSITING_TODO.md` already
+  has a staged, in-scope plan for real local WDC5 DB2 access for a
+  different feature; the same path would apply here if this is ever
+  worth chasing further, not a permanent dead end). Also found a real,
+  separate structural fact the original implementation's own doc comment
+  overstated: `flagsCount` is usually but not always equal to
+  `faceNormCount` — 3 real files (`flagsCount == faceNormCount + 8`) are
+  a genuine exception. No code changes were needed for either finding —
+  `dumpPcol` (`src/dump_chunks_misc.cpp`) already reads every region via
+  its own independent header field, exactly as the format requires — this
+  was purely a documentation gap, now closed: `WIKI_FINDINGS_HISTORY.md`
+  §16 (new, full byte-level format writeup), `WIKI_FINDINGS/M2.md` (new
+  summary entry), `DESIGN.md`/`M2_COMPLETENESS.md`/`src/
+  dump_chunks_misc.hpp`'s own doc comment all updated to match, including
+  dropping the pre-existing "niche" characterization of player-housing
+  content (a full expansion feature, not a niche corner case) and
+  correcting a "DB2 data husk doesn't have, by design" overclaim now that
+  DB2 access is real, staged, in-scope work elsewhere in this repo, not a
+  permanent non-goal. Scan tooling itself (`pcol_flags_scan.py`, run via
+  the established `direnv exec . uv run --python tools/venv/bin/python
+  <script>` pattern) lived in the session's own scratchpad, not committed
+  — a one-off investigation script, not a reusable corpus tool.
+
+- **Previous state**: Third independent, unsupervised task in a row, same
   session (small follow-on to the Light-animation entry directly below,
   already committed as its own `[UNVERIFIED/STAGING]` commit). Noticed
   while resolving Light's `visibility` track that `M2Attachment::

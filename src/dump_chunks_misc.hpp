@@ -203,12 +203,15 @@ void dumpExp2(json::Writer& w, const Chunk& c);
 // (a real file was seen with an 8-byte gap between the faceNormals
 // region's end and indices' own offset), consistent with the wiki's own
 // warning, so no "regions exactly fill the chunk" cross-check is
-// meaningful here the way PLYT's is. `flags`' per-record meaning is
-// undocumented (wiki gives no field name beyond "short flags[flagsCount]")
-// -- exposed raw, not interpreted. Diagnostic-only (`dump-chunks`), same
-// class as EXP2/PFDC/DETL: no glTF slot, since this is niche (War Within
-// 11.1.7+ player-housing furniture only) sidecar-shaped collision data,
-// not core render geometry -- see M2_COMPLETENESS.md.
+// meaningful here the way PLYT's is. `flagsCount` isn't always equal to
+// `faceNormCount` either (3/2,354 real files differ) -- always read it
+// from its own header field. `flags`' per-record meaning is undocumented
+// (wiki gives no field name) -- exposed raw; confirmed structurally to be
+// a real bitmask, not an enum, but bit semantics are unconfirmed -- see
+// WIKI_FINDINGS/M2.md's PCOL section. Diagnostic-only (`dump-chunks`),
+// same class as EXP2/PFDC/DETL: no glTF slot, since this is War Within
+// 11.1.7+ player-housing furniture collision data, not core render
+// geometry -- see M2_COMPLETENESS.md.
 // TODO: Remove: confirmed empirically against all 2,354 real PCOL-bearing
 // files (every region in-bounds, every index in range, indexCount ==
 // faceNormCount * 3) -- corrected from an earlier scanner bug's false

@@ -775,19 +775,30 @@ ones" finding directly.
 
 **`PCOL` (player-housing collision, War Within 11.1.7+) is diagnostic-only
 (`husk dump-chunks`), no glTF slot** — same class as `EXP2`/`PFDC`/`DETL`,
-niche sidecar-shaped data rather than core render geometry. Its four
+sidecar-shaped collision data rather than core render geometry. Its four
 regions (`vertexPositions`/`faceNormals`/`indices`/`flags`) are each an
 independent `(count, offset)` pair read via its own offset, never
 accumulated sequentially the way `.phys`'s `PLYT` header+data walk is — the
 wiki's own "there can be extra bytes between the data" warning is real,
 confirmed on a real file with an 8-byte gap between `faceNormals` and
-`indices`. Verified against all 2,354 real `PCOL`-bearing files in the
-local corpus (corrected from an earlier scanner bug's false "zero real
-files," `WIKI_FINDINGS/M2.md`): every region in-bounds, every index in
-range for that file's own vertex count, `indexCount == faceNormCount * 3`
-on all 2,354 (triangle triples, one normal per triangle — the same shape
-M2's own core collision mesh already has). `flags`' per-record meaning is
-undocumented on the wiki — exposed raw, not guessed at.
+`indices`. `flagsCount` is also not guaranteed to equal `faceNormCount` (a
+real, rare exception — 3/2,354 files) — read independently via its own
+header field, never derived from `faceNormCount`. Verified against all
+2,354 real `PCOL`-bearing files in the local corpus (corrected from an
+earlier scanner bug's false "zero real files," `WIKI_FINDINGS/M2.md`):
+every region in-bounds, every index in range for that file's own vertex
+count, `indexCount == faceNormCount * 3` on all 2,354 (triangle triples,
+one normal per triangle — the same shape M2's own core collision mesh
+already has). `flags`' per-record meaning is undocumented on the wiki, but
+a full-corpus value scan confirmed it's structurally a real per-triangle
+bitmask (every observed value decomposes into a small combinable bit set,
+98.4% of files use only bit 0) — individual bit semantics are still
+unconfirmed, needing DB2/client data outside this corpus's real M2 bytes
+rather than more M2-side investigation (see `WIKI_FINDINGS/M2.md`'s PCOL
+section; `CHAR_TEXTURE_COMPOSITING_TODO.md` already tracks real, local
+WDC5 DB2 access as planned, staged work for a different feature — the
+same access path would apply here too, if `PCOL` bit semantics are ever
+worth chasing down).
 
 **`WFV1`/`WFV2`/`DPIV`/`AFRA` (no wowdev.wiki struct at all) are now
 structurally parsed by `husk dump-chunks`, not left as a raw hex dump** —
