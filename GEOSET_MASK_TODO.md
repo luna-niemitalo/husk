@@ -476,3 +476,91 @@ image is wanted, Luna will need to save/attach it manually (e.g. into a
   design with something that doesn't re-derive selection against the
   *entire* remaining mesh at every step (e.g. one single multi-way
   classification pass instead of N sequential binary ones).
+
+## Real bug ground-truthed by hand, real redesign attempted, correctness still unverified
+
+**Confirmed by hand, resolves the Bug 2 ambiguity above**: Luna manually
+clicked through every item of the real "Geoset group 12" dropdown in
+Blender's own GUI (not headless scripting) and confirmed group 12 *does*
+control the tabard flaps: `variant_2` = both flaps, `variant_3` = back
+only, `variant_4` = front only. **A real, separate gap found the same
+way**: there's no "no tabard at all" option, because `bloodelffemale_hd.m2`
+itself has no submesh for that case (geoset ID 1201 is simply absent from
+this file's own `.skin` data -- not a husk bug, a real fact about this
+model, same "husk can only tag what the file actually has" limitation
+already true elsewhere). WoW's own client achieves "no tabard" by just not
+drawing the tabard region at all when nothing is equipped there -- not by
+having real geometry for an empty case.
+
+**Real architectural rewrite, prompted directly with two concrete,
+correct proposals**: (1) don't chain `Separate Geometry` sequentially
+against a shrinking remainder; separately select from the *original*
+mesh and recombine with `Join Geometry` instead. (2) go further: build
+one real boolean-math expression per vertex first (no geometry operations
+at all), then apply exactly one `Separate`/`Delete Geometry` to the result
+-- "mutually exclusive inside a group, inclusive OR between groups" was
+the hypothesized shape, matching what husk's own tag data actually
+guarantees (a vertex belongs to at most one variant per group).
+
+Implemented as a single combined design, not two separate ones: for each
+multi-variant group, a `Menu Switch` with `data_type='STRING'` (not
+`GEOMETRY`) outputs the *name* of whichever variant's vertex group is
+currently selected (or a sentinel string matching no real attribute, for
+a new synthetic "none" item -- this also closes the "variant 1: none" gap
+above, and generalizes it to every group, not just tabard). That string
+feeds a `Named Attribute` node's `Name` input *as a link, not a constant*
+-- confirmed scriptable this session (Named Attribute's Name socket
+accepts a linked string exactly like any other input) -- so one dynamic
+attribute read tells you, per vertex, whether it belongs to *whichever*
+variant is currently active, without enumerating every variant's own
+comparison. Combined with a per-group "does this vertex belong to this
+group at all" OR-chain (still enumerated once per group, cheaply, no
+geometry operations), `hidden_by_group = owns_group AND NOT is_selected`,
+`overall_hidden = OR` across every group, `overall_visible = NOT
+overall_hidden` -- one boolean expression, evaluated once, then exactly
+**one** `Separate Geometry` call against the pristine input mesh. No
+`Join Geometry` needed either (only ever one geometry stream). This
+directly removes the "chain 109 sequential separations, each re-deriving
+selection against an already-shrunk remainder" shape entirely -- the
+leading suspected cause of Bug 1's compounding boundary-face loss.
+
+**Verification hit real limits, twice in a row now -- not resolved,
+reported honestly rather than claimed fixed.** Aggregate signal looks
+healthy: the graph builds without errors (349 -> comparable node count),
+and vertex counts now visibly respond to every switch tested (something
+the *first* verification attempt this redesign got wrong initially too --
+`mod[identifier] = ...` alone doesn't propagate without also calling
+`mod.node_group.interface_update(bpy.context)`, a real Blender scripting
+gotcha caught only because the very first headless check showed *zero*
+change across every single switch tried, an impossible result that forced
+a second look). But a targeted check -- tracking all 26 real tabard-flap
+vertex positions (the same ones from the reference screenshot, captured
+from the pristine pre-modifier mesh) across all four of group 12's real
+states -- found **zero of 26 present in any state**, including
+`variant_3`/`variant_4`, which should each show roughly half of them.
+`variant_2` ("both") also evaluated to *fewer* total vertices than
+`variant_4` ("front only"), which is backwards if "both" is really the
+union of the other two. Both facts point at a real problem, but headless
+position-matching has now produced one confusing, hard-to-trust result on
+this feature already (the ordinal-vs-identifier confusion from the
+previous redesign) -- rather than chase a second layer of "is this a real
+bug or a flaw in how I'm checking it" without visual ground truth, this is
+being handed back exactly where it was found: **needs Luna's own real
+interactive Blender GUI testing**, the same method that correctly found
+both original bugs and correctly ground-truthed group 12's real semantics
+above, headless scripting has already gotten wrong more than once on this
+feature specifically.
+
+**Concrete next step**: open the real `.blend`, select "Geoset group 12"
+in the Modifier panel (not the node editor, and not a Python script),
+click through `variant_2`/`variant_3`/`variant_4`/`none` by hand, and
+watch the actual viewport. If the flap genuinely doesn't toggle, the bug
+is real and this session's boolean-tree rewrite didn't fix it (or
+introduced a new one -- the "both fewer than front-only" count anomaly
+above is a real, concrete lead if so, worth checking whether `variant_2`'s
+own vertex group was actually populated correctly by husk's export in the
+first place, independent of anything Blender-side). If it does toggle
+correctly, this session's own headless verification scripts were wrong,
+most likely the same class of mistake as the ordinal-vs-identifier
+confusion already found once -- worth figuring out *why* before trusting
+headless scripting on this feature again.

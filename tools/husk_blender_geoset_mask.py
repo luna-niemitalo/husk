@@ -15,7 +15,24 @@ imported via Blender's own File > Import, or the Scripting tab).
 Builds a Geometry Nodes setup, one Menu Switch dropdown per geoset group,
 instead of the Mask-modifier stack an earlier version of this script used
 ("an insane stack of mask modifiers" -- prompted directly, real usability
-complaint on a real export with 90 modifiers). What it does, in order:
+complaint on a real export with 90 modifiers).
+
+**Second real design, same reason as the Mask-modifier -> Geometry Nodes
+rewrite before it**: the first Geometry Nodes version chained `Separate
+Geometry` sequentially (one variant peeled off a shrinking "remainder" at
+a time). Real interactive use found two bugs (unrelated geometry
+disappearing on an unrelated group's switch; some geometry never toggling
+at all -- see `GEOSET_MASK_TODO.md`'s "Known bugs"), and this session's
+own investigation found `GeometryNodeSeparateGeometry`'s default `POINT`
+domain does not cleanly partition geometry -- a face with mixed-selection
+corners vanishes from *both* outputs entirely. Chaining that operation up
+to 109 times, each re-evaluating selection across the whole remaining
+mesh, is a real structural risk of compounding, hard-to-predict geometry
+loss. Prompted directly with the fix: don't chain destructively; compute
+one combined boolean "is this vertex visible" expression per vertex
+first (cheap, no geometry operations at all), then apply exactly **one**
+`Separate Geometry` to the pristine, untouched input mesh at the very
+end. What it does, in order:
 
   1. Finds every "group_<n>,variant_<n>" vertex group husk's tag-joint
      mechanism produced (one per distinct M2 geoset ID -- Skeleton::
@@ -29,33 +46,51 @@ complaint on a real export with 90 modifiers). What it does, in order:
      husk's own glTF extras use, e.g. geoset_id 1702 -> group 17) --
      variants within one group are mutually exclusive alternates (e.g. five
      hairstyle options).
-  3. For every group with 2+ variants, builds a small subgraph in a new
-     Geometry Nodes node group: one `Separate Geometry` per variant,
-     chained through its own `Inverted` output so each variant is peeled
-     off a running "remainder" in turn (vertex-group membership read via
-     `Named Attribute` -- Blender exposes every vertex group as a
-     same-named point-domain float attribute automatically, no manual
-     conversion needed), then a `Menu Switch` node with one item per
-     variant selecting which peeled-off piece is actually output. The
-     Menu Switch's own `Menu` input is promoted to a real `NodeSocketMenu`
-     entry on the node group's own interface -- this is what actually
-     makes it a dropdown in the Modifier panel, not just an internal node
-     setting a human would have to open the node editor to change.
-     Groups with fewer than 2 variants are left out of this chain
-     entirely -- there's nothing mutually exclusive to switch, so their
-     geometry simply stays part of the remainder (same "only touch what's
-     genuinely ambiguous" policy the superseded Mask-modifier version
-     used).
-  4. Whatever never got peeled off (untagged geometry, plus every
-     single-variant group's own geometry) is the base, always-visible
-     remainder -- joined with every group's active Menu Switch selection
-     (`Join Geometry`) into the node group's own output.
-  5. Adds one Geometry Nodes modifier per mesh object referencing that
-     node group, defaulted to the lowest variant ID per group (husk
-     doesn't currently resolve real DB2 customization data to pick an
-     actual default, same disclaimed-placeholder precedent as
-     `orderCandidatesForDefault` elsewhere in this project).
-  6. Deletes every geoset tag bone from the armature once its vertex group
+  3. For every group with 2+ variants, adds a real "none" choice alongside
+     its real M2 variants -- prompted directly, a real gap found in
+     testing: `bloodelffemale_hd.m2`'s own tabard group (12) only has
+     variants for "both flaps"/"back only"/"front only", never "no
+     tabard at all", because the M2 itself simply has no submesh for that
+     case (there's no real geoset ID to tag -- husk can only tag what
+     exists in the file). "none" is a synthetic addition on the Blender
+     side, not something husk's export needs to change for.
+  4. Per group with 2+ variants (real or "none"), builds two small pieces:
+     a `Menu Switch` (`data_type='STRING'`) whose *output* is not
+     geometry but the **name of the currently-selected variant's own
+     vertex group** (or a sentinel string matching no real attribute, for
+     "none") -- and a `Named Attribute` node whose own `Name` input is
+     *linked* to that string output rather than a fixed constant, so it
+     dynamically reads whichever variant is currently selected. Comparing
+     that to `0` gives `is_selected_for_this_group` in one read, without
+     enumerating every variant's own comparison. Separately, `owns_this_
+     group` is a plain boolean OR across every real variant's own `Named
+     Attribute > 0` (needed once per group, not per Separate Geometry
+     call). `hidden_by_this_group = owns_this_group AND NOT is_selected_
+     for_this_group` -- true only for a vertex that belongs to this
+     group but isn't part of the currently active choice.
+  5. `overall_hidden` is a plain boolean OR of every group's own `hidden_
+     by_this_group` (`FunctionNodeBooleanMath`, no geometry operations
+     yet); `overall_visible = NOT overall_hidden`. A vertex untouched by
+     any geoset group at all never contributes a `True` to `overall_
+     hidden`, so it stays visible automatically -- no separate "is this
+     the untagged base" check needed.
+  6. Exactly **one** `Separate Geometry` node, `Selection = overall_
+     visible`, applied directly to the node group's own input geometry
+     (never a chained/shrinking remainder) -- its `Selection` output is
+     the node group's own final output. No `Join Geometry` needed either,
+     since there's only ever one geometry stream from start to finish.
+  7. The Menu Switch's own `Menu` input is promoted to a real
+     `NodeSocketMenu` entry on the node group's own interface -- this is
+     what actually makes it a dropdown in the Modifier panel, not just an
+     internal node setting a human would have to open the node editor to
+     change.
+  8. Adds one Geometry Nodes modifier per mesh object referencing that
+     node group, defaulted to the lowest real variant ID per group (never
+     "none" by default -- husk doesn't currently resolve real DB2
+     customization data to pick an actual default, same disclaimed-
+     placeholder precedent as `orderCandidatesForDefault` elsewhere in
+     this project).
+  9. Deletes every geoset tag bone from the armature once its vertex group
      has been read into the node graph above. Verified empirically
      (GEOSET_MASK_TODO.md): Blender vertex groups (and the point-domain
      attributes Geometry Nodes reads them as) are mesh-owned data,
@@ -73,6 +108,11 @@ import bpy
 
 GROUP_PREFIX = "group_"
 VARIANT_PREFIX = "variant_"
+NONE_ITEM_NAME = "none"
+# Never a real vertex-group name (husk's own naming is always
+# "group_<n>,variant_<n>") -- Named Attribute reading this returns 0 for
+# every vertex, which is exactly what "no variant selected" should mean.
+NONE_SENTINEL_ATTR = "__husk_geoset_none__"
 
 
 def parse_geoset_vgroup_name(name):
@@ -117,32 +157,103 @@ def geoset_groups(mesh_obj):
     return groups
 
 
-def _add_variant_separator(node_tree, remainder_socket, vg_name):
-    """One (Named Attribute -> Compare -> Separate Geometry) triple: peels
-    every vertex belonging to `vg_name` off `remainder_socket`. Returns
-    (this_variant's own geometry output, the new remainder to chain the
-    next variant from).
+def _named_attr_gt_zero(node_tree, name_socket_or_value):
+    """(Named Attribute -> Compare > 0) pair. `name_socket_or_value` is
+    either a plain string (wired as a constant "Name") or an output socket
+    (wired as a dynamic, linked "Name" -- the trick this whole redesign
+    hinges on: Named Attribute's Name input accepts a *linked* string just
+    like any other socket, so which attribute gets read can depend on a
+    Menu Switch's own current selection). Returns the Compare node's
+    boolean output socket.
     """
     named_attr = node_tree.nodes.new('GeometryNodeInputNamedAttribute')
     named_attr.data_type = 'FLOAT'
-    named_attr.inputs[0].default_value = vg_name  # "Name" input
+    if isinstance(name_socket_or_value, str):
+        named_attr.inputs[0].default_value = name_socket_or_value
+    else:
+        node_tree.links.new(name_socket_or_value, named_attr.inputs[0])
 
     compare = node_tree.nodes.new('FunctionNodeCompare')
     compare.data_type = 'FLOAT'
     compare.operation = 'GREATER_THAN'
     node_tree.links.new(named_attr.outputs[0], compare.inputs[0])  # B stays the default 0.0
+    return compare.outputs[0]
 
-    separate = node_tree.nodes.new('GeometryNodeSeparateGeometry')
-    node_tree.links.new(remainder_socket, separate.inputs['Geometry'])
-    node_tree.links.new(compare.outputs[0], separate.inputs['Selection'])
 
-    return separate.outputs['Selection'], separate.outputs['Inverted']
+def _bool_math(node_tree, operation, *operand_sockets):
+    """FunctionNodeBooleanMath with `operation` ('AND'/'OR'/'NOT'), wired
+    positionally (inputs[0]/[1] share the same socket *name* on this node
+    type, so lookup has to be by position, not by name). NOT only reads
+    inputs[0].
+    """
+    node = node_tree.nodes.new('FunctionNodeBooleanMath')
+    node.operation = operation
+    for i, socket in enumerate(operand_sockets):
+        node_tree.links.new(socket, node.inputs[i])
+    return node.outputs[0]
+
+
+def _or_all(node_tree, bool_sockets):
+    """Left-fold OR across `bool_sockets` (non-empty, guaranteed by callers)."""
+    acc = bool_sockets[0]
+    for b in bool_sockets[1:]:
+        acc = _bool_math(node_tree, 'OR', acc, b)
+    return acc
+
+
+def _build_group_hidden_term(node_tree, group_input, group, variants):
+    """One geoset group's contribution to the overall "hidden" expression --
+    see this module's own doc comment, point 4, for the shape. `variants`
+    is `[(variant, vg_name), ...]`, lowest variant first. Returns a boolean
+    output socket: true for a vertex that belongs to this group but isn't
+    part of its currently-selected choice.
+    """
+    owns_group = _or_all(node_tree, [_named_attr_gt_zero(node_tree, vg_name) for _, vg_name in variants])
+
+    selector = node_tree.nodes.new('GeometryNodeMenuSwitch')
+    selector.data_type = 'STRING'
+    selector.label = f"Geoset group {group} (selector)"
+    # Fresh nodes start with two placeholder items ("A"/"B") that have to
+    # be cleared before adding real ones, or they'd linger as two extra,
+    # unwired, meaningless dropdown entries.
+    selector.enum_definition.enum_items.clear()
+    item_names = []
+    for variant, vg_name in variants:
+        item_name = f"variant_{variant}"
+        selector.enum_definition.enum_items.new(item_name)
+        selector.inputs[item_name].default_value = vg_name
+        item_names.append(item_name)
+    selector.enum_definition.enum_items.new(NONE_ITEM_NAME)
+    selector.inputs[NONE_ITEM_NAME].default_value = NONE_SENTINEL_ATTR
+
+    # Promote the Menu input to the node group's own interface as a real
+    # NodeSocketMenu entry -- this is what actually makes it a dropdown in
+    # the modifier panel, not just an internal node setting a human would
+    # have to open the node editor to change. Must link *before* setting
+    # default_value -- an unlinked interface Menu socket has no known
+    # items yet (its valid enum values are derived from whatever it's
+    # connected to), so setting default_value first throws "enum ... not
+    # found in ()".
+    menu_socket = node_tree.interface.new_socket(
+        name=f"Geoset group {group}", in_out='INPUT', socket_type='NodeSocketMenu')
+    node_tree.links.new(group_input.outputs[menu_socket.name], selector.inputs[0])
+    menu_socket.default_value = item_names[0]  # lowest real variant ID visible by default
+
+    is_selected = _named_attr_gt_zero(node_tree, selector.outputs[0])
+    not_selected = _bool_math(node_tree, 'NOT', is_selected)
+    return _bool_math(node_tree, 'AND', owns_group, not_selected)
 
 
 def build_geoset_switch_node_group(name, groups):
     """One GeometryNodeTree implementing the whole group/variant switch --
     see this module's own doc comment for the full shape. `groups` is
-    `geoset_groups(mesh_obj)`'s own return value.
+    `geoset_groups(mesh_obj)`'s own return value. Builds one combined
+    "is this vertex hidden" boolean expression across every multi-variant
+    group first (no geometry operations at all), then applies exactly one
+    `Separate Geometry` to the pristine input mesh at the very end --
+    deliberately not a chain of per-variant separations (the design this
+    replaced), which real use found could lose geometry at compounding
+    selection boundaries across up to 109 sequential operations.
     """
     node_tree = bpy.data.node_groups.new(name, 'GeometryNodeTree')
     node_tree.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
@@ -151,54 +262,21 @@ def build_geoset_switch_node_group(name, groups):
     group_input = node_tree.nodes.new('NodeGroupInput')
     group_output = node_tree.nodes.new('NodeGroupOutput')
 
-    remainder = group_input.outputs['Geometry']
-    menu_outputs = []  # one Menu Switch "Output" socket per multi-variant group
+    hidden_terms = [
+        _build_group_hidden_term(node_tree, group_input, group, sorted(groups[group]))
+        for group in sorted(groups)
+        if len(groups[group]) >= 2  # a single variant has nothing mutually exclusive to hide
+    ]
 
-    for group in sorted(groups):
-        variants = sorted(groups[group])  # [(variant, vg_name), ...], lowest variant first
-        if len(variants) < 2:
-            continue  # nothing mutually exclusive here -- stays in remainder untouched
-
-        variant_selections = []
-        for variant, vg_name in variants:
-            selection, remainder = _add_variant_separator(node_tree, remainder, vg_name)
-            variant_selections.append((variant, selection))
-
-        menu = node_tree.nodes.new('GeometryNodeMenuSwitch')
-        menu.data_type = 'GEOMETRY'
-        menu.label = f"Geoset group {group}"
-        # Fresh nodes start with two placeholder items ("A"/"B") that have
-        # to be cleared before adding real ones, or they'd linger as two
-        # extra, unwired, always-empty dropdown entries.
-        menu.enum_definition.enum_items.clear()
-        item_names = []
-        for variant, selection_socket in variant_selections:
-            item_name = f"variant_{variant}"
-            menu.enum_definition.enum_items.new(item_name)
-            node_tree.links.new(selection_socket, menu.inputs[item_name])
-            item_names.append(item_name)
-
-        # Promote the Menu input to the node group's own interface as a
-        # real NodeSocketMenu entry -- this is what makes it a dropdown in
-        # the modifier panel, not just an internal node setting. Linked
-        # from this group's own new Group Input output, not left as an
-        # internal-only default on the Menu Switch node itself. Must link
-        # *before* setting default_value -- an unlinked interface Menu
-        # socket has no known items yet (its valid enum values are derived
-        # from whatever it's connected to), so setting default_value first
-        # throws "enum ... not found in ()".
-        menu_socket = node_tree.interface.new_socket(
-            name=f"Geoset group {group}", in_out='INPUT', socket_type='NodeSocketMenu')
-        node_tree.links.new(group_input.outputs[menu_socket.name], menu.inputs[0])
-        menu_socket.default_value = item_names[0]  # lowest variant ID visible by default
-
-        menu_outputs.append(menu.outputs[0])
-
-    join = node_tree.nodes.new('GeometryNodeJoinGeometry')
-    node_tree.links.new(remainder, join.inputs[0])
-    for out in menu_outputs:
-        node_tree.links.new(out, join.inputs[0])
-    node_tree.links.new(join.outputs[0], group_output.inputs['Geometry'])
+    if hidden_terms:
+        overall_visible = _bool_math(node_tree, 'NOT', _or_all(node_tree, hidden_terms))
+        separate = node_tree.nodes.new('GeometryNodeSeparateGeometry')
+        node_tree.links.new(group_input.outputs['Geometry'], separate.inputs['Geometry'])
+        node_tree.links.new(overall_visible, separate.inputs['Selection'])
+        node_tree.links.new(separate.outputs['Selection'], group_output.inputs['Geometry'])
+    else:
+        # No group has 2+ variants -- nothing to switch, pass geometry through unchanged.
+        node_tree.links.new(group_input.outputs['Geometry'], group_output.inputs['Geometry'])
 
     return node_tree
 

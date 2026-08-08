@@ -14,6 +14,79 @@ deletions handled their own back-references).
 
 ---
 
+- **Last state**: Continuation of the same `GEOSET_MASK_TODO.md` effort,
+  same session as the entry below, prompted by more of Luna's own real
+  interactive Blender testing. Ground-truthed the tabard bug from the
+  entry below by hand, in Blender's real GUI, not headless scripting:
+  group 12 does genuinely control the tabard flaps (`variant_2` = both
+  flaps, `variant_3` = back only, `variant_4` = front only), and a real,
+  separate gap was found the same way -- no "none" option exists, because
+  `bloodelffemale_hd.m2` simply has no submesh for "no tabard at all"
+  (geoset ID 1201 is absent from this file's own `.skin` data, a real fact
+  about the model, not a husk omission).
+
+  Proposed the real architectural fix directly, two ideas that turned out
+  to combine into one design: (1) don't chain `Separate Geometry`
+  sequentially against a shrinking remainder -- select independently from
+  the original mesh and recombine with `Join Geometry`; (2) go further --
+  build one real boolean-math expression per vertex first (no geometry
+  operations at all), then apply exactly one `Separate`/`Delete Geometry`
+  to the result, hypothesized as "mutually exclusive inside a group,
+  inclusive OR between groups," which matches exactly what husk's own tag
+  data guarantees. Implemented as a single combined design: a
+  `data_type='STRING'` `Menu Switch` per group outputs the *name* of
+  whichever variant's vertex group is currently selected (or a sentinel
+  string matching no real attribute, for a new synthetic "none" item --
+  closing the tabard gap above for every group generally, not just
+  tabard), and that string feeds `Named Attribute`'s own `Name` input as a
+  *link, not a constant* -- confirmed scriptable this session (the crux of
+  the whole redesign, verified with a small synthetic probe before writing
+  the real graph). One dynamic attribute read per group then tells you,
+  per vertex, whether it belongs to whichever variant is currently active,
+  without enumerating every variant's own comparison per switch. Combined
+  with a per-group "does this vertex belong to this group at all" OR-chain
+  (still enumerated once per group, but purely boolean, no geometry
+  operations), the whole graph collapses to one boolean expression
+  evaluated once, then exactly **one** `Separate Geometry` call against
+  the pristine input mesh -- directly removing the "chain 109 sequential
+  separations, each re-deriving selection against an already-shrunk
+  remainder" shape that was the leading suspected cause of the arms bug
+  from the entry below.
+
+  **Verification hit real limits a second time in the same session, not
+  resolved, reported honestly rather than claimed fixed.** A first
+  headless check showed vertex counts frozen at exactly one value across
+  every single switch tried -- an impossible result if the graph were
+  working, which is exactly what made it clear something was wrong before
+  trusting it. Root cause: a real Blender scripting gotcha, not a graph
+  bug -- `mod[identifier] = value` alone doesn't propagate to the
+  evaluated depsgraph without also calling `mod.node_group.interface_
+  update(bpy.context)`, something the *previous* redesign's own
+  verification script happened to call but this session's fresh scripts
+  initially didn't. Fixed, and vertex counts did start visibly responding
+  to switches after that. But a more targeted check -- tracking all 26
+  real tabard-flap vertex positions (the same ones from the reference
+  screenshot two entries below, captured from the pristine pre-modifier
+  mesh) across all four of group 12's real states -- found **zero of 26
+  present in any state**, including `variant_3`/`variant_4`, which should
+  each show roughly half of them; `variant_2` ("both") also evaluated to
+  *fewer* total vertices than `variant_4` ("front only"), backwards if
+  "both" is really the union of the other two. Both are real, concrete,
+  concerning signals -- but headless position-matching has already
+  produced one confusing, hard-to-trust result on this exact feature this
+  session (the ordinal-vs-identifier stored-value confusion in the entry
+  below), so rather than chase a second layer of "is this a real bug or a
+  flaw in how I'm checking it" without visual ground truth, this was
+  handed back exactly where it was found: real interactive Blender GUI
+  testing is what correctly found both original bugs and correctly
+  ground-truthed group 12's real semantics tonight -- headless scripting
+  has now gotten this feature specifically wrong more than once, and isn't
+  the trustworthy verification path here. Full C++ test suite unaffected
+  throughout, still green, 532/532 -- everything this entry describes is
+  pure Python/Blender-script work, no export-path code touched.
+
+---
+
 - **Last state**: Same overall `GEOSET_MASK_TODO.md` effort, continued in
   the same session as the entry below — two real design/naming follow-ups,
   then real bugs found via actual interactive Blender use.

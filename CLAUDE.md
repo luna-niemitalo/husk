@@ -199,10 +199,46 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   modifier's raw stored default value and this session's own assumption
   about ordinal-vs-identifier indexing for Menu Switch items, which may
   mean some of tonight's own verification scripts were reading their own
-  results wrong rather than exposing a second real bug. **Next step needs
-  real interactive Blender GUI access, not more headless scripting** — see
-  `GEOSET_MASK_TODO.md`'s "Follow-up needed" list for exactly what to
-  check by hand.
+  results wrong rather than exposing a second real bug.
+
+  **Update, same night**: Luna manually ground-truthed group 12 in
+  Blender's real GUI — it does control the tabard flaps
+  (`variant_2`=both, `variant_3`=back, `variant_4`=front), and found a
+  real, separate gap: no "none" option exists, because the M2 itself has
+  no submesh for "no tabard" (geoset ID 1201 absent from this file's own
+  `.skin` data — a real fact about the model, not a husk bug). Also
+  proposed the real architectural fix directly: don't chain `Separate
+  Geometry` against a shrinking remainder; compute one boolean-math
+  expression per vertex first, apply exactly one `Separate`/`Delete
+  Geometry` at the end. Implemented as a single design: a `STRING`-typed
+  `Menu Switch` per group outputs the *name* of the currently-selected
+  variant's vertex group (or a sentinel matching nothing, for a new
+  synthetic "none" item, closing the gap above for every group at once),
+  which feeds `Named Attribute`'s `Name` input as a *link, not a
+  constant* — confirmed scriptable — collapsing what used to be 109
+  chained geometry operations down to one boolean tree plus exactly one
+  final `Separate Geometry` against the pristine input mesh.
+
+  **Verification hit real limits a second time, not resolved.** A first
+  headless check showed vertex counts frozen at one value across every
+  switch tried (impossible if working) — turned out to be a real
+  scripting gotcha (`mod[identifier] = ...` doesn't propagate without
+  also calling `mod.node_group.interface_update(bpy.context)`), not a
+  graph bug. Fixed that and counts did start responding to switches. But
+  a targeted check tracking all 26 real tabard-flap vertex positions
+  across all four of group 12's states found **zero of 26 present in any
+  state**, and `variant_2` ("both") evaluated to *fewer* vertices than
+  `variant_4` ("front only") — backwards if "both" is really their union.
+  Given headless position-matching has now produced one confusing result
+  on this feature already (the ordinal-vs-identifier confusion above),
+  this was handed back rather than chased further blind — **needs Luna's
+  own real interactive Blender GUI testing**, the same method that
+  correctly found both original bugs and correctly ground-truthed group
+  12's real semantics tonight. See `GEOSET_MASK_TODO.md`'s "Real bug
+  ground-truthed by hand..." section for the concrete next step (click
+  through group 12's dropdown by hand in the Modifier panel, watch the
+  actual viewport). Full C++ suite unaffected throughout, still green,
+  532/532 — everything above is pure Python/Blender-script work.
 - **Current state (prior session)**: Closed `TODO_correctness.md`'s former item 4
   (texture-transform pivot-correction math) end to end. `gltf_mesh.cpp`'s
   new `textureTransformToKhr` derives a real `KHR_texture_transform`
