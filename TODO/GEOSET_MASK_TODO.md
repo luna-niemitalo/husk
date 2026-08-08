@@ -564,3 +564,30 @@ correctly, this session's own headless verification scripts were wrong,
 most likely the same class of mistake as the ordinal-vs-identifier
 confusion already found once -- worth figuring out *why* before trusting
 headless scripting on this feature again.
+
+## Update: real per-model curated defaults added (2026-08-09)
+
+Luna did real interactive GUI work on `bloodelffemale_hd`'s own Modifier
+panel (a screenshot of all 19 real dropdown switches, each set to a
+specific hand-picked variant or "none") and asked for those exact choices
+to become the script's own default selection for this model, rather than
+the plain lowest-real-variant-ID fallback. Added as
+`CURATED_DEFAULT_VARIANTS` in `tools/husk_blender_geoset_mask.py` -- a
+real, disclosed, per-model `{group: item_name}` override table, keyed by
+the mesh object's own name, threaded through `apply_geoset_switch` ->
+`build_geoset_switch_node_group` -> `_build_group_hidden_term`, consulted
+before falling back to the old default for any group/model not in the
+table. Verified headlessly that the node-tree interface socket's own
+`default_value` round-trips to exactly the expected string for all 19
+groups after a fresh import + `apply_geoset_switch` call (`bloodelffemale_hd.glb`
+in `example_exports/`) -- **not** independently re-confirmed in the real
+interactive GUI that the *displayed dropdown label* matches (the modifier's
+own raw stored integer for a Menu socket remains the same opaque,
+not-fully-understood encoding as the still-unresolved "ordinal-vs-identifier
+indexing" confusion earlier in this file -- this update only ever sets the
+officially-documented string-keyed interface API, never touches that raw
+int directly, but hasn't been visually re-checked in Blender's own GUI the
+way the rest of this file insists on for anything geoset-switch-related).
+This update says nothing about whether the "Known bugs" above are fixed --
+that still needs its own dedicated GUI check, not assumed resolved just
+because a full set of defaults could be curated.
