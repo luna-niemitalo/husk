@@ -26,17 +26,34 @@ scope unless glTF itself proves insufficient.
 
 Non-goals, by design, not oversight:
 
-- No CASC/listfile access, ever. husk never resolves a FileDataID to a real
-  WoW install path. A separate tool (e.g. `casc-tool`) extracts real files
-  first; husk only reads what's already on disk, and sidecar resolution
+- No *live* CASC/listfile access, ever, and no CASC-tool dependency. husk
+  never resolves a FileDataID to a real WoW install path, and never links
+  against or shells out to a CASC/DB2 client library. A separate tool
+  (e.g. `casc-tool`) extracts real files to local disk first; husk only
+  reads what's already there, and sidecar resolution
   (`--skin-dir`/`--textures`/`--anim`/`--bones-dir`) is a **local-directory,
   FileDataID-named** convention the user populates themselves — never CASC.
-  Generalizes past raw file extraction, too: an out-of-band tool scraping
-  CASC/DB2 at build time to learn something husk itself can't (e.g. which
-  `.bone` slot a customization choice selects, `TODO_correctness.md` #6) is
-  fine — it would just hand husk a plain local file/flag to read, same as
-  every other sidecar. What husk itself never does, at runtime, under any
-  circumstance, is talk to CASC/DB2 directly.
+  **This does not extend to DB2 data itself once it's already on disk.**
+  Scope clarified directly by Luna (2026-08-08, `CHAR_TEXTURE_COMPOSITING_
+  TODO.md`'s own Background section has the full exchange): "the only hard
+  boundary is not loading casc tool as a dependency... all data in
+  wow_export is free for all, to be used." A raw `.db2` file already
+  extracted to a local directory (the same `casc-tool`-populated tree as
+  the `.m2`/`.skin`/texture files husk already reads) is exactly that —
+  already on disk, same tier as every other sidecar — so husk parsing the
+  WDC5 *file format* locally, or resolving a real customization-choice
+  chain from those local files, is in scope and does **not** violate this
+  non-goal; only talking to CASC/DB2 *live*, at runtime, does. (Earlier
+  revisions of this file used looser wording here — "husk has no DB2
+  access," "never will" — that predates this clarification and should be
+  read as superseded wherever it's quoted or paraphrased elsewhere in this
+  file; the up-to-date framing is this bullet.) An out-of-band tool
+  scraping *live* CASC/DB2 at build time to learn something husk itself
+  structurally can't (e.g. which `.bone` slot a customization choice
+  selects, `TODO_correctness.md` #6) is likewise fine — it would just hand
+  husk a plain local file/flag to read, same as every other sidecar. What
+  husk itself never does, at runtime, under any circumstance, is talk to
+  *live* CASC/DB2 directly, or depend on the CASC tool itself.
 - No write-back to WoW's native formats. glTF-out only.
 - No WMO or M3 support implemented yet. WMO is tracked and now fully
   investigated/planned (not started in `src/`) — see `WMO_GEOMETRY_TODO.md`/
@@ -309,10 +326,13 @@ entry, not maintained as separate code.
 
 **Geoset selection and multi-texture-layer rendering are tagged via glTF
 `extras`, never filtered or faked.** Two related gaps husk can't actually
-close itself: *which* `M2SkinSection.skinSectionId` variant is "correct"
-for a given character depends on DBC/DB2 data (`CharacterSections`,
-geoset groups) husk deliberately never reads (no CASC/listfile access is a
-hard non-goal, see Non-goals above); and a batch's additional texture
+close itself (not yet implemented, not structurally impossible -- see
+Non-goals above's clarified wording: a locally-extracted `.db2` file is in
+scope, husk just doesn't parse WDC5 or resolve customization chains yet,
+`CHAR_TEXTURE_COMPOSITING_TODO.md`): *which* `M2SkinSection.skinSectionId`
+variant is "correct" for a given character depends on DB2 data
+(`CharacterSections`, geoset groups) husk doesn't currently read; and a
+batch's additional texture
 layers (`M2Batch.textureCount > 1`) exist to feed WoW's fixed-function
 combiner math (`Mod2x`/`Add`/env-mapping), which has no core-glTF
 equivalent to translate into. Rather than guessing a default geoset
@@ -392,8 +412,10 @@ is surfaced as `extras`, distinguishing "husk can't resolve this locally"
 from "the `--textures` directory just didn't have the file."** `type == 0`
 ("NONE") is a real, filename/FileDataID-based texture, resolvable the
 ordinary way; any other value means the client substitutes the real image
-at runtime from DBC-driven character-customization/item-tint data husk has
-no access to, per this file's Non-goals -- so an empty `baseColorImagePng`
+at runtime from DB2-driven character-customization/item-tint data husk
+doesn't currently resolve (locally-extracted DB2 files are in scope per
+Non-goals above's clarified wording, just not implemented yet -- see
+`CHAR_TEXTURE_COMPOSITING_TODO.md`) -- so an empty `baseColorImagePng`
 for one of these means something categorically different than a missing
 PNG for a `type == 0` texture. `gltf::Material::textureType` is set from
 the batch's primary texture's `m2::Texture::type` unconditionally, but only
@@ -436,7 +458,10 @@ pose.** Same "tag it, don't guess at semantics" family as geoset selection/
 texture-transform above, for the same underlying reason: which of a model's
 several `.bone` files (its `BFID` array) is "correct" for a given character
 is selected by client-side customization-choice data (a DB2-shaped lookup)
-husk has no access to and, per this file's Non-goals, never will. Real
+husk doesn't currently resolve (locally-extracted DB2 files are in scope
+per Non-goals above's clarified wording, just not implemented yet -- the
+same real gap `CHAR_TEXTURE_COMPOSITING_TODO.md` is closing for texture
+compositing could, in principle, extend here too). Real
 investigation (`WIKI_FINDINGS/BONE.md`'s follow-up) ruled out the two more
 tractable-looking hypotheses first — LOD/render-distance (the slot count
 doesn't fit the model's real LOD tier count, and slots collapse into far
@@ -827,6 +852,102 @@ loaded on demand, closer to how a game engine actually streams a world)
 rather than one large pre-baked `.glb` per tile or map — is recorded as a
 potential future exploration goal in `WORLD_PLACEMENT_TODO.md`, not a
 requirement blocking any placement-parsing work.
+
+**Anecdotal geoset-group semantics, real Blender inspection of one model
+(`bloodelffemale_hd.m2`), cross-referenced against `reference/wow.export`'s
+own two independent geoset-group tables — recorded because it's
+generalizable groundwork for the geoset-mask work
+(`GEOSET_MASK_TODO.md`), not itself a husk feature or claim.** husk
+doesn't yet parse the real, authoritative per-model geoset-semantics DB2
+tables (`CharacterSections`/geoset-group data — locally-extracted DB2
+files are in scope per Non-goals above's clarified wording, this is a "not
+implemented yet" gap, not a hard non-goal, see
+`CHAR_TEXTURE_COMPOSITING_TODO.md`) — what follows is a human visually
+identifying what each `geoset_<group><variant>` vertex group actually
+looks like in Blender on one specific real character export, then checked
+against two tables `reference/wow.export` already carries (checked out for
+source-code reference only, unrelated to and not to be confused with
+Luna's own real local `casc-tool` DB2 export) as a plausibility
+cross-check, not verified against real DB2 data. Treat every row as "true
+for this one model, not yet confirmed on any other," and the two
+reference tables as independently-authored community naming, not
+something husk itself reads or trusts at runtime.
+
+`reference/wow.export/src/js/3D/GeosetMapper.js`'s `GEOSET_GROUPS` and
+`reference/wow.export/src/js/db/caches/DBItemGeosets.js`'s `CG` enum
+(explicitly commented there as "matches `CharGeosets` from WMV," i.e. an
+independently-arrived-at community table, not wow.export's own invention)
+mostly agree with each other and, strikingly, with every one of this
+session's real visual observations except two real naming
+discrepancies (both noted below) — this is a much stronger cross-check
+than either table alone, since two independently-authored sources and one
+independent human visual inspection converging on the same semantics for
+14+ of 17 groups is unlikely to be coincidence:
+
+| Group (`geoset_id / 100`) | Real Blender observation, this model | `CG` enum name (`DBItemGeosets.js`) | `GEOSET_GROUPS` name (`GeosetMapper.js`) |
+|---|---|---|---|
+| 0 (raw IDs < 100) | Hair options | `SKIN_OR_HAIR` | `Hair` |
+| 4 | More sleeves and bracers | `GLOVES` | `Gloves` |
+| 5 | Boot calf model variations (the actual foot end turned out to be group 20, not this one) | `BOOTS` | `Boots` |
+| 7 | Ears | `EARS` | `Ears` |
+| 8 | Puffy sleeves (some shirt models, some chest-armor models) | `SLEEVES` | `Wrists` — **disagrees with `CG`**; this model's real content matches `CG.SLEEVES`, not "Wrists" |
+| 9 | "Around the knee" pants/shoe mesh variations (flared trouser legs above the knee, chunky boot tops below it) | `KNEEPADS` | `Kneepads` |
+| 11 | Leg-armor thigh mesh variations | `PANTS` | `Pants` |
+| 12 | Unknown at the time, now identified | `TABARD` | `Tabard` |
+| 13 | Skirts(?) — two different meshes that *look* the same | `TROUSERS` | `Trousers` |
+| 15 | Cloaks | `CLOAK` | `Cloak` |
+| 17 | Eye-glow options (matches this session's own earlier, independently-derived finding — `EYES_ON_FINDINGS.md`) | `EYEGLOW` | `Eyeglow` |
+| 18 | Belts | `BELT` | `Belt` |
+| 20 | Shoe/boot *foot* variants specifically (the calf portion is group 5) | `FEET` | `Feet` |
+| 22 | Something chest-shape-related | `TORSO` | `Torso` |
+| 32 | Face — visible by default, only one option on this model | `HEAD_SWAP` | `HeadSwap` — **name mismatch with the visual content on this model**, worth re-checking on a model that actually has 2+ variants in this group before trusting either name over the visual read |
+| 35 | Earrings | `PIERCINGS` | `Piercings` |
+| 36 | Necklace, independent model | `NECKLACE` | `Necklace` |
+| 39 | Arm-band jewelry, independent 3D model | `MISC_ACCESSORY` | `MiscAccessory` |
+
+Groups not directly visually identified this session but present in both
+reference tables, listed here so a future session checking a different
+group doesn't have to re-derive the base table from scratch: 1/2/3
+(`FACE_1`/`FACE_2`/`FACE_3` — facial hair styles, presumably, unconfirmed),
+6 (`TAIL`), 10 (`CHEST`), 14 (`DH_LOINCLOTH`), 16 (`FACIAL_JEWELRY`), 19
+(`BONE`), 21 (`SKULL`), 23/24 (`HAND_ATTACHMENT`/`HEAD_ATTACHMENT`),
+25 (`DH_BLINDFOLDS`), 26-31 (`SHOULDERS`/`HELM`/`ARM_UPPER`/Mechagnome-
+specific groups), 33/34 (`EYES`/`EYEBROWS`), 37/38 (`HEADDRESS`/`TAILS`),
+40-44 (`MISC_FEATURE`/`NOSES`/`HAIR_DECO_A`/`HORN_DECO`/`BODY_SIZE`), 46
+(`DRACTHYR`), 51 (`EYE_GLOW_B` — a second glow channel, also independently
+confirmed real by this session's own `EYES_ON_FINDINGS.md` investigation,
+matched to real `M2Texture::type == 0` FileDataID-only slots on this same
+model).
+
+**A further, real corroboration found in the same reference file**:
+`DBItemGeosets.js`'s own `SLOT_GEOSET_MAPPING` (which real equipment slot
+controls which geoset groups, transcribed from `WoWItem.cpp` per its own
+comment) independently confirms the group-8 naming discrepancy above —
+both the Shirt slot (`geosetGroup[0] = CG_SLEEVES`) and the Chest slot
+(`geosetGroup[0] = CG_SLEEVES`, alongside `CG_CHEST`/`CG_TROUSERS`/
+`CG_TORSO`/`CG_ARM_UPPER`) are documented as controlling `CG.SLEEVES`
+specifically — matching this session's own "some shirt models, and some
+chest armor models" visual observation almost exactly, and giving no
+support at all to `GeosetMapper.js`'s alternate "Wrists" name for the same
+numeric group. The Pants/Legs slot similarly controls `CG.PANTS`,
+`CG.KNEEPADS`, *and* `CG.TROUSERS` together — consistent with groups 9,
+11, and 13 all reading as different real leg-region mesh variations on
+this model, per this session's own separate visual findings for each.
+
+**Explicitly not done, flagged for whoever extends this next**: none of
+this was checked against a second real model (a different race/gender, an
+NPC, or a non-humanoid) — every row above is anecdotal to
+`bloodelffemale_hd.m2` alone, and group semantics are plausible but
+unconfirmed to generalize (a group's *number* is almost certainly stable
+across models per the two independent reference tables above, but which
+*specific variant ID* is the "real" default within a group is real,
+per-model, DB2-driven customization-choice data husk has no access to, the
+same limitation `GEOSET_MASK_TODO.md`'s own default-picking logic already
+disclaims). No wowdev.wiki page was found with an equivalent table during
+this pass — `reference/wow.export`'s two tables above and their shared
+`CharGeosets`/`WoWItem.cpp` (WMV) lineage were the only corroborating
+source located; if a real wowdev.wiki geoset-group page exists, it wasn't
+searched for beyond this repo's own reference material.
 
 ## CLI argument grammar for `export` (implemented)
 
@@ -1311,7 +1432,9 @@ own closing section). Headline finding: husk and wow.export solve
 adjacent but different problems — wow.export has live CASC+DB2 access
 (real character-customization-driven texture/geoset resolution, exactly
 the external data source `TODO_correctness.md`'s `.bone`-slot-selection
-gap and this file's `Texture.type` non-goal both point at) and broader
+gap and this file's `Texture.type` handling both point at -- husk's own
+path to the same data is locally-extracted DB2 files, not live CASC, per
+Non-goals above's clarified wording) and broader
 format scope (WMO/ADT/M3), but its own M2 loader has zero code path at
 all for ribbons, particles, events, lights, cameras, or the `.phys`
 sidecar — confirmed by reading its source directly (dead

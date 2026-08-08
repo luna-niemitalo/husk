@@ -76,10 +76,12 @@ run after import, to:
 2. Group them by `geoset_group` (the alternates-of-each-other category --
    already known per-primitive from existing extras, just needs surfacing
    per tag joint too, see below).
-3. Pick a default visible variant per group (lowest `geoset_id` -- husk has
-   no DB2 customization data to know which one a real character has
-   actually equipped, same limitation already documented elsewhere in this
-   project).
+3. Pick a default visible variant per group (lowest `geoset_id` -- husk
+   doesn't currently resolve which one a real character has actually
+   equipped; that's real, locally-extracted DB2 customization data,
+   `DESIGN.md`'s Non-goals clarified wording + `CHAR_TEXTURE_
+   COMPOSITING_TODO.md`, just not implemented yet, same limitation already
+   documented elsewhere in this project).
 4. Add one Mask modifier per non-default variant, invert mode ("hide this
    vertex group, show the rest"), stacked -- confirmed directly as the
    desired mechanism (not e.g. one modifier per category trying to
@@ -263,9 +265,10 @@ next touches raw M2 bone-index handling.
 already-imported scene). Walks every `geoset_<id>` vertex group, groups by
 `geoset_group` (`id // 100`, matching husk's own extras convention), adds
 one invert-mode Mask modifier per non-default variant (lowest ID kept
-visible -- husk has no DB2 data to pick a real default, same disclaimed-
-placeholder precedent as `orderCandidatesForDefault` elsewhere in this
-project), then deletes every tag bone from the armature.
+visible -- husk doesn't currently resolve real DB2 customization data to
+pick an actual default, same disclaimed-placeholder precedent as
+`orderCandidatesForDefault` elsewhere in this project), then deletes every
+tag bone from the armature.
 
 Verified end to end against the real `bloodelffemale_hd.m2` export (113
 geoset IDs, 245 real bones): 358 armature bones before running the script,
