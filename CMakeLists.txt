@@ -105,6 +105,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_export_skeleton.cpp
     tests/test_integration.cpp
     tests/test_integration_weapons.cpp
+    tests/test_integration_texture_transform.cpp
     tests/test_cli.cpp
     tests/test_cli_info.cpp
     tests/test_cli_errors.cpp

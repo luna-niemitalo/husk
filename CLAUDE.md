@@ -140,7 +140,39 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Resolved the previous entry's own open question with
+- **Current state**: Closed `TODO_correctness.md`'s former item 4
+  (texture-transform pivot-correction math) end to end. `gltf_mesh.cpp`'s
+  new `textureTransformToKhr` derives a real `KHR_texture_transform`
+  (offset/rotation/scale) from a constant `M2TextureTransform`'s
+  texture-center-pivoted rotation (`offset = R*S*translation + R*t_S +
+  t_R`), applied on `baseColorTexture` whenever the record is genuinely
+  constant (every track either empty or a true single value) and the
+  rotation is planar (Z-axis only) -- verified three independent ways
+  against real `bloodknightcharger.m2` data (its transform index 2, a
+  180-degree rotation + non-uniform (1.0, 1.5) scale): by hand, against
+  20,000 randomized trials of `reference/wow.export`'s own
+  translate-rotate-translate matrix composition, and via headless
+  Blender's own glTF importer producing an exactly-matching Mapping node
+  (location (1.0, 1.25), rotation 180 degrees, scale (1.0, 1.5)). Found a
+  real, useful negative case along the way: `brewfestmount.m2`'s own
+  transform index 0 looks constant under a cruder single-keyframe check
+  (`tools/find_texture_transform_files.py`, this session's own discovery
+  tool) but actually carries per-sequence-structured translation/scaling
+  tracks whose values just happen to all be identity -- husk's own
+  stricter `trackHasAnimatedData` check correctly refuses to treat that as
+  constant, so it stays extras-only, not a false positive. Two new real
+  fixtures committed (`test_data/creature/brewfestmount/`,
+  `.../bloodknightcharger/`, `.m2`+`.skin` only -- textures resolved via a
+  synthetic 1x1 PNG in tests, real texture bytes weren't needed to verify
+  the transform math), six new tests (four synthetic in
+  `test_gltf_mesh.cpp`, two real-fixture integration tests). Full suite
+  green, 530/530. Real `gltf_validator`/headless-Blender verification
+  clean for the new extension specifically (a pre-existing, unrelated
+  JOINTS_0/WEIGHTS_0 duplicate-influence data quirk in `bloodknightcharger.m2`
+  itself produced validator errors on that one fixture -- confirmed
+  unrelated by checking a known-clean fixture still validates 0 errors
+  after this change; not investigated further, out of this task's scope).
+- **Current state (prior session)**: Resolved the previous entry's own open question with
   two real screenshots -- `bloodelffemale_hd_skin_color_3500119`/`_3500115`
   each pixel-match one specific rectangular region of `_3500123` (the base
   atlas) exactly, non-transparent overlay *patches*, not junk or unrelated

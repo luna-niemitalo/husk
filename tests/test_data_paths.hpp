@@ -237,6 +237,24 @@ constexpr const char* kPcolVerificationM2 = "verification/pcol_pa_kite_lamp_crea
 // TODO: Remove: cites TRANSFORM_TRIAGE.md §5e.
 constexpr const char* kQuadrupedM2 = "creature/wolf/wolf.m2";
 constexpr const char* kQuadrupedSkin = "creature/wolf/wolf00.skin";
+// Texture-transform fixtures -- see DESIGN.md's Key design decisions
+// ("A batch's M2TextureTransform...") and
+// tools/find_texture_transform_files.py's real-corpus scan.
+// brewfestmount: transform index 0 has a real, constant 180 degree
+// rotation about Z (0,0,-1,0), referenced by a real .skin batch -- but its
+// translation/scaling tracks are per-sequence-structured (every value
+// happens to be identity), so husk's own stricter check correctly refuses
+// to treat the whole record as constant; a real negative-case fixture, not
+// the "simplest possible case" it first looked like.
+constexpr const char* kTextureTransformRotationM2 = "creature/brewfestmount/brewfestmount.m2";
+constexpr const char* kTextureTransformRotationSkin = "creature/brewfestmount/brewfestmount00.skin";
+// bloodknightcharger: transform index 2 combines the same 180 degree
+// rotation with a real constant non-uniform scale (1.0, 1.5, 0.0) -- the
+// rotation+scale-combined case.
+constexpr const char* kTextureTransformScaleM2 =
+    "creature/bloodknightcharger/bloodknightcharger.m2";
+constexpr const char* kTextureTransformScaleSkin =
+    "creature/bloodknightcharger/bloodknightcharger00.skin";
 }  // namespace fixtures
 
 inline std::string testM2() { return resolve("HUSK_TEST_M2", fixtures::kM2); }
@@ -296,6 +314,19 @@ inline std::string testPcolVerificationM2() {
 inline std::string testQuadrupedM2() { return resolve("HUSK_TEST_QUADRUPED_M2", fixtures::kQuadrupedM2); }
 inline std::string testQuadrupedSkin() {
     return resolve("HUSK_TEST_QUADRUPED_SKIN", fixtures::kQuadrupedSkin);
+}
+inline std::string testTextureTransformRotationM2() {
+    return resolve("HUSK_TEST_TEXTURE_TRANSFORM_ROTATION_M2", fixtures::kTextureTransformRotationM2);
+}
+inline std::string testTextureTransformRotationSkin() {
+    return resolve("HUSK_TEST_TEXTURE_TRANSFORM_ROTATION_SKIN",
+                    fixtures::kTextureTransformRotationSkin);
+}
+inline std::string testTextureTransformScaleM2() {
+    return resolve("HUSK_TEST_TEXTURE_TRANSFORM_SCALE_M2", fixtures::kTextureTransformScaleM2);
+}
+inline std::string testTextureTransformScaleSkin() {
+    return resolve("HUSK_TEST_TEXTURE_TRANSFORM_SCALE_SKIN", fixtures::kTextureTransformScaleSkin);
 }
 
 }  // namespace husk::test

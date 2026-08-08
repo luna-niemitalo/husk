@@ -94,14 +94,20 @@ struct Material {
 
     // A batch's UV scroll/rotate/scale animation (M2TextureTransform,
     // wowdev.wiki M2#Texture_Transforms), when its textureTransformComboIndex
-    // resolves to one -- see m2::TextureTransform's doc comment for why
-    // this is exposed as inert extras, the same "tag it, don't guess at
-    // semantics" treatment additionalTextureLayers/billboardMode get,
-    // rather than a real KHR_texture_transform applied to the render.
-    // `constant`, when true, means translation/rotation/scaling below are
-    // real resolved static values; when false (the animated case -- e.g.
-    // scrolling lava/water, almost certainly the common one in practice),
-    // they're just each field's un-animated default and not real data.
+    // resolves to one. `constant`, when true, means translation/rotation/
+    // scaling below are real resolved static values; when false (the
+    // animated case -- e.g. scrolling lava/water, almost certainly the
+    // common one in practice), they're just each field's un-animated
+    // default and not real data -- KHR_texture_transform's extension has no
+    // animation-channel target, so the animated case has no honest glTF
+    // representation regardless of effort and stays extras-only (see
+    // gltf_mesh.cpp's emitMaterial). The constant case *is* wired to a real
+    // KHR_texture_transform on baseColorTexture, whenever the rotation is a
+    // pure planar (Z-axis) one and a baseColorTexture exists to attach the
+    // extension to -- see gltf_mesh.cpp's textureTransformToKhr and
+    // DESIGN.md's Key design decisions for the pivot-correction derivation.
+    // These raw values are still always surfaced below too, as a
+    // diagnostic and as the animated case's only representation.
     struct TextureTransform {
         bool constant = true;
         Vec3 translation;                  // defaults to (0,0,0), Vec3's own default

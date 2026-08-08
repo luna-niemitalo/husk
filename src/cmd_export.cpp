@@ -490,8 +490,10 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
         if (built.textureTransformBatchCount > 0) {
             std::cerr << "husk: note: '" << path << "'" << (name.empty() ? "" : " (" + name + ")")
                       << "' has " << built.textureTransformBatchCount
-                      << " batch(es) with a UV transform (M2TextureTransform) -- exported as "
-                         "inert 'extras' metadata on the material, not applied to the render\n";
+                      << " batch(es) with a UV transform (M2TextureTransform) -- constant, "
+                         "planar-rotation ones with a resolved baseColorTexture get a real "
+                         "KHR_texture_transform on the render; every batch's raw values are also "
+                         "always attached as inert 'extras' metadata\n";
         }
 
         // Every batch that got its texture from the basename-fuzzy pool,

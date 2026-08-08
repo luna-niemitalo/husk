@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <unordered_map>
 
@@ -22,6 +23,60 @@ const char* alphaModeString(Material::AlphaMode mode) {
     return "OPAQUE";
 }
 
+// Real KHR_texture_transform equivalent (offset/rotation/scale, pivoting
+// around (0,0)) for a *constant* M2TextureTransform, whose rotation pivots
+// around the texture's own center (0.5, 0.5) instead (wowdev.wiki
+// M2#Texture_Transforms). Full derivation, real-fixture hand verification,
+// and the 20,000-trial randomized cross-check against the real client's own
+// matrix composition: DESIGN.md's Key design decisions, "A batch's
+// M2TextureTransform...". Load-bearing summary for reading the code below:
+// pivot = (0.5, 0.5); M = R*S; offset = R*S*translation + R*t_S + t_R,
+// where t_S = pivot - S*pivot and t_R = pivot - R*pivot.
+struct KhrTextureTransform {
+    double offsetU = 0, offsetV = 0;
+    double rotation = 0;
+    double scaleU = 1, scaleV = 1;
+};
+
+// Same epsilon find_texture_transform_files.py's is_identity_rotation uses.
+constexpr double kPlanarRotationEpsilon = 1e-4;
+
+// Returns nullopt when the quaternion isn't a pure rotation about the UV
+// plane's normal (x/y components beyond floating-point noise) --
+// KHR_texture_transform only has a single scalar (Z) rotation, so a
+// genuinely 3-axis rotation here (never seen in real corpus data so far)
+// has no honest equivalent and stays extras-only rather than being
+// silently misrepresented.
+std::optional<KhrTextureTransform> textureTransformToKhr(const Material::TextureTransform& xf) {
+    double qx = xf.rotation[0], qy = xf.rotation[1], qz = xf.rotation[2], qw = xf.rotation[3];
+    if (std::abs(qx) > kPlanarRotationEpsilon || std::abs(qy) > kPlanarRotationEpsilon) {
+        return std::nullopt;
+    }
+    double theta = 2.0 * std::atan2(qz, qw);
+    double c = std::cos(theta), s = std::sin(theta);
+    double sx = xf.scaling.x, sy = xf.scaling.y;
+    double tx = xf.translation.x, ty = xf.translation.y;
+
+    // t_S, t_R (see the struct's own doc comment for the formula legend).
+    double tSx = 0.5 * (1 - sx), tSy = 0.5 * (1 - sy);
+    double rcx = 0.5 * c - 0.5 * s, rcy = 0.5 * s + 0.5 * c;
+    double tRx = 0.5 - rcx, tRy = 0.5 - rcy;
+    // R*S*translation
+    double rsx = c * sx * tx - s * sy * ty;
+    double rsy = s * sx * tx + c * sy * ty;
+    // R*t_S
+    double rtsx = c * tSx - s * tSy;
+    double rtsy = s * tSx + c * tSy;
+
+    KhrTextureTransform out;
+    out.offsetU = rsx + rtsx + tRx;
+    out.offsetV = rsy + rtsy + tRy;
+    out.rotation = theta;
+    out.scaleU = sx;
+    out.scaleV = sy;
+    return out;
+}
+
 // One Material -> one tinygltf::Material, embedding its base-color image (if
 // any) and building `materialExtras` from every inert-metadata field
 // (additional texture layers, texture transform, texture type/FileDataID,
@@ -32,7 +87,7 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
                                  std::vector<tinygltf::BufferView>& views,
                                  std::vector<tinygltf::Image>& images,
                                  std::vector<tinygltf::Texture>& textures, int uv2AccIdx,
-                                 bool& usedUnlitExtension,
+                                 bool& usedUnlitExtension, bool& usedTextureTransformExtension,
                                  std::unordered_map<std::string, int>& alternateTextureCache) {
     tinygltf::Material tm;
     tm.name = mat.name;
@@ -89,6 +144,27 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
         if (mat.baseColorTexCoord == 1 && uv2AccIdx >= 0) {
             tm.pbrMetallicRoughness.baseColorTexture.texCoord = 1;
         }
+
+        // Real KHR_texture_transform: only for the constant case (the
+        // animated case has no honest equivalent -- see
+        // gltf_mesh.hpp's TextureTransform doc comment) and only once
+        // there's a real baseColorTexture to attach the extension to.
+        // The raw resolved values stay in materialExtras below regardless
+        // (diagnostic / animated-case fallback), so this is additive, not
+        // a replacement.
+        if (mat.textureTransform && mat.textureTransform->constant) {
+            if (auto khr = textureTransformToKhr(*mat.textureTransform)) {
+                tinygltf::Value::Object khrObj;
+                khrObj["offset"] = tinygltf::Value(
+                    tinygltf::Value::Array{tinygltf::Value(khr->offsetU), tinygltf::Value(khr->offsetV)});
+                khrObj["rotation"] = tinygltf::Value(khr->rotation);
+                khrObj["scale"] = tinygltf::Value(
+                    tinygltf::Value::Array{tinygltf::Value(khr->scaleU), tinygltf::Value(khr->scaleV)});
+                tm.pbrMetallicRoughness.baseColorTexture.extensions["KHR_texture_transform"] =
+                    tinygltf::Value(khrObj);
+                usedTextureTransformExtension = true;
+            }
+        }
     }
     if (mat.unlit) {
         tm.extensions["KHR_materials_unlit"] = tinygltf::Value(tinygltf::Value::Object());
@@ -140,9 +216,12 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
         materialExtras["additional_textures"] = tinygltf::Value(layers);
     }
 
-    // UV scroll/rotate/scale animation (M2TextureTransform) -- same inert-
-    // extras treatment, see gltf_mesh.hpp's TextureTransform doc comment
-    // for why this isn't a real KHR_texture_transform.
+    // UV scroll/rotate/scale animation (M2TextureTransform) -- raw resolved
+    // values, always present when a batch references one, regardless of
+    // whether the constant-case real KHR_texture_transform above applied
+    // (planarity check failed, or no baseColorTexture to attach it to) --
+    // a diagnostic fallback and the only representation at all for the
+    // animated case, see gltf_mesh.hpp's TextureTransform doc comment.
     if (mat.textureTransform) {
         const auto& xf = *mat.textureTransform;
         tinygltf::Value::Object xfObj;
@@ -368,6 +447,7 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
                            std::vector<tinygltf::Accessor>& accessors, std::vector<tinygltf::Image>& images,
                            std::vector<tinygltf::Texture>& textures,
                            std::vector<tinygltf::Material>& tinyMaterials, bool& usedUnlitExtension,
+                           bool& usedTextureTransformExtension,
                            std::unordered_map<std::string, int>& alternateTextureCache) {
     const Mesh& mesh = nm.mesh;
     size_t n = mesh.positions.size();
@@ -474,7 +554,8 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
     int materialBase = static_cast<int>(tinyMaterials.size());
     for (const auto& mat : nm.materials) {
         tinyMaterials.push_back(emitMaterial(mat, buffer, views, images, textures, uv2AccIdx,
-                                              usedUnlitExtension, alternateTextureCache));
+                                              usedUnlitExtension, usedTextureTransformExtension,
+                                              alternateTextureCache));
     }
 
     std::vector<tinygltf::Primitive> tinyPrims;

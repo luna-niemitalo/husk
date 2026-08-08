@@ -31,8 +31,12 @@ void validateMeshes(const std::vector<NamedMesh>& meshes, bool hasSkeleton);
 // model-wide indices the returned mesh's primitives reference) -- mirrors
 // writeGlbMulti's former per-mesh loop body 1:1, no behavior change.
 // `usedUnlitExtension` is set (never cleared) if any of this mesh's
-// materials sets Material::unlit. `alternateTextureCache` (filename ->
-// already-created texture index) is shared and accumulated across every
+// materials sets Material::unlit. `usedTextureTransformExtension` is set
+// (never cleared) if any material got a real KHR_texture_transform on its
+// baseColorTexture (gltf_mesh.cpp's emitMaterial/textureTransformToKhr --
+// the constant-case, planar-rotation subset of Material::textureTransform).
+// `alternateTextureCache` (filename -> already-created texture index) is
+// shared and accumulated across every
 // call in one writeGlbMulti invocation -- a real character model can have
 // many ambiguous hardcoded-texture-slot materials all drawing candidates
 // from the *same* shared basename pool (gltf_mesh.hpp's
@@ -50,6 +54,7 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
                            std::vector<tinygltf::Accessor>& accessors, std::vector<tinygltf::Image>& images,
                            std::vector<tinygltf::Texture>& textures,
                            std::vector<tinygltf::Material>& tinyMaterials, bool& usedUnlitExtension,
+                           bool& usedTextureTransformExtension,
                            std::unordered_map<std::string, int>& alternateTextureCache);
 
 }  // namespace husk::gltf

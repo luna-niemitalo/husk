@@ -4,6 +4,8 @@
 // Split out of the former tests/test_gltf.cpp -- see FILE_SPLIT_TODO.md
 // Item 5.
 
+#include <cmath>
+
 #include "test_gltf_fixtures.hpp"
 
 TEST_CASE("writeGlb: round-trips positions/normals/texCoords/indices through tinygltf's own loader") {
@@ -361,6 +363,136 @@ TEST_CASE("writeGlb: a material with no textureTransform gets no such extras key
     auto model = loadBack(glb);
 
     CHECK_FALSE(model.materials[0].extras.IsObject());
+}
+
+namespace {
+// Shared by the KHR_texture_transform test cases below -- see
+// gltf_mesh.cpp's textureTransformToKhr and DESIGN.md's Key design
+// decisions for where the hand-derived expected numbers below come from.
+std::vector<uint8_t> onePixelPngForTextureTransformTests() {
+    return {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55,
+            0xCE, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+}
+}  // namespace
+
+// Real KHR_texture_transform for the constant case -- 180-degree rotation
+// (quaternion (0,0,-1,0)) plus a real non-uniform scale (1.0, 1.5), the
+// exact real values bloodknightcharger.m2's transform index 2 carries.
+// Expected offset/rotation/scale hand-derived (and cross-checked against
+// 20,000 randomized trials of the client's own translate-rotate-translate
+// composition, see DESIGN.md's Key design decisions and the derivation
+// comment on gltf_mesh.cpp's textureTransformToKhr) and confirmed to match
+// husk's own real export of that exact fixture.
+TEST_CASE("writeGlb: a constant, planar-rotation textureTransform with a baseColorTexture gets a "
+          "real KHR_texture_transform, pivot-corrected from M2's texture-center rotation to "
+          "glTF's origin-pivoted one") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].baseColorImagePng = onePixelPngForTextureTransformTests();
+    husk::gltf::Material::TextureTransform xf;
+    xf.constant = true;
+    xf.rotation[0] = 0;
+    xf.rotation[1] = 0;
+    xf.rotation[2] = -1.0f;
+    xf.rotation[3] = 0.0f;
+    xf.scaling = {1.0f, 1.5f, 0.0f};
+    materials[0].textureTransform = xf;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.extensionsUsed.size() == 1);
+    CHECK(model.extensionsUsed[0] == "KHR_texture_transform");
+
+    const auto& bct = model.materials[0].pbrMetallicRoughness.baseColorTexture;
+    REQUIRE(bct.extensions.count("KHR_texture_transform") == 1);
+    const auto& khr = bct.extensions.at("KHR_texture_transform");
+    CHECK(khr.Get("offset").Get(0).GetNumberAsDouble() == doctest::Approx(1.0));
+    CHECK(khr.Get("offset").Get(1).GetNumberAsDouble() == doctest::Approx(1.25));
+    // -pi and pi are the same rotation (cos/sin agree); normalize before comparing.
+    double rotation = khr.Get("rotation").GetNumberAsDouble();
+    CHECK(std::abs(std::abs(rotation) - std::acos(-1.0)) < 1e-6);
+    CHECK(khr.Get("scale").Get(0).GetNumberAsDouble() == doctest::Approx(1.0));
+    CHECK(khr.Get("scale").Get(1).GetNumberAsDouble() == doctest::Approx(1.5));
+
+    // Raw values still surfaced as extras too (diagnostic, matches every
+    // other textureTransform test in this file).
+    const auto& extras = model.materials[0].extras;
+    REQUIRE(extras.IsObject());
+    CHECK(extras.Get("texture_transform").Get("constant").Get<bool>() == true);
+}
+
+TEST_CASE("writeGlb: a non-constant (animated) textureTransform never gets a real "
+          "KHR_texture_transform, even with a baseColorTexture present") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].baseColorImagePng = onePixelPngForTextureTransformTests();
+    husk::gltf::Material::TextureTransform xf;
+    xf.constant = false;  // the animated case -- see TextureTransform's doc comment
+    xf.rotation[2] = -1.0f;
+    xf.rotation[3] = 0.0f;
+    materials[0].textureTransform = xf;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    CHECK(model.extensionsUsed.empty());
+    const auto& bct = model.materials[0].pbrMetallicRoughness.baseColorTexture;
+    CHECK(bct.extensions.count("KHR_texture_transform") == 0);
+    // The animated case's only representation is still the raw extras.
+    CHECK(model.materials[0].extras.Get("texture_transform").Get("constant").Get<bool>() == false);
+}
+
+TEST_CASE("writeGlb: a constant textureTransform with no baseColorTexture to attach to stays "
+          "extras-only") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+
+    std::vector<husk::gltf::Material> materials(1);  // no baseColorImagePng
+    husk::gltf::Material::TextureTransform xf;
+    xf.constant = true;
+    xf.rotation[2] = -1.0f;
+    xf.rotation[3] = 0.0f;
+    materials[0].textureTransform = xf;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    CHECK(model.extensionsUsed.empty());
+    REQUIRE(model.materials[0].extras.IsObject());
+    CHECK(model.materials[0].extras.Get("texture_transform").Get("constant").Get<bool>() == true);
+}
+
+TEST_CASE("writeGlb: a constant textureTransform whose rotation isn't planar (a genuine 3-axis "
+          "rotation, never seen in real data) has no honest KHR_texture_transform equivalent and "
+          "stays extras-only") {
+    auto mesh = buildTriangleMesh();
+    mesh.primitives[0].materialIndex = 0;
+
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].baseColorImagePng = onePixelPngForTextureTransformTests();
+    husk::gltf::Material::TextureTransform xf;
+    xf.constant = true;
+    // A rotation with a real X component -- not just a Z-axis (planar) one.
+    xf.rotation[0] = 0.7071f;
+    xf.rotation[1] = 0;
+    xf.rotation[2] = 0;
+    xf.rotation[3] = 0.7071f;
+    materials[0].textureTransform = xf;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    CHECK(model.extensionsUsed.empty());
+    const auto& bct = model.materials[0].pbrMetallicRoughness.baseColorTexture;
+    CHECK(bct.extensions.count("KHR_texture_transform") == 0);
 }
 
 TEST_CASE("writeGlb: additionalTextureLayers and textureTransform extras coexist on the same "

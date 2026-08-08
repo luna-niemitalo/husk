@@ -14,6 +14,134 @@ deletions handled their own back-references).
 
 ---
 
+- **Last state**: Closed `TODO_correctness.md`'s former item 4
+  (texture-transform pivot-correction math, constant case), picked as a
+  self-contained task to work through solo (no DB2/casc-tool dependency
+  like `CHAR_TEXTURE_COMPOSITING_TODO.md`, no fuzzy-matching design
+  decision like `BONE_NAME_DEDUCTION_TODO.md` tier 2 -- both considered
+  and passed over for that reason).
+
+  Derivation: wowdev.wiki's M2#Texture_Transforms note says rotation
+  pivots around the texture's own center (0.5, 0.5), and gives the recipe
+  (translate to center, rotate, translate back) but not a closed form.
+  `reference/wow.export`'s `M2RendererGL.js` (`_update_tex_matrices`) has
+  the real client's own matrix composition: for each of rotation/scaling/
+  translation independently present, `local_mat = local_mat *
+  T(0.5,0.5)*R_or_S*T(-0.5,-0.5)` (rotation/scaling) or `local_mat =
+  local_mat * T(tx,ty)` (translation), composed in that order. Expanding
+  this out algebraically as one affine map `uv' = M*uv + t` gives `M =
+  R*S` (matching `KHR_texture_transform`'s own scale-then-rotate order
+  exactly) and `t = R*S*translation + R*t_S + t_R`, where `t_S = pivot -
+  S*pivot` and `t_R = pivot - R*pivot` (pivot = (0.5, 0.5)) -- derived by
+  hand, then verified two ways before writing any `src/` code: (1) by hand
+  against `brewfestmount.m2`'s simplest real case (180-degree rotation
+  only, `offset` should come out to exactly (1,1) -- did) and
+  `bloodknightcharger.m2`'s combined case (180-degree rotation + (1.0,
+  1.5) scale, `offset` should come out to exactly (1, 1.25) -- did); (2)
+  against 20,000 randomized (angle, scale, translation, uv) trials
+  comparing the closed form against a literal re-implementation of
+  `wow.export`'s own translate-rotate-translate matrix composition (a
+  scratch C++ program, not checked in) -- max error 1.8e-15, floating-
+  point noise only.
+
+  Real fixtures: `tools/find_texture_transform_files.py` (written a prior
+  session, already known to have found `brewfestmount.m2`/
+  `bloodknightcharger.m2`/`unboundairelemental_low.m2` as real-corpus
+  candidates) was rerun against the two chosen files to get their exact
+  transform indices/values before writing tests. Copying them into
+  `test_data/creature/brewfestmount/`,`.../bloodknightcharger/`
+  (`.m2`+`.skin` only, no `.blp` textures -- committing the texture bytes
+  wasn't needed to verify the transform math, only a file existing at the
+  expected FileDataID path, so tests write a synthetic 1x1 PNG into a
+  scratch dir instead) surfaced a real, useful complication: mapping a
+  `.skin` batch to its texture's FileDataID and resolved transform index
+  needed a byte offset in `.skin`/M2 husk doesn't expose via any existing
+  CLI surface, so a one-off scratch Python script (not checked in) did the
+  same fixed-offset decode `find_texture_transform_files.py` already does,
+  extended to also resolve `textureComboIndex` -> `TXID` FileDataID.
+
+  Implementation: `gltf_mesh.cpp`'s new `textureTransformToKhr` (an
+  anonymous-namespace helper next to `emitMaterial`) implements the closed
+  form, gated on (a) the quaternion being planar -- `|x|,|y| <
+  1e-4` -- since `KHR_texture_transform`'s rotation is a single scalar
+  (Z-axis) angle and a genuine 3-axis rotation (never seen in real corpus
+  data so far) has no honest equivalent, and (b) a real
+  `baseColorTexture` existing to attach the extension to. Wired into
+  `emitMaterial` right after `baseColorTexture.index` is set, only when
+  `mat.textureTransform->constant` is true. `usedTextureTransformExtension`
+  threaded through `emitMeshNode`/`gltf.cpp` the same way
+  `usedUnlitExtension` already was, for the document-level
+  `extensionsUsed` entry. The raw resolved values stay attached as
+  `texture_transform` extras unconditionally, same as before this
+  session -- additive, not a replacement (diagnostic, and the animated
+  case's only representation).
+
+  A real complication found mid-implementation, not anticipated by the
+  plan: exporting `brewfestmount.m2` with a real texture for its
+  transform-index-0 batch produced `constant: false` in the extras output,
+  even though `find_texture_transform_files.py`'s cruder single-keyframe
+  check called it constant. Root cause: husk's own
+  `m2_animation.cpp`'s `trackHasAnimatedData` distinguishes a genuinely
+  empty track (`outer.count == 0`) from a structured-but-trivial one
+  (`outer.count > 1`, i.e. real per-sequence data, even if every
+  sequence's resolved value happens to be identity) -- `brewfestmount.m2`'s
+  translation/scaling tracks are the latter, so husk correctly refuses to
+  treat the whole record as constant, unlike the scanner's cruder
+  "exactly one keyframe or nothing" check. Confirmed this is husk being
+  more correct, not a bug: applying a single static UV transform when the
+  real per-sequence data could (in principle, on a different real file)
+  differ per animation would be a silent misrepresentation. Kept
+  `brewfestmount.m2` as a fixture anyway -- a real, useful negative-case
+  regression (`tests/test_integration.cpp`'s new
+  "brewfestmount.m2's real texture-center-pivot rotation... stays
+  extras-only" test) that a synthetic fixture wouldn't have caught without
+  already knowing to write it.
+
+  Verification: `bloodknightcharger.m2`'s real export (a synthetic 1x1 PNG
+  standing in for its real texture, same as the committed tests) produced
+  `KHR_texture_transform` `{offset: [1.0, 1.25], rotation: -pi, scale:
+  [1.0, 1.5]}` -- an exact match to the hand-derived expectation (`-pi`
+  and `pi` are the same rotation). `gltf_validator` raised zero issues
+  tied to the new extension (a `bloodknightcharger.m2`-specific batch of
+  `JOINTS_0`/`WEIGHTS_0` errors showed up, confirmed unrelated and
+  pre-existing by checking that `bloodelffemale.m2`'s already-verified
+  export still validates with 0 errors after this change -- not
+  investigated further, out of scope). Headless Blender's own glTF
+  importer (a one-off scratch script, not checked in) parsed the file and
+  built a real Mapping node for that exact material with `location=(1.0,
+  1.25)`, `rotation=-180 degrees`, `scale=(1.0, 1.5)` -- an exact,
+  independent third-party match. A second material (transform index 1, a
+  ~135-degree rotation, not one of the two hand-derived fixtures) produced
+  *different*-looking Mapping-node values in Blender than the raw glTF
+  JSON numbers -- expected, not a bug: Blender's own glTF importer
+  recomposes `KHR_texture_transform` with its own V-flip convention
+  (`V_blender = 1 - V_gltf`), which only happens to leave the Mapping
+  node's numbers textually identical to the raw JSON when `sin(rotation)
+  == 0` (true for the 180-degree case, not the ~135-degree one) -- not
+  independently reproduced byte-for-byte for that second material, but the
+  extension itself is spec-conformant per `gltf_validator` and built from
+  a formula already verified two other ways.
+
+  Six new tests: four synthetic (`tests/test_gltf_mesh.cpp` -- the real
+  extension appears for a constant+planar+textured case with exact
+  expected values, and is correctly absent for the animated, no-texture,
+  and non-planar-rotation cases respectively) and two real-fixture
+  integration tests (`tests/test_integration.cpp`, gated on the two new
+  fixtures via `HUSK_TEST_TEXTURE_TRANSFORM_SCALE_M2`/`_ROTATION_M2` and
+  test_data/ fallback, following `tests/test_data_paths.hpp`'s existing
+  `resolve()` convention). Full suite green, 530/530
+  (`./build/husk-tests`). `TODO_correctness.md`'s former item 4 removed
+  outright per the file's own convention; `M2_COMPLETENESS.md`'s "Texture
+  transform (constant case)" row updated from `native-possible,
+  unverified` to `native — 100%`; `DESIGN.md`'s Key design decisions,
+  `README.md`'s format-support matrix, `src/m2_animation.hpp`'s
+  `TextureTransform` doc comment, and `cmd_export.cpp`'s own stdout note
+  for this feature all updated to match (the note previously claimed the
+  UV transform was "not applied to the render" unconditionally, no longer
+  true for the constant case).
+
+---
+
 - **Last state**: Same session, immediate second pass widening the SQLite
   side-project note directly below: "it's not gonna be just flat tables
   only, it's gonna have mappings tables and stuff... the actual sqlite

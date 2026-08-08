@@ -356,28 +356,36 @@ track loops on its own independent timeline no matter which (if any)
 `M2Sequence` the rest of the skeleton is animating through, so folding it
 into a per-sequence clip would misrepresent when it actually plays.
 
-**A batch's `M2TextureTransform` (UV scroll/rotate/scale) is surfaced as
-`extras`, never a real `KHR_texture_transform`.** Same "tag it, don't guess
-at semantics" family as geoset selection/multi-texture-layer rendering
-above, for a different reason: core glTF's `KHR_texture_transform`
-extension is itself *static* (offset/rotation/scale baked once, no
-animation-channel target), so even a correct translation couldn't play
-back the animated case — and a real texture transform is almost always
-animated in practice (scrolling lava/water is the model's whole reason to
-carry one). The constant case *could* in principle become a real static
-`KHR_texture_transform`, except wowdev.wiki's own note that rotation here
-pivots around the texture's center (0.5, 0.5), not the extension's own
-(0,0) origin, means a correct translation has to fold that pivot
-difference into the extension's offset field — exactly the kind of
-byte-level claim this project's own methodology (`WIKI_FINDINGS.md`: decode
-real records, don't guess from text alone) says shouldn't ship unverified,
-and no real texture-transform-carrying file has turned up in this
-project's test data yet to check it against. `m2::parseTextureTransforms`
-resolves the same constant-vs-animated split `constantTrackValueOffset`
-already does for `M2Color`/`M2TextureWeight`; `gltf::Material::
-textureTransform` carries whichever raw values resolved through to
-`extras`, untransformed, for a downstream renderer or Blender script that
-wants to apply the pivot correction itself.
+**A batch's `M2TextureTransform` (UV scroll/rotate/scale) gets a real
+`KHR_texture_transform` for the constant case; the animated case stays
+`extras`-only.** Core glTF's `KHR_texture_transform` extension is itself
+*static* (offset/rotation/scale baked once, no animation-channel target),
+so the animated case (almost always the common one in practice — scrolling
+lava/water is the model's whole reason to carry one) has no honest
+representation regardless of effort and stays `extras`-only, same "tag it,
+don't guess at semantics" family as geoset selection/multi-texture-layer
+rendering above. The constant case *is* wired to a real extension
+(`gltf_mesh.cpp`'s `textureTransformToKhr`): wowdev.wiki notes M2's
+rotation pivots around the texture's center (0.5, 0.5), not the
+extension's own (0,0) origin, so a correct translation has to fold that
+pivot difference into the extension's `offset` field — derived as
+`offset = R*S*translation + R*t_S + t_R` (`t_S`/`t_R` = the pivot's
+displacement under scale/rotation respectively), verified against real
+`bloodknightcharger.m2` data three independent ways (hand computation,
+20,000 randomized trials against `reference/wow.export`'s own
+translate-rotate-translate matrix composition, and headless Blender's own
+glTF importer producing an exactly-matching Mapping node). Applied only
+when the transform is genuinely constant (every track either empty or a true single value — a real
+`brewfestmount.m2` counterexample has a constant rotation but
+per-sequence-structured translation/scaling tracks whose values just
+happen to all be identity, and correctly stays extras-only, not falsely
+"constant") and the rotation is planar (Z-axis only, the only case
+wowdev.wiki's pivot note describes) with a real `baseColorTexture` to
+attach the extension to. `m2::parseTextureTransforms` resolves the same
+constant-vs-animated split `constantTrackValueOffset` already does for
+`M2Color`/`M2TextureWeight`; `gltf::Material::textureTransform` carries the
+raw values through to `extras` unconditionally too — a diagnostic, and the
+animated case's only representation.
 
 **A texture's `M2Texture::type` (nonzero -- a hardcoded/replaceable slot)
 is surfaced as `extras`, distinguishing "husk can't resolve this locally"

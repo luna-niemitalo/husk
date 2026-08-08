@@ -49,6 +49,11 @@ int main(int argc, char** argv) {
     printFixture("HUSK_TEST_PCOL_M2", husk::test::testPcolVerificationM2());
     printFixture("HUSK_TEST_QUADRUPED_M2", husk::test::testQuadrupedM2());
     printFixture("HUSK_TEST_QUADRUPED_SKIN", husk::test::testQuadrupedSkin());
+    printFixture("HUSK_TEST_TEXTURE_TRANSFORM_ROTATION_M2", husk::test::testTextureTransformRotationM2());
+    printFixture("HUSK_TEST_TEXTURE_TRANSFORM_ROTATION_SKIN",
+                 husk::test::testTextureTransformRotationSkin());
+    printFixture("HUSK_TEST_TEXTURE_TRANSFORM_SCALE_M2", husk::test::testTextureTransformScaleM2());
+    printFixture("HUSK_TEST_TEXTURE_TRANSFORM_SCALE_SKIN", husk::test::testTextureTransformScaleSkin());
 #ifdef HUSK_GLTF_VALIDATOR
     std::cerr << "husk-tests:   HUSK_GLTF_VALIDATOR: " << HUSK_GLTF_VALIDATOR << "\n";
 #else

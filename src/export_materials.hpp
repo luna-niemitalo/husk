@@ -45,8 +45,10 @@ struct BuiltMaterials {
     size_t animatedTintOrFadeBatchCount = 0;
     // Number of batches whose textureTransformComboIndex resolved to a real
     // M2TextureTransform (UV scroll/rotate/scale animation) -- see
-    // gltf::Material::TextureTransform's doc comment for why this is
-    // exposed as inert extras rather than a real KHR_texture_transform.
+    // gltf::Material::TextureTransform's doc comment: the constant, planar-
+    // rotation case gets a real KHR_texture_transform on the render
+    // (gltf_mesh.cpp's textureTransformToKhr); every case's raw values are
+    // also always exposed as inert extras regardless.
     size_t textureTransformBatchCount = 0;
 
     // One entry per batch whose embedded texture came from the basename-

@@ -131,21 +131,11 @@ struct TextureWeight {
 // only resolved here when unambiguously constant; the `*Animated` flags
 // mirror Color's own for the non-constant case.
 //
-// Unlike Color/TextureWeight, husk doesn't even attempt to apply this to
-// the rendered material (see cmd_export.cpp) -- core glTF's
-// KHR_texture_transform extension is a *static* offset/rotation/scale
-// with no animation-channel target of its own, so the animated case
-// (almost certainly the common one for a real scrolling-UV model)
-// couldn't be represented as real playback either way, and per the wiki,
-// rotation here is around the texture's own center (0.5, 0.5) -- a
-// different pivot than KHR_texture_transform's own (0,0), and correctly
-// folding that pivot difference into the extension's offset field isn't
-// attempted without a real animated test file to check it against, which
-// isn't available yet. Surfaced as raw resolved values instead
-// (gltf::Material::textureTransform, inert `extras`), for a downstream
-// renderer or Blender script to apply correctly itself.
-// TODO: Remove: process-methodology aside (WIKI_FINDINGS.md: "decode real
-// records, don't guess from text alone") -- belongs in DESIGN.md#Coding-Policy, not here.
+// Unlike Color/TextureWeight, the constant case *is* applied to the
+// rendered material as a real KHR_texture_transform, pivot-corrected from
+// the wiki's texture-center (0.5, 0.5) rotation -- see
+// gltf::Material::TextureTransform's doc comment for the derivation and
+// why the animated case still can't be.
 struct TextureTransform {
     std::optional<Vec3> translation;
     std::optional<Quat> rotation;  // C4Quaternion -- 4 raw floats (x,y,z,w), NOT the compressed M2CompQuat bones use

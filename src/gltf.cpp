@@ -42,8 +42,10 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     std::vector<tinygltf::Accessor> accessors;
     // Set if any material sets Material::unlit -- KHR_materials_unlit needs
     // a document-level extensionsUsed entry, added once after the mesh/
-    // material emission loop below.
+    // material emission loop below. usedTextureTransformExtension is the
+    // same shape for KHR_texture_transform (gltf_mesh.cpp's emitMaterial).
     bool usedUnlitExtension = false;
+    bool usedTextureTransformExtension = false;
 
     // Skeleton/skin: built once, shared by every mesh node below. Joint
     // nodes are appended after every mesh node (see the node-index layout
@@ -81,7 +83,7 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     for (const auto& nm : meshes) {
         MeshEmission em = emitMeshNode(nm, hasSkeleton, skinIdx, buffer, views, accessors, images,
                                         textures, tinyMaterials, usedUnlitExtension,
-                                        alternateTextureCache);
+                                        usedTextureTransformExtension, alternateTextureCache);
         tinyMeshes.push_back(em.mesh);
         em.node.mesh = static_cast<int>(tinyMeshes.size()) - 1;
         meshNodes.push_back(em.node);
@@ -92,6 +94,9 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     model.materials = tinyMaterials;
     if (usedUnlitExtension) {
         model.extensionsUsed.push_back("KHR_materials_unlit");
+    }
+    if (usedTextureTransformExtension) {
+        model.extensionsUsed.push_back("KHR_texture_transform");
     }
     model.meshes = tinyMeshes;
 

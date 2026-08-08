@@ -839,6 +839,10 @@ TEST_CASE("husk export: real file with a nonzero textureCoordCombos table still 
     checkMultiTextureLayerArithmetic(testTextureCoordComboM2(), testTextureCoordComboSkin());
 }
 
+// M2TextureTransform / KHR_texture_transform integration tests moved to
+// tests/test_integration_texture_transform.cpp (FILE_SIZE.md's 1000-line
+// ceiling).
+
 TEST_CASE("husk export: skin file that doesn't belong to the given M2 fails cleanly" *
           doctest::skip(testM2().empty() || testMismatchedSkin().empty())) {
     std::string m2Path = testM2();
