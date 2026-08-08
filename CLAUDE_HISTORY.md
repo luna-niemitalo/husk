@@ -14,6 +14,98 @@ deletions handled their own back-references).
 
 ---
 
+- **Last state**: Third independent, unsupervised task in a row, same
+  session (small follow-on to the Light-animation entry directly below,
+  already committed as its own `[UNVERIFIED/STAGING]` commit). Noticed
+  while resolving Light's `visibility` track that `M2Attachment::
+  animate_attached` (M2Track<uint8_t>, "whether the attached model
+  animates with this one, default true") has the exact same shape and was
+  still explicitly marked "skipped ... not something husk's glTF export
+  has a slot for yet" in `m2_scene.hpp`'s own doc comment -- a second,
+  smaller, self-identified gap right next to the one just closed.
+  Implemented: `m2::Attachment` gained `animateAttachedTrackOffset`;
+  `gltf::Skeleton::Attachment` gained an `animateAttached` curve-vector
+  field; `cmd_export.cpp`'s Light-specific `resolveLightVisibilityCurve`
+  was renamed to `resolveRawByteTrackCurve` (it was already fully generic
+  -- a raw M2Track<uint8_t> resolver, nothing Light-specific about its
+  body) and reused for both, rather than a second near-duplicate function;
+  `gltf_skeleton.cpp`'s attachment-node loop now writes an
+  `animate_attached` extras key when there's real data.
+
+  Checked against real data before assuming this was ever actually
+  populated: 3 real fixtures with real attachments (`wolf.m2` -- 12,
+  `sword_2h_ashbringer_a_01.m2` -- 6, `mace_1h_warfrontsforsaken_d_01.m2`
+  -- 5, 23 total) all resolve to *zero* real `animate_attached` keyframe
+  data -- a genuine negative result matching the wiki's own "only a bool
+  is used, default is true" note, not a bug (same "real, checked absence"
+  shape as several other findings this project has logged before, e.g.
+  `chrcustomization*.db2`'s 0-byte files in the concurrent DB2 session).
+  Correctness still covered by two new synthetic round-trip tests
+  (`tests/test_gltf_skeleton.cpp`) since no real fixture exercises the
+  populated case; `gltf_validator` confirmed 0 errors/0 warnings on the
+  real `wolf.m2` export regardless. Full suite green, 546/546.
+  `M2_COMPLETENESS.md`'s Attachments row updated (`deref`/`native` ->
+  `full`/`native + extras`) with the real negative-result note attached so
+  a future reader doesn't mistake empty output for an unresolved
+  offset bug.
+
+- **Last state**: Second independent, unsupervised task in a row (same
+  session pattern as the lookup-table entry directly below, already
+  committed as its own `[UNVERIFIED/STAGING]` commit). Picked
+  `M2_COMPLETENESS.md`'s Lights row: `M2Light`'s 7 `M2Track` fields
+  (ambient/diffuse color+intensity, attenuation start/end, visibility) were
+  the one field this project's own doc comment
+  (`gltf_skeleton.hpp`'s old `Skeleton::Light`) flagged by name as "a
+  separate, larger problem (same sibling scope as the animated material
+  tint/fade curves ... above)" -- a specific, self-identified next step,
+  not a guess. Implemented: `m2::Light` (`m2_scene.hpp`/`.cpp`) now carries
+  all 7 M2Track byte offsets (parse depth `deref` -> `full`, matching
+  `m2::Color`'s own offset-storage precedent); `cmd_export.cpp` gained
+  three light-specific curve resolvers
+  (`resolveLightColorCurve`/`resolveLightFloatCurve`/
+  `resolveLightVisibilityCurve` -- the third exists separately because
+  `visibility` is a raw 0/1 `M2Track<uint8_t>`, not a fixed16-scaled value
+  like the material fade curves, so it must NOT go through
+  `decodeFixed16`); `gltf::Skeleton::Light` gained a `type` field plus 7
+  curve-vector fields, reusing `gltf::Material::AnimatedColorCurve`/
+  `AnimatedScalarCurve` directly (via a new `#include "gltf_mesh.hpp"` in
+  `gltf_skeleton.hpp`) rather than duplicating the shape a third time;
+  `gltf_skeleton.cpp`'s light-node-emission loop now writes a `type`/
+  `light_animation` extras pair per light node, mirroring
+  `gltf_mesh.cpp`'s own tint/fade extras JSON shape (mirrored, not
+  reused -- different translation unit, building a node's extras rather
+  than a material's).
+
+  Verified against real data, not just synthetic: every weapon/creature
+  fixture already committed to `test_data/` turned out to have
+  `lights.count == 0` (a real, checked fact -- M2Light data is essentially
+  absent from that model category in practice), so a real corpus scan
+  of `interface/glues/models/ui_mainmenu_*` (login-screen models, the
+  wiki's own documented use case for this data) found a genuine hit:
+  `ui_mainmenu_pandaria.m2`, 2 real lights, both with genuine per-sequence
+  keyframe data (plausible warm/cool RGB tuples, 0..1-range intensities,
+  sane attenuation values) -- confirmed by hand via `strings` on a real
+  export before writing any test (no working Python in this session's
+  shell without going through the flake, worked around rather than
+  bypassing the sandboxing rule). New fixture committed to (gitignored)
+  `test_data/interface/glues/models/ui_mainmenu_pandaria/` (`.m2` + its
+  auto-resolved `00.skin`, ~660 KB total, same size class as every other
+  real fixture here), registered through `test_data_paths.hpp`/
+  `test_main.cpp` the same way every other `HUSK_TEST_*` fixture is.
+  New tests: two synthetic (`tests/test_gltf_skeleton.cpp`, the
+  round-trip case and the "no animated data -> no `light_animation` key"
+  case) plus one new real-fixture integration test in a new file
+  (`tests/test_integration_lights.cpp`, added to `CMakeLists.txt` --
+  split out rather than folded into `test_integration_weapons.cpp` since
+  every fixture there is weapon-scoped and this one genuinely isn't).
+  Full suite green, 544/544 (`./build/husk-tests`); real export also
+  independently confirmed clean via `gltf_validator` (0 errors, 0
+  warnings). `M2_COMPLETENESS.md`'s Lights row updated (`deref`/`native`
+  -> `full`/`native + extras`). Deliberately left uncommitted for Luna to
+  review at first, then committed as `[UNVERIFIED/STAGING]` per her own
+  explicit instruction to follow the same pattern as the two independent
+  tasks before it in this session.
+
 - **Last state**: Independent, unsupervised task -- picked TODO_correctness.md's
   former item 2 (five uint16 lookup-table arrays -- `sequenceLookup`/
   `boneLookup`/`textureLookup`/`attachmentLookup`/`cameraLookup`, wowdev.wiki

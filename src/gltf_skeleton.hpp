@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "gltf_math.hpp"
+#include "gltf_mesh.hpp"  // Material::AnimatedColorCurve/AnimatedScalarCurve, reused by Light below
 
 // Skeleton-side glTF export data model (FILE_SPLIT_TODO.md Item 3): the
 // bind-pose Skeleton, its `.bone`/ribbon/particle/`.phys`/Attachment/Event/
@@ -129,10 +130,13 @@ struct Skeleton {
 
     // Attachments/Events/Lights -- unlike every anchor list above, a
     // bone-relative M2Attachment/M2Event/M2Light position marker has no
-    // non-glTF-representable data at all (no curves, no blend modes), so
-    // writeGlbMulti gives each one a real, plain child glTF node instead of
-    // another skin `extras` entry -- see writeGlbMulti's doc comment for
-    // the exact node shape/naming/parenting.
+    // *mesh-shaped* non-glTF-representable data (no blend modes, no
+    // triangles), so writeGlbMulti gives each one a real, plain child glTF
+    // node instead of another skin `extras` entry -- see writeGlbMulti's
+    // doc comment for the exact node shape/naming/parenting. Attachment/
+    // Light do each carry a small amount of animated-track data with no
+    // core-glTF slot of their own (animateAttached/the Light curves below),
+    // attached as extras on that same node rather than the skin's.
     // TODO: Remove: former M2_GAPS_TODO.md Item 6; M2_COMPLETENESS.md used
     // to call this "node-possible, unclaimed".
     // `joint` must be a valid index into `joints` -- M2's own `bone == -1`
@@ -146,6 +150,12 @@ struct Skeleton {
         uint32_t id = 0;  // M2Attachment::id -- meaning depends on model type, wowdev.wiki's table
         int joint = -1;   // index into Skeleton::joints
         Vec3 position;    // relative to `joint`, already Y-up (same convention as EmitterAnchor::position)
+        // M2Attachment::animate_attached ("whether the attached model is
+        // animated with this one, default true") -- an M2Track<uint8_t>,
+        // same raw-0/1-flag shape and "no core-glTF slot, inert node
+        // extras" treatment as Light::visibility below. Extras key
+        // "animate_attached", empty when there's no real keyframe data.
+        std::vector<Material::AnimatedScalarCurve> animateAttached;
     };
     std::vector<Attachment> attachments;
 
@@ -159,12 +169,24 @@ struct Skeleton {
     struct Light {
         int joint = -1;
         Vec3 position;
-        // M2Light::type (0 = directional, 1 = point) and every animated
-        // field (color/intensity/attenuation/visibility) are out of scope
-        // for this struct -- a placement node has no slot for either, and
-        // resolving the animated tracks is a separate, larger problem (same
-        // sibling scope as the animated material tint/fade curves,
-        // alphaFadeAnimation/weightFadeAnimation above).
+        uint16_t type = 0;  // M2Light::type, 0 = directional, 1 = point
+        // Every animated field (ambient/diffuse color+intensity,
+        // attenuation start/end, visibility) resolved the same way the
+        // animated material tint/fade curves are (Material::
+        // AnimatedColorCurve/AnimatedScalarCurve, reused here rather than
+        // duplicated -- same shape, same "seconds -> value, one entry per
+        // M2Sequence with real inline data plus a global-sequence entry"
+        // convention). No core-glTF slot for any of these exists (same
+        // reasoning as tint/fade) -- attached as inert `light_animation`
+        // node extras for a custom renderer/Blender script, empty when a
+        // given track has no real keyframe data.
+        std::vector<Material::AnimatedColorCurve> ambientColor;
+        std::vector<Material::AnimatedScalarCurve> ambientIntensity;
+        std::vector<Material::AnimatedColorCurve> diffuseColor;
+        std::vector<Material::AnimatedScalarCurve> diffuseIntensity;
+        std::vector<Material::AnimatedScalarCurve> attenuationStart;
+        std::vector<Material::AnimatedScalarCurve> attenuationEnd;
+        std::vector<Material::AnimatedScalarCurve> visibility;  // 0.0/1.0, not a fixed16 scale
     };
     std::vector<Light> lights;
 

@@ -237,6 +237,15 @@ constexpr const char* kPcolVerificationM2 = "verification/pcol_pa_kite_lamp_crea
 // TODO: Remove: cites TRANSFORM_TRIAGE.md §5e.
 constexpr const char* kQuadrupedM2 = "creature/wolf/wolf.m2";
 constexpr const char* kQuadrupedSkin = "creature/wolf/wolf00.skin";
+// A real login-screen "glue" model with real M2Light records carrying
+// genuine animated ambient/diffuse color+intensity data (unlike every
+// creature/item fixture above, which all have lights.count == 0) --
+// found via a real corpus scan of interface/glues/models/ui_mainmenu_*.
+// 2 lights, type 0 (directional), real per-sequence keyframes.
+// TODO: Remove: this session's own light-animation-curve work.
+constexpr const char* kLightM2 = "interface/glues/models/ui_mainmenu_pandaria/ui_mainmenu_pandaria.m2";
+constexpr const char* kLightSkin =
+    "interface/glues/models/ui_mainmenu_pandaria/ui_mainmenu_pandaria00.skin";
 // Texture-transform fixtures -- see DESIGN.md's Key design decisions
 // ("A batch's M2TextureTransform...") and
 // tools/find_texture_transform_files.py's real-corpus scan.
@@ -328,5 +337,7 @@ inline std::string testTextureTransformScaleM2() {
 inline std::string testTextureTransformScaleSkin() {
     return resolve("HUSK_TEST_TEXTURE_TRANSFORM_SCALE_SKIN", fixtures::kTextureTransformScaleSkin);
 }
+inline std::string testLightM2() { return resolve("HUSK_TEST_LIGHT_M2", fixtures::kLightM2); }
+inline std::string testLightSkin() { return resolve("HUSK_TEST_LIGHT_SKIN", fixtures::kLightSkin); }
 
 }  // namespace husk::test

@@ -14,15 +14,19 @@
 namespace husk::m2 {
 
 // M2Attachment, per wowdev.wiki M2#Attachments -- 40 (0x28) bytes on disk.
-// Only the static fields are surfaced; `animate_attached` (an
-// M2Track<uchar>, whether the attached model animates with this one) is
-// skipped, same "M2Track fields are stage-6-or-later" policy as
-// Bone/Color/TextureWeight elsewhere -- it's a bool-ish on/off switch, not
-// something husk's glTF export has a slot for yet.
+// The static fields plus `animate_attached`'s raw M2Track<uchar> byte
+// offset -- same "offset now, real curve resolution happens downstream"
+// policy as Light's tracks above.
 struct Attachment {
     uint32_t id = 0;      // meaning depends on model type; see wowdev.wiki's attachment-point table
     int16_t bone = -1;    // attachment base
     Vec3 position;         // relative to `bone`
+
+    // Raw M2Track<uint8_t> byte offset for `animate_attached` ("whether or
+    // not the attached model is animated when this model is, default
+    // true") -- always set, resolved via m2::resolveRawIntTrackSequence by
+    // the caller (see gltf::Skeleton::Attachment::animateAttached).
+    uint32_t animateAttachedTrackOffset = 0;
 };
 
 // M2Event, per wowdev.wiki M2#Events -- 36 (0x24) bytes on disk.
@@ -41,14 +45,27 @@ struct Event {
     Vec3 position;
 };
 
-// M2Light, per wowdev.wiki M2#Lights -- 156 (0x9C) bytes on disk. Only the
-// 3 static fields (of 8 total) are surfaced; the other 5 -- ambient/
-// diffuse color and intensity, attenuation start/end, visibility -- are
-// all M2Track-animated, same skip-for-now policy as Attachment/Event above.
+// M2Light, per wowdev.wiki M2#Lights -- 156 (0x9C) bytes on disk. The 3
+// static fields plus raw M2Track byte offsets for the other 5 (ambient/
+// diffuse color and intensity, attenuation start/end, visibility) -- same
+// "offset now, real curve resolution happens downstream" policy as
+// Color::colorTrackOffset/alphaTrackOffset (m2_animation.hpp).
 struct Light {
     uint16_t type = 0;    // 0 = directional, 1 = point (wowdev.wiki M2#Lights)
     int16_t bone = -1;    // -1 if not attached to a bone
     Vec3 position;         // relative to `bone`, if given
+
+    // Raw M2Track<C3Vector>/M2Track<float>/M2Track<uint8_t> byte offsets --
+    // always set, resolved via m2::resolveVec3TrackSequence/
+    // resolveFloatTrackSequence/resolveRawIntTrackSequence by the caller
+    // (see gltf::Skeleton::Light's animation curve fields).
+    uint32_t ambientColorTrackOffset = 0;
+    uint32_t ambientIntensityTrackOffset = 0;
+    uint32_t diffuseColorTrackOffset = 0;
+    uint32_t diffuseIntensityTrackOffset = 0;
+    uint32_t attenuationStartTrackOffset = 0;
+    uint32_t attenuationEndTrackOffset = 0;
+    uint32_t visibilityTrackOffset = 0;
 };
 
 // M2Ribbon, per wowdev.wiki M2#Ribbon_emitters -- 176 (0xB0) bytes for the

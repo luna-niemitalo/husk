@@ -54,6 +54,8 @@ int main(int argc, char** argv) {
                  husk::test::testTextureTransformRotationSkin());
     printFixture("HUSK_TEST_TEXTURE_TRANSFORM_SCALE_M2", husk::test::testTextureTransformScaleM2());
     printFixture("HUSK_TEST_TEXTURE_TRANSFORM_SCALE_SKIN", husk::test::testTextureTransformScaleSkin());
+    printFixture("HUSK_TEST_LIGHT_M2", husk::test::testLightM2());
+    printFixture("HUSK_TEST_LIGHT_SKIN", husk::test::testLightSkin());
 #ifdef HUSK_GLTF_VALIDATOR
     std::cerr << "husk-tests:   HUSK_GLTF_VALIDATOR: " << HUSK_GLTF_VALIDATOR << "\n";
 #else

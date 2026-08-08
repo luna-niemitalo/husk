@@ -300,15 +300,81 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
         out.anchorNodes.push_back(node);
         out.jointNodes[static_cast<size_t>(joint)].children.push_back(nodeIdx);
     };
+    // Shared by every AnimatedColorCurve/AnimatedScalarCurve list below --
+    // same JSON shape gltf_mesh.cpp's own tint/fade extras use (mirrored,
+    // not reused, since that code lives in a different translation unit
+    // building a *material's* extras object, not a node's).
+    auto colorCurvesToValue = [](const std::vector<Material::AnimatedColorCurve>& curves) {
+        tinygltf::Value::Array out;
+        for (const auto& c : curves) {
+            tinygltf::Value::Object co;
+            if (c.sequenceIndex >= 0) co["sequence_index"] = tinygltf::Value(c.sequenceIndex);
+            tinygltf::Value::Array kfs;
+            for (const auto& [t, v] : c.keyframes) {
+                tinygltf::Value::Object kf;
+                kf["time"] = tinygltf::Value(static_cast<double>(t));
+                kf["value"] = tinygltf::Value(tinygltf::Value::Array{
+                    tinygltf::Value(static_cast<double>(v.x)), tinygltf::Value(static_cast<double>(v.y)),
+                    tinygltf::Value(static_cast<double>(v.z))});
+                kfs.push_back(tinygltf::Value(kf));
+            }
+            co["keyframes"] = tinygltf::Value(kfs);
+            out.push_back(tinygltf::Value(co));
+        }
+        return out;
+    };
+    auto scalarCurvesToValue = [](const std::vector<Material::AnimatedScalarCurve>& curves) {
+        tinygltf::Value::Array out;
+        for (const auto& c : curves) {
+            tinygltf::Value::Object co;
+            if (c.sequenceIndex >= 0) co["sequence_index"] = tinygltf::Value(c.sequenceIndex);
+            tinygltf::Value::Array kfs;
+            for (const auto& [t, v] : c.keyframes) {
+                tinygltf::Value::Object kf;
+                kf["time"] = tinygltf::Value(static_cast<double>(t));
+                kf["value"] = tinygltf::Value(static_cast<double>(v));
+                kfs.push_back(tinygltf::Value(kf));
+            }
+            co["keyframes"] = tinygltf::Value(kfs);
+            out.push_back(tinygltf::Value(co));
+        }
+        return out;
+    };
     for (const auto& a : skeleton->attachments) {
         appendAnchorNode("attachment_" + std::to_string(a.id), a.joint, a.position);
+        if (!a.animateAttached.empty()) {
+            tinygltf::Value::Object attachmentExtras;
+            attachmentExtras["animate_attached"] = tinygltf::Value(scalarCurvesToValue(a.animateAttached));
+            out.anchorNodes.back().extras = tinygltf::Value(attachmentExtras);
+        }
     }
     for (const auto& e : skeleton->events) {
         appendAnchorNode("event_" + e.identifier, e.joint, e.position);
     }
     for (size_t i = 0; i < skeleton->lights.size(); ++i) {
-        appendAnchorNode("light_" + std::to_string(i), skeleton->lights[i].joint,
-                          skeleton->lights[i].position);
+        const auto& l = skeleton->lights[i];
+        appendAnchorNode("light_" + std::to_string(i), l.joint, l.position);
+
+        // M2Light::type plus every animated curve, same "inert extras, no
+        // core-glTF light-property animation-channel target exists" policy
+        // as the material tint/fade curves -- see Skeleton::Light's doc
+        // comment. Only written when there's real data to show.
+        tinygltf::Value::Object lightExtras;
+        lightExtras["type"] = tinygltf::Value(static_cast<int>(l.type));
+        tinygltf::Value::Object anim;
+        if (!l.ambientColor.empty()) anim["ambient_color"] = tinygltf::Value(colorCurvesToValue(l.ambientColor));
+        if (!l.ambientIntensity.empty())
+            anim["ambient_intensity"] = tinygltf::Value(scalarCurvesToValue(l.ambientIntensity));
+        if (!l.diffuseColor.empty()) anim["diffuse_color"] = tinygltf::Value(colorCurvesToValue(l.diffuseColor));
+        if (!l.diffuseIntensity.empty())
+            anim["diffuse_intensity"] = tinygltf::Value(scalarCurvesToValue(l.diffuseIntensity));
+        if (!l.attenuationStart.empty())
+            anim["attenuation_start"] = tinygltf::Value(scalarCurvesToValue(l.attenuationStart));
+        if (!l.attenuationEnd.empty())
+            anim["attenuation_end"] = tinygltf::Value(scalarCurvesToValue(l.attenuationEnd));
+        if (!l.visibility.empty()) anim["visibility"] = tinygltf::Value(scalarCurvesToValue(l.visibility));
+        if (!anim.empty()) lightExtras["light_animation"] = tinygltf::Value(anim);
+        out.anchorNodes.back().extras = tinygltf::Value(lightExtras);
     }
 
     return out;

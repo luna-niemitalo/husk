@@ -147,12 +147,24 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Independent, unsupervised task, uncommitted, awaiting Luna's review**:
-  `TODO_correctness.md`'s former item 2 (five unconsumed M2 lookup-table
-  arrays) is now implemented and tested — `husk info` dereferences
-  `sequenceLookup`/`boneLookup`/`textureLookup`/`attachmentLookup`/
-  `cameraLookup`, verified against real `wolf.m2`/`bloodelffemale_hd.m2`
-  data. Full suite green, 541/541. See `CLAUDE_HISTORY.md`'s top entry for
+- **Independent, unsupervised tasks, same session, all three committed as
+  `[UNVERIFIED/STAGING]` per Luna's own instruction, awaiting her review**:
+  (1) `TODO_correctness.md`'s former item 2 (five unconsumed M2
+  lookup-table arrays) — `husk info` dereferences `sequenceLookup`/
+  `boneLookup`/`textureLookup`/`attachmentLookup`/`cameraLookup`, verified
+  against real `wolf.m2`/`bloodelffemale_hd.m2` data. (2) `M2Light`'s 7
+  animated `M2Track` fields (ambient/diffuse color+intensity, attenuation
+  start/end, visibility) — resolved into `type`/`light_animation` node
+  extras, reusing `gltf::Material::AnimatedColorCurve`/`AnimatedScalarCurve`;
+  verified against a new real fixture, `ui_mainmenu_pandaria.m2`
+  (`test_data/interface/glues/models/`, gitignored per convention), the
+  only real fixture in this repo confirmed to actually have `M2Light` data.
+  (3) `M2Attachment::animate_attached` (same M2Track<uint8_t> shape as
+  Light's `visibility`, noticed while doing (2)) — resolved via the same
+  (renamed, generalized) helper; real fixtures (`wolf.m2`/two weapon
+  models, 23 attachments) all resolve to empty curves, a checked real
+  negative result, not a bug — covered by synthetic tests instead. Full
+  suite green, 546/546. See `CLAUDE_HISTORY.md`'s top three entries for
   the full detail; unrelated to every thread below, none of which this
   session touched.
 - **Current state**: `GEOSET_MASK_TODO.md` implemented (new this session)

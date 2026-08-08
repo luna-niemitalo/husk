@@ -311,6 +311,100 @@ void attachEmitterAnchors(const std::vector<uint8_t>& blob, const m2::Header& he
     }
 }
 
+// Resolves an M2Light color track (ambient_color/diffuse_color, both
+// M2Track<C3Vector>) the same way export_materials.cpp's own (file-local,
+// not reusable from here) resolveAnimatedColorCurve resolves M2Color::color
+// -- one gltf::Material::AnimatedColorCurve per M2Sequence with real inline
+// data, plus a synthetic global-sequence entry. `color`'s x/y/z are already
+// 0..1 RGB, not a spatial vector, so no toGltf()/Z-up remap.
+std::vector<gltf::Material::AnimatedColorCurve> resolveLightColorCurve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
+    std::vector<gltf::Material::AnimatedColorCurve> curves;
+    for (size_t si = 0; si < sequenceCount; ++si) {
+        auto raw = m2::resolveVec3TrackSequence(blob, trackOffset, static_cast<uint32_t>(si));
+        if (raw.empty()) continue;
+        gltf::Material::AnimatedColorCurve curve;
+        curve.sequenceIndex = static_cast<int>(si);
+        curve.keyframes.reserve(raw.size());
+        for (const auto& [ts, v] : raw) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, gltf::Vec3{v.x, v.y, v.z});
+        }
+        curves.push_back(std::move(curve));
+    }
+    auto global = m2::resolveVec3GlobalSequenceTrack(blob, trackOffset);
+    if (!global.empty()) {
+        gltf::Material::AnimatedColorCurve curve;
+        curve.keyframes.reserve(global.size());
+        for (const auto& [ts, v] : global) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, gltf::Vec3{v.x, v.y, v.z});
+        }
+        curves.push_back(std::move(curve));
+    }
+    return curves;
+}
+
+// Resolves an M2Light M2Track<float> field (ambient_intensity/
+// diffuse_intensity/attenuation_start/attenuation_end) -- unlike
+// export_materials.cpp's fixed16-based fade curves, these are already plain
+// floats on the wire (resolveFloatTrackSequence, not resolveRawIntTrackSequence
+// + a fixed16 decode), so no scaling is needed.
+std::vector<gltf::Material::AnimatedScalarCurve> resolveLightFloatCurve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
+    std::vector<gltf::Material::AnimatedScalarCurve> curves;
+    for (size_t si = 0; si < sequenceCount; ++si) {
+        auto raw = m2::resolveFloatTrackSequence(blob, trackOffset, static_cast<uint32_t>(si));
+        if (raw.empty()) continue;
+        gltf::Material::AnimatedScalarCurve curve;
+        curve.sequenceIndex = static_cast<int>(si);
+        curve.keyframes.reserve(raw.size());
+        for (const auto& [ts, v] : raw) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, v);
+        }
+        curves.push_back(std::move(curve));
+    }
+    auto global = m2::resolveFloatGlobalSequenceTrack(blob, trackOffset);
+    if (!global.empty()) {
+        gltf::Material::AnimatedScalarCurve curve;
+        curve.keyframes.reserve(global.size());
+        for (const auto& [ts, v] : global) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, v);
+        }
+        curves.push_back(std::move(curve));
+    }
+    return curves;
+}
+
+// Resolves an M2Track<uint8_t> boolean-ish flag track -- M2Light::visibility
+// ("enabled?") and M2Attachment::animate_attached both have this exact
+// shape, a raw 0/1 flag, not a fixed16-scaled value, so each keyframe's
+// zero-extended raw byte is cast straight to float rather than run through
+// export_materials.cpp's decodeFixed16.
+std::vector<gltf::Material::AnimatedScalarCurve> resolveRawByteTrackCurve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
+    std::vector<gltf::Material::AnimatedScalarCurve> curves;
+    for (size_t si = 0; si < sequenceCount; ++si) {
+        auto raw = m2::resolveRawIntTrackSequence(blob, trackOffset, static_cast<uint32_t>(si), 1);
+        if (raw.empty()) continue;
+        gltf::Material::AnimatedScalarCurve curve;
+        curve.sequenceIndex = static_cast<int>(si);
+        curve.keyframes.reserve(raw.size());
+        for (const auto& [ts, bits] : raw) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, static_cast<float>(bits));
+        }
+        curves.push_back(std::move(curve));
+    }
+    auto global = m2::resolveRawIntGlobalSequenceTrack(blob, trackOffset, 1);
+    if (!global.empty()) {
+        gltf::Material::AnimatedScalarCurve curve;
+        curve.keyframes.reserve(global.size());
+        for (const auto& [ts, bits] : global) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, static_cast<float>(bits));
+        }
+        curves.push_back(std::move(curve));
+    }
+    return curves;
+}
+
 // Attachment/Event/Light placement nodes (gltf::Skeleton::
 // Attachment/Event/Light's doc comments): unconditional, no CLI flag, same
 // "always attached" treatment as ribbon/particle anchors -- but unlike
@@ -318,16 +412,25 @@ void attachEmitterAnchors(const std::vector<uint8_t>& blob, const m2::Header& he
 // bone-relative position marker is all M2Attachment/M2Event/M2Light static
 // data ever is. `bone == -1` ("not attached to any bone," real for M2Light
 // and possibly M2Attachment) is treated as out of range and throws -- husk
-// has no established "unparented placement node" concept yet.
+// has no established "unparented placement node" concept yet. `sequenceCount`
+// drives Light's animated-track resolution (ambient/diffuse color+intensity,
+// attenuation, visibility) the same way M2MaterialInputs::sequenceCount
+// drives the material tint/fade curves.
 void attachPlacementNodes(const std::vector<uint8_t>& blob, const m2::Header& header,
-                           gltf::Skeleton& skeleton) {
+                           size_t sequenceCount, gltf::Skeleton& skeleton) {
     for (const auto& a : m2::parseAttachments(blob, header.attachments)) {
         if (a.bone < 0 || static_cast<size_t>(a.bone) >= skeleton.joints.size()) {
             throw std::runtime_error("attachment " + std::to_string(a.id) + " references bone " +
                                       std::to_string(a.bone) + ", out of range for " +
                                       std::to_string(skeleton.joints.size()) + " bones");
         }
-        skeleton.attachments.push_back({a.id, static_cast<int>(a.bone), toGltf(a.position)});
+        gltf::Skeleton::Attachment attachment;
+        attachment.id = a.id;
+        attachment.joint = static_cast<int>(a.bone);
+        attachment.position = toGltf(a.position);
+        attachment.animateAttached =
+            resolveRawByteTrackCurve(blob, a.animateAttachedTrackOffset, sequenceCount);
+        skeleton.attachments.push_back(std::move(attachment));
     }
     for (const auto& e : m2::parseEvents(blob, header.events)) {
         if (e.bone >= skeleton.joints.size()) {
@@ -343,7 +446,18 @@ void attachPlacementNodes(const std::vector<uint8_t>& blob, const m2::Header& he
                                       ", out of range for " + std::to_string(skeleton.joints.size()) +
                                       " bones");
         }
-        skeleton.lights.push_back({static_cast<int>(l.bone), toGltf(l.position)});
+        gltf::Skeleton::Light light;
+        light.joint = static_cast<int>(l.bone);
+        light.position = toGltf(l.position);
+        light.type = l.type;
+        light.ambientColor = resolveLightColorCurve(blob, l.ambientColorTrackOffset, sequenceCount);
+        light.ambientIntensity = resolveLightFloatCurve(blob, l.ambientIntensityTrackOffset, sequenceCount);
+        light.diffuseColor = resolveLightColorCurve(blob, l.diffuseColorTrackOffset, sequenceCount);
+        light.diffuseIntensity = resolveLightFloatCurve(blob, l.diffuseIntensityTrackOffset, sequenceCount);
+        light.attenuationStart = resolveLightFloatCurve(blob, l.attenuationStartTrackOffset, sequenceCount);
+        light.attenuationEnd = resolveLightFloatCurve(blob, l.attenuationEndTrackOffset, sequenceCount);
+        light.visibility = resolveRawByteTrackCurve(blob, l.visibilityTrackOffset, sequenceCount);
+        skeleton.lights.push_back(std::move(light));
     }
     if (!skeleton.attachments.empty() || !skeleton.events.empty() || !skeleton.lights.empty()) {
         std::cerr << "husk: note: attached " << skeleton.attachments.size() << " attachment, "
@@ -934,7 +1048,7 @@ int exportGlb(int argc, char** args) {
                                                     skelBytes, bones, skeleton, animDir, modelPath);
             attachBoneCorrections(bonesDir, bonesAreInline, haveSkel, header, skelBytes, skeleton);
             attachEmitterAnchors(blob, header, skeleton);
-            attachPlacementNodes(blob, header, skeleton);
+            attachPlacementNodes(blob, header, header.sequences.count, skeleton);
             attachPhysicsBodies(physNone, physGiven, physPath, modelPath, skeleton);
             // Needs skeleton.attachments/events already populated (just
             // above), so it can't run inside buildSkeleton itself.

@@ -360,6 +360,134 @@ TEST_CASE("writeGlb: a skeleton's attachments/events/lights become real child no
     }
 }
 
+// M2Attachment::animate_attached round-trips as an "animate_attached"
+// extras key on the attachment's own node -- same shape/rationale as
+// Light's tracks below (no core-glTF slot for this boolean-flag track).
+TEST_CASE("writeGlb: an attachment's animateAttached round-trips as 'animate_attached' extras on "
+          "its own node") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    husk::gltf::Skeleton::Attachment attachment;
+    attachment.id = 5;
+    attachment.joint = 1;
+    attachment.position = {0.1f, 0.2f, 0.3f};
+    husk::gltf::Material::AnimatedScalarCurve curve;
+    curve.sequenceIndex = 0;
+    curve.keyframes = {{0.0f, 1.0f}, {1.0f, 0.0f}};
+    attachment.animateAttached = {curve};
+    skel.attachments = {attachment};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    const tinygltf::Node* node = nullptr;
+    for (const auto& n : model.nodes) {
+        if (n.name == "attachment_5") node = &n;
+    }
+    REQUIRE(node != nullptr);
+    REQUIRE(node->extras.IsObject());
+    const auto& curves = node->extras.Get("animate_attached");
+    REQUIRE(curves.IsArray());
+    REQUIRE(curves.ArrayLen() == 1);
+    REQUIRE(curves.Get(0).Get("keyframes").ArrayLen() == 2);
+    CHECK(curves.Get(0).Get("keyframes").Get(1).Get("value").GetNumberAsDouble() == doctest::Approx(0.0));
+}
+
+TEST_CASE("writeGlb: an attachment with no animateAttached data gets no 'animate_attached' extras") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.attachments = {{5, 1, {0.1f, 0.2f, 0.3f}}};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    for (const auto& n : model.nodes) {
+        if (n.name == "attachment_5") {
+            CHECK_FALSE(n.extras.IsObject());
+        }
+    }
+}
+
+// M2Light::type plus its 7 animated tracks (ambient/diffuse color+intensity,
+// attenuation start/end, visibility) round-trip as a "type"/"light_animation"
+// extras pair on the light's own node -- same shape/rationale as Material's
+// tint_animation/fade_animation (no core-glTF animation-channel target for a
+// light property exists), see gltf_skeleton.hpp's Skeleton::Light doc comment.
+TEST_CASE("writeGlb: a light's type/animated tracks round-trip as extras on its own node") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    husk::gltf::Skeleton::Light light;
+    light.joint = 2;
+    light.position = {4, 5, 6};
+    light.type = 1;  // point light
+    husk::gltf::Material::AnimatedColorCurve ambient;
+    ambient.sequenceIndex = 0;
+    ambient.keyframes = {{0.0f, {0.9f, 0.7f, 0.6f}}};
+    light.ambientColor = {ambient};
+    husk::gltf::Material::AnimatedScalarCurve visibility;
+    visibility.sequenceIndex = 0;
+    visibility.keyframes = {{0.0f, 1.0f}, {2.5f, 0.0f}};
+    light.visibility = {visibility};
+    skel.lights = {light};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    const tinygltf::Node* lightNode = nullptr;
+    for (const auto& n : model.nodes) {
+        if (n.name == "light_0") lightNode = &n;
+    }
+    REQUIRE(lightNode != nullptr);
+    const auto& extras = lightNode->extras;
+    REQUIRE(extras.IsObject());
+    CHECK(extras.Get("type").GetNumberAsInt() == 1);
+
+    const auto& anim = extras.Get("light_animation");
+    REQUIRE(anim.IsObject());
+    const auto& ambientOut = anim.Get("ambient_color");
+    REQUIRE(ambientOut.IsArray());
+    REQUIRE(ambientOut.ArrayLen() == 1);
+    CHECK(ambientOut.Get(0).Get("sequence_index").GetNumberAsInt() == 0);
+    CHECK(ambientOut.Get(0).Get("keyframes").Get(0).Get("value").Get(0).GetNumberAsDouble() ==
+          doctest::Approx(0.9));
+
+    const auto& visOut = anim.Get("visibility");
+    REQUIRE(visOut.IsArray());
+    REQUIRE(visOut.ArrayLen() == 1);
+    REQUIRE(visOut.Get(0).Get("keyframes").ArrayLen() == 2);
+    CHECK(visOut.Get(0).Get("keyframes").Get(1).Get("time").GetNumberAsDouble() == doctest::Approx(2.5));
+    CHECK(visOut.Get(0).Get("keyframes").Get(1).Get("value").GetNumberAsDouble() == doctest::Approx(0.0));
+
+    // No data for these tracks -- key must be absent, not an empty array.
+    CHECK_FALSE(anim.Get("diffuse_color").IsArray());
+    CHECK_FALSE(anim.Get("attenuation_start").IsArray());
+}
+
+TEST_CASE("writeGlb: a light with no animated tracks gets no 'light_animation' extras key, just "
+          "'type'") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    husk::gltf::Skeleton::Light light;
+    light.joint = 0;
+    light.position = {0, 0, 0};
+    light.type = 0;
+    skel.lights = {light};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    const tinygltf::Node* lightNode = nullptr;
+    for (const auto& n : model.nodes) {
+        if (n.name == "light_0") lightNode = &n;
+    }
+    REQUIRE(lightNode != nullptr);
+    REQUIRE(lightNode->extras.IsObject());
+    CHECK(lightNode->extras.Get("type").GetNumberAsInt() == 0);
+    CHECK_FALSE(lightNode->extras.Get("light_animation").IsObject());
+}
+
 TEST_CASE("writeGlb: a skeleton with no attachments/events/lights adds no anchor nodes") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();

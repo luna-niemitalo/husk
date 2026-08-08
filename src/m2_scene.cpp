@@ -31,6 +31,7 @@ std::vector<Attachment> parseAttachments(const std::vector<uint8_t>& blob, const
         uint16_t boneBits = readU16(data, blobSize, off + 0x04);
         std::memcpy(&a.bone, &boneBits, sizeof(a.bone));
         a.position = readVec3(data, blobSize, off + 0x08);
+        a.animateAttachedTrackOffset = static_cast<uint32_t>(off + 0x14);
         attachments.push_back(a);
     }
 
@@ -99,6 +100,18 @@ std::vector<Light> parseLights(const std::vector<uint8_t>& blob, const Array& ar
         uint16_t boneBits = readU16(data, blobSize, off + 0x02);
         std::memcpy(&l.bone, &boneBits, sizeof(l.bone));
         l.position = readVec3(data, blobSize, off + 0x04);
+        // wowdev.wiki M2#Lights field offsets: ambient_color (0x10),
+        // ambient_intensity (0x24), diffuse_color (0x38), diffuse_intensity
+        // (0x4C), attenuation_start (0x60), attenuation_end (0x74),
+        // visibility (0x88) -- offsets of the M2Track structs themselves,
+        // not their resolved values.
+        l.ambientColorTrackOffset = static_cast<uint32_t>(off + 0x10);
+        l.ambientIntensityTrackOffset = static_cast<uint32_t>(off + 0x24);
+        l.diffuseColorTrackOffset = static_cast<uint32_t>(off + 0x38);
+        l.diffuseIntensityTrackOffset = static_cast<uint32_t>(off + 0x4C);
+        l.attenuationStartTrackOffset = static_cast<uint32_t>(off + 0x60);
+        l.attenuationEndTrackOffset = static_cast<uint32_t>(off + 0x74);
+        l.visibilityTrackOffset = static_cast<uint32_t>(off + 0x88);
         lights.push_back(l);
     }
 
