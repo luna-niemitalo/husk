@@ -161,7 +161,8 @@ real names now, but **no relational schema across files yet** (the
 mapping/join tables for real cross-table foreign-key relationships, e.g.
 the `ChrCustomizationOption` -> `_Choice` -> `_Material` chain, the top
 note explicitly calls for and flags as valuable beyond this TODO once
-world-data work starts) -- still genuinely open. Stage 2 itself is also
+world-data work starts) -- still genuinely open, now tracked as its own
+staged plan in `DB2_SQLITE_SCHEMA_TODO.md`. Stage 2 itself is also
 still unstarted: it needs real per-table **C++ structs** wired into
 `db2::decodeField`'s actual callers inside husk's own process (`db2::File`/
 `decodeField` deliberately stay name-agnostic, per db2.hpp's own module

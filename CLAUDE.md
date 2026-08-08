@@ -185,11 +185,19 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   (`tests/test_dbd.cpp` unit tests including one real-data case against
   `reference/WoWDBDefs`, `tests/test_cli_db2.cpp`'s two synthetic
   CLI-boundary tests reading the real SQLite output back via the sqlite3 C
-  API). **Next step, explicitly open**: the SQLite exporter's own stated
-  ambition — a real relational schema with mapping/join tables preserving
-  cross-file foreign-key relationships (e.g. `ChrCustomizationOption` ->
-  `_Choice` -> `_Material`), not just one flat table per `.db2` file — isn't
-  built yet; today's exporter is genuinely one-file-in, one-table-out.
+  API). **Next step**: `TODO/DB2_SQLITE_SCHEMA_TODO.md` (new) — the SQLite
+  exporter's own stated ambition, a real relational schema with mapping/
+  join tables preserving cross-file foreign-key relationships (e.g.
+  `ChrCustomizationOption` -> `_Choice` -> `_Material`), not just one flat
+  table per `.db2` file. Staged four ways: capture the `<Table::Col>`
+  foreign-key target `dbd::parseColumnType` currently parses and discards;
+  decode non-inline `relationshipData` (currently only skipped, byte-offset
+  bookkeeping only, `db2::parse`); a multi-file export mode emitting real
+  `FOREIGN KEY` constraints; real join verification against whatever chain
+  is actually populated locally (the fuller `ChrCustomizationOption` chain
+  can't be fully verified yet -- several of its own tables are still
+  0-byte). Not started in `src/` yet; today's exporter is genuinely
+  one-file-in, one-table-out.
 - **Same session, earlier**: root-directory cleanup — every self-described
   "open punch list" `*_TODO.md` file moved from repo root into `TODO/`
   (17 files), with the 11 world-specific ones plus
