@@ -82,13 +82,20 @@ tool, `blp/`) converts BLP2 textures to PNG.
   player-housing collision, diagnostic-only via `husk dump-chunks`,
   verified against all 2,354 real `PCOL`-bearing files -- see Resume) is
   now fully implemented and the file itself deleted -- nothing currently
-  in flight. A real interactive Blender pass this session found the
-  M2→glTF position/rotation/scale conversion was measurably upside down
-  despite the whole conformance suite above passing -- root-caused,
-  fixed, and covered by a new asset-agnostic orientation-correctness test
-  tier (`TRANSFORM_TRIAGE.md`, see Resume); the one piece still open by
-  design is a real animated clip visually confirmed in Blender's own GUI,
-  deliberately left for Luna rather than automated.
+  in flight. A real interactive Blender pass found the M2→glTF position/
+  rotation/scale conversion was measurably upside down despite the whole
+  conformance suite above passing -- root-caused, fixed, and covered by a
+  new asset-agnostic orientation-correctness test tier. The one piece
+  deliberately left for Luna rather than automated -- a real animated
+  clip, visually confirmed in Blender's own GUI -- is now done too: "Animation
+  looks OK" (2026-08-08), closing out the investigation. `TRANSFORM_TRIAGE.md`
+  itself deleted per this project's own "survey's job is done" lifecycle;
+  the two dangling source-code citations of it (`src/gltf_math.hpp`/`.cpp`)
+  cleaned up in the same pass. One funny, non-actionable side note from
+  that verification: a dead vertex sits in the middle of the two-handed
+  swing animation, detached from the character, carrying FileDataID 31739
+  -- genuinely invisible in the real game too (an "invisible texture"),
+  not a husk export bug.
 - Anything not listed under Current does not exist yet. In particular: `M2Camera`
   is still count-only (not dereferenced). Three FAILURES2.md gaps
   (geoset selection #1, multi-texture-layer rendering #6, global-sequence animation

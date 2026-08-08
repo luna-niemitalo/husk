@@ -14,7 +14,75 @@ deletions handled their own back-references).
 
 ---
 
-- **Last state**: Same session, one more real correction on top of the
+- **Last state**: Same session, immediate second pass widening the SQLite
+  side-project note directly below: "it's not gonna be just flat tables
+  only, it's gonna have mappings tables and stuff... the actual sqlite
+  export is a side project to confirm correctness, and to have data
+  available for other relevant targets not just the engine... I think it
+  will become massively relevant when the world data implementation
+  starts." Two real corrections to the just-written note, both in
+  `CHAR_TEXTURE_COMPOSITING_TODO.md`/`TODO_correctness.md`: (1) the
+  planned SQLite schema is real relational structure -- mapping/join
+  tables for DB2 tables' actual foreign-key relationships (the same
+  `ChrCustomizationOption` → `_Choice` → `_Material` chain Stage 3 already
+  needs), not one flat table per `.db2` file with relationships discarded;
+  (2) its purpose is wider than this one TODO -- a correctness cross-check
+  for whatever WDC5 parser Stage 1 builds, *and* a general-purpose local
+  data source for other consumers of this project's WoW-format work
+  beyond `husk export` itself, called out as likely to matter a lot once
+  WMO/ADT world-data implementation starts (`WORLD_COMPLETENESS.md` and
+  its companion `*_TODO.md` files -- real placement/area/lighting data
+  leans on DB2 tables at least as much as character customization does).
+  Worth designing the schema with that wider audience in mind from the
+  start. No code changed -- documentation only, both notes updated in
+  place since neither had been committed yet.
+
+- **Last state (prior, same session)**: Same session, two small closing items plus one scope
+  correction, all prompted directly.
+  - **`TRANSFORM_TRIAGE.md` closed out.** Its one deliberately-deferred
+    item -- a real animated clip, visually confirmed by Luna in Blender's
+    actual GUI viewport -- is done: "Animation looks OK." Asked earlier
+    this session ("what's the status of transform_triage? if done,
+    delete") and now genuinely done, so deleted, matching this project's
+    own established "survey's job is done" lifecycle
+    (`BLENDER_EXPORT_TODO.md` is the precedent -- already deleted in an
+    earlier session, still cited by name in historical entries like this
+    one without issue). The two source-code citations that were
+    themselves already marked `// TODO: Remove: TRANSFORM_TRIAGE.md`
+    (`src/gltf_math.hpp`'s `zUpToYUp` doc, `src/gltf_math.cpp`'s
+    determinant `static_assert`) were cleaned up in the same pass, since
+    deleting the file they cited is exactly the trigger those markers
+    were waiting for -- substantive content (the formula, the invariant)
+    kept, only the dev-trace-doc citation removed. Every other citation
+    across `DESIGN.md`/`README.md`/`EYES_ON_FINDINGS.md`/
+    `INLINE_COMMENT_RULES_VIOLATIONS.md` left untouched -- historical
+    narrative citing a since-deleted file by name is this project's own
+    established, accepted pattern, not a dangling reference to fix.
+    `INLINE_COMMENT_RULES_VIOLATIONS.md` in particular already has its own
+    much larger, separately-scoped cleanup pass planned for every
+    `TRANSFORM_TRIAGE.md`/dev-trace-doc citation in `src/`/`tests/` --
+    not executed here, out of scope for what was actually asked.
+    One real, funny, genuinely non-actionable side note from the
+    verification itself, worth preserving for the record: a dead vertex
+    sits in the middle of the two-handed swing animation, detached from
+    the character, FileDataID 31739 -- confirmed genuinely invisible in
+    the real game too (an "invisible texture"), not a husk export bug.
+  - **SQLite scope correction, `CHAR_TEXTURE_COMPOSITING_TODO.md`/
+    `TODO_correctness.md`'s own new notes tightened**: the DB2→SQLite idea
+    from an earlier conversation was written up as if it might be part of
+    the real pipeline; corrected directly -- "that is mainly for debugging
+    and investigation, the real pipeline is the same as with modern
+    blp's -- read the file, transform in memory, write to gltf." Fixed in
+    both docs: SQLite is a `husk dump-chunks`/`husk-blp`-shaped side tool
+    for a human to inspect DB2 contents by hand, not something Stage 1's
+    real WDC5 parser round-trips through at runtime -- that parser reads
+    `.db2` bytes directly into memory and feeds the rest of the pipeline
+    straight from that, same architecture as every other sidecar format
+    this project already has. The nested-array open question from that
+    earlier conversation stays relevant to the *investigation* tool
+    specifically, not the real pipeline.
+
+- **Last state (prior, same session)**: Same session, one more real correction on top of the
   terminology fix directly below: called Luna's local `casc-tool` export
   "trustworthy" in chat and once in this file (now fixed). Her own
   pushback: "I would not classify it as trustworthy, considering the

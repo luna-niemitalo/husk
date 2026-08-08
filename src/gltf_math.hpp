@@ -28,12 +28,6 @@ struct Quat {
 // Applies equally to positions and normals (both are plain directions/
 // points in the same space); texture coordinates are untouched by this, not
 // spatial.
-// TODO: Remove: TRANSFORM_TRIAGE.md -- an earlier, hand-derived version of
-// this conversion (matching wowdev.wiki M2#Vertices' literal "(X, Y, Z)
-// become (X, -Z, Y)" text) composed with Blender's own glTF-import axis
-// conversion to a net 180-degree flip, not the identity a correct round
-// trip requires; confirmed both by a real headless-Blender import and by
-// an independently-written second implementation (reference/wow.export).
 Vec3 zUpToYUp(const Vec3& v);
 
 // A bone-rotation quaternion's vector part gets the same kWowToGltf

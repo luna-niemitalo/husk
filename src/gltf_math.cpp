@@ -36,8 +36,6 @@ constexpr float mat3Determinant(const Mat3& a) {
 // rotation (e.g. the exact inverse of the correct conversion) -- this
 // catches a different, simpler mistake (an accidental handedness flip),
 // not that one.
-// TODO: Remove: TRANSFORM_TRIAGE.md §5d (the specific historical bug this
-// determinant check does and doesn't catch).
 static_assert(mat3Determinant(kWowToGltf) > 0.0f,
               "WoW->glTF axis conversion must be a proper rotation (determinant +1)");
 

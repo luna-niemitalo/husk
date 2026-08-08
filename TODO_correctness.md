@@ -3,6 +3,25 @@
 **Status: an open punch list, not a historical record.** Fixed items get
 removed outright rather than kept as `[Fixed]` noise — git history is where
 the record of what was fixed and when lives, not a checked-in file.
+
+**Note from an earlier conversation, relevant to item 3 below (`.bone`
+slot selection) now that real local DB2 access is confirmed in scope
+(`CHAR_TEXTURE_COMPOSITING_TODO.md`'s own Background) — scope clarified
+directly by Luna (2026-08-08, two passes)**: a DB2→SQLite exporter is a
+separate side project, not part of the real pipeline — "the real pipeline
+is the same as with modern blp's — read the file, transform in memory,
+write to gltf." Whatever resolves this item's `.bone`-slot-selection
+lookup (a `ChrCustomizationBoneSet`-shaped table, if it exists locally)
+reads the real WDC5 `.db2` bytes directly at runtime, no SQLite
+round-trip. The SQLite side project itself is bigger than a debugging
+convenience, though: a real relational schema (mapping/join tables for
+DB2 tables' real foreign-key relationships, not one flat table per file),
+serving two purposes — a correctness cross-check for the WDC5 parser, and
+a general-purpose local data source for other consumers of this project's
+work beyond `husk export` itself, expected to matter a lot once WMO/ADT
+world-data implementation starts. Full detail, don't duplicate further:
+`CHAR_TEXTURE_COMPOSITING_TODO.md`'s own note.
+
 Former item 1 (particles, `M2Particle`) is exactly that case — a real
 weapon-model corpus (Luna's own extraction, `test_data/item/
 objectcomponents/weapon/`) finally made the "needs real-file investigation"

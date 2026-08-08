@@ -4,6 +4,52 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
+**Note from an earlier conversation, scope clarified directly by Luna
+(2026-08-08, two passes) — SQLite is a separate side project, not part of
+the real pipeline**: "that is mainly for debugging and investigation, the
+real pipeline is the same as with modern blp's — read the file, transform
+in memory, write to gltf." I.e.: a separate, optional DB2→SQLite exporter
+(out-of-band, same "hand husk a plain local file" pattern `DESIGN.md`'s
+Non-goals already establishes for external CASC/DB2 tooling — see this
+file's own Background below) is worth having for a human to inspect real
+DB2 contents by hand, the same role `husk dump-chunks`/`husk-blp` already
+play for M2/BLP — but Stage 1's real WDC5 parser (what `husk export`
+itself actually links against at runtime) reads `.db2` bytes directly into
+memory and feeds Stage 2+ straight from that, no SQLite round-trip in the
+real path, same architecture as every other sidecar format this project
+already has.
+
+Its actual scope is bigger than a flat per-table dump, though, and its
+usefulness reaches beyond this TODO's own compositing goal — second
+clarification: "it's not gonna be just flat tables only, it's gonna have
+mappings tables and stuff... the actual sqlite export is a side project to
+confirm correctness, and to have data available for other relevant
+targets not just the engine... I think it will become massively relevant
+when the world data implementation starts." I.e.: a real relational
+schema — mapping/join tables for the real foreign-key relationships
+between DB2 tables (e.g. the `ChrCustomizationOption` → `_Choice` →
+`_Material` chain Stage 3 below needs), not one flat SQLite table per
+`.db2` file with no relationships preserved. Two real purposes, not one:
+(1) a correctness cross-check for whatever WDC5 parser Stage 1 builds —
+independently query the same data a human already trusts, compare against
+what husk's own parser produces; (2) a general-purpose local data source
+for *other* consumers of this project's WoW-format work, not just
+`husk export` itself — explicitly named as likely to matter a lot once
+WMO/ADT world-data work starts (`WORLD_COMPLETENESS.md` and its companion
+`*_TODO.md` files — real placement/area/lighting data for a rendered world
+leans on DB2 tables at least as much as character customization does).
+Worth designing the SQLite schema with that second, wider audience in mind
+from the start, not just "whatever this one TODO happens to need."
+
+One open question from that earlier conversation, relevant to the SQLite
+side project specifically: whether any real DB2 row cell is itself an
+array of nested arrays (which a naive flat-table export can't represent
+directly, though a real mapping/join-table schema — see above — may
+already handle this the same way it handles other relationships) —
+investigated at the time, but no real example was ever actually found.
+Worth re-checking against real data before assuming the schema needs to
+account for it, rather than re-relitigating from memory.
+
 ## Background
 
 `EYES_ON_FINDINGS.md`'s finding #3/#6 (several sessions, most recently
