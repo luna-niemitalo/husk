@@ -210,10 +210,19 @@ points at (pre-Cataclysm models only -- see `src/cmd_export.cpp`'s
 `M2SkinSection.skinSectionId` as glTF `extras`
 (`geoset_id`/`geoset_group`/`geoset_variant`). husk exports every submesh in
 the `.skin`, including mutually-exclusive character-customization options --
-it has no CASC/DBC access to ground a "correct" selection in (see
-`DESIGN.md`) -- and prints every distinct geoset ID present whenever a
-`.skin` has more than one, so a downstream renderer or Blender script can
-filter using the `extras`.
+it doesn't currently resolve real DB2 customization-choice data to ground a
+"correct" selection in (a locally-extracted `.db2` file is in scope, per
+`DESIGN.md`'s Non-goals; this is a "not implemented yet" gap, not a hard
+non-goal) -- and prints every distinct geoset ID present whenever a `.skin`
+has more than one. Every export also carries one inert "tag" joint per
+distinct geoset ID (`GEOSET_MASK_TODO.md`), so Blender's own stock glTF
+importer builds a real per-geoset vertex group with no custom import
+tooling required -- `tools/husk_blender_geoset_mask.py` turns that into a
+Geometry Nodes Menu Switch dropdown per geoset group, letting a human pick
+a variant interactively instead of seeing every option rendered at once.
+**Known to have real bugs as of 2026-08-08** (wrong geometry disappearing
+when switching an unrelated group; some geometry never toggling at all) --
+see `GEOSET_MASK_TODO.md`'s own "Known bugs" section before relying on it.
 
 **Second texture layers.** A batch with `textureCount > 1` (e.g. an
 env-mapped "shine" pass) gets a note on export and carries its extra
@@ -262,9 +271,10 @@ already uses).
 glTF skin's own `extras` -- and stops there. These are never applied to the
 bind pose or any animation: which of a model's several `.bone` files is
 "correct" for a given character is selected by client-side customization-
-choice data (which slider/dropdown value the player picked) husk has no
-access to and, like geoset selection above, never will by design (see
-`TODO_correctness.md` #6, `WIKI_FINDINGS/BONE.md`). A downstream renderer or
+choice data (which slider/dropdown value the player picked) husk doesn't
+currently resolve -- same "not implemented yet, not a hard non-goal" gap as
+geoset selection above (see `TODO_correctness.md` #6, `WIKI_FINDINGS/BONE.md`).
+A downstream renderer or
 Blender script that does have that mapping has everything it needs to apply
 the right slot on top of this data.
 

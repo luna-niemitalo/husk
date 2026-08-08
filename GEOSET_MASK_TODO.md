@@ -336,5 +336,143 @@ result across all 19 groups simultaneously, strong evidence the rewrite is
 behaviorally equivalent, not just structurally plausible. Functional
 correctness (not just the default) also confirmed directly: switching one
 group's dropdown to a non-default variant changes the evaluated vertex
-count (4,232 -> 4,131). This closes out every stage of this plan --
-nothing left outstanding here.
+count (4,232 -> 4,131).
+
+**Correction, prompted by real interactive use the same day**: the line
+that used to sit here ("this closes out every stage of this plan --
+nothing left outstanding") was wrong. All six implementation stages did
+land and the vertex-count/switch-functionality checks above are real, but
+they only checked *aggregate* counts, never *which* vertices moved --
+real hands-on use in Blender's own GUI found two genuine remaining bugs
+the aggregate checks couldn't have caught. See "Known bugs" below.
+
+## Known bugs, found via real interactive use (2026-08-08), not yet fixed
+
+Reported directly, with a reference screenshot (described below, the raw
+image itself isn't in this repo -- see that section's own note) after
+actually using the built `.blend` in Blender's GUI, not headless:
+
+### Bug 1: selecting a different hairstyle (geoset group 0) makes the arms disappear
+
+A group-0-only change (nothing to do with arms) causes arm geometry to
+vanish. **Investigated this session, root cause not fully found, three
+hypotheses checked with real evidence:**
+
+1. **Ruled out**: cross-group contamination in husk's own C++ export.
+   Wrote a standalone tinygltf-linked scan tool (scratchpad only) that
+   checks every vertex's `JOINTS_1`/`WEIGHTS_1` for membership in more
+   than one distinct geoset *group* (not just multiple variants within one
+   group, which is expected/correct at real seams) -- zero such vertices
+   found across the entire real `bloodelffemale_hd.m2` export. The raw
+   glTF data itself is clean; whatever's wrong is downstream, in how
+   Blender evaluates the node graph built from it.
+2. **Ruled out**: a wiring bug in `build_geoset_switch_node_group`.
+   Directly inspected the actual built node tree (not just the Python that
+   built it): the `Compare` node's implicit "B" input really does default
+   to exactly `0.0` (checked via `node.inputs[1].default_value`), and no
+   two `Separate Geometry` nodes share the same upstream `Geometry` source
+   (checked every link in the tree programmatically) -- the chain really
+   is one linear sequence, not accidentally branched/duplicated.
+3. **Real, evidenced, un-followed-up lead**: `GeometryNodeSeparateGeometry`
+   with `domain='POINT'` (the default, never explicitly overridden) does
+   **not** cleanly partition geometry into "Selection" + "Inverted" --
+   proven with a minimal synthetic repro (a single quad, 2 verts selected,
+   2 not, split across two triangles that each straddle the selection
+   boundary): both triangles vanished from **both** outputs entirely,
+   surviving only as 2 loose points on each side. Any face whose corners
+   have mixed selection state is silently dropped from the whole graph,
+   not assigned to either branch. Since this script chains up to 109
+   sequential separations (one per variant across every multi-variant
+   group), and each one re-evaluates selection across the *entire*
+   remaining mesh, boundary-adjacent faces are at risk of erosion at
+   *every* step, not just their own group's -- a real, structural design
+   risk in the "peel one variant off a running remainder" architecture
+   this script uses, not a one-off glitch. Not yet confirmed this is
+   *the* mechanism that reaches all the way to arms specifically (that
+   needs interactive GUI inspection of the real mesh topology, not
+   headless scripting) -- flagged as the strongest lead, not a confirmed
+   root cause.
+4. **Also found, possibly related, not reconciled with the above**: the
+   modifier's own *stored default value* for a Menu Switch's exposed
+   dropdown doesn't match what `build_geoset_switch_node_group` intends.
+   Both "Geoset group 0" (25 items) and "Geoset group 12" (3 items) showed
+   the identical raw stored value `2` before any manual interaction --
+   suspicious, since "2" being the *lowest-variant default* would require
+   both groups' lowest variant to coincidentally sit at ordinal position 2
+   of very differently-sized item lists. Leading theory, unconfirmed: the
+   two placeholder items every fresh `GeometryNodeMenuSwitch` starts with
+   ("A"/"B", cleared before adding real items -- see the empirically-found
+   API notes above) may still occupy internal identifier slots 0/1 even
+   after `.enum_items.clear()`, meaning the *first* real item added lands
+   on identifier `2`, not ordinal `0` -- if true, `default_value =
+   item_names[0]` is actually landing on the right item after all, and a
+   later verification attempt that assumed "stored value == ordinal list
+   index" (this session's own `check_tabard_switch.py`, scratchpad only)
+   was reading its own results wrong, not exposing a real bug. **Needs
+   resolving with real interactive Blender access, not further headless
+   scripting** -- open the actual node tree in Blender's UI, click each
+   Menu Switch's dropdown by hand, and confirm what actually gets
+   selected versus what the modifier panel displays as "current."
+
+### Bug 2: the tabard back-flap geometry never disappears, regardless of any dropdown selection
+
+**Ruled out this session, with real evidence**: the geometry isn't
+untagged. Cross-referenced the exact Blender vertex indices from the
+reference screenshot below (20599-20661) directly against the imported
+mesh's own vertex-group data: every one of them carries a real
+`group_12,variant_3` tag at the expected ~0.5 rescaled weight -- not
+missing, not zero, not some fallback `skinSectionId == -1` case. Group 12
+does get a real dropdown (confirmed present in the node group's own
+interface, `"Geoset group 12"`).
+
+**Not yet resolved**: a targeted check switching that specific group's
+modifier value away from its current setting, then re-evaluating and
+searching the result for any vertex near vertex 20599's original bind-pose
+position, found **zero matches both before and after the switch** -- i.e.
+the check couldn't even confirm the geometry was visible in the
+"default"/pre-switch state, let alone that switching hid it. Given Bug 1
+item 4's finding about stored-value/ordinal-index confusion, this result
+is more likely a flaw in *how this session's own verification script*
+interpreted "which variant is currently selected" than proof the geometry
+truly never moves -- but that's exactly why this needs the same real,
+interactive Blender access Bug 1 does, not another headless script
+guessing at internal identifier semantics. **Concrete next step**: open
+the real `.blend` file in Blender's own GUI, manually click through every
+item in "Geoset group 12"'s dropdown one at a time, and watch whether the
+back-flap geometry (the region shown in the reference screenshot) actually
+changes -- ground truth a script can currently only guess at.
+
+### Reference screenshot (described, not embedded)
+
+Luna attached a real Blender viewport screenshot (Edit Mode, vertex-index
+overlay enabled) showing the tabard back-flap region from Bug 2, with
+Blender's own per-vertex index labels visible and readable: **20599,
+20602, 20606, 20607, 20608, 20616, 20620, 20621, 20622, 20624, 20626,
+20631, 20633, 20635, 20636, 20639, 20642, 20643, 20645, 20646, 20650,
+20653, 20654, 20657, 20659, 20661** (transcribed by hand from the image,
+all 26 confirmed present and correctly tagged `group_12,variant_3` this
+session, see Bug 2 above). **The image file itself was not saved into this
+repo** -- pasted images in a chat session aren't exposed to tooling as a
+filesystem path, so there was no way to copy the actual bytes anywhere
+persistent; only this transcription survives. If a persistent reference
+image is wanted, Luna will need to save/attach it manually (e.g. into a
+`GEOSET_MASK_TODO_images/` directory or similar) in a future session.
+
+## Follow-up needed, concrete
+
+- Resolve Bug 1's still-open item 4 (stored-value/ordinal-index confusion)
+  and item 3 (boundary-face erosion in chained `Separate Geometry`) with
+  real interactive Blender access -- both need eyes on the actual node
+  tree and actual viewport behavior, not more headless scripting.
+- Resolve Bug 2 the same way -- confirm by hand whether "Geoset group 12"'s
+  dropdown genuinely fails to toggle the back flap, or whether this
+  session's own verification tooling was reading the wrong thing.
+- If item 3 (destructive `POINT`-domain boundary dropping) turns out to be
+  the real mechanism behind Bug 1, the fix is architectural: either switch
+  `Separate Geometry`'s domain (`FACE` instead of `POINT` may partition
+  cleanly where `POINT` doesn't -- unconfirmed, would need the same kind
+  of synthetic-repro verification this session used to find the problem
+  in the first place), or replace the "chain 109 sequential separations"
+  design with something that doesn't re-derive selection against the
+  *entire* remaining mesh at every step (e.g. one single multi-way
+  classification pass instead of N sequential binary ones).

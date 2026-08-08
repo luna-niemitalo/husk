@@ -33,9 +33,10 @@ tool, `blp/`) converts BLP2 textures to PNG.
   per distinct geoset ID (`Skeleton::geosetTags`, `JOINTS_1`/`WEIGHTS_1`)
   so Blender's stock glTF importer builds a real per-geoset vertex group
   with zero custom import tooling — `tools/husk_blender_geoset_mask.py`
-  turns that into a Mask-modifier-based hide/show workflow for WoW's
-  mutually-exclusive geoset variants (hairstyles, boot cuffs, eye-glow,
-  ...) — see `GEOSET_MASK_TODO.md`/Resume, `husk dump-chunks` (JSON dump of Legion+ chunks with no
+  turns that into a Geometry Nodes Menu Switch dropdown per geoset group
+  for WoW's mutually-exclusive geoset variants (hairstyles, boot cuffs,
+  eye-glow, ...); **known to have real bugs as of 2026-08-08, not yet
+  fixed** — see `GEOSET_MASK_TODO.md`'s "Known bugs"/Resume, `husk dump-chunks` (JSON dump of Legion+ chunks with no
   glTF equivalent, full `M2Ribbon`/`M2Particle` records including every
   resolved animation curve, present in every M2 version; `WFV1`/`WFV2`/
   `DPIV`/`AFRA` — no wowdev.wiki struct at all, byte-decoded from real
@@ -146,39 +147,62 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Implemented `GEOSET_MASK_TODO.md` end to end (new
-  this session) — WoW's mutually-exclusive geoset variants (hairstyles,
-  boot cuffs, eye-glow, ...), which husk exports unfiltered with no DB2
-  data to pick a default, are now real Blender vertex groups usable with
-  Mask modifiers, with zero custom Blender import tooling required. The
-  mechanism: `Skeleton::geosetTags` (`gltf_skeleton.hpp`) appends one inert
-  "tag" joint per distinct geoset ID to the existing skin, strictly after
-  every real bone; `emitMeshNode` (`gltf_mesh.cpp`) weaves each tagged
-  vertex into a second `JOINTS_1`/`WEIGHTS_1` set. Blender's *stock* glTF
-  importer creates one real vertex group per skin joint as an ordinary
-  side effect of skin-weight import — verified empirically before writing
-  any production code, along with two other load-bearing facts: stacking
-  a second full weight set doesn't distort deformation (Blender's Armature
-  modifier renormalizes total influence weight across every set at
-  evaluation time regardless of what's stored), and Blender vertex groups
-  are mesh-owned data independent of the armature's bones (deleting a fake
-  tag bone post-import leaves its vertex group/masks completely intact).
-  `tools/husk_blender_geoset_mask.py` (new) is the companion script
-  `DESIGN.md` already anticipated for this exact shape of problem: builds
-  one invert-mode Mask modifier per non-default variant per geoset group,
-  then deletes every tag bone, verified end to end on the real
-  `bloodelffemale_hd.m2` export (358 bones -> 245 after cleanup, 90 masks,
-  evaluated mesh 32,939 -> 4,232 vertices). Two real bugs were caught by
-  this project's own gltf-validator-backed test suite before landing, not
-  after — a non-normalized combined weight sum (fixed by rescaling both
-  weight sets together) and a stale node-index formula for the multi-root
-  synthesized parent node (fixed by accounting for the newly-inserted tag
-  range) — see `GEOSET_MASK_TODO.md` and `CLAUDE_HISTORY.md`'s top entry
-  for the full narrative, including a real-scale scan that traced an
-  alarming 1.5M+ `gltf_validator` message count on the real HD export down
-  to a pre-existing, unrelated raw-`JOINTS_0`-duplicate-index data property
-  (confirmed not caused by this session's own work). Full suite green,
-  532/532.
+- **Current state**: `GEOSET_MASK_TODO.md` implemented (new this session)
+  but **not yet correct** — real bugs found via actual interactive Blender
+  use, investigation started but not resolved, continuing in a fresh
+  session/thread. C++ side (`src/gltf_skeleton.{hpp,cpp}`, `gltf_mesh.cpp`,
+  `cmd_export.cpp`) is solid and fully tested: every export now carries one
+  inert "tag" joint per distinct geoset ID, appended to the skin strictly
+  after every real bone, woven into a second `JOINTS_1`/`WEIGHTS_1` set
+  named `group_<n>,variant_<n>` (comma-separated, prefix-tagged fields, not
+  a single combined token, specifically so a consumer can comma-split +
+  prefix-strip instead of doing `id/100`/`id%100` math). Blender's *stock*
+  glTF importer turns this into a real per-geoset vertex group with zero
+  custom import tooling, verified empirically before any of this was
+  written (Armature modifier renormalizes total weight across joint sets
+  regardless of what's stored, so a second full weight set doesn't distort
+  deformation; vertex groups are mesh-owned data independent of the
+  armature's bones, so a fake tag bone can be deleted post-import with the
+  group/anything built from it left completely intact). Full C++ test
+  suite green, 532/532, unaffected by anything below.
+
+  `tools/husk_blender_geoset_mask.py` (new) went through two real
+  designs. The first built a Mask-modifier stack (verified working, but
+  90 modifiers on one real export — "an insane stack of mask modifiers,"
+  a real usability complaint in its own right). Replaced with a real
+  Geometry Nodes graph: one `Menu Switch` dropdown per geoset group (a
+  chain of `Separate Geometry` nodes peels each variant off a running
+  remainder), confirmed scriptable via `bpy` after several real API
+  gotchas found empirically (`GeometryNodeMenuSwitch` starts with two
+  placeholder items that must be cleared; its `Menu` input only becomes a
+  real modifier-panel dropdown once promoted to a `NodeSocketMenu`
+  interface entry and *linked before* its default is set; the exposed
+  modifier value is stored by integer index, not name). Aggregate
+  correctness looked solid — the default-state evaluated mesh matched the
+  superseded Mask-modifier version's own vertex count exactly (4,232), and
+  switching one group's dropdown changed the count as expected.
+
+  **Real interactive use the same day found that aggregate-count
+  verification wasn't enough**: (1) picking a different hairstyle (geoset
+  group 0) makes unrelated arm geometry disappear; (2) the tabard back-flap
+  geometry never disappears no matter what's selected. This session's own
+  follow-up investigation (see `GEOSET_MASK_TODO.md`'s "Known bugs"
+  section for the full detail) ruled out two things with hard evidence —
+  husk's own C++ export has zero cross-*group* vertex tagging, and the
+  node graph's wiring/`Compare`-node defaults are correct — and found one
+  strong, unconfirmed lead: `GeometryNodeSeparateGeometry` with `domain=
+  'POINT'` (the default, never overridden) does not cleanly partition
+  geometry — a synthetic repro showed a face straddling a selection
+  boundary vanishes from *both* the Selection and Inverted outputs
+  entirely, a real structural risk in a design that chains 109 sequential
+  separations. Also found a suspicious, unresolved discrepancy between the
+  modifier's raw stored default value and this session's own assumption
+  about ordinal-vs-identifier indexing for Menu Switch items, which may
+  mean some of tonight's own verification scripts were reading their own
+  results wrong rather than exposing a second real bug. **Next step needs
+  real interactive Blender GUI access, not more headless scripting** — see
+  `GEOSET_MASK_TODO.md`'s "Follow-up needed" list for exactly what to
+  check by hand.
 - **Current state (prior session)**: Closed `TODO_correctness.md`'s former item 4
   (texture-transform pivot-correction math) end to end. `gltf_mesh.cpp`'s
   new `textureTransformToKhr` derives a real `KHR_texture_transform`

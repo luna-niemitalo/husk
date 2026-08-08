@@ -14,6 +14,100 @@ deletions handled their own back-references).
 
 ---
 
+- **Last state**: Same overall `GEOSET_MASK_TODO.md` effort, continued in
+  the same session as the entry below — two real design/naming follow-ups,
+  then real bugs found via actual interactive Blender use.
+
+  (1) Tag-joint naming changed from a single `geoset_<id>` token to
+  comma-separated, prefix-tagged `group_<n>,variant_<n>` fields, prompted
+  directly as prep work for a future geometry-nodes rewrite ("splitting
+  the group and the variant into neat separate text prefixed fields would
+  be nice... that way i can just split the string by comma delimiter, and
+  remove prefixes"). Updated everywhere the naming was produced or
+  consumed (`gltf_skeleton.cpp`, `gltf.hpp`'s doc comment, the companion
+  script's parser, the synthetic test, `GEOSET_MASK_TODO.md`/`DESIGN.md`),
+  verified end to end against the real export (`group_0,variant_0` etc.,
+  identical masking behavior to before the rename).
+
+  (2) That "future geometry-nodes rewrite" arrived the same session,
+  prompted directly ("utilize the switch nodes to do the filtering instead
+  of a insane stack of mask modifiers"). Researched feasibility first (web
+  search, since `docs.blender.org` 403'd every direct fetch attempt
+  regardless of page for this session's fetch tool) and found a real
+  citation from the actual Blender PR that implemented Menu Switch,
+  confirming `enum_definition.enum_items` as the real scripting API before
+  writing anything. Rebuilt `tools/husk_blender_geoset_mask.py` around a
+  real Geometry Nodes graph: one `Menu Switch` dropdown per geoset group,
+  fed by a chain of `Separate Geometry` nodes each peeling one variant off
+  a running remainder. Found and fixed three real API gotchas by direct
+  empirical probing before committing to the full build: `GeometryNodeMenuSwitch`
+  starts with two dead placeholder items that must be `.clear()`-ed; its
+  `Menu` input only becomes a real modifier-panel dropdown once promoted
+  to a `NodeSocketMenu` interface entry and *linked before* `default_value`
+  is set (setting it first throws `enum "..." not found in ()` since an
+  unlinked socket has no known items yet); the exposed modifier value is
+  stored by integer index, not name (confirmed by a real `TypeError` on a
+  string assignment). Verified against the real `bloodelffemale_hd.m2`
+  export: default-state evaluated mesh matched the just-superseded
+  Mask-modifier version's own vertex count exactly (4,232), and switching
+  one group's dropdown changed the count (4,232 -> 4,131), confirming
+  functional correctness, not just structural plausibility. Fully replaced
+  the Mask-modifier version rather than kept as a fallback.
+
+  **Real interactive use the same day (not headless scripting) found that
+  aggregate vertex-count checks weren't enough** — two real bugs, reported
+  directly with a reference screenshot (Blender Edit Mode, vertex-index
+  overlay, tabard back-flap region, vertex indices 20599-20661
+  transcribed by hand into `GEOSET_MASK_TODO.md` since the pasted image
+  itself has no accessible filesystem path this session's tooling could
+  copy from): (1) picking a different hairstyle (geoset group 0) makes
+  unrelated arm geometry disappear; (2) the tabard back-flap never
+  disappears no matter what's selected. Same-session follow-up
+  investigation, evidence-based, not fully conclusive:
+
+  - Wrote a standalone tinygltf-linked scan tool (scratchpad only) proving
+    husk's own C++ export has **zero** cross-*group* vertex tagging across
+    the entire real export — ruled out as the cause, the raw glTF data is
+    clean, whatever's wrong is in how Blender evaluates the graph built
+    from it.
+  - Directly inspected the actual built node tree (not just the Python
+    that built it): `Compare`'s implicit "B" input really does default to
+    exactly `0.0`, and no two `Separate Geometry` nodes share an upstream
+    source — ruled out a wiring bug.
+  - Found a real, evidenced, unresolved lead instead: a minimal synthetic
+    repro (one quad, 2 of 4 verts selected, split across two triangles
+    that each straddle the boundary) showed `GeometryNodeSeparateGeometry`
+    with `domain='POINT'` (the default, never overridden) does **not**
+    cleanly partition geometry — both triangles vanished from *both*
+    Selection and Inverted outputs entirely. A structural risk in a design
+    that chains 109 sequential separations, each re-evaluating selection
+    across the whole remaining mesh — not yet confirmed as *the* mechanism
+    reaching all the way to arms specifically, that needs real interactive
+    GUI inspection, not more headless scripting.
+  - Cross-referenced the exact vertex indices from the reference
+    screenshot directly against the imported mesh's own vertex-group
+    data: all 26 carry a real `group_12,variant_3` tag at the expected
+    ~0.5 rescaled weight — ruled out "untagged geometry" as Bug 2's cause.
+  - Found a suspicious, unresolved discrepancy: the modifier's raw stored
+    default value for two very differently-sized groups (25 items vs. 3)
+    showed the identical value `2` before any interaction — leading
+    theory, unconfirmed, is that the two cleared placeholder items still
+    occupy internal identifier slots 0/1, meaning "stored value == ordinal
+    list index" (an assumption this session's own verification scripts
+    made) may itself be wrong, which would mean at least some of tonight's
+    checks were misreading their own results rather than exposing a
+    second real bug.
+
+  Full C++ test suite green throughout, 532/532 (unaffected by any of
+  this — pure Python/Blender-script work). Explicitly **not fixed this
+  session** — both bugs, and the stored-value/ordinal-index question, are
+  handed off with real, concrete next steps (`GEOSET_MASK_TODO.md`'s
+  "Known bugs"/"Follow-up needed" sections) needing actual interactive
+  Blender GUI access to resolve, continuing in a fresh session/thread per
+  Luna's own direct instruction.
+
+---
+
 - **Last state**: Implemented `GEOSET_MASK_TODO.md` end to end (new this
   session), prompted directly by Luna investigating `EYES_ON_FINDINGS.md`'s
   eye-glow finding and then asking how Blender's Mask modifier could hide
