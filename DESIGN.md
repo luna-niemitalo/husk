@@ -13,7 +13,10 @@ findings live in `WIKI_FINDINGS.md`; open correctness gaps live in
 (parse depth vs. consumption depth vs. glTF ceiling) lives in
 `M2_COMPLETENESS.md`, with the same breakdown for WMO + ADT (combined, not
 yet implemented — a target-setting scaffold, not a progress report) in
-`WORLD_COMPLETENESS.md`.
+`WORLD_COMPLETENESS.md`. The standalone Python corpus-exploration scripts
+under `tools/` (independent-of-husk "second opinion" verification, plus a
+generalized parallel corpus-scan framework) are documented in `TOOLS.md`,
+not here — that's tooling, not husk's own export architecture.
 
 ## Goal
 
