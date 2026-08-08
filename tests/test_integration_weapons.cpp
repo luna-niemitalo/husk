@@ -192,8 +192,21 @@ TEST_CASE("husk export: a real weapon's attachments/events/lights become exactly
     CHECK(lightNodes == header.lights.count);
 
     // Never added to skin.joints -- this fixture's real bone count is 78.
+    // skin.joints does legitimately grow past that by one geoset tag joint
+    // per distinct geoset ID (GEOSET_MASK_TODO.md) -- counted here from
+    // each primitive's own "geoset_id" extras (gltf_mesh.cpp), a real
+    // cross-check against gltf_skeleton.cpp's independent
+    // Skeleton::geosetTags-driven joint count, not a tautology.
+    std::set<int> geosetIds;
+    for (const auto& mesh : model.meshes) {
+        for (const auto& prim : mesh.primitives) {
+            if (prim.extras.IsObject() && prim.extras.Has("geoset_id")) {
+                geosetIds.insert(prim.extras.Get("geoset_id").GetNumberAsInt());
+            }
+        }
+    }
     REQUIRE(model.skins.size() == 1);
-    CHECK(model.skins[0].joints.size() == 78);
+    CHECK(model.skins[0].joints.size() == 78 + geosetIds.size());
 
     std::filesystem::remove(outPath);
 }

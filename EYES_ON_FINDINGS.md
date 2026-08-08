@@ -827,3 +827,53 @@ absent from this particular local export, or live under a completely
 different (non-basename-matching) filename this project's fuzzy pool was
 never designed to search for, is unconfirmed — flagged for whoever picks
 this up next rather than guessed at.
+
+**Root cause found, this session — these are eye-glow textures, not
+armor/cloak assets, and their absence from the local export is expected,
+not a resolution bug.** Investigated by tracing which real `.skin` batches
+actually draw with materials 9/10/11 (the three `textureType == 0` slots,
+`mat9_tex10_fdid3536810`/`mat10_tex11_fdid4530998`/`mat11_tex12_fdid5210137`
+in a real `husk export --textures none` of `bloodelffemale_hd.m2`) and what
+geoset IDs those batches' primitives carry in their existing
+`skinSectionId` extras (`M2_GAPS_TODO.md`'s now-closed geoset-extras work):
+materials 9 and 10 both draw geoset group 17 (`geoset_id` 1701-1705),
+material 11 draws geoset group 51 (`geoset_id` 5101-5103). Cross-checked
+against `reference/wow.export`'s own tables, not guessed: `GeosetMapper.js`
+maps geoset group 1700 to `'Eyeglow'` directly, and
+`DBItemGeosets.js` names group 51 `EYE_GLOW_B` (a second glow channel).
+Blood elves are the one playable race whose base model always renders a
+glowing-eyes effect — this lines up exactly. The three materials' own
+blend modes from `husk info` (`material 9: blend_mode=4`,
+`material 10: blend_mode=7`, both wowdev.wiki's additive-family blend
+modes — `Add`/`BlendAdd` — the conventional choice for a glow effect; only
+`material 11: blend_mode=2`, `Alpha`, differs) are consistent with this
+too, though husk has no decode table for blend-mode names yet so this part
+leans on external wowdev.wiki knowledge, not something verified in-repo.
+
+This also explains the missing-local-file symptom directly: eye-glow
+textures are small, race-specific effect assets that real CASC exports
+typically don't colocate with the base character model files at all (they
+tend to live under a shared effects/spell-texture path, not
+`character/bloodelf/female/`) — confirmed at least negatively for this
+export: a search of the entire local `/media/luna/data/wow_export` tree
+for any of the three FileDataIDs (`3536810`/`4530998`/`5210137`) by
+filename found zero matches anywhere, not just under the model's own
+directory. So this isn't a case of husk's basename-fuzzy-pool searching in
+the wrong place next to the model — the files simply weren't pulled into
+this particular local export at all, consistent with a real, separate
+CASC extraction gap upstream of husk, not a husk resolution bug.
+
+**Not investigated further, since it's out of scope by this project's own
+design**: whether/how to fall back to a plain unlit-emissive placeholder
+(Luna's own "transparent shader" suggestion) when a `textureType == 0`
+slot's FileDataID has no local file at all — glTF's core material model
+has no direct analogue for WoW's additive eye-glow blend mode, and picking
+a plausible placeholder color/opacity without the real texture would be
+exactly the kind of confident-but-wrong guess `candidateAllowedForType`'s
+earlier bare-file mistake, and finding #6's own "filtering is safer than
+picking" framing, both already argued against. If this is picked up, the
+grounded next step is probably surfacing `blendMode`/`unlit` flags as glTF
+material extras for every material (not just these three) so a Blender
+script can apply its own emissive/additive shader per-slot, rather than
+husk guessing at rendering — but that's a new, separate proposal, not
+implemented or scoped further here.

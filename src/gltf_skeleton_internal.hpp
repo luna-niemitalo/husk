@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include <tiny_gltf.h>
@@ -39,22 +40,41 @@ void validateAnimations(const std::vector<Animation>& animations, const Skeleton
 // The skeleton/skin half of writeGlbMulti's former single body: joint
 // nodes (with inverse bind matrices), the shared glTF skin (with
 // bone_correction_sets/ribbon_emitters/particle_emitters/physics_bodies
-// extras), the synthesized multi-root parent node (if `skeleton` has more
-// than one root joint), and the Attachment/Event/Light placement nodes --
-// see gltf.hpp's writeGlbMulti doc comment for the exact shape/node-index
-// layout this reproduces. Appends inverse-bind-matrix data to
-// `buffer`/`views`/`accessors`. Returns a default-constructed (empty)
-// result if `!hasSkeleton`.
+// extras), geoset tag joint nodes (Skeleton::GeosetTag,
+// GEOSET_MASK_TODO.md), the synthesized multi-root parent node (if
+// `skeleton` has more than one root joint), and the Attachment/Event/Light
+// placement nodes -- see gltf.hpp's writeGlbMulti doc comment for the
+// exact shape/node-index layout this reproduces. Appends inverse-bind-
+// matrix data to `buffer`/`views`/`accessors`. Returns a default-
+// constructed (empty) result if `!hasSkeleton`.
 struct SkeletonEmission {
     int skinIndex = -1;  // -1 if no skeleton; else always 0 (writeGlbMulti has exactly one skin)
     std::optional<tinygltf::Skin> skin;
     std::vector<tinygltf::Node> jointNodes;
     std::vector<int> rootJointNodeIndices;
+    // One node per Skeleton::geosetTags entry, appended right after
+    // jointNodes (real joint indices 0..jointNodes.size()-1 are never
+    // renumbered on account of these) and parented under the single real
+    // root joint (single-root skeletons) or the synthesized multi-root
+    // parent node (multi-root skeletons) -- either way a real descendant
+    // of whatever `skin.skeleton` already is/would be, so the "closest
+    // common root" property glTF expects of a skin's joint hierarchy still
+    // holds with these added. Also appended to `skin.joints` itself
+    // (unlike anchorNodes below) -- see Skeleton::GeosetTag's doc comment
+    // for why.
+    std::vector<tinygltf::Node> geosetTagNodes;
+    // geosetId -> this tag's *skin-relative* joint index (position within
+    // `skin.joints`, the same convention JOINTS_0/JOINTS_1 values use --
+    // NOT a glTF node index). emitMeshNode (gltf_mesh.cpp) looks up a
+    // primitive's skinSectionId here to build JOINTS_1/WEIGHTS_1. Empty
+    // when `skeleton->geosetTags` is empty.
+    std::unordered_map<int, uint32_t> geosetTagJointIndex;
     bool hasSyntheticRoot = false;
     int syntheticRootNodeIndex = -1;
     tinygltf::Node syntheticRootNode;
     // Attachment/Event/Light nodes, in that order -- appended past the
-    // joint-node range (and past the synthesized multi-root node, if any).
+    // joint-node range, past geosetTagNodes, and past the synthesized
+    // multi-root node, if any.
     std::vector<tinygltf::Node> anchorNodes;
 };
 SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton, size_t meshCount,

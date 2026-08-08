@@ -83,7 +83,8 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     for (const auto& nm : meshes) {
         MeshEmission em = emitMeshNode(nm, hasSkeleton, skinIdx, buffer, views, accessors, images,
                                         textures, tinyMaterials, usedUnlitExtension,
-                                        usedTextureTransformExtension, alternateTextureCache);
+                                        usedTextureTransformExtension, alternateTextureCache,
+                                        skelEm.geosetTagJointIndex);
         tinyMeshes.push_back(em.mesh);
         em.node.mesh = static_cast<int>(tinyMeshes.size()) - 1;
         meshNodes.push_back(em.node);
@@ -111,6 +112,9 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     model.nodes = meshNodes;
     for (auto& jointNode : skelEm.jointNodes) {
         model.nodes.push_back(jointNode);
+    }
+    for (auto& tagNode : skelEm.geosetTagNodes) {
+        model.nodes.push_back(tagNode);
     }
     if (skelEm.hasSyntheticRoot) {
         model.nodes.push_back(skelEm.syntheticRootNode);

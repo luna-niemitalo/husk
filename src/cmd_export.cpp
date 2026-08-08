@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
@@ -944,6 +945,26 @@ int exportGlb(int argc, char** args) {
         auto namedMeshes =
             buildLodTierMeshes(skinsToExport, vertices, baseMesh, m2Inputs, texturesDir, modelPath,
                                 modelBasename, texturesOutDir);
+
+        // One geoset tag joint per distinct skinSectionId across every LOD
+        // tier's primitives (GEOSET_MASK_TODO.md) -- lets Blender's Mask
+        // modifier hide mutually-exclusive geoset variants (hairstyles,
+        // boot cuffs, eye-glow, ...) that husk itself has no DBC/DB2 data
+        // to filter (see gltf_skeleton.hpp's Skeleton::GeosetTag doc
+        // comment for the full mechanism). std::set for dedup + a
+        // deterministic (numeric) order; only meaningful alongside a real
+        // skeleton -- an unskinned model has no `skin.joints` to append to.
+        if (!bones.empty()) {
+            std::set<int> distinctGeosetIds;
+            for (const auto& nm : namedMeshes) {
+                for (const auto& prim : nm.mesh.primitives) {
+                    if (prim.skinSectionId >= 0) distinctGeosetIds.insert(prim.skinSectionId);
+                }
+            }
+            for (int id : distinctGeosetIds) {
+                skeleton.geosetTags.push_back({id});
+            }
+        }
 
         // Captured before the collision mesh (if any) is appended below --
         // the final summary needs to know how many of `namedMeshes` are

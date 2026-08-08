@@ -23,6 +23,7 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <set>
 #include <string>
 #include <tiny_gltf.h>
 #include <vector>
@@ -55,6 +56,24 @@ int parseProbeInt(const std::string& output, const std::string& key) {
     INFO("looking for '", marker, "' in blender output:\n", output);
     REQUIRE(pos != std::string::npos);
     return std::stoi(output.substr(pos + marker.size()));
+}
+
+// model.skins[0].joints.size() is realBoneCount + one geoset tag joint per
+// distinct geoset ID (GEOSET_MASK_TODO.md), not realBoneCount alone --
+// counted independently here from each primitive's own "geoset_id" extras
+// (gltf_mesh.cpp) rather than assumed, so this is a real cross-check
+// against gltf_skeleton.cpp's separate Skeleton::geosetTags-driven joint
+// count, not a tautology.
+size_t countDistinctGeosetTagJoints(const tinygltf::Model& model) {
+    std::set<int> ids;
+    for (const auto& mesh : model.meshes) {
+        for (const auto& prim : mesh.primitives) {
+            if (prim.extras.IsObject() && prim.extras.Has("geoset_id")) {
+                ids.insert(prim.extras.Get("geoset_id").GetNumberAsInt());
+            }
+        }
+    }
+    return ids.size();
 }
 
 // Pulls a "x,y,z" triple out of a "HUSK_PROBE key=x,y,z" line (see
@@ -399,7 +418,8 @@ TEST_CASE("husk export: real M2 + .skin imports into Blender (headless) with bon
     CHECK(parseProbeInt(blenderResult.output, "mesh_object_count") == expectedMeshCount);
     CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "total_vertex_count")) ==
           expectedVertexCount);
-    CHECK(model.skins[0].joints.size() == header.bones.count);
+    CHECK(model.skins[0].joints.size() ==
+          header.bones.count + countDistinctGeosetTagJoints(model));
 
     // Case 5, readback step: the collision mesh Blender actually imported
     // (found by its "collision" extras tag, not by name -- see
@@ -450,8 +470,11 @@ TEST_CASE("husk export: a real multi-root-bone-forest weapon imports into Blende
     // The invariant the chosen design (a plain non-joint parent node, see
     // DESIGN.md#Key-design-decisions) exists to preserve: skin.joints never
     // grows a bogus extra entry for the synthesized node (unlike the
-    // rejected alternative of appending it as one more real joint).
-    CHECK(model.skins[0].joints.size() == header.bones.count);
+    // rejected alternative of appending it as one more real joint) -- it
+    // does legitimately grow by one real entry per distinct geoset ID
+    // (GEOSET_MASK_TODO.md's tag joints), accounted for explicitly here.
+    CHECK(model.skins[0].joints.size() ==
+          header.bones.count + countDistinctGeosetTagJoints(model));
 
     auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
                                      " --background --factory-startup --python-exit-code 1 --python \"" +
@@ -462,10 +485,10 @@ TEST_CASE("husk export: a real multi-root-bone-forest weapon imports into Blende
     CHECK(parseProbeInt(blenderResult.output, "armature_count") == 1);
     // The empirical finding this test exists to confirm: Blender's glTF
     // importer does NOT count the synthesized non-joint parent node as a
-    // bone -- bone_count matches the real M2 bone count exactly, same as
-    // skin.joints.size() above.
+    // bone -- bone_count matches skin.joints.size() (real bones + geoset
+    // tag joints) exactly, same as the check above.
     CHECK(parseProbeInt(blenderResult.output, "bone_count") ==
-          static_cast<int>(header.bones.count));
+          static_cast<int>(model.skins[0].joints.size()));
 
     std::filesystem::remove(outPath);
 }
@@ -683,7 +706,8 @@ TEST_CASE("husk export: a real quadruped creature (wolf.m2) imports into Blender
           static_cast<int>(model.skins[0].joints.size()));
 
     husk::m2::Header header = readM2Header(m2Path);
-    CHECK(model.skins[0].joints.size() == header.bones.count);
+    CHECK(model.skins[0].joints.size() ==
+          header.bones.count + countDistinctGeosetTagJoints(model));
 
     std::filesystem::remove(outPath);
 }

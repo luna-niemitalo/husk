@@ -49,12 +49,17 @@ struct MeshEmission {
     tinygltf::Mesh mesh;
     tinygltf::Node node;
 };
+// `geosetTagJointIndex` (geosetId -> skin-relative tag joint index,
+// SkeletonEmission's own output, gltf_skeleton_internal.hpp) drives a
+// second JOINTS_1/WEIGHTS_1 attribute set -- see Skeleton::GeosetTag's doc
+// comment (gltf_skeleton.hpp) for the mechanism this builds.
 MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, tinygltf::Buffer& buffer,
                            std::vector<tinygltf::BufferView>& views,
                            std::vector<tinygltf::Accessor>& accessors, std::vector<tinygltf::Image>& images,
                            std::vector<tinygltf::Texture>& textures,
                            std::vector<tinygltf::Material>& tinyMaterials, bool& usedUnlitExtension,
                            bool& usedTextureTransformExtension,
-                           std::unordered_map<std::string, int>& alternateTextureCache);
+                           std::unordered_map<std::string, int>& alternateTextureCache,
+                           const std::unordered_map<int, uint32_t>& geosetTagJointIndex);
 
 }  // namespace husk::gltf

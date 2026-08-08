@@ -29,7 +29,13 @@ tool, `blp/`) converts BLP2 textures to PNG.
   per-body placement anchors only, never applied to the render — see Resume),
   every export also attaching minimal ribbon/particle placement anchors
   (id/bone/position, `ribbon_emitters`/`particle_emitters` skin `extras`,
-  unconditional), `husk dump-chunks` (JSON dump of Legion+ chunks with no
+  unconditional), every export also emitting one inert geoset "tag" joint
+  per distinct geoset ID (`Skeleton::geosetTags`, `JOINTS_1`/`WEIGHTS_1`)
+  so Blender's stock glTF importer builds a real per-geoset vertex group
+  with zero custom import tooling — `tools/husk_blender_geoset_mask.py`
+  turns that into a Mask-modifier-based hide/show workflow for WoW's
+  mutually-exclusive geoset variants (hairstyles, boot cuffs, eye-glow,
+  ...) — see `GEOSET_MASK_TODO.md`/Resume, `husk dump-chunks` (JSON dump of Legion+ chunks with no
   glTF equivalent, full `M2Ribbon`/`M2Particle` records including every
   resolved animation curve, present in every M2 version; `WFV1`/`WFV2`/
   `DPIV`/`AFRA` — no wowdev.wiki struct at all, byte-decoded from real
@@ -140,7 +146,40 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Closed `TODO_correctness.md`'s former item 4
+- **Current state**: Implemented `GEOSET_MASK_TODO.md` end to end (new
+  this session) — WoW's mutually-exclusive geoset variants (hairstyles,
+  boot cuffs, eye-glow, ...), which husk exports unfiltered with no DB2
+  data to pick a default, are now real Blender vertex groups usable with
+  Mask modifiers, with zero custom Blender import tooling required. The
+  mechanism: `Skeleton::geosetTags` (`gltf_skeleton.hpp`) appends one inert
+  "tag" joint per distinct geoset ID to the existing skin, strictly after
+  every real bone; `emitMeshNode` (`gltf_mesh.cpp`) weaves each tagged
+  vertex into a second `JOINTS_1`/`WEIGHTS_1` set. Blender's *stock* glTF
+  importer creates one real vertex group per skin joint as an ordinary
+  side effect of skin-weight import — verified empirically before writing
+  any production code, along with two other load-bearing facts: stacking
+  a second full weight set doesn't distort deformation (Blender's Armature
+  modifier renormalizes total influence weight across every set at
+  evaluation time regardless of what's stored), and Blender vertex groups
+  are mesh-owned data independent of the armature's bones (deleting a fake
+  tag bone post-import leaves its vertex group/masks completely intact).
+  `tools/husk_blender_geoset_mask.py` (new) is the companion script
+  `DESIGN.md` already anticipated for this exact shape of problem: builds
+  one invert-mode Mask modifier per non-default variant per geoset group,
+  then deletes every tag bone, verified end to end on the real
+  `bloodelffemale_hd.m2` export (358 bones -> 245 after cleanup, 90 masks,
+  evaluated mesh 32,939 -> 4,232 vertices). Two real bugs were caught by
+  this project's own gltf-validator-backed test suite before landing, not
+  after — a non-normalized combined weight sum (fixed by rescaling both
+  weight sets together) and a stale node-index formula for the multi-root
+  synthesized parent node (fixed by accounting for the newly-inserted tag
+  range) — see `GEOSET_MASK_TODO.md` and `CLAUDE_HISTORY.md`'s top entry
+  for the full narrative, including a real-scale scan that traced an
+  alarming 1.5M+ `gltf_validator` message count on the real HD export down
+  to a pre-existing, unrelated raw-`JOINTS_0`-duplicate-index data property
+  (confirmed not caused by this session's own work). Full suite green,
+  532/532.
+- **Current state (prior session)**: Closed `TODO_correctness.md`'s former item 4
   (texture-transform pivot-correction math) end to end. `gltf_mesh.cpp`'s
   new `textureTransformToKhr` derives a real `KHR_texture_transform`
   (offset/rotation/scale) from a constant `M2TextureTransform`'s
@@ -402,7 +441,39 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   `*_TODO.md` files landed in the work dir mid-session, untouched by this
   one) — worth checking her intent directly before assuming this is still
   unclaimed, rather than duplicating or stepping on it.
-- **Hazards**: the Attachment/Event/Light glTF nodes added this session
+- **Hazards**: geoset tag joints (`Skeleton::geosetTags`, new this session,
+  see Last state) are the one deliberate *exception* to the very next rule
+  below — they **are** added to `skin.joints` (unlike Attachment/Event/
+  Light), always appended strictly after every real bone so real joint
+  indices 0..N-1 are never renumbered, and always parented under whatever
+  node is/would be the skin's own closest common root (the single real
+  root joint, or the synthesized multi-root parent) so `gltf_validator`'s
+  "closest common root" check keeps passing. If `emitSkeletonAndSkin`
+  (`gltf_skeleton.cpp`) is touched again: the synthesized multi-root
+  parent node's own index formula must account for
+  `skeleton->geosetTags.size()` (it sits *past* the tag-node range now,
+  not right after the real joints) — this exact class of stale-index bug
+  shipped once this session (caught by the existing `gltf_validator`-
+  backed multi-root weapon test, not by inspection) before being fixed.
+  Also: a tagged vertex's `WEIGHTS_0` and `WEIGHTS_1` must be rescaled
+  *together* so their combined sum stays 1.0 (`gltf_mesh.cpp`'s
+  `emitMeshNode`) — leaving `WEIGHTS_0` at its original full sum while
+  adding a second full-summing `WEIGHTS_1` produces a real
+  `gltf_validator` `ACCESSOR_WEIGHTS_NON_NORMALIZED` error, even though
+  Blender's own Armature modifier renormalizes at runtime regardless (this
+  project's test suite gates on zero `gltf_validator` errors, so this
+  matters even though Blender itself wouldn't visibly misrender). Separate,
+  pre-existing, NOT caused by this session's work, flagged but not fixed:
+  the real `bloodelffemale_hd.m2` fixture has 6,879 vertices with a
+  duplicate joint index within their own raw `JOINTS_0` slots (husk only
+  ever copies `m2::Vertex::boneIndices` through, never modifies it) —
+  confirmed via a standalone tinygltf-linked scan tool (scratchpad only)
+  that a clean fixture (`wolf.m2`) has zero such duplicates, so this is a
+  real data property of that one specific model, not a systemic bug;
+  whoever next touches raw M2 bone-index handling should know it's there
+  before assuming a `gltf_validator` `ACCESSOR_JOINTS_INDEX_DUPLICATE`
+  report on that fixture is new.
+- **Hazards (continued)**: the Attachment/Event/Light glTF nodes added this session
   (see Last state) follow the exact same rule as the multi-root
   synthesized parent node below — **never add them to `skin.joints`**,
   they're plain translation-only child nodes of a real joint, not bones

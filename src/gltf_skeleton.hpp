@@ -167,6 +167,44 @@ struct Skeleton {
         // alphaFadeAnimation/weightFadeAnimation above).
     };
     std::vector<Light> lights;
+
+    // One inert placeholder joint per distinct geoset ID a model's
+    // primitives carry (Primitive::skinSectionId, gltf_mesh.hpp) --
+    // GEOSET_MASK_TODO.md's mechanism for making WoW's mutually-exclusive
+    // geoset variants (hairstyles, boot cuffs, eye-glow, ...) toggleable in
+    // Blender via its Mask modifier, with zero custom Blender import
+    // tooling required. Each becomes a real `skin.joints` entry, appended
+    // strictly *after* every real bone (indices 0..joints.size()-1 above
+    // are never touched or renumbered on account of this -- the one
+    // invariant every other index-keyed payload in this struct already
+    // depends on) with an identity bind pose that is never posed or
+    // animated. Deliberately the one exception to the
+    // Attachment/Event/Light convention just above (those are plain child
+    // nodes, *never* added to `skin.joints`) -- a geoset tag must be a real
+    // skin joint, since the entire mechanism rides on Blender's stock glTF
+    // importer creating one real vertex group per skin joint as a side
+    // effect of ordinary skin-weight import (verified empirically, see
+    // GEOSET_MASK_TODO.md).
+    //
+    // emitMeshNode (gltf_mesh.cpp) does the actual tagging: any vertex
+    // touched by a Primitive whose skinSectionId matches this tag's
+    // geosetId gets that tag's joint woven into a second JOINTS_1/
+    // WEIGHTS_1 attribute set, split evenly across however many distinct
+    // tags reference it (a vertex shared at a geoset seam can carry more
+    // than one). Because the tag joint is never posed, its contribution to
+    // the real skin deformation is a verified no-op (Blender's Armature
+    // modifier normalizes total influence weight across every joint set,
+    // so an identity-pose joint changes nothing) -- this struct only ever
+    // says which geoset IDs exist; it carries no per-vertex data itself.
+    //
+    // A model with no geosets at all (`skinSectionId == -1` on every
+    // primitive, the `.skin`-less fallback case) leaves this empty --
+    // no tag joints, no JOINTS_1/WEIGHTS_1 attributes, output identical to
+    // before this existed.
+    struct GeosetTag {
+        int geosetId = 0;  // Primitive::skinSectionId this tag corresponds to
+    };
+    std::vector<GeosetTag> geosetTags;
 };
 
 // One joint's worth of keyframe data for one animation clip -- glTF's own

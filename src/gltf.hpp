@@ -98,23 +98,43 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
 // TODO: Remove: 3,807 real corpus files have zero vertices at the M2 level
 // (the real-world scale of the geometry-less case above).
 //
+// `skeleton->geosetTags`, if non-empty, adds one inert placeholder joint
+// per entry (Skeleton::GeosetTag's doc comment for the full mechanism and
+// why -- GEOSET_MASK_TODO.md) -- appended to the joint-node range right
+// after every real bone (indices 0..skeleton->joints.size()-1 above are
+// never touched or renumbered), each an identity-bind-pose node named
+// `geoset_<geosetId>`, parented under the single real root joint
+// (single-root skeletons) or the synthesized multi-root parent node
+// described below (multi-root skeletons) so the skin's "closest common
+// root" property still holds. Unlike every anchor list further below,
+// these *are* added to `skin.joints` (with their own identity inverse
+// bind matrix) -- the entire point is for Blender's stock glTF importer to
+// create one real vertex group per tag as an ordinary side effect of
+// skin-weight import. A primitive whose `skinSectionId` matches a tag's
+// `geosetId` gets that tag woven into its vertices' `JOINTS_1`/`WEIGHTS_1`
+// (gltf_mesh.cpp's emitMeshNode) -- `JOINTS_0`/`WEIGHTS_0` (real bone
+// skinning) is untouched. Empty `geosetTags`: no tag nodes, no
+// `JOINTS_1`/`WEIGHTS_1` attributes at all, output identical to before
+// this existed.
+//
 // If `skeleton` has more than one root joint (`Joint::parent == -1` on more
 // than one entry -- a real, common M2 bone-forest shape, not corruption,
 // see Skeleton's own doc comment above), one
 // additional plain (non-joint) glTF node is synthesized as the parent of
-// every real root joint, appended past the end of the joint-node range
-// (index `meshCount + skeleton->joints.size()`) with a default/identity
-// transform. It becomes the sole scene-root entry standing in for those
-// joints (each real root is still reached via this node's own `.children`,
-// not listed individually) and `skin.skeleton` is set to it -- the shape
-// glTF's own tooling ecosystem already anticipates for multi-rooted
-// skeletons. It is never added to `skin.joints` and never gets an inverse
-// bind matrix -- every vertex/emitter-anchor/correction/animation joint
-// index still refers to a real M2 bone by its original, unshifted position
-// (the one invariant this must never break -- see Skeleton's own doc
-// comment above). A single-root skeleton (the overwhelming majority of
-// real models) is unaffected: no synthetic node, `skin.skeleton` left
-// unset, output identical to before this existed.
+// every real root joint (and every geoset tag node above, if any), appended
+// past the end of the joint-node and geoset-tag-node ranges (index
+// `meshCount + skeleton->joints.size() + skeleton->geosetTags.size()`)
+// with a default/identity transform. It becomes the sole scene-root entry
+// standing in for those joints (each real root is still reached via this
+// node's own `.children`, not listed individually) and `skin.skeleton` is
+// set to it -- the shape glTF's own tooling ecosystem already anticipates
+// for multi-rooted skeletons. It is never added to `skin.joints` and never
+// gets an inverse bind matrix -- every vertex/emitter-anchor/correction/
+// animation joint index still refers to a real M2 bone by its original,
+// unshifted position (the one invariant this must never break -- see
+// Skeleton's own doc comment above). A single-root skeleton (the
+// overwhelming majority of real models) is unaffected: no synthetic node,
+// `skin.skeleton` left unset, output identical to before this existed.
 // TODO: Remove: github.com/KhronosGroup/glTF/issues/1270 (external tracker
 // citation for the multi-root shape glTF's tooling already anticipates).
 //
@@ -127,10 +147,12 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
 // joint node's own `.translation`) at `Attachment/Event/Light::position`,
 // and parented as a `.children` entry of their owning joint node -- never
 // added to `skin.joints` or given an inverse bind matrix, same invariant as
-// the synthesized multi-root parent node below. Appended past the end of
-// the joint-node range (and past the synthesized multi-root node, if any),
-// attachments first, then events, then lights. Error under the same
-// out-of-range-joint condition as every other anchor list above.
+// the synthesized multi-root parent node above (geoset tag nodes above are
+// the one deliberate exception to this convention, not these). Appended
+// past the end of the joint-node range, past the geoset-tag-node range,
+// and past the synthesized multi-root node (if any), attachments first,
+// then events, then lights. Error under the same out-of-range-joint
+// condition as every other anchor list above.
 //
 // `skeleton`/`animations` are shared across every entry, not per-mesh --
 // valid because every LOD of one M2 draws from the same `bones` array (only

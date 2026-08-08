@@ -14,6 +14,114 @@ deletions handled their own back-references).
 
 ---
 
+- **Last state**: Implemented `GEOSET_MASK_TODO.md` end to end (new this
+  session), prompted directly by Luna investigating `EYES_ON_FINDINGS.md`'s
+  eye-glow finding and then asking how Blender's Mask modifier could hide
+  WoW's mutually-exclusive geoset variants (hairstyles, boot cuffs,
+  eye-glow, ...) that husk exports unfiltered (no DB2 customization data,
+  `DESIGN.md`'s Non-goals). Landed on a real, verified mechanism: extra
+  inert "tag" joints appended to the existing skin (never real bones,
+  never posed) woven into a second `JOINTS_1`/`WEIGHTS_1` attribute set per
+  geoset ID -- Blender's *stock* glTF importer creates one real vertex
+  group per skin joint as an ordinary side effect of skin-weight import, so
+  this needed zero custom Blender-side mesh-parsing (a competing "custom
+  importer that bypasses Blender's own vertex compaction" design was tried
+  and rejected first -- confirmed empirically that Blender's stock importer
+  does *not* preserve a 1:1 accessor-index<->Blender-vertex-index mapping,
+  195,498 raw positions became 32,939 Blender vertices on a real export,
+  ruling out any "read the raw index buffers, poke Blender's post-import
+  mesh" shortcut). Also empirically verified, before writing any code: (1)
+  stacking a full second 1.0-summing weight set on top of real bone weights
+  doesn't distort deformation, because Blender's Armature modifier
+  renormalizes total influence weight across every joint set at evaluation
+  time regardless of what's stored (posed a real bone, checked the actual
+  deformed vertex position via `evaluated_get`'s depsgraph -- moved by
+  exactly the pose delta, not doubled); (2) Blender vertex groups are
+  mesh-owned data, independent of the armature's bones -- deleting a fake
+  tag bone post-import leaves its vertex group/weights completely
+  untouched and a Mask modifier targeting it keeps working, verified before
+  and after deletion, plus a clean re-export afterward. A real, separate
+  dual-armature alternative (avoid touching the real skin at all) was also
+  raised, investigated, and ruled out with a concrete technical reason
+  (different `JOINTS_0` data per node requires a genuinely separate glTF
+  mesh entry, which Blender's importer does *not* auto-share vertex-group
+  data across the way it does for two nodes pointing at the literal same
+  mesh index) -- written up in the TODO doc rather than silently dropped.
+
+  Implementation: `Skeleton::geosetTags` (`gltf_skeleton.hpp`) — one tag
+  joint per distinct geoset ID, appended to `skin.joints` strictly after
+  every real bone (the one invariant this whole codebase protects
+  religiously -- multi-root synthesized-parent-node precedent followed
+  exactly: parented under the single real root joint, or the synthesized
+  multi-root parent, so the skin's "closest common root" property still
+  holds for `gltf_validator`). `emitMeshNode` (`gltf_mesh.cpp`) builds
+  `JOINTS_1`/`WEIGHTS_1` from `Primitive::skinSectionId`, splitting weight
+  evenly across however many distinct tags touch a seam vertex.
+  `cmd_export.cpp` populates `geosetTags` from the union of distinct
+  `skinSectionId`s already collected for the existing geoset-extras
+  feature (`BuiltMaterials::distinctSkinSectionIds`, no new collection
+  logic needed). A real bug was caught by this project's own
+  gltf-validator-backed test suite before landing, not after: a tagged
+  vertex's combined weight total across both sets was 2.0, which
+  `gltf_validator` correctly flags (`ACCESSOR_WEIGHTS_NON_NORMALIZED`)
+  even though Blender's own runtime renormalizes regardless -- fixed by
+  rescaling *both* sets down together per tagged vertex so the stored
+  combined total is exactly 1.0 again, a pure file-format fix with a
+  provable zero effect on Blender's actual rendering. A second real bug,
+  same class of catch: the multi-root synthesized parent node's own index
+  formula wasn't updated to account for the newly-inserted tag-node range,
+  producing `gltf_validator` "not a common root"/"not a root node" errors
+  on a real multi-root weapon fixture -- caught by the existing test suite,
+  fixed by correcting the index arithmetic.
+
+  Verified at real scale, not just synthetic fixtures: a standalone
+  tinygltf-linked scan tool (scratchpad only, not committed) confirmed
+  every vertex's combined `WEIGHTS_0`+`WEIGHTS_1` sum is exactly 1.0 across
+  the real `bloodelffemale_hd.m2` export (113 geoset IDs, 245 real bones ->
+  358 skin joints). That same real export surfaced 1.5M+ raw
+  `gltf_validator` messages when run with full resource validation on --
+  traced down to a pre-existing, unrelated data property (6,879 vertices
+  with a duplicate joint index in their own raw `JOINTS_0` slots, husk
+  never modifies those values, only copies them through from the M2's own
+  `boneIndices`) and confirmed *not* caused by this session's work: a
+  clean fixture already covered by an existing "zero errors" conformance
+  test (`wolf.m2`, with the new tag joints active) scans with zero bad
+  sums and zero duplicate joints via the same tool. Flagged in
+  `GEOSET_MASK_TODO.md` for whoever next touches raw M2 bone-index
+  handling, out of scope for this feature.
+
+  Four existing conformance tests needed their hardcoded
+  `skin.joints.size() == header.bones.count` assertions updated to account
+  for the real, legitimate growth (`+ <distinct geoset ID count>`, counted
+  independently from each primitive's own `geoset_id` extras as a real
+  cross-check, not a tautology) -- expected per the TODO doc's own
+  prediction, not a regression. Two new synthetic unit tests
+  (`tests/test_gltf_skeleton.cpp`) lock in the mechanism directly: tag
+  joint naming/parenting/`JOINTS_1`/`WEIGHTS_1` values including the
+  rescale, and a no-`geosetTags` case proving zero footprint when unused.
+  Full suite green, 532/532.
+
+  Stage 6, the companion Blender script
+  (`tools/husk_blender_geoset_mask.py`) -- explicitly anticipated back in
+  an earlier session's `DESIGN.md` note ("a companion Blender-side script
+  that hides extras-tagged-but-visible geometry post-import is real,
+  deliberate usability tooling for later... deferred until someone
+  actually wants to *use* exports interactively," which is exactly what
+  this session's prompt was) -- walks every `geoset_<id>` vertex group,
+  groups by `geoset_group` (`id // 100`, matching husk's own extras
+  convention), adds one invert-mode Mask modifier per non-default variant
+  (lowest ID kept visible, same disclaimed-placeholder-default precedent
+  as `orderCandidatesForDefault` elsewhere in this project), then deletes
+  every tag bone from the armature. Verified end to end against the real
+  export: 358 armature bones before running the script, 245 after (tag
+  bones fully removed, matching the real M2 bone count exactly); 90 Mask
+  modifiers created correctly; all 358 vertex groups still present after
+  bone deletion; the actual evaluated (post-modifier) mesh drops from
+  32,939 raw vertices to 4,232 visible ones -- masking is genuinely doing
+  something, not a no-op. This closes out every stage of the plan.
+
+---
+
 - **Last state**: Closed `TODO_correctness.md`'s former item 4
   (texture-transform pivot-correction math, constant case), picked as a
   self-contained task to work through solo (no DB2/casc-tool dependency

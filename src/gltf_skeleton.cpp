@@ -100,17 +100,26 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
     if (!hasSkeleton) return out;
 
     std::vector<float> ibmFlat;
-    ibmFlat.reserve(skeleton->joints.size() * 16);
+    ibmFlat.reserve((skeleton->joints.size() + skeleton->geosetTags.size()) * 16);
     for (const auto& j : skeleton->joints) {
         const Vec3& p = j.globalPosition;
         float m[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -p.x, -p.y, -p.z, 1};
         ibmFlat.insert(ibmFlat.end(), std::begin(m), std::end(m));
     }
+    // Geoset tag joints (Skeleton::GeosetTag) sit at the identity bind pose
+    // -- they're never posed/animated, so a plain identity inverse bind
+    // matrix is correct (not an approximation): a joint that never moves
+    // from its bind pose contributes weight * identity * vertex, a verified
+    // no-op on real skin deformation (GEOSET_MASK_TODO.md).
+    static constexpr float kIdentityIbm[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    for (size_t i = 0; i < skeleton->geosetTags.size(); ++i) {
+        ibmFlat.insert(ibmFlat.end(), std::begin(kIdentityIbm), std::end(kIdentityIbm));
+    }
     int ibmView = appendBufferView(buffer, views, ibmFlat, /*target=*/0);
     tinygltf::Accessor ibmAcc;
     ibmAcc.bufferView = ibmView;
     ibmAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
-    ibmAcc.count = skeleton->joints.size();
+    ibmAcc.count = skeleton->joints.size() + skeleton->geosetTags.size();
     ibmAcc.type = TINYGLTF_TYPE_MAT4;
     int ibmAccIdx = static_cast<int>(accessors.size());
     accessors.push_back(ibmAcc);
@@ -142,14 +151,47 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
     }
     if (out.rootJointNodeIndices.size() > 1) {
         out.hasSyntheticRoot = true;
-        out.syntheticRootNodeIndex = static_cast<int>(meshCount + skeleton->joints.size());
+        // Past the joint-node range *and* past the geoset-tag-node range
+        // (gltf.cpp pushes mesh, then joint, then tag, then this node, in
+        // that order) -- geosetTags.size() is already known here even
+        // though the tag nodes themselves aren't built until just below.
+        out.syntheticRootNodeIndex =
+            static_cast<int>(meshCount + skeleton->joints.size() + skeleton->geosetTags.size());
         out.syntheticRootNode.children = out.rootJointNodeIndices;
+    }
+
+    // Geoset tag joints (Skeleton::GeosetTag): one identity-pose node each,
+    // appended right after the real joint-node range. Parented under
+    // whatever node is (or would be) the skin's own "closest common root"
+    // -- the synthesized multi-root parent when one exists, else the
+    // single real root joint directly -- so adding these never breaks that
+    // glTF-required property of a skin's joint hierarchy. Also pushed onto
+    // `skin.joints` itself below, unlike Attachment/Event/Light nodes.
+    int tagParentLocalIdx = -1;  // index into skeleton->joints, single-root case only
+    if (!out.hasSyntheticRoot && !out.rootJointNodeIndices.empty()) {
+        tagParentLocalIdx = out.rootJointNodeIndices.front() - static_cast<int>(meshCount);
+    }
+    out.geosetTagNodes.resize(skeleton->geosetTags.size());
+    for (size_t i = 0; i < skeleton->geosetTags.size(); ++i) {
+        int nodeIdx = static_cast<int>(meshCount + skeleton->joints.size() + i);
+        out.geosetTagNodes[i].name = "geoset_" + std::to_string(skeleton->geosetTags[i].geosetId);
+        out.geosetTagNodes[i].translation = {0, 0, 0};
+        out.geosetTagJointIndex[skeleton->geosetTags[i].geosetId] =
+            static_cast<uint32_t>(skeleton->joints.size() + i);
+        if (out.hasSyntheticRoot) {
+            out.syntheticRootNode.children.push_back(nodeIdx);
+        } else if (tagParentLocalIdx >= 0) {
+            out.jointNodes[static_cast<size_t>(tagParentLocalIdx)].children.push_back(nodeIdx);
+        }
     }
 
     tinygltf::Skin skin;
     skin.inverseBindMatrices = ibmAccIdx;
     for (size_t i = 0; i < skeleton->joints.size(); ++i) {
         skin.joints.push_back(static_cast<int>(meshCount + i));
+    }
+    for (size_t i = 0; i < skeleton->geosetTags.size(); ++i) {
+        skin.joints.push_back(static_cast<int>(meshCount + skeleton->joints.size() + i));
     }
     // A skin's implicit skeleton root (when `skeleton` is unset) is the
     // common parent of every joint, which doesn't exist for a real
@@ -239,11 +281,12 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
     // same convention as a joint node's own `.translation`, parented as a
     // `.children` entry of the owning joint node. Node index is computed
     // relative to this call's own running `out.anchorNodes.size()` since
-    // these are appended past the joint-node (and, if present, synthesized
-    // multi-root) range -- see gltf.hpp's writeGlbMulti doc comment for the
-    // full node-index layout this reproduces.
+    // these are appended past the joint-node range, past geosetTagNodes,
+    // and past the synthesized multi-root node (if present) -- see
+    // gltf.hpp's writeGlbMulti doc comment for the full node-index layout
+    // this reproduces.
     auto appendAnchorNode = [&](const std::string& name, int joint, const Vec3& position) {
-        int nodeIdx = static_cast<int>(meshCount + skeleton->joints.size() +
+        int nodeIdx = static_cast<int>(meshCount + skeleton->joints.size() + skeleton->geosetTags.size() +
                                         (out.hasSyntheticRoot ? 1 : 0) + out.anchorNodes.size());
         tinygltf::Node node;
         node.name = name;

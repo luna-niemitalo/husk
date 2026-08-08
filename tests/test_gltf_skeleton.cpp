@@ -429,6 +429,98 @@ TEST_CASE("writeGlb: attachment/event/light nodes coexist with bone_correction_s
     CHECK(found == 3);
 }
 
+// GEOSET_MASK_TODO.md's core mechanism: one placeholder joint per distinct
+// geoset ID, appended to skin.joints after every real bone, woven into a
+// second JOINTS_1/WEIGHTS_1 set for whichever vertices its primitive
+// touches -- with both weight sets rescaled so the combined per-vertex
+// total is still 1.0 (a real gltf-validator run caught the unscaled
+// version emitting a "non-normalized sum: 2.0" error on both sets).
+TEST_CASE("writeGlb: a geoset tag becomes an extra skin joint with real JOINTS_1/WEIGHTS_1 data, "
+          "real bone weights rescaled to keep the combined per-vertex total at 1.0") {
+    auto mesh = buildSkinnedTriangleMesh();
+    mesh.primitives[0].skinSectionId = 401;
+    auto skel = buildChainSkeleton();
+    skel.geosetTags = {{401}};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.skins.size() == 1);
+    const auto& skin = model.skins[0];
+    // 3 real joints + 1 geoset tag joint -- the real joints' own indices
+    // (0..2) must stay exactly as they were before this feature existed.
+    REQUIRE(skin.joints.size() == 4);
+    int tagNode = skin.joints[3];
+    CHECK(model.nodes[tagNode].name == "geoset_401");
+    // Never posed: identity translation, no rotation/scale override.
+    REQUIRE(model.nodes[tagNode].translation.size() == 3);
+    CHECK(model.nodes[tagNode].translation[0] == doctest::Approx(0));
+    CHECK(model.nodes[tagNode].translation[1] == doctest::Approx(0));
+    CHECK(model.nodes[tagNode].translation[2] == doctest::Approx(0));
+    // Parented under the single real root joint (skin.joints[0]) -- a
+    // genuine descendant, preserving the "closest common root" property a
+    // skin's joint hierarchy needs, not a bare, unreachable extra node.
+    int rootNode = skin.joints[0];
+    CHECK(std::find(model.nodes[rootNode].children.begin(), model.nodes[rootNode].children.end(),
+                     tagNode) != model.nodes[rootNode].children.end());
+
+    const auto& prim = model.meshes[0].primitives[0];
+    REQUIRE(prim.attributes.count("JOINTS_1") == 1);
+    REQUIRE(prim.attributes.count("WEIGHTS_1") == 1);
+
+    const auto& j1Acc = model.accessors[prim.attributes.at("JOINTS_1")];
+    REQUIRE(j1Acc.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT);
+    REQUIRE(j1Acc.count == 3);
+    const auto& j1View = model.bufferViews[j1Acc.bufferView];
+    const auto& j1Buf = model.buffers[j1View.buffer];
+    std::vector<uint16_t> joints1(4 * 3);
+    std::memcpy(joints1.data(), j1Buf.data.data() + j1View.byteOffset + j1Acc.byteOffset,
+                joints1.size() * sizeof(uint16_t));
+    const auto& w1Acc = model.accessors[prim.attributes.at("WEIGHTS_1")];
+    const auto& w1View = model.bufferViews[w1Acc.bufferView];
+    const auto& w1Buf = model.buffers[w1View.buffer];
+    std::vector<float> weights1(4 * 3);
+    std::memcpy(weights1.data(), w1Buf.data.data() + w1View.byteOffset + w1Acc.byteOffset,
+                weights1.size() * sizeof(float));
+
+    const auto& w0Acc = model.accessors[prim.attributes.at("WEIGHTS_0")];
+    const auto& w0View = model.bufferViews[w0Acc.bufferView];
+    const auto& w0Buf = model.buffers[w0View.buffer];
+    std::vector<float> weights0(4 * 3);
+    std::memcpy(weights0.data(), w0Buf.data.data() + w0View.byteOffset + w0Acc.byteOffset,
+                weights0.size() * sizeof(float));
+
+    // Every vertex is touched by this primitive (its only one), so every
+    // vertex is tagged with skin-relative joint index 3 (the tag) at 0.5
+    // -- and its real-bone WEIGHTS_0 (originally a full 1.0 to a single
+    // joint) rescaled down to 0.5 too, keeping the combined total at 1.0.
+    for (size_t v = 0; v < 3; ++v) {
+        CHECK(joints1[v * 4 + 0] == 3);
+        CHECK(weights1[v * 4 + 0] == doctest::Approx(0.5));
+        CHECK(weights0[v * 4 + 0] == doctest::Approx(0.5));
+        float total = weights0[v * 4 + 0] + weights1[v * 4 + 0];
+        CHECK(total == doctest::Approx(1.0));
+    }
+}
+
+// A model with no geosets at all (every Primitive::skinSectionId left at
+// -1, the .skin-less fallback case) must be completely unaffected -- no
+// tag joints, no JOINTS_1/WEIGHTS_1 attributes, output identical to before
+// this feature existed.
+TEST_CASE("writeGlb: no geosetTags means no tag joints and no JOINTS_1/WEIGHTS_1 at all") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.skins.size() == 1);
+    CHECK(model.skins[0].joints.size() == 3);
+    const auto& prim = model.meshes[0].primitives[0];
+    CHECK(prim.attributes.count("JOINTS_1") == 0);
+    CHECK(prim.attributes.count("WEIGHTS_1") == 0);
+}
+
 // A single writeGlb mesh may legitimately share a skeleton without being
 // skinned by it (empty mesh.skinning opts out -- see writeGlbMulti's doc
 // comment); the still-real error case is skinning data that's *present*

@@ -448,7 +448,8 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
                            std::vector<tinygltf::Texture>& textures,
                            std::vector<tinygltf::Material>& tinyMaterials, bool& usedUnlitExtension,
                            bool& usedTextureTransformExtension,
-                           std::unordered_map<std::string, int>& alternateTextureCache) {
+                           std::unordered_map<std::string, int>& alternateTextureCache,
+                           const std::unordered_map<int, uint32_t>& geosetTagJointIndex) {
     const Mesh& mesh = nm.mesh;
     size_t n = mesh.positions.size();
     bool hasTexCoords2 = !mesh.texCoords2.empty();
@@ -512,7 +513,7 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
     // export). Validated by validateMeshes above: non-empty skinning must
     // match `n` exactly when a skeleton exists; empty is always allowed.
     bool meshIsSkinned = hasSkeleton && !mesh.skinning.empty();
-    int jAccIdx = -1, wAccIdx = -1;
+    int jAccIdx = -1, wAccIdx = -1, j1AccIdx = -1, w1AccIdx = -1;
     if (meshIsSkinned) {
         std::vector<std::array<uint8_t, 4>> jointsFlat;
         std::vector<std::array<float, 4>> weightsFlat;
@@ -526,6 +527,73 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
             std::copy(std::begin(jw.weights), std::end(jw.weights), w.begin());
             weightsFlat.push_back(w);
         }
+
+        // Geoset tag joints (Skeleton::GeosetTag / GEOSET_MASK_TODO.md): a
+        // second JOINTS_1/WEIGHTS_1 set weaving each vertex into every
+        // distinct geoset tag a primitive referencing it maps to (via
+        // Primitive::skinSectionId -> geosetTagJointIndex) -- a vertex
+        // shared at a geoset seam can genuinely belong to more than one,
+        // capped at 4 (glTF's own per-set influence limit; real M2 submesh
+        // splits don't produce 5-way vertex sharing in practice, so a 5th
+        // distinct tag on one vertex is silently dropped rather than
+        // plumbing a JOINTS_2/WEIGHTS_2 set for a case never seen).
+        // UNSIGNED_SHORT (not UNSIGNED_BYTE, unlike JOINTS_0): a tag
+        // joint's skin-relative index is realJointCount + tagIndex, which
+        // exceeds 255 on real models with 200+ bones and 50+ geosets (e.g.
+        // bloodelffemale_hd.m2: 245 + 114 = 359).
+        //
+        // glTF requires a vertex's *combined* weight across every joint
+        // set to sum to 1.0, not each set independently (a real
+        // gltf-validator run caught this: WEIGHTS_0 alone already sums to
+        // 1.0, so naively adding a full second 1.0 in WEIGHTS_1 produces a
+        // combined 2.0 -- "non-normalized sum" errors on both accessors).
+        // Fixed by rescaling *both* sets down by the same factor for any
+        // tagged vertex so the combined total is exactly 1.0 again --
+        // provably a no-op on the actual Blender deformation, not just a
+        // paperwork fix: Blender's Armature modifier was verified
+        // (GEOSET_MASK_TODO.md) to renormalize total influence weight
+        // across every joint set at evaluation time regardless of what's
+        // stored, so 0.5/0.5 deforms identically to an unscaled 1.0/1.0 --
+        // this only changes what's written to the file, not what Blender
+        // ever computes from it.
+        std::vector<std::array<uint16_t, 4>> joints1Flat;
+        std::vector<std::array<float, 4>> weights1Flat;
+        if (!geosetTagJointIndex.empty()) {
+            std::vector<std::vector<uint32_t>> vertexTags(n);
+            for (const auto& p : mesh.primitives) {
+                if (p.skinSectionId < 0) continue;
+                auto it = geosetTagJointIndex.find(p.skinSectionId);
+                if (it == geosetTagJointIndex.end()) continue;
+                uint32_t tagJoint = it->second;
+                for (uint32_t idx : p.indices) {
+                    auto& tags = vertexTags[idx];
+                    if (std::find(tags.begin(), tags.end(), tagJoint) == tags.end() && tags.size() < 4) {
+                        tags.push_back(tagJoint);
+                    }
+                }
+            }
+            bool anyTagged = std::any_of(vertexTags.begin(), vertexTags.end(),
+                                          [](const auto& t) { return !t.empty(); });
+            if (anyTagged) {
+                joints1Flat.assign(n, {0, 0, 0, 0});
+                weights1Flat.assign(n, {0, 0, 0, 0});
+                for (size_t vi = 0; vi < n; ++vi) {
+                    const auto& tags = vertexTags[vi];
+                    if (tags.empty()) continue;
+                    float tagWeight = 1.0f / static_cast<float>(tags.size());
+                    for (size_t k = 0; k < tags.size(); ++k) {
+                        joints1Flat[vi][k] = static_cast<uint16_t>(tags[k]);
+                        weights1Flat[vi][k] = tagWeight;
+                    }
+                    float total = tagWeight * static_cast<float>(tags.size());
+                    for (float w : weightsFlat[vi]) total += w;
+                    if (total <= 0.0f) continue;
+                    for (float& w : weightsFlat[vi]) w /= total;
+                    for (float& w : weights1Flat[vi]) w /= total;
+                }
+            }
+        }
+
         int jointsView = appendBufferView(buffer, views, jointsFlat, TINYGLTF_TARGET_ARRAY_BUFFER);
         int weightsView = appendBufferView(buffer, views, weightsFlat, TINYGLTF_TARGET_ARRAY_BUFFER);
 
@@ -544,6 +612,27 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
         wAcc.type = TINYGLTF_TYPE_VEC4;
         wAccIdx = static_cast<int>(accessors.size());
         accessors.push_back(wAcc);
+
+        if (!joints1Flat.empty()) {
+            int j1View = appendBufferView(buffer, views, joints1Flat, TINYGLTF_TARGET_ARRAY_BUFFER);
+            int w1View = appendBufferView(buffer, views, weights1Flat, TINYGLTF_TARGET_ARRAY_BUFFER);
+
+            tinygltf::Accessor j1Acc;
+            j1Acc.bufferView = j1View;
+            j1Acc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT;
+            j1Acc.count = n;
+            j1Acc.type = TINYGLTF_TYPE_VEC4;
+            j1AccIdx = static_cast<int>(accessors.size());
+            accessors.push_back(j1Acc);
+
+            tinygltf::Accessor w1Acc;
+            w1Acc.bufferView = w1View;
+            w1Acc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+            w1Acc.count = n;
+            w1Acc.type = TINYGLTF_TYPE_VEC4;
+            w1AccIdx = static_cast<int>(accessors.size());
+            accessors.push_back(w1Acc);
+        }
     }
 
     // Materials/images/textures: appended into the shared, model-wide
@@ -579,6 +668,10 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
         if (jAccIdx >= 0) {
             tp.attributes["JOINTS_0"] = jAccIdx;
             tp.attributes["WEIGHTS_0"] = wAccIdx;
+        }
+        if (j1AccIdx >= 0) {
+            tp.attributes["JOINTS_1"] = j1AccIdx;
+            tp.attributes["WEIGHTS_1"] = w1AccIdx;
         }
         tp.indices = idxAccIdx;
         tp.mode = TINYGLTF_MODE_TRIANGLES;
