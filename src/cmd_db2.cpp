@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -119,6 +120,14 @@ void printSections(const db2::File& file) {
             std::cout << "  (offset-map/sparse -- per-field decode not implemented, see --rows output)";
         }
         std::cout << "\n";
+        if (s.hasRelationshipMap()) {
+            std::cout << "    relationship_map: " << s.relationshipEntries.size() << " entries, id range ["
+                       << s.relationshipMinId << ", " << s.relationshipMaxId << "]\n";
+            for (size_t j = 0; j < std::min<size_t>(3, s.relationshipEntries.size()); ++j) {
+                std::cout << "      foreign_id=" << s.relationshipEntries[j].foreignId
+                           << "  record=" << s.relationshipEntries[j].recordIndexOrId << "\n";
+            }
+        }
     }
 }
 
@@ -235,12 +244,12 @@ struct OutputColumn {
 // other record's.
 std::vector<std::vector<OutputColumn>> buildColumnPlan(
     const db2::File& file, const db2::Section& sampleSection,
-    const std::optional<std::vector<std::pair<std::string, dbd::ColumnType>>>& dbdNames) {
+    const std::optional<std::vector<dbd::Column>>& dbdNames) {
     std::vector<std::vector<OutputColumn>> plan(file.fieldStorageInfo.size());
     for (size_t f = 0; f < file.fieldStorageInfo.size(); ++f) {
-        std::string baseName = dbdNames ? sanitizeIdentifier((*dbdNames)[f].first)
+        std::string baseName = dbdNames ? sanitizeIdentifier((*dbdNames)[f].name)
                                          : "field_" + std::to_string(f);
-        bool isFloat = dbdNames && (*dbdNames)[f].second == dbd::ColumnType::Float;
+        bool isFloat = dbdNames && (*dbdNames)[f].type == dbd::ColumnType::Float;
         std::vector<uint64_t> sample = db2::decodeField(file, sampleSection, 0, f);
         if (sample.size() == 1) {
             plan[f].push_back({baseName, isFloat});
@@ -288,98 +297,255 @@ void bindFieldValues(sqlite3_stmt* stmt, int firstBindIndex, const db2::File& fi
     }
 }
 
+// One .db2 file, parsed and resolved, ready to become one SQLite table --
+// shared shape between single-file and `--dir` multi-file export so table
+// creation/row insertion (writeFileTable) doesn't care which mode produced
+// it.
+struct LoadedFile {
+    std::string path;
+    db2::File file;
+    std::vector<uint8_t> bytes;
+    std::string tableName;
+    std::optional<std::vector<dbd::Column>> dbdNames;
+    // Real column name for header.flags & 0x04 ("has non-inline IDs") --
+    // this ID occupies no WDC5 field-array slot at all, so it never shows
+    // up in dbdNames/generic field_<N> naming and needs a column of its own
+    // (see writeFileTable). Resolved from the DBD layout's own "$id$"/
+    // "$noninline,id$" annotation when available, else a plain "id"
+    // fallback -- same "never fetched, optional" tier as dbdNames.
+    std::optional<std::string> nonInlineIdColumnName;
+    std::vector<size_t> usableSectionIndices;  // indices into file.sections
+    size_t skippedEncrypted = 0;
+    size_t skippedOffsetMap = 0;
+};
+
+// Reads and parses one .db2 file, resolving its table name/columns via
+// `dbdDir` if given. Returns nullopt (after printing a diagnostic to `err`)
+// for any per-file problem -- a bad or empty file shouldn't abort an entire
+// `--dir` batch; the single-file caller treats nullopt as a hard failure.
+std::optional<LoadedFile> loadOneFile(const std::string& path, const std::string& dbdDir,
+                                       std::ostream& err) {
+    LoadedFile lf;
+    lf.path = path;
+    try {
+        lf.bytes = readFileBytes(path);
+        lf.file = db2::parse(lf.bytes);
+    } catch (const std::exception& e) {
+        err << "husk: db2-export: couldn't read '" << path << "': " << e.what() << " -- skipped\n";
+        return std::nullopt;
+    }
+
+    for (size_t i = 0; i < lf.file.sections.size(); ++i) {
+        const db2::Section& s = lf.file.sections[i];
+        if (s.header.tactKeyHash != 0) {
+            ++lf.skippedEncrypted;
+            continue;
+        }
+        if (!s.offsetMap.empty()) {
+            ++lf.skippedOffsetMap;
+            continue;
+        }
+        lf.usableSectionIndices.push_back(i);
+    }
+    if (lf.usableSectionIndices.empty()) {
+        err << "husk: db2-export: '" << path
+            << "' has no decodable fixed-width section (every section is encrypted and/or "
+               "offset-map/sparse) -- skipped\n";
+        return std::nullopt;
+    }
+
+    lf.tableName = sanitizeIdentifier(std::filesystem::path(path).stem().string());
+    if (!dbdDir.empty()) {
+        std::optional<dbd::Table> dbdTable = dbd::loadTableForHash(dbdDir, lf.file.header.tableHash);
+        if (dbdTable) {
+            lf.tableName = sanitizeIdentifier(dbdTable->tableName);
+            const dbd::Layout* layout = dbd::findLayout(*dbdTable, lf.file.header.layoutHash);
+            if (layout) {
+                lf.dbdNames = dbd::resolveFieldNames(*dbdTable, *layout, lf.file.fieldStorageInfo.size());
+                lf.nonInlineIdColumnName = dbd::findIdFieldName(*layout);
+            }
+        }
+        if (!lf.dbdNames) {
+            err << "husk: db2-export: no matching WoWDBDefs layout for '" << path
+                << "' (table_hash=0x" << std::hex << lf.file.header.tableHash << " layout_hash=0x"
+                << lf.file.header.layoutHash << std::dec
+                << ") -- falling back to generic field_<N> column names\n";
+        }
+    }
+    if ((lf.file.header.flags & 0x04) != 0 && !lf.nonInlineIdColumnName) {
+        lf.nonInlineIdColumnName = "id";  // no DBD name resolved -- still real, decodable data
+    }
+    return lf;
+}
+
+// Creates `lf`'s table and inserts every row, returning the row count.
+// `availableTables` is the set of real (DBD-resolved) table names present
+// elsewhere in this same export batch -- a column's FK constraint is only
+// ever emitted when its relation target is one of these; a target table not
+// in the batch degrades to a plain, unconstrained column (a real, expected
+// case, not an error).
+size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::string>& availableTables) {
+    const db2::Section& sampleSection = lf.file.sections[lf.usableSectionIndices[0]];
+    std::vector<std::vector<OutputColumn>> plan = buildColumnPlan(lf.file, sampleSection, lf.dbdNames);
+
+    std::string idSqlName = lf.nonInlineIdColumnName ? sanitizeIdentifier(*lf.nonInlineIdColumnName) : "";
+
+    std::ostringstream createSql;
+    createSql << "CREATE TABLE \"" << lf.tableName << "\" (db2_section INTEGER, db2_record INTEGER";
+    if (!idSqlName.empty()) {
+        createSql << ", \"" << idSqlName << "\" INTEGER";
+    }
+    std::vector<std::string> fkClauses;
+    for (size_t f = 0; f < plan.size(); ++f) {
+        for (const OutputColumn& c : plan[f]) {
+            createSql << ", \"" << c.sqlName << "\" " << (c.isFloat ? "REAL" : "");
+        }
+        if (lf.dbdNames && plan[f].size() == 1 && (*lf.dbdNames)[f].relation) {
+            const dbd::RelationTarget& rel = (*lf.dbdNames)[f].relation.value();
+            std::string targetTable = sanitizeIdentifier(rel.targetTable);
+            if (availableTables.count(targetTable) > 0) {
+                fkClauses.push_back("FOREIGN KEY (\"" + plan[f][0].sqlName + "\") REFERENCES \"" +
+                                     targetTable + "\"(\"" + sanitizeIdentifier(rel.targetColumn) + "\")");
+            }
+        }
+    }
+    for (const std::string& fk : fkClauses) createSql << ", " << fk;
+    createSql << ")";
+    sqliteCheck(sqlite3_exec(db, createSql.str().c_str(), nullptr, nullptr, nullptr), db,
+                "CREATE TABLE \"" + lf.tableName + "\"");
+
+    std::ostringstream insertSql;
+    insertSql << "INSERT INTO \"" << lf.tableName << "\" VALUES (?, ?" << (idSqlName.empty() ? "" : ", ?");
+    size_t totalColumns = 0;
+    for (const auto& cols : plan) totalColumns += cols.size();
+    for (size_t i = 0; i < totalColumns; ++i) insertSql << ", ?";
+    insertSql << ")";
+
+    sqlite3_stmt* stmt = nullptr;
+    sqliteCheck(sqlite3_prepare_v2(db, insertSql.str().c_str(), -1, &stmt, nullptr), db,
+                "prepare INSERT into \"" + lf.tableName + "\"");
+
+    size_t rowCount = 0;
+    for (size_t sectionIndex : lf.usableSectionIndices) {
+        const db2::Section& section = lf.file.sections[sectionIndex];
+        for (uint32_t r = 0; r < section.header.recordCount; ++r) {
+            sqlite3_reset(stmt);
+            sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(sectionIndex));
+            sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(r));
+            int bindIndex = 3;
+            if (!idSqlName.empty()) {
+                sqlite3_bind_int64(stmt, bindIndex,
+                                    static_cast<sqlite3_int64>(db2::recordId(lf.file, section, r)));
+                ++bindIndex;
+            }
+            for (size_t f = 0; f < lf.file.fieldStorageInfo.size(); ++f) {
+                std::vector<uint64_t> values = db2::decodeField(lf.file, section, r, f);
+                bool isFloat = !plan[f].empty() && plan[f][0].isFloat;
+                bindFieldValues(stmt, bindIndex, lf.file, section, lf.bytes, r, f, values, isFloat);
+                bindIndex += static_cast<int>(values.size());
+            }
+            int rc = sqlite3_step(stmt);
+            sqliteCheck(rc, db, "INSERT into \"" + lf.tableName + "\"");
+            ++rowCount;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return rowCount;
+}
+
 }  // namespace
 
 int db2Export(int argc, char** args) {
     static const char* usage =
         "usage: husk db2-export <file.db2> <out.sqlite> [--dbd-dir DIR]\n"
+        "       husk db2-export --dir <db2-dir> <out.sqlite> [--dbd-dir DIR]\n"
         "\n"
-        "Converts a WDC5 DB2 file to a real SQLite database, one table per\n"
-        "file (named from the DBD table name if resolved, else the input\n"
-        "file's own basename). Every fixed-width, unencrypted section's\n"
-        "records are exported; offset-map/sparse and TACT-encrypted sections\n"
-        "are skipped (see db2.hpp's module comment) -- a count of skipped\n"
-        "records is printed, never silently dropped.\n"
+        "Converts one WDC5 DB2 file, or (with --dir) every *.db2 file in a\n"
+        "directory, to a real SQLite database -- one table per file, named\n"
+        "from the DBD table name if resolved, else the input file's own\n"
+        "basename. Every fixed-width, unencrypted section's records are\n"
+        "exported; offset-map/sparse and TACT-encrypted sections are skipped\n"
+        "(see db2.hpp's module comment) -- a count of skipped records is\n"
+        "printed, never silently dropped. In --dir mode, a file that can't be\n"
+        "parsed or has nothing exportable is skipped (with a diagnostic),\n"
+        "not treated as a fatal error for the whole batch.\n"
         "\n"
         "--dbd-dir DIR: a local WoWDBDefs checkout (github.com/wowdev/\n"
         "WoWDBDefs -- manifest.json + definitions/*.dbd), used to resolve\n"
-        "real column names/types for this file's own table_hash/layout_hash.\n"
+        "real column names/types for each file's own table_hash/layout_hash.\n"
         "Optional -- without it, or if no matching layout is found, columns\n"
         "are named field_<N> instead. husk never fetches or bundles this\n"
-        "data itself.\n";
+        "data itself. In --dir mode, a column with a real WoWDBDefs foreign-\n"
+        "key target also gets a real SQLite FOREIGN KEY constraint, but only\n"
+        "when the target table is also part of this same export batch --\n"
+        "otherwise it stays a plain, unconstrained column.\n";
 
     if (argc >= 1 && isHelpFlag(args[0])) {
         std::cout << usage;
         return 0;
     }
-    if (argc != 2 && argc != 4) {
-        std::cerr << usage;
-        return 1;
-    }
-    std::string inputPath = args[0];
-    std::string outputPath = args[1];
-    std::string dbdDir;
-    if (argc == 4) {
-        if (std::string(args[2]) != "--dbd-dir") {
+
+    bool dirMode = argc >= 1 && std::string(args[0]) == "--dir";
+    std::string inputPath, dirPath, outputPath, dbdDir;
+    if (dirMode) {
+        if (argc != 3 && argc != 5) {
             std::cerr << usage;
             return 1;
         }
-        dbdDir = args[3];
-    }
-
-    db2::File file;
-    std::vector<uint8_t> bytes;
-    try {
-        bytes = readFileBytes(inputPath);
-        file = db2::parse(bytes);
-    } catch (const std::exception& e) {
-        std::cerr << "husk: couldn't read '" << inputPath << "': " << e.what() << "\n";
-        return 1;
-    }
-
-    std::vector<db2::Section*> usableSections;
-    size_t skippedEncrypted = 0;
-    size_t skippedOffsetMap = 0;
-    for (db2::Section& s : file.sections) {
-        if (s.header.tactKeyHash != 0) {
-            ++skippedEncrypted;
-            continue;
-        }
-        if (!s.offsetMap.empty()) {
-            ++skippedOffsetMap;
-            continue;
-        }
-        usableSections.push_back(&s);
-    }
-    if (usableSections.empty()) {
-        std::cerr << "husk: db2-export: '" << inputPath
-                   << "' has no decodable fixed-width section (every section is encrypted and/or "
-                      "offset-map/sparse) -- nothing to export\n";
-        return 1;
-    }
-
-    std::optional<dbd::Table> dbdTable;
-    std::optional<std::vector<std::pair<std::string, dbd::ColumnType>>> dbdNames;
-    std::string tableName = sanitizeIdentifier(
-        std::filesystem::path(inputPath).stem().string());
-    if (!dbdDir.empty()) {
-        dbdTable = dbd::loadTableForHash(dbdDir, file.header.tableHash);
-        if (dbdTable) {
-            tableName = sanitizeIdentifier(dbdTable->tableName);
-            const dbd::Layout* layout = dbd::findLayout(*dbdTable, file.header.layoutHash);
-            if (layout) {
-                dbdNames = dbd::resolveFieldNames(*dbdTable, *layout, file.fieldStorageInfo.size());
+        dirPath = args[1];
+        outputPath = args[2];
+        if (argc == 5) {
+            if (std::string(args[3]) != "--dbd-dir") {
+                std::cerr << usage;
+                return 1;
             }
+            dbdDir = args[4];
         }
-        if (!dbdNames) {
-            std::cerr << "husk: db2-export: no matching WoWDBDefs layout for '" << inputPath
-                      << "' (table_hash=0x" << std::hex << file.header.tableHash << " layout_hash=0x"
-                      << file.header.layoutHash << std::dec
-                      << ") -- falling back to generic field_<N> column names\n";
+    } else {
+        if (argc != 2 && argc != 4) {
+            std::cerr << usage;
+            return 1;
+        }
+        inputPath = args[0];
+        outputPath = args[1];
+        if (argc == 4) {
+            if (std::string(args[2]) != "--dbd-dir") {
+                std::cerr << usage;
+                return 1;
+            }
+            dbdDir = args[3];
         }
     }
 
-    std::vector<std::vector<OutputColumn>> plan = buildColumnPlan(file, *usableSections[0], dbdNames);
+    std::vector<LoadedFile> loaded;
+    if (dirMode) {
+        std::vector<std::string> paths;
+        for (const auto& entry : std::filesystem::directory_iterator(dirPath)) {
+            if (entry.path().extension() == ".db2") paths.push_back(entry.path().string());
+        }
+        std::sort(paths.begin(), paths.end());
+        for (const std::string& p : paths) {
+            std::optional<LoadedFile> lf = loadOneFile(p, dbdDir, std::cerr);
+            if (lf) loaded.push_back(std::move(*lf));
+        }
+        if (loaded.empty()) {
+            std::cerr << "husk: db2-export: no exportable .db2 files found under '" << dirPath << "'\n";
+            return 1;
+        }
+    } else {
+        std::optional<LoadedFile> lf = loadOneFile(inputPath, dbdDir, std::cerr);
+        if (!lf) return 1;
+        loaded.push_back(std::move(*lf));
+    }
+
+    // Only a real, DBD-resolved table name counts as "present in this batch"
+    // for FK-target purposes -- a generic field_<N>-fallback table's name is
+    // just the input file's own basename, which has no reliable relationship
+    // to any WoWDBDefs table name it might coincidentally match.
+    std::set<std::string> availableTables;
+    for (const LoadedFile& lf : loaded) {
+        if (lf.dbdNames) availableTables.insert(lf.tableName);
+    }
 
     std::error_code ec;
     std::filesystem::remove(outputPath, ec);  // real re-export, not an append -- start clean
@@ -395,63 +561,29 @@ int db2Export(int argc, char** args) {
     try {
         sqliteCheck(sqlite3_exec(db, "BEGIN", nullptr, nullptr, nullptr), db, "BEGIN");
 
-        std::ostringstream createSql;
-        createSql << "CREATE TABLE \"" << tableName
-                   << "\" (db2_section INTEGER, db2_record INTEGER";
-        for (const auto& cols : plan) {
-            for (const OutputColumn& c : cols) {
-                createSql << ", \"" << c.sqlName << "\" " << (c.isFloat ? "REAL" : "");
-            }
+        size_t totalRows = 0;
+        size_t namedTables = 0;
+        size_t skippedEncrypted = 0;
+        size_t skippedOffsetMap = 0;
+        for (const LoadedFile& lf : loaded) {
+            size_t rowCount = writeFileTable(db, lf, availableTables);
+            totalRows += rowCount;
+            skippedEncrypted += lf.skippedEncrypted;
+            skippedOffsetMap += lf.skippedOffsetMap;
+            if (lf.dbdNames) ++namedTables;
+
+            std::cout << "husk: db2-export: wrote " << rowCount << " row(s) to table \"" << lf.tableName
+                       << "\" (" << (lf.dbdNames ? "real column names via WoWDBDefs" : "generic field_<N> column names")
+                       << ")\n";
         }
-        createSql << ")";
-        sqliteCheck(sqlite3_exec(db, createSql.str().c_str(), nullptr, nullptr, nullptr), db,
-                    "CREATE TABLE");
-
-        std::ostringstream insertSql;
-        insertSql << "INSERT INTO \"" << tableName << "\" VALUES (?, ?";
-        size_t totalColumns = 0;
-        for (const auto& cols : plan) totalColumns += cols.size();
-        for (size_t i = 0; i < totalColumns; ++i) insertSql << ", ?";
-        insertSql << ")";
-
-        sqlite3_stmt* stmt = nullptr;
-        sqliteCheck(sqlite3_prepare_v2(db, insertSql.str().c_str(), -1, &stmt, nullptr), db,
-                    "prepare INSERT");
-
-        size_t rowCount = 0;
-        for (db2::Section* sectionPtr : usableSections) {
-            db2::Section& section = *sectionPtr;
-            size_t sectionIndex = static_cast<size_t>(sectionPtr - file.sections.data());
-            for (uint32_t r = 0; r < section.header.recordCount; ++r) {
-                sqlite3_reset(stmt);
-                sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(sectionIndex));
-                sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(r));
-                int bindIndex = 3;
-                for (size_t f = 0; f < file.fieldStorageInfo.size(); ++f) {
-                    std::vector<uint64_t> values = db2::decodeField(file, section, r, f);
-                    bool isFloat = !plan[f].empty() && plan[f][0].isFloat;
-                    bindFieldValues(stmt, bindIndex, file, section, bytes, r, f, values, isFloat);
-                    bindIndex += static_cast<int>(values.size());
-                }
-                int rc = sqlite3_step(stmt);
-                sqliteCheck(rc, db, "INSERT");
-                ++rowCount;
-            }
-        }
-        sqlite3_finalize(stmt);
         sqliteCheck(sqlite3_exec(db, "COMMIT", nullptr, nullptr, nullptr), db, "COMMIT");
 
-        std::cout << "husk: db2-export: wrote " << rowCount << " row(s) to table \"" << tableName
-                   << "\" in '" << outputPath << "'";
-        if (dbdNames) {
-            std::cout << " (real column names via WoWDBDefs)";
-        } else {
-            std::cout << " (generic field_<N> column names)";
-        }
-        std::cout << "\n";
+        std::cout << "husk: db2-export: " << loaded.size() << " table(s), " << totalRows
+                   << " total row(s), " << namedTables << " with real WoWDBDefs column names, written to '"
+                   << outputPath << "'\n";
         if (skippedEncrypted > 0 || skippedOffsetMap > 0) {
             std::cout << "husk: db2-export: skipped " << skippedEncrypted << " encrypted and "
-                       << skippedOffsetMap << " offset-map/sparse section(s), not exported\n";
+                       << skippedOffsetMap << " offset-map/sparse section(s) across all tables, not exported\n";
         }
     } catch (const std::exception& e) {
         sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);

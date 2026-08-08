@@ -156,13 +156,19 @@ now-flake-provided `pkgs.sqlite` -- verified against real data:
 side project specifically, but not for Stage 2.** Per this file's own top
 note, the SQLite exporter is explicitly a separate side project ("read the
 file, transform in memory, write to gltf" is the real pipeline, no SQLite
-round-trip) -- `db2-export` produces one flat table per `.db2` file, with
-real names now, but **no relational schema across files yet** (the
-mapping/join tables for real cross-table foreign-key relationships, e.g.
-the `ChrCustomizationOption` -> `_Choice` -> `_Material` chain, the top
-note explicitly calls for and flags as valuable beyond this TODO once
-world-data work starts) -- still genuinely open, now tracked as its own
-staged plan in `DB2_SQLITE_SCHEMA_TODO.md`. Stage 2 itself is also
+round-trip) -- `db2-export --dir` now produces a real relational schema
+across files, not just one flat table per file: a column with a real
+WoWDBDefs foreign-key target gets a real SQLite `FOREIGN KEY` constraint
+whenever the target table is also part of the same export batch (verified
+end to end against the real `ChrModelMaterial` -> `CharComponentTexture
+Layouts` chain, see `README.md`'s `db2-export` section and
+`CLAUDE_HISTORY.md`). The fuller `ChrCustomizationOption` -> `_Choice` ->
+`_Material` chain this file's own top note calls for is still not
+verifiable the same way -- several of those exact tables are still 0-byte
+in the current local export, a real extraction gap, not a code gap.
+Non-inline relationship data (WDC5's alternate `relationship_mapping`
+foreign-key storage) is decoded structurally but not yet folded into the
+exported table itself -- diagnostic-only for now. Stage 2 itself is also
 still unstarted: it needs real per-table **C++ structs** wired into
 `db2::decodeField`'s actual callers inside husk's own process (`db2::File`/
 `decodeField` deliberately stay name-agnostic, per db2.hpp's own module
@@ -206,16 +212,41 @@ directory (same "FileDataID/name-conventioned, never CASC" pattern
 relevant `.db2` files by their real lowercase filenames (matching Luna's
 own `casc-tool` export's naming, already confirmed above).
 
-### Stage 2 — real placement geometry
+### Stage 2 — real placement geometry (implemented, scoped down from the original plan)
 
-Parse `ChrModelMaterial` (per model, base atlas `Width`/`Height` by
-`TextureType`) and `CharComponentTextureSection` (per `SectionType`, the
-real `X`/`Y`/`Width`/`Height` placement rect). Attach real placement data
-to `AlternateTextureCandidate` (`src/gltf_mesh.hpp`) wherever a candidate
-can actually be linked to a `SectionType` — this alone is a real,
-honest, incremental improvement even before Stage 3/4 land: replaces the
-current `width`/`height`-only metadata (2026-08-08's own fix) with the
-real region a patch is meant to occupy, not just its own raw dimensions.
+**Landed**: `src/chrmodel_db2.hpp`/`.cpp` (real typed structs, built on the
+new `src/db2table.hpp` generic named-column reader) parses `ChrModelMaterial`
+(per-layout base atlas `Width`/`Height` by `TextureType`),
+`CharComponentTextureSections` (per-layout `SectionType`/`X`/`Y`/`Width`/
+`Height` placement rects), `ChrModelTextureLayer` (`TextureType`/`Layer`/
+`BlendMode`/`TextureSectionTypeBitMask`), and `CharComponentTextureLayouts`
+(the shared atlas size), all keyed by `CharComponentTextureLayoutsID`.
+`husk export --db2-dir/--dbd-dir/--char-layout-id` attaches the real,
+filtered data as inert `chr_texture_layout` skin `extras`
+(`gltf::Skeleton::CharTextureLayout`) — verified end to end against the
+real `chrmodelmaterial.db2`/`charcomponenttexturesections.db2`/
+`chrmodeltexturelayer.db2`/`charcomponenttexturelayouts.db2` chain (layout
+ID 1: 3 materials, 12 sections, 12 texture layers, real atlas 1024x1024).
+
+One real byte-format gap closed along the way: `ChrModelTextureLayer`'s own
+`CharComponentTextureLayoutsID` is stored as a genuinely non-inline
+`$noninline,relation$` column under its current real layout — its value
+lives only in the section's own `relationship_map`
+(`db2::nonInlineRelationValuesByRecord`, `dbd::findNonInlineNonIdFieldNames`),
+not any field-array slot, previously entirely unreachable (see this file's
+own Background section on `db2.cpp`'s pre-existing relationship-map gap).
+
+**Scoped down from the original wording above, deliberately**: this does
+NOT attach placement data to individual `AlternateTextureCandidate`s the
+way originally planned — doing that requires knowing *which*
+`CharComponentTextureLayoutsID` applies to the model being exported, which
+needs `ChrModel.db2` plus a real display-ID/race/gender identity husk has
+no concept of today (Stage 3's own open problem, not solved here). Instead,
+the caller supplies the layout ID directly (`--char-layout-id`), same "hand
+husk a plain local answer, don't make it guess" pattern as every other
+opt-in sidecar. A human/Blender script can cross-reference the attached
+`sections`/`texture_layers` against `alternate_textures` by hand; husk
+itself does not attempt that link.
 
 ### Stage 3 — the customization choice chain
 

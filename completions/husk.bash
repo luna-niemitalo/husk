@@ -58,9 +58,21 @@ _husk_completions() {
                     COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -f -- "$cur"))
                     return
                     ;;
+                --db2-dir)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --dbd-dir)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --char-layout-id)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --input -i --output -o --skin -s --textures -t --textures-out --skin-dir --anim -a --skel --lod --bones-dir --phys --collision" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --input -i --output -o --skin -s --textures -t --textures-out --skin-dir --anim -a --skel --lod --bones-dir --phys --collision --db2-dir --dbd-dir --char-layout-id" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))

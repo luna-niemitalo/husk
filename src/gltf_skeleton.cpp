@@ -274,6 +274,54 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
         }
         skinExtras["physics_bodies"] = tinygltf::Value(arr);
     }
+    if (skeleton->charTextureLayout) {
+        const Skeleton::CharTextureLayout& layout = *skeleton->charTextureLayout;
+        tinygltf::Value::Object layoutObj;
+        layoutObj["layout_id"] = tinygltf::Value(static_cast<int>(layout.layoutId));
+        layoutObj["width"] = tinygltf::Value(static_cast<int>(layout.width));
+        layoutObj["height"] = tinygltf::Value(static_cast<int>(layout.height));
+
+        tinygltf::Value::Array materials;
+        for (const auto& m : layout.materials) {
+            tinygltf::Value::Object obj;
+            obj["id"] = tinygltf::Value(static_cast<int>(m.id));
+            obj["texture_type"] = tinygltf::Value(static_cast<int>(m.textureType));
+            obj["width"] = tinygltf::Value(static_cast<int>(m.width));
+            obj["height"] = tinygltf::Value(static_cast<int>(m.height));
+            obj["flags"] = tinygltf::Value(static_cast<int>(m.flags));
+            materials.push_back(tinygltf::Value(obj));
+        }
+        layoutObj["materials"] = tinygltf::Value(materials);
+
+        tinygltf::Value::Array sections;
+        for (const auto& s : layout.sections) {
+            tinygltf::Value::Object obj;
+            obj["id"] = tinygltf::Value(static_cast<int>(s.id));
+            obj["section_type"] = tinygltf::Value(static_cast<int>(s.sectionType));
+            obj["x"] = tinygltf::Value(static_cast<int>(s.x));
+            obj["y"] = tinygltf::Value(static_cast<int>(s.y));
+            obj["width"] = tinygltf::Value(static_cast<int>(s.width));
+            obj["height"] = tinygltf::Value(static_cast<int>(s.height));
+            obj["overlap_section_mask"] = tinygltf::Value(static_cast<int>(s.overlapSectionMask));
+            sections.push_back(tinygltf::Value(obj));
+        }
+        layoutObj["sections"] = tinygltf::Value(sections);
+
+        tinygltf::Value::Array textureLayers;
+        for (const auto& t : layout.textureLayers) {
+            tinygltf::Value::Object obj;
+            obj["id"] = tinygltf::Value(static_cast<int>(t.id));
+            obj["texture_type"] = tinygltf::Value(static_cast<int>(t.textureType));
+            obj["layer"] = tinygltf::Value(static_cast<int>(t.layer));
+            obj["flags"] = tinygltf::Value(static_cast<int>(t.flags));
+            obj["blend_mode"] = tinygltf::Value(static_cast<int>(t.blendMode));
+            obj["texture_section_type_bit_mask"] = tinygltf::Value(static_cast<int>(t.textureSectionTypeBitMask));
+            textureLayers.push_back(tinygltf::Value(obj));
+        }
+        layoutObj["texture_layers"] = tinygltf::Value(textureLayers);
+
+        skinExtras["chr_texture_layout"] = tinygltf::Value(layoutObj);
+    }
     if (!skinExtras.empty()) {
         skin.extras = tinygltf::Value(skinExtras);
     }

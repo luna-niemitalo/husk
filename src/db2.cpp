@@ -296,26 +296,56 @@ File parse(const std::vector<uint8_t>& buf) {
             }
         }
 
-        // relationship_data_size is present in the section header
-        // regardless of the header-level 0x02 flag (DB2.md's per-section
-        // field, distinct from the header's own "has relationship data"
-        // bit) -- read it whenever it's declared non-zero, not gated on
-        // hasRelationshipData, matching the wiki's own `if
-        // (section_headers.relationship_data_size > 0)` guard.
-        (void)hasRelationshipData;
-        if (section.header.relationshipDataSize > 0) {
-            requireBytes(sectionPos, section.header.relationshipDataSize, buf.size(),
-                         "section.relationshipMap");
-            sectionPos += section.header.relationshipDataSize;
-        }
-
-        if (hasOffsetMap) {
+        // DB2.md's own WDC5 struct pseudocode notes: "if flag 0x02 is set
+        // offset_map_id_list will appear before relationship_map instead" --
+        // real for every local fixture with both bits set (the
+        // Collectable*Sparse tables). relationship_data_size is present in
+        // the section header regardless of the header-level 0x02 flag
+        // (distinct fields), so decode it whenever it's declared non-zero,
+        // matching the wiki's own `if (section_headers.relationship_data_size
+        // > 0)` guard -- only the *position* of offsetMapIdList depends on
+        // hasRelationshipData.
+        auto readOffsetMapIdList = [&]() {
             section.offsetMapIdList.reserve(section.header.offsetMapIdCount);
             for (uint32_t j = 0; j < section.header.offsetMapIdCount; ++j) {
                 section.offsetMapIdList.push_back(
                     readU32(buf, sectionPos, "section.offsetMapIdList"));
                 sectionPos += 4;
             }
+        };
+        if (hasOffsetMap && hasRelationshipData) {
+            readOffsetMapIdList();
+        }
+
+        if (section.header.relationshipDataSize > 0) {
+            size_t relationshipEnd = sectionPos + section.header.relationshipDataSize;
+            uint32_t numEntries = readU32(buf, sectionPos, "section.relationshipMap.numEntries");
+            sectionPos += 4;
+            section.relationshipMinId = readU32(buf, sectionPos, "section.relationshipMap.minId");
+            sectionPos += 4;
+            section.relationshipMaxId = readU32(buf, sectionPos, "section.relationshipMap.maxId");
+            sectionPos += 4;
+            section.relationshipEntries.reserve(numEntries);
+            for (uint32_t j = 0; j < numEntries; ++j) {
+                RelationshipEntry e;
+                e.foreignId = readU32(buf, sectionPos, "section.relationshipMap.entry.foreignId");
+                sectionPos += 4;
+                e.recordIndexOrId =
+                    readU32(buf, sectionPos, "section.relationshipMap.entry.recordIndexOrId");
+                sectionPos += 4;
+                section.relationshipEntries.push_back(e);
+            }
+            if (sectionPos != relationshipEnd) {
+                throw ParseError("db2: section.relationshipMap decoded to " +
+                                  std::to_string(sectionPos - (relationshipEnd -
+                                                                section.header.relationshipDataSize)) +
+                                  " bytes, but header declares relationshipDataSize=" +
+                                  std::to_string(section.header.relationshipDataSize));
+            }
+        }
+
+        if (hasOffsetMap && !hasRelationshipData) {
+            readOffsetMapIdList();
         }
 
         file.sections.push_back(std::move(section));
@@ -361,6 +391,10 @@ uint64_t readBits(const std::vector<uint8_t>& record, uint32_t offsetBits, uint3
 // Assumes the ID field itself is never CommonData/pallet-indexed-compressed
 // -- true of every real DB2 checked so far (IDs are always plain or
 // bitpacked inline ints), not something this format guarantees structurally.
+// A separate function from the public db2::recordId below (same idList
+// fast path) specifically so this CommonData decode branch never calls back
+// into decodeField itself -- decodeField(idIndex) inside decodeField(fieldIndex)
+// would recurse if the ID field were ever CommonData-compressed too.
 uint32_t rowIdForRecord(const File& file, const Section& section, const std::vector<uint8_t>& record,
                          size_t recordIndex) {
     if (recordIndex < section.idList.size()) return section.idList[recordIndex];
@@ -391,6 +425,25 @@ uint32_t readPallet4(const std::vector<uint8_t>& palletData, uint32_t byteOffset
 }
 
 }  // namespace
+
+uint32_t recordId(const File& file, const Section& section, size_t recordIndex) {
+    if (recordIndex < section.idList.size()) return section.idList[recordIndex];
+    if (file.header.idIndex < file.fieldStorageInfo.size()) {
+        std::vector<uint64_t> values = decodeField(file, section, recordIndex, file.header.idIndex);
+        if (!values.empty()) return static_cast<uint32_t>(values[0]);
+    }
+    return static_cast<uint32_t>(recordIndex);
+}
+
+std::vector<std::optional<uint32_t>> nonInlineRelationValuesByRecord(const File& file,
+                                                                       const Section& section) {
+    std::vector<std::optional<uint32_t>> values(section.header.recordCount, std::nullopt);
+    if ((file.header.flags & 0x02) != 0) return {};  // recordIndexOrId is a real ID here, not an index
+    for (const RelationshipEntry& e : section.relationshipEntries) {
+        if (e.recordIndexOrId < values.size()) values[e.recordIndexOrId] = e.foreignId;
+    }
+    return values;
+}
 
 std::vector<uint64_t> decodeField(const File& file, const Section& section, size_t recordIndex,
                                    size_t fieldIndex) {

@@ -14,6 +14,130 @@ deletions handled their own back-references).
 
 ---
 
+- **Last state**: Closed `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 2
+  ("real placement geometry") end to end, prompted directly: "find what
+  features the db files would unlock and implement infrastructure and
+  tooling to support that... not MVP of WDC5 and DB2, but not a full on
+  comprehensive everything covered implementation." Investigated what the
+  now-complete DB2 relational-schema infrastructure (previous entry) could
+  actually unlock inside `husk export` itself (not just the separate
+  `db2-export` side tool, which never feeds the real pipeline by design) —
+  landed on `CHAR_TEXTURE_COMPOSITING_TODO.md`'s own already-staged Stage 2
+  as the right-sized target: real, not comprehensive (Stage 3's customization
+  choice chain and Stage 4's pixel compositing stay out of scope, both for
+  real reasons -- see below), but real infrastructure, not a proof of
+  concept.
+
+  Real column names for the three tables Stage 2 needs
+  (`ChrModelMaterial`/`CharComponentTextureSections`/`ChrModelTextureLayer`,
+  plus `CharComponentTextureLayouts` for the shared atlas size) confirmed
+  directly from `reference/WoWDBDefs/definitions/*.dbd` and cross-checked
+  against real local files via `husk db2-info`/`db2-export`. Found a real,
+  useful naming inconsistency in Blizzard's own schema this way:
+  `CharComponentTextureSections`' own FK column is spelled
+  `CharComponentTextureLayoutID` (singular "Layout"), while `ChrModelMaterial`/
+  `ChrModelTextureLayer` both spell it `CharComponentTextureLayoutsID`
+  (plural) — a real fact now baked into `chrmodel_db2.hpp`'s own struct
+  field names with a doc comment, not a typo.
+
+  Real investigation surfaced a genuine, previously-undocumented-in-this-repo
+  byte-format gap along the way: `chrmodeltexturelayer.db2`'s real local
+  layout stores its own `CharComponentTextureLayoutsID` as a
+  `$noninline,relation$` column — no field-array slot at all, unlike every
+  other relation column checked so far, which are all inline
+  (`$relation$`, no `noninline` tag, still position-matched normally). Its
+  real value only exists in the section's own `relationship_map`
+  (`db2::Section::relationshipEntries`, decoded structurally last session
+  but never previously *consumed* for a real value lookup). Confirmed via
+  `db2-info`'s existing relationship-map summary print: `chrmodeltexturelayer.db2`
+  has `header.flags == 0x04` only (no `0x02`), so `relationship_entry.
+  record_index_or_id` is a real record *index* here (not an ID, per DB2.md's
+  own flag-0x02-gated note already implemented last session) — the
+  `foreign_id` for records 0/1/2 was `2`, matching `chrmodelmaterial.db2`'s
+  own layout ID 2 rows for those same records, a real, verifiable link.
+
+  New `db2::nonInlineRelationValuesByRecord` (`db2.hpp`/`.cpp`) resolves
+  this generically: returns `{}` (never a guess) whenever `header.flags &
+  0x02` is set, since DB2.md's own note means `record_index_or_id` would be
+  a real ID in that case, not an index this function knows how to invert
+  (no real local fixture exercises that combination for a *value* lookup to
+  verify against, only the reorder/ID-lookup cases already covered).
+  Paired with new `dbd::findNonInlineNonIdFieldNames` (mirrors the existing
+  `findIdFieldName`, but for the non-id non-inline case) so a consumer can
+  ask "which column, if any, needs the relationship-map path" by real name.
+
+  New `src/db2table.hpp`/`.cpp` (`husk::db2table::readNamedColumns`) is the
+  actual infrastructure payoff: one generic function that reads any list of
+  real column names from any `.db2` file, transparently picking the right
+  of WDC5's three real column-storage shapes (inline field, non-inline ID,
+  non-inline relation) per column, resolved via `--dbd-dir`. Built
+  specifically so a future table (world-data work, per Luna's own earlier
+  scope note on the SQLite exporter) doesn't need its own bespoke decode
+  loop — just a struct and a column-name list. `src/chrmodel_db2.hpp`/`.cpp`
+  is exactly that: four ~15-line loader functions wrapping `readNamedColumns`
+  into real `ChrModelMaterial`/`CharComponentTextureSection`/
+  `ChrModelTextureLayer`/`CharComponentTextureLayout` structs, joined by
+  `CharComponentTextureLayoutsID`.
+
+  Verified against real data twice, independently: a standalone scratch
+  probe program linked directly against the new module (layout ID 1: 3
+  materials, 12 sections, 12 texture layers — matching `db2-export`'s own
+  SQLite output for the same tables/ID exactly), then a real end-to-end
+  `husk export --db2-dir /media/luna/data/wow_export/dbfilesclient --dbd-dir
+  reference/WoWDBDefs --char-layout-id 1` against the real
+  `bloodelffemale_hd.m2` fixture — the resulting `.glb`'s own embedded JSON
+  (grepped directly out of the binary, not just trusted from stdout)
+  contains the real `chr_texture_layout` extras with the right atlas
+  dimensions (1024x1024) and per-section rects. Headless Blender import
+  (`tests/blender_import_check.py`) succeeded cleanly on the resulting file.
+  `gltf_validator` against this same fixture reports 2,498,424 errors
+  both with and without the new flags — confirmed pre-existing and
+  unrelated (this project's own documented `ACCESSOR_JOINTS_INDEX_DUPLICATE`
+  quirk specific to `bloodelffemale_hd.m2`'s own raw `JOINTS_0` data, not
+  caused by this session's work).
+
+  New CLI surface: `husk export --db2-dir <dir> --dbd-dir <dir>
+  --char-layout-id <id>` (`cmd_export.cpp`'s `attachCharTextureLayout`) --
+  deliberately a simpler two-state pattern than `--bones-dir`/`--phys`'s
+  three-state `auto`/value/`none` resolution (`DESIGN.md`'s own "Three-state
+  resolution, not two" section, now with a new paragraph explaining the
+  exception): there's no model-relative "auto" to fall back to, since husk
+  has no way to derive a `CharComponentTextureLayoutsID` from an `.m2` file
+  on its own (needs `ChrModel.db2` plus a real display-ID/race/gender
+  identity this project doesn't have, `chrmodel_db2.hpp`'s own module
+  comment). All three flags must be given together or the feature is
+  simply off; a partial set prints a diagnostic and skips, never a hard
+  failure of the rest of the export. New `gltf::Skeleton::CharTextureLayout`
+  (`gltf_skeleton.hpp`/`.cpp`) is the extras struct, same "inert, never
+  applied to the render" treatment as `CorrectionSet`/`PhysicsBody` — only
+  serializes when a skin exists (a model with 0 bones has nowhere to attach
+  skin extras at all, same pre-existing constraint every other skin-extras
+  field already has).
+
+  Full suite green, 575/575 (up from 565). New test files:
+  `tests/test_db2table.cpp` (unit-level -- `db2table::readNamedColumns`
+  exercising all three column-storage shapes together in one synthetic
+  fixture, plus `chrmodel::load` building real typed structs from four
+  synthetic tables joined by layout ID, including the non-inline-relation
+  case for `ChrModelTextureLayer` specifically) and
+  `tests/test_cli_chrmodel.cpp` (CLI-boundary -- a real `husk export` run
+  with a synthetic M2/skin/skel plus a synthetic two-table DB2/DBD fixture
+  set, asserting the actual `chr_texture_layout` JSON text is present in
+  the real output `.glb`'s bytes; a second case confirms a partial flag set
+  skips cleanly). Completions regenerated
+  (`completions/husk.bash`/`.zsh`) for the three new flags, including their
+  value-taxonomy entries in `main.cpp`'s hand-maintained
+  `bashValueCompletion`/`zshValueAction`/`zshFlagLabel` tables (the
+  "doesn't pick up automatically" hazard this project's own CLAUDE.md
+  already flags for new export flags). `README.md`
+  (new "Character texture-layout geometry" usage paragraph + flags-table
+  rows), `DESIGN.md` (flags table + a new "simpler two-state pattern"
+  exception paragraph + an updated Non-goals cross-reference for the
+  texture-type-resolution note), and `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`
+  (Stage 2's own section rewritten to describe what was actually built,
+  including the deliberate scope-down from the original per-candidate
+  linking plan) all updated to match.
+
 - **Last state**: Real DB2 column naming and a real DB2-to-SQLite exporter,
   landed the same session as (and directly downstream of) the DETL/DPIV/
   PCOL investigation and a repo-root cleanup pass — see the next entry

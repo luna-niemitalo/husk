@@ -128,6 +128,55 @@ struct Skeleton {
     };
     std::vector<PhysicsBody> physicsBodies;
 
+    // Real DB2-derived character texture-layout geometry (`husk export
+    // --db2-dir/--dbd-dir/--char-layout-id`) -- inert glTF extras only,
+    // never applied to anything writeGlb itself renders, same treatment as
+    // CorrectionSet/PhysicsBody above. Populated from src/chrmodel_db2.hpp's
+    // typed tables (ChrModelMaterial/CharComponentTextureSections/
+    // ChrModelTextureLayer/CharComponentTextureLayouts), filtered to one
+    // caller-supplied CharComponentTextureLayoutsID -- husk has no way to
+    // derive *which* layout ID applies to a given .m2 model on its own
+    // (that needs ChrModel.db2 plus a real display-ID/race/gender identity
+    // this project doesn't have yet, see chrmodel_db2.hpp's module
+    // comment), so this is opt-in and explicit, not automatic. A human/
+    // Blender script can use the real placement rects (Section) and blend
+    // info (TextureLayer) to manually position/composite
+    // `alternate_textures` candidates -- husk itself does not attempt that
+    // here.
+    struct CharTextureLayout {
+        uint32_t layoutId = 0;
+        uint32_t width = 0;   // CharComponentTextureLayouts::Width -- the base atlas size
+        uint32_t height = 0;  // CharComponentTextureLayouts::Height
+        struct Material {
+            uint32_t id = 0;
+            uint32_t textureType = 0;
+            uint32_t width = 0;
+            uint32_t height = 0;
+            uint32_t flags = 0;
+        };
+        std::vector<Material> materials;
+        struct Section {
+            uint32_t id = 0;
+            uint32_t sectionType = 0;
+            uint32_t x = 0;
+            uint32_t y = 0;
+            uint32_t width = 0;
+            uint32_t height = 0;
+            uint32_t overlapSectionMask = 0;
+        };
+        std::vector<Section> sections;
+        struct TextureLayer {
+            uint32_t id = 0;
+            uint32_t textureType = 0;
+            uint32_t layer = 0;
+            uint32_t flags = 0;
+            uint32_t blendMode = 0;
+            uint32_t textureSectionTypeBitMask = 0;
+        };
+        std::vector<TextureLayer> textureLayers;
+    };
+    std::optional<CharTextureLayout> charTextureLayout;
+
     // Attachments/Events/Lights -- unlike every anchor list above, a
     // bone-relative M2Attachment/M2Event/M2Light position marker has no
     // *mesh-shaped* non-glTF-representable data (no blend modes, no

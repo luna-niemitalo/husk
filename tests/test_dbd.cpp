@@ -21,16 +21,41 @@ TEST_CASE("dbd::parseDbd: COLUMNS block resolves name + type, '?' suffix strippe
         "locstring Description\n";
     dbd::Table table = dbd::parseDbd(text, "Test");
     REQUIRE(table.columns.size() == 5);
-    CHECK(table.columns[0].first == "ID");
-    CHECK(table.columns[0].second == dbd::ColumnType::Int);
-    CHECK(table.columns[1].first == "CharComponentTextureLayoutsID");
-    CHECK(table.columns[1].second == dbd::ColumnType::Int);
-    CHECK(table.columns[2].first == "Chance");
-    CHECK(table.columns[2].second == dbd::ColumnType::Float);
-    CHECK(table.columns[3].first == "Name");
-    CHECK(table.columns[3].second == dbd::ColumnType::String);
-    CHECK(table.columns[4].first == "Description");
-    CHECK(table.columns[4].second == dbd::ColumnType::LocString);
+    CHECK(table.columns[0].name == "ID");
+    CHECK(table.columns[0].type == dbd::ColumnType::Int);
+    CHECK_FALSE(table.columns[0].relation.has_value());
+    CHECK(table.columns[1].name == "CharComponentTextureLayoutsID");
+    CHECK(table.columns[1].type == dbd::ColumnType::Int);
+    REQUIRE(table.columns[1].relation.has_value());
+    CHECK(table.columns[1].relation->targetTable == "CharComponentTextureLayouts");
+    CHECK(table.columns[1].relation->targetColumn == "ID");
+    CHECK(table.columns[2].name == "Chance");
+    CHECK(table.columns[2].type == dbd::ColumnType::Float);
+    CHECK(table.columns[3].name == "Name");
+    CHECK(table.columns[3].type == dbd::ColumnType::String);
+    CHECK(table.columns[4].name == "Description");
+    CHECK(table.columns[4].type == dbd::ColumnType::LocString);
+}
+
+TEST_CASE("dbd::parseDbd: resolveFieldNames carries the relation target through to the resolved Column") {
+    std::string text =
+        "COLUMNS\n"
+        "int ID\n"
+        "int<CharComponentTextureLayouts::ID> CharComponentTextureLayoutsID?\n"
+        "\n"
+        "LAYOUT AABBCCDD\n"
+        "BUILD 1.0.0.1\n"
+        "$noninline,id$ID<32>\n"
+        "CharComponentTextureLayoutsID<32>\n";
+    dbd::Table table = dbd::parseDbd(text, "Test");
+    const dbd::Layout& layout = table.layouts[0];
+    auto resolved = dbd::resolveFieldNames(table, layout, 1);
+    REQUIRE(resolved.has_value());
+    REQUIRE(resolved->size() == 1);
+    CHECK((*resolved)[0].name == "CharComponentTextureLayoutsID");
+    REQUIRE((*resolved)[0].relation.has_value());
+    CHECK((*resolved)[0].relation->targetTable == "CharComponentTextureLayouts");
+    CHECK((*resolved)[0].relation->targetColumn == "ID");
 }
 
 TEST_CASE("dbd::parseDbd: one LAYOUT block with a single hash, all fields inline") {
@@ -124,7 +149,7 @@ TEST_CASE("dbd::parseDbd: 'noninline' annotation is recorded and excluded by res
     auto resolved = dbd::resolveFieldNames(table, layout, 1);
     REQUIRE(resolved.has_value());
     REQUIRE(resolved->size() == 1);
-    CHECK((*resolved)[0].first == "Width");
+    CHECK((*resolved)[0].name == "Width");
 }
 
 TEST_CASE("dbd::resolveFieldNames: a real field-count mismatch returns nullopt, never a partial/guessed result") {
@@ -176,13 +201,90 @@ TEST_CASE(
     auto resolved = dbd::resolveFieldNames(*table, *layout, 7);
     REQUIRE(resolved.has_value());
     REQUIRE(resolved->size() == 7);
-    CHECK((*resolved)[0].first == "ID");
-    CHECK((*resolved)[1].first == "CharComponentTextureLayoutsID");
-    CHECK((*resolved)[2].first == "TextureType");
-    CHECK((*resolved)[3].first == "Width");
-    CHECK((*resolved)[4].first == "Height");
-    CHECK((*resolved)[5].first == "Flags");
-    CHECK((*resolved)[6].first == "Field_9_0_1_34615_006");
+    CHECK((*resolved)[0].name == "ID");
+    CHECK((*resolved)[1].name == "CharComponentTextureLayoutsID");
+    REQUIRE((*resolved)[1].relation.has_value());
+    CHECK((*resolved)[1].relation->targetTable == "CharComponentTextureLayouts");
+    CHECK((*resolved)[1].relation->targetColumn == "ID");
+    CHECK((*resolved)[2].name == "TextureType");
+    CHECK((*resolved)[3].name == "Width");
+    CHECK((*resolved)[4].name == "Height");
+    CHECK((*resolved)[5].name == "Flags");
+    CHECK((*resolved)[6].name == "Field_9_0_1_34615_006");
+}
+
+TEST_CASE("dbd::findIdFieldName: finds a $noninline,id$ field, ignores an inline $id$ field") {
+    std::string text =
+        "COLUMNS\n"
+        "int ID\n"
+        "int Value\n"
+        "\n"
+        "LAYOUT AAAAAAAA\n"
+        "BUILD 1.0.0.1\n"
+        "$noninline,id$ID<32>\n"
+        "Value<32>\n"
+        "\n"
+        "LAYOUT BBBBBBBB\n"
+        "BUILD 1.0.0.1\n"
+        "$id$ID<32>\n"
+        "Value<32>\n";
+    dbd::Table table = dbd::parseDbd(text, "Test");
+    REQUIRE(table.layouts.size() == 2);
+
+    // Non-inline id: has a name, since resolveFieldNames' own by-position
+    // scan can never surface it (no field-array slot).
+    auto nonInlineName = dbd::findIdFieldName(table.layouts[0]);
+    REQUIRE(nonInlineName.has_value());
+    CHECK(*nonInlineName == "ID");
+
+    // Inline id: findIdFieldName deliberately returns nullopt here --
+    // resolveFieldNames' normal by-position result already covers it, so a
+    // second, separate "ID" column would just be a duplicate.
+    CHECK_FALSE(dbd::findIdFieldName(table.layouts[1]).has_value());
+}
+
+TEST_CASE("dbd::findIdFieldName: a layout with no id annotation at all returns nullopt") {
+    std::string text =
+        "COLUMNS\n"
+        "int Value\n"
+        "\n"
+        "LAYOUT CCCCCCCC\n"
+        "BUILD 1.0.0.1\n"
+        "Value<32>\n";
+    dbd::Table table = dbd::parseDbd(text, "Test");
+    CHECK_FALSE(dbd::findIdFieldName(table.layouts[0]).has_value());
+}
+
+TEST_CASE("dbd::findNonInlineNonIdFieldNames: finds a $noninline,relation$ field, excludes the id field") {
+    std::string text =
+        "COLUMNS\n"
+        "int ID\n"
+        "int<CharComponentTextureLayouts::ID> CharComponentTextureLayoutsID\n"
+        "int Value\n"
+        "\n"
+        "LAYOUT AAAAAAAA\n"
+        "BUILD 1.0.0.1\n"
+        "$noninline,id$ID<32>\n"
+        "$noninline,relation$CharComponentTextureLayoutsID<32>\n"
+        "Value<32>\n";
+    dbd::Table table = dbd::parseDbd(text, "Test");
+    auto names = dbd::findNonInlineNonIdFieldNames(table.layouts[0]);
+    REQUIRE(names.size() == 1);
+    CHECK(names[0] == "CharComponentTextureLayoutsID");
+}
+
+TEST_CASE("dbd::findNonInlineNonIdFieldNames: an inline $relation$ field (no noninline tag) is not returned") {
+    std::string text =
+        "COLUMNS\n"
+        "int ID\n"
+        "int<CharComponentTextureLayouts::ID> CharComponentTextureLayoutsID\n"
+        "\n"
+        "LAYOUT BBBBBBBB\n"
+        "BUILD 1.0.0.1\n"
+        "$id$ID<32>\n"
+        "$relation$CharComponentTextureLayoutsID<32>\n";
+    dbd::Table table = dbd::parseDbd(text, "Test");
+    CHECK(dbd::findNonInlineNonIdFieldNames(table.layouts[0]).empty());
 }
 
 TEST_CASE(

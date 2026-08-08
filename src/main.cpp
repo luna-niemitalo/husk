@@ -87,7 +87,7 @@ std::string bashValueCompletion(const std::string& longName) {
         return "COMPREPLY=($(compgen -W \"none\" -- \"$cur\")); compopt -o filenames "
                "2>/dev/null; COMPREPLY+=($(compgen -d -- \"$cur\"))";
     }
-    if (longName == "--textures-out") {
+    if (longName == "--textures-out" || longName == "--db2-dir" || longName == "--dbd-dir") {
         return "compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- \"$cur\"))";
     }
     if (longName == "--skel" || longName == "--phys") {
@@ -193,7 +193,8 @@ std::string zshValueAction(const std::string& longName) {
     if (longName == "--anim") return "_husk_anim_value";
     if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir")
         return "_husk_dir_or_none_value";
-    if (longName == "--textures-out") return "_husk_dir_value";
+    if (longName == "--textures-out" || longName == "--db2-dir" || longName == "--dbd-dir")
+        return "_husk_dir_value";
     if (longName == "--skel" || longName == "--phys") return "_husk_file_or_none_value";
     if (longName == "--lod") return "(all)";
     return "_files";
@@ -218,6 +219,9 @@ std::string zshFlagLabel(const std::string& longName) {
     if (longName == "--bones-dir") return "bone-correction directory, or none";
     if (longName == "--phys") return "external .phys path, or none";
     if (longName == "--collision") return "include the collision mesh (off by default)";
+    if (longName == "--db2-dir") return "character-texture DB2 directory";
+    if (longName == "--dbd-dir") return "WoWDBDefs checkout, for --db2-dir column names";
+    if (longName == "--char-layout-id") return "a real CharComponentTextureLayoutsID";
     if (longName == "--help") return "print help and exit";
     return longName;
 }
@@ -354,8 +358,8 @@ int main(int argc, char** argv) {
         "  export <file.m2> [args...]  export a mesh (+ skin/animation) to glTF (see --help)\n"
         "  dump-chunks <file.m2|.bone> extract misc chunks to JSON (see --help)\n"
         "  db2-info <file.db2>          parse and print a WDC5 DB2 file (proof of concept, see --help)\n"
-        "  db2-export <file.db2> <out.sqlite> [--dbd-dir DIR]\n"
-        "                               convert a WDC5 DB2 file to a real SQLite database (see --help)\n"
+        "  db2-export <file.db2>|--dir <dir> <out.sqlite> [--dbd-dir DIR]\n"
+        "                               convert WDC5 DB2 file(s) to a real SQLite database (see --help)\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";

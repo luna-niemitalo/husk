@@ -36,6 +36,9 @@ _husk() {
                 '--bones-dir[bone-correction directory, or none]:value:_husk_dir_or_none_value' \
                 '--phys[external .phys path, or none]:value:_husk_file_or_none_value' \
                 '--collision[include the collision mesh (off by default)]' \
+                '--db2-dir[character-texture DB2 directory]:value:_husk_dir_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--char-layout-id[a real CharComponentTextureLayoutsID]:value:_files' \
                 '1:model:_files'
             ;;
         info)

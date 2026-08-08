@@ -34,11 +34,16 @@ int dumpChunks(int argc, char** args);
 // inspection tool for now.
 int db2Info(int argc, char** args);
 
-// `db2-export` -- converts a WDC5 DB2 file to a real SQLite database (see
+// `db2-export` -- converts a WDC5 DB2 file (or, with --dir, every *.db2 file
+// in a directory) to a real SQLite database, one table per file (see
 // src/dbd.hpp, src/cmd_db2.cpp's own doc comment). Real column names/types
 // when an optional --dbd-dir resolves them (via src/dbd.hpp's WoWDBDefs
 // parser), generic `field_<N>` columns otherwise -- never a hard dependency
-// on that data being available.
+// on that data being available. In --dir mode, real WoWDBDefs foreign-key
+// columns get a real SQLite FOREIGN KEY constraint whenever the target
+// table is also part of the same export batch, and a header.flags & 0x04
+// ("has non-inline IDs") table gets a real ID column of its own (see
+// src/cmd_db2.cpp's own doc comment).
 int db2Export(int argc, char** args);
 
 // `export`'s real flag surface (see DESIGN.md's "CLI argument grammar for
@@ -60,6 +65,9 @@ struct ExportOptions {
     std::string bonesDirArg;
     std::string physArg;
     bool collisionRequested = false;
+    std::string db2DirArg;
+    std::string dbdDirArg;
+    std::string charLayoutIdArg;
 };
 
 // Declares every export flag (names, defaults, descriptions, the `--skin

@@ -237,6 +237,14 @@ a variant interactively instead of seeing every option rendered at once.
 **Known to have real bugs as of 2026-08-08** (wrong geometry disappearing
 when switching an unrelated group; some geometry never toggling at all) --
 see `TODO/GEOSET_MASK_TODO.md`'s own "Known bugs" section before relying on it.
+The same script's second, independent job: if the export used `--db2-dir/
+--dbd-dir/--char-layout-id` (below), it re-reads the real `chr_texture_layout`
+extras (Blender's own glTF importer has no supported extras target for a
+glTF *skin* at all -- confirmed empirically, unlike every other extras this
+project attaches) and adds a toggleable magenta section-boundary overlay to
+every material the DB2 data actually concerns (matched by `texture_type`),
+off by default, wired so switching it back off exactly reproduces the
+material's original look.
 
 **Second texture layers.** A batch with `textureCount > 1` (e.g. an
 env-mapped "shine" pass) gets a note on export and carries its extra
@@ -304,6 +312,32 @@ far more than `bone_correction_sets` ever did -- it's available via `husk
 dump-chunks <file.phys>` instead (see the Usage section below), which also
 accepts a `.phys` file directly, same as `.bone`.
 
+**Character texture-layout geometry.** If `--db2-dir`/`--dbd-dir`/
+`--char-layout-id` are all given, husk resolves the named
+`CharComponentTextureLayoutsID` against four real character-texture DB2
+tables (`ChrModelMaterial`/`CharComponentTextureSections`/
+`ChrModelTextureLayer`/`CharComponentTextureLayouts`, `src/chrmodel_db2.hpp`
+-- built on `src/db2table.hpp`'s generic named-column reader, itself built
+on `db2.hpp`/`dbd.hpp`) and attaches the real, filtered result -- base atlas
+size, every real placement rect (`SectionType`/`X`/`Y`/`Width`/`Height`),
+every real texture layer (`TextureType`/`Layer`/`BlendMode`/
+`TextureSectionTypeBitMask`) -- as `chr_texture_layout` on the glTF skin's
+own `extras`. Same "inert, never applied to the render" treatment as every
+other DB2/sidecar extras above: husk has no way to derive *which*
+`CharComponentTextureLayoutsID` applies to a given `.m2` model on its own
+(that needs `ChrModel.db2` plus a real display-ID/race/gender identity this
+project doesn't have yet), so the caller must supply it directly -- given
+only some of the three flags, husk prints a diagnostic and skips the
+feature rather than failing the export. Verified end to end against the
+real `bloodelffemale_hd.m2` + its own real
+`CharComponentTextureLayoutsID` (1): 3 materials, 12 sections, 12 texture
+layers, real 1024x1024 atlas, headless-Blender-import-clean. Since Blender's
+own glTF importer has no supported extras target for a glTF *skin* at all,
+this data is invisible to a plain File > Import -- `tools/
+husk_blender_geoset_mask.py` (above) re-reads it directly from the exported
+file and turns it into a toggleable material overlay, the practical way to
+actually see it in Blender.
+
 Flags:
 
 | Flag | Short | Meaning | Default |
@@ -320,6 +354,9 @@ Flags:
 | `--bones-dir <dir>` &#124; `none` | -- | Directory of `<FileDataID>.bone` files (per the model's/`.skel`'s `BFID` array), attached as inert skin `extras`; or `none` to skip | model's own directory |
 | `--phys <path>` &#124; `none` | -- | External `.phys` path, attached as a minimal `physics_bodies` skin `extras` anchor (full records via `dump-chunks`), or `none` to never look for one | same-basename `.phys` next to the model, if any |
 | `--collision` | -- | Include the collision mesh, when present, as real geometry tagged `{"collision": true}` in glTF extras -- off by default: Blender's stock importer has no concept of that tag and renders it like any other mesh, and the collision hull is often larger than and visually occludes the real character (full body/shape/joint records are also always available via `dump-chunks`) | omitted |
+| `--db2-dir <dir>` | -- | Directory of real character-texture `.db2` files (see above); combined with `--dbd-dir`/`--char-layout-id` | unset (feature off) |
+| `--dbd-dir <dir>` | -- | A local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) | unset |
+| `--char-layout-id <id>` | -- | A real `CharComponentTextureLayoutsID` (see `husk db2-export`) -- husk can't derive this on its own | unset |
 
 Texture resolution deliberately tries real-filename matches before
 `<FileDataID>.png`/`.blp`, for every texture slot, not just ones husk can't
@@ -439,13 +476,16 @@ spec -- treated as a strong starting point, not unconditionally trusted
 (see `db2.hpp`'s module comment for what's been cross-checked against real
 bytes and what hasn't).
 
-### `husk db2-export <file.db2> <out.sqlite> [--dbd-dir DIR]`
+### `husk db2-export <file.db2>|--dir <dir> <out.sqlite> [--dbd-dir DIR]`
 
-Converts a WDC5 DB2 file to a real, browsable SQLite database -- one table
-per file, one row per real record, every fixed-width unencrypted section
-exported (TACT-encrypted and offset-map/sparse sections are skipped, with a
-count printed, never silently dropped). Real column names/types come from
-`src/dbd.hpp`/`.cpp`, an independent parser for [WoWDBDefs](https://github.com/wowdev/WoWDBDefs)'
+Converts one WDC5 DB2 file, or (with `--dir`) every `*.db2` file in a
+directory, to a real, browsable SQLite database -- one table per file, one
+row per real record, every fixed-width unencrypted section exported
+(TACT-encrypted and offset-map/sparse sections are skipped, with a count
+printed, never silently dropped; in `--dir` mode a file that can't be parsed
+or has nothing exportable is skipped with a diagnostic rather than failing
+the whole batch). Real column names/types come from `src/dbd.hpp`/`.cpp`, an
+independent parser for [WoWDBDefs](https://github.com/wowdev/WoWDBDefs)'
 own documented `.dbd` text-format grammar -- resolves a real `.db2` file's
 `table_hash`/`layout_hash` (already parsed by `db2.hpp`) against a local,
 optional `--dbd-dir` checkout (`<dir>/manifest.json` +
@@ -459,6 +499,25 @@ names instead, the same "expose honestly, don't guess" convention this
 project already uses for undocumented M2 chunk fields (`AFRA`/`DPIV`/
 `WFV1`, `WIKI_FINDINGS/M2.md`).
 
+A `<Table::Col>`-suffixed DBD column type (a real foreign-key target, e.g.
+`int<CharComponentTextureLayouts::ID>`) is resolved into `dbd::Column::
+relation`; in `--dir` mode, a column with a relation target gets a real
+SQLite `FOREIGN KEY` constraint whenever that target table is also part of
+the same export batch, degrading silently to a plain column when it isn't
+(a dangling cross-file reference is a real, expected case, not an error). A
+`header.flags & 0x04` ("has non-inline IDs") table's real ID -- stored in
+WDC5's own separate `idList` array, occupying no field-array slot at all --
+gets a real ID column of its own too (named from the DBD layout's
+`$noninline,id$` annotation when resolved, `id` otherwise), specifically so
+a table like `CharComponentTextureLayouts` (whose ID is non-inline) has a
+real column for other tables' relation columns to join against. A per-
+section `relationship_mapping` (WDC5's own alternate foreign-key storage --
+a `(foreignId, recordId)` array replacing a column that also doubled as a
+lookup key) is decoded structurally (`db2::Section::relationshipEntries`,
+`db2-info` prints a summary) but not yet folded into the exported table
+itself -- diagnostic-only for now, same tier as `dump-chunks`'s undocumented-
+chunk output.
+
 Verified against real data: `chrmodelmaterial.db2` exports 336 rows with
 real `ID`/`CharComponentTextureLayoutsID`/`TextureType`/`Width`/`Height`/
 `Flags`/`Field_9_0_1_34615_006` columns and plausible real atlas dimensions
@@ -467,7 +526,16 @@ real `ID`/`CharComponentTextureLayoutsID`/`TextureType`/`Width`/`Height`/
 text) through the same string-value path `db2-info` already uses. Field
 arrays (WDC5's own `arrayCount` storage, not something DBD tracks the
 length of) get one `<name>_<i>` column per real decoded element -- SQLite
-has no native array column type.
+has no native array column type. The real `chrmodelmaterial.db2` ->
+`charcomponenttexturelayouts.db2` chain exports into one SQLite database via
+`--dir` with a real `FOREIGN KEY` constraint on `ChrModelMaterial.
+CharComponentTextureLayoutsID`, and a real `JOIN` across the two returns the
+same plausible atlas dimensions as above -- the smallest real cross-file
+chain confirmed fully populated locally. The fuller `ChrCustomizationOption`
+-> `_Choice` -> `_Material` chain `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s
+Stage 3 actually needs isn't verifiable the same way yet -- several of
+those exact tables are still 0-byte in the current local export (see
+`CLAUDE_HISTORY.md`'s entry for this session).
 
 ### Texture conversion
 

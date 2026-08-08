@@ -431,9 +431,13 @@ from "the `--textures` directory just didn't have the file."** `type == 0`
 ("NONE") is a real, filename/FileDataID-based texture, resolvable the
 ordinary way; any other value means the client substitutes the real image
 at runtime from DB2-driven character-customization/item-tint data husk
-doesn't currently resolve (locally-extracted DB2 files are in scope per
-Non-goals above's clarified wording, just not implemented yet -- see
-`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`) -- so an empty `baseColorImagePng`
+doesn't fully resolve yet (locally-extracted DB2 files are in scope per
+Non-goals above's clarified wording -- `husk export --db2-dir/--dbd-dir/
+--char-layout-id` now attaches real placement-geometry `extras`
+(`ChrModelMaterial`/`CharComponentTextureSections`/`ChrModelTextureLayer`,
+`src/chrmodel_db2.hpp`), but *picking* which candidate fills which slot for
+a given character is still unresolved -- see
+`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 3) -- so an empty `baseColorImagePng`
 for one of these means something categorically different than a missing
 PNG for a `type == 0` texture. `gltf::Material::textureType` is set from
 the batch's primary texture's `m2::Texture::type` unconditionally, but only
@@ -1013,6 +1017,9 @@ flag regardless of position."
 | `--lod` | *(none)* | `<n>` or `all`, only meaningful with `--skin auto` |
 | `--bones-dir` | *(none)* | directory of `<FileDataID>.bone` files, attached as inert extras |
 | `--phys` | *(none)* | external `.phys` path, or `none` — attached as inert extras (minimal anchor; full records via `dump-chunks`) |
+| `--db2-dir` | *(none)* | directory of real character-texture `.db2` files — combined with `--dbd-dir`/`--char-layout-id` to attach real placement geometry as inert extras (`src/chrmodel_db2.hpp`) |
+| `--dbd-dir` | *(none)* | a local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) |
+| `--char-layout-id` | *(none)* | a real `CharComponentTextureLayoutsID` (see `husk db2-export`) — husk can't derive this on its own, so it must be given directly |
 
 Every flag is order-independent. The only positional-shaped things left are
 the two every CLI on every platform already trains a user to expect
@@ -1092,6 +1099,15 @@ What `none` means, concretely, per flag:
 - `--bones-dir none` — never resolve any `.bone` file, even if a matching
   `<FileDataID>.bone` sits in the default directory; no `bone_correction_sets`
   extras attached at all.
+
+**`--db2-dir`/`--dbd-dir`/`--char-layout-id` are a simpler two-state
+pattern, not three** — there's no model-relative default to fall back to
+for "auto" (husk has no way to derive a `CharComponentTextureLayoutsID`
+from an `.m2` file on its own; see `src/chrmodel_db2.hpp`'s module comment
+for why), so it's just "all three given, or the feature is off." Given only
+some of the three, `attachCharTextureLayout` (`cmd_export.cpp`) prints a
+diagnostic and skips, same as `none` resolving to nothing — never a hard
+failure of the rest of the export.
 
 **`--anim` needs four states, not three — it bundles two independent
 questions the generic pattern above collapses into one.** "Should any

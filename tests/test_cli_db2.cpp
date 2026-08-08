@@ -150,6 +150,84 @@ std::vector<uint8_t> buildSimpleDb2(uint32_t recordCount) {
     return buf;
 }
 
+// A synthetic WDC5 file with `fieldCount` plain (storageType None) uint32
+// fields and `rows.size()` records, real tableHash/layoutHash of the
+// caller's choosing -- used by the --dir/FK-constraint tests below to build
+// two files whose real WoWDBDefs relation husk's own dbd.hpp resolves.
+std::vector<uint8_t> buildDb2WithFields(uint32_t tableHash, uint32_t layoutHash,
+                                         const std::vector<std::vector<uint32_t>>& rows) {
+    uint32_t fieldCount = static_cast<uint32_t>(rows.empty() ? 0 : rows[0].size());
+    size_t recordSize = fieldCount * 4;
+    size_t stringTableSize = 1;
+    size_t sectionFileOffset =
+        kHeaderSize + kSectionHeaderSize + fieldCount * kFieldStructureSize + fieldCount * kFieldStorageInfoSize;
+    size_t total = sectionFileOffset + rows.size() * recordSize + stringTableSize;
+
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;  // recordCount
+    putU32(buf, p, fieldCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, tableHash); p += 4;
+    putU32(buf, p, layoutHash); p += 4;
+    putU32(buf, p, 1); p += 4;  // minId
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;  // maxId
+    putU32(buf, p, 0); p += 4;  // locale
+    putU16(buf, p, 0); p += 2;  // flags
+    putU16(buf, p, 0); p += 2;  // idIndex
+    putU32(buf, p, fieldCount); p += 4;  // totalFieldCount
+    putU32(buf, p, 0); p += 4;  // bitpackedDataOffset
+    putU32(buf, p, 0); p += 4;  // lookupColumnCount
+    putU32(buf, p, fieldCount * kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;  // commonDataSize
+    putU32(buf, p, 0); p += 4;  // palletDataSize
+    putU32(buf, p, 1); p += 4;  // sectionCount
+    REQUIRE(p == kHeaderSize);
+
+    putU64(buf, p, 0); p += 8;  // tactKeyHash
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;  // fileOffset
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // offsetRecordsEnd
+    putU32(buf, p, 0); p += 4;  // idListSize
+    putU32(buf, p, 0); p += 4;  // relationshipDataSize
+    putU32(buf, p, 0); p += 4;  // offsetMapIdCount
+    putU32(buf, p, 0); p += 4;  // copyTableCount
+    REQUIRE(p == kHeaderSize + kSectionHeaderSize);
+
+    for (uint32_t i = 0; i < fieldCount; ++i) {
+        putU16(buf, p, 0); p += 2;
+        putU16(buf, p, static_cast<uint16_t>(i * 4)); p += 2;
+    }
+    for (uint32_t i = 0; i < fieldCount; ++i) {
+        putU16(buf, p, static_cast<uint16_t>(i * 32)); p += 2;
+        putU16(buf, p, 32); p += 2;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;  // storageType = None
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+    }
+    REQUIRE(p == sectionFileOffset);
+
+    for (const std::vector<uint32_t>& row : rows) {
+        for (uint32_t v : row) {
+            putU32(buf, p, v);
+            p += 4;
+        }
+    }
+    return buf;
+}
+
+void writeFile(const fs::path& path, const std::vector<uint8_t>& bytes) {
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
 }  // namespace
 
 TEST_CASE("husk db2-export: synthetic WDC5 file, no --dbd-dir, writes real SQLite with generic "
@@ -212,6 +290,103 @@ TEST_CASE("husk db2-export: an unknown --dbd-dir table hash falls back to generi
                            emptyDbdDir.string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("generic field_<N> column names") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+// `--dir` exports every .db2 file under a directory into one SQLite
+// database, and a column with a real
+// WoWDBDefs "<Table::Col>" relation target gets a real FOREIGN KEY
+// constraint when that target table is also part of the batch -- verified
+// here by actually running the resulting join, not just inspecting the
+// schema text.
+TEST_CASE("husk db2-export --dir: two related synthetic files export with a real FOREIGN KEY, "
+          "joinable end to end") {
+    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-dir";
+    fs::remove_all(dir);
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::path definitionsDir = dbdDir / "definitions";
+    fs::create_directories(db2Dir);
+    fs::create_directories(definitionsDir);
+    fs::path outPath = dir / "out.sqlite";
+
+    const uint32_t kParentTableHash = 0x11111111;
+    const uint32_t kParentLayoutHash = 0x22222222;
+    const uint32_t kChildTableHash = 0x33333333;
+    const uint32_t kChildLayoutHash = 0x44444444;
+
+    // Parent: one field, ID (inline, $id$) -- rows ID=10,20,30.
+    writeFile(db2Dir / "parent.db2",
+              buildDb2WithFields(kParentTableHash, kParentLayoutHash, {{10}, {20}, {30}}));
+    // Child: two fields, ID (inline, $id$) and ParentID (relates to Parent::ID).
+    writeFile(db2Dir / "child.db2", buildDb2WithFields(kChildTableHash, kChildLayoutHash,
+                                                         {{1, 10}, {2, 20}, {3, 30}}));
+
+    std::ofstream manifest(dbdDir / "manifest.json");
+    manifest << "[\n"
+             << "  {\"tableName\": \"Parent\", \"tableHash\": \"" << std::hex << kParentTableHash
+             << "\"},\n"
+             << "  {\"tableName\": \"Child\", \"tableHash\": \"" << std::hex << kChildTableHash << "\"}\n"
+             << "]\n" << std::dec;
+    manifest.close();
+
+    std::ofstream parentDbd(definitionsDir / "Parent.dbd");
+    parentDbd << "COLUMNS\n"
+              << "int ID\n"
+              << "\n"
+              << "LAYOUT " << std::hex << kParentLayoutHash << "\n"
+              << std::dec << "BUILD 1.0.0.1\n"
+              << "$id$ID<32>\n";
+    parentDbd.close();
+
+    std::ofstream childDbd(definitionsDir / "Child.dbd");
+    childDbd << "COLUMNS\n"
+             << "int ID\n"
+             << "int<Parent::ID> ParentID\n"
+             << "\n"
+             << "LAYOUT " << std::hex << kChildLayoutHash << "\n"
+             << std::dec << "BUILD 1.0.0.1\n"
+             << "$id$ID<32>\n"
+             << "ParentID<32>\n";
+    childDbd.close();
+
+    auto result = runHusk("db2-export --dir " + db2Dir.string() + " " + outPath.string() + " --dbd-dir " +
+                           dbdDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("2 table(s)") != std::string::npos);
+    REQUIRE(fs::exists(outPath));
+
+    sqlite3* db = nullptr;
+    REQUIRE(sqlite3_open_v2(outPath.string().c_str(), &db, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+
+    sqlite3_stmt* schemaStmt = nullptr;
+    REQUIRE(sqlite3_prepare_v2(db, "SELECT sql FROM sqlite_master WHERE name = 'Child'", -1, &schemaStmt,
+                                nullptr) == SQLITE_OK);
+    REQUIRE(sqlite3_step(schemaStmt) == SQLITE_ROW);
+    std::string childSchema(reinterpret_cast<const char*>(sqlite3_column_text(schemaStmt, 0)));
+    sqlite3_finalize(schemaStmt);
+    CHECK(childSchema.find("FOREIGN KEY (\"ParentID\") REFERENCES \"Parent\"(\"ID\")") !=
+          std::string::npos);
+
+    sqlite3_stmt* joinStmt = nullptr;
+    REQUIRE(sqlite3_prepare_v2(
+                db,
+                "SELECT c.ID, c.ParentID, p.ID FROM Child c JOIN Parent p ON c.ParentID = p.ID "
+                "ORDER BY c.ID",
+                -1, &joinStmt, nullptr) == SQLITE_OK);
+    int rowCount = 0;
+    while (sqlite3_step(joinStmt) == SQLITE_ROW) {
+        ++rowCount;
+        int64_t childId = sqlite3_column_int64(joinStmt, 0);
+        int64_t parentId = sqlite3_column_int64(joinStmt, 1);
+        int64_t joinedParentId = sqlite3_column_int64(joinStmt, 2);
+        CHECK(parentId == joinedParentId);
+        CHECK(parentId == childId * 10);
+    }
+    CHECK(rowCount == 3);
+    sqlite3_finalize(joinStmt);
+    sqlite3_close(db);
 
     fs::remove_all(dir);
 }

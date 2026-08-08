@@ -128,6 +128,23 @@ struct OffsetMapEntry {
     uint16_t size = 0;
 };
 
+// relationship_entry, DB2.md's WDC2+ section (WDC5 reuses it unchanged) --
+// replaces a column that was also used as a foreign-key lookup (e.g.
+// SpellID in SpellX* tables) with a section-wide (foreignId -> record) map
+// instead of storing it inline in every record.
+struct RelationshipEntry {
+    uint32_t foreignId = 0;
+    // Normally the record's position within Section::recordBytes
+    // (recordIndex * header.recordSize). DB2.md's WDC5 struct notes one
+    // documented exception: "if flag 0x02 is set [...] relationship_entry
+    // uses record IDs instead of record index" -- true for every real local
+    // fixture found so far (the Collectable*Sparse tables, which are also
+    // offset-map sections), so this field holds a real record ID rather than
+    // an index whenever Header::flags & 0x02 is set. See Section::
+    // hasRelationshipMap's own caller for which case applies.
+    uint32_t recordIndexOrId = 0;
+};
+
 struct Section {
     SectionHeader header;
     // Fixed-width path (header.flags & 0x01 == 0): header.recordCount
@@ -143,8 +160,15 @@ struct Section {
     std::vector<CopyTableEntry> copyTable;
     std::vector<OffsetMapEntry> offsetMap;
     std::vector<uint32_t> offsetMapIdList;
+    // relationship_mapping, decoded whenever header.relationshipDataSize > 0
+    // -- min_id/max_id are the mapping's own declared ID range (not
+    // necessarily equal to the file's header.minId/maxId).
+    uint32_t relationshipMinId = 0;
+    uint32_t relationshipMaxId = 0;
+    std::vector<RelationshipEntry> relationshipEntries;
 
     bool hasOffsetMap() const { return header.tactKeyHash == 0 && !offsetMap.empty(); }
+    bool hasRelationshipMap() const { return header.relationshipDataSize > 0; }
 };
 
 struct File {
@@ -172,6 +196,33 @@ File parse(const std::vector<uint8_t>& fileBytes);
 // the record.
 std::vector<uint64_t> decodeField(const File& file, const Section& section, size_t recordIndex,
                                    size_t fieldIndex);
+
+// The row's real ID, whichever of WDC5's two storage schemes this file
+// uses: `section.idList[recordIndex]` when present (header.flags & 0x04,
+// "has non-inline IDs" -- the ID occupies no field-array slot at all), else
+// the value decoded straight out of the record at header.idIndex (the
+// common case -- the ID is just another inline field). Falls back to
+// `recordIndex` itself only if neither source is available (shouldn't
+// happen on a real file, but never guessed at beyond that).
+uint32_t recordId(const File& file, const Section& section, size_t recordIndex);
+
+// Resolves a `$noninline,relation$` DBD column's real per-record value from
+// `section.relationshipEntries` -- real for real tables like
+// ChrModelTextureLayer, whose CharComponentTextureLayoutsID occupies no
+// field-array slot at all under some layouts, only the section's own
+// relationship_map (`recordIndexOrId` holding the record's own *position*
+// in this case, verified against real `chrmodeltexturelayer.db2` data,
+// header.flags & 0x02 clear). Returns one entry per record
+// (`section.header.recordCount`), nullopt for a record with no matching
+// map entry. Returns an all-empty vector, never a guess, when
+// `header.flags & 0x02` is set -- DB2.md's own note that
+// `relationship_entry` holds a real record *ID* rather than an index in
+// that case means this function would need a real ID->position lookup
+// (via `section.idList`, when present) to invert it correctly, and no real
+// local fixture has exercised that combination for a *value* lookup (only
+// for the ID-column case `recordId` already handles) to verify against.
+std::vector<std::optional<uint32_t>> nonInlineRelationValuesByRecord(const File& file,
+                                                                       const Section& section);
 
 // Best-effort heuristic (DB2.md's "Determining Field Types": "every value in
 // a string field will be an offset into the string block, which you can

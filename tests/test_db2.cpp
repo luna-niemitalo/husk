@@ -177,6 +177,252 @@ TEST_CASE("db2::decodeField reads plain uint32 fields in row order") {
     }
 }
 
+TEST_CASE("db2::recordId reads the inline id field when header.flags & 0x04 is not set") {
+    auto buf = buildSimpleFile(3);
+    auto file = husk::db2::parse(buf);
+    const husk::db2::Section& section = file.sections[0];
+    for (size_t r = 0; r < 3; ++r) {
+        CHECK(husk::db2::recordId(file, section, r) == r + 1);
+    }
+}
+
+// header.flags & 0x04 ("has non-inline IDs"): the real ID lives in
+// section.idList, parallel to record order, not in any field-array slot --
+// db2::recordId must prefer idList over header.idIndex whenever it's
+// present, per DB2.md's own note (see db2.hpp's recordId doc comment).
+TEST_CASE("db2::recordId reads section.idList when header.flags & 0x04 is set") {
+    uint32_t recordCount = 3;
+    size_t recordSize = 4;
+    size_t stringTableSize = 1;
+    size_t sectionFileOffset = kHeaderSize + kSectionHeaderSize + kFieldStructureSize + kFieldStorageInfoSize;
+    size_t idListSize = recordCount * 4;
+    size_t total = sectionFileOffset + recordCount * recordSize + stringTableSize + idListSize;
+
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, 1); p += 4;  // fieldCount
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // tableHash
+    putU32(buf, p, 0); p += 4;  // layoutHash
+    putU32(buf, p, 100); p += 4;  // minId
+    putU32(buf, p, 102); p += 4;  // maxId
+    putU32(buf, p, 0); p += 4;  // locale
+    putU16(buf, p, 0x04); p += 2;  // flags: has non-inline IDs
+    putU16(buf, p, 0); p += 2;  // idIndex (ignored -- flags & 0x04 is set)
+    putU32(buf, p, 1); p += 4;  // totalFieldCount
+    putU32(buf, p, 0); p += 4;  // bitpackedDataOffset
+    putU32(buf, p, 0); p += 4;  // lookupColumnCount
+    putU32(buf, p, kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;  // commonDataSize
+    putU32(buf, p, 0); p += 4;  // palletDataSize
+    putU32(buf, p, 1); p += 4;  // sectionCount
+    CHECK(p == kHeaderSize);
+
+    putU64(buf, p, 0); p += 8;  // tactKeyHash
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;  // fileOffset
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // offsetRecordsEnd
+    putU32(buf, p, static_cast<uint32_t>(idListSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // relationshipDataSize
+    putU32(buf, p, 0); p += 4;  // offsetMapIdCount
+    putU32(buf, p, 0); p += 4;  // copyTableCount
+    CHECK(p == kHeaderSize + kSectionHeaderSize);
+
+    putU16(buf, p, 0); p += 2;  // field_structure.size
+    putU16(buf, p, 0); p += 2;  // field_structure.position
+    putU16(buf, p, 0); p += 2;  // fieldOffsetBits
+    putU16(buf, p, 32); p += 2;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;  // storageType = None
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    CHECK(p == sectionFileOffset);
+
+    for (uint32_t r = 0; r < recordCount; ++r) { putU32(buf, p, r * 10); p += 4; }
+    p += stringTableSize;
+    for (uint32_t r = 0; r < recordCount; ++r) { putU32(buf, p, 100 + r); p += 4; }
+    CHECK(p == total);
+
+    auto file = husk::db2::parse(buf);
+    const husk::db2::Section& section = file.sections[0];
+    REQUIRE(section.idList.size() == 3);
+    CHECK(husk::db2::recordId(file, section, 0) == 100);
+    CHECK(husk::db2::recordId(file, section, 1) == 101);
+    CHECK(husk::db2::recordId(file, section, 2) == 102);
+}
+
+// db2::nonInlineRelationValuesByRecord resolves a "$noninline,relation$"
+// column's real per-record value from the relationship map -- verified for
+// real against chrmodeltexturelayer.db2 (see CLAUDE_HISTORY.md), whose
+// CharComponentTextureLayoutsID is stored exactly this way under its
+// current real layout, header.flags & 0x02 clear (recordIndexOrId is a
+// real record *index* in this case, not an ID -- see db2.hpp's own doc
+// comment for why the 0x02-set case is deliberately unhandled).
+TEST_CASE("db2::nonInlineRelationValuesByRecord resolves per-record foreign IDs when flags & 0x02 is clear") {
+    uint32_t recordCount = 3;
+    uint32_t numEntries = 3;
+    size_t recordSize = 4;
+    size_t stringTableSize = 1;
+    size_t sectionFileOffset = kHeaderSize + kSectionHeaderSize + kFieldStructureSize + kFieldStorageInfoSize;
+    size_t relationshipMapSize = 12 + static_cast<size_t>(numEntries) * 8;
+    size_t total = sectionFileOffset + recordCount * recordSize + stringTableSize + relationshipMapSize;
+
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, 1); p += 4;  // fieldCount
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // tableHash
+    putU32(buf, p, 0); p += 4;  // layoutHash
+    putU32(buf, p, 1); p += 4;  // minId
+    putU32(buf, p, recordCount); p += 4;  // maxId
+    putU32(buf, p, 0); p += 4;  // locale
+    putU16(buf, p, 0); p += 2;  // flags: NOT 0x02 -- recordIndexOrId is a real index
+    putU16(buf, p, 0); p += 2;  // idIndex
+    putU32(buf, p, 1); p += 4;  // totalFieldCount
+    putU32(buf, p, 0); p += 4;  // bitpackedDataOffset
+    putU32(buf, p, 0); p += 4;  // lookupColumnCount
+    putU32(buf, p, kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;  // commonDataSize
+    putU32(buf, p, 0); p += 4;  // palletDataSize
+    putU32(buf, p, 1); p += 4;  // sectionCount
+    CHECK(p == kHeaderSize);
+
+    putU64(buf, p, 0); p += 8;  // tactKeyHash
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;  // fileOffset
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // offsetRecordsEnd
+    putU32(buf, p, 0); p += 4;  // idListSize
+    putU32(buf, p, static_cast<uint32_t>(relationshipMapSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // offsetMapIdCount
+    putU32(buf, p, 0); p += 4;  // copyTableCount
+    CHECK(p == kHeaderSize + kSectionHeaderSize);
+
+    putU16(buf, p, 0); p += 2;
+    putU16(buf, p, 0); p += 2;
+    putU16(buf, p, 0); p += 2;
+    putU16(buf, p, 32); p += 2;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;  // storageType = None
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    CHECK(p == sectionFileOffset);
+
+    for (uint32_t r = 0; r < recordCount; ++r) { putU32(buf, p, r); p += 4; }
+    p += stringTableSize;
+
+    putU32(buf, p, numEntries); p += 4;
+    putU32(buf, p, 900); p += 4;  // relationship_map.min_id
+    putU32(buf, p, 900); p += 4;  // relationship_map.max_id
+    // entries: record index 0 and 1 both belong to foreign_id 900,
+    // record index 2 belongs to foreign_id 901.
+    putU32(buf, p, 900); p += 4; putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 900); p += 4; putU32(buf, p, 1); p += 4;
+    putU32(buf, p, 901); p += 4; putU32(buf, p, 2); p += 4;
+    CHECK(p == total);
+
+    auto file = husk::db2::parse(buf);
+    const husk::db2::Section& section = file.sections[0];
+    auto values = husk::db2::nonInlineRelationValuesByRecord(file, section);
+    REQUIRE(values.size() == 3);
+    REQUIRE(values[0].has_value());
+    CHECK(*values[0] == 900);
+    REQUIRE(values[1].has_value());
+    CHECK(*values[1] == 900);
+    REQUIRE(values[2].has_value());
+    CHECK(*values[2] == 901);
+}
+
+TEST_CASE("db2::nonInlineRelationValuesByRecord returns empty when header.flags & 0x02 is set") {
+    // Reuses the earlier "no offset map" relationship-map fixture, whose
+    // header.flags is 0x02 -- per DB2.md's own note, relationship_entry
+    // holds a real record ID in that case, not an index this function
+    // knows how to invert, so it must return {} rather than guess.
+    uint32_t recordCount = 1;
+    uint32_t numEntries = 2;
+    size_t recordSize = 8;
+    size_t stringTableSize = 1;
+    size_t sectionFileOffset =
+        kHeaderSize + kSectionHeaderSize + 2 * kFieldStructureSize + 2 * kFieldStorageInfoSize;
+    size_t relationshipMapSize = 12 + static_cast<size_t>(numEntries) * 8;
+    size_t total = sectionFileOffset + recordCount * recordSize + stringTableSize + relationshipMapSize;
+
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, 2); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 1); p += 4;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU16(buf, p, 0x02); p += 2;  // flags: has relationship data
+    putU16(buf, p, 0); p += 2;
+    putU32(buf, p, 2); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 2 * kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 1); p += 4;
+    CHECK(p == kHeaderSize);
+
+    putU64(buf, p, 0); p += 8;
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(relationshipMapSize)); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    CHECK(p == kHeaderSize + kSectionHeaderSize);
+
+    for (int i = 0; i < 2; ++i) { putU16(buf, p, 0); p += 2; putU16(buf, p, static_cast<uint16_t>(i * 4)); p += 2; }
+    for (int i = 0; i < 2; ++i) {
+        putU16(buf, p, static_cast<uint16_t>(i * 32)); p += 2;
+        putU16(buf, p, 32); p += 2;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+    }
+    CHECK(p == sectionFileOffset);
+
+    for (uint32_t r = 0; r < recordCount; ++r) { putU32(buf, p, r + 1); p += 4; putU32(buf, p, (r + 1) * 100); p += 4; }
+    p += stringTableSize;
+
+    putU32(buf, p, numEntries); p += 4;
+    putU32(buf, p, 500); p += 4;
+    putU32(buf, p, 600); p += 4;
+    putU32(buf, p, 500); p += 4; putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 600); p += 4; putU32(buf, p, 7); p += 4;
+    CHECK(p == total);
+
+    auto file = husk::db2::parse(buf);
+    const husk::db2::Section& section = file.sections[0];
+    CHECK(husk::db2::nonInlineRelationValuesByRecord(file, section).empty());
+}
+
 TEST_CASE("db2::decodeField out-of-range record index throws ParseError") {
     auto buf = buildSimpleFile(2);
     auto file = husk::db2::parse(buf);
@@ -312,4 +558,184 @@ TEST_CASE("db2::resolveFieldString finds a plausible in-bounds C string") {
 TEST_CASE("db2::resolveFieldString rejects an out-of-bounds offset") {
     std::vector<uint8_t> buf(64, 0);
     CHECK_FALSE(husk::db2::resolveFieldString(buf, 10, 1000).has_value());
+}
+
+// relationship_mapping (DB2.md's WDC5 struct): num_entries/min_id/max_id
+// then num_entries {foreign_id, record_index} pairs, right after the
+// (empty, in this fixture) copy table -- no offset map involved, so no
+// reordering quirk applies here (that's the next test).
+TEST_CASE("db2::parse decodes a relationship map with no offset map involved") {
+    uint32_t recordCount = 1;
+    uint32_t numEntries = 2;
+    size_t recordSize = 8;
+    size_t stringTableSize = 1;
+    size_t sectionFileOffset =
+        kHeaderSize + kSectionHeaderSize + 2 * kFieldStructureSize + 2 * kFieldStorageInfoSize;
+    size_t relationshipMapSize = 12 + static_cast<size_t>(numEntries) * 8;
+    size_t total = sectionFileOffset + recordCount * recordSize + stringTableSize + relationshipMapSize;
+
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, 2); p += 4;  // fieldCount
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // tableHash
+    putU32(buf, p, 0); p += 4;  // layoutHash
+    putU32(buf, p, 1); p += 4;  // minId
+    putU32(buf, p, recordCount); p += 4;  // maxId
+    putU32(buf, p, 0); p += 4;  // locale
+    putU16(buf, p, 0x02); p += 2;  // flags: has relationship data
+    putU16(buf, p, 0); p += 2;  // idIndex
+    putU32(buf, p, 2); p += 4;  // totalFieldCount
+    putU32(buf, p, 0); p += 4;  // bitpackedDataOffset
+    putU32(buf, p, 0); p += 4;  // lookupColumnCount
+    putU32(buf, p, 2 * kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;  // commonDataSize
+    putU32(buf, p, 0); p += 4;  // palletDataSize
+    putU32(buf, p, 1); p += 4;  // sectionCount
+    CHECK(p == kHeaderSize);
+
+    putU64(buf, p, 0); p += 8;  // tactKeyHash
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;  // fileOffset
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // offsetRecordsEnd
+    putU32(buf, p, 0); p += 4;  // idListSize
+    putU32(buf, p, static_cast<uint32_t>(relationshipMapSize)); p += 4;  // relationshipDataSize
+    putU32(buf, p, 0); p += 4;  // offsetMapIdCount
+    putU32(buf, p, 0); p += 4;  // copyTableCount
+    CHECK(p == kHeaderSize + kSectionHeaderSize);
+
+    for (int i = 0; i < 2; ++i) { putU16(buf, p, 0); p += 2; putU16(buf, p, static_cast<uint16_t>(i * 4)); p += 2; }
+    for (int i = 0; i < 2; ++i) {
+        putU16(buf, p, static_cast<uint16_t>(i * 32)); p += 2;
+        putU16(buf, p, 32); p += 2;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;  // storageType = None
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+    }
+    CHECK(p == sectionFileOffset);
+
+    for (uint32_t r = 0; r < recordCount; ++r) {
+        putU32(buf, p, r + 1); p += 4;
+        putU32(buf, p, (r + 1) * 100); p += 4;
+    }
+    p += stringTableSize;  // string block: single zero byte, already zero-initialized
+
+    putU32(buf, p, numEntries); p += 4;
+    putU32(buf, p, 500); p += 4;  // relationship_map.min_id
+    putU32(buf, p, 600); p += 4;  // relationship_map.max_id
+    putU32(buf, p, 500); p += 4;  // entry[0].foreign_id
+    putU32(buf, p, 0); p += 4;    // entry[0].record_index
+    putU32(buf, p, 600); p += 4;  // entry[1].foreign_id
+    putU32(buf, p, 7); p += 4;    // entry[1].record_index
+    CHECK(p == total);
+
+    auto file = husk::db2::parse(buf);
+    const husk::db2::Section& section = file.sections[0];
+    CHECK(section.hasRelationshipMap());
+    CHECK(section.relationshipMinId == 500);
+    CHECK(section.relationshipMaxId == 600);
+    REQUIRE(section.relationshipEntries.size() == 2);
+    CHECK(section.relationshipEntries[0].foreignId == 500);
+    CHECK(section.relationshipEntries[0].recordIndexOrId == 0);
+    CHECK(section.relationshipEntries[1].foreignId == 600);
+    CHECK(section.relationshipEntries[1].recordIndexOrId == 7);
+}
+
+// DB2.md's WDC5 struct pseudocode: "if flag 0x02 is set offset_map_id_list
+// will appear before relationship_map instead" -- real for the only local
+// fixtures with both bits set (Collectable*Sparse tables, see
+// db2.cpp's own comment at the read site). Builds a minimal offset-map
+// section (flags 0x01 | 0x02) with the reordered layout and checks each
+// piece lands where the reorder puts it, not where the default (no-offset-
+// map) order would.
+TEST_CASE("db2::parse reorders offset_map_id_list before relationship_map when flags & 0x02 is set") {
+    size_t variableRecordSize = 4;
+    uint32_t offsetMapIdCount = 1;
+    uint32_t numEntries = 1;
+    size_t sectionFileOffset = kHeaderSize + kSectionHeaderSize + kFieldStructureSize + kFieldStorageInfoSize;
+    size_t offsetRecordsEnd = sectionFileOffset + variableRecordSize;
+    size_t offsetMapSize = static_cast<size_t>(offsetMapIdCount) * 6;
+    size_t offsetMapIdListSize = static_cast<size_t>(offsetMapIdCount) * 4;
+    size_t relationshipMapSize = 12 + static_cast<size_t>(numEntries) * 8;
+    size_t total = sectionFileOffset + variableRecordSize + offsetMapSize + offsetMapIdListSize + relationshipMapSize;
+
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, 0); p += 4;  // recordCount (unused by the offset-map path)
+    putU32(buf, p, 1); p += 4;  // fieldCount
+    putU32(buf, p, 0); p += 4;  // recordSize (unused for offset-map sections)
+    putU32(buf, p, 0); p += 4;  // stringTableSize
+    putU32(buf, p, 0); p += 4;  // tableHash
+    putU32(buf, p, 0); p += 4;  // layoutHash
+    putU32(buf, p, 1); p += 4;  // minId
+    putU32(buf, p, 1); p += 4;  // maxId
+    putU32(buf, p, 0); p += 4;  // locale
+    putU16(buf, p, 0x03); p += 2;  // flags: offset map + relationship data
+    putU16(buf, p, 0); p += 2;  // idIndex
+    putU32(buf, p, 1); p += 4;  // totalFieldCount
+    putU32(buf, p, 0); p += 4;  // bitpackedDataOffset
+    putU32(buf, p, 0); p += 4;  // lookupColumnCount
+    putU32(buf, p, kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;  // commonDataSize
+    putU32(buf, p, 0); p += 4;  // palletDataSize
+    putU32(buf, p, 1); p += 4;  // sectionCount
+    CHECK(p == kHeaderSize);
+
+    putU64(buf, p, 0); p += 8;  // tactKeyHash
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;  // fileOffset
+    putU32(buf, p, 0); p += 4;  // recordCount
+    putU32(buf, p, 0); p += 4;  // stringTableSize
+    putU32(buf, p, static_cast<uint32_t>(offsetRecordsEnd)); p += 4;
+    putU32(buf, p, 0); p += 4;  // idListSize
+    putU32(buf, p, static_cast<uint32_t>(relationshipMapSize)); p += 4;
+    putU32(buf, p, offsetMapIdCount); p += 4;
+    putU32(buf, p, 0); p += 4;  // copyTableCount
+    CHECK(p == kHeaderSize + kSectionHeaderSize);
+
+    putU16(buf, p, 0); p += 2;  // field_structure[0].size (unused for offset-map records)
+    putU16(buf, p, 0); p += 2;  // field_structure[0].position
+    putU16(buf, p, 0); p += 2;  // fieldOffsetBits
+    putU16(buf, p, 32); p += 2;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;  // storageType = None
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    CHECK(p == sectionFileOffset);
+
+    p += variableRecordSize;  // variable_record_data, contents irrelevant here
+
+    putU32(buf, p, 0); p += 4;  // offset_map[0].offset == 0 -> "no entry at this ID"
+    putU16(buf, p, 0); p += 2;  // offset_map[0].size
+    CHECK(p == offsetRecordsEnd + offsetMapSize);
+
+    // Reordered position: offset_map_id_list comes BEFORE relationship_map.
+    putU32(buf, p, 999); p += 4;  // offset_map_id_list[0]
+
+    putU32(buf, p, numEntries); p += 4;
+    putU32(buf, p, 100); p += 4;  // relationship_map.min_id
+    putU32(buf, p, 100); p += 4;  // relationship_map.max_id
+    putU32(buf, p, 100); p += 4;  // entry[0].foreign_id
+    putU32(buf, p, 100); p += 4;  // entry[0].record_index_or_id
+    CHECK(p == total);
+
+    auto file = husk::db2::parse(buf);
+    const husk::db2::Section& section = file.sections[0];
+    REQUIRE(section.offsetMapIdList.size() == 1);
+    CHECK(section.offsetMapIdList[0] == 999);
+    CHECK(section.hasRelationshipMap());
+    REQUIRE(section.relationshipEntries.size() == 1);
+    CHECK(section.relationshipEntries[0].foreignId == 100);
+    CHECK(section.relationshipEntries[0].recordIndexOrId == 100);
 }

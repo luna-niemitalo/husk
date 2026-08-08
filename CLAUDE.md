@@ -27,6 +27,11 @@ tool, `blp/`) converts BLP2 textures to PNG.
   applied to the render), `husk export --phys` (real `.phys` physics/collision
   body data attached as inert `physics_bodies` glTF skin `extras` — minimal
   per-body placement anchors only, never applied to the render — see Resume),
+  `husk export --db2-dir/--dbd-dir/--char-layout-id` (real DB2-derived
+  character texture-layout geometry — base atlas size, real placement rects,
+  real texture-layer blend info — attached as inert `chr_texture_layout`
+  glTF skin `extras`, keyed by a caller-supplied `CharComponentTextureLayoutsID`
+  since husk can't derive one on its own; see Resume),
   every export also attaching minimal ribbon/particle placement anchors
   (id/bone/position, `ribbon_emitters`/`particle_emitters` skin `extras`,
   unconditional), every export also emitting one inert geoset "tag" joint
@@ -130,6 +135,15 @@ tool, `blp/`) converts BLP2 textures to PNG.
 - `--textures`/`--skin-dir`/`--anim` directories — user-populated,
   FileDataID-named, local filesystem only. **Never CASC** — husk has no
   CASC/listfile access and never will, by design (see `DESIGN.md`'s Non-goals).
+- `.db2` files (real WDC5 container, `src/db2.hpp`/`.cpp`), real column
+  names via an optional local WoWDBDefs checkout (`src/dbd.hpp`/`.cpp`),
+  a generic named-column reader on top of both (`src/db2table.hpp`/`.cpp`),
+  and real typed character-texture-layout structs on top of that
+  (`src/chrmodel_db2.hpp`/`.cpp`, consumed by `husk export --db2-dir/
+  --dbd-dir/--char-layout-id` and the separate `husk db2-export` side tool)
+  — locally-extracted files only, same "user-populated, never CASC" tier as
+  every other sidecar above (see `DESIGN.md`'s Non-goals' clarified
+  wording).
 - `.blp` texture files (separate `blp/` Python tool) — container hand-rolled, block
   decode delegated to Pillow via a synthetic DDS wrapper.
 - No network access anywhere in this tool. No user input beyond CLI argv (parsed in
@@ -147,7 +161,119 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: real DB2 column naming + a real DB2-to-SQLite exporter
+- **Current state**: `tools/husk_blender_geoset_mask.py` (already the
+  established "post-import companion script" per Luna's own direct steer,
+  not a new file) got a second, independent job this session: parses
+  `chr_texture_layout` (previous entry) and adds a toggleable magenta
+  section-boundary overlay to every material it concerns. Real finding
+  along the way, confirmed empirically (headless-Blender introspection, not
+  assumed): Blender's stock glTF importer has **no supported extras target
+  for a glTF skin at all** — node/mesh/material/camera/light/scene extras
+  all land as real Blender custom properties post-import, skin extras land
+  nowhere — so `chr_texture_layout` is invisible to a plain File > Import,
+  unlike every other extras this project attaches. The script now re-opens
+  the exported file's own raw glTF JSON directly (`read_chr_texture_layout`,
+  manual glb chunk parsing) to get at it, independent of whatever bpy's
+  importer already did; material-level `texture_type` (used to decide which
+  materials the layout "concerns") comes through as a real custom property
+  normally, no raw-JSON reading needed for that half. One shared shader
+  node group (`_build_section_overlay_group`) computes an axis-aligned
+  box-test OR-of-ANDs mask over every real `CharComponentTextureSection`
+  rect (Shader Editor's `ShaderNodeMath` has no boolean-logic mode unlike
+  Geometry Nodes' `FunctionNodeBooleanMath`, so MIN/MAX substitute for AND/
+  OR), gated by a real `NodeSocketBool` group input — a plain checkbox on
+  the node once instanced, no Properties-panel promotion needed the way the
+  Geometry Nodes Menu Switch case required. Per concerned material, a new
+  `Mix Shader` sits between the *existing* (untouched) shader output and
+  the Material Output, so switching the overlay back off exactly reproduces
+  the original look. **Flagged, not verified**: whether WoW's real atlas Y
+  axis is top-down (assumed here, flipped against Blender's bottom-up UV V)
+  has not been independently ground-truthed the way the M2→glTF coordinate
+  fix was — a human should confirm the overlay lands in the visually
+  correct spot before trusting its exact placement. Verified structurally
+  (headless Blender): real end-to-end run against `bloodelffemale_hd.m2`'s
+  own `chr_texture_layout` (layout 1) touches the expected 3 materials
+  (two share `texture_type` 6), builds exactly one shared node group
+  instance, each material gets exactly one `Mix Shader` wired into its
+  Material Output, toggling the boolean input doesn't crash; a same-model
+  export with no `--char-layout-id` skips cleanly with a diagnostic, no
+  crash. No automated test suite exists for this script (Blender-only,
+  outside `husk`'s own C++/CTest scope, same as `husk_blender_geoset_mask.py`'s
+  existing geoset-switch half) — verification is headless-Blender runs,
+  same tier as the rest of this file's own testing discipline for Blender
+  tooling. `README.md` updated (both the geoset-mask paragraph and the
+  Stage-2 paragraph now cross-reference each other).
+- **Prior session**: `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 2
+  ("real placement geometry") implemented — the first real consumer of
+  locally-extracted DB2 data inside `husk export` itself, not just the
+  separate `db2-export` side tool. New `src/db2table.hpp`/`.cpp` (generic
+  named-column reader, built on `db2.hpp`/`dbd.hpp`) and `src/
+  chrmodel_db2.hpp`/`.cpp` (real typed `ChrModelMaterial`/
+  `CharComponentTextureSection`/`ChrModelTextureLayer`/
+  `CharComponentTextureLayout` structs on top of it) back new `husk export
+  --db2-dir/--dbd-dir/--char-layout-id` flags, attaching real placement
+  geometry as `chr_texture_layout` glTF skin `extras`
+  (`gltf::Skeleton::CharTextureLayout`) — verified end to end against the
+  real `bloodelffemale_hd.m2` + its own real DB2 chain, headless-Blender-
+  import-clean. Closed a real, previously-unreachable byte-format gap along
+  the way: a WDC5 `$noninline,relation$` column's value (real for
+  `ChrModelTextureLayer`'s own `CharComponentTextureLayoutsID`) now resolves
+  via a new `db2::nonInlineRelationValuesByRecord`/`dbd::
+  findNonInlineNonIdFieldNames` pair, reading the section's own
+  `relationship_map` instead of a nonexistent field-array slot. Deliberately
+  scoped down from the original TODO wording: does NOT attach placement
+  data to individual `alternate_textures` candidates (needs `ChrModel.db2` +
+  a real display-ID identity husk doesn't have, Stage 3's own open
+  problem) — the caller supplies the layout ID directly instead. Full suite
+  green, 575/575. See `CLAUDE_HISTORY.md`'s top entry for the full detail
+  (new test files, completions regeneration, doc updates).
+- **Prior session**: `TODO/DB2_SQLITE_SCHEMA_TODO.md` fully implemented and
+  the file itself deleted (all four staged steps done, nothing left open in
+  it) — `husk db2-export` now has a real relational schema, not just one
+  flat table per `.db2` file. Step 1: `dbd::parseColumnType`'s `<Table::Col>`
+  foreign-key-target suffix is captured into a new `dbd::RelationTarget`/
+  `dbd::Column` (replacing the old bare `pair<name, type>`), verified
+  against real `ChrModelMaterial.dbd` data. Step 2: WDC5's non-inline
+  `relationship_mapping` (an alternate per-section foreign-key storage,
+  `{foreignId, recordId}` pairs) is now decoded structurally
+  (`db2::Section::relationshipEntries`, `db2-info` prints a summary) — found
+  and fixed a real ordering bug along the way, caught only by checking
+  actual bytes: DB2.md's own WDC5 struct pseudocode notes that
+  `offset_map_id_list` moves *before* `relationship_map` when header flag
+  0x02 is set, which the original `db2::parse` didn't implement (always
+  read `relationship_map` first); verified against the real
+  `collectablesourceencountersparse.db2` file (the only local fixture with
+  both bits set) — 46,311 relationship entries decoded, foreign IDs
+  sequential, record-ID values landing exactly in the table's own declared
+  ID range, confirming both the byte layout and DB2.md's "uses record IDs
+  instead of record index" semantic note for this flag combination. Step 3:
+  new `husk db2-export --dir <db2-dir> <out.sqlite>` mode exports every
+  `.db2` file in a directory into one SQLite database (a bad/empty file is
+  skipped with a diagnostic, not fatal to the batch); a column with a real
+  relation target gets a real SQLite `FOREIGN KEY` constraint whenever the
+  target table is also part of the same batch, degrading silently to a
+  plain column otherwise. Step 4: verified end to end against the real
+  `chrmodelmaterial.db2` -> `charcomponenttexturelayouts.db2` chain — a real
+  `--dir` export produces a working `FOREIGN KEY`, and a real SQL `JOIN`
+  across the two tables returns correct, matching rows. That verification
+  surfaced one more real gap, fixed in the same session: `Char
+  ComponentTextureLayouts` has `header.flags & 0x04` ("has non-inline
+  IDs") — its real ID lives in WDC5's own separate `idList` array, not in
+  the field array at all, so the exporter previously emitted no `ID` column
+  for it whatsoever, silently making the join impossible. Fixed with a new
+  public `db2::recordId` (idList when present, else the inline field at
+  `header.idIndex`) and `dbd::findIdFieldName` (resolves a `$noninline,id$`
+  layout field's real name; deliberately excludes plain `$id$` fields,
+  already covered by the normal by-position path) — every non-inline-ID
+  table now gets a real, named ID column, only in `--dir` mode's own
+  writeFileTable (single-file mode is unaffected). Full suite green,
+  565/565; new tests include two `dbd::findIdFieldName` unit cases, two
+  synthetic `db2::parse` relationship-map cases (one of which — the
+  reorder case — was confirmed to actually fail without the fix, not just
+  pass with it), a `db2::recordId` non-inline-ID case, and a real CLI test
+  building two synthetic, DBD-related `.db2` files and running an actual
+  `FOREIGN KEY` `JOIN` against the resulting SQLite output.
+- **Prior session**: real DB2 column naming + a real DB2-to-SQLite exporter
   landed, same session as the DETL/DPIV/PCOL investigation and the root-doc
   reorg below. `src/dbd.hpp`/`.cpp` (new) is an independent parser for
   WoWDBDefs' own documented `.dbd` text grammar (`github.com/wowdev/

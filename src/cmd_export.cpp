@@ -13,6 +13,7 @@
 #include <CLI/CLI.hpp>
 
 #include "bone.hpp"
+#include "chrmodel_db2.hpp"
 #include "chunk.hpp"
 #include "commands.hpp"
 #include "export_animation.hpp"
@@ -514,6 +515,75 @@ void attachPhysicsBodies(bool physNone, bool physGiven, const std::string& physP
     }
 }
 
+// --db2-dir/--dbd-dir/--char-layout-id: attaches real character-texture
+// placement geometry (gltf::Skeleton::CharTextureLayout's doc comment) as
+// inert glTF extras. All three must be given -- a missing one is diagnosed
+// and the feature simply doesn't attach anything, same "not an error, just
+// nothing to offer" treatment as --bones-dir/--phys finding nothing.
+void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDir,
+                              const std::string& charLayoutIdArg, gltf::Skeleton& skeleton) {
+    if (db2Dir.empty() && dbdDir.empty() && charLayoutIdArg.empty()) return;  // feature simply unused
+    if (db2Dir.empty() || dbdDir.empty() || charLayoutIdArg.empty()) {
+        std::cerr << "husk: note: --db2-dir/--dbd-dir/--char-layout-id must all be given together "
+                     "-- skipping character texture-layout extras\n";
+        return;
+    }
+    uint32_t charLayoutId = 0;
+    try {
+        charLayoutId = static_cast<uint32_t>(std::stoul(charLayoutIdArg));
+    } catch (const std::exception&) {
+        std::cerr << "husk: note: --char-layout-id '" << charLayoutIdArg
+                  << "' isn't a non-negative integer -- skipping character texture-layout extras\n";
+        return;
+    }
+
+    std::optional<chrmodel::Data> data = chrmodel::load(db2Dir, dbdDir, std::cerr);
+    if (!data) {
+        std::cerr << "husk: note: no character texture-layout DB2 data resolved from '" << db2Dir
+                  << "' -- skipping\n";
+        return;
+    }
+
+    gltf::Skeleton::CharTextureLayout layout;
+    layout.layoutId = charLayoutId;
+    for (const chrmodel::CharComponentTextureLayout& l : data->layouts) {
+        if (l.id == charLayoutId) {
+            layout.width = l.width;
+            layout.height = l.height;
+            break;
+        }
+    }
+    for (const chrmodel::ChrModelMaterial& m : data->materials) {
+        if (m.charComponentTextureLayoutsId == charLayoutId) {
+            layout.materials.push_back({m.id, m.textureType, m.width, m.height, m.flags});
+        }
+    }
+    for (const chrmodel::CharComponentTextureSection& s : data->sections) {
+        if (s.charComponentTextureLayoutId == charLayoutId) {
+            layout.sections.push_back(
+                {s.id, s.sectionType, s.x, s.y, s.width, s.height, s.overlapSectionMask});
+        }
+    }
+    for (const chrmodel::ChrModelTextureLayer& t : data->textureLayers) {
+        if (t.charComponentTextureLayoutsId == charLayoutId) {
+            layout.textureLayers.push_back(
+                {t.id, t.textureType, t.layer, t.flags, t.blendMode, t.textureSectionTypeBitMask});
+        }
+    }
+
+    if (layout.materials.empty() && layout.sections.empty() && layout.textureLayers.empty()) {
+        std::cerr << "husk: note: CharComponentTextureLayoutsID " << charLayoutId
+                  << " matched no real rows in '" << db2Dir << "' -- skipping\n";
+        return;
+    }
+
+    std::cerr << "husk: note: attached character texture-layout " << charLayoutId << " ("
+              << layout.materials.size() << " material(s), " << layout.sections.size()
+              << " section(s), " << layout.textureLayers.size()
+              << " texture layer(s)) as inert glTF extras\n";
+    skeleton.charTextureLayout = std::move(layout);
+}
+
 // One NamedMesh per LOD tier: each resolves its own .skin file's
 // triangle-index lookup/submeshes/batches (see src/skin.hpp) into its own
 // primitives/materials, but reuses `baseMesh`'s shared positions/normals/
@@ -900,6 +970,22 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                  "collision hull is often larger than and visually occludes the real character; "
                  "the full body/shape/joint record set is also always available via "
                  "'husk dump-chunks'");
+    app.add_option("--db2-dir", opts.db2DirArg,
+                    "directory of real, already-extracted character-texture DB2 files "
+                    "(chrmodelmaterial.db2/charcomponenttexturesections.db2/"
+                    "chrmodeltexturelayer.db2/charcomponenttexturelayouts.db2, real lowercase "
+                    "casc-tool filenames) -- combined with --dbd-dir and --char-layout-id to "
+                    "attach real texture-layout placement geometry as inert glTF extras; unset "
+                    "(default) skips this feature entirely, same as every other opt-in sidecar");
+    app.add_option("--dbd-dir", opts.dbdDirArg,
+                    "a local WoWDBDefs checkout (github.com/wowdev/WoWDBDefs), used to resolve "
+                    "--db2-dir's real column names -- required alongside --db2-dir/"
+                    "--char-layout-id, same role as `husk db2-export`'s own --dbd-dir");
+    app.add_option("--char-layout-id", opts.charLayoutIdArg,
+                    "a real CharComponentTextureLayoutsID (see `husk db2-export`) to filter "
+                    "--db2-dir's data down to -- husk has no way to derive which layout ID "
+                    "applies to a given .m2 model on its own, so this must be supplied directly; "
+                    "requires --db2-dir/--dbd-dir too");
 }
 
 int exportGlb(int argc, char** args) {
@@ -1000,6 +1086,15 @@ int exportGlb(int argc, char** args) {
     bool physNone = physGiven && opts.physArg == "none";
     std::string physPath = (physGiven && !physNone) ? opts.physArg : "";
 
+    // --db2-dir/--dbd-dir/--char-layout-id: no three-state resolution here
+    // (unlike --bones-dir/--phys) -- there's no model-relative default to
+    // fall back to, since husk has no way to derive a layout ID on its own
+    // (see chrmodel_db2.hpp's module comment). All three must be given
+    // together or the feature is simply off.
+    std::string db2Dir = app.count("--db2-dir") ? opts.db2DirArg : "";
+    std::string dbdDirForChr = app.count("--dbd-dir") ? opts.dbdDirArg : "";
+    std::string charLayoutIdArg = app.count("--char-layout-id") ? opts.charLayoutIdArg : "";
+
     try {
         auto modelBytes = readFileBytes(modelPath);
         auto header = m2::parseHeader(modelBytes);
@@ -1050,6 +1145,7 @@ int exportGlb(int argc, char** args) {
             attachEmitterAnchors(blob, header, skeleton);
             attachPlacementNodes(blob, header, header.sequences.count, skeleton);
             attachPhysicsBodies(physNone, physGiven, physPath, modelPath, skeleton);
+            attachCharTextureLayout(db2Dir, dbdDirForChr, charLayoutIdArg, skeleton);
             // Needs skeleton.attachments/events already populated (just
             // above), so it can't run inside buildSkeleton itself.
             applyContextualBoneNames(skeleton);

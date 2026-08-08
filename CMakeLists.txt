@@ -57,6 +57,8 @@ add_library(husk-lib STATIC
   src/blp.cpp
   src/db2.cpp
   src/dbd.cpp
+  src/db2table.cpp
+  src/chrmodel_db2.cpp
   src/cmd_db2.cpp
   src/gltf_math.cpp
   src/gltf_mesh.cpp
@@ -104,7 +106,9 @@ if(HUSK_BUILD_TESTS)
     tests/test_blp.cpp
     tests/test_db2.cpp
     tests/test_dbd.cpp
+    tests/test_db2table.cpp
     tests/test_cli_db2.cpp
+    tests/test_cli_chrmodel.cpp
     tests/test_gltf.cpp
     tests/test_gltf_math.cpp
     tests/test_gltf_mesh.cpp

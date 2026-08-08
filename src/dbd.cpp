@@ -21,15 +21,32 @@ std::string stripComment(const std::string& line) {
     return pos == std::string::npos ? line : line.substr(0, pos);
 }
 
-ColumnType parseColumnType(const std::string& token) {
-    // A foreign-key column looks like "int<Table::Col>" -- the type itself
-    // is always the part before '<'.
-    std::string base = token.substr(0, token.find('<'));
+ColumnType parseBaseType(const std::string& base) {
     if (base == "int") return ColumnType::Int;
     if (base == "float") return ColumnType::Float;
     if (base == "string") return ColumnType::String;
     if (base == "locstring") return ColumnType::LocString;
-    throw ParseError("dbd: unknown column type '" + token + "'");
+    throw ParseError("dbd: unknown column type '" + base + "'");
+}
+
+// A foreign-key column looks like "int<Table::Col>" -- the base type is the
+// part before '<', the relation target (if any) is "Table::Col" inside the
+// angle brackets.
+std::pair<ColumnType, std::optional<RelationTarget>> parseColumnType(const std::string& token) {
+    size_t open = token.find('<');
+    ColumnType type = parseBaseType(token.substr(0, open));
+    if (open == std::string::npos) return {type, std::nullopt};
+    size_t close = token.find('>', open);
+    if (close == std::string::npos) {
+        throw ParseError("dbd: unterminated '<...>' relation target in '" + token + "'");
+    }
+    std::string inner = token.substr(open + 1, close - open - 1);
+    size_t sep = inner.find("::");
+    if (sep == std::string::npos) return {type, std::nullopt};  // e.g. array-length markers, no "::"
+    RelationTarget rel;
+    rel.targetTable = inner.substr(0, sep);
+    rel.targetColumn = inner.substr(sep + 2);
+    return {type, rel};
 }
 
 std::vector<uint32_t> parseHashList(const std::string& rest) {
@@ -61,6 +78,7 @@ Field parseFieldLine(std::string line) {
         std::string tag;
         while (std::getline(annStream, tag, ',')) {
             if (tag == "noninline") field.nonInline = true;
+            if (tag == "id") field.isId = true;
         }
         line = line.substr(close + 1);
     }
@@ -106,7 +124,8 @@ Table parseDbd(const std::string& text, std::string tableName) {
             std::string typeToken = noComment.substr(0, sp);
             std::string name = trim(noComment.substr(sp + 1));
             if (!name.empty() && name.back() == '?') name.pop_back();
-            table.columns.emplace_back(name, parseColumnType(typeToken));
+            auto [type, relation] = parseColumnType(typeToken);
+            table.columns.push_back({name, type, relation});
             continue;
         }
         if (trimmed.rfind("LAYOUT ", 0) == 0) {
@@ -174,19 +193,34 @@ const Layout* findLayout(const Table& table, uint32_t layoutHash) {
     return nullptr;
 }
 
-std::optional<std::vector<std::pair<std::string, ColumnType>>> resolveFieldNames(
-    const Table& table, const Layout& layout, size_t fieldCount) {
-    std::vector<std::pair<std::string, ColumnType>> result;
+std::optional<std::string> findIdFieldName(const Layout& layout) {
+    for (const Field& f : layout.fields) {
+        if (f.isId && f.nonInline) return f.name;
+    }
+    return std::nullopt;
+}
+
+std::vector<std::string> findNonInlineNonIdFieldNames(const Layout& layout) {
+    std::vector<std::string> names;
+    for (const Field& f : layout.fields) {
+        if (f.nonInline && !f.isId) names.push_back(f.name);
+    }
+    return names;
+}
+
+std::optional<std::vector<Column>> resolveFieldNames(const Table& table, const Layout& layout,
+                                                      size_t fieldCount) {
+    std::vector<Column> result;
     for (const Field& f : layout.fields) {
         if (f.nonInline) continue;
-        ColumnType type = ColumnType::Int;
-        for (const auto& [name, t] : table.columns) {
-            if (name == f.name) {
-                type = t;
+        Column column{f.name, ColumnType::Int, std::nullopt};
+        for (const Column& c : table.columns) {
+            if (c.name == f.name) {
+                column = c;
                 break;
             }
         }
-        result.emplace_back(f.name, type);
+        result.push_back(column);
     }
     if (result.size() != fieldCount) return std::nullopt;
     return result;
