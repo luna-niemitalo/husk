@@ -263,26 +263,78 @@ zero duplicate joints via the same tool. Not investigated further or
 fixed here -- out of scope for geoset masking, flagged for whoever
 next touches raw M2 bone-index handling.
 
-## Implemented, stage 6 (companion Blender script)
+## Implemented, stage 6 (companion Blender script) -- superseded once, real geometry-nodes rewrite
 
-`tools/husk_blender_geoset_mask.py` -- run inside Blender (`blender
---python tools/husk_blender_geoset_mask.py -- model.glb`, or against an
-already-imported scene). Walks every `group_<n>,variant_<n>` vertex group
-(comma-split + prefix-strip to recover the raw integers, `parse_geoset_
-vgroup_name`), groups by the `group_<n>` field (matching husk's own extras
-`geoset_group` numbering, `id // 100`), adds one invert-mode Mask modifier
-per non-default variant (lowest variant ID kept
-visible -- husk doesn't currently resolve real DB2 customization data to
-pick an actual default, same disclaimed-placeholder precedent as
-`orderCandidatesForDefault` elsewhere in this project), then deletes every
-tag bone from the armature.
+The first version of `tools/husk_blender_geoset_mask.py` built a Mask-
+modifier stack (one invert-mode modifier per non-default variant). Real
+end-to-end verification against `bloodelffemale_hd.m2` (113 geoset IDs)
+produced **90 Mask modifiers on one mesh** -- correct, but, prompted
+directly: "an insane stack of mask modifiers" is a real usability problem
+of its own, and Blender's Menu Switch geometry node (a real dropdown per
+mutually-exclusive group, confirmed scriptable via `bpy` -- see below) is
+the better mechanism. The Mask-modifier version was fully replaced, not
+kept as a fallback mode, to avoid maintaining two mechanisms doing the
+same job.
 
-Verified end to end against the real `bloodelffemale_hd.m2` export (113
-geoset IDs, 245 real bones): 358 armature bones before running the script,
-245 after (tag bones fully removed); 90 Mask modifiers created, correctly
-named/targeted/inverted; all 358 vertex groups still present on the mesh
-after bone deletion (confirms the mesh-owned-data finding above holds at
-real scale, not just the earlier synthetic test); the actual evaluated
-(post-modifier) mesh drops from 32,939 raw vertices to 4,232 visible ones
--- masking is genuinely doing something, not a no-op. This closes out
-every stage of this plan -- nothing left outstanding here.
+**Geometry-nodes API, confirmed empirically before writing the real
+script** (direct fetches to `docs.blender.org` 403 regardless of page for
+this session's fetch tool; web search still surfaced a real citation from
+the Blender PR that implemented Menu Switch, `enum_definition.enum_items`,
+corroborated by a synthetic scripted probe):
+
+- `GeometryNodeMenuSwitch` starts with two placeholder items ("A"/"B")
+  already present -- `menu.enum_definition.enum_items.clear()` before
+  adding real ones, or they linger as two dead, unwired dropdown entries.
+- Its `Menu` input socket only becomes a real dropdown in the Modifier
+  panel if promoted to the node group's own interface as a
+  `NodeSocketMenu` entry (`node_tree.interface.new_socket(...,
+  socket_type='NodeSocketMenu')`) and linked from a `Group Input` output
+  -- setting `default_value` directly on the internal node's own Menu
+  input leaves it as an editor-only setting a human would have to open the
+  node tree to change, not what "select via dropdown" asked for.
+- That interface socket's own `default_value` can only be set *after*
+  linking it to the node that defines its valid items -- setting it first
+  throws `enum "..." not found in ()` (empirically confirmed: an unlinked
+  Menu interface socket has no known items yet).
+- The **exposed** modifier input (`mod[identifier]`) for a Menu socket is
+  stored as a plain **integer index**, not the item's string name --
+  confirmed by trying a string assignment first and getting a real
+  `TypeError` (`Cannot assign a 'str' value to the existing '...' Int
+  IDProperty`).
+- Vertex groups are automatically readable inside a geometry-node graph as
+  same-named point-domain `Float` attributes (`GeometryNodeInputNamedAttribute`,
+  `data_type = 'FLOAT'`) -- no manual conversion step needed, this is
+  exactly what makes reading husk's `group_<n>,variant_<n>` tag data
+  inside the graph possible at all.
+
+**Real graph shape built** (`build_geoset_switch_node_group`): a running
+"remainder" geometry threaded through one `Separate Geometry` node per
+variant (selection = that variant's own `Named Attribute` > 0), chained
+via each node's own `Inverted` output -- not an OR-reduction across every
+tag's attribute, which would need one `Boolean Math` node per variant
+beyond the first just to combine them. Each group's own peeled-off variant
+pieces feed one `Menu Switch` node (one dropdown per group); whatever
+never gets peeled off (untagged geometry, and every single-variant group's
+own geometry, deliberately left out of the separation chain -- nothing
+mutually exclusive to switch) is the always-visible base, joined with
+every group's active selection (`Join Geometry`) into the node group's
+output. One Geometry Nodes modifier per mesh object, tag bones deleted
+from the armature afterward exactly as the superseded version did (this
+part didn't change -- vertex groups/attributes are unaffected by bone
+deletion regardless of which mechanism reads them).
+
+**Verified end to end against the real `bloodelffemale_hd.m2` export**
+(113 geoset IDs, 245 real bones, 19 of 23 groups have 2+ variants and get
+a real dropdown -- the other 4 have exactly one variant and stay in the
+base remainder untouched): 358 armature bones before running the script,
+245 after (tag bones fully removed, unchanged from before); node group
+built with 349 real nodes and 19 real `NodeSocketMenu` interface entries,
+one per multi-variant group. The default-state evaluated mesh (every
+dropdown at its lowest variant) has **exactly 4,232 vertices** -- an exact
+match to the superseded Mask-modifier version's own independently-verified
+result across all 19 groups simultaneously, strong evidence the rewrite is
+behaviorally equivalent, not just structurally plausible. Functional
+correctness (not just the default) also confirmed directly: switching one
+group's dropdown to a non-default variant changes the evaluated vertex
+count (4,232 -> 4,131). This closes out every stage of this plan --
+nothing left outstanding here.
