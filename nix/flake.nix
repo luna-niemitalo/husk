@@ -6,6 +6,7 @@
     nixpkgs.follows = "pins/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
     casc-tool.url = "github:luna-niemitalo/casc-tool?dir=nix";
+    nixpkgs-blender400.url = "github:NixOS/nixpkgs/2230a20f2b5a14f2db3d7f13a2dc3c22517e790b";
   };
 
   outputs =
@@ -13,6 +14,7 @@
       self,
       pins,
       nixpkgs,
+      nixpkgs-blender400,
       flake-utils,
       casc-tool,
     }:
@@ -21,6 +23,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
+        pkgsBlender400 = import nixpkgs-blender400 { inherit system; };
 
         projectRoot = ../.;
 
@@ -86,7 +89,6 @@
             sourceProvenance = with sourceTypes; [ binaryNativeCode ];
           };
         };
-
         cpp = with pkgs; [
           cmake
           ninja
@@ -98,8 +100,8 @@
           tinygltf
           cli11
           casc-tool.packages.${pkgs.system}.default
-          blender
           gltf-validator
+		  blender
         ];
 
         # blp/: BLP2 -> PNG texture conversion (roadmap stage 4). uv manages
@@ -143,18 +145,21 @@
         };
 
         devShells.default = pkgs.mkShell {
-          packages = cpp ++ python;
+          packages = lib.concatLists [
+            cpp
+            python
+          ];
 
           CCACHE_DIR = "/media/luna/cache/ccache";
 
           shellHook = ''
-            echo "husk dev shell"
-            echo "  cmake:   $(cmake --version | head -n1)"
-            echo "  ccache:  $CCACHE_DIR"
-			echo "  blender: $(blender --version | head -n1)"
-			echo "  gltf-validator: gltf_validator ${gltf-validator.version}"
-            echo "  doctest: available via find_package(doctest)"
-            echo "  uv:      $(uv --version) -- cd blp/ && uv sync"
+                        echo "husk dev shell"
+                        echo "  cmake:   $(cmake --version | head -n1)"
+                        echo "  ccache:  $CCACHE_DIR"
+            			echo "  blender: $(blender --version | head -n1)"
+            			echo "  gltf-validator: gltf_validator ${gltf-validator.version}"
+                        echo "  doctest: available via find_package(doctest)"
+                        echo "  uv:      $(uv --version) -- cd blp/ && uv sync"
           '';
         };
 
