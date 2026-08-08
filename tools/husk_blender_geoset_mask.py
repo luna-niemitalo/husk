@@ -1,5 +1,5 @@
 """husk_blender_geoset_mask.py -- companion Blender tooling for `husk
-export`'s geoset-tag joints (GEOSET_MASK_TODO.md). Not part of husk itself
+export`'s geoset-tag joints (TODO/GEOSET_MASK_TODO.md). Not part of husk itself
 (DESIGN.md scopes husk to "read WoW formats, write correct glTF" --
 Blender-side concerns are explicitly out of that scope) -- this is the
 deferred "companion Blender-side script that hides extras-tagged-but-
@@ -22,7 +22,7 @@ rewrite before it**: the first Geometry Nodes version chained `Separate
 Geometry` sequentially (one variant peeled off a shrinking "remainder" at
 a time). Real interactive use found two bugs (unrelated geometry
 disappearing on an unrelated group's switch; some geometry never toggling
-at all -- see `GEOSET_MASK_TODO.md`'s "Known bugs"), and this session's
+at all -- see `TODO/GEOSET_MASK_TODO.md`'s "Known bugs"), and this session's
 own investigation found `GeometryNodeSeparateGeometry`'s default `POINT`
 domain does not cleanly partition geometry -- a face with mixed-selection
 corners vanishes from *both* outputs entirely. Chaining that operation up
@@ -92,12 +92,12 @@ end. What it does, in order:
      this project).
   9. Deletes every geoset tag bone from the armature once its vertex group
      has been read into the node graph above. Verified empirically
-     (GEOSET_MASK_TODO.md): Blender vertex groups (and the point-domain
+     (TODO/GEOSET_MASK_TODO.md): Blender vertex groups (and the point-domain
      attributes Geometry Nodes reads them as) are mesh-owned data,
      independent of the armature's bones -- removing the bone afterward
      doesn't touch the attribute or the node graph built from it, it only
      declutters the armature back to its real bone count and removes the
-     exported .glb's inflated joint count (see GEOSET_MASK_TODO.md's
+     exported .glb's inflated joint count (see TODO/GEOSET_MASK_TODO.md's
      "Known tradeoff" section) from the finalized Blender scene a human
      actually works in.
 """

@@ -3,10 +3,10 @@
 **Status: an open punch list, not a historical record.** Nothing here is
 implemented yet. Once implementation starts, fixed items get removed
 outright — git history is the record, not this file (same convention
-`RO_COMPLETENESS_TODO.md`/`TODO_correctness.md` already use).
+`RO_COMPLETENESS_TODO.md`/`../TODO_correctness.md` already use).
 
-**Scope**: the third of three sibling docs expanding `WORLD_COMPLETENESS.md`'s
-"Terrain geometry (ADT)" section. `WORLD_COMPLETENESS.md` explicitly
+**Scope**: the third of three sibling docs expanding `../../WORLD_COMPLETENESS.md`'s
+"Terrain geometry (ADT)" section. `../../WORLD_COMPLETENESS.md` explicitly
 flagged this sub-area as needing "its own investigation before a per-chunk
 breakdown would mean anything" — this file *is* that investigation, done
 against `documentation/wowdev-wiki/md/ADTLodImplementation.md` (read first,
@@ -154,7 +154,7 @@ using IndexBuffer = std::vector<uint16_t>;  // MLVI, GL_TRIANGLES-shaped per the
   confirmation that `MLSI` only ever references the **outer** 129×129
   part of `MLVH`, never the inner 128×128 grid or an already-appended
   skirt vertex. Worth stating as confirmed, not speculative, in any
-  implementation and in a future `WIKI_FINDINGS.md` follow-up (not written
+  implementation and in a future `../../WIKI_FINDINGS.md` follow-up (not written
   this session).
 
 ### Data model sketch
@@ -192,7 +192,7 @@ the client's own runtime camera-distance-driven quad-tree descent — a
 static export has no camera, so "pick one band per distance" doesn't
 apply; exporting all 4 as separate, named (`lod_4`/`lod_8`/`lod_16`/
 `lod_32`) alternative meshes (mirroring how `husk export --lod` already
-handles M2's own per-model LOD tiers, `M2_COMPLETENESS.md`) is the more
+handles M2's own per-model LOD tiers, `../../M2_COMPLETENESS.md`) is the more
 consistent fit with this project's existing multi-LOD precedent. Not
 decided — flagged for a real design pass.
 
@@ -333,7 +333,7 @@ above.
    either tag). Not investigated further this session (small sample, out
    of the task's named scope) — flagged here as a genuine "the wiki
    doesn't have this yet" finding for a future targeted investigation,
-   same disposition `WORLD_COMPLETENESS.md`'s own M3 discovery already
+   same disposition `../../WORLD_COMPLETENESS.md`'s own M3 discovery already
    got.
 
 ### Data model sketch
@@ -424,14 +424,14 @@ without).
   `ADTExporter.js` — neither implements the `ML*` LOD family at all (grep
   for `MLHD`/`MLVH`/`MLND` in both files: zero hits) — i.e., this
   established community tool doesn't attempt terrain LOD export either,
-  consistent with `WORLD_COMPLETENESS.md`'s own framing of this as the
+  consistent with `../../WORLD_COMPLETENESS.md`'s own framing of this as the
   least-trodden sub-area of the whole WMO/ADT expansion. No design
   precedent to borrow from that tool for this specific file.
 - **husk `src/` to reuse**: `src/chunk.hpp`/`chunk.cpp` (chunk walker,
   reused unmodified, same reversed-tag caveat as the sibling docs),
   `ADT_TERRAIN_TODO.md`'s own `HeightGrid`/`Holes` structs (the base-tier
   terrain this file's LOD tiers sit alongside — `husk export --lod`'s
-  existing M2 multi-tier precedent, `M2_COMPLETENESS.md`, is the closest
+  existing M2 multi-tier precedent, `../../M2_COMPLETENESS.md`, is the closest
   existing analogue for how multiple detail tiers of the same geometry
   already get exported).
 - **Real corpus evidence**: `/media/luna/data/wow_export/world/maps/**`

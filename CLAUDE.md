@@ -36,7 +36,7 @@ tool, `blp/`) converts BLP2 textures to PNG.
   turns that into a Geometry Nodes Menu Switch dropdown per geoset group
   for WoW's mutually-exclusive geoset variants (hairstyles, boot cuffs,
   eye-glow, ...); **known to have real bugs as of 2026-08-08, not yet
-  fixed** — see `GEOSET_MASK_TODO.md`'s "Known bugs"/Resume, `husk dump-chunks` (JSON dump of Legion+ chunks with no
+  fixed** — see `TODO/GEOSET_MASK_TODO.md`'s "Known bugs"/Resume, `husk dump-chunks` (JSON dump of Legion+ chunks with no
   glTF equivalent, full `M2Ribbon`/`M2Particle` records including every
   resolved animation curve, present in every M2 version; `WFV1`/`WFV2`/
   `DPIV`/`AFRA` — no wowdev.wiki struct at all, byte-decoded from real
@@ -70,7 +70,7 @@ tool, `blp/`) converts BLP2 textures to PNG.
   now fully parsed, every field and every resolved animation curve, split
   between a minimal glTF placement anchor and `husk dump-chunks`'s full JSON
   output — see Resume. Remaining work is either scope expansion
-  (WMO/M3, not started, by design) or the structural gaps `TODO_correctness.md`
+  (WMO/M3, not started, by design) or the structural gaps `TODO/TODO_correctness.md`
   already tracks (`M2Camera`, low-priority by design; `.bone` correction
   *selection* — the extras-export half is done, see Resume; picking which
   slot applies is blocked on client-side DB2 data husk doesn't have, not on
@@ -163,7 +163,7 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   doc comment. See `CLAUDE_HISTORY.md`'s top entry for the full detail.
 - **Independent, unsupervised tasks, same session, all three committed as
   `[UNVERIFIED/STAGING]` per Luna's own instruction, awaiting her review**:
-  (1) `TODO_correctness.md`'s former item 2 (five unconsumed M2
+  (1) `TODO/TODO_correctness.md`'s former item 2 (five unconsumed M2
   lookup-table arrays) — `husk info` dereferences `sequenceLookup`/
   `boneLookup`/`textureLookup`/`attachmentLookup`/`cameraLookup`, verified
   against real `wolf.m2`/`bloodelffemale_hd.m2` data. (2) `M2Light`'s 7
@@ -181,7 +181,7 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   suite green, 546/546. See `CLAUDE_HISTORY.md`'s top three entries for
   the full detail; unrelated to every thread below, none of which this
   session touched.
-- **Current state**: `GEOSET_MASK_TODO.md` implemented (new this session)
+- **Current state**: `TODO/GEOSET_MASK_TODO.md` implemented (new this session)
   but **not yet correct** — real bugs found via actual interactive Blender
   use, investigation started but not resolved, continuing in a fresh
   session/thread. C++ side (`src/gltf_skeleton.{hpp,cpp}`, `gltf_mesh.cpp`,
@@ -220,7 +220,7 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   verification wasn't enough**: (1) picking a different hairstyle (geoset
   group 0) makes unrelated arm geometry disappear; (2) the tabard back-flap
   geometry never disappears no matter what's selected. This session's own
-  follow-up investigation (see `GEOSET_MASK_TODO.md`'s "Known bugs"
+  follow-up investigation (see `TODO/GEOSET_MASK_TODO.md`'s "Known bugs"
   section for the full detail) ruled out two things with hard evidence —
   husk's own C++ export has zero cross-*group* vertex tagging, and the
   node graph's wiring/`Compare`-node defaults are correct — and found one
@@ -268,12 +268,12 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   this was handed back rather than chased further blind — **needs Luna's
   own real interactive Blender GUI testing**, the same method that
   correctly found both original bugs and correctly ground-truthed group
-  12's real semantics tonight. See `GEOSET_MASK_TODO.md`'s "Real bug
+  12's real semantics tonight. See `TODO/GEOSET_MASK_TODO.md`'s "Real bug
   ground-truthed by hand..." section for the concrete next step (click
   through group 12's dropdown by hand in the Modifier panel, watch the
   actual viewport). Full C++ suite unaffected throughout, still green,
   532/532 — everything above is pure Python/Blender-script work.
-- **Current state (prior session)**: Closed `TODO_correctness.md`'s former item 4
+- **Current state (prior session)**: Closed `TODO/TODO_correctness.md`'s former item 4
   (texture-transform pivot-correction math) end to end. `gltf_mesh.cpp`'s
   new `textureTransformToKhr` derives a real `KHR_texture_transform`
   (offset/rotation/scale) from a constant `M2TextureTransform`'s
@@ -476,7 +476,7 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   all updated to match. See `CLAUDE_HISTORY.md`'s top entry for the full
   narrative, including the two real corrections Luna made to the plan
   before any code was written.
-- **Next step**: `CHAR_TEXTURE_COMPOSITING_TODO.md` (new this session) --
+- **Next step**: `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` (new this session) --
   the real, staged plan for full DB2-driven character texture compositing.
   Real WDC5 DB2 tables (`ChrModelMaterial`/`CharComponentTextureSection`/
   `ChrModelTextureLayer`, plus the full `ChrCustomization*` choice chain)
@@ -509,7 +509,7 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   diagnostics, plus regression-test follow-ups) is done, tested,
   documented. There is no active TODO file for M2/`blp/` in this repo
   anymore — the only remaining tracked, undone work in that scope lives in
-  `TODO_correctness.md` (`M2Camera`, `.bone` slot *selection* — both
+  `TODO/TODO_correctness.md` (`M2Camera`, `.bone` slot *selection* — both
   low-priority by design, not oversight) and the two carryover threads
   below. Both `ANIM_TODO.md`'s
   `--anim` same-basename fallback and `PHYS_TODO.md`'s full `.phys`

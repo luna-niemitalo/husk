@@ -11,7 +11,7 @@
 #include "db2.hpp"
 
 // `husk db2-info` -- the WDC5 proof-of-concept's own `husk info` analogue
-// (CHAR_TEXTURE_COMPOSITING_TODO.md Stage 1). Prints header/section/field
+// (TODO/CHAR_TEXTURE_COMPOSITING_TODO.md Stage 1). Prints header/section/field
 // structure unconditionally (cheap, always useful for "what table is this")
 // and a sample of decoded rows on request -- see db2.hpp's module comment
 // for what's out of scope (older container versions, offset-map per-field

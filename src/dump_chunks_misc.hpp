@@ -165,7 +165,12 @@ void dumpWfv2(json::Writer& w, const Chunk& c);
 // itself is never read as data.
 // TODO: Remove: real stride and the chunk's own 16-byte alignment padding
 // both confirmed against all 1,043 real DETL-bearing files in the corpus,
-// `WIKI_FINDINGS/M2.md`.
+// `WIKI_FINDINGS/M2.md`. Follow-up (`WIKI_FINDINGS/M2.md`'s DETL §17 entry):
+// `scale`/`diffuseColorMultiplier`/`unk0`/`unk1` are identical constants in
+// every one of those files' 1,386 records -- `flags` (0x0000/0x0008) is the
+// only field that ever varies, and correlates with light-emitting
+// decorative props (torches/braziers/chandeliers), plausibly a real
+// shadow-casting toggle -- inferred, not confirmed. No parser change.
 void dumpDetl(json::Writer& w, const Chunk& c, uint32_t lightCount);
 
 // PFDC (wowdev.wiki M2#PFDC, >= 9.0.1.33978): inline physics data, byte-

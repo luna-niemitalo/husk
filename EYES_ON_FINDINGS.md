@@ -2,75 +2,12 @@
 
 Findings from a real interactive Blender inspection of a `husk export` output
 (post-`TRANSFORM_TRIAGE.md` orientation fix). Mesh completeness and
-orientation are both confirmed good now. Four items were originally raised;
-the texture-conversion-workflow item is resolved (BLP2 decode is now
-embedded directly in `husk export`, see `DESIGN.md`/`README.md`) and removed
-from this list. The remaining three below are investigated against the
-current source, not guessed at.
+orientation are both confirmed good now. **Fully resolved items are punched
+out of this file outright** (git history has the record — same "no `[Fixed]`
+noise" discipline `TODO/TODO_correctness.md` uses), not kept as a closed log.
+Three items remain, each with real open work.
 
-## 1. Unnamed bones (`bone_29`) — real source-data limitation, already partially solved
-
-**Symptom**: `ForearmR`/`ForearmL` get real names; other bones (e.g. the
-wrist) fall back to `bone_29`.
-
-**Grounding**: M2 has no free-text per-bone name table at all — the only
-name data available is `keyBoneId` (`src/m2_skeleton.hpp:36`), a
-back-reference into a fixed ~193-row wowdev.wiki enum of "well-known" rig
-bones (`src/m2_header.cpp:46-56`, `keyBoneName`). Most real bones — wrists,
-fingers, twist bones, face-driver bones, cloth-sim helpers — simply have no
-entry in that enum (`keyBoneId == -1`), not because husk failed to read
-something. `src/export_skeleton.cpp:59-63` sets the glTF joint name from
-`keyBoneName` when present; `src/gltf_skeleton.cpp:127` falls back to
-`"bone_<index>"` otherwise. Already verified and documented against the
-real `bloodelffemale.m2` fixture: 14 of 119 bones get a real name, the
-rest fall back — "a real fact about this fixture, not a bug in the
-lookup."
-
-**Verdict**: not a gap to close in husk. The wrist specifically not having
-a key-bone slot is upstream WoW rig data, not a husk omission — Blizzard's
-own key-bone table has no "Wrist" entry at all (it jumps hand → forearm →
-shoulder). `bone_<index>` is the correct, already-intentional fallback.
-
-## 2. Root bone (bone 0) holding most of the mesh's weight — real M2 data, faithfully passed through
-
-**Symptom**: bone_0 appears to own the entire body's skin weight, while
-many bones with index > 50 show zero vertex influence, and no individual
-bone owns the face.
-
-**Grounding**: reproduced directly by rebuilding `bloodelffemale.m2` and
-inspecting the exported `.glb`'s `JOINTS_0`/`WEIGHTS_0` accessors: 51 of
-119 bones carry any nonzero weight at all, and bone 0 alone holds ~67% of
-weighted vertex-influence slots (380,310 of 564,270) — consistent with
-what was observed in Blender.
-`boneWeights`/`boneIndices` are read byte-for-byte from the M2 vertex
-record at fixed offsets (`src/m2_skeleton.cpp:35-36`) and passed straight
-through in `buildSkinning` (`src/export_skeleton.cpp:90-105`,
-`jw.joints[j] = v.boneIndices[j]; jw.weights[j] = v.boneWeights[j] /
-255.0f;`) — the only guard is a bounds check that *throws* on an
-out-of-range index, never one that zeroes or defaults it. There is no code
-path in husk that could collapse weights onto bone 0.
-
-This also matches a deliberate design choice already recorded in
-`TODO_correctness.md:80-92`: husk writes full per-vertex *global* joint
-indices straight from the M2, bypassing `.skin`'s hardware bone-palette
-remap tables (`boneCombos`/`boneLookup`/`boneComboIndex`, `src/skin.hpp:38`)
-entirely — those exist for GPU bone-palette batching/LOD, not needed when
-global indices are written directly.
-
-**Verdict**: real M2 rig data, not a husk bug. A single low-index bone
-(root/pelvis/torso) owning the bulk of a rigid body mesh while many
-high-index bones (per-attachment sockets, face-driver bones, cloth-sim
-helpers unused by *this* geoset combination) sit at zero is a normal WoW
-rigging pattern — WoW characters lean on hardware bone-palette selection
-per draw batch precisely so unused bones can go unweighted for a given
-geoset/LOD. The absence of a dedicated face bone is consistent with WoW
-faces historically being static geometry (or animated via texture/UV
-tricks and separate facial-bone sequences on some models), not proof of a
-missing husk feature. Worth an independent sanity check against a known
-facially-animated model if one is added to `test_data/`, but nothing in
-the current code path is suspect.
-
-## 3. Material naming granularity — usability gap, real duplicates confirmed
+## 1. Material naming granularity — usability gap, real duplicates confirmed
 
 **Symptom**: dozens of materials named `batch<N>_mat3_tex0_skin` for
 varying `N`, hard to tell apart; ~23-25 of them look identical.
@@ -126,7 +63,7 @@ against directly (`bloodelffemale_hd.m2`, full auto-resolution export,
 material name above).
 
 **A second session compounded this, worth understanding before touching
-either area**: finding #6 below (`alternate_textures`) makes *every*
+either area**: finding #3 below (`alternate_textures`) makes *every*
 genuinely ambiguous hardcoded-slot material pick the same arbitrary
 default candidate (deliberately — the whole shared pool is identical
 across every ambiguous slot, since husk has no way to tell them apart).
@@ -152,14 +89,14 @@ identical.
 **For whoever picks this up next**: start from `src/export_materials.cpp`'s
 `buildMaterialsAndPrimitives` (the per-batch material-construction loop) —
 that's both where the dedup key would need to live and where the
-ambiguous-default assignment happens (see finding #6's own "Root cause"
+ambiguous-default assignment happens (see finding #3's own "Root cause"
 for the exact lines). Real repro fixture: `bloodelffemale_hd.m2` with its
 real `wow_export`-style texture directory, default (auto) resolution, no
 extra flags — `batch77_mat5_tex2_skin_bloodelffemale_hd_3255415` and its
 siblings are the concrete case to check dedup logic against once it
 exists.
 
-## 4. `husk info`/`export` given a non-M2 file (e.g. a `.skin` directly) fails with a confusing byte-garbage-looking error, not a clean "wrong file type"
+## 2. `husk info`/`export` given a non-M2 file (e.g. a `.skin` directly) fails with a confusing byte-garbage-looking error, not a clean "wrong file type"
 
 **Symptom**: `husk info bloodelffemale_hd_sdr02.skin` (a real `.skin` file
 passed directly, not via `--skin`) fails with:
@@ -218,169 +155,7 @@ yet — this is a finding, not a fix.
 
 Fix by making it possible read just the skin file, and print the magic bits and all of the data we get access to from just that file, so the info tool can be used as an independent exploration tool, without having to always target the m2 file
 
-## 5. `bloodelffemale_hd.m2`/`bloodelffemale_hd00.skin` was missing its whole lower-body/hip geometry — real husk bug, found and fixed (`Submesh::Level`)
-
-**Symptom**: rendering a real, unmodified `husk export` of the HD model
-(true bind pose, materials stripped to rule out shading) in headless
-Blender shows what looks like a disconnected upper body/head floating
-above a separate pair of boots, joined only by a thin sliver of geometry.
-
-**Grounding**: this is not the collision-hull-occlusion bug (item 3's
-predecessor, now fixed by making `--collision` opt-in) and not a skinning/
-`.skel`-bone-mapping bug — both were checked and ruled out directly:
-
-1. A full per-vertex-group centroid-vs-bone-position sweep (every one of
-   245 bones, true rest pose: auto-assigned action cleared, every pose bone
-   zeroed) found no group deviating more than 0.22 units from its
-   controlling bone's real position — nowhere near enough to explain a
-   ~1-unit visual gap, and consistent with the skin-index/`.skel`-mapping
-   correctness already established elsewhere in this investigation.
-2. A direct histogram of every evaluated vertex's world-space Z coordinate
-   (in 0.1-unit bands) shows a **real, exact gap: zero vertices between
-   Z=0.70 and Z=1.00** (out of 35,377 total) — every other band from -0.1
-   up to 1.7 is populated. This is missing geometry, not misplaced
-   geometry: no amount of skinning-transform error would produce a clean
-   empty band with populated bands on both sides.
-3. The same check against the SD model (`bloodelffemale.m2` +
-   `bloodelffemale00.skin`, the fixture validated repeatedly all session,
-   and which renders as one continuous, correct-looking body) shows a
-   **fully continuous** Z distribution, every 0.1-unit band from -0.1 to
-   1.7 populated — no gap. Same character, same body region, no gap on SD.
-4. Re-checked against `hd_test.glb` (an export made earlier in this same
-   session, before any of today's code changes) and got an **identical**
-   gap — ruling out today's `--collision` change or anything else edited
-   this session as the cause. This is a pre-existing property of husk's
-   handling of this specific `.m2`/`.skin` pair, not a regression.
-
-**Verdict**: real and reproducible, but **not root-caused yet** — two
-live hypotheses, not distinguished:
-
-- A genuine WoW HD-asset-data property: the HD body mesh may simply not
-  model bare upper-leg/thigh skin at all (relying on an always-equipped
-  legwear layer that this specific `.skin`/geoset selection doesn't
-  happen to include), unlike the older SD asset which might model a more
-  complete "always visible" base body.
-- A real husk `.skin`/geoset-resolution gap specific to the HD file's
-  batch structure (113 geoset IDs span this file, vs. SD's 66) — e.g. a
-  batch or geoset ID that should cover this Z band failing to resolve or
-  being silently dropped somewhere in `resolveTriangleIndices`/
-  `parseSubmeshes`/`parseBatches` (`src/skin.cpp`).
-
-**Root cause, now confirmed — this is a real husk bug, not missing asset
-data.** Ran the distinguishing test proposed above, via a small standalone
-scratch program linked against `libhusk-lib.a` (not committed, scratchpad
-only):
-
-1. The M2's own full vertex pool (195,498 vertices, unfiltered by any
-   `.skin`) has real geometry in the "missing" Z=0.70–1.00 band: 5,947
-   vertices there.
-2. `bloodelffemale_hd00.skin`'s own resolved triangle-index buffer
-   (`skin::resolveTriangleIndices` — the flat, submesh/batch-independent
-   `vertices[indices[i]]` resolution `skin.hpp` documents) references
-   **1,012** of those same-band vertices directly, by real global M2 vertex
-   index. The `.skin` file itself unambiguously wants to draw triangles in
-   this band.
-3. Yet the actual `husk export` output has **zero** vertices there (the
-   original Z-histogram finding above). Something between step 2's
-   resolved triangle buffer and the final glTF primitives drops this data.
-
-This points squarely at `buildMaterialsAndPrimitives`
-(`src/export_materials.cpp`) iterating `.skin`'s **batches**, not its
-**submeshes** — `skin::resolveTriangleIndices` doesn't care about either,
-it's a flat resolution of the whole index buffer, but the actual per-
-primitive export loop only ever emits geometry for a submesh that has a
-batch drawing it (`Batch::skinSectionIndex -> Header::submeshes`,
-`skin.hpp`'s own doc comment). If the submesh(es) covering this Z band
-have no batch pointing at them in this particular `.skin` file — for
-whatever reason, real content choice or a real resolution bug — their
-triangles never reach `buildMaterialsAndPrimitives`'s loop even though
-`resolveTriangleIndices` (used elsewhere, e.g. bounds-checking) sees them
-fine.
-
-**Correction after a more careful check — reverses the conclusion above.**
-The first batch-association pass was itself wrong: it checked each
-submesh's raw `vertexStart`/`vertexCount` pool (which vertices a submesh
-*could* reference), not the actual triangles it draws
-(`indexStart`/`indexCount`, sliced from the resolved triangle-index
-buffer — exactly what `buildMaterialsAndPrimitives` uses for
-`prim.indices`). Redone correctly: **zero** of the 114 submeshes' real
-index ranges reference a gap-band vertex, and cross-checked independently
-against the actual exported `.glb` via `tinygltf` (bypassing Blender
-entirely) — 0 of 136,254 index-buffer entries reference the gap band
-there either. Two independent readers (tinygltf and Blender) agree the
-`.glb` husk wrote has no triangles there. So the search moved to *why*,
-and found the real answer: **70,482 of the `.skin`'s 136,254 resolved
-triangle-index-buffer slots (52%) aren't covered by *any* submesh's
-`indexStart`/`indexCount` range at all** — including all 4,680 gap-band
-references. This is far too large a fraction to be an accidental husk
-parsing bug (a real bug would drop a handful of triangles, not half the
-buffer); it's much more consistent with a real, unremarkable `.skin`
-structural fact — spare/padding buffer capacity, or triangle data really
-meant for a different submesh table (a different LOD tier's `.skin`,
-`bloodelffemale_hd_lod01.skin` etc. exist alongside `..._hd00.skin` in a
-real CASC export) that this specific LOD-0 file's own submesh table simply
-never claims.
-
-**Checked every other real `.skin` variant sitting alongside `..._hd00.skin`
-in a real CASC export** (`bloodelffemale_hd_lod01/02/03.skin`,
-`bloodelffemale_hd_sdr00.skin`) — every single one showed the identical
-pattern, a large unclaimed region of its own resolved triangle-index
-buffer that includes the same gap band (1,012 / 1,012 / 622 / 578 gap-band
-references respectively, all unclaimed by any submesh in that file). This
-was taken, at the time, to mean the gap was "claimed by a sibling LOD tier
-instead" was ruled out and the geometry was simply never authored —
-**this was wrong**, called out directly and correctly by Luna: WoW
-characters visibly render bare skin under unequipped gear slots in the
-real game, every player has seen this, so "this asset never had it" was
-never a plausible conclusion to land on without checking harder. The
-"52% of the buffer is unclaimed, too large to be a bug" reasoning that led
-there was itself the mistake — a systematic bug affecting *most* of a
-model's submeshes looks exactly like "half the buffer is spare capacity"
-from the outside if you stop at aggregate statistics instead of asking
-why.
-
-**Real root cause, found by reading a working independent implementation
-instead of assuming**: `wow.export`'s own `Skin.js` (`reference/wow.export/
-src/js/3D/Skin.js`) does `subMeshes[i].triangleStart += subMeshes[i].level
-<< 16` when loading a `.skin`'s submesh table. `skin::Submesh::Level`
-(offset 0x02, between `skinSectionId` and `vertexStart`) is **not**
-LOD/culling metadata — despite the field name, and despite husk's own doc
-comment lumping it in with "LOD/culling/skinning-optimization concerns"
-and discarding it unread, on an assumption never actually checked against
-real client behavior. It's the **high 16 bits of `indexStart`**
-(`triangleStart` in wowdev.wiki's own naming): `.skin`'s on-disk
-`indexStart` field is only 16 bits, so any model whose resolved triangle-
-index buffer exceeds 65,535 entries needs `Level` to address the back half
-of it at all. `bloodelffemale_hd00.skin`'s buffer is 136,254 entries —
-**77 of its 114 submeshes (68%) have `Level=1`** and were being silently
-misread, aliased into the wrong (first-65,536-entry) region of the buffer
-instead of throwing or visibly failing. That's the real reason "half the
-buffer looked unclaimed": it wasn't unclaimed, husk was looking for those
-submeshes' triangles in entirely the wrong place.
-
-**Verified as the actual, complete fix**: applying `(level << 16) |
-rawIndexStart` when parsing `Submesh::indexStart` (`src/skin.cpp`,
-`src/skin.hpp` — `indexStart` widened `uint16_t` → `uint32_t` to hold the
-corrected value) brings the unclaimed-buffer count from 70,482/136,254 all
-the way to **0/136,254** — every single slot now accounted for, gap band
-included. A real headless-Blender render of the fixed export shows a
-complete, coherent, fully connected blood elf female: torso, hips, robe,
-boots, ears, hair, nothing floating, nothing missing. Full test suite
-green (519/519) with a new dedicated regression test
-(`tests/test_skin.cpp`, `Level (offset 0x02) is folded into indexStart's
-high 16 bits, not discarded`) using the exact real values found on
-`bloodelffemale_hd00.skin`'s own submesh #47. This is a real, previously-
-undiscovered husk bug affecting **any** model whose `.skin` resolves to
-more than 65,535 triangle-index entries — not an HD-specific or
-character-specific issue, just first noticed on one.
-
-**Lesson, stated plainly**: a field's name and a wiki page's own
-categorization of it are not verification. `Level` was dismissed three
-times across this project's history on the strength of its name alone;
-the actual answer was sitting in a working reference implementation
-(`reference/wow.export`, already cloned in this repo) the whole time.
-
-## 6. `alternate_textures` (this session's own new feature, item 3 above) caused a real 1.9GB/5m39s export (fixed) — and every ambiguous material sharing one identical default texture (found, not yet fixed — see finding #3)
+## 3. `alternate_textures` (this session's own new feature, item 1 above) caused a real 1.9GB/5m39s export (fixed) — and every ambiguous material sharing one identical default texture (found, not yet fixed — see finding #1)
 
 **Symptom**: `husk export` with full auto-resolution against a real
 `bloodelffemale_hd.m2` + real CASC-export texture directory produced a
@@ -392,7 +167,7 @@ sizes" when browsed in Blender.
 
 **Root cause of the size/runtime blowup**: this real export has **19
 separate materials**, each a genuinely ambiguous hardcoded texture slot
-sharing the **same 94-file candidate pool** (item 3's own new
+sharing the **same 94-file candidate pool** (item 1's own new
 `alternate_textures` feature, added earlier this session). The
 implementation embedded every candidate's full bytes independently *per
 material*, with no cross-material sharing — so the same 94 files got
@@ -476,9 +251,9 @@ in a new form by this session's own `alternate_textures` feature.
 real question turned out to be bigger than "which arbitrary default to
 pick": interactive inspection in Blender showed the *same* material
 identity (`mat5_tex2_skin_bloodelffemale_hd_3255415`) legitimately
-spanning several different mesh parts, which is finding #3's own
+spanning several different mesh parts, which is finding #1's own
 already-documented material-dedup gap, now compounded by this ambiguous-
-default behavior. See finding #3's own follow-up for the full writeup and
+default behavior. See finding #1's own follow-up for the full writeup and
 the concrete next step — this note exists so anyone reading #6 in
 isolation knows where the actual continuation lives, without re-deriving
 the connection.
@@ -634,7 +409,7 @@ Two real, separate problems, both fixed this session:
    what an unlabeled file *is* (assumed "the base skin/skin_extra layer")
    instead of just correctly excluding what a labeled file *isn't* for a
    given slot — the one guess this project's own established discipline
-   (see finding #6's own "filtering is safer than picking" framing) had
+   (see finding #3's own "filtering is safer than picking" framing) had
    explicitly tried to avoid making, made anyway, and disproven by direct
    evidence. Fixed by removing the guess entirely: `filterCandidatesForType`
    now always prefers whatever's *recognized and compatible* for a slot's
@@ -745,7 +520,7 @@ pass before it shipped: the first working version read every candidate's
 bytes into a *function-local* cache to check its size, meaning every one
 of the ~27 batches sharing this slot re-decoded the same ~60 `.blp`
 files from scratch just to sort them -- the same "1786 redundant decodes"
-shape this project already found and fixed once before (finding #6) --
+shape this project already found and fixed once before (finding #3) --
 fixed by sharing `buildMaterialsAndPrimitives`'s own
 `ambiguousCandidateCache` into `orderCandidatesForDefault` instead of a
 fresh local one; real export time went from >120s (timed out) back down
@@ -803,7 +578,7 @@ confirmed `WDC5` format by header, plus the full customization-choice
 chain needed to resolve *which* file goes in a given slot for a specific
 character). This reopens the compositing problem this whole thread has
 been working around rather than solving. Full plan, staged, written up in
-`CHAR_TEXTURE_COMPOSITING_TODO.md` rather than here -- goal (Luna,
+`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` rather than here -- goal (Luna,
 directly): a real compositing pipeline, plus Blender-side tooling that
 lets a human pick from the real, correctly-UV-placed candidate options
 per slot. Not started in `src/` yet.
@@ -870,7 +645,7 @@ slot's FileDataID has no local file at all — glTF's core material model
 has no direct analogue for WoW's additive eye-glow blend mode, and picking
 a plausible placeholder color/opacity without the real texture would be
 exactly the kind of confident-but-wrong guess `candidateAllowedForType`'s
-earlier bare-file mistake, and finding #6's own "filtering is safer than
+earlier bare-file mistake, and finding #3's own "filtering is safer than
 picking" framing, both already argued against. If this is picked up, the
 grounded next step is probably surfacing `blendMode`/`unlit` flags as glTF
 material extras for every material (not just these three) so a Blender

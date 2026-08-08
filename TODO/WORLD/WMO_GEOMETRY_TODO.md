@@ -1,15 +1,15 @@
 # TODO: WMO static mesh/material identity (root+group split, geometry, materials)
 
 **Status: an open punch list, not a historical record.** Fixed items get
-removed outright once closed (see `TODO_correctness.md`'s own convention) --
+removed outright once closed (see `../TODO_correctness.md`'s own convention) --
 git history is the record of what was fixed and when, not this file. Nothing
 in `src/` reads a WMO byte yet; this file is the implementation-ready plan
 for the "WMO static geometry & materials" and "root+group file split,
-skybox, chunk container" rows of `WORLD_COMPLETENESS.md` (see that file's
+skybox, chunk container" rows of `../../WORLD_COMPLETENESS.md` (see that file's
 own "World structure & scene composition" and "WMO static geometry &
 materials" sections for the scope this document narrows down from).
 
-**Why this file, not another investigation document**: `WORLD_COMPLETENESS.md`
+**Why this file, not another investigation document**: `../../WORLD_COMPLETENESS.md`
 already did the broad survey (every WMO/ADT concept, `none`/`none` across the
 board). This document goes one level deeper for WMO's own static-mesh-and-
 material identity specifically -- every struct below has been verified
@@ -41,7 +41,7 @@ the same WMO/ADT expansion pass, so their depth isn't duplicated here):
 
 ## The three axes
 
-Identical to `WORLD_COMPLETENESS.md`'s own definitions (Parse depth:
+Identical to `../../WORLD_COMPLETENESS.md`'s own definitions (Parse depth:
 `none`/`descriptor`/`deref`/`full`; Consumption: `none`/`diagnostic`/`extras`/
 `native`; glTF ceiling: see that file's table) -- repeated in each section's
 recommendation line below, not redefined here.
@@ -179,7 +179,7 @@ struct GroupHeader {
 ```
 
 **Recommendation**: `parse` / `diagnostic` (via `husk info`-equivalent) /
-`n/a, infrastructure` -- same as `M2_COMPLETENESS.md`'s own `MD20`/header row.
+`n/a, infrastructure` -- same as `../../M2_COMPLETENESS.md`'s own `MD20`/header row.
 Drives every other section's parsing; no renderable shape of its own.
 
 **Open design question**: none -- this is the least ambiguous section in
@@ -289,7 +289,7 @@ instead, matching `wow.export`'s own on-disk naming rather than a raw
 FileDataID. A real WMO importer needs **both** paths supported (a user might
 have either a FileDataID-named extraction or a `wow.export`-style one,
 exactly like husk already treats `.skin` files' "same-basename fallback,"
-see `CLAUDE.md`'s own `ANIM_TODO.md` history for the M2 precedent) -- which
+see `../../CLAUDE.md`'s own `ANIM_TODO.md` history for the M2 precedent) -- which
 one is primary, and whether `GFID`'s row-major LOD indexing should surface
 as its own `--wmo-lod` flag mirroring `husk export --lod` are both real,
 undecided questions a future implementation session needs to settle before
@@ -495,7 +495,7 @@ batches with shaders 10 or 14, but no tangents").
 **Real-data verification**: not independently checked this session (no
 shader-10/14 real file was sampled) -- but the recommendation doesn't depend
 on verifying it, since this is the same "runtime-computed, not authored"
-situation `M2_COMPLETENESS.md`'s own Tangents row already documents for M2
+situation `../../M2_COMPLETENESS.md`'s own Tangents row already documents for M2
 (`n/a` -- "not in the documented base header at all").
 
 **Recommendation**: `n/a` / `n/a` / `n/a` -- glTF's own tangent accessor
@@ -659,7 +659,7 @@ blob.
 `MOM3` (War Within 11.0+): wholly replaces `MOMT` when present (client uses
 `MOM3`'s materials instead, not alongside) -- an `m3SI`-tagged blob, same
 shape as an M3 file's own `M3SI` chunk (`M3.md#M3SI` -- out of this
-project's current scope, M3 itself is a non-goal per `WORLD_COMPLETENESS.md`'s
+project's current scope, M3 itself is a non-goal per `../../WORLD_COMPLETENESS.md`'s
 own "Related, explicitly out of scope" section).
 
 **Real-data verification**:
@@ -672,7 +672,7 @@ own "Related, explicitly out of scope" section).
   **zero** files with a `MOTX` chunk and **zero** with `MOM3`. Every real
   root file in this corpus uses direct-FileDataID `MOMT` texture references
   exclusively. This is a genuinely useful negative result (not a scanner
-  bug -- same "checked, zero real hits" disposition `WIKI_FINDINGS.md`'s own
+  bug -- same "checked, zero real hits" disposition `../../WIKI_FINDINGS.md`'s own
   prior sessions have used for other tags): `MOTX`/`MOM3` parsing can be
   built defensively (the byte layout is simple enough either way) but
   neither is verified against a single real file this session, and `MOM3`
@@ -694,7 +694,7 @@ struct Material {
     // is present, the caller must have already resolved the MOTX byte
     // offset to a filename (husk has no CASC/listfile access, so a
     // MOTX-only WMO's texture slots would need a --textures-dir-style
-    // filename match, same non-goal boundary DESIGN.md's Non-goals already
+    // filename match, same non-goal boundary ../../DESIGN.md's Non-goals already
     // draws for M2). 0 == no texture in this slot.
     uint32_t texture1FileDataId = 0, texture2FileDataId = 0, texture3FileDataId = 0;
     uint32_t groundType = 0;  // TerrainType.dbc id, diagnostic-only (no local DBC access)
@@ -713,7 +713,7 @@ zero real files to verify against) / `native` (base material: blend mode →
 unlit`, textures → `baseColorTexture` via `--textures <dir>`, all directly
 mirroring M2's own already-shipped translation in `gltf::Material`) /
 `native — 100%` for the base material once implemented, matching
-`M2_COMPLETENESS.md`'s own "Base material" row. Shader-driven multi-texture
+`../../M2_COMPLETENESS.md`'s own "Base material" row. Shader-driven multi-texture
 blending (shaders needing 2-3 textures, `### Shader types` tables) has the
 same `extras`-only ceiling M2's own multi-texture-layer row already
 documents (`gltf::Material::additionalTextureLayers` -- no core-glTF slot
@@ -763,7 +763,7 @@ std::vector<TextureUvAnimation> textureUvAnimations;
 
 **Recommendation**: `full` / `extras` / `extras-capped, permanent` -- same
 wall M2's own animated-texture-transform row already hits
-(`M2_COMPLETENESS.md`'s Materials & textures section): `KHR_texture_transform`
+(`../../M2_COMPLETENESS.md`'s Materials & textures section): `KHR_texture_transform`
 has no animation-channel target, so this is inert `extras` data
 (`texture_uv_animation`, mirroring `gltf::Material::textureTransform`'s
 existing shape) for a custom renderer/Blender script, never a real glTF
@@ -798,7 +798,7 @@ style FileDataID lookup once implemented, no new pattern needed.
 **Recommendation**: `full` / `diagnostic` initially, `native-possible, not
 done` for the ceiling -- structurally trivial once M2 placement/embedding
 exists elsewhere in husk (it's just another M2 reference + a boolean
-per-group flag), matching `WORLD_COMPLETENESS.md`'s own note verbatim.
+per-group flag), matching `../../WORLD_COMPLETENESS.md`'s own note verbatim.
 
 ## Coordinate system note (applies to every position/normal above)
 
@@ -833,7 +833,7 @@ hand-built minimal chunk buffers, one per parser unit):
 **Real-data fixtures** (candidate paths, all already confirmed to exist and
 decode cleanly this session -- copy into `test_data/` the same gitignored-
 personal-extraction way every other real husk fixture already does, see
-`CLAUDE.md`'s own conventions):
+`../../CLAUDE.md`'s own conventions):
 - `world/wmo/cameron.wmo` + `world/wmo/cameron_000.wmo` -- smallest real
   root+group pair (392 + 38,884 bytes), single group, single material, no
   `GFID` LOD complexity, no doodad sets beyond the empty default. The
@@ -852,7 +852,7 @@ personal-extraction way every other real husk fixture already does, see
   fixture (22 materials, 9 with nonzero animation).
 
 **Real-data assertions to write** (exact values, not loose bounds, per this
-project's own "don't just assert `> 100`" discipline, see `CLAUDE.md`'s
+project's own "don't just assert `> 100`" discipline, see `../../CLAUDE.md`'s
 `ANIM_TODO.md` history): `cameron`'s exact vertex/triangle/material counts;
 `chambercap01`'s exact `GFID` row-major table (all 12 entries, including the
 4 zero holes); `chambercap01_000`'s exact 9-batch `material_id_large`
@@ -904,4 +904,4 @@ sequence; `sargerassword`'s exact 9-of-22 nonzero `MOUV` entries.
 7. **Animated texture UV** (`MOUV`) -- `extras`-only ceiling, real but
    cosmetic; lowest priority of the confirmed-real items.
 8. **Tangents** (`MOTA`) -- not planned, `n/a` ceiling, listed only for
-   completeness against `WORLD_COMPLETENESS.md`'s own row.
+   completeness against `../../WORLD_COMPLETENESS.md`'s own row.

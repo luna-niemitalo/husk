@@ -47,7 +47,7 @@ void checkNoBoneCycles(const std::vector<gltf::Skeleton::Joint>& joints) {
     }
 }
 
-// Tier 1 of BONE_NAME_DEDUCTION_TODO.md's bone-naming scheme: for a bone
+// Tier 1 of TODO/BONE_NAME_DEDUCTION_TODO.md's bone-naming scheme: for a bone
 // with no real keyBoneId name (tier 0), borrow one *only* in the narrow,
 // unambiguous case of a simple (non-branching) run of unnamed bones
 // directly between one already-named ancestor and one already-named
@@ -58,7 +58,7 @@ void checkNoBoneCycles(const std::vector<gltf::Skeleton::Joint>& joints) {
 // the bone sits relative to two real key-bone names. A branch (more than
 // one child) anywhere in the run, or no named descendant at all, leaves
 // every bone on that path unlabeled -- they fall through to tier 2 (not yet
-// implemented, see BONE_NAME_DEDUCTION_TODO.md) or the plain
+// implemented, see TODO/BONE_NAME_DEDUCTION_TODO.md) or the plain
 // `bone_<index>` fallback (gltf_skeleton.cpp), never a guess.
 //
 // Reads a frozen snapshot of tier 0's own names (`tier0Name`/`hasTier0`),

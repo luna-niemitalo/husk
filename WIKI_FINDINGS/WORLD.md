@@ -6,10 +6,10 @@ because this is explicitly a first, planning-stage investigation pass, not
 implemented code yet — no `src/` parser exists for any of these six formats.
 The full struct listings, C++ data-model sketches, and test plans live in
 the eleven companion `*_TODO.md` files this investigation produced
-(`WDT_TODO.md`, `ADT_TERRAIN_TODO.md`, `ADT_LOD_TODO.md`,
-`WMO_GEOMETRY_TODO.md`, `WORLD_PLACEMENT_TODO.md`, `LIQUID_TODO.md`,
-`LIGHTING_TODO.md`, `FOG_VOLUMES_TODO.md`, `COLLISION_CULLING_TODO.md`,
-`WORLD_MISC_METADATA_TODO.md`, `PM4_PD4_TODO.md`) — this page only records
+(`TODO/WORLD/WDT_TODO.md`, `TODO/WORLD/ADT_TERRAIN_TODO.md`, `TODO/WORLD/ADT_LOD_TODO.md`,
+`TODO/WORLD/WMO_GEOMETRY_TODO.md`, `TODO/WORLD/WORLD_PLACEMENT_TODO.md`, `TODO/WORLD/LIQUID_TODO.md`,
+`TODO/WORLD/LIGHTING_TODO.md`, `TODO/WORLD/FOG_VOLUMES_TODO.md`, `TODO/WORLD/COLLISION_CULLING_TODO.md`,
+`TODO/WORLD/WORLD_MISC_METADATA_TODO.md`, `TODO/WORLD/PM4_PD4_TODO.md`) — this page only records
 what would otherwise be lost once those get implemented and deleted (this
 project's usual TODO lifecycle). Once real parsers land, split this file the
 same way `M2.md`/`BONE.md`/`PHYS.md` are split, into `WMO.md`/`ADT.md`/

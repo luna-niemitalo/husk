@@ -4,7 +4,7 @@
 real `WORLD_*.md`/`*_TODO.md` doc actually owns doodad-texture resolution
 once that work starts, then delete this file — same throwaway-scratch-doc
 lifecycle `DESIGN_CHANGES.md` and the old `VERIFICATION_IDEAS.md` had (see
-`CLAUDE.md`'s Resume section).
+`../../CLAUDE.md`'s Resume section).
 
 ## What this is about
 
@@ -25,7 +25,7 @@ entirely outside `character/`:
 
 `world`+`item`+`spells` alone are 93% of every collision found. This is
 exactly the population `ADT`'s `MDDF`/`MODF` doodad placement (see
-`WORLD_COMPLETENESS.md`'s "Doodad (M2) placement onto a tile" row) will
+`../../WORLD_COMPLETENESS.md`'s "Doodad (M2) placement onto a tile" row) will
 pull M2s from once that lands — so real-world doodad texture handling will
 run into this constantly, at a much higher rate than character work ever
 does (character was checked and found irrelevant to this, see below).

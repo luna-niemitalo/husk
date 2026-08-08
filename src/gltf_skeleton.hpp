@@ -74,7 +74,7 @@ struct Skeleton {
     // at semantics" treatment as skinSectionId/textureTransform above.
     // Empty (the default) if `--bones-dir none`, or none of a model's
     // BFID-declared FileDataIDs resolved to a real file on disk.
-    // TODO: Remove: TODO_correctness.md #3, `WIKI_FINDINGS/BONE.md` (dev-trace
+    // TODO: Remove: TODO/TODO_correctness.md #3, `WIKI_FINDINGS/BONE.md` (dev-trace
     // citations backing the non-goal above).
     struct CorrectionSet {
         uint32_t fileDataId = 0;
@@ -192,7 +192,7 @@ struct Skeleton {
 
     // One inert placeholder joint per distinct geoset ID a model's
     // primitives carry (Primitive::skinSectionId, gltf_mesh.hpp) --
-    // GEOSET_MASK_TODO.md's mechanism for making WoW's mutually-exclusive
+    // TODO/GEOSET_MASK_TODO.md's mechanism for making WoW's mutually-exclusive
     // geoset variants (hairstyles, boot cuffs, eye-glow, ...) toggleable in
     // Blender via its Mask modifier, with zero custom Blender import
     // tooling required. Each becomes a real `skin.joints` entry, appended
@@ -206,7 +206,7 @@ struct Skeleton {
     // skin joint, since the entire mechanism rides on Blender's stock glTF
     // importer creating one real vertex group per skin joint as a side
     // effect of ordinary skin-weight import (verified empirically, see
-    // GEOSET_MASK_TODO.md).
+    // TODO/GEOSET_MASK_TODO.md).
     //
     // emitMeshNode (gltf_mesh.cpp) does the actual tagging: any vertex
     // touched by a Primitive whose skinSectionId matches this tag's

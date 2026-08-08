@@ -94,7 +94,7 @@ wasn't checked — flagged as open, not claimed as a wow.export bug.
 |---|---|---|---|
 | Base material / texture references | native | native | parity |
 | Multi-texture-layer (`textureCount > 1`) | `extras`-only — no core-glTF slot for WoW's fixed-function combiner math | wow.export **composites layers itself** at export time (canvas-based texture baking, per earlier doc research — not independently re-verified this session) rather than exposing them separately | **structural difference, not a gap either way** — husk exposes raw per-layer data for a downstream tool to blend correctly; wow.export bakes its own blend into one texture. Neither is strictly more correct: baking requires wow.export's own blend-mode math to exactly match the client's, husk's approach requires the downstream consumer to do the blending itself |
-| Hardcoded/replaceable texture slot (`type != 0`) — which *real* texture fills it | not resolvable locally, `texture_type` extras only, by design (no CASC/DB2) | **resolvable** — `src/js/db/caches/DBCharacterCustomization.js`, `DBComponentTextureFileData.js`, `DBItemCharTextures.js`, backed by `src/js/casc/db2.js`/`WDCReader.js` (real WDC/DB2 reader) | **the single biggest structural gap between the two tools, in wow.export's favor for this specific case** — wow.export has live CASC+DB2 access and can query the actual client-side customization tables husk's own `DESIGN.md` non-goals explicitly rule out; this is exactly the "picking which `.bone` slot applies... blocked on client-side DB2 data husk doesn't have" gap `TODO_correctness.md` already names, confirmed real and solved on the other side |
+| Hardcoded/replaceable texture slot (`type != 0`) — which *real* texture fills it | not resolvable locally, `texture_type` extras only, by design (no CASC/DB2) | **resolvable** — `src/js/db/caches/DBCharacterCustomization.js`, `DBComponentTextureFileData.js`, `DBItemCharTextures.js`, backed by `src/js/casc/db2.js`/`WDCReader.js` (real WDC/DB2 reader) | **the single biggest structural gap between the two tools, in wow.export's favor for this specific case** — wow.export has live CASC+DB2 access and can query the actual client-side customization tables husk's own `DESIGN.md` non-goals explicitly rule out; this is exactly the "picking which `.bone` slot applies... blocked on client-side DB2 data husk doesn't have" gap `TODO/TODO_correctness.md` already names, confirmed real and solved on the other side |
 | Texture transform (UV scroll/rotate/scale) | `extras`-only (animated), `native-possible, unverified` (constant) | parsed (`parseChunk_MD21_textureTransforms`) but export-side application not confirmed | open |
 
 ### Collision & physics
@@ -155,7 +155,7 @@ By direct absence-of-code-path in wow.export's own loader:
 - **Live CASC + DB2 access**: real `WDCReader`/DB2 caches
   (`DBCharacterCustomization`, `DBComponentTextureFileData`,
   `DBItemCharTextures`, `DBNpcEquipment`, ...) — this is exactly the
-  external data source `TODO_correctness.md`'s `.bone`-slot-selection gap
+  external data source `TODO/TODO_correctness.md`'s `.bone`-slot-selection gap
   and `M2_COMPLETENESS.md`'s "hardcoded texture slot" row both name as
   blocked on "client-side DB2 data husk doesn't have." wow.export has it.
   This is the one item on this list worth taking seriously as a real
@@ -191,7 +191,7 @@ the deferred live-diff run below.
 ## husk's own scorecard (measured against real data, already current)
 
 Not re-run this session per Luna's own direction (numbers are same-day
-fresh). From `HUSK_CORPUS_FINDINGS2.md`, `tools/corpus_test.py`/
+fresh). From a full local-corpus sweep, `tools/corpus_test.py`/
 `corpus_checks.py` against the full local real corpus:
 
 - **130,575 real `.m2` files, 663 failures (99.49% clean)** — header parse
@@ -217,11 +217,11 @@ fresh). From `HUSK_CORPUS_FINDINGS2.md`, `tools/corpus_test.py`/
     duplicate-timestamp nudge-repair (`CORPUS_TODO.md` #4, which only
     handles equal/near-equal timestamps) to apply.
 
-  `HUSK_CORPUS_FINDINGS2.md`'s own read: "these read as real corrupted/
-  garbage keyframe data... rather than benign authored data — but that's a
-  hypothesis, not confirmed against the raw bytes." Low priority (3/130,575
-  files) but genuinely open — worth a look if animation robustness work
-  resumes.
+  These read as real corrupted/garbage keyframe data (NaN, or a timestamp
+  that looks like unrelated memory/a misread field) rather than benign
+  authored data — but that's a hypothesis, not confirmed against the raw
+  bytes. Low priority (3/130,575 files) but genuinely open — worth a look
+  if animation robustness work resumes.
 
 ## Deferred: live side-by-side export diff against wow.export
 

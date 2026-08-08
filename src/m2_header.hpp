@@ -307,7 +307,7 @@ const char* attachmentTypeName(uint32_t id);
 // nullptr for an identifier the table doesn't document at all, or
 // documents as real but with no known meaning (e.g. $CHD -- the wiki's own
 // "probably does not exist?!" -- or $CVS/$KVS/$WWG/DEST/POIN/WHEE/BOTT/TOP,
-// all genuinely undocumented; see BONE_NAME_DEDUCTION_TODO.md for what
+// all genuinely undocumented; see TODO/BONE_NAME_DEDUCTION_TODO.md for what
 // real corpus investigation filling these in would take). Weaker signal
 // than `attachmentTypeName`: the wiki table itself has real gaps, not just
 // omissions here. Bracket-ranged identifiers (e.g. "$AH[0-3]" documenting

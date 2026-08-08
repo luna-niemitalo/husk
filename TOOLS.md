@@ -79,7 +79,7 @@ docstring — read the script for the real detail, not this list:
 
 - `find_texture_type_collisions.py` — `M2Texture.type` collisions and
   whether `textureLookup` agrees with the real per-batch `textureCombos`
-  resolution (see `TEXTURE_TYPE_COLLISIONS_REPORT.md` for the full-corpus
+  resolution (see `TODO/WORLD/TEXTURE_TYPE_COLLISIONS_REPORT.md` for the full-corpus
   result).
 - `find_texture_transform_files.py` — real files with a constant,
   texture-center-pivoted `M2TextureTransform` (the `KHR_texture_transform`
@@ -101,4 +101,4 @@ docstring — read the script for the real detail, not this list:
   JSONs into a report.
 - `husk_blender_geoset_mask.py` — not a corpus scanner: a `bpy` script
   building the geoset-selection Geometry Nodes graph in Blender itself
-  (see `GEOSET_MASK_TODO.md`).
+  (see `TODO/GEOSET_MASK_TODO.md`).

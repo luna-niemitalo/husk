@@ -59,7 +59,7 @@ int parseProbeInt(const std::string& output, const std::string& key) {
 }
 
 // model.skins[0].joints.size() is realBoneCount + one geoset tag joint per
-// distinct geoset ID (GEOSET_MASK_TODO.md), not realBoneCount alone --
+// distinct geoset ID (TODO/GEOSET_MASK_TODO.md), not realBoneCount alone --
 // counted independently here from each primitive's own "geoset_id" extras
 // (gltf_mesh.cpp) rather than assumed, so this is a real cross-check
 // against gltf_skeleton.cpp's separate Skeleton::geosetTags-driven joint
@@ -472,7 +472,7 @@ TEST_CASE("husk export: a real multi-root-bone-forest weapon imports into Blende
     // grows a bogus extra entry for the synthesized node (unlike the
     // rejected alternative of appending it as one more real joint) -- it
     // does legitimately grow by one real entry per distinct geoset ID
-    // (GEOSET_MASK_TODO.md's tag joints), accounted for explicitly here.
+    // (TODO/GEOSET_MASK_TODO.md's tag joints), accounted for explicitly here.
     CHECK(model.skins[0].joints.size() ==
           header.bones.count + countDistinctGeosetTagJoints(model));
 

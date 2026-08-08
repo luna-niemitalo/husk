@@ -1,23 +1,23 @@
 # TODO: PM4/PD4 (server-side navigation/pathing mesh) support
 
 **Status: an open punch list, not a historical record.** Fixed/resolved
-items get removed outright once closed (see `TODO_correctness.md`'s own
+items get removed outright once closed (see `../TODO_correctness.md`'s own
 convention) — git history is the record of what was fixed and when, not
 this file.
 
 ## Why this file exists now
 
-`DESIGN.md`'s Non-goals section already declared PM4/PD4 in scope
+`../../DESIGN.md`'s Non-goals section already declared PM4/PD4 in scope
 (2026-07-31): "PM4/PD4 (server-side navigation/pathing mesh) declared in
 scope... explicitly for pathing use cases ('we want pathing')... not yet
-researched at all." `WORLD_COMPLETENESS.md` (the WMO/ADT scaffold a
+researched at all." `../../WORLD_COMPLETENESS.md` (the WMO/ADT scaffold a
 parallel session is fleshing out right now) took the opposite framing in
 its own "explicitly out of scope for this file" section: PM4/PD4 is "never
 touched by the client renderer, so it doesn't belong in a 'what does the
 rendered world look like' completeness file."
 
 **Luna corrected that framing directly**, in `LUNA_NOTES.md` (repo root,
-quoting the `WORLD_COMPLETENESS.md` text above): "This should be part of
+quoting the `../../WORLD_COMPLETENESS.md` text above): "This should be part of
 the world mesh, as even if it's not rendered directly, for example a debug
 rendering might want to render it, so it should be hidden by default but
 100% included." So the target isn't "skip it, it's server-only" — it's
@@ -29,8 +29,8 @@ grounded against real bytes wherever real bytes could be had this session
 couldn't happen), a C++ data-model sketch mirroring `src/phys.hpp`'s own
 idiom, and a concrete test plan.
 
-This file does **not** touch `WORLD_COMPLETENESS.md`, `DESIGN.md`,
-`README.md`, or any sibling `*_TODO.md` file four other agents are writing
+This file does **not** touch `../../WORLD_COMPLETENESS.md`, `../../DESIGN.md`,
+`../../README.md`, or any sibling `*_TODO.md` file four other agents are writing
 in parallel right now for WMO/ADT/WDT/liquid/lighting/fog/collision — a
 later consolidated pass wires the cross-document pointers once all of
 those land.
@@ -178,7 +178,7 @@ extraction bad luck.
 **Disposition: zero real PM4/PD4 bytes were obtained or inspected this
 session.** Every struct below is a wiki transcription only. Per this
 project's own methodology (verify against real bytes before shipping a
-parser as anything but explicitly preliminary — `WIKI_FINDINGS.md`
+parser as anything but explicitly preliminary — `../../WIKI_FINDINGS.md`
 throughout), every field is flagged `unverified` below, the same "wiki
 text only, not independently confirmed" flag `.phys`'s own `BOXS`/`SPHJ`/
 etc. already carry for their own unobserved variants — just applied to
@@ -203,7 +203,7 @@ PM4 page itself says "See PD4#X" — i.e. PD4 is the canonical definition.
   three `uint32_t` fields (`_0x00`/`_0x04`/`_0x08`) plus a trailing
   `uint32_t _0x0c[5]`, wiki-flagged "Always 0 in version_48, likely
   placeholders." Verification-signal value only, same class as M2's own
-  collision-box/sphere-radius scalars (`M2_COMPLETENESS.md`'s Collision
+  collision-box/sphere-radius scalars (`../../M2_COMPLETENESS.md`'s Collision
   row) — not an export target.
 - **`MSPV`** — `C3Vector msp_vertices[]` (12 bytes/record, flat array). A
   vertex pool referenced by `MSPI`.
@@ -370,7 +370,7 @@ silently accept, per this project's Foreign Data policy.
 
 ## Parse / Consumption / glTF-ceiling recommendation
 
-Using `WORLD_COMPLETENESS.md`'s own three-axis vocabulary (Parse depth:
+Using `../../WORLD_COMPLETENESS.md`'s own three-axis vocabulary (Parse depth:
 `none`/`descriptor`/`deref`/`full`; Consumption: `none`/`diagnostic`/
 `extras`/`native`; glTF ceiling: as defined there):
 
@@ -380,7 +380,7 @@ Using `WORLD_COMPLETENESS.md`'s own three-axis vocabulary (Parse depth:
 | `MSPV`/`MSPI`/`MSVT`/`MSVI`/`MSUR` | full | **native**, tagged | native — 100% once verified | direct M2-collision-mesh precedent: one more `gltf::NamedMesh`, unskinned (PM4/PD4 tiles have no skeleton at all — there's no armature to share, unlike M2's collision mesh which at least *can* share a skin), `{"pathing": true}` (or similar) in node `extras`. Needs `MSVI`→triangle fan-triangulation (unverified whether n-gons are convex) and the new `MSVT` world-space unswizzle (see above) — genuinely more assembly work than M2's collision mesh needed |
 | `MSLK` | full | extras (raw fields) or a second tagged line/edge mesh | native-possible, not done | too semantically unclear today (most fields wiki-flagged unverified) to commit to a specific glTF shape beyond "surface it raw" |
 | `MPRL`/`MPRR` (PM4 only) | full | extras or diagnostic | extras-capped, permanent (tentative) | a coarse reference-point/graph table, not renderable surface geometry — no owning bone/joint concept exists here (unlike M2 Attachments, which parent to a joint), so even a "plain node per point" translation has no natural parent; revisit once real bytes clarify what these actually reference |
-| `MDBH`/`MDBI`/`MDBF`/`MDOS`/`MDSF` (PM4 only) | full | diagnostic (`dump-chunks`-equivalent JSON) | n/a, by design | game-logic bookkeeping (which surface belongs to which building, and its state) — same "real data, no glTF slot" treatment `EXP2`/`PFDC`/`PCOL`/`DETL` already got in `M2_COMPLETENESS.md` |
+| `MDBH`/`MDBI`/`MDBF`/`MDOS`/`MDSF` (PM4 only) | full | diagnostic (`dump-chunks`-equivalent JSON) | n/a, by design | game-logic bookkeeping (which surface belongs to which building, and its state) — same "real data, no glTF slot" treatment `EXP2`/`PFDC`/`PCOL`/`DETL` already got in `../../M2_COMPLETENESS.md` |
 
 **Overall recommendation**: implement the parser now (the format is small
 enough, and even wiki-flagged-unverified fields are worth reading raw —
@@ -407,7 +407,7 @@ renderer or Blender script to filter out"). Applying that same pattern to
 PM4/PD4 (`{"pathing": true}`) would satisfy "100% included" cleanly, but
 it would **not** satisfy "hidden by default" in any renderer that hasn't
 been specifically taught to look for the tag — Blender's own stock
-importer, husk's explicitly stated sole target (`DESIGN.md`'s Goal: "a
+importer, husk's explicitly stated sole target (`../../DESIGN.md`'s Goal: "a
 `.glb` file Blender's stock importer can open is the entire deliverable"),
 included. Every geoset/skinSectionId/billboardMode `extras` tag already in
 husk works exactly this way, and this project's own precedent has always
@@ -452,7 +452,7 @@ real options, none of them free:
    confirmed empirically (not assumed) the moment this is implemented,
    since option 1's "at best" hasn't actually been tested against a real
    Blender import yet either.
-3. **A separate, opt-in Blender-side script** (not an addon — `DESIGN.md`'s
+3. **A separate, opt-in Blender-side script** (not an addon — `../../DESIGN.md`'s
    own non-goal: "No Blender addon... the entire deliverable") that reads
    the `extras` tag from option 1 and hides the object post-import. Fully
    satisfies "hidden by default" for anyone who runs it, but is new
@@ -499,9 +499,9 @@ that constraint rather than pretend otherwise.
    build, a leak, a shared sample from someone with archive access), redo
    the verification pass this session couldn't — decode it independently
    (a from-scratch script, not husk's own parser, same discipline every
-   other `WIKI_FINDINGS.md` entry uses), check every cross-reference
+   other `../../WIKI_FINDINGS.md` entry uses), check every cross-reference
    in-bounds, and only then promote the parser's own doc comments from
-   "preliminary" to a real `WIKI_FINDINGS.md` section.
+   "preliminary" to a real `../../WIKI_FINDINGS.md` section.
 
 ## Priority: PM4 over PD4
 
@@ -511,7 +511,7 @@ scope elsewhere":
 
 1. **Coverage**: PM4 covers open-world terrain pathing (every ADT tile);
    PD4 only covers the subset of buildings that are WMOs with their own
-   PD4 companion. A pathing use case ("we want pathing," `DESIGN.md`'s own
+   PD4 companion. A pathing use case ("we want pathing," `../../DESIGN.md`'s own
    framing) cares about the ground far more than any one building.
 2. **Real-file availability, if it ever changes, likely favors PM4 too**:
    the listfile split is lopsided in exactly this direction already —
@@ -559,10 +559,10 @@ in case it changes this ordering.
   this file's own "hidden by default" open question
 - `src/chunk.hpp` — chunk-tag reversal convention (M2 vs. WMO/ADT-family),
   `findChunk`'s single-match limitation relevant to `MDBH`/`MDBI`/`MDBF`
-- `DESIGN.md`'s Non-goals section (PM4/PD4 in-scope declaration,
+- `../../DESIGN.md`'s Non-goals section (PM4/PD4 in-scope declaration,
   2026-07-31) and Goal section ("No Blender addon" non-goal, relevant to
   the hidden-by-default question)
-- `WORLD_COMPLETENESS.md`'s "The three axes" section (Parse/Consumption/
+- `../../WORLD_COMPLETENESS.md`'s "The three axes" section (Parse/Consumption/
   glTF-ceiling vocabulary reused directly above) and its own now-superseded
   "explicitly out of scope for this file" PM4/PD4 paragraph
 - `LUNA_NOTES.md` — the direct correction that prompted this file

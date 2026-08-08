@@ -1,10 +1,10 @@
 # TODO: world placement -- what actually populates a rendered world
 
 **Status: an open punch list, not a historical record.** Fixed items get
-removed outright once closed (see `TODO_correctness.md`'s own convention) --
+removed outright once closed (see `../TODO_correctness.md`'s own convention) --
 git history is the record of what was fixed and when, not this file. Nothing
 in `src/` reads an ADT/WMO placement record yet; this file is the
-implementation-ready plan for `WORLD_COMPLETENESS.md`'s own framing of this
+implementation-ready plan for `../../WORLD_COMPLETENESS.md`'s own framing of this
 as **the single most important row in that whole file**: "what actually
 populates a rendered world with M2s/WMOs."
 
@@ -12,7 +12,7 @@ populates a rendered world with M2s/WMOs."
 tile), `MODF` (WMOs onto an ADT tile), and `MODS`/`MODD` (a WMO's own
 internal doodad set, placing M2s *inside* a building) are the same concept
 at three different scopes -- an ID/name reference, a position, a rotation,
-a scale, resolved into "put this model here." `WORLD_COMPLETENESS.md`'s own
+a scale, resolved into "put this model here." `../../WORLD_COMPLETENESS.md`'s own
 text makes this explicit: `MODS`/`MODD` is "the same placement concept as
 ADT's `MDDF`, just scoped inside one WMO." A real implementation reuses one
 placement-resolution code path for both scopes, not two -- tracking them in
@@ -34,7 +34,7 @@ scope.
 
 ## The three axes
 
-Identical to `WORLD_COMPLETENESS.md`'s own definitions -- repeated per
+Identical to `../../WORLD_COMPLETENESS.md`'s own definitions -- repeated per
 section below, not redefined here.
 
 ## Shared foundation: coordinate systems and the placement matrix
@@ -185,7 +185,7 @@ std::string resolveDoodadName(const std::vector<DoodadPlacement>& placements,
 
 **Recommendation**: `full` / `native` (once instanced, see the Scene
 composition section below) / `native-possible, not done` -- a direct glTF
-node (mesh reference + TRS) per placement, exactly `WORLD_COMPLETENESS.md`'s
+node (mesh reference + TRS) per placement, exactly `../../WORLD_COMPLETENESS.md`'s
 own framing. The FileDataID-mode path (99.2% of real placements) is the one
 to build first; the name-table path needs the case-insensitive-resolution
 gotcha above handled explicitly, not an afterthought.
@@ -422,7 +422,7 @@ separate, individually-toggleable glTF nodes (mirroring `--lod all`'s own
 "every tier as its own node" precedent, `gltf::writeGlbMulti`'s existing
 doc comment) rather than baking in one fixed selection -- the same
 "which variant" answer M2's own geoset selection already uses
-(`M2_COMPLETENESS.md`'s Core geometry row, `skinSectionId` extras): no
+(`../../M2_COMPLETENESS.md`'s Core geometry row, `skinSectionId` extras): no
 external DB2/customization data to ground a "correct" choice in, so export
 every set as inert, taggable data and let a Blender script or custom
 renderer pick. The size/time-multiplier concern this document originally
@@ -537,11 +537,11 @@ unresolved questions, none decided here:
    (`src/main.cpp`) has no precedent for "one input resolves to N other
    inputs, each independently exported" -- this is a materially different
    shape from every three-/four-state (`--skin`/`--textures`/etc.) flag
-   `DESIGN.md`'s CLI grammar section already documents.
+   `../../DESIGN.md`'s CLI grammar section already documents.
 2. **What does the input directory convention look like?** Every existing
    sidecar flag (`--textures`/`--skin-dir`/`--anim`/`--bones-dir`/`--phys`)
    assumes a flat, FileDataID-named directory the user populated ahead of
-   time (`DESIGN.md`'s Non-goals: no CASC access, ever). World assembly
+   time (`../../DESIGN.md`'s Non-goals: no CASC access, ever). World assembly
    needs *directory trees full of already-exported `.glb`s* (or raw `.m2`/
    `.wmo` files husk exports on the fly?) referenced by FileDataID --
    does husk export referenced models on demand (invoking its own `export`
@@ -555,7 +555,7 @@ unresolved questions, none decided here:
    correctly.
 3. **What granularity is "a scene"?** One ADT tile? A full 64x64 map (up to
    4,096 tiles, most maps sparse but some -- Kalimdor/Eastern Kingdoms --
-   genuinely large)? `WORLD_COMPLETENESS.md`'s own `.wdt`/`MAIN`/`MAID`
+   genuinely large)? `../../WORLD_COMPLETENESS.md`'s own `.wdt`/`MAIN`/`MAID`
    tile-existence table (`WDT_TODO.md`'s scope) is what would drive "which
    tiles exist to even consider" -- this document's own placement-
    resolution logic is agnostic to that question, but the CLI surface
@@ -657,7 +657,7 @@ cleanly this session):
 
 1. **`MDDF`/`MODF` FileDataID-mode parsing** -- 99%+ of real placements,
    fully verified, no open data questions. The highest-value item in this
-   entire WMO/ADT expansion per `WORLD_COMPLETENESS.md`'s own framing.
+   entire WMO/ADT expansion per `../../WORLD_COMPLETENESS.md`'s own framing.
 2. **`MODS`/`MODN`/`MODI`/`MODD`/`MDDI` (WMO-internal placement)** -- needed
    before a placed WMO looks structurally complete (buildings need their
    own furniture); the `MODI`-count and coordinate-convention gotchas are

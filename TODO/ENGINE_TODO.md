@@ -6,12 +6,12 @@ the specific gaps between "husk exported everything the M2 file family
 contains" and "looks/plays 1:1 with the original WoW client." Every item
 below is data that genuinely does not exist in `.m2`/`.skin`/`.skel`/`.bone`/
 `.phys` — it lives in client-side DB2/DBC tables or in client code, neither
-of which husk will ever touch (`DESIGN.md`'s Non-goals: no CASC/DB2 access,
+of which husk will ever touch (`../DESIGN.md`'s Non-goals: no CASC/DB2 access,
 ever, by design, not oversight). Closing these gaps is **not husk's job** —
 this file is a spec for the engine project to work from, not a punch list
 husk itself will implement. If husk's own coverage of the M2 format changes
 (new fields exposed, new extras keys), this file may go stale — cross-check
-against husk's own `M2_COMPLETENESS.md`/`TODO_correctness.md` before relying
+against husk's own `../M2_COMPLETENESS.md`/`TODO_correctness.md` before relying
 on the "what husk gives you" column below.
 
 ## How to read each entry
@@ -62,7 +62,7 @@ attaches every one it can resolve, unapplied.
   `husk dump-chunks <file.bone>` directly.
 - **missing**: which `BFID`-array slot applies in which context.
 - **What's already ruled out** (husk's own real-data investigation,
-  `WIKI_FINDINGS.md` §4): not LOD/render-distance (20 real `.bone` files
+  `../WIKI_FINDINGS.md` §4): not LOD/render-distance (20 real `.bone` files
   don't fit `LDV1`'s 7-tier LOD count at all), not weapon-type or
   armor-type (corrected bones cluster tightly on Head/Jaw, nowhere near
   hand/grip/armor-fitting bones). The corrections collapse into a small

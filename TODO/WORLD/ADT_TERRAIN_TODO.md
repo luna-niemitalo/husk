@@ -3,9 +3,9 @@
 **Status: an open punch list, not a historical record.** Nothing here is
 implemented yet. Once implementation starts, fixed items get removed
 outright — git history is the record, not this file (same convention
-`RO_COMPLETENESS_TODO.md`/`TODO_correctness.md` already use).
+`RO_COMPLETENESS_TODO.md`/`../TODO_correctness.md` already use).
 
-**Scope**: one of three sibling docs expanding `WORLD_COMPLETENESS.md`'s
+**Scope**: one of three sibling docs expanding `../../WORLD_COMPLETENESS.md`'s
 "Terrain geometry (ADT)" section — per that file's own words, the heightmap
 grid is "the single biggest ADT geometry item" in the whole WMO/ADT
 expansion. This file covers: the ADT chunk container itself (`MVER`/
@@ -20,7 +20,7 @@ terrain-LOD `ML*` chunk family is `ADT_LOD_TODO.md`, not here. Liquid
 (`MH2O`/`MCLQ`), texture layers (`MCLY`/`MCAL`/`MTEX`/`MDID`/`MHID`'s
 *content*, as opposed to their presence), and every other `MCNK`
 sub-chunk not named above are also out of this file's scope — this file is
-specifically the terrain **mesh**, matching `WORLD_COMPLETENESS.md`'s own
+specifically the terrain **mesh**, matching `../../WORLD_COMPLETENESS.md`'s own
 "single biggest item" framing, not every byte an ADT file contains.
 
 **Real-data verification discipline**: every claim below was checked
@@ -156,7 +156,7 @@ std::vector<std::array<int, 3>> heightGridTriangleFan();  // returns indices int
 
 | Concept | Parse | Consumption | glTF ceiling |
 |---|---|---|---|
-| `MCVT` heightmap | `full` | `native` | `native-possible, not done` — a direct `POSITION` accessor + a fixed, precomputed index buffer, structurally identical in kind to how husk's own M2 collision-mesh export already handles a "positions + implicit/derived topology" mesh (`src/gltf.hpp`'s `NamedMesh`, `M2_COMPLETENESS.md`'s Collision section) |
+| `MCVT` heightmap | `full` | `native` | `native-possible, not done` — a direct `POSITION` accessor + a fixed, precomputed index buffer, structurally identical in kind to how husk's own M2 collision-mesh export already handles a "positions + implicit/derived topology" mesh (`src/gltf.hpp`'s `NamedMesh`, `../../M2_COMPLETENESS.md`'s Collision section) |
 
 ### Open design question
 
@@ -254,7 +254,7 @@ struct Holes {
 
 Application happens at mesh-*generation* time (skip the 2 triangles for a
 held quad), not as a separate glTF concept — matches
-`WORLD_COMPLETENESS.md`'s own framing exactly.
+`../../WORLD_COMPLETENESS.md`'s own framing exactly.
 
 ### Parse / Consumption / glTF ceiling
 
@@ -287,7 +287,7 @@ the rest of the page (already cited per-chunk above).
   build a `_tex1.adt` reader path at all for a `MAID`-only-targeting tool**
   — real zero, not "rare."
 - **`_lod.adt` exists for 46,340/55,279 (83.8%)** — matches
-  `WORLD_COMPLETENESS.md`'s own rough corpus count; see `ADT_LOD_TODO.md`
+  `../../WORLD_COMPLETENESS.md`'s own rough corpus count; see `ADT_LOD_TODO.md`
   for what's inside.
 - **`MHID`/`MDID` (BfA+ height/diffuse-texture FileDataID tables,
   `_tex0`-resident)**: present, with **matching array lengths, in all
@@ -309,7 +309,7 @@ the rest of the page (already cited per-chunk above).
   split file" inventory.
 - **`MCIN` (pre-Cata chunk index)**: confirmed **absent** (`mhdr.mcin ==
   0`) on all 2,500 sampled root files — superseded structurally by the
-  split-file layout, exactly as `WORLD_COMPLETENESS.md` already states.
+  split-file layout, exactly as `../../WORLD_COMPLETENESS.md` already states.
   Husk should still parse it when present (any pre-Cata fixture found
   later) for completeness, but it's dead weight for this corpus.
 
@@ -330,7 +330,7 @@ struct TileFiles {
     std::optional<std::vector<uint8_t>> lod;   // see ADT_LOD_TODO.md
 };
 
-TileFiles resolveTileFiles(const std::string& rootPath);  // same-basename sibling probing, local filesystem only -- never CASC (DESIGN.md's Non-goals)
+TileFiles resolveTileFiles(const std::string& rootPath);  // same-basename sibling probing, local filesystem only -- never CASC (../../DESIGN.md's Non-goals)
 
 }  // namespace husk::adt
 ```
@@ -340,7 +340,7 @@ TileFiles resolveTileFiles(const std::string& rootPath);  // same-basename sibli
 | Concept | Parse | Consumption | glTF ceiling |
 |---|---|---|---|
 | Split-file resolution | `full` (resolve which files exist) | `n/a`, infrastructure | `n/a`, infrastructure |
-| `MHID`/`MDID` | `descriptor` (FileDataID arrays) | `diagnostic` | `n/a` — feeds into material/texture resolution, `WORLD_COMPLETENESS.md`'s own WMO/ADT-materials scope, not this file's |
+| `MHID`/`MDID` | `descriptor` (FileDataID arrays) | `diagnostic` | `n/a` — feeds into material/texture resolution, `../../WORLD_COMPLETENESS.md`'s own WMO/ADT-materials scope, not this file's |
 | `MWDR`/`MWDS` | `descriptor` | `diagnostic` here; real consumption belongs to `WORLD_PLACEMENT_TODO.md` | `n/a`, cross-references `MODF` |
 | `MCIN` | `full` (when present) | `diagnostic` | `n/a`, infrastructure, superseded |
 
@@ -403,7 +403,7 @@ test, no file parsing involved).
 - **husk `src/` to reuse**: `src/chunk.hpp`/`chunk.cpp` (chunk walker,
   reused unmodified), `src/phys.hpp`/`phys.cpp` (chunk-tag-dispatch idiom,
   reversed-tag precedent), `src/gltf.hpp`'s `NamedMesh`/collision-mesh
-  precedent (`M2_COMPLETENESS.md`'s Collision section — closest existing
+  precedent (`../../M2_COMPLETENESS.md`'s Collision section — closest existing
   analogue to "positions + a fixed/derived index buffer, no bone
   weights").
 - **Real corpus evidence**: `/media/luna/data/wow_export/world/maps/**`
@@ -429,7 +429,7 @@ check that reads whole ADT file bodies.
 ## Priority order
 
 1. **§1/§2 (`MVER`/`MHDR`/`MCVT`)** — the actual geometry, the reason this
-   file exists at all per `WORLD_COMPLETENESS.md`'s own framing.
+   file exists at all per `../../WORLD_COMPLETENESS.md`'s own framing.
 2. **§3 (`MCNR`)** — trivial once §2 exists (same sub-chunk walk, paired
    1:1), no reason to sequence it later.
 3. **§5 (split-file resolution)** — must exist before §2 can find its own

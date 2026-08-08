@@ -3,18 +3,18 @@
 **Status: an open punch list, not a historical record.** Nothing here is
 implemented yet — every item below is a from-scratch implementation plan,
 not a progress report. Once implementation starts, this file gets worked
-like `RO_COMPLETENESS_TODO.md`/`TODO_correctness.md` already are: fixed
+like `RO_COMPLETENESS_TODO.md`/`../TODO_correctness.md` already are: fixed
 items get removed outright once closed, git history is the record of what
 was fixed and when, not this file.
 
 **Scope**: this is one of three sibling TODO docs expanding
-`WORLD_COMPLETENESS.md`'s "World structure & scene composition" and
+`../../WORLD_COMPLETENESS.md`'s "World structure & scene composition" and
 "Sidecar & dependency formats" sections into implementation-ready plans.
 This file covers the `.wdt` map-root container end to end — tile existence
 (`MPHD`/`MAIN`/`MAID`/`MAI2`), the global single-WMO-map case (`MWMO`+
 `MODF`), and the `_occ`/`_lgt` sidecar-of-a-sidecar files — plus `.wdl`
 (coarse whole-map heightmap + reduced-detail placement), folded in here per
-`WORLD_COMPLETENESS.md`'s own "Sidecar & dependency formats" framing of
+`../../WORLD_COMPLETENESS.md`'s own "Sidecar & dependency formats" framing of
 `.wdt`/`.wdl` as one shared "map-level sidecar" concern. Two adjacent
 `.wdt` sidecars — `_fogs` (`VFOG`/`VFEX`) and `_mpv` (`PVPD`/`PVMI`/`PVBD`)
 — are **named and scoped here only**; their own chunk-level struct/
@@ -30,7 +30,7 @@ tile to live in).
 **Real-data verification discipline**: every claim below was checked
 against the real, pre-extracted corpus at `/media/luna/data/wow_export`
 (read-only), using new, independent-from-husk Python scripts (no reuse of
-a not-yet-written parser — same methodology `WIKI_FINDINGS.md`'s every
+a not-yet-written parser — same methodology `../../WIKI_FINDINGS.md`'s every
 section already uses). Exact counts and file paths are cited per finding.
 Scripts are throwaway, kept outside the repo tree per this session's own
 instructions — not committed.
@@ -102,7 +102,7 @@ correctly-shaped `MAI2` chunk: `world/maps/kalimdor/kalimdor.wdt` and
 `world/maps/azeroth/azeroth.wdt`, each exactly 131072 bytes (4096×32,
 matching the wiki's own documented `MapFileDataIDs2` stride). The wiki's
 "currently unshipped" framing is stale for at least these two continents in
-this build — worth a `WIKI_FINDINGS.md` follow-up once this item is
+this build — worth a `../../WIKI_FINDINGS.md` follow-up once this item is
 implemented (not edited by this investigation session, per the task's own
 instructions). Every field beyond `unknown0` is still wiki-flagged
 "unknown0 only field with FileDataIDs in 12.0.5" — husk should parse and
@@ -135,7 +135,7 @@ bit has been repurposed/its trigger condition broadened well past
 Firelands2 since the wiki text was last updated — genuinely unresolved,
 flagged here rather than guessed at. Not blocking (there's no rendering
 consequence to reading a bit that's simply "usually 1 now"), but worth a
-one-line `WIKI_FINDINGS.md` note once implemented so the next person
+one-line `../../WIKI_FINDINGS.md` note once implemented so the next person
 doesn't waste time re-deriving this.
 
 **Tile-flag-vs-real-file cross-check**: comparing `MAIN`'s per-tile
@@ -262,9 +262,9 @@ map-wide, the string-filename `MWMO` chunk becomes optional even for the
 global-WMO case," though husk should keep this framed as an observed
 correlation, not a confirmed causal rule from client source.
 
-**Recommended correction for a future `WIKI_FINDINGS.md` entry** (not
+**Recommended correction for a future `../../WIKI_FINDINGS.md` entry** (not
 written this session, per this investigation's own scope — real-file
-findings are documented here, folded into `WIKI_FINDINGS.md` by a later
+findings are documented here, folded into `../../WIKI_FINDINGS.md` by a later
 pass): `WDT.md`'s `MODF` section should note that `flags` (offset 0x38)
 uses the *same* `MODFFlags` enum ADT's own `MODF` chunk does, including
 `modf_entry_is_filedata_id` (0x8) — and that `MWMO` is genuinely optional
@@ -315,7 +315,7 @@ real `MAOI`/`MAOH` tile entries, are internally consistent at a **578-byte
 absent from `_occ`'s own heightmap. The wiki's "same content as
 `WDL#MARE`" claim is wrong for the *size*, even though the general
 "interleaved outer-heightmap grid" *shape* is the same idea at a coarser
-resolution. Flagging this precisely as a future `WIKI_FINDINGS.md` entry
+resolution. Flagging this precisely as a future `../../WIKI_FINDINGS.md` entry
 (not written this session): **`_occ.wdt`'s `MAOH` per-tile record is
 `int16_t heightmap[17*17]` (578 bytes), not `(17*17+16*16)` (1090 bytes)**.
 
@@ -374,13 +374,13 @@ struct LightAnimation { float amplitude, frequency; uint32_t function; };  // ML
 | Concept | Parse | Consumption | glTF ceiling |
 |---|---|---|---|
 | `_occ` heightmap | `full` (corrected stride) | `diagnostic` | `n/a`, infrastructure (occludes rendering, isn't itself geometry) |
-| `_lgt` point/spot lights | `full` | `extras` or `native` | `native-possible` — glTF's real `KHR_lights_punctual` extension exists; same open question `WORLD_COMPLETENESS.md`'s Lighting section already flags for WMO's `MOLT` — worth resolving once, shared across both sources |
+| `_lgt` point/spot lights | `full` | `extras` or `native` | `native-possible` — glTF's real `KHR_lights_punctual` extension exists; same open question `../../WORLD_COMPLETENESS.md`'s Lighting section already flags for WMO's `MOLT` — worth resolving once, shared across both sources |
 
 ### Open design question
 
 Whether `_lgt.wdt` lights map to real `KHR_lights_punctual` glTF nodes
 (`native`) or stay `extras`-only is the same open question
-`WORLD_COMPLETENESS.md`'s Lighting section already raises for WMO's own
+`../../WORLD_COMPLETENESS.md`'s Lighting section already raises for WMO's own
 `MOLT` point lights — recommend resolving it once (probably in whichever
 lighting-scoped sibling doc/session handles WMO lighting) and reusing the
 answer here, rather than deciding it twice independently.
@@ -470,7 +470,7 @@ File parse(const std::vector<uint8_t>& fileBytes);
 
 **Do not duplicate `FOG_VOLUMES_TODO.md`'s depth here** — this section
 exists only so this file's own coverage of `WDT.md` is complete, per
-`WORLD_COMPLETENESS.md`'s framing of `.wdt`'s sidecar family as one unit.
+`../../WORLD_COMPLETENESS.md`'s framing of `.wdt`'s sidecar family as one unit.
 
 - **`_fogs.wdt`** (`WDT.md`, `# \_fogs` section): map-level volumetric fog
   (`VFOG`/`VFEX`). Real corpus: 753/753 `_fogs.wdt` files present (matching
@@ -508,7 +508,7 @@ mentioned anywhere in `WDT.md`. These are a **wholly different container**:
 `MHDR` (a 4-byte payload, not the documented 32-byte `.wdt` `MPHD` shape —
 a name collision only, not the same struct) and a single large, undocumented
 `MMFE` chunk (10,580 bytes in the one file inspected). This is the same
-class of finding as `WORLD_COMPLETENESS.md`'s own already-noted M3
+class of finding as `../../WORLD_COMPLETENESS.md`'s own already-noted M3
 discovery — **explicitly out of scope, noted so a future session doesn't
 conflate it with the real root `.wdt` format** while iterating this same
 directory tree. Not investigated further.

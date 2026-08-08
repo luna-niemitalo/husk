@@ -27,7 +27,7 @@ deletions handled their own back-references).
   one specific decorative doodad (a light sconce, a food prop, a
   player-housing lamp) — plausible per-object special collision
   behavior, but individual bit meaning is unconfirmed (no wiki field
-  names, no DB2/client data — `CHAR_TEXTURE_COMPOSITING_TODO.md` already
+  names, no DB2/client data — `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` already
   has a staged, in-scope plan for real local WDC5 DB2 access for a
   different feature; the same path would apply here if this is ever
   worth chasing further, not a permanent dead end). Also found a real,
@@ -142,7 +142,7 @@ deletions handled their own back-references).
   explicit instruction to follow the same pattern as the two independent
   tasks before it in this session.
 
-- **Last state**: Independent, unsupervised task -- picked TODO_correctness.md's
+- **Last state**: Independent, unsupervised task -- picked TODO/TODO_correctness.md's
   former item 2 (five uint16 lookup-table arrays -- `sequenceLookup`/
   `boneLookup`/`textureLookup`/`attachmentLookup`/`cameraLookup`, wowdev.wiki
   M2#Header -- parsed into `Array` descriptors but never dereferenced or
@@ -170,7 +170,7 @@ deletions handled their own back-references).
   name-resolution paths, not just presence. `M2_COMPLETENESS.md`'s lookup-
   tables row updated from `descriptor`/`none`/"unclaimed" to `deref`/
   `diagnostic`/"pure indirection metadata, no independent renderable shape";
-  `TODO_correctness.md`'s former item 2 removed outright per the file's own
+  `TODO/TODO_correctness.md`'s former item 2 removed outright per the file's own
   convention, remaining item renumbered (was 3, now 2). Full suite green,
   541/541 (`./build/husk-tests`). Deliberately left uncommitted for Luna to
   review, per this task's own instructions -- nothing here has had human
@@ -179,7 +179,7 @@ deletions handled their own back-references).
   (`src/db2.*`/`src/cmd_db2.cpp`) -- different M2/DB2 scope entirely, not
   touched here.
 
-- **Last state**: Continuation of the same `GEOSET_MASK_TODO.md` effort,
+- **Last state**: Continuation of the same `TODO/GEOSET_MASK_TODO.md` effort,
   same session as the entry below, prompted by more of Luna's own real
   interactive Blender testing. Ground-truthed the tabard bug from the
   entry below by hand, in Blender's real GUI, not headless scripting:
@@ -252,7 +252,7 @@ deletions handled their own back-references).
 
 ---
 
-- **Last state**: Same overall `GEOSET_MASK_TODO.md` effort, continued in
+- **Last state**: Same overall `TODO/GEOSET_MASK_TODO.md` effort, continued in
   the same session as the entry below — two real design/naming follow-ups,
   then real bugs found via actual interactive Blender use.
 
@@ -263,7 +263,7 @@ deletions handled their own back-references).
   be nice... that way i can just split the string by comma delimiter, and
   remove prefixes"). Updated everywhere the naming was produced or
   consumed (`gltf_skeleton.cpp`, `gltf.hpp`'s doc comment, the companion
-  script's parser, the synthetic test, `GEOSET_MASK_TODO.md`/`DESIGN.md`),
+  script's parser, the synthetic test, `TODO/GEOSET_MASK_TODO.md`/`DESIGN.md`),
   verified end to end against the real export (`group_0,variant_0` etc.,
   identical masking behavior to before the rename).
 
@@ -296,7 +296,7 @@ deletions handled their own back-references).
   aggregate vertex-count checks weren't enough** — two real bugs, reported
   directly with a reference screenshot (Blender Edit Mode, vertex-index
   overlay, tabard back-flap region, vertex indices 20599-20661
-  transcribed by hand into `GEOSET_MASK_TODO.md` since the pasted image
+  transcribed by hand into `TODO/GEOSET_MASK_TODO.md` since the pasted image
   itself has no accessible filesystem path this session's tooling could
   copy from): (1) picking a different hairstyle (geoset group 0) makes
   unrelated arm geometry disappear; (2) the tabard back-flap never
@@ -339,14 +339,14 @@ deletions handled their own back-references).
   Full C++ test suite green throughout, 532/532 (unaffected by any of
   this — pure Python/Blender-script work). Explicitly **not fixed this
   session** — both bugs, and the stored-value/ordinal-index question, are
-  handed off with real, concrete next steps (`GEOSET_MASK_TODO.md`'s
+  handed off with real, concrete next steps (`TODO/GEOSET_MASK_TODO.md`'s
   "Known bugs"/"Follow-up needed" sections) needing actual interactive
   Blender GUI access to resolve, continuing in a fresh session/thread per
   Luna's own direct instruction.
 
 ---
 
-- **Last state**: Implemented `GEOSET_MASK_TODO.md` end to end (new this
+- **Last state**: Implemented `TODO/GEOSET_MASK_TODO.md` end to end (new this
   session), prompted directly by Luna investigating `EYES_ON_FINDINGS.md`'s
   eye-glow finding and then asking how Blender's Mask modifier could hide
   WoW's mutually-exclusive geoset variants (hairstyles, boot cuffs,
@@ -419,7 +419,7 @@ deletions handled their own back-references).
   clean fixture already covered by an existing "zero errors" conformance
   test (`wolf.m2`, with the new tag joints active) scans with zero bad
   sums and zero duplicate joints via the same tool. Flagged in
-  `GEOSET_MASK_TODO.md` for whoever next touches raw M2 bone-index
+  `TODO/GEOSET_MASK_TODO.md` for whoever next touches raw M2 bone-index
   handling, out of scope for this feature.
 
   Four existing conformance tests needed their hardcoded
@@ -454,11 +454,11 @@ deletions handled their own back-references).
 
 ---
 
-- **Last state**: Closed `TODO_correctness.md`'s former item 4
+- **Last state**: Closed `TODO/TODO_correctness.md`'s former item 4
   (texture-transform pivot-correction math, constant case), picked as a
   self-contained task to work through solo (no DB2/casc-tool dependency
-  like `CHAR_TEXTURE_COMPOSITING_TODO.md`, no fuzzy-matching design
-  decision like `BONE_NAME_DEDUCTION_TODO.md` tier 2 -- both considered
+  like `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`, no fuzzy-matching design
+  decision like `TODO/BONE_NAME_DEDUCTION_TODO.md` tier 2 -- both considered
   and passed over for that reason).
 
   Derivation: wowdev.wiki's M2#Texture_Transforms note says rotation
@@ -570,7 +570,7 @@ deletions handled their own back-references).
   fixtures via `HUSK_TEST_TEXTURE_TRANSFORM_SCALE_M2`/`_ROTATION_M2` and
   test_data/ fallback, following `tests/test_data_paths.hpp`'s existing
   `resolve()` convention). Full suite green, 530/530
-  (`./build/husk-tests`). `TODO_correctness.md`'s former item 4 removed
+  (`./build/husk-tests`). `TODO/TODO_correctness.md`'s former item 4 removed
   outright per the file's own convention; `M2_COMPLETENESS.md`'s "Texture
   transform (constant case)" row updated from `native-possible,
   unverified` to `native — 100%`; `DESIGN.md`'s Key design decisions,
@@ -589,7 +589,7 @@ deletions handled their own back-references).
   available for other relevant targets not just the engine... I think it
   will become massively relevant when the world data implementation
   starts." Two real corrections to the just-written note, both in
-  `CHAR_TEXTURE_COMPOSITING_TODO.md`/`TODO_correctness.md`: (1) the
+  `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`/`TODO/TODO_correctness.md`: (1) the
   planned SQLite schema is real relational structure -- mapping/join
   tables for DB2 tables' actual foreign-key relationships (the same
   `ChrCustomizationOption` → `_Choice` → `_Material` chain Stage 3 already
@@ -635,8 +635,8 @@ deletions handled their own back-references).
     sits in the middle of the two-handed swing animation, detached from
     the character, FileDataID 31739 -- confirmed genuinely invisible in
     the real game too (an "invisible texture"), not a husk export bug.
-  - **SQLite scope correction, `CHAR_TEXTURE_COMPOSITING_TODO.md`/
-    `TODO_correctness.md`'s own new notes tightened**: the DB2→SQLite idea
+  - **SQLite scope correction, `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`/
+    `TODO/TODO_correctness.md`'s own new notes tightened**: the DB2→SQLite idea
     from an earlier conversation was written up as if it might be part of
     the real pipeline; corrected directly -- "that is mainly for debugging
     and investigation, the real pipeline is the same as with modern
@@ -669,7 +669,7 @@ deletions handled their own back-references).
   about its correctness.
 
 - **Last state (prior, same session)**: Same session, immediate terminology correction to the
-  entry directly below (and to `CHAR_TEXTURE_COMPOSITING_TODO.md`/
+  entry directly below (and to `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`/
   `EYES_ON_FINDINGS.md`/`CLAUDE.md`, all edited in place since none of
   this was committed yet): "please do not mix wow.expor (the untrustworthy
   tool) and wow_export my local export of wow files via my casc-tool."
@@ -712,9 +712,9 @@ deletions handled their own back-references).
   new TODO, the plan is to get full compositing pipeline, and if possible
   build a blender shader node graph where user can just pick from the
   existing options of textures that fit that slot." No code changed this
-  turn, by design -- documentation only. New `CHAR_TEXTURE_COMPOSITING_TODO.md`
+  turn, by design -- documentation only. New `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`
   (matching this project's established `*_TODO.md` template --
-  `BONE_NAME_DEDUCTION_TODO.md` used as the structural reference) lays out
+  `TODO/BONE_NAME_DEDUCTION_TODO.md` used as the structural reference) lays out
   five stages: WDC5 parser, real placement geometry
   (`ChrModelMaterial`/`CharComponentTextureSection`), the customization-
   choice chain (`ChrModelTextureLayer` → `ChrCustomizationOption` →
@@ -1411,10 +1411,10 @@ deletions handled their own back-references).
   - **A real, unrelated observation, not acted on**: partway through this
     session's long-running BLP scan, ten new untracked files appeared in
     the work dir that this session didn't create —
-    `ADT_LOD_TODO.md`/`ADT_TERRAIN_TODO.md`/`COLLISION_CULLING_TODO.md`/
-    `ENGINE_TODO.md`/`FOG_VOLUMES_TODO.md`/`LIGHTING_TODO.md`/
-    `LIQUID_TODO.md`/`LUNA_NOTES.md`/`WDT_TODO.md`/`WMO_GEOMETRY_TODO.md`/
-    `WORLD_COMPLETENESS.md`/`WORLD_PLACEMENT_TODO.md` (plus a
+    `TODO/WORLD/ADT_LOD_TODO.md`/`TODO/WORLD/ADT_TERRAIN_TODO.md`/`TODO/WORLD/COLLISION_CULLING_TODO.md`/
+    `TODO/ENGINE_TODO.md`/`TODO/WORLD/FOG_VOLUMES_TODO.md`/`TODO/WORLD/LIGHTING_TODO.md`/
+    `TODO/WORLD/LIQUID_TODO.md`/`LUNA_NOTES.md`/`TODO/WORLD/WDT_TODO.md`/`TODO/WORLD/WMO_GEOMETRY_TODO.md`/
+    `WORLD_COMPLETENESS.md`/`TODO/WORLD/WORLD_PLACEMENT_TODO.md` (plus a
     `README.md` intro-paragraph edit pointing at the new
     `WORLD_COMPLETENESS.md`) — evidently Luna's own concurrent work in a
     separate session, scaffolding a WMO/ADT/world-geometry expansion,
@@ -1427,8 +1427,8 @@ deletions handled their own back-references).
     "Luna-created content, not mine to touch" rule, including five
     "same disposition `RO_COMPLETENESS_TODO.md`... already established"
     -style precedent citations inside her new files that now point at a
-    file this session deleted (`LIQUID_TODO.md`/`WDT_TODO.md`/
-    `ADT_TERRAIN_TODO.md`/`WMO_GEOMETRY_TODO.md`/`ADT_LOD_TODO.md`) —
+    file this session deleted (`TODO/WORLD/LIQUID_TODO.md`/`TODO/WORLD/WDT_TODO.md`/
+    `TODO/WORLD/ADT_TERRAIN_TODO.md`/`TODO/WORLD/WMO_GEOMETRY_TODO.md`/`TODO/WORLD/ADT_LOD_TODO.md`) —
     flagged here rather than silently fixed, since they're her files, not
     read closely enough to know if she'd even want them touched.
   - **Environment note, reconfirmed**: the BLP scan needed `time direnv
@@ -1798,7 +1798,7 @@ deletions handled their own back-references).
     brief's own "investigation, not implementation" scope.
   - **Target 6 (`M2Sequence.aliasNext`) — fully resolved, and it corrects a
     real bug in an *earlier* husk investigation, not just the wiki.** The
-    existing `TODO_correctness.md` #4 (from a prior session) had already
+    existing `TODO/TODO_correctness.md` #4 (from a prior session) had already
     tried and failed to resolve this on `bloodelffemale_hd.skel` alone,
     finding `aliasNext` values in the 48,861–48,983 range that didn't
     resolve as a local index or a same-file id match. New `tools/
@@ -1830,7 +1830,7 @@ deletions handled their own back-references).
     resolution to corroborate against, but the real-byte result stands on
     its own. Written up as `WIKI_FINDINGS.md` §12, including the explicit
     "what went wrong the first time" section explaining the earlier
-    session's bug. `TODO_correctness.md` #4 **removed outright** per that
+    session's bug. `TODO/TODO_correctness.md` #4 **removed outright** per that
     file's own stated convention (fixed items don't linger as `[Fixed]`
     noise) — it was the last item, no renumbering needed — with a
     summary folded into the file's own intro paragraph. `M2_GAPS_TODO.md`
@@ -1843,7 +1843,7 @@ deletions handled their own back-references).
     "current text / proposed addition / evidence" format matching every
     prior section on this page; "Where these live in husk" table extended
     3 rows), `M2_GAPS_TODO.md` (Item 1's `aliasNext` bullet rewritten, new
-    Item 8 for `DETL`, priority-order list extended), `TODO_correctness.md`
+    Item 8 for `DETL`, priority-order list extended), `TODO/TODO_correctness.md`
     (#4 removed, intro paragraph updated), `DESIGN.md` (Open work section
     gained a `M2_GAPS_TODO.md` pointer it was oddly missing even before
     this session, plus a closing paragraph for
@@ -2242,7 +2242,7 @@ deletions handled their own back-references).
     (`M2_COMPLETENESS.md`, `README.md`, `DESIGN.md`, completions tables'
     hand-maintained-gotcha) for whenever implementation actually happens.
   - **Docs**: `DESIGN.md`'s Open work section now also points at
-    `PHYS_TODO.md`, alongside `TODO_correctness.md`/`WIKI_FINDINGS.md`/
+    `PHYS_TODO.md`, alongside `TODO/TODO_correctness.md`/`WIKI_FINDINGS.md`/
     `MULTIROOT_SKELETON_TODO.md`.
   - **Environment note, reconfirmed**: `direnv exec . uv run --python
     tools/venv/bin/python <script>` for every ad hoc analysis pass this
@@ -2458,7 +2458,7 @@ deletions handled their own back-references).
     `gltf_validator` and the real headless-Blender probe, not just "no
     crash."
   - **Docs**: `DESIGN.md`'s Open work section now points at
-    `MULTIROOT_SKELETON_TODO.md` alongside `TODO_correctness.md`/
+    `MULTIROOT_SKELETON_TODO.md` alongside `TODO/TODO_correctness.md`/
     `WIKI_FINDINGS.md`.
 - **Previous state**: Worked `CORPUS_TODO.md` as a punch card — a from-scratch
   grounding of an earlier raw sweep (`HUSK_CORPUS_FINDINGS.md`) across a
@@ -2795,10 +2795,10 @@ deletions handled their own back-references).
     Boundaries/data-flow bullets, the flag-gating table), `WIKI_FINDINGS.md`
     (new §6: the offset derivation, the `FBlock`-`uint16_t`-timestamp
     finding, the real bug an early verification script had),
-    `TODO_correctness.md` (former item 1, particles, removed outright per
+    `TODO/TODO_correctness.md` (former item 1, particles, removed outright per
     this file's own "fixed items get removed" convention — not marked
     `[Fixed]` — remaining items renumbered 2-5 → 1-4, every
-    `TODO_correctness.md #N` cross-reference across `src/`/`tests/`
+    `TODO/TODO_correctness.md #N` cross-reference across `src/`/`tests/`
     grep-verified and updated to match, same careful-renumbering
     precedent the AFSB removal already set).
   - **Environment note, reconfirmed**: `direnv exec . uv run --no-project
@@ -2918,7 +2918,7 @@ deletions handled their own back-references).
   - **Docs**: `VERIFICATION_IDEAS.md` deleted outright once every case had
     a final disposition (see this entry's own opening paragraph for why —
     the punch-list convention this repo already uses for
-    `TODO_correctness.md`/`DESIGN_CHANGES.md`, not additive `[IMPLEMENTED]`
+    `TODO/TODO_correctness.md`/`DESIGN_CHANGES.md`, not additive `[IMPLEMENTED]`
     tags), its content folded into: `WIKI_FINDINGS.md` (new §5, the
     bounding-box-isn't-tight finding, tagged hypothesis-confidence since
     the *why* isn't confirmed against an authoritative source), `README.md`
@@ -2939,7 +2939,7 @@ deletions handled their own back-references).
     Blender Icosphere/Cube contamination down to its exact source
     (`io_scene_gltf2/blender/imp/node.py`'s `armature_display()`) before
     trusting the fix, not just patching around the symptom.
-- **Previous state**: `TODO_correctness.md`'s former #1 — `.skel`-sourced
+- **Previous state**: `TODO/TODO_correctness.md`'s former #1 — `.skel`-sourced
   external `.anim` files' undocumented `AFSB` chunk shape, the single
   biggest remaining animation gap (essentially 0% external-animation
   coverage for any modern character model) — is now **cracked and fully
@@ -3026,11 +3026,11 @@ deletions handled their own back-references).
     `./build/husk-tests` and `ctest` green.
   - **Docs**: `WIKI_FINDINGS.md` §2 rewritten with the corrected `AFM2`-size
     claim and a full "Follow-up: cracked" section (the receipts above, in
-    more detail); `TODO_correctness.md`'s former item 1 removed outright
+    more detail); `TODO/TODO_correctness.md`'s former item 1 removed outright
     (per this file's own "fixed items get removed, not marked `[Fixed]`"
     convention) and items 2-6 renumbered to 1-5 — a deliberate exception to
     "don't renumber, it touches live code strings," done carefully with a
-    full grep-verified sweep across every `TODO_correctness.md #N`
+    full grep-verified sweep across every `TODO/TODO_correctness.md #N`
     reference in `src/`/`tests/` (bone-corrections references moved
     `#6`→`#5`); `README.md` (Usage section's `.anim`/roadmap-stage-6
     prose, format matrix row, Testing-architecture paragraph — the
@@ -3042,7 +3042,7 @@ deletions handled their own back-references).
     pattern as prior sessions for ad hoc byte-level scratch analysis (this
     session's scripts lived in the scratchpad, not committed); `nu` used
     for a couple of quick chunk-offset dumps needing no Python at all.
-- **Previous state**: `TODO_correctness.md` #6's extras-export half is now
+- **Previous state**: `TODO/TODO_correctness.md` #6's extras-export half is now
   implemented — real `.bone` correction data attaches to `husk export`'s
   glTF output as inert `extras`, never applied to the render. New
   `husk export --bones-dir <dir>` flag (three-state, same shape as
@@ -3057,7 +3057,7 @@ deletions handled their own back-references).
   which slot is "correct" for a given character is external,
   client-side customization-choice data husk still doesn't have (this
   session's own prior investigation, see Previous state below, and
-  `WIKI_FINDINGS.md` §4/`TODO_correctness.md` #6) — same "tag it, don't
+  `WIKI_FINDINGS.md` §4/`TODO/TODO_correctness.md` #6) — same "tag it, don't
   guess at semantics" treatment as geoset selection/`textureTransform`.
   Went through a full plan-mode design pass before implementation, given
   the CLI-grammar/parsing-pipeline/glTF-schema surface touched; the
@@ -3135,13 +3135,13 @@ deletions handled their own back-references).
     Key design decisions bullet matching the geoset/texture-transform
     precedent + a Non-goals clarifying sentence: an out-of-band
     CASC/DB2-scraping build tool is fine, husk itself talking to CASC at
-    runtime never is), `TODO_correctness.md` #6 (extras-export marked
+    runtime never is), `TODO/TODO_correctness.md` #6 (extras-export marked
     done, remaining gap reframed as "external lookup, not more
     investigation"), `M2_COMPLETENESS.md` (`.bone` row + the sidecar
     FileDataID-resolution rows), `WIKI_FINDINGS.md` §4 (added the
     previously chat-only weapon-type/armor-type ruling-out finding — the
     corrected bones cluster on Head/Jaw, not hand/wrist — since
-    `TODO_correctness.md` #6 now cites it as an established fact and it
+    `TODO/TODO_correctness.md` #6 now cites it as an established fact and it
     needs real receipts backing it, not just a claim).
 - **Earlier state** (condensed — full detail in git history/`WIKI_FINDINGS.md`/
   `DESIGN.md`/`README.md`, which all already captured the durable facts):
@@ -3150,7 +3150,7 @@ deletions handled their own back-references).
   collapse into only 5 distinct bone-index sets with heavy exact
   duplication) — the real selector is external client-side DB2 data husk
   has no access to, per `DESIGN.md`'s non-goals (`WIKI_FINDINGS.md` §4,
-  `TODO_correctness.md` #5). Earlier still, `export`'s CLI grammar
+  `TODO/TODO_correctness.md` #5). Earlier still, `export`'s CLI grammar
   migrated from a positional parser to named CLI11 flags (a breaking
   change to every invocation's argument order, done in one deliberate
   pass) — CLI11 added as a new flake dependency with sign-off,

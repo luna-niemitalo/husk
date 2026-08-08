@@ -14,7 +14,7 @@ now-closed geoset-extras work), but husk exports every geoset unfiltered --
 mutually exclusive alternates (e.g. 5+ hairstyle variants) all render
 stacked on top of each other. There's no DBC/DB2 customization data husk
 has access to that would let it pick the "right" one, by design
-(`DESIGN.md`'s Non-goals) -- so the fix isn't picking, it's making the
+(`../DESIGN.md`'s Non-goals) -- so the fix isn't picking, it's making the
 alternates toggleable by a human in Blender instead.
 
 ## The core idea, verified empirically this session
@@ -60,7 +60,7 @@ position lookup at the same index didn't match). The `JOINTS_1`/
 `WEIGHTS_1` trick sidesteps this entirely by riding on Blender's already-
 battle-tested skin-weight import path, which *is* index-safe by
 construction (it's the same mechanism real bone skinning already depends
-on and this project has already verified byte-for-byte, `EYES_ON_FINDINGS.md`
+on and this project has already verified byte-for-byte, `../EYES_ON_FINDINGS.md`
 #2).
 
 ## What does NOT get automated
@@ -83,7 +83,7 @@ run after import, to:
 3. Pick a default visible variant per group (lowest `geoset_id` -- husk
    doesn't currently resolve which one a real character has actually
    equipped; that's real, locally-extracted DB2 customization data,
-   `DESIGN.md`'s Non-goals clarified wording + `CHAR_TEXTURE_
+   `../DESIGN.md`'s Non-goals clarified wording + `CHAR_TEXTURE_
    COMPOSITING_TODO.md`, just not implemented yet, same limitation already
    documented elsewhere in this project).
 4. Add one Mask modifier per non-default variant, invert mode ("hide this
@@ -100,7 +100,7 @@ Adding one tag joint per distinct geoset ID pushes the exported skin's
 total joint count well past real-time-engine GPU skinning limits (commonly
 ~256-joint palettes). `bloodelffemale_hd.m2`: 245 real bones + 114 geoset
 tags = 359 joints. Acceptable for husk's actual target (Blender import/
-editing, `DESIGN.md`'s Goal) -- Blender itself has no such limit -- but this
+editing, `../DESIGN.md`'s Goal) -- Blender itself has no such limit -- but this
 `.glb` file, as husk writes it, would still need the tag joints stripped
 before use in an engine that assumes a real-time skinning budget.
 
@@ -210,7 +210,7 @@ resolved by deleting them post-import (previous section). Not pursued.
 6. Companion Blender script (separate deliverable, `tools/` or similar,
    exact location TBD): the Mask-modifier-stack builder described above.
    Not part of `husk export`'s C++ core -- consistent with this project's
-   existing stance (`EYES_ON_FINDINGS.md` #6: "a Blender-import-script
+   existing stance (`../EYES_ON_FINDINGS.md` #6: "a Blender-import-script
    concern, not something `husk export` itself builds").
 
 ## Implemented, this session

@@ -1,25 +1,25 @@
 # TODO: WMO collision/BSP, convex volumes, terrain-cutting planes, portal culling; ADT terrain collision
 
 **Status: an open punch list, not a historical record.** Fixed items get
-removed outright once closed (see `TODO_correctness.md`'s own convention) —
+removed outright once closed (see `../TODO_correctness.md`'s own convention) —
 git history is the record of what was fixed and when, not this file.
 
-Scope: `WORLD_COMPLETENESS.md`'s "Collision, culling & visibility" section
+Scope: `../../WORLD_COMPLETENESS.md`'s "Collision, culling & visibility" section
 (WMO `MOBN`/`MOBR`, `MCVP`, `MOPL`, `MOPV`/`MOPT`/`MOPR`/`MOPE`/`MOVV`/`MOVB`,
 and the ADT terrain-collision row), plus the collision-relevant half of
 `MOPY`/`MPY2` (the materials half of that same dual-purpose chunk belongs to
 the sibling `WMO_GEOMETRY_TODO.md` — see that item's own section below for
 the exact split, so nobody duplicates the other's work). This file is a
-companion to `WORLD_COMPLETENESS.md`, one level deeper for this specific
+companion to `../../WORLD_COMPLETENESS.md`, one level deeper for this specific
 slice — same relationship `M2_GAPS_TODO.md`/`PHYS_TODO.md`/etc. had to
-`M2_COMPLETENESS.md` before each was implemented and deleted in turn.
+`../../M2_COMPLETENESS.md` before each was implemented and deleted in turn.
 
-Nothing in `src/` reads a WMO or ADT byte yet (`DESIGN.md`'s Non-goals:
+Nothing in `src/` reads a WMO or ADT byte yet (`../../DESIGN.md`'s Non-goals:
 "tracked, not started"). Every claim below was checked this session against
 real bytes from the local corpus (`/media/luna/data/wow_export/world/wmo`,
 84,798 real `.wmo` files) — either a full corpus tag-presence census or a
 targeted decode-and-bounds-check against specific real files, same
-discipline `WIKI_FINDINGS.md` throughout (particularly §9, `.phys`) already
+discipline `../../WIKI_FINDINGS.md` throughout (particularly §9, `.phys`) already
 established. Where a number below says "census in progress" it means the
 scan was still running in the background when this document was written —
 the scan script itself isn't committed (per this task's own instructions,
@@ -35,7 +35,7 @@ needs almost no new design work**, because husk already solved this exact
 problem for M2's own collision mesh, and the two are structurally
 near-identical once you get past the file-format skin:
 
-- M2's collision mesh (`M2_COMPLETENESS.md`'s Collision row, `native — 100%`
+- M2's collision mesh (`../../M2_COMPLETENESS.md`'s Collision row, `native — 100%`
   today) is dereferenced by `m2::parseCollisionMesh`
   (`src/m2.hpp`/`m2.cpp`) from three header `Array` descriptors —
   `collisionPositions` (a flat `C3Vector` array), `collisionIndices` (a flat
@@ -86,7 +86,7 @@ near-identical once you get past the file-format skin:
   just M2.** `src/phys.hpp`'s own doc comment states the invariant
   plainly: "Throws `ParseError` if ... any `Body::shapeBase`/`shapeCount`,
   `Shape::index`, or `Joint::bodyA`/`bodyB`/`index` reference falls outside
-  its target array — `WIKI_FINDINGS.md` §9 found zero such violations
+  its target array — `../../WIKI_FINDINGS.md` §9 found zero such violations
   across 103 real files, so a real one is corruption or a parser bug, not
   data to accept." The exact same posture applies here, and this session's
   own real-data check (below) found the exact same "zero violations"
@@ -116,7 +116,7 @@ near-identical once you get past the file-format skin:
   isCollision=true}`, appends it to `namedMeshes` **after** every real
   render/LOD entry (captured via `renderMeshCount` before appending, so the
   "N LOD tier(s)" summary print doesn't miscount it as another tier — see
-  `CLAUDE.md`'s own Hazards note on this exact trap), prints a one-line
+  `../../CLAUDE.md`'s own Hazards note on this exact trap), prints a one-line
   `husk: note:` summary.
 - `src/gltf.hpp`/`gltf.cpp`: `gltf::NamedMesh::isCollision` (bool),
   serialized as `{"collision": true}` in that mesh's node `extras` by
@@ -189,7 +189,7 @@ relationship with core geometry makes it adjacent to that milestone.
 
 ## 1. WMO collision mesh (`MOBN`/`MOBR`)
 
-**Current state**: `none`/`none`. `WORLD_COMPLETENESS.md`'s own row already
+**Current state**: `none`/`none`. `../../WORLD_COMPLETENESS.md`'s own row already
 flags the M2 parallel; this session confirms it's not just a surface-level
 similarity — see the reuse-case writeup above.
 
@@ -259,7 +259,7 @@ Zero violations across all four checks (non-leaf `negChild`/`posChild`
 either `-1` or a valid `MOBN` index; every `MOBR` entry a valid `MOVI`
 triangle index; every one of the 3 `MOVI`-derived vertex indices per
 triangle valid for `MOVT`) — same "real files have zero violations, so a
-real one is corruption or a parser bug" result `WIKI_FINDINGS.md` §9 found
+real one is corruption or a parser bug" result `../../WIKI_FINDINGS.md` §9 found
 for `.phys`. This is a small sample (4 files) compared to `.phys`'s 103, but
 the range of scale (78 to 1,023 nodes, ~13x) and zero exceptions gives real
 confidence the struct/indirection layout above is right, not just
@@ -318,7 +318,7 @@ namespace husk::wmo {
 struct Vec3 { float x = 0, y = 0, z = 0; };  // C3Vector, forward (X,Z,-Y) per WMO.md's own MOVT note
 
 // CAaBspNode, WMO.md#MOBN_chunk -- 16 (0x10) bytes, verified against 4 real
-// files (WIKI_FINDINGS.md's future WMO section -- zero out-of-range
+// files (../../WIKI_FINDINGS.md's future WMO section -- zero out-of-range
 // children across all 4).
 struct BspNode {
     uint16_t flags = 0;       // axis (bits 0-1) | Flag_Leaf (0x4)
@@ -345,7 +345,7 @@ struct BspFaceRef { uint16_t triangleIndex = 0; };  // index into movi[3*i .. 3*
 // Throws ParseError if: any BspNode::negChild/posChild is out of range for
 // bspNodes (and not -1); any BspFaceRef::triangleIndex is out of range for
 // MOVI's own triangle count (movi.size()/3); any MOVI-derived vertex index
-// is out of range for MOVT's own vertex count -- WIKI_FINDINGS.md's future
+// is out of range for MOVT's own vertex count -- ../../WIKI_FINDINGS.md's future
 // WMO section found zero such violations across 4 real files (78-1023 BSP
 // nodes), so a real one is corruption or a parser bug, not data to accept
 // (same posture src/phys.hpp already states for .phys's own index refs).
@@ -491,7 +491,7 @@ render geometry via `WMO_GEOMETRY_TODO.md`'s own `MOVI`/`MOVT` work), e.g. a
 per-primitive or per-triangle `collision_flags` array in that mesh's
 `extras`, structurally similar to how M2's own geoset-`skinSectionId`/
 multi-texture-layer `extras` already attach metadata to existing primitives
-rather than creating new geometry (`M2_COMPLETENESS.md`'s Attachments &
+rather than creating new geometry (`../../M2_COMPLETENESS.md`'s Attachments &
 effects section). **Parse/Consumption/glTF ceiling**: `full` (once
 implemented) / `extras` / `extras-capped, permanent` — there's no core-glTF
 per-triangle flag slot, same class as M2's own multi-texture-layer extras.
@@ -529,7 +529,7 @@ well under 1 in 1,000. Real example paths found: `brokenisles/azsuna/
 buildings — consistent with the "cuts into terrain" concept).
 
 **Consumption target**: `node-possible, unclaimed` exactly as
-`WORLD_COMPLETENESS.md` already states — a cutting plane has no direct
+`../../WORLD_COMPLETENESS.md` already states — a cutting plane has no direct
 mesh-geometry equivalent (it's a boolean spatial test against ADT terrain,
 not something with vertices/triangles of its own), so the honest ceiling is
 a plain marker node (e.g. an empty with a `plane_equation` custom property)
@@ -587,7 +587,7 @@ cluster in one content category.
 **Consumption target**: unlike `MOPL`, a convex-plane volume *is*
 genuinely mesh-constructible (the intersection of N half-spaces is a
 bounded convex polytope, standard half-space-intersection computational
-geometry) — `WORLD_COMPLETENESS.md`'s own `native-possible, not done`
+geometry) — `../../WORLD_COMPLETENESS.md`'s own `native-possible, not done`
 framing for this row is defensible, more so than `MOPL`'s marker-only
 ceiling. That said, this is real, non-trivial geometry-construction work
 (not a flat dereference) for a feature this session found zero real
@@ -701,7 +701,7 @@ preserving it — not distinguished this session).
 **Design-question follow-up, investigated directly per an explicit
 correction mid-session** (see below) — **does Blender have a real
 portal-based visibility-culling system this data could feed, or is
-`node-possible, unclaimed` the honest ceiling?** `WORLD_COMPLETENESS.md`'s
+`node-possible, unclaimed` the honest ceiling?** `../../WORLD_COMPLETENESS.md`'s
 own draft text originally asserted "a renderer that doesn't do portal
 culling itself has no use for this beyond a debug visualization" — this
 was flagged as a claim carried over uncritically and worth checking rather
@@ -877,18 +877,18 @@ collision (this is only for MDX [M2] ... WMO seem to have different
 collision)." This confirms the *doodad*-placement collision path (M2
 instances placed via `MDDF`, referenced per-`MCNK` via `MCRF`) uses the
 M2's own collision data (this file's item 1's M2-side sibling,
-`M2_COMPLETENESS.md`'s already-`native — 100%` Collision row) — it says
+`../../M2_COMPLETENESS.md`'s already-`native — 100%` Collision row) — it says
 nothing about the terrain mesh itself having a separate collision
 representation, and no other page (`WDT.md`, `ADTLodImplementation.md`,
 `WMO.md`) mentions ADT terrain collision at all either (both grepped
 directly, zero hits). This is consistent with — and now actually confirms,
 rather than merely repeats — the working assumption that ADT terrain
 collision is the render mesh itself (`MCVT`'s 9×9+8×8 heightmap grid,
-`WORLD_COMPLETENESS.md`'s own Terrain geometry section), no separate chunk
+`../../WORLD_COMPLETENESS.md`'s own Terrain geometry section), no separate chunk
 to parse.
 
 **Consumption target**: none needed — once `MCVT`/`MCNR`/terrain-hole
-parsing exists (`WORLD_COMPLETENESS.md`'s own Terrain geometry section,
+parsing exists (`../../WORLD_COMPLETENESS.md`'s own Terrain geometry section,
 out of this file's scope), the resulting render mesh already *is* the
 collision mesh; no separate `extras` tag or second geometry pass is
 warranted the way WMO needed one (WMO's render mesh and its BSP collision
@@ -933,16 +933,16 @@ that's a one-line addition at that time, not a separate investigation.
   `parseVec3Array`, `parseCollisionMesh` — the direct M2-side precedent for
   item 1); `src/cmd_export.cpp` (the collision-mesh-as-`NamedMesh`-with-
   `isCollision`-extras block, and the `renderMeshCount`-before-appending
-  trap noted in `CLAUDE.md`'s own Hazards section); `src/gltf.hpp`/`gltf.cpp`
+  trap noted in `../../CLAUDE.md`'s own Hazards section); `src/gltf.hpp`/`gltf.cpp`
   (`NamedMesh::isCollision`, `writeGlbMulti`'s per-entry skinning-opt-out
   relaxation); `src/phys.hpp`/`phys.cpp` (the bounds-checked-reference-chain
   precedent, and the reused-`readChunks`-with-reversed-tag-constants
   pattern this file's own `wmo.cpp` sketch follows); `src/chunk.hpp`
   (`readChunks`/`findChunk`, format-agnostic, reused verbatim by `.phys`
   and (once implemented) by WMO).
-- **`M2_COMPLETENESS.md`**: Collision & physics section (the `native —
+- **`../../M2_COMPLETENESS.md`**: Collision & physics section (the `native —
   100%` M2 collision-mesh row this file's item 1 mirrors directly).
-- **`DESIGN.md`**: chunk-tag-reversal Key design decision ("Getting this
+- **`../../DESIGN.md`**: chunk-tag-reversal Key design decision ("Getting this
   backwards is a classic WMO/ADT-experience trap" — directly relevant,
   since this file's own scan scripts hit exactly this class of mistake
   once, for `MOGP`'s nested-container shape rather than tag reversal

@@ -31,7 +31,7 @@ every animation curve — FBlock-based color/alpha/scale/UV curves and
 `kMinVerifiedParticleVersion` (272, Cataclysm — the shape genuinely changed
 there; older versions are real but unverified, not attempted), split
 between a minimal `.glb` extras placement anchor and `husk dump-chunks`'s
-full JSON output (see `DESIGN.md`'s Key design decisions, `WIKI_FINDINGS.md`
+full JSON output (see `../DESIGN.md`'s Key design decisions, `../WIKI_FINDINGS.md`
 for the real-data cross-check). `M2Ribbon`'s own remaining tracks got
 finished in the same pass. Removed outright rather than kept as a done-item
 note, and every remaining item below renumbered accordingly (1-4, was
@@ -43,7 +43,7 @@ Former item 3 (multi-texture-layer arithmetic) is now resolved the same
 way: a full real-data scan (Luna's own extraction, ~287k `.skin` files and
 ~130k `.m2` files) found and confirmed both a real `textureCount > 1` batch
 and a real nonzero `textureCoordCombos` table, hand-verified byte-for-byte
-against an independent parse (see `WIKI_FINDINGS/M2/skin.md`) and now backed by
+against an independent parse (see `../WIKI_FINDINGS/M2/skin.md`) and now backed by
 permanent real-data regression tests (`tests/test_integration.cpp`'s
 `checkMultiTextureLayerArithmetic`, gated on `test_data/world/
 replaceabletextureprops/guild/pennant_guild_alliance_a_01.m2` and
@@ -65,7 +65,7 @@ describes). Verified three independent ways against real
 the real client's own translate-rotate-translate matrix composition
 (`reference/wow.export`'s `M2RendererGL.js`), and via headless Blender's
 own glTF importer producing an exactly-matching Mapping node. Removed
-outright per this file's own convention; `M2_COMPLETENESS.md`'s "Texture
+outright per this file's own convention; `../M2_COMPLETENESS.md`'s "Texture
 transform (constant case)" row updated to `native — 100%` to match.
 
 Former item 2 (five lookup-table arrays parsed, never referenced) is now
@@ -85,7 +85,7 @@ synthetic regression test. Diagnostic-only, by design, same as
 `husk export` already substitutes full per-vertex global joint indices
 and real embedded textures for the batching schemes these tables exist to
 drive, so there's no render-pipeline consumer for them to feed. Removed
-outright per this file's own convention; `M2_COMPLETENESS.md`'s lookup-
+outright per this file's own convention; `../M2_COMPLETENESS.md`'s lookup-
 tables row updated to match. Remaining item renumbered accordingly (1-2,
 was 1-3) — same one-time exception as the removals above.
 
@@ -98,15 +98,15 @@ resolution) is resolved outright, not just further investigated: a
 `M2_UNKNOWNS_EXPLORATION.md` investigation pass found the field is a plain
 local index into the same file's own `sequences` array (at the real,
 `M2Bounds`-corrected byte offset 0x3E, not the wiki's literal
-pre-correction 0x22) — see `WIKI_FINDINGS/M2.md` for the full evidence,
+pre-correction 0x22) — see `../WIKI_FINDINGS/M2.md` for the full evidence,
 including what the earlier "doesn't resolve" finding actually got wrong
 (reading the field at the wrong offset). Removed outright per this file's
 own convention rather than left as a resolved-but-lingering item; the
 follow-up (using this to produce real animation clips for currently-
 skipped alias sequences) was itself implemented and removed from
-`M2_GAPS_TODO.md` (its former Item 1) — see `DESIGN.md`'s Key design
+`M2_GAPS_TODO.md` (its former Item 1) — see `../DESIGN.md`'s Key design
 decisions. Formerly-tracked items that got fixed and folded back into
-`README.md`/`DESIGN.md` (shell completion, `.phys`/`PFID` surfacing,
+`../README.md`/`../DESIGN.md` (shell completion, `.phys`/`PFID` surfacing,
 `M2Ribbon`, `M2Particle`, multi-texture-layer arithmetic, and everything
 `FINDINGS.md` used to track before it was retired) were removed from this
 file entirely.
@@ -137,12 +137,12 @@ leave as-is.
 ### 2. `.bone` correction matrices — which slot applies is unresolvable, extras export is done
 
 `husk dump-chunks <file.bone>` surfaces the raw `(bone_index, matrix)`
-pairs (see `README.md`'s `.bone` section); nothing about which of a
+pairs (see `../README.md`'s `.bone` section); nothing about which of a
 model's several `.bone` files (per its `BFID` array) applies to which
 context is documented anywhere, on the wiki or otherwise.
 
 The LOD/render-distance hypothesis is ruled out by real data
-(`WIKI_FINDINGS/BONE.md`'s follow-up). All 20 `.bone` files
+(`../WIKI_FINDINGS/BONE.md`'s follow-up). All 20 `.bone` files
 `bloodelffemale_hd.skel`'s `BFID` lists don't fit `LDV1`'s `lod_count: 7`
 at all (20 vs. 7, no clean relationship), collapse into only 5 distinct
 bone-index sets with heavy exact-duplication (one 33-bone set repeats
@@ -162,17 +162,17 @@ convention as `--textures`/`--skin-dir`/`--anim`), parses it via the
 existing `husk::bone::parse`, and attaches every resolved slot's
 `(bone_index, matrix)` pairs as `bone_correction_sets` on the exported
 glTF skin's `extras` — inert, never applied to the bind pose or any
-animation (see `DESIGN.md`'s "Key design decisions" for why, `README.md`'s
+animation (see `../DESIGN.md`'s "Key design decisions" for why, `../README.md`'s
 Usage section for the flag itself).
 
 **What's still open, and why it can't be closed here:** which in-game
 customization choice picks `BFID[7]` vs. `BFID[13]` most plausibly lives in
 client-side DB2 data (a `ChrCustomizationBoneSet`-shaped table, going from
 memory — not confirmed against a real DB2 dump) that husk has no access to
-and, per `DESIGN.md`'s non-goals, never will at runtime. That's a genuinely
+and, per `../DESIGN.md`'s non-goals, never will at runtime. That's a genuinely
 different, external lookup — not something more file-reading or export
 work inside husk can resolve. If that mapping ever becomes available some
 other way (e.g. a separate out-of-band tool scraping it from CASC/DB2 at
-build time, per `DESIGN.md`'s Non-goals, and handing husk a plain slot
+build time, per `../DESIGN.md`'s Non-goals, and handing husk a plain slot
 index/file to use), applying a specific slot to the render becomes a real
 follow-up; not attempted here.

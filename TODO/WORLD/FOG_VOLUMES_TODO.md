@@ -1,14 +1,14 @@
 # TODO: WMO/ADT fog & atmospheric/particulate volumes
 
 **Status: an open punch list, not a historical record.** Fixed items get
-removed outright once closed (see `TODO_correctness.md`'s own convention) —
+removed outright once closed (see `../TODO_correctness.md`'s own convention) —
 git history is the record of what was fixed and when, not this file. One of
 three sibling documents from the same investigation pass (see
 `LIQUID_TODO.md`'s opening for the full framing; `LIGHTING_TODO.md` covers
 the lighting slice, including the group-vs-root chunk **scoping
 correction** this document also relies on for `MPVR`/`MAVR`/`MBVR`/`MFVR`).
 
-Scope: `WORLD_COMPLETENESS.md`'s **Fog & atmospheric volumes** section —
+Scope: `../../WORLD_COMPLETENESS.md`'s **Fog & atmospheric volumes** section —
 WMO fog (`MFOG`/`MFED`/`MFOB`), WMO particulate/ambient/box volumes
 (`MPVD`/`MAVG`/`MAVD`/`MBVD` + group-scoped reference lists `MPVR`/`MAVR`/
 `MBVR`/`MFVR`), map-level fog volumes (`.wdt`'s `_fogs` sidecar: `VFOG`/
@@ -19,7 +19,7 @@ below was checked against real corpus bytes this session
 
 **Framing, per the investigation brief's own explicit comparison**: this
 whole document is architecturally the closest sibling to M2's own
-particle/ribbon emitters (`M2_COMPLETENESS.md`'s Particles/Ribbons rows,
+particle/ribbon emitters (`../../M2_COMPLETENESS.md`'s Particles/Ribbons rows,
 `src/gltf.hpp`'s `Skeleton::EmitterAnchor`, `src/cmd_dump.cpp`'s
 `dumpEmitters`) — procedural, non-geometric volume descriptions with no
 core-glTF shape, high per-file field count, real curves/parameters worth
@@ -33,7 +33,7 @@ one) as inert `extras`, full field/curve data via `husk dump-chunks`'s JSON
 output. Unlike `LIQUID_TODO.md`'s `MLIQ`/`MH2O` (real geometry, reaches
 `native`), **nothing in this document should ever target more than
 `extras`/`node-possible` — there is no renderable shape to translate, only
-metadata to preserve**, matching `WORLD_COMPLETENESS.md`'s own existing
+metadata to preserve**, matching `../../WORLD_COMPLETENESS.md`'s own existing
 "node-possible, unclaimed" ceiling calls for every row here.
 
 ---
@@ -142,7 +142,7 @@ anchors to a bone joint — a WMO has no skeleton. The anchor could
 reasonably become a standalone glTF node (translation = `pos`, parented
 at the WMO's own root/scene node, not a joint) once WMO root/scene
 structure exists at all — recommend this as a `node-possible, unclaimed`
-target, matching `WORLD_COMPLETENESS.md`'s own existing call, once WMO
+target, matching `../../WORLD_COMPLETENESS.md`'s own existing call, once WMO
 placement is implemented, not before.
 
 - **Parse**: `full` for `MFOG` (confirmed); `deref` for `MFED` (struct
@@ -150,7 +150,7 @@ placement is implemented, not before.
   `MFOB` (no real bytes, no struct).
 - **Consumption**: `diagnostic` (`dump-chunks` JSON).
 - **glTF ceiling**: `node-possible, unclaimed` — matches
-  `WORLD_COMPLETENESS.md`'s existing call exactly.
+  `../../WORLD_COMPLETENESS.md`'s existing call exactly.
 
 ---
 
@@ -227,7 +227,7 @@ All from the same 4,000-root-file scan as item 1:
   bytes, no discrepancy).
 - **`MPVD`: 10/4,000 (0.25%)**, real sizes 25,632 / 21,360 / 4,272 bytes.
   **Tested the hypothesis that `MPVD` shares `MAVD`'s own 48-byte record
-  shape** (plausible on its face: `WORLD_COMPLETENESS.md` groups it
+  shape** (plausible on its face: `../../WORLD_COMPLETENESS.md` groups it
   alongside `MAVG`/`MAVD`/`MBVD` as one conceptual family, and all three
   real sizes divide evenly by 48 — `25632/48=534`, `21360/48=445`,
   `4272/48=89`, all exact). **Decoded at that stride and found the result
@@ -305,7 +305,7 @@ but still metadata, not geometry.
   unresolved, raw bytes only).
 - **Consumption**: `diagnostic` (`dump-chunks` JSON).
 - **glTF ceiling**: `node-possible, unclaimed` — matches
-  `WORLD_COMPLETENESS.md`'s existing call.
+  `../../WORLD_COMPLETENESS.md`'s existing call.
 
 ---
 
@@ -388,14 +388,14 @@ method this whole document already uses). Given the naming pattern
 still-newer, even-more-recent addition the currently-mirrored wiki
 snapshot simply predates) — a real, concrete lead for
 `documentation/wowdev-wiki/HUSK_AMENDMENTS.md`-style follow-up once a
-later pass folds this document's findings back into `WIKI_FINDINGS.md`,
+later pass folds this document's findings back into `../../WIKI_FINDINGS.md`,
 per this investigation's own instructions.
 
 ### C++ data-model sketch
 
 ```cpp
 // src/wdt_fogs.hpp (new) -- .wdt's own byte layout is out of husk's
-// current scope (WORLD_COMPLETENESS.md's Sidecar & dependency formats
+// current scope (../../WORLD_COMPLETENESS.md's Sidecar & dependency formats
 // section), but this sidecar-of-a-sidecar is small enough to sketch
 // directly rather than waiting on full .wdt support.
 namespace husk::wdt {
@@ -678,7 +678,7 @@ against yet.
   mesh/scene geometry — the same metadata-only precedent
   `LIQUID_TODO.md`'s References section already cites for `MLIQ`, cited
   again here since it applies just as directly).
-- **husk `src/`**: `M2_COMPLETENESS.md`'s Particles/Ribbons rows,
+- **husk `src/`**: `../../M2_COMPLETENESS.md`'s Particles/Ribbons rows,
   `src/gltf.hpp`'s `Skeleton::EmitterAnchor`/`ribbonAnchors`/
   `particleAnchors`, `src/cmd_dump.cpp`'s `dumpEmitters` — the direct
   precedent this whole document's consumption plan is built on;

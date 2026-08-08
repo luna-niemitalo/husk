@@ -194,7 +194,7 @@ constexpr const char* kWeaponParticleStress = "item/objectcomponents/weapon/mace
 // range, real but apparently vestigial data), chosen to prove the
 // textureCoordComboIndex+layer path is exercised (not just skipped via the
 // empty-table fast path) and still resolves safely.
-// TODO: Remove: cites TODO_correctness.md #3 and `WIKI_FINDINGS/M2/skin.md`;
+// TODO: Remove: cites TODO/TODO_correctness.md #3 and `WIKI_FINDINGS/M2/skin.md`;
 // found via a full ~287k-file .skin scan (226,294 textureCount>1 hits) and
 // a ~130k-file .m2 scan (3 nonzero textureCoordCombos hits).
 constexpr const char* kMultiTextureLayerM2 =

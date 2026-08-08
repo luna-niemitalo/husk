@@ -19,7 +19,7 @@
 // less exercised -- treat a decode that looks wrong as a reason to go back to
 // the real bytes, not as ground truth on its own.
 //
-// Scope, deliberately: this is Stage 1 of CHAR_TEXTURE_COMPOSITING_TODO.md
+// Scope, deliberately: this is Stage 1 of TODO/CHAR_TEXTURE_COMPOSITING_TODO.md
 // ("a new, real file-format parser ... scope the parser generally, even
 // though Stage 2 only consumes a handful of specific tables"), built to let
 // a human poke at real .db2 files (`husk db2-info`) before any table-specific

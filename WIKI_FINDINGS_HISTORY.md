@@ -407,7 +407,7 @@ fixtures.
 **Confidence: verified** (LOD is not the selector) for the negative claim;
 **inferred, plausible** for the positive one (character customization).
 
-`TODO_correctness.md` #6 asked "which `.bone` file (of a model's several)
+`TODO/TODO_correctness.md` #6 asked "which `.bone` file (of a model's several)
 applies to which LOD/context." All 20 real `bloodelffemale_hd_00.bone`
 through `_19.bone` files (plus their 20 `_sdr_00`–`_sdr_19` siblings — same
 count, same container shape) were decoded and compared directly against
@@ -622,7 +622,7 @@ discipline this file's other findings were built on.
 ## 7. `M2/.skin` — multi-texture-layer arithmetic confirmed exact against real data; `textureCoordCombos` found real but not matching its documented value range
 
 `cmd_export.cpp`'s handling of a `.skin` batch's `textureCount > 1` case
-(`TODO_correctness.md`'s former #3) was implemented straight from wowdev.wiki
+(`TODO/TODO_correctness.md`'s former #3) was implemented straight from wowdev.wiki
 prose — "if the textureCount is e.g. 3 and the texunit's uv anim lookup is
 2, then the 3 uv animation lookups are 2, 3, and 4" — but had never been
 cross-checked against a real multi-layer file. Luna's full extraction of
@@ -1135,7 +1135,7 @@ across 4 real files from one character-model family (`character/bloodelf/
 female/bloodelffemale.m2`, `.../female/bloodelffemale_hd.skel`, `.../male/
 bloodelfmale.m2`, `.../male/bloodelfmale_hd.skel` — `tools/
 check_alias_next.py`). Directly resolves `M2_UNKNOWNS_EXPLORATION.md`
-target 6 / `TODO_correctness.md` former item 4's open question — see "What
+target 6 / `TODO/TODO_correctness.md` former item 4's open question — see "What
 went wrong the first time" below for why an earlier pass on this exact
 question concluded the opposite.
 
@@ -1206,7 +1206,7 @@ found:
 
 ### What went wrong the first time
 
-The 7/396-alias pre-existing finding (`TODO_correctness.md`'s former item
+The 7/396-alias pre-existing finding (`TODO/TODO_correctness.md`'s former item
 4, `bloodelffemale_hd.skel`) reported `aliasNext` values in the
 48,861–48,983 range and concluded they resolve neither as a local index nor
 a same-file `id` match. That check read `aliasNext` at the wiki's literal,
@@ -1452,11 +1452,11 @@ path does.
 **Confidence: verified per sub-finding below; this is a planning-stage
 investigation, not an implementation session** — nothing in `src/` reads a
 WMO/ADT/WDT/WDL/PM4/PD4 byte yet. `WORLD_COMPLETENESS.md` was expanded into
-eleven implementation-ready companion documents (`WDT_TODO.md`,
-`ADT_TERRAIN_TODO.md`, `ADT_LOD_TODO.md`, `WMO_GEOMETRY_TODO.md`,
-`WORLD_PLACEMENT_TODO.md`, `LIQUID_TODO.md`, `LIGHTING_TODO.md`,
-`FOG_VOLUMES_TODO.md`, `COLLISION_CULLING_TODO.md`,
-`WORLD_MISC_METADATA_TODO.md`, `PM4_PD4_TODO.md`), each independently
+eleven implementation-ready companion documents (`TODO/WORLD/WDT_TODO.md`,
+`TODO/WORLD/ADT_TERRAIN_TODO.md`, `TODO/WORLD/ADT_LOD_TODO.md`, `TODO/WORLD/WMO_GEOMETRY_TODO.md`,
+`TODO/WORLD/WORLD_PLACEMENT_TODO.md`, `TODO/WORLD/LIQUID_TODO.md`, `TODO/WORLD/LIGHTING_TODO.md`,
+`TODO/WORLD/FOG_VOLUMES_TODO.md`, `TODO/WORLD/COLLISION_CULLING_TODO.md`,
+`TODO/WORLD/WORLD_MISC_METADATA_TODO.md`, `TODO/WORLD/PM4_PD4_TODO.md`), each independently
 verified against the real, already-extracted local corpus
 (`/media/luna/data/wow_export`: 84,798 real `.wmo` files, ~270,625 real
 `.adt` files across split-file variants, 959 `.wdt`, 959 `.wdl`) via
@@ -1478,9 +1478,9 @@ the relevant wiki pages (`WMO.md`, `ADT/v18.md`, `WDT.md`, `WDL/v18.md`)
 state this explicitly. Two independent sibling investigations each caught
 a real scanner bug from forgetting this (an ADT tag census that searched
 forward-spelled tags and found zero hits everywhere, in both
-`COLLISION_CULLING_TODO.md`'s and `WORLD_MISC_METADATA_TODO.md`'s own
+`TODO/WORLD/COLLISION_CULLING_TODO.md`'s and `TODO/WORLD/WORLD_MISC_METADATA_TODO.md`'s own
 sessions) before either was trusted — worth a future session not repeating
-a third time. See `WDT_TODO.md`, `ADT_TERRAIN_TODO.md`.
+a third time. See `TODO/WORLD/WDT_TODO.md`, `TODO/WORLD/ADT_TERRAIN_TODO.md`.
 
 ### WDT: occlusion heightmap is smaller than documented; a global-WMO flag can omit `MWMO` entirely
 
@@ -1493,7 +1493,7 @@ files), with `nameId` then holding a real FileDataID directly rather than a
 name-table index — `WDT.md` never states this, only ADT's own parallel
 per-placement flag documents the equivalent behavior for `MDDF`/`MODF`.
 Also newly confirmed: `MAI2` (Midnight-era, wiki says "unshipped") is real
-in 2 files (`kalimdor.wdt`, `azeroth.wdt`). See `WDT_TODO.md`.
+in 2 files (`kalimdor.wdt`, `azeroth.wdt`). See `TODO/WORLD/WDT_TODO.md`.
 
 ### ADT: `MCVT`/`MCNR` never move to a split file; `MLLL`'s real LOD-band set is `{4,8,16,32}`, not `2.0`
 
@@ -1504,7 +1504,7 @@ LOD's `MLLL` band set is really `{4, 8, 16, 32}` on every real `_lod.adt`
 file checked (2,000 files) — `ADTLodImplementation.md`'s own prose
 mentioning "lod 2" reads as if `2.0` were a real band value; it isn't, "lod
 2" just refers to the base ADT tile itself, not an `MLLL` entry. See
-`ADT_TERRAIN_TODO.md`, `ADT_LOD_TODO.md`.
+`TODO/WORLD/ADT_TERRAIN_TODO.md`, `TODO/WORLD/ADT_LOD_TODO.md`.
 
 ### WMO: `GFID` is row-major (`lodTier*nGroups + groupIndex`); `MOGX` is a padded 256-byte chunk, not "one single value"; `MOMX` is common and per-texture-sized, not a rare one-off
 
@@ -1516,7 +1516,7 @@ investigations this session:
   cell" — not spelled out on the wiki as a formula. Confirmed against a
   real 37-doodad-set WMO whose 12 `GFID` entries resolve (via the community
   listfile) to exactly the LOD-tier files present on disk. See
-  `WMO_GEOMETRY_TODO.md`.
+  `TODO/WORLD/WMO_GEOMETRY_TODO.md`.
 - **`MOGX` is really a fixed 256-byte (64×`uint32_t`) chunk, not the
   wiki's stated 4-byte "one single value."** Every real `MOGX` chunk found
   this session (4 distinct real files) is exactly 256 bytes; only the first
@@ -1527,7 +1527,7 @@ investigations this session:
   `MOGX` are **both group-level**, not "root/group" as
   `WORLD_COMPLETENESS.md`'s own row originally stated — confirmed by a full
   84,798-file corpus census (zero root-level hits for either tag). See
-  `WORLD_MISC_METADATA_TODO.md`.
+  `TODO/WORLD/WORLD_MISC_METADATA_TODO.md`.
 - **`MOMX` (wiki: "just a guess... observed in \[one named file\]") is
   present in 3,931 of 12,869 real root WMO files (30.5%) — not a rare,
   single-file anomaly.** New structural fact, confirmed on all 3 real
@@ -1539,13 +1539,13 @@ investigations this session:
   yet resolving what the populated bytes mean; the recurring non-zero
   values were checked directly against both `GFID` and `MODI` and are
   **not** FileDataID references, despite the wiki's own "most likely
-  pointers to something" guess. See `WORLD_MISC_METADATA_TODO.md`.
+  pointers to something" guess. See `TODO/WORLD/WORLD_MISC_METADATA_TODO.md`.
 
 Also confirmed corpus-wide, closing an open question rather than leaving it
 guessed at: `MPBV`/`MPBP`/`MPBI`/`MPBG` (wiki: "barely ever present,"
 citing one named alpha file) are **genuinely absent, 0 of 71,929 real group
 files** — the wiki's rarity claim holds at full corpus scale, not just in
-a small sample. See `WORLD_MISC_METADATA_TODO.md`.
+a small sample. See `TODO/WORLD/WORLD_MISC_METADATA_TODO.md`.
 
 ### WMO placement: `MODI`'s count can exceed `MOHD.nDoodadNames`; `MWDR`/`MWDS` two-level doodad-set indirection verified end-to-end
 
@@ -1558,7 +1558,7 @@ placements can activate additional mutually-non-exclusive doodad sets
 beyond the base `MODS` selection) was verified fully end-to-end: two real
 placements of the same WMO in different ADT tiles activate different
 multi-set combinations (`{2,8}` and `{5,6}`) into the same real 9-set
-`MODS` table. See `WORLD_PLACEMENT_TODO.md`.
+`MODS` table. See `TODO/WORLD/WORLD_PLACEMENT_TODO.md`.
 
 ### Liquid/lighting/fog: `MH2O` covers two-thirds of real ADT tiles; several chunks are group-scoped, not root; one wholly undocumented chunk found in two independent scans
 
@@ -1583,7 +1583,7 @@ present, and absent from `WDT.md` entirely; not reverse-engineered this
 session, just confirmed present and flagged for a future investigation
 pass. `MPVD`'s own struct remains genuinely unresolved (a 48-byte-stride
 hypothesis produced an implausible subnormal float) — flagged open, not
-guessed past. See `LIQUID_TODO.md`, `LIGHTING_TODO.md`, `FOG_VOLUMES_TODO.md`.
+guessed past. See `TODO/WORLD/LIQUID_TODO.md`, `TODO/WORLD/LIGHTING_TODO.md`, `TODO/WORLD/FOG_VOLUMES_TODO.md`.
 
 **`KHR_lights_punctual` fit for `MOLT`**: worth reaching for on point/spot/
 directional lights (position/color/type map cleanly onto the extension),
@@ -1593,7 +1593,7 @@ model doesn't fit the extension's single-`range` falloff, `SMOLight` has no
 cone-angle data for spotlights at all, and it would be the **second** real
 glTF extension husk uses (it already declares `KHR_materials_unlit`, not
 the "first extension" framing this investigation was initially given —
-corrected mid-session). See `LIGHTING_TODO.md`.
+corrected mid-session). See `TODO/WORLD/LIGHTING_TODO.md`.
 
 ### Collision & culling: WMO's `MOBN`/`MOBR` BSP collision mesh reuses husk's existing M2 collision-mesh pipeline almost verbatim; portal culling has no matching Blender mechanism, checked directly rather than assumed
 
@@ -1626,7 +1626,7 @@ and never consumed by anything else in that tool either — independently
 arriving at the same "diagnostic, not native" shape — and has **zero** code
 path for `MOBN`/`MOBR` at all, meaning husk implementing WMO's BSP
 collision mesh would be new ground for the WoW-modding-tool ecosystem, not
-catching up to existing practice. See `COLLISION_CULLING_TODO.md`.
+catching up to existing practice. See `TODO/WORLD/COLLISION_CULLING_TODO.md`.
 
 ### Gameplay/misc metadata: four items promoted out of a blanket `n/a` after being checked for real rather than dismissed as "invisible, therefore unimportant"
 
@@ -1661,7 +1661,7 @@ One item (`MOQG`, WMO per-face ground type) was reconsidered under the same
 lens and confirmed to genuinely belong at `n/a` — footstep-sound/audio-FX
 selection with no visual or geometric consequence and no existing glTF/
 Blender convention for it, a real considered disposition rather than the
-original reflexive one. See `WORLD_MISC_METADATA_TODO.md`.
+original reflexive one. See `TODO/WORLD/WORLD_MISC_METADATA_TODO.md`.
 
 ### PM4/PD4: genuinely never shipped to the client — a structural negative, not an extraction gap
 
@@ -1687,7 +1687,7 @@ Blender's stock importer doesn't support it (confirmed via a live
 `glTF-Blender-IO` GitHub issue), so declaring it risks breaking Blender
 import outright — three concrete options were written up with tradeoffs,
 explicitly flagged for a human decision rather than silently picked. See
-`PM4_PD4_TODO.md`.
+`TODO/WORLD/PM4_PD4_TODO.md`.
 
 ---
 
@@ -1794,6 +1794,134 @@ different data source" one.
 
 ---
 
+## 17. `M2` — `DETL`'s `flags` field is the one real signal in the struct; `scale`/`diffuseColorMultiplier`/`unk0`/`unk1` are dead constants in every real file
+
+**Confidence: verified (the constants), inferred (what `flags` bit 3 means).**
+§11 fixed `DETL`'s stride/padding but flagged `scale`/`diffuseColorMultiplier`
+being identical (0.013885498046875 / 1.0) across a 1,386-record sample as
+"observed but unexplained." Prompted directly to check whether this is the
+same "field kept for structural compatibility but the real data now lives
+elsewhere" pattern PFDC/`.phys` shows (inline chunk vs. external sidecar) —
+answered by recomputing every field from all 1,043 `DETL`-bearing files in
+`detl_stride_report.json` (1,386 records total, not a sample this time), not
+by trusting the wiki's silence on the question.
+
+### The four non-`flags` fields are literally constant, corpus-wide, zero exceptions
+
+`scale = 0.013885498046875`, `diffuseColorMultiplier = 1.0`, `unk0 = 0`,
+`unk1 = 0` in all 1,386 records, no variation at all. Only `flags` differs,
+and only between two values: `0x0000` (1,101 records) and `0x0008` (285
+records) — exactly 2 distinct `(flags, scale, mult, unk0, unk1)` combinations
+exist in the entire real corpus.
+
+### `flags` bit 3 correlates cleanly with "is this a light-emitting decorative prop"
+
+Grouped 1,043 files by whether every one of their own `DETL` records agrees
+on `flags`: 828 files are pure `flags=0`, 202 are pure `flags=8`, 13 mix both
+within the same file (one light record differs from another in the same
+prop). Directory breakdown:
+
+- Pure `flags=8` (202 files): 199 `world` (doodads), 2 `models`, 1 `spells` —
+  and the `world` ones are almost entirely lit props by name: torches,
+  braziers, chandeliers, campfires, forge fires, lit windows, holographic
+  runes (`dr_chandelier_01_nosound.m2`, `blackrockv2_darkironlight_01.m2`,
+  `7tr_tauren_brazier_lit01.m2`, etc.).
+- Pure `flags=0` (828 files): dominated by `world` (345), `spells` (302),
+  `item` (74), `creature` (62) — mostly non-fire-prop content (spell VFX,
+  worn-item glints, creature eye-glows).
+- The 13 mixed files are themselves multi-light fire/window props
+  (`northrendundeadcampfire.m2`, `7ne_blackrook_torch01.m2`,
+  `12ph_folk_window_interior01.m2`, ...) where different lights on the same
+  object get different treatment.
+
+This matches the wiki's own field framing ("scale for shadow RT matrix")
+well enough to read bit 3 as a real, actively-authored "does this light cast
+a dynamic shadow" toggle — **inferred, not confirmed**: no decompiled client
+source or DB2 table was checked, only the correlation between the bit and
+what kind of object carries it.
+
+### The real per-light data already lives in `M2Light` itself — `DETL`'s multiplier has nothing left to multiply
+
+Exported one pure-`flags=8` file (`dr_chandelier_01_nosound.m2`) through
+husk's own pipeline and read the resulting glTF's `light_animation` extras
+directly: that light (`type=1`, point) has fully authored, non-default
+`diffuse_color` (0.63, 0.33, 0.87), `diffuse_intensity` (1.25),
+`attenuation_start`/`attenuation_end` (3.19 / 11.11) — real content, not
+placeholder values. `DETL`'s own `diffuseColorMultiplier=1.0` for this same
+light is consistent with being an identity no-op on top of an
+already-complete color, not a second source of truth waiting to be
+populated. Unlike PFDC/`.phys` (where the "real" data genuinely moves to an
+external file when the inline chunk is absent), there's no external
+sidecar `DETL` could be deferring to — M2 has no per-light external file
+format at all — so this isn't "provided externally," it's "a hook that real
+content has never exercised." Most plausibly a designer-tool-facing
+scale/multiplier control that always ships at its baked default.
+
+### `unk0`/`unk1` aren't hiding a pointer either
+
+Both are `0` in all 1,386 records — the two fields with the most room to
+encode an index or offset into other data carry no information at all in
+real content, ruling out a "points at other data" explanation as cleanly as
+the evidence allows.
+
+### `reference/wow.export` has nothing to add here
+
+Grepped for `DETL` and for shadow/diffuse-multiplier terminology in
+`reference/wow.export` — zero hits. It doesn't parse this chunk at all, so
+it offers no independent corroboration or contradiction; this finding rests
+entirely on real corpus data, not on any second documented source, per
+Luna's own explicit caution about not trusting wowdev.wiki alone.
+
+### What's still open
+
+Bit 3's exact meaning (shadow-casting toggle is the best-fitting read, not a
+confirmed one) and *why* `scale`/`diffuseColorMultiplier` never vary — both
+are client-source/DB2-level questions husk has no access to by design, not
+gaps in this investigation. No code changed; `dumpDetl` already emits every
+field faithfully. Pure documentation.
+
+---
+
+## 18. `M2` — `PCOL`'s `flags` bit-semantics gap is a real future DB2 dependency, not a permanent block; the obvious candidate table is confirmed 0 bytes in the current local export
+
+**Confidence: verified (the 0-byte finding), unconfirmed (whether a
+relevant table exists at all).** §16 closed `PCOL`'s bit-semantics question
+as far as file data alone can go, framed as "a data-source gap, not an
+investigation gap" — worded as though permanently out of reach. Prompted
+directly to reconsider given DB2 access is now in scope
+(`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`, confirmed real local `.db2` files
+exist), not the hard non-goal it was when §16 was written.
+
+Checked the real local `casc-tool` export
+(`/media/luna/data/wow_export/dbfilesclient/`) for every housing-prefixed
+table, the obvious place per-furniture-piece collision-flag semantics would
+live: `housedecor.db2` (the single most plausible candidate by name) is
+confirmed **0 bytes**, the same extraction-completeness gap
+`CHAR_TEXTURE_COMPOSITING_TODO.md` already found for
+`chrcustomizationreq.db2` and others — not a one-off, a second independent
+instance of the same class of gap. Also 0 bytes: `housedecorthemeset.db2`,
+`houseexteriorwmodata.db2`, `houselevelrewardinfo.db2`, `houseroom.db2`,
+`housetheme.db2`. The only housing tables with real content —
+`house.db2` (375B), `housedecormaterial.db2` (22KB), `houseleveldata.db2`
+(402B), `datatagxhousedecorrecord.db2` (175KB) — don't suggest per-triangle
+collision semantics by name.
+
+**Revised framing**: not "husk doesn't have access to this data" (DB2
+access is in scope now) and not "investigation is done" (a genuinely
+relevant table might exist and just isn't extracted locally yet) — it's
+"the specific artifact that would answer this isn't available in the
+current local export, and whether it would even answer the question if it
+were is itself unconfirmed" (housing collision behavior could be hardcoded
+client logic, not data-driven, same as any DB2-table guess). `WIKI_FINDINGS/
+M2.md`'s PCOL entry updated to state this precisely instead of implying a
+permanent block. `pcol_files_for_exploration.txt` (2,354 real files) is
+kept on this basis — a real, if currently unfulfillable, future dependency,
+not stale — re-check once `housedecor.db2` is populated by a re-extraction,
+or once DB2 parsing work turns up a different relevant table. No code
+changed; pure documentation and a real-filesystem check.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -1812,5 +1940,7 @@ different data source" one.
 | §12 `aliasNext` = local `sequences` array index, chain-resolved into real clips | `src/m2.hpp`/`m2.cpp` (`Sequence`'s 7 new fields, `parseSequences`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`Animation::SequenceMetadata` extras) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
 | §13 `EXP2`/`PFDC` real files exist (local-extraction gap corrected); `BLP2` anomaly resolved as listfile mismatch; `M3` noted, out of scope | `src/m2.hpp` (`ExtendedParticle` comment), `src/cmd_dump.cpp` (`physPayloadRealLength` comment), `DESIGN.md` Non-goals — no parser changes needed | `tests/test_dump.cpp` (real `EXP2`-only and `EXP2`+`PFDC` fixtures, exact values), `tests/test_integration.cpp` (`BLP2`-anomaly throws-cleanly across `info`/`export`/`dump-chunks`) — `test_data/verification/` |
 | §14 `global_flags` named bits, `textureCombinerCombos`, `blp/` DXT3 (already worked, now verified) + JPEG (confirmed absent), `resolveSkin` diagnostics | `src/m2.hpp`/`m2.cpp` (`GlobalFlag`, `globalFlagNames`, `Header::textureCombinerCombos`), `src/cmd_info.cpp` (prints both), `src/cmd_export.cpp` (`resolveSkin`'s candidate-path message); `blp/` needed no code changes, only a test | `tests/test_cli.cpp` (`global_flags`/`textureCombinerCombos`/`resolveSkin` message cases), `blp/tests/test_decode.py` (`test_decode_dxt3_solid_green_explicit_alpha_block`) |
-| §15 WMO/ADT/WDT/WDL/PM4/PD4 investigation pass (chunk-tag reversal, WDT/ADT/WMO/liquid/lighting/fog/collision/misc/PM4-PD4 corrections) | none yet — planning-stage only, no WMO/ADT/WDT/WDL/PM4/PD4 parser exists in `src/` | none yet — see `WDT_TODO.md`/`ADT_TERRAIN_TODO.md`/`ADT_LOD_TODO.md`/`WMO_GEOMETRY_TODO.md`/`WORLD_PLACEMENT_TODO.md`/`LIQUID_TODO.md`/`LIGHTING_TODO.md`/`FOG_VOLUMES_TODO.md`/`COLLISION_CULLING_TODO.md`/`WORLD_MISC_METADATA_TODO.md`/`PM4_PD4_TODO.md` for the full per-item implementation plans and test plans |
+| §15 WMO/ADT/WDT/WDL/PM4/PD4 investigation pass (chunk-tag reversal, WDT/ADT/WMO/liquid/lighting/fog/collision/misc/PM4-PD4 corrections) | none yet — planning-stage only, no WMO/ADT/WDT/WDL/PM4/PD4 parser exists in `src/` | none yet — see `TODO/WORLD/WDT_TODO.md`/`TODO/WORLD/ADT_TERRAIN_TODO.md`/`TODO/WORLD/ADT_LOD_TODO.md`/`TODO/WORLD/WMO_GEOMETRY_TODO.md`/`TODO/WORLD/WORLD_PLACEMENT_TODO.md`/`TODO/WORLD/LIQUID_TODO.md`/`TODO/WORLD/LIGHTING_TODO.md`/`TODO/WORLD/FOG_VOLUMES_TODO.md`/`TODO/WORLD/COLLISION_CULLING_TODO.md`/`TODO/WORLD/WORLD_MISC_METADATA_TODO.md`/`TODO/WORLD/PM4_PD4_TODO.md` for the full per-item implementation plans and test plans |
 | §16 `PCOL` `flags` is a real per-triangle bitmask (structural, bit semantics unconfirmed); `flagsCount != faceNormCount` exception found; complete format documented | `src/dump_chunks_misc.hpp`/`.cpp` (`dumpPcol`, doc comment updated — no behavior change, already correct) | no new tests needed (existing `tests/test_dump.cpp` `PCOL` cases already cover the parser); investigation was a real-corpus scan, not a code change |
+| §17 `DETL`'s `flags` is the one live field (inferred: shadow-casting toggle); `scale`/`diffuseColorMultiplier`/`unk0`/`unk1` are dead constants in every real file, not externally-sourced data | `src/dump_chunks_misc.hpp` (`dumpDetl` doc comment updated — no behavior change, already correct) | no new tests needed (existing `tests/test_dump.cpp` `DETL` cases already cover the parser); investigation was a real-corpus recompute, not a code change |
+| §18 `PCOL` `flags` bit-semantics gap reframed as a real (not permanent) DB2 dependency; `housedecor.db2` and 5 other housing tables confirmed 0 bytes in the local export | none — pure documentation, `WIKI_FINDINGS/M2.md` wording corrected | no new tests needed; investigation was a real-filesystem check against the local `casc-tool` export, not a code change |

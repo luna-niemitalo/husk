@@ -1061,7 +1061,7 @@ int exportGlb(int argc, char** args) {
                                 modelBasename, texturesOutDir);
 
         // One geoset tag joint per distinct skinSectionId across every LOD
-        // tier's primitives (GEOSET_MASK_TODO.md) -- lets Blender's Mask
+        // tier's primitives (TODO/GEOSET_MASK_TODO.md) -- lets Blender's Mask
         // modifier hide mutually-exclusive geoset variants (hairstyles,
         // boot cuffs, eye-glow, ...) that husk itself has no DBC/DB2 data
         // to filter (see gltf_skeleton.hpp's Skeleton::GeosetTag doc

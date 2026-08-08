@@ -2,7 +2,7 @@
 // wowdev.wiki name) is exercised elsewhere via real fixtures; this file
 // covers everything applyContextualBoneNames adds on top -- the
 // attachment-id tier, the event-identifier tier, and tier 1's local-
-// topology deduction (BONE_NAME_DEDUCTION_TODO.md) -- with small, synthetic
+// topology deduction (TODO/BONE_NAME_DEDUCTION_TODO.md) -- with small, synthetic
 // bone chains. Real M2 data isn't needed to prove this logic is correct.
 
 #include <doctest/doctest.h>

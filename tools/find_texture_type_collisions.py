@@ -5,7 +5,7 @@ shares the same `type` -- the collision case wowdev.wiki's own
 more than one [HARDCODED texture] of course. Its just the last one written
 to the file"), and the concrete question this tool exists to answer: given
 that husk's own `husk info` now dereferences `textureLookup`
-(TODO_correctness.md's former item 2), does that reverse lookup table ever
+(TODO/TODO_correctness.md's former item 2), does that reverse lookup table ever
 carry real information beyond what each texture's own `type` field already
 says forward -- and if so, how much of the real corpus does it actually
 touch?

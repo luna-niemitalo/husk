@@ -2,8 +2,9 @@
 
 Cross-cutting facts about how `husk`'s test suite (`tests/`) is built and why —
 coalesced out of comments that were scattered, near-verbatim, across several test
-files (see `INLINE_COMMENT_RULES_VIOLATIONS.md`'s `tests/` section for exactly
-which files/lines each section below replaces). Read this before adding a new test
+files (a former inline-comment audit found exactly which files/lines each section
+below replaces; the audit itself is gone, see `README.md`'s pre-v1 cleanup note).
+Read this before adding a new test
 file or a new fixture-gated `TEST_CASE`; individual test files should point here
 instead of re-explaining any of this inline.
 

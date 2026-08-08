@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Investigates what M2Sequence.aliasNext actually resolves against (see
 `WIKI_FINDINGS/M2.md` for the result: a local sequences-array index at the
-M2Bounds-corrected offset 0x3E). A prior pass (formerly TODO_correctness.md
+M2Bounds-corrected offset 0x3E). A prior pass (formerly TODO/TODO_correctness.md
 #4, since removed) read the field at the wiki's literal, uncorrected 0x22
 offset and wrongly concluded it resolves neither as "a local index into
 this file's own sequence array" nor "another sequence's own id within the

@@ -29,7 +29,7 @@ int exportGlb(int argc, char** args);
 int dumpChunks(int argc, char** args);
 
 // `db2-info` -- proof-of-concept WDC5 DB2 inspection, the `info` analogue
-// for the new format (see src/db2.hpp, CHAR_TEXTURE_COMPOSITING_TODO.md
+// for the new format (see src/db2.hpp, TODO/CHAR_TEXTURE_COMPOSITING_TODO.md
 // Stage 1). Not yet consumed by `export`/`dump-chunks` -- purely an
 // inspection tool for now.
 int db2Info(int argc, char** args);

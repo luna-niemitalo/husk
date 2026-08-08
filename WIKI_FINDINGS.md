@@ -52,7 +52,7 @@ touched and why. The files below remain the tracked, canonical record.
 | `WFV3` 64-byte short variant | `src/cmd_dump.cpp` (`dumpWfv3`) | `tests/test_dump.cpp` |
 | `.phys` full parser | `src/phys.hpp`/`phys.cpp`, `src/gltf.hpp`/`gltf.cpp` (`PhysicsBody` extras), `src/cmd_export.cpp` (`--phys`), `src/cmd_dump.cpp` | `tests/test_phys.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_dump.cpp`, `tests/test_integration.cpp`/`test_conformance.cpp` |
 | `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL` | `src/cmd_dump.cpp` (`dumpWfv1`/`dumpWfv2`/`dumpDpiv`/`dumpAfra`/`dumpPcol`) | `tools/find_m2_unknown_chunks.py`, `tests/test_dump.cpp` |
-| `DETL` stride + padding | `src/cmd_dump.cpp` (`dumpDetl`, `readHalfFloat`) | `tools/check_detl_stride.py`, `tests/test_dump.cpp` |
+| `DETL` stride + padding; `flags` is the one live field, rest are dead constants | `src/cmd_dump.cpp` (`dumpDetl`, `readHalfFloat`, doc comment only for the `flags` finding) | `tools/check_detl_stride.py`, `tests/test_dump.cpp` |
 | `aliasNext` chain resolution | `src/m2.hpp`/`m2.cpp` (`Sequence`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`SequenceMetadata`) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
 | `EXP2`/`PFDC`/`BLP2` | `src/m2.hpp` (`ExtendedParticle`), `src/cmd_dump.cpp`, `DESIGN.md` Non-goals | `tests/test_dump.cpp`, `tests/test_integration.cpp` |
 | `global_flags`/`textureCombinerCombos`/`resolveSkin` | `src/m2.hpp`/`m2.cpp` (`GlobalFlag`, `globalFlagNames`, `Header::textureCombinerCombos`), `src/cmd_info.cpp`, `src/cmd_export.cpp` (`resolveSkin`) | `tests/test_cli.cpp`, `blp/tests/test_decode.py` |

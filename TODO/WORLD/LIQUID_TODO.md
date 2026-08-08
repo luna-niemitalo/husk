@@ -1,14 +1,14 @@
 # TODO: WMO/ADT liquid surfaces (`MLIQ`/`MH2O`/`MCLQ`)
 
 **Status: an open punch list, not a historical record.** Fixed items get
-removed outright once closed (see `TODO_correctness.md`'s own convention) —
+removed outright once closed (see `../TODO_correctness.md`'s own convention) —
 git history is the record of what was fixed and when, not this file. This is
 one of three sibling documents produced from the same investigation pass
 (`LIGHTING_TODO.md`, `FOG_VOLUMES_TODO.md` cover the rest of
-`WORLD_COMPLETENESS.md`'s WMO/ADT slice); each was written against real
+`../../WORLD_COMPLETENESS.md`'s WMO/ADT slice); each was written against real
 corpus bytes this session, independently of the other two.
 
-Scope: `WORLD_COMPLETENESS.md`'s **Liquid / water** section — WMO group-file
+Scope: `../../WORLD_COMPLETENESS.md`'s **Liquid / water** section — WMO group-file
 liquid surfaces (`MLIQ`), ADT's modern per-tile liquid (`MH2O`, WotLK+), and
 ADT's legacy liquid (`MCLQ`, pre-Cata, kept only for reading old files). All
 three currently read `none`/`none` in that table; this document is the
@@ -32,7 +32,7 @@ shape, tagged `"liquid": true` instead of `"collision": true`. This is the
 one item in this whole 3-document set that can realistically reach
 `native — 100%`, not just `extras`/`node-possible`.
 
-**Non-goal, restated from `WORLD_COMPLETENESS.md` and `DESIGN.md`**:
+**Non-goal, restated from `../../WORLD_COMPLETENESS.md` and `../../DESIGN.md`**:
 `LiquidType.dbc`/`LiquidMaterial.dbc`-driven shader/material identity
 (which specific water-shader variant, scrolling-normal-map behavior, etc.)
 is external DB2 data husk has no access to and never will, per this
@@ -48,7 +48,7 @@ DBC-driven material layer on top; husk's job stops at correct geometry.
 ## 1. WMO group-file liquid (`MLIQ`)
 
 **Current state**: `none`/`none`. Husk has no WMO parsing of any kind yet
-(`DESIGN.md`'s Non-goals — WMO tracked, not started).
+(`../../DESIGN.md`'s Non-goals — WMO tracked, not started).
 
 **Wiki citation**: `documentation/wowdev-wiki/md/WMO.md`, `## MLIQ chunk`
 (lines 1912–2079, group-file section — confirmed by heading level, see
@@ -374,7 +374,7 @@ directly. `extras`: `{"liquid": true, "liquid_type": <int>, "mcnk_index":
   decode are implemented (the two concrete remaining steps).
 - **Consumption**: `native` (mesh) + `extras` (depth/type metadata).
 - **glTF ceiling**: `native — 100%` for geometry — this is the single
-  highest-value, most-tractable row in all of `WORLD_COMPLETENESS.md`'s
+  highest-value, most-tractable row in all of `../../WORLD_COMPLETENESS.md`'s
   currently-`none` table.
 
 ---
@@ -407,7 +407,7 @@ retail data.
 
 **Recommendation: do not implement `MCLQ` unless/until a real file
 surfaces.** This is the same disposition `RO_COMPLETENESS_TODO.md` item 1
-(`blp/`'s DXT3/JPEG) and `WIKI_FINDINGS.md` §10 (`WFV1`/`WFV2`/`DPIV`/
+(`blp/`'s DXT3/JPEG) and `../../WIKI_FINDINGS.md` §10 (`WFV1`/`WFV2`/`DPIV`/
 `AFRA` in the *original*, buggy scan) already established for this
 project: a real corpus-wide zero is worth recording and moving on from,
 not guessing at from wiki prose alone, especially prose the wiki itself
@@ -418,7 +418,7 @@ not worth the implementation/test cost against zero real evidence today.
 
 - **Parse**: `n/a` (no real data to implement against).
 - **Consumption**: `n/a`.
-- **glTF ceiling**: `n/a, superseded` — matches `WORLD_COMPLETENESS.md`'s
+- **glTF ceiling**: `n/a, superseded` — matches `../../WORLD_COMPLETENESS.md`'s
   existing note exactly; this session's corpus check makes it a confirmed
   fact rather than an inference.
 
@@ -511,7 +511,7 @@ examples, not just "doesn't crash."
   liquid as metadata, not mesh — but it's also a deliberate case *for*
   husk going further: `wow.export` targets DCC re-placement workflows
   (Maya/3ds Max artists who'd rather re-author water by hand), while husk's
-  own established philosophy (`DESIGN.md`'s "closest possible 1:1
+  own established philosophy (`../../DESIGN.md`'s "closest possible 1:1
   representation," the collision-mesh precedent) is to translate real
   geometry directly wherever a translation exists — and one clearly does
   here.

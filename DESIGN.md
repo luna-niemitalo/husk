@@ -9,7 +9,7 @@ roadmap and format matrix, not here — this file explains *why* the code is
 shaped the way it is, so a structural change can be checked against the
 reasoning instead of just the current state. Real-file reverse-engineering
 findings live in `WIKI_FINDINGS.md`; open correctness gaps live in
-`TODO_correctness.md`; a granular per-M2-feature completion breakdown
+`TODO/TODO_correctness.md`; a granular per-M2-feature completion breakdown
 (parse depth vs. consumption depth vs. glTF ceiling) lives in
 `M2_COMPLETENESS.md`, with the same breakdown for WMO + ADT (combined, not
 yet implemented — a target-setting scaffold, not a progress report) in
@@ -53,7 +53,7 @@ Non-goals, by design, not oversight:
   file; the up-to-date framing is this bullet.) An out-of-band tool
   scraping *live* CASC/DB2 at build time to learn something husk itself
   structurally can't (e.g. which `.bone` slot a customization choice
-  selects, `TODO_correctness.md` #6) is likewise fine — it would just hand
+  selects, `TODO/TODO_correctness.md` #6) is likewise fine — it would just hand
   husk a plain local file/flag to read, same as every other sidecar. What
   husk itself never does, at runtime, under any circumstance, is talk to
   *live* CASC/DB2 directly, or depend on the CASC tool itself. A real WDC5
@@ -62,13 +62,13 @@ Non-goals, by design, not oversight:
   byte-for-byte against real files, real UTF-8 strings round-tripped from
   `namesreserved.db2`, confirmed by Luna directly. Still a proof of
   concept, not a Stage-2+ consumer (`export` doesn't read DB2 data yet,
-  no table-name-to-column mapping) — see `CHAR_TEXTURE_COMPOSITING_TODO.md`'s
+  no table-name-to-column mapping) — see `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s
   Stage 1 for the exact current-vs-target line, and README.md's own
   `husk db2-info` section for usage.
 - No write-back to WoW's native formats. glTF-out only.
 - No WMO or M3 support implemented yet. WMO is tracked and now fully
-  investigated/planned (not started in `src/`) — see `WMO_GEOMETRY_TODO.md`/
-  `WORLD_PLACEMENT_TODO.md`/`COLLISION_CULLING_TODO.md` and the rest of the
+  investigated/planned (not started in `src/`) — see `TODO/WORLD/WMO_GEOMETRY_TODO.md`/
+  `TODO/WORLD/WORLD_PLACEMENT_TODO.md`/`TODO/WORLD/COLLISION_CULLING_TODO.md` and the rest of the
   Open work pointer below. M3 remains genuinely untracked, no investigation
   started: a full-storage `M3DT`-magic scan (casc-tool, product `wow` build
   68887, 1,891,552 files) found 8 real `.m3` files exist in this corpus
@@ -97,7 +97,7 @@ Non-goals, by design, not oversight:
   but (corrected 2026-08-01, `LUNA_NOTES.md`) that doesn't mean "excluded
   from export," it means "real geometry, hidden by default," the same
   spirit as M2's own collision mesh. Now has a full investigation and
-  implementation plan, `PM4_PD4_TODO.md` (see Open work below) — including
+  implementation plan, `TODO/WORLD/PM4_PD4_TODO.md` (see Open work below) — including
   a genuine structural wall found this pass: these files are never shipped
   to the client at all (a full live-storage sweep found zero real `.pm4`/
   `.pd4` files anywhere), not an extraction-completeness gap.
@@ -340,7 +340,7 @@ entry, not maintained as separate code.
 close itself (not yet implemented, not structurally impossible -- see
 Non-goals above's clarified wording: a locally-extracted `.db2` file is in
 scope, husk just doesn't parse WDC5 or resolve customization chains yet,
-`CHAR_TEXTURE_COMPOSITING_TODO.md`): *which* `M2SkinSection.skinSectionId`
+`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`): *which* `M2SkinSection.skinSectionId`
 variant is "correct" for a given character depends on DB2 data
 (`CharacterSections`, geoset groups) husk doesn't currently read; and a
 batch's additional texture
@@ -426,7 +426,7 @@ ordinary way; any other value means the client substitutes the real image
 at runtime from DB2-driven character-customization/item-tint data husk
 doesn't currently resolve (locally-extracted DB2 files are in scope per
 Non-goals above's clarified wording, just not implemented yet -- see
-`CHAR_TEXTURE_COMPOSITING_TODO.md`) -- so an empty `baseColorImagePng`
+`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`) -- so an empty `baseColorImagePng`
 for one of these means something categorically different than a missing
 PNG for a `type == 0` texture. `gltf::Material::textureType` is set from
 the batch's primary texture's `m2::Texture::type` unconditionally, but only
@@ -471,7 +471,7 @@ several `.bone` files (its `BFID` array) is "correct" for a given character
 is selected by client-side customization-choice data (a DB2-shaped lookup)
 husk doesn't currently resolve (locally-extracted DB2 files are in scope
 per Non-goals above's clarified wording, just not implemented yet -- the
-same real gap `CHAR_TEXTURE_COMPOSITING_TODO.md` is closing for texture
+same real gap `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` is closing for texture
 compositing could, in principle, extend here too). Real
 investigation (`WIKI_FINDINGS/BONE.md`'s follow-up) ruled out the two more
 tractable-looking hypotheses first — LOD/render-distance (the slot count
@@ -795,7 +795,7 @@ bitmask (every observed value decomposes into a small combinable bit set,
 98.4% of files use only bit 0) — individual bit semantics are still
 unconfirmed, needing DB2/client data outside this corpus's real M2 bytes
 rather than more M2-side investigation (see `WIKI_FINDINGS/M2.md`'s PCOL
-section; `CHAR_TEXTURE_COMPOSITING_TODO.md` already tracks real, local
+section; `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` already tracks real, local
 WDC5 DB2 access as planned, staged work for a different feature — the
 same access path would apply here too, if `PCOL` bit semantics are ever
 worth chasing down).
@@ -828,7 +828,7 @@ the wiki's own "use this instead of index+1 for multitexture blending"
 cross-reference into `cmd_export.cpp`'s material resolution was
 deliberately *not* wired up (no indexing key documented at all, and no
 real file to verify a guess against) — surfaced via `husk info` only, same
-awareness-only treatment `TODO_correctness.md`'s five-lookup-tables item
+awareness-only treatment `TODO/TODO_correctness.md`'s five-lookup-tables item
 already established for this struct.
 
 **`resolveSkin`'s "not found" failure message now names the specific
@@ -857,7 +857,7 @@ texture, not garbage.
 world) will be built bottom-up, never as a monolithic "export the whole
 game" operation — confirmed directly by Luna, 2026-08-01.** The actual
 CLI subcommand/flag shape for the composing layer is still an open,
-deferred design question (see `WORLD_PLACEMENT_TODO.md`'s own
+deferred design question (see `TODO/WORLD/WORLD_PLACEMENT_TODO.md`'s own
 "Scene-composition CLI surface" section), but the *shape of the effort* is
 decided: build small, individually testable/exportable primitives first
 (a single WMO's own export, a single ADT tile's own terrain export, a
@@ -872,19 +872,19 @@ should eventually be a genuine scene-descriptor file format with dynamic
 loading (an index/manifest referencing many separately-exported `.glb`s,
 loaded on demand, closer to how a game engine actually streams a world)
 rather than one large pre-baked `.glb` per tile or map — is recorded as a
-potential future exploration goal in `WORLD_PLACEMENT_TODO.md`, not a
+potential future exploration goal in `TODO/WORLD/WORLD_PLACEMENT_TODO.md`, not a
 requirement blocking any placement-parsing work.
 
 **Anecdotal geoset-group semantics, real Blender inspection of one model
 (`bloodelffemale_hd.m2`), cross-referenced against `reference/wow.export`'s
 own two independent geoset-group tables — recorded because it's
 generalizable groundwork for the geoset-mask work
-(`GEOSET_MASK_TODO.md`), not itself a husk feature or claim.** husk
+(`TODO/GEOSET_MASK_TODO.md`), not itself a husk feature or claim.** husk
 doesn't yet parse the real, authoritative per-model geoset-semantics DB2
 tables (`CharacterSections`/geoset-group data — locally-extracted DB2
 files are in scope per Non-goals above's clarified wording, this is a "not
 implemented yet" gap, not a hard non-goal, see
-`CHAR_TEXTURE_COMPOSITING_TODO.md`) — what follows is a human visually
+`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`) — what follows is a human visually
 identifying what each `group_<n>,variant_<n>` vertex group actually
 looks like in Blender on one specific real character export, then checked
 against two tables `reference/wow.export` already carries (checked out for
@@ -964,7 +964,7 @@ unconfirmed to generalize (a group's *number* is almost certainly stable
 across models per the two independent reference tables above, but which
 *specific variant ID* is the "real" default within a group is real,
 per-model, DB2-driven customization-choice data husk has no access to, the
-same limitation `GEOSET_MASK_TODO.md`'s own default-picking logic already
+same limitation `TODO/GEOSET_MASK_TODO.md`'s own default-picking logic already
 disclaims). No wowdev.wiki page was found with an equivalent table during
 this pass — `reference/wow.export`'s two tables above and their shared
 `CharGeosets`/`WoWItem.cpp` (WMV) lineage were the only corroborating
@@ -1365,10 +1365,10 @@ part of any session so far, tracked here so it isn't silently forgotten.
 
 ## Open work
 
-See `TODO_correctness.md` for the current punch list (`M2Camera`, `.bone`
+See `TODO/TODO_correctness.md` for the current punch list (`M2Camera`, `.bone`
 slot selection, and two awareness-only footnotes) and `WIKI_FINDINGS.md`
 for every real-data-driven spec correction found so far, `AFSB`'s
-included. `TODO_correctness.md`/`WIKI_FINDINGS.md` are living documents;
+included. `TODO/TODO_correctness.md`/`WIKI_FINDINGS.md` are living documents;
 this file describes the shape of the system they operate within, not
 their current item-by-item status.
 
@@ -1453,7 +1453,7 @@ real side-by-side run is deferred as future work, tracked in that file's
 own closing section). Headline finding: husk and wow.export solve
 adjacent but different problems — wow.export has live CASC+DB2 access
 (real character-customization-driven texture/geoset resolution, exactly
-the external data source `TODO_correctness.md`'s `.bone`-slot-selection
+the external data source `TODO/TODO_correctness.md`'s `.bone`-slot-selection
 gap and this file's `Texture.type` handling both point at -- husk's own
 path to the same data is locally-extracted DB2 files, not live CASC, per
 Non-goals above's clarified wording) and broader
@@ -1469,11 +1469,11 @@ section for the exact files.
 `WORLD_COMPLETENESS.md` (WMO/ADT/WDT/WDL/PM4/PD4, previously a target-
 setting scaffold with every row reading `none`/`none` and "documented, not
 verified") went through one full real-data investigation pass and was
-expanded into eleven implementation-ready companion documents: `WDT_TODO.md`,
-`ADT_TERRAIN_TODO.md`, `ADT_LOD_TODO.md`, `WMO_GEOMETRY_TODO.md`,
-`WORLD_PLACEMENT_TODO.md`, `LIQUID_TODO.md`, `LIGHTING_TODO.md`,
-`FOG_VOLUMES_TODO.md`, `COLLISION_CULLING_TODO.md`,
-`WORLD_MISC_METADATA_TODO.md`, `PM4_PD4_TODO.md` — same "survey first,
+expanded into eleven implementation-ready companion documents: `TODO/WORLD/WDT_TODO.md`,
+`TODO/WORLD/ADT_TERRAIN_TODO.md`, `TODO/WORLD/ADT_LOD_TODO.md`, `TODO/WORLD/WMO_GEOMETRY_TODO.md`,
+`TODO/WORLD/WORLD_PLACEMENT_TODO.md`, `TODO/WORLD/LIQUID_TODO.md`, `TODO/WORLD/LIGHTING_TODO.md`,
+`TODO/WORLD/FOG_VOLUMES_TODO.md`, `TODO/WORLD/COLLISION_CULLING_TODO.md`,
+`TODO/WORLD/WORLD_MISC_METADATA_TODO.md`, `TODO/WORLD/PM4_PD4_TODO.md` — same "survey first,
 implementation-ready plan before code" shape `PHYS_TODO.md`/`ANIM_TODO.md`
 used for their own formats, just at the scale of an entire new format
 family rather than one sidecar. Nothing in `src/` reads a WMO/ADT/WDT/WDL/
@@ -1496,7 +1496,7 @@ PM4/PD4's own non-goal framing above is corrected by this same pass —
 `LUNA_NOTES.md` pointed out directly that "never touched by the client
 renderer" doesn't mean "excluded from a world-completeness file," the same
 way M2's own collision mesh is real, exportable geometry despite never
-being drawn by a normal render pass. `PM4_PD4_TODO.md` found a genuine
+being drawn by a normal render pass. `TODO/WORLD/PM4_PD4_TODO.md` found a genuine
 structural wall worth flagging here directly: these files are **never
 shipped to the client at all** (confirmed via a full `casc-tool list`
 sweep of all 3,190,909 files in live retail storage — zero `.pm4`/`.pd4`

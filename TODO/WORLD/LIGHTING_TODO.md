@@ -1,13 +1,13 @@
 # TODO: WMO/ADT lighting (`MOLT`/lightset system/`MNLD`/outdoor lighting)
 
 **Status: an open punch list, not a historical record.** Fixed items get
-removed outright once closed (see `TODO_correctness.md`'s own convention) —
+removed outright once closed (see `../TODO_correctness.md`'s own convention) —
 git history is the record of what was fixed and when, not this file. One of
 three sibling documents from the same investigation pass (see
 `LIQUID_TODO.md`'s opening for the full framing; `FOG_VOLUMES_TODO.md`
 covers the rest).
 
-Scope: `WORLD_COMPLETENESS.md`'s **Lighting** section — WMO point lights
+Scope: `../../WORLD_COMPLETENESS.md`'s **Lighting** section — WMO point lights
 (`MOLT` + group-level `MOLR` refs), the BfA+ lightset system
 (`MOLS`/`MOLP`/`MLSS`/`MLSP`/`MLSO`/`MLSK`), WMO dynamic lights (`MNLD` +
 group-level `MNLR` refs), legacy v14 lightmaps (`MOLM`/`MOLD`), spotlight/
@@ -381,7 +381,7 @@ mechanism). All of these are real, further `extras`, same pattern as
 used in v14," pre-1.0 alpha format.
 
 **Real-data verification**: **0/2,570 real group files** — as expected,
-this modern retail extraction has no v14-era files. `WORLD_COMPLETENESS.md`'s
+this modern retail extraction has no v14-era files. `../../WORLD_COMPLETENESS.md`'s
 own "deprioritized" note and README's existing precedent for other v14
 alpha-only chunks both already cover this correctly; nothing new to add.
 
@@ -423,9 +423,9 @@ this session).
   check); `descriptor`-eligible but unverified (`MOP2`, struct is real
   but this session found zero real files to confirm it against).
 - **Consumption**: `n/a` both.
-- **glTF ceiling**: `n/a` (`MOS2`, matches `WORLD_COMPLETENESS.md`'s
+- **glTF ceiling**: `n/a` (`MOS2`, matches `../../WORLD_COMPLETENESS.md`'s
   existing note); `extras-capped, permanent` (`MOP2`, matches
-  `WORLD_COMPLETENESS.md`'s existing note — animated light *properties*
+  `../../WORLD_COMPLETENESS.md`'s existing note — animated light *properties*
   hit the same wall M2's own animated tint/fade curves already do, no
   glTF animation-channel target for a light property exists).
 
@@ -433,9 +433,9 @@ this session).
 
 ## 6. ADT outdoor lighting
 
-**Current state**: `❔` in `README.md`'s format matrix ("outdoor lighting
+**Current state**: `❔` in `../../README.md`'s format matrix ("outdoor lighting
 may be zone/`Light.dbc`-driven rather than stored per-ADT, unconfirmed")
-and `none`/`none`/`❔` in `WORLD_COMPLETENESS.md`. The investigation brief
+and `none`/`none`/`❔` in `../../WORLD_COMPLETENESS.md`. The investigation brief
 explicitly asked this be settled for real, not carried forward as a
 hedge.
 
@@ -487,10 +487,10 @@ outdoor lighting is 100% `Light.db2`/`LightData.db2`/`LightParams.db2`/
 class of external, client-side-database dependency as `LiquidType.dbc`
 (liquid shading) and `.bone` slot *selection* (character-customization
 choice), all already established non-goals in this project by design.
-Recommend `README.md`'s `❔` for this row change to `⬛`/`n/a` with a
+Recommend `../../README.md`'s `❔` for this row change to `⬛`/`n/a` with a
 one-line note pointing here, once a later consolidated doc pass picks
 this up (per this investigation's own scope boundary — this document
-doesn't edit `README.md` itself).
+doesn't edit `../../README.md` itself).
 
 - **Parse/Consumption**: `n/a` — no bytes exist to parse.
 - **glTF ceiling**: `n/a` — external DB2 dependency, same class as

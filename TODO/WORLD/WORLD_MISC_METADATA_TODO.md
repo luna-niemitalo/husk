@@ -1,21 +1,21 @@
 # TODO: WMO/ADT gameplay & misc metadata — final dispositions
 
 **Status: an open punch list, not a historical record.** Fixed items get
-removed outright once closed (see `TODO_correctness.md`'s own convention) —
+removed outright once closed (see `../TODO_correctness.md`'s own convention) —
 git history is the record of what was fixed and when, not this file.
 
-Scope: `WORLD_COMPLETENESS.md`'s "Gameplay & misc metadata (not
+Scope: `../../WORLD_COMPLETENESS.md`'s "Gameplay & misc metadata (not
 independently renderable)" section — WMO per-face ground type
 (`MOQG`/`MOGX`), WMO material/prepass overrides (`MDAL`/`MOPB`), WMO
 unknown-structure chunk (`MOMX`), WMO rare/unclear chunk family (`MPB*`),
 ADT sound emitter placement (`MCSE`), ADT chunk-level shadow map (`MCSH`),
 ADT material override/blend batching (`MCMT`/`MCBB`). This file is a
-companion to `WORLD_COMPLETENESS.md`, one level deeper for this specific
-slice — same relationship prior `*_TODO.md` files had to `M2_COMPLETENESS.md`
+companion to `../../WORLD_COMPLETENESS.md`, one level deeper for this specific
+slice — same relationship prior `*_TODO.md` files had to `../../M2_COMPLETENESS.md`
 before each was implemented and deleted in turn.
 
 **This file's job is different from `COLLISION_CULLING_TODO.md`'s**: most
-of `WORLD_COMPLETENESS.md`'s own text already calls these items `n/a`
+of `../../WORLD_COMPLETENESS.md`'s own text already calls these items `n/a`
 (gameplay-only, no renderable shape) — this document's purpose is to give
 each one an honest, *fully checked* final disposition, not to assume the
 one-line dismissal is correct just because it sounds plausible. Several
@@ -34,7 +34,7 @@ This session's first pass at an ADT chunk-tag census (`MCSE`/`MCSH`/`MCMT`/
 `MCBB`) searched for each tag's **forward** spelling and found **zero**
 hits across all 270,625 real `.adt` files — which would have been reported
 as "confirmed absent," a wrong conclusion caught before it was written down
-anywhere permanent. `DESIGN.md` already documents that ADT (like WMO)
+anywhere permanent. `../../DESIGN.md` already documents that ADT (like WMO)
 reverses chunk tag bytes on disk, the opposite of M2's own inline chunks —
 this session re-confirmed it directly against a real file (`azeroth_37_20
 .adt`'s first 4 bytes are literally `52 45 56 4D` = `"REVM"`, not `"MVER"`)
@@ -43,7 +43,7 @@ tag-matching logic never accounted for this and was silently searching for
 a byte pattern that cannot occur in a real ADT file — every ADT-side number
 in this document comes from a corrected, reversed-tag-aware rescan, not the
 original broken one. Recorded here because it's exactly the kind of mistake
-`DESIGN.md`'s own "Getting this backwards is a classic WMO/ADT-experience
+`../../DESIGN.md`'s own "Getting this backwards is a classic WMO/ADT-experience
 trap" line warns about, and it's worth a future session not repeating it a
 third time.
 
@@ -56,7 +56,7 @@ third time.
 **Wiki citation**: `WMO.md`, `## MOQG chunk` and `## MOGX chunk` (both ≥
 Dragonflight 10.0.0.46181).
 
-**A real, worth-flagging correction to `WORLD_COMPLETENESS.md`'s own row,
+**A real, worth-flagging correction to `../../WORLD_COMPLETENESS.md`'s own row,
 found this session**: that row's text reads "`MOQG` (root)/`MOGX` (group)"
 — **both chunks are actually group-level**, confirmed directly against
 real bytes, not just re-read from the wiki's own ambiguous placement (the
@@ -78,9 +78,9 @@ infrastructure) found:
 
 Zero root-level `MOQG` hits across the entire corpus, only group-level —
 this isn't a coin-flip result, it's a clean, unambiguous confirmation.
-`WORLD_COMPLETENESS.md`'s row should read "`MOQG`/`MOGX` (both group)" —
+`../../WORLD_COMPLETENESS.md`'s row should read "`MOQG`/`MOGX` (both group)" —
 flagged here for the consolidated documentation pass to correct (per this
-task's own instructions, this file doesn't edit `WORLD_COMPLETENESS.md`
+task's own instructions, this file doesn't edit `../../WORLD_COMPLETENESS.md`
 directly).
 
 **Verified struct/field layout, `MOQG`**: `uint32_t queryFace[];` — one
@@ -104,7 +104,7 @@ is exactly 256 bytes — 64 `uint32_t` slots, not 1.** Decoded directly:
 only the *first* slot is ever non-zero (`23550` in one file, `35382`/`2` in
 another — real, plausible `queryFaceStart` values), every remaining slot
 is zero. This is the same "declared/allocated size vs. actually-used
-content" shape `WIKI_FINDINGS.md` §11 already found for `DETL`'s own
+content" shape `../../WIKI_FINDINGS.md` §11 already found for `DETL`'s own
 16-byte chunk-alignment padding — a chunk reserved/padded out to a fixed
 size where only the logically-relevant prefix carries real data. Proposed
 correction: **`MOGX` is a fixed 256-byte (64×`uint32_t`) chunk, of which
@@ -127,7 +127,7 @@ materials half of `MOPY`/`MPY2` belongs to the sibling geometry doc — see
 
 **Consumption target, considered honestly rather than defaulted to `n/a`**:
 per-face ground type drives footstep sounds and similar gameplay-only
-audio/FX selection (per `WORLD_COMPLETENESS.md`'s own framing, and
+audio/FX selection (per `../../WORLD_COMPLETENESS.md`'s own framing, and
 consistent with `MOMT.ground_type`'s very similar, but *per-material* not
 per-face, sibling field already documented on the same wiki page) — there
 is no visual/geometric consequence to a ground-type value, and no existing
@@ -138,8 +138,8 @@ document where the original one-line dismissal holds up under scrutiny,
 now for a stated reason rather than an assumption.
 
 **Priority**: none for implementation (confirmed `n/a`) — but the `MOGX`
-byte-layout correction above is worth recording in `WIKI_FINDINGS.md` once
-a consolidated documentation pass happens, and the `WORLD_COMPLETENESS.md`
+byte-layout correction above is worth recording in `../../WIKI_FINDINGS.md` once
+a consolidated documentation pass happens, and the `../../WORLD_COMPLETENESS.md`
 root/group mislabeling is worth fixing at the same time.
 
 ---
@@ -181,7 +181,7 @@ WMO's real in-game lighting tint would need this value. **Recommendation:
 (e.g. `ambient_color_override: [r,g,b,a]`, only when the chunk is present
 and differs from the header default, mirroring `--textures`'s existing
 "quiet when nothing applies" policy) once WMO mesh export exists at all.
-This is a real correction to `WORLD_COMPLETENESS.md`'s blanket `n/a` for
+This is a real correction to `../../WORLD_COMPLETENESS.md`'s blanket `n/a` for
 this row — flagged for the consolidated pass.
 
 ### 2b. `MOPB` — real, surprisingly common, genuinely opaque
@@ -321,7 +321,7 @@ with real per-corpus prevalence and structural bounds attached rather than
 a bare shrug.
 
 **Priority**: low for implementation, but the two corrections above
-(prevalence, `nTextures` correlation) are worth a `WIKI_FINDINGS.md` entry
+(prevalence, `nTextures` correlation) are worth a `../../WIKI_FINDINGS.md` entry
 in the consolidated pass regardless of whether `MOMX` itself is ever
 ingested by husk.
 
@@ -402,7 +402,7 @@ sample was not targeted at all, just uniform-random) would settle this.
 explicit direction**: `MCSE`'s `position` field is a real, concrete 3D
 point — structurally the same "id + position" shape M2's own
 `M2Ribbon`/`M2Particle` emitters already get a real glTF `extras` anchor
-for (`gltf::Skeleton::EmitterAnchor`, `M2_COMPLETENESS.md`'s Interaction
+for (`gltf::Skeleton::EmitterAnchor`, `../../M2_COMPLETENESS.md`'s Interaction
 points & effects section). There is no reason a sound emitter's position
 can't get the exact same treatment once ADT terrain export exists: a
 minimal marker node (or a `sound_emitters` array in the terrain tile's own
@@ -412,7 +412,7 @@ playback itself is out of scope (glTF has no audio-emitter concept husk
 would target), but *placement* is exactly as renderable/inspectable as any
 other point-in-space husk already exports this way. **Recommendation:
 `extras`, matching the ribbon/particle precedent exactly — not `n/a`.**
-This is a real correction to `WORLD_COMPLETENESS.md`'s blanket `n/a` for
+This is a real correction to `../../WORLD_COMPLETENESS.md`'s blanket `n/a` for
 this row.
 
 **Priority**: low-to-medium — real, cheap once ADT parsing infrastructure
@@ -498,7 +498,7 @@ already in `WMO_GEOMETRY_TODO.md`'s ADT-terrain-texturing sibling scope).
 decodable today), `native-possible, not done` as the ceiling** once ADT
 terrain UV/texturing export exists at all — mirroring `MOCV`'s own
 `native-possible` framing in the geometry doc, not `n/a`. This is a real
-correction to `WORLD_COMPLETENESS.md`'s blanket `n/a` for this row, made
+correction to `../../WORLD_COMPLETENESS.md`'s blanket `n/a` for this row, made
 only after confirming (a) the bitmap decodes to real, non-garbage data and
 (b) a concrete, honest reason (resolution mismatch, not "no position to
 anchor it to") for why the *texture* shape is right and the *vertex-color*
@@ -538,7 +538,7 @@ renderer wanting visually-correct terrain material behavior (PBR-ish
 surface response, not just the base color texture) would want this value.
 **Recommendation: `extras` on the terrain mesh's per-layer material data**
 (once ADT terrain materials/texturing export exists at all), not `n/a` —
-another real correction to `WORLD_COMPLETENESS.md`'s blanket dismissal for
+another real correction to `../../WORLD_COMPLETENESS.md`'s blanket dismissal for
 this row.
 
 ### 7b. `MCBB` (MoP+) — real presence not confirmed this session, kept `n/a`-leaning
@@ -581,7 +581,7 @@ not `_tex0`) before its priority can even be assessed honestly.
 
 | Item | Real corpus presence this session | Wiki correction found | Final ceiling |
 |---|---|---|---|
-| `MOQG` | 2,219/71,929 group files | root/group mislabel in `WORLD_COMPLETENESS.md` | `n/a` (confirmed, reasoned) |
+| `MOQG` | 2,219/71,929 group files | root/group mislabel in `../../WORLD_COMPLETENESS.md` | `n/a` (confirmed, reasoned) |
 | `MOGX` | 9,164/71,929 group files | **real: 256 bytes, not "one single value"** | `n/a` (ground type itself; byte-layout correction still worth recording) |
 | `MDAL` | 12,192/71,929 group files | none to struct; consumption reconsidered | **`extras`** (was `n/a`) |
 | `MOPB` | 35,368/71,929 group files (49%!) | none (wiki gives nothing to correct) | `n/a`, investigated honestly |
@@ -641,7 +641,7 @@ flagged for a real follow-up rather than guessed at.
   id/bone/position minimal-anchor pattern `MCSE`'s own recommendation
   mirrors directly); no ADT/WMO parsing code exists yet to reuse beyond
   this pattern.
-- **`M2_COMPLETENESS.md`**: Interaction points & effects section (the
+- **`../../M2_COMPLETENESS.md`**: Interaction points & effects section (the
   ribbon/particle `extras` precedent `MCSE` reuses).
 - **`COLLISION_CULLING_TODO.md`** (sibling document, same session): the
   `MOGP`-recursion requirement that both documents' corpus scans needed;

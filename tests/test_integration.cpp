@@ -740,7 +740,7 @@ TEST_CASE("husk export: a real character model's per-material 'texture_type' ext
 // HUSK_TEST_MULTITEX_*/HUSK_TEST_COORDCOMBO_* ever point at a different
 // real file. Requires at least one real textureCount > 1 batch to actually
 // exercise the arithmetic, not just skip it.
-// TODO: Remove: cites TODO_correctness.md #3; corpus-scan narrative (287k-
+// TODO: Remove: cites TODO/TODO_correctness.md #3; corpus-scan narrative (287k-
 // file .skin scan, 130k-file .m2 scan of Luna's own real WoW extraction).
 void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::string& skinPath) {
     std::ifstream mf(m2Path, std::ios::binary);

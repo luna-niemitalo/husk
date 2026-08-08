@@ -9,7 +9,7 @@ and when, not this file.
 the real pipeline**: "that is mainly for debugging and investigation, the
 real pipeline is the same as with modern blp's — read the file, transform
 in memory, write to gltf." I.e.: a separate, optional DB2→SQLite exporter
-(out-of-band, same "hand husk a plain local file" pattern `DESIGN.md`'s
+(out-of-band, same "hand husk a plain local file" pattern `../DESIGN.md`'s
 Non-goals already establishes for external CASC/DB2 tooling — see this
 file's own Background below) is worth having for a human to inspect real
 DB2 contents by hand, the same role `husk dump-chunks`/`husk-blp` already
@@ -35,7 +35,7 @@ independently query the same data a human already trusts, compare against
 what husk's own parser produces; (2) a general-purpose local data source
 for *other* consumers of this project's WoW-format work, not just
 `husk export` itself — explicitly named as likely to matter a lot once
-WMO/ADT world-data work starts (`WORLD_COMPLETENESS.md` and its companion
+WMO/ADT world-data work starts (`../WORLD_COMPLETENESS.md` and its companion
 `*_TODO.md` files — real placement/area/lighting data for a rendered world
 leans on DB2 tables at least as much as character customization does).
 Worth designing the SQLite schema with that second, wider audience in mind
@@ -52,7 +52,7 @@ account for it, rather than re-relitigating from memory.
 
 ## Background
 
-`EYES_ON_FINDINGS.md`'s finding #3/#6 (several sessions, most recently
+`../EYES_ON_FINDINGS.md`'s finding #3/#6 (several sessions, most recently
 2026-08-08) traced the "wrong texture matched" family of bugs as far as
 possible without real DB2 data: husk can filter/rank ambiguous hardcoded
 texture-slot candidates (by `M2Texture::type`, real filename category,
@@ -95,16 +95,16 @@ Checked the header of one directly: `chrmodelmaterial.db2` starts with
 confirmed, not guessed.
 
 **Scope clarification from Luna, direct, settles a real ambiguity in
-`DESIGN.md`'s own Non-goals wording**: "the only hard boundary is not
+`../DESIGN.md`'s own Non-goals wording**: "the only hard boundary is not
 loading casc tool as a dependency... all data in wow_export is free for
-all, to be used." `DESIGN.md`'s existing Non-goals text ("What husk itself
+all, to be used." `../DESIGN.md`'s existing Non-goals text ("What husk itself
 never does, at runtime, under any circumstance, is talk to CASC/DB2
 directly") was written about *live* CASC/DB2 queries, matching its own
 "husk only reads what's already on disk" framing elsewhere in the same
 paragraph — a raw `.db2` file Luna's own `casc-tool` already extracted to
 a local directory is exactly that: already on disk, same tier as
 `.m2`/`.skin`/`--textures` files. Parsing the WDC5 *file format* locally
-is not "talking to CASC/DB2" in the sense that non-goal means. `DESIGN.md`
+is not "talking to CASC/DB2" in the sense that non-goal means. `../DESIGN.md`
 needs a real wording update once this lands, not just an implicit
 reinterpretation.
 
@@ -119,7 +119,7 @@ rather than today's flat, unpositioned `alternate_textures` list.
 
 **Proof of concept landed and verified by Luna** (`src/db2.hpp`/`.cpp`,
 `husk db2-info`, see
-README.md's own section on it) -- header/section-header/field_structure/
+../README.md's own section on it) -- header/section-header/field_structure/
 field_storage_info parsing, all six `field_compression` decode paths
 (None/Bitpacked/CommonData/BitpackedIndexed/BitpackedIndexedArray/
 BitpackedSigned), and a best-effort string-offset heuristic, all verified
@@ -215,7 +215,7 @@ without 3/4: "1 texture as default and rest which match that material as
 unlinked texture nodes" — but *correctly UV-positioned* this time, not
 just floating unlinked nodes with no spatial meaning. A Blender import
 script (not `husk export` itself — this is Blender-side tooling this repo
-doesn't have yet, same distinction `EYES_ON_FINDINGS.md`'s finding #3/#6
+doesn't have yet, same distinction `../EYES_ON_FINDINGS.md`'s finding #3/#6
 already draws) that reads `alternate_textures`' real placement rects
 (Stage 2) and builds a real shader node graph: each candidate wired to a
 UV-mapped region matching its real section rect, toggleable/pickable by a

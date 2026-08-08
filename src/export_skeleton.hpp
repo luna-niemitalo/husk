@@ -28,7 +28,7 @@ gltf::Skeleton buildSkeleton(const std::vector<m2::Bone>& bones);
 // real undocumented gaps), then falls through to the existing tier-1
 // structural chain-interpolation (deduceBoneNamesByTopology) -- run last so
 // it can use attachment/event-derived names as landmarks too. See
-// BONE_NAME_DEDUCTION_TODO.md for the full tier breakdown.
+// TODO/BONE_NAME_DEDUCTION_TODO.md for the full tier breakdown.
 void applyContextualBoneNames(gltf::Skeleton& skeleton);
 
 // Lifts M2Vertex's raw bone_weights[4]/bone_indices[4] into glTF's
