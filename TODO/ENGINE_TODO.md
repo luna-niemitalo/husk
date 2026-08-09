@@ -165,12 +165,14 @@ textures are not filenames in the M2 at all.
 ## 6. Sound linking (`M2Event` → actual sound)
 
 - **husk gives you**: real glTF nodes now, not diagnostic-only — every
-  `M2Event` becomes a child node named `event_<identifier>` (e.g.
+  `M2Event` becomes a child node named `"event_" + identifier` (e.g.
   `event_$DTH`, not deduplicated — a real M2 can repeat one identifier)
   parented under its bone, positioned at the event's own bone-relative
   offset (`gltf::Skeleton::Event`, `src/gltf_skeleton.hpp`; emitted in
-  `src/gltf_skeleton.cpp`'s `appendAnchorNode` call, named via
-  `m2::eventName` in `src/export_skeleton.cpp` where a known name exists).
+  `src/gltf_skeleton.cpp`'s `appendAnchorNode` call — the node's own name
+  is always the raw identifier, not `m2::eventName`'s resolved name; that
+  function is a *different*, unrelated consumer of the same lookup table,
+  used only for the bone-naming heuristic in `src/export_skeleton.cpp`).
   `gltf::Skeleton::Event` carries `identifier`/`joint`/`position` plus, as
   of this session, `data` too (`m2::Event::data`, `src/m2_scene.hpp`, an
   opaque per-event `uint32_t` payload -- wowdev.wiki documents only that it
