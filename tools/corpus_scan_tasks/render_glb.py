@@ -169,6 +169,16 @@ def main() -> None:
     cam_dir = mathutils.Vector((1, -1.6, 0.5)).normalized()
     cam_obj.location = center + cam_dir * distance
     cam_obj.rotation_euler = (center - cam_obj.location).to_track_quat("-Z", "Y").to_euler()
+    # Blender's camera default clip_end (1000) silently culls the entire
+    # object -- a fully blank render, no error -- for any model whose real
+    # posed bounding-box radius exceeds ~322 units (default clip_end / sin
+    # half_fov). Real, not hypothetical: creature/dimensiusboss02.m2's root
+    # bone carries a constant (every one of its 8 sequences agrees) 20x
+    # scale, a genuine large-creature authoring pattern, pushing its own
+    # camera distance to ~1601. clip_end must bracket the far side of the
+    # bounding sphere from the camera, not just the default; clip_start
+    # stays at its default since the near side is never the problem here.
+    cam_data.clip_end = distance + radius * 1.1
     bpy.context.scene.camera = cam_obj
 
     sun_data = bpy.data.lights.new("sun", type="SUN")
