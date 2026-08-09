@@ -5,6 +5,7 @@
 // db2.hpp unit test). Reads the resulting .sqlite file back via the sqlite3
 // C API directly -- a real downstream consumer, not a mocked stand-in.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <doctest/doctest.h>
@@ -15,6 +16,7 @@
 #include <sqlite3.h>
 
 #include "run_husk.hpp"
+#include "test_data_paths.hpp"
 
 using husk::test::runHusk;
 namespace fs = std::filesystem;
@@ -223,6 +225,94 @@ std::vector<uint8_t> buildDb2WithFields(uint32_t tableHash, uint32_t layoutHash,
     return buf;
 }
 
+// A synthetic WDC5 file with exactly one inline uint32 field (`ids`) plus a
+// real relationship_map giving each record's non-inline relation value by
+// position (`foreignIds[i]` for record `i`, header.flags & 0x02 clear --
+// same "recordIndexOrId is a position, not a real ID" case
+// db2::nonInlineRelationValuesByRecord documents and the real
+// ChrModelTextureLayer chain actually uses). Mirrors
+// tests/test_db2.cpp's own "decodes a relationship map with no offset map
+// involved" fixture, but with a real ID column too so the CLI test can
+// build a genuinely joinable table.
+std::vector<uint8_t> buildDb2WithNonInlineRelation(uint32_t tableHash, uint32_t layoutHash,
+                                                    const std::vector<uint32_t>& ids,
+                                                    const std::vector<uint32_t>& foreignIds) {
+    REQUIRE(ids.size() == foreignIds.size());
+    uint32_t recordCount = static_cast<uint32_t>(ids.size());
+    size_t recordSize = 4;
+    size_t stringTableSize = 1;
+    size_t sectionFileOffset = kHeaderSize + kSectionHeaderSize + kFieldStructureSize + kFieldStorageInfoSize;
+    size_t relationshipMapSize = 12 + static_cast<size_t>(recordCount) * 8;
+    size_t total =
+        sectionFileOffset + recordCount * recordSize + stringTableSize + relationshipMapSize;
+
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, 1); p += 4;  // fieldCount
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, tableHash); p += 4;
+    putU32(buf, p, layoutHash); p += 4;
+    putU32(buf, p, 1); p += 4;  // minId
+    putU32(buf, p, recordCount); p += 4;  // maxId
+    putU32(buf, p, 0); p += 4;  // locale
+    putU16(buf, p, 0); p += 2;  // flags: 0x02 clear -- relationship entries hold positions, not IDs
+    putU16(buf, p, 0); p += 2;  // idIndex
+    putU32(buf, p, 1); p += 4;  // totalFieldCount
+    putU32(buf, p, 0); p += 4;  // bitpackedDataOffset
+    putU32(buf, p, 0); p += 4;  // lookupColumnCount
+    putU32(buf, p, kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;  // commonDataSize
+    putU32(buf, p, 0); p += 4;  // palletDataSize
+    putU32(buf, p, 1); p += 4;  // sectionCount
+    REQUIRE(p == kHeaderSize);
+
+    putU64(buf, p, 0); p += 8;  // tactKeyHash
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;  // fileOffset
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // offsetRecordsEnd
+    putU32(buf, p, 0); p += 4;  // idListSize
+    putU32(buf, p, static_cast<uint32_t>(relationshipMapSize)); p += 4;  // relationshipDataSize
+    putU32(buf, p, 0); p += 4;  // offsetMapIdCount
+    putU32(buf, p, 0); p += 4;  // copyTableCount
+    REQUIRE(p == kHeaderSize + kSectionHeaderSize);
+
+    putU16(buf, p, 0); p += 2;
+    putU16(buf, p, 0); p += 2;  // field 0 (ID): position 0
+
+    putU16(buf, p, 0); p += 2;  // fieldOffsetBits
+    putU16(buf, p, 32); p += 2;  // fieldSizeBits
+    putU32(buf, p, 0); p += 4;  // additionalDataSize
+    putU32(buf, p, 0); p += 4;  // storageType = None
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    REQUIRE(p == sectionFileOffset);
+
+    for (uint32_t id : ids) {
+        putU32(buf, p, id);
+        p += 4;
+    }
+    p += stringTableSize;  // string block: single zero byte, already zero-initialized
+
+    putU32(buf, p, recordCount); p += 4;  // relationship_map.num_entries
+    putU32(buf, p, foreignIds.empty() ? 0 : *std::min_element(foreignIds.begin(), foreignIds.end()));
+    p += 4;  // relationship_map.min_id
+    putU32(buf, p, foreignIds.empty() ? 0 : *std::max_element(foreignIds.begin(), foreignIds.end()));
+    p += 4;  // relationship_map.max_id
+    for (uint32_t i = 0; i < recordCount; ++i) {
+        putU32(buf, p, foreignIds[i]); p += 4;  // entry.foreign_id
+        putU32(buf, p, i); p += 4;              // entry.record_index (position, flags & 0x02 clear)
+    }
+    REQUIRE(p == total);
+    return buf;
+}
+
 void writeFile(const fs::path& path, const std::vector<uint8_t>& bytes) {
     std::ofstream f(path, std::ios::binary);
     f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
@@ -386,6 +476,190 @@ TEST_CASE("husk db2-export --dir: two related synthetic files export with a real
     }
     CHECK(rowCount == 3);
     sqlite3_finalize(joinStmt);
+    sqlite3_close(db);
+
+    fs::remove_all(dir);
+}
+
+// The gap this test closes: a `$noninline,relation$` DBD field (e.g. real
+// ChrModelTextureLayer's CharComponentTextureLayoutsID under some layouts)
+// occupies no WDC5 field-array slot at all -- its value lives only in the
+// section's own relationship_map (db2::nonInlineRelationValuesByRecord).
+// Before this fix, db2-export only ever iterated file.fieldStorageInfo, so
+// a column like this got no SQLite column and no FK at all, silently.
+// Child here has exactly one inline field (ID) and a fully non-inline
+// ParentID -- proves the column, its real per-record value (via the
+// relationship_map, not a field slot), and its FOREIGN KEY all come
+// through, verified with a real JOIN, not just schema inspection.
+TEST_CASE("husk db2-export --dir: a $noninline,relation$ field gets a real column, value, and "
+          "FOREIGN KEY, joinable end to end") {
+    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-noninline-relation";
+    fs::remove_all(dir);
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::path definitionsDir = dbdDir / "definitions";
+    fs::create_directories(db2Dir);
+    fs::create_directories(definitionsDir);
+    fs::path outPath = dir / "out.sqlite";
+
+    const uint32_t kParentTableHash = 0x55555555;
+    const uint32_t kParentLayoutHash = 0x66666666;
+    const uint32_t kChildTableHash = 0x77777777;
+    const uint32_t kChildLayoutHash = 0x88888888;
+
+    // Parent: one inline field, ID -- rows ID=10,20,30.
+    writeFile(db2Dir / "parent.db2",
+              buildDb2WithFields(kParentTableHash, kParentLayoutHash, {{10}, {20}, {30}}));
+    // Child: one inline field (ID=1,2,3), and ParentID stored ONLY in the
+    // relationship_map (record i -> foreign_id, position-based since
+    // flags & 0x02 is clear) -- child record 0 (ID=1) relates to parent 10,
+    // record 1 (ID=2) to parent 20, record 2 (ID=3) to parent 30.
+    writeFile(db2Dir / "child.db2",
+              buildDb2WithNonInlineRelation(kChildTableHash, kChildLayoutHash, {1, 2, 3}, {10, 20, 30}));
+
+    std::ofstream manifest(dbdDir / "manifest.json");
+    manifest << "[\n"
+             << "  {\"tableName\": \"Parent\", \"tableHash\": \"" << std::hex << kParentTableHash
+             << "\"},\n"
+             << "  {\"tableName\": \"Child\", \"tableHash\": \"" << std::hex << kChildTableHash << "\"}\n"
+             << "]\n" << std::dec;
+    manifest.close();
+
+    std::ofstream parentDbd(definitionsDir / "Parent.dbd");
+    parentDbd << "COLUMNS\n"
+              << "int ID\n"
+              << "\n"
+              << "LAYOUT " << std::hex << kParentLayoutHash << "\n"
+              << std::dec << "BUILD 1.0.0.1\n"
+              << "$id$ID<32>\n";
+    parentDbd.close();
+
+    // ParentID is declared in COLUMNS (for its real relation target) but
+    // annotated $noninline,relation$ in the LAYOUT block -- it occupies no
+    // field-array slot in the .db2 file itself, matching real
+    // ChrModelTextureLayer.dbd's own CharComponentTextureLayoutsID shape
+    // under the layout this session verified against real data.
+    std::ofstream childDbd(definitionsDir / "Child.dbd");
+    childDbd << "COLUMNS\n"
+             << "int ID\n"
+             << "int<Parent::ID> ParentID\n"
+             << "\n"
+             << "LAYOUT " << std::hex << kChildLayoutHash << "\n"
+             << std::dec << "BUILD 1.0.0.1\n"
+             << "$id$ID<32>\n"
+             << "$noninline,relation$ParentID<32>\n";
+    childDbd.close();
+
+    auto result = runHusk("db2-export --dir " + db2Dir.string() + " " + outPath.string() + " --dbd-dir " +
+                           dbdDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("2 table(s)") != std::string::npos);
+    REQUIRE(fs::exists(outPath));
+
+    sqlite3* db = nullptr;
+    REQUIRE(sqlite3_open_v2(outPath.string().c_str(), &db, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+
+    sqlite3_stmt* schemaStmt = nullptr;
+    REQUIRE(sqlite3_prepare_v2(db, "SELECT sql FROM sqlite_master WHERE name = 'Child'", -1, &schemaStmt,
+                                nullptr) == SQLITE_OK);
+    REQUIRE(sqlite3_step(schemaStmt) == SQLITE_ROW);
+    std::string childSchema(reinterpret_cast<const char*>(sqlite3_column_text(schemaStmt, 0)));
+    sqlite3_finalize(schemaStmt);
+    CHECK(childSchema.find("\"ParentID\" INTEGER") != std::string::npos);
+    CHECK(childSchema.find("FOREIGN KEY (\"ParentID\") REFERENCES \"Parent\"(\"ID\")") !=
+          std::string::npos);
+
+    sqlite3_stmt* joinStmt2 = nullptr;
+    REQUIRE(sqlite3_prepare_v2(
+                db,
+                "SELECT c.ID, c.ParentID, p.ID FROM Child c JOIN Parent p ON c.ParentID = p.ID "
+                "ORDER BY c.ID",
+                -1, &joinStmt2, nullptr) == SQLITE_OK);
+    int rowCount2 = 0;
+    while (sqlite3_step(joinStmt2) == SQLITE_ROW) {
+        ++rowCount2;
+        int64_t childId = sqlite3_column_int64(joinStmt2, 0);
+        int64_t parentId = sqlite3_column_int64(joinStmt2, 1);
+        int64_t joinedParentId = sqlite3_column_int64(joinStmt2, 2);
+        CHECK(parentId == joinedParentId);
+        CHECK(parentId == childId * 10);
+    }
+    CHECK(rowCount2 == 3);
+    sqlite3_finalize(joinStmt2);
+    sqlite3_close(db);
+
+    fs::remove_all(dir);
+}
+
+// Real-data-gated: the exact real chain
+// TODO/CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 1 named as unfinished --
+// ChrModelTextureLayer's own CharComponentTextureLayoutsID is a real
+// $noninline,relation$ field under its real layout, verified against real
+// local files rather than only the synthetic fixture above. Skips cleanly
+// (not a failure) when either the real WoWDBDefs checkout or the real local
+// DB2 export isn't present -- same "local, optional, read-only reference
+// data" tier every other real-data test in this repo already uses.
+TEST_CASE("husk db2-export --dir: real chrmodeltexturelayer.db2 -> charcomponenttexturelayouts.db2 "
+          "non-inline relation joins correctly" *
+          doctest::skip(husk::test::testDbdDir().empty() ||
+                         !fs::exists("/media/luna/data/wow_export/dbfilesclient/chrmodeltexturelayer.db2") ||
+                         !fs::exists(
+                             "/media/luna/data/wow_export/dbfilesclient/charcomponenttexturelayouts.db2"))) {
+    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-real-noninline-relation";
+    fs::remove_all(dir);
+    fs::path db2Dir = dir / "db2";
+    fs::create_directories(db2Dir);
+    fs::path outPath = dir / "out.sqlite";
+
+    fs::copy_file("/media/luna/data/wow_export/dbfilesclient/chrmodeltexturelayer.db2",
+                   db2Dir / "chrmodeltexturelayer.db2");
+    fs::copy_file("/media/luna/data/wow_export/dbfilesclient/charcomponenttexturelayouts.db2",
+                   db2Dir / "charcomponenttexturelayouts.db2");
+
+    auto result = runHusk("db2-export --dir " + db2Dir.string() + " " + outPath.string() + " --dbd-dir " +
+                           husk::test::testDbdDir());
+    CHECK(result.exitCode == 0);
+    REQUIRE(fs::exists(outPath));
+
+    sqlite3* db = nullptr;
+    REQUIRE(sqlite3_open_v2(outPath.string().c_str(), &db, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+
+    sqlite3_stmt* schemaStmt = nullptr;
+    REQUIRE(sqlite3_prepare_v2(db, "SELECT sql FROM sqlite_master WHERE name = 'ChrModelTextureLayer'", -1,
+                                &schemaStmt, nullptr) == SQLITE_OK);
+    REQUIRE(sqlite3_step(schemaStmt) == SQLITE_ROW);
+    std::string schema(reinterpret_cast<const char*>(sqlite3_column_text(schemaStmt, 0)));
+    sqlite3_finalize(schemaStmt);
+    CHECK(schema.find("\"CharComponentTextureLayoutsID\" INTEGER") != std::string::npos);
+    CHECK(schema.find("FOREIGN KEY (\"CharComponentTextureLayoutsID\") REFERENCES "
+                       "\"CharComponentTextureLayouts\"(\"ID\")") != std::string::npos);
+
+    // Every real row resolves a value (the relation is real for 100% of
+    // this table's records, not a sometimes-present field) -- and at least
+    // one real join succeeds against whatever layouts are present in this
+    // local, necessarily-partial export.
+    sqlite3_stmt* countStmt = nullptr;
+    REQUIRE(sqlite3_prepare_v2(db,
+                                "SELECT COUNT(*), COUNT(CharComponentTextureLayoutsID) FROM "
+                                "ChrModelTextureLayer",
+                                -1, &countStmt, nullptr) == SQLITE_OK);
+    REQUIRE(sqlite3_step(countStmt) == SQLITE_ROW);
+    int64_t total = sqlite3_column_int64(countStmt, 0);
+    int64_t resolved = sqlite3_column_int64(countStmt, 1);
+    sqlite3_finalize(countStmt);
+    CHECK(total > 0);
+    CHECK(resolved == total);
+
+    sqlite3_stmt* realJoinStmt = nullptr;
+    REQUIRE(sqlite3_prepare_v2(
+                db,
+                "SELECT COUNT(*) FROM ChrModelTextureLayer t JOIN CharComponentTextureLayouts l "
+                "ON t.CharComponentTextureLayoutsID = l.ID",
+                -1, &realJoinStmt, nullptr) == SQLITE_OK);
+    REQUIRE(sqlite3_step(realJoinStmt) == SQLITE_ROW);
+    int64_t joined = sqlite3_column_int64(realJoinStmt, 0);
+    sqlite3_finalize(realJoinStmt);
+    CHECK(joined > 0);
     sqlite3_close(db);
 
     fs::remove_all(dir);

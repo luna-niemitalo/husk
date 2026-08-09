@@ -520,10 +520,14 @@ a table like `CharComponentTextureLayouts` (whose ID is non-inline) has a
 real column for other tables' relation columns to join against. A per-
 section `relationship_mapping` (WDC5's own alternate foreign-key storage --
 a `(foreignId, recordId)` array replacing a column that also doubled as a
-lookup key) is decoded structurally (`db2::Section::relationshipEntries`,
-`db2-info` prints a summary) but not yet folded into the exported table
-itself -- diagnostic-only for now, same tier as `dump-chunks`'s undocumented-
-chunk output.
+lookup key, decoded structurally by `db2::Section::relationshipEntries`,
+`db2-info` prints a summary) also gets a real exported column: a DBD field
+annotated `$noninline,relation$` (occupying no field-array slot at all --
+real for `ChrModelTextureLayer`'s own `CharComponentTextureLayoutsID` under
+some layouts) is resolved per record via `db2::
+nonInlineRelationValuesByRecord` and written as a real, named SQLite
+column, with a real `FOREIGN KEY` constraint under the same
+target-in-batch rule as an ordinary inline relation column.
 
 Verified against real data: `chrmodelmaterial.db2` exports 336 rows with
 real `ID`/`CharComponentTextureLayoutsID`/`TextureType`/`Width`/`Height`/
@@ -533,9 +537,16 @@ real `ID`/`CharComponentTextureLayoutsID`/`TextureType`/`Width`/`Height`/
 text) through the same string-value path `db2-info` already uses. Field
 arrays (WDC5's own `arrayCount` storage, not something DBD tracks the
 length of) get one `<name>_<i>` column per real decoded element -- SQLite
-has no native array column type. The real `chrmodelmaterial.db2` ->
-`charcomponenttexturelayouts.db2` chain exports into one SQLite database via
-`--dir` with a real `FOREIGN KEY` constraint on `ChrModelMaterial.
+has no native array column type. The real `chrmodeltexturelayer.db2` (a
+`$noninline,relation$` field, not an inline one) -> `charcomponenttexture
+layouts.db2` chain exports into one SQLite database via `--dir` with a
+real `FOREIGN KEY` constraint on `ChrModelTextureLayer.
+CharComponentTextureLayoutsID`: every one of 922 real rows resolves a
+value, and a real `JOIN` returns rows for every layout ID actually
+present in the local export. The real `chrmodelmaterial.db2` ->
+`charcomponenttexturelayouts.db2` chain (an ordinary *inline* relation)
+exports into one SQLite database via `--dir` with a real `FOREIGN KEY`
+constraint on `ChrModelMaterial.
 CharComponentTextureLayoutsID`, and a real `JOIN` across the two returns the
 same plausible atlas dimensions as above -- the smallest real cross-file
 chain confirmed fully populated locally. The fuller `ChrCustomizationOption`

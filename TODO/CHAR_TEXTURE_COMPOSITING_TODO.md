@@ -167,8 +167,18 @@ Layouts` chain, see `README.md`'s `db2-export` section and
 verifiable the same way -- several of those exact tables are still 0-byte
 in the current local export, a real extraction gap, not a code gap.
 Non-inline relationship data (WDC5's alternate `relationship_mapping`
-foreign-key storage) is decoded structurally but not yet folded into the
-exported table itself -- diagnostic-only for now. Stage 2 itself is also
+foreign-key storage, e.g. real `ChrModelTextureLayer`'s own
+`CharComponentTextureLayoutsID` under some layouts) is now folded into
+`db2-export`'s own output too, closed in a later session: a
+`$noninline,relation$` DBD field gets a real named SQLite column (its
+per-record value resolved via `db2::nonInlineRelationValuesByRecord`, not
+a field-array slot) and a real `FOREIGN KEY` constraint under the same target-in-batch rule
+ordinary inline relation columns already use --
+verified against the real `chrmodeltexturelayer.db2` ->
+`charcomponenttexturelayouts.db2` chain (100% of 922 real rows resolve a
+value, real `JOIN` rows returned for every layout ID actually present in
+the local export), plus synthetic regression tests
+(`tests/test_cli_db2.cpp`). Stage 2 itself is also
 still unstarted: it needs real per-table **C++ structs** wired into
 `db2::decodeField`'s actual callers inside husk's own process (`db2::File`/
 `decodeField` deliberately stay name-agnostic, per db2.hpp's own module

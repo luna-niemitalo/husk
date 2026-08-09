@@ -297,6 +297,17 @@ void bindFieldValues(sqlite3_stmt* stmt, int firstBindIndex, const db2::File& fi
     }
 }
 
+// A `$noninline,relation$` DBD field (e.g. real ChrModelTextureLayer's
+// CharComponentTextureLayoutsID under some layouts) -- occupies no WDC5
+// field-array slot at all, its real per-record value lives only in the
+// section's own relationship_map (db2::nonInlineRelationValuesByRecord).
+// `relation` is looked up from the DBD table's own COLUMNS block by name,
+// same as an ordinary inline relation column's FK target.
+struct NonInlineRelationColumn {
+    std::string sqlName;
+    std::optional<dbd::RelationTarget> relation;
+};
+
 // One .db2 file, parsed and resolved, ready to become one SQLite table --
 // shared shape between single-file and `--dir` multi-file export so table
 // creation/row insertion (writeFileTable) doesn't care which mode produced
@@ -314,6 +325,10 @@ struct LoadedFile {
     // "$noninline,id$" annotation when available, else a plain "id"
     // fallback -- same "never fetched, optional" tier as dbdNames.
     std::optional<std::string> nonInlineIdColumnName;
+    // Every `$noninline,relation$` field this layout declares (besides the
+    // id field above) -- see NonInlineRelationColumn. Empty whenever no DBD
+    // layout resolved, same tier as dbdNames/nonInlineIdColumnName.
+    std::vector<NonInlineRelationColumn> nonInlineRelationColumns;
     std::vector<size_t> usableSectionIndices;  // indices into file.sections
     size_t skippedEncrypted = 0;
     size_t skippedOffsetMap = 0;
@@ -363,6 +378,17 @@ std::optional<LoadedFile> loadOneFile(const std::string& path, const std::string
             if (layout) {
                 lf.dbdNames = dbd::resolveFieldNames(*dbdTable, *layout, lf.file.fieldStorageInfo.size());
                 lf.nonInlineIdColumnName = dbd::findIdFieldName(*layout);
+                for (const std::string& name : dbd::findNonInlineNonIdFieldNames(*layout)) {
+                    NonInlineRelationColumn col;
+                    col.sqlName = sanitizeIdentifier(name);
+                    for (const dbd::Column& c : dbdTable->columns) {
+                        if (c.name == name) {
+                            col.relation = c.relation;
+                            break;
+                        }
+                    }
+                    lf.nonInlineRelationColumns.push_back(std::move(col));
+                }
             }
         }
         if (!lf.dbdNames) {
@@ -395,6 +421,9 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
     if (!idSqlName.empty()) {
         createSql << ", \"" << idSqlName << "\" INTEGER";
     }
+    for (const NonInlineRelationColumn& col : lf.nonInlineRelationColumns) {
+        createSql << ", \"" << col.sqlName << "\" INTEGER";
+    }
     std::vector<std::string> fkClauses;
     for (size_t f = 0; f < plan.size(); ++f) {
         for (const OutputColumn& c : plan[f]) {
@@ -409,6 +438,14 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
             }
         }
     }
+    for (const NonInlineRelationColumn& col : lf.nonInlineRelationColumns) {
+        if (!col.relation) continue;
+        std::string targetTable = sanitizeIdentifier(col.relation->targetTable);
+        if (availableTables.count(targetTable) > 0) {
+            fkClauses.push_back("FOREIGN KEY (\"" + col.sqlName + "\") REFERENCES \"" + targetTable +
+                                 "\"(\"" + sanitizeIdentifier(col.relation->targetColumn) + "\")");
+        }
+    }
     for (const std::string& fk : fkClauses) createSql << ", " << fk;
     createSql << ")";
     sqliteCheck(sqlite3_exec(db, createSql.str().c_str(), nullptr, nullptr, nullptr), db,
@@ -416,6 +453,7 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
 
     std::ostringstream insertSql;
     insertSql << "INSERT INTO \"" << lf.tableName << "\" VALUES (?, ?" << (idSqlName.empty() ? "" : ", ?");
+    for (size_t i = 0; i < lf.nonInlineRelationColumns.size(); ++i) insertSql << ", ?";
     size_t totalColumns = 0;
     for (const auto& cols : plan) totalColumns += cols.size();
     for (size_t i = 0; i < totalColumns; ++i) insertSql << ", ?";
@@ -428,6 +466,13 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
     size_t rowCount = 0;
     for (size_t sectionIndex : lf.usableSectionIndices) {
         const db2::Section& section = lf.file.sections[sectionIndex];
+        // One relationship_map decode per section, shared by every
+        // non-inline relation column -- the section carries a single
+        // relationship_map, not one per DBD field, matching db2table.cpp's
+        // own "needsRelation" computation.
+        std::vector<std::optional<uint32_t>> relationValues =
+            lf.nonInlineRelationColumns.empty() ? std::vector<std::optional<uint32_t>>{}
+                                                 : db2::nonInlineRelationValuesByRecord(lf.file, section);
         for (uint32_t r = 0; r < section.header.recordCount; ++r) {
             sqlite3_reset(stmt);
             sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(sectionIndex));
@@ -436,6 +481,15 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
             if (!idSqlName.empty()) {
                 sqlite3_bind_int64(stmt, bindIndex,
                                     static_cast<sqlite3_int64>(db2::recordId(lf.file, section, r)));
+                ++bindIndex;
+            }
+            for (size_t i = 0; i < lf.nonInlineRelationColumns.size(); ++i) {
+                std::optional<uint32_t> v = r < relationValues.size() ? relationValues[r] : std::nullopt;
+                if (v) {
+                    sqlite3_bind_int64(stmt, bindIndex, static_cast<sqlite3_int64>(*v));
+                } else {
+                    sqlite3_bind_null(stmt, bindIndex);
+                }
                 ++bindIndex;
             }
             for (size_t f = 0; f < lf.file.fieldStorageInfo.size(); ++f) {

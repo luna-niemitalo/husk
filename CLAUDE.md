@@ -163,7 +163,51 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: `TODO/GEOSET_MASK_TODO.md`'s two "Known bugs" (real
+- **Current state**: Closed `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 1
+  "non-inline relationship data decoded structurally but not yet folded
+  into the exported table itself" gap -- `husk db2-export` (both single-file
+  and `--dir` modes, `src/cmd_db2.cpp`) now emits a real SQLite column and
+  `FOREIGN KEY` for a `$noninline,relation$` DBD field (occupies no WDC5
+  field-array slot at all -- its value lives only in the section's own
+  `relationship_map`), not just an inline one. New `LoadedFile::
+  nonInlineRelationColumns` (resolved via `dbd::findNonInlineNonIdFieldNames`
+  + a by-name lookup into the DBD table's own `COLUMNS` block for the
+  relation target, same pattern `dbdNames`/`nonInlineIdColumnName` already
+  use); `writeFileTable` decodes each section's `db2::
+  nonInlineRelationValuesByRecord` once per section (shared across every
+  non-inline relation column in that table, since a section carries exactly
+  one `relationship_map`, not one per DBD field) and binds
+  `sqlite3_bind_null` for any record with no map entry rather than
+  fabricating a value. Both helper functions this relied on
+  (`db2::nonInlineRelationValuesByRecord`, `dbd::
+  findNonInlineNonIdFieldNames`) already existed from an earlier session's
+  `chrmodel_db2.cpp`/`db2table.cpp` work -- this session's actual gap was
+  narrower than it first looked: `db2-export` itself never called either
+  one, despite both being already-proven. Verified against real local data,
+  not just synthetic: copied the real `chrmodeltexturelayer.db2` (922 rows,
+  a real `$noninline,relation$` `CharComponentTextureLayoutsID` under its
+  own layout) and `charcomponenttexturelayouts.db2` (4 rows) into a scratch
+  `--dir` batch against the real `reference/WoWDBDefs` checkout -- the
+  resulting table gets a real `"CharComponentTextureLayoutsID" INTEGER`
+  column and `FOREIGN KEY ... REFERENCES "CharComponentTextureLayouts"
+  ("ID")` constraint; every one of the 922 real rows resolves a non-null
+  value (`COUNT(*) == COUNT(CharComponentTextureLayoutsID)`), and a real SQL
+  `JOIN` returns rows for every one of the 4 layout IDs actually present in
+  this (necessarily partial) local export -- the low join-hit-rate (40/922)
+  is the local export's own real incompleteness (`CharComponentTexture
+  Layouts.db2` only has 4 rows here), not a bug in the relation resolution
+  itself. Two new tests in `tests/test_cli_db2.cpp`: a synthetic
+  `buildDb2WithNonInlineRelation` fixture (one inline ID field, one field
+  stored purely in the `relationship_map`, position-based since
+  `header.flags & 0x02` is clear) proving the column/value/FK/join all work
+  end to end, and a real-data-gated test (skips cleanly, doesn't fail, when
+  `reference/WoWDBDefs` or the real local `.db2` files aren't present)
+  against the exact real chain above. `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s
+  Stage 1 paragraph and `README.md`'s `db2-export` section both updated to
+  describe the new behavior instead of the old "diagnostic-only" gap;
+  Stages 2-5 of that TODO file untouched, out of this session's scope. Full
+  suite green, 578/578.
+- **Prior session**: `TODO/GEOSET_MASK_TODO.md`'s two "Known bugs" (real
   interactive-Blender findings from 2026-08-08 — arms disappearing when
   switching an unrelated hairstyle group; the tabard-flap dropdown never
   toggling) are now genuinely confirmed fixed, not just assumed — the file
