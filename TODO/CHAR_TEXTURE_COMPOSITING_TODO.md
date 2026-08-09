@@ -137,9 +137,15 @@ independent parser for WoWDBDefs' own documented `.dbd` text grammar
 (`github.com/wowdev/WoWDBDefs`, README.md's own grammar spec, not reverse-
 engineered), resolves a real file's `table_hash`/`layout_hash` against a
 local, optional WoWDBDefs checkout to get real per-field names/types --
-matched purely by *position* (declaration order, skipping `noninline`
-fields), not cross-validated against `field_storage_info`'s own bit sizes.
-Never a hard dependency: husk doesn't clone/fetch/bundle WoWDBDefs itself
+matched by *position* (declaration order, skipping `noninline` fields) and,
+closed in a later session, cross-validated per field against
+`field_storage_info`'s own real shape (bit size for `field_compression_none`,
+an upper bound for bitpacked, `array_count` for `bitpacked_indexed_array` --
+see `dbd::resolveFieldNames`'s own doc comment for exactly what's checked
+per storage type and what isn't checkable at all) -- a layout with the
+right field *count* but the wrong per-field *shape* now also fails closed
+(generic `field_<N>` names) instead of returning a coincidentally-sized but
+wrong match. Never a hard dependency: husk doesn't clone/fetch/bundle WoWDBDefs itself
 (a dev-only `reference/WoWDBDefs` checkout, gitignored, is investigation
 scaffolding only, never read at runtime) -- `--dbd-dir` is a local,
 optional, user-supplied directory, same "hand husk a plain local file"

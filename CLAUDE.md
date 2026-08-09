@@ -163,7 +163,48 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Closed the small real gap the prior session's
+- **Current state**: Finished `src/dbd.hpp`'s own long-documented scope gap
+  (a prior autonomous-session task that hit the session's API limit
+  mid-implementation and was stashed rather than left broken on `master` —
+  picked back up and completed this session, real WIP recovered via
+  `git stash pop`, not restarted from scratch). `dbd::resolveFieldNames`
+  used to match a `.dbd` LAYOUT's inline fields to a real WDC5 file purely
+  by *position*, with only a coarse field-*count* safety net — a layout
+  with the right count but the wrong per-field shape (wrong layout hash
+  matched, or a stale/wrong WoWDBDefs definition) could silently return
+  real-looking column names misapplied to the wrong bytes, exactly the
+  class of bug `~/.claude/CLAUDE.md`'s "Coding Policy: Foreign Data" rules
+  exist to catch. Now cross-validates each matched field's real
+  WoWDBDefs-declared `<Size>`/`[Length]` shape (parsed by a new
+  `dbd::parseFieldLine` extension, previously discarded) against that
+  same-position `db2::FieldStorageInfo` entry, per real WDC5 storage type:
+  exact bit-size match for `field_compression_none`; upper-bound-only for
+  bitpacked/bitpacked-signed (real compression legitimately uses fewer
+  bits than the declared width, never more); exact `array_count` for
+  `bitpacked_indexed_array`; genuinely un-checkable (not guessed at) for
+  `common_data`/`bitpacked_indexed`, whose `field_size_bits` describes
+  something other than the field's own logical value width. Any
+  disagreement fails closed to `nullopt` (generic `field_<N>` fallback
+  naming), same as the pre-existing count check. Verified against real
+  data, not just synthetic cases: `chrmodelmaterial.db2` +
+  `reference/WoWDBDefs`'s real `ChrModelMaterial` layout resolves
+  correctly under the new check (its own real bitpacked/bitpacked-indexed-
+  array fields exercise the non-trivial branches, not just the `None`
+  case), and neither of the two other real DBD-resolved chains this
+  project already had test coverage for regressed (`chrmodeltexturelayer.db2`
+  → `charcomponenttexturelayouts.db2`'s `--dir` FK-constraint chain; the
+  `--db2-dir`/`--char-layout-id` character-texture-layout extras path). Six
+  new synthetic tests (`tests/test_dbd.cpp`) cover each storage-type branch
+  individually, including two that had a real authoring bug when first
+  written (missing a `field_storage_info` entry for the layout's own `ID`
+  field, so the coarse count check masked what the shape check was
+  actually meant to exercise — caught by actually running the tests, not
+  assumed correct from the diff). `dbd.hpp`'s module comment,
+  `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 1 paragraph, and
+  `README.md`'s `db2-export` section updated to describe the new,
+  narrower scope precisely — including what's still genuinely
+  uncheckable, not overclaimed. Full suite green, 590/590.
+- **Prior session**: Closed the small real gap the prior session's
   `TODO/ENGINE_TODO.md` audit found and deliberately left open: `m2::Event::data`
   (`src/m2_scene.hpp`, an opaque per-event `uint32_t`) is now exported into
   the event node's own glTF extras, not just parsed. Per wowdev.wiki

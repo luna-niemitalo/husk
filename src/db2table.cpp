@@ -64,7 +64,7 @@ std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& pat
     }
 
     std::optional<std::vector<dbd::Column>> inlineColumns =
-        dbd::resolveFieldNames(*dbdTable, *layout, file.fieldStorageInfo.size());
+        dbd::resolveFieldNames(*dbdTable, *layout, file.fieldStorageInfo);
     std::optional<std::string> idFieldName = dbd::findIdFieldName(*layout);
     std::vector<std::string> relationFieldNames = dbd::findNonInlineNonIdFieldNames(*layout);
 

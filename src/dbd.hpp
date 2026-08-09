@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include "db2.hpp"
+
 // WoWDBDefs (github.com/wowdev/WoWDBDefs) .dbd text-format parser -- resolves
 // real column names/types for a WDC5 DB2 file, closing the "no table-name-
 // to-struct mapping" gap db2.hpp's own module comment documents. Grammar
@@ -27,10 +29,23 @@
 //
 // Scope, deliberately: fields are matched to a real LAYOUT block purely by
 // *position* (declaration order, skipping `noninline` fields -- those occupy
-// no slot in WDC5's own field array) -- not cross-validated against
-// db2::FieldStorageInfo's own bit sizes. A mismatch between the .dbd's
-// claimed inline field count and the real file's actual field count means a
-// lookup simply fails (nullopt), never a guessed/misaligned name.
+// no slot in WDC5's own field array). A mismatch between the .dbd's claimed
+// inline field count and the real file's actual field count means a lookup
+// simply fails (nullopt), never a guessed/misaligned name -- and beyond that
+// coarse count check, resolveFieldNames also cross-validates each matched
+// field's declared shape (WoWDBDefs' own <Size>/[Length] annotations)
+// against that same-position db2::FieldStorageInfo entry, so a layout that
+// coincidentally has the right field *count* but the wrong per-field
+// *shape* (wrong layout hash, or a stale/wrong WoWDBDefs layout for this
+// table/version) also fails closed instead of returning misapplied names.
+// This is real, but only as comprehensive as WDC5's own storage types
+// allow -- see resolveFieldNames' own doc comment for exactly what's
+// checked (field_compression_none: exact; bitpacked(_signed): upper-bound
+// only, real compression legitimately uses fewer bits than the declared
+// type width; bitpacked_indexed_array: array_count, exact) and what isn't
+// (field_compression_common_data / bitpacked_indexed carry no fact
+// comparable to a .dbd-declared type/size at all -- not checked, not
+// guessed at).
 // manifest.json parsing is a narrow hand-rolled scan (brace-depth object
 // splitting + two regex field extractions), not a real JSON parser --
 // sufficient because the file is a flat array of flat objects with no
@@ -68,6 +83,15 @@ struct Field {
     std::string name;
     bool nonInline = false;
     bool isId = false;  // the "$id$"/"$noninline,id$" annotation, not "relation"
+    // WoWDBDefs' own "ColName<Size>[Length]" annotations (README.md's
+    // "Columns" section under "Version definitions") -- nullopt/1 when
+    // absent, exactly the grammar's own "no size (floats, (loc)strings,
+    // non-inline IDs)"/"no [Length] means scalar" defaults. Used by
+    // resolveFieldNames' cross-validation against db2::FieldStorageInfo;
+    // not needed for plain name resolution, which is why these were
+    // previously parsed and discarded.
+    std::optional<uint32_t> declaredBits;
+    uint32_t arrayLength = 1;
 };
 
 // A LAYOUT block: one or more layout hashes (WDC5's own header.layoutHash),
@@ -120,9 +144,33 @@ std::vector<std::string> findNonInlineNonIdFieldNames(const Layout& layout);
 
 // Returns the real Column (name/type/relation) for each of a file's inline
 // fields, in order, if `layout`'s inline (non-`nonInline`) field count
-// matches `fieldCount` exactly -- nullopt on any mismatch, never a
-// partial/guessed result.
+// matches `fieldStorageInfo.size()` exactly AND every matched field's
+// declared shape agrees with that same-position db2::FieldStorageInfo entry
+// -- nullopt on any mismatch, never a partial/guessed result. The shape
+// check, per field, per real WDC5 storage type (db2::FieldCompression):
+//   - None: field_size_bits is documented (DB2.md) as "the sum of all array
+//     pieces in bits" for an uncompressed field -- must equal the .dbd's
+//     own declared_element_bits * array_length exactly.
+//   - Bitpacked/BitpackedSigned: DB2.md describes this as a real
+//     *compression* of the same logical value -- field_size_bits is the
+//     packed width, which can be (and in real files, usually is) smaller
+//     than the declared type width, but never larger -- checked as an
+//     upper bound only.
+//   - BitpackedIndexedArray: array_count is a real, uncompressed element
+//     count (distinct from the *index's* own field_size_bits) -- checked
+//     exactly against the .dbd's [Length]. Verified against real
+//     chrmodeltexturelayer.db2 data (layout D0583FB4): its two
+//     [3]/[2]-declared fields decode as bitpacked_indexed_array with
+//     array_count 3/2 exactly.
+//   - CommonData/BitpackedIndexed: neither field_size_bits (0, or an
+//     index's own bit width -- unrelated to the field's logical value
+//     width) gives a fact comparable to a .dbd-declared type/size -- not
+//     checked.
+// A field the .dbd itself declares with no checkable size (a float/
+// (loc)string, or an int whose LAYOUT line carries no <Size> at all) is
+// also skipped, never treated as a mismatch by omission.
 std::optional<std::vector<Column>> resolveFieldNames(const Table& table, const Layout& layout,
-                                                      size_t fieldCount);
+                                                      const std::vector<db2::FieldStorageInfo>&
+                                                          fieldStorageInfo);
 
 }  // namespace husk::dbd

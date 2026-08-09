@@ -63,8 +63,12 @@ std::vector<uint32_t> parseHashList(const std::string& rest) {
 
 // One field line inside a LAYOUT block, e.g. "$noninline,id$ID<32>",
 // "$relation$CharComponentTextureLayoutsID<32>", "TextureType<32>",
-// "Name[3]", "Name<32>[3] // comment". Only the annotations and the bare
-// name matter here -- <size>/[length] aren't needed for naming.
+// "Name[3]", "Name<32>[3] // comment". The annotations/name were always
+// needed for naming; <Size>/[Length] are parsed too now (declaredBits/
+// arrayLength), needed by resolveFieldNames' field_storage_info
+// cross-check -- see WoWDBDefs README.md's "Columns" section for the
+// grammar ("Size (8, 16, 32 or 64, prefixed by u if unsigned int):
+// ColName<Size>", "Array: ColName[Length]", "Both: ColName<Size>[Length]").
 Field parseFieldLine(std::string line) {
     line = trim(stripComment(line));
     Field field;
@@ -84,7 +88,60 @@ Field parseFieldLine(std::string line) {
     }
     size_t end = line.find_first_of("<[");
     field.name = trim(end == std::string::npos ? line : line.substr(0, end));
+    std::string rest = end == std::string::npos ? "" : line.substr(end);
+
+    if (!rest.empty() && rest[0] == '<') {
+        size_t close = rest.find('>');
+        if (close == std::string::npos) {
+            throw ParseError("dbd: unterminated '<...>' size annotation in '" + line + "'");
+        }
+        std::string sizeToken = rest.substr(1, close - 1);
+        // "prefixed by u if unsigned int" (README.md) -- signedness isn't
+        // needed for a bit-width check, only the numeric width itself.
+        if (!sizeToken.empty() && (sizeToken[0] == 'u' || sizeToken[0] == 'U')) {
+            sizeToken = sizeToken.substr(1);
+        }
+        try {
+            field.declaredBits = static_cast<uint32_t>(std::stoul(sizeToken));
+        } catch (const std::exception&) {
+            throw ParseError("dbd: non-numeric '<" + sizeToken + ">' size annotation in '" + line + "'");
+        }
+        rest = rest.substr(close + 1);
+    }
+    if (!rest.empty() && rest[0] == '[') {
+        size_t close = rest.find(']');
+        if (close == std::string::npos) {
+            throw ParseError("dbd: unterminated '[...]' array annotation in '" + line + "'");
+        }
+        std::string lenToken = rest.substr(1, close - 1);
+        try {
+            field.arrayLength = static_cast<uint32_t>(std::stoul(lenToken));
+        } catch (const std::exception&) {
+            throw ParseError("dbd: non-numeric '[" + lenToken + "]' array annotation in '" + line + "'");
+        }
+    }
     return field;
+}
+
+// The per-element bit width a .dbd column's declared type implies, per
+// WoWDBDefs README.md's "Columns" grammar: floats/(loc)strings never carry
+// a <Size> annotation because they're always one fixed native width -- a
+// raw 32-bit float, or a 32-bit string-table offset -- so their width is
+// implied by the type alone, not read from `declaredBits`. Only `int`
+// columns declare an explicit size; nullopt propagates through when a real
+// .dbd layout line has no size at all (shouldn't happen for a real int
+// field per the grammar, but if it does, there's nothing to check against,
+// not a guessed 32).
+std::optional<uint32_t> expectedElementBits(ColumnType type, const std::optional<uint32_t>& declaredBits) {
+    switch (type) {
+        case ColumnType::Float:
+        case ColumnType::String:
+        case ColumnType::LocString:
+            return 32;
+        case ColumnType::Int:
+            return declaredBits;
+    }
+    return std::nullopt;
 }
 
 }  // namespace
@@ -209,7 +266,9 @@ std::vector<std::string> findNonInlineNonIdFieldNames(const Layout& layout) {
 }
 
 std::optional<std::vector<Column>> resolveFieldNames(const Table& table, const Layout& layout,
-                                                      size_t fieldCount) {
+                                                      const std::vector<db2::FieldStorageInfo>&
+                                                          fieldStorageInfo) {
+    std::vector<const Field*> inlineFields;
     std::vector<Column> result;
     for (const Field& f : layout.fields) {
         if (f.nonInline) continue;
@@ -220,9 +279,39 @@ std::optional<std::vector<Column>> resolveFieldNames(const Table& table, const L
                 break;
             }
         }
-        result.push_back(column);
+        inlineFields.push_back(&f);
+        result.push_back(std::move(column));
     }
-    if (result.size() != fieldCount) return std::nullopt;
+    // Field *count* mismatch -- the coarse, original safety net: a wrong
+    // layout hash or a stale WoWDBDefs definition can't even claim the
+    // right number of slots.
+    if (result.size() != fieldStorageInfo.size()) return std::nullopt;
+
+    // Field *shape* mismatch -- see this function's own doc comment
+    // (dbd.hpp) for exactly what's checked per db2::FieldCompression
+    // storage type and why.
+    for (size_t i = 0; i < result.size(); ++i) {
+        std::optional<uint32_t> elementBits = expectedElementBits(result[i].type, inlineFields[i]->declaredBits);
+        if (!elementBits) continue;  // nothing checkable for this field
+        uint32_t expectedTotalBits = *elementBits * inlineFields[i]->arrayLength;
+        const db2::FieldStorageInfo& info = fieldStorageInfo[i];
+
+        switch (info.storageType) {
+            case db2::FieldCompression::None:
+                if (info.fieldSizeBits != expectedTotalBits) return std::nullopt;
+                break;
+            case db2::FieldCompression::Bitpacked:
+            case db2::FieldCompression::BitpackedSigned:
+                if (info.fieldSizeBits > expectedTotalBits) return std::nullopt;
+                break;
+            case db2::FieldCompression::BitpackedIndexedArray:
+                if (info.arrayCount != inlineFields[i]->arrayLength) return std::nullopt;
+                break;
+            case db2::FieldCompression::CommonData:
+            case db2::FieldCompression::BitpackedIndexed:
+                break;  // no fact comparable to a declared type/size, see doc comment
+        }
+    }
     return result;
 }
 

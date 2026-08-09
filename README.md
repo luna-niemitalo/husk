@@ -514,7 +514,13 @@ its documented grammar, not vendored/linked code -- without `--dbd-dir`, or
 when no matching layout is found, columns fall back to generic `field_<N>`
 names instead, the same "expose honestly, don't guess" convention this
 project already uses for undocumented M2 chunk fields (`AFRA`/`DPIV`/
-`WFV1`, `WIKI_FINDINGS/M2.md`).
+`WFV1`, `WIKI_FINDINGS/M2.md`). A layout match isn't taken on field *count*
+alone either: each matched field's own declared `<Size>`/`[Length]` is
+cross-checked against that same-position `field_storage_info` entry in the
+real file (`dbd::resolveFieldNames`), so a `.dbd` layout with the right
+field count but the wrong per-field shape (wrong layout hash, or a stale
+WoWDBDefs definition) also falls back to generic names rather than
+returning real-looking names silently misapplied to the wrong bytes.
 
 A `<Table::Col>`-suffixed DBD column type (a real foreign-key target, e.g.
 `int<CharComponentTextureLayouts::ID>`) is resolved into `dbd::Column::

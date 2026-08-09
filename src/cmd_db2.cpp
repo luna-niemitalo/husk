@@ -399,7 +399,7 @@ std::optional<LoadedFile> loadOneFile(const std::string& path, const std::string
             lf.tableName = sanitizeIdentifier(dbdTable->tableName);
             const dbd::Layout* layout = dbd::findLayout(*dbdTable, lf.file.header.layoutHash);
             if (layout) {
-                lf.dbdNames = dbd::resolveFieldNames(*dbdTable, *layout, lf.file.fieldStorageInfo.size());
+                lf.dbdNames = dbd::resolveFieldNames(*dbdTable, *layout, lf.file.fieldStorageInfo);
                 lf.nonInlineIdColumnName = dbd::findIdFieldName(*layout);
                 for (const std::string& name : dbd::findNonInlineNonIdFieldNames(*layout)) {
                     NonInlineRelationColumn col;

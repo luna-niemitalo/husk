@@ -6,10 +6,41 @@
 
 #include <doctest/doctest.h>
 
+#include <cerrno>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+
+#include "../src/db2.hpp"
 #include "../src/dbd.hpp"
 #include "test_data_paths.hpp"
 
 using namespace husk;
+
+namespace {
+
+// A synthetic field_storage_info vector for the tests below that only care
+// about name resolution, not the shape cross-check -- field_compression_none
+// with fieldSizeBits == bits, matching every synthetic layout's own plain
+// "<32>"-declared (unpacked, non-array) fields exactly, so it never trips
+// resolveFieldNames' new per-field shape check.
+std::vector<db2::FieldStorageInfo> noneFields(size_t count, uint16_t bits = 32) {
+    std::vector<db2::FieldStorageInfo> info(count);
+    for (db2::FieldStorageInfo& f : info) {
+        f.storageType = db2::FieldCompression::None;
+        f.fieldSizeBits = bits;
+    }
+    return info;
+}
+
+std::vector<uint8_t> readFileBytes(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    REQUIRE(f.good());
+    return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
+}  // namespace
 
 TEST_CASE("dbd::parseDbd: COLUMNS block resolves name + type, '?' suffix stripped") {
     std::string text =
@@ -49,7 +80,7 @@ TEST_CASE("dbd::parseDbd: resolveFieldNames carries the relation target through 
         "CharComponentTextureLayoutsID<32>\n";
     dbd::Table table = dbd::parseDbd(text, "Test");
     const dbd::Layout& layout = table.layouts[0];
-    auto resolved = dbd::resolveFieldNames(table, layout, 1);
+    auto resolved = dbd::resolveFieldNames(table, layout, noneFields(1));
     REQUIRE(resolved.has_value());
     REQUIRE(resolved->size() == 1);
     CHECK((*resolved)[0].name == "CharComponentTextureLayoutsID");
@@ -144,9 +175,10 @@ TEST_CASE("dbd::parseDbd: 'noninline' annotation is recorded and excluded by res
     CHECK_FALSE(layout.fields[1].nonInline);
 
     // The real WDC5 field array only has 1 inline slot (Width) -- ID is
-    // stored out-of-band, so resolveFieldNames against fieldCount==1 must
-    // find exactly Width, skipping the noninline ID entirely.
-    auto resolved = dbd::resolveFieldNames(table, layout, 1);
+    // stored out-of-band, so resolveFieldNames against a 1-entry
+    // field_storage_info must find exactly Width, skipping the noninline ID
+    // entirely.
+    auto resolved = dbd::resolveFieldNames(table, layout, noneFields(1));
     REQUIRE(resolved.has_value());
     REQUIRE(resolved->size() == 1);
     CHECK((*resolved)[0].name == "Width");
@@ -166,9 +198,135 @@ TEST_CASE("dbd::resolveFieldNames: a real field-count mismatch returns nullopt, 
         "B<32>\n";
     dbd::Table table = dbd::parseDbd(text, "Test");
     const dbd::Layout& layout = table.layouts[0];
-    CHECK_FALSE(dbd::resolveFieldNames(table, layout, 2).has_value());
-    CHECK_FALSE(dbd::resolveFieldNames(table, layout, 99).has_value());
-    CHECK(dbd::resolveFieldNames(table, layout, 3).has_value());
+    CHECK_FALSE(dbd::resolveFieldNames(table, layout, noneFields(2)).has_value());
+    CHECK_FALSE(dbd::resolveFieldNames(table, layout, noneFields(99)).has_value());
+    CHECK(dbd::resolveFieldNames(table, layout, noneFields(3)).has_value());
+}
+
+TEST_CASE(
+    "dbd::resolveFieldNames: a field_storage_info shape that disagrees with the .dbd's own declared "
+    "size fails closed, even though the field count matches") {
+    // Same shape as the field-count test above (3 inline int<32> fields),
+    // but this time the count matches and the *shape* doesn't -- field 'A'
+    // is declared <32> in the .dbd, real field_storage_info says 16. This
+    // is exactly the class of bug the count-only check couldn't catch: a
+    // coincidentally-right field count with the wrong per-field shape (e.g.
+    // matched against the wrong layout hash).
+    std::string text =
+        "COLUMNS\n"
+        "int ID\n"
+        "int A\n"
+        "int B\n"
+        "\n"
+        "LAYOUT DEADBEEF\n"
+        "BUILD 1.0.0.1\n"
+        "$id$ID<32>\n"
+        "A<32>\n"
+        "B<32>\n";
+    dbd::Table table = dbd::parseDbd(text, "Test");
+    const dbd::Layout& layout = table.layouts[0];
+
+    std::vector<db2::FieldStorageInfo> mismatched = noneFields(3);
+    mismatched[1].fieldSizeBits = 16;  // real file disagrees with the .dbd's declared A<32>
+    CHECK_FALSE(dbd::resolveFieldNames(table, layout, mismatched).has_value());
+
+    std::vector<db2::FieldStorageInfo> agreeing = noneFields(3);
+    CHECK(dbd::resolveFieldNames(table, layout, agreeing).has_value());
+}
+
+TEST_CASE(
+    "dbd::resolveFieldNames: bitpacked storage may use fewer bits than the .dbd's declared size, "
+    "never more") {
+    // Real files (chrmodelmaterial.db2, this session's own verification --
+    // see the real-data test further below) routinely bitpack a <32>-declared
+    // int down to a handful of bits. That's real compression, not a
+    // mismatch -- only a bitpacked width *larger* than the declared type
+    // can't be a legitimate compression of it.
+    std::string text =
+        "COLUMNS\n"
+        "int ID\n"
+        "int A\n"
+        "\n"
+        "LAYOUT AABBCCDD\n"
+        "BUILD 1.0.0.1\n"
+        "$id$ID<32>\n"
+        "A<32>\n";
+    dbd::Table table = dbd::parseDbd(text, "Test");
+    const dbd::Layout& layout = table.layouts[0];
+
+    std::vector<db2::FieldStorageInfo> smaller(2);
+    smaller[0].storageType = db2::FieldCompression::Bitpacked;
+    smaller[0].fieldSizeBits = 10;
+    smaller[1].storageType = db2::FieldCompression::BitpackedSigned;
+    smaller[1].fieldSizeBits = 6;
+    CHECK(dbd::resolveFieldNames(table, layout, smaller).has_value());
+
+    std::vector<db2::FieldStorageInfo> larger = smaller;
+    larger[1].fieldSizeBits = 40;  // can't be a compression of a 32-bit value
+    CHECK_FALSE(dbd::resolveFieldNames(table, layout, larger).has_value());
+}
+
+TEST_CASE(
+    "dbd::resolveFieldNames: bitpacked_indexed_array's array_count is checked exactly against the "
+    "declared [Length]") {
+    // Real chrmodeltexturelayer.db2 (layout D0583FB4) has exactly this
+    // shape: a [3]-declared field decoding as bitpacked_indexed_array with
+    // array_count 3 (this session's own real-data verification).
+    std::string text =
+        "COLUMNS\n"
+        "int ID\n"
+        "int A\n"
+        "\n"
+        "LAYOUT AABBCCDD\n"
+        "BUILD 1.0.0.1\n"
+        "$id$ID<32>\n"
+        "A<32>[3]\n";
+    dbd::Table table = dbd::parseDbd(text, "Test");
+    const dbd::Layout& layout = table.layouts[0];
+
+    // Two inline fields (ID, A) -- field_storage_info needs an entry for
+    // each, ID's own included, even though only A's shape is under test.
+    std::vector<db2::FieldStorageInfo> agreeing = noneFields(2);
+    agreeing[1].storageType = db2::FieldCompression::BitpackedIndexedArray;
+    agreeing[1].arrayCount = 3;
+    CHECK(dbd::resolveFieldNames(table, layout, agreeing).has_value());
+
+    std::vector<db2::FieldStorageInfo> disagreeing = agreeing;
+    disagreeing[1].arrayCount = 2;
+    CHECK_FALSE(dbd::resolveFieldNames(table, layout, disagreeing).has_value());
+}
+
+TEST_CASE(
+    "dbd::resolveFieldNames: common_data/bitpacked_indexed carry no comparable fact, never flagged as "
+    "a mismatch") {
+    // Both storage types' field_size_bits describes something other than
+    // the field's own logical value width (0 for CommonData -- no inline
+    // storage at all; an index's own width for BitpackedIndexed) -- neither
+    // is checkable against a .dbd-declared type/size, so an extreme,
+    // deliberately-wrong-looking value here must NOT fail the match.
+    std::string text =
+        "COLUMNS\n"
+        "int ID\n"
+        "int A\n"
+        "int B\n"
+        "\n"
+        "LAYOUT AABBCCDD\n"
+        "BUILD 1.0.0.1\n"
+        "$id$ID<32>\n"
+        "A<32>\n"
+        "B<32>\n";
+    dbd::Table table = dbd::parseDbd(text, "Test");
+    const dbd::Layout& layout = table.layouts[0];
+
+    // Three inline fields (ID, A, B) -- field_storage_info needs an entry
+    // for each, ID's own included, even though only A/B's shapes are under
+    // test.
+    std::vector<db2::FieldStorageInfo> info = noneFields(3);
+    info[1].storageType = db2::FieldCompression::CommonData;
+    info[1].fieldSizeBits = 0;
+    info[2].storageType = db2::FieldCompression::BitpackedIndexed;
+    info[2].fieldSizeBits = 3;  // an index width, unrelated to B's own <32>
+    CHECK(dbd::resolveFieldNames(table, layout, info).has_value());
 }
 
 TEST_CASE("dbd::findLayout: matches by any hash in a multi-hash LAYOUT line, nullptr on no match") {
@@ -188,7 +346,8 @@ TEST_CASE("dbd::findLayout: matches by any hash in a multi-hash LAYOUT line, nul
 TEST_CASE(
     "dbd: real reference/WoWDBDefs checkout resolves ChrModelMaterial's real column names for the "
     "real chrmodelmaterial.db2 file's own layout_hash" *
-    doctest::skip(husk::test::testDbdDir().empty())) {
+    doctest::skip(husk::test::testDbdDir().empty() ||
+                   !std::filesystem::exists("/media/luna/data/wow_export/dbfilesclient/chrmodelmaterial.db2"))) {
     // Real values from `husk db2-info /media/luna/data/wow_export/dbfilesclient/chrmodelmaterial.db2`
     // at test-writing time: table_hash=0xfa82a022, layout_hash=0x22469480, 7 fields.
     std::optional<dbd::Table> table = dbd::loadTableForHash(husk::test::testDbdDir(), 0xfa82a022);
@@ -198,7 +357,13 @@ TEST_CASE(
     const dbd::Layout* layout = dbd::findLayout(*table, 0x22469480);
     REQUIRE(layout != nullptr);
 
-    auto resolved = dbd::resolveFieldNames(*table, *layout, 7);
+    // Real field_storage_info, not a bare count, now that resolveFieldNames
+    // cross-validates per-field shape too -- exercises that check against
+    // real bitpacked/bitpacked_indexed_array storage, not just the
+    // synthetic None-only cases above.
+    db2::File file =
+        db2::parse(readFileBytes("/media/luna/data/wow_export/dbfilesclient/chrmodelmaterial.db2"));
+    auto resolved = dbd::resolveFieldNames(*table, *layout, file.fieldStorageInfo);
     REQUIRE(resolved.has_value());
     REQUIRE(resolved->size() == 7);
     CHECK((*resolved)[0].name == "ID");
