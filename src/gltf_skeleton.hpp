@@ -212,6 +212,12 @@ struct Skeleton {
         std::string identifier;  // M2Event::identifier, e.g. "$DTH" -- not unique, see writeGlbMulti's node-naming note
         int joint = -1;
         Vec3 position;
+        // M2Event::data ("passed when the event is fired," wowdev.wiki
+        // M2#Events) -- documented to exist, not documented to mean
+        // anything per-event; carried through raw as node extras key
+        // "data", same "expose the opaque field, don't guess" policy as
+        // PCOL's flags (WIKI_FINDINGS/M2.md).
+        uint32_t data = 0;
     };
     std::vector<Event> events;
 

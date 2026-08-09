@@ -398,6 +398,12 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
     }
     for (const auto& e : skeleton->events) {
         appendAnchorNode("event_" + e.identifier, e.joint, e.position);
+        // M2Event::data -- opaque per-event payload, no core-glTF slot;
+        // see Skeleton::Event::data's doc comment for why this is exposed
+        // raw rather than decoded.
+        tinygltf::Value::Object eventExtras;
+        eventExtras["data"] = tinygltf::Value(static_cast<int>(e.data));
+        out.anchorNodes.back().extras = tinygltf::Value(eventExtras);
     }
     for (size_t i = 0; i < skeleton->lights.size(); ++i) {
         const auto& l = skeleton->lights[i];

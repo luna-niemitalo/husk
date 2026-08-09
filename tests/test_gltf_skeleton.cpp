@@ -296,7 +296,7 @@ TEST_CASE("writeGlb: a skeleton's attachments/events/lights become real child no
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();
     skel.attachments = {{5, 1, {0.1f, 0.2f, 0.3f}}};
-    skel.events = {{"$DTH", 0, {1, 2, 3}}};
+    skel.events = {{"$DTH", 0, {1, 2, 3}, 42}};
     skel.lights = {{2, {4, 5, 6}}};
 
     auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
@@ -327,6 +327,11 @@ TEST_CASE("writeGlb: a skeleton's attachments/events/lights become real child no
     CHECK(event->translation[0] == doctest::Approx(1));
     REQUIRE(light->translation.size() == 3);
     CHECK(light->translation[2] == doctest::Approx(6));
+
+    // M2Event::data round-trips as a "data" extras key on the event's own
+    // node -- opaque per wowdev.wiki, exposed raw (see Skeleton::Event::data).
+    REQUIRE(event->extras.IsObject());
+    CHECK(event->extras.Get("data").GetNumberAsInt() == 42);
 
     auto nodeIndex = [&](const tinygltf::Node* n) {
         return static_cast<int>(n - model.nodes.data());

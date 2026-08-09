@@ -439,7 +439,7 @@ void attachPlacementNodes(const std::vector<uint8_t>& blob, const m2::Header& he
                                       std::to_string(e.bone) + ", out of range for " +
                                       std::to_string(skeleton.joints.size()) + " bones");
         }
-        skeleton.events.push_back({e.identifier, static_cast<int>(e.bone), toGltf(e.position)});
+        skeleton.events.push_back({e.identifier, static_cast<int>(e.bone), toGltf(e.position), e.data});
     }
     for (const auto& l : m2::parseLights(blob, header.lights)) {
         if (l.bone < 0 || static_cast<size_t>(l.bone) >= skeleton.joints.size()) {

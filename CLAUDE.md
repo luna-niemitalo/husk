@@ -163,7 +163,42 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: `TODO/ENGINE_TODO.md` (a spec for a hypothetical
+- **Current state**: Closed the small real gap the prior session's
+  `TODO/ENGINE_TODO.md` audit found and deliberately left open: `m2::Event::data`
+  (`src/m2_scene.hpp`, an opaque per-event `uint32_t`) is now exported into
+  the event node's own glTF extras, not just parsed. Per wowdev.wiki
+  M2#Events, `data` is documented to exist ("This data is passed when the
+  event is fired") but not what it means per event — genuinely opaque, same
+  "expose raw, don't guess" treatment this project already gives PCOL's
+  `flags` (`WIKI_FINDINGS/M2.md`). Threaded through the existing pipeline
+  unchanged in shape: `gltf::Skeleton::Event` (`src/gltf_skeleton.hpp`)
+  gained a `data` field, populated in `attachPlacementNodes`
+  (`src/cmd_export.cpp`, where events are actually built — not
+  `export_skeleton.cpp`, which only handles the separate `dump-chunks` JSON
+  path via `m2::eventName`; corrected that assumption while reading the
+  code), and attached as a `data` extras key on the same `event_<identifier>`
+  node in `writeGlbMulti` (`src/gltf_skeleton.cpp`), same one-extras-object-
+  per-anchor-node pattern `animate_attached`/`light_animation` already use.
+  Verified against the real `mace_2h_bolvar_d_01.m2` weapon fixture (2 real
+  events, `$WTB`/`$WTT`) — `husk info` already printed `data=0` for both
+  (a pre-existing, independent code path, `src/cmd_info.cpp`); the new test
+  in `test_integration_weapons.cpp` re-parses the same file directly via
+  `m2::parseEvents` and asserts the exported node's `data` extras matches
+  that independent read exactly, not just that it's present. Also extended
+  the existing synthetic `writeGlb` event test
+  (`tests/test_gltf_skeleton.cpp`) with a non-zero `data` value round-trip
+  check. `M2_COMPLETENESS.md`'s Events row and `TODO/ENGINE_TODO.md`
+  item 6 updated to mention `data` is now exported (item 6's own
+  conclusion — no sound-file reference lives in this field — is unchanged).
+  Full suite green, 586/586. Scope was deliberately narrow (this one field
+  only) per the task's own instruction — noticed but did not touch:
+  `TODO/ENGINE_TODO.md` item 6's own text still cites `m2::eventName`/
+  `src/export_skeleton.cpp` as if that were the glTF node-naming path; it
+  isn't (that's the `dump-chunks` JSON path) — real node names come
+  straight from `"event_" + e.identifier` in `src/cmd_export.cpp`/
+  `src/gltf_skeleton.cpp`. Pre-existing doc imprecision, not introduced
+  this session, flagged for a future docs pass rather than fixed here.
+- **Prior session**: `TODO/ENGINE_TODO.md` (a spec for a hypothetical
   downstream engine project, not husk itself — see its own header) refreshed
   against real current source, not just the 4-item starting list this task
   was given. Confirmed stale, and corrected in place: item 3 (hardcoded

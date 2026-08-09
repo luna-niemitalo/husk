@@ -171,10 +171,12 @@ textures are not filenames in the M2 at all.
   offset (`gltf::Skeleton::Event`, `src/gltf_skeleton.hpp`; emitted in
   `src/gltf_skeleton.cpp`'s `appendAnchorNode` call, named via
   `m2::eventName` in `src/export_skeleton.cpp` where a known name exists).
-  That's the identifier/placement half only (`gltf::Skeleton::Event` carries
-  `identifier`/`joint`/`position`; `m2::Event::data`, `src/m2_scene.hpp`, an
-  opaque per-event `uint32_t` payload, is parsed but not currently exported
-  into the `.glb`) — either way, you get no sound file reference.
+  `gltf::Skeleton::Event` carries `identifier`/`joint`/`position` plus, as
+  of this session, `data` too (`m2::Event::data`, `src/m2_scene.hpp`, an
+  opaque per-event `uint32_t` payload -- wowdev.wiki documents only that it
+  "is passed when the event is fired," not what it means -- now attached as
+  a `data` extras key on that same node) — none of that is a sound file
+  reference, and `data` didn't turn out to decode into one.
 - **missing**: which sound plays when a given event fires.
 - **likely source**: partly `SoundKit`-family DB2 tables keyed off the
   event's identifier convention (e.g. `"STAND"`/`"DEATH"`-style strings),

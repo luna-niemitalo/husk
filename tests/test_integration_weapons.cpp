@@ -6,9 +6,12 @@
 // Same "deliberately not mocked, shape-only assertions" policy as the file
 // it was split from -- see that file's own doc comment.
 
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <doctest/doctest.h>
 #include <filesystem>
+#include <fstream>
 #include <set>
 #include <string>
 #include <tiny_gltf.h>
@@ -190,6 +193,26 @@ TEST_CASE("husk export: a real weapon's attachments/events/lights become exactly
     CHECK(attachmentNodes == header.attachments.count);
     CHECK(eventNodes == header.events.count);
     CHECK(lightNodes == header.lights.count);
+
+    // M2Event::data round-trips as this fixture's real raw values -- cross-
+    // checked against a direct re-parse of the same file (independent of
+    // the export path) rather than assumed. `husk info` on this same
+    // fixture shows both real events ($WTB/$WTT) carry `data=0` -- not a
+    // placeholder, the field's genuine on-disk value here.
+    std::ifstream m2Stream(m2Path, std::ios::binary);
+    std::vector<uint8_t> fileBytes((std::istreambuf_iterator<char>(m2Stream)),
+                                    std::istreambuf_iterator<char>());
+    auto blob = husk::m2::extractBlob(fileBytes);
+    auto rawEvents = husk::m2::parseEvents(blob, header.events);
+    for (const auto& n : model.nodes) {
+        if (n.name.rfind("event_", 0) != 0) continue;
+        auto identifier = n.name.substr(std::strlen("event_"));
+        auto it = std::find_if(rawEvents.begin(), rawEvents.end(),
+                                [&](const auto& e) { return e.identifier == identifier; });
+        REQUIRE(it != rawEvents.end());
+        REQUIRE(n.extras.IsObject());
+        CHECK(static_cast<uint32_t>(n.extras.Get("data").GetNumberAsInt()) == it->data);
+    }
 
     // Never added to skin.joints -- this fixture's real bone count is 78.
     // skin.joints does legitimately grow past that by one geoset tag joint

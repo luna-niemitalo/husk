@@ -40,7 +40,7 @@ struct Attachment {
 // static record dump.
 struct Event {
     std::string identifier;
-    uint32_t data = 0;
+    uint32_t data = 0;  // wowdev.wiki M2#Events: "This data is passed when the event is fired" -- documented existence, undocumented per-event meaning; exposed raw, same as PCOL's flags (WIKI_FINDINGS/M2.md)
     uint32_t bone = 0;
     Vec3 position;
 };
