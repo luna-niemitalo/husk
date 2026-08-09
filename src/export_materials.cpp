@@ -243,6 +243,51 @@ std::optional<std::string> classifyCandidateCategory(const std::filesystem::path
     return rest;
 }
 
+// Parses the trailing FileDataID digit-run out of a same-basename fuzzy
+// candidate's stem -- either a bare "<model>_<fdid>" file or a
+// category-tagged "<model>_<category>_<fdid>" one, the same two shapes
+// classifyCandidateCategory already recognizes (mirrors its own
+// basename-prefix-stripping, just keeping the digits instead of discarding
+// them). Returns std::nullopt when the stem doesn't end in a digit run at
+// all -- a genuinely category-only name with no embedded FileDataID, or a
+// path that doesn't even start with the model's own basename.
+//
+// Used to cross-check a candidate against this model's *own* M2 texture
+// array (`M2MaterialInputs::textureFileDataIds`, the TXID chunk) -- see
+// buildMaterialsAndPrimitives' fuzzyTexturePool filtering for why a
+// candidate whose own FileDataID is already a different, specifically-
+// identified texture slot in this exact M2 is never a plausible guess for
+// an unrelated hardcoded slot.
+std::optional<uint32_t> fuzzyCandidateFileDataId(const std::filesystem::path& path,
+                                                   const std::string& modelBasenameLower) {
+    std::string stem = path.stem().string();
+    std::transform(stem.begin(), stem.end(), stem.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (stem.rfind(modelBasenameLower, 0) != 0) return std::nullopt;
+    std::string rest = stem.substr(modelBasenameLower.size());
+    if (!rest.empty() && rest.front() == '_') rest.erase(0, 1);
+    if (rest.empty()) return std::nullopt;
+
+    auto isAllDigits = [](const std::string& s) {
+        return !s.empty() &&
+               std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
+    };
+    std::string digits;
+    if (isAllDigits(rest)) {
+        digits = rest;
+    } else {
+        auto lastUnderscore = rest.find_last_of('_');
+        if (lastUnderscore == std::string::npos) return std::nullopt;
+        std::string tail = rest.substr(lastUnderscore + 1);
+        if (!isAllDigits(tail)) return std::nullopt;
+        digits = tail;
+    }
+    // A real FileDataID fits uint32_t; a longer digit run can't be one --
+    // bail rather than let std::stoul throw/overflow on pathological input.
+    if (digits.size() > 10) return std::nullopt;
+    return static_cast<uint32_t>(std::stoul(digits));
+}
+
 // Category token -> the M2Texture::type values (m2::textureTypeName) it's
 // actually compatible with. Transcribed, not guessed, from
 // `reference/wow.export/src/js/modules/tab_characters.js`: the legacy
@@ -601,6 +646,33 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
     FuzzyTexturePool fuzzyTexturePool = scanFuzzyTexturePool(texturesDir, modelPath);
     std::string modelBasenameLower = lowercaseModelBasename(modelPath);
 
+    // A same-basename fuzzy candidate whose own trailing FileDataID matches
+    // one of this exact M2's own texture-array entries (TXID chunk) is
+    // never a plausible guess for an unrelated hardcoded slot -- it's
+    // already a real, specifically-identified texture belonging to some
+    // *other* M2 texture-array index (e.g. a particle/ribbon-emitter
+    // sprite, referenced by array index rather than by any material
+    // batch), not an unknown file a human just happened to name after this
+    // model. Real bug this fixes: `ethereal2_f.m2`'s monster_1/monster_2/
+    // monster_3/environment slots (no FileDataID of their own -- runtime-
+    // filled by the client, not stored in the M2 at all) were picking up
+    // this same model's own particle-effect sprite textures purely because
+    // they share the model's basename under the community listfile's
+    // naming convention, rendering the arm/leg geosets with an almost
+    // entirely transparent ribbon-trail image instead of no candidate at
+    // all.
+    if (m2.textureFileDataIds) {
+        fuzzyTexturePool.files.erase(
+            std::remove_if(fuzzyTexturePool.files.begin(), fuzzyTexturePool.files.end(),
+                            [&](const std::filesystem::path& p) {
+                                auto fdid = fuzzyCandidateFileDataId(p, modelBasenameLower);
+                                return fdid && std::find(m2.textureFileDataIds->begin(),
+                                                          m2.textureFileDataIds->end(),
+                                                          *fdid) != m2.textureFileDataIds->end();
+                            }),
+            fuzzyTexturePool.files.end());
+    }
+
     // Content signature (materialDedupKey) -> that material's index in
     // result.materials -- real M2 corpus models routinely have dozens of
     // batches drawing with the exact same effective material (a shared base
@@ -626,6 +698,33 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
     // also keeps the *embedded* bytes from being duplicated once per
     // material in the final .glb, not just the read/decode cost here).
     std::map<std::filesystem::path, std::vector<uint8_t>> ambiguousCandidateCache;
+
+    // Per-M2-texture-array-index fuzzy resolution cache -- a real M2
+    // texture slot (fdid == 0, or a resolved fdid with no matching local
+    // file) can be referenced by more than one batch, e.g.
+    // `argustalbukmount.m2`'s texture 0 (the sole monster_1 candidate) is
+    // used by both a body batch and a separate horns-geoset batch. Without
+    // this, the second batch to reach the block below re-runs
+    // claimSoleFuzzyTextureCandidate against the *same* shared, depleting
+    // pool -- already emptied by the first batch, so the horns geoset
+    // silently got no texture at all (a real, confirmed bug: the pool's
+    // "claim and remove" design is correct for genuinely *different*
+    // hardcoded slots competing for one pool, but wrong for the same slot
+    // being resolved twice). Keying by textureIndex (not materialIndex or
+    // gm.textureType) makes every batch that references the identical M2
+    // texture-array entry agree on the identical answer, which also lets
+    // materialDedupKey (below) correctly merge them into one glTF material
+    // instead of two.
+    struct FuzzyResolution {
+        bool found = false;
+        bool isAmbiguous = false;  // true -> ambiguousMatches-style diagnostic, false -> fuzzyMatches-style
+        std::string nameSuffix;
+        std::vector<uint8_t> baseColorImagePng;
+        std::string baseColorImageName;
+        std::string matchedFilename;
+        std::vector<gltf::Material::AlternateTextureCandidate> alternateTextureCandidates;
+    };
+    std::unordered_map<uint16_t, FuzzyResolution> fuzzyResolutionByTextureIndex;
 
     if (batches.empty()) {
         // A genuinely geometry-less .skin (real corpus
@@ -927,65 +1026,95 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 // exists in texturesDir (new: previously this case silently
                 // embedded nothing, even when a real, descriptively-named
                 // file for it was sitting right there unclaimed).
-                if (auto fuzzy = claimSoleFuzzyTextureCandidate(fuzzyTexturePool, gm.textureType, modelBasenameLower)) {
-                    if (auto bytes = readTextureFileBytes(*fuzzy, texturesDir, texturesOutDir)) {
-                        gm.name += "_" + fuzzy->stem().string();
-                        gm.baseColorImagePng = std::move(*bytes);
-                        gm.baseColorImageName = fuzzy->stem().string();
-                        result.fuzzyMatches.push_back({gm.name, fuzzy->filename().string(), fdid});
-                    }
-                } else {
-                    // Not claimed (removed) from the shared pool -- every
-                    // other ambiguous slot is equally uninformed about
-                    // *this* slot's own real candidates and deserves its
-                    // own independently-filtered view, not whichever's left
-                    // after an earlier slot's pick. Narrowed to only the
-                    // candidates compatible with this slot's textureType,
-                    // preferring real recognized-category matches over
-                    // unlabeled ones (filterCandidatesForType's doc
-                    // comment) -- a real, grounded exclusion, not a guess
-                    // about which one is correct.
-                    auto matching = filterCandidatesForType(fuzzyTexturePool.files, gm.textureType, modelBasenameLower);
-                    if (matching.size() > 1) {
-                        // Genuinely ambiguous: 2+ type-compatible
-                        // candidates, no way to tell which one this slot
-                        // actually wants. Embed every one of them
-                        // (gltf_mesh.hpp's AlternateTextureCandidate doc
-                        // comment has the full rationale), same "export
-                        // everything, let the client filter" treatment
-                        // mutually-exclusive geosets already get --
-                        // reordered first so the most plausible default
-                        // (orderCandidatesForDefault's doc comment) lands at
-                        // front(), the one that becomes the wired default.
-                        orderCandidatesForDefault(matching, texturesDir, texturesOutDir, modelBasenameLower,
-                                                   ambiguousCandidateCache);
-                        std::vector<std::string> allFileNames;
-                        for (const auto& candidatePath : matching) {
-                            auto cached = ambiguousCandidateCache.find(candidatePath);
-                            if (cached == ambiguousCandidateCache.end()) {
-                                auto bytes = readTextureFileBytes(candidatePath, texturesDir, texturesOutDir);
-                                if (!bytes) continue;
-                                cached = ambiguousCandidateCache.emplace(candidatePath, std::move(*bytes)).first;
+                //
+                // Resolved once per M2 texture-array index and cached
+                // (fuzzyResolutionByTextureIndex, declared above) -- see its
+                // own doc comment for why a second batch referencing the
+                // same textureIndex must reuse this answer rather than
+                // re-touching the shared, depleting pool.
+                auto [cacheIt, isNewIndex] = fuzzyResolutionByTextureIndex.try_emplace(textureIndex);
+                FuzzyResolution& resolution = cacheIt->second;
+                if (isNewIndex) {
+                    if (auto fuzzy =
+                            claimSoleFuzzyTextureCandidate(fuzzyTexturePool, gm.textureType, modelBasenameLower)) {
+                        if (auto bytes = readTextureFileBytes(*fuzzy, texturesDir, texturesOutDir)) {
+                            resolution.found = true;
+                            resolution.nameSuffix = "_" + fuzzy->stem().string();
+                            resolution.baseColorImagePng = std::move(*bytes);
+                            resolution.baseColorImageName = fuzzy->stem().string();
+                            resolution.matchedFilename = fuzzy->filename().string();
+                        }
+                    } else {
+                        // Not claimed (removed) from the shared pool -- every
+                        // other ambiguous slot is equally uninformed about
+                        // *this* slot's own real candidates and deserves its
+                        // own independently-filtered view, not whichever's left
+                        // after an earlier slot's pick. Narrowed to only the
+                        // candidates compatible with this slot's textureType,
+                        // preferring real recognized-category matches over
+                        // unlabeled ones (filterCandidatesForType's doc
+                        // comment) -- a real, grounded exclusion, not a guess
+                        // about which one is correct.
+                        auto matching =
+                            filterCandidatesForType(fuzzyTexturePool.files, gm.textureType, modelBasenameLower);
+                        if (matching.size() > 1) {
+                            // Genuinely ambiguous: 2+ type-compatible
+                            // candidates, no way to tell which one this slot
+                            // actually wants. Embed every one of them
+                            // (gltf_mesh.hpp's AlternateTextureCandidate doc
+                            // comment has the full rationale), same "export
+                            // everything, let the client filter" treatment
+                            // mutually-exclusive geosets already get --
+                            // reordered first so the most plausible default
+                            // (orderCandidatesForDefault's doc comment) lands at
+                            // front(), the one that becomes the wired default.
+                            orderCandidatesForDefault(matching, texturesDir, texturesOutDir, modelBasenameLower,
+                                                       ambiguousCandidateCache);
+                            for (const auto& candidatePath : matching) {
+                                auto cached = ambiguousCandidateCache.find(candidatePath);
+                                if (cached == ambiguousCandidateCache.end()) {
+                                    auto bytes = readTextureFileBytes(candidatePath, texturesDir, texturesOutDir);
+                                    if (!bytes) continue;
+                                    cached = ambiguousCandidateCache.emplace(candidatePath, std::move(*bytes)).first;
+                                }
+                                gltf::Material::AlternateTextureCandidate cand;
+                                cand.filename = candidatePath.filename().string();
+                                auto category = classifyCandidateCategory(candidatePath, modelBasenameLower);
+                                cand.category = category.value_or(std::string());
+                                auto [candWidth, candHeight] = pngDimensions(cached->second);
+                                cand.width = candWidth;
+                                cand.height = candHeight;
+                                cand.imagePng = cached->second;
+                                resolution.alternateTextureCandidates.push_back(std::move(cand));
                             }
-                            gltf::Material::AlternateTextureCandidate cand;
-                            cand.filename = candidatePath.filename().string();
-                            auto category = classifyCandidateCategory(candidatePath, modelBasenameLower);
-                            cand.category = category.value_or(std::string());
-                            auto [candWidth, candHeight] = pngDimensions(cached->second);
-                            cand.width = candWidth;
-                            cand.height = candHeight;
-                            cand.imagePng = cached->second;
+                            if (!resolution.alternateTextureCandidates.empty()) {
+                                const auto& chosen = resolution.alternateTextureCandidates.front();
+                                resolution.found = true;
+                                resolution.isAmbiguous = true;
+                                resolution.nameSuffix =
+                                    "_" + std::filesystem::path(chosen.filename).stem().string();
+                                resolution.baseColorImagePng = chosen.imagePng;
+                                resolution.baseColorImageName =
+                                    std::filesystem::path(chosen.filename).stem().string();
+                                resolution.matchedFilename = chosen.filename;
+                            }
+                        }
+                    }
+                }
+                if (resolution.found) {
+                    gm.name += resolution.nameSuffix;
+                    gm.baseColorImagePng = resolution.baseColorImagePng;
+                    gm.baseColorImageName = resolution.baseColorImageName;
+                    gm.alternateTextureCandidates = resolution.alternateTextureCandidates;
+                    if (resolution.isAmbiguous) {
+                        std::vector<std::string> allFileNames;
+                        for (const auto& cand : resolution.alternateTextureCandidates) {
                             allFileNames.push_back(cand.filename);
-                            gm.alternateTextureCandidates.push_back(std::move(cand));
                         }
-                        if (!gm.alternateTextureCandidates.empty()) {
-                            const auto& chosen = gm.alternateTextureCandidates.front();
-                            gm.name += "_" + std::filesystem::path(chosen.filename).stem().string();
-                            gm.baseColorImagePng = chosen.imagePng;
-                            gm.baseColorImageName = std::filesystem::path(chosen.filename).stem().string();
-                            result.ambiguousMatches.push_back(
-                                {gm.name, chosen.filename, std::move(allFileNames), fdid});
-                        }
+                        result.ambiguousMatches.push_back(
+                            {gm.name, resolution.matchedFilename, std::move(allFileNames), fdid});
+                    } else {
+                        result.fuzzyMatches.push_back({gm.name, resolution.matchedFilename, fdid});
                     }
                 }
             }
