@@ -664,3 +664,55 @@ TEST_CASE("husk db2-export --dir: real chrmodeltexturelayer.db2 -> charcomponent
 
     fs::remove_all(dir);
 }
+
+// Real-data-gated: offset-map ("sparse") per-field decode, added this
+// session -- previously these sections were skipped entirely by db2-export
+// (LoadedFile::skippedOffsetMap). scenescripttext.db2 is the real local
+// fixture that found two real bugs before this passed (a false positive
+// from a small integer field mid-decode, and a false positive from a
+// high-byte value chaining across a field boundary -- see db2.cpp's
+// tryReadInlineString and decodeOffsetMapRecord for the fixes). Skips
+// cleanly, not a failure, when the real local file isn't present.
+TEST_CASE(
+    "husk db2-export: real scenescripttext.db2 offset-map section exports real Name/Script text" *
+    doctest::skip(!fs::exists("/media/luna/data/wow_export/dbfilesclient/scenescripttext.db2"))) {
+    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-real-offsetmap";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    fs::path outPath = dir / "out.sqlite";
+
+    auto result = runHusk("db2-export /media/luna/data/wow_export/dbfilesclient/scenescripttext.db2 " +
+                           outPath.string());
+    CHECK(result.exitCode == 0);
+    REQUIRE(fs::exists(outPath));
+    // No more "skipped ... offset-map/sparse section(s)" -- every real
+    // section here is offset-map-shaped, and all now export.
+    CHECK(result.output.find("offset-map") == std::string::npos);
+
+    sqlite3* db = nullptr;
+    REQUIRE(sqlite3_open_v2(outPath.string().c_str(), &db, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK);
+
+    sqlite3_stmt* countStmt = nullptr;
+    REQUIRE(sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM scenescripttext", -1, &countStmt, nullptr) ==
+            SQLITE_OK);
+    REQUIRE(sqlite3_step(countStmt) == SQLITE_ROW);
+    int64_t total = sqlite3_column_int64(countStmt, 0);
+    sqlite3_finalize(countStmt);
+    CHECK(total > 30000);  // real file has 36498 records in its one decodable section
+
+    // A real, specific row: a scene named "Global Functions - Scene" whose
+    // Script field is real Lua source text -- exact string, not a
+    // substring/LIKE guess, so a decode that silently truncated or
+    // misaligned this field would fail the check.
+    sqlite3_stmt* rowStmt = nullptr;
+    REQUIRE(sqlite3_prepare_v2(
+                db, "SELECT field_1 FROM scenescripttext WHERE field_0 = 'Global Functions - Scene'", -1,
+                &rowStmt, nullptr) == SQLITE_OK);
+    REQUIRE(sqlite3_step(rowStmt) == SQLITE_ROW);
+    std::string script(reinterpret_cast<const char*>(sqlite3_column_text(rowStmt, 0)));
+    sqlite3_finalize(rowStmt);
+    CHECK(script.find("function Scene:WaitTimer(waitTime)") != std::string::npos);
+    sqlite3_close(db);
+
+    fs::remove_all(dir);
+}

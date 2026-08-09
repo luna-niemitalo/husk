@@ -163,7 +163,70 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Closed `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 1
+- **Current state**: `db2.hpp`'s long-standing named gap -- "full decoding of
+  offset-map ('sparse', flags & 0x01) sections ... expose their raw
+  variable-length record bytes but not per-field values" -- is now closed
+  for the `field_compression_none` case (the only one any real local
+  offset-map file actually uses). New `db2::decodeOffsetMapRecord`
+  (`src/db2.hpp`/`.cpp`) decodes a whole record in one pass with a running
+  bit cursor, NOT via `field_storage_info.field_offset_bits` (that value
+  only describes the table's *non-sparse* layout -- confirmed wrong against
+  real `scenescripttext.db2` bytes, where an inline string shifts every
+  field after it). Wired into both `husk db2-info` (row dump now works for
+  offset-map sections too) and `husk db2-export` (`LoadedFile::
+  skippedOffsetMap` removed entirely -- these sections get a real SQLite
+  table like any other now); `cmd_db2.cpp` gained a shared `FieldValues`/
+  `decodeRecordValues` abstraction so printing/column-planning/binding is
+  one code path regardless of section shape, not two parallel ones. Found
+  and fixed three real bugs via actual corpus data, not by inspection, all
+  before this shipped: (1) a scalar 32-bit field's own value could
+  coincidentally look like a short printable string (real:
+  `conversationline.db2`'s `SpeechType` field, value `0x78` = ASCII `'x'`)
+  -- fixed by only attempting the inline-string heuristic on fields whose
+  `field_size_bits == 32` (a real string field's non-sparse counterpart is
+  always a 4-byte string-table offset) plus a 4-byte minimum match length;
+  (2) that same minimum length then wrongly rejected two genuinely real
+  short strings at the very end of a record (`scenescripttext.db2`: a
+  literal empty `Script` field, and a literal 1-character `" "` `Script`
+  field) -- fixed by dropping the floor to 0 specifically when there isn't
+  room left in the record for the alternative (a raw 4-byte int read)
+  either, the one case where "short string" is the *only* value consistent
+  with the record's own declared length; (3) the character-class check
+  reused from `resolveFieldString` (permissive of high/UTF-8-continuation
+  bytes, safe there since it's only applied within an already-likely
+  string-table region) let a real large/negative 32-bit value
+  (`conversationline.db2`'s `AdditionalDuration = -2500`, bytes starting
+  `0x3c 0xf6 0xff 0xff`) "read through" its own high bytes into the *next*
+  field's bytes before finding a zero terminator, silently desyncing every
+  field after it -- fixed by making the offset-map heuristic strictly
+  ASCII-only (reject anything >= 0x7f), a deliberate, documented divergence
+  from `resolveFieldString`'s own looser rule. Verified end to end against
+  all 5 real local offset-map files (found via a full `db2-info` scan of
+  `/media/luna/data/wow_export/dbfilesclient/`'s 1129 files):
+  `conversationline.db2` (69,312 rows, real numeric fields incl. the
+  negative-duration case above, zero decode errors) and
+  `scenescripttext.db2` (36,498 rows, real Lua source text, incl. the exact
+  `Name`/`Script` pair used as this session's own regression test) both
+  export cleanly via `db2-export --dbd-dir`; the three
+  `collectablesource*sparse.db2` tables decode every record with no errors
+  and their one array-typed field (`float[3]` map-position columns)
+  reinterprets to plausible real in-game coordinates. Non-None storage
+  types (Bitpacked/CommonData/BitpackedIndexed(Array)) are implemented the
+  same way for offset-map records but **not verified** against real bytes
+  -- none of the 5 found locally use them; said so explicitly in `db2.hpp`'s
+  module comment and `README.md`, not overclaimed. New tests: 7 synthetic
+  cases in `tests/test_db2.cpp` (plain numeric record, real inline string
+  shifting a later field, the two short-trailing-string cases, the
+  high-byte-value case, a genuinely truncated record throwing, an
+  out-of-range record index throwing) via a new `buildOffsetMapFile` helper
+  (had its own bug caught by the suite itself: forgot the trailing
+  `offset_map_id_list` block `db2::parse` always reads once `flags & 0x01`
+  is set, regardless of relationship data -- every offset-map fixture in
+  this file must include it), plus a real-data-gated CLI test in
+  `tests/test_cli_db2.cpp` against the real `scenescripttext.db2` export
+  (skips cleanly when the file isn't present locally). Full suite green,
+  586/586.
+- **Prior session**: Closed `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 1
   "non-inline relationship data decoded structurally but not yet folded
   into the exported table itself" gap -- `husk db2-export` (both single-file
   and `--dir` modes, `src/cmd_db2.cpp`) now emits a real SQLite column and

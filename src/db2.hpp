@@ -25,12 +25,33 @@
 // a human poke at real .db2 files (`husk db2-info`) before any table-specific
 // consumer exists. What's NOT here yet, current-vs-target: WDB2..WDC4 (older
 // container versions -- WDC5 only, since every file under
-// /media/luna/data/wow_export/dbfilesclient/ checked so far is WDC5), the
+// /media/luna/data/wow_export/dbfilesclient/ checked so far is WDC5), and the
 // pre-WDC2/legacy string-block layout (unneeded -- WDC5 always carries the
-// WDC2+ per-field string-offset scheme), and full decoding of offset-map
-// ("sparse", flags & 0x01) sections -- those expose their raw variable-length
-// record bytes but not per-field values, since the fixed-width field_offset_bits
-// scheme below doesn't apply to them. WDC5 itself still carries no field
+// WDC2+ per-field string-offset scheme). Offset-map ("sparse", flags & 0x01)
+// sections now DO get real per-field decoding (decodeOffsetMapRecord) --
+// verified against 5 real local files (conversationline.db2,
+// scenescripttext.db2, and the three collectablesource*sparse.db2 tables),
+// covering every real field_compression value those files actually use
+// (field_compression_none only). The non-None storage types
+// (Bitpacked/CommonData/BitpackedIndexed(Array)) are implemented the same
+// way for offset-map records as for fixed-width ones (same bit-cursor math,
+// same common_data/pallet_data lookups) but have **not** been verified
+// against any real offset-map file that actually uses them -- none of the 5
+// found locally do. See decodeOffsetMapRecord's own doc comment for the real,
+// byte-verified reason offset-map records can't reuse field_storage_info's
+// field_offset_bits directly (inline strings shift every field after them),
+// and the real-data-driven heuristic gates (field width, minimum string
+// length, a stricter-than-resolveFieldString character class, a relaxed
+// length floor when no other reading of the remaining bytes is possible)
+// that keep its string-vs-integer guess from misfiring. All four gates were
+// tuned against real, specific failures, not designed up front: a 1-byte
+// field that happened to decode as printable ASCII 'x' (conversationline.db2),
+// a genuinely empty and a genuinely 1-character trailing string field
+// (scenescripttext.db2), and a large/negative 32-bit value whose high bytes
+// chained across a field boundary before finding a zero terminator
+// (conversationline.db2 again) -- see db2.cpp's tryReadInlineString and
+// decodeOffsetMapRecord for exactly which real bytes caught each one. WDC5
+// itself still carries no field
 // *names* here -- no `field_structure`/`field_storage_info` entry in
 // DB2.md's own struct definitions carries a name string anywhere (mis-cited
 // in an earlier version of this comment as DB2.md's "Determining Field
@@ -236,5 +257,54 @@ std::vector<std::optional<uint32_t>> nonInlineRelationValuesByRecord(const File&
 // not a schema).
 std::optional<std::string> resolveFieldString(const std::vector<uint8_t>& fileBytes,
                                                 size_t fieldAbsoluteFilePos, uint64_t rawValue);
+
+// One decoded field's value from an offset-map ("sparse") record -- either a
+// raw unsigned array (same shape decodeField would produce) or a resolved
+// inline string, mutually exclusive (a resolved string leaves `raw` empty).
+struct OffsetMapFieldValue {
+    std::vector<uint64_t> raw;
+    std::optional<std::string> str;
+};
+
+// Decodes every field of the `recordIndex`-th record of an offset-map
+// section (section.variableRecordBytes, NOT the fixed-width path) in one
+// pass -- fields must be walked sequentially with a running bit cursor,
+// NOT via field_storage_info's field_offset_bits: that value describes this
+// table's *non-sparse* fixed-width layout, and DB2.md's own note that
+// "all strings will be embedded inline in the records" as variable-length
+// null-terminated C strings breaks it for any offset-map record that
+// actually has one -- confirmed against real scenescripttext.db2 bytes,
+// where field 1's declared field_offset_bits=32 (4 bytes) does not survive
+// field 0's own 25+ byte inline string.
+//
+// A storage-type-None scalar field (array length 1, matching
+// resolveFieldString's own "isScalarNone" precondition for the fixed-width
+// heuristic) is tried against a direct inline-string read (no offset
+// indirection -- there is no string table here) before falling back to a
+// plain packed integer. Two real-data-grounded gates keep this from
+// misfiring on ordinary integer fields: (1) only a field whose
+// field_size_bits is exactly 32 is even attempted -- a real inline string
+// field's non-sparse counterpart is always a 4-byte string-table offset, so
+// only a field that *could* have been that shape is a candidate (real
+// negative case: conversationline.db2's 8/16-bit fields never qualify);
+// (2) a match shorter than 4 bytes is rejected -- caught failing for real
+// against conversationline.db2's SpeechType field (value 0x78, ASCII 'x',
+// followed by a zero byte) before this gate was added, which would have
+// misread a 1-byte integer as a 1-character string and desynced every field
+// after it. Every real inline string found locally (scenescripttext.db2)
+// is far longer than this floor. A non-None field (Bitpacked/CommonData/
+// BitpackedIndexed(Array)) consumes field_size_bits worth of cursor
+// (0 for CommonData -- it has no inline storage at all, same as the
+// fixed-width path) using the exact same per-type logic as decodeField,
+// just bit-cursor-sourced instead of field_offset_bits-sourced -- NOT
+// verified against any real offset-map file, since none of the 5 found
+// locally use anything but field_compression_none.
+//
+// Throws ParseError on an out-of-range record index, a record with no data
+// (a zero-offset offset_map entry), or any bit-cursor read that runs past
+// the record's own offset-map-declared length -- every read here is
+// bounds-checked the same way decodeField's readBits is.
+std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const Section& section,
+                                                         size_t recordIndex);
 
 }  // namespace husk::db2

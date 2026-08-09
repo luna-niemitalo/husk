@@ -544,6 +544,200 @@ std::vector<uint64_t> decodeField(const File& file, const Section& section, size
     throw ParseError("db2: unreachable field_compression value");
 }
 
+namespace {
+
+// Direct-read counterpart to resolveFieldString for offset-map records: an
+// inline string's bytes start exactly at `pos` in `record` (no offset
+// indirection -- there is no separate string table in an offset-map
+// section). Deliberately STRICTER than resolveFieldString's own character
+// class: that one permits high/UTF-8-continuation bytes (0x80+), which is
+// safe there because it's only ever applied within a region already
+// suspected to be a string-table offset target. Applied blindly to an
+// arbitrary 32-bit scalar field here, that same permissiveness is a real
+// bug -- caught against real conversationline.db2 bytes: a legitimate
+// negative/large AdditionalDuration value (0xfffff63c) starts with a
+// printable byte (0x3c) and continues through several high (>=0x80) bytes
+// that the permissive rule accepted as valid "characters", chaining all the
+// way into the NEXT field's own bytes before finding a zero terminator --
+// silently desyncing every field after it. Only tab/CR/LF and strict
+// printable ASCII (0x20-0x7e) are accepted here; every real inline string
+// found locally (scenescripttext.db2's Lua source text) is plain ASCII, so
+// this hasn't cost any real positive match.
+//
+// `minLen` is a caller-supplied floor -- see decodeOffsetMapRecord's own
+// doc comment for why it has to vary by call site (a real short inline
+// string and a real small integer are structurally indistinguishable in
+// general, so the floor is only safe to relax when no other reading of the
+// bytes is even possible).
+constexpr size_t kMinInlineStringLen = 4;
+
+std::optional<std::string> tryReadInlineString(const std::vector<uint8_t>& record, size_t pos,
+                                                 size_t minLen) {
+    constexpr size_t kMaxStringLen = 4096;
+    size_t end = pos;
+    size_t limit = std::min(record.size(), pos + kMaxStringLen);
+    while (end < limit && record[end] != 0) {
+        uint8_t c = record[end];
+        if (c < 0x09 || (c >= 0x0e && c < 0x20) || c >= 0x7f) return std::nullopt;
+        ++end;
+    }
+    if (end == limit) return std::nullopt;  // no terminator found within the cap
+    if (end - pos < minLen) return std::nullopt;
+
+    return std::string(reinterpret_cast<const char*>(record.data() + pos), end - pos);
+}
+
+}  // namespace
+
+std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const Section& section,
+                                                         size_t recordIndex) {
+    if (recordIndex >= section.header.recordCount) {
+        throw ParseError("db2: offset-map record index " + std::to_string(recordIndex) +
+                          " out of range, section has " + std::to_string(section.header.recordCount) +
+                          " records");
+    }
+    if (recordIndex >= section.variableRecordBytes.size()) {
+        throw ParseError("db2: offset-map record index " + std::to_string(recordIndex) +
+                          " has no variable-record-bytes entry (section has " +
+                          std::to_string(section.variableRecordBytes.size()) + ")");
+    }
+    const std::vector<uint8_t>& record = section.variableRecordBytes[recordIndex];
+    if (record.empty()) {
+        throw ParseError("db2: offset-map record " + std::to_string(recordIndex) +
+                          " has no data (zero-offset offset_map entry)");
+    }
+
+    std::vector<OffsetMapFieldValue> result;
+    result.reserve(file.fieldStorageInfo.size());
+
+    size_t cursorBits = 0;
+    for (size_t f = 0; f < file.fieldStorageInfo.size(); ++f) {
+        const FieldStorageInfo& info = file.fieldStorageInfo[f];
+        OffsetMapFieldValue value;
+
+        switch (info.storageType) {
+            case FieldCompression::None: {
+                if (f >= file.fieldStructures.size()) {
+                    throw ParseError("db2: fieldStorageInfo/fieldStructures length mismatch at index " +
+                                      std::to_string(f));
+                }
+                int16_t structSize = file.fieldStructures[f].size;
+                uint32_t elementBits = static_cast<uint32_t>(32 - structSize);
+                if (elementBits == 0 || info.fieldSizeBits % elementBits != 0) {
+                    throw ParseError("db2: offset-map field " + std::to_string(f) + " has fieldSizeBits " +
+                                      std::to_string(info.fieldSizeBits) +
+                                      " not a multiple of its element width " + std::to_string(elementBits));
+                }
+                uint32_t arrayLength = info.fieldSizeBits / elementBits;
+
+                // Only a genuinely scalar, 32-bit-wide field is a plausible
+                // inline-string candidate -- see decodeOffsetMapRecord's doc
+                // comment for why (a real string field's non-sparse
+                // counterpart is always a 4-byte string-table offset; a
+                // narrower/array field can never have been that shape).
+                std::optional<std::string> str;
+                if (arrayLength == 1 && info.fieldSizeBits == 32) {
+                    if (cursorBits % 8 != 0) {
+                        throw ParseError("db2: offset-map field " + std::to_string(f) +
+                                          " starts mid-byte (bit cursor " + std::to_string(cursorBits) + ")");
+                    }
+                    size_t cursorBytes = cursorBits / 8;
+                    bool rawFallbackFits = cursorBytes + 4 <= record.size();
+                    // When a raw 32-bit reread is still possible, require
+                    // the normal minimum length (see decodeOffsetMapRecord's
+                    // doc comment for the false positive that guards
+                    // against -- a small integer landing in printable-ASCII
+                    // range). When it's NOT possible -- no bytes left for a
+                    // 4-byte int -- a string, even a short or empty one, is
+                    // the *only* value consistent with the record's own
+                    // declared length, so the floor is dropped to 0. Both
+                    // real cases verified against scenescripttext.db2:
+                    // section 0 record 426 ("----- Bot Dispatcher -----",
+                    // a separator entry with a genuinely empty trailing
+                    // Script field, 0 bytes) and record 6994 (a genuinely
+                    // 1-character trailing Script field, " ").
+                    str = tryReadInlineString(record, cursorBytes, rawFallbackFits ? kMinInlineStringLen : 0);
+                    if (!str && !rawFallbackFits) {
+                        throw ParseError("db2: offset-map field " + std::to_string(f) +
+                                          " has neither a valid inline string nor room for a raw 32-bit "
+                                          "value (" +
+                                          std::to_string(record.size() - cursorBytes) + " byte(s) left in a " +
+                                          std::to_string(record.size()) + "-byte record)");
+                    }
+                }
+
+                if (str) {
+                    cursorBits += (str->size() + 1) * 8;  // +1 for the NUL terminator
+                    value.str = std::move(str);
+                } else {
+                    value.raw.reserve(arrayLength);
+                    for (uint32_t i = 0; i < arrayLength; ++i) {
+                        value.raw.push_back(readBits(record, cursorBits + i * elementBits, elementBits));
+                    }
+                    cursorBits += info.fieldSizeBits;
+                }
+                break;
+            }
+            case FieldCompression::Bitpacked:
+            case FieldCompression::BitpackedSigned: {
+                uint64_t raw = readBits(record, cursorBits, info.fieldSizeBits);
+                if (info.signExtend && info.fieldSizeBits < 64) {
+                    uint64_t signBit = uint64_t{1} << (info.fieldSizeBits - 1);
+                    if (raw & signBit) raw |= ~((signBit << 1) - 1);
+                }
+                value.raw = {raw};
+                cursorBits += info.fieldSizeBits;
+                break;
+            }
+            case FieldCompression::CommonData: {
+                // No inline storage at all -- same as decodeField's fixed-
+                // width CommonData case, the cursor doesn't move.
+                uint32_t offset =
+                    additionalDataOffset(file.fieldStorageInfo, f, FieldCompression::CommonData);
+                uint32_t entryCount = info.additionalDataSize / 8;
+                uint32_t rowId = rowIdForRecord(file, section, record, recordIndex);
+                uint64_t found = info.defaultValue;
+                for (uint32_t i = 0; i < entryCount; ++i) {
+                    uint32_t entryPos = offset + i * 8;
+                    uint32_t id = readU32(file.commonData, entryPos, "commonData entry id");
+                    if (id == rowId) {
+                        found = readU32(file.commonData, entryPos + 4, "commonData entry value");
+                        break;
+                    }
+                }
+                value.raw = {found};
+                break;
+            }
+            case FieldCompression::BitpackedIndexed: {
+                uint64_t index = readBits(record, cursorBits, info.fieldSizeBits);
+                uint32_t offset =
+                    additionalDataOffset(file.fieldStorageInfo, f, FieldCompression::BitpackedIndexed);
+                value.raw = {readPallet4(file.palletData, offset + static_cast<uint32_t>(index) * 4,
+                                          "palletData indexed entry")};
+                cursorBits += info.fieldSizeBits;
+                break;
+            }
+            case FieldCompression::BitpackedIndexedArray: {
+                uint64_t index = readBits(record, cursorBits, info.fieldSizeBits);
+                uint32_t offset = additionalDataOffset(file.fieldStorageInfo, f,
+                                                         FieldCompression::BitpackedIndexedArray);
+                value.raw.reserve(info.arrayCount);
+                for (uint32_t i = 0; i < info.arrayCount; ++i) {
+                    uint32_t entryOffset = offset + static_cast<uint32_t>(index) * 4 * info.arrayCount + i * 4;
+                    value.raw.push_back(
+                        readPallet4(file.palletData, entryOffset, "palletData indexed-array entry"));
+                }
+                cursorBits += info.fieldSizeBits;
+                break;
+            }
+        }
+
+        result.push_back(std::move(value));
+    }
+
+    return result;
+}
+
 std::optional<std::string> resolveFieldString(const std::vector<uint8_t>& fileBytes,
                                                 size_t fieldAbsoluteFilePos, uint64_t rawValue) {
     // Absolute file position of the referenced string, per DB2.md's WDC2+

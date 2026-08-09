@@ -21,12 +21,12 @@
 // `husk info`/`husk export` analogues (TODO/CHAR_TEXTURE_COMPOSITING_TODO.md
 // Stage 1). `db2-info` prints header/section/field structure unconditionally
 // (cheap, always useful for "what table is this") and a sample of decoded
-// rows on request -- see db2.hpp's module comment for what's out of scope
-// (older container versions, offset-map per-field decode, table-name-to-
-// struct mapping). `db2-export` converts a whole file to a real SQLite
-// database, optionally with real column names/types via `--dbd-dir` (see
-// dbd.hpp) -- field decoding itself is shared with db2-info, only the
-// output sink differs.
+// rows on request, from either a fixed-width or offset-map section (see
+// db2.hpp's module comment for what's out of scope -- older container
+// versions, table-name-to-struct mapping). `db2-export` converts a whole
+// file to a real SQLite database, optionally with real column names/types
+// via `--dbd-dir` (see dbd.hpp) -- field decoding itself is shared with
+// db2-info (decodeRecordValues, this file), only the output sink differs.
 namespace husk::commands {
 
 namespace {
@@ -37,8 +37,10 @@ void printUsage(std::ostream& out = std::cerr) {
            "Parses a WDC5 DB2 file and prints its header, per-section layout,\n"
            "and per-field storage info. With --rows (default 5, 0 for none,\n"
            "'all' for every record), also dumps that many decoded rows from\n"
-           "the first non-offset-map section -- raw values per field, with a\n"
-           "best-effort string heuristic (see db2.hpp's resolveFieldString).\n"
+           "the first non-encrypted section (fixed-width or offset-map/sparse,\n"
+           "both real per-field decode now) -- raw values per field, with a\n"
+           "best-effort string heuristic (see db2.hpp's resolveFieldString/\n"
+           "decodeOffsetMapRecord).\n"
            "\n"
            "Proof of concept: field names are not known (WDC5 carries no\n"
            "column names, only positions/sizes -- see db2.hpp), so fields are\n"
@@ -57,6 +59,50 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
         throw db2::ParseError("error reading '" + path + "': " + std::strerror(errno));
     }
     return bytes;
+}
+
+// One field's resolved value(s) for one record -- unifies db2::decodeField's
+// raw-array output (fixed-width sections, string resolution via
+// db2::resolveFieldString's string-table heuristic) and
+// db2::decodeOffsetMapRecord's already-resolved output (offset-map
+// sections, inline strings) behind one shape, so every downstream consumer
+// (row printing, SQL column planning/binding) shares one code path
+// regardless of section shape.
+struct FieldValues {
+    std::vector<uint64_t> raw;
+    std::optional<std::string> str;  // set only for a resolved string; raw is then empty
+};
+
+// Decodes every field of one record, from whichever section shape `section`
+// actually is. `fileBytes` is only used by the fixed-width path (the
+// offset-map path resolves strings inline, no file-wide string-table lookup
+// needed).
+std::vector<FieldValues> decodeRecordValues(const db2::File& file, const db2::Section& section,
+                                             const std::vector<uint8_t>& fileBytes, size_t recordIndex) {
+    std::vector<FieldValues> out;
+    if (section.hasOffsetMap()) {
+        std::vector<db2::OffsetMapFieldValue> fields = db2::decodeOffsetMapRecord(file, section, recordIndex);
+        out.reserve(fields.size());
+        for (db2::OffsetMapFieldValue& f : fields) {
+            out.push_back({std::move(f.raw), std::move(f.str)});
+        }
+        return out;
+    }
+
+    out.reserve(file.fieldStorageInfo.size());
+    for (size_t f = 0; f < file.fieldStorageInfo.size(); ++f) {
+        std::vector<uint64_t> values = db2::decodeField(file, section, recordIndex, f);
+        bool isScalarNone =
+            values.size() == 1 && file.fieldStorageInfo[f].storageType == db2::FieldCompression::None;
+        std::optional<std::string> str;
+        if (isScalarNone) {
+            size_t fieldAbsPos =
+                section.header.fileOffset + recordIndex * file.header.recordSize + file.fieldStructures[f].position;
+            str = db2::resolveFieldString(fileBytes, fieldAbsPos, values[0]);
+        }
+        out.push_back({std::move(values), std::move(str)});
+    }
+    return out;
 }
 
 const char* compressionName(db2::FieldCompression c) {
@@ -117,7 +163,8 @@ void printSections(const db2::File& file) {
                        << std::dec << ", record bytes unreadable without the TACT key]";
         }
         if (!s.offsetMap.empty()) {
-            std::cout << "  (offset-map/sparse -- per-field decode not implemented, see --rows output)";
+            std::cout << "  (offset-map/sparse -- per-field decode via a sequential bit cursor, see "
+                          "db2.hpp's decodeOffsetMapRecord doc comment)";
         }
         std::cout << "\n";
         if (s.hasRelationshipMap()) {
@@ -150,23 +197,21 @@ void printFields(const db2::File& file) {
     }
 }
 
-// Prints up to `rowLimit` decoded rows from the first section that has
-// fixed-width records (offset-map sections are skipped -- see db2.hpp's
-// module comment on what this POC does and doesn't decode). `rowLimit ==
-// SIZE_MAX` means "all". `fileBytes` is the original file buffer, needed by
-// the string heuristic (db2::resolveFieldString resolves an absolute file
-// position, not a section-relative one).
+// Prints up to `rowLimit` decoded rows from the first non-encrypted section
+// (fixed-width or offset-map -- both decode via decodeRecordValues now).
+// `rowLimit == SIZE_MAX` means "all". `fileBytes` is the original file
+// buffer, needed by the fixed-width path's string heuristic (db2::
+// resolveFieldString resolves an absolute file position, not a
+// section-relative one); unused for an offset-map section.
 void printRows(const db2::File& file, const std::vector<uint8_t>& fileBytes, size_t rowLimit) {
     const db2::Section* section = nullptr;
     for (const db2::Section& s : file.sections) {
         if (s.header.tactKeyHash != 0) continue;  // encrypted, unreadable
-        if (!s.offsetMap.empty()) continue;        // offset-map path, no per-field decode
         section = &s;
         break;
     }
     if (!section) {
-        std::cout << "  (no section with decodable fixed-width records -- every section is "
-                     "encrypted and/or offset-map/sparse)\n";
+        std::cout << "  (no section with decodable records -- every section is encrypted)\n";
         return;
     }
 
@@ -174,28 +219,21 @@ void printRows(const db2::File& file, const std::vector<uint8_t>& fileBytes, siz
     std::cout << "  rows (" << n << " of " << section->header.recordCount << "):\n";
     for (size_t r = 0; r < n; ++r) {
         std::cout << "    row " << r << ":";
-        for (size_t f = 0; f < file.fieldStorageInfo.size(); ++f) {
-            std::vector<uint64_t> values = db2::decodeField(file, *section, r, f);
+        std::vector<FieldValues> fields = decodeRecordValues(file, *section, fileBytes, r);
+        for (size_t f = 0; f < fields.size(); ++f) {
+            const FieldValues& values = fields[f];
             std::cout << " [" << f << "]=";
-            bool isScalarNone =
-                values.size() == 1 && file.fieldStorageInfo[f].storageType == db2::FieldCompression::None;
-            std::optional<std::string> str;
-            if (isScalarNone) {
-                size_t fieldAbsPos =
-                    section->header.fileOffset + r * file.header.recordSize + file.fieldStructures[f].position;
-                str = db2::resolveFieldString(fileBytes, fieldAbsPos, values[0]);
-            }
-            if (str) {
-                std::cout << "\"" << *str << "\"";
-            } else if (values.size() > 1) {
+            if (values.str) {
+                std::cout << "\"" << *values.str << "\"";
+            } else if (values.raw.size() > 1) {
                 std::cout << "{";
-                for (size_t i = 0; i < values.size(); ++i) {
+                for (size_t i = 0; i < values.raw.size(); ++i) {
                     if (i) std::cout << ",";
-                    std::cout << values[i];
+                    std::cout << values.raw[i];
                 }
                 std::cout << "}";
             } else {
-                std::cout << values[0];
+                std::cout << values.raw[0];
             }
         }
         std::cout << "\n";
@@ -241,20 +279,25 @@ struct OutputColumn {
 // representative record (record 0 of the first usable section) -- WDC5
 // array lengths are fixed per field (field_storage_info's arrayCount), so
 // any record's element count for a given field is representative of every
-// other record's.
+// other record's. A field resolved as a string always counts as exactly one
+// column, same as a plain scalar -- decodeOffsetMapRecord only ever
+// classifies a genuinely scalar field as a string (see its own doc comment),
+// so this never disagrees with another record's element count for the same
+// field.
 std::vector<std::vector<OutputColumn>> buildColumnPlan(
-    const db2::File& file, const db2::Section& sampleSection,
+    const db2::File& file, const db2::Section& sampleSection, const std::vector<uint8_t>& sampleBytes,
     const std::optional<std::vector<dbd::Column>>& dbdNames) {
+    std::vector<FieldValues> sample = decodeRecordValues(file, sampleSection, sampleBytes, 0);
     std::vector<std::vector<OutputColumn>> plan(file.fieldStorageInfo.size());
     for (size_t f = 0; f < file.fieldStorageInfo.size(); ++f) {
         std::string baseName = dbdNames ? sanitizeIdentifier((*dbdNames)[f].name)
                                          : "field_" + std::to_string(f);
         bool isFloat = dbdNames && (*dbdNames)[f].type == dbd::ColumnType::Float;
-        std::vector<uint64_t> sample = db2::decodeField(file, sampleSection, 0, f);
-        if (sample.size() == 1) {
+        size_t count = sample[f].str ? 1 : sample[f].raw.size();
+        if (count == 1) {
             plan[f].push_back({baseName, isFloat});
         } else {
-            for (size_t i = 0; i < sample.size(); ++i) {
+            for (size_t i = 0; i < count; ++i) {
                 plan[f].push_back({baseName + "_" + std::to_string(i), isFloat});
             }
         }
@@ -263,37 +306,24 @@ std::vector<std::vector<OutputColumn>> buildColumnPlan(
 }
 
 // Binds one decoded field's values into the prepared INSERT statement,
-// starting at 1-based bind index `firstBindIndex`. Applies the same
-// scalar-string heuristic db2-info's own row preview uses (db2::
-// resolveFieldString) when no DBD type is known to force a numeric/float
-// reading -- real strings still come through as TEXT even in the no-DBD
-// fallback path.
-void bindFieldValues(sqlite3_stmt* stmt, int firstBindIndex, const db2::File& file,
-                     const db2::Section& section, const std::vector<uint8_t>& fileBytes,
-                     size_t recordIndex, size_t fieldIndex, const std::vector<uint64_t>& values,
-                     bool isFloat) {
-    bool isScalarNone = values.size() == 1 &&
-                         file.fieldStorageInfo[fieldIndex].storageType == db2::FieldCompression::None;
-    for (size_t i = 0; i < values.size(); ++i) {
+// starting at 1-based bind index `firstBindIndex`. `values` is already
+// fully resolved (decodeRecordValues) -- a real string always binds as
+// TEXT, a raw array as one INTEGER (or REAL, if `isFloat`) per element.
+void bindFieldValues(sqlite3_stmt* stmt, int firstBindIndex, const FieldValues& values, bool isFloat) {
+    if (values.str) {
+        sqlite3_bind_text(stmt, firstBindIndex, values.str->c_str(), -1, SQLITE_TRANSIENT);
+        return;
+    }
+    for (size_t i = 0; i < values.raw.size(); ++i) {
         int bindIndex = firstBindIndex + static_cast<int>(i);
-        if (isFloat && values.size() == 1) {
+        if (isFloat && values.raw.size() == 1) {
             float f;
-            uint32_t bits = static_cast<uint32_t>(values[0]);
+            uint32_t bits = static_cast<uint32_t>(values.raw[0]);
             std::memcpy(&f, &bits, sizeof(f));
             sqlite3_bind_double(stmt, bindIndex, static_cast<double>(f));
             continue;
         }
-        std::optional<std::string> str;
-        if (isScalarNone) {
-            size_t fieldAbsPos = section.header.fileOffset + recordIndex * file.header.recordSize +
-                                  file.fieldStructures[fieldIndex].position;
-            str = db2::resolveFieldString(fileBytes, fieldAbsPos, values[i]);
-        }
-        if (str) {
-            sqlite3_bind_text(stmt, bindIndex, str->c_str(), -1, SQLITE_TRANSIENT);
-        } else {
-            sqlite3_bind_int64(stmt, bindIndex, static_cast<sqlite3_int64>(values[i]));
-        }
+        sqlite3_bind_int64(stmt, bindIndex, static_cast<sqlite3_int64>(values.raw[i]));
     }
 }
 
@@ -331,7 +361,6 @@ struct LoadedFile {
     std::vector<NonInlineRelationColumn> nonInlineRelationColumns;
     std::vector<size_t> usableSectionIndices;  // indices into file.sections
     size_t skippedEncrypted = 0;
-    size_t skippedOffsetMap = 0;
 };
 
 // Reads and parses one .db2 file, resolving its table name/columns via
@@ -356,16 +385,10 @@ std::optional<LoadedFile> loadOneFile(const std::string& path, const std::string
             ++lf.skippedEncrypted;
             continue;
         }
-        if (!s.offsetMap.empty()) {
-            ++lf.skippedOffsetMap;
-            continue;
-        }
         lf.usableSectionIndices.push_back(i);
     }
     if (lf.usableSectionIndices.empty()) {
-        err << "husk: db2-export: '" << path
-            << "' has no decodable fixed-width section (every section is encrypted and/or "
-               "offset-map/sparse) -- skipped\n";
+        err << "husk: db2-export: '" << path << "' has no decodable section (every section is encrypted) -- skipped\n";
         return std::nullopt;
     }
 
@@ -412,7 +435,7 @@ std::optional<LoadedFile> loadOneFile(const std::string& path, const std::string
 // case, not an error).
 size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::string>& availableTables) {
     const db2::Section& sampleSection = lf.file.sections[lf.usableSectionIndices[0]];
-    std::vector<std::vector<OutputColumn>> plan = buildColumnPlan(lf.file, sampleSection, lf.dbdNames);
+    std::vector<std::vector<OutputColumn>> plan = buildColumnPlan(lf.file, sampleSection, lf.bytes, lf.dbdNames);
 
     std::string idSqlName = lf.nonInlineIdColumnName ? sanitizeIdentifier(*lf.nonInlineIdColumnName) : "";
 
@@ -492,11 +515,11 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
                 }
                 ++bindIndex;
             }
-            for (size_t f = 0; f < lf.file.fieldStorageInfo.size(); ++f) {
-                std::vector<uint64_t> values = db2::decodeField(lf.file, section, r, f);
+            std::vector<FieldValues> fields = decodeRecordValues(lf.file, section, lf.bytes, r);
+            for (size_t f = 0; f < fields.size(); ++f) {
                 bool isFloat = !plan[f].empty() && plan[f][0].isFloat;
-                bindFieldValues(stmt, bindIndex, lf.file, section, lf.bytes, r, f, values, isFloat);
-                bindIndex += static_cast<int>(values.size());
+                bindFieldValues(stmt, bindIndex, fields[f], isFloat);
+                bindIndex += static_cast<int>(fields[f].str ? 1 : fields[f].raw.size());
             }
             int rc = sqlite3_step(stmt);
             sqliteCheck(rc, db, "INSERT into \"" + lf.tableName + "\"");
@@ -517,12 +540,13 @@ int db2Export(int argc, char** args) {
         "Converts one WDC5 DB2 file, or (with --dir) every *.db2 file in a\n"
         "directory, to a real SQLite database -- one table per file, named\n"
         "from the DBD table name if resolved, else the input file's own\n"
-        "basename. Every fixed-width, unencrypted section's records are\n"
-        "exported; offset-map/sparse and TACT-encrypted sections are skipped\n"
-        "(see db2.hpp's module comment) -- a count of skipped records is\n"
-        "printed, never silently dropped. In --dir mode, a file that can't be\n"
-        "parsed or has nothing exportable is skipped (with a diagnostic),\n"
-        "not treated as a fatal error for the whole batch.\n"
+        "basename. Every unencrypted section's records are exported, fixed-\n"
+        "width or offset-map/sparse alike (see db2.hpp's module comment for\n"
+        "the offset-map decode's own real-data caveats); only TACT-encrypted\n"
+        "sections are skipped, and a count of skipped sections is printed,\n"
+        "never silently dropped. In --dir mode, a file that can't be parsed\n"
+        "or has nothing exportable is skipped (with a diagnostic), not\n"
+        "treated as a fatal error for the whole batch.\n"
         "\n"
         "--dbd-dir DIR: a local WoWDBDefs checkout (github.com/wowdev/\n"
         "WoWDBDefs -- manifest.json + definitions/*.dbd), used to resolve\n"
@@ -618,12 +642,10 @@ int db2Export(int argc, char** args) {
         size_t totalRows = 0;
         size_t namedTables = 0;
         size_t skippedEncrypted = 0;
-        size_t skippedOffsetMap = 0;
         for (const LoadedFile& lf : loaded) {
             size_t rowCount = writeFileTable(db, lf, availableTables);
             totalRows += rowCount;
             skippedEncrypted += lf.skippedEncrypted;
-            skippedOffsetMap += lf.skippedOffsetMap;
             if (lf.dbdNames) ++namedTables;
 
             std::cout << "husk: db2-export: wrote " << rowCount << " row(s) to table \"" << lf.tableName
@@ -635,9 +657,9 @@ int db2Export(int argc, char** args) {
         std::cout << "husk: db2-export: " << loaded.size() << " table(s), " << totalRows
                    << " total row(s), " << namedTables << " with real WoWDBDefs column names, written to '"
                    << outputPath << "'\n";
-        if (skippedEncrypted > 0 || skippedOffsetMap > 0) {
-            std::cout << "husk: db2-export: skipped " << skippedEncrypted << " encrypted and "
-                       << skippedOffsetMap << " offset-map/sparse section(s) across all tables, not exported\n";
+        if (skippedEncrypted > 0) {
+            std::cout << "husk: db2-export: skipped " << skippedEncrypted
+                       << " encrypted section(s) across all tables, not exported\n";
         }
     } catch (const std::exception& e) {
         sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);

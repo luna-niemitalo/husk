@@ -463,35 +463,45 @@ WDC5 DB2 parser (`src/db2.hpp`/`.cpp`), Stage 1 of
 plan -- built to let a human poke at real `.db2` files before any real
 consumer (`export`, a table-specific struct) exists. Prints the header,
 per-section layout, per-field storage info, and (`--rows N`, default 5, `all`
-for every record) a sample of decoded rows: raw values per field plus a
-best-effort string heuristic (`db2::resolveFieldString` -- interprets a field
-as a WDC2+-style string offset and checks whether it lands on a plausible,
-printable, null-terminated string; falls back to the raw integer otherwise).
-Verified against real files from `/media/luna/data/wow_export/dbfilesclient/`
-(the header/section/field-storage layout byte-matches `chrmodelmaterial.db2`
-exactly; `namesreserved.db2` round-trips real UTF-8 strings correctly) --
-and confirmed directly by Luna against real `db2-info` output, not just the
-automated checks above.
+for every record) a sample of decoded rows from the first non-encrypted
+section, fixed-width or offset-map/sparse alike: raw values per field plus a
+best-effort string heuristic (`db2::resolveFieldString` for fixed-width
+sections -- interprets a field as a WDC2+-style string offset and checks
+whether it lands on a plausible, printable, null-terminated string, falling
+back to the raw integer otherwise; `db2::decodeOffsetMapRecord` for
+offset-map sections -- real strings are embedded inline rather than
+offset-referenced, so fields are walked with a running bit cursor instead of
+`field_storage_info`'s own `field_offset_bits`, which only describes the
+same table's non-sparse layout). Verified against real files from
+`/media/luna/data/wow_export/dbfilesclient/` (the header/section/field-
+storage layout byte-matches `chrmodelmaterial.db2` exactly; `namesreserved
+.db2` round-trips real UTF-8 strings correctly; the offset-map path decodes
+every record of all 5 real local offset-map files with no errors --
+`conversationline.db2`, `scenescripttext.db2`, and the three
+`collectablesource*sparse.db2` tables) -- and confirmed directly by Luna
+against real `db2-info` output, not just the automated checks above.
 
 Current vs. target, explicitly: `db2-info` itself still identifies fields by
 index only -- real column naming lives in `husk db2-export` instead (below),
 not here. Only WDC5 is implemented (every file checked so far under
-`dbfilesclient/` is WDC5); offset-map ("sparse") sections expose their raw
-record bytes but not per-field decoded values. `documentation/wowdev-wiki/
-md/DB2.md` is community-reverse-engineered documentation, not a Blizzard
-spec -- treated as a strong starting point, not unconditionally trusted
-(see `db2.hpp`'s module comment for what's been cross-checked against real
-bytes and what hasn't).
+`dbfilesclient/` is WDC5). Offset-map decoding's non-None field-compression
+types (Bitpacked/CommonData/BitpackedIndexed(Array)) are implemented but
+**not verified** against real bytes -- none of the 5 real local offset-map
+files use anything but `field_compression_none` (see `db2.hpp`'s module
+comment). `documentation/wowdev-wiki/md/DB2.md` is community-reverse-
+engineered documentation, not a Blizzard spec -- treated as a strong
+starting point, not unconditionally trusted (see `db2.hpp`'s module comment
+for what's been cross-checked against real bytes and what hasn't).
 
 ### `husk db2-export <file.db2>|--dir <dir> <out.sqlite> [--dbd-dir DIR]`
 
 Converts one WDC5 DB2 file, or (with `--dir`) every `*.db2` file in a
 directory, to a real, browsable SQLite database -- one table per file, one
-row per real record, every fixed-width unencrypted section exported
-(TACT-encrypted and offset-map/sparse sections are skipped, with a count
-printed, never silently dropped; in `--dir` mode a file that can't be parsed
-or has nothing exportable is skipped with a diagnostic rather than failing
-the whole batch). Real column names/types come from `src/dbd.hpp`/`.cpp`, an
+row per real record, every unencrypted section exported, fixed-width or
+offset-map/sparse alike (only TACT-encrypted sections are skipped, with a
+count printed, never silently dropped; in `--dir` mode a file that can't be
+parsed or has nothing exportable is skipped with a diagnostic rather than
+failing the whole batch). Real column names/types come from `src/dbd.hpp`/`.cpp`, an
 independent parser for [WoWDBDefs](https://github.com/wowdev/WoWDBDefs)'
 own documented `.dbd` text-format grammar -- resolves a real `.db2` file's
 `table_hash`/`layout_hash` (already parsed by `db2.hpp`) against a local,
@@ -554,6 +564,16 @@ chain confirmed fully populated locally. The fuller `ChrCustomizationOption`
 Stage 3 actually needs isn't verifiable the same way yet -- several of
 those exact tables are still 0-byte in the current local export (see
 `CLAUDE_HISTORY.md`'s entry for this session).
+
+Offset-map/sparse sections (previously skipped entirely, `LoadedFile::
+skippedOffsetMap`) now export real per-field data through the same
+`db2::decodeOffsetMapRecord` path `db2-info` uses -- verified against real
+`scenescripttext.db2` (36,498 rows, real Lua source text in a real `Script`
+column, e.g. a `Name = 'Global Functions - Scene'` row whose `Script`
+contains real `function Scene:WaitTimer(waitTime)` source) and real
+`conversationline.db2` (69,312 rows of real numeric fields, including
+negative/large 32-bit values like `AdditionalDuration = -2500`, correctly
+never misread as text).
 
 ### Texture conversion
 
