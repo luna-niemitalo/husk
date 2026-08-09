@@ -18,9 +18,17 @@ husk-and/or-Blender stderr excerpt on failure, so a human can watch this
 run live instead of waiting for the final summary. A machine-readable
 CSV is also written for the final aggregate report.
 
+Concurrency is live-tuned by corpus_scan_framework.py's own
+AdaptiveConcurrency (same TCP-AIMD-style controller that module's docstring
+describes), not a fixed number applied for the whole run -- --max-workers
+is a ceiling to ramp up toward, not the count used throughout. Chosen after
+finding this pipeline's own real per-file cost is heavily heavy-tailed (a
+plain item renders in ~2s, a complex character in 50-90s), the same shape
+that controller was built for.
+
 Usage:
     direnv exec . tools/venv/bin/python tools/corpus_scan_tasks/render_sample_driver.py \\
-        corpus_reports/render_sample.txt corpus_reports/renders --max-workers 8
+        corpus_reports/render_sample.txt corpus_reports/renders --max-workers 16
 """
 from __future__ import annotations
 
@@ -29,8 +37,11 @@ import os
 import subprocess
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from corpus_scan_framework import AdaptiveConcurrency  # noqa: E402 -- see sys.path.insert above
 
 CORPUS_ROOT = Path("/media/luna/data/wow_export")
 HUSK_BIN = Path("/home/luna/dev/husk/build/husk")
@@ -176,7 +187,17 @@ def _log(live_log: Path, status: str, m2_path: Path, detail: str) -> None:
 def main() -> int:
     file_list = Path(sys.argv[1])
     render_dir = Path(sys.argv[2])
-    max_workers = 8
+    # --max-workers is a *ceiling* the controller ramps up toward, not a
+    # fixed count applied for the whole run -- this pipeline's own per-file
+    # cost is heavily heavy-tailed (a plain item renders in ~2s, a complex
+    # character in 50-90s, confirmed in the live log), exactly the shape
+    # corpus_scan_framework.py's own AdaptiveConcurrency docstring describes
+    # itself as built for. A fixed guess either leaves throughput on the
+    # table (too low) or thrashes CPU/GPU without any way to notice (too
+    # high, and this pipeline has no other feedback signal short of a human
+    # watching gpu_busy_percent by hand, which is how the last few sessions'
+    # own throughput bugs actually got caught).
+    max_workers = os.cpu_count() or 8
     if "--max-workers" in sys.argv:
         max_workers = int(sys.argv[sys.argv.index("--max-workers") + 1])
 
@@ -186,18 +207,50 @@ def main() -> int:
     live_log.write_text("")
 
     paths = [l.strip() for l in file_list.read_text().splitlines() if l.strip()]
-    print(f"{len(paths)} files to render, {max_workers} workers, live log: {live_log}")
+    controller = AdaptiveConcurrency(initial_window=min(4, max_workers), max_window=max_workers)
+    print(f"{len(paths)} files to render, up to {max_workers} workers (adaptive, "
+          f"starting at {controller.window}), live log: {live_log}")
 
-    rows = []
+    rows: list[dict] = []
+    tick_seconds = 8.0
+    min_samples_per_tick = 4  # each unit is a real export+render pair -- much heavier than a plain scan tick
     with ProcessPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(process_one, p, str(render_dir), str(live_log)): p for p in paths}
+        pending = iter(paths)
+        in_flight: dict[Future, str] = {}
+
+        def top_up() -> None:
+            while len(in_flight) < controller.window:
+                p = next(pending, None)
+                if p is None:
+                    return
+                in_flight[pool.submit(process_one, p, str(render_dir), str(live_log))] = p
+
+        top_up()
+        start = time.monotonic()
+        tick_start = start
+        tick_completed = 0
         done = 0
-        for fut in as_completed(futures):
-            rows.append(fut.result())
-            done += 1
-            if done % 20 == 0:
-                ok = sum(1 for r in rows if r["render_ok"])
-                print(f"  {done}/{len(paths)} done, {ok} rendered OK so far")
+        while in_flight:
+            finished, _ = wait(in_flight, timeout=0.5, return_when=FIRST_COMPLETED)
+            for fut in finished:
+                in_flight.pop(fut)
+                rows.append(fut.result())
+                done += 1
+                tick_completed += 1
+                if done % 20 == 0:
+                    ok = sum(1 for r in rows if r["render_ok"])
+                    print(f"  {done}/{len(paths)} done, {ok} rendered OK so far, window={controller.window}")
+
+            now = time.monotonic()
+            if now - tick_start >= tick_seconds and tick_completed >= min_samples_per_tick:
+                rate = tick_completed / (now - tick_start)
+                controller.record(now - start, rate)
+                tick_start = now
+                tick_completed = 0
+            top_up()
+
+    print(f"  concurrency window trace: {controller.trace_str()} "
+          f"({controller.backoff_count} backoff(s), converged at {controller.window})")
 
     with out_csv.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["path", "export_ok", "render_ok", "skipped_no_geometry", "detail"])
