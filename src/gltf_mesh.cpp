@@ -528,7 +528,7 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
             weightsFlat.push_back(w);
         }
 
-        // Geoset tag joints (Skeleton::GeosetTag / TODO/GEOSET_MASK_TODO.md): a
+        // Geoset tag joints (Skeleton::GeosetTag): a
         // second JOINTS_1/WEIGHTS_1 set weaving each vertex into every
         // distinct geoset tag a primitive referencing it maps to (via
         // Primitive::skinSectionId -> geosetTagJointIndex) -- a vertex
@@ -550,8 +550,8 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
         // Fixed by rescaling *both* sets down by the same factor for any
         // tagged vertex so the combined total is exactly 1.0 again --
         // provably a no-op on the actual Blender deformation, not just a
-        // paperwork fix: Blender's Armature modifier was verified
-        // (TODO/GEOSET_MASK_TODO.md) to renormalize total influence weight
+        // paperwork fix: Blender's Armature modifier was verified (real
+        // headless-Blender deform check) to renormalize total influence weight
         // across every joint set at evaluation time regardless of what's
         // stored, so 0.5/0.5 deforms identically to an unscaled 1.0/1.0 --
         // this only changes what's written to the file, not what Blender

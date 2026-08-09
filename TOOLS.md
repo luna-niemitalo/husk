@@ -100,5 +100,6 @@ docstring — read the script for the real detail, not this list:
 - `corpus_summarizer.py` — aggregates `corpus_checks.py`'s per-file status
   JSONs into a report.
 - `husk_blender_geoset_mask.py` — not a corpus scanner: a `bpy` script
-  building the geoset-selection Geometry Nodes graph in Blender itself
-  (see `TODO/GEOSET_MASK_TODO.md`).
+  building the geoset-selection Geometry Nodes graph in Blender itself,
+  plus the `chr_texture_layout` overlay (see its own module docstring for
+  the full mechanism).

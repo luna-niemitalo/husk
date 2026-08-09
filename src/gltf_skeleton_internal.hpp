@@ -40,8 +40,8 @@ void validateAnimations(const std::vector<Animation>& animations, const Skeleton
 // The skeleton/skin half of writeGlbMulti's former single body: joint
 // nodes (with inverse bind matrices), the shared glTF skin (with
 // bone_correction_sets/ribbon_emitters/particle_emitters/physics_bodies
-// extras), geoset tag joint nodes (Skeleton::GeosetTag,
-// TODO/GEOSET_MASK_TODO.md), the synthesized multi-root parent node (if
+// extras), geoset tag joint nodes (Skeleton::GeosetTag),
+// the synthesized multi-root parent node (if
 // `skeleton` has more than one root joint), and the Attachment/Event/Light
 // placement nodes -- see gltf.hpp's writeGlbMulti doc comment for the
 // exact shape/node-index layout this reproduces. Appends inverse-bind-

@@ -229,14 +229,21 @@ it doesn't currently resolve real DB2 customization-choice data to ground a
 `DESIGN.md`'s Non-goals; this is a "not implemented yet" gap, not a hard
 non-goal) -- and prints every distinct geoset ID present whenever a `.skin`
 has more than one. Every export also carries one inert "tag" joint per
-distinct geoset ID (`TODO/GEOSET_MASK_TODO.md`), so Blender's own stock glTF
+distinct geoset ID, so Blender's own stock glTF
 importer builds a real per-geoset vertex group with no custom import
 tooling required -- `tools/husk_blender_geoset_mask.py` turns that into a
 Geometry Nodes Menu Switch dropdown per geoset group, letting a human pick
-a variant interactively instead of seeing every option rendered at once.
-**Known to have real bugs as of 2026-08-08** (wrong geometry disappearing
-when switching an unrelated group; some geometry never toggling at all) --
-see `TODO/GEOSET_MASK_TODO.md`'s own "Known bugs" section before relying on it.
+a variant interactively instead of seeing every option rendered at once
+(one combined boolean "is this vertex visible" expression evaluated once,
+then exactly one `Separate Geometry` call against the pristine mesh --
+not a chain of per-variant separations, which real use once found could
+erode boundary-adjacent geometry). Two real bugs found via interactive
+Blender use (2026-08-08) are both fixed and verified, headlessly and by
+hand: variant 0 of geoset group 0 (`SKIN_OR_HAIR`) is the character's own
+base skin body, not a real hairstyle choice, and is now always visible
+(`ALWAYS_VISIBLE_VARIANTS`); the tabard-flap dropdown (group 12) toggles
+correctly, confirmed with a per-vertex debug-attribute check isolating the
+real int-value-to-item mapping.
 The same script's second, independent job: if the export used `--db2-dir/
 --dbd-dir/--char-layout-id` (below), it re-reads the real `chr_texture_layout`
 extras (Blender's own glTF importer has no supported extras target for a

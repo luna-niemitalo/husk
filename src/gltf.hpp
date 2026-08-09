@@ -100,7 +100,7 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
 //
 // `skeleton->geosetTags`, if non-empty, adds one inert placeholder joint
 // per entry (Skeleton::GeosetTag's doc comment for the full mechanism and
-// why -- TODO/GEOSET_MASK_TODO.md) -- appended to the joint-node range right
+// why) -- appended to the joint-node range right
 // after every real bone (indices 0..skeleton->joints.size()-1 above are
 // never touched or renumbered), each an identity-bind-pose node named
 // `group_<geosetId/100>,variant_<geosetId%100>` (comma-separated,

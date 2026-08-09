@@ -110,7 +110,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
     // -- they're never posed/animated, so a plain identity inverse bind
     // matrix is correct (not an approximation): a joint that never moves
     // from its bind pose contributes weight * identity * vertex, a verified
-    // no-op on real skin deformation (TODO/GEOSET_MASK_TODO.md).
+    // no-op on real skin deformation.
     static constexpr float kIdentityIbm[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     for (size_t i = 0; i < skeleton->geosetTags.size(); ++i) {
         ibmFlat.insert(ibmFlat.end(), std::begin(kIdentityIbm), std::end(kIdentityIbm));
@@ -176,8 +176,8 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
         int nodeIdx = static_cast<int>(meshCount + skeleton->joints.size() + i);
         int geosetId = skeleton->geosetTags[i].geosetId;
         // "group_<n>,variant_<n>" rather than a single "geoset_<id>" token
-        // -- a future Blender-side script (TODO/GEOSET_MASK_TODO.md's geometry-
-        // nodes follow-up) can recover the raw group/variant integers with
+        // -- tools/husk_blender_geoset_mask.py's geometry-nodes switch
+        // recovers the raw group/variant integers with
         // a plain comma-split + prefix-strip, no `id / 100` / `id % 100`
         // math needed at the consuming end.
         out.geosetTagNodes[i].name =

@@ -557,7 +557,7 @@ TEST_CASE("writeGlb: attachment/event/light nodes coexist with bone_correction_s
     CHECK(found == 3);
 }
 
-// TODO/GEOSET_MASK_TODO.md's core mechanism: one placeholder joint per distinct
+// Skeleton::GeosetTag's core mechanism: one placeholder joint per distinct
 // geoset ID, appended to skin.joints after every real bone, woven into a
 // second JOINTS_1/WEIGHTS_1 set for whichever vertices its primitive
 // touches -- with both weight sets rescaled so the combined per-vertex
@@ -580,9 +580,9 @@ TEST_CASE("writeGlb: a geoset tag becomes an extra skin joint with real JOINTS_1
     REQUIRE(skin.joints.size() == 4);
     int tagNode = skin.joints[3];
     // "group_<n>,variant_<n>" (comma-separated, prefix-tagged fields), not
-    // a single "geoset_<id>" token -- so a future Blender-side script can
-    // recover the raw integers with a plain comma-split + prefix-strip
-    // (TODO/GEOSET_MASK_TODO.md). 401 -> group 4, variant 1.
+    // a single "geoset_<id>" token -- so tools/husk_blender_geoset_mask.py can
+    // recover the raw integers with a plain comma-split + prefix-strip.
+    // 401 -> group 4, variant 1.
     CHECK(model.nodes[tagNode].name == "group_4,variant_1");
     // Never posed: identity translation, no rotation/scale override.
     REQUIRE(model.nodes[tagNode].translation.size() == 3);

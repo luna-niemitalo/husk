@@ -40,8 +40,10 @@ tool, `blp/`) converts BLP2 textures to PNG.
   with zero custom import tooling — `tools/husk_blender_geoset_mask.py`
   turns that into a Geometry Nodes Menu Switch dropdown per geoset group
   for WoW's mutually-exclusive geoset variants (hairstyles, boot cuffs,
-  eye-glow, ...); **known to have real bugs as of 2026-08-08, not yet
-  fixed** — see `TODO/GEOSET_MASK_TODO.md`'s "Known bugs"/Resume, `husk dump-chunks` (JSON dump of Legion+ chunks with no
+  eye-glow, ...); two real bugs found interactively on 2026-08-08 (wrong
+  geometry disappearing on an unrelated group's switch; the tabard dropdown
+  never toggling) are now both root-caused, fixed, and verified — see
+  Resume — `husk dump-chunks` (JSON dump of Legion+ chunks with no
   glTF equivalent, full `M2Ribbon`/`M2Particle` records including every
   resolved animation curve, present in every M2 version; `WFV1`/`WFV2`/
   `DPIV`/`AFRA` — no wowdev.wiki struct at all, byte-decoded from real
@@ -161,7 +163,67 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: fixed both real findings from `TODO/BLENDER_SCRIPT_TODO.md`
+- **Current state**: `TODO/GEOSET_MASK_TODO.md`'s two "Known bugs" (real
+  interactive-Blender findings from 2026-08-08 — arms disappearing when
+  switching an unrelated hairstyle group; the tabard-flap dropdown never
+  toggling) are now genuinely confirmed fixed, not just assumed — the file
+  itself is deleted per this project's own "punch list, not historical
+  record" convention. Root cause of why the file's own two prior headless
+  verification attempts kept producing confusing, self-doubting results
+  (an "ordinal-vs-identifier confusion," then a "0/26 tabard vertices
+  matched in any state" dead end): both used position-matching against an
+  `evaluated_get`'d depsgraph mesh, which this session found is invalid for
+  this pipeline — a genuinely untouched, unposed Armature modifier still
+  shifts "rest pose" vertex positions by 0.1-0.3 units (confirmed via a
+  calibration check against a known-always-present vertex), nowhere near
+  float-noise scale, so no evaluated position ever matched its pristine
+  bind-pose counterpart within any sane tolerance, real match or not. Fixed
+  by building a debug Geometry Nodes modifier on a separate duplicate
+  object that computes the exact same `_build_group_hidden_term` boolean
+  expression the real script uses but stores it as a per-point `BOOLEAN`
+  attribute with **no** `Separate Geometry` call at all — point-domain
+  index order is then guaranteed identical to the pristine mesh, so the
+  attribute can be read back by plain vertex index, no position-matching
+  needed. Also empirically nailed down the Menu Switch modifier's own raw
+  int-to-item mapping the file's own investigation left as an unconfirmed
+  "leading theory" (`mod[identifier]` is a plain int; real items start at
+  raw value 2, i.e. `item_index + 2`; out-of-range ints clamp to the same
+  behavior as the highest-index item) — confirmed by systematically probing
+  every int from 0-27 against known ground-truth vertex-group membership,
+  not asserted. With the correct mapping, group 12's own real per-item
+  vertex sets are exactly disjoint and exactly cover what each item name
+  implies: `variant_2` ("both") shows precisely its own 104 tagged
+  vertices (0 of variant_3/4's), `variant_3` ("back") its own 64,
+  `variant_4` ("front") its own 40, `none` (and every out-of-range int)
+  shows none of the 208-vertex union — the file's own "both evaluated to
+  fewer vertices than front-only" anomaly was entirely an artifact of the
+  old investigation's wrong int/item mapping, not a real bug, once the
+  correct mapping is used. Bug 1 (group 0 `SKIN_OR_HAIR`'s
+  `ALWAYS_VISIBLE_VARIANTS` fix, landed in the now-also-deleted
+  `TODO/BLENDER_SCRIPT_TODO.md`, entry below) is independently confirmed
+  the same rigorous way: the base-body vertex group (260 vertices) stays
+  visible across all 28 real/synthetic states tested for group 0's own
+  selector, while a sample real hairstyle variant (159 vertices) appears
+  only at its own correct state and nowhere else — no cross-contamination,
+  no accidental hiding. Verification scripts are scratchpad-only, not
+  committed (same tier as this project's other one-off headless-Blender
+  probes) — real command used: `direnv exec . blender --background
+  --factory-startup --python <script> -- tools/husk_blender_geoset_mask.py
+  example_exports/character/bloodelf/female/bloodelffemale_hd.glb`.
+  Cleanup: ~15 now-dangling `TODO/GEOSET_MASK_TODO.md` citations across
+  `README.md`/`TOOLS.md`/`DESIGN.md`, this script's own module docstring,
+  and 7 C++/test source files (`src/gltf_mesh.cpp`, `src/cmd_export.cpp`,
+  `src/gltf_skeleton.hpp`/`.cpp`, `src/gltf.hpp`,
+  `src/gltf_skeleton_internal.hpp`, `tests/test_conformance.cpp`,
+  `tests/test_gltf_skeleton.cpp`, `tests/test_integration_weapons.cpp`)
+  rewritten to explain the mechanism inline instead of citing a file that
+  no longer exists — same precedent as `TRANSFORM_TRIAGE.md`'s own
+  deletion pass. Nothing needed folding into `DESIGN.md`'s "Anecdotal
+  geoset-group semantics" table — it already existed there, independent of
+  the now-deleted TODO file. Full C++ test suite unaffected and confirmed
+  green (this was a Python/doc-only session) — see the entries below for
+  everything the actual geoset-switch mechanism/design already covers.
+- **Prior session**: fixed both real findings from `TODO/BLENDER_SCRIPT_TODO.md`
   (that file now deleted per this project's own "punch list, not historical
   record" convention — both closed and verified). (1) The texture-layout
   overlay's three new nodes (`ShaderNodeGroup`/`ShaderNodeEmission`/
@@ -184,7 +246,7 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   direct steer that Blizzard's own runtime customization system can offer
   "none" without it needing to exist as a real geoset ID in the file
   (same precedent as the already-closed tabard "no submesh for 'no
-  tabard'" gap in `GEOSET_MASK_TODO.md`). Separately, real headless
+  tabard'" gap). Separately, real headless
   investigation (`husk`'s own `.glb` extras, not guessed) confirmed
   Luna's own second suspicion — "arms is still part of hair 0, hair 0
   needs to stay enabled while ALSO enabling other hair options" — as a

@@ -1,5 +1,6 @@
 """husk_blender_geoset_mask.py -- companion Blender tooling for `husk
-export`'s geoset-tag joints (TODO/GEOSET_MASK_TODO.md) and, since this
+export`'s geoset-tag joints (Skeleton::GeosetTag, src/gltf_skeleton.hpp)
+and, since this
 session, its `--db2-dir/--dbd-dir/--char-layout-id` character-texture-layout
 extras too (TODO/CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 2/5). Not part of
 husk itself (DESIGN.md scopes husk to "read WoW formats, write correct
@@ -37,7 +38,9 @@ rewrite before it**: the first Geometry Nodes version chained `Separate
 Geometry` sequentially (one variant peeled off a shrinking "remainder" at
 a time). Real interactive use found two bugs (unrelated geometry
 disappearing on an unrelated group's switch; some geometry never toggling
-at all -- see `TODO/GEOSET_MASK_TODO.md`'s "Known bugs"), and this session's
+at all -- both since root-caused and fixed, see `ALWAYS_VISIBLE_VARIANTS`
+below for the first and the design change in this paragraph for the
+second), and that session's
 own investigation found `GeometryNodeSeparateGeometry`'s default `POINT`
 domain does not cleanly partition geometry -- a face with mixed-selection
 corners vanishes from *both* outputs entirely. Chaining that operation up
@@ -129,14 +132,15 @@ end. What it does, in order:
      own, same disclaimed-placeholder precedent as `orderCandidatesForDefault`
      elsewhere in this project).
   9. Deletes every geoset tag bone from the armature once its vertex group
-     has been read into the node graph above. Verified empirically
-     (TODO/GEOSET_MASK_TODO.md): Blender vertex groups (and the point-domain
+     has been read into the node graph above. Verified empirically:
+     Blender vertex groups (and the point-domain
      attributes Geometry Nodes reads them as) are mesh-owned data,
      independent of the armature's bones -- removing the bone afterward
      doesn't touch the attribute or the node graph built from it, it only
      declutters the armature back to its real bone count and removes the
-     exported .glb's inflated joint count (see TODO/GEOSET_MASK_TODO.md's
-     "Known tradeoff" section) from the finalized Blender scene a human
+     exported .glb's inflated joint count (a `skin.joints` list well past
+     real-time GPU skinning budgets -- see `gltf_skeleton.hpp`'s
+     `Skeleton::GeosetTag` doc comment) from the finalized Blender scene a human
      actually works in.
 
 Second, independent job -- character texture-layout overlay: for every

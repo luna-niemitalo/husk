@@ -241,10 +241,10 @@ struct Skeleton {
 
     // One inert placeholder joint per distinct geoset ID a model's
     // primitives carry (Primitive::skinSectionId, gltf_mesh.hpp) --
-    // TODO/GEOSET_MASK_TODO.md's mechanism for making WoW's mutually-exclusive
-    // geoset variants (hairstyles, boot cuffs, eye-glow, ...) toggleable in
-    // Blender via its Mask modifier, with zero custom Blender import
-    // tooling required. Each becomes a real `skin.joints` entry, appended
+    // the mechanism tools/husk_blender_geoset_mask.py uses to make WoW's
+    // mutually-exclusive geoset variants (hairstyles, boot cuffs, eye-glow,
+    // ...) toggleable in Blender via a Geometry Nodes dropdown, with zero
+    // custom Blender import tooling required. Each becomes a real `skin.joints` entry, appended
     // strictly *after* every real bone (indices 0..joints.size()-1 above
     // are never touched or renumbered on account of this -- the one
     // invariant every other index-keyed payload in this struct already
@@ -254,8 +254,7 @@ struct Skeleton {
     // nodes, *never* added to `skin.joints`) -- a geoset tag must be a real
     // skin joint, since the entire mechanism rides on Blender's stock glTF
     // importer creating one real vertex group per skin joint as a side
-    // effect of ordinary skin-weight import (verified empirically, see
-    // TODO/GEOSET_MASK_TODO.md).
+    // effect of ordinary skin-weight import (verified empirically).
     //
     // emitMeshNode (gltf_mesh.cpp) does the actual tagging: any vertex
     // touched by a Primitive whose skinSectionId matches this tag's

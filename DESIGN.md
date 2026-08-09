@@ -890,7 +890,7 @@ requirement blocking any placement-parsing work.
 (`bloodelffemale_hd.m2`), cross-referenced against `reference/wow.export`'s
 own two independent geoset-group tables — recorded because it's
 generalizable groundwork for the geoset-mask work
-(`TODO/GEOSET_MASK_TODO.md`), not itself a husk feature or claim.** husk
+(`tools/husk_blender_geoset_mask.py`), not itself a husk feature or claim.** husk
 doesn't yet parse the real, authoritative per-model geoset-semantics DB2
 tables (`CharacterSections`/geoset-group data — locally-extracted DB2
 files are in scope per Non-goals above's clarified wording, this is a "not
@@ -975,8 +975,9 @@ unconfirmed to generalize (a group's *number* is almost certainly stable
 across models per the two independent reference tables above, but which
 *specific variant ID* is the "real" default within a group is real,
 per-model, DB2-driven customization-choice data husk has no access to, the
-same limitation `TODO/GEOSET_MASK_TODO.md`'s own default-picking logic already
-disclaims). No wowdev.wiki page was found with an equivalent table during
+same limitation `tools/husk_blender_geoset_mask.py`'s own default-picking
+logic already disclaims (`CURATED_DEFAULT_VARIANTS`'s own doc comment)).
+No wowdev.wiki page was found with an equivalent table during
 this pass — `reference/wow.export`'s two tables above and their shared
 `CharGeosets`/`WoWItem.cpp` (WMV) lineage were the only corroborating
 source located; if a real wowdev.wiki geoset-group page exists, it wasn't

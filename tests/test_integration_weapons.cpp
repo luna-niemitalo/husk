@@ -193,7 +193,7 @@ TEST_CASE("husk export: a real weapon's attachments/events/lights become exactly
 
     // Never added to skin.joints -- this fixture's real bone count is 78.
     // skin.joints does legitimately grow past that by one geoset tag joint
-    // per distinct geoset ID (TODO/GEOSET_MASK_TODO.md) -- counted here from
+    // per distinct geoset ID -- counted here from
     // each primitive's own "geoset_id" extras (gltf_mesh.cpp), a real
     // cross-check against gltf_skeleton.cpp's independent
     // Skeleton::geosetTags-driven joint count, not a tautology.
