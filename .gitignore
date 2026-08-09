@@ -11,6 +11,7 @@ documentation
 # Blender -- generated, never committed, same disposable-output convention
 # every other generated-artifact entry in this file already follows.
 /example_exports/
+/corpus_reports/
 
 # blp/ (Python, uv-managed) -- .venv/ and .pytest_cache/ already carry
 # their own self-excluding .gitignore, these cover the rest.
