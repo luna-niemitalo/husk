@@ -843,9 +843,19 @@ above; this section is about *sequencing* that work, not duplicating it.
    `M2BLEND_*` blend mode collapses to glTF's three-way `alphaMode`
    (`0`→`OPAQUE`, `1`→`MASK`, everything else — real alpha blend plus the
    additive/multiply modes glTF's core material model has no equivalent
-   for — `BLEND` as the closest approximation) and the material's
+   for — `BLEND` as the closest approximation). The real, un-collapsed
+   blend mode is also attached as a `blend_mode` material `extras` value
+   whenever it's `> 2` (i.e. exactly the range the collapse above throws
+   information away for) — the corpus render pipeline's own
+   `tools/corpus_scan_tasks/render_glb.py` reads it back to rebuild a true
+   additive shader for modes 3/4, since a naive alpha-blend import of an
+   additive-designed texture (typically mostly-black, meant to contribute
+   nothing where black) shows a solid dark panel instead — confirmed
+   against a real corpus file,
+   `creature/celestialfoxwyvern/celestialfoxwyvern.m2`. Modes 5/6 (Mod/
+   Mod2x, multiply) are a real, separate, un-attempted gap. The material's
    "two-sided" render flag (`0x04`) becomes glTF `doubleSided`
-   (`src/cmd_export.cpp`'s `alphaModeForBlend`). Deliberately **not**
+   (`src/export_materials.cpp`'s `alphaModeForBlend`). Deliberately **not**
    attempting real PBR authoring (roughness/metalness/normal maps) — WoW's
    own shader model doesn't map cleanly onto metallic-roughness, and
    faking plausible-looking values is a separate, later problem from

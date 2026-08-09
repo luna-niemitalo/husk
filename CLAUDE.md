@@ -168,7 +168,45 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: New `husk export --listfile <path> [--listfile-root
+- **Current state**: Same session, continued -- two more real gaps closed,
+  both found by actually looking at rendered corpus output, not just
+  parsing correctness. (1) `_sdr` stand-in character models (lower-poly,
+  self-contained-animation variants sharing textures with their non-"_sdr"
+  counterpart) rendered fully untextured -- `scanFuzzyTexturePool`
+  (`export_materials.cpp`) required an exact basename-prefix match, which
+  the "_sdr" suffix always broke; fixed with a narrow, confirmed-by-bytes
+  fallback (strip "_sdr" and retry when the exact basename finds nothing).
+  (2) WoW's additive/multiply blend modes (M2Material blend 3-7) have no
+  core-glTF equivalent and were collapsing to plain `BLEND`, a real visibly
+  wrong answer for glow/particle effects (confirmed:
+  `creature/celestialfoxwyvern/celestialfoxwyvern.m2` rendered as a solid
+  dark diamond instead of glowing lines) -- `gltf::Material` gained a raw
+  `blendMode` field, exported as `blend_mode` extras only when > 2, *and*
+  `tools/corpus_scan_tasks/render_glb.py` (the real corpus-render pipeline
+  itself, not just a future Blender-import nicety) now rebuilds a true
+  additive shader for any such material post-import — found and fixed a
+  real bug in the first version before it shipped: WoW's `unlit` flag
+  commonly co-occurs with additive modes, and Blender's glTF importer
+  builds a completely different node shape for unlit materials (no
+  `Principled BSDF` at all), which the first version didn't handle and
+  silently fixed nothing. Also this session: `tools/live_gallery_server.py`
+  gained a `world/expansionNN` era filter (real folder convention,
+  confirmed against actual zone content per folder — a file-*version*-based
+  filter was tried first and found to carry zero signal on this modern
+  retail extraction, see `CLAUDE_HISTORY.md` for why) and a real live-update
+  smoothness fix (was fully rebuilding the grid on every new-file
+  notification during an active render — now diffs and prepends only
+  what's new). Render throughput: `render_sample_driver.py` now alternates
+  `DRI_PRIME` per worker process to spread Blender's render step across
+  this machine's two GPUs (confirmed via real `gpu_busy_percent` polling,
+  not assumed) — Vulkan was tried too, no measurable speedup on this
+  workload and its multi-GPU device-select env var didn't behave
+  deterministically in testing, so not used. Render output is now WebP
+  (quality 80) instead of PNG, real corpus examples ~2.5-4.7KB vs PNG's
+  much larger size. Full suite green, 601/601. Full narrative, including
+  the real debugging dead-ends (Vulkan device-select syntax, the unlit
+  node-shape surprise) in `CLAUDE_HISTORY.md`.
+- **Prior session (same day)**: New `husk export --listfile <path> [--listfile-root
   <dir>]` flags (real feature, not docs-only) close a real gap a
   from-scratch corpus tool found this session: a full 130,576-file render
   pass plus cross-referencing "missing" FileDataID textures against a real

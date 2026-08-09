@@ -33,6 +33,25 @@ struct Material {
     std::string name;
     enum class AlphaMode { Opaque, Mask, Blend };
     AlphaMode alphaMode = AlphaMode::Opaque;
+    // The real, un-collapsed WoW M2BLEND_* value (wowdev.wiki
+    // M2/Rendering#M2BLEND) alphaMode above was derived from. Core glTF
+    // only has three alpha behaviors (Opaque/Mask/Blend) -- modes 3+
+    // (NoAlphaAdd/Add/Mod/Mod2x/...) have no core equivalent at all and
+    // collapse to Blend, which is a real, visible wrong-answer for an
+    // additive-designed asset (e.g. a mostly-black particle/glow texture:
+    // WoW adds it, contributing nothing where black; naive alpha-blend
+    // instead shows a solid dark panel -- confirmed against a real corpus
+    // render, `creature/celestialfoxwyvern/celestialfoxwyvern.m2`,
+    // blend_mode 4). Extras-only (`blend_mode`), present only for
+    // blendMode > 2 -- 0 (Opaque) and 1 (AlphaKey) map to alphaMode
+    // exactly (Opaque/Mask respectively) with nothing lost, and 2 (a real
+    // alpha blend) maps to Blend exactly too; only 3+ is where the
+    // collapse above actually throws information away, so that's the only
+    // range worth a consumer reading. A Blender-side companion script can
+    // rebuild real additive/multiply shading the way
+    // `tools/husk_blender_geoset_mask.py` already rebuilds geoset
+    // selection and texture-layout overlays for other core-glTF gaps.
+    uint16_t blendMode = 0;
     bool doubleSided = false;
     // WoW's M2Material flag 0x01 ("Unlit" -- wowdev.wiki
     // M2#Render_flags_and_blending_modes): rendered without directional

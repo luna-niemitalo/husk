@@ -22,6 +22,85 @@ import bpy
 import mathutils
 
 
+def fix_additive_materials() -> int:
+    """WoW blend modes 3 (NoAlphaAdd) and 4 (Add) have no core-glTF
+    equivalent (src/gltf_mesh.hpp's Material::blendMode doc comment) --
+    husk's default-import shape (Principled BSDF + alpha-blend/hashed) shows
+    such a material's near-opaque, mostly-black background as a solid dark
+    panel instead of contributing nothing where it's black, which is what
+    WoW's own additive compositing actually does. Confirmed wrong against a
+    real corpus file (creature/celestialfoxwyvern/celestialfoxwyvern.m2:
+    a constellation-style effect that should read as glowing lines on
+    nothing, not a dark diamond panel).
+
+    husk exports the real blend_mode as material extras whenever it's > 2
+    (see that same doc comment) -- Blender's glTF importer surfaces
+    material extras as plain custom properties on the imported material
+    (confirmed empirically: unlike glTF *skin* extras, which land nowhere,
+    node/mesh/material/camera/light/scene extras all become real bpy custom
+    properties post-import). This rebuilds each such material's shader as
+    real additive -- Transparent BSDF + Emission (fed by the same
+    base-color image the importer already wired into Base Color) combined
+    via Add Shader -- in place of the standard import's Principled BSDF
+    wiring.
+
+    Modes 5/6 (Mod/Mod2x, multiply) are a real, separate gap, not attempted
+    here -- no demonstrated real-corpus case driving it yet, and multiply
+    compositing needs a different node shape (no Add Shader equivalent).
+    Returns the number of materials rebuilt, purely for the caller's own
+    stdout note.
+    """
+    fixed = 0
+    for mat in bpy.data.materials:
+        if mat.get("blend_mode") not in (3, 4):
+            continue
+        if not mat.use_nodes or mat.node_tree is None:
+            continue
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+        output = next((n for n in nodes if n.type == "OUTPUT_MATERIAL"), None)
+        if output is None:
+            continue
+
+        # Two different importer shapes reach this point, depending on
+        # whether husk also set KHR_materials_unlit on this material (WoW's
+        # own M2Material flag 0x01 -- real, common alongside additive blend
+        # modes, e.g. every material on the celestialfoxwyvern fixture this
+        # was verified against): a "lit" import gives a Principled BSDF
+        # with Base Color already wired to the right texture; an "unlit"
+        # import gives Blender's own KHR_materials_unlit emulation graph,
+        # which already *has* a real Emission node fed by that texture --
+        # reused directly rather than rebuilt, so the correct source is
+        # never in question.
+        emission = next((n for n in nodes if n.type == "EMISSION"), None)
+        if emission is None:
+            principled = next((n for n in nodes if n.type == "BSDF_PRINCIPLED"), None)
+            if principled is None:
+                continue
+            base_color_input = principled.inputs.get("Base Color")
+            emission = nodes.new("ShaderNodeEmission")
+            emission.location = (principled.location.x, principled.location.y - 200)
+            if base_color_input.is_linked:
+                links.new(base_color_input.links[0].from_socket, emission.inputs["Color"])
+            else:
+                emission.inputs["Color"].default_value = base_color_input.default_value
+
+        transparent = next((n for n in nodes if n.type == "BSDF_TRANSPARENT"), None)
+        if transparent is None:
+            transparent = nodes.new("ShaderNodeBsdfTransparent")
+            transparent.location = (emission.location.x, emission.location.y - 150)
+
+        add_shader = nodes.new("ShaderNodeAddShader")
+        add_shader.location = (emission.location.x + 200, emission.location.y - 75)
+        links.new(transparent.outputs["BSDF"], add_shader.inputs[0])
+        links.new(emission.outputs["Emission"], add_shader.inputs[1])
+        links.new(add_shader.outputs["Shader"], output.inputs["Surface"])
+
+        mat.surface_render_method = "BLENDED"  # EEVEE Next: real compositing, not DITHERED's noisy hash
+        fixed += 1
+    return fixed
+
+
 def main() -> None:
     argv = sys.argv[sys.argv.index("--") + 1:]
     in_glb, out_path = argv[0], argv[1]
@@ -33,6 +112,7 @@ def main() -> None:
     # combined bounding box used for camera framing below (Luna caught this
     # from a render where the character was tiny in-frame).
     bpy.ops.import_scene.gltf(filepath=in_glb, disable_bone_shape=True)
+    fixed_additive = fix_additive_materials()
 
     mesh_objs = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     if not mesh_objs:
@@ -93,7 +173,8 @@ def main() -> None:
     scene.world.color = (0.12, 0.12, 0.14)
 
     bpy.ops.render.render(write_still=True)
-    print(f"OK rendered {len(mesh_objs)} mesh object(s), bbox radius {radius:.3f} -> {out_path}")
+    extra = f", {fixed_additive} additive material(s) rebuilt" if fixed_additive else ""
+    print(f"OK rendered {len(mesh_objs)} mesh object(s), bbox radius {radius:.3f}{extra} -> {out_path}")
 
 
 if __name__ == "__main__":

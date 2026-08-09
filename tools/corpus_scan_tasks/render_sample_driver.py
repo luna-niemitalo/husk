@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import csv
+import os
 import subprocess
 import sys
 import time
@@ -38,6 +39,23 @@ RENDER_SCRIPT = Path(__file__).resolve().parent / "render_glb.py"
 SCRATCH_DIR = Path("/media/luna/work/husk_corpus_scratch/render_glbs")
 EXPORT_TIMEOUT = 120.0
 RENDER_TIMEOUT = 180.0
+
+# fox_nest-specific (this machine's own dual Radeon VII, CLAUDE.md's own
+# Machines table) -- 12 parallel workers were all serializing their
+# render_glb.py call onto whichever single GPU Blender's OpenGL backend
+# defaults to, real, observed as "GPU used variably, CPU only 50-60%" (one
+# GPU idle) rather than either resource actually saturating. DRI_PRIME
+# (PRIME render-offload, the OpenGL/EGL selection mechanism -- confirmed by
+# empirically toggling it and watching /sys/class/drm/card*/device/
+# gpu_busy_percent light up on the intended card, not guessed) alternates
+# each worker process across both cards, so render work actually overlaps
+# instead of queueing on one device. Vulkan (--gpu-backend vulkan) was also
+# tried: no measurable per-render speedup on this workload (these are
+# simple flat-shaded 640x480 thumbnails, likely startup/CPU-bound rather
+# than GPU-bound), and Mesa's own multi-GPU device-select env var
+# (MESA_VK_DEVICE_SELECT) didn't behave deterministically in testing -- not
+# used here for that reason, staying on the OpenGL default plus DRI_PRIME.
+GPU_PCI_BUS_IDS = ["pci-0000_10_00_0", "pci-0000_0d_00_0"]
 
 # --listfile-root is deliberately CORPUS_ROOT, never the (unset, so
 # model's-own-directory) --textures value below -- husk's own
@@ -106,10 +124,17 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
         return row
 
     try:
+        # Stable per-worker-process GPU assignment, not per-file -- a
+        # ProcessPoolExecutor worker is long-lived and handles many files,
+        # so pinning by pid (fixed for that worker's whole lifetime) spreads
+        # the pool's workers across both cards without any shared state or
+        # locking between them.
+        env = dict(os.environ)
+        env["DRI_PRIME"] = GPU_PCI_BUS_IDS[os.getpid() % len(GPU_PCI_BUS_IDS)]
         p = subprocess.run(
             [BLENDER_BIN, "--background", "--factory-startup", "--python", str(RENDER_SCRIPT),
              "--", str(scratch_glb), str(out_webp)],
-            capture_output=True, text=True, timeout=RENDER_TIMEOUT,
+            capture_output=True, text=True, timeout=RENDER_TIMEOUT, env=env,
         )
         if p.returncode == 0 and "SKIPPED no mesh objects" in p.stdout:
             row["skipped_no_geometry"] = True

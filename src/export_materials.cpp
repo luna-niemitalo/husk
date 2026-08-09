@@ -433,13 +433,12 @@ std::optional<std::filesystem::path> claimSoleFuzzyTextureCandidate(FuzzyTexture
     return result;
 }
 
-FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std::string& modelPath) {
+// Scans `texturesDir` for real (.png/.blp) files whose stem starts with
+// `basename` (case-insensitive) -- the actual directory walk, factored out
+// so scanFuzzyTexturePool can retry it against a second, derived basename
+// (the "_sdr" fallback below) without duplicating the scan/dedup logic.
+FuzzyTexturePool scanFuzzyTexturePoolForBasename(const std::string& texturesDir, const std::string& basename) {
     FuzzyTexturePool pool;
-    if (texturesDir.empty()) return pool;
-
-    std::string modelBasename = lowercaseModelBasename(modelPath);
-    if (modelBasename.empty()) return pool;
-
     // stem (lowercase) -> chosen path -- a directory holding both an
     // already-converted "<name>.png" and its source "<name>.blp" counts as
     // one real candidate, not two, and PNG wins (no decode needed).
@@ -456,12 +455,40 @@ FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std:
         std::string stemLower = stem;
         std::transform(stemLower.begin(), stemLower.end(), stemLower.begin(),
                         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if (stemLower.rfind(modelBasename, 0) != 0) continue;  // starts with the model's basename
+        if (stemLower.rfind(basename, 0) != 0) continue;  // starts with the given basename
         auto [it, inserted] = byStem.try_emplace(stemLower, path);
         if (!inserted && path.extension() == ".png") it->second = path;  // PNG wins over BLP
     }
     for (auto& [stem, path] : byStem) pool.files.push_back(std::move(path));
     std::sort(pool.files.begin(), pool.files.end());
+    return pool;
+}
+
+// Real, confirmed-by-bytes naming convention (not a guess): a "_sdr"
+// stand-in character model (a drastically lower-poly, self-contained-
+// animation variant -- see CLAUDE_HISTORY.md's 2026-08-09 entry for the
+// full comparison) shares its real texture files with its non-"_sdr"
+// counterpart. E.g. "darkirondwarfmale_sdr.m2"'s own hardcoded texture
+// slots can only ever resolve against files named
+// "darkirondwarfmale_<suffix>.blp" -- real files, sitting in the same
+// directory -- never "darkirondwarfmale_sdr_<suffix>.blp", which doesn't
+// exist anywhere in the corpus. Without this, every "_sdr" file's
+// same-basename pool is unconditionally empty and every hardcoded slot
+// renders untextured.
+constexpr std::string_view kSdrSuffix = "_sdr";
+
+FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std::string& modelPath) {
+    if (texturesDir.empty()) return {};
+
+    std::string modelBasename = lowercaseModelBasename(modelPath);
+    if (modelBasename.empty()) return {};
+
+    FuzzyTexturePool pool = scanFuzzyTexturePoolForBasename(texturesDir, modelBasename);
+    if (pool.files.empty() && modelBasename.size() > kSdrSuffix.size() &&
+        modelBasename.compare(modelBasename.size() - kSdrSuffix.size(), kSdrSuffix.size(), kSdrSuffix) == 0) {
+        std::string strippedBasename = modelBasename.substr(0, modelBasename.size() - kSdrSuffix.size());
+        pool = scanFuzzyTexturePoolForBasename(texturesDir, strippedBasename);
+    }
     return pool;
 }
 
@@ -664,6 +691,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
 
         gltf::Material gm;
         gm.alphaMode = alphaModeForBlend(mat.blendMode);
+        gm.blendMode = mat.blendMode;
         gm.doubleSided = (mat.flags & kMaterialTwoSidedFlag) != 0;
         gm.unlit = (mat.flags & kMaterialUnlitFlag) != 0;
         // Kept as a live prefix on gm.name while the rest of this loop body

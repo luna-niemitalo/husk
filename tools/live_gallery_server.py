@@ -36,6 +36,24 @@ from pathlib import Path
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
+# world/expansionNN/... is a real folder convention in the WoW corpus this
+# tool was built against -- confirmed against actual zone/doodad names
+# inside each folder (not guessed): expansion01's own subfolders include
+# "hellfirepeninsula"/"netherstorm"/"shattrath" (TBC), expansion05 has
+# "ironhorde"/"tanaanjungle" (WoD), expansion11 has "playerhousing" (a
+# post-The War Within feature, not yet released at time of writing -- least
+# certain label here, everything else is a confirmed real zone match). Only
+# world/ content is organized this way; creature/character/item/spells have
+# no per-file expansion marker at all (a real, separate gap -- would need
+# DB2 cross-referencing to close, not attempted here).
+WORLD_ERA_RE = re.compile(r"^(expansion(\d\d))(?:[/\\]|$)", re.IGNORECASE)
+EXPANSION_LABELS = {
+    "01": "The Burning Crusade", "02": "Wrath of the Lich King", "03": "Cataclysm",
+    "04": "Mists of Pandaria", "05": "Warlords of Draenor", "06": "Legion",
+    "07": "Battle for Azeroth", "08": "Shadowlands", "09": "Dragonflight",
+    "10": "The War Within", "11": "post-TWW (unreleased, e.g. player housing)",
+}
+
 # One log line looks like "STATUS /abs/path/to/file.m2 :: detail..." --
 # see render_sample_driver.py's own _log(). Only the leading token and the
 # path are needed here; the detail is surfaced as a tooltip, not parsed further.
@@ -65,6 +83,7 @@ class Index:
         self._lock = threading.Lock()
         self._items: list[dict] = []
         self._categories: dict[str, int] = {}
+        self._eras: dict[str, int] = {}
         self._version = 0
         self._log_offsets: dict[Path, int] = {p: 0 for p in log_paths}
         self._log_status: dict[str, tuple[str, str]] = {}
@@ -116,6 +135,7 @@ class Index:
     def _scan_files(self) -> None:
         items = []
         categories: dict[str, int] = {}
+        eras: dict[str, int] = {}
         root = self.root
         for dirpath, _dirnames, filenames in os.walk(root):
             for name in filenames:
@@ -130,7 +150,14 @@ class Index:
                 rel = os.path.relpath(full, root)
                 cat = rel.split(os.sep, 1)[0] if os.sep in rel else "(root)"
                 categories[cat] = categories.get(cat, 0) + 1
-                items.append({"rel": rel, "cat": cat, "mtime": mtime})
+                era = ""
+                if cat == "world":
+                    rest = rel.split(os.sep, 1)[1] if os.sep in rel else ""
+                    m = WORLD_ERA_RE.match(rest)
+                    if m:
+                        era = m.group(1).lower()
+                        eras[era] = eras.get(era, 0) + 1
+                items.append({"rel": rel, "cat": cat, "era": era, "mtime": mtime})
 
         # Status is keyed by the *source* path the driver logged (an .m2
         # under CORPUS_ROOT), not the rendered image's own relative path --
@@ -155,12 +182,14 @@ class Index:
             changed = len(items) != len(self._items) or items[:1] != self._items[:1]
             self._items = items
             self._categories = categories
+            self._eras = eras
             if changed:
                 self._version += 1
                 self._notify()
 
     def _notify(self) -> None:
-        payload = {"version": self._version, "total": len(self._items), "categories": self._categories}
+        payload = {"version": self._version, "total": len(self._items), "categories": self._categories,
+                   "eras": self._eras}
         for q in self._subscribers:
             q.put(payload)
 
@@ -168,7 +197,8 @@ class Index:
         q: queue.Queue = queue.Queue()
         with self._lock:
             self._subscribers.append(q)
-            q.put({"version": self._version, "total": len(self._items), "categories": self._categories})
+            q.put({"version": self._version, "total": len(self._items), "categories": self._categories,
+                   "eras": self._eras})
         return q
 
     def unsubscribe(self, q: queue.Queue) -> None:
@@ -176,11 +206,13 @@ class Index:
             if q in self._subscribers:
                 self._subscribers.remove(q)
 
-    def query(self, category: str | None, q: str | None, status: str | None, offset: int, limit: int) -> dict:
+    def query(self, category: str | None, q: str | None, status: str | None, era: str | None,
+              offset: int, limit: int) -> dict:
         with self._lock:
             items = self._items
             version = self._version
             categories = dict(self._categories)
+            eras = dict(self._eras)
         needle = q.lower() if q else None
         out = []
         for item in items:
@@ -188,13 +220,16 @@ class Index:
                 continue
             if status and status != "all" and item["status"] != status:
                 continue
+            if era and era != "all" and item["era"] != era:
+                continue
             if needle and needle not in item["rel"].lower():
                 continue
             out.append(item)
         total = len(out)
         page = out[offset:offset + limit]
         return {"version": version, "total": total, "grand_total": len(items),
-                "categories": categories, "items": page, "has_more": offset + limit < total}
+                "categories": categories, "eras": eras, "era_labels": EXPANSION_LABELS,
+                "items": page, "has_more": offset + limit < total}
 
 
 def _index_log_by_source_basename(log_status: dict[str, tuple[str, str]]) -> dict[str, tuple[str, str]]:
@@ -244,8 +279,20 @@ PAGE_HTML = """<!doctype html>
             border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12.5px; }
   #banner.show { display: inline-block; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px 20px; }
-  figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-  figure img { width: 100%; height: 160px; object-fit: contain; background: #05070a; display: block; }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+           animation: fig-in 0.5s ease-out both; animation-delay: var(--fig-delay, 0s); }
+  /* A little Code Lyoko materialization homage: a cyan digital flash that
+     resolves into the normal panel border, staggered per-item (--fig-delay,
+     set in JS) so a batch fills in a cascading wave instead of popping in
+     as one flat block. */
+  @keyframes fig-in {
+    0%   { opacity: 0; transform: translateY(6px) scale(0.97); border-color: #5ff2ff; box-shadow: 0 0 12px 1px rgba(95,242,255,0.55); }
+    60%  { opacity: 1; transform: none; border-color: #5ff2ff; box-shadow: 0 0 6px 0 rgba(95,242,255,0.3); }
+    100% { opacity: 1; transform: none; border-color: var(--border); box-shadow: none; }
+  }
+  figure img { width: 100%; height: 160px; object-fit: contain; background: #05070a; display: block;
+               opacity: 0; transition: opacity 0.25s ease-out; }
+  figure img.loaded { opacity: 1; }
   figcaption { padding: 7px 9px; font-size: 11px; color: var(--muted); word-break: break-all; }
   figcaption .cat { color: var(--accent); font-weight: 600; margin-right: 5px; }
   figure.bad { border-color: var(--bad); }
@@ -264,12 +311,16 @@ PAGE_HTML = """<!doctype html>
     <div id="status-chips" class="row"></div>
     <div id="banner">new files available -- click to refresh</div>
   </div>
+  <div class="row" id="era-row" style="display:none;">
+    <span style="color:var(--muted);font-size:12px;">world/ era:</span>
+    <div id="era-chips" class="row"></div>
+  </div>
 </header>
 <div class="grid" id="grid"></div>
 <div id="empty">no images match this filter (yet)</div>
 <div id="sentinel"></div>
 <script>
-const state = { category: 'all', status: 'all', q: '', offset: 0, limit: 80, loading: false, hasMore: true, atTop: true };
+const state = { category: 'all', status: 'all', era: 'all', q: '', offset: 0, limit: 80, loading: false, hasMore: true, atTop: true };
 const grid = document.getElementById('grid');
 const empty = document.getElementById('empty');
 const banner = document.getElementById('banner');
@@ -277,12 +328,19 @@ const banner = document.getElementById('banner');
 function qs(obj) { return Object.entries(obj).filter(([,v]) => v !== '' && v !== undefined)
   .map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&'); }
 
-function figureFor(item) {
+function figureFor(item, batchIndex) {
   const fig = document.createElement('figure');
+  // Cascading materialize wave, capped so a big batch (e.g. first load)
+  // doesn't leave the last row waiting seconds to appear.
+  if (batchIndex !== undefined) {
+    fig.style.setProperty('--fig-delay', `${Math.min(batchIndex * 22, 480)}ms`);
+  }
   if (item.status && item.status.startsWith('FAIL')) fig.classList.add('bad');
   else if (item.status === 'SKIP') fig.classList.add('skip');
   const img = document.createElement('img');
   img.loading = 'lazy';
+  img.decoding = 'async';
+  img.onload = () => img.classList.add('loaded');
   img.src = '/img/' + item.rel.split('/').map(encodeURIComponent).join('/');
   img.title = item.detail || item.rel;
   const cap = document.createElement('figcaption');
@@ -291,20 +349,58 @@ function figureFor(item) {
   return fig;
 }
 
+// Tracks which rel paths are currently rendered in the grid, so a live
+// update (new files landing mid-render-job) can prepend just the new ones
+// instead of wiping and rebuilding the whole grid -- that full-rebuild path
+// used to fire on every single SSE message, forcing every visible thumbnail
+// to re-fetch/re-decode/repaint at once, which is exactly what made the
+// page feel stuttery during an active run.
+state.knownRels = new Set();
+
 async function loadPage(reset) {
   if (state.loading || (!state.hasMore && !reset)) return;
   state.loading = true;
-  if (reset) { state.offset = 0; grid.innerHTML = ''; state.hasMore = true; }
-  const res = await fetch('/api/files?' + qs({ category: state.category, status: state.status, q: state.q,
-                                                 offset: state.offset, limit: state.limit }));
+  if (reset) { state.offset = 0; grid.innerHTML = ''; state.hasMore = true; state.knownRels.clear(); }
+  const res = await fetch('/api/files?' + qs({ category: state.category, status: state.status, era: state.era,
+                                                 q: state.q, offset: state.offset, limit: state.limit }));
   const data = await res.json();
   document.getElementById('grand-total').textContent = data.grand_total.toLocaleString();
   renderChips(data.categories);
-  data.items.forEach(item => grid.appendChild(figureFor(item)));
+  renderEraChips(data.eras, data.era_labels);
+  const frag = document.createDocumentFragment();
+  data.items.forEach((item, i) => { frag.appendChild(figureFor(item, i)); state.knownRels.add(item.rel); });
+  grid.appendChild(frag);
   state.offset += data.items.length;
   state.hasMore = data.has_more;
   empty.style.display = (state.offset === 0) ? 'block' : 'none';
   state.loading = false;
+}
+
+// Used only for the "new files landed while you're at the top" live-update
+// path -- fetches the current first page and prepends whatever's genuinely
+// new (items are sorted newest-first, so this stops at the first item
+// already on screen), leaving everything already rendered untouched.
+async function prependNew() {
+  if (state.loading) return;
+  const res = await fetch('/api/files?' + qs({ category: state.category, status: state.status, era: state.era,
+                                                 q: state.q, offset: 0, limit: state.limit }));
+  const data = await res.json();
+  document.getElementById('grand-total').textContent = data.grand_total.toLocaleString();
+  renderChips(data.categories);
+  renderEraChips(data.eras, data.era_labels);
+  const frag = document.createDocumentFragment();
+  let added = 0;
+  for (const item of data.items) {
+    if (state.knownRels.has(item.rel)) break;
+    frag.appendChild(figureFor(item, added));
+    state.knownRels.add(item.rel);
+    added++;
+  }
+  if (added > 0) {
+    grid.prepend(frag);
+    state.offset += added;
+    empty.style.display = 'none';
+  }
 }
 
 function renderChips(categories) {
@@ -323,6 +419,34 @@ function renderChips(categories) {
   const total = Object.values(categories).reduce((a,b) => a+b, 0);
   wrap.appendChild(mk('all', 'all', total));
   Object.entries(categories).sort((a,b) => b[1]-a[1]).forEach(([cat,n]) => wrap.appendChild(mk(cat, cat, n)));
+}
+
+function renderEraChips(eras, labels) {
+  eras = eras || {}; labels = labels || {};
+  const row = document.getElementById('era-row');
+  const wrap = document.getElementById('era-chips');
+  const keys = Object.keys(eras).sort();
+  if (keys.length === 0) { row.style.display = 'none'; return; }
+  row.style.display = 'flex';
+  const built = JSON.stringify(keys);
+  if (wrap.dataset.built === built) return;
+  wrap.dataset.built = built;
+  wrap.innerHTML = '';
+  const mk = (label, key, n) => {
+    const c = document.createElement('div');
+    c.className = 'chip' + (state.era === key ? ' active' : '');
+    c.innerHTML = `${label}${n !== undefined ? `<span class="n">${n.toLocaleString()}</span>` : ''}`;
+    c.onclick = () => { state.era = key; [...wrap.children].forEach(x => x.classList.remove('active'));
+                         c.classList.add('active'); loadPage(true); };
+    return c;
+  };
+  const total = Object.values(eras).reduce((a,b) => a+b, 0);
+  wrap.appendChild(mk('all', 'all', total));
+  keys.forEach(k => {
+    const num = k.replace('expansion', '');
+    const label = labels[num] ? `${k} (${labels[num]})` : k;
+    wrap.appendChild(mk(label, k, eras[k]));
+  });
 }
 
 function renderStatusChips() {
@@ -358,7 +482,13 @@ function connectStream() {
     const data = JSON.parse(ev.data);
     document.getElementById('grand-total').textContent = data.total.toLocaleString();
     renderChips(data.categories);
-    if (state.atTop) loadPage(true); else banner.classList.add('show');
+    renderEraChips(data.eras, data.era_labels);
+    // Only the very first load (grid still empty) needs a full loadPage --
+    // every later update just prepends what's new, so the render job
+    // filling in images doesn't jank-refresh whatever you're looking at.
+    if (state.knownRels.size === 0) loadPage(true);
+    else if (state.atTop) prependNew();
+    else banner.classList.add('show');
   };
   es.onerror = () => { es.close(); setTimeout(connectStream, 2000); };
 }
@@ -401,10 +531,11 @@ def make_handler(index: Index, root: Path):
             if path == "/api/files":
                 category = (params.get("category") or ["all"])[0]
                 status = (params.get("status") or ["all"])[0]
+                era = (params.get("era") or ["all"])[0]
                 q = (params.get("q") or [""])[0]
                 offset = int((params.get("offset") or ["0"])[0])
                 limit = min(int((params.get("limit") or ["80"])[0]), 500)
-                self._json(index.query(category, q, status, offset, limit))
+                self._json(index.query(category, q, status, era, offset, limit))
                 return
 
             if path == "/api/stream":

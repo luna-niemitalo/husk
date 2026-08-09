@@ -84,12 +84,17 @@ produce something a human looks at, not a CSV.
   `.phys` sidecar. Writes a plain one-path-per-line file
   (`corpus_reports/render_sample.txt` by convention).
 - `corpus_scan_tasks/render_glb.py` — the actual headless-Blender worker:
-  imports one `.glb`, frames the camera to its bounding box, renders one
-  WebP image (quality 80, lossy — these are flat-shaded QA thumbnails, not
-  archival output). Prints a `SKIPPED` sentinel (not a crash) for a real
-  0-vertex camera/track-only model. Invoked as `blender --background
-  --factory-startup --python render_glb.py -- <in.glb> <out.webp>`, never
-  run standalone.
+  imports one `.glb`, rebuilds a real additive shader (Transparent BSDF +
+  Emission via Add Shader) for any material carrying a `blend_mode` extras
+  value of 3/4 (WoW's additive blend modes -- no core-glTF equivalent, see
+  `README.md`'s Materials section; handles both the plain-Principled and
+  `KHR_materials_unlit`-imported node shapes, which Blender's importer
+  builds completely differently), frames the camera to its bounding box,
+  renders one WebP image (quality 80, lossy — these are flat-shaded QA
+  thumbnails, not archival output). Prints a `SKIPPED` sentinel (not a
+  crash) for a real 0-vertex camera/track-only model. Invoked as `blender
+  --background --factory-startup --python render_glb.py -- <in.glb>
+  <out.webp>`, never run standalone.
 - `corpus_scan_tasks/render_sample_driver.py` — drives the two steps above
   (real `husk export` with full sidecar auto-discovery, then
   `render_glb.py`) in parallel across a file list, either the sample above
@@ -114,13 +119,32 @@ produce something a human looks at, not a CSV.
   methodology (against a real listfile *and* a full local `.blp` path
   index) needed to separate a genuine gap from a naming-convention
   mismatch. Motivated `husk export --listfile`/`--listfile-root`.
+- `corpus_scan_tasks/expansion_task.py` — a `corpus_scan_framework`
+  `ScanTask` tagging every `.m2` with its real M2 version, wowdev.wiki
+  expansion label, and a coarse support tier (unsupported/sketchy/
+  supported, per `DESIGN.md`'s own stated Legion+ target). **Real, but
+  found to carry no useful signal** on a modern retail corpus -- 130,242 of
+  130,576 real files are already version 272 or 274 (both Legion+ chunked),
+  since the client re-saves every M2 in the current format regardless of
+  the content's original expansion. Kept as a real, correct tool (and a
+  second-opinion cross-check of `src/m2_primitives.cpp`'s own
+  `expansionForVersion` table) but deliberately not wired into
+  `live_gallery_server.py` given that null result -- see this task's own
+  module docstring.
 - `live_gallery_server.py` — a small stdlib-only HTTP server (not a
   corpus-scan task) that live-rescans a render output directory and serves
   a filterable, infinite-scroll gallery page, updating in real time via
   Server-Sent Events as new images land. Generic (works on any growing
   image directory, not husk-specific) but built for exactly this render
   pipeline's output shape — see its own module docstring for the full
-  design and `--log`/`--listfile`-adjacent flags.
+  design and `--log`/`--listfile`-adjacent flags. Also filters by
+  `world/expansionNN` era (a real WoW corpus folder convention, confirmed
+  against actual zone content per folder -- covers `world/` doodad content
+  only, not creature/character/item/spells, see `expansion_task.py`'s own
+  entry above for why a file-version-based filter didn't work instead).
+  Live updates diff and prepend newly-landed images instead of rebuilding
+  the whole grid, so an active multi-hour render job doesn't stutter the
+  page.
 
 ## One-off exploration scripts
 

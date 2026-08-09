@@ -335,6 +335,24 @@ std::vector<uint8_t> oneTexturedModel(uint32_t fileDataId) {
     return file;
 }
 
+// Same shape as oneTexturedModel() but the single M2Material's blendMode is
+// caller-supplied instead of always 0 -- for exercising alphaModeForBlend's
+// classification (and, for blendMode > 2, the raw blend_mode extras field)
+// against a real fdid-resolvable, embeddable texture slot.
+std::vector<uint8_t> oneTexturedModelWithBlendMode(uint32_t fileDataId, uint16_t blendMode) {
+    auto file = oneTexturedModel(fileDataId);
+    // MD21 header (8 bytes) + matOff computed the same way oneTexturedModel
+    // built it: textures array (16 bytes) placed right after tinyValidM2(),
+    // then the 4-byte M2Material immediately after that -- matOff itself
+    // isn't stored, so it's recomputed here the same way, then offset by 8
+    // for the MD21 chunk-header prefix this returned `file` already has.
+    uint32_t texOff;
+    std::memcpy(&texOff, file.data() + 8 + 0x054, 4);
+    uint32_t matOff = texOff + 16;
+    std::memcpy(file.data() + 8 + matOff + 2, &blendMode, 2);  // M2Material::blendMode
+    return file;
+}
+
 // Same shape as oneTexturedModel() but the single M2Texture has a real
 // `type` (a hardcoded/runtime-resolved slot, wowdev.wiki M2#Textures) and
 // no TXID chunk at all -- fdid stays 0, exercising the textureTypeName

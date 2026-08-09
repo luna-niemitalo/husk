@@ -248,6 +248,12 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
         materialExtras["texture_type"] = tinygltf::Value(static_cast<int>(mat.textureType));
     }
 
+    // Real WoW blend mode, only for the range alphaMode collapses lossily
+    // -- see gltf_mesh.hpp's Material::blendMode doc comment.
+    if (mat.blendMode > 2) {
+        materialExtras["blend_mode"] = tinygltf::Value(static_cast<int>(mat.blendMode));
+    }
+
     // The primary texture's real FileDataID, when known -- see
     // gltf_mesh.hpp's Material::baseColorTextureFileDataId doc comment.
     if (mat.baseColorTextureFileDataId != 0) {

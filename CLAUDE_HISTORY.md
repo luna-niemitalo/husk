@@ -14,6 +14,117 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-09, continued**: Two more real, corpus-render-driven gaps closed
+in the same session, plus real render-pipeline throughput/UX work, all
+found via actually looking at rendered output rather than just parsing
+correctness:
+
+1. **`_sdr` stand-in models render untextured -- root-caused and fixed.**
+   `scanFuzzyTexturePool` (`export_materials.cpp`) required a same-basename
+   candidate's filename to start with the model's *exact* own basename --
+   a "_sdr" model (e.g. `darkirondwarfmale_sdr.m2`, a drastically lower-poly
+   self-contained-animation stand-in that shares its real texture files
+   with its non-"_sdr" counterpart, confirmed by comparing real vertex/
+   texture/sequence counts between the two) can only ever resolve against
+   files named `darkirondwarfmale_<suffix>.blp` -- real files sitting right
+   there, but the "_sdr" prefix requirement rejected every one of them.
+   Fixed with a narrow, confirmed-by-bytes fallback: when the exact-
+   basename scan finds nothing and the basename ends in `_sdr`, retry with
+   that suffix stripped. Verified against the real fixture (0 embedded
+   images before, ~100+ after). 2 new tests.
+2. **WoW's additive/multiply blend modes (3-7) have no core-glTF
+   equivalent and were collapsing to plain alpha-`BLEND`, which is a real,
+   visibly wrong answer** -- a mostly-black additive-designed texture (a
+   glow/particle/constellation effect) should contribute nothing where
+   it's black; naive alpha-blend instead shows a solid dark panel.
+   Confirmed against a real corpus file flagged directly:
+   `creature/celestialfoxwyvern/celestialfoxwyvern.m2` rendered as a solid
+   dark diamond instead of glowing constellation lines. Closed two ways:
+   (a) `gltf::Material` gained a raw `blendMode` field, exported as a
+   `blend_mode` material extras value only when > 2 (0-2 already round-trip
+   losslessly through `alphaMode`) -- 2 new tests, one proving the extras
+   value appears for mode 4, one proving it's absent for mode 2. (b)
+   `tools/corpus_scan_tasks/render_glb.py` (the actual corpus-render
+   pipeline this whole investigation runs through, not just a future
+   Blender-import convenience) now rebuilds a real additive shader
+   (Transparent BSDF + Emission combined via Add Shader,
+   `surface_render_method = 'BLENDED'`) for any material carrying that
+   extras value -- found and fixed a real bug in the first version of this
+   before it shipped: WoW's own `unlit` flag (M2Material 0x01) commonly
+   co-occurs with additive blend modes, and Blender's glTF importer builds
+   a completely different node shape for `KHR_materials_unlit` materials
+   (`Emission`+`Transparent`+`Mix Shader`, no `Principled BSDF` at all) --
+   the first version only searched for `BSDF_PRINCIPLED` and silently
+   fixed zero materials on the real fixture; fixed by reusing whichever
+   shape is actually present (the unlit path's own `Emission` node, already
+   correctly wired to the right texture, needs no rebuilding at all).
+   Verified against the real fixture: the solid dark panel is confirmed
+   gone post-fix (2 materials rebuilt); the glow's own visual intensity
+   wasn't independently tuned/confirmed beyond that, flagged as a possible
+   follow-up polish item, not a correctness gap. Modes 5/6 (Mod/Mod2x,
+   multiply) are a real, separate, un-attempted gap -- no demonstrated
+   real-corpus case drove it this session.
+
+Also, prompted directly by real observations while this was being
+investigated:
+
+- **`tools/live_gallery_server.py`** gained a `world/expansionNN` era
+  filter (real folder convention, confirmed against actual zone/doodad
+  names per folder -- `expansion01` has `hellfirepeninsula`/`netherstorm`
+  (TBC), `expansion05` has `ironhorde` (WoD), etc.; `expansion11`'s real
+  expansion is unreleased/unannounced at time of writing, labeled
+  conservatively). Deliberately scoped down after checking real data
+  first: an initial plan to filter by M2 *file-format version* instead
+  turned out to carry zero signal on a modern retail extraction --
+  130,242 of 130,576 real files are already version 272 or 274 (both
+  Legion+ chunked), because the client re-saves every M2 in the current
+  format regardless of the content's original expansion, confirmed via a
+  new (deliberately not wired into the gallery, given the null result)
+  `tools/corpus_scan_tasks/expansion_task.py`. The path-based `world/`
+  convention is real signal where the version-based one wasn't, but only
+  covers world/doodad content, not creature/character/item/spells.
+- The gallery's live-update path was fully rebuilding the grid (wipe +
+  re-fetch + re-decode every visible image) on every single new-file
+  notification, which stutters badly during an active multi-hour render
+  job. Fixed with a real diff instead of a reset: `prependNew()` fetches
+  the current first page and prepends only images not already known
+  (items are sorted newest-first, so this stops at the first already-seen
+  one), leaving the rest of the grid untouched; batched via
+  `DocumentFragment` instead of one `appendChild` per item. Added a
+  staggered per-item entrance animation (capped stagger delay) plus a
+  brief cyan flash-then-settle accent purely for polish.
+- **Render throughput**: this machine's own dual Radeon VII
+  (`CLAUDE.md`'s Machines table) were being used unevenly by the 12-way
+  worker pool -- confirmed via `/sys/class/drm/card*/device/
+  gpu_busy_percent` polling during a real render, not assumed from CPU%
+  alone. `render_sample_driver.py` now sets `DRI_PRIME` per worker process
+  (stable for that worker's lifetime, based on `os.getpid() % 2`, no
+  shared state needed) to alternate which physical GPU each Blender
+  subprocess actually renders on -- confirmed via the same busy-percent
+  polling that both cards now light up within one run. Vulkan
+  (`--gpu-backend vulkan`) was tried too: no measurable per-render
+  speedup on this workload (these are simple flat-shaded thumbnails,
+  likely CPU/startup-bound rather than GPU-bound), and Mesa's own
+  `MESA_VK_DEVICE_SELECT` multi-GPU env var didn't behave deterministically
+  across repeated tries in the time available -- not used, staying on the
+  OpenGL default (which DRI_PRIME reliably controls) instead of chasing a
+  non-reproducible Vulkan multi-GPU setup further.
+- Render output switched from PNG to WebP (quality 80, lossy) --
+  real corpus examples came in at 2.5-4.7KB vs the old PNGs' much larger
+  size, a meaningfully lighter live gallery. Resume logic treats either
+  extension as "already done," so already-good PNGs from before the switch
+  are never wastefully redone.
+
+Full suite green, 601/601 (596 + 5 new: 2 `_sdr`, 2 `blend_mode`, 1
+`--listfile-root`-independence regression from the same-day earlier
+entry). The full `renders_full` corpus job was stopped, then restarted
+from a cleared output directory once all of the above landed (Luna's own
+call, given the scope -- not worth layering a fourth partial-reprocess
+pass on top of the `--listfile`/WebP switch's own prior partial-reprocess
+pass).
+
+---
+
 **2026-08-09**: New `husk export --listfile <path>` flag closes a real gap
 found this session by a from-scratch corpus tool (not husk itself): a full
 130,576-file render pass followed by cross-referencing every "missing"

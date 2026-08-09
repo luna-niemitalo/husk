@@ -1100,3 +1100,79 @@ TEST_CASE("husk export: a batch with textureTransformComboIndex = 0xFFFF (none) 
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export: a '_sdr' model's hardcoded texture slot falls back to the non-'_sdr' "
+          "basename when the exact '_sdr'-prefixed basename has no same-basename candidates "
+          "(real, confirmed naming convention -- '_sdr' stand-in models share textures with "
+          "their non-'_sdr' counterpart, never their own '_sdr'-prefixed name)") {
+    auto dir = defaultsDir("sdrtex");
+    writeFile(dir / "creaturemale_sdr.m2", oneTexturedModelWithType(1));  // type=1 (skin), hardcoded
+    writeFile(dir / "creaturemale_sdr00.skin", oneTexturedModelSkin());
+    // No "creaturemale_sdr_*" file exists anywhere -- only the non-"_sdr"
+    // basename has a real candidate, exactly the real corpus shape.
+    writeFile(dir / "creaturemaleskin00_00.png", {'S', 'D', 'R', 'F'});
+
+    auto result = runHusk("export " + (dir / "creaturemale_sdr.m2").string());
+    CHECK(result.exitCode == 0);
+
+    std::ifstream glbFile(dir / "creaturemale_sdr.glb", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
+    CHECK(text.find("SDRF") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a '_sdr' model with no non-'_sdr' fallback candidates either embeds "
+          "nothing, same as any other genuinely unresolvable hardcoded slot (the fallback is "
+          "additive, never a substitute for real data existing somewhere)") {
+    auto dir = defaultsDir("sdrtexnothing");
+    writeFile(dir / "lonelymale_sdr.m2", oneTexturedModelWithType(1));
+    writeFile(dir / "lonelymale_sdr00.skin", oneTexturedModelSkin());
+    // No candidate under either basename.
+
+    auto result = runHusk("export " + (dir / "lonelymale_sdr.m2").string());
+    CHECK(result.exitCode == 0);
+
+    std::ifstream glbFile(dir / "lonelymale_sdr.glb", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
+    CHECK(text.find("baseColorTexture") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a batch whose material blend mode has no core-glTF equivalent (WoW's "
+          "own additive/multiply modes, > 2) gets a real 'blend_mode' extras value, only for "
+          "the range alphaMode's Opaque/Mask/Blend collapse actually loses information") {
+    auto dir = defaultsDir("blendmodeadd");
+    writeFile(dir / "m.m2", oneTexturedModelWithBlendMode(9001, 4));  // 4 = Add
+    writeFile(dir / "m.skin", oneTexturedModelSkin());
+    writeFile(dir / "9001.png", {'A', 'D', 'D', '1'});
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
+    CHECK(result.exitCode == 0);
+
+    std::ifstream glbFile(dir / "m.glb", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
+    CHECK(text.find("blend_mode") != std::string::npos);
+    CHECK(text.find("BLEND") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: blend modes 0-2 (Opaque/AlphaKey/Alpha) never get a 'blend_mode' "
+          "extras value -- alphaMode alone already says everything for those") {
+    auto dir = defaultsDir("blendmodealpha");
+    writeFile(dir / "m.m2", oneTexturedModelWithBlendMode(9002, 2));  // 2 = a real alpha blend
+    writeFile(dir / "m.skin", oneTexturedModelSkin());
+    writeFile(dir / "9002.png", {'A', 'L', 'P', 'H'});
+
+    auto result = runHusk("export " + (dir / "m.m2").string() + " --skin " + (dir / "m.skin").string());
+    CHECK(result.exitCode == 0);
+
+    std::ifstream glbFile(dir / "m.glb", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
+    CHECK(text.find("blend_mode") == std::string::npos);
+    CHECK(text.find("BLEND") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
