@@ -711,6 +711,114 @@ TEST_CASE("husk export: a fdid-resolvable slot with no matching \"<fdid>.png\" f
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export: a fdid-resolvable slot with no matching \"<fdid>.png\" and no --listfile "
+          "embeds nothing (baseline for the --listfile test below, proves the fixture alone isn't "
+          "enough -- the real file lives away from both the model dir and any bare-fdid name)") {
+    auto dir = defaultsDir("nolistfiletex");
+    writeFile(dir / "nolistfiletex.m2", oneTexturedModel(1018799));
+    writeFile(dir / "nolistfiletex00.skin", oneTexturedModelSkin());
+    auto corpusRoot = dir / "corpus";
+    fs::create_directories(corpusRoot / "character/human/male");
+    writeFile(corpusRoot / "character/human/male/deathknighteyeglow.png", {'L', 'I', 'S', 'T'});
+
+    auto result = runHusk("export " + (dir / "nolistfiletex.m2").string() +
+                           " --textures " + corpusRoot.string());
+    CHECK(result.exitCode == 0);
+
+    std::ifstream glbFile(dir / "nolistfiletex.glb", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
+    CHECK(text.find("LIST") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --listfile resolves a FileDataID to its real corpus-relative path when no "
+          "exact \"<fdid>.{blp,png}\" file exists next to --textures (casc-tool FAILURES.md item "
+          "13's real motivating case: most textures in a real export sit under their own real "
+          "name/path, not renamed to a bare FileDataID)") {
+    auto dir = defaultsDir("listfiletex");
+    writeFile(dir / "listfiletex.m2", oneTexturedModel(1018799));
+    writeFile(dir / "listfiletex00.skin", oneTexturedModelSkin());
+    auto corpusRoot = dir / "corpus";
+    fs::create_directories(corpusRoot / "character/human/male");
+    // Deliberately NOT named "1018799.png" -- this is the real listfile
+    // name/path the exact-FileDataID match can never find on its own.
+    writeFile(corpusRoot / "character/human/male/deathknighteyeglow.png", {'L', 'I', 'S', 'T'});
+    // The listfile itself names the ".blp" extension (matching a real
+    // community-listfile.csv, which always names the CASC-side source
+    // format) even though the file on disk is a ".png" -- proves the
+    // extension gets swapped via the same resolveTextureBytes() path the
+    // exact-fdid match already uses, not a literal string match.
+    auto listfilePath = dir / "listfile.csv";
+    {
+        std::ofstream f(listfilePath);
+        f << "1018799;character/human/male/deathknighteyeglow.blp\n";
+    }
+
+    auto result = runHusk("export " + (dir / "listfiletex.m2").string() +
+                           " --textures " + corpusRoot.string() +
+                           " --listfile " + listfilePath.string());
+    CHECK(result.exitCode == 0);
+
+    std::ifstream glbFile(dir / "listfiletex.glb", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
+    CHECK(text.find("LIST") != std::string::npos);
+    // Still recorded under its real FileDataID, same as the exact-match case.
+    CHECK(text.find("_fdid1018799") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --listfile-root is independent of --textures -- co-located same-basename "
+          "matching keeps using --textures (the model's own directory) while the listfile fallback "
+          "reaches into a completely separate corpus root (the real render-job shape: a model's "
+          "directory has its own co-located textures, while a FileDataID-only slot's real file "
+          "lives elsewhere in the tree entirely)") {
+    auto dir = defaultsDir("splitroottex");
+    writeFile(dir / "splitroottex.m2", twoTexturedModel(1018799));
+    writeFile(dir / "splitroottex00.skin", twoBatchSkin());
+    // The hardcoded slot's only real candidate: co-located with the model,
+    // found via --textures defaulting to the model's own directory.
+    writeFile(dir / "splitroottexfaceupper00_00_hd.png", {'N', 'A', 'M', 'E'});
+    // The fdid-resolvable slot's real file lives under a *separate* corpus
+    // root, nowhere near the model's own directory -- reachable only via
+    // --listfile-root, never via --textures.
+    auto corpusRoot = dir / "far_away_corpus_root";
+    fs::create_directories(corpusRoot / "character/human/male");
+    writeFile(corpusRoot / "character/human/male/deathknighteyeglow.png", {'F', 'D', 'I', 'D'});
+    auto listfilePath = dir / "listfile.csv";
+    {
+        std::ofstream f(listfilePath);
+        f << "1018799;character/human/male/deathknighteyeglow.blp\n";
+    }
+
+    auto result = runHusk("export " + (dir / "splitroottex.m2").string() +
+                           " --listfile " + listfilePath.string() +
+                           " --listfile-root " + corpusRoot.string());
+    CHECK(result.exitCode == 0);
+
+    std::ifstream glbFile(dir / "splitroottex.glb", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(glbFile)), std::istreambuf_iterator<char>());
+    // Both real images present -- neither root's own file was left behind.
+    CHECK(text.find("NAME") != std::string::npos);
+    CHECK(text.find("FDID") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: --listfile pointed at a nonexistent path fails loudly, not silently") {
+    auto dir = defaultsDir("listfilebadpath");
+    writeFile(dir / "listfilebadpath.m2", oneTexturedModel(1018799));
+    writeFile(dir / "listfilebadpath00.skin", oneTexturedModelSkin());
+
+    auto result = runHusk("export " + (dir / "listfilebadpath.m2").string() +
+                           " --listfile " + (dir / "does_not_exist.csv").string());
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("--listfile") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk export: batches spanning more than one distinct skinSectionId (geoset ID) print a "
           "loud note naming them") {
     auto dir = defaultsDir("geosets");

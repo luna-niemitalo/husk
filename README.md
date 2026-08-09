@@ -364,6 +364,8 @@ Flags:
 | `--db2-dir <dir>` | -- | Directory of real character-texture `.db2` files (see above); combined with `--dbd-dir`/`--char-layout-id` | unset (feature off) |
 | `--dbd-dir <dir>` | -- | A local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) | unset |
 | `--char-layout-id <id>` | -- | A real `CharComponentTextureLayoutsID` (see `husk db2-export`) -- husk can't derive this on its own | unset |
+| `--listfile <path>` | -- | A local `community-listfile.csv`-style snapshot (`FileDataID;path` per line, github.com/wowdev/wow-listfile) -- last-resort FileDataID -> real-name lookup when `<FileDataID>.{blp,png}` isn't found next to `--textures` | unset (feature off) |
+| `--listfile-root <dir>` | -- | The corpus root `--listfile`'s paths are relative to -- deliberately separate from `--textures` (which stays the model's own directory by default, driving the directory-local matching above); only meaningful alongside `--listfile` | `--textures` itself |
 
 Texture resolution deliberately tries real-filename matches before
 `<FileDataID>.png`/`.blp`, for every texture slot, not just ones husk can't
@@ -373,19 +375,23 @@ produces descriptively-named files, not FileDataID-named ones. In order:
 (1) an exact match on the M2's own embedded filename, when the file has one
 (real M2 data, older/classic-era files); (2) `<FileDataID>.png` or
 `<FileDataID>.blp`, when that specific file is actually present (`.png`
-wins if both exist); (3) the sole real file in `--textures` sharing the
-model's own basename prefix, if exactly one remains unclaimed (two or more:
-reported, never guessed at). A `.blp` candidate at any of these three steps
-is decoded and PNG-re-encoded in memory (`src/blp.cpp`) -- no `husk-blp`
-invocation, no intermediate file, unless `--textures-out` is given.
-Whichever FileDataID husk resolved for a slot is recorded either way
-(material name suffix, and `texture_file_data_id` glTF extras) even when a
-differently-named file supplied the actual image. Only (1) and (2) above
-are genuinely deterministic; a match via (3) prints a `husk: warning:`
-line naming the material and file (plus the resolved FileDataID, if the
-slot has one, so it can be checked against a listfile/wow.tools by hand --
-husk itself has no CASC/listfile access to verify a FileDataID's real name
-against the file it claimed).
+wins if both exist); (3) when `--listfile` was given, that FileDataID's
+real corpus-relative path, if it resolves to a real file under
+`--listfile-root` (still deterministic -- real data, not a guess; a
+separate root from `--textures`, see that flag's own row above); (4) the
+sole real file in `--textures` sharing the model's own basename prefix, if
+exactly one
+remains unclaimed (two or more: reported, never guessed at). A `.blp`
+candidate at any of these steps is decoded and PNG-re-encoded in memory
+(`src/blp.cpp`) -- no `husk-blp` invocation, no intermediate file, unless
+`--textures-out` is given. Whichever FileDataID husk resolved for a slot is
+recorded either way (material name suffix, and `texture_file_data_id`
+glTF extras) even when a differently-named file supplied the actual image.
+Only (1), (2), and (3) above are genuinely deterministic; a match via (4)
+prints a `husk: warning:` line naming the material and file (plus the
+resolved FileDataID, if the slot has one, so it can be checked against a
+listfile/wow.tools by hand -- without `--listfile`, husk itself has no
+other way to verify a FileDataID's real name against the file it claimed).
 
 If no matching image is found in the resolved `--textures` directory,
 materials still carry the correct blend mode, culling, and tint/fade -- they

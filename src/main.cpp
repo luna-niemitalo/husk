@@ -87,7 +87,8 @@ std::string bashValueCompletion(const std::string& longName) {
         return "COMPREPLY=($(compgen -W \"none\" -- \"$cur\")); compopt -o filenames "
                "2>/dev/null; COMPREPLY+=($(compgen -d -- \"$cur\"))";
     }
-    if (longName == "--textures-out" || longName == "--db2-dir" || longName == "--dbd-dir") {
+    if (longName == "--textures-out" || longName == "--db2-dir" || longName == "--dbd-dir" ||
+        longName == "--listfile-root") {
         return "compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- \"$cur\"))";
     }
     if (longName == "--skel" || longName == "--phys") {
@@ -97,7 +98,7 @@ std::string bashValueCompletion(const std::string& longName) {
     if (longName == "--lod") {
         return "COMPREPLY=($(compgen -W \"all\" -- \"$cur\"))";
     }
-    return "COMPREPLY=($(compgen -f -- \"$cur\"))";  // --input/--output: plain filenames
+    return "COMPREPLY=($(compgen -f -- \"$cur\"))";  // --input/--output/--listfile: plain filenames
 }
 
 std::string generateBashCompletion(CLI::App& root) {
@@ -193,7 +194,8 @@ std::string zshValueAction(const std::string& longName) {
     if (longName == "--anim") return "_husk_anim_value";
     if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir")
         return "_husk_dir_or_none_value";
-    if (longName == "--textures-out" || longName == "--db2-dir" || longName == "--dbd-dir")
+    if (longName == "--textures-out" || longName == "--db2-dir" || longName == "--dbd-dir" ||
+        longName == "--listfile-root")
         return "_husk_dir_value";
     if (longName == "--skel" || longName == "--phys") return "_husk_file_or_none_value";
     if (longName == "--lod") return "(all)";
@@ -222,6 +224,8 @@ std::string zshFlagLabel(const std::string& longName) {
     if (longName == "--db2-dir") return "character-texture DB2 directory";
     if (longName == "--dbd-dir") return "WoWDBDefs checkout, for --db2-dir column names";
     if (longName == "--char-layout-id") return "a real CharComponentTextureLayoutsID";
+    if (longName == "--listfile") return "community-listfile.csv snapshot, for FileDataID names";
+    if (longName == "--listfile-root") return "corpus root the listfile paths are relative to";
     if (longName == "--help") return "print help and exit";
     return longName;
 }

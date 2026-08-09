@@ -8,6 +8,7 @@
 #include <optional>
 #include <set>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 
 #include <CLI/CLI.hpp>
@@ -22,6 +23,7 @@
 #include "export_skin_resolution.hpp"
 #include "export_transform.hpp"
 #include "gltf.hpp"
+#include "listfile.hpp"
 #include "m2.hpp"
 #include "phys.hpp"
 #include "skel.hpp"
@@ -595,7 +597,8 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
     const std::vector<std::pair<std::string, std::string>>& skinsToExport,
     const std::vector<m2::Vertex>& vertices, const gltf::Mesh& baseMesh, const M2MaterialInputs& m2Inputs,
     const std::string& texturesDir, const std::string& modelPath, const std::string& modelBasename,
-    const std::string& texturesOutDir) {
+    const std::string& texturesOutDir, const std::unordered_map<uint32_t, std::string>& listfile = {},
+    const std::string& listfileRoot = "") {
     std::vector<gltf::NamedMesh> namedMeshes;
     namedMeshes.reserve(skinsToExport.size());
     for (const auto& [name, path] : skinsToExport) {
@@ -630,7 +633,8 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
         }
 
         auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs,
-                                                   texturesDir, modelPath, texturesOutDir);
+                                                   texturesDir, modelPath, texturesOutDir, listfile,
+                                                   listfileRoot.empty() ? texturesDir : listfileRoot);
 
         // See BuiltMaterials::distinctSkinSectionIds's own doc comment for
         // why this note exists.
@@ -986,6 +990,21 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "--db2-dir's data down to -- husk has no way to derive which layout ID "
                     "applies to a given .m2 model on its own, so this must be supplied directly; "
                     "requires --db2-dir/--dbd-dir too");
+    app.add_option("--listfile", opts.listfileArg,
+                    "a local community-listfile.csv-style snapshot (FileDataID;path per line, "
+                    "github.com/wowdev/wow-listfile) -- last-resort fallback when a "
+                    "FileDataID-named texture slot isn't found as '<FileDataID>.{blp,png}' next "
+                    "to --textures: looks up its real name and tries '<listfile-root>/<real-path>' "
+                    "instead, before falling back to the same-basename fuzzy pool. Optional; unset "
+                    "(default) skips this tier entirely, same as every other opt-in sidecar -- "
+                    "never fetched by husk itself, same tier as --dbd-dir's WoWDBDefs checkout");
+    app.add_option("--listfile-root", opts.listfileRootArg,
+                    "the corpus root --listfile's paths are relative to -- deliberately separate "
+                    "from --textures, since --textures also drives the *directory-local* "
+                    "embedded-filename/same-basename matching tried first, and a real corpus root "
+                    "is typically many directories away from any one model. Only meaningful "
+                    "alongside --listfile; ignored otherwise. Default: --textures itself, for the "
+                    "case where a single directory happens to serve both roles");
 }
 
 int exportGlb(int argc, char** args) {
@@ -1049,6 +1068,19 @@ int exportGlb(int argc, char** args) {
     // once bones are known to actually be needed.)
     std::string texturesDir = app.count("--textures") ? opts.texturesArg : modelDirStr;
     if (texturesDir == "none") texturesDir.clear();
+
+    // --listfile: optional, unset by default (empty map, same "skip this
+    // tier entirely" behavior as before this flag existed). Loaded once up
+    // front, not per-batch -- a real community-listfile.csv is millions of
+    // lines; every batch/LOD tier in this export shares the same lookup.
+    // --listfile-root is deliberately its own directory, not texturesDir --
+    // see that flag's own help text for why reusing texturesDir would
+    // silently break the directory-local matching tried before it.
+    std::unordered_map<uint32_t, std::string> listfile;
+    std::string listfileRoot = app.count("--listfile-root") ? opts.listfileRootArg : texturesDir;
+    if (app.count("--listfile")) {
+        listfile = husk::loadListfile(opts.listfileArg);
+    }
 
     // --textures-out: unset (the default) means "no disk copy at all" --
     // unlike --textures/--skin-dir/--bones-dir, there's no directory this
@@ -1154,7 +1186,7 @@ int exportGlb(int argc, char** args) {
         std::string modelBasename = std::filesystem::path(modelPath).stem().string();
         auto namedMeshes =
             buildLodTierMeshes(skinsToExport, vertices, baseMesh, m2Inputs, texturesDir, modelPath,
-                                modelBasename, texturesOutDir);
+                                modelBasename, texturesOutDir, listfile, listfileRoot);
 
         // One geoset tag joint per distinct skinSectionId across every LOD
         // tier's primitives -- lets tools/husk_blender_geoset_mask.py

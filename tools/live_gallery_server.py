@@ -1,0 +1,492 @@
+#!/usr/bin/env python3
+"""Live, disk-scanning image gallery server -- the dynamic counterpart to
+a one-shot Artifact gallery. An Artifact bakes a fixed file list in at
+publish time; this walks a directory on disk on a timer instead, so it
+keeps discovering new images (e.g. a corpus render job filling in PNGs
+over hours) without ever being republished.
+
+Same filtering shape as the corpus_reports/gallery_src Artifact this
+mirrors (category chips, free-text path search) plus one this project's
+render_sample_driver.py enables that a static gallery couldn't: a status
+filter (OK/FAIL/SKIP), joined in from the driver's own live log by path.
+
+Stdlib only, no flake/dependency changes needed. Read-only: never writes
+anything outside its own in-memory index.
+
+Usage:
+    tools/venv/bin/python tools/live_gallery_server.py \\
+        --root corpus_reports/renders_full \\
+        --log corpus_reports/renders_full_live.log \\
+        --port 8008
+    then open http://127.0.0.1:8008/
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import mimetypes
+import os
+import queue
+import re
+import threading
+import time
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+# One log line looks like "STATUS /abs/path/to/file.m2 :: detail..." --
+# see render_sample_driver.py's own _log(). Only the leading token and the
+# path are needed here; the detail is surfaced as a tooltip, not parsed further.
+LOG_LINE_RE = re.compile(r"^(\S+) (\S+) :: (.*)$")
+
+
+class Index:
+    """Background-refreshed snapshot of every image under `root`, plus an
+    optional path->(status, detail) overlay parsed from a driver live log.
+    Rebuilt on a timer rather than via filesystem-event watching -- this
+    tool has no extra dependencies (no watchdog/inotify library), and a
+    plain os.walk poll is cheap enough at this corpus's scale (single-digit
+    seconds for ~130k files) to just re-run every few seconds.
+    """
+
+    def __init__(self, root: Path, log_paths: list[Path], interval: float):
+        self.root = root
+        # A crashed-and-resumed driver run truncates its own live log on
+        # restart (render_sample_driver.py's live_log.write_text("")) and
+        # never re-logs "OK" for files that resume-skip -- so a single
+        # current log only covers files touched *since* the last restart.
+        # Multiple --log paths (e.g. the live log plus a pre-crash backup)
+        # are merged, each independently offset-tracked, so status coverage
+        # survives a crash the same way the render output itself does.
+        self.log_paths = log_paths
+        self.interval = interval
+        self._lock = threading.Lock()
+        self._items: list[dict] = []
+        self._categories: dict[str, int] = {}
+        self._version = 0
+        self._log_offsets: dict[Path, int] = {p: 0 for p in log_paths}
+        self._log_status: dict[str, tuple[str, str]] = {}
+        self._subscribers: list[queue.Queue] = []
+        self._stop = threading.Event()
+
+    def start(self) -> None:
+        self._scan_log(full=True)
+        self._scan_files()
+        t = threading.Thread(target=self._loop, daemon=True)
+        t.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self.interval):
+            self._scan_log(full=False)
+            self._scan_files()
+
+    def _scan_log(self, full: bool) -> None:
+        for log_path in self.log_paths:
+            self._scan_one_log(log_path, full)
+
+    def _scan_one_log(self, log_path: Path, full: bool) -> None:
+        if not log_path.exists():
+            return
+        offset = self._log_offsets[log_path]
+        try:
+            size = log_path.stat().st_size
+            with log_path.open("r", errors="replace") as f:
+                if not full and size >= offset:
+                    f.seek(offset)
+                else:
+                    offset = 0  # file truncated/replaced (e.g. driver restart) -- reread from scratch
+                new_text = f.read()
+                self._log_offsets[log_path] = f.tell()
+        except OSError:
+            return
+        if not new_text:
+            return
+        with self._lock:
+            for line in new_text.splitlines():
+                m = LOG_LINE_RE.match(line)
+                if m:
+                    status, path, detail = m.groups()
+                    self._log_status[path] = (status, detail)
+
+    def _scan_files(self) -> None:
+        items = []
+        categories: dict[str, int] = {}
+        root = self.root
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for name in filenames:
+                ext = os.path.splitext(name)[1].lower()
+                if ext not in IMAGE_EXTS:
+                    continue
+                full = os.path.join(dirpath, name)
+                try:
+                    mtime = os.path.getmtime(full)
+                except OSError:
+                    continue
+                rel = os.path.relpath(full, root)
+                cat = rel.split(os.sep, 1)[0] if os.sep in rel else "(root)"
+                categories[cat] = categories.get(cat, 0) + 1
+                items.append({"rel": rel, "cat": cat, "mtime": mtime})
+
+        # Status is keyed by the *source* path the driver logged (an .m2
+        # under CORPUS_ROOT), not the rendered image's own relative path --
+        # join by basename, stripping only the render's own extension
+        # (render_sample_driver.py names outputs "<source-basename>.webp" or,
+        # for images rendered before that switch, "<source-basename>.png" --
+        # matching on the stem keeps both eras joinable through one path).
+        status_by_source_basename: dict[str, tuple[str, str]] = {}
+        if self._log_status:
+            with self._lock:
+                log_status = dict(self._log_status)
+            status_by_source_basename = _index_log_by_source_basename(log_status)
+        for item in items:
+            item_stem = os.path.splitext(os.path.basename(item["rel"]))[0]
+            st = status_by_source_basename.get(item_stem)
+            item["status"] = st[0] if st else ""
+            item["detail"] = st[1] if st else ""
+
+        items.sort(key=lambda i: i["mtime"], reverse=True)
+
+        with self._lock:
+            changed = len(items) != len(self._items) or items[:1] != self._items[:1]
+            self._items = items
+            self._categories = categories
+            if changed:
+                self._version += 1
+                self._notify()
+
+    def _notify(self) -> None:
+        payload = {"version": self._version, "total": len(self._items), "categories": self._categories}
+        for q in self._subscribers:
+            q.put(payload)
+
+    def subscribe(self) -> queue.Queue:
+        q: queue.Queue = queue.Queue()
+        with self._lock:
+            self._subscribers.append(q)
+            q.put({"version": self._version, "total": len(self._items), "categories": self._categories})
+        return q
+
+    def unsubscribe(self, q: queue.Queue) -> None:
+        with self._lock:
+            if q in self._subscribers:
+                self._subscribers.remove(q)
+
+    def query(self, category: str | None, q: str | None, status: str | None, offset: int, limit: int) -> dict:
+        with self._lock:
+            items = self._items
+            version = self._version
+            categories = dict(self._categories)
+        needle = q.lower() if q else None
+        out = []
+        for item in items:
+            if category and category != "all" and item["cat"] != category:
+                continue
+            if status and status != "all" and item["status"] != status:
+                continue
+            if needle and needle not in item["rel"].lower():
+                continue
+            out.append(item)
+        total = len(out)
+        page = out[offset:offset + limit]
+        return {"version": version, "total": total, "grand_total": len(items),
+                "categories": categories, "items": page, "has_more": offset + limit < total}
+
+
+def _index_log_by_source_basename(log_status: dict[str, tuple[str, str]]) -> dict[str, tuple[str, str]]:
+    """render_sample_driver.py logs the *source* .m2 path; the image it
+    wrote lives at "<same path relative to CORPUS_ROOT>.<ext>" under the
+    render root, `ext` being "webp" (current) or "png" (renders from before
+    that switch) -- both stripped to the same source basename by the
+    caller's own os.path.splitext, so this only needs to key by that
+    basename, not guess an extension. We don't know CORPUS_ROOT here (this
+    tool is deliberately generic, not husk-specific) -- so match by
+    basename instead of full path: a log entry for ".../foo/bar.m2" is
+    joined to any indexed image whose own stem is "bar.m2". Ambiguous only
+    if two different source trees share an identical basename, which
+    doesn't happen in this corpus's layout.
+    """
+    by_basename: dict[str, tuple[str, str]] = {}
+    for path, (status, detail) in log_status.items():
+        by_basename[os.path.basename(path)] = (status, detail)
+    return by_basename
+
+
+PAGE_HTML = """<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Live Gallery</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161922; --border: #262b38; --text: #e6e8ef;
+    --muted: #8a90a3; --accent: #5da8ff; --good: #3ecf8e; --bad: #ff6b6b; --warn: #f2b84b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: rgba(15,17,21,0.92); backdrop-filter: blur(6px);
+           border-bottom: 1px solid var(--border); padding: 12px 20px; }
+  h1 { font-size: 15px; margin: 0 0 8px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em; }
+  h1 b { color: var(--text); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input[type=text] { background: var(--panel); border: 1px solid var(--border); color: var(--text);
+                      border-radius: 8px; padding: 7px 10px; font-size: 13px; min-width: 220px; }
+  .chip { background: var(--panel); border: 1px solid var(--border); color: var(--muted); border-radius: 20px;
+          padding: 5px 12px; font-size: 12.5px; cursor: pointer; user-select: none; white-space: nowrap; }
+  .chip:hover { border-color: var(--accent); color: var(--text); }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #05121f; font-weight: 600; }
+  .chip .n { opacity: 0.7; margin-left: 5px; }
+  #banner { display: none; margin-left: auto; background: var(--good); color: #05221a; font-weight: 600;
+            border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12.5px; }
+  #banner.show { display: inline-block; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px 20px; }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  figure img { width: 100%; height: 160px; object-fit: contain; background: #05070a; display: block; }
+  figcaption { padding: 7px 9px; font-size: 11px; color: var(--muted); word-break: break-all; }
+  figcaption .cat { color: var(--accent); font-weight: 600; margin-right: 5px; }
+  figure.bad { border-color: var(--bad); }
+  figure.skip { border-color: var(--warn); }
+  #sentinel { height: 1px; }
+  #empty { padding: 40px; text-align: center; color: var(--muted); display: none; }
+  #status-chips .chip[data-status=FAIL-EXPORT], #status-chips .chip[data-status=FAIL-RENDER] { }
+</style>
+</head>
+<body>
+<header>
+  <h1><b id="grand-total">-</b> images indexed &middot; live-scanning <code id="root-path"></code></h1>
+  <div class="row">
+    <input type="text" id="search" placeholder="filter by path...">
+    <div id="cat-chips" class="row"></div>
+    <div id="status-chips" class="row"></div>
+    <div id="banner">new files available -- click to refresh</div>
+  </div>
+</header>
+<div class="grid" id="grid"></div>
+<div id="empty">no images match this filter (yet)</div>
+<div id="sentinel"></div>
+<script>
+const state = { category: 'all', status: 'all', q: '', offset: 0, limit: 80, loading: false, hasMore: true, atTop: true };
+const grid = document.getElementById('grid');
+const empty = document.getElementById('empty');
+const banner = document.getElementById('banner');
+
+function qs(obj) { return Object.entries(obj).filter(([,v]) => v !== '' && v !== undefined)
+  .map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&'); }
+
+function figureFor(item) {
+  const fig = document.createElement('figure');
+  if (item.status && item.status.startsWith('FAIL')) fig.classList.add('bad');
+  else if (item.status === 'SKIP') fig.classList.add('skip');
+  const img = document.createElement('img');
+  img.loading = 'lazy';
+  img.src = '/img/' + item.rel.split('/').map(encodeURIComponent).join('/');
+  img.title = item.detail || item.rel;
+  const cap = document.createElement('figcaption');
+  cap.innerHTML = `<span class="cat">${item.cat}</span>${item.rel}`;
+  fig.appendChild(img); fig.appendChild(cap);
+  return fig;
+}
+
+async function loadPage(reset) {
+  if (state.loading || (!state.hasMore && !reset)) return;
+  state.loading = true;
+  if (reset) { state.offset = 0; grid.innerHTML = ''; state.hasMore = true; }
+  const res = await fetch('/api/files?' + qs({ category: state.category, status: state.status, q: state.q,
+                                                 offset: state.offset, limit: state.limit }));
+  const data = await res.json();
+  document.getElementById('grand-total').textContent = data.grand_total.toLocaleString();
+  renderChips(data.categories);
+  data.items.forEach(item => grid.appendChild(figureFor(item)));
+  state.offset += data.items.length;
+  state.hasMore = data.has_more;
+  empty.style.display = (state.offset === 0) ? 'block' : 'none';
+  state.loading = false;
+}
+
+function renderChips(categories) {
+  const wrap = document.getElementById('cat-chips');
+  if (wrap.dataset.built === JSON.stringify(Object.keys(categories).sort())) return;
+  wrap.dataset.built = JSON.stringify(Object.keys(categories).sort());
+  wrap.innerHTML = '';
+  const mk = (label, key, n) => {
+    const c = document.createElement('div');
+    c.className = 'chip' + (state.category === key ? ' active' : '');
+    c.innerHTML = `${label}${n !== undefined ? `<span class="n">${n.toLocaleString()}</span>` : ''}`;
+    c.onclick = () => { state.category = key; [...wrap.children].forEach(x => x.classList.remove('active'));
+                         c.classList.add('active'); loadPage(true); };
+    return c;
+  };
+  const total = Object.values(categories).reduce((a,b) => a+b, 0);
+  wrap.appendChild(mk('all', 'all', total));
+  Object.entries(categories).sort((a,b) => b[1]-a[1]).forEach(([cat,n]) => wrap.appendChild(mk(cat, cat, n)));
+}
+
+function renderStatusChips() {
+  const wrap = document.getElementById('status-chips');
+  ['all', 'OK', 'FAIL-EXPORT', 'FAIL-RENDER', 'SKIP'].forEach(s => {
+    const c = document.createElement('div');
+    c.className = 'chip' + (state.status === s ? ' active' : '');
+    c.textContent = s;
+    c.dataset.status = s;
+    c.onclick = () => { state.status = s; [...wrap.children].forEach(x => x.classList.remove('active'));
+                         c.classList.add('active'); loadPage(true); };
+    wrap.appendChild(c);
+  });
+}
+renderStatusChips();
+
+let searchTimer;
+document.getElementById('search').addEventListener('input', e => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { state.q = e.target.value; loadPage(true); }, 250);
+});
+
+new IntersectionObserver(entries => { if (entries[0].isIntersecting) loadPage(false); })
+  .observe(document.getElementById('sentinel'));
+
+window.addEventListener('scroll', () => { state.atTop = window.scrollY < 100; });
+
+banner.onclick = () => { banner.classList.remove('show'); loadPage(true); };
+
+function connectStream() {
+  const es = new EventSource('/api/stream');
+  es.onmessage = (ev) => {
+    const data = JSON.parse(ev.data);
+    document.getElementById('grand-total').textContent = data.total.toLocaleString();
+    renderChips(data.categories);
+    if (state.atTop) loadPage(true); else banner.classList.add('show');
+  };
+  es.onerror = () => { es.close(); setTimeout(connectStream, 2000); };
+}
+connectStream();
+loadPage(true);
+</script>
+</body>
+</html>
+"""
+
+
+def make_handler(index: Index, root: Path):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            pass  # keep terminal quiet; this is a browsing tool, not a diagnostic one
+
+        def _json(self, obj, code=200):
+            body = json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            parsed = urllib.parse.urlsplit(self.path)
+            path = parsed.path
+            params = urllib.parse.parse_qs(parsed.query)
+
+            if path == "/":
+                body = PAGE_HTML.replace("<code id=\"root-path\"></code>",
+                                          f'<code id="root-path">{root}</code>').encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if path == "/api/files":
+                category = (params.get("category") or ["all"])[0]
+                status = (params.get("status") or ["all"])[0]
+                q = (params.get("q") or [""])[0]
+                offset = int((params.get("offset") or ["0"])[0])
+                limit = min(int((params.get("limit") or ["80"])[0]), 500)
+                self._json(index.query(category, q, status, offset, limit))
+                return
+
+            if path == "/api/stream":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.end_headers()
+                sub = index.subscribe()
+                try:
+                    while True:
+                        try:
+                            payload = sub.get(timeout=15)
+                            self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
+                        except queue.Empty:
+                            self.wfile.write(b": keepalive\n\n")
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                finally:
+                    index.unsubscribe(sub)
+                return
+
+            if path.startswith("/img/"):
+                rel = urllib.parse.unquote(path[len("/img/"):])
+                target = (root / rel).resolve()
+                try:
+                    target.relative_to(root.resolve())
+                except ValueError:
+                    self.send_error(403, "path escapes gallery root")
+                    return
+                if not target.is_file():
+                    self.send_error(404, "not found")
+                    return
+                ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+                data = target.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")  # files here can be rewritten by the render job mid-run
+                self.end_headers()
+                self.wfile.write(data)
+                return
+
+            self.send_error(404, "not found")
+
+    return Handler
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--root", required=True, type=Path, help="directory to scan for images, recursively")
+    ap.add_argument("--log", type=Path, default=[], action="append",
+                     help="render_sample_driver.py-style live log for OK/FAIL/SKIP status overlay "
+                          "(repeatable -- pass both a pre-crash backup and the current live log to "
+                          "get full status coverage across a resumed run)")
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=8008)
+    ap.add_argument("--interval", type=float, default=3.0, help="filesystem rescan interval in seconds")
+    args = ap.parse_args()
+
+    root = args.root.resolve()
+    if not root.is_dir():
+        print(f"error: --root {root} is not a directory")
+        return 1
+
+    log_paths = [p.resolve() for p in args.log]
+    index = Index(root, log_paths, args.interval)
+    index.start()
+
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(index, root))
+    print(f"serving {root} on http://{args.host}:{args.port}/ (rescanning every {args.interval}s)")
+    if log_paths:
+        print(f"status overlay from {len(log_paths)} log(s): {', '.join(str(p) for p in log_paths)}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        index.stop()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

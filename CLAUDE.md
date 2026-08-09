@@ -135,8 +135,13 @@ tool, `blp/`) converts BLP2 textures to PNG.
   (`.skel`-linked models' real shape) both resolved (`m2::extractAnimBlob`,
   `cmd_export.cpp`'s `buildAnimations`).
 - `--textures`/`--skin-dir`/`--anim` directories — user-populated,
-  FileDataID-named, local filesystem only. **Never CASC** — husk has no
-  CASC/listfile access and never will, by design (see `DESIGN.md`'s Non-goals).
+  FileDataID-named, local filesystem only. **Never *live* CASC** — husk
+  never talks to CASC/DB2 at runtime or depends on the CASC tool itself, by
+  design (see `DESIGN.md`'s Non-goals). A local, optional, user-supplied
+  `community-listfile.csv`-style snapshot (`--listfile`, `src/listfile.hpp`/
+  `.cpp`) is the same "already on disk, never live CASC" tier as every
+  other sidecar here — used only as a last-resort FileDataID -> real-name
+  fallback in texture resolution, same clarified scope as `--dbd-dir` below.
 - `.db2` files (real WDC5 container, `src/db2.hpp`/`.cpp`), real column
   names via an optional local WoWDBDefs checkout (`src/dbd.hpp`/`.cpp`),
   a generic named-column reader on top of both (`src/db2table.hpp`/`.cpp`),
@@ -163,7 +168,54 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Finished `src/dbd.hpp`'s own long-documented scope gap
+- **Current state**: New `husk export --listfile <path> [--listfile-root
+  <dir>]` flags (real feature, not docs-only) close a real gap a
+  from-scratch corpus tool found this session: a full 130,576-file render
+  pass plus cross-referencing "missing" FileDataID textures against a real
+  `community-listfile.csv` found 99.9% of them (81,809/81,890) were
+  actually present in the corpus under their own real name/path, not a
+  bare `<FileDataID>.{blp,png}` husk's exact-match resolution alone can
+  find (write-up: a sibling project's own `casc-tool/FAILURES.md` item 13;
+  the remaining 79 genuinely-absent FileDataIDs are casc-tool's own problem,
+  out of husk's scope). Per `DESIGN.md`'s Non-goals clarification (the same
+  one already covering `--dbd-dir`'s WoWDBDefs checkout), a local listfile
+  snapshot is the identical "already on disk, never live CASC" tier as
+  every other sidecar — `src/listfile.hpp`/`.cpp` (new) loads one;
+  `export_materials.cpp`'s two FileDataID resolution sites each gained a
+  new fallback tier, tried after the exact `<FileDataID>.{blp,png}` match
+  fails but before the fuzzy same-basename pool (still deterministic, not
+  a guess). `--listfile-root` is deliberately a *separate* directory from
+  `--textures`, added after the first version of this shipped and was
+  caught, before any real corpus run used it, reusing `texturesDir` for
+  both roles: `--textures` drives the pre-existing directory-local
+  embedded-filename/same-basename matching (a plain, non-recursive
+  `directory_iterator` — confirmed by reading `scanDirOrWarn`), which would
+  have silently gone blind across the entire corpus if `--textures` were
+  pointed at a real corpus root just to make the listfile lookup work
+  (real corpus texture files sit many directories below any single
+  `--textures` value, so a flat scan of the root sees none of them).
+  `--listfile-root` defaults to `--textures` for the simple case where one
+  directory serves both roles. Verified against the exact real case that
+  motivated this: `bloodelffemale_hd.m2` (`--textures` left at its default,
+  the model's own directory; `--listfile-root` pointed at the real corpus
+  root) goes from 0 embedded images (without `--listfile`) to 5, resolving
+  the same 3 FileDataIDs (3536810/4530998/5210137) a much earlier session's
+  entry below flagged as having "no matching local file at all" and left
+  open. 8 new tests (`tests/test_listfile.cpp` plus 4 CLI-level tests in
+  `tests/test_cli.cpp`, including one proving `--textures` and
+  `--listfile-root` resolve genuinely independently), `DESIGN.md`/
+  `README.md`/both `completions/husk.*` updated (the zsh completion label
+  for `--listfile-root` originally contained an apostrophe, which breaks
+  its single-quoted `_arguments` spec string per this file's own
+  `zshFlagLabel` doc comment warning — caught by actually running `zsh -n`
+  against the regenerated script, not just eyeballing the diff, and fixed
+  before shipping). Full suite green, 597/597. The original full-corpus
+  render job (`corpus_reports/renders_full`, resumed earlier this session
+  after a crash) was stopped before this fix landed, specifically so it
+  wouldn't run 79,000+ files against the broken `--textures`-as-corpus-root
+  shape — restarted after, see the render-job entry immediately below for
+  the concrete resume mechanics.
+- **Prior session**: Finished `src/dbd.hpp`'s own long-documented scope gap
   (a prior autonomous-session task that hit the session's API limit
   mid-implementation and was stashed rather than left broken on `master` —
   picked back up and completed this session, real WIP recovered via

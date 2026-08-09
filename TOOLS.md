@@ -72,6 +72,56 @@ need retuning for a differently-shaped task.
 A/B-testing a new task against a plain single-threaded baseline before
 trusting the framework's speedup on a real multi-hour corpus run.
 
+## Full-corpus visual render pipeline
+
+A separate track from the parsing-correctness scanners above: these
+actually run `husk export` + headless Blender over real corpus files and
+produce something a human looks at, not a CSV.
+
+- `corpus_scan_tasks/build_render_sample.py` — builds a stratified
+  (proportional-by-sqrt-per-category) sample of `.m2` paths for a quick
+  visual spot-check, plus a forced-include of every file with a co-located
+  `.phys` sidecar. Writes a plain one-path-per-line file
+  (`corpus_reports/render_sample.txt` by convention).
+- `corpus_scan_tasks/render_glb.py` — the actual headless-Blender worker:
+  imports one `.glb`, frames the camera to its bounding box, renders one
+  WebP image (quality 80, lossy — these are flat-shaded QA thumbnails, not
+  archival output). Prints a `SKIPPED` sentinel (not a crash) for a real
+  0-vertex camera/track-only model. Invoked as `blender --background
+  --factory-startup --python render_glb.py -- <in.glb> <out.webp>`, never
+  run standalone.
+- `corpus_scan_tasks/render_sample_driver.py` — drives the two steps above
+  (real `husk export` with full sidecar auto-discovery, then
+  `render_glb.py`) in parallel across a file list, either the sample above
+  or a full corpus file list. Resume-safe by design (checks for an
+  existing output image — either extension, `.webp` current or `.png`
+  legacy — before doing any work, so a crash mid-run costs nothing but
+  wall-clock time on restart) — this is the tool that was actually resumed
+  after a real machine crash mid-130k-file run (see `CLAUDE_HISTORY.md`'s
+  2026-08-09 entries for the full incident). Passes `--listfile`/
+  `--listfile-root` to `husk export` automatically whenever a real
+  `community-listfile.csv` is present locally (path hardcoded to this
+  machine's own download location, gitignored, never fetched by this
+  script). Every result (pass/fail/skip) is appended to a live-tailable log
+  the instant it's known, not batched to the end.
+- `corpus_scan_tasks/missing_texture_task.py` — a `corpus_scan_framework`
+  `ScanTask` (see above): flags every `.m2` referencing a FileDataID-named
+  texture slot with no exact `<FileDataID>.{blp,png}` file next to the
+  model. On its own this is mostly a false-positive detector (a real
+  extraction commonly keeps files under their real name elsewhere in the
+  tree, which isn't a bug) — see this task's own module docstring and
+  `casc-tool`'s `FAILURES.md` item 13 for the real cross-referencing
+  methodology (against a real listfile *and* a full local `.blp` path
+  index) needed to separate a genuine gap from a naming-convention
+  mismatch. Motivated `husk export --listfile`/`--listfile-root`.
+- `live_gallery_server.py` — a small stdlib-only HTTP server (not a
+  corpus-scan task) that live-rescans a render output directory and serves
+  a filterable, infinite-scroll gallery page, updating in real time via
+  Server-Sent Events as new images land. Generic (works on any growing
+  image directory, not husk-specific) but built for exactly this render
+  pipeline's output shape — see its own module docstring for the full
+  design and `--log`/`--listfile`-adjacent flags.
+
 ## One-off exploration scripts
 
 Each of these is self-contained and documented in its own top-of-file

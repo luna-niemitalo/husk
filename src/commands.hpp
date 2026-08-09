@@ -68,6 +68,8 @@ struct ExportOptions {
     std::string db2DirArg;
     std::string dbdDirArg;
     std::string charLayoutIdArg;
+    std::string listfileArg;
+    std::string listfileRootArg;
 };
 
 // Declares every export flag (names, defaults, descriptions, the `--skin

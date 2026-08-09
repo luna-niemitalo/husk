@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "gltf.hpp"
@@ -132,13 +133,29 @@ struct M2MaterialInputs {
 // and never for a texture that was already a `.png` (nothing was decoded
 // for those). Purely a convenience copy: embedding itself always happens
 // in-memory regardless of whether this is set.
+// `listfile` (--listfile, FileDataID -> real corpus-relative path), when
+// non-empty, is tried as a deterministic fallback for a resolved FileDataID
+// that has no exact "<fdid>.{png,blp}" file in `texturesDir` -- looks up
+// its real name and tries "<listfileRoot>/<real-path>" instead, before
+// falling through to the fuzzy same-basename pool. `listfileRoot` is
+// deliberately a *separate* directory from `texturesDir`: `texturesDir`
+// drives the directory-local embedded-filename/same-basename matching
+// tried first (a real corpus's texture files are typically co-located with
+// their model), while a listfile's paths are relative to the corpus root,
+// often many directories away -- reusing `texturesDir` for both would
+// force a caller to choose one and silently lose the other. Defaults to
+// `texturesDir` when empty, for the case where one directory happens to
+// serve both roles. Empty `listfile` (the default) skips this tier
+// entirely, same as before this parameter existed.
 BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangleIndices,
                                             const std::vector<skin::Submesh>& submeshes,
                                             const std::vector<skin::Batch>& batches,
                                             const M2MaterialInputs& m2,
                                             const std::string& texturesDir,
                                             const std::string& modelPath,
-                                            const std::string& texturesOutDir = "");
+                                            const std::string& texturesOutDir = "",
+                                            const std::unordered_map<uint32_t, std::string>& listfile = {},
+                                            const std::string& listfileRoot = "");
 
 // A directory scan finding zero matches looks identical to "the directory
 // doesn't exist"/"can't be read" unless this distinguishes them. Shared by

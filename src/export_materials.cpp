@@ -561,7 +561,10 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                                             const M2MaterialInputs& m2,
                                             const std::string& texturesDir,
                                             const std::string& modelPath,
-                                            const std::string& texturesOutDir) {
+                                            const std::string& texturesOutDir,
+                                            const std::unordered_map<uint32_t, std::string>& listfile,
+                                            const std::string& listfileRootArg) {
+    const std::string& listfileRoot = listfileRootArg.empty() ? texturesDir : listfileRootArg;
     BuiltMaterials result;
 
     // Scanned once per skin/LOD, shared and depleted across every batch
@@ -863,6 +866,31 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                     embedded = true;
                 }
             }
+            if (!embedded && fdid != 0 && !texturesDir.empty() && !listfile.empty()) {
+                // --listfile fallback: a real corpus export commonly keeps
+                // files under their real name/path (e.g.
+                // "world/goober/bubble.blp"), not renamed to a bare
+                // FileDataID -- confirmed against a real 130k-file corpus
+                // scan (casc-tool's own FAILURES.md item 13), where 99.9%
+                // of "missing" FileDataID textures turned out to be present
+                // elsewhere in the tree under their real listfile name.
+                // Still deterministic (the listfile is real data, not a
+                // guess), so this comes before the fuzzy same-basename pool
+                // below -- resolved against `listfileRoot` (--listfile-root,
+                // defaulting to texturesDir), deliberately not `texturesDir`
+                // itself: the corpus root a listfile's paths are relative to
+                // is typically many directories away from any one model,
+                // unlike the directory-local matching above.
+                if (auto found = listfile.find(fdid); found != listfile.end()) {
+                    auto stem = std::filesystem::path(listfileRoot) /
+                                std::filesystem::path(found->second).replace_extension();
+                    if (auto bytes = resolveTextureBytes(stem, listfileRoot, texturesOutDir)) {
+                        gm.baseColorImagePng = std::move(*bytes);
+                        gm.baseColorImageName = stem.filename().string();
+                        embedded = true;
+                    }
+                }
+            }
             if (!embedded) {
                 // Last resort, for whatever's left unresolved after both
                 // deterministic paths above -- a genuinely hardcoded slot
@@ -963,6 +991,18 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                                                                   std::to_string(al.fileDataId),
                                                               texturesDir, texturesOutDir)) {
                             al.imagePng = std::move(*bytes);
+                        } else if (!listfile.empty()) {
+                            // Same --listfile fallback as the primary
+                            // baseColorTexture resolution above -- best-
+                            // effort, same "supplementary metadata" tier as
+                            // the rest of this loop.
+                            if (auto found = listfile.find(al.fileDataId); found != listfile.end()) {
+                                auto stem = std::filesystem::path(listfileRoot) /
+                                            std::filesystem::path(found->second).replace_extension();
+                                if (auto bytes2 = resolveTextureBytes(stem, listfileRoot, texturesOutDir)) {
+                                    al.imagePng = std::move(*bytes2);
+                                }
+                            }
                         }
                     }
                 }
