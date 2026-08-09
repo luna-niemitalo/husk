@@ -212,8 +212,19 @@ def main() -> int:
           f"starting at {controller.window}), live log: {live_log}")
 
     rows: list[dict] = []
-    tick_seconds = 8.0
-    min_samples_per_tick = 4  # each unit is a real export+render pair -- much heavier than a plain scan tick
+    # A first attempt at 8s/4 samples-per-tick was too tight for this
+    # pipeline's own real per-file spread (confirmed against the live log:
+    # 2-4s for a plain creature, 15-20s for a heavier one, in the same
+    # short stretch) -- one slow file landing in a small-sample tick badly
+    # skews that tick's measured throughput, reads as a false "thrashing"
+    # signal, and triggers a spurious backoff before the window ever gets
+    # the chance to grow. corpus_scan_framework.py's own AdaptiveConcurrency
+    # docstring already names this exact failure mode and defaults to 15
+    # samples/tick for its own (lighter-weight) per-file cost -- this
+    # pipeline's cost is heavier still, so both the sample floor and the
+    # tick duration are raised well past that.
+    tick_seconds = 30.0
+    min_samples_per_tick = 15
     with ProcessPoolExecutor(max_workers=max_workers) as pool:
         pending = iter(paths)
         in_flight: dict[Future, str] = {}
@@ -239,7 +250,8 @@ def main() -> int:
                 tick_completed += 1
                 if done % 20 == 0:
                     ok = sum(1 for r in rows if r["render_ok"])
-                    print(f"  {done}/{len(paths)} done, {ok} rendered OK so far, window={controller.window}")
+                    print(f"  {done}/{len(paths)} done, {ok} rendered OK so far, "
+                          f"window={controller.window} (backoffs={controller.backoff_count})")
 
             now = time.monotonic()
             if now - tick_start >= tick_seconds and tick_completed >= min_samples_per_tick:
