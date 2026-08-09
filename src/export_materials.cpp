@@ -406,11 +406,40 @@ std::pair<uint32_t, uint32_t> pngDimensions(const std::vector<uint8_t>& png) {
     return {be32(16), be32(20)};
 }
 
+// A "_glow_<color>" (or "_glow") suffix is a real, common WoW weapon-texture
+// naming convention -- a mostly-black ADD-blend highlight layer meant to sit
+// *under* the model's real diffuse in a separate additive-blend batch, never
+// a stand-in for the base diffuse itself. Confirmed against real corpus
+// bytes, not guessed: item/objectcomponents/weapon/mace_1h_raidmidnight_d_01
+// _glow_blue.blp decodes to a 2048x1024 near-solid-black image with a small
+// blue highlight region, while the model's own real base diffuse,
+// _blue.blp, is a normal 512x256 detailed texture -- `orderCandidatesForDefault`
+// used to rank purely by decoded pixel area, so the glow texture's much
+// larger canvas (needed for a smooth additive falloff, unrelated to how
+// "important" the asset is) outranked the real diffuse and got wired in as
+// this model's opaque/unlit base material's default texture, rendering the
+// whole weapon near-solid-black in every corpus render. Checked as a whole
+// underscore-delimited token (not a bare substring match) so a hypothetical
+// "afterglow"-style name isn't misclassified.
+bool isGlowVariantCandidate(const std::filesystem::path& path, const std::string& modelBasenameLower) {
+    auto category = classifyCandidateCategory(path, modelBasenameLower);
+    if (!category) return false;
+    std::istringstream tokens(*category);
+    std::string token;
+    while (std::getline(tokens, token, '_')) {
+        if (token == "glow") return true;
+    }
+    return false;
+}
+
 // Reorders `candidates` (in place, already filterCandidatesForType's
-// output) so the preferred default-pick lands at front(), by two real,
+// output) so the preferred default-pick lands at front(), by three real,
 // measured/verified signals, in order:
 //
-// 1. Decoded pixel area, largest first. Not a category-name heuristic --
+// 1. Not a "glow" variant (isGlowVariantCandidate's own doc comment) --
+//    checked before pixel area specifically because area alone picks the
+//    glow variant, the real bug this signal fixes.
+// 2. Decoded pixel area, largest first. Not a category-name heuristic --
 //    real evidence against `bloodelffemale_hd` found the *same* recognized
 //    category can span genuinely different kinds of asset: its own
 //    "skin_color" token covers both several real 1024x512 full-body
@@ -459,6 +488,9 @@ void orderCandidatesForDefault(std::vector<std::filesystem::path>& candidates, c
     };
     std::stable_sort(candidates.begin(), candidates.end(),
                       [&](const std::filesystem::path& a, const std::filesystem::path& b) {
+                          bool glowA = isGlowVariantCandidate(a, modelBasenameLower);
+                          bool glowB = isGlowVariantCandidate(b, modelBasenameLower);
+                          if (glowA != glowB) return !glowA;
                           uint64_t areaA = areaOf(a), areaB = areaOf(b);
                           if (areaA != areaB) return areaA > areaB;
                           auto isBaseLayer = [&](const std::filesystem::path& p) {

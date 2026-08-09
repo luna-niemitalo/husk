@@ -85,6 +85,31 @@ def fix_additive_materials() -> int:
             else:
                 emission.inputs["Color"].default_value = base_color_input.default_value
 
+        # Additive blending is unconditional pass-through of the background
+        # (Transparent BSDF below) plus this texture's own RGB scaled by its
+        # own alpha -- alpha isn't a coverage mask here (nothing occludes in
+        # Add mode), it's how much light each pixel contributes. Confirmed
+        # against a real corpus file's own bytes: item/objectcomponents/
+        # weapon/staff_2h_artifactheartofkure_d_02.m2's glow-ring texture
+        # carries a genuine 0..255 alpha gradient under an otherwise
+        # uniformly-bright RGB region (alphaextract crop of the source .blp,
+        # not a guess) -- both the Blender importer's own unlit-material
+        # graph (a Mix Shader gated by an Alpha threshold) and a Principled
+        # BSDF's separate Alpha input already account for this; wiring only
+        # Color into Emission and dropping Alpha rendered the whole textured
+        # area at full brightness regardless of alpha, turning a should-fade
+        # glow ring into a hard-edged, inverted-looking donut. Premultiplying
+        # here restores that shape from the same texture node's own Alpha
+        # output feeding Color -- whichever branch above set that link.
+        color_link = emission.inputs["Color"].links[0] if emission.inputs["Color"].is_linked else None
+        if color_link is not None and "Alpha" in color_link.from_node.outputs:
+            premultiply = nodes.new("ShaderNodeVectorMath")
+            premultiply.operation = "MULTIPLY"
+            premultiply.location = (emission.location.x - 200, emission.location.y - 50)
+            links.new(color_link.from_socket, premultiply.inputs[0])
+            links.new(color_link.from_node.outputs["Alpha"], premultiply.inputs[1])
+            links.new(premultiply.outputs["Vector"], emission.inputs["Color"])
+
         transparent = next((n for n in nodes if n.type == "BSDF_TRANSPARENT"), None)
         if transparent is None:
             transparent = nodes.new("ShaderNodeBsdfTransparent")
