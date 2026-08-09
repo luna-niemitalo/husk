@@ -17,8 +17,13 @@ on the "what husk gives you" column below.
 ## How to read each entry
 
 - **husk gives you** — the exact glTF/`dump-chunks` field to read, as of the
-  husk version this was written against (commit `aa0df15`, see husk's own
-  git history for anything newer).
+  husk version this was written against (commit `1b4b5ef`, see husk's own
+  git history for anything newer). This file was refreshed once already,
+  against commit `aa0df15` — items 3/4/5/6/7 had drifted from husk's actual
+  coverage by then (husk had grown real extras/nodes for data this file
+  still described as unparsed or unexported); see each item's own text for
+  what changed. The external-data gaps themselves are unaffected — only the
+  "what husk already gives you" framing was stale.
 - **missing** — what a full reproduction still needs.
 - **likely source** — where that data plausibly lives, with an honest
   confidence level; several of these are unconfirmed guesses, not verified
@@ -84,13 +89,20 @@ Character skin tone, hair/fur color, tattoos, and item-tint-driven equipment
 textures are not filenames in the M2 at all.
 
 - **husk gives you**: `husk info` prints each texture's raw `type` field
-  (0 = filename-based, non-zero = hardcoded/replaceable slot) and `flags`,
-  but **`husk export` currently does not surface `type` in the `.glb` at
-  all** — a material whose texture has `type != 0` gets no texture and no
-  signal about *why* in the exported file today. (This is a husk-side gap,
-  not an external-data one — flagged here only so the engine project knows
-  not to expect it yet; it's a candidate for a future husk change, not
-  something this file's own scope covers.)
+  (0 = filename-based, non-zero = hardcoded/replaceable slot) and `flags`;
+  `husk export` now surfaces the same signal in the `.glb` too — a nonzero
+  `M2Texture::type` is attached as `texture_type` material `extras`
+  (`gltf::Material::textureType`, `src/gltf_mesh.hpp`; set in
+  `src/export_materials.cpp`, only present when nonzero, per
+  `m2::textureTypeName`), so a material with no `baseColorImagePng` reads
+  as "husk can't resolve this locally" rather than "the `--textures`
+  directory just didn't have the file." husk also builds a real, typed
+  `alternate_textures` candidate pool per ambiguous slot
+  (`src/gltf_mesh.hpp`'s `AlternateTextureCandidate`, filtered by a
+  filename-category heuristic in `candidateAllowedForType`/
+  `filterCandidatesForType`) — still a same-basename-pool guess, not real
+  DB2-driven selection, but real per-candidate metadata (width/height,
+  parsed category) beyond what this item originally described.
 - **missing**: the actual pixels for every hardcoded slot, and the mapping
   from character-customization choice → which BLP/texture fills that slot.
 - **likely source**: `CharComponentTextureLayouts`/`ItemDisplayInfo`-family
@@ -103,33 +115,41 @@ textures are not filenames in the M2 at all.
 
 ## 4. `aliasNext` / animation-id resolution against `AnimationData.dbc`
 
-- **husk gives you**: raw `id`/`variationIndex`/`duration`/`flags` per
-  sequence today. `aliasNext` itself isn't even parsed by husk yet (see
-  husk's own `TODO_correctness.md` #4) — if/when it is, it'll be a raw
-  `uint16_t`, unresolved.
-- **missing**: human-readable animation names (`AnimationData.dbc`'s whole
-  purpose), and — this part is genuinely unresolved even from the file
-  alone, not just externally blocked — what `aliasNext` actually indexes
-  into for a `flags & 0x40` alias sequence. husk's own real-data check
-  found `aliasNext` values that don't resolve as a local index into the
-  same file's own sequence array, leaving two live possibilities: a global
-  `AnimationData.dbc`-scale id space (external, this item), or something
-  resolvable from file data alone that husk hasn't found yet (not this
-  item's concern — check husk's own `TODO_correctness.md` #4 for updates
-  before assuming this is purely an external-data problem).
+- **husk gives you**: `aliasNext` is fully parsed and resolved now, not raw
+  and not unparsed (`m2::Sequence::aliasNext`, `src/m2_animation.hpp`/`.cpp`;
+  chain-walked in `src/export_animation.cpp`'s alias-resolution path). husk's
+  own real-data investigation (`WIKI_FINDINGS/M2.md`, summarized in
+  `M2_COMPLETENESS.md`'s Animation table) found `aliasNext` *is* a local
+  index into the same file's own `sequences` array after all — chain-walked
+  to its terminal non-alias sequence, whose keyframe data (inline or
+  external) is reused for the alias clip, with `flags & 0x20` ("stored
+  inline") correctly taking priority over `0x40` ("is alias") when a
+  sequence carries both (31 of 38 real alias sequences in
+  `bloodelffemale_hd.skel` do). The resolved target is attached as
+  `alias_next`/`is_alias` per-clip extras (`gltf::Animation::SequenceMetadata`,
+  `src/gltf_skeleton.hpp`/`.cpp`) alongside raw `id`/`variationIndex`/
+  `duration`/`flags`. This closes the "genuinely unresolved even from the
+  file alone" half of the original claim entirely — per `TODO_correctness.md`
+  ("Former item 4 ... is resolved outright"), there is no longer an open
+  question about what `aliasNext` indexes into.
+- **missing**: human-readable animation names — `AnimationData.dbc`'s whole
+  remaining purpose for husk's own output. The alias-chain-resolution
+  mechanism itself is no longer part of this gap (see above); only the
+  id-to-name lookup is genuinely external.
 - **likely source**: `AnimationData.dbc`/`.db2`, the client's global
   animation-id table.
 - **resolution path**: a DB2 reader for this one table is comparatively
-  cheap next to items 1-3 — mostly useful for human-readable names and
-  cross-model animation-id consistency; the alias-chain-following mechanism
-  may or may not need it, per the open question above.
+  cheap next to items 1-3 — purely for human-readable names and cross-model
+  animation-id consistency now that the alias-chain mechanism itself is
+  resolved husk-side and needs no external data.
 
 ## 5. `blendTimeOperation`
 
-- **husk gives you**: nothing yet — `blendTimeIn`/`blendTimeOut` aren't
-  currently parsed by husk at all (a separate, closeable husk-side gap
-  identified alongside this investigation, not part of this file's scope).
-  If added, they'd be raw `uint16_t` millisecond values per sequence.
+- **husk gives you**: `blendTimeIn`/`blendTimeOut` are fully parsed
+  (`m2::Sequence::blendTimeIn`/`blendTimeOut`, `src/m2_animation.hpp`/`.cpp`)
+  and exported as raw `uint16_t` millisecond values, `blend_time_in`/
+  `blend_time_out` per-clip extras (`gltf::Animation::SequenceMetadata`,
+  `src/gltf_skeleton.hpp`/`.cpp`; sourced in `src/export_animation.cpp`).
 - **missing**: the rule for *when*/*how* to apply blend-in vs. blend-out
   during a transition between two sequences.
 - **source**: none — the wowdev.wiki spec states this plainly: "not stored
@@ -144,11 +164,17 @@ textures are not filenames in the M2 at all.
 
 ## 6. Sound linking (`M2Event` → actual sound)
 
-- **husk gives you**: nothing in the `.glb` yet — `M2Event`'s static fields
-  (identifier string, bone, position, `data`) are currently `husk info`/
-  diagnostic-only, not exported as glTF nodes at all (a separate, closeable
-  husk-side gap, not this file's scope). Even once exported, you'd get the
-  event's identifier/trigger point, never a sound.
+- **husk gives you**: real glTF nodes now, not diagnostic-only — every
+  `M2Event` becomes a child node named `event_<identifier>` (e.g.
+  `event_$DTH`, not deduplicated — a real M2 can repeat one identifier)
+  parented under its bone, positioned at the event's own bone-relative
+  offset (`gltf::Skeleton::Event`, `src/gltf_skeleton.hpp`; emitted in
+  `src/gltf_skeleton.cpp`'s `appendAnchorNode` call, named via
+  `m2::eventName` in `src/export_skeleton.cpp` where a known name exists).
+  That's the identifier/placement half only (`gltf::Skeleton::Event` carries
+  `identifier`/`joint`/`position`; `m2::Event::data`, `src/m2_scene.hpp`, an
+  opaque per-event `uint32_t` payload, is parsed but not currently exported
+  into the `.glb`) — either way, you get no sound file reference.
 - **missing**: which sound plays when a given event fires.
 - **likely source**: partly `SoundKit`-family DB2 tables keyed off the
   event's identifier convention (e.g. `"STAND"`/`"DEATH"`-style strings),
@@ -160,9 +186,13 @@ textures are not filenames in the M2 at all.
 
 ## 7. LOD distance thresholds
 
-- **husk gives you**: `LDV1`'s lod tier count and `particleBoneLod` data via
-  `dump-chunks` (`husk export --lod all` exports every tier as its own
-  node, but doesn't pick one).
+- **husk gives you**: `LDV1`'s lod tier count only — `husk info` prints
+  `lod_count` (`m2::Header::lodCount`, read at `LDV1` offset 0x02,
+  `src/m2_primitives.cpp`), and `husk export --lod all` exports every `.skin`
+  tier as its own `lod<n>` node sharing one skeleton (doesn't pick one).
+  (`particleBoneLod` is not a real husk field — no such data is parsed or
+  exported anywhere in this codebase; that was a stale/incorrect claim in
+  an earlier version of this file, not a real capability that regressed.)
 - **missing**: the actual distance at which the client switches tiers.
 - **source**: client CVars (`entityLodDist`, `doodadLodDist`) — these are
   **user-configurable settings, not asset data**. There is no "correct"
@@ -189,9 +219,11 @@ work):
    pose corrections, not "wrong body parts visible"), and husk's own
    investigation already narrowed the search space (rules out several
    plausible hypotheses) even though the actual table is still unconfirmed.
-3. **`aliasNext`/animation names** (#4) — mostly a usability/naming problem,
-   not a visual-correctness one, unless a model's alias sequences turn out
-   to carry real, otherwise-unreachable keyframe data.
+3. **`aliasNext`/animation names** (#4) — purely a usability/naming problem
+   now, not a visual-correctness one at all: husk's own alias-chain
+   resolution already reaches every alias sequence's real keyframe data
+   without external help (see item 4's own text), so all that's left here
+   is human-readable names.
 4. **`blendTimeOperation`** (#5) — no data exists to find; this is "author a
    reasonable heuristic," not "go acquire a table." Worth doing early
    anyway since it's pure engine-side work with no external blocker.

@@ -163,7 +163,46 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: `db2.hpp`'s long-standing named gap -- "full decoding of
+- **Current state**: `TODO/ENGINE_TODO.md` (a spec for a hypothetical
+  downstream engine project, not husk itself — see its own header) refreshed
+  against real current source, not just the 4-item starting list this task
+  was given. Confirmed stale, and corrected in place: item 3 (hardcoded
+  texture resolution) claimed `husk export` doesn't surface `M2Texture::type`
+  at all — it does, `texture_type` material extras
+  (`gltf::Material::textureType`, `src/gltf_mesh.hpp`, set in
+  `src/export_materials.cpp`), plus a real typed `alternate_textures`
+  candidate pool per ambiguous slot. Item 4 (`aliasNext`) claimed it "isn't
+  even parsed" — it's fully parsed and chain-resolved
+  (`m2::Sequence::aliasNext`, `src/export_animation.cpp`,
+  `alias_next`/`is_alias` clip extras), closing what the old text called a
+  "genuinely unresolved even from the file alone" open question; only the
+  id-to-name lookup against `AnimationData.dbc` remains external. Item 5
+  (`blendTimeOperation`) claimed `blendTimeIn`/`blendTimeOut` "aren't
+  currently parsed at all" — they are, exported as `blend_time_in`/
+  `blend_time_out` clip extras; the real remaining gap (the blend-transition
+  *rule*, correctly framed as pure client logic with no data to find) was
+  already accurate and untouched. Item 6 (sound linking) claimed `M2Event`
+  is "diagnostic-only, not exported as glTF nodes" — real `event_<identifier>`
+  child nodes are exported (`gltf::Skeleton::Event`, `src/gltf_skeleton.cpp`);
+  found and noted one genuine sub-gap while verifying: `m2::Event::data`
+  (`src/m2_scene.hpp`, an opaque per-event `uint32_t`) is parsed but not
+  currently exported into the node's extras — real, small, left as a
+  possible follow-up, not fixed here (this was a docs-only task, no `src/`
+  changes made). Item 7 (LOD thresholds) cited a `particleBoneLod` field
+  that doesn't exist anywhere in husk's codebase (verified by repo-wide
+  grep) — corrected to describe what's actually exposed (`lod_count` via
+  `husk info`, not `dump-chunks`). Items 1 (geoset selection) and 2 (`.bone`
+  correction selection) were re-verified and found still accurate as
+  written, untouched. Priority ranking at the bottom updated only where a
+  claim it depended on changed (item 4's ranking no longer hedges on
+  alias sequences carrying unreachable keyframe data — they don't, confirmed
+  above); the external-data-acquisition priority itself is unaffected.
+  Header's `commit aa0df15` citation updated to the commit this refresh was
+  done against. Full test suite green, 586/586, expected for a docs-only
+  change but re-run anyway per this task's own instruction. Committed as
+  `[UNVERIFIED/STAGED]` per Luna's standing convention for unsupervised
+  documentation passes.
+- **Prior session**: `db2.hpp`'s long-standing named gap -- "full decoding of
   offset-map ('sparse', flags & 0x01) sections ... expose their raw
   variable-length record bytes but not per-field values" -- is now closed
   for the `field_compression_none` case (the only one any real local
