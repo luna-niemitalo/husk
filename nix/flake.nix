@@ -21,6 +21,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
+        HUSK_VERSION = "v0.1.1"; # set manually as building on client machine will not have git available to get the version from git describe
 
         projectRoot = ../.;
 
@@ -114,8 +115,8 @@
       {
         packages.default = pkgs.stdenv.mkDerivation {
           pname = "husk";
-          version = "0.1.0";
           src = appSource;
+          version = HUSK_VERSION;
 
           nativeBuildInputs = [
             pkgs.cmake
@@ -152,7 +153,7 @@
           CCACHE_DIR = "/media/luna/cache/ccache";
 
           shellHook = ''
-                        echo "husk dev shell"
+                        echo "husk dev shell ${HUSK_VERSION} for ${system}"
                         echo "  cmake:   $(cmake --version | head -n1)"
                         echo "  ccache:  $CCACHE_DIR"
             			echo "  blender: $(blender --version | head -n1)"

@@ -10,7 +10,6 @@ project(husk CXX)
 # format that moves under this tool constantly (see README.md's "Why
 # test-first") -- a bug report is only as useful as knowing which husk
 # build it came from.
-set(HUSK_VERSION "v0.1.1")
 
 # Nix provides ccache in the dev shell and sets CCACHE_DIR; use it if present
 # rather than assuming it's on PATH outside that shell.
