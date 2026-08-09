@@ -23,6 +23,8 @@ if(Git_FOUND)
   if(HUSK_VERSION_RESULT EQUAL 0 AND HUSK_VERSION_OUTPUT)
     set(HUSK_VERSION "${HUSK_VERSION_OUTPUT}")
   endif()
+else()
+  message(WARNING "Git not found; HUSK_VERSION will be 'unknown'")
 endif()
 
 # Nix provides ccache in the dev shell and sets CCACHE_DIR; use it if present

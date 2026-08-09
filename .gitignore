@@ -12,6 +12,7 @@ documentation
 # every other generated-artifact entry in this file already follows.
 /example_exports/
 /corpus_reports/
+/trash/
 
 # blp/ (Python, uv-managed) -- .venv/ and .pytest_cache/ already carry
 # their own self-excluding .gitignore, these cover the rest.

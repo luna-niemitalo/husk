@@ -6,7 +6,6 @@
     nixpkgs.follows = "pins/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
     casc-tool.url = "github:luna-niemitalo/casc-tool?dir=nix";
-    nixpkgs-blender400.url = "github:NixOS/nixpkgs/2230a20f2b5a14f2db3d7f13a2dc3c22517e790b";
   };
 
   outputs =
@@ -14,7 +13,6 @@
       self,
       pins,
       nixpkgs,
-      nixpkgs-blender400,
       flake-utils,
       casc-tool,
     }:
@@ -23,7 +21,6 @@
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
-        pkgsBlender400 = import nixpkgs-blender400 { inherit system; };
 
         projectRoot = ../.;
 
