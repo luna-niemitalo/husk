@@ -40,6 +40,10 @@ import sys
 import time
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from pathlib import Path
+import hashlib
+import urllib.parse
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from corpus_scan_framework import AdaptiveConcurrency  # noqa: E402 -- see sys.path.insert above
@@ -48,7 +52,7 @@ CORPUS_ROOT = Path("/media/luna/data/wow_export")
 HUSK_BIN = Path("/home/luna/dev/husk/build/husk")
 BLENDER_BIN = "blender"
 RENDER_SCRIPT = Path(__file__).resolve().parent / "render_glb.py"
-SCRATCH_DIR = Path("/media/luna/work/husk_corpus_scratch/render_glbs")
+SCRATCH_DIR = Path("/media/luna/work/cache/husk_corpus_scratch/render_glbs")
 EXPORT_TIMEOUT = 120.0
 RENDER_TIMEOUT = 180.0
 
@@ -94,6 +98,66 @@ GPU_PCI_BUS_IDS = ["pci-0000_10_00_0", "pci-0000_0d_00_0"]
 # no pruning risk and no meaningful cost.
 LISTFILE = Path("/media/luna/userdata/Downloads/community-listfile.csv")
 
+# freedesktop.org thumbnail spec size buckets -- "normal" (128px) is plenty
+# for these (per this driver's own comment above) simple flat-shaded
+# 640x480 renders; not using "large"/512px since nothing here needs it and
+# it'd roughly quadruple the per-file resize+encode cost across 130k files.
+THUMBNAIL_SIZE = "normal"
+THUMBNAIL_PIXELS = {"normal": 128, "large": 256, "x-large": 512, "xx-large": 1024}
+THUMBNAIL_CACHE_DIR = Path.home() / ".cache" / "thumbnails" / THUMBNAIL_SIZE
+
+def _thumbnail_cache_path(m2_path: Path) -> tuple[Path, str, str]:
+    """(cache_png_path, uri, mtime_str) for m2_path's cache entry -- shared
+    by both the staleness check and the actual write so the URI/digest
+    logic can't drift between the two call sites."""
+    uri = "file://" + urllib.parse.quote(str(m2_path.resolve()))
+    mtime = str(int(m2_path.stat().st_mtime))
+    digest = hashlib.md5(uri.encode()).hexdigest()
+    return THUMBNAIL_CACHE_DIR / f"{digest}.png", uri, mtime
+
+
+def _thumbnail_is_stale(m2_path: Path) -> bool:
+    """True if there's no cached thumbnail for m2_path yet, or the one
+    that's there was made for a different mtime (re-extracted from
+    CASC/MPQ at a different time, patch update, etc). The cached PNG's own
+    Thumb::MTime tEXt chunk is the source of truth -- no separate sqlite/
+    manifest needed to track this across runs."""
+    cache_png, _, mtime = _thumbnail_cache_path(m2_path)
+    if not cache_png.exists():
+        return True
+    try:
+        with Image.open(cache_png) as img:
+            return img.text.get("Thumb::MTime") != mtime
+    except Exception:
+        # Corrupt/truncated entry (e.g. a prior run killed mid-write) --
+        # treat as stale rather than raising; a bad cache entry is worse
+        # than a missing one, and this is not worth aborting a render over.
+        return True
+
+
+def install_thumbnail(m2_path: Path, rendered_image_path: Path) -> None:
+    """Writes m2_path's freedesktop thumbnail cache entry from an
+    already-rendered image -- no separate render pass, PIL reads .webp
+    natively so there's no format-conversion step beyond the resize."""
+    cache_png, uri, mtime = _thumbnail_cache_path(m2_path)
+    cache_png.parent.mkdir(parents=True, exist_ok=True)
+    pixels = THUMBNAIL_PIXELS[THUMBNAIL_SIZE]
+    with Image.open(rendered_image_path) as img:
+        img = img.convert("RGBA")
+        img.thumbnail((pixels, pixels))
+        meta = PngInfo()
+        meta.add_text("Thumb::URI", uri)
+        meta.add_text("Thumb::MTime", mtime)
+        # Temp file + atomic rename, same reasoning as _write_stats below:
+        # many worker processes write into this one shared cache dir
+        # concurrently, and a reader (Dolphin) polling it must never see a
+        # half-written PNG. pid in the suffix avoids any cross-process
+        # temp-file collision (digest itself can't collide since it's
+        # per-file, but two processes racing the *same* file on a re-run
+        # could still clash without it).
+        tmp = cache_png.with_suffix(f".tmp{os.getpid()}")
+        img.save(tmp, "PNG", pnginfo=meta)
+        tmp.replace(cache_png)
 
 def _last_lines(text: str, n: int = 6) -> str:
     lines = [l for l in text.splitlines() if l.strip()]
@@ -118,18 +182,31 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
     scratch_glb.parent.mkdir(parents=True, exist_ok=True)
     out_webp.parent.mkdir(parents=True, exist_ok=True)
 
+
     if out_webp.exists() or out_png_legacy.exists():
-        # Resume support for the full 130k-file run: this job is expected to
+		# Resume support for the full 130k-file run: this job is expected to
         # take hours, so a restart (crash, machine reboot) must not re-do
         # already-rendered files. A prior image is treated as done -- this
         # driver never writes a partial/temp file directly at the output
         # path (Blender's own render.render(write_still=True) is atomic-
         # enough for this purpose: it writes the final file directly, but
         # only after a successful render call returns).
+        existing_image = out_webp if out_webp.exists() else out_png_legacy
+        thumb_ok = False
+        if _thumbnail_is_stale(m2_path):
+            try:
+                install_thumbnail(m2_path, existing_image)
+                thumb_ok = True
+            except Exception as e:
+                _log(live_log, "FAIL-THUMB", m2_path, f"thumbnail install failed on resume: {e}")
+        else:
+            thumb_ok = True  # already current, nothing to do
         return {"path": str(m2_path), "export_ok": True, "render_ok": True,
-                "skipped_no_geometry": False, "detail": "resumed: already rendered"}
+                "skipped_no_geometry": False, "thumb_ok": thumb_ok,
+                "detail": "resumed: already rendered"}
 
-    row = {"path": str(m2_path), "export_ok": False, "render_ok": False, "skipped_no_geometry": False, "detail": ""}
+    row = {"path": str(m2_path), "export_ok": False, "render_ok": False, "skipped_no_geometry": False,
+           "thumb_ok": False, "detail": ""}
     t0 = time.monotonic()
     try:
         cmd = [str(HUSK_BIN), "export", str(m2_path), "-o", str(scratch_glb), "--anim", "auto"]
@@ -171,6 +248,16 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
         else:
             row["render_ok"] = True
             _log(live_log, "OK", m2_path, f"{time.monotonic()-t0:.1f}s -> {out_webp}")
+            if _thumbnail_is_stale(m2_path):
+                try:
+                    install_thumbnail(m2_path, out_webp)
+                    row["thumb_ok"] = True
+                except Exception as e:
+                    row["thumb_ok"] = False
+                    _log(live_log, "FAIL-THUMB", m2_path, f"thumbnail install failed: {e}")
+            else:
+                row["thumb_ok"] = True
+
     except subprocess.TimeoutExpired:
         row["detail"] = f"render TIMEOUT after {RENDER_TIMEOUT}s"
         _log(live_log, "FAIL-RENDER", m2_path, row["detail"])
@@ -320,7 +407,7 @@ def main() -> int:
                  elapsed_s=time.monotonic() - start, finished=True)
 
     with out_csv.open("w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["path", "export_ok", "render_ok", "skipped_no_geometry", "detail"])
+        w = csv.DictWriter(f, fieldnames=["path", "export_ok", "render_ok", "skipped_no_geometry", "thumb_ok", "detail"])
         w.writeheader()
         w.writerows(rows)
 
