@@ -10,22 +10,7 @@ project(husk CXX)
 # format that moves under this tool constantly (see README.md's "Why
 # test-first") -- a bug report is only as useful as knowing which husk
 # build it came from.
-find_package(Git QUIET)
-set(HUSK_VERSION "unknown")
-if(Git_FOUND)
-  execute_process(
-    COMMAND ${GIT_EXECUTABLE} describe --always --dirty
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    OUTPUT_VARIABLE HUSK_VERSION_OUTPUT
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE HUSK_VERSION_RESULT
-  )
-  if(HUSK_VERSION_RESULT EQUAL 0 AND HUSK_VERSION_OUTPUT)
-    set(HUSK_VERSION "${HUSK_VERSION_OUTPUT}")
-  endif()
-else()
-  message(WARNING "Git not found; HUSK_VERSION will be 'unknown'")
-endif()
+set(HUSK_VERSION "v0.1.1")
 
 # Nix provides ccache in the dev shell and sets CCACHE_DIR; use it if present
 # rather than assuming it's on PATH outside that shell.
