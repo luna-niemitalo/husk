@@ -168,7 +168,27 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Same session, continued -- two more real gaps closed,
+- **Current state**: Same session, continued once more -- a real
+  regression caught live (both CPU and GPU usage visibly dropped mid-run)
+  after `--listfile` first shipped: `src/listfile.cpp`'s `loadListfile`
+  re-parses the full 148MB/2.2M-line `community-listfile.csv` from scratch
+  on *every* `husk export` call (~1.1s each, no persistent process to cache
+  it across the render driver's 130,576 invocations). A first fix
+  (filtering the listfile down to a prior scan's known-relevant FileDataIDs)
+  was built, then deliberately reverted on a direct objection: pruning to a
+  snapshot risks losing coverage for anything that scan didn't flag. Fixed
+  at the root instead — rewrote `loadListfile` for raw parse speed (one
+  `fread`, manual digit scanning, `reserve()`d hashmap) against the *full,
+  unpruned* file; confirmed by timing the overhead is now noise-level
+  (~4.4s with `--listfile` vs ~4.5s without, same fixture that was 5.65s
+  with the original naive parser). Full listfile kept, nothing pruned.
+  Persistent (queue-fed, not one-process-per-file) Blender workers were
+  measured (~25-30% of Blender-side wall time is pure process startup) and
+  explicitly deferred as a separate follow-up, not implemented — Luna's own
+  call, to launch the already-fixed pipeline rather than add another
+  architecture change first. Full suite green, 601/601, unchanged from
+  before (implementation-only fix, same test behavior).
+- **Prior state (same session)**: two more real gaps closed,
   both found by actually looking at rendered corpus output, not just
   parsing correctness. (1) `_sdr` stand-in character models (lower-poly,
   self-contained-animation variants sharing textures with their non-"_sdr"

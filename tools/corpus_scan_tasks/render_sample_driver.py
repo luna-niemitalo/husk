@@ -66,6 +66,20 @@ GPU_PCI_BUS_IDS = ["pci-0000_10_00_0", "pci-0000_0d_00_0"]
 # path, gitignored per this project's own "user-populated, local dev
 # machine only" convention for large downloaded corpus artifacts -- not
 # committed, not fetched by this script.
+#
+# The full 148MB/2.2M-line community-listfile.csv, deliberately not a
+# filtered subset -- an earlier version of this pruned it down to only the
+# FileDataIDs a specific corpus scan had already flagged, to work around
+# `src/listfile.cpp`'s own re-parse-per-invocation cost (husk has no
+# persistent process to cache it across this driver's 130,576 `husk
+# export` calls). That pruning was reverted: it risked silently missing
+# coverage for any FileDataID not already flagged by that one snapshot
+# scan. Fixed at the real root instead -- `loadListfile` was rewritten for
+# raw parse speed (single fread + manual scanning, reserved hashmap, no
+# per-line exceptions) -- confirmed by direct timing to bring the full
+# file's per-call overhead down to noise level (~4.4s with --listfile vs
+# ~4.5s without, on a real fixture), so every real entry is available with
+# no pruning risk and no meaningful cost.
 LISTFILE = Path("/media/luna/userdata/Downloads/community-listfile.csv")
 
 

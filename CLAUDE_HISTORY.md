@@ -14,6 +14,46 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-09, continued again**: Real regression caught live, mid-run, by
+watching actual system usage rather than trusting the job was fine because
+it hadn't crashed: after the entry below shipped `--listfile` wired into
+the full corpus render, both CPU and GPU usage visibly *dropped*. Root
+cause, confirmed by direct timing, not assumed: `src/listfile.cpp`'s
+`loadListfile` re-parses the entire 148MB/2.2M-line
+`community-listfile.csv` from scratch on every single `husk export`
+subprocess call (~1.1s of pure single-threaded parsing each time, since
+husk has no persistent process to cache it across the driver's 130,576
+calls) -- workers were spending a large, growing fraction of their wall
+time re-parsing an unchanging file instead of doing real export/render
+work, starving both CPU parallelism and the GPU pipeline behind it. First
+fix attempt (filtering the listfile down to only the ~82k FileDataIDs a
+specific prior corpus scan had already flagged as relevant) was floated,
+built, and then deliberately reverted after a direct, well-founded
+objection: pruning to a scan's own snapshot risks silently losing coverage
+for any FileDataID that scan didn't happen to flag (including the
+listfile's own `unk_exp*` placeholder-named entries, real data that just
+isn't identified yet). Fixed at the actual root instead: rewrote
+`loadListfile` for raw parse speed against the *full, unpruned* file --
+one `fread` instead of `std::getline` per line, manual digit scanning
+instead of exception-based `std::stoul`, `unordered_map::reserve()` up
+front instead of ~20+ incremental rehashes for 2.2M inserts. Confirmed by
+direct timing: the full file's per-call overhead drops to ~50-100ms,
+indistinguishable from run-to-run noise against not passing `--listfile`
+at all (4.4-4.5s either way on a real fixture, vs 5.65s with the original
+naive parser) -- full listfile coverage kept, no pruning, no measurable
+cost. Same 4 `tests/test_listfile.cpp` cases still pass unchanged (they
+test behavior, not implementation). Also considered and explicitly
+deferred, not implemented: keeping Blender itself resident across files
+(persistent worker loop fed by a queue, instead of one `blender
+--background` process per file) -- measured bare Blender startup at ~0.51s
+against ~1.81s total for a real character render (~25-30% of Blender-side
+wall time, meaningful at 130k-file scale, roughly 1.5 wall-clock hours
+across a 12-way-parallel full run) but a real architecture change (loses
+today's clean one-process-per-file crash isolation, needs its own
+memory-growth/hung-job handling) -- Luna's own call to launch the already-
+fixed pipeline now and revisit this as a separate, carefully-tested follow
+-up rather than block tonight's run on it.
+
 **2026-08-09, continued**: Two more real, corpus-render-driven gaps closed
 in the same session, plus real render-pipeline throughput/UX work, all
 found via actually looking at rendered output rather than just parsing
