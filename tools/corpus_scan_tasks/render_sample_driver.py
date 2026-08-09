@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import csv
+import json
 import os
 import subprocess
 import sys
@@ -184,7 +185,32 @@ def _log(live_log: Path, status: str, m2_path: Path, detail: str) -> None:
         f.write(f"{status} {m2_path} :: {detail}\n")
 
 
+def _write_stats(stats_path: Path, **fields) -> None:
+    # A separate small JSON file, not just stdout -- the periodic "N done"
+    # print lines land in a log Python block-buffers whenever stdout isn't
+    # a real terminal (redirected to a file, as this driver always is when
+    # backgrounded), which made a real, healthy run look stalled for
+    # minutes at a time in practice. This file is written with a real
+    # os.replace (atomic on the same filesystem), so a reader never sees a
+    # half-written file -- tools/live_gallery_server.py polls it directly
+    # for the concurrency controller's own internals (window/backoff/rate),
+    # which aren't otherwise observable from outside this process.
+    tmp = stats_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"updated": time.time(), **fields}))
+    tmp.replace(stats_path)
+
+
 def main() -> int:
+    # Line-buffer stdout even when redirected to a file (the normal case
+    # for a backgrounded multi-hour run) -- block-buffering otherwise
+    # delays every "N done" print by minutes, which made a real, healthy
+    # run look stalled when checked against the log file directly (real
+    # progress was only visible by independently counting output images on
+    # disk). reconfigure() is a real stdlib method (Python 3.7+), not a
+    # hack -- equivalent to `python -u` but from inside the script itself,
+    # so callers don't have to remember the flag.
+    sys.stdout.reconfigure(line_buffering=True)
+
     file_list = Path(sys.argv[1])
     render_dir = Path(sys.argv[2])
     # --max-workers is a *ceiling* the controller ramps up toward, not a
@@ -207,7 +233,17 @@ def main() -> int:
     live_log.write_text("")
 
     paths = [l.strip() for l in file_list.read_text().splitlines() if l.strip()]
-    controller = AdaptiveConcurrency(initial_window=min(4, max_workers), max_window=max_workers)
+    # Starting at 4 and growing by the default max_growth_step=4 per tick
+    # took several minutes (multiple 30s ticks) to reach a real operating
+    # point -- real, observed as "still climbing to 50% CPU a while in."
+    # Both raised for this pipeline specifically: a higher starting window
+    # (a real subprocess pipeline, not the plain in-process work
+    # AdaptiveConcurrency's own defaults were tuned against, so the cost of
+    # guessing a bit high and backing off one tick later is small) and a
+    # bigger per-tick growth step, so the climb to the real ceiling takes a
+    # small handful of ticks, not a dozen.
+    controller = AdaptiveConcurrency(initial_window=min(12, max_workers), max_window=max_workers,
+                                      max_growth_step=8)
     print(f"{len(paths)} files to render, up to {max_workers} workers (adaptive, "
           f"starting at {controller.window}), live log: {live_log}")
 
@@ -225,6 +261,8 @@ def main() -> int:
     # tick duration are raised well past that.
     tick_seconds = 30.0
     min_samples_per_tick = 15
+    stats_path = render_dir.parent / (render_dir.name + "_stats.json")
+    stats_write_interval = 0.5  # separate from tick_seconds -- this is UI refresh cadence, not controller tuning
     with ProcessPoolExecutor(max_workers=max_workers) as pool:
         pending = iter(paths)
         in_flight: dict[Future, str] = {}
@@ -241,6 +279,11 @@ def main() -> int:
         tick_start = start
         tick_completed = 0
         done = 0
+        last_stats_write = 0.0
+        overall_rate = 0.0
+        _write_stats(stats_path, total=len(paths), done=0, render_ok=0, max_workers=max_workers,
+                     window=controller.window, backoff_count=0, window_trace=controller.trace_str(),
+                     recent_rate=0.0, overall_rate=0.0, elapsed_s=0.0)
         while in_flight:
             finished, _ = wait(in_flight, timeout=0.5, return_when=FIRST_COMPLETED)
             for fut in finished:
@@ -259,10 +302,22 @@ def main() -> int:
                 controller.record(now - start, rate)
                 tick_start = now
                 tick_completed = 0
+            if now - last_stats_write >= stats_write_interval:
+                overall_rate = done / (now - start) if now > start else 0.0
+                ok = sum(1 for r in rows if r["render_ok"])
+                _write_stats(stats_path, total=len(paths), done=done, render_ok=ok, max_workers=max_workers,
+                             window=controller.window, backoff_count=controller.backoff_count,
+                             window_trace=controller.trace_str(), in_flight=len(in_flight),
+                             overall_rate=overall_rate, elapsed_s=now - start)
+                last_stats_write = now
             top_up()
 
     print(f"  concurrency window trace: {controller.trace_str()} "
           f"({controller.backoff_count} backoff(s), converged at {controller.window})")
+    _write_stats(stats_path, total=len(paths), done=done, render_ok=sum(1 for r in rows if r["render_ok"]),
+                 max_workers=max_workers, window=controller.window, backoff_count=controller.backoff_count,
+                 window_trace=controller.trace_str(), in_flight=0, overall_rate=overall_rate,
+                 elapsed_s=time.monotonic() - start, finished=True)
 
     with out_csv.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["path", "export_ok", "render_ok", "skipped_no_geometry", "detail"])

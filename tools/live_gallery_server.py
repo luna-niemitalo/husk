@@ -59,6 +59,102 @@ EXPANSION_LABELS = {
 # path are needed here; the detail is surfaced as a tooltip, not parsed further.
 LOG_LINE_RE = re.compile(r"^(\S+) (\S+) :: (.*)$")
 
+_DRM_CARD_RE = re.compile(r"^card\d+$")
+
+
+def _read_gpu_busy_percent() -> list[int]:
+    """One entry per real GPU found under /sys/class/drm -- discovered, not
+    hardcoded to this machine's own two cards, so this stays useful on any
+    box. `card[0-9]*` alone isn't a tight enough glob (it also matches
+    connector pseudo-devices like "card0-DP-4"), hence the extra regex
+    filter. Best-effort: a GPU whose driver doesn't expose this file (not
+    all do) is silently skipped, not an error.
+    """
+    result = []
+    drm = Path("/sys/class/drm")
+    if not drm.is_dir():
+        return result
+    for card_dir in sorted(drm.iterdir()):
+        if not _DRM_CARD_RE.match(card_dir.name):
+            continue
+        try:
+            result.append(int((card_dir / "device" / "gpu_busy_percent").read_text().strip()))
+        except (OSError, ValueError):
+            continue
+    return result
+
+
+def _count_render_processes() -> int:
+    """Live count of running render_glb.py Blender subprocesses, read
+    straight from /proc -- no psutil dependency, and independent of
+    render_sample_driver.py's own stats file (works even against an older
+    driver version that doesn't write one).
+    """
+    count = 0
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return count
+    for pid_dir in proc.iterdir():
+        if not pid_dir.name.isdigit():
+            continue
+        try:
+            cmdline = (pid_dir / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if b"render_glb.py" in cmdline:
+            count += 1
+    return count
+
+
+class SystemStats:
+    """Live process/GPU/driver-internals polling, on its own cheap timer --
+    independent of Index's own (more expensive, walks the whole image tree)
+    rescan loop. Three signals, each degrading gracefully alone:
+      - render_sample_driver.py's own "<root>_stats.json" (written next to
+        its live log/results CSV, same naming convention) -- the only way
+        to see AdaptiveConcurrency's actual internals (window/backoff/rate),
+        which aren't observable from outside that process any other way.
+        Absent entirely if the driver's running an older version that
+        doesn't write one, or hasn't reached its first write yet -- treated
+        as "no driver stats available," not an error.
+      - GPU busy% per card (real, external, works even if the driver stats
+        file is stale or missing).
+      - a live render_glb.py process count (ditto).
+    """
+
+    def __init__(self, stats_path: Path, interval: float = 0.5):
+        self.stats_path = stats_path
+        self.interval = interval
+        self._lock = threading.Lock()
+        self._data: dict = {}
+        self._stop = threading.Event()
+
+    def start(self) -> None:
+        self._poll()
+        t = threading.Thread(target=self._loop, daemon=True)
+        t.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self.interval):
+            self._poll()
+
+    def _poll(self) -> None:
+        driver = None
+        try:
+            driver = json.loads(self.stats_path.read_text())
+        except (OSError, ValueError):
+            pass
+        data = {"driver": driver, "gpus": _read_gpu_busy_percent(), "render_processes": _count_render_processes()}
+        with self._lock:
+            self._data = data
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return dict(self._data)
+
 
 class Index:
     """Background-refreshed snapshot of every image under `root`, plus an
@@ -278,6 +374,16 @@ PAGE_HTML = """<!doctype html>
   #banner { display: none; margin-left: auto; background: var(--good); color: #05221a; font-weight: 600;
             border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12.5px; }
   #banner.show { display: inline-block; }
+  #stats-bar { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin-top: 10px;
+               padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+  #stats-bar .stat { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+  #stats-bar .stat b { color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums; }
+  #stats-bar .progress-track { width: 140px; height: 6px; border-radius: 3px; background: var(--panel);
+                                border: 1px solid var(--border); overflow: hidden; }
+  #stats-bar .progress-fill { height: 100%; background: var(--accent); border-radius: 3px 0 0 3px;
+                               transition: width 0.6s ease-out; }
+  #stats-bar .gpu-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 3px; }
+  #stats-bar.stale { opacity: 0.45; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px 20px; }
   figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
            animation: fig-in 0.5s ease-out both; animation-delay: var(--fig-delay, 0s); }
@@ -315,6 +421,7 @@ PAGE_HTML = """<!doctype html>
     <span style="color:var(--muted);font-size:12px;">world/ era:</span>
     <div id="era-chips" class="row"></div>
   </div>
+  <div id="stats-bar" style="display:none;"></div>
 </header>
 <div class="grid" id="grid"></div>
 <div id="empty">no images match this filter (yet)</div>
@@ -494,13 +601,59 @@ function connectStream() {
 }
 connectStream();
 loadPage(true);
+
+const GPU_COLORS = ['#5da8ff', '#3ecf8e', '#f2b84b', '#ff6b6b'];
+
+function fmtRate(r) { return r >= 10 ? r.toFixed(0) : r.toFixed(1); }
+
+async function pollSystemStats() {
+  let data;
+  try {
+    const res = await fetch('/api/system_stats');
+    data = await res.json();
+  } catch {
+    return;  // transient fetch failure -- next poll retries, no need to flash an error state
+  }
+  const bar = document.getElementById('stats-bar');
+  const driver = data.driver;
+  const parts = [];
+
+  if (driver) {
+    const pct = driver.total ? (driver.done / driver.total * 100) : 0;
+    parts.push(`
+      <div class="stat">
+        <span class="progress-track"><span class="progress-fill" style="width:${pct.toFixed(2)}%"></span></span>
+        <b>${driver.done.toLocaleString()} / ${driver.total.toLocaleString()}</b> (${pct.toFixed(1)}%)
+      </div>`);
+    parts.push(`<div class="stat">window <b>${driver.window}</b> / ${driver.max_workers}</div>`);
+    if (driver.in_flight !== undefined) parts.push(`<div class="stat">in-flight <b>${driver.in_flight}</b></div>`);
+    parts.push(`<div class="stat">backoffs <b>${driver.backoff_count}</b></div>`);
+    parts.push(`<div class="stat">rate <b>${fmtRate(driver.overall_rate)}</b>/s</div>`);
+    if (driver.finished) parts.push(`<div class="stat" style="color:var(--good);font-weight:600;">finished</div>`);
+  } else {
+    parts.push(`<div class="stat">driver stats: <b>not available</b></div>`);
+  }
+
+  (data.gpus || []).forEach((pct, i) => {
+    const color = GPU_COLORS[i % GPU_COLORS.length];
+    parts.push(`<div class="stat"><span class="gpu-dot" style="background:${color}"></span>GPU${i} <b>${pct}%</b></div>`);
+  });
+  parts.push(`<div class="stat">render processes <b>${data.render_processes ?? 0}</b></div>`);
+
+  bar.innerHTML = parts.join('');
+  bar.style.display = 'flex';
+  bar.classList.remove('stale');
+}
+
+pollSystemStats();
+setInterval(pollSystemStats, 500);
 </script>
 </body>
 </html>
 """
 
 
-def make_handler(index: Index, root: Path):
+def make_handler(index: Index, root: Path, system_stats: SystemStats):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             pass  # keep terminal quiet; this is a browsing tool, not a diagnostic one
@@ -526,6 +679,10 @@ def make_handler(index: Index, root: Path):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+                return
+
+            if path == "/api/system_stats":
+                self._json(system_stats.snapshot())
                 return
 
             if path == "/api/files":
@@ -606,8 +763,20 @@ def main() -> int:
     index = Index(root, log_paths, args.interval)
     index.start()
 
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(index, root))
+    # render_sample_driver.py writes "<render-dir-name>_stats.json" right
+    # next to the render dir itself (same naming convention as its own
+    # "_live.log"/"_results.csv") -- derived here, not a separate flag, so
+    # pointing --root at a driver's own output directory picks this up for
+    # free. Harmless if no such file exists (a driver run that predates
+    # this, or none running at all): SystemStats.snapshot() just reports
+    # driver=None and the page shows only the GPU/process-count signals.
+    stats_path = root.parent / (root.name + "_stats.json")
+    system_stats = SystemStats(stats_path)
+    system_stats.start()
+
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(index, root, system_stats))
     print(f"serving {root} on http://{args.host}:{args.port}/ (rescanning every {args.interval}s)")
+    print(f"driver stats file: {stats_path} ({'found' if stats_path.exists() else 'not found yet'})")
     if log_paths:
         print(f"status overlay from {len(log_paths)} log(s): {', '.join(str(p) for p in log_paths)}")
     try:
@@ -616,6 +785,7 @@ def main() -> int:
         pass
     finally:
         index.stop()
+        system_stats.stop()
     return 0
 
 
