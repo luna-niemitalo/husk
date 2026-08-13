@@ -165,14 +165,37 @@ glTF skin's `extras` — inert, never applied to the bind pose or any
 animation (see `../DESIGN.md`'s "Key design decisions" for why, `../README.md`'s
 Usage section for the flag itself).
 
-**What's still open, and why it can't be closed here:** which in-game
-customization choice picks `BFID[7]` vs. `BFID[13]` most plausibly lives in
-client-side DB2 data (a `ChrCustomizationBoneSet`-shaped table, going from
-memory — not confirmed against a real DB2 dump) that husk has no access to
-and, per `../DESIGN.md`'s non-goals, never will at runtime. That's a genuinely
-different, external lookup — not something more file-reading or export
-work inside husk can resolve. If that mapping ever becomes available some
-other way (e.g. a separate out-of-band tool scraping it from CASC/DB2 at
-build time, per `../DESIGN.md`'s Non-goals, and handing husk a plain slot
-index/file to use), applying a specific slot to the render becomes a real
-follow-up; not attempted here.
+**What's still open, and why it isn't closed yet -- correction: this is
+not an "out of scope" wall.** Which in-game customization choice picks
+`BFID[7]` vs. `BFID[13]` most plausibly lives in a `ChrCustomizationBoneSet`-
+shaped DB2 table (going from memory -- not confirmed against a real DB2
+dump). **Locally-extracted `.db2` files are real, in-scope input** per
+`../DESIGN.md`'s Non-goals section (the *only* hard boundary is never
+talking to *live* CASC/DB2 or depending on the CASC tool itself -- a
+`.db2` file already sitting on disk is the same tier as any other sidecar
+`--textures`/`--skin-dir`/`--anim` already read) -- `husk db2-export`/
+`--db2-dir`/`--dbd-dir` already exist and already resolve *other* DB2
+tables successfully (`CHAR_TEXTURE_COMPOSITING_TODO.md`). An earlier
+version of this paragraph said husk "has no access to" this data and
+"never will" -- that was wrong, not a scope decision, and got copied
+around long enough to become a standing misconception; corrected here.
+
+**Update, same correction pass: the table is not missing.**
+`/media/luna/data/wow_export/dbfilesclient/chrcustomizationboneset.db2`
+exists locally and is populated -- `husk db2-info` confirms 560 real rows,
+2 fields (`bitpacked_signed`, 24 bits each, e.g. row 0: `[1056459,
+1000764]`), `header.flags & 0x04` ("has non-inline IDs"), id range
+`[24, 742]`. So this genuinely is a real, present, in-scope local file --
+the actual remaining work is (a) resolving real column names for it via
+`--dbd-dir` (unconfirmed whether WoWDBDefs has a matching `.dbd` layout for
+this table -- `husk db2-export chrcustomizationboneset.db2 out.sqlite
+--dbd-dir reference/WoWDBDefs` answers this directly) and (b) figuring out
+which *other* table/column actually links a specific `BFID[]` slot index to
+one of this table's rows for a given customization choice -- this table
+alone gives (something, boneset-id) pairs, not "which slot for which
+choice." That second join is the real unresolved question, not DB2 access
+itself. Next real step: run the `--dbd-dir` resolution above, then search
+WoWDBDefs' own `.dbd` files for whatever table has a foreign key into
+`ChrCustomizationBoneSet` (a `ChrCustomizationElement`/`ChrCustomizationChoice`-
+shaped table is the likely candidate, both of which also exist locally
+per `dbfilesclient/`'s own listing) to find the real join path.

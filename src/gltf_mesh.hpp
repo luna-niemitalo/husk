@@ -93,8 +93,10 @@ struct Material {
 
     // One M2Batch texture layer beyond the first (textureCount > 1, e.g. a
     // second env-mapped "shine" pass on armor, or a genuine two-texture
-    // blend -- wowdev.wiki M2/.skin#Texture_units).
-    // TODO: Remove: FAILURES2.md #6.
+    // blend -- wowdev.wiki M2/.skin#Texture_units, real combiner formulas
+    // transcribed in documentation/wowdev-wiki/wikitext/
+    // Pixel_shader_logic_for_mixing_colors.wiki -- see
+    // TODO/MULTI_TEXTURE_LAYER_TODO.md for the real rendering plan).
     // husk doesn't fake WoW's fixed-function combiner math (Mod2x/Add/...)
     // by wiring this into pbrMetallicRoughness; it's exposed as inert
     // metadata instead (glTF extras + an unused auxiliary image/texture, if
