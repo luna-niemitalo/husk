@@ -168,7 +168,60 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Same session, continued once more -- a real
+- **Current state**: `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s corpus-scan
+  question answered first (`tools/corpus_scan_tasks/animated_texture_effects_task.py`,
+  new: 27.6% of the 130,576-file corpus, 36,086 files, carries a genuinely-
+  animated texture-transform/tint/fade/weight curve -- a real, corpus-wide
+  gap, not edge cases), then that TODO's real infrastructure item (§3,
+  "making these curves actually animate in Blender") implemented end to
+  end, prompted directly with a request for the same kind of simple,
+  unambiguous debug/validate fixture the lightforged lamp was for billboard
+  rotation. Found a real, previously-unclosed gap along the way: husk
+  exported literally no data for a genuinely-*animated* M2TextureTransform
+  (only the constant case got real values) -- `src/export_materials.cpp`/
+  `src/gltf_mesh.cpp` now export the real translation/rotation/scaling
+  keyframe curve as `texture_transform_animation` material extras, a new
+  `resolveAnimatedRawQuatCurve`/`resolveRawQuatTrackSequence`/
+  `resolveRawQuatGlobalSequenceTrack` (`src/m2_animation.{hpp,cpp}`) needed
+  for rotation specifically since M2TextureTransform's rotation track is a
+  *raw* `C4Quaternion`, not the compressed `M2CompQuat` bone rotations use.
+  Test fixture (`unk_exp11_7037014.m2`, `test_data/models/spells/`) found
+  the hard way -- a first-choice candidate turned out to be a dead,
+  unreferenced transform array entry no `.skin` batch's
+  `textureTransformComboIndex` actually resolves to, a real trap a naive
+  corpus-presence scan doesn't catch; cross-checked against real batch data
+  before committing. New real integration test
+  (`tests/test_integration_texture_transform.cpp`) plus raw-quat-resolver
+  unit tests (`tests/test_m2_animation_tracks.cpp`). Blender side
+  (`tools/husk_blender_geoset_mask.py`, a 4th independent job):
+  `apply_texture_transform_animation` (a shared Mapping node, direct
+  per-frame computation + a `frame_change_pre` handler, same design choice
+  as the earlier billboard-alignment work) verified headlessly against the
+  real fixture -- Location.x reads 0.0/0.5/wraps-correctly at the curve's
+  own start/midpoint/past-loop frames, matching the lerp+loop math exactly.
+  `apply_tint_fade_animation` (same machinery, Principled BSDF driven
+  directly) is smoke-tested against a real file with genuine tint/fade data
+  (no crash, including the known "unlit materials get no Principled BSDF"
+  Blender-importer quirk) but **not verified against real ground-truth
+  values** -- flagged as such in its own doc comment, not overclaimed.
+  Clip-length question (the session's own explicit ask: "24 frames ≈ 1
+  second, or something else?") answered concretely: not a fixed convention
+  -- each curve's own real duration (last keyframe timestamp) drives
+  `scene.frame_end` (grown, never shrunk) at the scene's existing frame
+  rate; the real fixture's 4.167s loop computes to 100 frames at 24fps, not
+  a hardcoded clip length. Also closed, a hard prerequisite this TODO
+  itself flagged before adding a 4th/5th stage: every stage in
+  `husk_blender_geoset_mask.py`'s `main()` now runs through a shared
+  `_run_stage` wrapper (loud, specific per-stage failure, never blocks
+  later stages). Filed `TODO/CLEANUP_TODO.md` (new) separately, per a
+  direct mid-session note: `src/export_materials.cpp` is now the largest
+  file in `src/` (1,281+ lines) and needs splitting -- not investigated
+  yet, flagged only. Stages 1/2 of `ANIMATED_TEXTURE_EFFECTS_TODO.md` (a
+  real short-clip corpus render pipeline + live-gallery playback) remain
+  open, out of this session's scope -- this session closed §3 (the
+  playback mechanism itself) and the scope-measurement work, not the
+  render-pipeline infrastructure. Full C++ suite green, 612/612.
+- **Prior state**: Same session, continued once more -- a real
   regression caught live (both CPU and GPU usage visibly dropped mid-run)
   after `--listfile` first shipped: `src/listfile.cpp`'s `loadListfile`
   re-parses the full 148MB/2.2M-line `community-listfile.csv` from scratch

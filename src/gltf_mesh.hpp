@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -235,6 +236,10 @@ struct Material {
     // when the track is global-sequence-driven instead -- one synthetic
     // entry with `sequenceIndex == -1` (a continuous loop independent of
     // any M2Sequence, see resolveVec3GlobalSequenceTrack's doc comment).
+    struct AnimatedQuatCurve {
+        int sequenceIndex = -1;  // -1 == global-sequence-driven, not tied to one M2Sequence
+        std::vector<std::pair<float, std::array<float, 4>>> keyframes;  // seconds -> x,y,z,w quaternion
+    };
     struct AnimatedColorCurve {
         int sequenceIndex = -1;  // -1 == global-sequence-driven, not tied to one M2Sequence
         std::vector<std::pair<float, Vec3>> keyframes;  // seconds -> rgb 0..1, NOT a spatial vector
@@ -243,6 +248,24 @@ struct Material {
         int sequenceIndex = -1;
         std::vector<std::pair<float, float>> keyframes;  // seconds -> 0..1
     };
+    // The animated case's actual keyframe data for M2TextureTransform's
+    // translation/rotation/scaling tracks -- extras key
+    // "texture_transform_animation", same "full curve as inert diagnostic +
+    // Blender-script playback source" treatment tintAnimation/
+    // alphaFadeAnimation below get (core glTF has no animation-channel
+    // target for a material's UV transform either, despite
+    // KHR_texture_transform existing for the constant case -- see
+    // TextureTransform's own doc comment above). One entry per track that's
+    // genuinely animated (TextureTransform::translationAnimated/etc. true);
+    // empty when that track is constant (already captured in
+    // `textureTransform` above) or has no data at all. translation/scaling
+    // reuse AnimatedColorCurve's shape (seconds -> Vec3) even though neither
+    // is a color -- same (seconds, Vec3) keyframe shape, no reason to
+    // duplicate the struct.
+    std::vector<AnimatedColorCurve> textureTransformTranslationAnimation;
+    std::vector<AnimatedQuatCurve> textureTransformRotationAnimation;
+    std::vector<AnimatedColorCurve> textureTransformScalingAnimation;
+
     // M2Color::color's animated curve -- extras key "tint_animation". Empty
     // when colorAnimated is false (either genuinely no data, or a constant
     // value already folded into baseColorFactor above).

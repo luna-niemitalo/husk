@@ -30,6 +30,33 @@ rebuilds real behavior from it post-import. This is the same pattern,
 applied to *animated* extras instead of static ones, which is why it needs
 more infrastructure than a single node-graph fix.
 
+**Real scope, measured**: `tools/corpus_scan_tasks/animated_texture_effects_task.py`
+(new, built on `corpus_scan_framework.py`, same adaptive-concurrency driver
+`render_glb.py`'s own corpus runs use) scanned the full local corpus (130,576
+`.m2` files, 16.1s) for a genuinely-animated (not merely constant --
+distinguished the same way husk's own `resolveAnimatedColorCurve`/
+`resolveAnimatedFixed16Curve` do, see the task module's doc comment)
+`M2TextureTransform`/`M2Color` tint/`M2Color` alpha/`M2TextureWeight` track,
+independent of husk's own code (reads the header arrays and raw `M2Track`
+bytes directly, offsets verified against the real `bloodknightcharger.m2`
+fixture already in this repo). Result: **36,086 / 130,576 files (27.6% of
+the corpus)** carry at least one such curve --
+
+- 28,454 files have an animated `M2TextureTransform` (UV scroll/rotate/scale)
+- 10,906 files have an animated `M2Color` alpha (fade)
+- 7,845 files have an animated `M2TextureWeight`
+- 2,542 files have an animated `M2Color` tint
+
+This is presence only, not reachability -- it doesn't check whether the
+animated record is actually referenced by a live batch/material the way
+`find_texture_transform_files.py`'s skin-batch cross-check does for the
+constant case (no material-to-color-index cross-reference exists yet for
+tint/fade/weight), so the true "renders visibly different once played back"
+count is somewhat lower than 36,086 -- but even a conservative reading
+confirms the Background section's claim: this is a large, corpus-wide visual
+gap, not a handful of spell-effect edge cases, and justifies the staged
+investment below.
+
 **This is explicitly staged/scoped down, not a single task**:
 
 ## 1. A framework for exporting short animated clips, not just one static image
@@ -57,35 +84,88 @@ thumbnails (`corpus_reports/renders_full`). Needs to actually play an
 animated clip inline (or provide a clear way to trigger playback) once (1)
 above produces one — not just silently degrade to showing the first frame.
 
-## 3. Making these curves actually animate in Blender post-import
+## 3. Making these curves actually animate in Blender post-import — DONE
 
-The biggest chunk of real work. husk's own exported extras
-(`texture_transform`, `tint_animation`, `fade_animation`) are static data
-today — a Blender companion script needs to turn them into real driven
-values: either baked Shader Editor node animation (F-curves on a Mapping
-node's rotation/location for `texture_transform`, on a Mix/Emission node's
-color or factor for tint/fade) or drivers reading a custom property this
-script sets up. Needs real investigation into which of husk's curve shapes
-(constant per-sequence value vs. genuinely keyframed within a sequence,
-`gltf::Material::AnimatedColorCurve`/`AnimatedScalarCurve`'s own real
-shape) map cleanly to Blender F-curves versus needing a driver/handler
-approach (same kind of choice this session's billboard-alignment work
-already had to make between a native constraint and a direct
-per-frame computation, and landed on "direct computation + a
-`depsgraph_update_post` handler for the interactive case" for reasons
-that likely generalize here too).
+Closed this session, prompted directly with a concrete request for a real
+debug/validate pipeline "same case as the lightforged lamp" (one simple,
+unambiguous fixture, same role that one served for billboard-rotation
+verification).
 
-**Real robustness requirement surfaced by this scope, prompted directly**:
-`tools/husk_blender_geoset_mask.py` already runs several independent
-stages in one `main()` (geoset switch, texture-layout overlay, billboard
-alignment, and now potentially texture-effect animation) — today, if one
-stage throws, the whole script dies and every later stage silently never
-runs. This needs fixing regardless of the animated-effects work
-specifically, but is a hard prerequisite before adding a 4th/5th stage:
-wrap each stage in its own try/except, print a loud, specific failure
-(model name, stage name, real exception text) on failure, and continue to
-the next stage rather than aborting the whole run. Small, mechanical,
-should happen first.
+**A real gap closed first, found while building this**: `texture_transform`
+extras used to carry NO real data at all for the genuinely-animated case
+(`gltf_mesh.hpp`'s own old doc comment: "just each field's un-animated
+default and not real data"). `src/export_materials.cpp`/`src/gltf_mesh.cpp`
+now export the real translation/rotation/scaling keyframe curve as
+`texture_transform_animation` material extras, same "full curve as inert
+diagnostic + Blender-script playback source" shape `tint_animation`/
+`fade_animation` already had — `resolveAnimatedColorCurve` reused for
+translation/scaling (same seconds→Vec3 shape as a tint curve, just not a
+color), a new `resolveAnimatedRawQuatCurve`/`resolveRawQuatTrackSequence`/
+`resolveRawQuatGlobalSequenceTrack` (`src/m2_animation.{hpp,cpp}`) for
+rotation — M2TextureTransform's rotation track is a *raw* `C4Quaternion`
+(4 plain floats), not the compressed `M2CompQuat` bone rotations use, so
+the existing `resolveQuatTrackSequence` couldn't be reused as-is.
+
+**Test fixture, found the same way the lightforged lamp was**: scanned the
+corpus (this file's own `animated_texture_effects_task.py`) for a file with
+exactly one animated transform, then cross-checked against real `.skin`
+batch data (most corpus hits, including a first-choice candidate, turned
+out to be dead array entries no batch's `textureTransformComboIndex`
+actually resolves to — a real trap, not a hypothetical one). Landed on
+`unk_exp11_7037014.m2` (`test_data/models/spells/`, real FileDataID
+7037014): 18 vertices, 1 bone, 1 material, 0 particle/ribbon emitters, one
+real, batch-referenced translation curve — a clean one-way X-axis UV scroll
+from (0,0,0) at 0ms to (1,0,0) at 4167ms. Committed as a real integration
+test (`tests/test_integration_texture_transform.cpp`), plus unit coverage
+for the new raw-quat resolvers (`tests/test_m2_animation_tracks.cpp`).
+
+**Blender side** (`tools/husk_blender_geoset_mask.py`, its fourth
+independent job): direct per-frame computation + a `frame_change_pre`
+handler — the same choice the billboard-alignment work already made between
+a native construct and direct computation, and it generalizes here too, for
+the same reason (no native Blender node animates on "current scene time
+looped against an arbitrary duration" without a driver/handler regardless).
+`apply_texture_transform_animation` builds one shared `Mapping` node per
+concerned material (wired ahead of any Image Texture node whose own
+`Vector` input isn't already linked to something else — the shape Blender's
+stock glTF importer leaves) and recomputes its Location/Rotation-Z/Scale
+every frame. `apply_tint_fade_animation` drives a Principled BSDF's Base
+Color/Alpha directly (inserting a multiply node ahead of Base Color only
+when it's already texture-fed). Both share `_eval_scalar_curve`/
+`_eval_vec3_curve`/`_eval_quat_curve_z_angle`/`_curve_duration` — real
+linear interpolation (slerp for rotation) between real keyframes, not a
+step function. **Verified end-to-end, headlessly, against the real
+`unk_exp11_7037014.m2` fixture**: the Mapping node's Location.x reads 0.0 at
+frame 1 (t=0), 0.5 at frame 51 (t≈2.08s, the curve's own midpoint), and
+correctly wraps past the loop boundary at a much later frame — exactly the
+lerp+loop math predicts. `apply_tint_fade_animation` was smoke-tested
+against a real file with genuine tint/fade curve data (`stasistotem.m2`,
+9 animated batches) and runs without crashing (including the real, already-
+known "unlit materials get no Principled BSDF at all" Blender-importer
+quirk `render_glb.py`'s own `fix_additive_materials` already documents —
+handled here by skipping with a clear message, not crashing) — but is
+**not verified against real ground-truth values** the way the
+texture-transform case is, flagged as such in its own doc comment.
+
+**Clip-length question, answered**: not a fixed convention ("24 frames ≈ 1
+second") — each curve already carries its own real duration (its last
+keyframe's timestamp), which is what actually matters for correctness.
+`_extend_frame_range_for_duration` grows (never shrinks) `scene.frame_end`
+to fit the *longest* registered curve at the scene's existing frame rate
+(Blender's own default, 24fps, is a fine baseline — the frame *count* is
+what should vary per model, not the rate). Concretely: the real fixture's
+4.167s loop needs 100 frames at 24fps, computed, not hardcoded — a
+different model's real 1.2s pulse would need 29, and both are correct at
+the same 24fps.
+
+**Real robustness requirement, closed alongside this** (was a hard
+prerequisite before adding a 4th/5th stage to this script, flagged in an
+earlier draft of this file): `tools/husk_blender_geoset_mask.py`'s `main()`
+now runs every stage (geoset switch, billboard alignment, texture-layout
+overlay, texture-transform animation, tint/fade animation) through a shared
+`_run_stage` wrapper — a failure in one prints a loud, specific error
+(model name, stage name, real exception type/text) and the rest still run,
+instead of the whole script dying on the first exception.
 
 ## 4. Scope note (v2, not now): skeleton-animated models
 

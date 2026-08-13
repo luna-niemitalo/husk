@@ -274,6 +274,36 @@ math says it should, not by comparing to a real WoW client's own rendering
 frame-by-frame. Luna should confirm the visual result in the interactive
 viewport before trusting it fully, same caveat as the texture-layout
 overlay's V-flip above.
+
+**Fourth, independent job, this session (ANIMATED_TEXTURE_EFFECTS_TODO.md)**:
+plays back husk's `texture_transform_animation`/`tint_animation`/
+`fade_animation` material extras -- the genuinely-*animated* case of
+M2TextureTransform/M2Color/M2TextureWeight, which (unlike the constant case)
+core glTF has no animation-channel target for at all (see gltf_mesh.hpp's
+own doc comments), so husk exports the real keyframe curve as inert extras
+and this script is what turns it into real playback, same "husk exports
+real data, a Blender companion script builds the actual behavior" pattern
+as the billboard alignment and `render_glb.py`'s additive-material fix
+before it. `apply_texture_transform_animation` builds one shared `Mapping`
+node per concerned material (wired ahead of every Image Texture node whose
+own `Vector` input isn't already linked to something else) and
+`apply_tint_fade_animation` drives a Principled BSDF's `Base Color`/`Alpha`
+directly (through an inserted multiply node when Base Color is already
+texture-fed) -- both driven by a `frame_change_pre` handler that evaluates
+the real curve at the current scene time (`Luna's own steer: "we have
+access to the scene time, so we can use that for the simple animations"`),
+looping on the curve's own real last-keyframe duration, not a fixed/guessed
+clip length -- `scene.frame_end` is extended to fit the longest registered
+curve at the scene's existing frame rate, so playing the timeline through
+once shows exactly one real WoW loop. Verified against the real
+`unk_exp11_7037014.m2` fixture (`tests/test_data_paths.hpp`'s
+`kTextureTransformTranslationM2` doc comment) for `texture_transform_animation`
+specifically -- `tint_animation`/`fade_animation` share the same curve-eval/
+looping machinery but have **not** been verified against a real corpus
+fixture with actual data this session (the corpus scan found real examples,
+but none was narrowed to a minimal, skin-batch-verified fixture the way the
+texture-transform case was) -- flagged, not asserted correct, same
+discipline as the texture-layout overlay's V-flip note above.
 """
 
 import json
@@ -1029,6 +1059,385 @@ def apply_billboard_alignment(mesh_objs, armature_obj, camera_obj):
     return aligned
 
 
+# --- animated texture-effect playback (ANIMATED_TEXTURE_EFFECTS_TODO.md) ---
+# See the module docstring's "Fourth, independent job" section for the full
+# design. Shared by both texture_transform_animation (Mapping node) and
+# tint_animation/fade_animation (Principled BSDF) below.
+
+def _to_pyobj(value):
+    """Recursively converts a glTF-extras-derived Blender custom property
+    into plain Python dict/list/scalar. Material extras land as real bpy
+    custom properties (this file's own module docstring) -- fine as-is for
+    a scalar (`mat.get("texture_type")`, used elsewhere in this file), but a
+    *nested* dict/array extras value (texture_transform_animation's own
+    shape: a dict of curve arrays, each curve a dict with a keyframes array
+    of dicts) comes back as Blender's own IDPropertyGroup/IDPropertyArray
+    wrapper types, not plain dict/list -- callers can't `.get()`/index into
+    those the same way. `to_dict()` (IDPropertyGroup) and plain iteration
+    (IDPropertyArray) both exist on current Blender ID-property types; this
+    recurses through either uniformly so every caller below just sees plain
+    Python.
+    """
+    if value is None:
+        return None
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        return {k: _to_pyobj(v) for k, v in to_dict().items()}
+    if hasattr(value, "keys"):
+        return {k: _to_pyobj(value[k]) for k in value.keys()}
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "__len__") and hasattr(value, "__getitem__"):
+        return [_to_pyobj(v) for v in value]
+    return value
+
+
+def _lerp(a, b, t):
+    return a + (b - a) * t
+
+
+def _eval_scalar_curve(keyframes, t):
+    """Linear-interpolates `keyframes` (a list of {"time": float, "value":
+    float}, already sorted ascending by husk's own export order) at time
+    `t`. Clamps to the first/last value outside the curve's own range --
+    `t` is expected pre-wrapped into [0, duration] by the caller (see
+    `_curve_duration`), so this only ever sees genuine in-range values in
+    practice, but stays correct either way rather than indexing out of
+    bounds."""
+    if not keyframes:
+        return 0.0
+    if t <= keyframes[0]["time"]:
+        return keyframes[0]["value"]
+    for i in range(len(keyframes) - 1):
+        t0, v0 = keyframes[i]["time"], keyframes[i]["value"]
+        t1, v1 = keyframes[i + 1]["time"], keyframes[i + 1]["value"]
+        if t <= t1:
+            frac = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+            return _lerp(v0, v1, frac)
+    return keyframes[-1]["value"]
+
+
+def _eval_vec3_curve(keyframes, t):
+    """Same as _eval_scalar_curve, but each keyframe's "value" is a 3-tuple
+    (translation/scaling's own real shape, gltf_mesh.cpp's
+    textureTransformTranslationAnimation/ScalingAnimation) -- component-wise
+    lerp."""
+    if not keyframes:
+        return (0.0, 0.0, 0.0)
+    if t <= keyframes[0]["time"]:
+        return tuple(keyframes[0]["value"])
+    for i in range(len(keyframes) - 1):
+        t0, v0 = keyframes[i]["time"], keyframes[i]["value"]
+        t1, v1 = keyframes[i + 1]["time"], keyframes[i + 1]["value"]
+        if t <= t1:
+            frac = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+            return tuple(_lerp(v0[k], v1[k], frac) for k in range(3))
+    return tuple(keyframes[-1]["value"])
+
+
+def _eval_quat_curve_z_angle(keyframes, t):
+    """Evaluates a raw-quaternion rotation curve (gltf_mesh.cpp's
+    textureTransformRotationAnimation, x/y/z/w per keyframe) at time `t` via
+    slerp, then collapses it to a single Z-axis angle the same way
+    gltf_mesh.cpp's textureTransformToKhr does for the *constant* case
+    (`theta = 2*atan2(qz, qw)`) -- Blender's Mapping node only has one
+    scalar UV rotation (about Z), same real limitation the constant case's
+    own planarity check already documents; a genuinely 3-axis-animated
+    rotation has no honest representation here either, same as there.
+    """
+    import math
+
+    def to_quat(v):
+        return mathutils.Quaternion((v[3], v[0], v[1], v[2]))  # Blender order: w,x,y,z
+
+    if not keyframes:
+        return 0.0
+    q = to_quat(keyframes[0]["value"])
+    if t > keyframes[0]["time"]:
+        for i in range(len(keyframes) - 1):
+            t0, v0 = keyframes[i]["time"], keyframes[i]["value"]
+            t1, v1 = keyframes[i + 1]["time"], keyframes[i + 1]["value"]
+            if t <= t1:
+                frac = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+                q = to_quat(v0).slerp(to_quat(v1), frac)
+                break
+        else:
+            q = to_quat(keyframes[-1]["value"])
+    return 2.0 * math.atan2(q.z, q.w)
+
+
+def _curve_duration(curves):
+    """Real max keyframe timestamp across every curve in one track's own
+    array (e.g. texture_transform_animation.translation) -- the track's
+    real WoW loop period, not a guessed/standard clip length (this is the
+    concrete answer to ANIMATED_TEXTURE_EFFECTS_TODO.md's "what's a good
+    clip length" question: there isn't one fixed value, each model's own
+    curve already carries its real duration)."""
+    m = 0.0
+    for c in curves or []:
+        kfs = c.get("keyframes") or []
+        if kfs:
+            m = max(m, kfs[-1]["time"])
+    return m
+
+
+def _scene_seconds_per_frame():
+    scene = bpy.context.scene
+    fps = scene.render.fps / max(scene.render.fps_base, 1e-6)
+    return (1.0 / fps) if fps else 0.0
+
+
+def _extend_frame_range_for_duration(duration):
+    """Grows (never shrinks) scene.frame_end so the timeline covers at
+    least one full real loop of `duration` seconds at the scene's current
+    frame rate -- e.g. this session's own real fixture (a 4.167s UV scroll)
+    needs 100 frames at Blender's default 24fps, not a fixed "24 frames"
+    clip (`round()`, not `int()`/`ceil()`, so a duration landing exactly on
+    a frame boundary doesn't get bumped up a spurious extra frame)."""
+    if duration <= 0:
+        return
+    scene = bpy.context.scene
+    spf = _scene_seconds_per_frame()
+    if spf <= 0:
+        return
+    needed_end = scene.frame_start + max(1, round(duration / spf))
+    if scene.frame_end < needed_end:
+        scene.frame_end = needed_end
+
+
+def _find_or_build_material_uv_mapping(node_tree):
+    """Finds this material's own HuskTextureTransformAnimation Mapping node
+    if one already exists (idempotent across repeated calls/re-runs), or
+    builds one -- wired ahead of every Image Texture node whose own
+    `Vector` input isn't already linked to something else (the common shape
+    Blender's stock glTF importer leaves: an Image Texture node samples the
+    active UV map by default, `Vector` unlinked). Returns None if this
+    material's node tree has no Image Texture node at all to drive."""
+    existing = node_tree.nodes.get("HuskTextureTransformAnimation")
+    if existing is not None and existing.type == 'MAPPING':
+        return existing
+
+    image_nodes = [n for n in node_tree.nodes if n.type == 'TEX_IMAGE']
+    if not image_nodes:
+        return None
+
+    existing_ys = [n.location.y for n in node_tree.nodes]
+    row_y = (min(existing_ys) if existing_ys else 0.0) - 400.0
+
+    uv_map = node_tree.nodes.new("ShaderNodeUVMap")
+    uv_map.location = (-800.0, row_y)
+    mapping = node_tree.nodes.new("ShaderNodeMapping")
+    mapping.name = "HuskTextureTransformAnimation"
+    mapping.location = (-600.0, row_y)
+    node_tree.links.new(uv_map.outputs["UV"], mapping.inputs["Vector"])
+
+    for img_node in image_nodes:
+        vec_in = img_node.inputs["Vector"]
+        if vec_in.is_linked:
+            continue  # already sourced from something else -- don't override real wiring
+        node_tree.links.new(mapping.outputs["Vector"], vec_in)
+
+    return mapping
+
+
+_texture_transform_registry = []  # (mapping_node, translation_curves, rotation_curves, scaling_curves, duration)
+
+
+def _update_texture_transform_animations(_scene=None, _depsgraph=None):
+    """`frame_change_pre` handler body -- recomputes every registered
+    material's Mapping node from the *current* scene frame, converted to
+    seconds and wrapped into that curve's own real loop duration."""
+    spf = _scene_seconds_per_frame()
+    scene = bpy.context.scene
+    t_abs = (scene.frame_current - scene.frame_start) * spf
+
+    still_valid = []
+    for mapping, translation, rotation, scaling, duration in _texture_transform_registry:
+        t = (t_abs % duration) if duration > 0 else 0.0
+        try:
+            if translation:
+                x, y, _z = _eval_vec3_curve(translation[0]["keyframes"], t)
+                mapping.inputs["Location"].default_value[0] = x
+                mapping.inputs["Location"].default_value[1] = y
+            if rotation:
+                mapping.inputs["Rotation"].default_value[2] = _eval_quat_curve_z_angle(
+                    rotation[0]["keyframes"], t)
+            if scaling:
+                x, y, _z = _eval_vec3_curve(scaling[0]["keyframes"], t)
+                mapping.inputs["Scale"].default_value[0] = x
+                mapping.inputs["Scale"].default_value[1] = y
+        except ReferenceError:
+            continue  # material/node deleted since registration -- drop it
+        still_valid.append((mapping, translation, rotation, scaling, duration))
+    _texture_transform_registry[:] = still_valid
+
+
+def apply_texture_transform_animation(materials):
+    """For every material carrying a genuinely-animated M2TextureTransform
+    curve (`texture_transform_animation` extras, gltf_mesh.cpp's
+    emitMaterial -- present only for a translation/rotation/scaling track
+    husk couldn't fold into a real KHR_texture_transform because it isn't
+    constant), builds/reuses a Mapping node driving that material's Image
+    Texture node(s) and registers a `frame_change_pre` handler to keep it
+    live. Returns the count of materials touched. Each curve's own real
+    duration (its last keyframe's timestamp) extends scene.frame_end so
+    playing the timeline through once shows exactly one real loop -- see
+    _extend_frame_range_for_duration's doc comment.
+    """
+    touched = 0
+    max_duration = 0.0
+    for mat in materials:
+        if mat is None or mat.node_tree is None:
+            continue
+        raw = mat.get("texture_transform_animation")
+        if raw is None:
+            continue
+        anim = _to_pyobj(raw) or {}
+        translation = anim.get("translation") or []
+        rotation = anim.get("rotation") or []
+        scaling = anim.get("scaling") or []
+        if not translation and not rotation and not scaling:
+            continue
+
+        mapping = _find_or_build_material_uv_mapping(mat.node_tree)
+        if mapping is None:
+            print(f"husk_blender_geoset_mask: material {mat.name!r} has "
+                  "texture_transform_animation extras but no Image Texture node to drive -- "
+                  "skipping")
+            continue
+
+        duration = max(_curve_duration(translation), _curve_duration(rotation),
+                        _curve_duration(scaling))
+        max_duration = max(max_duration, duration)
+        _texture_transform_registry.append((mapping, translation, rotation, scaling, duration))
+        touched += 1
+
+    if touched:
+        _update_texture_transform_animations()
+        if _update_texture_transform_animations not in bpy.app.handlers.frame_change_pre:
+            bpy.app.handlers.frame_change_pre.append(_update_texture_transform_animations)
+        _extend_frame_range_for_duration(max_duration)
+    return touched
+
+
+def _find_principled_bsdf(node_tree):
+    return next((n for n in node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+
+
+_tint_fade_registry = []  # (principled_node, tint_mix_node_or_None, tint_curves, alpha_curves, weight_curves, duration)
+
+
+def _update_tint_fade_animations(_scene=None, _depsgraph=None):
+    """`frame_change_pre` handler body, same shape as
+    _update_texture_transform_animations -- see apply_tint_fade_animation's
+    doc comment for why this one is unverified against real corpus data."""
+    spf = _scene_seconds_per_frame()
+    scene = bpy.context.scene
+    t_abs = (scene.frame_current - scene.frame_start) * spf
+
+    still_valid = []
+    for principled, tint_mix, tint, alpha_curves, weight_curves, duration in _tint_fade_registry:
+        t = (t_abs % duration) if duration > 0 else 0.0
+        try:
+            if tint:
+                r, g, b = _eval_vec3_curve(tint[0]["keyframes"], t)
+                if tint_mix is not None:
+                    tint_mix.inputs["Color2"].default_value = (r, g, b, 1.0)
+                else:
+                    base = principled.inputs["Base Color"]
+                    base.default_value = (r, g, b, base.default_value[3])
+            if alpha_curves or weight_curves:
+                alpha = _eval_scalar_curve(alpha_curves[0]["keyframes"], t) if alpha_curves else 1.0
+                weight = _eval_scalar_curve(weight_curves[0]["keyframes"], t) if weight_curves else 1.0
+                principled.inputs["Alpha"].default_value = alpha * weight
+        except ReferenceError:
+            continue  # material/node deleted since registration -- drop it
+        still_valid.append((principled, tint_mix, tint, alpha_curves, weight_curves, duration))
+    _tint_fade_registry[:] = still_valid
+
+
+def apply_tint_fade_animation(materials):
+    """Same pattern as apply_texture_transform_animation, for M2Color's
+    animated tint (`tint_animation`) and M2Color::alpha/
+    M2TextureWeight::weight's animated fade (`fade_animation`.alpha/.weight,
+    multiplied together the same way cmd_export.cpp's static baseColorFactor
+    path already does) -- see gltf::Material::tintAnimation/
+    alphaFadeAnimation/weightFadeAnimation's doc comments for why core glTF
+    can't play these back natively. Drives a Principled BSDF's Base Color/
+    Alpha directly; when Base Color is already texture-fed, inserts a
+    multiply node ahead of it instead of overriding the texture outright.
+
+    **Not verified against a real corpus fixture with actual tint/fade
+    curve data this session** -- structurally consistent with the same
+    curve-eval/looping machinery apply_texture_transform_animation uses
+    (which *is* real-fixture-verified), but flagged, not asserted correct,
+    same discipline the texture-layout overlay's V-flip note already uses.
+    """
+    touched = 0
+    max_duration = 0.0
+    for mat in materials:
+        if mat is None or mat.node_tree is None:
+            continue
+        tint = _to_pyobj(mat.get("tint_animation")) or []
+        fade = _to_pyobj(mat.get("fade_animation")) or {}
+        alpha_curves = fade.get("alpha") or []
+        weight_curves = fade.get("weight") or []
+        if not tint and not alpha_curves and not weight_curves:
+            continue
+
+        principled = _find_principled_bsdf(mat.node_tree)
+        if principled is None:
+            print(f"husk_blender_geoset_mask: material {mat.name!r} has tint/fade animation "
+                  "extras but no Principled BSDF node to drive -- skipping")
+            continue
+
+        tint_mix = None
+        if tint:
+            base_input = principled.inputs["Base Color"]
+            if base_input.is_linked:
+                existing_socket = base_input.links[0].from_socket
+                tint_mix = mat.node_tree.nodes.new("ShaderNodeMixRGB")
+                tint_mix.name = "HuskTintAnimation"
+                tint_mix.blend_type = 'MULTIPLY'
+                tint_mix.inputs["Fac"].default_value = 1.0
+                tint_mix.location = (principled.location.x - 200.0, principled.location.y - 200.0)
+                mat.node_tree.links.new(existing_socket, tint_mix.inputs["Color1"])
+                mat.node_tree.links.new(tint_mix.outputs["Color"], base_input)
+            # else: Base Color is already a plain constant -- drive it directly, no extra node.
+
+        duration = max(_curve_duration(tint), _curve_duration(alpha_curves),
+                        _curve_duration(weight_curves))
+        max_duration = max(max_duration, duration)
+        _tint_fade_registry.append((principled, tint_mix, tint, alpha_curves, weight_curves, duration))
+        touched += 1
+
+    if touched:
+        _update_tint_fade_animations()
+        if _update_tint_fade_animations not in bpy.app.handlers.frame_change_pre:
+            bpy.app.handlers.frame_change_pre.append(_update_tint_fade_animations)
+        _extend_frame_range_for_duration(max_duration)
+    return touched
+
+
+def _run_stage(model_name, stage_name, fn):
+    """Runs one main() stage in isolation -- a real robustness gap flagged
+    directly in ANIMATED_TEXTURE_EFFECTS_TODO.md before this session added a
+    4th/5th stage to this script: several independent stages used to share
+    one try-less main() body, so an exception in an early stage (e.g. the
+    geoset switch) killed every later stage silently, including ones
+    completely unrelated to whatever failed. Prints a loud, specific
+    failure (model name, stage name, real exception text) and returns None
+    on failure so the caller can tell "ran, returned nothing interesting"
+    apart from "never ran at all" if it needs to.
+    """
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001 -- deliberately broad, see doc comment
+        print(f"husk_blender_geoset_mask: FAILED stage {stage_name!r} for {model_name!r}: "
+              f"{type(exc).__name__}: {exc}")
+        return None
+
+
 def main():
     argv = sys.argv
     filepath = None
@@ -1039,41 +1448,67 @@ def main():
             bpy.ops.import_scene.gltf(filepath=filepath)
 
     mesh_objs, armature_obj = find_mesh_and_armature()
+    model_name = mesh_objs[0].name if mesh_objs else (filepath or "<unknown>")
+    materials = {obj.material_slots[i].material
+                 for obj in mesh_objs
+                 for i in range(len(obj.material_slots))
+                 if obj.material_slots[i].material is not None}
 
-    all_groups = {}
-    switch_groups = 0
-    for mesh_obj in mesh_objs:
-        groups = apply_geoset_switch(mesh_obj)
-        switch_groups += sum(1 for gid, variants in groups.items() if switchable_variants(gid, variants))
-        for gid, variants in groups.items():
-            all_groups.setdefault(gid, []).extend(variants)
+    def geoset_stage():
+        all_groups = {}
+        switch_groups = 0
+        for mesh_obj in mesh_objs:
+            groups = apply_geoset_switch(mesh_obj)
+            switch_groups += sum(1 for gid, variants in groups.items()
+                                  if switchable_variants(gid, variants))
+            for gid, variants in groups.items():
+                all_groups.setdefault(gid, []).extend(variants)
+        removed = delete_geoset_tag_bones(armature_obj, all_groups)
+        print(f"husk_blender_geoset_mask: {len(all_groups)} geoset group(s) across "
+              f"{len(mesh_objs)} mesh object(s), {switch_groups} dropdown switch(es) built, "
+              f"{removed} tag bone(s) removed")
 
-    removed = delete_geoset_tag_bones(armature_obj, all_groups)
-    print(f"husk_blender_geoset_mask: {len(all_groups)} geoset group(s) across "
-          f"{len(mesh_objs)} mesh object(s), {switch_groups} dropdown switch(es) built, "
-          f"{removed} tag bone(s) removed")
-
-    billboard_bones = find_billboard_bones(armature_obj)
-    if billboard_bones:
+    def billboard_stage():
+        billboard_bones = find_billboard_bones(armature_obj)
+        if not billboard_bones:
+            return
         constrained = apply_billboard_alignment(mesh_objs, armature_obj, find_camera_object())
         print(f"husk_blender_geoset_mask: {constrained}/{len(billboard_bones)} billboard "
               "bone(s) got a camera-facing constraint")
 
-    layout = read_chr_texture_layout(filepath)
-    if layout is None:
-        print("husk_blender_geoset_mask: no chr_texture_layout extras found "
-              "(no --char-layout-id given at export time, or no file path given here) -- "
-              "skipping the texture-layout overlay")
-    else:
-        materials = {obj.material_slots[i].material
-                     for obj in mesh_objs
-                     for i in range(len(obj.material_slots))
-                     if obj.material_slots[i].material is not None}
+    def texture_layout_overlay_stage():
+        layout = read_chr_texture_layout(filepath)
+        if layout is None:
+            print("husk_blender_geoset_mask: no chr_texture_layout extras found "
+                  "(no --char-layout-id given at export time, or no file path given here) -- "
+                  "skipping the texture-layout overlay")
+            return
         touched = apply_texture_layout_overlay(layout, materials)
         print(f"husk_blender_geoset_mask: chr_texture_layout {layout.get('layout_id')} -- "
               f"{touched} material(s) got a toggleable section-boundary overlay "
               f"(off by default; enable 'Show Overlay' on the HuskChrTextureLayoutOverlay "
               f"node in the Shader Editor)")
+
+    def texture_transform_animation_stage():
+        touched = apply_texture_transform_animation(materials)
+        if touched:
+            print(f"husk_blender_geoset_mask: {touched} material(s) got a real animated UV "
+                  "transform (texture_transform_animation) -- driven live from the current "
+                  "scene frame, scene.frame_end extended to fit its real loop duration")
+
+    def tint_fade_animation_stage():
+        touched = apply_tint_fade_animation(materials)
+        if touched:
+            print(f"husk_blender_geoset_mask: {touched} material(s) got real animated tint/fade "
+                  "(tint_animation/fade_animation) -- driven live from the current scene frame; "
+                  "NOT verified against a real corpus fixture with actual data this session, see "
+                  "apply_tint_fade_animation's own doc comment")
+
+    _run_stage(model_name, "geoset switch", geoset_stage)
+    _run_stage(model_name, "billboard alignment", billboard_stage)
+    _run_stage(model_name, "texture-layout overlay", texture_layout_overlay_stage)
+    _run_stage(model_name, "texture-transform animation", texture_transform_animation_stage)
+    _run_stage(model_name, "tint/fade animation", tint_fade_animation_stage)
 
 
 if __name__ == "__main__":

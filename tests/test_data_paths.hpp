@@ -270,6 +270,25 @@ constexpr const char* kTextureTransformScaleM2 =
     "creature/bloodknightcharger/bloodknightcharger.m2";
 constexpr const char* kTextureTransformScaleSkin =
     "creature/bloodknightcharger/bloodknightcharger00.skin";
+// unk_exp11_7037014 (real FileDataID 7037014, no in-file model name): the
+// ANIMATED_TEXTURE_EFFECTS_TODO.md simple-test-case fixture -- same "one
+// billboard, unambiguous either way" role the lightforged-lamp fixture
+// served for billboard rotation. Found via
+// tools/corpus_scan_tasks/animated_texture_effects_task.py's own corpus
+// scan, then narrowed by a one-off script (see ANIMATED_TEXTURE_EFFECTS_TODO.md)
+// to the subset whose animated transform is actually *referenced* by a real
+// .skin batch (most animated-transform corpus hits, including an earlier
+// draft of this fixture, turned out to be dead array entries no batch's
+// textureTransformComboIndex resolves to -- see this file's own scan
+// caveat). Deliberately minimal: 18 vertices, 1 bone, 1 material, 1
+// sequence, 0 particle/ribbon emitters. Its one M2TextureTransform's
+// translation track has exactly 2 real keyframes -- (0ms, (0,0,0)) to
+// (4167ms, (1,0,0)), a one-way X-axis UV scroll (a full texture-width pan,
+// not a ping-pong) -- rotation/scaling both empty.
+constexpr const char* kTextureTransformTranslationM2 =
+    "models/spells/unk_exp11_7037014/7037014.m2";
+constexpr const char* kTextureTransformTranslationSkin =
+    "models/spells/unk_exp11_7037014/703701400.skin";
 }  // namespace fixtures
 
 // reference/WoWDBDefs (gitignored, dev-only checkout, see dbd.hpp's module
@@ -365,5 +384,13 @@ inline std::string testTextureTransformScaleSkin() {
 }
 inline std::string testLightM2() { return resolve("HUSK_TEST_LIGHT_M2", fixtures::kLightM2); }
 inline std::string testLightSkin() { return resolve("HUSK_TEST_LIGHT_SKIN", fixtures::kLightSkin); }
+inline std::string testTextureTransformTranslationM2() {
+    return resolve("HUSK_TEST_TEXTURE_TRANSFORM_TRANSLATION_M2",
+                    fixtures::kTextureTransformTranslationM2);
+}
+inline std::string testTextureTransformTranslationSkin() {
+    return resolve("HUSK_TEST_TEXTURE_TRANSFORM_TRANSLATION_SKIN",
+                    fixtures::kTextureTransformTranslationSkin);
+}
 
 }  // namespace husk::test

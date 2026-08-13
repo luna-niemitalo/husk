@@ -682,7 +682,8 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
                       << " batch(es) with a UV transform (M2TextureTransform) -- constant, "
                          "planar-rotation ones with a resolved baseColorTexture get a real "
                          "KHR_texture_transform on the render; every batch's raw values are also "
-                         "always attached as inert 'extras' metadata\n";
+                         "always attached as inert 'extras' metadata, and a genuinely-animated "
+                         "track's full keyframe curve is attached as 'texture_transform_animation'\n";
         }
 
         // Every batch that got its texture from the basename-fuzzy pool,

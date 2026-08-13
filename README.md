@@ -210,7 +210,16 @@ has no way to *play back* an animated material property, but the real
 resolved curve is attached as `tint_animation`/`fade_animation` material
 `extras` (see `M2_COMPLETENESS.md`'s "Animated material tint/fade" row) for
 a custom renderer or Blender script to apply itself, rather than silently
-dropped. A texture whose `M2Texture::type` is nonzero (a hardcoded/
+dropped -- `tools/husk_blender_geoset_mask.py`'s `apply_tint_fade_animation`
+(below) is that Blender script. The same applies to a genuinely-animated
+`M2TextureTransform` (UV scroll/rotate/scale that isn't a single constant
+value -- flowing lava/water, a scrolling spell-effect beam): the constant
+case gets a real `KHR_texture_transform`, but the animated case's full
+keyframe curve is attached as `texture_transform_animation` material
+extras (translation/rotation/scaling, each independently, only when that
+specific track is genuinely animated) for the same Blender script's
+`apply_texture_transform_animation` to play back. A texture whose
+`M2Texture::type` is nonzero (a hardcoded/
 replaceable slot -- character skin, hair, item tint, resolved at runtime
 from client-side DB2 data husk doesn't have) is tagged with a `texture_type`
 material extras key, so a missing `baseColorImagePng` reads as "husk can't
@@ -251,7 +260,17 @@ glTF *skin* at all -- confirmed empirically, unlike every other extras this
 project attaches) and adds a toggleable magenta section-boundary overlay to
 every material the DB2 data actually concerns (matched by `texture_type`),
 off by default, wired so switching it back off exactly reproduces the
-material's original look.
+material's original look. A fourth, independent job (see the Materials
+section above): `apply_texture_transform_animation`/`apply_tint_fade_animation`
+turn the genuinely-animated `texture_transform_animation`/`tint_animation`/
+`fade_animation` material extras into real playback -- a Mapping node (UV
+transform) or direct Principled BSDF drive (tint/fade), recomputed from the
+current scene frame via a `frame_change_pre` handler, looping on each
+curve's own real last-keyframe duration (not a fixed clip length --
+`scene.frame_end` is extended to fit it). Every stage in this script now
+runs independently (a failure in one prints a loud, specific error and
+never blocks the rest), per a real robustness gap this session's own work
+found before adding this fourth job.
 
 **Second texture layers.** A batch with `textureCount > 1` (e.g. an
 env-mapped "shine" pass) gets a note on export and carries its extra

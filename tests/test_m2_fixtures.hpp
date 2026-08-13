@@ -262,6 +262,18 @@ std::vector<uint8_t> floatBytes(float v) {
     return b;
 }
 
+// Raw C4Quaternion wire bytes (4x float32, x/y/z/w) -- resolveRawQuatTrackSequence/
+// resolveRawQuatGlobalSequenceTrack's own value shape, NOT M2CompQuat's
+// packed int16 encoding (see m2::TextureTransform::rotation's doc comment).
+std::vector<uint8_t> rawQuatBytes(const husk::m2::Quat& q) {
+    std::vector<uint8_t> b(16);
+    std::memcpy(b.data() + 0, &q.x, 4);
+    std::memcpy(b.data() + 4, &q.y, 4);
+    std::memcpy(b.data() + 8, &q.z, 4);
+    std::memcpy(b.data() + 12, &q.w, 4);
+    return b;
+}
+
 // `size` is 1 (uint8_t) or 2 (uint16_t) -- matches resolveRawIntTrackSequence/
 // resolveRawIntGlobalSequenceTrack's own `elementSize` parameter.
 std::vector<uint8_t> rawIntBytes(uint32_t v, size_t size) {

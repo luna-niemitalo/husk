@@ -14,6 +14,199 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-13**: `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s §3 ("making these
+curves actually animate in Blender post-import") implemented end to end,
+prompted directly with a request for a real debug/validate pipeline built
+around one simple, unambiguous test case -- "same case as the lightforged
+lamp," the fixture that made billboard-rotation correctness easy to verify
+by eye. Two parts: measuring the real scope first, then closing the
+playback gap.
+
+**Scope measurement**: `tools/corpus_scan_tasks/animated_texture_effects_task.py`
+(new, built on `corpus_scan_framework.py`'s adaptive-concurrency driver,
+same one `render_glb.py`'s own corpus renders use) scanned the full local
+130,576-file corpus in 16.1s for a genuinely-animated (not merely constant
+-- same distinction husk's own `resolveAnimatedColorCurve`/
+`resolveAnimatedFixed16Curve` already make) `M2TextureTransform`/`M2Color`
+tint/alpha/`M2TextureWeight` track, independent of husk's own code (reads
+the header arrays and raw `M2Track` bytes directly). Offsets verified
+against the real `bloodknightcharger.m2` fixture already in this repo
+(correctly found its one genuinely-animated transform record while
+correctly treating its two constant ones as non-animated). Result: 36,086 /
+130,576 files (27.6%) carry at least one such curve -- 28,454 with an
+animated `M2TextureTransform`, 10,906 animated alpha, 7,845 animated
+weight, 2,542 animated tint. This is presence, not confirmed batch
+reachability (no cross-reference exists yet for tint/fade/weight the way
+`find_texture_transform_files.py` already has for the constant-transform
+case) -- flagged honestly in the TODO file, not overclaimed -- but even
+conservatively this confirms a real, corpus-wide visual gap, not a handful
+of edge cases.
+
+**A real, previously-unclosed export gap found while building the fixture
+for the playback work**: `gltf_mesh.hpp`'s own old doc comment for
+`Material::TextureTransform` said the genuinely-animated case's raw values
+are "just each field's un-animated default and not real data" -- true.
+Unlike `tint_animation`/`fade_animation` (which already exported the real
+curve for their own animated case), the animated `M2TextureTransform` case
+exported *nothing* beyond the same default the constant case's absence
+already implied. Closed: `m2::TextureTransform` (`src/m2_animation.hpp`)
+gained `translationTrackOffset`/`rotationTrackOffset`/`scalingTrackOffset`
+(mirroring `Color::colorTrackOffset`/`alphaTrackOffset`), set in
+`parseTextureTransforms` (`src/m2_animation.cpp`). Resolving rotation's own
+curve needed a genuinely new function pair, not reuse of the existing
+`resolveQuatTrackSequence`/`resolveQuatGlobalSequenceTrack`: those decode
+`M2CompQuat` (bones' packed int16 format), but `M2TextureTransform::rotation`
+is a *raw* `C4Quaternion` (4 plain floats) -- wowdev.wiki says so explicitly,
+and `m2::TextureTransform::rotation`'s own doc comment already flagged the
+distinction, it just hadn't needed a real resolver until now. New
+`resolveRawQuatTrackSequence`/`resolveRawQuatGlobalSequenceTrack`
+(`src/m2_animation.{hpp,cpp}`, plus a `readRawQuat` helper next to the
+existing `readCompQuat`) mirror the Vec3 resolver pair exactly, just with a
+16-byte stride and no decompression step. `export_materials.cpp` gained
+`resolveAnimatedRawQuatCurve` (mirrors `resolveAnimatedColorCurve`, wired
+the same way tint/fade curves already are) and now resolves
+translation/rotation/scaling into `gltf::Material::
+textureTransformTranslationAnimation`/`RotationAnimation`/`ScalingAnimation`
+whenever the corresponding `*Animated` flag is set. Translation/scaling
+reuse `gltf::Material::AnimatedColorCurve`'s shape (seconds → Vec3) rather
+than duplicating a struct that's structurally identical, just not
+semantically a color -- documented inline as a deliberate reuse, not an
+oversight. `gltf_mesh.cpp`'s `emitMaterial` serializes all three as a new
+`texture_transform_animation` material extras key (sub-keys `translation`/
+`rotation`/`scaling`, each an array of curve objects, same shape
+`tint_animation` already used) -- factored a shared `vec3CurvesToValue`
+lambda out of the pre-existing `tint_animation` serialization code in the
+same pass, since translation/scaling now need the exact same logic.
+
+**Test fixture, found the hard way**: the corpus scan's own CSV gave
+plenty of *candidates* with an animated transform, but the first one tried
+(`cfx_druid_efflorescence_periodicvar2.m2`, a Druid healing-circle ground
+effect, chosen for its clean semantic match to "spinning ground sigil")
+turned out to be a real trap -- its one real batch's
+`textureTransformComboIndex` resolves (via `textureTransformCombos`) to the
+sentinel `0xFFFF`, not the model's own single animated transform record, so
+the curve is present in the file but never actually reachable by any real
+render. Caught by writing a small one-off cross-check script (mirroring
+`find_texture_transform_files.py`'s own skin-batch verification, just for
+the animated case instead of the constant one) *before* committing a
+fixture, not after a test mysteriously failed -- though in this instance it
+was in fact caught by a failing integration test first (`husk export`
+printed no `texture_transform` note at all for the file, a clear "the
+combo table doesn't actually point here" signal), which is what prompted
+writing the verification script in the first place. Re-scanned with the
+verification script and landed on `unk_exp11_7037014.m2`
+(`test_data/models/spells/unk_exp11_7037014/`, real FileDataID 7037014, no
+in-file model name) -- deliberately minimal (18 vertices, 1 bone, 1
+material, 1 sequence, 0 particle/ribbon emitters), one real,
+batch-referenced translation curve: a clean one-way X-axis UV scroll,
+(0,0,0) at 0ms to (1,0,0) at 4167ms, no ping-pong, no rotation/scaling
+noise. New real integration test
+(`tests/test_integration_texture_transform.cpp`) asserts the exact
+keyframe values export correctly, plus 3 new unit tests for the raw-quat
+resolvers (`tests/test_m2_animation_tracks.cpp`, including the same
+"global-sequence track resolves to empty by sequence index, not
+misattributed" guarantee the compressed-quat resolver already has).
+
+**Blender side** (`tools/husk_blender_geoset_mask.py`, gaining a 4th
+independent job): direct per-frame computation plus a `frame_change_pre`
+handler, the same design choice this project's own billboard-alignment
+work already settled on for the same underlying reason -- no native
+Blender node animates "current scene time, looped against a duration only
+known at runtime" without a driver/handler regardless of curve shape.
+`apply_texture_transform_animation` builds one shared `Mapping` node per
+concerned material (wired ahead of any Image Texture node whose `Vector`
+input isn't already linked to something else -- the shape Blender's stock
+glTF importer leaves an imported material in) and recomputes its Location/
+Rotation-Z/Scale every frame from the real curve data, via shared
+`_eval_scalar_curve`/`_eval_vec3_curve`/`_eval_quat_curve_z_angle`
+interpolation helpers (real lerp/slerp between keyframes, not a step
+function) and `_curve_duration` (the curve's own real last-keyframe
+timestamp). `_eval_quat_curve_z_angle` collapses a slerped rotation to a
+single Z-axis angle the same way `gltf_mesh.cpp`'s `textureTransformToKhr`
+already does for the constant case (`theta = 2*atan2(qz, qw)`) -- Blender's
+Mapping node has only one scalar UV rotation, the same real limitation the
+constant case's own planarity check already documents. `_to_pyobj` handles
+the real wrinkle found while building this: unlike a scalar custom
+property (`texture_type`, already read directly elsewhere in this file), a
+*nested* extras value like `texture_transform_animation` comes back from
+Blender's importer as `IDPropertyGroup`/`IDPropertyArray` wrapper types,
+not plain dict/list -- recursively converted once via `to_dict()`/
+iteration so every caller just sees plain Python.
+
+Verified headlessly against the real fixture, not just asserted correct by
+reading the code: exported via a synthetic 1×1 PNG texture (same fixture-
+construction pattern `tests/test_integration_texture_transform.cpp` already
+uses), then a standalone script drove
+`husk_blender_geoset_mask.apply_texture_transform_animation` directly and
+read the resulting Mapping node's `Location.x` back at three frames --
+0.0 at frame 1 (t=0, the curve's own start), 0.5 at frame 51 (t≈2.08s, the
+curve's own midpoint -- exactly the halfway lerp value), and a correctly-
+wrapped ~0.49 at frame 250 (well past one real loop, confirming the modulo
+wrap works, not just the first cycle). A second script confirmed
+`_extend_frame_range_for_duration` in isolation: a duration of 4.167s at
+24fps computes to exactly 101 (`frame_start` 1 + 100 frames), and it never
+shrinks an already-longer `scene.frame_end`. Running the *whole* `main()`
+pipeline (not just the isolated function) against the real fixture, and
+separately against a real file with actual `tint_animation`/
+`fade_animation` data (`stasistotem.m2`, a totem spell-effect model, 9
+real animated batches) confirmed no crashes either way -- the tint/fade run
+correctly skipped 6 of 7 materials with a clear "no Principled BSDF node to
+drive" message (a real, already-documented Blender-importer quirk: unlit
+materials, common on additive spell-effect blend modes, get a completely
+different node shape with no Principled BSDF at all, same one
+`render_glb.py`'s own `fix_additive_materials` already works around for
+renders) rather than crashing on the missing node. `apply_tint_fade_animation`
+is real, structurally-consistent code sharing the same verified
+interpolation/looping machinery -- but has genuinely **not** been checked
+against real ground-truth values the way the texture-transform case has
+(no minimal, skin-batch-verified tint/fade fixture exists yet), flagged as
+such directly in its own doc comment, not overclaimed.
+
+**Clip-length question, answered concretely** (the session's own explicit
+ask: "converge on what would be a good animation clip length, the standard
+24 frames ≈ 1 second, or something else?"): not a fixed convention -- each
+curve already carries its own real duration (its last keyframe's
+timestamp), which is the thing that actually matters for correctness.
+`_extend_frame_range_for_duration` grows (never shrinks) `scene.frame_end`
+to fit the longest registered curve at the scene's *existing* frame rate --
+24fps (Blender's own default) is a perfectly fine baseline rate, but the
+frame *count* has to come from the real model, not a fixed clip length: the
+real fixture's 4.167s loop needs 100 frames at 24fps, computed, not
+hardcoded; a different model's real 1.2s pulse would need 29 frames at the
+same rate.
+
+**Real robustness prerequisite, closed in the same pass** (flagged in an
+earlier draft of the TODO file itself as a hard blocker before adding a
+4th/5th stage to this script): `tools/husk_blender_geoset_mask.py`'s
+`main()` used to run every stage (geoset switch, billboard alignment,
+texture-layout overlay) in one un-isolated body -- an exception in an early
+stage silently killed every later one, including completely unrelated
+ones. Now every stage runs through a shared `_run_stage(model_name,
+stage_name, fn)` wrapper: a failure prints a loud, specific message (model
+name, stage name, real exception type and text) and the rest still run.
+
+**Also this session, a separate, unrelated note filed rather than acted
+on**: prompted directly mid-session to flag that `src/export_materials.cpp`
+needs splitting -- at 1,281+ lines (before this session's own additions) it
+had already passed `cmd_export.cpp` (1,239 lines) as the largest file in
+`src/`. Filed as `TODO/CLEANUP_TODO.md` (new) with three candidate seams
+noted from a first-glance read (texture resolution, per-batch material
+building, animated-curve resolvers) -- explicitly not investigated further
+this session, no split attempted.
+
+Full C++ test suite green, 612/612 (up from 601 at session start -- 11 new
+tests: 1 real integration test for the animated-transform export path, 6
+unit tests for the two new raw-quat resolvers -- 3 success-path, 3
+edge-case/global-sequence, matching the existing coverage shape for every
+other track-resolver pair in this file, plus the pre-existing suite
+re-verified unaffected). `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s §1/§2
+(a real short-clip corpus-render pipeline and live-gallery playback support)
+remain open and untouched -- this session closed the scope-measurement
+question and §3 (the playback mechanism itself), not the render-pipeline
+infrastructure those two items describe.
+
+---
+
 **2026-08-09, continued again**: Real regression caught live, mid-run, by
 watching actual system usage rather than trusting the job was fine because
 it hadn't crashed: after the entry below shipped `--listfile` wired into

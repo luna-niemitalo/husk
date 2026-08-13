@@ -177,6 +177,31 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
     // would otherwise silently clobber the first.
     tinygltf::Value::Object materialExtras;
 
+    // Shared by tintAnimation and the animated texture-transform translation/
+    // scaling curves below -- all three are Material::AnimatedColorCurve
+    // (seconds -> Vec3), only the semantic meaning of the Vec3 differs.
+    auto vec3CurvesToValue = [](const std::vector<Material::AnimatedColorCurve>& curves) {
+        tinygltf::Value::Array out;
+        for (const auto& c : curves) {
+            tinygltf::Value::Object co;
+            if (c.sequenceIndex >= 0) {
+                co["sequence_index"] = tinygltf::Value(c.sequenceIndex);
+            }
+            tinygltf::Value::Array kfs;
+            for (const auto& [t, v] : c.keyframes) {
+                tinygltf::Value::Object kf;
+                kf["time"] = tinygltf::Value(static_cast<double>(t));
+                kf["value"] = tinygltf::Value(tinygltf::Value::Array{
+                    tinygltf::Value(static_cast<double>(v.x)), tinygltf::Value(static_cast<double>(v.y)),
+                    tinygltf::Value(static_cast<double>(v.z))});
+                kfs.push_back(tinygltf::Value(kf));
+            }
+            co["keyframes"] = tinygltf::Value(kfs);
+            out.push_back(tinygltf::Value(co));
+        }
+        return out;
+    };
+
     // Additional texture layers (textureCount > 1) -- inert glTF extras,
     // not wired into pbrMetallicRoughness (see gltf_mesh.hpp's
     // AdditionalTextureLayer doc comment for why): each layer's
@@ -240,6 +265,44 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
             tinygltf::Value(static_cast<double>(xf.scaling.y)),
             tinygltf::Value(static_cast<double>(xf.scaling.z))});
         materialExtras["texture_transform"] = tinygltf::Value(xfObj);
+    }
+
+    // The animated case's real keyframe data -- diagnostic-only dump, see
+    // gltf_mesh.hpp's textureTransformTranslationAnimation/etc. doc comment
+    // for why this can never become real KHR_texture_transform playback
+    // (core glTF has no animation-channel target for a material property).
+    if (!mat.textureTransformTranslationAnimation.empty() ||
+        !mat.textureTransformRotationAnimation.empty() ||
+        !mat.textureTransformScalingAnimation.empty()) {
+        tinygltf::Value::Object xfAnimObj;
+        if (!mat.textureTransformTranslationAnimation.empty()) {
+            xfAnimObj["translation"] = tinygltf::Value(vec3CurvesToValue(mat.textureTransformTranslationAnimation));
+        }
+        if (!mat.textureTransformRotationAnimation.empty()) {
+            tinygltf::Value::Array curves;
+            for (const auto& c : mat.textureTransformRotationAnimation) {
+                tinygltf::Value::Object co;
+                if (c.sequenceIndex >= 0) {
+                    co["sequence_index"] = tinygltf::Value(c.sequenceIndex);
+                }
+                tinygltf::Value::Array kfs;
+                for (const auto& [t, q] : c.keyframes) {
+                    tinygltf::Value::Object kf;
+                    kf["time"] = tinygltf::Value(static_cast<double>(t));
+                    kf["value"] = tinygltf::Value(tinygltf::Value::Array{
+                        tinygltf::Value(static_cast<double>(q[0])), tinygltf::Value(static_cast<double>(q[1])),
+                        tinygltf::Value(static_cast<double>(q[2])), tinygltf::Value(static_cast<double>(q[3]))});
+                    kfs.push_back(tinygltf::Value(kf));
+                }
+                co["keyframes"] = tinygltf::Value(kfs);
+                curves.push_back(tinygltf::Value(co));
+            }
+            xfAnimObj["rotation"] = tinygltf::Value(curves);
+        }
+        if (!mat.textureTransformScalingAnimation.empty()) {
+            xfAnimObj["scaling"] = tinygltf::Value(vec3CurvesToValue(mat.textureTransformScalingAnimation));
+        }
+        materialExtras["texture_transform_animation"] = tinygltf::Value(xfAnimObj);
     }
 
     // Texture.type marker -- see gltf_mesh.hpp's Material::textureType doc
@@ -325,25 +388,7 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
     // never become real playback (core glTF has no animation-channel target
     // for a material property).
     if (!mat.tintAnimation.empty()) {
-        tinygltf::Value::Array curves;
-        for (const auto& c : mat.tintAnimation) {
-            tinygltf::Value::Object co;
-            if (c.sequenceIndex >= 0) {
-                co["sequence_index"] = tinygltf::Value(c.sequenceIndex);
-            }
-            tinygltf::Value::Array kfs;
-            for (const auto& [t, v] : c.keyframes) {
-                tinygltf::Value::Object kf;
-                kf["time"] = tinygltf::Value(static_cast<double>(t));
-                kf["value"] = tinygltf::Value(tinygltf::Value::Array{
-                    tinygltf::Value(static_cast<double>(v.x)), tinygltf::Value(static_cast<double>(v.y)),
-                    tinygltf::Value(static_cast<double>(v.z))});
-                kfs.push_back(tinygltf::Value(kf));
-            }
-            co["keyframes"] = tinygltf::Value(kfs);
-            curves.push_back(tinygltf::Value(co));
-        }
-        materialExtras["tint_animation"] = tinygltf::Value(curves);
+        materialExtras["tint_animation"] = tinygltf::Value(vec3CurvesToValue(mat.tintAnimation));
     }
 
     // Shared by alphaFadeAnimation/weightFadeAnimation just below -- both

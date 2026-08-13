@@ -128,6 +128,19 @@ Quat readCompQuat(const uint8_t* data, size_t blobSize, size_t off) {
     return q;
 }
 
+// Reads one raw C4Quaternion keyframe value (4x float32, x/y/z/w order, no
+// M2CompQuat decompression) -- TextureTransform::rotation's own wire format,
+// see readQuatFloatTrackValue above for the constant-case equivalent this
+// mirrors for the animated case.
+Quat readRawQuat(const uint8_t* data, size_t blobSize, size_t off) {
+    Quat q;
+    q.x = readF32(data, blobSize, off + 0);
+    q.y = readF32(data, blobSize, off + 4);
+    q.z = readF32(data, blobSize, off + 8);
+    q.w = readF32(data, blobSize, off + 12);
+    return q;
+}
+
 // Resolves one M2Track<T>'s keyframe sub-array for a specific sequence
 // index -- the general case constantTrackValueOffset (above) deliberately
 // refuses to handle. Returns the (outer-array-relative) timestamps/values
@@ -249,6 +262,9 @@ std::vector<TextureTransform> parseTextureTransforms(const std::vector<uint8_t>&
         t.translationAnimated = !t.translation && trackHasAnimatedData(data, blobSize, off + 0x00);
         t.rotationAnimated = !t.rotation && trackHasAnimatedData(data, blobSize, off + 0x14);
         t.scalingAnimated = !t.scaling && trackHasAnimatedData(data, blobSize, off + 0x28);
+        t.translationTrackOffset = static_cast<uint32_t>(off + 0x00);
+        t.rotationTrackOffset = static_cast<uint32_t>(off + 0x14);
+        t.scalingTrackOffset = static_cast<uint32_t>(off + 0x28);
         transforms.push_back(t);
     }
 
@@ -499,6 +515,84 @@ std::vector<std::pair<uint32_t, Quat>> resolveQuatGlobalSequenceTrack(
     for (size_t i = 0; i < n; ++i) {
         uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
         Quat q = readCompQuat(data, dataSize, valuesInner.offset + i * 8);
+        out.emplace_back(ts, q);
+    }
+    return out;
+}
+
+std::vector<std::pair<uint32_t, Quat>> resolveRawQuatTrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    const std::vector<uint8_t>* externalDataBlob) {
+    TrackMeta meta = readTrackMeta(blob, trackOffset);
+    // See resolveVec3TrackSequence's identical checks for why these two
+    // conditions are handled before touching the timestamps/values arrays.
+    if (meta.globalSequence != TrackMeta::kNoGlobalSequence) {
+        return {};
+    }
+    if (meta.interpolationType > 1) {
+        throw ParseError("track at offset " + std::to_string(trackOffset) +
+                          " has interpolation_type " + std::to_string(meta.interpolationType) +
+                          ", but this track kind is never M2SplineKey-based -- unexpected file "
+                          "version or corrupted read?");
+    }
+
+    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, sequenceIndex);
+    if (!inner) {
+        return {};
+    }
+    const Array& timestampsInner = inner->first;
+    const Array& valuesInner = inner->second;
+
+    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
+    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
+
+    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
+    checkInnerArrayFits(valuesInner, 16, dataSize, "C4Quaternion values");
+    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
+
+    std::vector<std::pair<uint32_t, Quat>> out;
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
+        Quat q = readRawQuat(data, dataSize, valuesInner.offset + i * 16);
+        out.emplace_back(ts, q);
+    }
+    return out;
+}
+
+std::vector<std::pair<uint32_t, Quat>> resolveRawQuatGlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset,
+    const std::vector<uint8_t>* externalDataBlob) {
+    TrackMeta meta = readTrackMeta(blob, trackOffset);
+    if (meta.globalSequence == TrackMeta::kNoGlobalSequence) {
+        return {};
+    }
+    if (meta.interpolationType > 1) {
+        throw ParseError("track at offset " + std::to_string(trackOffset) +
+                          " has interpolation_type " + std::to_string(meta.interpolationType) +
+                          ", but this track kind is never M2SplineKey-based -- unexpected file "
+                          "version or corrupted read?");
+    }
+
+    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, /*sequenceIndex=*/0);
+    if (!inner) {
+        return {};
+    }
+    const Array& timestampsInner = inner->first;
+    const Array& valuesInner = inner->second;
+
+    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
+    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
+
+    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
+    checkInnerArrayFits(valuesInner, 16, dataSize, "C4Quaternion values");
+    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
+
+    std::vector<std::pair<uint32_t, Quat>> out;
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
+        Quat q = readRawQuat(data, dataSize, valuesInner.offset + i * 16);
         out.emplace_back(ts, q);
     }
     return out;

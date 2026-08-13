@@ -1,6 +1,7 @@
 #include "export_materials.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -145,6 +146,39 @@ std::vector<gltf::Material::AnimatedColorCurve> resolveAnimatedColorCurve(
         curve.keyframes.reserve(global.size());
         for (const auto& [ts, v] : global) {
             curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, gltf::Vec3{v.x, v.y, v.z});
+        }
+        curves.push_back(std::move(curve));
+    }
+    return curves;
+}
+
+// Same shape as resolveAnimatedColorCurve, but for a genuinely-animated
+// M2TextureTransform::rotation track (M2Track<C4Quaternion>, raw floats --
+// see m2::TextureTransform::rotation's own doc comment for why this needs
+// resolveRawQuatTrackSequence, not resolveQuatTrackSequence's M2CompQuat
+// decompression).
+std::vector<gltf::Material::AnimatedQuatCurve> resolveAnimatedRawQuatCurve(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
+    std::vector<gltf::Material::AnimatedQuatCurve> curves;
+    for (size_t si = 0; si < sequenceCount; ++si) {
+        auto raw = m2::resolveRawQuatTrackSequence(blob, trackOffset, static_cast<uint32_t>(si));
+        if (raw.empty()) continue;
+        gltf::Material::AnimatedQuatCurve curve;
+        curve.sequenceIndex = static_cast<int>(si);
+        curve.keyframes.reserve(raw.size());
+        for (const auto& [ts, q] : raw) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f,
+                                          std::array<float, 4>{q.x, q.y, q.z, q.w});
+        }
+        curves.push_back(std::move(curve));
+    }
+    auto global = m2::resolveRawQuatGlobalSequenceTrack(blob, trackOffset);
+    if (!global.empty()) {
+        gltf::Material::AnimatedQuatCurve curve;
+        curve.keyframes.reserve(global.size());
+        for (const auto& [ts, q] : global) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f,
+                                          std::array<float, 4>{q.x, q.y, q.z, q.w});
         }
         curves.push_back(std::move(curve));
     }
@@ -1244,6 +1278,27 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                 }
                 gm.textureTransform = gxf;
                 ++result.textureTransformBatchCount;
+
+                // The animated case's real keyframe data -- see
+                // gltf::Material::textureTransformTranslationAnimation's doc
+                // comment for why this can never become real KHR_texture_
+                // transform playback. Best-effort like the tint/fade curves
+                // above: m2.blob is only unset for a hypothetical caller
+                // that never populated it.
+                if (m2.blob) {
+                    if (xf.translationAnimated) {
+                        gm.textureTransformTranslationAnimation = resolveAnimatedColorCurve(
+                            *m2.blob, xf.translationTrackOffset, m2.sequenceCount);
+                    }
+                    if (xf.rotationAnimated) {
+                        gm.textureTransformRotationAnimation = resolveAnimatedRawQuatCurve(
+                            *m2.blob, xf.rotationTrackOffset, m2.sequenceCount);
+                    }
+                    if (xf.scalingAnimated) {
+                        gm.textureTransformScalingAnimation = resolveAnimatedColorCurve(
+                            *m2.blob, xf.scalingTrackOffset, m2.sequenceCount);
+                    }
+                }
             }
         }
 

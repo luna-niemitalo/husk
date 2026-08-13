@@ -203,6 +203,54 @@ TEST_CASE("resolveQuatGlobalSequenceTrack: reads real keyframes for a global-seq
 }
 
 
+TEST_CASE("resolveRawQuatTrackSequence: reads raw (uncompressed) C4Quaternion keyframes -- "
+          "TextureTransform::rotation's own wire format, distinct from resolveQuatTrackSequence's "
+          "M2CompQuat decompression") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    // A real non-identity planar rotation, not the identity/wire-encoding
+    // edge case resolveQuatTrackSequence's own tests use -- raw floats need
+    // no decode step, so any value round-trips exactly.
+    putFullTrack(blob, trackOff,
+                 {{{0, rawQuatBytes({0, 0, -1, 0})}, {1000, rawQuatBytes({0, 0, 0, 1})}}});
+
+    auto seq0 = husk::m2::resolveRawQuatTrackSequence(blob, static_cast<uint32_t>(trackOff), 0);
+    REQUIRE(seq0.size() == 2);
+    CHECK(seq0[0].first == 0);
+    CHECK(seq0[0].second.z == doctest::Approx(-1));
+    CHECK(seq0[0].second.w == doctest::Approx(0));
+    CHECK(seq0[1].first == 1000);
+    CHECK(seq0[1].second.w == doctest::Approx(1));
+}
+
+
+TEST_CASE("resolveRawQuatTrackSequence: a track with a real global_sequence also resolves to "
+          "empty, not misattributed -- same guarantee resolveQuatTrackSequence gives") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, rawQuatBytes({0, 0, -1, 0})}}});
+    uint16_t globalSeq = 3;
+    std::memcpy(blob.data() + trackOff + 0x02, &globalSeq, 2);
+
+    CHECK(husk::m2::resolveRawQuatTrackSequence(blob, static_cast<uint32_t>(trackOff), 0).empty());
+}
+
+
+TEST_CASE("resolveRawQuatGlobalSequenceTrack: reads real keyframes for a global-sequence-driven "
+          "track") {
+    std::vector<uint8_t> blob(100, 0);
+    size_t trackOff = 100;
+    putFullTrack(blob, trackOff, {{{0, rawQuatBytes({0, 0, -1, 0})}}});
+    uint16_t globalSeq = 5;
+    std::memcpy(blob.data() + trackOff + 0x02, &globalSeq, 2);
+
+    auto keyframes = husk::m2::resolveRawQuatGlobalSequenceTrack(blob, static_cast<uint32_t>(trackOff));
+    REQUIRE(keyframes.size() == 1);
+    CHECK(keyframes[0].first == 0);
+    CHECK(keyframes[0].second.z == doctest::Approx(-1));
+}
+
+
 TEST_CASE("resolveVec3GlobalSequenceTrack: interpolation_type 2 or 3 throws, same as "
           "resolveVec3TrackSequence") {
     std::vector<uint8_t> blob(100, 0);

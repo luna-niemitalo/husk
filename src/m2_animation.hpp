@@ -143,6 +143,13 @@ struct TextureTransform {
     bool translationAnimated = false;
     bool rotationAnimated = false;
     bool scalingAnimated = false;
+    // Raw M2Track<C3Vector>/M2Track<C4Quaternion>/M2Track<C3Vector> byte
+    // offsets for translation/rotation/scaling -- always set (regardless of
+    // *Animated), same "let a caller resolve the real curve itself" purpose
+    // Color::colorTrackOffset/alphaTrackOffset already serve.
+    uint32_t translationTrackOffset = 0;
+    uint32_t rotationTrackOffset = 0;
+    uint32_t scalingTrackOffset = 0;
 };
 
 // M2TrackBase's first two fields (wowdev.wiki "Standard animation block"),
@@ -293,6 +300,21 @@ std::vector<std::pair<uint32_t, Vec3>> resolveVec3GlobalSequenceTrack(
 // (i.e. Bone::rotationTrackOffset) -- each raw wire value is decompressed
 // to a Quat (see Quat's doc comment) before being returned.
 std::vector<std::pair<uint32_t, Quat>> resolveQuatGlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset,
+    const std::vector<uint8_t>* externalDataBlob = nullptr);
+
+// Same as resolveQuatTrackSequence, but for an M2Track<C4Quaternion> (i.e.
+// TextureTransform::rotationTrackOffset) -- 4 *raw* floats per keyframe, no
+// M2CompQuat decompression (see TextureTransform::rotation's own doc
+// comment for why this is a genuinely different wire format from a bone's
+// rotation track, not just a naming difference).
+std::vector<std::pair<uint32_t, Quat>> resolveRawQuatTrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    const std::vector<uint8_t>* externalDataBlob = nullptr);
+
+// Global-sequence counterpart to resolveRawQuatTrackSequence, same
+// relationship resolveQuatGlobalSequenceTrack has to resolveQuatTrackSequence.
+std::vector<std::pair<uint32_t, Quat>> resolveRawQuatGlobalSequenceTrack(
     const std::vector<uint8_t>& blob, uint32_t trackOffset,
     const std::vector<uint8_t>* externalDataBlob = nullptr);
 

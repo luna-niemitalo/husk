@@ -25,6 +25,8 @@ using husk::test::testTextureTransformRotationM2;
 using husk::test::testTextureTransformRotationSkin;
 using husk::test::testTextureTransformScaleM2;
 using husk::test::testTextureTransformScaleSkin;
+using husk::test::testTextureTransformTranslationM2;
+using husk::test::testTextureTransformTranslationSkin;
 
 // Constant-case M2TextureTransform gets a real, pivot-corrected
 // KHR_texture_transform (gltf_mesh.cpp's textureTransformToKhr, derivation
@@ -172,6 +174,76 @@ TEST_CASE("husk export: brewfestmount.m2's real texture-center-pivot rotation, s
         foundNonConstantTransform = true;
     }
     REQUIRE(foundNonConstantTransform);
+
+    std::filesystem::remove(outPath);
+}
+
+// The ANIMATED_TEXTURE_EFFECTS_TODO.md simple-test-case fixture -- see
+// test_data_paths.hpp's kTextureTransformTranslationM2 doc comment. Unlike
+// the two fixtures above (which only ever exercise the *constant* case),
+// this one's translation track is genuinely animated -- the first real
+// coverage of gltf::Material::textureTransformTranslationAnimation/
+// resolveAnimatedColorCurve applied to a UV transform (export_materials.cpp)
+// rather than a tint/fade curve.
+TEST_CASE("husk export: unk_exp11_7037014.m2's genuinely-animated M2TextureTransform translation "
+          "track (a real one-way X-axis UV scroll) is exported as a full "
+          "'texture_transform_animation'.'translation' keyframe curve, not just the extras-only "
+          "default the constant case gets" *
+          doctest::skip(testTextureTransformTranslationM2().empty() ||
+                         testTextureTransformTranslationSkin().empty())) {
+    auto texDir = std::filesystem::temp_directory_path() / "husk-test-texture-transform-translate-tex";
+    std::filesystem::create_directories(texDir);
+    writeOnePixelPng(texDir / "7051491.png");
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-texture-transform-translate.glb")
+                       .string();
+    std::filesystem::remove(outPath);
+
+    auto result = runHusk("export \"" + testTextureTransformTranslationM2() + "\" -o \"" + outPath +
+                           "\" --skin \"" + testTextureTransformTranslationSkin() + "\" --textures \"" +
+                           texDir.string() + "\"");
+    INFO("output:\n", result.output);
+    REQUIRE(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+
+    bool foundCurve = false;
+    for (const auto& m : model.materials) {
+        if (!m.extras.IsObject()) continue;
+        const auto& tf = m.extras.Get("texture_transform");
+        if (tf.IsObject()) {
+            CHECK(tf.Get("constant").Get<bool>() == false);
+        }
+        const auto& anim = m.extras.Get("texture_transform_animation");
+        if (!anim.IsObject()) continue;
+        const auto& translation = anim.Get("translation");
+        REQUIRE(translation.IsArray());
+        REQUIRE(translation.ArrayLen() == 1);
+        const auto& curve = translation.Get(0);
+        CHECK(curve.Get("sequence_index").GetNumberAsInt() == 0);
+        const auto& kfs = curve.Get("keyframes");
+        REQUIRE(kfs.ArrayLen() == 2);
+        // Real values found via a real-byte scan of this fixture (see
+        // test_data_paths.hpp's doc comment): 0ms/(0,0,0), 4167ms/(1,0,0) --
+        // a one-way X-axis UV scroll, not a ping-pong.
+        CHECK(kfs.Get(0).Get("time").GetNumberAsDouble() == doctest::Approx(0.0));
+        CHECK(kfs.Get(0).Get("value").Get(0).GetNumberAsDouble() == doctest::Approx(0.0));
+        CHECK(kfs.Get(1).Get("time").GetNumberAsDouble() == doctest::Approx(4.167));
+        CHECK(kfs.Get(1).Get("value").Get(0).GetNumberAsDouble() == doctest::Approx(1.0));
+        // Rotation/scaling tracks are both genuinely empty on this fixture
+        // (see test_data_paths.hpp) -- their curve arrays must stay absent,
+        // not present-but-empty (gltf_mesh.cpp only ever writes a sub-key
+        // when its own vector is non-empty).
+        CHECK(!anim.Get("rotation").IsArray());
+        CHECK(!anim.Get("scaling").IsArray());
+        foundCurve = true;
+    }
+    REQUIRE(foundCurve);
 
     std::filesystem::remove(outPath);
 }
