@@ -58,27 +58,95 @@ Decoded every field across all 2,632 files / 2,943 records directly from
   no independent corroboration available from that source either; this
   file's own findings rest entirely on real corpus data.
 
+## This session's follow-up: a first real geometry cross-reference (step 1), plus a new elevation lead
+
+Picked up "Concrete next steps" item 1 directly. Exported `pa_kite_lamp_
+creature.m2` (single DPIV record, `field0=-0.0, field1=2.798,
+field2=22.038`) to `.glb` via `husk export` and cross-referenced the DPIV
+point against real vertex/bone positions (scratchpad-only Python, not
+committed — parses the `.glb`'s own binary chunk directly, applies the
+same `kWowToGltf` (x, z, -y) change-of-basis husk itself uses so the
+comparison is apples-to-apples).
+
+**Result: the point sits ~2.5-2.8 units outside the mesh's own bounding
+box** — specifically 2.54 units below the lowest real vertex along one
+axis (mesh Y range in glTF-space, i.e. WoW's own Z/height axis, is
+24.58–32.28; the DPIV point's corresponding coordinate is 22.04) — not on
+the mesh surface, not coincident with any vertex. Nearest bones
+(`HandRight`/`HandLeft`/`SpellLeftHand`/`SpellRightHand`, all ~2.89 units
+away) are *farther* than the nearest raw vertices (~2.77 units), so this
+one file gives no evidence of a specific-bone attachment either — a real,
+if narrow, negative result for the "pinned to a named bone" hypothesis.
+
+**New, better lead, found by accident while picking a second file to
+cross-check**: comparing `field1` (the coordinate this file's own doc
+comment calls "y", the middle of the three point fields) across four
+real files —
+
+| file | real-world description | field1 |
+|---|---|---|
+| `pa_kite_lamp_creature.m2` | a lamp (elevated fixture) | **2.798** |
+| `fx_breakscrollseal_precast.m2` | a ground-cast spell effect | 0.000 |
+| `ao_banner02.m2` | a standing ground banner | 0.000 |
+| `dr_bench_01_nosound.m2` | a ground-sitting bench | 0.000 |
+
+— exactly `0.0` for every one of the three ground-level/ground-cast props,
+and a real, non-zero, positive value for the one elevated fixture. Small
+sample (4 files, picked by hand, not a corpus scan) but a clean,
+falsifiable pattern: **`field1` may be a height/elevation value relative
+to the object's own ground contact point**, consistent with (though not
+identical in axis-labeling to) this file's own already-documented
+"field 1 constant within a file, plausible ground-plane" observation
+above — this adds *why* it might vary file-to-file (elevated vs. grounded
+prop), which the original observation didn't have.
+
+**Concrete next step this unlocks**: a real corpus-scale test — for a
+sample of DPIV-bearing files, check whether `field1 == 0` correlates with
+"this model's own lowest vertex sits at/near its local origin" (a
+ground-level prop) and `field1 != 0` correlates with a model whose
+geometry floats above local origin by roughly that same amount (a
+hanging/elevated prop) or is a creature (which is not floor-anchored at
+all). That's a real, cheap, falsifiable test — doesn't need per-model
+`.glb` exports, just each M2's own vertex bounding box (already available
+without a full export) compared against `field1`. Not run yet this
+session — flagged as the clear next step, not done.
+
+**Caveat, stated honestly**: the geometric cross-reference above assumes
+DPIV's three point fields are in the *same* per-axis order/convention as
+M2's own vertex positions (and thus subject to the same `kWowToGltf`
+transform) — genuinely unconfirmed, since DPIV has no wowdev.wiki struct
+to check this against. If that assumption is wrong, the "2.54 units below
+the mesh" distance is still real (the raw-space math doesn't depend on
+which axis is "up"), but which axis it's offset along could be
+mislabeled.
+
 ## Concrete next steps (in rough order of expected payoff)
 
-1. **Cross-reference DPIV points against the model's own geometry.**
-   Transform each record's `(field0, field1, field2)` into the same space
-   as the model's vertex positions / bone positions and check proximity —
-   do these points sit on the mesh surface, at a bone pivot, or off in
-   space entirely? A hit against a specific bone or geoset would be a much
-   stronger lead than field statistics alone.
-2. **Check whether same-file point sets close into a polygon.** The
+1. ~~Cross-reference DPIV points against the model's own geometry~~ —
+   **partially done this session**, one real file (see above): not on the
+   mesh surface, not closer to any named bone than to raw vertices. A
+   single file isn't a corpus-scale answer — worth a few more hand-picked
+   cross-checks (an elevated prop and a ground prop each) before treating
+   "not on the surface" as general, but the negative "not bone-pinned"
+   result and the elevation lead below are real enough to act on.
+2. **New, promoted to first priority**: run the `field1`-vs-own-bounding-
+   box elevation test described above across a real sample of the 2,632
+   DPIV-bearing files — cheap (no per-model `.glb` export needed, just
+   `.m2` vertex bounds), and would either confirm or kill the "`field1` is
+   a ground-relative elevation" hypothesis outright.
+3. **Check whether same-file point sets close into a polygon.** The
    partial constant-Y pattern (2/3 above) is suggestive of a flat footprint
    — check real inter-point distances/angles within a file to see if 3–4
    points form a plausible quad/triangle (a decal projection area, a
    trigger volume, a particle-spawn footprint) rather than being scattered.
-3. **Re-examine field 3 as a category enum, not an index.** With only 4
+4. **Re-examine field 3 as a category enum, not an index.** With only 4
    values (0–3) and no clean ordering, check for correlation with anything
    else per-record-position-independent — e.g. does a specific value always
    pair with a specific relative position (first vs. last point in a
    footprint), or with specific filename patterns (fire/torch vs. window vs.
    structure doodads, the same directory split that cracked `DETL`'s
    `flags` bit this session)?
-4. **Full-name audit of all 2,632 hits.** Only skimmed a handful of
+5. **Full-name audit of all 2,632 hits.** Only skimmed a handful of
    filenames this session (`dpiv_files_for_exploration.txt` has the full
    list) — a systematic pass grouping by directory/naming convention (the
    same method that found `DETL`'s flags-vs-light-prop correlation) might
