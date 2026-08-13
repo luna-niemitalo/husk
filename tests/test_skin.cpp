@@ -28,7 +28,7 @@
 //
 // M2Batch (0x18 = 24 bytes), only the fields src/skin.hpp's Batch surfaces:
 //   0x00 flags (u8)            0x01 priorityPlane (i8, unread)
-//   0x02 shader_id (u16, unread) 0x04 skinSectionIndex (u16)
+//   0x02 shader_id (u16)       0x04 skinSectionIndex (u16)
 //   0x06 geosetIndex (u16, unread) 0x08 colorIndex (u16, unread)
 //   0x0A materialIndex (u16)   0x0C materialLayer (u16, unread)
 //   0x0E textureCount (u16)    0x10 textureComboIndex (u16)
@@ -96,13 +96,16 @@ void putSubmesh(std::vector<uint8_t>& buf, size_t off, uint16_t vertexStart, uin
 // 0xFFFF ("none", per wowdev.wiki) and textureCoordComboIndex/
 // textureWeightComboIndex default to 0, matching skin::Batch's own default
 // member initializers -- existing call sites that don't care about these
-// three newer fields don't need to change.
+// three newer fields don't need to change. shaderId defaults to 0, same
+// reasoning.
 void putBatch(std::vector<uint8_t>& buf, size_t off, uint8_t flags, uint16_t skinSectionIndex,
               uint16_t materialIndex, uint16_t textureCount, uint16_t textureComboIndex,
               uint16_t colorIndex = 0xFFFF, uint16_t textureCoordComboIndex = 0,
-              uint16_t textureWeightComboIndex = 0, uint16_t textureTransformComboIndex = 0xFFFF) {
+              uint16_t textureWeightComboIndex = 0, uint16_t textureTransformComboIndex = 0xFFFF,
+              uint16_t shaderId = 0) {
     if (buf.size() < off + 0x18) buf.resize(off + 0x18, 0);
     putU8(buf, off + 0x00, flags);
+    putU16(buf, off + 0x02, shaderId);
     putU16(buf, off + 0x04, skinSectionIndex);
     putU16(buf, off + 0x08, colorIndex);
     putU16(buf, off + 0x0A, materialIndex);
@@ -375,6 +378,28 @@ TEST_CASE("parseBatches: reads colorIndex/textureCoordComboIndex/textureWeightCo
     CHECK(batches[0].textureCoordComboIndex == 1);
     CHECK(batches[0].textureWeightComboIndex == 3);
     CHECK(batches[0].textureTransformComboIndex == 9);
+}
+
+TEST_CASE("parseBatches: reads shaderId, both the 0x8000 table-lookup case and a plain low-bits value") {
+    std::vector<uint8_t> file(100, 0);
+    size_t off = 20;
+    putBatch(file, off, /*flags=*/0, /*skinSectionIndex=*/0, /*materialIndex=*/0,
+             /*textureCount=*/2, /*textureComboIndex=*/0, /*colorIndex=*/0xFFFF,
+             /*textureCoordComboIndex=*/0, /*textureWeightComboIndex=*/0,
+             /*textureTransformComboIndex=*/0xFFFF, /*shaderId=*/0x8005);
+    putBatch(file, off + 0x18, /*flags=*/0, /*skinSectionIndex=*/0, /*materialIndex=*/0,
+             /*textureCount=*/1, /*textureComboIndex=*/0, /*colorIndex=*/0xFFFF,
+             /*textureCoordComboIndex=*/0, /*textureWeightComboIndex=*/0,
+             /*textureTransformComboIndex=*/0xFFFF, /*shaderId=*/0x0010);
+
+    husk::m2::Array a;
+    a.count = 2;
+    a.offset = static_cast<uint32_t>(off);
+    auto batches = husk::skin::parseBatches(file, a);
+
+    REQUIRE(batches.size() == 2);
+    CHECK(batches[0].shaderId == 0x8005);
+    CHECK(batches[1].shaderId == 0x0010);
 }
 
 TEST_CASE("parseBatches: empty array returns an empty vector without touching the file") {

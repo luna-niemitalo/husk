@@ -78,12 +78,24 @@ struct Submesh {
 // M2Batch (aka "texture unit"), per wowdev.wiki M2/.skin#Texture_units --
 // 24 bytes on disk. This is the actual material/texture linkage a submesh
 // draws with; only the fields roadmap stage 5 (see README.md) needs are
-// surfaced -- priorityPlane/shader_id/geosetIndex/colorIndex/materialLayer/
+// surfaced -- priorityPlane/geosetIndex/colorIndex/materialLayer/
 // textureCoordComboIndex/textureWeightComboIndex/textureTransformComboIndex
 // stay unread (multitexturing/animation/UV-mapping concerns, out of scope
-// for a first metallic-roughness-with-one-texture pass).
+// for a first metallic-roughness-with-one-texture pass). shaderId is the
+// one exception: parsed (not yet resolved into a real Combiners_*/Diffuse_*
+// name -- see TODO/MULTI_TEXTURE_LAYER_TODO.md) because it's the field
+// that makes real combiner-formula selection tractable for Cata+ content
+// at all, per wowdev.wiki M2/.skin.wiki's M2GetPixelShaderID/
+// M2GetVertexShaderID.
 struct Batch {
     uint8_t flags = 0;
+    // wowdev.wiki M2/.skin#shader_id_and_textureCount: on Cata+ content
+    // (husk's own Legion+ scope), a mostly-direct on-disk shader selector
+    // -- 0x8000 set means "index into the real s_modelShaderEffect table",
+    // clear means "derive from the low bits + textureCount via
+    // M2GetPixelShaderID/M2GetVertexShaderID". Neither resolution step is
+    // implemented yet; this field is parsed and otherwise unused for now.
+    uint16_t shaderId = 0;
     uint16_t skinSectionIndex = 0;  // -> Header::submeshes
     uint16_t materialIndex = 0;     // -> M2's own `materials` array (m2::Material)
     uint16_t textureCount = 0;      // 1..4; only the first texture is used here

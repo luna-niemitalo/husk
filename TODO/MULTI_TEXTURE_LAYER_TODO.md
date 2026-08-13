@@ -309,12 +309,13 @@ wrong 3/130,576 number; do not keep deferring this on stale evidence).
    the open env-map-frequency question above with real numbers instead of
    the stale 3/130,576 figure, and should happen before committing to the
    env-map recipe's priority either way.
-1. **Husk-side (small, now the clear first real step)**: add a `shader_id`
-   field to `skin.hpp`'s `Batch` struct, read it in `src/skin.cpp`'s
-   `parseBatches` (offset 0x02, u16 — the exact offset this session
-   confirmed against the real `M2Batch` layout and cross-checked by
-   parsing real files directly). No behavior change beyond parsing it;
-   downstream consumption is step 2+.
+1. ~~Husk-side (small): add a `shader_id` field to `skin.hpp`'s `Batch`
+   struct, read it in `src/skin.cpp`'s `parseBatches`~~ — **done this
+   session**: `skin::Batch::shaderId` (offset 0x02, u16), covered by a new
+   `tests/test_skin.cpp` case (both the `0x8000` table-lookup shape and a
+   plain low-bits value). Pure parsing only, no behavior change yet —
+   the field isn't consumed/exported anywhere downstream. Full suite green,
+   611/611 (1 pre-existing unrelated skip).
 2. **Husk-side**: implement `M2GetPixelShaderID`/`M2GetVertexShaderID`
    (both branches: `0x8000` table lookup against a transcribed
    `s_modelShaderEffect`/`s_modelPixelShaders`/`s_modelVertexShaders`, and

@@ -175,7 +175,7 @@ std::vector<Batch> parseBatches(const std::vector<uint8_t>& fileBytes, const m2:
 
     // M2Batch, wowdev.wiki M2/.skin#Texture_units: 0x18 (24) bytes; see
     // skin.hpp's Batch doc comment for which fields are read and why the
-    // rest (priorityPlane/shader_id/geosetIndex/materialLayer) is skipped.
+    // rest (priorityPlane/geosetIndex/materialLayer) is skipped.
     constexpr size_t kBatchSize = 0x18;
     const uint8_t* data = fileBytes.data();
     size_t size = fileBytes.size();
@@ -192,6 +192,7 @@ std::vector<Batch> parseBatches(const std::vector<uint8_t>& fileBytes, const m2:
         size_t off = static_cast<size_t>(array.offset) + static_cast<size_t>(i) * kBatchSize;
         Batch b;
         b.flags = readU8(data, size, off + 0x00);
+        b.shaderId = readU16(data, size, off + 0x02);
         b.skinSectionIndex = readU16(data, size, off + 0x04);
         b.colorIndex = readU16(data, size, off + 0x08);
         b.materialIndex = readU16(data, size, off + 0x0A);

@@ -421,7 +421,7 @@ std::vector<uint8_t> twoGeosetSkin() {
     // Batch 0 -> submesh 0, batch 1 -> submesh 1, both -> material 0,
     // no textures (textureCount=0 skips the texture-combo lookups
     // entirely). Byte layout per src/skin.cpp's parseBatches: flags(u8,
-    // 0x00), priorityPlane(i8, 0x01, unread), shader_id(u16, 0x02, unread),
+    // 0x00), priorityPlane(i8, 0x01, unread), shader_id(u16, 0x02),
     // skinSectionIndex(u16, 0x04), geosetIndex(u16, 0x06, unread),
     // colorIndex(u16, 0x08), materialIndex(u16, 0x0A), materialLayer(u16,
     // 0x0C, unread), textureCount(u16, 0x0E), textureComboIndex(u16, 0x10),
