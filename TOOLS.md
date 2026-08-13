@@ -129,9 +129,9 @@ produce something a human looks at, not a CSV.
   the content's original expansion. Kept as a real, correct tool (and a
   second-opinion cross-check of `src/m2_primitives.cpp`'s own
   `expansionForVersion` table) but deliberately not wired into
-  `live_gallery_server.py` given that null result -- see this task's own
+  `live_gallery/server.py` given that null result -- see this task's own
   module docstring.
-- `live_gallery_server.py` — a small stdlib-only HTTP server (not a
+- `live_gallery/server.py` — a small stdlib-only HTTP server (not a
   corpus-scan task) that live-rescans a render output directory and serves
   a filterable, infinite-scroll gallery page, updating in real time via
   Server-Sent Events as new images land. Generic (works on any growing

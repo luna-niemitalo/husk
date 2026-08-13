@@ -1,6 +1,6 @@
 """Full-corpus scan tagging every .m2 with its real M2 version, WoW
 expansion label, and a coarse support tier -- built for
-tools/live_gallery_server.py's --expansion-data overlay, so the gallery can
+tools/live_gallery/server.py's --expansion-data overlay, so the gallery can
 filter down to "files husk actually targets" instead of showing every file
 in a 130k-file corpus as equally in-scope.
 

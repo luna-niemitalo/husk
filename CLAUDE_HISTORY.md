@@ -14,6 +14,186 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-13, continued**: Same session, `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s
+§1 ("a framework for exporting short animated clips, not just one static
+image") closed too, prompted directly off the back of the §3 work below --
+Luna had independently been building real interactive-viewer support
+(`tools/live_gallery/server.py`, a new three.js-based in-browser GLB
+viewer, in progress/uncommitted, not this session's own work) that needs a
+real `.glb` sitting next to each corpus-render thumbnail to load, which
+`tools/corpus_scan_tasks/render_glb.py` never saved (its own driver,
+`render_sample_driver.py`, actively deletes its scratch `.glb` after
+rendering).
+
+**`render_glb.py`'s real design change**: previously always rendered
+exactly one still frame, regardless of whether the model had any real
+animation. Now: `render_duration_seconds` (new) determines the model's own
+real, native animation duration as the longer of two independently-
+measured sources -- (a) its currently-active skeletal action's own frame
+range (Blender's glTF importer already leaves `animation_data.action` set
+to `animations[0]` post-import for direct `scene.frame_current` scrubbing,
+no NLA-track juggling needed -- confirmed empirically against the real
+`wolf.m2` fixture, 38 imported actions, not assumed to work this way), and
+(b) husk's own `texture_transform_animation`/`tint_animation`/
+`fade_animation` extras, via the exact same `apply_texture_transform_animation`/
+`apply_tint_fade_animation` (§3's own new functions) this script now also
+calls -- both already grow `scene.frame_end` to fit their own real curve
+duration, so resetting `frame_start`/`frame_end` to a minimal `(1, 1)`
+range first (mirroring the exact trick this session's own earlier
+`example_exports` render script used) means whatever they leave it at *is*
+their own real duration, not Blender's arbitrary default 250.
+
+A model with real native duration below `MIN_ANIMATED_DURATION_SECONDS`
+(0.05s -- genuinely static, or close enough it wouldn't visibly differ)
+still takes the old single-still-frame path, unchanged -- keeps the
+(likely still-majority) static portion of the corpus at its existing
+render cost. Everything else renders across a **fixed
+`RENDER_WINDOW_SECONDS` (5.0) window for every animated file**, regardless
+of the model's own native duration -- a native clip shorter than 5s loops
+to fill the window rather than being skipped, prompted directly ("handle
+animations where length is less than 5 seconds -- clamp it to 5 seconds,
+not skip"; many real WoW animations are genuinely under a second, so
+skipping them as "too short to bother with" would silently drop most of
+the corpus's real animated content from this preview pipeline entirely); a
+native clip longer than 5s is simply shown from its own start through the
+window, not skipped either.
+
+**A first version of this got the frame-count/rendering-mechanism design
+wrong, caught by direct pushback, not self-caught**: it rendered a fixed
+`N_PREVIEW_FRAMES = 12` *total* samples across the whole 5s window (2.4fps
+-- a visible strobe, not real motion) via a manual Python loop calling
+`bpy.ops.render.render(write_still=True)` once per frame, framed in this
+session's own earlier notes as "12x render passes" -- a real
+mischaracterization of the actual cost, called out directly: Blender's own
+per-frame EEVEE cost is cheap once the model is already loaded (the real
+fixed cost per file is Blender startup + import, not per-frame rendering),
+and Blender has a native animation renderer
+(`bpy.ops.render.render(animation=True)`) that should be used instead of
+hand-rolling a per-frame Python loop. Rebuilt on a real `RENDER_FPS = 24`
+playback rate (120 real frames over the 5s window, not 12 coarse samples),
+rendered via one `animation=True` call -- confirmed empirically that its
+own internal frame-stepping fires `bpy.app.handlers.frame_change_pre`
+exactly like manual `scene.frame_set()` calls already did (101 handler
+calls recorded for a 100-frame test render, real curve values changing
+every one of them), so husk's own `apply_texture_transform_animation`/
+`apply_tint_fade_animation` handlers needed zero special-casing to keep
+working under it. Measured real wall time end to end (Blender startup +
+model import + 120-frame render + WebP stitch): ~16s for both real
+fixtures tested (the 50-vertex spell-effect fixture and `wolf.m2`'s
+557-vertex/66-bone skeletal case) -- dominated by fixed per-file overhead,
+not the animation render itself, exactly as predicted.
+
+A real skeletal action shorter than the render window needed its own real
+fix along the way: Blender's pose evaluation holds the last frame past an
+action's own range by default (Constant extrapolation), it doesn't loop --
+new `loop_action_natively` adds a real Blender `Cycles` F-curve modifier
+(the native, engine-evaluated way to loop a clip) to every F-curve in the
+active action when its own duration is shorter than the render window, no
+Python-side per-frame math needed for the skeletal case at all. Hit a real
+Blender-5.x API surprise while writing this: `action.fcurves` doesn't
+exist anymore on this Blender version's layered Action data model (4.4+'s
+"Animation 2.0") -- F-curves now live under
+`action.layers[].strips[].channelbags[].fcurves`, confirmed by directly
+inspecting a real imported action's structure rather than trusting older
+API muscle memory. Verified the loop actually works, not just that it
+didn't crash: a frame near one native-loop boundary of `wolf.m2`'s 1.00s
+action is measurably closer to frame 0 (mean pixel diff 1.48) than an
+arbitrary mid-cycle frame (mean diff 5.67) -- real pose repetition, not
+coincidence.
+
+Frames are rendered to individual PNGs in a scratch subdirectory (cleaned
+up after), then stitched into the final animated WebP via Pillow --
+confirmed available inside Blender's own bundled Python via this project's
+nix flake (`PYTHONPATH` injection, not bundled with Blender itself --
+verified by checking `PIL.__file__`'s actual resolved path before relying
+on it, not assumed).
+
+**A real bug found and fixed while verifying this against the real
+`unk_exp11_7037014.m2` fixture from §3's own work, not by inspection**: the
+first attempt rendered every sampled frame as an identical flat color
+despite `_update_texture_transform_animations`'s own Mapping-node
+`Location` value genuinely changing every single frame (independently
+confirmed via direct print statements) -- a real, initially-alarming
+"the whole animation pipeline doesn't actually affect the render" scare.
+Root-caused via a sequence of isolating tests (item-vs-tuple property
+assignment, `view_layer.update()`, `use_persistent_data`, a from-scratch
+minimal Emission-color propagation test that *did* show a difference) down
+to the real cause: a texture whose pattern repeats at high spatial
+frequency relative to its UV footprint mip-averages to the same flat color
+regardless of scroll offset under GPU sampling -- mathematically expected
+(averaging a periodic signal over whole periods cancels the phase
+entirely, provably not data-dependent), not a propagation bug at all. Fixed
+for the render path specifically (not the shipped `husk_blender_geoset_mask.py`,
+which needed no change) by forcing `Closest` interpolation on every Image
+Texture node before rendering and using a lower-frequency demo texture for
+the `example_exports` regeneration -- real WoW textures are essentially
+never this pathological, so this is a demo/render-script-only
+consideration, documented in `example_exports/README.md` for whoever hits
+the same confusing symptom next.
+
+**Also closed in the same pass**: every rendered output now gets its real
+source `.glb` copied to a sibling path (`out_path`'s own basename, `.glb`
+in place of `.webp`) -- the exact convention Luna's own in-progress
+three.js viewer already expects (`MODEL_REL = REL.slice(0,
+REL.lastIndexOf('.')) + '.glb'`), confirmed by reading her own uncommitted
+diff rather than guessing the convention independently. `render_sample_driver.py`
+itself needed no change -- it already writes its own scratch `.glb` to a
+separate `SCRATCH_DIR` and deletes *that* copy after rendering;
+`render_glb.py`'s new copy lands in `render_dir` (next to the `.webp`) and
+is untouched by that cleanup. Real cost accepted, not hidden: a full
+130k+-file corpus run now renders 120 real frames (one native
+`animation=True` call, not 120 separate ones) for every animated file
+instead of a single still, plus a full `.glb` copy's worth of extra disk
+per rendered file -- both accepted per direct instruction, flagged in the
+TODO file rather than silently absorbed, and cheaper in practice than the
+raw frame count suggests (see the measured ~16s/file wall time above).
+
+**Two real, concrete usability findings filed as new TODO items, not fixed
+silently**: (1) `TODO/TODO_correctness.md` gained a new top item from a
+full, real terminal trace Luna pasted directly -- `husk export -o <existing
+directory>` and `-o <path with missing parent directories>` both fail only
+*after* running the entire multi-second export pipeline (real parse work,
+a full wall of notes/warnings), with zero filename/directory inference at
+all; four attempts needed before one worked. Framed explicitly around a
+stated design principle, quoted directly: *"sinne päin ja silmät kiinni"*
+("aim in the right direction and go, eyes closed") -- husk's default
+behavior should guess a reasonable output path from minimal input (infer
+a filename from the model's own basename when `-o` is an existing
+directory; create missing parent directories the way any real destination-
+path-taking tool already does), while every flag stays exactly as precise
+as it is today for anyone who wants exact control -- guessing well should
+be the zero-effort default, not something that requires already knowing
+the tool's exact expectations. Not fixed this session -- this is the
+finding, staged as two named, separable sub-fixes in the TODO item itself.
+(2) `TODO/CLEANUP_TODO.md` gained a second new item (§2, "a corpus-wide
+'dangling internal reference' scan"), prompted directly off the back of
+this session's own §3 fixture hunt (a real, well-formed animated
+`M2TextureTransform` record that no `.skin` batch's own
+`textureTransformComboIndex` ever actually resolves to, caught before
+committing a fixture built around it) -- proposed as a deliberate
+counterweight to every *presence*-only completeness metric this project
+already tracks: measure the corpus-wide rate of "claims a target exists,
+but it doesn't resolve" across every internal cross-reference husk already
+knows how to walk, on the theory that a **low** rate is expected noise
+(stale/unused Blizzard data, already-precedented in this project's own
+`CORPUS_TODO.md` history) while a **high or systematic** rate is instead a
+real signal of a casc-tool extraction blind spot worth raising upstream,
+not husk's own problem to solve by reading the format more carefully.
+Design-stage only, not implemented.
+
+`example_exports/` regenerated around the same `unk_exp11_7037014.m2`
+fixture, now showing a genuinely-animated (not merely still) preview via
+the updated `render_glb.py`, confirmed by direct pixel-diff (max 128,
+mean ~11 across two frames) after the mip-blur fix above -- not just "it
+ran without erroring."
+
+Session's own git commit (`48b2561`, the §3 work) already landed before
+this continuation started; this continuation's own changes
+(`render_glb.py`, both TODO files) were left for Luna's own review/commit
+per her own explicit request this turn, not committed automatically.
+
+---
+
 **2026-08-13**: `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s §3 ("making these
 curves actually animate in Blender post-import") implemented end to end,
 prompted directly with a request for a real debug/validate pipeline built
@@ -301,7 +481,7 @@ correctness:
 Also, prompted directly by real observations while this was being
 investigated:
 
-- **`tools/live_gallery_server.py`** gained a `world/expansionNN` era
+- **`tools/live_gallery/server.py`** gained a `world/expansionNN` era
   filter (real folder convention, confirmed against actual zone/doodad
   names per folder -- `expansion01` has `hellfirepeninsula`/`netherstorm`
   (TBC), `expansion05` has `ironhorde` (WoD), etc.; `expansion11`'s real

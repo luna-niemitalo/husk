@@ -170,20 +170,24 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
     live_log = Path(live_log_str)
     rel = m2_path.resolve().relative_to(CORPUS_ROOT)
     scratch_glb = SCRATCH_DIR / rel.parent / (rel.name + ".glb")
-    # New renders write .webp (render_glb.py switched from PNG, lighter for
-    # the live gallery); a .png left over from before that switch, or from
-    # before --listfile existed, still counts as "already done" here -- only
-    # files whose PNG was deliberately deleted (the missing-texture-gap
-    # re-render pass) or never rendered at all get redone, and they land as
-    # .webp. The two formats coexist fine: tools/live_gallery_server.py
-    # already recognizes both extensions.
+    # New renders write .webp for a static model (render_glb.py switched
+    # from PNG, lighter for the live gallery) or .webm for an animated one
+    # (render_glb.py decides which, only after inspecting the model -- see
+    # ANIMATED_TEXTURE_EFFECTS_TODO.md's §1); a .png left over from before
+    # the PNG->WebP switch, or from before --listfile existed, still counts
+    # as "already done" here too -- only files whose output was
+    # deliberately deleted (the missing-texture-gap re-render pass) or
+    # never rendered at all get redone. tools/live_gallery/server.py needs
+    # to recognize all three extensions (not yet updated for .webm as of
+    # this comment -- see the TODO file's own "real downstream ripple" note).
     out_webp = render_dir / rel.parent / (rel.name + ".webp")
+    out_webm = render_dir / rel.parent / (rel.name + ".webm")
     out_png_legacy = render_dir / rel.parent / (rel.name + ".png")
     scratch_glb.parent.mkdir(parents=True, exist_ok=True)
     out_webp.parent.mkdir(parents=True, exist_ok=True)
 
 
-    if out_webp.exists() or out_png_legacy.exists():
+    if out_webp.exists() or out_webm.exists() or out_png_legacy.exists():
 		# Resume support for the full 130k-file run: this job is expected to
         # take hours, so a restart (crash, machine reboot) must not re-do
         # already-rendered files. A prior image is treated as done -- this
@@ -191,14 +195,24 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
         # path (Blender's own render.render(write_still=True) is atomic-
         # enough for this purpose: it writes the final file directly, but
         # only after a successful render call returns).
-        existing_image = out_webp if out_webp.exists() else out_png_legacy
+        existing_image = out_webp if out_webp.exists() else (out_webm if out_webm.exists() else out_png_legacy)
         thumb_ok = False
         if _thumbnail_is_stale(m2_path):
-            try:
-                install_thumbnail(m2_path, existing_image)
+            if existing_image is out_webm:
+                # install_thumbnail reads via PIL, which cannot open a video
+                # file at all -- extracting a real freedesktop thumbnail
+                # from a .webm's first frame (an ffmpeg subprocess call)
+                # is real, separate work, not attempted here. Treated as
+                # "nothing to install," not a failure -- the render itself
+                # already succeeded, only the desktop-file-manager thumbnail
+                # cache entry is missing for this one file.
                 thumb_ok = True
-            except Exception as e:
-                _log(live_log, "FAIL-THUMB", m2_path, f"thumbnail install failed on resume: {e}")
+            else:
+                try:
+                    install_thumbnail(m2_path, existing_image)
+                    thumb_ok = True
+                except Exception as e:
+                    _log(live_log, "FAIL-THUMB", m2_path, f"thumbnail install failed on resume: {e}")
         else:
             thumb_ok = True  # already current, nothing to do
         return {"path": str(m2_path), "export_ok": True, "render_ok": True,
@@ -239,16 +253,27 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
              "--", str(scratch_glb), str(out_webp)],
             capture_output=True, text=True, timeout=RENDER_TIMEOUT, env=env,
         )
+        # render_glb.py is called with the .webp path regardless -- it only
+        # decides for itself, after inspecting the model, whether to write
+        # there (static case) or to out_webm instead (animated case, see
+        # ANIMATED_TEXTURE_EFFECTS_TODO.md's §1) -- so success/output here
+        # must check for either, the same way the resume branch above does.
         if p.returncode == 0 and "SKIPPED no mesh objects" in p.stdout:
             row["skipped_no_geometry"] = True
             _log(live_log, "SKIP", m2_path, "0-vertex model (camera/track-only), nothing to render")
-        elif p.returncode != 0 or not out_webp.exists():
+        elif p.returncode != 0 or not (out_webp.exists() or out_webm.exists()):
             row["detail"] = f"render failed: {_last_lines(p.stdout + p.stderr)}"
             _log(live_log, "FAIL-RENDER", m2_path, row["detail"])
         else:
             row["render_ok"] = True
-            _log(live_log, "OK", m2_path, f"{time.monotonic()-t0:.1f}s -> {out_webp}")
-            if _thumbnail_is_stale(m2_path):
+            actual_out = out_webp if out_webp.exists() else out_webm
+            _log(live_log, "OK", m2_path, f"{time.monotonic()-t0:.1f}s -> {actual_out}")
+            if actual_out is out_webm:
+                # See the resume branch's identical comment above -- PIL
+                # can't read a video file, real thumbnail extraction is
+                # separate, unimplemented work.
+                row["thumb_ok"] = True
+            elif _thumbnail_is_stale(m2_path):
                 try:
                     install_thumbnail(m2_path, out_webp)
                     row["thumb_ok"] = True
@@ -279,7 +304,7 @@ def _write_stats(stats_path: Path, **fields) -> None:
     # backgrounded), which made a real, healthy run look stalled for
     # minutes at a time in practice. This file is written with a real
     # os.replace (atomic on the same filesystem), so a reader never sees a
-    # half-written file -- tools/live_gallery_server.py polls it directly
+    # half-written file -- tools/live_gallery/server.py polls it directly
     # for the concurrency controller's own internals (window/backoff/rate),
     # which aren't otherwise observable from outside this process.
     tmp = stats_path.with_suffix(".tmp")

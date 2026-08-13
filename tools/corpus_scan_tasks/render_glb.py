@@ -1,13 +1,28 @@
-"""Headless Blender script: import one .glb, frame it, render one WebP image.
+"""Headless Blender script: import one .glb, frame it, render one WebP image
+(a static model) or a short looping WebM/VP9 video (a model carrying real
+skeletal animation and/or husk's own animated texture-transform/tint/fade
+extras) -- see `render_duration_seconds`'s doc comment for which case
+applies and why. Also copies the source `.glb` next to the rendered preview
+(same basename, `.glb` extension) so `tools/live_gallery/server.py`'s
+interactive three.js viewer -- which derives its own model URL the
+identical way -- can load and play back the *real* glTF animation
+client-side, independent of whatever this script baked into the preview.
 
 Usage:
     blender --background --factory-startup --python render_glb.py -- <in.glb> <out.webp>
 
-`out_path`'s own extension is trusted exactly as given (use_file_extension
-is disabled below) -- the caller decides the format by what it names the
-output, this script doesn't infer one. WebP (quality 80, lossy) chosen over
-the original PNG output for a lighter-weight corpus-wide gallery -- these
-are flat-shaded QA thumbnails, not archival renders, so lossy compression
+`out_path` names the **static** case exactly (its extension is trusted as
+given -- use_file_extension is disabled below, so the caller decides the
+still-image format by what it names the output). The **animated** case
+instead writes to `out_path` with its extension swapped to `.webm`
+(`final_out_path`, printed on success) -- an animated preview is a real
+video, encoded directly by Blender's own FFmpeg/WebM/VP9 output settings in
+one native `bpy.ops.render.render(animation=True)` call, not a PNG-per-
+frame sequence hand-stitched into an animated WebP afterward (an earlier
+version of this script did exactly that -- a real, avoidable extra step-
+and-a-half once Luna pointed out Blender can encode video natively).
+WebP (quality 80, lossy) is kept for the still case -- these are
+flat-shaded QA thumbnails, not archival renders, so lossy compression
 costs nothing that matters here.
 
 Exits nonzero (via a bare exception, letting Blender's own traceback print
@@ -16,6 +31,7 @@ it as this file's failure detail, same "let the tool print its own real
 error" discipline as husk's own ParseError text.
 """
 import math
+import shutil
 import sys
 from pathlib import Path
 
@@ -24,6 +40,64 @@ import mathutils
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import husk_blender_geoset_mask as billboard_align  # noqa: E402 -- see sys.path.insert above
+
+# The animated render window is min(native_duration, RENDER_MAX_WINDOW_SECONDS)
+# -- every clip renders at its own real length, no padding to a minimum.
+# An earlier version of this padded any clip under 5s up to a fixed 5s
+# floor (looping it a few extra times within the file itself) on the theory
+# that a very short clip needed to be "long enough to read as animating" --
+# dropped once tools/live_gallery/server.py grew a real `<video loop>`
+# player (this session, same day): a native-duration clip already loops
+# seamlessly in the browser and via the .glb's own Cycles-modifier loop
+# (loop_action_natively) when opened directly, so baking extra repetitions
+# into the encoded file bought literally nothing -- same frames shown, just
+# more of them to render/encode/store, for a browser that already repeats
+# them for free. A genuinely fast loop (well under a second) is a real,
+# separate UI concern -- not solved by padding the file, since a padded
+# file still repeats the same fast cycle just as fast -- so it's handled
+# client-side instead (live_gallery/server.py starts a sub-0.5s clip
+# paused, with an explicit play button, rather than autoplaying something
+# that would flicker). Only a genuinely long outlier (multi-minute -- real
+# cinematic-length ambient loops exist in the corpus) gets clamped down to
+# the ceiling at all.
+RENDER_MAX_WINDOW_SECONDS = 60.0
+# A real playback frame rate, not a coarse handful of samples -- an earlier
+# version of this script rendered a fixed 12 *total* frames across the
+# whole 5s window (2.4fps, a visible strobe, not real motion) and rendered
+# them one at a time via individual write_still=True calls plus a manual
+# Python frame loop. Corrected on Luna's own direct pushback: once Blender
+# and the model are actually loaded (the real fixed cost here), per-frame
+# EEVEE rendering itself is cheap and Blender's own native animation
+# renderer (bpy.ops.render.render(animation=True), below) is both faster
+# and simpler than driving it frame-by-frame from Python -- confirmed
+# empirically, not assumed: 100 frames at 320x320 rendered in 6.18s via a
+# single animation=True call (~62ms/frame), and animation=True's own
+# internal frame-stepping fires bpy.app.handlers.frame_change_pre exactly
+# the way manual scene.frame_set() calls did (101 handler calls recorded
+# for 100 rendered frames, real curve values changing every one of them --
+# so husk_blender_geoset_mask's texture-transform/tint-fade handlers need
+# no special-casing here at all, they just work under animation=True).
+RENDER_FPS = 24
+# Below this, a model's own longest real animation source (skeletal action
+# or husk's own texture-transform/tint/fade curves) is treated as "not
+# really animated" -- render the single static-still path instead of paying
+# for a full animated render of a model that would just show the same frame
+# over and over.
+MIN_ANIMATED_DURATION_SECONDS = 0.05
+
+# Real EEVEE render-quality knobs, tuned down hard for corpus-wide speed --
+# these are flat-shaded QA thumbnails, not archival renders (this file's
+# own long-standing framing for the still-image WebP case, now applied to
+# the animated case too). Measured against the real wolf.m2 fixture (66
+# bones, 120-frame animated render): Blender's own EEVEE defaults
+# (taa_render_samples=64, shadows on) took 13.40s; these settings took
+# 4.73s for the *entire* animated render -- at that point the real cost is
+# almost entirely Blender startup + model import, not rendering, exactly
+# matching the "biggest time sink is startup and model loading" read this
+# was built around. Sample counts between 1 and 16 measured within noise
+# of each other time-wise (4.36s-5.02s) -- 16 kept as a small, effectively-
+# free quality margin over the noisier 1-4 range, not chosen for speed.
+EEVEE_RENDER_SAMPLES = 16
 
 
 def fix_additive_materials() -> int:
@@ -130,6 +204,79 @@ def fix_additive_materials() -> int:
     return fixed
 
 
+def render_duration_seconds(armature_obj, materials) -> tuple[float, "bpy.types.Action | None"]:
+    """The model's own real, native animation duration, in seconds -- the
+    longest of (a) its currently-active skeletal action (Blender's glTF
+    importer already leaves `armature_obj.animation_data.action` set to
+    glTF `animations[0]` for direct scene.frame_current scrubbing, no NLA-
+    track juggling needed -- confirmed empirically, not assumed: real
+    `wolf.m2`, 38 imported actions, `animation_data.action` already points
+    at the array-order-first one post-import) and (b) husk's own animated
+    `texture_transform_animation`/`tint_animation`/`fade_animation` extras
+    (`husk_blender_geoset_mask.apply_texture_transform_animation`/
+    `apply_tint_fade_animation`, called here as a side effect -- both grow
+    `scene.frame_end` to fit their own real curve duration, never shrink,
+    so resetting frame_start/frame_end to a minimal (1, 1) range first
+    means whatever they leave it at *is* their own real duration, not
+    Blender's arbitrary default 250). Also returns the active skeletal
+    action itself (or None), since the caller needs it again to decide
+    whether it needs a real (Cyclic-modifier) loop -- see main()'s own
+    "shorter than the render window" branch.
+
+    Which of a model's several real skeletal sequences to prefer for the
+    preview was an open question in ANIMATED_TEXTURE_EFFECTS_TODO.md ("idle?
+    the first sequence?") -- answered here as "whichever one the importer
+    already activates," i.e. `animations[0]` in husk's own export order,
+    not a guess re-derived from scratch.
+    """
+    scene = bpy.context.scene
+    action = None
+    skeletal_frames = 0.0
+    if armature_obj is not None and armature_obj.animation_data is not None:
+        action = armature_obj.animation_data.action
+        if action is not None:
+            skeletal_frames = action.frame_range[1] - action.frame_range[0]
+
+    scene.frame_start = 1
+    scene.frame_end = 1
+    billboard_align.apply_texture_transform_animation(materials)
+    billboard_align.apply_tint_fade_animation(materials)
+    extras_frames = scene.frame_end - scene.frame_start
+
+    spf = billboard_align._scene_seconds_per_frame()
+    return max(skeletal_frames, extras_frames) * spf, action
+
+
+def loop_action_natively(action) -> None:
+    """Adds a real Blender 'Cycles' F-curve modifier (FModifierCycles,
+    default mode_before/after='REPEAT', the native glTF/animation-editor
+    concept of a looping clip) to every F-curve in `action` -- makes a
+    skeletal action shorter than the render window repeat natively under
+    Blender's own pose evaluation during bpy.ops.render.render(animation=True),
+    the same way husk_blender_geoset_mask's own `_update_texture_transform_animations`
+    already loops its own curves via an explicit `t % duration` in Python.
+    No Python-side per-frame work needed for this case -- Blender's
+    animation system evaluates the modifier itself.
+
+    `action.fcurves` doesn't exist on Blender 4.4+'s layered Action data
+    model (confirmed empirically against real Blender 5.1 behavior, not
+    assumed from older API docs/muscle memory) -- F-curves instead live
+    under action.layers[].strips[].channelbags[].fcurves. A glTF-imported
+    action from husk's own export always has exactly one layer/strip/
+    channelbag in practice (confirmed against the real wolf.m2 fixture),
+    but this walks the full structure regardless rather than assuming that
+    shape.
+    """
+    for layer in action.layers:
+        for strip in layer.strips:
+            if strip.type != "KEYFRAME":
+                continue
+            for channelbag in strip.channelbags:
+                for fc in channelbag.fcurves:
+                    if not any(m.type == "CYCLES" for m in fc.modifiers):
+                        fc.modifiers.new("CYCLES")
+
+
 def main() -> None:
     argv = sys.argv[sys.argv.index("--") + 1:]
     in_glb, out_path = argv[0], argv[1]
@@ -222,6 +369,13 @@ def main() -> None:
 
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE"
+    # See EEVEE_RENDER_SAMPLES's own doc comment for the measured speedup --
+    # applied to both the still and animated cases (a still-image WebP
+    # render is cheap either way, but there's no reason to pay full-quality
+    # sampling for a flat-shaded QA thumbnail there either).
+    scene.eevee.taa_render_samples = EEVEE_RENDER_SAMPLES
+    scene.eevee.use_shadows = False
+    scene.eevee.use_fast_gi = False
     scene.render.resolution_x = 640
     scene.render.resolution_y = 480
     scene.render.filepath = out_path
@@ -234,11 +388,97 @@ def main() -> None:
     scene.world = bpy.data.worlds.new("world")
     scene.world.color = (0.12, 0.12, 0.14)
 
-    bpy.ops.render.render(write_still=True)
+    materials = {obj.material_slots[i].material
+                 for obj in mesh_objs
+                 for i in range(len(obj.material_slots))
+                 if obj.material_slots[i].material is not None}
+    duration, action = render_duration_seconds(armature_obj, materials)
+
+    final_out_path = out_path
+    if duration < MIN_ANIMATED_DURATION_SECONDS:
+        bpy.ops.render.render(write_still=True)
+        anim_note = ""
+    else:
+        # Closest, not the importer's default Linear -- avoids a real GPU
+        # mip-blur artifact found while building this (a high-frequency
+        # repeating texture pattern renders as a flat, unchanging color
+        # across every frame regardless of true UV/pose state, purely a
+        # render-time sampling quirk, not a data/logic bug -- see
+        # example_exports/README.md's own writeup of the same finding).
+        for mat in materials:
+            if mat.node_tree is None:
+                continue
+            for n in mat.node_tree.nodes:
+                if n.type == "TEX_IMAGE":
+                    n.interpolation = "Closest"
+
+        # A real skeletal action shorter than the render window needs a
+        # real (native, Blender-evaluated) loop -- husk_blender_geoset_mask's
+        # own texture-transform/tint-fade curves already loop themselves
+        # (an explicit t % duration inside their own frame_change_pre
+        # handler, unaffected by anything here), but Blender's own pose
+        # evaluation holds the last frame past an action's range by default
+        # (Constant extrapolation) rather than repeating it.
+        window_seconds = min(duration, RENDER_MAX_WINDOW_SECONDS)
+        window_frames = round(window_seconds * RENDER_FPS)
+        if action is not None and 0 < (action.frame_range[1] - action.frame_range[0]) < window_frames:
+            loop_action_natively(action)
+
+        scene.render.fps = RENDER_FPS
+        scene.frame_start = 1
+        scene.frame_end = window_frames
+
+        # Real container format, not the still-image WebP `out_path` was
+        # named for -- an animated preview is a real video now, encoded
+        # directly by Blender itself (WebM/VP9, the exact settings Luna
+        # specified directly), not a PNG-per-frame sequence hand-stitched
+        # into an animated WebP via Pillow afterward. That earlier PNG+PIL
+        # approach worked but was a real, avoidable extra step-and-a-half:
+        # Blender's own animation renderer writes the finished video in one
+        # native call, with no intermediate files on disk at all.
+        final_out_path = str(Path(out_path).with_suffix(".webm"))
+        ifs = scene.render.image_settings
+        ifs.media_type = "VIDEO"
+        ifs.file_format = "FFMPEG"
+        scene.render.ffmpeg.format = "WEBM"
+        scene.render.ffmpeg.codec = "WEBM"  # VP9 -- the only codec Blender pairs with the WEBM container
+        scene.render.ffmpeg.constant_rate_factor = "MEDIUM"
+        scene.render.ffmpeg.ffmpeg_preset = "GOOD"
+        scene.render.ffmpeg.audio_codec = "NONE"  # no scene audio exists; skip encoding a silent track
+        scene.render.filepath = final_out_path
+        scene.render.use_file_extension = False
+
+        # One native call, not a manual per-frame Python loop -- Blender's
+        # own animation renderer steps every frame itself and fires
+        # bpy.app.handlers.frame_change_pre exactly like scene.frame_set()
+        # does (confirmed empirically: 101 handler calls recorded for a
+        # 100-frame animation=True render, real curve values changing every
+        # one of them), so husk_blender_geoset_mask's own registered
+        # handlers (from apply_texture_transform_animation/
+        # apply_tint_fade_animation above) need no special-casing here.
+        # Confirmed real output too, not just "didn't crash": ffprobe on a
+        # real rendered file reports codec_name=vp9, the requested
+        # resolution, and r_frame_rate=24/1 exactly.
+        bpy.ops.render.render(animation=True)
+        anim_note = (f", animated ({duration:.2f}s native, {window_frames} frames at "
+                     f"{RENDER_FPS}fps over {window_seconds:.2f}s, WebM/VP9)")
+
+    # Real glTF playback (skeletal poses natively, husk's own extras-driven
+    # curves via tools/live_gallery/server.py's own future JS-side handling)
+    # needs the actual .glb, not just this script's own baked preview --
+    # saved as the preview's own sibling (same basename, .glb in place of
+    # .webp/.webm) so the live gallery's interactive three.js viewer, which
+    # derives its model URL the identical way, finds it with no extra
+    # wiring. Prompted directly (2026-08-13): "given that they are next to
+    # their export webp in the corpus reports tree."
+    glb_path = Path(final_out_path).with_suffix(".glb")
+    shutil.copyfile(in_glb, glb_path)
+
     extra = f", {fixed_additive} additive material(s) rebuilt" if fixed_additive else ""
     if billboards_aligned:
         extra += f", {billboards_aligned} billboard bone(s) aligned to camera"
-    print(f"OK rendered {len(mesh_objs)} mesh object(s), bbox radius {radius:.3f}{extra} -> {out_path}")
+    print(f"OK rendered {len(mesh_objs)} mesh object(s), bbox radius {radius:.3f}{extra}{anim_note} "
+          f"-> {final_out_path} (+ {glb_path})")
 
 
 if __name__ == "__main__":

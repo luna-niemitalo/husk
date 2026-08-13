@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GLB Viewer</title>
+<link rel="stylesheet" href="/static/viewer.css">
+</head>
+<body>
+<div id="viewer"></div>
+<div id="hud">
+  <div class="panel">
+    <div id="title"></div>
+    <div id="status"><span id="loading">loading…</span></div>
+    <div id="error"></div>
+  </div>
+</div>
+<div id="help">LMB orbit · RMB pan · wheel zoom</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/"
+  }
+}
+</script>
+
+<!-- The one genuinely per-request value this page needs (which file to
+     view) -- set here, before viewer.js loads, since a static .js file
+     can't know it on its own. Everything else lives in viewer.js. -->
+<script>window.REL = __REL_JSON__;</script>
+<script type="module" src="/static/viewer.js"></script>
+</body>
+</html>

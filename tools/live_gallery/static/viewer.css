@@ -1,0 +1,19 @@
+:root { --bg:#0f1115; --panel:#161922; --border:#262b38; --text:#e6e8ef;
+        --muted:#8a90a3; --accent:#5da8ff; --bad:#ff6b6b; --good:#3ecf8e; }
+* { box-sizing:border-box; }
+html, body { margin:0; width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--text);
+             font:14px/1.5 -apple-system,"Segoe UI",sans-serif; }
+#viewer { position:absolute; inset:0; }
+#hud { position:absolute; z-index:2; top:12px; left:12px; right:12px; pointer-events:none; }
+.panel { display:inline-block; max-width:min(900px,calc(100vw - 24px)); background:rgba(22,25,34,.92);
+         border:1px solid var(--border); border-radius:10px; padding:9px 12px;
+         backdrop-filter:blur(7px); box-shadow:0 4px 20px rgba(0,0,0,.25); }
+#title { color:var(--text); font-weight:600; word-break:break-all; }
+#status { color:var(--muted); margin-top:2px; }
+#error { display:none; color:#ffe8e8; border-color:var(--bad); }
+#error.show { display:block; }
+#loading { color:var(--accent); }
+#help { position:absolute; left:12px; bottom:12px; z-index:2; color:var(--muted);
+        background:rgba(22,25,34,.86); border:1px solid var(--border); border-radius:8px;
+        padding:6px 9px; pointer-events:none; }
+canvas { display:block; width:100%; height:100%; }

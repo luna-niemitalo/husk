@@ -1,0 +1,67 @@
+:root {
+  --bg: #0f1115; --panel: #161922; --border: #262b38; --text: #e6e8ef;
+  --muted: #8a90a3; --accent: #5da8ff; --good: #3ecf8e; --bad: #ff6b6b; --warn: #f2b84b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: rgba(15,17,21,0.92); backdrop-filter: blur(6px);
+         border-bottom: 1px solid var(--border); padding: 12px 20px; }
+h1 { font-size: 15px; margin: 0 0 8px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em; }
+h1 b { color: var(--text); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+input[type=text] { background: var(--panel); border: 1px solid var(--border); color: var(--text);
+                    border-radius: 8px; padding: 7px 10px; font-size: 13px; min-width: 220px; }
+.chip { background: var(--panel); border: 1px solid var(--border); color: var(--muted); border-radius: 20px;
+        padding: 5px 12px; font-size: 12.5px; cursor: pointer; user-select: none; white-space: nowrap; }
+.chip:hover { border-color: var(--accent); color: var(--text); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #05121f; font-weight: 600; }
+.chip .n { opacity: 0.7; margin-left: 5px; }
+#banner { display: none; margin-left: auto; background: var(--good); color: #05221a; font-weight: 600;
+          border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12.5px; }
+#banner.show { display: inline-block; }
+#stats-bar { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin-top: 10px;
+             padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+#stats-bar .stat { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+#stats-bar .stat b { color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums; }
+#stats-bar .progress-track { width: 140px; height: 6px; border-radius: 3px; background: var(--panel);
+                              border: 1px solid var(--border); overflow: hidden; }
+#stats-bar .progress-fill { height: 100%; background: var(--accent); border-radius: 3px 0 0 3px;
+                             transition: width 0.6s ease-out; }
+#stats-bar .gpu-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 3px; }
+#stats-bar.stale { opacity: 0.45; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 16px 20px; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+         animation: fig-in 0.5s ease-out both; animation-delay: var(--fig-delay, 0s); position: relative; }
+/* A little Code Lyoko materialization homage: a cyan digital flash that
+   resolves into the normal panel border, staggered per-item (--fig-delay,
+   set in JS) so a batch fills in a cascading wave instead of popping in
+   as one flat block. */
+@keyframes fig-in {
+  0%   { opacity: 0; transform: translateY(6px) scale(0.97); border-color: #5ff2ff; box-shadow: 0 0 12px 1px rgba(95,242,255,0.55); }
+  60%  { opacity: 1; transform: none; border-color: #5ff2ff; box-shadow: 0 0 6px 0 rgba(95,242,255,0.3); }
+  100% { opacity: 1; transform: none; border-color: var(--border); box-shadow: none; }
+}
+figure img, figure video { width: 100%; height: 160px; object-fit: contain; background: #05070a; display: block;
+             opacity: 0; transition: opacity 0.25s ease-out; }
+figure img.loaded, figure video.loaded { opacity: 1; }
+figure img.glb-trigger, figure video.glb-trigger { cursor: pointer; }
+figure img.glb-trigger:hover, figure video.glb-trigger:hover { filter: brightness(1.12); }
+figure .video-badge { position: absolute; top: 6px; right: 6px; background: rgba(15,17,21,0.8);
+                       color: var(--accent); font-size: 10px; font-weight: 600; letter-spacing: 0.03em;
+                       padding: 2px 6px; border-radius: 5px; pointer-events: none; }
+figcaption { padding: 7px 9px; font-size: 11px; color: var(--muted); word-break: break-all; }
+figcaption .cat { color: var(--accent); font-weight: 600; margin-right: 5px; }
+/* A clip shorter than FAST_LOOP_THRESHOLD_SECONDS (page.js) starts paused
+   instead of autoplaying (a fast loop reads as a flicker, not motion) --
+   this is the explicit, hard-to-miss opt-in control for it, deliberately
+   loud (real red, full-width) rather than a subtle icon. */
+.fast-loop-btn { display: none; width: 100%; margin-top: 6px; padding: 6px 8px; background: #e5484d;
+                 color: #fff; border: none; border-radius: 6px; font-size: 12px; font-weight: 700;
+                 letter-spacing: 0.02em; cursor: pointer; text-transform: uppercase; }
+.fast-loop-btn:hover { background: #ff5b60; }
+.fast-loop-btn:active { background: #c53d42; }
+figure.bad { border-color: var(--bad); }
+figure.skip { border-color: var(--warn); }
+#sentinel { height: 1px; }
+#empty { padding: 40px; text-align: center; color: var(--muted); display: none; }
+#status-chips .chip[data-status=FAIL-EXPORT], #status-chips .chip[data-status=FAIL-RENDER] { }

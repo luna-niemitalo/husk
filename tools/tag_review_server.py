@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fast, keyboard-driven "captcha style" review server for triaging a large
-rendered corpus into flagged/OK -- companion to live_gallery_server.py, not
+rendered corpus into flagged/OK -- companion to live_gallery/server.py, not
 a replacement (that one is for open-ended browsing/filtering; this one is
 for blasting through every single item once, as fast as human reaction time
 allows, with zero mouse required).

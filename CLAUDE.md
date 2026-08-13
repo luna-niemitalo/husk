@@ -168,7 +168,60 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s corpus-scan
+- **Current state**: Same session, continued -- `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s
+  §1 ("a framework for exporting short animated clips") closed too, prompted
+  directly. `tools/corpus_scan_tasks/render_glb.py` now renders a real short
+  looping animated WebP (not just one still frame) for any file with a real
+  animation source -- a skeletal action (Blender's glTF importer already
+  leaves one active post-import for direct scrubbing, confirmed empirically
+  against the real `wolf.m2` fixture, not assumed) or husk's own
+  `texture_transform_animation`/`tint_animation`/`fade_animation` extras
+  (this session's earlier work, see the entry below). Every animated file
+  gets a fixed 5-second preview window regardless of its own native
+  duration -- a native clip under 5s loops to fill it (prompted directly:
+  don't skip short clips, which are the common case), a longer one is shown
+  from its own start through the window; 120 real frames at a real 24fps,
+  rendered via one native `bpy.ops.render.render(animation=True)` call, not
+  a coarse manual per-frame loop -- a first version of this rendered a
+  fixed 12 *total* samples (2.4fps, a visible strobe) via individual
+  `write_still=True` calls and was corrected on direct pushback ("blender
+  can render animations... near real-time"): confirmed empirically that
+  `animation=True` fires the same `frame_change_pre` handlers manual
+  `frame_set()` calls do, and that real wall time (startup + import + a
+  full 120-frame animated render) is ~16s per file, dominated by fixed
+  per-file overhead, not the render itself. A real skeletal action shorter
+  than the window now loops via a genuine Blender `Cycles` F-curve
+  modifier (`loop_action_natively`), not Python math -- verified the loop
+  actually repeats (a near-loop-boundary frame measurably closer to frame
+  0 than a mid-cycle frame), and hit a real Blender 5.x API surprise along
+  the way (`action.fcurves` no longer exists; F-curves live under
+  `action.layers[].strips[].channelbags[].fcurves` on the new layered
+  Action data model). A genuinely static model still takes the old
+  single-still path unchanged. Every rendered
+  output also gets its real source `.glb` saved as a sibling file (same
+  basename, `.glb` for `.webp`) -- what makes Luna's own new interactive
+  three.js GLB viewer (`tools/live_gallery/server.py`, in progress/
+  uncommitted, not this session's own work) able to find and load the real
+  model next to its thumbnail. Real bug found and fixed while verifying
+  this against the real texture-transform fixture: a repeating demo texture
+  rendered as a flat, unchanging color across every sampled frame despite
+  the underlying Mapping-node value genuinely changing -- a GPU mip-blur
+  averaging artifact (mathematically expected: averaging a periodic signal
+  over whole periods cancels the phase), not a real bug, fixed for the
+  render path specifically via `Closest` interpolation
+  (`example_exports/README.md` has the full writeup). Also filed two real,
+  concrete usability findings as new TODO items rather than fixed silently:
+  `TODO/TODO_correctness.md` (new item) -- a live terminal trace showing
+  `husk export -o <dir>` and `-o <path-with-missing-parents>` both fail
+  after running the *entire* export pipeline first, with no filename/
+  directory inference at all; framed explicitly around a stated design
+  principle ("sinne päin ja silmät kiinni" -- guess a reasonable default
+  from minimal input by default, keep full precision available via flags
+  for anyone who wants it, don't demand exact-shape input as the only
+  path) -- not fixed yet, flagged only. `example_exports/` regenerated
+  around the real `unk_exp11_7037014.m2` fixture with a genuinely-animated
+  (not just still) preview, matching the new render_glb.py behavior.
+- **Prior state**: `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s corpus-scan
   question answered first (`tools/corpus_scan_tasks/animated_texture_effects_task.py`,
   new: 27.6% of the 130,576-file corpus, 36,086 files, carries a genuinely-
   animated texture-transform/tint/fade/weight curve -- a real, corpus-wide
@@ -262,7 +315,7 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   commonly co-occurs with additive modes, and Blender's glTF importer
   builds a completely different node shape for unlit materials (no
   `Principled BSDF` at all), which the first version didn't handle and
-  silently fixed nothing. Also this session: `tools/live_gallery_server.py`
+  silently fixed nothing. Also this session: `tools/live_gallery/server.py`
   gained a `world/expansionNN` era filter (real folder convention,
   confirmed against actual zone content per folder — a file-*version*-based
   filter was tried first and found to carry zero signal on this modern

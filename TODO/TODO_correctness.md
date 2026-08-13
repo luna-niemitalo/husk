@@ -4,6 +4,63 @@
 removed outright rather than kept as `[Fixed]` noise — git history is where
 the record of what was fixed and when lives, not a checked-in file.
 
+## `-o` requires the exact right shape of path already existing — a real usability hurdle, caught live
+
+Prompted directly (2026-08-13) with a full, real terminal trace of trying
+to export a single file to `./example_exports/` (the project's own
+example-output convention) — four attempts before one worked:
+
+```
+husk export ... -o ./example_exports        # "Is a directory"
+husk export ... -o ./example_exports/        # "Is a directory" (trailing slash doesn't help)
+husk export ... -o ./example_exports/creature/tripod2/tripod2.glb   # "No such file or directory"
+mkdir -p ./example_exports/creature/tripod2
+husk export ... -o ./example_exports/creature/tripod2/tripod2.glb   # finally works
+```
+
+Every one of those four commands ran the **full parse/export pipeline
+first** (real work, several seconds, a wall of notes/warnings) before
+failing on the trivial part — a real "did all that work just to be told
+about a path problem at the very end" experience, not a fast-fail.
+
+**The real design principle this should follow, stated directly**: husk's
+default behavior should be *"sinne päin ja silmät kiinni"* — roughly,
+"aim in the right direction and go, eyes closed" — get something reasonable
+done from minimal, approximate input, guessing what the user almost
+certainly means, rather than demanding the exact right shape up front.
+Precision is still available for anyone who wants it (every flag `husk
+export` already has stays exactly as exact as it is today) — the point is
+that guessing a sensible default should be the *zero-effort* path, not
+something that requires already knowing the tool's exact expectations.
+`-o` currently does the opposite: it's maximally strict (must be an
+existing directory's child, parent directories must already exist) with no
+guessing at all.
+
+Concretely, two independent real gaps in the trace above:
+
+1. **`-o <existing directory>` should default to `<directory>/<model-basename>.glb`**,
+   not fail with "Is a directory" — the model's own filename (already known,
+   already parsed) is the obvious guess for what the user wants the output
+   named, the same way `cp foo.txt somedir/` infers the destination
+   filename from the source. Only fail outright if that inferred path
+   itself is somehow unwritable.
+2. **Missing parent directories for an explicit output path should be
+   created (`mkdir -p`-style), not treated as a hard failure** — a `-o`
+   path is where the user *wants* the file to end up, not an assertion that
+   the directory structure already exists. Every other tool in this
+   ecosystem that takes a real destination path (git, cp -p roughly,
+   most exporters) either creates the parent or offers to.
+
+Both fixes should land together — item 1 without item 2 still fails the
+`-o ./example_exports/creature/tripod2/` case (no existing directory to
+default into); item 2 without item 1 still fails the plain `-o
+./example_exports` case (a real directory, but nothing tells husk what to
+name the file inside it). Neither is implemented yet — this is the
+finding, not the fix. Also worth doing regardless of the specific fix
+chosen: fail fast on an obviously-bad `-o` (e.g. resolve/validate it
+*before* running the export pipeline), so a path mistake doesn't cost a
+multi-second full re-parse to discover.
+
 **Note from an earlier conversation, relevant to item 3 below (`.bone`
 slot selection) now that real local DB2 access is confirmed in scope
 (`CHAR_TEXTURE_COMPOSITING_TODO.md`'s own Background) — scope clarified
