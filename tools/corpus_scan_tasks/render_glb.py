@@ -204,14 +204,73 @@ def fix_additive_materials() -> int:
     return fixed
 
 
-def render_duration_seconds(armature_obj, materials) -> tuple[float, "bpy.types.Action | None"]:
+def _world_bbox(mesh_objs) -> tuple["mathutils.Vector", "mathutils.Vector"]:
+    """Same technique main() uses for camera framing (obj.bound_box, live-
+    updated by the current depsgraph state after a scene.frame_set()) --
+    reused here to sample posed geometry at a handful of frames without the
+    cost of a full per-vertex evaluated-mesh walk."""
+    bbox_min = mathutils.Vector((math.inf, math.inf, math.inf))
+    bbox_max = mathutils.Vector((-math.inf, -math.inf, -math.inf))
+    for obj in mesh_objs:
+        for corner in obj.bound_box:
+            world_corner = obj.matrix_world @ mathutils.Vector(corner)
+            bbox_min = mathutils.Vector(min(a, b) for a, b in zip(bbox_min, world_corner))
+            bbox_max = mathutils.Vector(max(a, b) for a, b in zip(bbox_max, world_corner))
+    return bbox_min, bbox_max
+
+
+def _skeletal_action_visibly_animates(mesh_objs, action) -> bool:
+    """Samples the posed world-space bounding box at 5 points across
+    `action`'s own real frame range and compares them -- False when nothing
+    measurably moves. A real, confirmed corpus case (not hypothetical):
+    item/objectcomponents/head/helm_armor_dragonhawkrider_d_02_hu_m.m2 was
+    detected as animated (a nonzero-duration `global_seq_1` action existed)
+    and got a full ~500-frame WebM render, but every single rendered frame
+    came back byte-identical -- the action drives a bone with nothing
+    weighted to it (an attachment/light/particle anchor, not a deforming
+    bone), so the whole render was pure wasted GPU time producing a video
+    that looks exactly like one still. This check exists to catch that
+    class of case generically, without needing to know which specific
+    real-world bone/attachment shape triggers it.
+
+    Threshold is relative to the model's own static bounding radius (1e-3
+    of it), not an absolute epsilon -- corpus models range from tiny props
+    to 20x-scaled bosses (see render_glb.py's own clip_end comment), so a
+    fixed absolute drift threshold would be wrong at either extreme.
+    """
+    scene = bpy.context.scene
+    start, end = action.frame_range
+    if end <= start:
+        return False
+
+    scene.frame_set(round(start))
+    ref_min, ref_max = _world_bbox(mesh_objs)
+    ref_radius = max((ref_max - ref_min).length / 2, 0.01)
+
+    moved = False
+    for frac in (0.25, 0.5, 0.75, 1.0):
+        scene.frame_set(round(start + (end - start) * frac))
+        cur_min, cur_max = _world_bbox(mesh_objs)
+        drift = (cur_min - ref_min).length + (cur_max - ref_max).length
+        if drift > ref_radius * 1e-3:
+            moved = True
+            break
+
+    scene.frame_set(scene.frame_start)
+    return moved
+
+
+def render_duration_seconds(armature_obj, materials, mesh_objs) -> tuple[float, "bpy.types.Action | None"]:
     """The model's own real, native animation duration, in seconds -- the
     longest of (a) its currently-active skeletal action (Blender's glTF
     importer already leaves `armature_obj.animation_data.action` set to
     glTF `animations[0]` for direct scene.frame_current scrubbing, no NLA-
     track juggling needed -- confirmed empirically, not assumed: real
     `wolf.m2`, 38 imported actions, `animation_data.action` already points
-    at the array-order-first one post-import) and (b) husk's own animated
+    at the array-order-first one post-import), *provided it actually moves
+    any rendered geometry (`_skeletal_action_visibly_animates` above --
+    otherwise it's discounted to 0, see that function's own doc comment for
+    the real corpus case this closes)*, and (b) husk's own animated
     `texture_transform_animation`/`tint_animation`/`fade_animation` extras
     (`husk_blender_geoset_mask.apply_texture_transform_animation`/
     `apply_tint_fade_animation`, called here as a side effect -- both grow
@@ -236,6 +295,8 @@ def render_duration_seconds(armature_obj, materials) -> tuple[float, "bpy.types.
         action = armature_obj.animation_data.action
         if action is not None:
             skeletal_frames = action.frame_range[1] - action.frame_range[0]
+            if skeletal_frames > 0 and not _skeletal_action_visibly_animates(mesh_objs, action):
+                skeletal_frames = 0.0
 
     scene.frame_start = 1
     scene.frame_end = 1
@@ -392,7 +453,7 @@ def main() -> None:
                  for obj in mesh_objs
                  for i in range(len(obj.material_slots))
                  if obj.material_slots[i].material is not None}
-    duration, action = render_duration_seconds(armature_obj, materials)
+    duration, action = render_duration_seconds(armature_obj, materials, mesh_objs)
 
     final_out_path = out_path
     if duration < MIN_ANIMATED_DURATION_SECONDS:

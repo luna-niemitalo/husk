@@ -98,6 +98,13 @@ one:
   existed. It looks "shiny" but is baked, angle-dependent in a specific
   fixed way, and has no relationship to actual scene lighting.
 
+### Luna Note:
+> It looks "shiny" but is baked, angle-dependent in a specific fixed way, and has no relationship to actual scene lighting.
+
+This has updated since, as now it *does* react to the real scene lighting, actual concrete in game proof that the shader graph has massively advanced since WotLK
+
+---
+
 **Concrete Blender node recipe for this** (standard, well-known technique
 for exactly this kind of matcap shading — not a novel invention needed
 here): `Geometry` node's `Incoming` vector → `Vector Math` `Reflect`

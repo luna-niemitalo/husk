@@ -306,6 +306,7 @@ texture-transform case was) -- flagged, not asserted correct, same
 discipline as the texture-layout overlay's V-flip note above.
 """
 
+import ast
 import json
 import re
 import struct
@@ -1086,7 +1087,24 @@ def _to_pyobj(value):
     if hasattr(value, "keys"):
         return {k: _to_pyobj(value[k]) for k in value.keys()}
     if isinstance(value, str):
-        return value
+        # Blender's glTF importer doesn't always build nested ID properties
+        # for a large/deeply-nested extras value -- confirmed against a real
+        # corpus fixture (creature/vicioussnaplizardmount.m2's
+        # texture_transform_animation, 57 keyframe curves): past whatever
+        # size/depth threshold it gives up and stores the whole value as one
+        # flat string, a Python repr() of the parsed JSON (single-quoted,
+        # not re-serialized JSON -- ast.literal_eval, not json.loads).
+        # Without this, every caller's own `.get()`/`[...]` on what's
+        # assumed to be a dict crashes with AttributeError on real,
+        # non-trivial curve data -- this was a real crash, not a
+        # hypothetical (render TIMEOUT/FAIL on that exact file). Falls back
+        # to the plain string for a genuine short string extras value that
+        # just doesn't happen to parse as a literal.
+        try:
+            parsed = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            return value
+        return _to_pyobj(parsed) if isinstance(parsed, (dict, list)) else value
     if hasattr(value, "__len__") and hasattr(value, "__getitem__"):
         return [_to_pyobj(v) for v in value]
     return value

@@ -108,6 +108,11 @@ LISTFILE = Path("/media/luna/userdata/Downloads/community-listfile.csv")
 THUMBNAIL_SIZE = "normal"
 THUMBNAIL_PIXELS = {"normal": 128, "large": 256, "x-large": 512, "xx-large": 1024}
 THUMBNAIL_CACHE_DIR = Path.home() / ".cache" / "thumbnails" / THUMBNAIL_SIZE
+# Disabled for the full corpus re-render (2026-08-13, prompted directly:
+# "yeet the thumbnail cache generation") -- not a permanent removal, the
+# freedesktop-thumbnail-cache machinery below is left intact so this can be
+# flipped back on later.
+INSTALL_THUMBNAILS = False
 
 def _thumbnail_cache_path(m2_path: Path) -> tuple[Path, str, str]:
     """(cache_png_path, uri, mtime_str) for m2_path's cache entry -- shared
@@ -209,7 +214,9 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
         # only after a successful render call returns).
         existing_image = out_webp if out_webp.exists() else (out_webm if out_webm.exists() else out_png_legacy)
         thumb_ok = False
-        if _thumbnail_is_stale(m2_path):
+        if not INSTALL_THUMBNAILS:
+            thumb_ok = True
+        elif _thumbnail_is_stale(m2_path):
             if existing_image is out_webm:
                 # install_thumbnail reads via PIL, which cannot open a video
                 # file at all -- extracting a real freedesktop thumbnail
@@ -280,7 +287,9 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
             row["render_ok"] = True
             actual_out = out_webp if out_webp.exists() else out_webm
             _log(live_log, "OK", m2_path, f"{time.monotonic()-t0:.1f}s -> {actual_out}")
-            if actual_out is out_webm:
+            if not INSTALL_THUMBNAILS:
+                row["thumb_ok"] = True
+            elif actual_out is out_webm:
                 # See the resume branch's identical comment above -- PIL
                 # can't read a video file, real thumbnail extraction is
                 # separate, unimplemented work.
