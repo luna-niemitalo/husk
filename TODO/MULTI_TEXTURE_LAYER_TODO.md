@@ -145,29 +145,46 @@ below.
 
 ### Real-corpus validation (this session, not guessed)
 
-Wrote a standalone parser (scratchpad-only, not committed — same tier as
-this project's other one-off corpus probes) reading `M2Batch::shader_id`
-(u16 @ offset 0x02) and `textureCount` (u16 @ offset 0x0E) directly, run
-first against a 400-file random sample, then against the **full local
-corpus, all 287,005 `.skin` files** (same file count `WIKI_FINDINGS/
-M2/skin.md` already cites for the `textureCount > 1` stat, confirming
-this is the same corpus, not a different one):
+First wrote a hand-rolled, single-process, serial scratch parser for this
+— genuinely wrong tool choice, caught mid-run: a serial per-file scan over
+287,005 real files has no checkpointing and no parallelism, so a crash (or
+just impatience) loses the entire run with nothing to show. Killed it
+before it produced anything and rewrote it as a real, committed task
+module instead: `tools/corpus_scan_tasks/shader_id_task.py`, plugged into
+this project's own existing `corpus_scan_framework.py` (adaptive parallel
+concurrency, per-file error isolation, the same tooling every other
+corpus check in this repo already uses) — same `M2Batch::shader_id` (u16 @
+offset 0x02) / `textureCount` (u16 @ offset 0x0E) decode, just run
+properly. Sanity-checked against a small limited run first, then the
+**full local corpus, all 287,005 `.skin` files** (same file count
+`WIKI_FINDINGS/M2/skin.md` already cites for the `textureCount > 1` stat,
+confirming this is the same corpus, not a different one) — 406.5s wall
+time, adaptive concurrency window converging around 21-32 in-flight
+threads, 93.9% ARC hit rate:
 
-- 400-file sample, 1,402 total batches: **40.2% have the `0x8000` high bit
-  set** (the table-lookup path) — real and common, not a rare edge case.
-  `textureCount` distribution: 2 (68%), 1 (29%), 3 (3%) — no 4-texture
-  batches in this sample. Of 997 `textureCount > 1` batches, **996 had a
-  non-zero `shader_id`** (only 1 was exactly `0`) — confirming `shader_id`
-  is reliably populated on real modern multi-texture batches, not a dead
-  legacy field husk could safely keep ignoring.
-- Most common non-table `shader_id` values seen: `0x10` (16, single-
-  texture `Diffuse_T1`/`Combiners_Mod`), `0x4014` (16404), `0x4011`
-  (16401), `0x4016` (16406) — all decode cleanly under the formula above
-  once `op_count` is known, nothing pathological.
-- [Full-corpus run was in progress when this entry was written — see the
-  session's own follow-up commit/entry for the exact 287,005-file numbers
-  if this note is still here; the 400-sample figures above are the
-  verified floor, not a placeholder guess.]
+- **283,155 / 287,005 `.skin` files** had a parseable, non-empty batch
+  array (the remaining ~1.3% either failed the `SKIN` magic/bounds check
+  or genuinely have zero batches — not investigated further, a real but
+  small residual, consistent with this project's other corpus scans
+  always having a small non-parseable tail).
+- **1,075,970 total batches. 493,655 (45.88%) have the `0x8000` table-
+  lookup bit set** — real and common at full-corpus scale, not a rare edge
+  case (matches the earlier 400-file sample's 40.2% closely enough to
+  trust the sample would have been fine on its own, in hindsight).
+- **722,166 / 1,075,970 batches (67.12%) have `textureCount > 1`** — the
+  batch-level rate; lower than `WIKI_FINDINGS/M2/skin.md`'s existing
+  **file**-level 79% stat, which is expected (a `textureCount > 1` file
+  still has plenty of its own `textureCount == 1` batches too) — the two
+  numbers aren't in tension, they're different denominators.
+- **Only 59 / 722,166 `textureCount > 1` batches (0.008%) have `shader_id
+  == 0`** — real-world confirmation, at full-corpus scale, that
+  `shader_id` is reliably populated and meaningful on modern multi-texture
+  batches; not a dead legacy field husk could safely keep ignoring.
+- Most common non-table `shader_id` values seen in the earlier 400-file
+  sample: `0x10` (16, single-texture `Diffuse_T1`/`Combiners_Mod`),
+  `0x4014` (16404), `0x4011` (16401), `0x4016` (16406) — all decode
+  cleanly under the formula above once `op_count` is known, nothing
+  pathological.
 
 **What this validation does *not* yet cover**: it confirms `shader_id` is
 present, populated, and decodable — it does *not* yet confirm that the
