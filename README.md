@@ -277,7 +277,14 @@ env-mapped "shine" pass) gets a note on export and carries its extra
 layer(s) as material `extras` (FileDataID, UV set, embedded image if
 `--textures` matches) -- only the first layer is ever wired into the
 rendered material, since core glTF has no slot for WoW's fixed-function
-combiner math.
+combiner math. Every material also carries `pixel_shader`/`vertex_shader`
+extras (real `Combiners_*`/`Diffuse_*` names, `M2Batch.shaderId` +
+`textureCount` resolved via `husk::m2::resolveShaderNames`, transcribed
+from wowdev.wiki's decompiled Cata+ `M2GetPixelShaderID`/
+`M2GetVertexShaderID` -- see `TODO/MULTI_TEXTURE_LAYER_TODO.md`) -- names
+only, not rendered, meant for a Blender-side companion script to build
+the matching node recipe the same way `render_glb.py` already does for
+`blend_mode`.
 
 **Skeleton + animation.** If the M2 has bones -- inline, or via `--skel`
 for models that keep them external instead (see `src/skel.hpp`) -- they

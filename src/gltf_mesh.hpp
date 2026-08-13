@@ -53,6 +53,17 @@ struct Material {
     // `tools/husk_blender_geoset_mask.py` already rebuilds geoset
     // selection and texture-layout overlays for other core-glTF gaps.
     uint16_t blendMode = 0;
+    // The real Combiners_*/Diffuse_* pixel/vertex shader names the Cata+
+    // client would pick for this batch (M2Batch::shaderId + textureCount,
+    // husk::m2::resolveShaderNames -- see src/m2_shader_names.hpp's doc
+    // comment for the wowdev.wiki source and TODO/MULTI_TEXTURE_LAYER_TODO.md
+    // for why this -- not a WotLK-era heuristic -- is the mechanism that
+    // applies here). Extras-only (`shader_names`/`pixel_shader`/
+    // `vertex_shader`), same "tag it, don't guess at rendering" treatment
+    // blendMode above gets; empty when shaderId didn't resolve (an
+    // out-of-range 0x8000 table index -- rare, see resolveShaderNames).
+    std::string pixelShaderName;
+    std::string vertexShaderName;
     bool doubleSided = false;
     // WoW's M2Material flag 0x01 ("Unlit" -- wowdev.wiki
     // M2#Render_flags_and_blending_modes): rendered without directional

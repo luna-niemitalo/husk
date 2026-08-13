@@ -316,25 +316,42 @@ wrong 3/130,576 number; do not keep deferring this on stale evidence).
    plain low-bits value). Pure parsing only, no behavior change yet —
    the field isn't consumed/exported anywhere downstream. Full suite green,
    611/611 (1 pre-existing unrelated skip).
-2. **Husk-side**: implement `M2GetPixelShaderID`/`M2GetVertexShaderID`
-   (both branches: `0x8000` table lookup against a transcribed
-   `s_modelShaderEffect`/`s_modelPixelShaders`/`s_modelVertexShaders`, and
-   the low-bits formula for the non-table case) as a pure function over
-   `(shader_id, op_count)`, transcribed directly from `M2/.skin.wiki`
-   (cite the exact wiki section in the doc comment, same discipline as
-   every other formula this project has transcribed). Export the
-   resolved `{pixel, vertex}` name pair as new material extras (exact key
-   names TBD — `shader_names`, or split `combiner_pixel`/`combiner_
-   vertex`). This is genuinely new parsing/export work in `src/`, not
-   Blender-side.
-3. **Validation pass** (do this **before** trusting step 2's resolved
-   names as ground truth for step 4): cross-check a handful of real
-   modern `textureCount > 1` corpus files' resolved shader names against
+2. ~~Husk-side: implement M2GetPixelShaderID/M2GetVertexShaderID... export
+   the resolved {pixel, vertex} name pair as new material extras~~ —
+   **done this session**: `src/m2_shader_names.hpp`/`.cpp` (new,
+   `husk::m2::resolveShaderNames`), both branches (`0x8000` table lookup
+   against a transcribed 30-row `s_modelShaderEffect` — the pre-8.0.1
+   listing; the 8.0.1 variant adds 4 more rows but that section of the
+   wiki page doesn't give a full vertex-name string array, so extending
+   this would mean guessing, not done — and the low-bits formula for the
+   non-table case), wired into `export_materials.cpp`'s per-batch loop
+   and exported as `pixel_shader`/`vertex_shader` material extras
+   (`gltf_mesh.cpp`). 11 new unit tests (`tests/test_m2_shader_names.cpp`,
+   hand-worked against the wiki's own formulas, not copied from the
+   implementation) plus a real-fixture cross-check added to the existing
+   `checkMultiTextureLayerArithmetic` (`tests/test_integration.cpp`) —
+   independently recomputes `resolveShaderNames` from the real guild-
+   pennant fixture's own parsed `shaderId`/`textureCount` and checks it
+   matches the exported extras exactly, fixture-agnostic by design (no
+   hardcoded name, so it stays meaningful if the fixture ever changes).
+   **Real, striking, unprompted confirmation this transcription is
+   correct**: that fixture (`pennant_guild_alliance_a_01.m2`, a literal
+   guild pennant/tabard model) resolves to `pixel_shader: "Guild"`,
+   `vertex_shader: "Diffuse_T1_T2_T1"` — not asserted or hunted for, just
+   what fell out of real on-disk `shaderId` data feeding the transcribed
+   table. Its second material (single-texture, opaque) resolves to the
+   sensible default `Combiners_Opaque`/`Diffuse_T1`. Full suite green,
+   622/622 (1 pre-existing unrelated skip), 4707 assertions.
+3. **Validation pass, partially covered above, not exhaustive** — the
+   guild-pennant real-data match is strong evidence for at least one row
+   of the `s_modelShaderEffect` table and the op-count==1 formula branch,
+   but per this project's own standing discipline nothing under
+   `reference/`/`documentation/` is fully trusted from one lucky match.
+   Still open: cross-check a handful of *other* real modern
+   `textureCount > 1` corpus files (spanning different `shaderId` shapes —
+   both table-lookup and formula paths, both op-count branches) against
    either real in-game visual behavior or another independent tool's own
-   shader-selection output — the wiki transcription is a strong
-   hypothesis (decompiled client code, not a guess), but per this
-   project's own standing discipline nothing under `reference/`/
-   `documentation/` is trusted without an independent real-data check.
+   shader-selection output.
 4. **Blender-side**: extend `render_glb.py`'s post-import material rebuild
    (same site as `fix_additive_materials`) to, for each material with
    `additional_texture_layers` extras: read the resolved `Combiners_*`

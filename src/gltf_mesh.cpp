@@ -317,6 +317,14 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
         materialExtras["blend_mode"] = tinygltf::Value(static_cast<int>(mat.blendMode));
     }
 
+    // Real Cata+ shader names -- see gltf_mesh.hpp's Material::
+    // pixelShaderName/vertexShaderName doc comment. Empty only when
+    // shaderId didn't resolve (rare, an out-of-range table index).
+    if (!mat.pixelShaderName.empty() || !mat.vertexShaderName.empty()) {
+        materialExtras["pixel_shader"] = tinygltf::Value(mat.pixelShaderName);
+        materialExtras["vertex_shader"] = tinygltf::Value(mat.vertexShaderName);
+    }
+
     // The primary texture's real FileDataID, when known -- see
     // gltf_mesh.hpp's Material::baseColorTextureFileDataId doc comment.
     if (mat.baseColorTextureFileDataId != 0) {

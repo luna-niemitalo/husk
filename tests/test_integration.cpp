@@ -26,6 +26,7 @@
 #include <tiny_gltf.h>
 
 #include "m2.hpp"
+#include "m2_shader_names.hpp"
 #include "run_husk.hpp"
 #include "skin.hpp"
 #include "test_data_paths.hpp"
@@ -821,6 +822,22 @@ void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::stri
             int actualTexCoord = entry.Get("tex_coord").GetNumberAsInt();
             CHECK(actualFdid == expectedFdid);
             CHECK(actualTexCoord == expectedTexCoord);
+        }
+
+        // Same independent-resolution cross-check as above, for
+        // shaderId -> {pixel, vertex} shader name extras
+        // (src/m2_shader_names.hpp). Fixture-agnostic on purpose (see this
+        // function's own doc comment) -- the real guild-pennant fixture
+        // this exercises happens to resolve to the literal "Guild" pixel
+        // shader, a striking real-data confirmation the table transcription
+        // is right (not asserted here by name, to keep this check meaningful
+        // if the fixture ever changes).
+        auto expectedNames = husk::m2::resolveShaderNames(b.shaderId, b.textureCount);
+        if (expectedNames.resolved) {
+            REQUIRE(extras.Get("pixel_shader").IsString());
+            REQUIRE(extras.Get("vertex_shader").IsString());
+            CHECK(extras.Get("pixel_shader").Get<std::string>() == expectedNames.pixel);
+            CHECK(extras.Get("vertex_shader").Get<std::string>() == expectedNames.vertex);
         }
     }
     REQUIRE(foundMultiLayerBatch);

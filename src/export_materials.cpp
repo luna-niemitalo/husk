@@ -13,6 +13,7 @@
 #include <unordered_map>
 
 #include "blp.hpp"
+#include "m2_shader_names.hpp"
 
 namespace husk::commands {
 
@@ -873,6 +874,13 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
         gltf::Material gm;
         gm.alphaMode = alphaModeForBlend(mat.blendMode);
         gm.blendMode = mat.blendMode;
+        {
+            m2::ShaderNames shaderNames = m2::resolveShaderNames(b.shaderId, b.textureCount);
+            if (shaderNames.resolved) {
+                gm.pixelShaderName = shaderNames.pixel;
+                gm.vertexShaderName = shaderNames.vertex;
+            }
+        }
         gm.doubleSided = (mat.flags & kMaterialTwoSidedFlag) != 0;
         gm.unlit = (mat.flags & kMaterialUnlitFlag) != 0;
         // Kept as a live prefix on gm.name while the rest of this loop body

@@ -64,6 +64,7 @@ add_library(husk-lib STATIC
   src/m2_header.cpp
   src/m2_skeleton.cpp
   src/m2_animation.cpp
+  src/m2_shader_names.cpp
   src/m2_scene.cpp
   src/skin.cpp
   src/skel.cpp
@@ -115,6 +116,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_m2_skeleton.cpp
     tests/test_m2_animation.cpp
     tests/test_m2_animation_tracks.cpp
+    tests/test_m2_shader_names.cpp
     tests/test_m2_scene.cpp
     tests/test_skin.cpp
     tests/test_skel.cpp
