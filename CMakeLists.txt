@@ -1,15 +1,44 @@
 cmake_minimum_required(VERSION 3.16)
 project(husk CXX)
 
-# HUSK_VERSION: `git describe` (dirty-tree suffix included, so a build from
-# uncommitted changes is visibly not a clean checkout) if this is a git
-# checkout with git available, else "unknown" -- resolved once here at
-# configure time, not re-run live (~/docs/CLI.md's "no inline computation"
-# rule, applied to the build system instead of a shell command), so `husk
-# --version` can say which build produced a given .glb. Matters for a
-# format that moves under this tool constantly (see README.md's "Why
-# test-first") -- a bug report is only as useful as knowing which husk
-# build it came from.
+# HUSK_VERSION: single source of truth is nix/flake.nix's own HUSK_VERSION
+# let-binding, passed down as the HUSK_ENV_VERSION env var (packages.default
+# sets it directly on the derivation). That env var wins whenever it's set --
+# the nix build's own sandbox has no .git (appSource's fileset deliberately
+# excludes it) and no guaranteed git binary either (nativeBuildInputs is
+# cmake+ninja only, deliberately not git, since a client machine building
+# this package can't be trusted to have git available/on PATH), so this
+# path never shells out to anything. `git describe` (dirty-tree suffix
+# included, so a build from uncommitted changes is visibly not a clean
+# checkout) is only attempted as a dev-convenience fallback for a plain
+# manual `cmake` invocation outside the flake, where HUSK_ENV_VERSION is
+# unset; "unknown" is the last resort if neither is available. Resolved
+# once here at configure time, not re-run live (~/docs/CLI.md's "no inline
+# computation" rule, applied to the build system instead of a shell
+# command), so `husk --version` can say which build produced a given .glb.
+# Matters for a format that moves under this tool constantly (see
+# README.md's "Why test-first") -- a bug report is only as useful as
+# knowing which husk build it came from.
+if(DEFINED ENV{HUSK_ENV_VERSION} AND NOT "$ENV{HUSK_ENV_VERSION}" STREQUAL "")
+  set(HUSK_VERSION "$ENV{HUSK_ENV_VERSION}")
+else()
+  set(HUSK_VERSION "unknown")
+  find_package(Git QUIET)
+  if(Git_FOUND)
+    execute_process(
+      COMMAND ${GIT_EXECUTABLE} describe --always --dirty
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      OUTPUT_VARIABLE HUSK_VERSION_OUTPUT
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      RESULT_VARIABLE HUSK_VERSION_RESULT
+      ERROR_QUIET
+    )
+    if(HUSK_VERSION_RESULT EQUAL 0 AND HUSK_VERSION_OUTPUT)
+      set(HUSK_VERSION "${HUSK_VERSION_OUTPUT}")
+    endif()
+  endif()
+endif()
+message(STATUS "HUSK_VERSION: ${HUSK_VERSION}")
 
 # Nix provides ccache in the dev shell and sets CCACHE_DIR; use it if present
 # rather than assuming it's on PATH outside that shell.
@@ -47,6 +76,7 @@ add_library(husk-lib STATIC
   src/db2table.cpp
   src/chrmodel_db2.cpp
   src/cmd_db2.cpp
+  src/cmd_blp.cpp
   src/gltf_math.cpp
   src/gltf_mesh.cpp
   src/gltf_skeleton.cpp
@@ -96,6 +126,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_listfile.cpp
     tests/test_db2table.cpp
     tests/test_cli_db2.cpp
+    tests/test_cli_blp_export.cpp
     tests/test_cli_chrmodel.cpp
     tests/test_gltf.cpp
     tests/test_gltf_math.cpp

@@ -196,6 +196,84 @@ when switched off:
      conversion was (`DESIGN.md`'s Key design decisions) -- treat the
      overlay's real on-screen position as a hypothesis a human should
      check in the viewport, not a verified fact, until someone does.
+
+A third, independent job, same "one post-import script" precedent: aligns
+every billboard bone (`M2CompBone` billboard flags -> `gltf::Skeleton::
+Joint::billboardMode` -> the `<name>_billboard_<mode>` joint-name suffix
+`gltf_skeleton.cpp` writes, e.g. `bone_1_billboard_spherical`) to face the
+scene's Camera object. Replaces an earlier prototype
+(`/home/luna/Documents/BillboardDetector.blend`, Luna's own scratch file,
+read-only reference -- not part of this repo) that rotated every
+billboard-tagged *vertex* as one rigid group around one shared bounding-box
+centroid, by copying the Camera object's raw world rotation plus a
+hand-tuned fixed Euler offset -- only correct for a single billboard
+sitting near the world origin, blind to multiple independent billboards
+(they'd all pivot around one averaged centroid instead of their own bone),
+and computed but never actually used the spherical/cylindrical distinction
+its own `BilboardType` attribute carried.
+
+  1. `find_billboard_bones` finds every armature bone whose name carries
+     husk's own `_billboard_<mode>` suffix.
+  2. `_bone_facing_axis` fits a plane to that bone's own weighted mesh
+     vertices (rest pose) and picks whichever of the bone's 3 local rest
+     axes is closest to that plane's normal -- computed per bone from real
+     geometry, not assumed to be a fixed axis (e.g. always local X) across
+     every model, since a billboard bone's roll is whatever the M2 file's
+     own bone rotation says. A second local axis ("up", the remaining axis
+     closest to the world axis relevant to this bone's mode) is picked the
+     same way, giving a full [right, up, facing] orthonormal frame per bone.
+  3. **First version of this used a native `Damped Track`/`Locked Track`
+     constraint** (aim the facing axis straight at the Camera *object's
+     position*). Real interactive verification (actually rendering a real
+     fixture, `world/expansion06/doodads/lightforged/
+     7lf_lightforged_smalllamp01.m2`) caught this as visibly wrong before it
+     shipped further: a look-at-the-target-*position* rotation causes
+     parallax skew (the quad renders as a trapezoid, not a flat rectangle)
+     for anything off-center in frame -- real engines billboard sprites by
+     matching the *camera's own orientation* (screen-plane-aligned)
+     instead, precisely to avoid this. Fixed by computing each bone's pose
+     rotation directly (`_billboard_target_frame_world`/
+     `_apply_billboard_frame`), not via a native constraint at all:
+       - `spherical`: bone's [right, up, facing] frame is set to exactly
+         match the Camera's own [X, Y, Z] world axes -- true screen-plane
+         alignment, correct for a rotationally-symmetric glow/flare sprite
+         (the only kind spherical billboards are in practice) anywhere in
+         frame.
+       - `cylindrical_lock_x/y/z`: `up` is *fixed* to the named world axis
+         (never tilts -- the entire point of "locked"); `facing` is a real
+         look-at-the-camera direction, projected onto the plane
+         perpendicular to that axis (yaw only) -- a deliberate look-at here,
+         unlike spherical, matching the classic "Y-locked billboard"
+         grass/tree convention most engines actually use.
+     The math (`R_bone_world = M_target_world @ B_local^T`, both 3x3
+     orthonormal frames) is verified by direct construction, not by hoping
+     a native constraint's owner/target-space semantics line up --
+     numerically confirmed against `7lf_lightforged_smalllamp01.m2`
+     (spherical: facing axis lands within 0.02 degrees of the camera's own
+     backward axis across several camera positions) and
+     `spells/8fx_jaina_blisteringtornado.m2` (mixed spherical +
+     cylindrical_lock_x/z bones on one model: the cylindrical bone's
+     in-plane angle, the only thing a locked-track billboard is supposed to
+     correct, likewise lands within 0.02 degrees; its nonzero *full* 3D
+     angle to the camera is expected -- that's exactly the camera elevation
+     a cylindrical billboard is supposed to ignore).
+
+Applied once immediately (correct for a single still frame -- `render_glb.py`'s
+own use, called right after that script builds its own camera). When
+**not** running under `--background` (an interactive session, the actual
+motivating use case: Luna re-opening an export in Blender's normal GUI),
+also registers a `depsgraph_update_post` handler
+(`_update_registered_billboards`) so every registered bone keeps recomputing
+as the Camera object moves -- the same live behavior a real constraint
+would give, without depending on a native constraint's axis-remap
+semantics for the screen-alignment math. **Not yet independently
+ground-truthed against real in-game billboard behavior** the way the
+M2->glTF coordinate-frame conversion was (`DESIGN.md`'s Key design
+decisions) -- verified here by checking the computed frame lands where the
+math says it should, not by comparing to a real WoW client's own rendering
+frame-by-frame. Luna should confirm the visual result in the interactive
+viewport before trusting it fully, same caveat as the texture-layout
+overlay's V-flip above.
 """
 
 import json
@@ -204,6 +282,7 @@ import struct
 import sys
 
 import bpy
+import mathutils
 
 GROUP_PREFIX = "group_"
 VARIANT_PREFIX = "variant_"
@@ -685,6 +764,271 @@ def apply_texture_layout_overlay(layout, materials):
     return touched
 
 
+BILLBOARD_NAME_RE = re.compile(r"_billboard_(spherical|cylindrical_lock_[xyz])$")
+
+_WORLD_AXES = {
+    'X': mathutils.Vector((1.0, 0.0, 0.0)),
+    'Y': mathutils.Vector((0.0, 1.0, 0.0)),
+    'Z': mathutils.Vector((0.0, 0.0, 1.0)),
+}
+
+
+def find_billboard_bones(armature_obj):
+    """{bone_name: mode} for every bone carrying husk's own `_billboard_<mode>`
+    joint-name suffix (`gltf_skeleton.cpp`, mirroring `m2::billboardModeName`)."""
+    bones = {}
+    for bone in armature_obj.data.bones:
+        m = BILLBOARD_NAME_RE.search(bone.name)
+        if m:
+            bones[bone.name] = m.group(1)
+    return bones
+
+
+def _fit_plane_normal(points):
+    """Plane normal for a (near-)planar point set: the largest-magnitude
+    cross product of any two centroid-relative points, robust against
+    picking a near-collinear pair on a real (not perfectly axis-aligned)
+    billboard quad. None if every pair is degenerate (fewer than 3 real
+    points, or all collinear).
+    """
+    centroid = sum(points, mathutils.Vector()) / len(points)
+    best, best_len = None, 0.0
+    for i in range(len(points)):
+        for j in range(i + 1, len(points)):
+            n = (points[i] - centroid).cross(points[j] - centroid)
+            if n.length > best_len:
+                best, best_len = n, n.length
+    if best is None or best_len < 1e-8:
+        return None
+    return best.normalized()
+
+
+def _bone_local_axis_closest_to(bone, direction_world, exclude=None):
+    """Which of `bone`'s 3 rest-pose local axes (`bone.matrix_local`, already
+    in armature/world space -- Blender bone matrices are relative to the
+    armature, not the parent bone) is closest to `direction_world`. Returns
+    a signed letter ('X'/'-X'/'Y'/...) so the caller can tell a facing axis
+    from its reverse; `exclude` (a bare letter, no sign) drops one axis from
+    consideration, used when picking a *second*, necessarily-different axis
+    on the same bone.
+    """
+    mat = bone.matrix_local.to_3x3()
+    axes = {'X': mat.col[0], 'Y': mat.col[1], 'Z': mat.col[2]}
+    if exclude:
+        axes.pop(exclude, None)
+    best_name, best_dot = None, -1.0
+    for name, axis in axes.items():
+        dot = axis.normalized().dot(direction_world)
+        if abs(dot) > best_dot:
+            best_name = ('-' if dot < 0 else '') + name
+            best_dot = abs(dot)
+    return best_name
+
+
+def _bone_facing_axis(mesh_objs, armature_obj, bone_name):
+    """Which of `bone_name`'s local rest axes is its billboard quad's own
+    facing normal -- fit from the real mesh vertices weighted to that bone
+    (searched across every mesh object, first match wins), not assumed to
+    be a fixed convention across models. None if no mesh carries a matching
+    vertex group with enough weighted geometry to fit a plane.
+    """
+    bone = armature_obj.data.bones[bone_name]
+    for mesh_obj in mesh_objs:
+        vg = mesh_obj.vertex_groups.get(bone_name)
+        if vg is None:
+            continue
+        local_verts = [v.co.copy() for v in mesh_obj.data.vertices
+                       for g in v.groups if g.group == vg.index and g.weight > 0.01]
+        if len(local_verts) < 3:
+            continue
+        normal_local = _fit_plane_normal(local_verts)
+        if normal_local is None:
+            continue
+        normal_world = (mesh_obj.matrix_world.to_3x3() @ normal_local).normalized()
+        return _bone_local_axis_closest_to(bone, normal_world)
+    return None
+
+
+def find_camera_object():
+    """husk's own export always names the render-anchor camera node 'Camera'
+    when the source M2 has one; fall back to the scene's active camera, then
+    any CAMERA-type object, so this still works against a scene where the
+    artist added their own camera instead.
+    """
+    cam = bpy.data.objects.get("Camera")
+    if cam is not None and cam.type == 'CAMERA':
+        return cam
+    if bpy.context.scene.camera is not None:
+        return bpy.context.scene.camera
+    return next((o for o in bpy.data.objects if o.type == 'CAMERA'), None)
+
+
+def _signed_axis_vector(letter):
+    """'X'/'-Z'/... -> the corresponding unit Vector."""
+    v = _WORLD_AXES[letter.lstrip("-")].copy()
+    return -v if letter.startswith("-") else v
+
+
+def _local_frame_matrix(right, up, facing):
+    """3x3 whose *columns* are `right`/`up`/`facing` (each a Vector) --
+    `mathutils.Matrix((row0, row1, row2))` takes rows, so this is built
+    component-wise rather than via `.transposed()`, to keep the column
+    meaning obvious at the call site.
+    """
+    return mathutils.Matrix((
+        (right.x, up.x, facing.x),
+        (right.y, up.y, facing.y),
+        (right.z, up.z, facing.z),
+    ))
+
+
+def _billboard_target_frame_world(mode, bone_head_world, camera_obj):
+    """The desired world-space [right, up, facing] orthonormal frame for a
+    billboard bone, given its mode:
+
+      - spherical: exactly the camera's own [X, Y, Z] world axes (right, up,
+        backward-i.e.-toward-viewer) -- screen-plane-aligned, matching how
+        real-time engines actually billboard sprites (align to the camera's
+        orientation), not a look-at-the-camera's-*position* rotation. The
+        latter (this script's first version, and what a native Damped/
+        Locked Track constraint gives) causes visible parallax skew for
+        anything off-center in frame -- confirmed by actually rendering a
+        real fixture and seeing a trapezoid, not a flat rectangle, before
+        this fix.
+      - cylindrical_lock_<axis>: `up` is *fixed* to the named world axis
+        (never tilts, the entire point of "locked"); `facing` is the
+        direction from the bone to the camera, projects out onto the plane
+        perpendicular to that fixed axis, then normalized -- a real look-at
+        (not screen-aligned) is deliberate here, restricted to yaw only,
+        matching the classic "Y-locked billboard" grass/tree convention.
+    """
+    if mode == "spherical":
+        cam_mat = camera_obj.matrix_world.to_3x3()
+        right = cam_mat.col[0].normalized()
+        up = cam_mat.col[1].normalized()
+        facing = cam_mat.col[2].normalized()  # camera local +Z = toward the viewer, i.e. away from its view direction
+        return right, up, facing
+
+    world_letter = mode.rsplit("_", 1)[-1].upper()  # cylindrical_lock_z -> Z
+    up = _WORLD_AXES[world_letter].copy()
+    toward_camera = (camera_obj.matrix_world.translation - bone_head_world)
+    facing = (toward_camera - toward_camera.dot(up) * up)
+    if facing.length < 1e-8:
+        return None  # camera sits directly on the locked axis through the bone -- no defined yaw
+    facing.normalize()
+    right = up.cross(facing)
+    return right, up, facing
+
+
+def _apply_billboard_frame(armature_obj, bone_name, right_local, up_local, facing_local, camera_obj, mode):
+    """Sets `bone_name`'s pose rotation so its local [right, up, facing]
+    axes map to `_billboard_target_frame_world`'s world-space frame --
+    correct by direct construction (verified numerically, see the module
+    docstring), not dependent on guessing a native constraint's owner/
+    target-space semantics. Returns False (no-op) if the target frame is
+    momentarily undefined (camera on the locked axis).
+    """
+    pbone = armature_obj.pose.bones[bone_name]
+    bone_head_world = armature_obj.matrix_world @ pbone.matrix.translation
+    target = _billboard_target_frame_world(mode, bone_head_world, camera_obj)
+    if target is None:
+        return False
+    right_world, up_world, facing_world = target
+
+    b_local = _local_frame_matrix(right_local, up_local, facing_local)
+    m_target_world = _local_frame_matrix(right_world, up_world, facing_world)
+    # b_local is orthonormal, so its inverse is its transpose -- see the
+    # module docstring's derivation (R_bone_world = M_target_world @ B_local^T).
+    r_bone_world = m_target_world @ b_local.transposed()
+
+    new_world = r_bone_world.to_4x4()
+    new_world.translation = bone_head_world
+    pbone.matrix = armature_obj.matrix_world.inverted() @ new_world
+    return True
+
+
+def _update_registered_billboards(_scene=None, _depsgraph=None):
+    """`depsgraph_update_post` handler body -- recomputes every registered
+    billboard bone's pose from its camera's *current* transform, so moving
+    the camera in an interactive viewport keeps billboards correctly
+    aligned live, not just at the moment `apply_billboard_alignment` ran.
+    Silently drops a registration whose armature/camera object was deleted
+    since (a real possibility in an interactive session, not a batch
+    render) rather than raising out of a handler, which would otherwise
+    permanently break Blender's own depsgraph update cycle.
+    """
+    global _billboard_registry
+    still_valid = []
+    for armature_obj, bone_name, right_local, up_local, facing_local, camera_obj, mode in _billboard_registry:
+        try:
+            _apply_billboard_frame(armature_obj, bone_name, right_local, up_local, facing_local, camera_obj, mode)
+            still_valid.append((armature_obj, bone_name, right_local, up_local, facing_local, camera_obj, mode))
+        except ReferenceError:
+            pass  # one of the objects above was deleted since registration
+    _billboard_registry = still_valid
+
+
+_billboard_registry = []
+
+
+def apply_billboard_alignment(mesh_objs, armature_obj, camera_obj):
+    """Aligns every husk-tagged billboard bone to face `camera_obj` -- see
+    the module docstring's third job for the full design (why this is a
+    direct per-bone matrix computation rather than a native Track
+    constraint) and `_billboard_target_frame_world` for the per-mode math.
+
+    Applied once immediately (correct for a single-frame batch render,
+    `render_glb.py`'s own use); when NOT running in Blender's `--background`
+    mode (an interactive session -- Luna re-opening the export in the
+    normal GUI, the actual motivating use case for this whole feature),
+    also registers a `depsgraph_update_post` handler so moving the camera
+    keeps every billboard correctly aligned live, the same as a real
+    constraint would, without depending on Blender's constraint-space
+    semantics to get the screen-alignment math right.
+
+    Returns the count of bones actually aligned.
+    """
+    bones = find_billboard_bones(armature_obj)
+    if not bones:
+        return 0
+    if camera_obj is None:
+        print("husk_blender_geoset_mask: no Camera object found -- add one before "
+              "running billboard alignment")
+        return 0
+
+    aligned = 0
+    for bone_name, mode in bones.items():
+        facing = _bone_facing_axis(mesh_objs, armature_obj, bone_name)
+        if facing is None:
+            print(f"husk_blender_geoset_mask: billboard bone {bone_name!r} has no "
+                  "weighted geometry to fit a facing axis from -- skipped")
+            continue
+        bone = armature_obj.data.bones[bone_name]
+        up_world_hint = _WORLD_AXES[mode.rsplit("_", 1)[-1].upper()] if mode != "spherical" else _WORLD_AXES['Z']
+        up = _bone_local_axis_closest_to(bone, up_world_hint, exclude=facing.lstrip("-"))
+        if up is None or up.lstrip("-") == facing.lstrip("-"):
+            print(f"husk_blender_geoset_mask: billboard bone {bone_name!r} ({mode}) -- "
+                  "no distinct up axis found, skipped")
+            continue
+
+        right_local = _signed_axis_vector(up).cross(_signed_axis_vector(facing))
+        up_local = _signed_axis_vector(up)
+        facing_local = _signed_axis_vector(facing)
+
+        if not _apply_billboard_frame(armature_obj, bone_name, right_local, up_local, facing_local, camera_obj, mode):
+            print(f"husk_blender_geoset_mask: billboard bone {bone_name!r} ({mode}) -- "
+                  "camera sits on its own locked axis, skipped this frame")
+            continue
+
+        _billboard_registry.append((armature_obj, bone_name, right_local, up_local, facing_local, camera_obj, mode))
+        aligned += 1
+
+    if aligned and not bpy.app.background and _update_registered_billboards not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_update_registered_billboards)
+
+    return aligned
+
+
 def main():
     argv = sys.argv
     filepath = None
@@ -708,6 +1052,12 @@ def main():
     print(f"husk_blender_geoset_mask: {len(all_groups)} geoset group(s) across "
           f"{len(mesh_objs)} mesh object(s), {switch_groups} dropdown switch(es) built, "
           f"{removed} tag bone(s) removed")
+
+    billboard_bones = find_billboard_bones(armature_obj)
+    if billboard_bones:
+        constrained = apply_billboard_alignment(mesh_objs, armature_obj, find_camera_object())
+        print(f"husk_blender_geoset_mask: {constrained}/{len(billboard_bones)} billboard "
+              "bone(s) got a camera-facing constraint")
 
     layout = read_chr_texture_layout(filepath)
     if layout is None:

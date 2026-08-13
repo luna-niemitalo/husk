@@ -560,6 +560,61 @@ std::vector<uint8_t> twoBatchSkin() {
     return skin;
 }
 
+// Same texture setup as twoHardcodedTexturedModel(type0, type1) -- two
+// both-hardcoded slots, no TXID chunk, fdid stays 0 for both -- but two
+// separate M2Materials (not one shared) so each slot's own blendMode can be
+// set independently. Regression fixture for the real `creature/tripod2`
+// bug this pairs with (tests/test_cli.cpp): an M2's "glow" batch (an
+// additive-blend, `blendMode > 2` material) and its "base" batch often
+// share the exact same replaceable-texture type (e.g. both `monster_1`) and
+// the exact same same-basename fuzzy candidate pool (e.g. "tripod2_blue.blp"
+// / "tripod2_blue_glow.blp"), so blendMode is the *only* signal available
+// to tell which candidate each slot actually wants.
+std::vector<uint8_t> twoHardcodedTexturedModelWithBlendModes(uint32_t type0, uint16_t blend0, uint32_t type1,
+                                                                uint16_t blend1) {
+    auto md20 = tinyValidM2();
+    uint32_t texOff = static_cast<uint32_t>(md20.size());
+    md20.resize(texOff + 32, 0);  // 2x M2Texture (type/flags/filename M2Array)
+    std::memcpy(md20.data() + texOff, &type0, 4);       // textures[0].type
+    std::memcpy(md20.data() + texOff + 16, &type1, 4);  // textures[1].type
+    uint32_t two = 2;
+    std::memcpy(md20.data() + 0x050, &two, 4);     // textures.count
+    std::memcpy(md20.data() + 0x054, &texOff, 4);  // textures.offset
+
+    uint32_t matOff = static_cast<uint32_t>(md20.size());
+    md20.resize(matOff + 2 * 4, 0);  // 2x M2Material, one per batch below
+    std::memcpy(md20.data() + matOff + 2, &blend0, 2);      // materials[0].blendMode
+    std::memcpy(md20.data() + matOff + 4 + 2, &blend1, 2);  // materials[1].blendMode
+    std::memcpy(md20.data() + 0x070, &two, 4);
+    std::memcpy(md20.data() + 0x074, &matOff, 4);
+
+    uint32_t comboOff = static_cast<uint32_t>(md20.size());
+    putU16(md20, 0);  // textureCombos[0] -> texture index 0
+    putU16(md20, 1);  // textureCombos[1] -> texture index 1
+    std::memcpy(md20.data() + 0x080, &two, 4);       // textureCombos.count
+    std::memcpy(md20.data() + 0x084, &comboOff, 4);  // textureCombos.offset
+
+    std::vector<uint8_t> file;
+    putTag(file, "MD21");
+    putU32(file, static_cast<uint32_t>(md20.size()));
+    file.insert(file.end(), md20.begin(), md20.end());
+    return file;  // no TXID chunk -- both slots stay fdid == 0
+}
+
+// Same shape as twoBatchSkin() but batch 1 references materialIndex 1
+// instead of sharing batch 0's materialIndex 0 -- pairs with
+// twoHardcodedTexturedModelWithBlendModes' two independently-blended
+// materials.
+std::vector<uint8_t> twoBatchSkinDifferentMaterials() {
+    auto skin = twoBatchSkin();
+    uint16_t one16 = 1;
+    // Batch layout matches twoBatchSkin() exactly (submeshOff=44,
+    // batchOff=44+2*0x30=140, batch 1 at batchOff+0x18), materialIndex at
+    // +0x0A within each 0x18-byte batch record.
+    std::memcpy(skin.data() + 140 + 0x18 + 0x0A, &one16, 2);
+    return skin;
+}
+
 // Two submesh/batch pairs, both pointing at textureComboIndex 0 and
 // materialIndex 0 -- i.e. two batches that resolve to the exact same
 // material in every way husk models one. Regression fixture for

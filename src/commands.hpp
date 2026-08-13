@@ -46,6 +46,13 @@ int db2Info(int argc, char** args);
 // src/cmd_db2.cpp's own doc comment).
 int db2Export(int argc, char** args);
 
+// `blp-export` -- converts a BLP2 texture (or, with --dir, every *.blp file
+// in a directory) to a real PNG, reusing the exact blp::decode/
+// blp::encodePng pipeline `husk export` already uses internally to embed
+// textures (src/cmd_blp.cpp's own doc comment; TODO/TEXTURE_TOOLING_TODO.md
+// for why this exists alongside the separate Python blp/ tool).
+int blpExport(int argc, char** args);
+
 // `export`'s real flag surface (see DESIGN.md's "CLI argument grammar for
 // export"), captured here (rather than as a local in cmd_export.cpp) so
 // main.cpp's `--print-completion` can register the exact same options onto

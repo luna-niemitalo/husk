@@ -364,6 +364,9 @@ int main(int argc, char** argv) {
         "  db2-info <file.db2>          parse and print a WDC5 DB2 file (proof of concept, see --help)\n"
         "  db2-export <file.db2>|--dir <dir> <out.sqlite> [--dbd-dir DIR]\n"
         "                               convert WDC5 DB2 file(s) to a real SQLite database (see --help)\n"
+        "  blp-export <file.blp> <out.png>\n"
+        "  blp-export --dir <blp-dir> <out-dir>\n"
+        "                               convert BLP2 texture(s) to PNG (see --help)\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -391,6 +394,9 @@ int main(int argc, char** argv) {
     }
     if (command == "db2-export") {
         return husk::commands::db2Export(restArgc, rest);
+    }
+    if (command == "blp-export") {
+        return husk::commands::blpExport(restArgc, rest);
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;

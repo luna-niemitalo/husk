@@ -17,9 +17,13 @@ error" discipline as husk's own ParseError text.
 """
 import math
 import sys
+from pathlib import Path
 
 import bpy
 import mathutils
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import husk_blender_geoset_mask as billboard_align  # noqa: E402 -- see sys.path.insert above
 
 
 def fix_additive_materials() -> int:
@@ -181,6 +185,29 @@ def main() -> None:
     cam_data.clip_end = distance + radius * 1.1
     bpy.context.scene.camera = cam_obj
 
+    # Billboard bones (husk's own `_billboard_<mode>` joint-name suffix,
+    # gltf_skeleton.cpp) need a real Camera object to face -- this is the
+    # earliest point in this script one exists, so alignment happens here,
+    # after framing, not at import time. See husk_blender_geoset_mask.py's
+    # module docstring for the full design (a direct per-bone matrix
+    # computation, not a native constraint).
+    #
+    # view_layer.update() is required here, not optional: cam_obj's
+    # rotation_euler was just set above by plain Python assignment, which
+    # does NOT immediately refresh cam_obj.matrix_world -- that only
+    # happens on the next depsgraph evaluation. Without this call,
+    # apply_billboard_alignment reads a stale (pre-rotation) camera
+    # matrix, producing a visibly skewed (trapezoid, not flat) billboard --
+    # caught by actually rendering a real fixture and looking at the
+    # image, not by the headless matrix-math verification alone (that
+    # test's own camera object never had its rotation change after
+    # creation, so it never exercised this staleness).
+    bpy.context.view_layer.update()
+    armature_obj = next((o for o in bpy.context.scene.objects if o.type == "ARMATURE"), None)
+    billboards_aligned = 0
+    if armature_obj is not None:
+        billboards_aligned = billboard_align.apply_billboard_alignment(mesh_objs, armature_obj, cam_obj)
+
     sun_data = bpy.data.lights.new("sun", type="SUN")
     sun_data.energy = 5.0
     sun_obj = bpy.data.objects.new("sun", sun_data)
@@ -209,6 +236,8 @@ def main() -> None:
 
     bpy.ops.render.render(write_still=True)
     extra = f", {fixed_additive} additive material(s) rebuilt" if fixed_additive else ""
+    if billboards_aligned:
+        extra += f", {billboards_aligned} billboard bone(s) aligned to camera"
     print(f"OK rendered {len(mesh_objs)} mesh object(s), bbox radius {radius:.3f}{extra} -> {out_path}")
 
 

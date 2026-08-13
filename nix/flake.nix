@@ -117,6 +117,7 @@
           pname = "husk";
           src = appSource;
           version = HUSK_VERSION;
+          HUSK_ENV_VERSION = HUSK_VERSION;
 
           nativeBuildInputs = [
             pkgs.cmake

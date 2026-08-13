@@ -612,6 +612,55 @@ TEST_CASE("husk export: an ambiguous slot's default prefers a real recognized-ca
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export: an additive-blend (blendMode > 2) batch's ambiguous slot prefers a "
+          "'_glow'-suffixed candidate as its default, while a normal opaque batch sharing the exact "
+          "same same-basename pool still avoids it -- real bug: creature/tripod2.m2 has a base-skin "
+          "batch (blendMode 0) and a separate additive glow batch (blendMode 4), both referencing a "
+          "replaceable texture type with no filename/FileDataID, both drawing from the same "
+          "{blue,blue_glow}-style pool -- before this fix both batches picked the same non-glow "
+          "candidate, so the glow batch rendered with a flat base-color texture instead of its own "
+          "real masked emissive image") {
+    auto dir = defaultsDir("glow-blend-mode");
+    // type 11/12 mirror the real tripod2.m2 fixture (monster_1/monster_2,
+    // wowdev.wiki replaceable-texture types) -- the exact type values don't
+    // matter for this test beyond being distinct and unrecognized by
+    // candidateCategoryTypes (so neither slot's pool gets category-filtered
+    // away, same as a real creature model with no character-customization
+    // category vocabulary in its texture directory).
+    writeFile(dir / "glowtest.m2", twoHardcodedTexturedModelWithBlendModes(11, 0, 12, 4));
+    writeFile(dir / "glowtest00.skin", twoBatchSkinDifferentMaterials());
+    writeFile(dir / "glowtest_blue.png", solidColorPng(4, 4, 100, 100, 200));
+    writeFile(dir / "glowtest_blue_glow.png", solidColorPng(4, 4, 10, 10, 10));
+
+    auto result = runHusk("export " + (dir / "glowtest.m2").string());
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string err, warn;
+    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, (dir / "glowtest.glb").string()));
+    REQUIRE(model.materials.size() == 2);
+
+    for (const auto& mat : model.materials) {
+        // blend_mode extras is only ever present for blendMode > 2
+        // (gltf::Material::blendMode's own doc comment) -- its presence
+        // alone already tells the two materials in this fixture apart.
+        bool isAdditive = mat.extras.Has("blend_mode");
+        REQUIRE(mat.extras.Has("alternate_textures"));
+        auto alt = mat.extras.Get("alternate_textures");
+        REQUIRE(alt.ArrayLen() == 2);
+        std::string defaultFilename = alt.Get(0).Get("filename").Get<std::string>();
+        if (isAdditive) {
+            CHECK(defaultFilename == "glowtest_blue_glow.png");
+        } else {
+            CHECK(defaultFilename == "glowtest_blue.png");
+        }
+    }
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk export: two batches resolving to the exact same material (same materialIndex, "
           "same textureComboIndex) share one gltf::Material instead of getting one each "
           "(EYES_ON_FINDINGS.md: real corpus models had ~500 batches producing ~500 materials "

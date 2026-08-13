@@ -406,19 +406,17 @@ std::pair<uint32_t, uint32_t> pngDimensions(const std::vector<uint8_t>& png) {
     return {be32(16), be32(20)};
 }
 
-// A "_glow_<color>" (or "_glow") suffix is a real, common WoW weapon-texture
-// naming convention -- a mostly-black ADD-blend highlight layer meant to sit
-// *under* the model's real diffuse in a separate additive-blend batch, never
-// a stand-in for the base diffuse itself. Confirmed against real corpus
-// bytes, not guessed: item/objectcomponents/weapon/mace_1h_raidmidnight_d_01
-// _glow_blue.blp decodes to a 2048x1024 near-solid-black image with a small
-// blue highlight region, while the model's own real base diffuse,
-// _blue.blp, is a normal 512x256 detailed texture -- `orderCandidatesForDefault`
-// used to rank purely by decoded pixel area, so the glow texture's much
-// larger canvas (needed for a smooth additive falloff, unrelated to how
-// "important" the asset is) outranked the real diffuse and got wired in as
-// this model's opaque/unlit base material's default texture, rendering the
-// whole weapon near-solid-black in every corpus render. Checked as a whole
+// A "_glow_<color>" (or "_glow") suffix is a real, common WoW texture
+// naming convention -- a highlight/emissive layer meant to be rendered in
+// its *own* separate additive-blend batch, never a stand-in for a normal
+// opaque/alpha batch's base diffuse. Confirmed against real corpus bytes,
+// not guessed, two ways: item/objectcomponents/weapon/
+// mace_1h_raidmidnight_d_01_glow_blue.blp decodes to a 2048x1024
+// near-solid-black image with a small blue highlight region, while the
+// model's own real base diffuse, _blue.blp, is a normal 512x256 detailed
+// texture; creature/tripod2/tripod2_blue_glow.blp decodes to a mostly-white
+// masked emissive image, visually unrelated to tripod2_blue.blp's real
+// full-color diffuse past sharing a basename prefix. Checked as a whole
 // underscore-delimited token (not a bare substring match) so a hypothetical
 // "afterglow"-style name isn't misclassified.
 bool isGlowVariantCandidate(const std::filesystem::path& path, const std::string& modelBasenameLower) {
@@ -433,12 +431,29 @@ bool isGlowVariantCandidate(const std::filesystem::path& path, const std::string
 }
 
 // Reorders `candidates` (in place, already filterCandidatesForType's
-// output) so the preferred default-pick lands at front(), by three real,
+// output) so the preferred default-pick lands at front(), by four real,
 // measured/verified signals, in order:
 //
-// 1. Not a "glow" variant (isGlowVariantCandidate's own doc comment) --
-//    checked before pixel area specifically because area alone picks the
-//    glow variant, the real bug this signal fixes.
+// 0. `preferGlow` (the caller's own batch is itself additive, `blendMode >
+//    2` -- the same threshold `gltf::Material::blendMode`'s own doc
+//    comment already uses for "no core-glTF alphaMode equivalent"): a
+//    "glow" candidate (isGlowVariantCandidate) is preferred, not avoided.
+//    Real bug this closes: `creature/tripod2.m2` has two ambiguous batches
+//    sharing one same-basename candidate pool (tripod2_{blue,green,purple,
+//    red}.blp + their _glow counterparts) -- one batch is the normal
+//    opaque base skin (blendMode 0), the other is a separate additive-blend
+//    glow layer (blendMode 4, a different M2Texture replaceable-type slot
+//    with no filename/FileDataID of its own to disambiguate by). Before
+//    this signal, both batches independently ranked the same non-glow
+//    candidate first (signal 1 below, unconditionally avoiding "glow"),
+//    so the additive batch rendered with a flat base-color texture instead
+//    of its own real masked emissive image -- confirmed by actually
+//    decoding both files and looking (see isGlowVariantCandidate's doc
+//    comment).
+// 1. Not a "glow" variant (isGlowVariantCandidate's own doc comment),
+//    *unless* `preferGlow` inverted this above -- checked before pixel
+//    area specifically because area alone picks the glow variant, the
+//    real (opaque-batch) bug this signal originally fixed.
 // 2. Decoded pixel area, largest first. Not a category-name heuristic --
 //    real evidence against `bloodelffemale_hd` found the *same* recognized
 //    category can span genuinely different kinds of asset: its own
@@ -475,7 +490,8 @@ bool isGlowVariantCandidate(const std::filesystem::path& path, const std::string
 // is decoded at most once for the *whole* export, not once per batch.
 void orderCandidatesForDefault(std::vector<std::filesystem::path>& candidates, const std::string& texturesDir,
                                 const std::string& texturesOutDir, const std::string& modelBasenameLower,
-                                std::map<std::filesystem::path, std::vector<uint8_t>>& byteCache) {
+                                std::map<std::filesystem::path, std::vector<uint8_t>>& byteCache,
+                                bool preferGlow) {
     auto areaOf = [&](const std::filesystem::path& p) -> uint64_t {
         auto cached = byteCache.find(p);
         if (cached == byteCache.end()) {
@@ -490,7 +506,7 @@ void orderCandidatesForDefault(std::vector<std::filesystem::path>& candidates, c
                       [&](const std::filesystem::path& a, const std::filesystem::path& b) {
                           bool glowA = isGlowVariantCandidate(a, modelBasenameLower);
                           bool glowB = isGlowVariantCandidate(b, modelBasenameLower);
-                          if (glowA != glowB) return !glowA;
+                          if (glowA != glowB) return preferGlow ? glowA : !glowA;
                           uint64_t areaA = areaOf(a), areaB = areaOf(b);
                           if (areaA != areaB) return areaA > areaB;
                           auto isBaseLayer = [&](const std::filesystem::path& p) {
@@ -1101,7 +1117,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                             // (orderCandidatesForDefault's doc comment) lands at
                             // front(), the one that becomes the wired default.
                             orderCandidatesForDefault(matching, texturesDir, texturesOutDir, modelBasenameLower,
-                                                       ambiguousCandidateCache);
+                                                       ambiguousCandidateCache, mat.blendMode > 2);
                             for (const auto& candidatePath : matching) {
                                 auto cached = ambiguousCandidateCache.find(candidatePath);
                                 if (cached == ambiguousCandidateCache.end()) {

@@ -133,7 +133,11 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
         // comment), else an index-correlatable fallback -- either beats
         // Blender's own generic "Bone"/"Node" numbering, which isn't
         // guaranteed to match husk's own bone-index order.
-        out.jointNodes[i].name = !src.name.empty() ? src.name : "bone_" + std::to_string(i);
+        std::string name = !src.name.empty() ? src.name : "bone_" + std::to_string(i);
+        if (!src.billboardMode.empty()) {
+            name += "_billboard_" + src.billboardMode;
+        }
+        out.jointNodes[i].name = name;
         if (!src.billboardMode.empty()) {
             tinygltf::Value::Object extras;
             extras["billboard"] = tinygltf::Value(src.billboardMode);
