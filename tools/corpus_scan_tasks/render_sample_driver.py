@@ -20,15 +20,18 @@ CSV is also written for the final aggregate report.
 
 Concurrency is live-tuned by corpus_scan_framework.py's own
 AdaptiveConcurrency (same TCP-AIMD-style controller that module's docstring
-describes), not a fixed number applied for the whole run -- --max-workers
-is a ceiling to ramp up toward, not the count used throughout. Chosen after
-finding this pipeline's own real per-file cost is heavily heavy-tailed (a
-plain item renders in ~2s, a complex character in 50-90s), the same shape
-that controller was built for.
+describes) against the real machine's own core count as its ceiling -- no
+manual override exists for this, deliberately: a hand-picked worker count
+only second-guesses an algorithm built specifically to find the real
+operating point on its own, and has already done exactly that once (capped
+a run at 16 workers on a 32-thread machine for no real reason). Chosen
+after finding this pipeline's own real per-file cost is heavily
+heavy-tailed (a plain item renders in ~2s, a complex character in 50-90s),
+the same shape that controller was built for.
 
 Usage:
     direnv exec . tools/venv/bin/python tools/corpus_scan_tasks/render_sample_driver.py \\
-        corpus_reports/render_sample.txt corpus_reports/renders --max-workers 16
+        corpus_reports/render_sample.txt corpus_reports/renders
 """
 from __future__ import annotations
 
@@ -169,7 +172,15 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
     render_dir = Path(render_dir_str)
     live_log = Path(live_log_str)
     rel = m2_path.resolve().relative_to(CORPUS_ROOT)
-    scratch_glb = SCRATCH_DIR / rel.parent / (rel.name + ".glb")
+    # rel.stem, not rel.name -- rel.name is "foo.m2" (the source file's own
+    # real extension still attached), which used to leak straight into the
+    # render output's name ("foo.m2.webp") for no reason, a real naming bug
+    # caught directly ("that's not how any of that works... basically the
+    # same as if I just exported it with husk" -- husk export's own -o
+    # naming never does this). rel.stem strips exactly the source's own
+    # extension, same as `husk export foo.m2 -o foo.glb` would name it by
+    # hand.
+    scratch_glb = SCRATCH_DIR / rel.parent / (rel.stem + ".glb")
     # New renders write .webp for a static model (render_glb.py switched
     # from PNG, lighter for the live gallery) or .webm for an animated one
     # (render_glb.py decides which, only after inspecting the model -- see
@@ -177,12 +188,13 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
     # the PNG->WebP switch, or from before --listfile existed, still counts
     # as "already done" here too -- only files whose output was
     # deliberately deleted (the missing-texture-gap re-render pass) or
-    # never rendered at all get redone. tools/live_gallery/server.py needs
-    # to recognize all three extensions (not yet updated for .webm as of
-    # this comment -- see the TODO file's own "real downstream ripple" note).
-    out_webp = render_dir / rel.parent / (rel.name + ".webp")
-    out_webm = render_dir / rel.parent / (rel.name + ".webm")
-    out_png_legacy = render_dir / rel.parent / (rel.name + ".png")
+    # never rendered at all get redone. tools/live_gallery/server.py's own
+    # basename-join logic (_index_log_by_source_basename) must stay in sync
+    # with this naming, since it derives the same stem independently from
+    # the driver's own log line.
+    out_webp = render_dir / rel.parent / (rel.stem + ".webp")
+    out_webm = render_dir / rel.parent / (rel.stem + ".webm")
+    out_png_legacy = render_dir / rel.parent / (rel.stem + ".png")
     scratch_glb.parent.mkdir(parents=True, exist_ok=True)
     out_webp.parent.mkdir(parents=True, exist_ok=True)
 
@@ -325,19 +337,15 @@ def main() -> int:
 
     file_list = Path(sys.argv[1])
     render_dir = Path(sys.argv[2])
-    # --max-workers is a *ceiling* the controller ramps up toward, not a
-    # fixed count applied for the whole run -- this pipeline's own per-file
-    # cost is heavily heavy-tailed (a plain item renders in ~2s, a complex
-    # character in 50-90s, confirmed in the live log), exactly the shape
-    # corpus_scan_framework.py's own AdaptiveConcurrency docstring describes
-    # itself as built for. A fixed guess either leaves throughput on the
-    # table (too low) or thrashes CPU/GPU without any way to notice (too
-    # high, and this pipeline has no other feedback signal short of a human
-    # watching gpu_busy_percent by hand, which is how the last few sessions'
-    # own throughput bugs actually got caught).
+    # No manual override for this, deliberately -- the ceiling is always
+    # the real machine's own core count. AdaptiveConcurrency (below) is the
+    # whole point: it ramps the live window up/down against measured
+    # throughput on its own, exactly the shape corpus_scan_framework.py's
+    # own docstring describes it as built for. A hand-picked --max-workers
+    # value only ever second-guesses that algorithm with a worse, static
+    # guess -- caught directly after a run got capped at 16 on a 32-thread
+    # machine for no real reason. Don't reintroduce this flag.
     max_workers = os.cpu_count() or 8
-    if "--max-workers" in sys.argv:
-        max_workers = int(sys.argv[sys.argv.index("--max-workers") + 1])
 
     render_dir.mkdir(parents=True, exist_ok=True)
     out_csv = render_dir.parent / (render_dir.name + "_results.csv")

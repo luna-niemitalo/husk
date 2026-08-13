@@ -276,12 +276,11 @@ class Index:
 
         # Status is keyed by the *source* path the driver logged (an .m2
         # under CORPUS_ROOT), not the rendered file's own relative path --
-        # join by basename, stripping only the render's own extension
-        # (render_sample_driver.py names outputs "<source-basename>.webp"
-        # for a static model, "<source-basename>.webm" for an animated one,
-        # or "<source-basename>.png" for images rendered before the PNG->WebP
-        # switch -- matching on the stem keeps all three eras joinable
-        # through one path, no extension-specific logic needed here).
+        # join by basename, stripping the render's own extension AND (via
+        # _index_log_by_source_basename) the source .m2's own extension, so
+        # "bar.m2" (the log) and "bar.webp"/"bar.webm"/"bar.png" (the
+        # render, render_sample_driver.py's own `rel.stem` naming) reduce to
+        # the same "bar" key -- no extension-specific logic needed here.
         status_by_source_basename: dict[str, tuple[str, str]] = {}
         if self._log_status:
             with self._lock:
@@ -351,20 +350,30 @@ class Index:
 
 def _index_log_by_source_basename(log_status: dict[str, tuple[str, str]]) -> dict[str, tuple[str, str]]:
     """render_sample_driver.py logs the *source* .m2 path; the file it
-    wrote lives at "<same path relative to CORPUS_ROOT>.<ext>" under the
-    render root, `ext` being "webp"/"webm" (current) or "png" (renders from
-    before the PNG->WebP switch) -- all stripped to the same source
-    basename by the caller's own os.path.splitext, so this only needs to
-    key by that basename, not guess an extension. We don't know
-    CORPUS_ROOT here (this tool is deliberately generic, not husk-specific)
-    -- so match by basename instead of full path: a log entry for
-    ".../foo/bar.m2" is joined to any indexed image whose own stem is
-    "bar.m2". Ambiguous only if two different source trees share an
-    identical basename, which doesn't happen in this corpus's layout.
+    wrote lives at "<same path relative to CORPUS_ROOT, minus the source's
+    own extension>.<ext>" under the render root as of this fix
+    (render_sample_driver.py's own `rel.stem`) -- but every render done
+    before this fix (the pre-existing ~130k-file `renders_full` tree this
+    tool was already pointed at, not just today's own batch) used `rel.name`
+    instead, carrying the source's own extension too (e.g. "bar.m2.webp",
+    not how `husk export`'s own `-o` naming works either -- a real bug,
+    fixed directly). Rather than requiring every already-rendered file on
+    disk to be renamed for their status to keep showing correctly, this
+    indexes each log entry under *both* possible stems ("bar" for new-style
+    renders, "bar.m2" for old-style ones still sitting on disk) -- whichever
+    naming convention a given file's own render actually used, its status
+    still joins correctly. We don't know CORPUS_ROOT here (this tool is
+    deliberately generic, not husk-specific) -- so match by basename instead
+    of full path: a log entry for ".../foo/bar.m2" is joined to any indexed
+    image whose own stem is "bar" or "bar.m2". Ambiguous only if two
+    different source trees share an identical basename, which doesn't
+    happen in this corpus's layout.
     """
     by_basename: dict[str, tuple[str, str]] = {}
     for path, (status, detail) in log_status.items():
-        by_basename[os.path.basename(path)] = (status, detail)
+        base = os.path.basename(path)
+        by_basename[base] = (status, detail)  # old-style: "bar.m2"
+        by_basename[os.path.splitext(base)[0]] = (status, detail)  # new-style: "bar"
     return by_basename
 
 
