@@ -96,15 +96,30 @@ now just a pointer, not a duplicate description.
   "Former item 4... is resolved outright").
 - **missing**: human-readable animation names, `AnimationData`'s only
   remaining relevance here.
-- **local DB2 status**: unconfirmed whether `animationdata.db2` is present
-  in a real local extraction — not checked this pass. If it's there
-  (same tier as every other `dbfilesclient/` table already confirmed
-  present for the character-customization chain), this is a cheap,
-  single-table `--dbd-dir` lookup, not an external dependency.
-- **resolution path**: husk's own job if the local file exists — check
-  `ls dbfilesclient/ | grep -i animationdata` before assuming this needs
-  an outside tool. Purely cosmetic (clip naming), not visual-correctness,
-  so low priority regardless of who implements it.
+- **local DB2 status (checked 2026-08-14): present, but the `Name` column
+  is gone.** `animationdata.db2` is a real file in the local
+  `/media/luna/data/wow_export/dbfilesclient/` extraction (`husk db2-info`:
+  1,858 rows, `layout_hash: 0xbbf66a3c`). That layout hash matches WoWDBDefs'
+  own `LAYOUT BBF66A3C` entry for `AnimationData.dbd`
+  (`reference/WoWDBDefs/definitions/AnimationData.dbd`) —
+  `$noninline,id$ID<32> Fallback<u16> BehaviorTier<u8> BehaviorID<16>
+  Flags<32>[2]`, four fields, no `Name` anywhere. Cross-checked against
+  wowdev.wiki's own `DB/AnimationData` history
+  (`documentation/wowdev-wiki/md/DB/AnimationData.md`): `Name` (a
+  `stringref`) was present through at least Warlords (6.x) but is absent
+  from every WoWDBDefs layout from `LAYOUT 03182786` (7.3.5+) onward — a
+  real client-side schema change, not a gap in the local extraction. Also
+  confirmed structurally: the file's own `string_table_size` is 2 bytes
+  (just the mandatory empty-string entry), too small to hold any real
+  per-row name data even if a field pointed at it.
+- **resolution path**: genuinely closed, not husk's to fix — the data this
+  item wants doesn't exist in any DB2 table reachable from a modern
+  extraction. A name-by-ID mapping is only recoverable from a pre-7.3
+  client's own `AnimationData.dbc`/`.db2` (out of scope — husk never reads
+  DB2 from anywhere but a local extraction of the client version it's
+  pointed at) or from the client binary's own hardcoded animation-ID enum
+  (not a data file at all). Purely cosmetic either way (clip naming, not
+  visual-correctness) — not worth chasing further.
 
 ## 3. `blendTimeOperation`
 
@@ -170,9 +185,10 @@ a hypothetical engine's:
    the note above) — geoset selection's remaining Blender-side work is
    done too; `.bone` correction *application* is tracked separately in
    `TODO/BONE_CORRECTION_APPLICATION_TODO.md`, out of this file's scope.
-2. **`aliasNext`/animation names** (#2) — purely a usability/naming
-   problem, not visual-correctness; cheap if the local table exists,
-   unconfirmed whether it does.
+2. **`aliasNext`/animation names** (#2) — checked 2026-08-14: genuinely
+   closed, not actionable. The local `animationdata.db2`'s real layout
+   (`0xbbf66a3c`) dropped the `Name` column entirely somewhere around
+   7.3.5 — no local DB2 table can answer this anymore, full stop.
 3. **`blendTimeOperation`** (#3) — no data exists to find, local or
    otherwise; "author a reasonable heuristic," not "go acquire a table."
 4. **Sound linking** (#4) — unconfirmed whether local DB2 access actually
