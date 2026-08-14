@@ -109,6 +109,36 @@ TEST_CASE("writeGlb: a primitive's materialIndex out of range for `materials` th
     CHECK_THROWS_AS(husk::gltf::writeGlb(mesh), husk::gltf::Error);
 }
 
+TEST_CASE("writeGlb: a Mask-alphaMode material gets the real WoW alpha-test cutoff, not glTF's implicit default") {
+    auto mesh = buildTriangleMesh();
+    std::vector<husk::gltf::Material> materials(1);
+    materials[0].alphaMode = husk::gltf::Material::AlphaMode::Mask;
+    mesh.primitives[0].materialIndex = 0;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.materials.size() == 1);
+    CHECK(model.materials[0].alphaMode == "MASK");
+    CHECK(model.materials[0].alphaCutoff == doctest::Approx(128.0 / 255.0));
+}
+
+TEST_CASE("writeGlb: Opaque/Blend materials don't get an explicit alphaCutoff") {
+    auto mesh = buildTwoPrimitiveQuad();
+    std::vector<husk::gltf::Material> materials(2);
+    materials[0].alphaMode = husk::gltf::Material::AlphaMode::Opaque;
+    materials[1].alphaMode = husk::gltf::Material::AlphaMode::Blend;
+
+    auto glb = husk::gltf::writeGlb(mesh, materials);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.materials.size() == 2);
+    // tinygltf's own default when nothing set it -- confirms this session's
+    // fix only touches Mask materials, not every material unconditionally.
+    CHECK(model.materials[0].alphaCutoff == doctest::Approx(0.5));
+    CHECK(model.materials[1].alphaCutoff == doctest::Approx(0.5));
+}
+
 TEST_CASE("writeGlb: each primitive keeps its own indices, attributes are shared") {
     auto mesh = buildTwoPrimitiveQuad();
     std::vector<husk::gltf::Material> materials(2);

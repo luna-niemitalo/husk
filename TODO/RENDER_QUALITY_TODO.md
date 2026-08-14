@@ -451,13 +451,19 @@ Emission shading post-import; verified against real fixtures.
   through to plain alpha-`BLEND`, a plausible wrong answer (could read as
   either wrongly-transparent or wrongly-opaque depending on the base
   texture's luminance) for whatever real material uses them.
-- **`alphaCutoff` is never set explicitly** anywhere in the export path —
-  glTF's spec default of 0.5 is left implicit for every `MASK`-mode
-  material (WoW blend mode 1, `M2BLEND_ALPHA_KEY`). Whether 0.5 actually
-  matches WoW's own alpha-test threshold has never been checked against
-  real data. If it doesn't, this would show up as exactly "alpha-tested
-  edges being wrong" (e.g. foliage/hair edges too hard or too soft, a
-  visible fringe).
+- ~~**`alphaCutoff` is never set explicitly**~~ — **checked and fixed
+  2026-08-14.** The real client's own threshold is `0.501960814`
+  (`reference/wow.export/src/js/3D/renderers/M2RendererGL.js`:
+  `u_alpha_test`, i.e. 128/255) — cross-checked against every 8-bit alpha
+  value: it's mathematically indistinguishable from glTF's implicit 0.5
+  default for byte-quantized textures (both land strictly between the
+  127/255 and 128/255 texel values, so no real texture's rounding could
+  ever tell them apart). husk now sets `alphaCutoff` explicitly to
+  `128.0/255.0` on every `MASK`-mode material (`gltf_mesh.cpp`'s
+  `emitMaterial`) rather than relying on that coincidence — real, not a
+  behavior change for any already-rendered output, just removes the
+  question. Two new tests (`tests/test_gltf_mesh.cpp`). Full suite green,
+  634/634.
 
 **Unverified, not confirmed broken**: `apply_tint_fade_animation`
 (`tools/husk_blender_geoset_mask.py`) — structurally sound, doesn't crash
@@ -629,8 +635,10 @@ listed here so they aren't lost:
    `class == "unexplained"`), including a 16,632-vertex opaque doodad
    rendering nothing. Not one root cause — likely several — but concrete
    and worth its own dedicated investigation before more guessing.
-4. **Alpha cutoff + Mod/Mod2x (§4)** — both are small, well-scoped,
-   already-cited-by-name gaps.
+4. ~~**Alpha cutoff (§4)**~~ — **fixed 2026-08-14.** **Mod/Mod2x (§4)**
+   still open — needs a real multiply-blend shader shape in
+   `render_glb.py` (no `Add Shader` equivalent for multiply), no demonstrated
+   real-corpus repro driving it yet.
 5. **Billboard ground-truth pass (§5)** — needs Luna's own real-client
    comparison, same as the earlier billboard/geoset-mask verification
    pattern in this project's history; not something to chase blind in

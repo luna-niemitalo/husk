@@ -92,6 +92,18 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
     tinygltf::Material tm;
     tm.name = mat.name;
     tm.alphaMode = alphaModeString(mat.alphaMode);
+    if (mat.alphaMode == Material::AlphaMode::Mask) {
+        // The real client's own alpha-test threshold (reference/wow.export's
+        // M2RendererGL.js: shader.set_uniform_1f('u_alpha_test', 0.501960814),
+        // i.e. 128/255) rather than trusting glTF's own implicit 0.5 default
+        // to coincidentally match. It does, for every 8-bit-quantized alpha
+        // value -- both thresholds land strictly between the 127/255 and
+        // 128/255 texel values, so no byte-precision texture can tell them
+        // apart -- but setting it explicitly to the real value removes that
+        // as a question rather than relying on a coincidence (see
+        // TODO/RENDER_QUALITY_TODO.md's now-closed §4 alphaCutoff item).
+        tm.alphaCutoff = 128.0 / 255.0;
+    }
     tm.doubleSided = mat.doubleSided;
     tm.pbrMetallicRoughness.baseColorFactor = {mat.baseColorFactor[0], mat.baseColorFactor[1],
                                                  mat.baseColorFactor[2], mat.baseColorFactor[3]};
