@@ -55,16 +55,36 @@ something unparsed when it was actually fully resolved elsewhere --
 `m2_skeleton.hpp`'s `Bone` struct, see git history) — same root cause,
 opposite symptom.
 
-**Not exhaustive — real remaining scope**: the same pattern is still
-scattered across the rest of the codebase (at minimum `db2.hpp`/`dbd.hpp`/
-`db2table.hpp`/`listfile.hpp`/`blp.hpp`/`m2_animation.hpp`/`m2_header.hpp`
-all have "skipped"/"out of scope"/"unread" language inline, not audited
-this session for which are genuine scope-decision prose worth migrating
-vs. legitimate boundary-contract/why content that should stay per
-`CODE_COMMENTS.md`'s own rules). A full sweep needs a per-file read, not
-a grep-and-batch-edit — some of what grep finds is correctly inline
-(boundary contracts, gotchas, non-obvious why), only the "this is a
-scope decision spanning the whole struct/module" class should move.
+**Second pass (2026-08-14): audited the 7 files named above, one by one.**
+Grepped each for "out of scope"/"not implemented"/"unread"/"skipped"/
+"not parsed" and read every hit in context. Verdict: six of seven were
+already correctly inline (boundary contracts, gotchas, non-obvious why —
+`blp.hpp`'s BLP0/BLP1 scope note, `listfile.hpp`'s malformed-line-skip
+rationale, `db2table.hpp`'s offset-map-sections-still-skipped note
+[confirmed still true by checking `db2table.cpp` — no offset-map handling
+wired in there despite `db2.cpp`'s own separate `decodeOffsetMapRecord`
+existing for the lower-level reader], `db2.hpp`'s dropped-`extra*`-fields
+note, `dbd.hpp`'s two `nonInline`/uncheckable-field notes, `m2_animation.hpp`'s
+Color/TextureWeight doc comment — verbose but a real field-level contract,
+not sweep-worthy scope prose). **One real, stale claim found and fixed**:
+`m2_header.hpp`'s `physFileId` doc comment said `.phys` was "a format husk
+doesn't parse yet" — false since `--phys`/`src/phys.cpp` shipped (this
+project's own flagship physics/collision feature); corrected in place to
+describe what's actually true (the *format* is fully parsed, this field is
+only the header's own FileDataID pointer to it, still unresolved to a path
+by husk itself, which was the real, still-accurate boundary). Same
+"stale claim, not a scope decision" shape the first pass already found
+twice in `m2_skeleton.hpp`. No `DESIGN.md` ledger entries needed this
+pass — nothing found was broad enough scope-decision prose to warrant
+migrating; the ledger already covers the real cases from the first pass.
+Full suite green, 634/634 (comment-only + one doc-comment fix, no
+behavior change).
+
+**Remaining real scope**: the rest of `src/` (this pass covered exactly
+the 7 files the first pass's own note named, not a full-codebase sweep) —
+still needs a per-file read before this item can close, same caveat as
+before: grep finds candidates, only a human/agent read tells which are
+genuine scope-decision essays worth migrating.
 
 ## 3. A corpus-wide "dangling internal reference" scan — a deliberate counterweight to completeness metrics
 

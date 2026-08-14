@@ -122,11 +122,16 @@ struct Header {
     std::optional<uint32_t> skeletonFileId;
 
     // FileDataID of an external .phys file (wowdev.wiki M2#PFID) --
-    // physics/collision data (cloth, ragdoll-style secondary motion), a
-    // format husk doesn't parse yet. Same non-goal as skeletonFileId: not
-    // resolved to a path (no CASC/listfile access), surfaced purely so
-    // `husk info` doesn't leave this sidecar invisible the way every other
-    // Legion+ sidecar chunk already is (SFID/AFID/BFID/SKID/TXID).
+    // physics/collision data (cloth, ragdoll-style secondary motion), fully
+    // parsed by src/phys.cpp and attached via `husk export --phys` when
+    // given a real path (see DESIGN.md's Key design decisions). This field
+    // is only the header's own pointer to that file's FileDataID -- same
+    // non-goal as skeletonFileId: not resolved to a path itself (no CASC/
+    // listfile access), surfaced purely so `husk info` doesn't leave this
+    // sidecar invisible the way every other Legion+ sidecar chunk already
+    // is (SFID/AFID/BFID/SKID/TXID). Callers that want the actual physics
+    // data still need a .phys path from elsewhere (see `husk export`'s
+    // `--phys` flag).
     std::optional<uint32_t> physFileId;
 
     // FileDataIDs parallel to `textures` (same index, same count), from the
