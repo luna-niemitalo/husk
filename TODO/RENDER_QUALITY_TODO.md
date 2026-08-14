@@ -511,6 +511,41 @@ would be a different and more concerning bug) before concluding this is
 "working as expected given no DB2 data" vs. a real resolution bug. Not
 investigated further this session — flagged with concrete repros only.
 
+**Follow-up (2026-08-14): investigated both named repros directly —
+hypothesis not confirmed, doesn't currently reproduce.** Re-exported both
+with `--textures` pointed at their real local directories and inspected
+husk's own per-material resolution notes (not just guessed from `husk
+info`): `dragonspawntwilightoverlord` — both `monster_1` (texture 2) and
+`monster_2` (texture 0) hardcoded slots share the *exact same* 6-file
+candidate pool (`{red,green,purple}{1,2}.blp`, no category tokens husk
+recognizes) and both independently landed on the identical default
+(`green1`) across all 4 materials — not two different colors, the
+"switches per face" mechanism this item hypothesized. `dragonspawn2caster`
+— a richer case (11 candidates spanning real `body_*`/`armor_*` tokens
+plus one bare `4898856.blp`), same result: both `monster_1` and
+`monster_2` independently resolved to the identical bare file
+(`4898856.blp`, sorting first alphabetically — `classifyCandidateCategory`
+doesn't recognize `body`/`armor` as tokens on their own, only
+`skin_color`/`face`/`hair_color`/`jewelry_color`/`blindfold`/
+`body_jewelry`/`bracelets`, so both fall through to the same unlabeled-
+tier tiebreak). Rendered both (`render_glb.py`, real animated clips,
+first frame inspected): neither shows a jarring color mismatch between
+body sections — `dragonspawntwilightoverlord` reads as a consistent blue
+dragon, `dragonspawn2caster` a consistent purple/gray camo pattern. **The
+underlying structural gap `orderCandidatesForDefault` doc'd above is
+still real** (alphabetical-fallback is arbitrary, not principled) — but
+it turns out to be *self-consistent* per model in practice: every
+ambiguous slot on one model shares the same candidate pool and the same
+deterministic tiebreak, so they agree with each other even though the
+specific choice is arbitrary. Whatever produced the real "switches per
+face" report was either a stale pre-fix render (this exact tiebreak
+logic has had several rounds of changes, `CLAUDE_HISTORY.md`) or is
+actually the already-tracked `MULTI_TEXTURE_LAYER_TODO.md` gap (both
+files have real `textureCount > 1` batches whose second layer husk
+doesn't render) — not a fresh resolution-inconsistency bug. Downgraded
+accordingly; no code change, nothing to fix here without a fresher
+repro.
+
 **Worth re-checking, not re-investigating from scratch**: `bloodelffemale_hd.m2`'s
 three `textureType == 0` FileDataID slots (3536810/4530998/5210137) with
 no local file in the real export directory, previously flagged as "genuinely
@@ -733,9 +768,12 @@ listed here so they aren't lost:
    comparison, same as the earlier billboard/geoset-mask verification
    pattern in this project's history; not something to chase blind in
    Blender alone a second time.
-6. **Ambiguous-pool tiebreak (§3)** — lower severity, needs a concrete
-   example pulled from the current `renders_full_review.jsonl` flagged
-   set before there's anything specific to fix.
+6. ~~**Ambiguous-pool tiebreak (§3)**~~ — checked 2026-08-14 against both
+   named repros (`dragonspawntwilightoverlord`/`dragonspawn2caster`):
+   doesn't currently reproduce, real cause of the original "switches per
+   face" report unconfirmed but plausibly stale or the already-tracked
+   `MULTI_TEXTURE_LAYER_TODO.md` gap. Nothing to fix without a fresher
+   repro — see §3's own follow-up for the full writeup.
 7. **Particle-effect Blender-rendering task (§2)** — the 36-file known
    gap is already excluded from review, so a *real, textured, simulated*
    particle system is still genuinely optional scope expansion, not
