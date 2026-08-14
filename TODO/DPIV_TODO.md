@@ -138,6 +138,41 @@ an extreme) is still unexplained and worth investigating on its own,
 possibly by axis-pair (are field0/field2 jointly closer to some other
 real, non-center landmark, e.g. a specific bone's own local position?).
 
+**Follow-up, same session: ran the real corpus-scale test this section's
+own "next step" called for** (all 2,632 DPIV files, all 2,943 records —
+`husk info`'s already-verified `bounding_box` field, offset `0x0A0` in the
+MD20 blob, parsed directly rather than shelling out per file; zero
+unreadable/unparseable files). The 4-file hand sample generalizes, and
+sharpens into a real, coherent shape:
+
+- **X and Y are both tightly centered on the model's own footprint**: Y
+  (field1) has a median offset of just 0.2% from its own bbox center,
+  91.4% of records within 10%; X (field0) median 2.0%, 77.0% within 10%.
+  Both far stronger at corpus scale than the 4-file sample suggested for
+  X specifically.
+- **Z (field2) is not centered at all** — median 45.4% off-center, only
+  13.3% within 10%. Confirms the earlier geometric cross-reference's
+  `pa_kite_lamp` result (a real outlier on the *center* test) was the
+  corpus-wide norm, not a fluke.
+- **Z instead sits consistently near the model's own base**: re-measured
+  as offset from Z-*min* (not center) — median **6.1%** of the model's
+  own Z-range above its own lowest point, 65.9% of records within ±20% of
+  the base, and **10.1% sit fully below the model's own bounding box
+  entirely** (negative offset) — the exact shape `pa_kite_lamp`'s own
+  single-record cross-reference found by hand (2.5 units below its own
+  mesh).
+
+**Real, corpus-validated shape, not just a lead anymore**: DPIV's point
+is `(X-center, Y-center, near-or-below-base-Z)` — i.e. a point roughly
+below the object's own horizontal (footprint) center, at or near ground
+level. That's exactly the profile a **ground-contact / shadow-projection
+anchor point** would have (raised as a hypothesis earlier in this file,
+now with real corpus-wide support, not just plausibility). Field-semantic
+question for `field0`/`field1` themselves is now close to settled (bbox-
+center coordinates, not independently meaningful positions); `field2`
+remains the interesting one — a real placement value, not a coordinate
+that reduces to bbox geometry alone.
+
 **Caveat, stated honestly**: the geometric cross-reference above assumes
 DPIV's three point fields are in the *same* per-axis order/convention as
 M2's own vertex positions (and thus subject to the same `kWowToGltf`
@@ -156,17 +191,23 @@ mislabeled.
    cross-checks (an elevated prop and a ground prop each) before treating
    "not on the surface" as general, but the negative "not bone-pinned"
    result and the elevation lead below are real enough to act on.
-2. ~~Run the field1-vs-own-bounding-box test~~ — **done this session**,
-   4-file hand sample: corrected the "elevation" hypothesis to "`field1`
-   sits within ~4% of the model's own Y-axis bbox center" (see above) —
-   much stronger fit, no exceptions in this sample. **New next step this
-   unlocks**: verify the corrected "`field1` ≈ Y-bbox-center" hypothesis
-   at real corpus scale (all 2,632 DPIV files) — cheap, `husk info`
-   already exposes each file's own `bounding_box` with no `.glb` export
-   needed; would also be the natural place to investigate `field0`/
-   `field2`'s own weaker, inconsistent bbox relationship (center some
-   files, near-extreme others) rather than leaving it as an open loose
-   end.
+2. ~~Run the field1-vs-own-bounding-box test at corpus scale~~ — **done
+   this session**, all 2,632 files/2,943 records: confirmed X/Y are
+   bbox-center coordinates (91.4%/77.0% within 10% of center) and found
+   the real shape of `field2` — near-or-below the model's own base
+   (median 6.1% above Z-min, 65.9% within ±20%, 10.1% fully below), not
+   bbox-center at all (only 13.3% within 10% of *center*). See above for
+   the full writeup — this promotes the "ground-contact/shadow-projection
+   anchor" hypothesis from a lead to a real, corpus-supported shape.
+   **New next step this unlocks**: `field2`'s own real distribution is
+   the interesting remaining question — is it *always* within some small
+   fixed tolerance of the base for a "pinned to the ground" subset, with a
+   separate, different pattern (e.g. a fixed offset, or bone-relative
+   instead of bbox-relative) for the outliers? Worth histogramming
+   `field2`'s offset-from-Z-min distribution directly rather than just the
+   two summary buckets used this session, and cross-referencing outliers
+   against filenames/content type the way `DETL`'s `flags` bit was
+   cracked.
 3. **Check whether same-file point sets close into a polygon.** The
    partial constant-Y pattern (2/3 above) is suggestive of a flat footprint
    — check real inter-point distances/angles within a file to see if 3–4
