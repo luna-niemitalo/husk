@@ -206,31 +206,12 @@ Concretely, the same re-open-the-raw-JSON approach needs to:
    dropdown (`item_index + 2`, `GEOSET_MASK_TODO.md`'s historical
    investigation, now folded into `DESIGN.md`), just driven by real data
    instead of a human click.
-3. `selected_by_choice_ids` on `bone_correction_sets` has no consumer at
-   all yet in Blender. **Correction to an earlier version of this
-   paragraph**: "husk never applies `.bone` corrections to the render" is
-   true of the C++ `husk export` binary specifically (`DESIGN.md`'s Key
-   design decisions), but `tools/husk_blender_geoset_mask.py` is not bound
-   by that same boundary — it already applies real husk-exported extras to
-   actual Blender rendering for billboard alignment, texture-transform
-   animation, tint/fade curves, and now geoset switching, precisely because
-   it *is* "a downstream renderer or Blender script that does have the
-   slot-selection mapping to apply on top" (`DESIGN.md`'s own phrasing for
-   what `bone_correction_sets` was always waiting for). Now that
-   `selected_by_choice_ids` gives it exactly that mapping, there's no
-   architectural reason left not to build this.
-   The real blocker is narrower and still genuinely open: the correction's
-   own *application semantics* were reverse-engineered only as far as "a
-   small delta matrix per bone" (`src/bone.hpp`'s doc comment) — multiply
-   order, local-vs-model space, and where in the parent chain it composes
-   are all unconfirmed against real client behavior. Applying an unverified
-   composition in Blender risks a confidently-wrong pose correction, the
-   same failure shape this project has hit before (the additive-blend
-   `unlit`-co-occurrence bug, the billboard-alignment math that shipped
-   flagged-unverified until ground-truthed). Needs the same treatment
-   billboard alignment got: a real side-by-side against the client (or WMV/
-   wow.export) on a model with a visually-obvious correction before
-   trusting any specific composition order, not more code archaeology.
+3. `selected_by_choice_ids` on `bone_correction_sets` has no Blender
+   consumer yet — **tracked separately now, see
+   `TODO/BONE_CORRECTION_APPLICATION_TODO.md`**, not here. Structurally
+   different task than steps 1/2/4 above (an unverified-math investigation
+   gated on a real human ground-truth comparison, not a data-plumbing
+   task), split out so it doesn't get lost inside this mostly-closed file.
 4. Verify headlessly against a real fixture with a real resolved geoset
    choice: confirm the dropdown lands on the expected item and the
    corresponding vertex group actually shows/hides, same verification
