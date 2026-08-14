@@ -737,8 +737,15 @@ listed here so they aren't lost:
    example pulled from the current `renders_full_review.jsonl` flagged
    set before there's anything specific to fix.
 7. **Particle-effect Blender-rendering task (§2)** — the 36-file known
-   gap is already excluded from review, so this is genuinely optional
-   scope expansion, not urgent — real particle simulation reconstruction
-   in `tools/husk_blender_geoset_mask.py`/`render_glb.py`, same shape as
-   the existing billboard/texture-transform-animation companion-script
-   work, whenever it's worth the investment.
+   gap is already excluded from review, so a *real, textured, simulated*
+   particle system is still genuinely optional scope expansion, not
+   urgent. **A smaller first step landed 2026-08-14**:
+   `tools/husk_blender_geoset_mask.py`'s new `apply_emitter_markers`
+   places a small, distinctly-shaped/colored placement marker at every
+   real `ribbon_emitters`/`particle_emitters` anchor, bone-following
+   through animation — not a simulation (no texture/blend/curve data, see
+   its own doc comment), but it closes the "100% invisible, nothing there
+   at all" gap `cloudswampgas_white_clickable` above illustrated, with an
+   honest placeholder rather than nothing. The real simulation
+   (`render_glb.py` integration, real per-emitter texture/blend/curve
+   data via `husk dump-chunks`) is still open, same shape as before.

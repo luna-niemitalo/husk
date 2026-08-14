@@ -304,6 +304,30 @@ fixture with actual data this session (the corpus scan found real examples,
 but none was narrowed to a minimal, skin-batch-verified fixture the way the
 texture-transform case was) -- flagged, not asserted correct, same
 discipline as the texture-layout overlay's V-flip note above.
+
+**Fifth, independent job**: `apply_emitter_markers` places a small,
+distinctly-shaped/colored, non-textured marker object at every real
+`ribbon_emitters`/`particle_emitters` placement anchor (`read_emitter_
+anchors`) -- previously, every M2Ribbon/M2Particle-driven effect (weapon
+glow trails, magic auras, ...) was 100% invisible in Blender, since husk's
+own extras deliberately carry only the minimal id/joint/position anchor,
+not the full per-emitter texture/blend/curve data (too high-volume to
+embed per-.glb -- see gltf_skeleton.hpp's `EmitterAnchor` doc comment; the
+full data lives in `husk dump-chunks`'s separate JSON output, out of this
+function's scope). This is a placement marker, not a particle-effect
+reconstruction -- a real simulation matching WoW's own visual output
+(texture, color, motion) is a separate, much bigger task
+(TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md's own stages 1-2). See
+`apply_emitter_markers`'s own doc comment for the placement math (direct
+matrix construction, same "verified by construction, not dependent on
+native constraint/parenting semantics" approach as billboard alignment
+above -- deliberately not Blender's native BONE object-parenting, whose
+tail-vs-head origin convention isn't worth a separate verification pass
+for a debug marker). Verified headlessly against the real
+`sword_1h_artifactskywall_d_06.m2` fixture (1 ribbon + 2 particle
+anchors): both marker kinds land within ~10% of the mesh's own bounding-
+box diagonal from center (well inside the model's own volume, not off in
+space), and a zero-emitter model (`bloodelffemale.m2`) is a silent no-op.
 """
 
 import ast
@@ -312,6 +336,7 @@ import re
 import struct
 import sys
 
+import bmesh
 import bpy
 import mathutils
 
@@ -657,32 +682,46 @@ def apply_geoset_switches(mesh_objs, armature_obj, extra_default_overrides=None)
     return all_groups, switch_groups, removed
 
 
-def read_chr_texture_layout(filepath):
-    """Reads `chr_texture_layout` straight out of the exported file's own
-    raw glTF JSON (skins[].extras) -- see the module docstring for why
-    Blender's own importer can't be used for this one piece of data.
-    Returns None if `filepath` is falsy, isn't a .glb/.gltf husk could have
-    written, or genuinely has no such extras (no --char-layout-id was given
-    at export time) -- never a guess, never a hard failure of the rest of
-    this script's work.
+def _read_glb_json(filepath):
+    """Parses `filepath`'s raw glTF JSON chunk directly -- the shared
+    mechanics every `read_*` function below needs, since Blender's own
+    importer has no supported extras target for a glTF *skin* at all
+    (confirmed empirically: node/mesh/material/camera/light/scene extras
+    all land as real Blender custom properties post-import; skin extras
+    land nowhere -- see the module docstring). Third real occurrence of
+    this exact parse (chr_texture_layout, enabled_geosets, now emitter
+    anchors) is what earns it as a shared helper per this project's own
+    "abstractions are earned" rule, rather than a fourth copy-pasted body.
+    Returns None on any falsy/unreadable/unparseable `filepath` -- never a
+    guess, never a hard failure of the caller's own work.
     """
     if not filepath:
         return None
     try:
         if filepath.lower().endswith(".gltf"):
             with open(filepath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        else:
-            with open(filepath, "rb") as f:
-                raw = f.read()
-            # glTF binary container: 12-byte header (magic/version/length),
-            # then chunks of (length: u32, type: u32, data). The first chunk
-            # is always JSON per the glTF 2.0 spec -- no need to scan for it.
-            (chunk_length, _chunk_type) = struct.unpack_from("<II", raw, 12)
-            data = json.loads(raw[20:20 + chunk_length])
+                return json.load(f)
+        with open(filepath, "rb") as f:
+            raw = f.read()
+        # glTF binary container: 12-byte header (magic/version/length), then
+        # chunks of (length: u32, type: u32, data). The first chunk is
+        # always JSON per the glTF 2.0 spec -- no need to scan for it.
+        (chunk_length, _chunk_type) = struct.unpack_from("<II", raw, 12)
+        return json.loads(raw[20:20 + chunk_length])
     except (OSError, ValueError, struct.error):
         return None
 
+
+def read_chr_texture_layout(filepath):
+    """Reads `chr_texture_layout` straight out of the exported file's own
+    raw glTF JSON (skins[].extras). Returns None if `filepath` is falsy,
+    isn't a .glb/.gltf husk could have written, or genuinely has no such
+    extras (no --char-layout-id was given at export time) -- never a
+    guess, never a hard failure of the rest of this script's work.
+    """
+    data = _read_glb_json(filepath)
+    if data is None:
+        return None
     for skin in data.get("skins", []):
         extras = skin.get("extras")
         if extras and "chr_texture_layout" in extras:
@@ -692,33 +731,65 @@ def read_chr_texture_layout(filepath):
 
 def read_enabled_geosets(filepath):
     """Reads `enabled_geosets` straight out of the exported file's own raw
-    glTF JSON (skins[].extras) -- same "Blender's importer has no supported
-    extras target for a glTF skin at all" reason `read_chr_texture_layout`
-    already re-opens the raw file for, not a new gap. Returns a list of
-    `{"choice_id": int, "geoset_id": int}` dicts, or None if `filepath` is
-    falsy, isn't a real husk `.glb`/`.gltf`, or genuinely has no such extras
-    (no `--customization-choice-ids` was given at export time, or none of
-    the given choice IDs resolved a geoset) -- never a guess.
+    glTF JSON (skins[].extras). Returns a list of `{"choice_id": int,
+    "geoset_id": int}` dicts, or None if `filepath` is falsy, isn't a real
+    husk `.glb`/`.gltf`, or genuinely has no such extras (no
+    `--customization-choice-ids` was given at export time, or none of the
+    given choice IDs resolved a geoset) -- never a guess.
     """
-    if not filepath:
+    data = _read_glb_json(filepath)
+    if data is None:
         return None
-    try:
-        if filepath.lower().endswith(".gltf"):
-            with open(filepath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        else:
-            with open(filepath, "rb") as f:
-                raw = f.read()
-            (chunk_length, _chunk_type) = struct.unpack_from("<II", raw, 12)
-            data = json.loads(raw[20:20 + chunk_length])
-    except (OSError, ValueError, struct.error):
-        return None
-
     for skin in data.get("skins", []):
         extras = skin.get("extras")
         if extras and "enabled_geosets" in extras:
             return extras["enabled_geosets"]
     return None
+
+
+def read_emitter_anchors(filepath):
+    """Reads `ribbon_emitters`/`particle_emitters` straight out of the
+    exported file's own raw glTF JSON (skins[].extras) -- see
+    gltf_skeleton.hpp's `Skeleton::EmitterAnchor` doc comment: these are
+    deliberately *not* real glTF child nodes (unlike Attachment/Event/
+    Light) despite sharing the exact same "translation relative to an
+    owning joint" shape, because a model can carry dozens of them each
+    with several would-be animation curves -- too high-volume to embed
+    per-.glb, so only the minimal id/joint/position anchor lives here; the
+    full per-emitter data (texture, blend mode, curves) lives in `husk
+    dump-chunks`'s separate JSON output instead, out of this function's
+    reach (and this script's current scope -- see `apply_emitter_markers`).
+
+    Also reads `skins[0].joints`/`nodes[].name` from the same JSON, needed
+    to resolve an anchor's raw `joint` (an index into `skin.joints`, i.e.
+    a raw M2 bone index -- see `gltf_skeleton.cpp`'s `skin.joints.push_back`
+    loop) to the real Blender bone name Blender's importer will have used
+    (`Skeleton::Joint::name` when known, else husk's own `bone_<index>`
+    fallback -- never guessable from the index alone without this lookup).
+
+    Returns `(ribbon_anchors, particle_anchors, joint_bone_names)` --
+    the first two are lists of `{"id", "joint", "position": {"x","y","z"}}`
+    dicts (empty, not None, when absent -- these are usually-present, not
+    opt-in-flag-gated the way chr_texture_layout/enabled_geosets are), the
+    third a `{joint_index: bone_name}` dict. All empty when `filepath` is
+    falsy/unreadable or the model has no skin at all.
+    """
+    data = _read_glb_json(filepath)
+    if data is None:
+        return [], [], {}
+    nodes = data.get("nodes", [])
+    joint_bone_names = {}
+    ribbon_anchors, particle_anchors = [], []
+    for skin in data.get("skins", []):
+        skin_joints = skin.get("joints", [])
+        for joint_index, node_index in enumerate(skin_joints):
+            if 0 <= node_index < len(nodes):
+                joint_bone_names[joint_index] = nodes[node_index].get("name", f"bone_{joint_index}")
+        extras = skin.get("extras")
+        if extras:
+            ribbon_anchors = extras.get("ribbon_emitters", []) or ribbon_anchors
+            particle_anchors = extras.get("particle_emitters", []) or particle_anchors
+    return ribbon_anchors, particle_anchors, joint_bone_names
 
 
 def enabled_geosets_to_default_overrides(enabled_geosets):
@@ -1155,6 +1226,150 @@ def apply_billboard_alignment(mesh_objs, armature_obj, camera_obj):
         bpy.app.handlers.depsgraph_update_post.append(_update_registered_billboards)
 
     return aligned
+
+
+# --- ribbon/particle emitter placement markers ---
+# `EmitterAnchor`'s id/joint/position (see `read_emitter_anchors`'s doc
+# comment) is real, but husk's own extras deliberately don't carry the full
+# per-emitter texture/blend/curve data (TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md
+# tracks the separate, much bigger task of a real particle-simulation
+# reconstruction using `husk dump-chunks`'s fuller JSON output). What this
+# closes instead: previously, every M2Ribbon/M2Particle-driven effect
+# (weapon glow trails, magic auras, ...) was 100% invisible in Blender --
+# not "wrong," just nothing there at all. A small, distinctly-shaped/
+# colored, non-textured marker at each anchor's real bind-pose position,
+# parented to its owning bone through animation, turns "nothing" into "an
+# honest placeholder marking where a real effect attaches" -- the same
+# "tag it, don't guess" incremental step this project already took for
+# geoset tag joints/bone-correction extras before either had a full
+# consumer, not a claim that this *is* the particle effect.
+
+_RIBBON_MARKER_COLOR = (0.1, 0.9, 0.9, 1.0)   # cyan -- ribbons (trails)
+_PARTICLE_MARKER_COLOR = (1.0, 0.3, 0.9, 1.0)  # magenta -- particles (bursts/auras)
+_EMITTER_MARKER_RADIUS = 0.15  # world units (WoW yards) -- small, non-intrusive
+
+
+def _emitter_marker_prototype(kind, color):
+    """One shared (mesh, material) pair per `kind` ("ribbon"/"particle"),
+    built once and instanced (linked mesh data, like the geoset tag joints'
+    own shared-instance treatment) across every anchor of that kind --
+    cheap even for a model with dozens of emitters, and exactly one
+    material per kind to toggle/hide from the Outliner if unwanted, not
+    one per anchor.
+    """
+    mesh_name = f"HuskEmitterMarker_{kind}"
+    mesh = bpy.data.meshes.get(mesh_name)
+    if mesh is None:
+        if kind == "ribbon":
+            # A flat diamond (4-gon), distinct silhouette from the
+            # particle marker's sphere -- oriented in the XZ plane (glTF/
+            # husk's own Y-up convention) so it reads as a small pennant/
+            # trail marker rather than a ground-flat disc.
+            bm_verts = [(0, _EMITTER_MARKER_RADIUS, 0), (_EMITTER_MARKER_RADIUS, 0, 0),
+                        (0, -_EMITTER_MARKER_RADIUS, 0), (-_EMITTER_MARKER_RADIUS, 0, 0)]
+            mesh = bpy.data.meshes.new(mesh_name)
+            mesh.from_pydata(bm_verts, [], [[0, 1, 2, 3]])
+            mesh.update()
+        else:
+            mesh = bpy.data.meshes.new(mesh_name)
+            bm = bmesh.new()
+            bmesh.ops.create_icosphere(bm, subdivisions=1, radius=_EMITTER_MARKER_RADIUS)
+            bm.to_mesh(mesh)
+            bm.free()
+
+    mat_name = f"HuskEmitterMarker_{kind}"
+    mat = bpy.data.materials.get(mat_name)
+    if mat is None:
+        mat = bpy.data.materials.new(mat_name)
+        mat.node_tree.nodes.clear()
+        emission = mat.node_tree.nodes.new("ShaderNodeEmission")
+        emission.inputs["Color"].default_value = color
+        emission.inputs["Strength"].default_value = 2.0
+        output = mat.node_tree.nodes.new("ShaderNodeOutputMaterial")
+        mat.node_tree.links.new(emission.outputs["Emission"], output.inputs["Surface"])
+    return mesh, mat
+
+
+def _emitter_marker_world_matrix(armature_obj, bone_name, local_offset):
+    """The anchor's real bind-pose world matrix: `position` is a plain
+    translation relative to its owning joint, the exact same "child-node
+    translation" shape Attachment/Event/Light nodes use
+    (`gltf_skeleton.cpp`'s `appendAnchorNode`) -- EmitterAnchor just never
+    got materialized as a real node (see `read_emitter_anchors`'s doc
+    comment), so this reproduces the same placement by direct matrix
+    construction instead, same "verified by direct construction, not
+    dependent on guessing a native constraint/parenting's semantics"
+    approach this file's own billboard alignment already established
+    (`_apply_billboard_frame`'s doc comment) -- deliberately not using
+    Blender's native BONE object-parenting, whose tail-vs-head origin
+    convention would need its own separate verification.
+    """
+    pbone = armature_obj.pose.bones[bone_name]
+    return armature_obj.matrix_world @ pbone.matrix @ mathutils.Matrix.Translation(local_offset)
+
+
+def _update_registered_emitter_markers(_scene=None, _depsgraph=None):
+    """`depsgraph_update_post` handler body -- keeps every registered marker
+    following its owning bone through animation/interactive posing, same
+    pattern as `_update_registered_billboards`. Silently drops a
+    registration whose objects were deleted since (an interactive-session
+    possibility, not a batch render)."""
+    global _emitter_marker_registry
+    still_valid = []
+    for armature_obj, bone_name, local_offset, marker_obj in _emitter_marker_registry:
+        try:
+            marker_obj.matrix_world = _emitter_marker_world_matrix(armature_obj, bone_name, local_offset)
+            still_valid.append((armature_obj, bone_name, local_offset, marker_obj))
+        except ReferenceError:
+            pass  # one of the objects above was deleted since registration
+    _emitter_marker_registry = still_valid
+
+
+_emitter_marker_registry = []
+
+
+def apply_emitter_markers(armature_obj, filepath):
+    """Places one placement-marker object per real `ribbon_emitters`/
+    `particle_emitters` anchor (see `read_emitter_anchors`) -- returns
+    `(ribbon_count, particle_count)`, both 0 if `filepath` gave no anchors
+    (falsy path, no ribbon/particle emitters on this model, or a joint
+    index this model's own skin doesn't have -- logged, not raised, same
+    as `apply_billboard_alignment`'s per-bone skip behavior).
+    """
+    ribbon_anchors, particle_anchors, joint_bone_names = read_emitter_anchors(filepath)
+    if not ribbon_anchors and not particle_anchors:
+        return 0, 0
+
+    collection = bpy.context.collection
+    counts = {"ribbon": 0, "particle": 0}
+    for kind, anchors, color in (("ribbon", ribbon_anchors, _RIBBON_MARKER_COLOR),
+                                  ("particle", particle_anchors, _PARTICLE_MARKER_COLOR)):
+        if not anchors:
+            continue
+        mesh, mat = _emitter_marker_prototype(kind, color)
+        for anchor in anchors:
+            joint = anchor.get("joint", -1)
+            bone_name = joint_bone_names.get(joint)
+            if bone_name is None or bone_name not in armature_obj.pose.bones:
+                print(f"husk_blender_geoset_mask: {kind} emitter id={anchor.get('id')} -- "
+                      f"joint {joint} has no matching bone, skipped")
+                continue
+            pos = anchor.get("position", {})
+            local_offset = mathutils.Vector((pos.get("x", 0.0), pos.get("y", 0.0), pos.get("z", 0.0)))
+
+            marker_obj = bpy.data.objects.new(f"husk_{kind}_marker_{anchor.get('id')}", mesh)
+            if not marker_obj.material_slots:
+                marker_obj.data.materials.append(mat)
+            marker_obj.matrix_world = _emitter_marker_world_matrix(armature_obj, bone_name, local_offset)
+            collection.objects.link(marker_obj)
+            _emitter_marker_registry.append((armature_obj, bone_name, local_offset, marker_obj))
+            counts[kind] += 1
+
+    if sum(counts.values()) and not bpy.app.background and \
+            _update_registered_emitter_markers not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_update_registered_emitter_markers)
+
+    return counts["ribbon"], counts["particle"]
 
 
 # --- animated texture-effect playback (ANIMATED_TEXTURE_EFFECTS_TODO.md) ---
@@ -1628,11 +1843,19 @@ def main():
                   "NOT verified against a real corpus fixture with actual data this session, see "
                   "apply_tint_fade_animation's own doc comment")
 
+    def emitter_marker_stage():
+        ribbon_count, particle_count = apply_emitter_markers(armature_obj, filepath)
+        if ribbon_count or particle_count:
+            print(f"husk_blender_geoset_mask: {ribbon_count} ribbon + {particle_count} particle "
+                  "emitter placement marker(s) added -- placeholders, not a real particle-effect "
+                  "simulation, see apply_emitter_markers's own doc comment")
+
     _run_stage(model_name, "geoset switch", geoset_stage)
     _run_stage(model_name, "billboard alignment", billboard_stage)
     _run_stage(model_name, "texture-layout overlay", texture_layout_overlay_stage)
     _run_stage(model_name, "texture-transform animation", texture_transform_animation_stage)
     _run_stage(model_name, "tint/fade animation", tint_fade_animation_stage)
+    _run_stage(model_name, "emitter placement markers", emitter_marker_stage)
 
 
 if __name__ == "__main__":
