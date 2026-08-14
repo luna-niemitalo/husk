@@ -16,6 +16,8 @@ input[type=text] { background: var(--panel); border: 1px solid var(--border); co
 .chip:hover { border-color: var(--accent); color: var(--text); }
 .chip.active { background: var(--accent); border-color: var(--accent); color: #05121f; font-weight: 600; }
 .chip .n { opacity: 0.7; margin-left: 5px; }
+#review-link { text-decoration: none; border-color: var(--accent); color: var(--accent); font-weight: 600; }
+#review-link:hover { background: var(--accent); color: #05121f; }
 #banner { display: none; margin-left: auto; background: var(--good); color: #05221a; font-weight: 600;
           border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12.5px; }
 #banner.show { display: inline-block; }

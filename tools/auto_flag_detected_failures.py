@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Runs categorize_flagged_renders.py's cheap-signal failure detectors over
 the *entire* render corpus (not just what's already been manually reviewed
-in tag_review_server.py) and auto-appends a "flagged" decision for every
-real hit straight into the same JSONL review log.
+in live_gallery/server.py's /review page) and auto-appends a "flagged"
+decision for every real hit straight into the same JSONL review log.
 
 Rationale: most flagged categories (wrong alpha blend, detached geometry,
 collapsed bind pose, ...) have no cheap pixel-level signal and still need a
@@ -22,9 +22,9 @@ the matched heuristic can tell -- entries get "source": "auto:<category>"
 in the log so a later audit can tell an automated call apart from a human
 one, and which detector made it.
 
-The tag_review_server.py process holding this log open (if any) only reads
-it once at startup -- restart it after this script finishes so its
-resumable /api/next skip logic picks up the new entries.
+The live_gallery/server.py process holding this log open (if any) only
+reads it once at startup -- restart it after this script finishes so its
+resumable /api/review/next skip logic picks up the new entries.
 
 Usage:
     tools/venv/bin/python tools/auto_flag_detected_failures.py \\
@@ -90,7 +90,8 @@ def _classify_one(args: tuple[Path, str]) -> tuple[str, str | None]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", type=Path, required=True, help="rendered image corpus root")
-    ap.add_argument("--review", type=Path, required=True, help="tag_review_server.py JSONL decision log to append to")
+    ap.add_argument("--review", type=Path, required=True,
+                     help="live_gallery/server.py /review page's JSONL decision log to append to")
     ap.add_argument("--workers", type=int, default=0, help="0 = os.cpu_count()")
     ap.add_argument("--dry-run", action="store_true", help="scan and report, but don't write any decisions")
     args = ap.parse_args()
@@ -131,7 +132,7 @@ def main() -> int:
     print(f"\ndone in {elapsed:.0f}s: {total_flagged} auto-flagged ({breakdown}), "
           f"{errors} decode errors, {len(todo) - total_flagged - errors} left for manual review")
     if not args.dry_run and total_flagged:
-        print(f"wrote {total_flagged} decisions to {args.review} -- restart tag_review_server.py to pick them up")
+        print(f"wrote {total_flagged} decisions to {args.review} -- restart live_gallery/server.py to pick them up")
     return 0
 
 

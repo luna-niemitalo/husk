@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Sorts tag_review_server.py's flagged renders into a small set of failure
+"""Sorts live_gallery/server.py's /review page's flagged renders into a
+small set of failure
 categories, so a 30k+-item flagged pile becomes something a human can
 triage by bucket instead of one image at a time.
 
@@ -66,7 +67,9 @@ OTHER = "other"
 
 def load_flagged_rels(review_path: Path) -> list[str]:
     """Last write per rel wins, same replay rule as ReviewLog in
-    tag_review_server.py -- this file is that server's own decision log.
+    live_gallery/server.py -- this file is that server's /review page's own
+    decision log (formerly the standalone tools/tag_review_server.py's log,
+    same JSONL format, unchanged since the 2026-08-14 merge).
     """
     decisions: dict[str, bool] = {}
     with review_path.open() as f:
@@ -135,7 +138,7 @@ def _categorize_one(args: tuple[Path, str]) -> tuple[str, str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--review", type=Path, required=True, help="tag_review_server.py JSONL decision log")
+    ap.add_argument("--review", type=Path, required=True, help="live_gallery/server.py /review page's JSONL decision log")
     ap.add_argument("--root", type=Path, required=True, help="rendered image root the review log's rels are relative to")
     ap.add_argument("--out", type=Path, required=True, help="CSV output path: rel,category")
     ap.add_argument("--workers", type=int, default=0, help="0 = os.cpu_count()")

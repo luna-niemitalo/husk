@@ -120,9 +120,15 @@ std::optional<gltf::JointAnimation> buildJointAnimation(
     }
     ja.rotationTimes.reserve(rotation.size());
     ja.rotationValues.reserve(rotation.size());
+    std::optional<gltf::Quat> prevRotation;
     for (const auto& [ts, q] : rotation) {
         ja.rotationTimes.push_back(static_cast<float>(ts) / 1000.0f);
-        ja.rotationValues.push_back(toGltf(q));
+        gltf::Quat gq = toGltf(q);
+        if (prevRotation) {
+            gq = gltf::enforceHemisphereContinuity(*prevRotation, gq);
+        }
+        prevRotation = gq;
+        ja.rotationValues.push_back(gq);
     }
     ja.scaleTimes.reserve(scale.size());
     ja.scaleValues.reserve(scale.size());

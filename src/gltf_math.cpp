@@ -131,4 +131,15 @@ Vec3 scaleZUpToYUp(const Vec3& s) {
     return applyMat3(unsignedM, s);
 }
 
+Quat enforceHemisphereContinuity(const Quat& prev, Quat curr) {
+    float dot = prev.x * curr.x + prev.y * curr.y + prev.z * curr.z + prev.w * curr.w;
+    if (dot < 0.0f) {
+        curr.x = -curr.x;
+        curr.y = -curr.y;
+        curr.z = -curr.z;
+        curr.w = -curr.w;
+    }
+    return curr;
+}
+
 }  // namespace husk::gltf

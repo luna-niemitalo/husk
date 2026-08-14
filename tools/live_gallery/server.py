@@ -10,24 +10,37 @@ mirrors (category chips, free-text path search) plus one this project's
 render_sample_driver.py enables that a static gallery couldn't: a status
 filter (OK/FAIL/SKIP), joined in from the driver's own live log by path.
 
-HTML/CSS/JS live under static/ as real, IDE-recognized files (page.*,
-viewer.*) -- not embedded Python string literals -- so they get proper
-syntax highlighting/formatting in an editor. This module reads them off
-disk per request rather than baking them into the process at import time,
-matching this tool's own "live, keeps picking up changes" spirit -- edit a
-static file and reload the page, no server restart needed. Split out of
-the former single-file tools/live_gallery_server.py (2026-08-13), prompted
-directly.
+Also serves a second page, /review -- the former standalone
+tools/tag_review_server.py, merged in here (2026-08-14, prompted directly:
+"i can tag items and live preview them without having to keep 2
+independent servers in sync") rather than kept as a second process, so a
+single `--root` and a single running server cover both browsing and fast
+keyboard-driven triage. See ReviewLog/ReviewCorpus below and
+static/review.* for that page's own design notes (largely unchanged from
+the original module docstring, just re-pointed at this server's routes).
+Reachable via the "tag review" link in the main gallery header (opens in a
+new tab -- the two pages have different interaction models, numpad-driven
+triage vs. mouse/scroll browsing, and don't need to share screen space).
 
-Stdlib only, no flake/dependency changes needed. Read-only: never writes
-anything outside its own in-memory index.
+HTML/CSS/JS live under static/ as real, IDE-recognized files (page.*,
+viewer.*, review.*) -- not embedded Python string literals -- so they get
+proper syntax highlighting/formatting in an editor. This module reads them
+off disk per request rather than baking them into the process at import
+time, matching this tool's own "live, keeps picking up changes" spirit --
+edit a static file and reload the page, no server restart needed. Split
+out of the former single-file tools/live_gallery_server.py (2026-08-13),
+prompted directly.
+
+Stdlib only, no flake/dependency changes needed. Read-only against the
+image corpus itself; the only write this process performs is appending to
+--review-out (only when the /review page is actually used).
 
 Usage:
     tools/venv/bin/python tools/live_gallery/server.py \\
         --root corpus_reports/renders_full \\
         --log corpus_reports/renders_full_live.log \\
         --port 8008
-    then open http://127.0.0.1:8008/
+    then open http://127.0.0.1:8008/ (browse) or .../review (triage)
 """
 from __future__ import annotations
 
@@ -196,6 +209,7 @@ class Index:
         self.interval = interval
         self._lock = threading.Lock()
         self._items: list[dict] = []
+        self._items_by_rel: list[dict] = []
         self._categories: dict[str, int] = {}
         self._eras: dict[str, int] = {}
         self._version = 0
@@ -292,11 +306,18 @@ class Index:
             item["status"] = st[0] if st else ""
             item["detail"] = st[1] if st else ""
 
+        # A second, rel-sorted view for the /review page (ReviewCorpus below)
+        # -- review order must be stable across rescans (a render job filling
+        # in new files mid-review must not reshuffle items already shown),
+        # which mtime order (used for the main gallery's newest-first browse)
+        # can't guarantee.
+        items_by_rel = sorted(items, key=lambda i: i["rel"])
         items.sort(key=lambda i: i["mtime"], reverse=True)
 
         with self._lock:
             changed = len(items) != len(self._items) or items[:1] != self._items[:1]
             self._items = items
+            self._items_by_rel = items_by_rel
             self._categories = categories
             self._eras = eras
             if changed:
@@ -322,6 +343,14 @@ class Index:
             if q in self._subscribers:
                 self._subscribers.remove(q)
 
+    def review_snapshot(self) -> tuple[list[dict], dict[str, int]]:
+        """rel-sorted items + category counts, for ReviewCorpus's own
+        pagination -- see the note in _scan_files about why this needs its
+        own sort order, separate from the mtime-sorted main gallery view.
+        """
+        with self._lock:
+            return self._items_by_rel, dict(self._categories)
+
     def query(self, category: str | None, q: str | None, status: str | None, era: str | None,
               offset: int, limit: int) -> dict:
         with self._lock:
@@ -346,6 +375,68 @@ class Index:
         return {"version": version, "total": total, "grand_total": len(items),
                 "categories": categories, "eras": eras, "era_labels": EXPANSION_LABELS,
                 "items": page, "has_more": offset + limit < total}
+
+
+class ReviewLog:
+    """Append-only JSONL decision log for the /review page -- carried over
+    unchanged from the former tools/tag_review_server.py. In-memory state is
+    rebuilt from the file on startup (last write per rel wins) so the file
+    itself is the single source of truth -- restarting this process never
+    loses or duplicates a decision. Format ({"rel", "flagged", "ts"} per
+    line) is unchanged from the standalone server, so existing decision logs
+    and the two downstream consumers (categorize_flagged_renders.py,
+    auto_flag_detected_failures.py) keep working with no changes needed.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._lock = threading.Lock()
+        self._decisions: dict[str, bool] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            return
+        with self.path.open("r", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    self._decisions[rec["rel"]] = bool(rec["flagged"])
+                except (ValueError, KeyError):
+                    continue
+
+    def submit(self, decisions: list[tuple[str, bool]]) -> None:
+        now = time.time()
+        with self._lock:
+            with self.path.open("a") as f:
+                for rel, flagged in decisions:
+                    f.write(json.dumps({"rel": rel, "flagged": flagged, "ts": now}) + "\n")
+                    self._decisions[rel] = flagged
+
+    def stats(self) -> dict:
+        with self._lock:
+            total = len(self._decisions)
+            flagged = sum(1 for v in self._decisions.values() if v)
+        return {"reviewed": total, "flagged": flagged}
+
+    def is_reviewed(self, rel: str) -> bool:
+        with self._lock:
+            return rel in self._decisions
+
+    def flags_for(self, rels: list[str]) -> dict[str, bool]:
+        """Real, current decisions for exactly the given rels -- backs
+        /api/review/status, the server-is-ground-truth sync point the
+        client calls on every page navigation (arrow keys, browser back/
+        forward) so a stale or discarded in-memory edit never gets shown
+        as if it were saved. A rel with no recorded decision is simply
+        absent from the result, not defaulted to false -- "not yet
+        reviewed" and "reviewed, not flagged" are different states.
+        """
+        with self._lock:
+            return {rel: self._decisions[rel] for rel in rels if rel in self._decisions}
 
 
 def _index_log_by_source_basename(log_status: dict[str, tuple[str, str]]) -> dict[str, tuple[str, str]]:
@@ -377,7 +468,7 @@ def _index_log_by_source_basename(log_status: dict[str, tuple[str, str]]) -> dic
     return by_basename
 
 
-def make_handler(index: Index, root: Path, system_stats: SystemStats):
+def make_handler(index: Index, root: Path, system_stats: SystemStats, review_log: ReviewLog):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             pass  # keep terminal quiet; this is a browsing tool, not a diagnostic one
@@ -389,6 +480,11 @@ def make_handler(index: Index, root: Path, system_stats: SystemStats):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _read_json_body(self) -> dict:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length) if length else b"{}"
+            return json.loads(raw)
 
         def _serve_bytes(self, data: bytes, content_type: str, cache: bool = False) -> None:
             self.send_response(200)
@@ -410,8 +506,54 @@ def make_handler(index: Index, root: Path, system_stats: SystemStats):
                 self._serve_bytes(body.encode(), "text/html; charset=utf-8")
                 return
 
+            if path == "/review":
+                body = (STATIC_DIR / "review.html").read_text(encoding="utf-8")
+                self._serve_bytes(body.encode(), "text/html; charset=utf-8")
+                return
+
             if path == "/api/system_stats":
                 self._json(system_stats.snapshot())
+                return
+
+            if path == "/api/review/status":
+                rels = params.get("rel") or []
+                self._json({"flags": review_log.flags_for(rels)})
+                return
+
+            if path == "/api/review/meta":
+                items, categories = index.review_snapshot()
+                stats = review_log.stats()
+                self._json({"total": len(items), "categories": categories, **stats})
+                return
+
+            if path == "/api/review/next":
+                after = (params.get("after") or [""])[0]
+                category = (params.get("category") or ["all"])[0]
+                limit = min(int((params.get("limit") or ["16"])[0]), 100)
+                items, _ = index.review_snapshot()
+                if category and category != "all":
+                    items = [it for it in items if it["cat"] == category]
+                start = 0
+                if after:
+                    # rel-sorted list -> linear scan is fine at this scale
+                    # for an interactive, human-paced tool (see
+                    # tools/tag_review_server.py's former module doc, the
+                    # design this route was carried over from unchanged).
+                    for i, it in enumerate(items):
+                        if it["rel"] == after:
+                            start = i + 1
+                            break
+                    else:
+                        start = 0
+                out = []
+                i = start
+                while i < len(items) and len(out) < limit:
+                    it = items[i]
+                    if not review_log.is_reviewed(it["rel"]):
+                        out.append({"rel": it["rel"], "cat": it["cat"], "is_video": it["is_video"]})
+                    i += 1
+                next_after = out[-1]["rel"] if out else after
+                self._json({"items": out, "next_after": next_after, "has_more": i < len(items)})
                 return
 
             if path == "/api/files":
@@ -519,6 +661,15 @@ def make_handler(index: Index, root: Path, system_stats: SystemStats):
 
             self.send_error(404, "not found")
 
+        def do_POST(self):
+            if self.path == "/api/review/submit":
+                body = self._read_json_body()
+                decisions = [(rel, bool(flagged)) for rel, flagged in body.get("decisions", [])]
+                review_log.submit(decisions)
+                self._json({"ok": True})
+                return
+            self.send_error(404, "not found")
+
     return Handler
 
 
@@ -529,6 +680,10 @@ def main() -> int:
                      help="render_sample_driver.py-style live log for OK/FAIL/SKIP status overlay "
                           "(repeatable -- pass both a pre-crash backup and the current live log to "
                           "get full status coverage across a resumed run)")
+    ap.add_argument("--review-out", type=Path, default=None,
+                     help="/review page's JSONL decision log path "
+                          "(default: <root>_review.jsonl next to --root; same format/location "
+                          "the former standalone tag_review_server.py used)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8008)
     ap.add_argument("--interval", type=float, default=3.0, help="filesystem rescan interval in seconds")
@@ -538,6 +693,9 @@ def main() -> int:
     if not root.is_dir():
         print(f"error: --root {root} is not a directory")
         return 1
+
+    review_out = args.review_out.resolve() if args.review_out else root.parent / (root.name + "_review.jsonl")
+    review_log = ReviewLog(review_out)
 
     log_paths = [p.resolve() for p in args.log]
     index = Index(root, log_paths, args.interval)
@@ -554,8 +712,11 @@ def main() -> int:
     system_stats = SystemStats(stats_path)
     system_stats.start()
 
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(index, root, system_stats))
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(index, root, system_stats, review_log))
     print(f"serving {root} on http://{args.host}:{args.port}/ (rescanning every {args.interval}s)")
+    print(f"  tag review: http://{args.host}:{args.port}/review")
+    review_stats = review_log.stats()
+    print(f"  review log: {review_out} ({review_stats['reviewed']} reviewed so far, {review_stats['flagged']} flagged)")
     print(f"driver stats file: {stats_path} ({'found' if stats_path.exists() else 'not found yet'})")
     if log_paths:
         print(f"status overlay from {len(log_paths)} log(s): {', '.join(str(p) for p in log_paths)}")

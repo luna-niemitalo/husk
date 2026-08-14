@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Corpus Review</title>
+<link rel="stylesheet" href="/static/review.css">
+</head>
+<body>
+<header>
+  <span><b id="reviewed">0</b> / <b id="total">0</b> reviewed</span>
+  <div id="bar-track"><div id="bar-fill" style="width:0%"></div></div>
+  <span class="muted"><b id="flagged-count">0</b> flagged</span>
+  <span class="muted" id="rate">-- / min</span>
+  <select id="category"><option value="all">all categories</option></select>
+  <a href="/" class="back-link">&larr; back to gallery</a>
+  <span class="muted" id="prefetch-status" style="margin-left:auto;"></span>
+</header>
+<main>
+  <div id="grid"></div>
+  <div id="sidebar"></div>
+  <div id="empty" style="display:none;">nothing left to review for this filter</div>
+</main>
+<footer>
+  <span><kbd>Numpad 7 8 9 / 4 5 6 / 1 2 3</kbd> toggle flag (matches tile position)</span>
+  <span><kbd>Enter</kbd> / <kbd>Space</kbd> submit page &amp; next</span>
+  <span><kbd>Backspace</kbd> flag entire page</span>
+  <span><kbd>Numpad +</kbd> toggle every tile's flag</span>
+  <span><kbd>&larr;</kbd>/<kbd>&rarr;</kbd> browse pages (no submit; server's saved flags always win)</span>
+</footer>
+<script src="/static/review.js"></script>
+</body>
+</html>

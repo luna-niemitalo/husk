@@ -613,6 +613,36 @@ def delete_geoset_tag_bones(armature_obj, all_groups):
     return removed
 
 
+def apply_geoset_switches(mesh_objs, armature_obj):
+    """Builds the real geoset Menu Switch dropdown for every mesh object
+    and deletes the now-unnecessary tag bones -- the single, shared
+    "make this a geoset-correct scene" step, used identically by every
+    real entry point into this pipeline (`main()`'s own `geoset_stage`
+    below, and `render_glb.py`'s corpus-preview render) so neither one
+    can drift from the other. Two real, independent reasons every caller
+    needs this, not just the interactive one: (1) without it, every
+    geoset variant (every hairstyle, every tabard state, ...) renders
+    simultaneously, unfiltered -- husk's own extras note applies
+    literally; (2) `delete_geoset_tag_bones` removes the inert geoset-tag
+    joints outright, closing a real skinning bug found 2026-08-14
+    (TODO/RENDER_QUALITY_TODO.md section 1) -- leaving them in measurably
+    pulls any vertex carrying real tag weight back toward its bind pose
+    every frame, visible as a "shear"/detached-flap artifact, confirmed
+    against the real client. Returns (all_groups, switch_groups, removed)
+    for the caller's own logging.
+    """
+    all_groups = {}
+    switch_groups = 0
+    for mesh_obj in mesh_objs:
+        groups = apply_geoset_switch(mesh_obj)
+        switch_groups += sum(1 for gid, variants in groups.items()
+                              if switchable_variants(gid, variants))
+        for gid, variants in groups.items():
+            all_groups.setdefault(gid, []).extend(variants)
+    removed = delete_geoset_tag_bones(armature_obj, all_groups)
+    return all_groups, switch_groups, removed
+
+
 def read_chr_texture_layout(filepath):
     """Reads `chr_texture_layout` straight out of the exported file's own
     raw glTF JSON (skins[].extras) -- see the module docstring for why
@@ -1276,7 +1306,17 @@ def _update_texture_transform_animations(_scene=None, _depsgraph=None):
             if translation:
                 x, y, _z = _eval_vec3_curve(translation[0]["keyframes"], t)
                 mapping.inputs["Location"].default_value[0] = x
-                mapping.inputs["Location"].default_value[1] = y
+                # WoW V grows downward, Blender UV V grows upward (same
+                # convention the texture-layout overlay code above already
+                # flips for absolute rects) -- a scroll *delta* needs the
+                # same correction, differentiated: d(v_blender)/dt =
+                # -d(v_wow)/dt. Confirmed via TODO/RENDER_QUALITY_TODO.md
+                # section 6: a real fixture with an animated V scroll
+                # (borean_redplant_burningpile_01, a flame texture) ran
+                # backwards without this; a real fixture with an animated
+                # U-only scroll (be_fountain01_base, V always 0) never
+                # exercised the bug at all, which is why it looked fine.
+                mapping.inputs["Location"].default_value[1] = -y
             if rotation:
                 mapping.inputs["Rotation"].default_value[2] = _eval_quat_curve_z_angle(
                     rotation[0]["keyframes"], t)
@@ -1473,15 +1513,7 @@ def main():
                  if obj.material_slots[i].material is not None}
 
     def geoset_stage():
-        all_groups = {}
-        switch_groups = 0
-        for mesh_obj in mesh_objs:
-            groups = apply_geoset_switch(mesh_obj)
-            switch_groups += sum(1 for gid, variants in groups.items()
-                                  if switchable_variants(gid, variants))
-            for gid, variants in groups.items():
-                all_groups.setdefault(gid, []).extend(variants)
-        removed = delete_geoset_tag_bones(armature_obj, all_groups)
+        all_groups, switch_groups, removed = apply_geoset_switches(mesh_objs, armature_obj)
         print(f"husk_blender_geoset_mask: {len(all_groups)} geoset group(s) across "
               f"{len(mesh_objs)} mesh object(s), {switch_groups} dropdown switch(es) built, "
               f"{removed} tag bone(s) removed")

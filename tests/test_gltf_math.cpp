@@ -138,3 +138,56 @@ TEST_CASE("rotationZUpToYUp: converting-then-rotating equals rotating-then-conve
         }
     }
 }
+
+// TODO: Remove: TODO/RENDER_QUALITY_TODO.md section 1 -- a real corpus
+// fixture (creature/corruptedtentacle/corruptedtentacle_low.m2) had a
+// skeletal animation visibly collapse/shear at large rotation angles
+// before this fix, root-caused to hemisphere discontinuities between
+// consecutive keyframes' converted quaternions.
+TEST_CASE("enforceHemisphereContinuity: same-hemisphere input is returned unchanged") {
+    husk::gltf::Quat prev{0.1f, 0.2f, 0.3f, 0.9f};
+    husk::gltf::Quat curr{0.15f, 0.25f, 0.35f, 0.85f};  // positive dot with prev
+    auto out = husk::gltf::enforceHemisphereContinuity(prev, curr);
+    CHECK(out.x == doctest::Approx(curr.x));
+    CHECK(out.y == doctest::Approx(curr.y));
+    CHECK(out.z == doctest::Approx(curr.z));
+    CHECK(out.w == doctest::Approx(curr.w));
+}
+
+TEST_CASE("enforceHemisphereContinuity: opposite-hemisphere input is negated to match prev's sign") {
+    husk::gltf::Quat prev{0.1f, 0.2f, 0.3f, 0.9f};
+    // Same rotation as prev's own negation would represent, but with a flipped
+    // sign relative to prev -- dot(prev, curr) < 0, the exact discontinuity
+    // that makes glTF LINEAR interpolation collapse a skinned mesh.
+    husk::gltf::Quat curr{-0.1f, -0.2f, -0.3f, -0.9f};
+    auto out = husk::gltf::enforceHemisphereContinuity(prev, curr);
+    // Negated back to match prev's hemisphere -- i.e. equal to prev here,
+    // since curr was exactly -prev.
+    CHECK(out.x == doctest::Approx(prev.x));
+    CHECK(out.y == doctest::Approx(prev.y));
+    CHECK(out.z == doctest::Approx(prev.z));
+    CHECK(out.w == doctest::Approx(prev.w));
+}
+
+TEST_CASE("enforceHemisphereContinuity: a chained sequence stays sign-consistent across "
+          "an artificially-injected hemisphere flip") {
+    // Simulates a track whose raw decoded/converted keyframes flip sign
+    // partway through (the real mat3ToQuat/M2CompQuat non-guarantee this
+    // fix exists for) -- three keyframes representing a smooth rotation,
+    // with the third deliberately negated before the fixup runs.
+    husk::gltf::Quat k0{0.0f, 0.0f, 0.0f, 1.0f};
+    husk::gltf::Quat k1{0.0f, 0.0f, 0.38f, 0.92f};
+    husk::gltf::Quat k2Raw{0.0f, 0.0f, -0.71f, -0.71f};  // same rotation as {0,0,0.71,0.71}, sign-flipped
+
+    husk::gltf::Quat out1 = husk::gltf::enforceHemisphereContinuity(k0, k1);
+    husk::gltf::Quat out2 = husk::gltf::enforceHemisphereContinuity(out1, k2Raw);
+
+    float dot01 = k0.x * out1.x + k0.y * out1.y + k0.z * out1.z + k0.w * out1.w;
+    float dot12 = out1.x * out2.x + out1.y * out2.y + out1.z * out2.z + out1.w * out2.w;
+    CHECK(dot01 >= 0.0f);
+    CHECK(dot12 >= 0.0f);  // would be negative without the fix, since k2Raw was deliberately flipped
+    // The corrected third keyframe represents the same rotation as the raw
+    // input (negation doesn't change what rotation a quaternion represents).
+    CHECK(out2.z == doctest::Approx(-k2Raw.z));
+    CHECK(out2.w == doctest::Approx(-k2Raw.w));
+}

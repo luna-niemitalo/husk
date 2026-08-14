@@ -45,4 +45,23 @@ Quat rotationZUpToYUp(const Quat& q);
 // rotation matrix -- derived the same way as zUpToYUp.
 Vec3 scaleZUpToYUp(const Vec3& s);
 
+// q and -q represent the exact same rotation, but are discontinuous as
+// literal keyframe values for a glTF LINEAR-sampler rotation channel --
+// interpolating between them runs "the long way" through (or near) the
+// zero quaternion, visibly collapsing/shearing a skinned mesh at the
+// frame(s) in between. Neither M2CompQuat's raw per-keyframe decode
+// (m2_animation.cpp's readCompQuat) nor rotationZUpToYUp's own matrix
+// round-trip (mat3ToQuat below, whose doc comment already flags "the
+// returned quaternion's sign isn't normalized against any convention")
+// guarantee sign continuity across a track's keyframes. Fix: negate
+// `curr` when it's in the opposite hemisphere from `prev` (dot product
+// < 0), so each keyframe in a sequence picks the sign nearest its
+// predecessor -- callers walk a track in order, feeding each keyframe's
+// own *already-converted* predecessor back in. See
+// TODO/RENDER_QUALITY_TODO.md section 1 for the full investigation (real
+// repro: creature/corruptedtentacle/corruptedtentacle_low.m2's tentacle-
+// sway animation visibly collapsing at large rotation angles before this
+// fix).
+Quat enforceHemisphereContinuity(const Quat& prev, Quat curr);
+
 }  // namespace husk::gltf

@@ -144,7 +144,18 @@ produce something a human looks at, not a CSV.
   entry above for why a file-version-based filter didn't work instead).
   Live updates diff and prepend newly-landed images instead of rebuilding
   the whole grid, so an active multi-hour render job doesn't stutter the
-  page.
+  page. Also serves `/review`, a fast keyboard-driven ("captcha style")
+  triage page for blasting through the whole corpus flagging bad renders —
+  numpad-mapped 3x3 grid, one Enter per page, decisions appended to a
+  resumable JSONL log — reachable via the "tag review" link in the main
+  page's header (opens in its own tab). Formerly a separate standalone
+  server (`tag_review_server.py`); merged into `live_gallery/server.py`
+  2026-08-14 so tagging and live-browsing share one process/one `--root`
+  instead of two servers that could drift out of sync. `--review-out`
+  controls the decision log path (defaults to `<root>_review.jsonl`, same
+  convention the standalone server used); `categorize_flagged_renders.py`/
+  `auto_flag_detected_failures.py` read/write that same JSONL log,
+  unchanged.
 
 ## One-off exploration scripts
 

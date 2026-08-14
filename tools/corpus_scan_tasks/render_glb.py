@@ -360,6 +360,16 @@ def main() -> None:
         print("SKIPPED no mesh objects imported (file has 0 vertices -- camera/track-only model)")
         return
 
+    # Same shared step husk_blender_geoset_mask.py's own interactive
+    # main() uses (apply_geoset_switches) -- one real call, not a
+    # reimplementation, so a corpus preview render can never diverge from
+    # what a real user opening the file in Blender actually sees.
+    # Deliberately not routed through main() itself: main() does its own
+    # argv parsing and glTF import, both already done differently here.
+    armature_obj = next((o for o in bpy.context.scene.objects if o.type == "ARMATURE"), None)
+    if armature_obj is not None:
+        billboard_align.apply_geoset_switches(mesh_objs, armature_obj)
+
     bbox_min = mathutils.Vector((math.inf, math.inf, math.inf))
     bbox_max = mathutils.Vector((-math.inf, -math.inf, -math.inf))
     for obj in mesh_objs:
