@@ -22,8 +22,9 @@ A CLI for converting World of Warcraft's proprietary model/world formats
 file's header and printing what's in it. No conversion yet.
 
 Architecture and design rationale live in `DESIGN.md`; real-file
-wowdev.wiki corrections/gaps live in `WIKI_FINDINGS.md`; open correctness
-work lives in `TODO/TODO_correctness.md`; a granular per-feature M2 completion
+wowdev.wiki corrections/gaps live in `WIKI_FINDINGS.md`; every open work
+thread is indexed in `TODO/README.md` (start there, not by grepping
+`TODO/`'s file listing); a granular per-feature M2 completion
 breakdown (parse depth × consumption depth × glTF ceiling, below the level
 of detail the format matrix below can show) lives in `M2_COMPLETENESS.md`;
 the equivalent breakdown for WMO + ADT (combined — world placement is the
@@ -756,7 +757,7 @@ verified" rather than "confirmed correct."
 | Portals / visibility culling | ⬛ | ⬛ | ⬜ `MOPV`/`MOPT`/`MOPR`/`MOPE`, `MOVV`/`MOVB` visible-block lists | ⬛ not an ADT concept (WMO-specific) | ⬛ |
 | Doodad / object placement (scene composition) | ⬛ | ⬛ | ⬜ `MODS`/`MODN`/`MODI`/`MODD`/`MODR` + `MDDI`/`MDDL` additional info | ⬜ `MDDF` (M2 doodad placement) + `MODF` (WMO placement), backed by `MMDX`/`MMID` and `MWMO`/`MWID` filename tables — arguably the single most important ADT row: this is what actually places M2/WMO instances into the rendered world at all | ⬛ |
 | World/group structure (root+group files, skybox) | ⬛ | ⬛ single-file, no group split | ⬜ `MOGN`/`MOGI`/`MOGP`/`MOGX`/`GFID` + `MOSB`/`MOSI` skybox + `MGI2` group-info-v2 | ⬜ no group-file split the way WMO has, but Cata+ splits one logical tile across root/`_obj0`/`_obj1`/`_tex0`/`_tex1`/`_lod` files — see row 1's caveat | ⬛ |
-| Sidecar FileDataID resolution | 📖 `SFID`/`AFID`/`BFID`/`PFID`/`SKID`/`TXID` → `.skin`/`.anim`/`.bone`/`.phys`/`.skel`/BLP textures — none of these FileDataIDs are resolved to a *WoW/CASC* path (no CASC/listfile access, by design, see the README's Usage section) — that CASC-resolution half is a deliberate non-goal, not a deferred read (`DESIGN.md`'s Non-goals), so *local-file* resolution (all six IDs, below) is the full scope of "read" this row measures, and it's fully implemented; `SKID` is surfaced as a raw ID only (`husk info`; `Header::skeletonFileId`), and `SFID`/`TXID`/`AFID`/`BFID` get a *local-directory* resolution convention -- `husk export`'s `--skin-dir <dir>`/`--textures <dir>`/`--anim <dir>`/`--bones-dir <dir>` look for `<dir>/<FileDataID>.skin`/`.png`/`.anim`/`.bone`, a directory the user populates themselves (e.g. via `husk-blp`), never CASC. `PFID` gets a *same-basename-file* resolution convention instead, mirroring `SKID`/`.skel` (`PFID`, like `SKID`, is a single scalar FileDataID, not an array) -- `husk export --phys <path|none>` (unset: auto-detects a same-basename `.phys` next to the model). `.skin`/`.skel`/`.phys` paths can also still be given explicitly instead, and so can a `.bone` or `.phys` file directly to `dump-chunks` (see the Usage section) -- `.bone` *content* itself is parsed (`src/bone.hpp`, reverse engineered, no wowdev.wiki byte layout exists for it) and, via `--bones-dir`, attached to the exported glTF skin as inert `bone_correction_sets` extras (never applied to the render -- see the Usage section's "`.bone` corrections" paragraph, `TODO/TODO_correctness.md` #6). `.phys` *content* is parsed too (`src/phys.hpp`, documented on wowdev.wiki, verified against real files -- `WIKI_FINDINGS/PHYS.md`) and, via `--phys`, attached as inert `physics_bodies` extras (never applied to the render) | ⬛ self-contained, no sidecars per spec | ⬜ `GFID` → group files | ⬜ Legion+ ADTs reference sidecar/FileDataID-bearing chunks too (`MHID`/`MDID`/`MWDR`/`MWDS` seen in the raw chunk-tag list) — roles not yet confirmed | ⬛ |
+| Sidecar FileDataID resolution | 📖 `SFID`/`AFID`/`BFID`/`PFID`/`SKID`/`TXID` → `.skin`/`.anim`/`.bone`/`.phys`/`.skel`/BLP textures — none of these FileDataIDs are resolved to a *WoW/CASC* path (no CASC/listfile access, by design, see the README's Usage section) — that CASC-resolution half is a deliberate non-goal, not a deferred read (`DESIGN.md`'s Non-goals), so *local-file* resolution (all six IDs, below) is the full scope of "read" this row measures, and it's fully implemented; `SKID` is surfaced as a raw ID only (`husk info`; `Header::skeletonFileId`), and `SFID`/`TXID`/`AFID`/`BFID` get a *local-directory* resolution convention -- `husk export`'s `--skin-dir <dir>`/`--textures <dir>`/`--anim <dir>`/`--bones-dir <dir>` look for `<dir>/<FileDataID>.skin`/`.png`/`.anim`/`.bone`, a directory the user populates themselves (e.g. via `husk-blp`), never CASC. `PFID` gets a *same-basename-file* resolution convention instead, mirroring `SKID`/`.skel` (`PFID`, like `SKID`, is a single scalar FileDataID, not an array) -- `husk export --phys <path|none>` (unset: auto-detects a same-basename `.phys` next to the model). `.skin`/`.skel`/`.phys` paths can also still be given explicitly instead, and so can a `.bone` or `.phys` file directly to `dump-chunks` (see the Usage section) -- `.bone` *content* itself is parsed (`src/bone.hpp`, reverse engineered, no wowdev.wiki byte layout exists for it) and, via `--bones-dir`, attached to the exported glTF skin as inert `bone_correction_sets` extras, never applied by `husk export` itself -- see the Usage section's "`.bone` corrections" paragraph, `TODO/TODO_correctness.md` #2. `.phys` *content* is parsed too (`src/phys.hpp`, documented on wowdev.wiki, verified against real files -- `WIKI_FINDINGS/PHYS.md`) and, via `--phys`, attached as inert `physics_bodies` extras (never applied to the render) | ⬛ self-contained, no sidecars per spec | ⬜ `GFID` → group files | ⬜ Legion+ ADTs reference sidecar/FileDataID-bearing chunks too (`MHID`/`MDID`/`MWDR`/`MWDS` seen in the raw chunk-tag list) — roles not yet confirmed | ⬛ |
 
 **Not individually rowed above** (still real, just low-priority/niche —
 tracked here so nothing's silently dropped): WMO's `MOQG`/`MOGX` per-face
@@ -1063,8 +1064,8 @@ above; this section is about *sequencing* that work, not duplicating it.
    importer, run headlessly, independently counts 336 actions -- see
    `WIKI_FINDINGS/M2/anim.md`'s follow-up for the full byte-level writeup.
    **`.bone` (`BFID`) content: done, structure reverse engineered from real
-   files (no wowdev.wiki documentation exists for it at all), not
-   integrated into glTF export.** A `.bone` file (`src/bone.hpp`) is a
+   files (no wowdev.wiki documentation exists for it at all); selection is
+   done too, application is not.** A `.bone` file (`src/bone.hpp`) is a
    4-byte version field followed by two chunks in the same generic
    container M2/`.skel` use: `BIDA`, a flat `uint16_t` bone-index array, and
    `BOMT`, a flat array of 4x4 row-major float matrices in lockstep with
@@ -1074,17 +1075,22 @@ above; this section is about *sequencing* that work, not duplicating it.
    upper-left 3x3 stays near-identity with small (millimeter-to-centimeter)
    translation-sized deltas -- the signature of a small corrective delta
    transform per listed bone, not arbitrary data or a full replacement
-   pose. What context each of a model's several `.bone` files (per its
-   `BFID` array) applies to isn't documented or inferred here -- husk
-   surfaces the raw pairs and stops there. LOD is now ruled out as that
-   selector by real data (all 20 of a real model's `.bone` files don't fit
-   its 7-tier LOD count, collapse into only 5 distinct bone-index sets with
-   heavy exact duplication, and share corrections that are pure magnitude
-   scales along one of two fixed directions -- the signature of a
-   customization-choice lookup, not a detail-reduction ladder; see
-   `WIKI_FINDINGS/BONE.md` and `TODO/TODO_correctness.md` #6). Wiring a bone
-   correction into the exported skeleton would need that external
-   (client-side DB2, out of husk's reach by design) lookup answered first.
+   pose. LOD is ruled out as the selector by real data (all 20 of a real
+   model's `.bone` files don't fit its 7-tier LOD count, collapse into only
+   5 distinct bone-index sets with heavy exact duplication, and share
+   corrections that are pure magnitude scales along one of two fixed
+   directions -- the signature of a customization-choice lookup, not a
+   detail-reduction ladder; see `WIKI_FINDINGS/BONE.md` and
+   `TODO/TODO_correctness.md` #2). The real selector (a
+   `ChrCustomizationChoiceID` -> `ChrCustomizationBoneSet.BoneFileDataID`
+   join) is resolved now, not out of reach -- `husk export --db2-dir/
+   --dbd-dir/--customization-choice-ids` (`src/chrcustomization_db2.hpp`)
+   marks the matching resolved `.bone` correction set given a real choice
+   ID. What's still open is *applying* that correction in Blender -- its
+   composition semantics (multiply order, local-vs-model space) were never
+   verified against real client behavior, tracked separately in
+   `TODO/BONE_CORRECTION_APPLICATION_TODO.md`, gated on a real client
+   comparison, not an external-data wall.
    **Particles/ribbons: fully parsed, split across a `.glb` anchor and
    `dump-chunks` JSON.** `M2Ribbon`/`M2Particle` (`m2::parseRibbons`/
    `parseParticles`, `src/m2.cpp`) are now fully dereferenced -- every
