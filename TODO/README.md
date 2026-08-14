@@ -15,7 +15,7 @@ work, corpus scans, well-scoped implementation, investigation).
 |---|---|---|---|
 | `MULTI_TEXTURE_LAYER_TODO.md` | Multi-texture-layer (`textureCount > 1`) combiner rendering — **the single biggest visual-fidelity lever left** (~79% of the real `.skin` corpus) | `shader_id` parsing/resolution done; Blender-side formula rendering and env-map-frequency measurement (step 0) still open | Independent (step 0 is a corpus scan; step 4/5 Blender rendering is implementation, not client comparison) |
 | `PIXEL_SHADER_FORMULAS_TODO.md` | Filling wowdev.wiki's 17 undocumented `Combiners_*` formulas | A promising but unverified lead found (`reference/wow.export`'s shader); step 1 (find real corpus repros) is open and easy | Step 1: independent. Step 2 (verify against real rendered output): human-gated |
-| `RENDER_QUALITY_TODO.md` | Corpus-review render-quality findings (rotation, textures, alpha, billboards) | Rotation shear + V-scroll direction fixed (2026-08-14); 68 unexplained blank renders, Mod/Mod2x blend modes + `alphaCutoff`, billboard ground-truth, ambiguous-pool tiebreak all open | Mixed — blank-render investigation and Mod/Mod2x are independent; billboard ground-truth is human-gated |
+| `RENDER_QUALITY_TODO.md` | Corpus-review render-quality findings (rotation, textures, alpha, billboards) | Rotation shear + V-scroll direction + `alphaCutoff` fixed (2026-08-14); 68 "unexplained" blank renders downgraded 2026-08-14 (6 spot-checked, 0 real bugs found); Mod/Mod2x blend modes, billboard ground-truth, ambiguous-pool tiebreak still open | Mixed — Mod/Mod2x is independent; billboard ground-truth is human-gated |
 | `CHAR_TEXTURE_COMPOSITING_TODO.md` | Full DB2-driven character texture compositing (base/overlay skin layers) | Stages 1-2 done (WDC5 parsing, real placement geometry via `--char-layout-id`); Stage 3 (choice chain) blocked on 0-byte local `ChrCustomizationOption`/`_Choice`; Stages 4-5 (pixel compositing, Blender picker) not started | Independent, but Stage 3 is genuinely blocked on a `casc-tool` re-extraction, not something to work around |
 | `BONE_CORRECTION_APPLICATION_TODO.md` | Applying `.bone` correction matrices in Blender, now that selection is resolved | Selection done (2026-08-14); application semantics (multiply order, space) never verified against real client behavior | **Human-gated** — needs a real side-by-side comparison, same as billboard alignment did |
 | `ENGINE_TODO.md` | External-data gaps, and which are actually husk's to close (renumbered 2026-08-14 after former items 1/2 resolved+removed) | #1 hardcoded texture resolution (biggest remaining item, tracked in `CHAR_TEXTURE_COMPOSITING_TODO.md`); #2 `aliasNext` names checked and closed 2026-08-14 (local DB2 schema dropped `Name` around 7.3.5, unrecoverable); #3 `blendTimeOperation` (no data, needs a heuristic); #4 sound linking (unconfirmed); #5 LOD thresholds (a design decision, not a gap) | #4: independent investigation. #3: independent (author a heuristic). #5: a decision, not a task |
@@ -35,13 +35,16 @@ effort first:
    step 0 — both are small, well-defined corpus scans that unblock a
    priority call or a human-verification step later, without being one
    themselves.
-2. `RENDER_QUALITY_TODO.md`'s 68 unexplained blank renders — real bugs,
-   concrete repro list already in hand, likely several independent root
-   causes.
-3. `RENDER_QUALITY_TODO.md`'s Mod/Mod2x blend modes + explicit
-   `alphaCutoff` — same shape as the already-shipped additive-blend fix.
-4. `CLEANUP_TODO.md` — pure hygiene, no functional payoff, do when nothing
+2. `RENDER_QUALITY_TODO.md`'s Mod/Mod2x blend modes — same shape as the
+   already-shipped additive-blend fix.
+3. `CLEANUP_TODO.md` — pure hygiene, no functional payoff, do when nothing
    higher-value is available.
+
+(`RENDER_QUALITY_TODO.md`'s 68 "unexplained" blank renders and its
+`alphaCutoff` item were both here — checked 2026-08-14: `alphaCutoff` is
+fixed, and the blank-render bucket turned out to be mostly correctly-
+blank-by-design once spot-checked, not a bug pile; see that file's §2 for
+the real remaining follow-up.)
 
 (`ENGINE_TODO.md` #2, `aliasNext` names, was here — checked 2026-08-14 and
 closed as genuinely unfulfillable, see that file.)

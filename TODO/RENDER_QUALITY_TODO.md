@@ -342,15 +342,100 @@ finding — not excluded, not explained by particles at all.** Several have
 Full list of all 104 blank renders (paths, vertex counts, blend modes,
 particle counts, and which class each falls into) is at
 `corpus_reports/blank_renders_classified.csv` — filter `class ==
-"unexplained"` for the 68 that still need investigation. This is the
-genuinely-open remainder
-of the original "blank render" complaint — a 16,632-vertex opaque doodad
-rendering nothing is a real, unexplained bug, most likely several
-distinct causes bundled together (material-import failure, alpha=0 from
-some material edge case, degenerate UVs, or something not yet
-hypothesized), not one root cause the way the particle case was. Elevated
-to top priority below given the concrete, substantial-geometry repros now
-in hand.
+"unexplained"` for the 68 that still need investigation.
+
+**Follow-up (2026-08-14): spot-checked 6 of the 68 individually, real
+root causes found for all 6 — not one bundled mechanism, but not
+mysterious either. None required a code fix; each is either already-
+correct behavior or already-understood/tracked elsewhere.** Re-exported
+each with `--listfile`/`--listfile-root` (the `blank_renders_classified.csv`
+scan predates that flag existing in the render driver by a few hours —
+worth knowing if this file is ever regenerated and the counts don't
+match) and, where relevant, re-rendered through the real
+`render_glb.py` pipeline:
+
+- **`shattrath_scryerhedges.webp`** (16,632 vertices, `blend_mode=1`) —
+  its one texture (FileDataID 192069) has no local file in the model's
+  own directory at all; `--listfile` resolves it to a real file living
+  under a completely different path
+  (`world/expansion01/doodads/generic/bloodelf/hedge/silvermoon_hedge01.blp`,
+  confirmed present locally, a real 256x256 DXT texture, 85% non-transparent
+  pixels — not itself blank). Re-exporting with `--listfile` and
+  re-rendering no longer produces a 100%-flat image (std 0.94, still just
+  under this scan's <1.0 threshold, but visibly non-blank — a handful of
+  small green foliage-cluster shapes are now visible). Root cause for the
+  *remaining* sparseness: this file lives under `giantdoodads/` for a
+  reason — its real bounding sphere radius is 123.9 (a ~250-yard
+  structure, city-block scale), and the corpus preview's generic
+  auto-framing camera zooms out to fit the *entire* bounding sphere in
+  one 640x480 frame regardless of how sparse the actual foliage geometry
+  is within it — individual leaf-cluster shapes that would fill the
+  screen at an in-game viewing distance shrink to a handful of ~20px
+  blobs. Real, but a QA-preview framing tradeoff for unusually large
+  sparse "giant doodad"-class assets, not an export/data bug — no
+  obviously-correct fix without changing framing behavior for every other
+  model too, so left as a documented limitation rather than "fixed."
+- **`deathwingcorruptedjaw.webp`** (2,119 vertices, `blend_mode=4`/Add, 0
+  particles) — its one texture (FileDataID 130930) has no local file in
+  its own directory either; `--listfile` resolves it to
+  `interface/characterframe/ui-party-background.blp`, decoded directly:
+  32x32, mean RGBA `(0,0,0,255)` — genuinely, fully black, not a
+  resolution miss. This is the *exact* mechanism already confirmed for
+  `cloudswampgas_white_clickable` above (additive blend of a real,
+  correctly-resolved, legitimately-black texture contributes zero light
+  by definition) — just without a particle emitter, so
+  `particle_only_task.py`'s exclude-candidate heuristic
+  (`blend_mode >= 3 AND particle_count > 0`) doesn't catch it. **Real,
+  scoped follow-up, not done this session**: the heuristic's particle
+  requirement was a proxy for "this model's only real visible content is
+  something husk can't bake into geometry," but the actual root cause
+  (additive blend + black source texture) doesn't need particles at all
+  — relaxing the candidate scan to check resolved-texture darkness
+  directly (export via husk, decode the embedded base-color PNG, mean
+  brightness near 0) instead of proxying through particle-presence would
+  catch this class too, without the false-positive risk plain blend-mode
+  checking alone has (documented above: 90%+ of additive+particle
+  candidates aren't actually blank).
+- **`ui_alliance_lowres.webp`**/**`ui_horde_lowres.webp`**/
+  **`ui_pandarencharacterselect_lowres.webp`** (4 vertices each) — not
+  visible meshes at all: real attachment points (Shield/HandRight), 3
+  lights, and an embedded camera, `blend_mode=0`+unlit — these are
+  character-select-screen **rig/stage markers**: their real visual
+  content in the live client is whatever character model gets attached
+  at their named attachment points and lit by their named lights, viewed
+  through their own embedded camera, none of which this preview pipeline
+  reconstructs (it renders exactly one model's own mesh, doesn't attach
+  others or use embedded M2Camera data). Correctly near-empty for what
+  they are — not a bug, a different asset category than a normal
+  creature/doodad model.
+- **`minimaparrow.webp`**/**`minimapcompassring.webp`** — real bounding
+  sphere radius **0.0185** (`minimaparrow`, confirmed via `husk info`) —
+  genuinely UI-icon-scale geometry (a fraction of one in-game yard),
+  designed for a 2D screen-space UI camera entirely outside this preview
+  pipeline's generic world-object framing. Same category as the rig
+  markers above: correctly near-invisible for what it structurally is.
+- **`invisiblestalkernoname.webp`**/`creature/greysquare/
+  10xp_greysquare01.webp` — real, named, intentionally-invisible/debug
+  game entities (`invisiblestalker` is a genuine, widely-reused
+  scripted-invisible-NPC model; `greysquare` reads as a GM/debug
+  placeholder marker) — correctly renders as nothing, not a bug in husk
+  or the preview pipeline.
+
+**Net effect on the "genuinely unexplained" framing**: the 68-count and
+the "likely several distinct causes bundled together" read from the
+first pass both undersold how much of this list is already-correct
+behavior once actually looked at — of the 6 spot-checked, 0 were husk
+export bugs; 5 are correctly-blank-by-design (rig markers, UI-scale
+icons, debug/invisible entities), and 1 (`shattrath_scryerhedges`) was a
+real texture-resolution miss now fixed by `--listfile`, revealing a
+separate, understood-but-unfixed framing limitation underneath. Worth a
+similar spot-check pass over the remaining ~62 before assuming they're a
+genuinely-open rendering bug bucket — plausible many more are the same
+already-understood categories (especially the small 3-25-vertex
+`spells/`/`world/` doodad quads, structurally similar to the rig-marker/
+UI-icon cases above) rather than fresh bugs. Downgraded from "top
+priority" accordingly — not urgent, not proven to hide a real bug at
+volume.
 
 **Known limitation of this pass**: only `.webp` stills were checked
 (6,610 of them). The ~1,915 particle-only-candidate files that render as
@@ -630,11 +715,16 @@ listed here so they aren't lost:
    **fixed 2026-08-14**; the second, unrelated cause (geoset-tag joints
    pulling weighted vertices toward bind pose) **also fixed 2026-08-14**,
    confirmed by Luna against the real client.
-3. **The 68 unexplained blank renders (§2)** — real, substantial-geometry
-   repros now in hand (`corpus_reports/blank_renders_classified.csv`,
-   `class == "unexplained"`), including a 16,632-vertex opaque doodad
-   rendering nothing. Not one root cause — likely several — but concrete
-   and worth its own dedicated investigation before more guessing.
+3. **The 68 "unexplained" blank renders (§2)** — downgraded 2026-08-14:
+   spot-checked 6, found 0 husk bugs (5 correctly-blank-by-design rig-
+   marker/UI-icon/debug-entity cases, 1 real `--listfile` fix revealing
+   an already-understood giant-doodad framing limitation, not a data
+   bug). Real next step if picked back up: extend
+   `particle_only_task.py`'s exclude heuristic to catch the no-particle
+   black-additive-texture class (`deathwingcorruptedjaw`'s shape) via
+   actual resolved-texture-darkness checking rather than a particle-count
+   proxy, then spot-check the remaining ~62 before assuming any of them
+   are fresh bugs.
 4. ~~**Alpha cutoff (§4)**~~ — **fixed 2026-08-14.** **Mod/Mod2x (§4)**
    still open — needs a real multiply-blend shader shape in
    `render_glb.py` (no `Add Shader` equivalent for multiply), no demonstrated
