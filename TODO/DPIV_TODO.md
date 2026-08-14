@@ -100,16 +100,43 @@ identical in axis-labeling to) this file's own already-documented
 above — this adds *why* it might vary file-to-file (elevated vs. grounded
 prop), which the original observation didn't have.
 
-**Concrete next step this unlocks**: a real corpus-scale test — for a
-sample of DPIV-bearing files, check whether `field1 == 0` correlates with
-"this model's own lowest vertex sits at/near its local origin" (a
-ground-level prop) and `field1 != 0` correlates with a model whose
-geometry floats above local origin by roughly that same amount (a
-hanging/elevated prop) or is a creature (which is not floor-anchored at
-all). That's a real, cheap, falsifiable test — doesn't need per-model
-`.glb` exports, just each M2's own vertex bounding box (already available
-without a full export) compared against `field1`. Not run yet this
-session — flagged as the clear next step, not done.
+**Follow-up, same session: ran that test, and it corrected the hypothesis
+rather than confirming it.** `husk info` already reports each M2's own
+header-level `bounding_box` (`M2Bounds.extent`, no per-vertex export
+needed) — pulled it for all four files above and checked each DPIV field
+against its own axis's bbox range, not just whether `field1 == 0`:
+
+| file | field vs. bbox-center offset (x / y / z) |
+|---|---|
+| `pa_kite_lamp_creature.m2` | 11.1% / **4.1%** / 83.0% |
+| `fx_breakscrollseal_precast.m2` | 19.6% / **0.0%** / 23.0% |
+| `ao_banner02.m2` | 36.5% / **0.0%** / 3.4% |
+| `dr_bench_01_nosound.m2` | 2.9% / **0.3%** / 49.3% |
+
+(percentage of that axis's own bbox width the field sits from the exact
+midpoint.) **`field1` lands within 0–4.1% of the model's own Y-axis
+bounding-box center in all four files** — including `pa_kite_lamp`, whose
+`field1 = 2.798` is not "elevation off the ground" (its own Z bbox min is
+24.58, nowhere near 2.798) but *is* almost exactly its Y-bbox midpoint
+(2.958, 4.1% off). `field0`/`field2` show no comparable pattern — some
+land near their axis's center, some near the min, most just "somewhere
+within range," inconsistent file to file (see the two-Z-outlier cases,
+`pa_kite_lamp` 83% and `dr_bench_01` 49%).
+
+**Corrected reading**: the earlier "`field1` is a ground-relative
+elevation value, `0` for grounded props" framing was a coincidence of
+this specific 4-file sample (three ground props whose own Y-bbox happens
+to straddle zero) — the real, better-supported pattern is **`field1` is
+close to the model's own Y-axis bounding-box center**, which for a
+symmetric ground prop *is* usually near zero anyway, without needing an
+"elevation" mechanism at all. This is a more mechanically plausible
+reading too: a per-model "center-ish anchor point," roughly inside the
+model's own volume, fits a tool-authored placement/attachment point far
+better than a hand-tuned elevation value would. `field0`/`field2`'s own
+weaker, inconsistent bbox-relationship (sometimes center, sometimes near
+an extreme) is still unexplained and worth investigating on its own,
+possibly by axis-pair (are field0/field2 jointly closer to some other
+real, non-center landmark, e.g. a specific bone's own local position?).
 
 **Caveat, stated honestly**: the geometric cross-reference above assumes
 DPIV's three point fields are in the *same* per-axis order/convention as
@@ -129,11 +156,17 @@ mislabeled.
    cross-checks (an elevated prop and a ground prop each) before treating
    "not on the surface" as general, but the negative "not bone-pinned"
    result and the elevation lead below are real enough to act on.
-2. **New, promoted to first priority**: run the `field1`-vs-own-bounding-
-   box elevation test described above across a real sample of the 2,632
-   DPIV-bearing files — cheap (no per-model `.glb` export needed, just
-   `.m2` vertex bounds), and would either confirm or kill the "`field1` is
-   a ground-relative elevation" hypothesis outright.
+2. ~~Run the field1-vs-own-bounding-box test~~ — **done this session**,
+   4-file hand sample: corrected the "elevation" hypothesis to "`field1`
+   sits within ~4% of the model's own Y-axis bbox center" (see above) —
+   much stronger fit, no exceptions in this sample. **New next step this
+   unlocks**: verify the corrected "`field1` ≈ Y-bbox-center" hypothesis
+   at real corpus scale (all 2,632 DPIV files) — cheap, `husk info`
+   already exposes each file's own `bounding_box` with no `.glb` export
+   needed; would also be the natural place to investigate `field0`/
+   `field2`'s own weaker, inconsistent bbox relationship (center some
+   files, near-extreme others) rather than leaving it as an open loose
+   end.
 3. **Check whether same-file point sets close into a polygon.** The
    partial constant-Y pattern (2/3 above) is suggestive of a flat footprint
    — check real inter-point distances/angles within a file to see if 3–4
