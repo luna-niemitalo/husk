@@ -182,6 +182,39 @@ the mesh" distance is still real (the raw-space math doesn't depend on
 which axis is "up"), but which axis it's offset along could be
 mislabeled.
 
+**Follow-up, same session: item 3 below run at corpus scale, plus a real
+structural finding it depended on.** Sampled 6 real multi-record files by
+hand first and immediately noticed something the "polygon footprint"
+framing hadn't accounted for: several files have one record that's
+*exactly* `(0.0, 0.0, 0.0)` while a sibling record in the same file is a
+real, distinct point — not two real geometric points at all, one of them
+a placeholder. Checked at full corpus scale (all 260 multi-record files):
+
+- **41/260 have *every* record exactly `(0,0,0)`** — fully degenerate,
+  no real point data at all (same "genuinely empty, not corrupted" shape
+  `fields 4–7` already showed).
+- **83/260 (32%) have *some but not all* records exactly zero** — a real
+  placeholder pattern, skewed toward record 0 being the zero one (64/83)
+  but not exclusively (position 1: 18/83, position 2: 4/83) — so "record
+  0 is always the placeholder" isn't quite right either, just the most
+  common shape.
+- **136/260 (52%) have no zero records at all** — genuinely all-real
+  multi-point data, the population item 3's own polygon question is
+  actually about (mixing in the placeholder-bearing files would have
+  corrupted any inter-point-distance measurement).
+
+Ran the polygon-footprint check on exactly those 136 real-multi-point
+files: for each, `max(inter-point distance) / model's-own-bbox-diagonal`.
+**Median 30.3% of the model's own diagonal; 0% ever exceed 100%** (points
+never scatter wider than the model itself) but only 19.9% land under 10%
+(a genuinely tight cluster) and 43.4% under 25%. **Real finding, but it
+doesn't cleanly support the tight "3–4 points form a footprint quad"
+picture** — points stay bounded within the model's own volume (consistent
+with the ground-anchor reading above) but are moderately, not tightly,
+spread — more consistent with "several independent placement points
+scattered around the object" (e.g. one per torch/light/attachment on a
+multi-part prop) than one small decal/trigger footprint polygon.
+
 ## Concrete next steps (in rough order of expected payoff)
 
 1. ~~Cross-reference DPIV points against the model's own geometry~~ —
@@ -208,11 +241,18 @@ mislabeled.
    two summary buckets used this session, and cross-referencing outliers
    against filenames/content type the way `DETL`'s `flags` bit was
    cracked.
-3. **Check whether same-file point sets close into a polygon.** The
-   partial constant-Y pattern (2/3 above) is suggestive of a flat footprint
-   — check real inter-point distances/angles within a file to see if 3–4
-   points form a plausible quad/triangle (a decal projection area, a
-   trigger volume, a particle-spawn footprint) rather than being scattered.
+3. ~~Check whether same-file point sets close into a polygon~~ — **done
+   this session**, all 260 multi-record files: found and filtered out a
+   real zero-placeholder-record pattern first (32% of files), then tested
+   the remaining 136 genuinely-multi-point files — bounded within the
+   model's own volume (never exceeds the bbox diagonal) but only
+   moderately clustered (median 30% of the diagonal), not a tight
+   footprint polygon. See above for the full writeup. **New next step
+   this unlocks**: the zero-placeholder pattern itself is now a real,
+   separate structural question — does a zero record correlate with
+   `field3`'s own value (e.g. "`field3 == 0` means unused slot")? Cheap
+   to check against the same 83-file set already identified, and would
+   help interpret `field3` (item 4 below) at the same time.
 4. **Re-examine field 3 as a category enum, not an index.** With only 4
    values (0–3) and no clean ordering, check for correlation with anything
    else per-record-position-independent — e.g. does a specific value always
