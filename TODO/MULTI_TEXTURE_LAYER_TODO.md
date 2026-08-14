@@ -342,16 +342,34 @@ wrong 3/130,576 number; do not keep deferring this on stale evidence).
    table. Its second material (single-texture, opaque) resolves to the
    sensible default `Combiners_Opaque`/`Diffuse_T1`. Full suite green,
    622/622 (1 pre-existing unrelated skip), 4707 assertions.
-3. **Validation pass, partially covered above, not exhaustive** — the
-   guild-pennant real-data match is strong evidence for at least one row
-   of the `s_modelShaderEffect` table and the op-count==1 formula branch,
-   but per this project's own standing discipline nothing under
-   `reference/`/`documentation/` is fully trusted from one lucky match.
-   Still open: cross-check a handful of *other* real modern
-   `textureCount > 1` corpus files (spanning different `shaderId` shapes —
-   both table-lookup and formula paths, both op-count branches) against
-   either real in-game visual behavior or another independent tool's own
-   shader-selection output.
+3. **Validation pass, now covering 3 real files, still not exhaustive**.
+   Picked two more real corpus files (via the full `shader_id_corpus.csv`
+   scan, one biased toward `high_bit_batches > 0`, one toward the plain
+   formula path) and inspected their resolved extras by hand:
+   - `item/objectcomponents/collections/leather_raidmonkt2_d_01_helm_gn_m.m2`
+     (a real raid armor helm): two materials resolve to
+     `Combiners_Opaque_Mod2xNA_Alpha`/`Diffuse_T1_Env` — table-lookup row 0,
+     a real env-mapped "shine" pass, exactly the look raid armor's metal
+     trim visually has in-game — and two more resolve to `Combiners_Mod_
+     Mod`/`Diffuse_T1_T2` with `blend_mode: 4` (additive), plausible for a
+     glowing emblem/overlay layer.
+   - `item/objectcomponents/weapon/bow_2h_crossbow_outlandraid_d_01.m2` (a
+     real raid weapon, picked specifically for `high_bit_batches == 0` —
+     exercises the formula path, not the table): metal-looking parts
+     resolve to `Combiners_Opaque_AddAlpha`/`Diffuse_T1_Env` (env-mapped
+     shine again, formula-derived this time, not table-lookup — a
+     genuinely different code path landing on a semantically consistent
+     answer), plain wood/leather-grip parts resolve to the unremarkable
+     `Combiners_Opaque`/`Diffuse_T1`.
+
+   Nothing malformed, nothing semantically implausible, across 3 real
+   files and both resolution paths (table lookup + formula, op-count 1 and
+   >1) — real, if informal, corroborating evidence. **Still not a
+   substitute for real in-game visual confirmation or an independent
+   tool's own shader-selection output** — everything above is "does this
+   look like a sane answer," not "matches known-ground-truth," per this
+   project's own standing discipline. Worth doing before this is treated
+   as fully trusted, but no longer the single-file blocker it was.
 4. **Blender-side**: extend `render_glb.py`'s post-import material rebuild
    (same site as `fix_additive_materials`) to, for each material with
    `additional_texture_layers` extras: read the resolved `Combiners_*`
