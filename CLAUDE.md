@@ -171,7 +171,65 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: New session. `TODO/ENGINE_TODO.md`'s stale premise
+- **Current state**: Same session, continued. Two follow-ups off the back
+  of the geoset/`.bone`-correction-selection work below. (1) Split
+  `GEOSET_SELECTION_TODO.md`'s Blender-side step 3 into its own file,
+  `TODO/BONE_CORRECTION_APPLICATION_TODO.md` -- a real correction, prompted
+  directly: an earlier draft claimed `.bone` corrections "aren't applied to
+  the render... by design," true only of the `husk export` C++ binary
+  (`DESIGN.md`'s Key design decisions), not of `tools/
+  husk_blender_geoset_mask.py`, which already applies exported extras to
+  real Blender rendering elsewhere (billboards, texture-transform
+  animation, now geoset switching too). The real remaining blocker is
+  narrower and still open: `.bone`'s correction-matrix *application
+  semantics* (multiply order, local-vs-model space) were reverse-engineered
+  only as far as byte shape, never verified against real client behavior --
+  needs the same real side-by-side-against-the-client treatment billboard
+  alignment eventually got before anything applies it, gated on Luna's own
+  interactive comparison, not something to build blind. (2) The other half
+  of that same TODO -- wiring real `enabled_geosets` extras into
+  `tools/husk_blender_geoset_mask.py` itself -- is done: new
+  `read_enabled_geosets`/`enabled_geosets_to_default_overrides` (same
+  raw-glTF-JSON-reread pattern `read_chr_texture_layout` already
+  established, since skin extras have no supported Blender importer target
+  at all) feed a new `extra_default_overrides` parameter on
+  `apply_geoset_switch(es)`, layered on top of and taking priority over the
+  existing hand-curated `CURATED_DEFAULT_VARIANTS` table. Verified
+  end-to-end, headlessly, against the real `bloodelffemale_hd.m2` fixture
+  with a deliberately adversarial test case (a real resolved choice
+  overriding group 0's own hardcoded `CURATED_DEFAULT_VARIANTS` default of
+  `"none"`) -- confirmed via both the Menu Switch modifier's real stored
+  value (matched against its own real enum item list, not assumed from the
+  offset formula) and, more rigorously, the evaluated mesh's own vertex
+  count actually differing (4,276 vs. 4,849) between the two states -- real
+  geometry change, not just a correct-looking modifier input. An export
+  with no `--customization-choice-ids` at all is confirmed byte-for-byte
+  unaffected (clean `None`/`{}` fallback, no crash). C++ suite unaffected
+  (Python-only change), still green, 632/632. **Third follow-up, prompted
+  directly by Luna catching it live**: `GEOSET_SELECTION_TODO.md` itself
+  had drifted into exactly the "historical record" shape its own header
+  explicitly disclaims ("an open punch list, not a historical record...
+  fixed items get removed outright") -- both halves of its own job (husk-
+  side resolution, Blender-side consumption) were done, so the file was
+  deleted outright rather than left as a done-item narrative, per this
+  project's own established convention (`TODO_correctness.md`'s repeated
+  precedent for exactly this). `ENGINE_TODO.md`'s former items 1/2 (which
+  pointed at it) got the same treatment -- removed outright, not just
+  repointed, since both were themselves fully resolved from that file's
+  own "external data acquisition" framing; remaining items renumbered 1-5.
+  Every other citation of the deleted file across `DESIGN.md`/`README.md`/
+  `TODO_correctness.md`/`BONE_CORRECTION_APPLICATION_TODO.md`/`tests/
+  test_cli_chrcustomization.cpp`/`tools/husk_blender_geoset_mask.py`/
+  `src/chrcustomization_db2.{hpp,cpp}`/`src/cmd_export.cpp`/`src/
+  gltf_skeleton.hpp` rewritten to explain inline or point at a real
+  surviving source, same "no dangling citations" discipline this project
+  already applied when `TRANSFORM_TRIAGE.md`/`GEOSET_MASK_TODO.md` were
+  deleted. Also caught and fixed in the same pass: `TODO_correctness.md`
+  #2 still carried the same "`.bone` corrections aren't applied... by
+  design" overstatement the second follow-up above already corrected
+  elsewhere -- fixed there too. Full suite still green, 632/632 (doc/TODO-
+  only changes, no behavior touched).
+- **Prior state**: New session. `TODO/ENGINE_TODO.md`'s stale premise
   corrected (it claimed husk "will never touch DB2," directly contradicting
   `DESIGN.md`'s own 2026-08-08 clarification that locally-extracted `.db2`
   files are in scope -- items 1-4/6 reframed as real husk work gated on

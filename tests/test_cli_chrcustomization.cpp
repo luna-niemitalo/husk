@@ -3,7 +3,7 @@
 // synthetic, on-disk M2/.skin/.skel fixtures plus a small synthetic
 // WoWDBDefs/.db2 fixture set, verifying the real `enabled_geosets`/
 // `selected_by_choice_ids` glTF extras land in the actual output .glb.
-// TODO/GEOSET_SELECTION_TODO.md, TODO/TODO_correctness.md #2.
+// TODO/TODO_correctness.md #2, src/chrcustomization_db2.hpp.
 
 #include <cstdint>
 #include <cstring>

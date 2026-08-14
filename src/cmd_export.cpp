@@ -590,7 +590,7 @@ void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDi
 
 // --db2-dir/--dbd-dir/--customization-choice-ids: resolves each real
 // ChrCustomizationChoiceID against src/chrcustomization_db2.hpp's DB2
-// chain (TODO/GEOSET_SELECTION_TODO.md), attaching real geoset selections
+// chain (TODO/TODO_correctness.md #2), attaching real geoset selections
 // as skeleton.enabledGeosets extras and marking any already-resolved
 // --bones-dir CorrectionSet a choice's ChrCustomizationBoneSetID points at
 // (TODO_correctness.md #2). Must run after attachBoneCorrections, since it
@@ -1074,9 +1074,9 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "applies to a given .m2 model on its own, so this must be supplied directly; "
                     "requires --db2-dir/--dbd-dir too");
     app.add_option("--customization-choice-ids", opts.customizationChoiceIdsArg,
-                    "comma-separated real ChrCustomizationChoiceID(s) (see TODO/"
-                    "GEOSET_SELECTION_TODO.md) to resolve against --db2-dir -- attaches each "
-                    "choice's real geoset selection as 'enabled_geosets' skin extras, and marks "
+                    "comma-separated real ChrCustomizationChoiceID(s) to resolve against "
+                    "--db2-dir -- attaches each choice's real geoset selection as "
+                    "'enabled_geosets' skin extras, and marks "
                     "any matching --bones-dir correction set with 'selected_by_choice_ids'; "
                     "requires --db2-dir/--dbd-dir too, doesn't filter/apply anything itself, same "
                     "inert-extras treatment as --char-layout-id");

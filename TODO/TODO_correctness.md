@@ -200,9 +200,10 @@ WoWDBDefs' own `.dbd` files for whatever table has a foreign key into
 shaped table is the likely candidate, both of which also exist locally
 per `dbfilesclient/`'s own listing) to find the real join path.
 
-**Update: the join table is confirmed, found while writing
-`GEOSET_SELECTION_TODO.md` (a separate, sibling investigation for geoset
-selection that happened to use the exact same table).**
+**Update: the join table is confirmed, found while investigating a
+separate, sibling geoset-selection gap that happened to use the exact same
+table (that investigation's own TODO file is now closed and deleted, see
+git history).**
 `ChrCustomizationElement` (35,845 real rows, verified via `husk db2-info`/
 `db2-export --dbd-dir reference/WoWDBDefs`, real WoWDBDefs column names
 resolved) has a `ChrCustomizationChoiceID` column *and* a
@@ -214,9 +215,8 @@ boneset 24, choice 103 -> boneset 25, ... all within `[24, 742]`). This is
 the real join: `ChrCustomizationChoiceID -> ChrCustomizationElement.
 ChrCustomizationBoneSetID -> ChrCustomizationBoneSet.BoneFileDataID`.
 
-**Wired into husk, 2026-08-14** (`GEOSET_SELECTION_TODO.md`'s own
-Implemented section has the full detail — `src/chrcustomization_db2.hpp`/
-`.cpp`, `husk export --db2-dir/--dbd-dir/--customization-choice-ids`): a
+**Wired into husk, 2026-08-14** (`src/chrcustomization_db2.hpp`/`.cpp`,
+`husk export --db2-dir/--dbd-dir/--customization-choice-ids`): a
 real `ChrCustomizationChoiceID`, given directly by the caller, resolves to
 a real `BoneFileDataID` and, if that FileDataID was already resolved via
 `--bones-dir`, marks that `CorrectionSet`'s own `selected_by_choice_ids`
@@ -229,7 +229,10 @@ directly in the output `.glb`). The *other* half of the chain,
 real choices by name or pick a default automatically), is still confirmed
 0 bytes in the current local extraction — the caller must supply a real
 choice ID directly, same as `--char-layout-id` already requires for
-`CharComponentTextureLayoutsID`. Still genuinely open: nothing in
-Blender consumes `selected_by_choice_ids` yet (`.bone` corrections aren't
-applied to the render regardless, by design) — see
-`GEOSET_SELECTION_TODO.md`'s "Remaining: expose this in Blender" section.
+`CharComponentTextureLayoutsID`. **Still genuinely open, tracked
+separately**: nothing consumes `selected_by_choice_ids` in Blender yet —
+not because `.bone` corrections can't be applied there (an earlier
+version of this note wrongly said so; `tools/husk_blender_geoset_mask.py`
+already applies other husk extras to real Blender rendering), but because
+the correction matrix's own application semantics were never verified
+against real client behavior — see `TODO/BONE_CORRECTION_APPLICATION_TODO.md`.

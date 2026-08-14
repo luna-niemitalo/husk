@@ -342,15 +342,19 @@ ALWAYS_VISIBLE_VARIANTS = {
 }
 
 # Per-model curated default geoset selections, found by hand in Blender's
-# real GUI -- husk itself has no DB2 customization-choice data to ground a
-# "correct" default in (this module's own doc comment, point 8), so this is
-# a real, disclosed, per-model override table, not something derived or
-# guessed. Keyed by the model's own real name (the mesh object's name, minus
-# any Blender-assigned ".001"-style dedup suffix -- see `_model_key`); each
-# value is `{group: item_name}` where `item_name` is `"variant_<n>"` (a real
-# M2 geoset variant ID for that group) or `"none"`. A group missing from a
-# model's own dict, or a model missing from this dict entirely, falls back
-# to the pre-existing "lowest real variant ID" default.
+# real GUI -- a real, disclosed, per-model override table, not something
+# derived or guessed, for models with no real customization-choice data
+# available at export time. Keyed by the model's own real name (the mesh
+# object's name, minus any Blender-assigned ".001"-style dedup suffix -- see
+# `_model_key`); each value is `{group: item_name}` where `item_name` is
+# `"variant_<n>"` (a real M2 geoset variant ID for that group) or `"none"`.
+# A group missing from a model's own dict, or a model missing from this
+# dict entirely, falls back to the plain "lowest real variant ID" default.
+# Superseded per-group by `enabled_geosets_to_default_overrides` when the
+# export was given real `--customization-choice-ids` -- husk *can* now
+# resolve a real customization choice to its real geoset ID
+# (`src/chrcustomization_db2.hpp`, `read_enabled_geosets` below), this
+# table just still matters for any export that wasn't given one.
 CURATED_DEFAULT_VARIANTS = {
     "bloodelffemale_hd": {
         0: NONE_ITEM_NAME,
@@ -577,17 +581,23 @@ def build_geoset_switch_node_group(name, groups, default_overrides=None):
     return node_tree
 
 
-def apply_geoset_switch(mesh_obj):
+def apply_geoset_switch(mesh_obj, extra_default_overrides=None):
     """Builds the node group and adds it as a Geometry Nodes modifier;
     returns this mesh object's own `geoset_groups` result. Looks up
     `CURATED_DEFAULT_VARIANTS` by this mesh object's own real name (see
     `_model_key`) to pick real, hand-verified defaults over the plain
     lowest-variant fallback, when available for this model.
+    `extra_default_overrides` (`enabled_geosets_to_default_overrides`'s own
+    return shape, or None) layers on top of and takes priority over
+    `CURATED_DEFAULT_VARIANTS` -- real DB2-resolved data from a specific
+    character's own customization choices is a stronger signal than a
+    hand-picked, model-wide curated guess.
     """
     groups = geoset_groups(mesh_obj)
     if not groups:
         return groups
-    default_overrides = CURATED_DEFAULT_VARIANTS.get(_model_key(mesh_obj.name), {})
+    default_overrides = {**CURATED_DEFAULT_VARIANTS.get(_model_key(mesh_obj.name), {}),
+                          **(extra_default_overrides or {})}
     node_tree = build_geoset_switch_node_group(f"{mesh_obj.name}_geoset_switch", groups, default_overrides)
     mod = mesh_obj.modifiers.new(name="HuskGeosetSwitch", type='NODES')
     mod.node_group = node_tree
@@ -613,7 +623,7 @@ def delete_geoset_tag_bones(armature_obj, all_groups):
     return removed
 
 
-def apply_geoset_switches(mesh_objs, armature_obj):
+def apply_geoset_switches(mesh_objs, armature_obj, extra_default_overrides=None):
     """Builds the real geoset Menu Switch dropdown for every mesh object
     and deletes the now-unnecessary tag bones -- the single, shared
     "make this a geoset-correct scene" step, used identically by every
@@ -628,13 +638,17 @@ def apply_geoset_switches(mesh_objs, armature_obj):
     (TODO/RENDER_QUALITY_TODO.md section 1) -- leaving them in measurably
     pulls any vertex carrying real tag weight back toward its bind pose
     every frame, visible as a "shear"/detached-flap artifact, confirmed
-    against the real client. Returns (all_groups, switch_groups, removed)
-    for the caller's own logging.
+    against the real client. `extra_default_overrides`: see
+    `apply_geoset_switch`'s own doc comment -- applied identically to every
+    mesh object (the tag-joint/vertex-group structure is shared across
+    LOD tiers of the same model, so one real customization choice applies
+    the same way to all of them). Returns (all_groups, switch_groups,
+    removed) for the caller's own logging.
     """
     all_groups = {}
     switch_groups = 0
     for mesh_obj in mesh_objs:
-        groups = apply_geoset_switch(mesh_obj)
+        groups = apply_geoset_switch(mesh_obj, extra_default_overrides)
         switch_groups += sum(1 for gid, variants in groups.items()
                               if switchable_variants(gid, variants))
         for gid, variants in groups.items():
@@ -674,6 +688,59 @@ def read_chr_texture_layout(filepath):
         if extras and "chr_texture_layout" in extras:
             return extras["chr_texture_layout"]
     return None
+
+
+def read_enabled_geosets(filepath):
+    """Reads `enabled_geosets` straight out of the exported file's own raw
+    glTF JSON (skins[].extras) -- same "Blender's importer has no supported
+    extras target for a glTF skin at all" reason `read_chr_texture_layout`
+    already re-opens the raw file for, not a new gap. Returns a list of
+    `{"choice_id": int, "geoset_id": int}` dicts, or None if `filepath` is
+    falsy, isn't a real husk `.glb`/`.gltf`, or genuinely has no such extras
+    (no `--customization-choice-ids` was given at export time, or none of
+    the given choice IDs resolved a geoset) -- never a guess.
+    """
+    if not filepath:
+        return None
+    try:
+        if filepath.lower().endswith(".gltf"):
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            with open(filepath, "rb") as f:
+                raw = f.read()
+            (chunk_length, _chunk_type) = struct.unpack_from("<II", raw, 12)
+            data = json.loads(raw[20:20 + chunk_length])
+    except (OSError, ValueError, struct.error):
+        return None
+
+    for skin in data.get("skins", []):
+        extras = skin.get("extras")
+        if extras and "enabled_geosets" in extras:
+            return extras["enabled_geosets"]
+    return None
+
+
+def enabled_geosets_to_default_overrides(enabled_geosets):
+    """`read_enabled_geosets`'s own return shape -> `{group: item_name}`,
+    the same shape `CURATED_DEFAULT_VARIANTS`'s per-model dicts and
+    `build_geoset_switch_node_group`'s `default_overrides` parameter
+    already use -- `geoset_id // 100`/`geoset_id % 100` is the exact
+    inverse of husk's own `group*100+variant` convention
+    (`src/chrcustomization_db2.cpp`'s `resolveChoice`), so no separate
+    lookup table is needed here. Doesn't validate that a given group/variant
+    actually exists on this specific mesh object -- `build_geoset_switch_
+    node_group`'s own `default_item in valid_items` check already handles
+    an unmatched entry by falling back to the plain lowest-variant default,
+    same as any other invalid/missing override.
+    """
+    overrides = {}
+    for entry in enabled_geosets or []:
+        geoset_id = entry.get("geoset_id")
+        if geoset_id is None:
+            continue
+        overrides[geoset_id // 100] = f"{VARIANT_PREFIX}{geoset_id % 100}"
+    return overrides
 
 
 _OVERLAY_GROUP_NAME = "HuskChrTextureLayoutOverlay"
@@ -1513,10 +1580,17 @@ def main():
                  if obj.material_slots[i].material is not None}
 
     def geoset_stage():
-        all_groups, switch_groups, removed = apply_geoset_switches(mesh_objs, armature_obj)
+        enabled_geosets = read_enabled_geosets(filepath)
+        extra_default_overrides = enabled_geosets_to_default_overrides(enabled_geosets)
+        all_groups, switch_groups, removed = apply_geoset_switches(
+            mesh_objs, armature_obj, extra_default_overrides)
         print(f"husk_blender_geoset_mask: {len(all_groups)} geoset group(s) across "
               f"{len(mesh_objs)} mesh object(s), {switch_groups} dropdown switch(es) built, "
               f"{removed} tag bone(s) removed")
+        if extra_default_overrides:
+            print(f"husk_blender_geoset_mask: {len(extra_default_overrides)} group default(s) "
+                  f"driven by real enabled_geosets extras ({len(enabled_geosets)} customization "
+                  "choice(s) resolved at export time), not the curated/lowest-variant fallback")
 
     def billboard_stage():
         billboard_bones = find_billboard_bones(armature_obj)

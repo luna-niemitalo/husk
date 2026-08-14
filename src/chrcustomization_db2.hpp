@@ -9,11 +9,12 @@
 // Real, typed reader for the DB2 chain that resolves a real
 // ChrCustomizationChoiceID (a specific character-customization pick, e.g.
 // "Hairstyle 7") to the real geoset/bone-correction-set data it enables --
-// TODO/GEOSET_SELECTION_TODO.md, TODO/TODO_correctness.md #2. Same
-// db2table.hpp-backed, thin-wrapper pattern as chrmodel_db2.hpp.
+// TODO/TODO_correctness.md #2. Same db2table.hpp-backed, thin-wrapper
+// pattern as chrmodel_db2.hpp.
 //
 // The real chain, verified against Luna's own local casc-tool extraction,
-// not guessed (see GEOSET_SELECTION_TODO.md for the full verification):
+// not guessed (see chrcustomization_db2.cpp's resolveChoice/load for the
+// full verification detail):
 //
 //   ChrCustomizationChoiceID
 //     -> ChrCustomizationElement.ChrCustomizationGeosetID  -> ChrCustomizationGeoset
@@ -28,8 +29,10 @@
 // ChrCustomizationChoiceIDs exist for a given option/race/model -- that
 // needs ChrCustomizationOption/ChrCustomizationChoice, both confirmed
 // 0 bytes in the current local extraction (a real casc-tool gap, not a
-// husk one -- see GEOSET_SELECTION_TODO.md). The caller supplies real
-// choice IDs directly, same "hand husk a plain local answer, don't make it
+// husk one -- see TODO/CHAR_TEXTURE_COMPOSITING_TODO.md, which documents
+// the same gap for its own adjacent customization-choice chain). The
+// caller supplies real choice IDs directly, same "hand husk a plain local
+// answer, don't make it
 // guess" pattern --char-layout-id already established.
 namespace husk::chrcustomization {
 

@@ -62,9 +62,11 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
 Resolution resolveChoice(const Data& data, uint32_t choiceId, std::ostream& err) {
     Resolution result;
 
-    // Real, verified against local data (see GEOSET_SELECTION_TODO.md): one
-    // ChrCustomizationChoiceID owns *several* ChrCustomizationElement rows,
-    // not one -- e.g. real choice 1758 has 19 rows, only one of which
+    // Real, verified against local data (real end-to-end CLI testing, not
+    // just inspection -- see this file's own git history for the exact
+    // bug this caught): one ChrCustomizationChoiceID owns *several*
+    // ChrCustomizationElement rows, not one -- e.g. real choice 1758 has
+    // 19 rows, only one of which
     // carries a nonzero ChrCustomizationGeosetID/BoneSetID, the rest zero
     // (presumably other elements' own fields, not read by this reader).
     // Matching only the first row per choice (an earlier, wrong version of

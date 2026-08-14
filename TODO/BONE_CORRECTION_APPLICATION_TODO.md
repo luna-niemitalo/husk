@@ -6,18 +6,20 @@ and when, not this file.
 
 ## Background
 
-`GEOSET_SELECTION_TODO.md` closed the *selection* half of `.bone`
-corrections: `husk export --db2-dir/--dbd-dir/--customization-choice-ids`
-now resolves a real `ChrCustomizationChoiceID` all the way to a real
-`.bone` `BoneFileDataID` and marks the matching `--bones-dir`-resolved
-`CorrectionSet` with `selected_by_choice_ids` extras (`TODO_correctness.md`
-#2). Given a real character's customization choices, a consumer can now
-know *which* of a model's several `.bone` files is the correct one with no
-external data missing anymore.
+A now-closed, deleted TODO (the geoset-selection work, see git history and
+`TODO_correctness.md` #2's own detail) closed the *selection* half of
+`.bone` corrections: `husk export --db2-dir/--dbd-dir/
+--customization-choice-ids` (`src/chrcustomization_db2.hpp`) now resolves
+a real `ChrCustomizationChoiceID` all the way to a real `.bone`
+`BoneFileDataID` and marks the matching `--bones-dir`-resolved
+`CorrectionSet` with `selected_by_choice_ids` extras. Given a real
+character's customization choices, a consumer can now know *which* of a
+model's several `.bone` files is the correct one with no external data
+missing anymore.
 
-**What's still missing is not architectural.** An earlier draft of
-`GEOSET_SELECTION_TODO.md` wrongly framed this as blocked by "husk never
-applies `.bone` corrections to the render" — that boundary is real for the
+**What's still missing is not architectural.** An earlier draft of that
+now-deleted TODO wrongly framed this as blocked by "husk never applies
+`.bone` corrections to the render" — that boundary is real for the
 `husk export` C++ binary (`DESIGN.md`'s Key design decisions: husk reads
 formats and writes glTF, it doesn't render), but `tools/
 husk_blender_geoset_mask.py` is not bound by it — it already applies
@@ -91,13 +93,14 @@ re-reading the code more carefully.
    step 1, confirming it reproduces step 2's reference — not just that it
    runs without crashing.
 
-## Why this is its own file, not folded back into `GEOSET_SELECTION_TODO.md`
+## Why this is its own file
 
-That file's own job (resolving *which* slot applies) is done and largely
-closed out. This is a structurally different kind of task — an unverified-
-math investigation gated on a real human comparison step, not a data-
-plumbing task — and deserves separate tracking so it doesn't get lost
-inside a mostly-closed file, per this project's own "one punch list per
-open problem" convention (`DPIV_TODO.md`/`PIXEL_SHADER_FORMULAS_TODO.md`
-are the same shape: a real, scoped, but human-verification-gated
-follow-up split out from the file that found it).
+The DB2-selection work this grew out of (resolving *which* `.bone` slot
+applies) is fully done and its own TODO deleted per this project's own
+convention. This is a structurally different, still-open kind of task —
+an unverified-math investigation gated on a real human comparison step,
+not a data-plumbing task — so it gets its own file rather than being
+folded into a done-and-removed one, same "one punch list per open
+problem" convention `DPIV_TODO.md`/`PIXEL_SHADER_FORMULAS_TODO.md` already
+follow (a real, scoped, but human-verification-gated follow-up split out
+from whatever investigation found it).

@@ -240,10 +240,15 @@ points at (pre-Cataclysm models only -- see `src/cmd_export.cpp`'s
 (`geoset_id`/`geoset_group`/`geoset_variant`). husk exports every submesh in
 the `.skin`, including mutually-exclusive character-customization options --
 it doesn't currently resolve real DB2 customization-choice data to ground a
-"correct" selection in (a locally-extracted `.db2` file is in scope, per
-`DESIGN.md`'s Non-goals; this is a "not implemented yet" gap, not a hard
-non-goal) -- and prints every distinct geoset ID present whenever a `.skin`
-has more than one. Every export also carries one inert "tag" joint per
+"correct" selection in for the general case (a locally-extracted `.db2`
+file is in scope, per `DESIGN.md`'s Non-goals) -- and prints every
+distinct geoset ID present whenever a `.skin` has more than one. `--db2-dir/
+--dbd-dir/--customization-choice-ids` (see above) closes the general-case
+gap for a *specific* real customization choice: `tools/
+husk_blender_geoset_mask.py` reads the resulting `enabled_geosets` extras
+directly and pre-selects the matching dropdown item automatically (see
+below), no manual clicking needed for whatever choices were actually given
+at export time. Every export also carries one inert "tag" joint per
 distinct geoset ID, so Blender's own stock glTF
 importer builds a real per-geoset vertex group with no custom import
 tooling required -- `tools/husk_blender_geoset_mask.py` turns that into a
@@ -338,9 +343,12 @@ If `--customization-choice-ids` is also given (see below), any real
 matches one of these already-resolved sets gets its choice ID added to that
 set's own `selected_by_choice_ids` extras -- still inert, never applied,
 just marking *which* slot a real customization choice actually picks
-(`TODO/TODO_correctness.md` #2, `TODO/GEOSET_SELECTION_TODO.md`,
-`WIKI_FINDINGS/BONE.md`). A downstream renderer or Blender script that
-wants to apply the right slot has everything it needs from this alone.
+(`TODO/TODO_correctness.md` #2, `WIKI_FINDINGS/BONE.md`). A downstream
+renderer or Blender script that wants to apply the right slot has
+everything it needs from this alone -- see `TODO/
+BONE_CORRECTION_APPLICATION_TODO.md` for why nothing does yet (the
+correction's own application semantics were never verified against real
+client behavior, a separate blocker from selection).
 
 **Real geoset/bone-correction-set selection from a customization choice.**
 If `--db2-dir`/`--dbd-dir`/`--customization-choice-ids` are all given, husk
@@ -358,9 +366,16 @@ the caller supplies real choice IDs directly (husk has no way to enumerate
 them itself yet: `ChrCustomizationOption`/`ChrCustomizationChoice`, needed
 to browse choices by name, are confirmed 0 bytes in the reference local
 extraction this was verified against -- a real extraction gap, not a husk
-one, see `TODO/GEOSET_SELECTION_TODO.md`). Verified end to end against real
-local `chrcustomizationelement.db2`/`chrcustomizationgeoset.db2`/
-`chrcustomizationboneset.db2` data.
+one, see `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`, which documents the same
+gap for its own, adjacent customization-choice chain). Verified end to end
+against real local `chrcustomizationelement.db2`/`chrcustomizationgeoset.db2`/
+`chrcustomizationboneset.db2` data. `tools/husk_blender_geoset_mask.py`
+reads the resulting `enabled_geosets` extras directly (same raw-glTF-JSON-
+reread pattern as `chr_texture_layout` below, since skin extras have no
+supported Blender importer target) and pre-selects each geoset group's
+dropdown accordingly -- verified headlessly against a real fixture, including
+the evaluated mesh's own vertex count actually changing between states, not
+just the modifier's stored value.
 
 **`.phys` physics/collision data.** If `--phys` resolves a real `.phys`
 sidecar (see `PFID`'s single-scalar-FileDataID resolution above, mirroring
@@ -419,7 +434,7 @@ Flags:
 | `--db2-dir <dir>` | -- | Directory of real character `.db2` files -- texture-layout tables for `--char-layout-id` (see above) or `ChrCustomizationElement`/`_Geoset`/`_BoneSet` for `--customization-choice-ids` (below), same directory serves both; combined with `--dbd-dir` and one of the two | unset (feature off) |
 | `--dbd-dir <dir>` | -- | A local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) | unset |
 | `--char-layout-id <id>` | -- | A real `CharComponentTextureLayoutsID` (see `husk db2-export`) -- husk can't derive this on its own | unset |
-| `--customization-choice-ids <id,id,...>` | -- | Comma-separated real `ChrCustomizationChoiceID`(s) (see `TODO/GEOSET_SELECTION_TODO.md`) -- resolves each to real `enabled_geosets` extras and marks any matching `--bones-dir` correction set, husk can't enumerate these on its own | unset |
+| `--customization-choice-ids <id,id,...>` | -- | Comma-separated real `ChrCustomizationChoiceID`(s) (see above) -- resolves each to real `enabled_geosets` extras and marks any matching `--bones-dir` correction set, husk can't enumerate these on its own | unset |
 | `--listfile <path>` | -- | A local `community-listfile.csv`-style snapshot (`FileDataID;path` per line, github.com/wowdev/wow-listfile) -- last-resort FileDataID -> real-name lookup when `<FileDataID>.{blp,png}` isn't found next to `--textures` | unset (feature off) |
 | `--listfile-root <dir>` | -- | The corpus root `--listfile`'s paths are relative to -- deliberately separate from `--textures` (which stays the model's own directory by default, driving the directory-local matching above); only meaningful alongside `--listfile` | `--textures` itself |
 

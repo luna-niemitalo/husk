@@ -108,7 +108,7 @@ struct Skeleton {
     // `group*100+variant` convention already used for a primitive's own
     // `geoset_id`/`geoset_group`/`geoset_variant` extras (gltf_mesh.hpp),
     // so a consumer can match this directly against those without any unit
-    // conversion. See TODO/GEOSET_SELECTION_TODO.md for the full DB2 chain
+    // conversion. See src/chrcustomization_db2.hpp for the full DB2 chain
     // this resolves.
     struct EnabledGeoset {
         uint32_t choiceId = 0;
