@@ -87,6 +87,7 @@ add_library(husk-lib STATIC
   src/export_transform.cpp
   src/export_skeleton.cpp
   src/export_animation.cpp
+  src/export_texture_resolution.cpp
   src/export_materials.cpp
   src/export_skin_resolution.cpp
   src/cmd_export.cpp

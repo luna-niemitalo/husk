@@ -4,33 +4,7 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
-## 1. `src/export_materials.cpp` needs splitting
-
-Flagged directly by Luna while reading through it (2026-08-13). At 1,281
-lines it's now the largest file in `src/`, ahead of even `cmd_export.cpp`
-(1,239 lines) — and still growing (this session's texture-transform-
-animation curve export adds another real chunk to the same file). Same
-precedent this project already has twice: `m2.hpp`/`m2.cpp`'s split into
-`m2_header.*`/`m2_animation.*`/`m2_primitives.*`/`m2_scene.*`, and
-`cmd_export.cpp`'s own Item 1 split that carved `export_materials.cpp`
-*out* of it in the first place (see this file's own top-of-file comment:
-"split out of cmd_export.cpp per FILE_SPLIT_TODO.md's Item 1" —
-`FILE_SPLIT_TODO.md` itself is gone now, fully implemented and deleted per
-this project's own TODO lifecycle).
-
-Not investigated yet: where the real seams are. A first-glance read
-suggests at least three candidate pieces bundled into one file today —
-(1) texture *resolution* (embedded-filename/FileDataID/fuzzy-basename-pool/
-listfile matching, `resolveTextureBytes`/`scanFuzzyTexturePool`/
-`classifyCandidateCategory`/the ambiguous-candidate ranking functions),
-(2) per-batch material *building* (`buildMaterialsAndPrimitives`'s own
-body — blend mode, tint/fade, UV transform, multi-texture-layer handling),
-(3) the animated-curve resolvers (`resolveAnimatedColorCurve`/
-`resolveAnimatedFixed16Curve`/this session's new quat equivalent) — but
-this needs a real read of the whole file's call graph before committing to
-a specific split, not a guess from a table of contents.
-
-## 2. Comment hygiene: move scope/design-decision prose out of headers into DESIGN.md
+## 1. Comment hygiene: move scope/design-decision prose out of headers into DESIGN.md
 
 Prompted directly, off the back of a real, concrete problem: `M2Batch::
 shader_id` sat unparsed for most of this project's life despite this
@@ -86,7 +60,7 @@ still needs a per-file read before this item can close, same caveat as
 before: grep finds candidates, only a human/agent read tells which are
 genuine scope-decision essays worth migrating.
 
-## 3. A corpus-wide "dangling internal reference" scan — a deliberate counterweight to completeness metrics
+## 2. A corpus-wide "dangling internal reference" scan — a deliberate counterweight to completeness metrics
 
 Prompted directly (2026-08-13), off the back of a real, concrete example
 this same session hit while picking a texture-transform-animation test

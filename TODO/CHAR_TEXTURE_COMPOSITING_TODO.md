@@ -284,7 +284,7 @@ already handles real ambiguity honestly rather than silently).
 
 Once Stage 2+3 resolve a real ordered list of (file, placement rect,
 blend mode) per compositing slot (`M2Texture::type` 1/8, per
-`candidateCategoryTypes`' own doc comment in `src/export_materials.cpp`),
+`candidateCategoryTypes`' own doc comment in `src/export_texture_resolution.cpp`),
 actually blit/blend each patch onto a base canvas sized from
 `ChrModelMaterial`. `CharMaterialRenderer.js:345-372` enumerates the real
 client's blend-mode branches (several are simple alpha/additive/multiply

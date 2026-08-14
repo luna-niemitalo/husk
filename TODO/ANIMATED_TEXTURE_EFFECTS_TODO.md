@@ -227,7 +227,7 @@ verification).
 **A real gap closed first, found while building this**: `texture_transform`
 extras used to carry NO real data at all for the genuinely-animated case
 (`gltf_mesh.hpp`'s own old doc comment: "just each field's un-animated
-default and not real data"). `src/export_materials.cpp`/`src/gltf_mesh.cpp`
+default and not real data"). `src/export_texture_resolution.cpp`/`src/gltf_mesh.cpp`
 now export the real translation/rotation/scaling keyframe curve as
 `texture_transform_animation` material extras, same "full curve as inert
 diagnostic + Blender-script playback source" shape `tint_animation`/

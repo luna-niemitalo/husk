@@ -679,7 +679,7 @@ That same in-memory decoder is also exposed standalone, for converting
 (every `*.blp` in `blp-dir`, output filenames mirroring each input's own
 basename; a file that fails to parse is skipped with a diagnostic, not
 fatal to the whole batch) -- a thin CLI wrapper (`src/cmd_blp.cpp`) around
-the exact `blp::decode`/`blp::encodePng` pipeline `export_materials.cpp`
+the exact `blp::decode`/`blp::encodePng` pipeline `export_texture_resolution.cpp`
 already uses internally, no new decode logic.
 
 `blp/` (`husk-blp`, a small uv-managed Python package) still exists, kept
@@ -936,7 +936,7 @@ above; this section is about *sequencing* that work, not duplicating it.
    `creature/celestialfoxwyvern/celestialfoxwyvern.m2`. Modes 5/6 (Mod/
    Mod2x, multiply) are a real, separate, un-attempted gap. The material's
    "two-sided" render flag (`0x04`) becomes glTF `doubleSided`
-   (`src/export_materials.cpp`'s `alphaModeForBlend`). Deliberately **not**
+   (`src/export_texture_resolution.cpp`'s `alphaModeForBlend`). Deliberately **not**
    attempting real PBR authoring (roughness/metalness/normal maps) — WoW's
    own shader model doesn't map cleanly onto metallic-roughness, and
    faking plausible-looking values is a separate, later problem from

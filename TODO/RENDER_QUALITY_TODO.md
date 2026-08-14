@@ -456,7 +456,7 @@ not investigated further, just another concrete data point for how often
 this shows up in the flagged set.
 
 **Texture-resolution logic itself has already had four real rounds of
-fixes** (`src/export_materials.cpp`'s candidate filtering/ranking —
+fixes** (`src/export_texture_resolution.cpp`'s candidate filtering/ranking —
 `candidateAllowedForType`/`filterCandidatesForType`/
 `orderCandidatesForDefault`; see `CLAUDE_HISTORY.md` for the specific
 `bloodelffemale_hd` tiny-decal-vs-atlas, `body_jewelry`/`jewelry_color`
@@ -478,7 +478,8 @@ of "missing/wrong" complaints without being fresh findings:
   a documented wall, not something to re-flag as fixable.
 
 **Genuinely new**: `orderCandidatesForDefault`
-(`src/export_materials.cpp`, ~line 528-548) only has real tiebreak logic
+(`src/export_texture_resolution.cpp`, moved from `export_materials.cpp`
+2026-08-14, see `TODO/CLEANUP_TODO.md`) only has real tiebreak logic
 (pixel-area, then `skin_color`-category preference) for the specific
 skin/skin_extra/char_jewelry cases prior sessions had real evidence for.
 Outside those, ties fall through to `scanFuzzyTexturePoolForBasename`'s
@@ -563,7 +564,7 @@ Emission shading post-import; verified against real fixtures.
 - **Mod/Mod2x (multiply) blend modes 5/6 are explicitly unimplemented**,
   by the render script's own comment (`render_glb.py:125-127`): "a real,
   separate gap, not attempted here... multiply compositing needs a
-  different node shape." `alphaModeForBlend` (`src/export_materials.cpp:94`)
+  different node shape." `alphaModeForBlend` (`src/export_texture_resolution.cpp`)
   collapses every WoW blend mode ≥2 to glTF `BLEND` at the husk level (by
   design — core glTF has only 3 alpha modes, real `blend_mode` is exposed
   as extras for exactly this kind of Blender-side reconstruction), but

@@ -623,7 +623,7 @@ package husk already links (`libtinygltf.a` already compiles it in — no new
 dependency, see `src/blp.cpp`'s own doc comment for why its prototype is
 declared by hand instead of via a second `#include`). `--textures` now
 resolves a `.blp` candidate exactly like a `.png` one
-(`src/export_materials.cpp`'s `resolveTextureBytes`/`readTextureFileBytes`),
+(`src/export_texture_resolution.cpp`'s `resolveTextureBytes`/`readTextureFileBytes`),
 decoding and re-encoding entirely in memory — nothing is written to disk
 unless `--textures-out` is explicitly given. `blp/`'s Python tool
 (`husk-blp`) is kept, unmodified, as the independent ground truth the C++
