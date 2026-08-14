@@ -627,6 +627,15 @@ for the matching file on its own (same non-goal as `.skin`/`.skel`
 resolution above). Pass `--textures-out <dir>` too if you also want the
 decoded `.png` written to disk, mirroring `--textures`'s own layout.
 
+That same in-memory decoder is also exposed standalone, for converting
+`.blp` files without a full `husk export`: `husk blp-export <file.blp>
+<out.png>` (single file), or `husk blp-export --dir <blp-dir> <out-dir>`
+(every `*.blp` in `blp-dir`, output filenames mirroring each input's own
+basename; a file that fails to parse is skipped with a diagnostic, not
+fatal to the whole batch) -- a thin CLI wrapper (`src/cmd_blp.cpp`) around
+the exact `blp::decode`/`blp::encodePng` pipeline `export_materials.cpp`
+already uses internally, no new decode logic.
+
 `blp/` (`husk-blp`, a small uv-managed Python package) still exists, kept
 deliberately as an independent reference implementation:
 
