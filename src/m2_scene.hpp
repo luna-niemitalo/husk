@@ -33,11 +33,8 @@ struct Attachment {
 // `identifier` is 4 raw bytes read as ASCII (typically a '$'-prefixed
 // 3-character code, e.g. "$DTH" for death) -- read in file order, same as
 // every other 4-byte field in this codebase (M2 doesn't reverse these,
-// unlike WMO/ADT chunk tags, see chunk.hpp). `enabled` (an
-// M2TrackBase-only "timestamp-only animation block", every timestamp an
-// implicit "fire now") is skipped -- resolving *when* an event fires
-// during playback is a real-animation-clip concern, out of scope for a
-// static record dump.
+// unlike WMO/ADT chunk tags, see chunk.hpp). `enabled` is unparsed -- see
+// DESIGN.md's "Deliberately unparsed fields" ledger.
 struct Event {
     std::string identifier;
     uint32_t data = 0;  // wowdev.wiki M2#Events: "This data is passed when the event is fired" -- documented existence, undocumented per-event meaning; exposed raw, same as PCOL's flags (WIKI_FINDINGS/M2.md)

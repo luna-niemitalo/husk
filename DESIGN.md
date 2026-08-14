@@ -1002,6 +1002,45 @@ this pass — `reference/wow.export`'s two tables above and their shared
 source located; if a real wowdev.wiki geoset-group page exists, it wasn't
 searched for beyond this repo's own reference material.
 
+**Deliberately unparsed fields — a scope ledger, not scattered inline
+claims.** Per `~/nix/claude-rules/CODE_COMMENTS.md`: "out of scope"/"not
+implemented"/"stays unread" is a *decision*, not a fact-at-this-line, and
+belongs here (reread at onboarding, tolerant of slight staleness), not
+buried in a header's doc comment (silently rots — nobody re-reads it on
+every edit). This is the reason `TODO/MULTI_TEXTURE_LAYER_TODO.md`'s
+`shader_id` investigation found a field husk had "never parsed at all"
+despite this project's own completeness docs reading as near-complete: a
+real, honest scope cut from early in the project (`skin.hpp`'s own doc
+comment, "out of scope for a first metallic-roughness-with-one-texture
+pass") never got revisited as the project's ambitions grew well past
+"first pass," and nothing forced a re-read of that specific sentence to
+notice. First pass at consolidating this (not exhaustive — the rest of
+the codebase still has the same pattern scattered in header comments,
+flagged as ongoing cleanup in `TODO/CLEANUP_TODO.md`):
+
+- `M2SkinSection` (`skin.hpp`): `centerPosition`/`sortCenterPosition`/
+  `sortRadius`/`boneCount`/`boneComboIndex`/`boneInfluences`/
+  `centerBoneIndex` are unparsed — culling/skinning-optimization concerns
+  for a hardware renderer's own per-drawcall bone limit, not materials;
+  husk substitutes full per-vertex global joint indices instead, so
+  there's no consumer for these even if parsed (`M2_COMPLETENESS.md`'s
+  "Submesh/batch hardware bone-limit metadata" row).
+- `M2Batch` (`skin.hpp`): `priorityPlane`/`geosetIndex`/`materialLayer`
+  are unparsed, same reasoning as above (draw-order/legacy fields with no
+  role in husk's own one-primitive-per-batch model). `shaderId` was the
+  one field in this struct that *should* have been revisited earlier and
+  wasn't — now parsed and resolved (`src/m2_shader_names.hpp`).
+- `.skel` (`skel.hpp`): `SKB1`'s `key_bone_lookup`, and the `SKL1`/`SKA1`/
+  `SKPD` chunks entirely, plus `SKS1`'s `global_loops`/`sequence_lookups`
+  fields, are unparsed — "extend as later commands need more" policy, no
+  concrete consumer identified yet.
+- `M2Event` (`m2_scene.hpp`): the `enabled` field (an `M2TrackBase`-only
+  timestamp block, "when during playback does this event fire") is
+  unparsed — resolving animation-relative timing is a real-clip-playback
+  concern a static-scene exporter doesn't have a consumer for; `identifier`/
+  `data`/`bone`/`position` (the parts that place the event as a scene
+  anchor) are fully parsed and exported.
+
 ## CLI argument grammar for `export` (implemented)
 
 **Previous grammar**, for contrast (replaced, not additive — every existing

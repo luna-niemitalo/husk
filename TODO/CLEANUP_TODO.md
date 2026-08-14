@@ -30,7 +30,43 @@ body — blend mode, tint/fade, UV transform, multi-texture-layer handling),
 this needs a real read of the whole file's call graph before committing to
 a specific split, not a guess from a table of contents.
 
-## 2. A corpus-wide "dangling internal reference" scan — a deliberate counterweight to completeness metrics
+## 2. Comment hygiene: move scope/design-decision prose out of headers into DESIGN.md
+
+Prompted directly, off the back of a real, concrete problem: `M2Batch::
+shader_id` sat unparsed for most of this project's life despite this
+project's own completeness docs reading as near-complete, because the
+scope decision to skip it lived only in `skin.hpp`'s own inline doc
+comment ("out of scope for a first metallic-roughness-with-one-texture
+pass") — a comment nobody re-reads once written, so it silently aged from
+"honest, current scope cut" into "stale, wrong claim" as the project's
+ambitions grew well past "first pass." Per `~/nix/claude-rules/
+CODE_COMMENTS.md`: "out of scope"/"not implemented"/"stays unread" is a
+*decision*, not a fact-at-this-line, and belongs in DESIGN.md (reread at
+onboarding, tolerant of slight staleness), not inline (rots silently).
+
+**First pass done this session**: a new "Deliberately unparsed fields"
+ledger in `DESIGN.md`'s Key design decisions, covering `M2SkinSection`/
+`M2Batch` (`skin.hpp`), `.skel`'s unparsed chunks/fields (`skel.hpp`), and
+`M2Event::enabled` (`m2_scene.hpp`) — the inline comments in those four
+spots trimmed to why/gotcha-only content, pointing at the new ledger
+instead of repeating the scope rationale. Also fixed two comments that
+had gone stale in the *other* direction while auditing this (claiming
+something unparsed when it was actually fully resolved elsewhere --
+`m2_skeleton.hpp`'s `Bone` struct, see git history) — same root cause,
+opposite symptom.
+
+**Not exhaustive — real remaining scope**: the same pattern is still
+scattered across the rest of the codebase (at minimum `db2.hpp`/`dbd.hpp`/
+`db2table.hpp`/`listfile.hpp`/`blp.hpp`/`m2_animation.hpp`/`m2_header.hpp`
+all have "skipped"/"out of scope"/"unread" language inline, not audited
+this session for which are genuine scope-decision prose worth migrating
+vs. legitimate boundary-contract/why content that should stay per
+`CODE_COMMENTS.md`'s own rules). A full sweep needs a per-file read, not
+a grep-and-batch-edit — some of what grep finds is correctly inline
+(boundary contracts, gotchas, non-obvious why), only the "this is a
+scope decision spanning the whole struct/module" class should move.
+
+## 3. A corpus-wide "dangling internal reference" scan — a deliberate counterweight to completeness metrics
 
 Prompted directly (2026-08-13), off the back of a real, concrete example
 this same session hit while picking a texture-transform-animation test

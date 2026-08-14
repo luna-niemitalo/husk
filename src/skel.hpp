@@ -33,8 +33,8 @@
 //     count 396, exactly SKS1's sequence count.
 //   - `SKS1` (sequences): `sequences` field is `M2Array<M2Sequence>`, same
 //     struct/stride as husk::m2::parseSequences already reads inline.
-//     `global_loops`/`sequence_lookups` are skipped, same "extend as later
-//     commands need more" policy as elsewhere in this codebase.
+//     `global_loops`/`sequence_lookups` are unparsed -- see DESIGN.md's
+//     "Deliberately unparsed fields" ledger.
 //   - `AFID`: same 8-byte-per-entry (anim_id, sub_anim_id, file_id) shape as
 //     an M2's own AFID chunk (husk::m2::Header::AnimFileEntry) -- but this
 //     is the *.skel's own* table, with its own FileDataIDs, not the owning
@@ -48,7 +48,8 @@
 //     raw FileDataID list.
 //     TODO: Remove: see `WIKI_FINDINGS/BONE.md`/TODO_correctness.md #3.
 // `SKB1`'s `key_bone_lookup` field, and every other .skel chunk (`SKL1`,
-// `SKA1`, `SKPD`), are out of scope for now.
+// `SKA1`, `SKPD`), are unparsed -- see DESIGN.md's "Deliberately unparsed
+// fields" ledger.
 namespace husk::skel {
 
 struct BoneHeader {

@@ -32,41 +32,22 @@ struct Header {
 };
 
 // M2SkinSection, per wowdev.wiki M2/.skin#Submeshes -- 48 bytes on disk.
-// `skinSectionId` (the "Mesh part ID"/"geoset ID") plus the fields needed
-// to slice this submesh's triangles out of the skin's flat index buffer are
-// surfaced; centerPosition/sortCenterPosition/sortRadius/boneCount/
-// boneComboIndex/boneInfluences/centerBoneIndex stay unread (culling/
-// skinning-optimization concerns, not materials). `skinSectionId` is what a
-// real client uses to decide *which* submeshes to actually draw for a given
-// character/creature configuration -- a `.skin` file routinely bundles every
-// selectable hairstyle/facial-hair/gear-slot geoset as separate submeshes
-// sharing one file, distinguished only by this field (wowdev.wiki's own
-// "Mesh part ID" section, cross-referenced from CreatureDisplayInfo.dbc/
-// ItemDisplayInfo.dbc). husk doesn't filter by it yet -- see
-// `cmd_export.cpp`'s `buildMaterialsAndPrimitives`, which surfaces every
-// distinct value actually used as a loud note rather than silently merging
-// them with no indication multiple geosets got exported unfiltered.
+// Unparsed fields (centerPosition/sortCenterPosition/sortRadius/boneCount/
+// boneComboIndex/boneInfluences/centerBoneIndex) and `skinSectionId`'s own
+// unfiltered-passthrough behavior: see DESIGN.md's "Deliberately unparsed
+// fields" ledger.
 //
-// `Level` (offset 0x02, between skinSectionId and vertexStart) is NOT
-// LOD/culling metadata despite the field name and wowdev.wiki's own
-// placement of it near those concerns -- confirmed against a real, working
-// independent implementation (wow.export's Skin.js): it's the *high 16
-// bits* of `indexStart` (real client code: `triangleStart += level << 16`).
-// A .skin's on-disk `indexStart`/`triangleStart` field is only 16 bits, so
-// any model whose resolved triangle-index buffer exceeds 65,535 entries
-// (real, not rare -- confirmed on `bloodelffemale_hd.m2`'s own 136,254-
-// entry buffer, where 77 of 114 submeshes need this) needs `Level` to
-// address into the back half of that buffer at all. `indexStart` here is
-// already the corrected 32-bit value (`(level << 16) | rawIndexStart`),
-// computed once in `parseSubmeshes` -- callers never need to know `Level`
-// exists. Found the hard way: an earlier session read the field name,
-// assumed "per-LOD selection marker" without checking what a real client
-// does with it, and left it unread -- for any submesh needing correction,
-// husk silently sliced the *wrong* region of the triangle-index buffer
-// (aliased into the first 65,536 entries) instead of throwing or visibly
-// failing, so this went undetected until a real interactive Blender
-// render showed missing body geometry and the investigation traced all
-// the way back here.
+// `Level` (offset 0x02) is NOT LOD/culling metadata despite the field name
+// and wowdev.wiki's own placement of it near those concerns -- confirmed
+// against wow.export's Skin.js: it's the *high 16 bits* of `indexStart`
+// (`triangleStart += level << 16`), needed once a model's resolved
+// triangle-index buffer exceeds 65,535 entries (real, not rare -- 77/114
+// submeshes on `bloodelffemale_hd.m2` need it). `indexStart` below is
+// already the corrected 32-bit value; callers never see `Level` directly.
+// Trap: treating this as a plain LOD marker and leaving it unread makes
+// husk silently alias into the *wrong* region of the triangle-index
+// buffer for any submesh needing correction, no error, no crash -- only
+// visible as missing geometry in a real render.
 struct Submesh {
     uint16_t skinSectionId = 0;
     uint16_t vertexStart = 0;
@@ -76,25 +57,16 @@ struct Submesh {
 };
 
 // M2Batch (aka "texture unit"), per wowdev.wiki M2/.skin#Texture_units --
-// 24 bytes on disk. This is the actual material/texture linkage a submesh
-// draws with; only the fields roadmap stage 5 (see README.md) needs are
-// surfaced -- priorityPlane/geosetIndex/colorIndex/materialLayer/
-// textureCoordComboIndex/textureWeightComboIndex/textureTransformComboIndex
-// stay unread (multitexturing/animation/UV-mapping concerns, out of scope
-// for a first metallic-roughness-with-one-texture pass). shaderId is the
-// one exception: parsed (not yet resolved into a real Combiners_*/Diffuse_*
-// name -- see TODO/MULTI_TEXTURE_LAYER_TODO.md) because it's the field
-// that makes real combiner-formula selection tractable for Cata+ content
-// at all, per wowdev.wiki M2/.skin.wiki's M2GetPixelShaderID/
-// M2GetVertexShaderID.
+// 24 bytes on disk. Unparsed fields (priorityPlane/geosetIndex/
+// materialLayer): see DESIGN.md's "Deliberately unparsed fields" ledger.
 struct Batch {
     uint8_t flags = 0;
     // wowdev.wiki M2/.skin#shader_id_and_textureCount: on Cata+ content
     // (husk's own Legion+ scope), a mostly-direct on-disk shader selector
     // -- 0x8000 set means "index into the real s_modelShaderEffect table",
-    // clear means "derive from the low bits + textureCount via
-    // M2GetPixelShaderID/M2GetVertexShaderID". Neither resolution step is
-    // implemented yet; this field is parsed and otherwise unused for now.
+    // clear means "derive from the low bits + textureCount". Resolved into
+    // a real Combiners_*/Diffuse_* name pair by m2::resolveShaderNames
+    // (src/m2_shader_names.hpp), not by this struct itself.
     uint16_t shaderId = 0;
     uint16_t skinSectionIndex = 0;  // -> Header::submeshes
     uint16_t materialIndex = 0;     // -> M2's own `materials` array (m2::Material)
