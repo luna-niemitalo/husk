@@ -25,13 +25,18 @@ struct Vertex {
 };
 
 // M2CompBone, per wowdev.wiki M2#Bones -- 88 bytes on disk (>= Wrath shape,
-// which is every version this parser targets). Only the fields stage 2 of
-// the roadmap (skeleton + skinning, see README.md) needs for a bind-pose
-// joint hierarchy are surfaced; the three embedded M2Track<T> animation
-// blocks (translation/rotation/scale, 60 bytes together) are skipped over,
-// not parsed -- see tests/test_m2.cpp for why their size is fixed and
-// T-independent. Animation playback (roadmap stage 6) will need to revisit
-// this and actually resolve them.
+// which is every version this parser targets). Bind-pose joint fields
+// (keyBoneId/flags/parentBone/pivot) are surfaced directly; the three
+// embedded M2Track<T> animation blocks (translation/rotation/scale, 60
+// bytes together) are captured as raw byte offsets only here, not resolved
+// into keyframe data by this struct itself -- see each field's own doc
+// comment below for the real resolution path (m2_animation.hpp's
+// resolveVec3TrackSequence/resolveQuatTrackSequence, driven from
+// export_animation.cpp). This was a real, once-true "not parsed yet" gap
+// early in the project (roadmap stage 2, before stage 6 built real
+// animation) -- left stale in this exact spot until caught; don't trust a
+// struct-level summary comment over the field-level ones immediately below
+// it without checking both agree.
 struct Bone {
     int32_t keyBoneId = -1;  // back-reference into the key-bone lookup table, -1 if none
     uint32_t flags = 0;
@@ -50,14 +55,16 @@ struct Bone {
     // below, called with one specific M2Sequence index (Sequence, below) at
     // a time.
     //
-    // Roadmap stage 6 (animation, see README.md) only actually wires these
-    // up for a model's *inline* bones: per wowdev.wiki's .skel article,
-    // once an M2 has moved its bones out to a .skel file, per-bone keyframe
-    // data moves out too (into a .anim file's AFSB chunk, a format husk
-    // doesn't parse yet) -- these three offsets are still populated for
-    // .skel bones by parseBones (it can't tell the difference), but every
-    // M2Track they point at is expected to be genuinely empty for that
-    // case, not silently wrong.
+    // Once an M2 has moved its bones out to a .skel file, per-bone keyframe
+    // data moves out too (into a .anim file's AFSB chunk, a real,
+    // separately-shaped external-animation format from AFM2's -- fully
+    // parsed, see export_animation.cpp's AFSB handling and DESIGN.md's Key
+    // design decisions for the byte-layout investigation). These three
+    // offsets are still populated for .skel bones by parseBones (it can't
+    // tell the difference between an inline and external-.skel bone at this
+    // level), but every M2Track they point at is expected to be genuinely
+    // empty for that case -- export_animation.cpp resolves AFSB's own
+    // payload separately instead, not through these offsets.
     uint32_t translationTrackOffset = 0;
     uint32_t rotationTrackOffset = 0;
     uint32_t scaleTrackOffset = 0;
