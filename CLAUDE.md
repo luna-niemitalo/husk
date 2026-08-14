@@ -223,8 +223,7 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   verified against real client behavior, only reverse-engineered as far as
   "a small delta matrix" -- needs the same real side-by-side-against-the-
   client treatment billboard alignment eventually got, not more code
-  reading. Nothing committed as of this bullet -- see next bullet for
-  whether that changed.
+  reading. Committed (`8564197`).
 - **Prior state**: Same session, continued -- `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s
   §1 ("a framework for exporting short animated clips") closed too, prompted
   directly. `tools/corpus_scan_tasks/render_glb.py` now renders a real short
