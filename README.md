@@ -139,6 +139,12 @@ a bare word means).
 next to the model, announced on stderr as it's resolved, never silently:
 
 - unset `--output` -> `<model-basename>.glb`.
+- `--output`/`-o` given but pointing at an existing directory ->
+  `<dir>/<model-basename>.glb` (same "guess the destination filename from
+  the source" convention `cp foo.txt somedir/` uses), and any missing
+  parent directories in the resolved path are created automatically
+  (`mkdir -p`-style) rather than failing -- `-o` is where the file should
+  end up, not an assertion that the directory structure already exists.
 - unset `--skin` -> the literal `auto` (see below).
 - unset `--textures`/`--skin-dir` -> the model's own directory -- a real
   extraction already drops the `.m2` and everything it needs into one place,

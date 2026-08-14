@@ -14,6 +14,65 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-14, overnight `/loop` session (ongoing)**: Autonomous session,
+chained several independently-committed `[UNVERIFIED/STAGING]` increments
+(see git log for the exact commits/messages, not duplicated here). (1)
+`TODO/MULTI_TEXTURE_LAYER_TODO.md` substantially advanced: found and
+corrected a wrong premise (the file's plan was built around a WotLK-only
+shader-selection heuristic that wowdev.wiki's own `M2/.skin.wiki` page
+says "stops applying from Cata and on" -- husk's own Legion+ scope is past
+that line) and the real mechanism that applies instead (decompiled Cata+
+`M2GetPixelShaderID`/`M2GetVertexShaderID` + a real on-disk `shader_id`
+field husk had never parsed at all). Implemented: `M2Batch::shader_id`
+parsing (`skin.hpp`/`.cpp`), a real resolver (`src/m2_shader_names.hpp`/
+`.cpp`, transcribed from the wiki's decompiled tables) wired into export
+as `pixel_shader`/`vertex_shader` material extras, and a full 287k-file
+corpus scan (`tools/corpus_scan_tasks/shader_id_task.py`, new, plugged
+into the existing `corpus_scan_framework.py` after an earlier naive serial
+scratch-script attempt was caught and killed mid-run for having no
+parallelism/checkpointing). Validated against 3 real corpus files by
+hand, including one striking unprompted match: a real guild-pennant model
+resolves to the literal `"Guild"` pixel shader. (2) `TODO/DPIV_TODO.md`
+(the long-open `DPIV` mystery-chunk investigation) advanced significantly:
+a real geometry cross-reference, a corrected hypothesis (an early
+"`field1` is ground-relative elevation" read was wrong -- the real pattern
+is "`field1`/`field0` are the model's own bbox-center coordinates," caught
+by checking against real `bounding_box` data rather than trusting the
+first pattern that fit a 4-file sample), a full corpus-scale confirmation
+that `field2` sits consistently near-or-below the model's own base (a real
+ground-contact/shadow-anchor shape, not just a lead anymore), and a
+multi-record structural finding (some records are exact `(0,0,0)`
+placeholders, not real second points -- filtering them out before testing
+the "points form a footprint polygon" hypothesis, which then came back
+negative: bounded within the model but not tightly clustered). (3) Closed
+`TODO/TEXTURE_TOOLING_TODO.md` outright -- its entire ask (a native `husk
+blp-export` subcommand) turned out to already be fully implemented and
+tested in a prior real commit, just never documented in `README.md` or
+closed out; fixed both gaps. (4) Fixed the real, live-caught `-o` path
+usability gap `TODO/TODO_correctness.md` had flagged (a prior session's
+own finding, not implemented at the time): `-o <existing-dir>` now infers
+`<dir>/<model-basename>.glb` instead of failing with "Is a directory," and
+missing parent directories in an explicit `-o` path are now created
+(`mkdir -p`-style) instead of failing with "No such file or directory" --
+both fixes land in `cmd_export.cpp`, before the real parse/export
+pipeline runs (fail-fast, per the original finding's own request), with 3
+new real CLI tests reproducing the exact scenarios from that session's own
+terminal trace. TODO doc's own now-resolved section removed per this
+project's "punch list, not historical record" convention, and a dangling
+"item 3" cross-reference (stale from an earlier renumbering pass, found
+while removing the section) corrected to "item 2" in the same edit. Full
+suite green throughout, 628/628 (1 pre-existing unrelated skip) as of the
+`-o` fix. One real process lesson mid-session, corrected directly by
+Luna: never `rm` during unattended/`/loop` work (even a fully-recoverable,
+git-tracked project file) -- it always triggers a blocking permission
+prompt that stalls the entire run until a human happens to be awake to
+answer it; `mv` to a `./trash/` directory instead, same rule she'd already
+stated for temp/scratch files, just under-scoped by this session at
+first. Session still in progress as of this entry -- see git log for
+anything past this point.
+
+---
+
 **2026-08-13, continued**: Same session, `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s
 §1 ("a framework for exporting short animated clips, not just one static
 image") closed too, prompted directly off the back of the §3 work below --

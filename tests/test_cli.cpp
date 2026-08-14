@@ -93,6 +93,52 @@ TEST_CASE("husk export: model path alone resolves a same-basename .skin and defa
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export: -o pointed at an existing directory infers <dir>/<model-basename>.glb "
+          "instead of failing with 'Is a directory'") {
+    auto dir = defaultsDir("outdir");
+    writeFile(dir / "basic.m2", tinyValidM2());
+    writeFile(dir / "basic00.skin", tinyMatchingSkin());
+    auto outDir = dir / "out";
+    fs::create_directories(outDir);
+
+    auto result = runHusk("export " + (dir / "basic.m2").string() + " -o " + outDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("-o pointed at a directory") != std::string::npos);
+    CHECK(fs::exists(outDir / "basic.glb"));
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: -o with a trailing slash on an existing directory also infers the "
+          "output filename") {
+    auto dir = defaultsDir("outdirslash");
+    writeFile(dir / "basic.m2", tinyValidM2());
+    writeFile(dir / "basic00.skin", tinyMatchingSkin());
+    auto outDir = dir / "out";
+    fs::create_directories(outDir);
+
+    auto result = runHusk("export " + (dir / "basic.m2").string() + " -o " + outDir.string() + "/");
+    CHECK(result.exitCode == 0);
+    CHECK(fs::exists(outDir / "basic.glb"));
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: -o with missing parent directories creates them instead of failing "
+          "with 'No such file or directory'") {
+    auto dir = defaultsDir("outmkdirp");
+    writeFile(dir / "basic.m2", tinyValidM2());
+    writeFile(dir / "basic00.skin", tinyMatchingSkin());
+    auto nestedOut = dir / "deep" / "nested" / "dir" / "basic.glb";
+    REQUIRE_FALSE(fs::exists(nestedOut.parent_path()));
+
+    auto result = runHusk("export " + (dir / "basic.m2").string() + " -o " + nestedOut.string());
+    CHECK(result.exitCode == 0);
+    CHECK(fs::exists(nestedOut));
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk export: default .skin resolution never matches a different model's file that "
           "merely extends this one's name as a string (the _hd-variant trap)") {
     auto dir = defaultsDir("hdtrap");

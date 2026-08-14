@@ -211,14 +211,15 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   render path specifically via `Closest` interpolation
   (`example_exports/README.md` has the full writeup). Also filed two real,
   concrete usability findings as new TODO items rather than fixed silently:
-  `TODO/TODO_correctness.md` (new item) -- a live terminal trace showing
+  `TODO/TODO_correctness.md` (new item, since fixed -- see a later
+  session's own entry below) -- a live terminal trace showing
   `husk export -o <dir>` and `-o <path-with-missing-parents>` both fail
   after running the *entire* export pipeline first, with no filename/
   directory inference at all; framed explicitly around a stated design
   principle ("sinne päin ja silmät kiinni" -- guess a reasonable default
   from minimal input by default, keep full precision available via flags
   for anyone who wants it, don't demand exact-shape input as the only
-  path) -- not fixed yet, flagged only. `example_exports/` regenerated
+  path). `example_exports/` regenerated
   around the real `unk_exp11_7037014.m2` fixture with a genuinely-animated
   (not just still) preview, matching the new render_glb.py behavior.
 - **Prior state**: `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s corpus-scan

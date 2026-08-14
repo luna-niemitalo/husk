@@ -1053,6 +1053,34 @@ int exportGlb(int argc, char** args) {
     if (app.count("--output") == 0) {
         outputPath = std::filesystem::path(modelPath).replace_extension(".glb").string();
         std::cerr << "husk: note: no output path given -- writing to '" << outputPath << "'\n";
+    } else if (std::filesystem::is_directory(outputPath)) {
+        // -o pointed at an existing directory: infer <dir>/<model-basename>.glb
+        // -- the model's own filename is the obvious guess for what the user
+        // wants the output named, the same way `cp foo.txt somedir/` infers
+        // the destination filename from the source, rather than failing with
+        // "Is a directory". See TODO/TODO_correctness.md's "-o requires the
+        // exact right shape of path already existing" finding.
+        std::string basename = std::filesystem::path(modelPath).stem().string() + ".glb";
+        outputPath = (std::filesystem::path(outputPath) / basename).string();
+        std::cerr << "husk: note: -o pointed at a directory -- writing to '" << outputPath << "'\n";
+    }
+
+    // -o is where the user *wants* the file to end up, not an assertion that
+    // the directory structure already exists -- create any missing parent
+    // directories up front (same TODO finding as above), and do it here,
+    // before the real parse/export pipeline below, so a bad -o path fails
+    // fast instead of costing a multi-second re-parse to discover.
+    {
+        auto parent = std::filesystem::path(outputPath).parent_path();
+        if (!parent.empty() && !std::filesystem::exists(parent)) {
+            std::error_code ec;
+            std::filesystem::create_directories(parent, ec);
+            if (ec) {
+                std::cerr << "husk: couldn't create output directory '" << parent.string()
+                          << "': " << ec.message() << "\n";
+                return 1;
+            }
+        }
     }
 
     std::filesystem::path modelDir = std::filesystem::path(modelPath).parent_path();
