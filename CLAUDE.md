@@ -171,7 +171,67 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Same session, continued. Two follow-ups off the back
+- **Current state**: New session. A run of independent, well-scoped
+  `[UNVERIFIED/STAGING]` commits (9 total, see git log — not duplicated
+  here) plus a documentation-discipline pass. Real fixes/investigations:
+  closed `ENGINE_TODO.md` #2 (`aliasNext`/animation names — the local
+  `animationdata.db2`'s real layout dropped the `Name` column around
+  7.3.5, confirmed unfulfillable, not a gap); set the real WoW alpha-test
+  threshold (`128/255`) explicitly on every `MASK`-mode material
+  (`gltf_mesh.cpp`) instead of relying on its coincidental match with
+  glTF's implicit `0.5`; spot-checked 6 of `RENDER_QUALITY_TODO.md`'s 68
+  "unexplained" blank renders and found 0 husk bugs (5 correctly-blank-
+  by-design, 1 a real `--listfile` fix revealing an already-understood
+  giant-doodad framing limit); fixed a stale `m2_header.hpp` doc comment
+  claiming `.phys` "isn't parsed yet" (false — `--phys` has shipped for
+  several sessions); added `tools/husk_blender_geoset_mask.py`'s
+  `apply_emitter_markers` — a placement marker (not a simulation) at
+  every real `ribbon_emitters`/`particle_emitters` anchor, closing the
+  "100% invisible" gap those effects had, hidden from render/viewport by
+  default in a dedicated collection per direct follow-up request;
+  investigated (then reverted) a fix for a real Blender-build-specific
+  import crash on zero-image exports — the only spec-valid shape
+  (`gltf_validator` itself rejects the `"images":[]` workaround); checked
+  both named "switches per face" texture repros directly and found the
+  hypothesis doesn't reproduce; split `export_materials.cpp` (1,344
+  lines, largest in `src/`) into `export_texture_resolution.hpp/.cpp`
+  (texture-candidate resolution + curve resolvers) and
+  `export_materials.cpp` (695 lines, just `buildMaterialsAndPrimitives`),
+  pure mechanical extraction verified byte-identical. Full suite green
+  throughout, 634/634. **Documentation-discipline pass, prompted
+  directly** (a fair correction — TODO files should have been kept
+  trimmed as each item closed, not left to balloon into history
+  documents needing one big sweep): `RENDER_QUALITY_TODO.md` cut from
+  791 to ~330 lines (removed 2 fully-fixed sections outright — rotation-
+  shear hemisphere-continuity + geoset-tag-deform fixes, and the V-scroll
+  direction fix — whose real design rationale already lives in
+  `gltf_math.hpp`/`husk_blender_geoset_mask.py`'s own code comments, not
+  duplicated here); `TODO_correctness.md` cut from 238 to ~45 lines
+  (dropped a "Former item N is now resolved" narrative preamble that
+  described five already-deleted items); `ANIMATED_TEXTURE_EFFECTS_TODO.md`
+  cut from 319 to ~26 lines (two "— DONE" sections removed outright,
+  their design rationale already in `render_glb.py`/
+  `husk_blender_geoset_mask.py`'s own module docstrings). Fixed ~10
+  dangling cross-file citations the `export_texture_resolution.cpp` split
+  and these TODO trims left behind (`DESIGN.md`, `README.md`,
+  `M2_COMPLETENESS.md`, several `TODO/*.md`, `src/gltf_math.hpp`,
+  `tools/husk_blender_geoset_mask.py`). Added a real `README.md` line for
+  the alpha-cutoff fix (materials section). Did **not** attempt
+  `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (needs its own design pass —
+  fuzzy matching, ambiguity policy, a new Rigify dependency) or Mod/Mod2x
+  multiply blending (Blender 5.x's EEVEE Next has no native multiply
+  blend mode, needs a design call) — both flagged rather than attempted
+  blind. **Not done this session, flagged not fixed**: this Resume
+  section itself is the same "history document, not a living snapshot"
+  problem the TODO files had (~1,300 lines of accumulated "Prior state"
+  entries below, when the file's own header says this should be a
+  snapshot with the full narrative in `CLAUDE_HISTORY.md` instead) — out
+  of this session's actual scope (the user's ask was about `TODO/*.md`
+  specifically), but worth a dedicated pass migrating the historical
+  chain below into `CLAUDE_HISTORY.md` and leaving just current-state/
+  next-step/hazards here, the same fix applied to the TODO files this
+  session.
+- **Prior state**: Same session, continued. Two follow-ups off the back
   of the geoset/`.bone`-correction-selection work below. (1) Split
   `GEOSET_SELECTION_TODO.md`'s Blender-side step 3 into its own file,
   `TODO/BONE_CORRECTION_APPLICATION_TODO.md` -- a real correction, prompted
@@ -1182,7 +1242,7 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   named DB2 tables, not a guess, and squarely CASC/DB2 data husk has no
   access to by design. What husk *can* do: `AlternateTextureCandidate`
   now carries real `width`/`height` (`src/gltf_mesh.hpp`/
-  `export_materials.cpp`'s new `pngDimensions`, emitted as
+  `export_texture_resolution.cpp`'s new `pngDimensions`, emitted as
   `alternate_textures[].width`/`.height`) so a human/script can tell a
   full atlas apart from a small patch without decoding each candidate by
   hand -- not the real placement data, but real, useful, already-load-

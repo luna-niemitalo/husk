@@ -934,7 +934,13 @@ above; this section is about *sequencing* that work, not duplicating it.
    nothing where black) shows a solid dark panel instead — confirmed
    against a real corpus file,
    `creature/celestialfoxwyvern/celestialfoxwyvern.m2`. Modes 5/6 (Mod/
-   Mod2x, multiply) are a real, separate, un-attempted gap. The material's
+   Mod2x, multiply) are a real, separate, un-attempted gap. A `MASK`-mode
+   material's `alphaCutoff` is set explicitly to the real client's own
+   alpha-test threshold (`128.0/255.0` — `reference/wow.export`'s
+   `M2RendererGL.js`, `u_alpha_test = 0.501960814`) rather than trusting
+   glTF's own implicit `0.5` default to coincidentally match, which it
+   does for every byte-quantized alpha value but wasn't guaranteed to.
+   The material's
    "two-sided" render flag (`0x04`) becomes glTF `doubleSided`
    (`src/export_texture_resolution.cpp`'s `alphaModeForBlend`). Deliberately **not**
    attempting real PBR authoring (roughness/metalness/normal maps) — WoW's

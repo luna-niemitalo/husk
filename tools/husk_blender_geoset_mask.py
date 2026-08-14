@@ -1631,12 +1631,12 @@ def _update_texture_transform_animations(_scene=None, _depsgraph=None):
                 # convention the texture-layout overlay code above already
                 # flips for absolute rects) -- a scroll *delta* needs the
                 # same correction, differentiated: d(v_blender)/dt =
-                # -d(v_wow)/dt. Confirmed via TODO/RENDER_QUALITY_TODO.md
-                # section 6: a real fixture with an animated V scroll
-                # (borean_redplant_burningpile_01, a flame texture) ran
-                # backwards without this; a real fixture with an animated
-                # U-only scroll (be_fountain01_base, V always 0) never
-                # exercised the bug at all, which is why it looked fine.
+                # -d(v_wow)/dt. Fixed 2026-08-14: a real fixture with an
+                # animated V scroll (borean_redplant_burningpile_01, a
+                # flame texture) ran backwards without this; a real
+                # fixture with an animated U-only scroll
+                # (be_fountain01_base, V always 0) never exercised the bug
+                # at all, which is why it looked fine.
                 mapping.inputs["Location"].default_value[1] = -y
             if rotation:
                 mapping.inputs["Rotation"].default_value[2] = _eval_quat_curve_z_angle(

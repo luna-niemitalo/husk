@@ -183,7 +183,7 @@ TEST_CASE("husk export: brewfestmount.m2's real texture-center-pivot rotation, s
 // the two fixtures above (which only ever exercise the *constant* case),
 // this one's translation track is genuinely animated -- the first real
 // coverage of gltf::Material::textureTransformTranslationAnimation/
-// resolveAnimatedColorCurve applied to a UV transform (export_materials.cpp)
+// resolveAnimatedColorCurve applied to a UV transform (export_texture_resolution.cpp)
 // rather than a tint/fade curve.
 TEST_CASE("husk export: unk_exp11_7037014.m2's genuinely-animated M2TextureTransform translation "
           "track (a real one-way X-axis UV scroll) is exported as a full "

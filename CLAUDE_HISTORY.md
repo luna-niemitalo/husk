@@ -14,6 +14,138 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-14, new session, independent staging commits + a documentation-discipline pass**:
+Nine independent `[UNVERIFIED/STAGING]` commits, each investigate-then-
+commit, matching the "keep going through independent well-scoped TODO
+items" instruction: (1) `ENGINE_TODO.md` #2 (`aliasNext`/animation names)
+checked against the real local `animationdata.db2` and WoWDBDefs/
+wowdev.wiki history — the client dropped the `Name` column from this
+table's own schema around 7.3.5, so no local DB2 table can ever answer
+this; closed as genuinely unfulfillable, not a gap husk can close. (2)
+The real WoW alpha-test threshold (`reference/wow.export`'s
+`M2RendererGL.js`, `u_alpha_test = 0.501960814`, i.e. `128/255`) is now
+set explicitly as `alphaCutoff` on every `MASK`-mode material
+(`gltf_mesh.cpp`'s `emitMaterial`) rather than relying on its
+mathematically-coincidental match with glTF's own implicit `0.5` default
+for byte-quantized textures. (3) Spot-checked 6 of
+`RENDER_QUALITY_TODO.md`'s 68 "unexplained" blank corpus renders
+individually — 0 were husk export bugs: 5 are correctly near-invisible by
+design (character-select rig/stage markers with real attachment/light/
+camera data but a trivial mesh, UI-icon-scale geometry meant for a 2D
+screen camera, genuinely invisible/debug game entities), and 1
+(`shattrath_scryerhedges`) was a real texture-resolution miss now fixed
+by `--listfile`, revealing a separate, already-understood giant-doodad
+auto-framing limitation underneath rather than a data bug — downgraded
+from "top priority" accordingly. (4) Audited 7 files
+(`db2.hpp`/`dbd.hpp`/`db2table.hpp`/`listfile.hpp`/`blp.hpp`/
+`m2_animation.hpp`/`m2_header.hpp`) for stale "out of scope"/"not
+parsed" claims per `CLEANUP_TODO.md`'s comment-hygiene item — found and
+fixed one real stale claim: `m2_header.hpp`'s `physFileId` doc comment
+said `.phys` was "a format husk doesn't parse yet," false since `--phys`/
+`src/phys.cpp` has been a shipped feature for several sessions. (5) New
+`tools/husk_blender_geoset_mask.py` job, `apply_emitter_markers`: places
+a small, distinctly-shaped/colored, non-textured placement marker at
+every real `ribbon_emitters`/`particle_emitters` skin extras anchor
+(id/joint/position only — husk deliberately doesn't carry the full
+per-emitter texture/blend/curve data in the `.glb`, see
+`gltf_skeleton.hpp`'s `EmitterAnchor` doc comment), bone-following
+through animation via the same "direct matrix construction, not native
+constraint/parenting semantics" approach `apply_billboard_alignment`
+already established. Not a particle simulation — closes the "100%
+invisible, nothing there at all" gap those effects had (weapon glow
+trails, magic auras, the `cloudswampgas_white_clickable` case from an
+earlier session) with an honest placeholder. Follow-up per direct
+request: markers now live in a dedicated `Husk Debug Markers` collection,
+`hide_render`/`hide_viewport` both set (plus a belt-and-suspenders
+`hide_render` on each object), so they're excluded from every render pass
+and hidden in the viewport by default. Verified headlessly against 3 real
+fixtures (particle+ribbon weapon, ribbon-only weapon, zero-emitter
+model — confirmed silent no-op). (6) Investigated a real Blender-build-
+specific import crash (`TypeError: object of type 'NoneType' has no
+len()` in `io_scene_gltf2/blender/imp/blender_gltf.py`, on a self-built
+Blender-git 5.3) on a husk export with zero images — tried patching the
+serialized `.glb` to include an explicit `"images":[]`, but
+`gltf_validator` itself rejects that as invalid (`/images: Entity cannot
+be empty` — the glTF 2.0 schema requires `minItems:1` when the key is
+present at all; omitting it, what tinygltf already does, is the *only*
+spec-valid shape). Reverted rather than trade a Blender-build-specific
+crash for a genuine spec violation this project's own conformance suite
+gates on; the project's pinned flake Blender (5.1.1) handles the correct
+absent-key case fine. Documented as a real, investigated, not-husk's-bug
+finding rather than silently dropped. (7) Investigated
+`RENDER_QUALITY_TODO.md`'s "ambiguous-pool tiebreak" hypothesis (two
+independently-ambiguous hardcoded texture slots defaulting to different
+colors, reported as textures that "switch per face") against both named
+repros (`dragonspawntwilightoverlord`/`dragonspawn2caster`) — doesn't
+reproduce: every ambiguous slot on both real models independently
+resolves to the identical default candidate, and a rendered frame shows
+no color mismatch. The underlying structural gap (alphabetical fallback
+isn't a principled tiebreak) is still real but turns out self-consistent
+in practice. (8) Split `src/export_materials.cpp` (1,344 lines, the
+largest file in `src/`, two genuinely separate concerns bundled into one
+translation unit) into `src/export_texture_resolution.hpp/.cpp` (texture-
+candidate resolution: embedded-filename/FileDataID/fuzzy-basename-pool/
+listfile matching, category classification, default-pick ordering, the
+three animated-curve resolvers) and a much smaller `export_materials.cpp`
+(695 lines, just `scanDirOrWarn` + `buildMaterialsAndPrimitives`) — same
+"internal helper header, not part of the public API" pattern
+`gltf_mesh_internal.hpp`/`gltf_skeleton_internal.hpp` already established.
+Pure mechanical extraction, verified byte-identical output (a real
+`bloodelffemale.m2` export produces identical vertex/material counts and
+validates with zero `gltf_validator` errors, same as before). Full test
+suite stayed green throughout all nine commits, 634/634.
+
+**Documentation-discipline pass, prompted directly** (a fair correction —
+these files should have been kept trimmed as each item closed during the
+session above, not left to balloon into history documents needing one
+retroactive sweep): `TODO/RENDER_QUALITY_TODO.md` cut from 791 to ~330
+lines — removed two fully-resolved sections outright (the rotation-shear
+investigation, both mechanisms — hemisphere-continuity quaternion-sign
+fix and the geoset-tag-joint-deform-disable fix — and the animated-
+texture V-scroll-direction fix), whose real design rationale already
+lives in `src/gltf_math.hpp`'s `enforceHemisphereContinuity` doc comment
+and `tools/husk_blender_geoset_mask.py`'s own code comments, not
+duplicated in the TODO file; compressed several now-closed sub-items
+(the alphaCutoff fix, the dragonspawn tiebreak investigation) down to
+what's still load-bearing. `TODO/TODO_correctness.md` cut from 238 to
+~45 lines — dropped a "Former item N is now resolved" narrative preamble
+describing five items already deleted in prior sessions, and compressed
+the `.bone` correction-set-selection item's multi-"Update" investigation
+saga down to its current real state (DB2 chain resolved and wired,
+pointer to `BONE_CORRECTION_APPLICATION_TODO.md` for what's still open).
+`TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md` cut from 319 to ~26 lines — two
+sections explicitly marked "— DONE" removed outright (their design
+rationale already lives in `render_glb.py`/`husk_blender_geoset_mask.py`'s
+own module docstrings, e.g. the latter's "Fourth, independent job"
+section), leaving only the one genuinely open item (the standalone 3D
+viewer's missing animation playback). Fixed ~10 dangling cross-file
+citations this pass and the `export_texture_resolution.cpp` split left
+behind, pointing at functions/sections that moved or were deleted
+(`DESIGN.md`, `README.md` x2, `M2_COMPLETENESS.md`,
+`RENDER_QUALITY_TODO.md` x3, `CHAR_TEXTURE_COMPOSITING_TODO.md`,
+`ANIMATED_TEXTURE_EFFECTS_TODO.md`, `src/gltf_math.hpp`,
+`src/cmd_export.cpp`, `src/gltf_skeleton.hpp`, `tests/test_data_paths.hpp`,
+`tools/husk_blender_geoset_mask.py`, `EYES_ON_FINDINGS.md`, `CLAUDE.md`,
+`tests/test_integration_texture_transform.cpp`, `src/gltf_mesh.cpp`).
+Added a real `README.md` line documenting the alpha-cutoff fix in the
+materials section (coverage doc, not just a TODO note). Explicitly not
+attempted this session, flagged rather than guessed at:
+`BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (needs its own design pass — fuzzy
+reference-skeleton matching, an ambiguity policy, a new Rigify
+dependency) and Mod/Mod2x multiply blending (Blender 5.x's EEVEE Next has
+no native multiply blend mode left, needs a design call on the
+approximation, no real-corpus repro driving it yet either). **Left
+undone, flagged not fixed**: `CLAUDE.md`'s own Resume section has the
+identical "history document, not a living snapshot" problem the TODO
+files had (~1,300 lines of accumulated "Prior state" entries, when the
+file's own header says this should be a condensed snapshot with the full
+narrative living here instead) — out of this session's actual scope (the
+request was specifically about `TODO/*.md`), but a real, named follow-up:
+migrate the historical chain out of `CLAUDE.md`'s Resume section into
+this file, leaving just current-state/next-step/hazards there.
+
+---
+
 **2026-08-14, overnight `/loop` session (ongoing)**: Autonomous session,
 chained several independently-committed `[UNVERIFIED/STAGING]` increments
 (see git log for the exact commits/messages, not duplicated here). (1)

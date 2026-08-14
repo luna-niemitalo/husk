@@ -111,7 +111,7 @@ inline std::string autoSkinDir(const std::string& m2Path, const std::string& ski
 // end to end against real '.bone' bytes, not that any particular slot is
 // semantically correct. Returns "" if skelPath is empty, has no BFID chunk,
 // or none of the expected same-basename '_NN.bone' files exist next to it.
-// TODO: Remove: cites `WIKI_FINDINGS/BONE.md`/TODO_correctness.md #3.
+// TODO: Remove: cites `WIKI_FINDINGS/BONE.md`.
 inline std::string autoBonesDir(const std::string& skelPath) {
     if (const char* env = std::getenv("HUSK_TEST_BONES_DIR")) {
         return std::string(env);
@@ -200,7 +200,7 @@ constexpr const char* kWeaponParticleStress = "item/objectcomponents/weapon/mace
 // range, real but apparently vestigial data), chosen to prove the
 // textureCoordComboIndex+layer path is exercised (not just skipped via the
 // empty-table fast path) and still resolves safely.
-// TODO: Remove: cites TODO/TODO_correctness.md #3 and `WIKI_FINDINGS/M2/skin.md`;
+// TODO: Remove: cites `WIKI_FINDINGS/M2/skin.md`;
 // found via a full ~287k-file .skin scan (226,294 textureCount>1 hits) and
 // a ~130k-file .m2 scan (3 nonzero textureCoordCombos hits).
 constexpr const char* kMultiTextureLayerM2 =

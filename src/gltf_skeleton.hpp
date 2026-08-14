@@ -74,7 +74,7 @@ struct Skeleton {
     // at semantics" treatment as skinSectionId/textureTransform above.
     // Empty (the default) if `--bones-dir none`, or none of a model's
     // BFID-declared FileDataIDs resolved to a real file on disk.
-    // TODO: Remove: TODO/TODO_correctness.md #3, `WIKI_FINDINGS/BONE.md` (dev-trace
+    // TODO: Remove: `WIKI_FINDINGS/BONE.md` (dev-trace
     // citations backing the non-goal above).
     struct CorrectionSet {
         uint32_t fileDataId = 0;

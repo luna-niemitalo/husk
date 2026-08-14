@@ -57,11 +57,11 @@ Vec3 scaleZUpToYUp(const Vec3& s);
 // `curr` when it's in the opposite hemisphere from `prev` (dot product
 // < 0), so each keyframe in a sequence picks the sign nearest its
 // predecessor -- callers walk a track in order, feeding each keyframe's
-// own *already-converted* predecessor back in. See
-// TODO/RENDER_QUALITY_TODO.md section 1 for the full investigation (real
-// repro: creature/corruptedtentacle/corruptedtentacle_low.m2's tentacle-
-// sway animation visibly collapsing at large rotation angles before this
-// fix).
+// own *already-converted* predecessor back in. Fixed 2026-08-14 (see git
+// history for the full investigation); real repro:
+// creature/corruptedtentacle/corruptedtentacle_low.m2's tentacle-sway
+// animation visibly collapsing at large rotation angles before this fix,
+// now the committed test_data/creature/corruptedtentacle/ fixture.
 Quat enforceHemisphereContinuity(const Quat& prev, Quat curr);
 
 }  // namespace husk::gltf

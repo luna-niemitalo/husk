@@ -554,7 +554,7 @@ confirmed, named mechanism husk structurally cannot reach.
 
 **What husk can still do, and now does**: `AlternateTextureCandidate`
 gained real `width`/`height` fields (`src/gltf_mesh.hpp`, populated by
-the new `pngDimensions` in `src/export_materials.cpp`, emitted as
+the new `pngDimensions` in `src/export_texture_resolution.cpp`, emitted as
 `alternate_textures[].width`/`.height` extras, `src/gltf_mesh.cpp`) --
 not the real placement rectangle (husk has no `CharComponentTextureSections`
 data to source one from), but real, decoded, load-bearing data

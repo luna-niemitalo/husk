@@ -6,257 +6,16 @@ and when, not this file.
 
 ## Background
 
-Luna ran another pass through the `/review` corpus-triage page
-(`tools/live_gallery/server.py`, merged from the former standalone
-`tag_review_server.py` on 2026-08-14) over `corpus_reports/renders_full`'s
-rendered preview clips/stills. Her own framing: "same complaints as last
-round... except now there was a genuine plethora of fixed cases from the
-last round" — this is a fresh/residual sample after real prior fixes, not
-a first discovery. Four categories surfaced:
+Sourced from a corpus-triage review pass over `corpus_reports/renders_full`'s
+rendered preview clips/stills (`tools/live_gallery/server.py`'s `/review`
+page). A skeletal-animation rotation "shear" and an animated-texture
+V-scroll direction bug, both originally tracked here, are now fully fixed
+(git history has the investigations) — remaining sections below are what's
+still open.
 
-1. A skeletal-animation rotation "shear" — mostly-correct motion that
-   visibly collapses/distorts once a bone's rotation angle gets large
-   enough. Named repro examples: an elf's two-handed-weapon attack
-   animation, and `creature/corruptedtentacle/corruptedtentacle_low.webm`.
-2. Renders showing only the background color — no model visible at all.
-3. Missing or clearly-wrong textures (partial or complete).
-4. Alpha-channel rendering issues, and billboard-alignment issues.
+## 1. Renders showing only the background color
 
-Two research passes (Explore agents, read-only) went through the codebase,
-`CLAUDE_HISTORY.md`, `WIKI_FINDINGS*.md`, and everything under `TODO/` to
-separate genuinely-new findings from things already fixed or already
-tracked elsewhere. Findings below are organized by that split. Nothing in
-this file has been fixed yet — investigation and writeup only.
-
-## 1. Rotation "shear" on large-angle bone animation — genuinely new, high-confidence root cause
-
-**Not previously tracked anywhere in this project's docs** (grepped
-`CLAUDE_HISTORY.md`/`WIKI_FINDINGS*.md`/`DESIGN.md`/every `TODO/*.md` for
-"quaternion"/"slerp"/"gimbal"/"shear"/"hemisphere"/"antipodal"/"sign
-flip"/"180 degree"/"M2CompQuat" combined with rotation — every hit is
-about unrelated topics, mostly `M2TextureTransform` rotation or *static*
-single-rotation coordinate-conversion correctness, never a *sequence* of
-rotations for animation continuity).
-
-**Hypothesis (high confidence): a hemisphere/sign discontinuity between
-consecutive keyframes, introduced or left unguarded by husk, that gets
-linearly interpolated straight through the near-zero quaternion.**
-
-- husk does not slerp or lerp rotation keyframes itself — it emits raw
-  (converted) keyframe values as a glTF `LINEAR` (or `STEP`) sampler and
-  defers all actual interpolation to the glTF runtime/importer
-  (`gltf_skeleton.cpp`'s `addChannel` lambda, ~line 486-530; WoW
-  interpolation types 1/2/3 all collapse to glTF `LINEAR`, only type 0
-  becomes `STEP` — `gltf_skeleton.hpp` ~line 302-313).
-- Two independent, unguarded places can produce a `q` vs. `-q` flip
-  between adjacent keyframes (mathematically the same rotation, but a
-  literal-component discontinuity for interpolation purposes):
-  - **Raw M2 decode**: `readCompQuat` (`src/m2_animation.cpp:112-129`)
-    decodes each keyframe's compressed int16 quaternion fully
-    independently, with no cross-keyframe continuity check.
-  - **Z-up→Y-up conversion**: `gltf::rotationZUpToYUp`
-    (`src/gltf_math.cpp:120-124`) round-trips each quaternion through
-    `quatToMat3` → conjugate by `kWowToGltf` → `mat3ToQuat`
-    (Shepperd's-method matrix→quaternion, branch-selected by the largest
-    diagonal component). **`mat3ToQuat`'s own doc comment
-    (`gltf_math.cpp:77-84`) explicitly says the returned sign is not
-    normalized against any convention** — a deliberate non-guarantee for
-    a single static rotation that becomes a real bug once a *sequence* of
-    independently-converted quaternions is expected to interpolate
-    smoothly. Large rotation swings are more likely to cross the
-    branch-selection boundary between one keyframe and the next, which
-    lines up with the reported "only at high angles" symptom.
-  - Both are called per-keyframe in a loop with zero history:
-    `src/export_animation.cpp:123-126`.
-- glTF's own `LINEAR` quaternion interpolation is spec-defined to need
-  shortest-path (sign-aware) handling, and modern importers (including
-  current Blender) generally do this correctly for *already-consistent*
-  input — so this doesn't look like a pure glTF-spec/Blender-side
-  limitation on its own. But husk's own conversion step can *introduce* a
-  flip that wasn't present in the source data, which would defeat even a
-  perfectly-correct importer.
-
-**Fixed 2026-08-14.** `gltf::enforceHemisphereContinuity` (new,
-`src/gltf_math.hpp`/`.cpp`, alongside `mat3ToQuat` whose own doc comment
-already named this exact gap) negates a keyframe's converted quaternion
-when its dot product with the *previous already-converted* keyframe is
-negative. Wired into `export_animation.cpp`'s `buildJointAnimation`
-rotation loop (the single shared function both per-sequence and
-global-sequence animation building already funnel through, so both paths
-are covered by one fix). Did not additionally apply the fixup before
-conversion, directly on raw `M2CompQuat`-decoded keyframes — verifying
-post-conversion continuity across the *entire* real repro fixture (14,479
-consecutive rotation-keyframe pairs, all 15 of its animations) found zero
-remaining hemisphere flips, so there was no evidence of a separate
-pre-conversion discontinuity to chase for this fixture; worth revisiting
-only if a different real file turns up a case this fix doesn't cover.
-Three new unit tests (`tests/test_gltf_math.cpp`) plus real-fixture
-verification: exported the committed fixture below, walked every
-animation's rotation channel, confirmed 0/14,479 consecutive-keyframe dot
-products are negative (was checked against the same real fixture both
-before and after the fix, not just after). Full suite green, 625/625.
-
-**Repro, now committed**: `test_data/creature/corruptedtentacle/
-corruptedtentacle_low.m2` + `corruptedtentacle_low00.skin` (copied from
-`/media/luna/data/wow_export/creature/corruptedtentacle/`, local-only per
-this project's usual `test_data/` convention — copyrighted game assets,
-gitignored, not committed to git itself).
-
-### Follow-up, same day: the fix is verified correct, but a full corpus
-### re-render still shows "shear"-looking artifacts — a second, different
-### mechanism, not yet fixed
-
-A fresh full corpus re-render (with the fix above active) was reviewed
-live, and several items were flagged as still showing the same visual
-symptom: `creature/bloodgodtentacle/bloodgodtentacle.webm`,
-`.../bloodgodtentaclethickspikes.webm`, `.../bloodgodtentaclethickspikes_
-baked.webm`, `creature/alexstrasza/ladyalexstrasa.webm`/`ladyalexstrasa2.
-webm`, `creature/alleria/alleria.webm`/`alleriavoid.webm`,
-`creature/abominationsmall/abominationsmall.webm`,
-`creature/bloodabomination/bloodabomination.webm`.
-
-Investigated two of these directly (`bloodgodtentacle`, a simple tentacle
-chain, and `ladyalexstrasa`, a complex 144-bone humanoid rig) with three
-independent, rigorous checks against each file's own actually-previewed
-animation clip (`animations[0]`, confirmed via `render_glb.py`'s own
-`render_duration_seconds` — Blender's importer already activates this one
-by default, and that's what a human watching the corpus render actually
-sees, not necessarily whichever clip happens to be picked for a quick
-spot check):
-
-1. **Hemisphere-flip count**: re-ran the same dot-product scan the fix
-   above was verified with. Zero negative dots in either file's real
-   previewed clip — the fix from earlier today is working correctly here
-   too, not silently failing.
-2. **Bone pose-matrix determinant, every bone, every frame**: a pure
-   rotation always has determinant 1.0; any real shear/scale shows up as
-   a deviation, independent of camera angle or foreshortening (unlike a
-   bounding-box-size proxy, which can't tell a genuine collapse apart
-   from a long thin object just pointing more toward the camera). Result:
-   determinant stayed at 1.0 (floating-point noise only, ~7e-7) across
-   **every bone and every frame in both files**. This is about as
-   unambiguous as a check gets — the actual bone transforms being fed to
-   the skin are mathematically perfect rigid rotations throughout. There
-   is no shear in the transform data itself.
-3. **Direct visual render** at the specific frame identified as the
-   single worst same-hemisphere large-angle step in `bloodgodtentacle`
-   (a real ~179° single-keyframe jump, `anim_16_0` node 14 — not even the
-   previewed clip, checked out of thoroughness): looked like an ordinary
-   smooth bend, no visible collapse. Consistent with check #2.
-
-**New leading hypothesis: classic linear-blend-skinning ("candy wrapper")
-volume loss, not a rotation/export bug at all.** `bloodgodtentacle`'s
-mesh has 31.7% of vertices weighted across 2+ bones
-(`WEIGHTS_0`/`JOINTS_0`, checked directly from the exported `.glb`) — the
-exact precondition for this well-known skinning artifact: even with every
-individual bone transform mathematically perfect (confirmed above),
-standard linear blend skinning can visibly pinch/thin a mesh at a joint
-that bends sharply, because blending two *rotation matrices* linearly
-(not the rotations themselves) loses volume — worse the more the two
-bones' orientations diverge and the more of a vertex's weight is split
-between them. A long, thin, many-jointed chain (a tentacle) bending
-sharply is close to a textbook case for this. Checked: Blender's Armature
-modifier's own built-in mitigation (`use_deform_preserve_volume`, a real
-implementation of the standard fix for this exact artifact) is **not
-enabled anywhere in this pipeline** (`render_glb.py`/
-`husk_blender_geoset_mask.py`) — neither set by husk's own glTF export
-(core glTF has no such flag to carry) nor by Blender's glTF importer nor
-by any of this project's own post-import scripts.
-
-**Experiment 1 (falsified): `use_deform_preserve_volume = True`.** Tried
-first as the standard LBS-volume-loss mitigation. Made it dramatically
-*worse* — a real detached-looking flap/spike appeared that wasn't nearly
-as pronounced without it (side-by-side `.webm`s kept at
-`example_exports/creature/bloodgodtentacle_shear_investigation/
-current_no_preserve_volume.webm` vs. `with_preserve_volume_WORSE.webm`
-for reference). Reverted immediately, not shipped. Root cause of *why* it
-made things worse turned out to be the real second bug, found next.
-
-**Fixed 2026-08-14, confirmed by Luna directly against the real client.**
-The geoset-tag joints (`group_<n>,variant_<n>`, husk's own inert per-
-geoset marker bones, always appended to every export — see
-`Skeleton::geosetTags`) were assumed to have zero effect on real skinned
-deformation, per this project's own prior hazard note ("Blender's own
-Armature modifier renormalizes total weight across joint sets regardless
-of what's stored, so a second full weight set doesn't distort
-deformation"). That's true for the *stored accessor values* (satisfies
-`gltf_validator`'s normalization check) but **not** true for actual
-runtime deformation: checked directly against `bloodgodtentacle.m2`'s
-real exported data, 731/1870 vertices (39%) carry a real 0.5 weight
-toward the tag joint (a static, always-identity transform) — meaning
-those vertices get measurably pulled halfway back toward their bind pose
-every frame, on top of whatever real bone is actually deforming them.
-Under plain linear blend skinning this reads as a mild, easy-to-miss
-thinning; blended against a *real* rotation via dual-quaternion skinning
-(`use_deform_preserve_volume`, experiment 1 above) the same phantom-
-identity pull becomes dramatically more visible — explaining both why
-plain LBS already looked subtly wrong and why enabling volume
-preservation made it look catastrophically wrong, as the exact same root
-cause manifesting more severely under a math that's more sensitive to it.
-
-**Fix, consolidated (Luna's direct steer — the first version below was
-real but wrong shape, kept as a note on why).** First attempt: a new
-`disable_geoset_tag_deform()` that set `Bone.use_deform = False` on every
-tag joint, called only from `render_glb.py`. Worked, but duplicated logic
-that already existed in `husk_blender_geoset_mask.py`'s own interactive
-`main()` (`geoset_stage`, which already deletes tag bones outright — a
-strictly stronger fix, no flag needed) and risked exactly the divergence
-this project explicitly doesn't want: a corpus preview render seeing a
-different scene setup than a real user opening the same file in Blender.
-Corrected: `geoset_stage`'s own body (build every mesh's geoset switch,
-merge the groups, delete the tag bones) is now one shared function,
-`apply_geoset_switches(mesh_objs, armature_obj)` — `main()`'s
-`geoset_stage` and `render_glb.py`'s `main()` both call this exact same
-function, not a reimplementation each. `render_glb.py` previously never
-called this step at all (it only wanted a plain default-state preview,
-no interactive dropdown) — which was a second, independent problem this
-consolidation also fixes: without it, every geoset variant (every
-hairstyle, every tabard state, ...) rendered simultaneously, unfiltered,
-for *any* model with real geoset groups, not just tentacles.
-
-Verified through the real pipeline, not just an ad-hoc test script: full
-before/after/reverted-experiment set of real `.webm`/`.glb` files kept at
-`example_exports/creature/bloodgodtentacle_shear_investigation/` for
-reference (`current_no_preserve_volume` = the original bug,
-`with_preserve_volume_WORSE` = the falsified experiment,
-`tag_joint_deform_disabled_TEST` = the isolated fix tested standalone,
-`render_glb_with_fix_REAL_PIPELINE` = the same fix through the actual
-`render_glb.py` entry point — confirmed visually consistent with the
-isolated test, no needle-thin taper collapse, no detached flap).
-Confirmed correct by Luna directly against the real client.
-
-The other flagged repros from this round (`alexstrasza`/`alleria`/
-`abominationsmall`/`bloodabomination`) weren't all individually
-re-verified this session — `ladyalexstrasa` was checked structurally
-(same "perfect bone determinants" shape before the fix) but not
-re-rendered after — worth a spot-check once the full re-render lands,
-though the fix is general (any geoset-tagged model with real tag-joint
-vertex weight benefits) and not specific to tentacle-shaped creatures.
-
-Corpus re-render, stopped mid-run to investigate this, is being
-restarted now that both mechanisms have real fixes.
-
-## 2. Renders showing only the background color
-
-**Correction**: the current review pass followed a full corpus
-re-render, so the two previously-fixed causes below are ruled out for
-these flagged items — they're listed for completeness (still worth
-knowing about if an *older* render is ever compared against), not as an
-excuse for what's currently flagged.
-- Large-scale models exceeding Blender's default camera `clip_end`
-  (fixed 2026-08-09, commit `8f35bd5`, `tools/corpus_scan_tasks/
-  render_glb.py:384-393` — `clip_end` now derived from real camera
-  distance + posed bounding radius).
-- Bone-visualization "Icosphere" shapes inflating the auto-framing bbox
-  (fixed same day, commit `3a62210`, `disable_bone_shape=True`).
-- Zero-vertex VFX-only models (3,807 real files) used to fail export
-  entirely; now export with a fallback skeleton/anchor-only glTF and are
-  logged as a distinct `skipped_no_geometry` result
-  (`render_sample_driver.py:280-282`), not misreported as a blank OK
-  render.
-
-**Confirmed, real root cause — a distinct third class, not either of the
-above.** Validated end-to-end against a concrete example Luna supplied,
+**Confirmed, real root cause.** Validated end-to-end against a concrete example Luna supplied,
 `creature/cloud/cloudswampgas_white_clickable.webp` (re-rendered
 2026-08-13 20:45, well after both fixes above):
 
@@ -444,7 +203,7 @@ doesn't directly apply to video, and a real check would need multi-frame
 sampling. Left for a follow-up, not blocking the 36-file exclude list
 above (which is scoped only to what was actually confirmed).
 
-## 3. Missing / wrong textures
+## 2. Missing / wrong textures
 
 **Another real repro of the hardcoded-slot gap, same session**:
 `creature/drogbarchieftain/drogbarchieftain.webm` ("partial missing
@@ -489,62 +248,21 @@ principled tiebreak. Could plausibly produce "completely wrong palette/
 color variant" for non-character categories. Not previously flagged as
 its own item.
 
-**Concrete real example of a related but distinct symptom, found this
-session, not yet investigated**: `creature/dragonspawn/
-dragonspawntwilightoverlord.webm` and `creature/dragonspawn2caster/
-dragonspawn2caster.webm` — described directly as textures that "switch
-per face," not a single consistently-wrong color pick. `husk info` on
-the twilightoverlord fixture shows exactly the shape that would produce
-this: `textureType` 11 (`monster_1`) and 12 (`monster_2`) are both
-hardcoded/customization-driven slots (per this project's own documented
-`textureType != 0` gap — no in-file data to resolve which of several
-same-basename recolor candidates is correct), and this specific model
-has six real local candidates for those slots
-(`dragonspawntwilightoverlord_{red,green,purple}{1,2}.blp`). Two
-*different* texture types independently defaulting to two *different*
-colors (e.g. monster_1 -> red, monster_2 -> green) would look exactly
-like "switches per face" if those two types are used on different
-batches/faces of the same creature — plausible, but not confirmed; needs
-real per-batch/per-material inspection (which batch uses which
-`textureType`, and whether it's genuinely two independently-resolved
-slots vs. the same slot resolving inconsistently across batches, which
-would be a different and more concerning bug) before concluding this is
-"working as expected given no DB2 data" vs. a real resolution bug. Not
-investigated further this session — flagged with concrete repros only.
-
-**Follow-up (2026-08-14): investigated both named repros directly —
-hypothesis not confirmed, doesn't currently reproduce.** Re-exported both
-with `--textures` pointed at their real local directories and inspected
-husk's own per-material resolution notes (not just guessed from `husk
-info`): `dragonspawntwilightoverlord` — both `monster_1` (texture 2) and
-`monster_2` (texture 0) hardcoded slots share the *exact same* 6-file
-candidate pool (`{red,green,purple}{1,2}.blp`, no category tokens husk
-recognizes) and both independently landed on the identical default
-(`green1`) across all 4 materials — not two different colors, the
-"switches per face" mechanism this item hypothesized. `dragonspawn2caster`
-— a richer case (11 candidates spanning real `body_*`/`armor_*` tokens
-plus one bare `4898856.blp`), same result: both `monster_1` and
-`monster_2` independently resolved to the identical bare file
-(`4898856.blp`, sorting first alphabetically — `classifyCandidateCategory`
-doesn't recognize `body`/`armor` as tokens on their own, only
-`skin_color`/`face`/`hair_color`/`jewelry_color`/`blindfold`/
-`body_jewelry`/`bracelets`, so both fall through to the same unlabeled-
-tier tiebreak). Rendered both (`render_glb.py`, real animated clips,
-first frame inspected): neither shows a jarring color mismatch between
-body sections — `dragonspawntwilightoverlord` reads as a consistent blue
-dragon, `dragonspawn2caster` a consistent purple/gray camo pattern. **The
-underlying structural gap `orderCandidatesForDefault` doc'd above is
-still real** (alphabetical-fallback is arbitrary, not principled) — but
-it turns out to be *self-consistent* per model in practice: every
-ambiguous slot on one model shares the same candidate pool and the same
-deterministic tiebreak, so they agree with each other even though the
-specific choice is arbitrary. Whatever produced the real "switches per
-face" report was either a stale pre-fix render (this exact tiebreak
-logic has had several rounds of changes, `CLAUDE_HISTORY.md`) or is
-actually the already-tracked `MULTI_TEXTURE_LAYER_TODO.md` gap (both
-files have real `textureCount > 1` batches whose second layer husk
-doesn't render) — not a fresh resolution-inconsistency bug. Downgraded
-accordingly; no code change, nothing to fix here without a fresher
+**Checked and closed (2026-08-14)**: `creature/dragonspawn/
+dragonspawntwilightoverlord.webm`/`creature/dragonspawn2caster/
+dragonspawn2caster.webm` were reported as textures that "switch per
+face." Investigated directly (re-exported with `--textures`, inspected
+husk's own per-material resolution notes, rendered both): on both files,
+every ambiguous hardcoded slot (`monster_1`/`monster_2`) independently
+resolves to the *identical* default candidate, and a rendered frame shows
+a consistent color/pattern across the whole model, not a mismatch. The
+underlying structural gap above (alphabetical fallback isn't a
+principled tiebreak) is still real, but turns out self-consistent in
+practice — every ambiguous slot on one model shares the same candidate
+pool and the same deterministic tiebreak, so they agree with each other.
+Whatever produced the original report was either a stale pre-fix render
+or the already-tracked `MULTI_TEXTURE_LAYER_TODO.md` gap, not a fresh
+resolution-inconsistency bug — nothing to fix here without a fresher
 repro.
 
 **Worth re-checking, not re-investigating from scratch**: `bloodelffemale_hd.m2`'s
@@ -554,7 +272,7 @@ still open... whether specific to this local export or a wider gap is
 unconfirmed" (`CLAUDE_HISTORY.md`). Worth checking whether it's systemic
 across the current corpus now that `--listfile` resolution exists.
 
-## 4. Alpha-channel issues
+## 3. Alpha-channel issues
 
 **Additive blend modes (3/4) already fixed** — `render_glb.py`'s
 `fix_additive_materials()` (~line 103-204) rebuilds real Transparent+
@@ -572,20 +290,6 @@ Emission shading post-import; verified against real fixtures.
   through to plain alpha-`BLEND`, a plausible wrong answer (could read as
   either wrongly-transparent or wrongly-opaque depending on the base
   texture's luminance) for whatever real material uses them.
-- ~~**`alphaCutoff` is never set explicitly**~~ — **checked and fixed
-  2026-08-14.** The real client's own threshold is `0.501960814`
-  (`reference/wow.export/src/js/3D/renderers/M2RendererGL.js`:
-  `u_alpha_test`, i.e. 128/255) — cross-checked against every 8-bit alpha
-  value: it's mathematically indistinguishable from glTF's implicit 0.5
-  default for byte-quantized textures (both land strictly between the
-  127/255 and 128/255 texel values, so no real texture's rounding could
-  ever tell them apart). husk now sets `alphaCutoff` explicitly to
-  `128.0/255.0` on every `MASK`-mode material (`gltf_mesh.cpp`'s
-  `emitMaterial`) rather than relying on that coincidence — real, not a
-  behavior change for any already-rendered output, just removes the
-  question. Two new tests (`tests/test_gltf_mesh.cpp`). Full suite green,
-  634/634.
-
 **Unverified, not confirmed broken**: `apply_tint_fade_animation`
 (`tools/husk_blender_geoset_mask.py`) — structurally sound, doesn't crash
 against real fixtures with genuine tint/fade data, but explicitly not
@@ -593,7 +297,7 @@ ground-truthed against real per-frame alpha values the way the texture-
 transform animation curve was. A material with a real fade-in/out could
 plausibly show wrong transparency at some frame; open, not newly found.
 
-## 5. Billboard alignment
+## 4. Billboard alignment
 
 **Not untouched territory — a real, fairly complete system already
 exists**, contrary to how "billboard issues" might read as a fresh gap:
@@ -616,75 +320,7 @@ almost certainly it — a known, named gap, not a fresh discovery. Closing
 it needs a human side-by-side against the real client, not more code
 archaeology.
 
-## 6. Animated texture-transform scroll runs in the wrong V direction — confirmed, trivial fix
-
-**Confirmed root cause, not a hypothesis.** Repro:
-`world/expansion02/doodads/boreantundra/magnatauritems/
-borean_redplant_burningpile_01.webm` — a burning-pile doodad whose flame
-texture scrolls the wrong way ("burning upside down").
-
-Real exported data (`husk export` against the real source `.m2`,
-confirmed by hand): material `mat1_tex1_fdid195953`'s
-`texture_transform_animation.translation` curve goes from `(0,0,0)` at
-`t=0` to `(0, +1.0, 0)` at `t=0.833s` — a plain, real, positive V-axis
-scroll, looping every 0.833s. Nothing wrong with husk's own export here.
-
-**The bug is on the Blender-reconstruction side**:
-`tools/husk_blender_geoset_mask.py`'s `_update_texture_transform_animations`
-(~line 1276-1279) takes that curve's `y` value and assigns it directly to
-the Mapping node's `Location` V component with no sign correction:
-```python
-if translation:
-    x, y, _z = _eval_vec3_curve(translation[0]["keyframes"], t)
-    mapping.inputs["Location"].default_value[0] = x
-    mapping.inputs["Location"].default_value[1] = y
-```
-But **this same file already has an established, explicit convention for
-exactly this axis** (the texture-layout overlay code, ~line 689-692):
-"WoW atlas Y grows downward (top-down pixel convention); Blender UV V
-grows upward -- flip." That flip (`v_blender = 1 - v_wow`) is applied
-there for absolute placement rects — but `_update_texture_transform_animations`
-never applies the equivalent correction for a *scrolling delta*. Since
-`v_blender = 1 - v_wow`, differentiating gives `d(v_blender)/dt =
--d(v_wow)/dt` — a positive WoW V-scroll must become a **negative**
-Blender `Location` delta, not a same-sign one. The current code passes
-the raw sign straight through, so every animated V-axis texture scroll
-in this project runs backwards relative to intended.
-
-**Fix**: negate `y` before assigning to `Location[1]` in
-`_update_texture_transform_animations` (~line 1279):
-`mapping.inputs["Location"].default_value[1] = -y`. Trivial, one line,
-Python-only (no rebuild), and this is the same kind of asset that made
-the original texture-transform-animation feature real in the first
-place — worth re-running that feature's own verification (a Mapping
-node reading correctly at a known frame) with the sign fix applied
-before calling it closed, same discipline the rest of this project's
-animation work already follows. **Applied 2026-08-14.**
-
-**Why `be_fountain01_base.webm` looked fine despite the same bug being
-present the whole time** — investigated directly, not assumed. Its one
-genuinely-animated `texture_transform_animation.translation` curve
-(material `mat12_tex12_fdid192043`) goes from `(0,0,0)` to
-`(2.999, 0.0, 386.055)` over 5s — **the Y (V) component is `0.0` for the
-entire curve**; all real motion is on X (U) and an unused/ignored Z. The
-V-flip bug only affects the V axis — U has no WoW/Blender convention
-mismatch (only V does, per the same overlay-code precedent above), so a
-model whose animated scroll happens to be purely horizontal was never
-touched by this bug at all. The fountain isn't evidence the code was
-right; it's evidence the bug is axis-specific and this file's data simply
-never exercises the broken axis. The fire (`borean_redplant_
-burningpile_01`), by contrast, scrolls entirely on Y — exactly the axis
-that was broken. Confirms the fix above is both correct and sufficient;
-no further per-file investigation needed.
-
-**Scope note**: only the V (Y) component is affected — U (X) has no
-axis-convention mismatch between WoW and Blender, so horizontal scrolls
-were never wrong. Any doodad/spell/creature with a real animated V-axis
-texture scroll (fire, water, lava, energy beams, ...) is a plausible hit
-— likely a meaningful slice of "wrong/weird texture motion" complaints
-beyond just this one fixture.
-
-## 7. Black silhouette / unlit-looking materials — real category, confirmed, root cause still open
+## 5. Black silhouette / unlit-looking materials — real category, confirmed, root cause still open
 
 Repro: `creature/demolishercannonball/demolishercannonball.webp` — reads
 as a near-black hole in the background, not a missing/wrong texture
@@ -715,7 +351,7 @@ exists specifically to sort a large flagged pile into this category
 alongside missing-texture, at scale) — worth running it over the current
 review's flagged set to size the bucket before investigating further.
 
-## 8. Other flagged repros from this review round, not yet investigated
+## 6. Other flagged repros from this review round, not yet investigated
 
 Caught live during this session's review pass, logged with a repro path
 and the reporter's own description only — no investigation done yet,
@@ -746,45 +382,28 @@ listed here so they aren't lost:
 
 ## Suggested priority
 
-1. ~~**Texture-transform V-scroll direction (§6)**~~ — **fixed 2026-08-14.**
-2. ~~**Rotation shear (§1, both mechanisms)**~~ — hemisphere continuity
-   **fixed 2026-08-14**; the second, unrelated cause (geoset-tag joints
-   pulling weighted vertices toward bind pose) **also fixed 2026-08-14**,
-   confirmed by Luna against the real client.
-3. **The 68 "unexplained" blank renders (§2)** — downgraded 2026-08-14:
-   spot-checked 6, found 0 husk bugs (5 correctly-blank-by-design rig-
-   marker/UI-icon/debug-entity cases, 1 real `--listfile` fix revealing
-   an already-understood giant-doodad framing limitation, not a data
-   bug). Real next step if picked back up: extend
+1. **The 68 "unexplained" blank renders (§1)** — 6 spot-checked, 0 husk
+   bugs found (5 correctly-blank-by-design, 1 a `--listfile` fix revealing
+   an already-understood framing limitation). Real next step: extend
    `particle_only_task.py`'s exclude heuristic to catch the no-particle
    black-additive-texture class (`deathwingcorruptedjaw`'s shape) via
    actual resolved-texture-darkness checking rather than a particle-count
    proxy, then spot-check the remaining ~62 before assuming any of them
    are fresh bugs.
-4. ~~**Alpha cutoff (§4)**~~ — **fixed 2026-08-14.** **Mod/Mod2x (§4)**
-   still open — needs a real multiply-blend shader shape in
-   `render_glb.py` (no `Add Shader` equivalent for multiply), no demonstrated
-   real-corpus repro driving it yet.
-5. **Billboard ground-truth pass (§5)** — needs Luna's own real-client
+2. **Mod/Mod2x (§3)** — needs a real multiply-blend shader shape in
+   `render_glb.py` (no `Add Shader` equivalent for multiply), no
+   demonstrated real-corpus repro driving it yet.
+3. **Billboard ground-truth pass (§4)** — needs Luna's own real-client
    comparison, same as the earlier billboard/geoset-mask verification
    pattern in this project's history; not something to chase blind in
    Blender alone a second time.
-6. ~~**Ambiguous-pool tiebreak (§3)**~~ — checked 2026-08-14 against both
-   named repros (`dragonspawntwilightoverlord`/`dragonspawn2caster`):
-   doesn't currently reproduce, real cause of the original "switches per
-   face" report unconfirmed but plausibly stale or the already-tracked
-   `MULTI_TEXTURE_LAYER_TODO.md` gap. Nothing to fix without a fresher
-   repro — see §3's own follow-up for the full writeup.
-7. **Particle-effect Blender-rendering task (§2)** — the 36-file known
+4. **Particle-effect Blender-rendering task (§1)** — the 36-file known
    gap is already excluded from review, so a *real, textured, simulated*
    particle system is still genuinely optional scope expansion, not
-   urgent. **A smaller first step landed 2026-08-14**:
-   `tools/husk_blender_geoset_mask.py`'s new `apply_emitter_markers`
-   places a small, distinctly-shaped/colored placement marker at every
-   real `ribbon_emitters`/`particle_emitters` anchor, bone-following
-   through animation — not a simulation (no texture/blend/curve data, see
-   its own doc comment), but it closes the "100% invisible, nothing there
-   at all" gap `cloudswampgas_white_clickable` above illustrated, with an
-   honest placeholder rather than nothing. The real simulation
-   (`render_glb.py` integration, real per-emitter texture/blend/curve
-   data via `husk dump-chunks`) is still open, same shape as before.
+   urgent. `tools/husk_blender_geoset_mask.py`'s `apply_emitter_markers`
+   (2026-08-14) is a smaller first step — a placement marker at every
+   real `ribbon_emitters`/`particle_emitters` anchor, not a simulation
+   (no texture/blend/curve data, see its own doc comment) — closing the
+   "100% invisible, nothing there at all" gap with an honest placeholder.
+   The real simulation (`render_glb.py` integration, real per-emitter
+   texture/blend/curve data via `husk dump-chunks`) is still open.

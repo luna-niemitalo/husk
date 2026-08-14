@@ -113,7 +113,7 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
         // exact same source file -- an unrecognized-category fuzzy
         // candidate stays a wildcard for every type (candidateAllowedForType's
         // doc comment), so nothing stops two unrelated ambiguous slots from
-        // picking the same one. materialDedupKey (export_materials.cpp)
+        // picking the same one. materialDedupKey (export_texture_resolution.cpp)
         // already merges materials that are otherwise identical, but these
         // two aren't (different textureType) -- so without this cache each
         // would still embed its own separate copy of the same image, which

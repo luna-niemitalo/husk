@@ -1147,8 +1147,7 @@ int exportGlb(int argc, char** args) {
         // -- the model's own filename is the obvious guess for what the user
         // wants the output named, the same way `cp foo.txt somedir/` infers
         // the destination filename from the source, rather than failing with
-        // "Is a directory". See TODO/TODO_correctness.md's "-o requires the
-        // exact right shape of path already existing" finding.
+        // "Is a directory".
         std::string basename = std::filesystem::path(modelPath).stem().string() + ".glb";
         outputPath = (std::filesystem::path(outputPath) / basename).string();
         std::cerr << "husk: note: -o pointed at a directory -- writing to '" << outputPath << "'\n";
