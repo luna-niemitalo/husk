@@ -323,11 +323,17 @@ matrix construction, same "verified by construction, not dependent on
 native constraint/parenting semantics" approach as billboard alignment
 above -- deliberately not Blender's native BONE object-parenting, whose
 tail-vs-head origin convention isn't worth a separate verification pass
-for a debug marker). Verified headlessly against the real
-`sword_1h_artifactskywall_d_06.m2` fixture (1 ribbon + 2 particle
-anchors): both marker kinds land within ~10% of the mesh's own bounding-
-box diagonal from center (well inside the model's own volume, not off in
-space), and a zero-emitter model (`bloodelffemale.m2`) is a silent no-op.
+for a debug marker). Every marker lands in a dedicated, hidden-by-default
+`_debug_marker_collection()` (`hide_render`/`hide_viewport` both set,
+plus a belt-and-suspenders `hide_render` on the object itself) -- these
+are debug placement aids, not something that should show up in a normal
+viewport or leak into `render_glb.py`'s corpus previews. Verified
+headlessly against the real `sword_1h_artifactskywall_d_06.m2` fixture (1
+ribbon + 2 particle anchors): both marker kinds land within ~10% of the
+mesh's own bounding-box diagonal from center (well inside the model's own
+volume, not off in space); `visible_get()` confirms both viewport and
+render visibility are correctly off. A zero-emitter model
+(`bloodelffemale.m2`) is a silent no-op.
 """
 
 import ast
@@ -1327,6 +1333,31 @@ def _update_registered_emitter_markers(_scene=None, _depsgraph=None):
 
 _emitter_marker_registry = []
 
+_DEBUG_MARKER_COLLECTION_NAME = "Husk Debug Markers"
+
+
+def _debug_marker_collection():
+    """The shared collection every debug-only marker this script creates
+    lives in (currently just emitter placement markers, but named/scoped
+    generically since the geoset-boundary overlay/billboard work could
+    plausibly want the same treatment later) -- created once, reused on
+    a re-run against an already-open scene. `hide_render = True` keeps
+    these out of every render pass (`render_glb.py`'s corpus previews
+    included) unconditionally; `hide_viewport = True` collapses/hides it
+    in the Outliner and 3D viewport by default too, so a normal File >
+    Import doesn't clutter the scene with debug geometry -- both are real
+    per-collection flags, not per-object, so toggling the collection's own
+    eye/camera icons in the Outliner is the one place to look to bring
+    these back, not a per-marker hunt.
+    """
+    collection = bpy.data.collections.get(_DEBUG_MARKER_COLLECTION_NAME)
+    if collection is None:
+        collection = bpy.data.collections.new(_DEBUG_MARKER_COLLECTION_NAME)
+        bpy.context.scene.collection.children.link(collection)
+    collection.hide_render = True
+    collection.hide_viewport = True
+    return collection
+
 
 def apply_emitter_markers(armature_obj, filepath):
     """Places one placement-marker object per real `ribbon_emitters`/
@@ -1335,12 +1366,19 @@ def apply_emitter_markers(armature_obj, filepath):
     (falsy path, no ribbon/particle emitters on this model, or a joint
     index this model's own skin doesn't have -- logged, not raised, same
     as `apply_billboard_alignment`'s per-bone skip behavior).
+
+    Every marker lands in `_debug_marker_collection()` (hidden-by-default,
+    excluded from every render pass -- see that function's own doc
+    comment) and additionally gets `hide_render = True` set on the object
+    itself, belt-and-suspenders: a collection-level flag stops applying
+    the moment someone relinks a marker into a different collection, an
+    object-level flag doesn't.
     """
     ribbon_anchors, particle_anchors, joint_bone_names = read_emitter_anchors(filepath)
     if not ribbon_anchors and not particle_anchors:
         return 0, 0
 
-    collection = bpy.context.collection
+    collection = _debug_marker_collection()
     counts = {"ribbon": 0, "particle": 0}
     for kind, anchors, color in (("ribbon", ribbon_anchors, _RIBBON_MARKER_COLOR),
                                   ("particle", particle_anchors, _PARTICLE_MARKER_COLOR)):
@@ -1361,6 +1399,7 @@ def apply_emitter_markers(armature_obj, filepath):
             if not marker_obj.material_slots:
                 marker_obj.data.materials.append(mat)
             marker_obj.matrix_world = _emitter_marker_world_matrix(armature_obj, bone_name, local_offset)
+            marker_obj.hide_render = True
             collection.objects.link(marker_obj)
             _emitter_marker_registry.append((armature_obj, bone_name, local_offset, marker_obj))
             counts[kind] += 1
