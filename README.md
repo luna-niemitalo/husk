@@ -329,15 +329,38 @@ already uses).
 `.bone` sidecar files and `--bones-dir` resolves any of them to a real
 `<FileDataID>.bone` on disk, husk attaches every resolved file's real
 `(bone_index, correction_matrix)` pairs as `bone_correction_sets` on the
-glTF skin's own `extras` -- and stops there. These are never applied to the
-bind pose or any animation: which of a model's several `.bone` files is
-"correct" for a given character is selected by client-side customization-
-choice data (which slider/dropdown value the player picked) husk doesn't
-currently resolve -- same "not implemented yet, not a hard non-goal" gap as
-geoset selection above (see `TODO/TODO_correctness.md` #6, `WIKI_FINDINGS/BONE.md`).
-A downstream renderer or
-Blender script that does have that mapping has everything it needs to apply
-the right slot on top of this data.
+glTF skin's own `extras` -- and stops there by default. These are never
+applied to the bind pose or any animation: which of a model's several
+`.bone` files is "correct" for a given character is selected by client-side
+customization-choice data (which slider/dropdown value the player picked).
+If `--customization-choice-ids` is also given (see below), any real
+`ChrCustomizationChoiceID` whose `ChrCustomizationBoneSet.BoneFileDataID`
+matches one of these already-resolved sets gets its choice ID added to that
+set's own `selected_by_choice_ids` extras -- still inert, never applied,
+just marking *which* slot a real customization choice actually picks
+(`TODO/TODO_correctness.md` #2, `TODO/GEOSET_SELECTION_TODO.md`,
+`WIKI_FINDINGS/BONE.md`). A downstream renderer or Blender script that
+wants to apply the right slot has everything it needs from this alone.
+
+**Real geoset/bone-correction-set selection from a customization choice.**
+If `--db2-dir`/`--dbd-dir`/`--customization-choice-ids` are all given, husk
+resolves each real `ChrCustomizationChoiceID` against
+`ChrCustomizationElement`/`ChrCustomizationGeoset`/`ChrCustomizationBoneSet`
+(`src/chrcustomization_db2.hpp`) -- the real DB2 chain a specific
+hairstyle/facial-hair/etc. choice enables. A choice resolving a geoset is
+attached as `{choice_id, geoset_id}` on the glTF skin's own `enabled_geosets`
+extras (`geoset_id` uses the same `group*100+variant` convention as a
+primitive's own `geoset_id` extras, so it can be matched directly); a choice
+resolving a bone-correction set marks the matching `--bones-dir`-resolved
+`bone_correction_sets` entry as described above. Same "inert, husk doesn't
+filter/apply anything itself" treatment as every other DB2 extras feature --
+the caller supplies real choice IDs directly (husk has no way to enumerate
+them itself yet: `ChrCustomizationOption`/`ChrCustomizationChoice`, needed
+to browse choices by name, are confirmed 0 bytes in the reference local
+extraction this was verified against -- a real extraction gap, not a husk
+one, see `TODO/GEOSET_SELECTION_TODO.md`). Verified end to end against real
+local `chrcustomizationelement.db2`/`chrcustomizationgeoset.db2`/
+`chrcustomizationboneset.db2` data.
 
 **`.phys` physics/collision data.** If `--phys` resolves a real `.phys`
 sidecar (see `PFID`'s single-scalar-FileDataID resolution above, mirroring
@@ -393,9 +416,10 @@ Flags:
 | `--bones-dir <dir>` &#124; `none` | -- | Directory of `<FileDataID>.bone` files (per the model's/`.skel`'s `BFID` array), attached as inert skin `extras`; or `none` to skip | model's own directory |
 | `--phys <path>` &#124; `none` | -- | External `.phys` path, attached as a minimal `physics_bodies` skin `extras` anchor (full records via `dump-chunks`), or `none` to never look for one | same-basename `.phys` next to the model, if any |
 | `--collision` | -- | Include the collision mesh, when present, as real geometry tagged `{"collision": true}` in glTF extras -- off by default: Blender's stock importer has no concept of that tag and renders it like any other mesh, and the collision hull is often larger than and visually occludes the real character (full body/shape/joint records are also always available via `dump-chunks`) | omitted |
-| `--db2-dir <dir>` | -- | Directory of real character-texture `.db2` files (see above); combined with `--dbd-dir`/`--char-layout-id` | unset (feature off) |
+| `--db2-dir <dir>` | -- | Directory of real character `.db2` files -- texture-layout tables for `--char-layout-id` (see above) or `ChrCustomizationElement`/`_Geoset`/`_BoneSet` for `--customization-choice-ids` (below), same directory serves both; combined with `--dbd-dir` and one of the two | unset (feature off) |
 | `--dbd-dir <dir>` | -- | A local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) | unset |
 | `--char-layout-id <id>` | -- | A real `CharComponentTextureLayoutsID` (see `husk db2-export`) -- husk can't derive this on its own | unset |
+| `--customization-choice-ids <id,id,...>` | -- | Comma-separated real `ChrCustomizationChoiceID`(s) (see `TODO/GEOSET_SELECTION_TODO.md`) -- resolves each to real `enabled_geosets` extras and marks any matching `--bones-dir` correction set, husk can't enumerate these on its own | unset |
 | `--listfile <path>` | -- | A local `community-listfile.csv`-style snapshot (`FileDataID;path` per line, github.com/wowdev/wow-listfile) -- last-resort FileDataID -> real-name lookup when `<FileDataID>.{blp,png}` isn't found next to `--textures` | unset (feature off) |
 | `--listfile-root <dir>` | -- | The corpus root `--listfile`'s paths are relative to -- deliberately separate from `--textures` (which stays the model's own directory by default, driving the directory-local matching above); only meaningful alongside `--listfile` | `--textures` itself |
 

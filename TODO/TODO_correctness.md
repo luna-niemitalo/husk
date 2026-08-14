@@ -199,3 +199,37 @@ WoWDBDefs' own `.dbd` files for whatever table has a foreign key into
 `ChrCustomizationBoneSet` (a `ChrCustomizationElement`/`ChrCustomizationChoice`-
 shaped table is the likely candidate, both of which also exist locally
 per `dbfilesclient/`'s own listing) to find the real join path.
+
+**Update: the join table is confirmed, found while writing
+`GEOSET_SELECTION_TODO.md` (a separate, sibling investigation for geoset
+selection that happened to use the exact same table).**
+`ChrCustomizationElement` (35,845 real rows, verified via `husk db2-info`/
+`db2-export --dbd-dir reference/WoWDBDefs`, real WoWDBDefs column names
+resolved) has a `ChrCustomizationChoiceID` column *and* a
+`ChrCustomizationBoneSetID` column on the same row — 645 of its 35,790
+readable rows (1 encrypted section skipped) have a real nonzero
+`ChrCustomizationBoneSetID`, and the values land exactly inside
+`chrcustomizationboneset.db2`'s own confirmed id range (e.g. choice 102 ->
+boneset 24, choice 103 -> boneset 25, ... all within `[24, 742]`). This is
+the real join: `ChrCustomizationChoiceID -> ChrCustomizationElement.
+ChrCustomizationBoneSetID -> ChrCustomizationBoneSet.BoneFileDataID`.
+
+**Wired into husk, 2026-08-14** (`GEOSET_SELECTION_TODO.md`'s own
+Implemented section has the full detail — `src/chrcustomization_db2.hpp`/
+`.cpp`, `husk export --db2-dir/--dbd-dir/--customization-choice-ids`): a
+real `ChrCustomizationChoiceID`, given directly by the caller, resolves to
+a real `BoneFileDataID` and, if that FileDataID was already resolved via
+`--bones-dir`, marks that `CorrectionSet`'s own `selected_by_choice_ids`
+extras — closing "which BFID slot applies, given a real customization
+choice" for good, not just narrowing it further. Verified end to end
+against real local data (choices 1758/1759 -> real FileDataIDs
+1103216/1103217, matched against `--bones-dir`-resolved sets, inspected
+directly in the output `.glb`). The *other* half of the chain,
+`ChrCustomizationOption`/`ChrCustomizationChoice` (needed to enumerate
+real choices by name or pick a default automatically), is still confirmed
+0 bytes in the current local extraction — the caller must supply a real
+choice ID directly, same as `--char-layout-id` already requires for
+`CharComponentTextureLayoutsID`. Still genuinely open: nothing in
+Blender consumes `selected_by_choice_ids` yet (`.bone` corrections aren't
+applied to the render regardless, by design) — see
+`GEOSET_SELECTION_TODO.md`'s "Remaining: expose this in Blender" section.

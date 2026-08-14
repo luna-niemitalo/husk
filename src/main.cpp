@@ -221,9 +221,10 @@ std::string zshFlagLabel(const std::string& longName) {
     if (longName == "--bones-dir") return "bone-correction directory, or none";
     if (longName == "--phys") return "external .phys path, or none";
     if (longName == "--collision") return "include the collision mesh (off by default)";
-    if (longName == "--db2-dir") return "character-texture DB2 directory";
+    if (longName == "--db2-dir") return "character DB2 directory (texture-layout or customization)";
     if (longName == "--dbd-dir") return "WoWDBDefs checkout, for --db2-dir column names";
     if (longName == "--char-layout-id") return "a real CharComponentTextureLayoutsID";
+    if (longName == "--customization-choice-ids") return "comma-separated ChrCustomizationChoiceID(s)";
     if (longName == "--listfile") return "community-listfile.csv snapshot, for FileDataID names";
     if (longName == "--listfile-root") return "corpus root the listfile paths are relative to";
     if (longName == "--help") return "print help and exit";

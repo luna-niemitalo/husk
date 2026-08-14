@@ -76,6 +76,7 @@ struct ExportOptions {
     std::string db2DirArg;
     std::string dbdDirArg;
     std::string charLayoutIdArg;
+    std::string customizationChoiceIdsArg;
     std::string listfileArg;
     std::string listfileRootArg;
 };

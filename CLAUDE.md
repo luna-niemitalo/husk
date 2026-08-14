@@ -147,7 +147,10 @@ tool, `blp/`) converts BLP2 textures to PNG.
   a generic named-column reader on top of both (`src/db2table.hpp`/`.cpp`),
   and real typed character-texture-layout structs on top of that
   (`src/chrmodel_db2.hpp`/`.cpp`, consumed by `husk export --db2-dir/
-  --dbd-dir/--char-layout-id` and the separate `husk db2-export` side tool)
+  --dbd-dir/--char-layout-id` and the separate `husk db2-export` side tool),
+  plus a sibling typed reader for the customization-choice → geoset/bone-
+  correction-set chain (`src/chrcustomization_db2.hpp`/`.cpp`, consumed by
+  `husk export --db2-dir/--dbd-dir/--customization-choice-ids`)
   — locally-extracted files only, same "user-populated, never CASC" tier as
   every other sidecar above (see `DESIGN.md`'s Non-goals' clarified
   wording).
@@ -168,7 +171,61 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: Same session, continued -- `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s
+- **Current state**: New session. `TODO/ENGINE_TODO.md`'s stale premise
+  corrected (it claimed husk "will never touch DB2," directly contradicting
+  `DESIGN.md`'s own 2026-08-08 clarification that locally-extracted `.db2`
+  files are in scope -- items 1-4/6 reframed as real husk work gated on
+  local-DB2 investigation, not a hypothetical downstream engine's problem;
+  items 5/7 correctly kept as-is, genuine "no data exists" cases). That
+  correction surfaced a real, previously-unwritten TODO (`ENGINE_TODO.md`
+  item 1, geoset selection) -- `TODO/GEOSET_SELECTION_TODO.md` (new) traced
+  and verified the real DB2 chain (`ChrCustomizationChoice` ->
+  `ChrCustomizationElement.ChrCustomizationGeosetID` ->
+  `ChrCustomizationGeoset`, `geoset_id = GeosetType*100+GeosetID`, matching
+  husk's own existing `geoset_group`/`geoset_variant` convention exactly)
+  against real local `husk db2-info`/`db2-export --dbd-dir` output, then
+  implemented it: `src/chrcustomization_db2.hpp`/`.cpp` (new, a
+  `db2table.hpp`-based typed reader) backs new `husk export --db2-dir/
+  --dbd-dir/--customization-choice-ids <id,id,...>`, attaching real geoset
+  selections as `enabled_geosets` skin extras. The same table also answers
+  `TODO_correctness.md` #2's long-open ".bone slot selection" question --
+  `ChrCustomizationElement.ChrCustomizationBoneSetID` ->
+  `ChrCustomizationBoneSet.BoneFileDataID` resolves a real customization
+  choice straight to the real `.bone` FileDataID `--bones-dir` already
+  looks for -- so the same flag also marks a matching `--bones-dir`-
+  resolved `CorrectionSet` with a new `selected_by_choice_ids` extras
+  field, closing that item too. Real bug found and fixed via actual
+  end-to-end CLI verification, not inspection: `ChrCustomizationChoiceID`
+  is one-to-many into `ChrCustomizationElement` (15-20+ real rows per
+  choice, only one usually nonzero per field) -- an early version of the
+  resolver matched only the first row per choice and silently dropped real
+  geoset/boneset values whenever they weren't on that row; caught because
+  real choice IDs pulled from a real `husk db2-export` sqlite dump reported
+  "0 matched" against the real `bloodelffemale_hd.m2` fixture until fixed.
+  Verified end to end against real local data throughout (not just
+  synthetic tests): resolved real choice 45 to `geoset_id: 2` and choices
+  1758/1759 to real matched `bone_correction_sets` FileDataIDs
+  1103216/1103217, inspected directly in the output `.glb`'s own JSON
+  chunk. 4 new CLI-tier tests (`tests/test_cli_chrcustomization.cpp`,
+  including a regression case for the one-to-many bug). Completions
+  regenerated (bash/zsh), `README.md`/`DESIGN.md` flag tables updated. Full
+  suite green, 632/632. Follow-up correction, prompted directly: an early
+  draft of `GEOSET_SELECTION_TODO.md`'s Blender-side section claimed
+  `selected_by_choice_ids` "may not need a consumer" since `.bone`
+  corrections aren't applied to the render -- wrong, since that "never
+  applied to the render" boundary is real for the `husk export` C++ binary
+  specifically (`DESIGN.md`'s Key design decisions) but does NOT bind
+  `tools/husk_blender_geoset_mask.py`, which already applies exported
+  extras to real Blender rendering for billboard alignment/texture-
+  transform animation/geoset switching -- corrected in the TODO file. The
+  real remaining blocker there is narrower: the `.bone` correction's own
+  application semantics (multiply order, local-vs-model space) were never
+  verified against real client behavior, only reverse-engineered as far as
+  "a small delta matrix" -- needs the same real side-by-side-against-the-
+  client treatment billboard alignment eventually got, not more code
+  reading. Nothing committed as of this bullet -- see next bullet for
+  whether that changed.
+- **Prior state**: Same session, continued -- `TODO/ANIMATED_TEXTURE_EFFECTS_TODO.md`'s
   §1 ("a framework for exporting short animated clips") closed too, prompted
   directly. `tools/corpus_scan_tasks/render_glb.py` now renders a real short
   looping animated WebP (not just one still frame) for any file with a real

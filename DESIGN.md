@@ -1076,9 +1076,10 @@ flag regardless of position."
 | `--lod` | *(none)* | `<n>` or `all`, only meaningful with `--skin auto` |
 | `--bones-dir` | *(none)* | directory of `<FileDataID>.bone` files, attached as inert extras |
 | `--phys` | *(none)* | external `.phys` path, or `none` — attached as inert extras (minimal anchor; full records via `dump-chunks`) |
-| `--db2-dir` | *(none)* | directory of real character-texture `.db2` files — combined with `--dbd-dir`/`--char-layout-id` to attach real placement geometry as inert extras (`src/chrmodel_db2.hpp`) |
+| `--db2-dir` | *(none)* | directory of real character `.db2` files — texture-layout tables for `--char-layout-id` (`src/chrmodel_db2.hpp`) or `ChrCustomizationElement`/`_Geoset`/`_BoneSet` for `--customization-choice-ids` (`src/chrcustomization_db2.hpp`), same directory serves both |
 | `--dbd-dir` | *(none)* | a local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) |
 | `--char-layout-id` | *(none)* | a real `CharComponentTextureLayoutsID` (see `husk db2-export`) — husk can't derive this on its own, so it must be given directly |
+| `--customization-choice-ids` | *(none)* | comma-separated real `ChrCustomizationChoiceID`(s) (`TODO/GEOSET_SELECTION_TODO.md`) — resolves each to a real geoset selection and/or marks a matching `--bones-dir` correction set as inert extras; husk can't enumerate these on its own either |
 
 Every flag is order-independent. The only positional-shaped things left are
 the two every CLI on every platform already trains a user to expect

@@ -84,8 +84,37 @@ struct Skeleton {
             std::array<float, 16> matrix{};
         };
         std::vector<Correction> corrections;
+        // Real ChrCustomizationChoiceID(s) whose ChrCustomizationBoneSet.
+        // BoneFileDataID resolves to this set's fileDataId (`husk export
+        // --customization-choice-ids`, src/chrcustomization_db2.hpp) --
+        // empty (the default) when no supplied choice ID selects this set,
+        // or the flag wasn't used at all. Still doesn't *apply* the
+        // correction to the bind pose/animation, same inert-extras
+        // treatment as the rest of this struct -- just marks which of
+        // several resolved sets a real customization choice actually
+        // picks, closing the "which BFID slot applies" half of
+        // TODO_correctness.md #2 that plain --bones-dir resolution alone
+        // can't answer.
+        std::vector<uint32_t> selectedByChoiceIds;
     };
     std::vector<CorrectionSet> correctionSets;
+
+    // Real geoset selections resolved from caller-supplied
+    // ChrCustomizationChoiceIDs (`husk export --customization-choice-ids`,
+    // src/chrcustomization_db2.hpp) -- inert glTF extras only, same
+    // treatment as CorrectionSet above: husk does not filter/hide any
+    // primitive based on this, it only attaches the real resolved data for
+    // a human/Blender script to act on. `geosetId` uses the same
+    // `group*100+variant` convention already used for a primitive's own
+    // `geoset_id`/`geoset_group`/`geoset_variant` extras (gltf_mesh.hpp),
+    // so a consumer can match this directly against those without any unit
+    // conversion. See TODO/GEOSET_SELECTION_TODO.md for the full DB2 chain
+    // this resolves.
+    struct EnabledGeoset {
+        uint32_t choiceId = 0;
+        uint32_t geosetId = 0;
+    };
+    std::vector<EnabledGeoset> enabledGeosets;
 
     // Minimal placement anchors for M2Ribbon/M2Particle emitters -- just
     // enough (id, attach joint, relative position) for a custom Blender

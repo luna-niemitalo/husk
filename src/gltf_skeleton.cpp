@@ -237,9 +237,24 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
                 corrections.push_back(tinygltf::Value(co));
             }
             setObj["corrections"] = tinygltf::Value(corrections);
+            if (!cs.selectedByChoiceIds.empty()) {
+                tinygltf::Value::Array choiceIds;
+                for (uint32_t id : cs.selectedByChoiceIds) choiceIds.push_back(tinygltf::Value(static_cast<int>(id)));
+                setObj["selected_by_choice_ids"] = tinygltf::Value(choiceIds);
+            }
             sets.push_back(tinygltf::Value(setObj));
         }
         skinExtras["bone_correction_sets"] = tinygltf::Value(sets);
+    }
+    if (!skeleton->enabledGeosets.empty()) {
+        tinygltf::Value::Array arr;
+        for (const auto& g : skeleton->enabledGeosets) {
+            tinygltf::Value::Object obj;
+            obj["choice_id"] = tinygltf::Value(static_cast<int>(g.choiceId));
+            obj["geoset_id"] = tinygltf::Value(static_cast<int>(g.geosetId));
+            arr.push_back(tinygltf::Value(obj));
+        }
+        skinExtras["enabled_geosets"] = tinygltf::Value(arr);
     }
     auto writeAnchors = [](const std::vector<Skeleton::EmitterAnchor>& anchors) {
         tinygltf::Value::Array arr;

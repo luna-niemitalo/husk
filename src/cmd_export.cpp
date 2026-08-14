@@ -7,6 +7,7 @@
 #include <iostream>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -14,6 +15,7 @@
 #include <CLI/CLI.hpp>
 
 #include "bone.hpp"
+#include "chrcustomization_db2.hpp"
 #include "chrmodel_db2.hpp"
 #include "chunk.hpp"
 #include "commands.hpp"
@@ -586,6 +588,82 @@ void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDi
     skeleton.charTextureLayout = std::move(layout);
 }
 
+// --db2-dir/--dbd-dir/--customization-choice-ids: resolves each real
+// ChrCustomizationChoiceID against src/chrcustomization_db2.hpp's DB2
+// chain (TODO/GEOSET_SELECTION_TODO.md), attaching real geoset selections
+// as skeleton.enabledGeosets extras and marking any already-resolved
+// --bones-dir CorrectionSet a choice's ChrCustomizationBoneSetID points at
+// (TODO_correctness.md #2). Must run after attachBoneCorrections, since it
+// only marks existing entries in skeleton.correctionSets rather than
+// attaching new '.bone' data itself -- a choice resolving to a
+// BoneFileDataID that was never in --bones-dir's own BFID-array scan (a
+// real, checkable inconsistency, not assumed impossible) is reported and
+// otherwise ignored, not fabricated.
+void attachCustomizationChoices(const std::string& db2Dir, const std::string& dbdDir,
+                                 const std::string& choiceIdsArg, gltf::Skeleton& skeleton) {
+    if (db2Dir.empty() && dbdDir.empty() && choiceIdsArg.empty()) return;  // feature simply unused
+    if (db2Dir.empty() || dbdDir.empty() || choiceIdsArg.empty()) {
+        std::cerr << "husk: note: --db2-dir/--dbd-dir/--customization-choice-ids must all be given "
+                     "together -- skipping customization-choice extras\n";
+        return;
+    }
+
+    std::vector<uint32_t> choiceIds;
+    std::stringstream ss(choiceIdsArg);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        try {
+            choiceIds.push_back(static_cast<uint32_t>(std::stoul(token)));
+        } catch (const std::exception&) {
+            std::cerr << "husk: note: --customization-choice-ids entry '" << token
+                      << "' isn't a non-negative integer -- skipping customization-choice extras\n";
+            return;
+        }
+    }
+    if (choiceIds.empty()) {
+        std::cerr << "husk: note: --customization-choice-ids resolved to no real IDs -- skipping\n";
+        return;
+    }
+
+    std::optional<chrcustomization::Data> data = chrcustomization::load(db2Dir, dbdDir, std::cerr);
+    if (!data) {
+        std::cerr << "husk: note: no customization-choice DB2 data resolved from '" << db2Dir
+                  << "' -- skipping\n";
+        return;
+    }
+
+    size_t geosetsResolved = 0;
+    size_t boneSetsMatched = 0;
+    for (uint32_t choiceId : choiceIds) {
+        chrcustomization::Resolution resolution = chrcustomization::resolveChoice(*data, choiceId, std::cerr);
+        if (resolution.geosetId) {
+            skeleton.enabledGeosets.push_back({choiceId, *resolution.geosetId});
+            ++geosetsResolved;
+        }
+        if (resolution.boneFileDataId) {
+            bool matched = false;
+            for (auto& cs : skeleton.correctionSets) {
+                if (cs.fileDataId == *resolution.boneFileDataId) {
+                    cs.selectedByChoiceIds.push_back(choiceId);
+                    matched = true;
+                    break;
+                }
+            }
+            if (matched) {
+                ++boneSetsMatched;
+            } else {
+                std::cerr << "husk: note: ChrCustomizationChoiceID " << choiceId
+                          << " resolves to BoneFileDataID " << *resolution.boneFileDataId
+                          << ", but that FileDataID wasn't among this model's own resolved "
+                             "--bones-dir correction sets -- not marked\n";
+            }
+        }
+    }
+    std::cerr << "husk: note: resolved " << choiceIds.size() << " customization choice ID(s): "
+              << geosetsResolved << " real geoset selection(s), " << boneSetsMatched
+              << " matched bone-correction-set selection(s)\n";
+}
+
 // One NamedMesh per LOD tier: each resolves its own .skin file's
 // triangle-index lookup/submeshes/batches (see src/skin.hpp) into its own
 // primitives/materials, but reuses `baseMesh`'s shared positions/normals/
@@ -976,21 +1054,32 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                  "the full body/shape/joint record set is also always available via "
                  "'husk dump-chunks'");
     app.add_option("--db2-dir", opts.db2DirArg,
-                    "directory of real, already-extracted character-texture DB2 files "
+                    "directory of real, already-extracted character DB2 files "
                     "(chrmodelmaterial.db2/charcomponenttexturesections.db2/"
-                    "chrmodeltexturelayer.db2/charcomponenttexturelayouts.db2, real lowercase "
-                    "casc-tool filenames) -- combined with --dbd-dir and --char-layout-id to "
-                    "attach real texture-layout placement geometry as inert glTF extras; unset "
-                    "(default) skips this feature entirely, same as every other opt-in sidecar");
+                    "chrmodeltexturelayer.db2/charcomponenttexturelayouts.db2 for --char-layout-id; "
+                    "chrcustomizationelement.db2/chrcustomizationgeoset.db2/"
+                    "chrcustomizationboneset.db2 for --customization-choice-ids -- real lowercase "
+                    "casc-tool filenames, same directory serves both) -- combined with --dbd-dir "
+                    "and one of --char-layout-id/--customization-choice-ids to attach real DB2 "
+                    "extras; unset (default) skips these features entirely, same as every other "
+                    "opt-in sidecar");
     app.add_option("--dbd-dir", opts.dbdDirArg,
                     "a local WoWDBDefs checkout (github.com/wowdev/WoWDBDefs), used to resolve "
                     "--db2-dir's real column names -- required alongside --db2-dir/"
-                    "--char-layout-id, same role as `husk db2-export`'s own --dbd-dir");
+                    "--char-layout-id or --db2-dir/--customization-choice-ids, same role as "
+                    "`husk db2-export`'s own --dbd-dir");
     app.add_option("--char-layout-id", opts.charLayoutIdArg,
                     "a real CharComponentTextureLayoutsID (see `husk db2-export`) to filter "
                     "--db2-dir's data down to -- husk has no way to derive which layout ID "
                     "applies to a given .m2 model on its own, so this must be supplied directly; "
                     "requires --db2-dir/--dbd-dir too");
+    app.add_option("--customization-choice-ids", opts.customizationChoiceIdsArg,
+                    "comma-separated real ChrCustomizationChoiceID(s) (see TODO/"
+                    "GEOSET_SELECTION_TODO.md) to resolve against --db2-dir -- attaches each "
+                    "choice's real geoset selection as 'enabled_geosets' skin extras, and marks "
+                    "any matching --bones-dir correction set with 'selected_by_choice_ids'; "
+                    "requires --db2-dir/--dbd-dir too, doesn't filter/apply anything itself, same "
+                    "inert-extras treatment as --char-layout-id");
     app.add_option("--listfile", opts.listfileArg,
                     "a local community-listfile.csv-style snapshot (FileDataID;path per line, "
                     "github.com/wowdev/wow-listfile) -- last-resort fallback when a "
@@ -1155,6 +1244,8 @@ int exportGlb(int argc, char** args) {
     std::string db2Dir = app.count("--db2-dir") ? opts.db2DirArg : "";
     std::string dbdDirForChr = app.count("--dbd-dir") ? opts.dbdDirArg : "";
     std::string charLayoutIdArg = app.count("--char-layout-id") ? opts.charLayoutIdArg : "";
+    std::string customizationChoiceIdsArg =
+        app.count("--customization-choice-ids") ? opts.customizationChoiceIdsArg : "";
 
     try {
         auto modelBytes = readFileBytes(modelPath);
@@ -1207,6 +1298,10 @@ int exportGlb(int argc, char** args) {
             attachPlacementNodes(blob, header, header.sequences.count, skeleton);
             attachPhysicsBodies(physNone, physGiven, physPath, modelPath, skeleton);
             attachCharTextureLayout(db2Dir, dbdDirForChr, charLayoutIdArg, skeleton);
+            // Must run after attachBoneCorrections just above -- it only
+            // marks/extends already-resolved correction sets, never
+            // attaches new '.bone' data of its own.
+            attachCustomizationChoices(db2Dir, dbdDirForChr, customizationChoiceIdsArg, skeleton);
             // Needs skeleton.attachments/events already populated (just
             // above), so it can't run inside buildSkeleton itself.
             applyContextualBoneNames(skeleton);
