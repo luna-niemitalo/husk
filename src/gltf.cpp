@@ -19,6 +19,25 @@
 // from function signatures. Only document-level bookkeeping with no
 // natural type-file home (buffer/model setup, node/scene assembly, the
 // final tinygltf write) stays here.
+//
+// A zero-image export (real, common -- husk::m2::Texture slots with no
+// local candidate file at all) omits the "images" key entirely, per
+// tinygltf's own WriteGltfSceneToStream (gates on model->images.size()).
+// This is the ONLY spec-valid shape: the glTF 2.0 schema requires
+// "images" to have minItems:1 *when present* -- confirmed directly via
+// gltf_validator, which reports "/images: Entity cannot be empty" for an
+// explicit `"images":[]`. A real self-built Blender dev branch (glTF
+// importer, io_scene_gltf2/blender/imp/blender_gltf.py:
+// `len(gltf.data.images)` with no None-guard) crashes on the *correct*,
+// spec-valid absent-key case with `TypeError: object of type 'NoneType'
+// has no len()` -- a real upstream Blender bug (missing null-check on an
+// always-optional glTF property), not fixable from husk's side without
+// producing an invalid file that gltf_validator itself rejects (this
+// project's own conformance suite, tests/test_conformance.cpp, gates on
+// zero gltf_validator errors for every real export). The project's own
+// pinned flake Blender (5.1.1) handles the absent-key case correctly, as
+// does gltf_validator and every other consumer checked -- if this shows
+// up again, it's that specific Blender build/version, not husk's output.
 namespace husk::gltf {
 
 std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const Skeleton* skeleton,
