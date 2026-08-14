@@ -290,6 +290,58 @@ Emission shading post-import; verified against real fixtures.
   through to plain alpha-`BLEND`, a plausible wrong answer (could read as
   either wrongly-transparent or wrongly-opaque depending on the base
   texture's luminance) for whatever real material uses them.
+
+  **Checked directly this session (2026-08-14) whether this is a
+  mechanical node-recipe port like additive was — it isn't.** Queried the
+  project's own pinned Blender (5.1.1, EEVEE Next) directly:
+  `Material.surface_render_method` only has `DITHERED`/`BLENDED`, and
+  `Material.blend_method` only has `OPAQUE`/`CLIP`/`HASHED`/`BLEND` — no
+  `MULTIPLY` option anywhere, confirming the framing already noted
+  elsewhere in this project's history. The deeper reason additive *was*
+  portable and multiply isn't: additive compositing (`dest + src*alpha`)
+  is expressible as a pure shader-graph output (`Transparent BSDF` + `Add
+  Shader` + `Emission`, what `fix_additive_materials` already builds) —
+  the shader only ever needs to *contribute* light, never read what's
+  already in the framebuffer. True multiplicative compositing (`dest *
+  src`) needs the opposite: the shader has to read the destination color
+  to multiply against it, and neither Cycles nor EEVEE Next expose a
+  framebuffer-read node to material shader graphs (that capability exists
+  only in the Compositor, which runs post-render, too late to affect how
+  this object blends with geometry behind it in the same frame). This
+  isn't a missing dropdown option to route around — it's the same
+  no-framebuffer-read constraint deferred-vs-forward renderers generally
+  have; genuinely blocked without a design call, not "haven't gotten to
+  it yet."
+
+  **Real options for whoever makes that call** (not attempted blind, no
+  demonstrated real-corpus repro driving a choice yet either):
+  1. **Approximate, don't reconstruct.** For a same-material second layer
+     (WoW's own common Mod/Mod2x use — a detail/dirt/tint pass multiplying
+     the base layer, not the background), a `Mix Shader`/`Multiply`
+     `Vector Math` node *within this material's own node tree* (base
+     layer's color × overlay layer's color, both already available as
+     husk's own `additional_texture_layers` extras) reproduces real
+     same-material multiply exactly, no framebuffer read needed — this is
+     the multi-texture-layer case `MULTI_TEXTURE_LAYER_TODO.md` step 4
+     already plans to build node recipes for anyway, and would likely
+     absorb most real Mod/Mod2x cases without needing anything new here.
+  2. **Cross-geometry multiply (this material vs. whatever's drawn behind
+     it) has no honest Blender-native answer without extra machinery** —
+     Screen Space Refraction (`Transmission` + IOR≈1, EEVEE Next samples
+     the already-rendered scene through a BSDF) is the closest built-in
+     approximation, but it's a refraction sample, not an exact multiply,
+     and comes with real caveats (order-dependent, needs raytracing/SSR
+     enabled, doesn't work correctly through multiple overlapping
+     multiply-blended layers stacked deep).
+  3. Leave 5/6 falling through to plain alpha-`BLEND` (today's behavior)
+     until a real corpus repro exists to test option 1/2 against —
+     consistent with this project's own standing discipline of not
+     building unverified renderer behavior against a hypothetical case.
+
+  **Not implemented this session** — flagged with the concrete
+  constraint and options rather than guessed at, since Luna's own prior
+  framing already called this a design decision, not an investigation
+  gap, and querying Blender's real API directly confirms that reading.
 **Unverified, not confirmed broken**: `apply_tint_fade_animation`
 (`tools/husk_blender_geoset_mask.py`) — structurally sound, doesn't crash
 against real fixtures with genuine tint/fade data, but explicitly not
@@ -390,9 +442,13 @@ listed here so they aren't lost:
    actual resolved-texture-darkness checking rather than a particle-count
    proxy, then spot-check the remaining ~62 before assuming any of them
    are fresh bugs.
-2. **Mod/Mod2x (§3)** — needs a real multiply-blend shader shape in
-   `render_glb.py` (no `Add Shader` equivalent for multiply), no
-   demonstrated real-corpus repro driving it yet.
+2. **Mod/Mod2x (§3)** — confirmed 2026-08-14 this needs a real design call,
+   not just a node-recipe port: Blender 5.1.1's EEVEE Next has no
+   framebuffer-read primitive in material shader graphs, so true
+   cross-geometry multiply compositing has no honest native
+   implementation (see §3 for the real options and why additive's
+   `Add Shader` trick doesn't generalize). No demonstrated real-corpus
+   repro driving a choice between those options yet either.
 3. **Billboard ground-truth pass (§4)** — needs Luna's own real-client
    comparison, same as the earlier billboard/geoset-mask verification
    pattern in this project's history; not something to chase blind in

@@ -182,12 +182,44 @@ already gives every `reference/` source in this project (`wow.export`,
 
 ## Concrete next steps (in rough order of expected payoff)
 
-1. **Find real corpus files that actually exercise one of the 17
-   undocumented shaders.** Now directly answerable: run
-   `husk::m2::resolveShaderNames` (or a small corpus-scan task built the
-   same way `shader_id_task.py` was) against real `.skin` files and
-   filter for a resolved `pixel_shader` matching one of the 17 names
-   above. Cheap, no guessing needed.
+1. ~~Find real corpus files that actually exercise one of the 17
+   undocumented shaders~~ — **done 2026-08-14**:
+   `tools/corpus_scan_tasks/shader_names_task.py` (new, transcribes
+   `husk::m2::resolveShaderNames` into Python, same pattern
+   `shader_id_task.py` already established) run against the full local
+   corpus (287,005 `.skin` files). Real, concrete results — **14 of the 17
+   undocumented shaders have at least one real corpus repro**, several
+   with thousands:
+
+   | Shader | Files | Example |
+   |---|---|---|
+   | `Combiners_Opaque_Mod2xNA_Alpha_Add` | 15,775 | `character/companionnetherwingdrake/companionnetherwingdrake00.skin` |
+   | `Combiners_Opaque_Alpha` | 1,643 | `character/mechagnome/male/mechagnomemale00.skin` |
+   | `Combiners_Opaque_AddAlpha_Wgt` | 1,617 | `character/darkirondwarf/female/darkirondwarffemale00.skin` |
+   | `Combiners_Mod_Depth` | 1,400 | `creature/airspiritsmall/airspiritsmall00.skin` |
+   | `Combiners_Opaque_ModNA_Alpha` | 1,175 | `creature/amanitrollcastermale/amanitrollcastermale00.skin` |
+   | `Combiners_Mod_Add_Alpha` | 906 | `creature/arakkoagolem/arakkoagolem00.skin` |
+   | `Guild_Opaque` | 629 | `character/dwarf/female/dwarffemale_hd_sdr_lod01.skin` |
+   | `Combiners_Mod_AddAlpha_Wgt` | 515 | `creature/airspiritsmall/airspiritsmall00.skin` |
+   | `Combiners_Mod_Dual_Crossfade` | 149 | `creature/faeriedragon/faeriedragon02.skin` |
+   | `Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha` | 106 | `creature/darkirondwarfcorehound/darkirondwarfcorehound00.skin` |
+   | `Combiners_Mod_Masked_Dual_Crossfade` | 98 | `environments/stars/10gsl_sky0100.skin` |
+   | `Combiners_Opaque_Mod2xNA_Alpha_3s` | 42 | `creature/felorcboss/felorcwarriorboss00.skin` |
+   | `Guild` | 23 | `item/objectcomponents/weapon/misc_1h_guildflag_alliance_a_0100.skin` |
+   | `Combiners_Opaque_Mod_Add_Wgt` | 1 | `world/expansion03/doodads/uldum/mirrors/uldum_mirror_sun_0100.skin` |
+
+   **3 of the 17 never resolved in this corpus**: `Combiners_Opaque_
+   Mod2xNA_Alpha_Alpha`, `Guild_NoBorder`, `Illum` — either genuinely rare/
+   version-gated content not present in this local extraction, or (for
+   `Guild`/`Guild_NoBorder`/`Guild_Opaque` specifically) plausibly gated on
+   a live guild-tabard customization the base corpus export wouldn't
+   capture (`Guild_Opaque` did resolve, so the table-lookup path itself is
+   reachable — `Guild_NoBorder` just didn't happen to appear). Paths are
+   relative to `/media/luna/data/wow_export`; full per-file data in
+   `shader_names_corpus.csv` (gitignored, regenerate with the command
+   below). Overall: 47,058 / 1,075,970 batches (4.37%) resolve to one of
+   the 17 undocumented shaders — a real, non-trivial slice of the corpus,
+   not a rounding error.
 2. **Cross-check the factor-of-2 discrepancy above concretely**: find (or
    build) a real, minimal test case for `Combiners_Opaque_Mod2xNA_Alpha`
    specifically (a real file that resolves to it, per step 1's method)

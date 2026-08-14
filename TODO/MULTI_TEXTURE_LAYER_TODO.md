@@ -228,18 +228,19 @@ shader — e.g. row 0 is `VS_Diffuse_T1_Env`) or via the low-15-bit formula
 path (`shader_id & 0x80` for single-op, a similar bit for multi-op —
 see `M2GetVertexShaderID` on the same wiki page).
 
-**This means the real env-map frequency is very likely much higher than
-"3 files"** — the `0x8000` table-lookup path alone was already measured
-at 40.2% of real batches this session, and several of its 30 real rows
-route to an `_Env` vertex shader. **Not yet measured directly** — the
-scan this session only recorded `shader_id`/`textureCount`, not the fully
-resolved shader *name*, so the real env-map rate is still an open,
-concrete follow-up question (Implementation plan step 0, new). The old
-Luna Note below (env-mapping now reacts to real scene lighting in modern
-retail, not just a static baked lookup) still stands as the open design
-question for *how* to render it once frequency is known — just flagging
-that "rare, low priority" is very likely no longer the right framing once
-that number comes back.
+**Measured directly now (2026-08-14, `tools/corpus_scan_tasks/
+shader_names_task.py`, full local corpus, 287,005 `.skin` files, 283,155
+with a parseable batch array, 1,075,970 total batches)**: **444,680 /
+1,075,970 batches (41.33%) resolve to an `_Env`-bearing vertex shader** —
+confirms the "very likely much higher than 3 files" prediction, by a wide
+margin. This is a real corpus-wide majority-minority case, not an edge
+case — the env-map node recipe below is now confirmed high-priority, not
+speculative. (Same scan also gives real per-file numbers for
+`PIXEL_SHADER_FORMULAS_TODO.md` step 1, see that file.) The old Luna Note
+below (env-mapping now reacts to real scene lighting in modern retail, not
+just a static baked lookup) still stands as the open design question for
+*how* to render it, now with a confirmed-high-frequency number driving
+priority.
 
 ### Luna Note (kept, still accurate as a design note):
 > It looks "shiny" but is baked, angle-dependent in a specific fixed way, and has no relationship to actual scene lighting.
@@ -263,9 +264,10 @@ The exact sphere-mapping formula is also on `M2/.skin.wiki` itself
 normPos - normal * 2.0*dot(normPos, normal); temp.z += 1.0; texCoord =
 normalize(temp).xy * 0.5 + 0.5` (vertex/normal in camera space) — matches
 the node recipe above, real client formula, not reconstructed by
-inference. **Not started** — priority now genuinely unknown pending the
-real frequency measurement above (was "lower priority" under the old,
-wrong 3/130,576 number; do not keep deferring this on stale evidence).
+inference. **Not started (node recipe itself, step 4 below)** — priority
+is now confirmed high: 41.33% of real corpus batches resolve to an
+`_Env`-bearing vertex shader (measured above), not the "rare, low
+priority" the old 3/130,576 number implied.
 
 ## Current husk state (what's already exported vs. what's missing)
 
@@ -302,13 +304,16 @@ wrong 3/130,576 number; do not keep deferring this on stale evidence).
 
 ## Implementation plan (revised this session, nothing implemented yet)
 
-0. **New, first**: extend this session's corpus scan (or redo it small-
-   scope) to resolve full `shader_id`/`op_count` → `{pixel, vertex}` shader
-   *names* (both the table-lookup and formula paths), and tally how many
-   real batches resolve to an `_Env`-bearing vertex shader. This answers
-   the open env-map-frequency question above with real numbers instead of
-   the stale 3/130,576 figure, and should happen before committing to the
-   env-map recipe's priority either way.
+0. ~~extend this session's corpus scan (or redo it small-scope) to resolve
+   full `shader_id`/`op_count` → `{pixel, vertex}` shader *names* (both the
+   table-lookup and formula paths), and tally how many real batches
+   resolve to an `_Env`-bearing vertex shader~~ — **done 2026-08-14**:
+   `tools/corpus_scan_tasks/shader_names_task.py` (new, transcribes
+   `husk::m2::resolveShaderNames` into Python, same pattern
+   `shader_id_task.py` already established), run against the full local
+   corpus. Result: 41.33% of real batches resolve to an `_Env`-bearing
+   vertex shader (see the env-map section above) — the recipe below is
+   now confirmed high-priority, not deferred pending a frequency number.
 1. ~~Husk-side (small): add a `shader_id` field to `skin.hpp`'s `Batch`
    struct, read it in `src/skin.cpp`'s `parseBatches`~~ — **done this
    session**: `skin::Batch::shaderId` (offset 0x02, u16), covered by a new

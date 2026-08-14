@@ -14,6 +14,42 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-14, new session, two corpus-scan follow-ups + one design-blocker investigation
+(user-directed: "implement the first 3" of a ranked TODO impact list)**:
+Ranked `TODO/`'s open independent items by impact, then implemented the top
+three. (1) `MULTI_TEXTURE_LAYER_TODO.md` step 0 and (2)
+`PIXEL_SHADER_FORMULAS_TODO.md` step 1 turned out answerable by one new
+corpus-scan task, `tools/corpus_scan_tasks/shader_names_task.py` — ports
+`husk::m2::resolveShaderNames` (src/m2_shader_names.cpp) into Python (same
+pattern `shader_id_task.py` already established), run against the full
+local corpus (287,005 `.skin` files). Real results: env-map frequency
+(`_Env`-bearing vertex shaders) is **41.33%** of real batches, not the
+stale "3 files" figure that used to justify deferring the env-map node
+recipe — now confirmed high-priority. Separately, **14 of the 17
+wowdev.wiki-undocumented `Combiners_*` pixel shaders have real corpus
+repros** (some with 15,000+ files), 3 never resolved in this corpus
+(`Combiners_Opaque_Mod2xNA_Alpha_Alpha`, `Guild_NoBorder`, `Illum`). Both
+TODO files and `TODO/README.md`'s index updated with the real numbers and
+example file paths; no husk source changed (pure investigation/tooling).
+(3) `RENDER_QUALITY_TODO.md`'s Mod/Mod2x (multiply) blend modes — queried
+the project's own pinned Blender (5.1.1) directly rather than
+implementing blind: confirmed `Material.surface_render_method`/
+`blend_method` have no `MULTIPLY` option, and more fundamentally neither
+Cycles nor EEVEE Next expose a framebuffer-read node to material shader
+graphs at all, so true cross-geometry multiply compositing (unlike
+additive, which only needs to *contribute* light via `Add Shader`) has no
+honest node-graph implementation — a real, verified constraint, not a
+missing dropdown. Documented three concrete options in
+`RENDER_QUALITY_TODO.md` §3 (same-material multiply via
+`MULTI_TEXTURE_LAYER_TODO.md`'s own planned node-recipe work, Screen Space
+Refraction as an approximate fallback, or leaving 5/6 as plain alpha-BLEND
+until a real corpus repro exists) rather than guessing at an
+implementation — matches this project's own prior flag that this needs
+Luna's design call, not more investigation. Full suite untouched (no
+source changes this session).
+
+---
+
 **2026-08-14, new session, independent staging commits + a documentation-discipline pass**:
 Nine independent `[UNVERIFIED/STAGING]` commits, each investigate-then-
 commit, matching the "keep going through independent well-scoped TODO

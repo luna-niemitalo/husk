@@ -171,81 +171,44 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: New session. A run of independent, well-scoped
-  `[UNVERIFIED/STAGING]` commits (9 total, see git log — not duplicated
-  here) plus a documentation-discipline pass. Real fixes/investigations:
-  closed `ENGINE_TODO.md` #2 (`aliasNext`/animation names — the local
-  `animationdata.db2`'s real layout dropped the `Name` column around
-  7.3.5, confirmed unfulfillable, not a gap); set the real WoW alpha-test
-  threshold (`128/255`) explicitly on every `MASK`-mode material
-  (`gltf_mesh.cpp`) instead of relying on its coincidental match with
-  glTF's implicit `0.5`; spot-checked 6 of `RENDER_QUALITY_TODO.md`'s 68
-  "unexplained" blank renders and found 0 husk bugs (5 correctly-blank-
-  by-design, 1 a real `--listfile` fix revealing an already-understood
-  giant-doodad framing limit); fixed a stale `m2_header.hpp` doc comment
-  claiming `.phys` "isn't parsed yet" (false — `--phys` has shipped for
-  several sessions); added `tools/husk_blender_geoset_mask.py`'s
-  `apply_emitter_markers` — a placement marker (not a simulation) at
-  every real `ribbon_emitters`/`particle_emitters` anchor, closing the
-  "100% invisible" gap those effects had, hidden from render/viewport by
-  default in a dedicated collection per direct follow-up request;
-  investigated (then reverted) a fix for a real Blender-build-specific
-  import crash on zero-image exports — the only spec-valid shape
-  (`gltf_validator` itself rejects the `"images":[]` workaround); checked
-  both named "switches per face" texture repros directly and found the
-  hypothesis doesn't reproduce; split `export_materials.cpp` (1,344
-  lines, largest in `src/`) into `export_texture_resolution.hpp/.cpp`
-  (texture-candidate resolution + curve resolvers) and
-  `export_materials.cpp` (695 lines, just `buildMaterialsAndPrimitives`),
-  pure mechanical extraction verified byte-identical. Full suite green
-  throughout, 634/634. **Documentation-discipline pass, prompted
-  directly** (a fair correction — TODO files should have been kept
-  trimmed as each item closed, not left to balloon into history
-  documents needing one big sweep): `RENDER_QUALITY_TODO.md` cut from
-  791 to ~330 lines (removed 2 fully-fixed sections outright — rotation-
-  shear hemisphere-continuity + geoset-tag-deform fixes, and the V-scroll
-  direction fix — whose real design rationale already lives in
-  `gltf_math.hpp`/`husk_blender_geoset_mask.py`'s own code comments, not
-  duplicated here); `TODO_correctness.md` cut from 238 to ~45 lines
-  (dropped a "Former item N is now resolved" narrative preamble that
-  described five already-deleted items); `ANIMATED_TEXTURE_EFFECTS_TODO.md`
-  cut from 319 to ~26 lines (two "— DONE" sections removed outright,
-  their design rationale already in `render_glb.py`/
-  `husk_blender_geoset_mask.py`'s own module docstrings). Fixed ~10
-  dangling cross-file citations the `export_texture_resolution.cpp` split
-  and these TODO trims left behind (`DESIGN.md`, `README.md`,
-  `M2_COMPLETENESS.md`, several `TODO/*.md`, `src/gltf_math.hpp`,
-  `tools/husk_blender_geoset_mask.py`). Added a real `README.md` line for
-  the alpha-cutoff fix (materials section). Did **not** attempt
-  `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (needs its own design pass —
-  fuzzy matching, ambiguity policy, a new Rigify dependency) or Mod/Mod2x
-  multiply blending (Blender 5.x's EEVEE Next has no native multiply
-  blend mode, needs a design call) — both flagged rather than attempted
-  blind. **Not done this session, flagged not fixed**: this Resume
-  section itself had the identical "history document, not a living
-  snapshot" problem — ~1,300 lines of accumulated "Prior state" entries,
-  when this section's own header says it should be a snapshot with the
-  full narrative in `CLAUDE_HISTORY.md` instead. **Closed the same
-  session, immediately after, per direct follow-up request**: that whole
-  chain migrated verbatim into `CLAUDE_HISTORY.md` (prepended as one
-  clearly-labeled block, right after this session's own entry there —
-  see that file for the full narrative), not rewritten/deduplicated
-  against entries elsewhere in that file that may cover the same
-  sessions in different words, to avoid losing real content in a large
-  fragile hand-merge. This section itself trimmed down to just the
-  current snapshot below.
+- **Current state**: New session, three independent TODO items implemented
+  (ranked by impact first, per direct request). One new corpus-scan task,
+  `tools/corpus_scan_tasks/shader_names_task.py` (ports `husk::m2::
+  resolveShaderNames` into Python), answered both `MULTI_TEXTURE_LAYER_
+  TODO.md` step 0 and `PIXEL_SHADER_FORMULAS_TODO.md` step 1 in one run
+  against the full local corpus (287,005 `.skin` files): env-map
+  (`_Env`-bearing vertex shader) frequency is **41.33%** of real batches
+  (was assumed rare at "3 files"), and **14/17** wowdev.wiki-undocumented
+  `Combiners_*` pixel shaders have real corpus repros (some with 15,000+
+  files) — both TODO files and `TODO/README.md` updated with the real
+  numbers, no husk source touched. Third item, `RENDER_QUALITY_TODO.md`'s
+  Mod/Mod2x blend modes, turned out genuinely blocked on a design call,
+  confirmed by directly querying the pinned Blender (5.1.1): neither
+  Cycles nor EEVEE Next expose a framebuffer-read node to material shader
+  graphs, so true multiply compositing (unlike additive) has no honest
+  node-graph implementation — documented three concrete options in
+  `RENDER_QUALITY_TODO.md` §3 rather than guessing at one. Full narrative:
+  `CLAUDE_HISTORY.md`'s top entry (prior session's own staging-commits +
+  doc-discipline-pass entry is the one right below it there).
 - **Next step**: No hard blocker. Independent, well-scoped work still
-  open: `RENDER_QUALITY_TODO.md`'s ambiguous-pool tiebreak/blank-render
-  follow-ups (both re-scoped down this session, see that file), the
-  dangling-internal-reference corpus scan (`CLEANUP_TODO.md` #2, not yet
-  designed as a `ScanTask`), or the rest of `CLEANUP_TODO.md` #1's
-  comment-hygiene sweep (only 7 files audited so far, out of all of
-  `src/`). Two items explicitly need a design pass before touching code,
-  not more investigation: `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (fuzzy
+  open: `MULTI_TEXTURE_LAYER_TODO.md` step 4/5 (Blender-side node recipes,
+  now backed by real per-file repro data for both env-mapping and several
+  of the 17 previously-undocumented pixel shaders), `RENDER_QUALITY_TODO.md`'s
+  ambiguous-pool tiebreak/blank-render follow-ups, the dangling-internal-
+  reference corpus scan (`CLEANUP_TODO.md` #2, not yet designed as a
+  `ScanTask`), or the rest of `CLEANUP_TODO.md` #1's comment-hygiene sweep
+  (only 7 files audited so far, out of all of `src/`). Three items
+  explicitly need a design pass before touching code, not more
+  investigation: `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (fuzzy
   reference-skeleton matching, an ambiguity policy, a new Rigify
-  dependency) and Mod/Mod2x multiply blending (Blender 5.x's EEVEE Next
-  has no native multiply blend mode left, no real-corpus repro driving it
-  yet either) — flag these to Luna rather than guessing at the shape.
+  dependency), Mod/Mod2x multiply blending (confirmed this session:
+  no framebuffer-read primitive in Blender's material shader graphs at
+  all, three options documented in `RENDER_QUALITY_TODO.md` §3, no
+  real-corpus repro driving a choice between them yet), and
+  `PIXEL_SHADER_FORMULAS_TODO.md` step 2 (verifying the wow.export-derived
+  formulas against real rendered output — now has 14 real repro files to
+  pick from, still needs Luna's own visual comparison) — flag these to
+  Luna rather than guessing at the shape.
 - **Hazards**: `export_texture_resolution.hpp`/`.cpp` (new, split out of
   `export_materials.cpp` this session) now owns every texture-candidate-
   resolution helper (`readTextureFileBytes`/`resolveTextureBytes`/

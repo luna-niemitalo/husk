@@ -13,9 +13,9 @@ work, corpus scans, well-scoped implementation, investigation).
 
 | File | Scope | Status | Gate |
 |---|---|---|---|
-| `MULTI_TEXTURE_LAYER_TODO.md` | Multi-texture-layer (`textureCount > 1`) combiner rendering — **the single biggest visual-fidelity lever left** (~79% of the real `.skin` corpus) | `shader_id` parsing/resolution done; Blender-side formula rendering and env-map-frequency measurement (step 0) still open | Independent (step 0 is a corpus scan; step 4/5 Blender rendering is implementation, not client comparison) |
-| `PIXEL_SHADER_FORMULAS_TODO.md` | Filling wowdev.wiki's 17 undocumented `Combiners_*` formulas | A promising but unverified lead found (`reference/wow.export`'s shader); step 1 (find real corpus repros) is open and easy | Step 1: independent. Step 2 (verify against real rendered output): human-gated |
-| `RENDER_QUALITY_TODO.md` | Corpus-review render-quality findings (rotation, textures, alpha, billboards) | Rotation shear + V-scroll direction + `alphaCutoff` fixed (2026-08-14); 68 "unexplained" blank renders downgraded 2026-08-14 (6 spot-checked, 0 real bugs found); Mod/Mod2x blend modes, billboard ground-truth, ambiguous-pool tiebreak still open | Mixed — Mod/Mod2x is independent; billboard ground-truth is human-gated |
+| `MULTI_TEXTURE_LAYER_TODO.md` | Multi-texture-layer (`textureCount > 1`) combiner rendering — **the single biggest visual-fidelity lever left** (~79% of the real `.skin` corpus) | `shader_id` parsing/resolution done; step 0 (env-map-frequency measurement) done 2026-08-14 — 41.33% of real batches are `_Env`-bearing, confirmed high-priority; Blender-side formula rendering (step 4/5) still open | Independent (step 4/5 Blender rendering is implementation, not client comparison) |
+| `PIXEL_SHADER_FORMULAS_TODO.md` | Filling wowdev.wiki's 17 undocumented `Combiners_*` formulas | A promising but unverified lead found (`reference/wow.export`'s shader); step 1 (find real corpus repros) done 2026-08-14 — 14/17 have real repros, some with thousands of files | Step 2 (verify against real rendered output): human-gated |
+| `RENDER_QUALITY_TODO.md` | Corpus-review render-quality findings (rotation, textures, alpha, billboards) | Rotation shear + V-scroll direction + `alphaCutoff` fixed (2026-08-14); 68 "unexplained" blank renders downgraded 2026-08-14 (6 spot-checked, 0 real bugs found); Mod/Mod2x confirmed 2026-08-14 to need a real design call (EEVEE Next has no framebuffer-read primitive, see §3), not a mechanical port; billboard ground-truth, ambiguous-pool tiebreak still open | Mixed — Mod/Mod2x needs Luna's design call among §3's options; billboard ground-truth is human-gated |
 | `CHAR_TEXTURE_COMPOSITING_TODO.md` | Full DB2-driven character texture compositing (base/overlay skin layers) | Stages 1-2 done (WDC5 parsing, real placement geometry via `--char-layout-id`); Stage 3 (choice chain) blocked on 0-byte local `ChrCustomizationOption`/`_Choice`; Stages 4-5 (pixel compositing, Blender picker) not started | Independent, but Stage 3 is genuinely blocked on a `casc-tool` re-extraction, not something to work around |
 | `BONE_CORRECTION_APPLICATION_TODO.md` | Applying `.bone` correction matrices in Blender, now that selection is resolved | Selection done (2026-08-14); application semantics (multiply order, space) never verified against real client behavior | **Human-gated** — needs a real side-by-side comparison, same as billboard alignment did |
 | `ENGINE_TODO.md` | External-data gaps, and which are actually husk's to close (renumbered 2026-08-14 after former items 1/2 resolved+removed) | #1 hardcoded texture resolution (biggest remaining item, tracked in `CHAR_TEXTURE_COMPOSITING_TODO.md`); #2 `aliasNext` names checked and closed 2026-08-14 (local DB2 schema dropped `Name` around 7.3.5, unrecoverable); #3 `blendTimeOperation` (no data, needs a heuristic); #4 sound linking (unconfirmed); #5 LOD thresholds (a design decision, not a gap) | #4: independent investigation. #3: independent (author a heuristic). #5: a decision, not a task |
@@ -31,12 +31,19 @@ Roughly matching the priority discussion in `CLAUDE_HISTORY.md`'s most
 recent entries — highest visual-fidelity payoff per unit of (unsupervised)
 effort first:
 
-1. `PIXEL_SHADER_FORMULAS_TODO.md` step 1 / `MULTI_TEXTURE_LAYER_TODO.md`
-   step 0 — both are small, well-defined corpus scans that unblock a
-   priority call or a human-verification step later, without being one
-   themselves.
+1. ~~`PIXEL_SHADER_FORMULAS_TODO.md` step 1 / `MULTI_TEXTURE_LAYER_TODO.md`
+   step 0~~ — **both done 2026-08-14**, one scan
+   (`tools/corpus_scan_tasks/shader_names_task.py`) answered both: env-map
+   frequency is 41.33% of real batches (was assumed rare), and 14/17
+   undocumented pixel shaders have real corpus repros. Next real payoff in
+   each file is now implementation (`MULTI_TEXTURE_LAYER_TODO.md` step 4/5)
+   or human-gated verification (`PIXEL_SHADER_FORMULAS_TODO.md` step 2).
 2. `RENDER_QUALITY_TODO.md`'s Mod/Mod2x blend modes — same shape as the
-   already-shipped additive-blend fix.
+   already-shipped additive-blend fix, **but see that file's own §3**:
+   Blender 5.x's EEVEE Next dropped the native "Multiply" material blend
+   mode entirely, so this isn't quite as mechanical as additive was — a
+   real design call on how to fake multiply compositing in a shader graph,
+   not just a node-recipe port.
 3. `CLEANUP_TODO.md` — pure hygiene, no functional payoff, do when nothing
    higher-value is available.
 
