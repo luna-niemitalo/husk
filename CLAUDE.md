@@ -217,22 +217,54 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   `creature/crab2alliance/crab2alliance.m2` (Mod, textured) and
   `creature/rockflayer/rockflayercrystal.m2` (Mod2x, untextured), both
   animated renders, no errors. `TODO/MOD_BLEND_COMPOSITING_TODO.md`
-  updated to close out — nothing left open there.
-- **Next step**: No hard blocker. Independent, well-scoped work still
-  open: `MULTI_TEXTURE_LAYER_TODO.md` step 4/5 (Blender-side node recipes,
-  now backed by real per-file repro data for both env-mapping and several
-  of the 17 previously-undocumented pixel shaders), `RENDER_QUALITY_TODO.md`'s
-  ambiguous-pool tiebreak/blank-render follow-ups, the dangling-internal-reference
-  corpus scan (`CLEANUP_TODO.md` #2, not yet designed as a `ScanTask`), or
-  the rest of `CLEANUP_TODO.md` #1's comment-hygiene sweep (only 7 files
-  audited so far, out of all of `src/`). Two items explicitly need a
-  design pass before touching code, not more investigation:
+  updated to close out — nothing left open there. Same session, three more
+  tasks run in parallel (one background investigation agent + two direct
+  implementations, per explicit steer once the first three landed): (1)
+  `tools/live_gallery`'s three.js viewer gained real skeletal animation
+  playback, a JS port of the Blender-side texture-transform/tint/fade
+  curve-eval logic, mesh/material picking, and lighting sliders —
+  structurally verified, not yet seen in an actual browser (no headless
+  browser available here); `ANIMATED_TEXTURE_EFFECTS_TODO.md` trimmed back
+  to a real punch list per direct correction (it had accumulated a
+  Background narrative, which is `CLAUDE_HISTORY.md`'s job). (2) A
+  background agent investigated `PIXEL_SHADER_FORMULAS_TODO.md`
+  (explicitly told not to trust wowdev.wiki uncritically) — resolved the
+  known factor-of-2 wiki/wow.export discrepancy in wow.export's favor via
+  a second independent wowdev.wiki page, found real internal
+  inconsistencies in wow.export itself (a shaderId table mismatch between
+  its own two code paths; a real bug where every additive combiner term is
+  computed but never actually rendered), and produced comparison renders
+  in `example_exports/` (gitignored). Real-client screenshot verification
+  was considered and explicitly declined — `live_gallery`'s fast pass/fail
+  review flow plus Luna's own decade-plus WoW familiarity is the actual
+  verification mechanism this project uses, not a live-client roundtrip.
+  (3) `MULTI_TEXTURE_LAYER_TODO.md` step 4 implemented directly in
+  parallel with (2): `fix_multi_texture_layers()` (`render_glb.py`), 19
+  real `Combiners_*` formulas as node-graph builders plus the env-map UV
+  recipe, with several formulas deliberately excluded (unresolved tint
+  inputs, no formula at all, wow.export/wiki table mismatches) rather than
+  guessed at. Verified via a synthetic two-texture test material (confirms
+  the node graph builds/renders) — **real corpus end-to-end coverage still
+  open**, every real file checked this session either had its shading
+  already owned by the additive fixup or an unembeddable 2nd texture
+  layer. Full narrative for all three: `CLAUDE_HISTORY.md`'s 2026-08-15
+  entry's second half.
+- **Next step**: No hard blocker. `MULTI_TEXTURE_LAYER_TODO.md`'s own
+  step 5 (find a real corpus file that actually exercises
+  `fix_multi_texture_layers()`'s combiner-math path end-to-end, not just
+  the synthetic test) is the most concrete unfinished thread from this
+  session. Otherwise: `RENDER_QUALITY_TODO.md`'s ambiguous-pool tiebreak/
+  blank-render follow-ups, the dangling-internal-reference corpus scan
+  (`CLEANUP_TODO.md` #2, not yet designed as a `ScanTask`), or the rest of
+  `CLEANUP_TODO.md` #1's comment-hygiene sweep (only 7 files audited so
+  far, out of all of `src/`). Two items explicitly need a design pass
+  before touching code, not more investigation:
   `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (fuzzy reference-skeleton
   matching, an ambiguity policy, a new Rigify dependency) and
-  `PIXEL_SHADER_FORMULAS_TODO.md` step 2 (verifying the wow.export-derived
-  formulas against real rendered output — now has 14 real repro files to
-  pick from, still needs Luna's own visual comparison) — flag these to
-  Luna rather than guessing at the shape.
+  `CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 3 (genuinely blocked on a
+  `casc-tool` re-extraction — several required DB2 tables are 0-byte
+  locally, not a code gap) — flag these to Luna rather than guessing at
+  the shape.
 - **Hazards**: `export_texture_resolution.hpp`/`.cpp` (new, split out of
   `export_materials.cpp` this session) now owns every texture-candidate-
   resolution helper (`readTextureFileBytes`/`resolveTextureBytes`/

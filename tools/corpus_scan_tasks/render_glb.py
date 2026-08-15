@@ -204,6 +204,400 @@ def fix_additive_materials() -> int:
     return fixed
 
 
+def _mrsocket(sockets, identifier):
+    return next(s for s in sockets if s.identifier == identifier)
+
+
+def _mix_rgba(nodes, links, name, blend_type, a, b, fac=1.0):
+    """RGBA Mix node (`a` MIX/MULTIPLY/ADD `b`, weighted by `fac`) -- `a`/`b`
+    are output sockets (never raw constants, callers wrap those with a
+    plain RGB node first if they ever need one -- none of the formula
+    table below does)."""
+    n = nodes.new("ShaderNodeMix")
+    n.name = name
+    n.data_type = 'RGBA'
+    n.blend_type = blend_type
+    n.clamp_result = True
+    _mrsocket(n.inputs, "Factor_Float").default_value = fac
+    links.new(a, _mrsocket(n.inputs, "A_Color"))
+    links.new(b, _mrsocket(n.inputs, "B_Color"))
+    return _mrsocket(n.outputs, "Result_Color")
+
+
+def _scale_rgb(nodes, links, name, a, factor):
+    """Scales color socket `a` by `factor` -- a plain Python float (a
+    constant, e.g. the `*2.0`/`*4.0` in a Mod2x/Mod2x_Mod2x formula) or
+    another socket (e.g. an alpha channel, for a `tex.rgb * tex.a` term --
+    VectorMath's own SCALE operation accepts a linked Float for its Scale
+    input just as readily as a constant, no separate broadcast node
+    needed)."""
+    n = nodes.new("ShaderNodeVectorMath")
+    n.name = name
+    n.operation = 'SCALE'
+    links.new(a, _mrsocket(n.inputs, "Vector"))
+    scale_in = _mrsocket(n.inputs, "Scale")
+    if isinstance(factor, float):
+        scale_in.default_value = factor
+    else:
+        links.new(factor, scale_in)
+    return _mrsocket(n.outputs, "Vector")
+
+
+def _amul(nodes, links, name, *sockets):
+    """Chains `ShaderNodeMath` MULTIPLY over 2+ Float sockets -- used for
+    alpha terms like `tex1.a * tex2.a` or `tex1.a * tex2.a * 2.0` (pass a
+    plain float alongside sockets for the constant scale case)."""
+    result = sockets[0]
+    for i, operand in enumerate(sockets[1:]):
+        n = nodes.new("ShaderNodeMath")
+        n.name = f"{name}_{i}"
+        n.operation = 'MULTIPLY'
+        n.use_clamp = True
+        links.new(result, n.inputs[0])
+        if isinstance(operand, float):
+            n.inputs[1].default_value = operand
+        else:
+            links.new(operand, n.inputs[1])
+        result = n.outputs["Value"]
+    return result
+
+
+def _aadd(nodes, links, name, a, b):
+    n = nodes.new("ShaderNodeMath")
+    n.name = name
+    n.operation = 'ADD'
+    n.use_clamp = True
+    links.new(a, n.inputs[0])
+    links.new(b, n.inputs[1])
+    return n.outputs["Value"]
+
+
+def _ainv(nodes, links, name, a):
+    """`1.0 - a`."""
+    n = nodes.new("ShaderNodeMath")
+    n.name = name
+    n.operation = 'SUBTRACT'
+    n.use_clamp = True
+    n.inputs[0].default_value = 1.0
+    links.new(a, n.inputs[1])
+    return n.outputs["Value"]
+
+
+# Real WoW pixel-shader combiner formulas for a batch's 2nd texture layer
+# (`M2Batch::textureCount > 1`), keyed by husk's own resolved `pixel_shader`
+# extras name (`src/m2_shader_names.cpp`) -- transcribed from
+# `documentation/wowdev-wiki/wikitext/Pixel_shader_logic_for_mixing_colors.wiki`,
+# **not trusted uncritically**: cross-checked line-by-line against
+# `reference/wow.export`'s own independently-implemented GLSL
+# (`m2.fragment.shader`) this session (`TODO/PIXEL_SHADER_FORMULAS_TODO.md`'s
+# investigation) before being wired in here. One real, confirmed wiki bug
+# found and corrected: `Combiners_Opaque_Mod2xNA_Alpha`'s own `tex1*tex2`
+# cross term is missing a `*2.0` the wiki's neighboring `Mod2x`/`Mod2xNA`
+# entries both have and a second, independent wowdev.wiki page
+# (`documentation/wowdev-wiki/md/M2/Rendering.md`) confirms belongs there --
+# applied below, not the wiki text as literally written.
+#
+# `meshResColor` (the wiki's own per-batch vertex-color tint term) is
+# deliberately dropped from every formula below, not approximated: Blender's
+# own glTF importer already doesn't apply `baseColorFactor` as a real
+# multiply once a texture is linked (confirmed empirically against a real
+# multi-material fixture -- Base Color/Alpha link straight to the Image
+# Texture node, `default_value` sits there unused) -- matching that same
+# existing baseline instead of inventing a *new* tint multiply this fixup
+# would be the only thing applying is the honest choice, not a shortcut.
+# Real, higher-value gap tracked separately if it ever matters
+# (`baseColorFactor` not visually applying at all is a pre-existing,
+# unrelated Blender-import limitation, not something this fixup owns).
+#
+# Alpha handling follows the "NA" naming convention directly (`Mod2xNA`/
+# `ModNA`/`AddNA` = "No Alpha", i.e. the wiki's own `finalColor.a =
+# meshResColor.a` for exactly these suffixes) -- forced fully opaque
+# (`ALPHA_OPAQUE` sentinel below) for every "NA"-suffixed formula, since
+# `meshResColor.a` collapses to ~1.0 under the same dropped-tint reasoning
+# above. Non-"NA" formulas keep the wiki's real alpha math (with the same
+# `meshResColor.a`-dropped simplification applied to their own formula).
+#
+# Deliberately **not** in this table -- real formulas exist for some of
+# these, but each has its own reason not to guess further:
+# - `Combiners_Add_Mod`: `meshResColor` is a raw *addend* here (`tex1 +
+#   meshResColor`), not the final multiply every other formula uses --
+#   the dropped-tint simplification above doesn't safely apply, would need
+#   real accounting, not scoped this pass.
+# - `Combiners_Opaque_Mod2xNA_Alpha_Add`/`_3s`/`_UnshAlpha`/`_Alpha_Alpha`:
+#   share `Opaque_Mod2xNA_Alpha`'s own corrected core formula (reused
+#   below as an approximation) but each adds a real 3rd-texture-layer
+#   "specular"/crossfade refinement husk doesn't attach data for yet
+#   (`additional_textures` only carries what husk actually embedded --
+#   real corpus check this session found the 3rd layer's own FileDataID
+#   frequently isn't even resolvable in the local corpus at all).
+# - `Combiners_Mod_AddAlpha_Alpha`: the wiki's own documented formula has a
+#   literal duplicated term (independent evidence of a wiki transcription
+#   bug, not just a wow.export one) -- not implementing a formula neither
+#   source actually gives cleanly.
+# - `Combiners_Mod_Add_Alpha`/`Mod_AddAlpha_Wgt`/`Opaque_AddAlpha_Wgt`/
+#   `Opaque_Mod_Add_Wgt`: only "moderate confidence" per this session's
+#   investigation (sub-pattern reuse, not independently confirmed), and
+#   wow.export's own renderer has a real, separate bug silently dropping
+#   every one of these formulas' additive term -- not implemented pending
+#   real visual confirmation.
+# - `Guild`/`Guild_NoBorder`/`Guild_Opaque`: real per-material tint inputs
+#   (`generic0/1/2`) unresolved by any source checked this session.
+# - `Combiners_Mod_Dual_Crossfade`/`Combiners_Mod_Masked_Dual_Crossfade`:
+#   wow.export's own `ShaderMapper.js` disagrees with wowdev.wiki's table
+#   on the shaderId this session's investigation found -- unresolved.
+# - `Illum`: no formula from any source, zero real corpus repros found.
+# - `Combiners_Mod_Depth`: functionally single-texture `Combiners_Mod`
+#   (real, per this session's investigation) -- Blender's default import
+#   already renders this correctly, nothing to rebuild.
+ALPHA_OPAQUE = "opaque"
+
+
+def _pixel_shader_formula_table(nodes, links):
+    """Returns {pixel_shader_name: (rgb_builder, alpha_spec)}, built fresh
+    per-material (the builders close over this material's own `nodes`/
+    `links`) -- `rgb_builder(t1c, t1a, t2c, t2a)` returns the combined
+    color socket; `alpha_spec` is `ALPHA_OPAQUE` or a
+    `(t1c, t1a, t2c, t2a) -> socket` callable."""
+    def mix2x_real(t1c, t1a, t2c, t2a):
+        doubled = _scale_rgb(nodes, links, "Mod2xCross", _mix_rgba(nodes, links, "Mod2xMul", 'MULTIPLY', t1c, t2c), 2.0)
+        n = nodes.new("ShaderNodeMix")
+        n.data_type = 'RGBA'
+        n.clamp_result = True
+        links.new(t1a, _mrsocket(n.inputs, "Factor_Float"))
+        links.new(doubled, _mrsocket(n.inputs, "A_Color"))
+        links.new(t1c, _mrsocket(n.inputs, "B_Color"))
+        return _mrsocket(n.outputs, "Result_Color")
+
+    def modna_real(t1c, t1a, t2c, t2a):
+        mul = _mix_rgba(nodes, links, "ModNAMul", 'MULTIPLY', t1c, t2c)
+        n = nodes.new("ShaderNodeMix")
+        n.data_type = 'RGBA'
+        n.clamp_result = True
+        links.new(t1a, _mrsocket(n.inputs, "Factor_Float"))
+        links.new(mul, _mrsocket(n.inputs, "A_Color"))
+        links.new(t1c, _mrsocket(n.inputs, "B_Color"))
+        return _mrsocket(n.outputs, "Result_Color")
+
+    def alpha_alpha_real(t1c, t1a, t2c, t2a):
+        inner = nodes.new("ShaderNodeMix")
+        inner.data_type = 'RGBA'
+        inner.clamp_result = True
+        links.new(t2a, _mrsocket(inner.inputs, "Factor_Float"))
+        links.new(t1c, _mrsocket(inner.inputs, "A_Color"))
+        links.new(t2c, _mrsocket(inner.inputs, "B_Color"))
+        inner_out = _mrsocket(inner.outputs, "Result_Color")
+        outer = nodes.new("ShaderNodeMix")
+        outer.data_type = 'RGBA'
+        outer.clamp_result = True
+        links.new(t1a, _mrsocket(outer.inputs, "Factor_Float"))
+        links.new(inner_out, _mrsocket(outer.inputs, "A_Color"))
+        links.new(t1c, _mrsocket(outer.inputs, "B_Color"))
+        return _mrsocket(outer.outputs, "Result_Color")
+
+    def alpha_only(t1c, t1a, t2c, t2a):
+        n = nodes.new("ShaderNodeMix")
+        n.data_type = 'RGBA'
+        n.clamp_result = True
+        links.new(t2a, _mrsocket(n.inputs, "Factor_Float"))
+        links.new(t1c, _mrsocket(n.inputs, "A_Color"))
+        links.new(t2c, _mrsocket(n.inputs, "B_Color"))
+        return _mrsocket(n.outputs, "Result_Color")
+
+    def add_alpha_weighted(t1c, t2c, t2a, name):
+        # tex1 + tex2.rgb*tex2.a -- Combiners_*_AddAlpha's own shared shape.
+        weighted = _scale_rgb(nodes, links, f"{name}Wgt", t2c, t2a)
+        return _mix_rgba(nodes, links, name, 'ADD', t1c, weighted)
+
+    return {
+        "Combiners_Opaque_Opaque": (
+            lambda t1c, t1a, t2c, t2a: _mix_rgba(nodes, links, "OpOp", 'MULTIPLY', t1c, t2c),
+            ALPHA_OPAQUE),
+        "Combiners_Opaque_Add": (
+            lambda t1c, t1a, t2c, t2a: _mix_rgba(nodes, links, "OpAdd", 'ADD', t1c, t2c),
+            ALPHA_OPAQUE),
+        "Combiners_Opaque_AddNA": (
+            lambda t1c, t1a, t2c, t2a: _mix_rgba(nodes, links, "OpAddNA", 'ADD', t1c, t2c),
+            ALPHA_OPAQUE),
+        "Combiners_Opaque_Mod2x": (
+            lambda t1c, t1a, t2c, t2a: _scale_rgb(nodes, links, "OpMod2x", _mix_rgba(nodes, links, "OpMod2xMul", 'MULTIPLY', t1c, t2c), 2.0),
+            lambda t1c, t1a, t2c, t2a: _amul(nodes, links, "OpMod2xA", t2a, 2.0)),
+        "Combiners_Opaque_Mod2xNA": (
+            lambda t1c, t1a, t2c, t2a: _scale_rgb(nodes, links, "OpMod2xNA", _mix_rgba(nodes, links, "OpMod2xNAMul", 'MULTIPLY', t1c, t2c), 2.0),
+            ALPHA_OPAQUE),
+        "Combiners_Opaque_Mod": (
+            lambda t1c, t1a, t2c, t2a: _mix_rgba(nodes, links, "OpMod", 'MULTIPLY', t1c, t2c),
+            lambda t1c, t1a, t2c, t2a: t2a),
+        "Combiners_Mod_Opaque": (
+            lambda t1c, t1a, t2c, t2a: _mix_rgba(nodes, links, "ModOp", 'MULTIPLY', t1c, t2c),
+            lambda t1c, t1a, t2c, t2a: t1a),
+        "Combiners_Mod_Add": (
+            lambda t1c, t1a, t2c, t2a: _mix_rgba(nodes, links, "ModAdd", 'ADD', t1c, t2c),
+            lambda t1c, t1a, t2c, t2a: _aadd(nodes, links, "ModAddA", t1a, t2a)),
+        "Combiners_Mod_AddNA": (
+            lambda t1c, t1a, t2c, t2a: _mix_rgba(nodes, links, "ModAddNA", 'ADD', t1c, t2c),
+            ALPHA_OPAQUE),
+        "Combiners_Mod_Mod2x": (
+            lambda t1c, t1a, t2c, t2a: _scale_rgb(nodes, links, "ModMod2x", _mix_rgba(nodes, links, "ModMod2xMul", 'MULTIPLY', t1c, t2c), 2.0),
+            lambda t1c, t1a, t2c, t2a: _amul(nodes, links, "ModMod2xA", t1a, t2a, 2.0)),
+        "Combiners_Mod_Mod2xNA": (
+            lambda t1c, t1a, t2c, t2a: _scale_rgb(nodes, links, "ModMod2xNA", _mix_rgba(nodes, links, "ModMod2xNAMul", 'MULTIPLY', t1c, t2c), 2.0),
+            ALPHA_OPAQUE),
+        "Combiners_Mod_Mod": (
+            lambda t1c, t1a, t2c, t2a: _mix_rgba(nodes, links, "ModMod", 'MULTIPLY', t1c, t2c),
+            lambda t1c, t1a, t2c, t2a: _amul(nodes, links, "ModModA", t1a, t2a)),
+        "Combiners_Mod2x_Mod2x": (
+            lambda t1c, t1a, t2c, t2a: _scale_rgb(nodes, links, "Mod2xMod2x", _mix_rgba(nodes, links, "Mod2xMod2xMul", 'MULTIPLY', t1c, t2c), 4.0),
+            lambda t1c, t1a, t2c, t2a: _amul(nodes, links, "Mod2xMod2xA", t1a, t2a, 4.0)),
+        "Combiners_Opaque_Mod2xNA_Alpha": (mix2x_real, ALPHA_OPAQUE),
+        # Approximation, see module comment -- shares the corrected core
+        # formula, missing each variant's own extra refinement term.
+        "Combiners_Opaque_Mod2xNA_Alpha_Add": (mix2x_real, ALPHA_OPAQUE),
+        "Combiners_Opaque_Mod2xNA_Alpha_3s": (mix2x_real, ALPHA_OPAQUE),
+        "Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha": (mix2x_real, ALPHA_OPAQUE),
+        "Combiners_Opaque_Mod2xNA_Alpha_Alpha": (mix2x_real, ALPHA_OPAQUE),
+        "Combiners_Opaque_ModNA_Alpha": (modna_real, ALPHA_OPAQUE),
+        "Combiners_Opaque_AddAlpha": (
+            lambda t1c, t1a, t2c, t2a: add_alpha_weighted(t1c, t2c, t2a, "OpAddAlpha"),
+            ALPHA_OPAQUE),
+        "Combiners_Opaque_AddAlpha_Alpha": (
+            lambda t1c, t1a, t2c, t2a: _mix_rgba(
+                nodes, links, "OpAddAlphaAlpha", 'ADD', t1c,
+                _scale_rgb(nodes, links, "OpAddAlphaAlphaWgt", t2c, _amul(nodes, links, "OpAddAlphaAlphaFac", t2a, _ainv(nodes, links, "OpAddAlphaAlphaInv", t1a)))),
+            ALPHA_OPAQUE),
+        "Combiners_Mod_AddAlpha": (
+            lambda t1c, t1a, t2c, t2a: add_alpha_weighted(t1c, t2c, t2a, "ModAddAlpha"),
+            lambda t1c, t1a, t2c, t2a: t1a),
+        "Combiners_Opaque_Alpha_Alpha": (alpha_alpha_real, ALPHA_OPAQUE),
+        "Combiners_Opaque_Alpha": (alpha_only, ALPHA_OPAQUE),
+    }
+
+
+def _env_map_uv(nodes, links):
+    """Reflection-vector UV recipe for a `_Env`-suffixed vertex shader (real
+    client formula, `M2/.skin.wiki`'s own `===Environment mapping===`
+    section, not reconstructed by inference -- see
+    `TODO/MULTI_TEXTURE_LAYER_TODO.md`'s own module comment for the derivation).
+    Standard matcap-style technique: camera-space incoming vector, reflected
+    off the shading normal, remapped from [-1,1] to [0,1] -- returns the
+    Vector socket to feed into an Image Texture node's own Vector input in
+    place of a normal UV Map node."""
+    geometry = nodes.new("ShaderNodeNewGeometry")
+    normal_input = nodes.new("ShaderNodeVectorTransform")
+    normal_input.vector_type = 'NORMAL'
+    normal_input.convert_from = 'WORLD'
+    normal_input.convert_to = 'CAMERA'
+    links.new(geometry.outputs["Normal"], normal_input.inputs["Vector"])
+
+    incoming = nodes.new("ShaderNodeVectorTransform")
+    incoming.vector_type = 'VECTOR'
+    incoming.convert_from = 'WORLD'
+    incoming.convert_to = 'CAMERA'
+    links.new(geometry.outputs["Incoming"], incoming.inputs["Vector"])
+
+    reflect = nodes.new("ShaderNodeVectorMath")
+    reflect.operation = 'REFLECT'
+    links.new(incoming.outputs["Vector"], reflect.inputs[0])
+    links.new(normal_input.outputs["Vector"], reflect.inputs[1])
+
+    scale = nodes.new("ShaderNodeVectorMath")
+    scale.operation = 'MULTIPLY_ADD'
+    scale.inputs[1].default_value = (0.5, 0.5, 0.5)
+    scale.inputs[2].default_value = (0.5, 0.5, 0.5)
+    links.new(reflect.outputs["Vector"], scale.inputs[0])
+    return scale.outputs["Vector"]
+
+
+def fix_multi_texture_layers() -> tuple[int, int]:
+    """WoW's real fixed-function multi-texture-layer combiner math
+    (`M2Batch::textureCount > 1`, ~79% of the real corpus per
+    `WIKI_FINDINGS/M2/skin.md`) and env-mapped ("shiny metal") vertex
+    shaders -- both real gaps `TODO/MULTI_TEXTURE_LAYER_TODO.md` tracked as
+    "husk resolves the real formula name, nothing plays it back yet".
+    husk already resolves and exports `pixel_shader`/`vertex_shader` names
+    (`src/m2_shader_names.cpp`) plus each additional texture layer's own
+    embedded image (`additional_textures` extras, `AdditionalTextureLayer`)
+    -- this rebuilds the real combiner math as a small node graph feeding
+    Base Color, same site/pattern as `fix_additive_materials` above.
+
+    Skips any material `fix_additive_materials` already fully rebuilt
+    (`blend_mode` 3/4 -- that fixup replaces the whole Surface shader,
+    Principled BSDF included, so there is no live Base Color chain left
+    here to extend) -- real, necessary ordering discipline, not a missed
+    case, since Mod/Mod2x (5/6) materials are untouched by that fixup
+    (`apply_multiply_blend_compositing` operates on the render's own beauty
+    pass via the Compositor, never touches a material's own node graph) and
+    stay fully eligible here.
+
+    Returns (combiner_layers_fixed, env_maps_wired).
+    """
+    combiner_fixed = 0
+    envmap_fixed = 0
+
+    for mat in bpy.data.materials:
+        if mat.get("blend_mode") in (3, 4):
+            continue
+        if not mat.use_nodes or mat.node_tree is None:
+            continue
+        principled = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if principled is None:
+            continue
+        nodes, links = mat.node_tree.nodes, mat.node_tree.links
+
+        base_input = principled.inputs["Base Color"]
+        tex1_node = base_input.links[0].from_node if base_input.is_linked else None
+        if tex1_node is not None and tex1_node.type != "TEX_IMAGE":
+            tex1_node = None  # unexpected shape (see module comment) -- skip rather than guess
+
+        # Env-mapped vertex shader, single texture layer only -- the only
+        # unambiguous case without a per-layer env flag from husk yet (see
+        # module comment): wire the reflection UV straight onto tex1.
+        vertex_shader = mat.get("vertex_shader") or ""
+        layers = billboard_align._to_pyobj(mat.get("additional_textures")) or []
+        if tex1_node is not None and vertex_shader in ("Diffuse_T1_Env", "Diffuse_Env") and not layers:
+            env_vector = _env_map_uv(nodes, links)
+            links.new(env_vector, tex1_node.inputs["Vector"])
+            envmap_fixed += 1
+
+        pixel_shader = mat.get("pixel_shader") or ""
+        if tex1_node is None or not layers or not pixel_shader:
+            continue
+        table = _pixel_shader_formula_table(nodes, links)
+        entry = table.get(pixel_shader)
+        if entry is None:
+            continue
+        rgb_builder, alpha_spec = entry
+
+        layer0 = layers[0]
+        tex2_fdid = layer0.get("file_data_id")
+        tex2_image = bpy.data.images.get(str(tex2_fdid)) if tex2_fdid else None
+        if tex2_image is None:
+            continue  # husk didn't have a --textures match for this layer -- nothing to combine
+
+        tex2_node = nodes.new("ShaderNodeTexImage")
+        tex2_node.name = f"HuskLayer2_{pixel_shader}"
+        tex2_node.image = tex2_image
+
+        t1c, t1a = tex1_node.outputs["Color"], tex1_node.outputs["Alpha"]
+        t2c, t2a = tex2_node.outputs["Color"], tex2_node.outputs["Alpha"]
+
+        result_color = rgb_builder(t1c, t1a, t2c, t2a)
+        links.new(result_color, base_input)
+
+        alpha_input = principled.inputs["Alpha"]
+        if alpha_spec == ALPHA_OPAQUE:
+            for link in list(alpha_input.links):
+                links.remove(link)
+            alpha_input.default_value = 1.0
+        elif callable(alpha_spec):
+            result_alpha = alpha_spec(t1c, t1a, t2c, t2a)
+            if result_alpha is not None:
+                links.new(result_alpha, alpha_input)
+
+        combiner_fixed += 1
+
+    return combiner_fixed, envmap_fixed
+
+
 def _world_bbox(mesh_objs) -> tuple["mathutils.Vector", "mathutils.Vector"]:
     """Same technique main() uses for camera framing (obj.bound_box, live-
     updated by the current depsgraph state after a scene.frame_set()) --
@@ -350,6 +744,7 @@ def main() -> None:
     # from a render where the character was tiny in-frame).
     bpy.ops.import_scene.gltf(filepath=in_glb, disable_bone_shape=True)
     fixed_additive = fix_additive_materials()
+    multi_layer_fixed, envmap_fixed = fix_multi_texture_layers()
 
     mesh_objs = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     if not mesh_objs:
@@ -549,6 +944,10 @@ def main() -> None:
     extra = f", {fixed_additive} additive material(s) rebuilt" if fixed_additive else ""
     if multiply_blended:
         extra += f", {multiply_blended} Mod/Mod2x material(s) multiply-composited"
+    if multi_layer_fixed:
+        extra += f", {multi_layer_fixed} multi-texture-layer material(s) combined"
+    if envmap_fixed:
+        extra += f", {envmap_fixed} env-mapped material(s) wired"
     if billboards_aligned:
         extra += f", {billboards_aligned} billboard bone(s) aligned to camera"
     print(f"OK rendered {len(mesh_objs)} mesh object(s), bbox radius {radius:.3f}{extra}{anim_note} "

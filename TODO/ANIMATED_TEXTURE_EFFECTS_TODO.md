@@ -2,31 +2,27 @@
 
 **Status: an open punch list, not a historical record.** Fixed items get
 removed outright once closed — git history is the record of what was fixed
-and when, not this file.
+and when, not this file. Full narrative: `CLAUDE_HISTORY.md`.
 
-## Background
+## Open
 
-A large, corpus-wide visual gap (~27.6% of the 130,576-file corpus carries
-a genuinely-animated `M2TextureTransform`/`M2Color`/`M2TextureWeight`
-curve — `tools/corpus_scan_tasks/animated_texture_effects_task.py`) is now
-closed for the two main surfaces: `husk export` resolves and attaches the
-real curves as material extras (`texture_transform_animation`/
-`tint_animation`/`fade_animation`), `tools/corpus_scan_tasks/render_glb.py`
-renders real short animated clips (skeletal and texture-driven alike, see
-its own module doc comment), and `tools/husk_blender_geoset_mask.py`'s
-`apply_texture_transform_animation`/`apply_tint_fade_animation` play them
-back for real in an interactive Blender session (see that script's own
-"Fourth, independent job" module docstring section for the design).
+`tools/live_gallery`'s standalone three.js GLB viewer
+(`static/viewer.html`/`.js`) now plays back both real skeletal animation
+(`THREE.AnimationMixer`, clip dropdown, play/pause/loop) and husk's own
+extras-driven texture-transform/tint/fade curves (a real JS port of
+`tools/husk_blender_geoset_mask.py`'s curve-eval logic — closes the gap
+this file used to describe), plus mesh/material picking (click to inspect
+`blend_mode`/`pixel_shader`/`vertex_shader`/etc.) and lighting-intensity/
+exposure sliders. Verified structurally (element-ID wiring, extras JSON
+shape cross-checked against `gltf_mesh.cpp`'s actual output, served
+correctly through a real local server) — **not yet visually confirmed in
+an actual browser** (no headless browser available in this environment);
+worth a real look before treating the curve-playback math as trusted the
+same way the Blender-side port already is.
 
-## Open: the standalone 3D viewer doesn't play animation back yet
-
-`tools/live_gallery/server.py`'s dedicated three.js GLB viewer
-(`static/viewer.html`/`.js`) loads and displays a model's real `.glb` but
-does not play back its animations — it detects and counts
-`gltf.animations` in the status line but has no `THREE.AnimationMixer`
-wired in for real skeletal playback, and husk's own extras-driven texture-
-transform/tint/fade curves have no JS-side port at all (the Python/Blender
-implementation doesn't translate directly — would need re-implementing
-the same curve-eval/looping logic in the viewer's own JS). The main grid
-page (`static/page.html`/`.js`) already plays `.webm` clips inline and is
-not affected by this gap.
+Not attempted this round, real "overlay shenanigans" stretch scope if
+there's appetite for more: JS-side parity for the Blender interactive
+script's geoset-switch dropdown and texture-layout overlay — the viewer
+can inspect a mesh's material but can't yet toggle geoset variants or
+preview the character-texture-layout compositing rectangles the way
+`husk_blender_geoset_mask.py` does.

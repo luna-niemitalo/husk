@@ -82,6 +82,98 @@ grime/glow overlays, not full opaque replacement) is unaffected.
 `TODO/MOD_BLEND_COMPOSITING_TODO.md` updated to close out; nothing left
 open there.
 
+**Same session, continued — three more tasks run together** (one
+background investigation agent in parallel with two implementation tasks
+done directly): (1) `tools/live_gallery`'s standalone three.js viewer
+gained real skeletal animation playback (`THREE.AnimationMixer`, clip
+dropdown, play/pause/loop), a real JS port of the Blender-side texture-
+transform/tint/fade curve-eval logic (closing the "no JS-side port at all"
+gap `ANIMATED_TEXTURE_EFFECTS_TODO.md` used to describe — confirmed
+three.js's `GLTFLoader` merges material `extras` straight into
+`material.userData`, no Blender-style IDPropertyGroup unwrapping needed),
+mesh/material picking (click to inspect `blend_mode`/`pixel_shader`/etc.),
+and lighting-intensity/exposure sliders. Structurally verified (element-ID
+wiring, extras JSON shape cross-checked against `gltf_mesh.cpp`, served
+correctly through a real local server via `uv run` — this project's flake
+deliberately provides no bare Python/Node interpreter, `uv run`/`uv sync`
+is the sanctioned way to run any plain-Python tool here, not `python3`
+directly) but **not yet visually confirmed in an actual browser** (no
+headless browser available in this environment). `ANIMATED_TEXTURE_
+EFFECTS_TODO.md` also trimmed back to a real punch list per direct
+correction — it had accumulated a full "Background" narrative describing
+already-closed work, which is exactly what `CLAUDE_HISTORY.md` is for, not
+a TODO file.
+
+(2) A background investigation agent tackled `PIXEL_SHADER_FORMULAS_TODO.md`
+in parallel, explicitly instructed not to trust the wowdev.wiki text
+uncritically (direct correction: "you can't know that the wiki is
+correct"). Found the TODO's own previously-flagged factor-of-2 discrepancy
+(wiki vs. `reference/wow.export`'s GLSL for `Combiners_Opaque_
+Mod2xNA_Alpha`) resolves in wow.export's favor — a second, independent
+wowdev.wiki page (`documentation/wowdev-wiki/md/M2/Rendering.md`, a
+`Shader Name | RGB Logic | Alpha Logic` table separate from the file this
+project already used) confirms the `*2.0` term wow.export has and the
+other wiki page is missing. Checked ~16 directly-comparable formulas
+line-by-line against wow.export; only that one case disagreed, and four
+more undocumented shaders sharing the same corrected core formula inherit
+that trust. Also found wow.export's own internal inconsistency: its
+`ShaderMapper.js` (used by its live-rendering path) disagrees with
+wowdev.wiki's shaderId table (which husk's own `m2_shader_names.cpp`
+already trusts) at three array positions, one a real name swap that would
+make wow.export's own live viewer pick the wrong pixel-shader case for
+that shaderId — and a separate, real wow.export bug found by reading the
+shader directly: every Add-suffixed combiner's additive term is computed
+but never actually added to the output (`lit_color += specular;` is
+commented out, "disabled for debugging"), meaning anyone comparing against
+wow.export's own on-screen render wouldn't see that term either. Two
+comparison renders dumped to `example_exports/` (gitignored, not
+committed) for a real corpus file (`creature/aetherwyrm/aetherwyrm.m2`,
+`Combiners_Opaque_Mod2xNA_Alpha_Add`) — real client screenshot comparison
+was considered and explicitly declined (direct steer: a decade-plus of
+WoW visual familiarity plus `live_gallery`'s fast pass/fail review flow
+already does this job at "a few hundred [renders] a minute," a live-client
+screenshot roundtrip for one model at a time isn't worth it). Full
+findings: this notification's own transcript (not re-copied here in full;
+the load-bearing parts — the corrected formula, the excluded/unresolved
+shaders — are in `render_glb.py`'s own new formula-table module comment,
+see next paragraph).
+
+(3) `MULTI_TEXTURE_LAYER_TODO.md` step 4 (Blender-side node recipes)
+implemented directly, in parallel with (2) above:
+`fix_multi_texture_layers()` (`render_glb.py`, same site/pattern as
+`fix_additive_materials`, called from `main()`) — a table of 19 real
+`Combiners_*` formulas (transcribed from `documentation/wowdev-wiki/
+wikitext/Pixel_shader_logic_for_mixing_colors.wiki`, corrected per (2)
+above where it was wrong) as small Mix/VectorMath/Math node-graph builders
+feeding Base Color/Alpha, plus the env-map reflection-vector UV recipe for
+the unambiguous single-texture-layer case. Real formulas deliberately
+excluded rather than guessed at: `Guild`/`_NoBorder`/`_Opaque` (unresolved
+tint inputs), `Illum` (no formula, no corpus repros), the two
+Dual_Crossfade shaders (wow.export/wiki table mismatch from (2)), a few
+"moderate confidence only" `_Wgt` formulas, and `Combiners_Add_Mod` (its
+own `meshResColor` role doesn't fit the "final multiply" pattern every
+other formula shares). Skips any material `fix_additive_materials` already
+fully rebuilt (`blend_mode` 3/4 — no live Base Color chain left to extend
+there); Mod/Mod2x materials from this same session's earlier work stay
+fully eligible (that fixup lives in the Compositor, never touches a
+material's own node graph). One real design finding along the way:
+Blender's own glTF importer does **not** apply `baseColorFactor` as a real
+multiply once a texture is linked (confirmed empirically — Base Color/
+Alpha link straight to the Image Texture node, `default_value` sits there
+unused) — every formula's own `meshResColor` term is dropped to match that
+existing baseline rather than inventing a new tint multiply this fixup
+would be the only thing applying.
+
+Verified: a synthetic two-texture material through the function directly
+(confirms the combiner node graph builds and renders without error) and
+the single-texture env-map path separately (confirms the reflection UV
+lands on the right socket). **Not yet verified against a real corpus
+render with actual combined output** — every real corpus file checked
+this session either had `blend_mode` 3/4 (correctly skipped) or an
+additional-texture-layer FileDataID husk couldn't actually embed (no local
+`--textures` match) — real end-to-end corpus coverage for this path is
+still open.
+
 ---
 
 **2026-08-14, new session, two corpus-scan follow-ups + one design-blocker investigation

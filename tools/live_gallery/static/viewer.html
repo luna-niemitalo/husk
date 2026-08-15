@@ -15,7 +15,27 @@
     <div id="error"></div>
   </div>
 </div>
-<div id="help">LMB orbit · RMB pan · wheel zoom</div>
+<div id="help">LMB orbit · RMB pan · wheel zoom · click a mesh to inspect it</div>
+
+<div id="controls" class="panel hidden">
+  <div class="ctl-section hidden" id="anim-section">
+    <div class="ctl-label">Animation</div>
+    <div class="row">
+      <select id="anim-select"></select>
+      <button id="anim-toggle" class="chip">Play</button>
+      <label class="chip"><input type="checkbox" id="anim-loop" checked> loop</label>
+    </div>
+  </div>
+  <div class="ctl-section">
+    <div class="ctl-label">Lighting</div>
+    <div class="ctl-row"><span>Key</span><input type="range" id="light-key" min="0" max="6" step="0.1" value="2.5"></div>
+    <div class="ctl-row"><span>Fill</span><input type="range" id="light-fill" min="0" max="6" step="0.1" value="1.0"></div>
+    <div class="ctl-row"><span>Ambient</span><input type="range" id="light-hemi" min="0" max="6" step="0.1" value="2.0"></div>
+    <div class="ctl-row"><span>Exposure</span><input type="range" id="light-exposure" min="0.1" max="3" step="0.05" value="1"></div>
+  </div>
+</div>
+
+<div id="pick-info" class="panel hidden"></div>
 
 <script type="importmap">
 {

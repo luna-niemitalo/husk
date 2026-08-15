@@ -375,17 +375,50 @@ priority" the old 3/130,576 number implied.
    look like a sane answer," not "matches known-ground-truth," per this
    project's own standing discipline. Worth doing before this is treated
    as fully trusted, but no longer the single-file blocker it was.
-4. **Blender-side**: extend `render_glb.py`'s post-import material rebuild
-   (same site as `fix_additive_materials`) to, for each material with
-   `additional_texture_layers` extras: read the resolved `Combiners_*`
-   name from step 2's extras (no re-derivation needed Blender-side if
-   husk already resolved it), build the matching small node recipe
-   (Mix/Multiply/Add nodes per the formula table) feeding the existing
-   Base Color chain, and for an env-mapped vertex-shader result
-   specifically, wire the reflection-vector UV recipe instead of a normal
-   `UV Map` node.
-5. Verify against a handful of real corpus files spanning different
-   `Combiners_*` formulas, not just one — this is exactly the kind of
-   thing that looks right on one lucky test case and wrong on the next
-   (same lesson the additive-blend fix's own `unlit`-co-occurrence bug
-   already taught this project once).
+4. ~~**Blender-side**: extend `render_glb.py`'s post-import material
+   rebuild~~ — **done 2026-08-15**: `fix_multi_texture_layers()`
+   (`render_glb.py`, same site as `fix_additive_materials`, called from
+   `main()`). Covers 19 of the real `Combiners_*` formulas as a table of
+   small Mix/VectorMath/Math node-graph builders feeding Base Color/Alpha
+   — cross-checked against `reference/wow.export`'s own GLSL this session
+   (`TODO/PIXEL_SHADER_FORMULAS_TODO.md`'s investigation), including one
+   real, confirmed wiki bug corrected along the way (`Combiners_Opaque_
+   Mod2xNA_Alpha`'s missing `*2.0`). Deliberately excludes several formulas
+   still genuinely unresolved (`Guild`/`_NoBorder`/`_Opaque`, `Illum`, the
+   Dual_Crossfade pair, a few "moderate confidence only" `_Wgt` formulas) —
+   see the formula table's own module comment in `render_glb.py` for the
+   exact list and why each one is excluded, not guessed at.
+
+   Env-map (`_Env`-suffixed vertex shader) UV wiring also done
+   (`_env_map_uv`, the reflection-vector recipe this file's own module
+   comment already specified) — but deliberately narrow: only applies to
+   the genuinely single-texture-layer case. Real corpus data checked this
+   session shows `Diffuse_T1_Env` commonly co-occurs with a real second
+   texture layer (i.e. `textureCount > 1` *and* env-mapped), and husk
+   still has no per-layer env flag to say which unit is the env-mapped one
+   (see "Current husk state" above) — applying the reflection UV to tex1
+   there would be a real guess, not a resolved case, so it's skipped
+   rather than guessed at.
+
+   Skips any material `fix_additive_materials` already fully rebuilt
+   (`blend_mode` 3/4 — that fixup replaces the whole Surface shader, no
+   live Base Color chain left to extend); Mod/Mod2x (5/6) materials stay
+   fully eligible (`apply_multiply_blend_compositing` operates on the
+   render's own beauty pass via the Compositor, never touches a
+   material's own node graph).
+5. Verified: a synthetic two-texture test material through
+   `fix_multi_texture_layers()` directly (confirms the combiner-math node
+   graph builds and renders without error) and the single-texture env-map
+   path separately (confirms the reflection-vector UV wiring lands on the
+   right socket). **Not yet verified against a real corpus render with
+   actual combined output** — every real corpus file checked this session
+   either had `blend_mode` 3/4 (correctly skipped, owned by the additive
+   fixup) or an additional-texture-layer FileDataID husk couldn't actually
+   embed (no local `--textures` match, so nothing to combine) — real
+   corpus coverage for this specific code path is still open, worth a
+   proper corpus scan (`.skin` batches with `textureCount > 1` *and* a
+   resolvable 2nd-layer FileDataID, `blend_mode` not in `(3, 4)`) before
+   trusting the visual result at scale. `tools/live_gallery`'s fast
+   pass/fail review flow is the intended way to actually judge this once
+   real examples are found, not a client screenshot comparison (see
+   `CLAUDE_HISTORY.md`'s 2026-08-15 entry).
