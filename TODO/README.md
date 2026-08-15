@@ -17,6 +17,7 @@ work, corpus scans, well-scoped implementation, investigation).
 | `PIXEL_SHADER_FORMULAS_TODO.md` | Filling wowdev.wiki's 17 undocumented `Combiners_*` formulas | A promising but unverified lead found (`reference/wow.export`'s shader); step 1 (find real corpus repros) done 2026-08-14 — 14/17 have real repros, some with thousands of files | Step 2 (verify against real rendered output): human-gated |
 | `RENDER_QUALITY_TODO.md` | Corpus-review render-quality findings (rotation, textures, alpha, billboards) | Rotation shear + V-scroll direction + `alphaCutoff` fixed (2026-08-14); 68 "unexplained" blank renders downgraded 2026-08-14 (6 spot-checked, 0 real bugs found); Mod/Mod2x multiply-blend compositing implemented and verified 2026-08-15 (`MOD_BLEND_COMPOSITING_TODO.md` closed and deleted); billboard ground-truth, ambiguous-pool tiebreak still open | Billboard ground-truth is human-gated; ambiguous-pool tiebreak independent |
 | `CHAR_TEXTURE_COMPOSITING_TODO.md` | Full DB2-driven character texture compositing (base/overlay skin layers) | Stages 1-2 done (WDC5 parsing, real placement geometry via `--char-layout-id`); Stage 3 (choice chain) blocked on 0-byte local `ChrCustomizationOption`/`_Choice`; Stages 4-5 (pixel compositing, Blender picker) not started | Independent, but Stage 3 is genuinely blocked on a `casc-tool` re-extraction, not something to work around |
+| `EXPLORATION_TODO.md` | Post-`recordsAvailable()`-fix follow-up: how many of the 4,733 `replaceable_only` files (and any other missing-texture/data gaps) can now be resolved via `--db2-dir`, and wiring the real chain up so they render | Not started — a first schema look (2026-08-16) found the `ItemDisplayInfo*` → real texture chain has more hops than assumed, none confirmed yet | Independent (DB2 chain-walking + implementation) |
 | `BONE_CORRECTION_APPLICATION_TODO.md` | Applying `.bone` correction matrices in Blender, now that selection is resolved | Selection done (2026-08-14); application semantics (multiply order, space) never verified against real client behavior | **Human-gated** — needs a real side-by-side comparison, same as billboard alignment did |
 | `ENGINE_TODO.md` | External-data gaps, and which are actually husk's to close (renumbered 2026-08-14 after former items 1/2 resolved+removed) | #1 hardcoded texture resolution (biggest remaining item, tracked in `CHAR_TEXTURE_COMPOSITING_TODO.md`); #2 `aliasNext` names checked and closed 2026-08-14 (local DB2 schema dropped `Name` around 7.3.5, unrecoverable); #3 `blendTimeOperation` (no data, needs a heuristic); #4 sound linking (unconfirmed); #5 LOD thresholds (a design decision, not a gap) | #4: independent investigation. #3: independent (author a heuristic). #5: a decision, not a task |
 | `BONE_NAME_DEDUCTION_TODO.md` | Tier-2 bone naming (reference-skeleton matching) | Not started; cosmetic only, zero visual/render impact | Independent |
@@ -41,7 +42,13 @@ effort first:
 2. ~~`MOD_BLEND_COMPOSITING_TODO.md` — Mod/Mod2x blend modes~~ — **done
    2026-08-15**, file closed and deleted; see `RENDER_QUALITY_TODO.md` §3
    and `CLAUDE_HISTORY.md`'s 2026-08-15 entry for the full story.
-3. `CLEANUP_TODO.md` — pure hygiene, no functional payoff, do when nothing
+3. `EXPLORATION_TODO.md` — real payoff potential is unknown until the DB2
+   chain is actually walked (could resolve real textures for a chunk of
+   the 4,733-file `replaceable_only` gap, could turn out mostly
+   unresolvable) — worth doing before `CLEANUP_TODO.md` since it's a
+   direct follow-up to a fix already landed this session, not cold-start
+   work.
+4. `CLEANUP_TODO.md` — pure hygiene, no functional payoff, do when nothing
    higher-value is available.
 
 (`RENDER_QUALITY_TODO.md`'s 68 "unexplained" blank renders and its
