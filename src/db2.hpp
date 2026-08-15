@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -188,7 +189,33 @@ struct Section {
     uint32_t relationshipMaxId = 0;
     std::vector<RelationshipEntry> relationshipEntries;
 
-    bool hasOffsetMap() const { return header.tactKeyHash == 0 && !offsetMap.empty(); }
+    // `tactKeyHash != 0` means this section *would* be TACT-key-gated if
+    // the key were unavailable at extraction time -- it does NOT mean the
+    // bytes husk actually has are still ciphertext. Confirmed against a
+    // real 130k-file corpus (2026-08-16): a real CASC extraction (via
+    // CascLib, given the community TACT key) already decrypts these
+    // sections before the .db2 file is ever written to disk in 111/126
+    // real cases found; only 15 (all one already-known-truncated file)
+    // were genuinely still all-zero, the one real signal that a key was
+    // actually missing at extraction time. wow.export's WDCReader.js and
+    // DBCD's WDC5Reader.cs both use exactly this same all-zero check for
+    // exactly this reason -- neither implements DB2-internal Salsa20
+    // decryption itself, because a real CASC pipeline never hands them
+    // still-encrypted bytes to begin with. This is the one place that
+    // check happens; every `tactKeyHash != 0` consumer elsewhere calls
+    // this instead of re-deriving the same logic.
+    bool recordsAvailable() const {
+        if (header.tactKeyHash == 0) return true;
+        if (!recordBytes.empty()) {
+            return std::any_of(recordBytes.begin(), recordBytes.end(), [](uint8_t b) { return b != 0; });
+        }
+        for (const auto& rec : variableRecordBytes) {
+            if (std::any_of(rec.begin(), rec.end(), [](uint8_t b) { return b != 0; })) return true;
+        }
+        return false;
+    }
+
+    bool hasOffsetMap() const { return recordsAvailable() && !offsetMap.empty(); }
     bool hasRelationshipMap() const { return header.relationshipDataSize > 0; }
 };
 

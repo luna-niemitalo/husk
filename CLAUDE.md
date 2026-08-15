@@ -203,26 +203,42 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   see) — `render_sample_driver.py`'s render loop factored into
   `run_render_pipeline()` so both entry points share one tested pipeline.
   Follow-up DB2 investigation (direct request: "explore why we can't fill
-  this given DB2 access"): real `husk db2-export` batch export confirmed
-  the item-texture chain (`ItemDisplayInfo`/`ItemDisplayInfoMaterialRes`/
-  `ItemDisplayInfoModelMatRes`) is a different, likely-easier-to-fix gap
-  than `CHAR_TEXTURE_COMPOSITING_TODO.md`'s existing 0-byte-tables note —
-  all three files are multi-megabyte and present but truncated a few
-  dozen bytes short of a complete final record (an interrupted download,
-  not missing data); `CharComponentTextureLayouts.db2` separately has a
-  skipped TACT-encrypted section (needs a key, not just a re-download).
-  Written up in `CHAR_TEXTURE_COMPOSITING_TODO.md` with a concrete
-  recommendation (try the cheap re-extraction first; Stage 5's already-
-  planned Blender-side picker, same pattern as the geoset dropdown, is
-  the right fallback for whatever residual ambiguity survives that).
-  Full narrative: `CLAUDE_HISTORY.md`'s 2026-08-16 entry.
-- **Next step**: Report the 3 truncated `ItemDisplayInfo*` files to the
-  casc-tool project (same pattern as the earlier texture re-extraction
-  ask) — likely closes most of the remaining 4,733-file replaceable-only
-  gap on its own, before any Stage 5 Blender-picker work is worth
-  starting. `tools/full_render.py` itself is ready to run
+  this given DB2 access"), fully resolved by end of session, both real
+  blockers fixed: `ItemDisplayInfo`/`ItemDisplayInfoMaterialRes`/
+  `ItemDisplayInfoModelMatRes` were each truncated a few dozen bytes short
+  of a complete record — casc-tool re-extracted all three to full real
+  size, fixed upstream. `CharComponentTextureLayouts.db2` looked like a
+  third, harder "needs an updated TACT key" case at first — **that
+  diagnosis was wrong**. Real investigation (a from-scratch Salsa20 port
+  cross-verified against `pycryptodome`, several IV-derivation hypotheses
+  tried and ruled out against a real 32KB payload, then checking
+  `reference/DBCD`'s and `reference/wow.export`'s own DB2 readers) found
+  neither community tool implements DB2-internal decryption at all — both
+  just skip a `tact_key_hash`-bearing section only if its bytes are
+  all-zero. Checked husk's own corpus: 111/126 real encrypted-flagged
+  sections were already non-zero, readable plaintext (a real CASC
+  extraction already decrypts these before the file lands on disk); only
+  15 (all in the one already-truncated file above) were genuinely still
+  blocked. **husk's own `db2.cpp` had a real bug** — `tactKeyHash != 0`
+  was treated as "always opaque," never checking whether the bytes it
+  actually had were still ciphertext. Fixed:
+  `db2::Section::recordsAvailable()` (`db2.hpp`) is now the one canonical
+  check, replacing four separate skip sites; a second, same-shape
+  `relationshipMap`-all-zero-region bug (used to throw and abort the
+  whole file) fixed alongside it. New regression tests in
+  `tests/test_db2.cpp` (637 cases, was 634). Verified against real data:
+  `CharComponentTextureLayouts.db2` now exports all 5 rows (was 4); the
+  full corpus DB2 batch export gained 446,719 previously-silently-dropped
+  rows. `CHAR_TEXTURE_COMPOSITING_TODO.md` rewritten to reflect the
+  corrected outcome. Full narrative: `CLAUDE_HISTORY.md`'s 2026-08-16
+  entry (two parts — the render-tooling rebuild, then this DB2 fix).
+- **Next step**: `tools/full_render.py` is ready to run
   (`python tools/full_render.py`, or `--dry-run` first) but hasn't been
-  run to completion this session. Otherwise unchanged from before:
+  run to completion this session. The DB2 fix unblocks real data for
+  `husk export --db2-dir/--dbd-dir/--char-layout-id` and
+  `CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 2 that used to come back
+  empty — worth re-verifying those paths pick up the newly-available rows
+  next time either is touched. Otherwise unchanged from before:
   `MULTI_TEXTURE_LAYER_TODO.md`'s step 5, `RENDER_QUALITY_TODO.md`'s
   ambiguous-pool tiebreak/blank-render follow-ups, the dangling-internal-
   reference corpus scan (`CLEANUP_TODO.md` #2), `CLEANUP_TODO.md` #1's
@@ -246,4 +262,14 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   out of `export_materials.cpp` in an earlier session) still owns every
   texture-candidate-resolution helper in the real C++ pipeline — check
   there first, not `export_materials.cpp`, if a texture-resolution doc/
-  comment citation looks stale.
+  comment citation looks stale. Any DB2 code that checks
+  `section.header.tactKeyHash != 0` directly to decide whether a section
+  is readable is checking the wrong thing — use
+  `db2::Section::recordsAvailable()` instead (`db2.hpp`); a nonzero
+  `tactKeyHash` means the section *would* be TACT-key-gated if the key
+  were missing at extraction time, not that husk's own bytes are still
+  ciphertext, and a real CASC extraction usually already decrypts these
+  before the file reaches disk (111/126 real cases this session). husk
+  has no TACT key store and no Salsa20 implementation, deliberately —
+  don't add one; the actual bug this session was husk ignoring data it
+  already had, not a missing crypto feature.

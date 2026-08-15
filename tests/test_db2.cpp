@@ -750,6 +750,244 @@ TEST_CASE("db2::parse decodes a relationship map with no offset map involved") {
     CHECK(section.relationshipEntries[1].recordIndexOrId == 7);
 }
 
+// Section::recordsAvailable()'s real-world case, confirmed against a real
+// 2026-08-16 CASC re-extraction (see db2.hpp's own comment on that
+// method): `tact_key_hash != 0` means the section *would* be TACT-key-
+// gated if the key were missing at extraction time, not that husk's own
+// bytes are still ciphertext -- a real extraction pipeline (CascLib, given
+// the key) already decrypts these before the file lands on disk in the
+// overwhelming majority of real cases. One section, tactKeyHash set to a
+// real-looking nonzero value, but record bytes filled with real
+// (non-zero) data -- husk must read it exactly like an ordinary section,
+// not skip it. Includes the encrypted_status block (DB2.md's WDC4+
+// section) db2::parse expects immediately before section bodies whenever
+// any section has a nonzero tactKeyHash, encryptedIdCount=0 (simplest
+// valid case, no encrypted IDs listed).
+TEST_CASE("db2::parse reads a TACT-key-gated section normally when its bytes are already decrypted") {
+    uint32_t recordCount = 1;
+    size_t recordSize = 8;
+    size_t stringTableSize = 1;
+    size_t encryptedStatusSize = 4;  // encryptedIdCount(u32)=0, no ids
+    size_t sectionFileOffset = kHeaderSize + kSectionHeaderSize + 2 * kFieldStructureSize +
+                                2 * kFieldStorageInfoSize + encryptedStatusSize;
+    size_t total = sectionFileOffset + recordCount * recordSize + stringTableSize;
+
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, 2); p += 4;  // fieldCount
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // tableHash
+    putU32(buf, p, 0); p += 4;  // layoutHash
+    putU32(buf, p, 1); p += 4;  // minId
+    putU32(buf, p, recordCount); p += 4;  // maxId
+    putU32(buf, p, 0); p += 4;  // locale
+    putU16(buf, p, 0); p += 2;  // flags
+    putU16(buf, p, 0); p += 2;  // idIndex
+    putU32(buf, p, 2); p += 4;  // totalFieldCount
+    putU32(buf, p, 0); p += 4;  // bitpackedDataOffset
+    putU32(buf, p, 0); p += 4;  // lookupColumnCount
+    putU32(buf, p, 2 * kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;  // commonDataSize
+    putU32(buf, p, 0); p += 4;  // palletDataSize
+    putU32(buf, p, 1); p += 4;  // sectionCount
+    CHECK(p == kHeaderSize);
+
+    putU64(buf, p, 0x2555AE20C2538D36ULL); p += 8;  // tactKeyHash -- real-looking, nonzero
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // offsetRecordsEnd
+    putU32(buf, p, 0); p += 4;  // idListSize
+    putU32(buf, p, 0); p += 4;  // relationshipDataSize
+    putU32(buf, p, 0); p += 4;  // offsetMapIdCount
+    putU32(buf, p, 0); p += 4;  // copyTableCount
+    CHECK(p == kHeaderSize + kSectionHeaderSize);
+
+    for (int i = 0; i < 2; ++i) { putU16(buf, p, 0); p += 2; putU16(buf, p, static_cast<uint16_t>(i * 4)); p += 2; }
+    for (int i = 0; i < 2; ++i) {
+        putU16(buf, p, static_cast<uint16_t>(i * 32)); p += 2;
+        putU16(buf, p, 32); p += 2;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;  // storageType = None
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+    }
+    CHECK(p == kHeaderSize + kSectionHeaderSize + 2 * kFieldStructureSize + 2 * kFieldStorageInfoSize);
+
+    putU32(buf, p, 0); p += 4;  // encrypted_status.encrypted_id_count -- 0 ids
+    CHECK(p == sectionFileOffset);
+
+    putU32(buf, p, 42); p += 4;   // field 0: real, non-zero data
+    putU32(buf, p, 4200); p += 4;  // field 1
+    CHECK(p == total - stringTableSize);
+
+    auto file = husk::db2::parse(buf);
+    const husk::db2::Section& section = file.sections[0];
+    CHECK(section.header.tactKeyHash != 0);
+    CHECK(section.recordsAvailable());
+    REQUIRE(section.recordBytes.size() == recordSize);
+    auto field0 = husk::db2::decodeField(file, section, 0, 0);
+    auto field1 = husk::db2::decodeField(file, section, 0, 1);
+    REQUIRE(field0.size() == 1);
+    REQUIRE(field1.size() == 1);
+    CHECK(field0[0] == 42);
+    CHECK(field1[0] == 4200);
+}
+
+// Same shape, but the section's actual bytes are genuinely all-zero (the
+// real signal a real CASC extraction uses to mean "key was unavailable" --
+// db2.hpp's recordsAvailable() comment) -- must stay unavailable, matching
+// the pre-fix behavior for the cases where a key really is missing.
+TEST_CASE("db2::Section::recordsAvailable is false for a genuinely all-zero encrypted section") {
+    uint32_t recordCount = 1;
+    size_t recordSize = 8;
+    size_t stringTableSize = 1;
+    size_t encryptedStatusSize = 4;
+    size_t sectionFileOffset = kHeaderSize + kSectionHeaderSize + 2 * kFieldStructureSize +
+                                2 * kFieldStorageInfoSize + encryptedStatusSize;
+    size_t total = sectionFileOffset + recordCount * recordSize + stringTableSize;
+
+    std::vector<uint8_t> buf(total, 0);  // stays all-zero: record bytes never written
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, 2); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 1); p += 4;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU16(buf, p, 0); p += 2;
+    putU16(buf, p, 0); p += 2;
+    putU32(buf, p, 2); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 2 * kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 1); p += 4;
+    CHECK(p == kHeaderSize);
+
+    putU64(buf, p, 0x2555AE20C2538D36ULL); p += 8;
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    CHECK(p == kHeaderSize + kSectionHeaderSize);
+
+    for (int i = 0; i < 2; ++i) { putU16(buf, p, 0); p += 2; putU16(buf, p, static_cast<uint16_t>(i * 4)); p += 2; }
+    for (int i = 0; i < 2; ++i) {
+        putU16(buf, p, static_cast<uint16_t>(i * 32)); p += 2;
+        putU16(buf, p, 32); p += 2;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+    }
+    putU32(buf, p, 0); p += 4;  // encrypted_status.encrypted_id_count
+    CHECK(p == sectionFileOffset);
+    // record bytes + string block left all-zero, matching the real
+    // "key was unavailable at extraction time" signal.
+
+    auto file = husk::db2::parse(buf);
+    const husk::db2::Section& section = file.sections[0];
+    CHECK(section.header.tactKeyHash != 0);
+    CHECK_FALSE(section.recordsAvailable());
+}
+
+// A relationshipMap region that reads as all-zero (a genuinely missing/
+// truncated chunk, the same real-world shape recordsAvailable() handles
+// for record bytes -- see db2.cpp's own comment at the read site) must
+// degrade to "no relationship data" rather than throwing ParseError and
+// losing the rest of the file over one missing region.
+TEST_CASE("db2::parse treats an all-zero relationshipMap region as unavailable, not corrupt") {
+    uint32_t recordCount = 1;
+    size_t recordSize = 8;
+    size_t stringTableSize = 1;
+    uint32_t numEntries = 2;
+    size_t relationshipMapSize = 12 + static_cast<size_t>(numEntries) * 8;
+    size_t sectionFileOffset =
+        kHeaderSize + kSectionHeaderSize + 2 * kFieldStructureSize + 2 * kFieldStorageInfoSize;
+    size_t total = sectionFileOffset + recordCount * recordSize + stringTableSize + relationshipMapSize;
+
+    std::vector<uint8_t> buf(total, 0);  // relationshipMap region stays all-zero
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, 2); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 1); p += 4;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU16(buf, p, 0x02); p += 2;  // flags: has relationship data
+    putU16(buf, p, 0); p += 2;
+    putU32(buf, p, 2); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 2 * kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 1); p += 4;
+    CHECK(p == kHeaderSize);
+
+    putU64(buf, p, 0); p += 8;  // tactKeyHash -- not the cause here, distinct from recordsAvailable
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;
+    putU32(buf, p, recordCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(relationshipMapSize)); p += 4;  // relationshipDataSize
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    CHECK(p == kHeaderSize + kSectionHeaderSize);
+
+    for (int i = 0; i < 2; ++i) { putU16(buf, p, 0); p += 2; putU16(buf, p, static_cast<uint16_t>(i * 4)); p += 2; }
+    for (int i = 0; i < 2; ++i) {
+        putU16(buf, p, static_cast<uint16_t>(i * 32)); p += 2;
+        putU16(buf, p, 32); p += 2;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+    }
+    CHECK(p == sectionFileOffset);
+
+    for (uint32_t r = 0; r < recordCount; ++r) {
+        putU32(buf, p, r + 1); p += 4;
+        putU32(buf, p, (r + 1) * 100); p += 4;
+    }
+    p += stringTableSize;
+    p += relationshipMapSize;  // left all-zero: numEntries/minId/maxId/entries all read as 0
+    CHECK(p == total);
+
+    auto file = husk::db2::parse(buf);  // must not throw
+    const husk::db2::Section& section = file.sections[0];
+    CHECK(section.relationshipEntries.empty());
+    CHECK(section.relationshipMinId == 0);
+    CHECK(section.relationshipMaxId == 0);
+}
+
 // DB2.md's WDC5 struct pseudocode: "if flag 0x02 is set offset_map_id_list
 // will appear before relationship_map instead" -- real for the only local
 // fixtures with both bits set (Collectable*Sparse tables, see

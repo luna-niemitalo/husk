@@ -102,7 +102,7 @@ std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& pat
 
     std::vector<ColumnValues> rows;
     for (db2::Section& section : file.sections) {
-        if (section.header.tactKeyHash != 0) continue;
+        if (!section.recordsAvailable()) continue;
         if (!section.offsetMap.empty()) continue;
 
         bool needsRelation = std::any_of(resolutions.begin(), resolutions.end(),

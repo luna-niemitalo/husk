@@ -319,28 +319,49 @@ File parse(const std::vector<uint8_t>& buf) {
 
         if (section.header.relationshipDataSize > 0) {
             size_t relationshipEnd = sectionPos + section.header.relationshipDataSize;
-            uint32_t numEntries = readU32(buf, sectionPos, "section.relationshipMap.numEntries");
-            sectionPos += 4;
-            section.relationshipMinId = readU32(buf, sectionPos, "section.relationshipMap.minId");
-            sectionPos += 4;
-            section.relationshipMaxId = readU32(buf, sectionPos, "section.relationshipMap.maxId");
-            sectionPos += 4;
-            section.relationshipEntries.reserve(numEntries);
-            for (uint32_t j = 0; j < numEntries; ++j) {
-                RelationshipEntry e;
-                e.foreignId = readU32(buf, sectionPos, "section.relationshipMap.entry.foreignId");
+            requireBytes(sectionPos, section.header.relationshipDataSize, buf.size(),
+                         "section.relationshipMap");
+            // Same real-world shape as Section::recordsAvailable() above: a
+            // region that genuinely wasn't extracted (a truncated download
+            // patched back to the declared file size with zero bytes,
+            // confirmed 2026-08-16 against a real casc-tool re-extraction --
+            // see recordsAvailable()'s own comment) reads as all-zero here
+            // too, and "declares 140 bytes, decoded 0 real entries" is a
+            // legitimate "this data isn't here" signal, not a corrupt-file
+            // signal -- degrade gracefully (empty relationshipEntries, keep
+            // reading the rest of the section) instead of throwing and
+            // losing every other section in the file over one missing
+            // region. A genuinely inconsistent *non-zero* region still
+            // throws below -- that's real corruption, not missing data.
+            bool relationshipRegionAllZero =
+                std::all_of(buf.begin() + sectionPos, buf.begin() + relationshipEnd,
+                            [](uint8_t b) { return b == 0; });
+            if (relationshipRegionAllZero) {
+                sectionPos = relationshipEnd;
+            } else {
+                uint32_t numEntries = readU32(buf, sectionPos, "section.relationshipMap.numEntries");
                 sectionPos += 4;
-                e.recordIndexOrId =
-                    readU32(buf, sectionPos, "section.relationshipMap.entry.recordIndexOrId");
+                section.relationshipMinId = readU32(buf, sectionPos, "section.relationshipMap.minId");
                 sectionPos += 4;
-                section.relationshipEntries.push_back(e);
-            }
-            if (sectionPos != relationshipEnd) {
-                throw ParseError("db2: section.relationshipMap decoded to " +
-                                  std::to_string(sectionPos - (relationshipEnd -
-                                                                section.header.relationshipDataSize)) +
-                                  " bytes, but header declares relationshipDataSize=" +
-                                  std::to_string(section.header.relationshipDataSize));
+                section.relationshipMaxId = readU32(buf, sectionPos, "section.relationshipMap.maxId");
+                sectionPos += 4;
+                section.relationshipEntries.reserve(numEntries);
+                for (uint32_t j = 0; j < numEntries; ++j) {
+                    RelationshipEntry e;
+                    e.foreignId = readU32(buf, sectionPos, "section.relationshipMap.entry.foreignId");
+                    sectionPos += 4;
+                    e.recordIndexOrId =
+                        readU32(buf, sectionPos, "section.relationshipMap.entry.recordIndexOrId");
+                    sectionPos += 4;
+                    section.relationshipEntries.push_back(e);
+                }
+                if (sectionPos != relationshipEnd) {
+                    throw ParseError("db2: section.relationshipMap decoded to " +
+                                      std::to_string(sectionPos - (relationshipEnd -
+                                                                    section.header.relationshipDataSize)) +
+                                      " bytes, but header declares relationshipDataSize=" +
+                                      std::to_string(section.header.relationshipDataSize));
+                }
             }
         }
 

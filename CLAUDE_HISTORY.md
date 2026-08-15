@@ -120,6 +120,48 @@ let a human pick" pattern, same shape as its geoset dropdown — but
 recommended trying the cheap re-extraction fix first, since it likely
 closes most of the gap on its own).
 
+**Same session, continued: the "needs an updated TACT key" diagnosis
+above was wrong — real root cause found and fixed, no crypto needed.**
+Direct request to explore further ("the key is known and public, this
+is a husk-side gap"). Cloned `reference/DBCD` (wowdev's own C# DB2
+reader) to check for a reference decrypt implementation — found neither
+it nor `reference/wow.export`'s `WDCReader.js` implements DB2-internal
+Salsa20 decryption at all; both just check whether a `tact_key_hash`-
+bearing section's bytes are all-zero and skip only if so. That was the
+real clue: checked every real encrypted-flagged section in the local
+corpus (126 total) and found **111 were already non-zero, readable
+plaintext** — a real CASC extraction (CascLib, given the community TACT
+key) already decrypts these sections before the file lands on disk; only
+15 (all inside the one already-truncated `ItemDisplayInfo.db2`) were
+genuinely still all-zero. husk's own `db2.cpp` had a real bug: it
+treated `tact_key_hash != 0` as "opaque, unreadable" unconditionally,
+never checking whether the bytes it actually had were still ciphertext.
+Real Salsa20 spent before landing on this: ported CascLib's own
+`CascDecrypt.cpp` implementation to Python, cross-verified byte-for-byte
+against `pycryptodome` (installed into `tools/venv` via `uv pip install`,
+no flake change needed) to rule out a primitive bug, tried five IV-
+derivation hypotheses against a real 32KB encrypted payload — all ruled
+out, which is what motivated checking the reference implementations
+instead of continuing to guess blind. Fixed at the real root instead:
+`db2::Section::recordsAvailable()` (`db2.hpp`) is now the one canonical
+"can I actually read this section" check, replacing four separate
+`tactKeyHash != 0` skip sites across `db2.cpp`/`db2table.cpp`/
+`cmd_db2.cpp`. A second, same-shape bug found alongside it: a
+`relationshipMap` region that reads as all-zero used to throw
+`ParseError` and abort the *whole file's* read over one missing region;
+now degrades to "no relationship data for this section" instead. Both
+covered by new synthetic-buffer regression tests in `tests/test_db2.cpp`
+(637 cases now, was 634, all passing). Verified against real data:
+`CharComponentTextureLayouts.db2` now exports all 5 real rows (was 4);
+the full corpus DB2 batch export gained 446,719 rows it was silently
+dropping before (798 tables now populated, was 795); casc-tool
+independently confirmed and fixed the separate `ItemDisplayInfo*`
+truncation via a zero-pad-to-declared-size workaround the same session,
+closing that half of the gap too — both real blockers behind
+`CHAR_TEXTURE_COMPOSITING_TODO.md`'s DB2 investigation are now fixed.
+`CHAR_TEXTURE_COMPOSITING_TODO.md` rewritten to reflect the corrected,
+resolved outcome rather than the wrong initial diagnosis.
+
 **2026-08-15, new session, Mod/Mod2x multiply-blend compositing implemented**:
 Picked up `TODO/MOD_BLEND_COMPOSITING_TODO.md` where the prior session left
 off (technique confirmed, formula not yet designed) and implemented

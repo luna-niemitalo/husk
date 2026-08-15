@@ -207,47 +207,64 @@ isn't a one-off, it's a recurring property of this specific local
 extraction.
 
 **A second, distinct DB2 gap found investigating a related but separate
-question (2026-08-16): why can't husk fill in item/objectcomponents'
-`object_skin` replaceable texture slots (`unfillable_texture_task.py`'s
-`replaceable_only` bucket, 4,733 real corpus files) given `--db2-dir`
-access already exists?** Checked with real tooling
-(`husk db2-export --dir dbfilesclient/ out.sqlite --dbd-dir
-reference/WoWDBDefs`, not assumed) rather than taken on faith --
-`ItemDisplayInfo.db2`/`ItemDisplayInfoMaterialRes.db2`/
-`ItemDisplayInfoModelMatRes.db2` (the chain that maps an item's own
-FileDataID to its real per-race/gender texture, distinct from the
-`ChrCustomizationOption` chain above) are **not** 0 bytes -- multi-
-megabyte files that are genuinely present -- but every one of them is
-**truncated a few dozen bytes short of a complete final record**
-(`husk db2-export`'s own real error: `db2: truncated section.records:
-need 135 bytes at offset 2528913, buffer is 2528913 bytes`, and
-similarly 64/20 bytes short on the other two). A different failure mode
-than the 0-byte tables above -- this reads as an interrupted download/
-extraction, not missing/unavailable data, and is very likely fixable by
-a small, targeted re-extraction of just these 3 files (same class of ask
-already made once this session for the missing-texture FileDataID gap,
-and far cheaper than a full re-extraction). `CharComponentTextureLayouts.
-db2` is a third, harder case: it parses without error but yields only 4
-real rows against a real game roster of several dozen race/gender
-layouts, because `husk db2-export` reports skipping a **TACT-encrypted
-section** in that specific file -- re-extraction alone won't fix this
-one; it needs an up-to-date TACT decryption key covering that section,
-which may or may not be available to `casc-tool`.
+question (2026-08-16, now fully resolved): why can't husk fill in
+item/objectcomponents' `object_skin` replaceable texture slots
+(`unfillable_texture_task.py`'s `replaceable_only` bucket, 4,733 real
+corpus files) given `--db2-dir` access already exists?** Checked with
+real tooling (`husk db2-export --dir dbfilesclient/ out.sqlite --dbd-dir
+reference/WoWDBDefs`, not assumed) rather than taken on faith. Two real,
+independent gaps, both closed this session:
 
-**Recommendation for whoever picks this up**: report the 3 truncated
-`ItemDisplayInfo*` files to the casc-tool project first (likely closes
-most of the 4,733-file gap on its own, low effort); re-check
-`CharComponentTextureLayouts`' encrypted-section coverage after that
-re-extraction (key lists get updated independently of any one
-extraction run, so this may resolve on its own later); only then is
-Stage 5's Blender-side picker (below) worth building specifically for
-this gap -- it's the right shape for whatever residual ambiguity survives
-a good-faith re-extraction (same "expose every real candidate, let a
-human pick" pattern `tools/husk_blender_geoset_mask.py`'s geoset dropdown
-already established for a structurally identical problem: husk knows
-every real option but has no way to pick the one right one on its own),
-not a substitute for fixing the underlying corrupt/incomplete local data
-first.
+1. `ItemDisplayInfo.db2`/`ItemDisplayInfoMaterialRes.db2`/
+   `ItemDisplayInfoModelMatRes.db2` (the chain that maps an item's own
+   FileDataID to its real per-race/gender texture) were each truncated a
+   few dozen bytes short of a complete final record -- a real casc-tool
+   extraction bug (an interrupted download), not missing data. Reported
+   and fixed upstream: casc-tool re-extracted all three to their full
+   real size (byte-for-byte match against `CascGetFileInfo`'s own
+   `ContentSize`), zero-padding only the genuinely-still-encrypted
+   ~0.1-0.2% and warning about it explicitly.
+2. `CharComponentTextureLayouts.db2` looked like a *third*, harder case
+   at first -- `husk db2-export` reported skipping a TACT-encrypted
+   section, and the obvious read was "needs an up-to-date decryption
+   key." **That diagnosis was wrong.** Direct investigation (a real
+   Salsa20 port cross-verified against pycryptodome, several IV-
+   derivation hypotheses tried and ruled out against a large, human-
+   readable validation payload, then a check against `reference/wow.export`'s
+   own `WDCReader.js` and `reference/DBCD`'s `WDC5Reader.cs`) found
+   neither community reference tool implements DB2-internal Salsa20
+   decryption *at all* -- both just check whether a `tact_key_hash`-
+   bearing section's bytes are all-zero, and skip only if so. Checking
+   husk's own local corpus confirmed why: of 126 real encrypted-flagged
+   sections found, **111 were already non-zero, readable plaintext** --
+   a real CASC extraction (via CascLib, given the community TACT key)
+   already decrypts these sections before the file is written to disk;
+   only 15 (all inside the one already-truncated `ItemDisplayInfo.db2`
+   above) were genuinely still all-zero. husk's own `db2.cpp` had a real
+   bug: it treated `tact_key_hash != 0` as "opaque, unreadable" *always*,
+   never checking whether the bytes it actually had were still
+   ciphertext. Fixed (`db2::Section::recordsAvailable()`, `db2.hpp`) --
+   no TACT key store or Salsa20 implementation needed in husk at all.
+   Verified end to end: `CharComponentTextureLayouts.db2` now exports all
+   5 real rows (was 4), the full corpus DB2 batch export gained 446,719
+   rows it was silently dropping before. A second, same-shape bug found
+   and fixed alongside it: a `relationshipMap` region that reads as
+   all-zero (the same "genuinely missing, not corrupt" signal) used to
+   throw `ParseError` and abort the whole file's read; now degrades to
+   "no relationship data for this section" instead, matching
+   `recordsAvailable()`'s own reasoning. Both covered by real synthetic-
+   buffer regression tests in `tests/test_db2.cpp`.
+
+**Net effect**: both real blockers behind the `replaceable_only` gap
+this TODO entry started from are now fixed. Re-scanning with
+`unfillable_texture_task.py` (which does *not* consult `--db2-dir` at
+all -- it only checks local `.blp`/`.png` files) will still show the
+same 4,733 files, since that scan measures a different thing (whether a
+standalone texture file exists locally at all, which for `object_skin`
+slots it structurally never will). The real payoff of this fix is for
+`husk export --db2-dir/--dbd-dir/--char-layout-id` and Stage 2 below,
+which can now actually read `CharComponentTextureLayouts`/`ChrModel*`
+data that used to come back empty.
 
 A new, real file-format parser (`src/db2.hpp`/`.cpp`, matching the
 existing `src/m2.cpp`/`src/skin.cpp` split-by-format convention) for the

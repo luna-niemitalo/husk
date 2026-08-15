@@ -159,8 +159,15 @@ void printSections(const db2::File& file) {
         std::cout << "  section " << i << ": " << s.header.recordCount << " records at file offset 0x"
                    << std::hex << s.header.fileOffset << std::dec;
         if (s.header.tactKeyHash != 0) {
-            std::cout << "  [ENCRYPTED, tact_key_hash=0x" << std::hex << s.header.tactKeyHash
-                       << std::dec << ", record bytes unreadable without the TACT key]";
+            if (s.recordsAvailable()) {
+                std::cout << "  [TACT-key-gated, tact_key_hash=0x" << std::hex << s.header.tactKeyHash
+                           << std::dec << ", but already decrypted by the real CASC extraction -- "
+                              "record bytes readable]";
+            } else {
+                std::cout << "  [ENCRYPTED, tact_key_hash=0x" << std::hex << s.header.tactKeyHash
+                           << std::dec << ", record bytes still all-zero -- genuinely unreadable, "
+                              "the key was unavailable when this file was extracted]";
+            }
         }
         if (!s.offsetMap.empty()) {
             std::cout << "  (offset-map/sparse -- per-field decode via a sequential bit cursor, see "
@@ -206,12 +213,12 @@ void printFields(const db2::File& file) {
 void printRows(const db2::File& file, const std::vector<uint8_t>& fileBytes, size_t rowLimit) {
     const db2::Section* section = nullptr;
     for (const db2::Section& s : file.sections) {
-        if (s.header.tactKeyHash != 0) continue;  // encrypted, unreadable
+        if (!s.recordsAvailable()) continue;
         section = &s;
         break;
     }
     if (!section) {
-        std::cout << "  (no section with decodable records -- every section is encrypted)\n";
+        std::cout << "  (no section with decodable records -- every section is genuinely still encrypted)\n";
         return;
     }
 
@@ -381,7 +388,7 @@ std::optional<LoadedFile> loadOneFile(const std::string& path, const std::string
 
     for (size_t i = 0; i < lf.file.sections.size(); ++i) {
         const db2::Section& s = lf.file.sections[i];
-        if (s.header.tactKeyHash != 0) {
+        if (!s.recordsAvailable()) {
             ++lf.skippedEncrypted;
             continue;
         }
