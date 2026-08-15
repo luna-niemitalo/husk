@@ -171,120 +171,79 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: New session, three independent TODO items implemented
-  (ranked by impact first, per direct request). One new corpus-scan task,
-  `tools/corpus_scan_tasks/shader_names_task.py` (ports `husk::m2::
-  resolveShaderNames` into Python), answered both `MULTI_TEXTURE_LAYER_
-  TODO.md` step 0 and `PIXEL_SHADER_FORMULAS_TODO.md` step 1 in one run
-  against the full local corpus (287,005 `.skin` files): env-map
-  (`_Env`-bearing vertex shader) frequency is **41.33%** of real batches
-  (was assumed rare at "3 files"), and **14/17** wowdev.wiki-undocumented
-  `Combiners_*` pixel shaders have real corpus repros (some with 15,000+
-  files) — both TODO files and `TODO/README.md` updated with the real
-  numbers, no husk source touched. Third item, `RENDER_QUALITY_TODO.md`'s
-  Mod/Mod2x blend modes: confirmed no material-shader-graph trick exists
-  (queried Blender 5.1.1 directly — no framebuffer-read node in either
-  engine), then confirmed the Compositor can do it via Cryptomatte's
-  per-material matte combined with ordinary `Add`/`Multiply` compositor
-  math on a single render — verified interactively in Blender by Luna
-  directly. A real quoting bug in `Cryptomatte.matte_id` found and fixed
-  along the way (wants plain comma-separated material names, no quotes).
-  One real EEVEE Next Cryptomatte bug found, root-caused, and fixed: the
-  `Matte` output is pure black whenever `surface_render_method ==
-  'BLENDED'` — and setting `blend_method = 'BLEND'` (what every real
-  Mod/Mod2x material needs) silently flips that from Blender's own
-  default (`DITHERED`) as an undocumented side effect, so it looked
-  unconditionally broken until Luna's own interactive test (a working
-  node graph, `Render Method: Dithered` visible in her screenshot)
-  contradicted this session's own scripted tests and pointed at the real
-  cause. Fix: re-assert `surface_render_method = 'DITHERED'` after
-  setting `blend_method` — verified this makes EEVEE match Cycles exactly.
-  No engine restriction needed for this feature after all.
-  Implementation now done and verified:
-  `apply_multiply_blend_compositing(scene, materials)` in
-  `tools/husk_blender_geoset_mask.py`, called from both `render_glb.py`'s
-  `main()` and the interactive script's own `main()`. Real design pivot
-  from this doc entry's own earlier plan: headless testing found
-  Cryptomatte's `Image` output does *not* cleanly recover a fully-occluded
-  background (it reads back a blend of both layers, confirmed both
-  engines) — abandoned that "reconstruct dest" framing entirely per
-  direct correction (real WoW Mod/Mod2x blend factors, confirmed against
-  the GL spec, don't even read alpha), and instead darkens the scene's own
-  already-composited beauty pixel directly, gated by each material's own
-  Cryptomatte Matte, no second render. Verified headlessly against a
-  synthetic scene (both engines, alpha=1 and alpha=0.5) and against two
-  real corpus files end-to-end through the full `render_glb.py` pipeline:
-  `creature/crab2alliance/crab2alliance.m2` (Mod, textured) and
-  `creature/rockflayer/rockflayercrystal.m2` (Mod2x, untextured), both
-  animated renders, no errors. `TODO/MOD_BLEND_COMPOSITING_TODO.md`
-  updated to close out — nothing left open there. Same session, three more
-  tasks run in parallel (one background investigation agent + two direct
-  implementations, per explicit steer once the first three landed): (1)
-  `tools/live_gallery`'s three.js viewer gained real skeletal animation
-  playback, a JS port of the Blender-side texture-transform/tint/fade
-  curve-eval logic, mesh/material picking, and lighting sliders —
-  structurally verified, not yet seen in an actual browser (no headless
-  browser available here); `ANIMATED_TEXTURE_EFFECTS_TODO.md` trimmed back
-  to a real punch list per direct correction (it had accumulated a
-  Background narrative, which is `CLAUDE_HISTORY.md`'s job). (2) A
-  background agent investigated `PIXEL_SHADER_FORMULAS_TODO.md`
-  (explicitly told not to trust wowdev.wiki uncritically) — resolved the
-  known factor-of-2 wiki/wow.export discrepancy in wow.export's favor via
-  a second independent wowdev.wiki page, found real internal
-  inconsistencies in wow.export itself (a shaderId table mismatch between
-  its own two code paths; a real bug where every additive combiner term is
-  computed but never actually rendered), and produced comparison renders
-  in `example_exports/` (gitignored). Real-client screenshot verification
-  was considered and explicitly declined — `live_gallery`'s fast pass/fail
-  review flow plus Luna's own decade-plus WoW familiarity is the actual
-  verification mechanism this project uses, not a live-client roundtrip.
-  (3) `MULTI_TEXTURE_LAYER_TODO.md` step 4 implemented directly in
-  parallel with (2): `fix_multi_texture_layers()` (`render_glb.py`), 19
-  real `Combiners_*` formulas as node-graph builders plus the env-map UV
-  recipe, with several formulas deliberately excluded (unresolved tint
-  inputs, no formula at all, wow.export/wiki table mismatches) rather than
-  guessed at. Verified via a synthetic two-texture test material (confirms
-  the node graph builds/renders) — **real corpus end-to-end coverage still
-  open**, every real file checked this session either had its shading
-  already owned by the additive fixup or an unembeddable 2nd texture
-  layer. Full narrative for all three: `CLAUDE_HISTORY.md`'s 2026-08-15
-  entry's second half.
-- **Next step**: No hard blocker. `MULTI_TEXTURE_LAYER_TODO.md`'s own
-  step 5 (find a real corpus file that actually exercises
-  `fix_multi_texture_layers()`'s combiner-math path end-to-end, not just
-  the synthetic test) is the most concrete unfinished thread from this
-  session. Otherwise: `RENDER_QUALITY_TODO.md`'s ambiguous-pool tiebreak/
-  blank-render follow-ups, the dangling-internal-reference corpus scan
-  (`CLEANUP_TODO.md` #2, not yet designed as a `ScanTask`), or the rest of
-  `CLEANUP_TODO.md` #1's comment-hygiene sweep (only 7 files audited so
-  far, out of all of `src/`). Two items explicitly need a design pass
-  before touching code, not more investigation:
-  `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (fuzzy reference-skeleton
-  matching, an ambiguity policy, a new Rigify dependency) and
-  `CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 3 (genuinely blocked on a
-  `casc-tool` re-extraction — several required DB2 tables are 0-byte
-  locally, not a code gap) — flag these to Luna rather than guessing at
-  the shape.
-- **Hazards**: `export_texture_resolution.hpp`/`.cpp` (new, split out of
-  `export_materials.cpp` this session) now owns every texture-candidate-
-  resolution helper (`readTextureFileBytes`/`resolveTextureBytes`/
-  `alphaModeForBlend`/the three `resolveAnimated*Curve` functions/the
-  `FuzzyTexturePool` machinery/`materialDedupKey`) — `export_materials.cpp`
-  itself is down to `scanDirOrWarn` + `buildMaterialsAndPrimitives` only.
-  If a doc/comment ever cites one of the moved functions as living in
-  `export_materials.cpp`, that's stale; check
-  `src/export_texture_resolution.hpp` first. `tools/husk_blender_geoset_
-  mask.py`'s new `_debug_marker_collection()` (a "Husk Debug Markers"
-  collection, `hide_render`/`hide_viewport` both set) is the established
-  pattern for any future debug-only Blender object this script creates —
-  reuse it rather than linking into the active collection directly, the
-  mistake the first version of `apply_emitter_markers` made before a
-  direct follow-up request caught it. A real, external, not-husk's-bug
-  incompatibility exists between husk's own spec-correct zero-image glTF
-  output (omits the `"images"` key entirely, the *only* glTF-2.0-valid
-  shape when there are none) and at least one self-built Blender dev
-  branch's `io_scene_gltf2` importer (`blender_gltf.py`'s `len(gltf.data.
-  images)` has no `None`-guard) — the project's own pinned flake Blender
-  (5.1.1) doesn't have this bug; if it resurfaces, it's that specific
-  Blender build, not a regression in husk's output (confirmed via
-  `gltf_validator`, which rejects the only alternative shape as invalid).
+- **Current state**: New session (2026-08-16). Started from a direct
+  observation during a full-corpus render ("most objectcomponents meshes
+  don't have textures") and ended up rebuilding a chunk of the corpus
+  scan/render tooling. Root cause: item/objectcomponents/collections-style
+  body-fitted armor uses a `type=2` ("object_skin") replaceable texture
+  slot filled by the live client from CharComponentTextureLayoutsID/
+  ItemDisplayInfo DB2 data at runtime, not a standalone file. Built
+  `tools/corpus_scan_tasks/unfillable_texture_task.py` to quantify this,
+  with two real corrections along the way (a `husk export`-per-file first
+  version turned a ~10-minute scan into a multi-hour one, rewritten to
+  `husk info`-only; `BATCH_SIZE=8` copied unmeasured from another task
+  amplified `AdaptiveConcurrency` backoffs via a real `Path.glob()` cost
+  against the corpus's largest directory — root-caused, fixed, then
+  `BATCH_SIZE=8` re-benchmarked as genuinely fine once the real bottleneck
+  was gone). First full scan: 107,737/130,576 flagged, 103,004 with a
+  real missing FileDataID. Handed that 18,747-ID list to the casc-tool
+  project; they extracted 18,742/18,747 (5 confirmed unrecoverable) under
+  real listfile-resolved paths. Rescanning came back byte-identical —
+  found and fixed a real bug: the scan had silently dropped husk's
+  `--listfile` resolution tier (`export_materials.cpp:437-456`'s real
+  three-tier order) when rewritten away from the `husk export`-based
+  version. Fixed, rescanned: **4,891 flagged** (down from 107,737) — 158
+  real remaining extraction-gap files (18 distinct IDs), 4,733
+  structurally replaceable-only (unfixable by extraction, unchanged as
+  expected). Verified end-to-end with a real render smoke test. Rebuilt
+  the render exclusion list/CASC report from the corrected numbers and
+  built `tools/full_render.py` (fresh corpus discovery every run +
+  gitignore-style `.renderignore` for exclusion, replacing the scan-
+  result-subtraction approach that made the listfile bug's damage hard to
+  see) — `render_sample_driver.py`'s render loop factored into
+  `run_render_pipeline()` so both entry points share one tested pipeline.
+  Follow-up DB2 investigation (direct request: "explore why we can't fill
+  this given DB2 access"): real `husk db2-export` batch export confirmed
+  the item-texture chain (`ItemDisplayInfo`/`ItemDisplayInfoMaterialRes`/
+  `ItemDisplayInfoModelMatRes`) is a different, likely-easier-to-fix gap
+  than `CHAR_TEXTURE_COMPOSITING_TODO.md`'s existing 0-byte-tables note —
+  all three files are multi-megabyte and present but truncated a few
+  dozen bytes short of a complete final record (an interrupted download,
+  not missing data); `CharComponentTextureLayouts.db2` separately has a
+  skipped TACT-encrypted section (needs a key, not just a re-download).
+  Written up in `CHAR_TEXTURE_COMPOSITING_TODO.md` with a concrete
+  recommendation (try the cheap re-extraction first; Stage 5's already-
+  planned Blender-side picker, same pattern as the geoset dropdown, is
+  the right fallback for whatever residual ambiguity survives that).
+  Full narrative: `CLAUDE_HISTORY.md`'s 2026-08-16 entry.
+- **Next step**: Report the 3 truncated `ItemDisplayInfo*` files to the
+  casc-tool project (same pattern as the earlier texture re-extraction
+  ask) — likely closes most of the remaining 4,733-file replaceable-only
+  gap on its own, before any Stage 5 Blender-picker work is worth
+  starting. `tools/full_render.py` itself is ready to run
+  (`python tools/full_render.py`, or `--dry-run` first) but hasn't been
+  run to completion this session. Otherwise unchanged from before:
+  `MULTI_TEXTURE_LAYER_TODO.md`'s step 5, `RENDER_QUALITY_TODO.md`'s
+  ambiguous-pool tiebreak/blank-render follow-ups, the dangling-internal-
+  reference corpus scan (`CLEANUP_TODO.md` #2), `CLEANUP_TODO.md` #1's
+  comment-hygiene sweep, and `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (still
+  needs a design pass, not more investigation).
+- **Hazards**: `tools/corpus_scan_tasks/unfillable_texture_task.py` is
+  the one true source for "does this file's texture actually resolve" —
+  `missing_texture_task.py` (same directory) is an older, deliberately
+  simpler check that only looks for a literal `<FileDataID>.blp/.png`
+  next to the model and will over-flag anything the listfile or fuzzy
+  tiers would actually resolve; don't treat its output as authoritative
+  for exclusion decisions. Any future fast Python reimplementation of
+  husk's own resolution logic must mirror all three real tiers (literal →
+  `--listfile` → fuzzy same-basename, `export_materials.cpp:437-456`) —
+  dropping the seemingly-least-important one is exactly what caused this
+  session's core bug. `tools/full_render.py`'s `.renderignore` is now the
+  real exclusion mechanism for the render entry point; the old
+  `corpus_reports/full_corpus_file_list.textured_only.txt`-style scan-
+  result-subtraction file lists are superseded, not a second source of
+  truth to keep in sync. `export_texture_resolution.hpp`/`.cpp` (split
+  out of `export_materials.cpp` in an earlier session) still owns every
+  texture-candidate-resolution helper in the real C++ pipeline — check
+  there first, not `export_materials.cpp`, if a texture-resolution doc/
+  comment citation looks stale.

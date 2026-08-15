@@ -1041,6 +1041,52 @@ flagged as ongoing cleanup in `TODO/CLEANUP_TODO.md`):
   `data`/`bone`/`position` (the parts that place the event as a scene
   anchor) are fully parsed and exported.
 
+**A fast reimplementation of husk's own resolution logic must mirror
+every tier, not the tiers that seemed obviously relevant.** husk's real
+texture resolution (`export_materials.cpp:437-456`) has three ordered
+fallback tiers: literal `<FileDataID>.blp/.png`, a `--listfile` real-name
+lookup (resolved against the corpus root, not the model's own
+directory), then same-basename fuzzy matching. `tools/corpus_scan_tasks/
+unfillable_texture_task.py` (a Python reimplementation of this logic for
+a fast full-corpus scan, deliberately not shelling out to a real `husk
+export` per file — see that file's own docstring) was rewritten away
+from an earlier `husk export`-based version that *did* pass `--listfile`,
+and the listfile tier was silently dropped in that rewrite, never added
+back. Consequence: after a real 18,742-file CASC re-extraction landed
+texture files under their real listfile-resolved names (not renamed to
+bare FileDataIDs), the scan's flagged-file count didn't move at all —
+not because the extraction failed, but because the scan literally never
+checked the one resolution tier that extraction was fixing. Caught by
+directly tracing one sample file's real DB2/listfile chain by hand
+rather than trusting the scan's own unchanged output. The general lesson:
+a reimplementation of another system's resolution/fallback logic is only
+as correct as its *least* obviously-important tier — cutting one for
+"this scan doesn't need to be exhaustive" reasoning silently changes what
+the reimplementation actually measures, and the mismatch won't surface
+until something upstream changes in a way that specifically exercises
+the dropped tier.
+
+**`tools/full_render.py`: full-corpus discovery + a gitignore-style
+`.renderignore`, replacing a scan-result-based exclusion list.** An
+earlier approach built the render driver's file list by subtracting a
+corpus scan's flagged-file CSV from a static `full_corpus_file_list.txt`
+snapshot — correct in principle, but fragile in the way the listfile-tier
+bug above demonstrates directly: a scan bug (or a stale snapshot) quietly
+produces a wrong exclusion list with no obvious symptom until someone
+cross-checks it by hand. `tools/full_render.py` instead does a fresh
+`rglob` over the real corpus root every run (cheap — ~1-2s for the whole
+130k-file tree, confirmed by direct timing, not assumed) and applies a
+small, human-editable `.renderignore` (gitignore-style subset: directory-
+prefix and glob patterns, `/`-anchoring, no negation/`**`) for exclusion
+instead — a category-level decision a human states directly (e.g.
+`character/`, structurally DB2-dependent and confirmed as such by direct
+investigation) rather than an artifact of whatever a scan happened to
+flag on its last run. `render_sample_driver.py`'s own render loop was
+factored out into `run_render_pipeline(paths, render_dir)` so both entry
+points (the original one-path-per-line CLI, and `full_render.py`'s fresh-
+discovery-plus-ignore-file path) share the exact same tested
+concurrency/resume/logging logic — never two copies of it.
+
 ## CLI argument grammar for `export` (implemented)
 
 **Previous grammar**, for contrast (replaced, not additive — every existing

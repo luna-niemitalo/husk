@@ -206,6 +206,48 @@ housing-prefixed tables are also 0 bytes in this same local export, so this
 isn't a one-off, it's a recurring property of this specific local
 extraction.
 
+**A second, distinct DB2 gap found investigating a related but separate
+question (2026-08-16): why can't husk fill in item/objectcomponents'
+`object_skin` replaceable texture slots (`unfillable_texture_task.py`'s
+`replaceable_only` bucket, 4,733 real corpus files) given `--db2-dir`
+access already exists?** Checked with real tooling
+(`husk db2-export --dir dbfilesclient/ out.sqlite --dbd-dir
+reference/WoWDBDefs`, not assumed) rather than taken on faith --
+`ItemDisplayInfo.db2`/`ItemDisplayInfoMaterialRes.db2`/
+`ItemDisplayInfoModelMatRes.db2` (the chain that maps an item's own
+FileDataID to its real per-race/gender texture, distinct from the
+`ChrCustomizationOption` chain above) are **not** 0 bytes -- multi-
+megabyte files that are genuinely present -- but every one of them is
+**truncated a few dozen bytes short of a complete final record**
+(`husk db2-export`'s own real error: `db2: truncated section.records:
+need 135 bytes at offset 2528913, buffer is 2528913 bytes`, and
+similarly 64/20 bytes short on the other two). A different failure mode
+than the 0-byte tables above -- this reads as an interrupted download/
+extraction, not missing/unavailable data, and is very likely fixable by
+a small, targeted re-extraction of just these 3 files (same class of ask
+already made once this session for the missing-texture FileDataID gap,
+and far cheaper than a full re-extraction). `CharComponentTextureLayouts.
+db2` is a third, harder case: it parses without error but yields only 4
+real rows against a real game roster of several dozen race/gender
+layouts, because `husk db2-export` reports skipping a **TACT-encrypted
+section** in that specific file -- re-extraction alone won't fix this
+one; it needs an up-to-date TACT decryption key covering that section,
+which may or may not be available to `casc-tool`.
+
+**Recommendation for whoever picks this up**: report the 3 truncated
+`ItemDisplayInfo*` files to the casc-tool project first (likely closes
+most of the 4,733-file gap on its own, low effort); re-check
+`CharComponentTextureLayouts`' encrypted-section coverage after that
+re-extraction (key lists get updated independently of any one
+extraction run, so this may resolve on its own later); only then is
+Stage 5's Blender-side picker (below) worth building specifically for
+this gap -- it's the right shape for whatever residual ambiguity survives
+a good-faith re-extraction (same "expose every real candidate, let a
+human pick" pattern `tools/husk_blender_geoset_mask.py`'s geoset dropdown
+already established for a structurally identical problem: husk knows
+every real option but has no way to pick the one right one on its own),
+not a substitute for fixing the underlying corrupt/incomplete local data
+first.
 
 A new, real file-format parser (`src/db2.hpp`/`.cpp`, matching the
 existing `src/m2.cpp`/`src/skin.cpp` split-by-format convention) for the

@@ -14,6 +14,112 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-16, new session, objectcomponents white-render investigation →
+full-corpus unfillable-texture scan → real CASC re-extraction → render
+tooling rebuild**: Started from a direct observation ("most
+objectcomponents meshes don't have textures") during a full-corpus render.
+Investigated interactively: item/objectcomponents/collections-style body-
+fitted armor uses a `type=2` ("object_skin") replaceable texture slot with
+`file_data_id=0`, filled by the live client from CharComponentTexture
+LayoutsID/ItemDisplayInfo DB2 data at runtime, not a standalone file — of
+~15 race/gender variants of the same item, only the ones whose local CASC
+extraction happened to also dump loose, non-FileDataID-named skin-overlay
+`.blp` files resolve via husk's fuzzy same-basename fallback.
+
+Built `tools/corpus_scan_tasks/unfillable_texture_task.py` to quantify
+this across the whole corpus, with two real corrections along the way
+(both from direct, sharp feedback, not self-caught):
+
+1. First version shelled out to a real `husk export` per file for an
+   exact embedded-texture count — correct but did a full mesh/skin
+   build + image embed + `.glb` write for all 130k files, a ~10-minute
+   job turned multi-hour. Rewritten to the cheap shape (`husk info`,
+   header-only, plus a directory-listing-based fuzzy-match check
+   mirroring `export_texture_resolution.cpp`'s real logic) —
+   `missing_texture_task.py`'s own established pattern.
+2. `BATCH_SIZE=8` (copied from `missing_texture_task.py` without
+   measuring) interacted badly with `AdaptiveConcurrency`: one slow file
+   in a batch stalls its 7 siblings, so the controller sees one "slow
+   completion" gating 8x the real latency. Real incident, not
+   hypothetical: `_has_fuzzy_candidate()` called `Path.glob()` directly
+   against `item/objectcomponents/collections` (110,337 files, the
+   corpus's largest directory) at ~70ms/call — real full-run window
+   oscillation 10↔13, ~4x slowdown. Root-caused and fixed (a per-
+   directory `os.scandir` cache via `functools.lru_cache`, ~70ms once
+   per directory not once per file), then `BATCH_SIZE=8` re-benchmarked
+   as genuinely faster than `1` (0 backoffs either way) once the real
+   variance source was gone — the fix wasn't "always use batch=1," it
+   was "measure per-task before batching, and fix the actual bottleneck
+   instead of just avoiding batching." Both lessons saved to memory
+   ([[feedback_batch_size_and_hard_data]]) since they're project-general,
+   not scan-specific. `tools/CORPUS_SCANS.md` written up as a real how-
+   to/gotchas doc for the scan framework, both incidents included with
+   hard numbers.
+
+First full scan: 107,737/130,576 files flagged, 103,004 with a real
+missing FileDataID (18,747 distinct IDs), 4,733 using only replaceable
+slots (no standalone file possible). Handed the 18,747-ID list to the
+casc-tool project as a concrete re-extraction target; they built a new
+`extract-batch --from-list` feature and landed 18,742/18,747 files (3.29
+GB) under their real listfile-resolved paths (e.g. `character/draenei/
+male/draeneimaleskin.blp`), 5 confirmed genuinely unrecoverable from that
+storage.
+
+Rescanning after the extraction landed came back byte-identical to
+before — real bug, not a data problem: `unfillable_texture_task.py` had
+silently dropped husk's real listfile-resolution tier
+(`export_materials.cpp:437-456`'s three-tier order: literal FileDataID →
+`--listfile` real-name lookup → fuzzy same-basename) when it was
+rewritten away from the `husk export`-based version that *did* pass
+`--listfile` — never added back. The extraction had genuinely worked
+(confirmed directly: `armorreflect4.blp`, mtime matching the extraction
+window exactly, resolves FileDataID 1360817), the scan just never checked
+the tier that would have seen it. Fixed (added the listfile tier, ~1s
+parse cost once per worker process, negligible against a ~30s full scan)
+and reran: **4,891 flagged** (down from 107,737) — 158 real remaining
+extraction-gap files (18 distinct IDs, matching the 5 unrecoverable plus
+a handful more), 4,733 structurally replaceable-only (unchanged, as
+expected — no amount of extraction fixes those). Verified end-to-end with
+a real 3-file render smoke test: a file needing today's extraction now
+renders fully textured; a replaceable-only file correctly still renders
+partially white (expected, not a regression).
+
+Rebuilt the render exclusion list and CASC report from the corrected
+scan (125,545 files now includable, up from 22,708; 18 real missing
+FileDataIDs, not 18,747) and built `tools/full_render.py`: fresh corpus
+discovery every run (never a stale snapshot) plus a `.renderignore` file
+(gitignore-style glob patterns, unit-tested, real per-segment matching
+so `*` doesn't cross `/` the way plain `fnmatch` would) for exclusion,
+replacing the scan-result-subtraction approach that made the listfile
+bug's damage hard to see in the first place. `render_sample_driver.py`'s
+render loop factored out into `run_render_pipeline(paths, render_dir)` so
+both entry points share the exact same tested pipeline. Default
+`.renderignore`: just `character/` (confirmed structurally DB2-dependent
+for all 144 real files, same mechanism as the item object_skin gap).
+
+Follow-up investigation, same session, directly requested ("explore why
+we can't fill this given DB2 access, same as the geoset-picking
+workaround if it's table-empty"): real `husk db2-export --dir
+dbfilesclient/ out.sqlite --dbd-dir reference/WoWDBDefs` batch export
+(795 tables, 6M rows) confirmed the item-texture DB2 chain
+(`ItemDisplayInfo`/`ItemDisplayInfoMaterialRes`/`ItemDisplayInfoModelMatRes`)
+is a *different* gap than `CHAR_TEXTURE_COMPOSITING_TODO.md`'s already-
+documented 0-byte `ChrCustomizationOption` chain: all three files are
+multi-megabyte and genuinely present, but each is truncated a few dozen
+bytes short of a complete final record (husk's own real error: `db2:
+truncated section.records: need 135 bytes at offset 2528913, buffer is
+2528913 bytes`) — reads as an interrupted download, likely fixable by a
+small targeted re-extraction, not a "data doesn't exist" dead end.
+`CharComponentTextureLayouts.db2` is a third, harder case: parses clean
+but yields only 4 real rows because husk reports skipping a TACT-
+encrypted section in that file — needs an updated decryption key, not
+just a re-download. Written up in `CHAR_TEXTURE_COMPOSITING_TODO.md`
+(the file's existing Stage 5 already specs the right workaround —
+`tools/husk_blender_geoset_mask.py`'s "expose every real candidate,
+let a human pick" pattern, same shape as its geoset dropdown — but
+recommended trying the cheap re-extraction fix first, since it likely
+closes most of the gap on its own).
+
 **2026-08-15, new session, Mod/Mod2x multiply-blend compositing implemented**:
 Picked up `TODO/MOD_BLEND_COMPOSITING_TODO.md` where the prior session left
 off (technique confirmed, formula not yet designed) and implemented

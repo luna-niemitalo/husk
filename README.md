@@ -1169,6 +1169,24 @@ Explicitly not in this chain yet: WMO, M3, and anything in the
 "write"/round-trip direction (a real Blender import *addon* rather than a
 glTF file Blender happens to be able to open).
 
+## Corpus-scale tooling (`tools/`)
+
+Separate from `husk` itself: a set of Python scripts for running `husk`
+across an entire local corpus (a `casc-tool`-extracted `wow_export` tree,
+tens to hundreds of thousands of files) rather than one file at a time --
+full-corpus structural validation, targeted scans for specific gaps, and
+an end-to-end `husk export` → headless-Blender render pipeline for visual
+review. `tools/CORPUS_SCANS.md` covers the scan framework (how to run an
+existing scan, how to write a new one, and two real performance gotchas
+from real incidents, not hypothetical ones). `tools/full_render.py` runs
+the full render pipeline with fresh corpus discovery every run (never a
+stale file-list snapshot) and a `.renderignore` file at the repo root
+(gitignore-style glob patterns, e.g. `character/`) for excluding
+directories/files that are structurally out of scope rather than
+maintaining a separate, scan-result-derived exclusion list by hand --
+`direnv exec . tools/venv/bin/python tools/full_render.py` (add
+`--dry-run` to preview counts without rendering).
+
 ## Testing
 
 Same two-tier split as `casc-tool`:

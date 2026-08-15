@@ -333,19 +333,15 @@ def _write_stats(stats_path: Path, **fields) -> None:
     tmp.replace(stats_path)
 
 
-def main() -> int:
-    # Line-buffer stdout even when redirected to a file (the normal case
-    # for a backgrounded multi-hour run) -- block-buffering otherwise
-    # delays every "N done" print by minutes, which made a real, healthy
-    # run look stalled when checked against the log file directly (real
-    # progress was only visible by independently counting output images on
-    # disk). reconfigure() is a real stdlib method (Python 3.7+), not a
-    # hack -- equivalent to `python -u` but from inside the script itself,
-    # so callers don't have to remember the flag.
-    sys.stdout.reconfigure(line_buffering=True)
-
-    file_list = Path(sys.argv[1])
-    render_dir = Path(sys.argv[2])
+def run_render_pipeline(paths: list[str], render_dir: Path) -> int:
+    """The actual husk export -> Blender render loop, over an already-
+    resolved list of .m2 paths. Factored out of main() so a caller that
+    builds its own file list a different way (tools/full_render.py's
+    .renderignore-filtered full-corpus discovery, instead of this file's
+    own CLI's one-path-per-line text file) gets the exact same tested
+    pipeline -- concurrency control, resume support, live log, results
+    CSV -- not a second copy of it.
+    """
     # No manual override for this, deliberately -- the ceiling is always
     # the real machine's own core count. AdaptiveConcurrency (below) is the
     # whole point: it ramps the live window up/down against measured
@@ -361,7 +357,6 @@ def main() -> int:
     live_log = render_dir.parent / (render_dir.name + "_live.log")
     live_log.write_text("")
 
-    paths = [l.strip() for l in file_list.read_text().splitlines() if l.strip()]
     # Starting at 4 and growing by the default max_growth_step=4 per tick
     # took several minutes (multiple 30s ticks) to reach a real operating
     # point -- real, observed as "still climbing to 50% CPU a while in."
@@ -458,6 +453,23 @@ def main() -> int:
     print(f"results: {out_csv}")
     print(f"live log: {live_log}")
     return 0
+
+
+def main() -> int:
+    # Line-buffer stdout even when redirected to a file (the normal case
+    # for a backgrounded multi-hour run) -- block-buffering otherwise
+    # delays every "N done" print by minutes, which made a real, healthy
+    # run look stalled when checked against the log file directly (real
+    # progress was only visible by independently counting output images on
+    # disk). reconfigure() is a real stdlib method (Python 3.7+), not a
+    # hack -- equivalent to `python -u` but from inside the script itself,
+    # so callers don't have to remember the flag.
+    sys.stdout.reconfigure(line_buffering=True)
+
+    file_list = Path(sys.argv[1])
+    render_dir = Path(sys.argv[2])
+    paths = [l.strip() for l in file_list.read_text().splitlines() if l.strip()]
+    return run_render_pipeline(paths, render_dir)
 
 
 if __name__ == "__main__":

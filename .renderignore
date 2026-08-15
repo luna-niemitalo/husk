@@ -1,0 +1,10 @@
+# Corpus directories/patterns excluded from tools/full_render.py.
+# One gitignore-style pattern per line -- see tools/full_render.py's own
+# docstring for the exact (subset) syntax.
+
+# Character models composite their skin/hair/face textures at runtime
+# from CharComponentTextureLayoutsID/ItemDisplayInfo DB2 data -- there is
+# no standalone texture file for husk to embed, structurally, regardless
+# of what's on disk. Confirmed against all 144 real character/*.m2 files
+# in the corpus (2026-08-15/16 investigation, CLAUDE_HISTORY.md).
+character/
