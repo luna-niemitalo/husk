@@ -14,6 +14,76 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-15, new session, Mod/Mod2x multiply-blend compositing implemented**:
+Picked up `TODO/MOD_BLEND_COMPOSITING_TODO.md` where the prior session left
+off (technique confirmed, formula not yet designed) and implemented
+`apply_multiply_blend_compositing(scene, materials)` in
+`tools/husk_blender_geoset_mask.py`, wired into both `render_glb.py`'s
+`main()` and the interactive script's own `main()`.
+
+Real design churn, two dead ends corrected along the way by direct
+correction, both worth recording precisely since they contradict the
+prior session's own optimistic framing:
+
+1. First attempt tried to literally reconstruct the true occluded
+   background behind a Mod material using two complementary Cryptomatte
+   passes (`bg` materials vs `mult` materials), on the theory that a
+   BLEND-mode surface's opaque-pass G-buffer still carries the occluded
+   surface's data even though it's covered in the final beauty. Built a
+   real headless test harness (`blender --background`, synthetic two-
+   plane scene, Cryptomatte `Image`/`Matte` outputs sampled directly) to
+   verify this before trusting it. Result: at alpha=1, Cryptomatte's
+   `Matte` for the occluded material reads exactly 0 (no occlusion
+   recovery at all, confirmed both EEVEE and Cycles) — informationally
+   correct, since alpha=1 genuinely discards that data from the render.
+   At alpha=0.5, `Matte` correctly reads ~0.5 (real per-material coverage,
+   confirmed reliable), but `Image` (its color) recovers a ~50/50 blend of
+   both layers' colors, not the pure occluded background. So single-pass
+   Cryptomatte reconstruction of "what's behind" doesn't work, at either
+   alpha value, for a different reason at each.
+2. Pivoted to a two-pass render design (Holdout each layer separately,
+   composite the two static plates) to sidestep the reconstruction
+   problem entirely — directly overruled: "we do not add multiple
+   renders period." Prompted to reconsider what the real WoW blend
+   equation actually needs: checked the real GL blend factors for Mod/
+   Mod2x (`(DST_COLOR, ZERO)` / `(DST_COLOR, SRC_COLOR)`) and found alpha
+   isn't read by either blend equation at all — a fact neither of the
+   first two attempts had accounted for.
+
+Given screenshots of Luna's own working Cryptomatte compositor graph
+(Matte-driven `Mix`/`Darken` nodes applied directly to the beauty pass, no
+reconstruction, no second render), the final design: operate directly on
+the scene's own existing beauty pass (Blender's default alpha-over import
+already produces that for free), darkened by each material's own flat
+tint color (`_material_tint_color` — Base Color texture average, or the
+flat factor for untextured materials; handles both the Principled-BSDF and
+KHR_materials_unlit/Emission import shapes, same dual-path
+`fix_additive_materials` already established for modes 3/4), mixed onto
+the beauty pixel by that material's own Cryptomatte `Matte` (real
+per-material coverage, correct for partial-alpha too). Mod and Mod2x chain
+(Mod first, Mod2x reading Mod's own output) so both can coexist in one
+scene. Verified headlessly against a synthetic scene (both engines,
+alpha=1 and alpha=0.5 — output matches the hand-computed
+`mix(matte, beauty, beauty*tint*scale)` formula almost exactly), then
+against two real corpus files end-to-end through the actual
+`render_glb.py` pipeline: `creature/crab2alliance/crab2alliance.m2` (Mod,
+mode 5, textured material) and `creature/rockflayer/rockflayercrystal.m2`
+(Mod2x, mode 6, untextured material — exercises the flat-factor fallback
+path), both animated renders (19 and 27 frames), no errors, "N Mod/Mod2x
+material(s) multiply-composited" reported correctly.
+
+Known, accepted limitation carried forward in the code's own doc comment:
+for a fully opaque (alpha=1) Mod/Mod2x material, its own beauty pixel is
+already just its own color (nothing behind it survives Blender's default
+alpha-over import at alpha=1), so this darkens that color by itself rather
+than whatever's really behind it. Not byte-exact for that specific case,
+but the common real case this blend mode is used for (partial-alpha tint/
+grime/glow overlays, not full opaque replacement) is unaffected.
+`TODO/MOD_BLEND_COMPOSITING_TODO.md` updated to close out; nothing left
+open there.
+
+---
+
 **2026-08-14, new session, two corpus-scan follow-ups + one design-blocker investigation
 (user-directed: "implement the first 3" of a ranked TODO impact list)**:
 Ranked `TODO/`'s open independent items by impact, then implemented the top

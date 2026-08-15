@@ -200,21 +200,29 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   cause. Fix: re-assert `surface_render_method = 'DITHERED'` after
   setting `blend_method` — verified this makes EEVEE match Cycles exactly.
   No engine restriction needed for this feature after all.
-  Implementation (not yet built) tracked in new
-  `TODO/MOD_BLEND_COMPOSITING_TODO.md`, including where the code goes
-  (`tools/husk_blender_geoset_mask.py`, called from `render_glb.py`'s
-  `main()` the same way every other shared post-import fixup already is —
-  no duplicate logic). Full investigation narrative (including two dead
-  ends corrected along the way): `CLAUDE_HISTORY.md`'s top entry (prior
-  session's own staging-commits + doc-discipline-pass entry is the one
-  right below it there).
+  Implementation now done and verified:
+  `apply_multiply_blend_compositing(scene, materials)` in
+  `tools/husk_blender_geoset_mask.py`, called from both `render_glb.py`'s
+  `main()` and the interactive script's own `main()`. Real design pivot
+  from this doc entry's own earlier plan: headless testing found
+  Cryptomatte's `Image` output does *not* cleanly recover a fully-occluded
+  background (it reads back a blend of both layers, confirmed both
+  engines) — abandoned that "reconstruct dest" framing entirely per
+  direct correction (real WoW Mod/Mod2x blend factors, confirmed against
+  the GL spec, don't even read alpha), and instead darkens the scene's own
+  already-composited beauty pixel directly, gated by each material's own
+  Cryptomatte Matte, no second render. Verified headlessly against a
+  synthetic scene (both engines, alpha=1 and alpha=0.5) and against two
+  real corpus files end-to-end through the full `render_glb.py` pipeline:
+  `creature/crab2alliance/crab2alliance.m2` (Mod, textured) and
+  `creature/rockflayer/rockflayercrystal.m2` (Mod2x, untextured), both
+  animated renders, no errors. `TODO/MOD_BLEND_COMPOSITING_TODO.md`
+  updated to close out — nothing left open there.
 - **Next step**: No hard blocker. Independent, well-scoped work still
   open: `MULTI_TEXTURE_LAYER_TODO.md` step 4/5 (Blender-side node recipes,
   now backed by real per-file repro data for both env-mapping and several
-  of the 17 previously-undocumented pixel shaders), `MOD_BLEND_
-  COMPOSITING_TODO.md`'s implementation (node-graph design + verification,
-  the EEVEE Cryptomatte bug), `RENDER_QUALITY_TODO.md`'s ambiguous-pool
-  tiebreak/blank-render follow-ups, the dangling-internal-reference
+  of the 17 previously-undocumented pixel shaders), `RENDER_QUALITY_TODO.md`'s
+  ambiguous-pool tiebreak/blank-render follow-ups, the dangling-internal-reference
   corpus scan (`CLEANUP_TODO.md` #2, not yet designed as a `ScanTask`), or
   the rest of `CLEANUP_TODO.md` #1's comment-hygiene sweep (only 7 files
   audited so far, out of all of `src/`). Two items explicitly need a

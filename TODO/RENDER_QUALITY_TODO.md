@@ -278,70 +278,27 @@ across the current corpus now that `--listfile` resolution exists.
 `fix_additive_materials()` (~line 103-204) rebuilds real Transparent+
 Emission shading post-import; verified against real fixtures.
 
-**Genuinely new — two real gaps**:
-- **Mod/Mod2x (multiply) blend modes 5/6 are explicitly unimplemented**,
-  by the render script's own comment (`render_glb.py:125-127`): "a real,
-  separate gap, not attempted here... multiply compositing needs a
-  different node shape." `alphaModeForBlend` (`src/export_texture_resolution.cpp`)
-  collapses every WoW blend mode ≥2 to glTF `BLEND` at the husk level (by
-  design — core glTF has only 3 alpha modes, real `blend_mode` is exposed
-  as extras for exactly this kind of Blender-side reconstruction), but
-  only modes 3/4 currently get rebuilt into correct shading; 5/6 fall
-  through to plain alpha-`BLEND`, a plausible wrong answer (could read as
-  either wrongly-transparent or wrongly-opaque depending on the base
-  texture's luminance) for whatever real material uses them.
+**Mod/Mod2x (multiply) blend modes 5/6 also fixed (2026-08-15)** —
+`apply_multiply_blend_compositing` (`tools/husk_blender_geoset_mask.py`),
+called from both `render_glb.py`'s `main()` and the interactive script's
+own `main()`. Darkens the scene's own already-composited beauty pass
+directly (Blender's default alpha-over import already produces that for
+free) by each material's own flat tint color, mixed onto the beauty pixel
+by that material's own Cryptomatte `Matte` — no second render, no
+material-shader-graph trick (confirmed none exists, same reasoning as
+additive's own investigation: multiply needs to *read* what's already
+drawn, and neither engine exposes a framebuffer-read node to a material
+shader graph). Verified against real corpus files end-to-end through
+`render_glb.py` (`creature/crab2alliance/crab2alliance.m2` for Mod,
+`creature/rockflayer/rockflayercrystal.m2` for Mod2x), both animated
+renders, no errors. Full investigation narrative (including two dead ends:
+a Cryptomatte-based "reconstruct the occluded background" attempt that
+turned out to recover a blend of both layers rather than the true
+background, and a two-render Holdout design that was unnecessary once the
+real GL blend factors turned out not to read alpha at all) is in
+`CLAUDE_HISTORY.md`'s 2026-08-15 entry. `TODO/MOD_BLEND_COMPOSITING_TODO.md`
+deleted — nothing left open there.
 
-  **Investigated in depth this session (2026-08-14/15) — findings below,
-  implementation not yet built.** Full blow-by-blow (including two
-  approaches that turned out to be dead ends, kept there rather than here
-  per this file's own "punch list, not history" convention) is in
-  `CLAUDE_HISTORY.md`'s entry for this session.
-
-  **Confirmed: no material-shader-graph trick exists**, unlike additive.
-  Queried the project's pinned Blender (5.1.1) directly:
-  `Material.surface_render_method`/`blend_method` have no `MULTIPLY`
-  option. The reason additive worked as a pure shader-graph rebuild
-  (`Transparent BSDF` + `Add Shader` + `Emission`, what
-  `fix_additive_materials` already builds) is that it only needs to
-  *contribute* light — real multiply compositing needs to *read* what's
-  already drawn, and neither Cycles nor EEVEE Next expose a
-  framebuffer-read node to a material shader graph.
-
-  **Confirmed: the Compositor can do it, using Cryptomatte's per-material
-  matte on a single render, combined via ordinary Add/Multiply compositor
-  math** — verified interactively in Blender by Luna directly (a working
-  node graph: two `Cryptomatte` nodes with complementary `matte_id` lists
-  → `Add` → `Multiply` → output, producing a correct composited result
-  with no second render pass). This is the technique to build on — not an
-  approach involving a second "background-only" render, which turned out
-  unnecessary and is not the right target for implementation (see
-  history for why an early attempt went there and had to be corrected
-  back).
-
-  **One real, confirmed bug in the `Cryptomatte` node's `matte_id`
-  field**: it takes a **plain comma-separated list of material names,
-  with no quotes** (`matte_id = "mult_mat"`, or `"nameA,nameB"` for
-  several) — not a quoted string. Get this wrong and the node silently
-  produces a hash matching no real material, with a zero matte
-  everywhere and no error.
-
-  **One real Blender/EEVEE Next bug, root-caused and with a real fix**:
-  Cryptomatte's `Matte` output is pure black for any material with
-  `surface_render_method == 'BLENDED'` (confirmed visually against
-  Cycles, which is correct regardless). The trap: setting
-  `blend_method = 'BLEND'` silently flips `surface_render_method` from
-  Blender's own default (`DITHERED`) to `BLENDED` as an undocumented side
-  effect — every real Mod/Mod2x material is `blend_method='BLEND'`
-  (`alphaModeForBlend`, `src/export_texture_resolution.cpp:230-236`), so
-  this bug would otherwise trigger unconditionally on import. **Fix**:
-  explicitly re-assert `surface_render_method = 'DITHERED'` after setting
-  `blend_method` — verified this produces the identical correct result as
-  Cycles. No engine restriction needed after all.
-
-  **Implementation tracked in `TODO/MOD_BLEND_COMPOSITING_TODO.md`**, not
-  detailed further here — that file has the concrete build plan
-  (where the code goes, how `render_glb.py` should call it, and the two
-  open items above that block a real corpus render).
 **Unverified, not confirmed broken**: `apply_tint_fade_animation`
 (`tools/husk_blender_geoset_mask.py`) — structurally sound, doesn't crash
 against real fixtures with genuine tint/fade data, but explicitly not
@@ -442,11 +399,9 @@ listed here so they aren't lost:
    actual resolved-texture-darkness checking rather than a particle-count
    proxy, then spot-check the remaining ~62 before assuming any of them
    are fresh bugs.
-2. **Mod/Mod2x (§3)** — no material-shader-graph trick exists, but
-   Cryptomatte-based Compositor layering does (verified interactively by
-   Luna). Not blocked on a design call — real remaining work (node-graph
-   implementation, an EEVEE-specific Cryptomatte bug to resolve) is
-   tracked in `TODO/MOD_BLEND_COMPOSITING_TODO.md`.
+2. ~~**Mod/Mod2x (§3)**~~ — **done 2026-08-15**, Cryptomatte-matte-driven
+   Compositor darkening of the existing beauty pass, verified against real
+   corpus fixtures end-to-end through `render_glb.py`.
 3. **Billboard ground-truth pass (§4)** — needs Luna's own real-client
    comparison, same as the earlier billboard/geoset-mask verification
    pattern in this project's history; not something to chase blind in

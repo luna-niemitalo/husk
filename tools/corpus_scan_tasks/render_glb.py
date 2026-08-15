@@ -463,6 +463,7 @@ def main() -> None:
                  for obj in mesh_objs
                  for i in range(len(obj.material_slots))
                  if obj.material_slots[i].material is not None}
+    multiply_blended = billboard_align.apply_multiply_blend_compositing(scene, list(materials))
     duration, action = render_duration_seconds(armature_obj, materials, mesh_objs)
 
     final_out_path = out_path
@@ -546,6 +547,8 @@ def main() -> None:
     shutil.copyfile(in_glb, glb_path)
 
     extra = f", {fixed_additive} additive material(s) rebuilt" if fixed_additive else ""
+    if multiply_blended:
+        extra += f", {multiply_blended} Mod/Mod2x material(s) multiply-composited"
     if billboards_aligned:
         extra += f", {billboards_aligned} billboard bone(s) aligned to camera"
     print(f"OK rendered {len(mesh_objs)} mesh object(s), bbox radius {radius:.3f}{extra}{anim_note} "

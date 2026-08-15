@@ -1798,6 +1798,159 @@ def apply_tint_fade_animation(materials):
     return touched
 
 
+def _material_tint_color(mat):
+    """A single representative RGB for this material's own Base Color --
+    the flat baseColorFactor tint if untextured, or the average pixel of
+    its Base Color texture if textured. A deliberate simplification (one
+    flat color per material, not a per-pixel texture sample in the
+    compositor) -- good enough for the tint/grime/glow-overlay style
+    Mod/Mod2x materials WoW actually uses this blend mode for."""
+    if mat.node_tree is None:
+        return (1.0, 1.0, 1.0)
+    # Unlit (KHR_materials_unlit) materials -- common for blend_mode > 2, see
+    # fix_additive_materials's own doc comment -- import as an Emission node,
+    # not a Principled BSDF; check both shapes.
+    emission = next((n for n in mat.node_tree.nodes if n.type == "EMISSION"), None)
+    if emission is not None:
+        base_input = emission.inputs["Color"]
+    else:
+        principled = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if principled is None:
+            return (1.0, 1.0, 1.0)
+        base_input = principled.inputs["Base Color"]
+    if not base_input.is_linked:
+        c = base_input.default_value
+        return (c[0], c[1], c[2])
+    tex_node = base_input.links[0].from_node
+    image = getattr(tex_node, "image", None)
+    if image is None:
+        return (1.0, 1.0, 1.0)
+    px = image.pixels
+    n = len(px) // 4
+    if n == 0:
+        return (1.0, 1.0, 1.0)
+    step = max(1, n // 4096)  # subsample large textures -- an average, not a render
+    r = g = b = 0.0
+    count = 0
+    for i in range(0, n, step):
+        o = i * 4
+        r += px[o]
+        g += px[o + 1]
+        b += px[o + 2]
+        count += 1
+    return (r / count, g / count, b / count)
+
+
+def _average_tint(materials, name_list):
+    r = g = b = 0.0
+    for name in name_list:
+        mat = next(m for m in materials if m is not None and m.name == name)
+        mr, mg, mb = _material_tint_color(mat)
+        r += mr
+        g += mg
+        b += mb
+    count = len(name_list)
+    return (r / count, g / count, b / count)
+
+
+def _node_socket(sockets, identifier):
+    return next(s for s in sockets if s.identifier == identifier)
+
+
+def apply_multiply_blend_compositing(scene, materials):
+    """WoW blend modes 5 (Mod) and 6 (Mod2x): `dest = dest*src` (Mod2x:
+    `dest*src*2`, clamped) -- and, confirmed against the real GL blend
+    factors (not the naive "it's just another alpha blend" assumption),
+    material alpha is not read by this blend equation at all (GL blend func
+    (DST_COLOR, ZERO) / (DST_COLOR, SRC_COLOR)). Applied directly to the
+    scene's own existing beauty pass -- Blender's default alpha-over import
+    already gives us that for free, in the one render this runs before --
+    no second render, no reconstructing whatever's "behind" the material
+    (an earlier version of this investigation tried exactly that via
+    Cryptomatte's Image output and found it recovers a blend of both
+    layers, not the true occluded background; see MOD_BLEND_COMPOSITING_
+    TODO.md history). Each Mod/Mod2x material's own Cryptomatte Matte (real
+    per-material coverage, already correct for partial-alpha materials too,
+    verified against real EEVEE/Cycles renders) picks how much of a flat
+    darken-by-tint-color operation to mix onto the beauty pixel. Mod and
+    Mod2x materials chain (Mod first, Mod2x reading Mod's own output as its
+    base) so both can appear in the same scene without one clobbering the
+    other's contribution. A deliberate, accepted simplification: a fully
+    opaque (alpha=1) Mod/Mod2x material's own beauty pixel is already just
+    its own color (nothing behind it survives the default alpha-over
+    import), so this darkens that color by itself rather than by whatever
+    WoW's own renderer would have shown behind it -- not byte-exact, but
+    the common real case (WoW artists use Mod/Mod2x for partial-alpha tint/
+    grime/glow overlays, not full replacement) is unaffected."""
+    mod_names = [m.name for m in materials if m is not None and m.get("blend_mode") == 5]
+    mod2x_names = [m.name for m in materials if m is not None and m.get("blend_mode") == 6]
+    if not mod_names and not mod2x_names:
+        return 0
+
+    vl = scene.view_layers[0]
+    vl.use_pass_cryptomatte_material = True
+    vl.use_pass_cryptomatte_accurate = True
+
+    tree = scene.compositing_node_group
+    if tree is None:
+        tree = bpy.data.node_groups.new(f"{scene.name} Compositing", 'CompositorNodeTree')
+        scene.compositing_node_group = tree
+    if not any(item.name == "Image" for item in tree.interface.items_tree):
+        tree.interface.new_socket("Image", in_out='OUTPUT', socket_type='NodeSocketColor')
+    group_out = next((n for n in tree.nodes if n.bl_idname == "NodeGroupOutput"), None)
+    if group_out is None:
+        group_out = tree.nodes.new("NodeGroupOutput")
+
+    nodes, links = tree.nodes, tree.links
+
+    rlayers = nodes.new("CompositorNodeRLayers")
+    rlayers.name = "HuskMultiplyBlendRLayers"
+    rlayers.scene = scene
+    rlayers.layer = vl.name
+    beauty = rlayers.outputs["Image"]
+
+    def mix_rgba(factor_socket, a_socket, b_socket, name):
+        n = nodes.new("ShaderNodeMix")
+        n.name = name
+        n.data_type = 'RGBA'
+        n.clamp_result = True
+        links.new(factor_socket, _node_socket(n.inputs, "Factor_Float"))
+        links.new(a_socket, _node_socket(n.inputs, "A_Color"))
+        links.new(b_socket, _node_socket(n.inputs, "B_Color"))
+        return _node_socket(n.outputs, "Result_Color")
+
+    def apply_group(name_list, scale, node_prefix, source):
+        crypto = nodes.new("CompositorNodeCryptomatteV2")
+        crypto.name = node_prefix + "Crypto"
+        crypto.scene = scene
+        crypto.layer_name = f"{vl.name}.CryptoMaterial"
+        crypto.matte_id = ",".join(name_list)
+        links.new(beauty, crypto.inputs["Image"])
+
+        tr, tg, tb = _average_tint(materials, name_list)
+
+        darken = nodes.new("ShaderNodeMix")
+        darken.name = node_prefix + "Darken"
+        darken.data_type = 'RGBA'
+        darken.blend_type = 'MULTIPLY'
+        darken.clamp_result = True
+        darken.inputs["Factor"].default_value = 1.0
+        links.new(source, _node_socket(darken.inputs, "A_Color"))
+        _node_socket(darken.inputs, "B_Color").default_value = (tr * scale, tg * scale, tb * scale, 1.0)
+        darkened = _node_socket(darken.outputs, "Result_Color")
+
+        return mix_rgba(crypto.outputs["Matte"], source, darkened, node_prefix + "Mix")
+
+    result = beauty
+    if mod_names:
+        result = apply_group(mod_names, 1.0, "HuskMod", result)
+    if mod2x_names:
+        result = apply_group(mod2x_names, 2.0, "HuskMod2x", result)
+
+    links.new(result, _node_socket(group_out.inputs, "Socket_0"))
+    return len(mod_names) + len(mod2x_names)
+
+
 def _run_stage(model_name, stage_name, fn):
     """Runs one main() stage in isolation -- a real robustness gap flagged
     directly in ANIMATED_TEXTURE_EFFECTS_TODO.md before this session added a
@@ -1889,12 +2042,20 @@ def main():
                   "emitter placement marker(s) added -- placeholders, not a real particle-effect "
                   "simulation, see apply_emitter_markers's own doc comment")
 
+    def multiply_blend_compositing_stage():
+        touched = apply_multiply_blend_compositing(bpy.context.scene, list(materials))
+        if touched:
+            print(f"husk_blender_geoset_mask: {touched} material(s) got real Mod/Mod2x "
+                  "multiply-blend compositing (compositor node graph built -- render normally, "
+                  "F12, to see it)")
+
     _run_stage(model_name, "geoset switch", geoset_stage)
     _run_stage(model_name, "billboard alignment", billboard_stage)
     _run_stage(model_name, "texture-layout overlay", texture_layout_overlay_stage)
     _run_stage(model_name, "texture-transform animation", texture_transform_animation_stage)
     _run_stage(model_name, "tint/fade animation", tint_fade_animation_stage)
     _run_stage(model_name, "emitter placement markers", emitter_marker_stage)
+    _run_stage(model_name, "multiply-blend compositing", multiply_blend_compositing_stage)
 
 
 if __name__ == "__main__":
