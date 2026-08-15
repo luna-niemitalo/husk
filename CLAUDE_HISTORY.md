@@ -31,22 +31,114 @@ repros** (some with 15,000+ files), 3 never resolved in this corpus
 (`Combiners_Opaque_Mod2xNA_Alpha_Alpha`, `Guild_NoBorder`, `Illum`). Both
 TODO files and `TODO/README.md`'s index updated with the real numbers and
 example file paths; no husk source changed (pure investigation/tooling).
-(3) `RENDER_QUALITY_TODO.md`'s Mod/Mod2x (multiply) blend modes — queried
-the project's own pinned Blender (5.1.1) directly rather than
-implementing blind: confirmed `Material.surface_render_method`/
-`blend_method` have no `MULTIPLY` option, and more fundamentally neither
-Cycles nor EEVEE Next expose a framebuffer-read node to material shader
-graphs at all, so true cross-geometry multiply compositing (unlike
-additive, which only needs to *contribute* light via `Add Shader`) has no
-honest node-graph implementation — a real, verified constraint, not a
-missing dropdown. Documented three concrete options in
-`RENDER_QUALITY_TODO.md` §3 (same-material multiply via
-`MULTI_TEXTURE_LAYER_TODO.md`'s own planned node-recipe work, Screen Space
-Refraction as an approximate fallback, or leaving 5/6 as plain alpha-BLEND
-until a real corpus repro exists) rather than guessing at an
-implementation — matches this project's own prior flag that this needs
-Luna's design call, not more investigation. Full suite untouched (no
-source changes this session).
+(3) `RENDER_QUALITY_TODO.md`'s Mod/Mod2x (multiply) blend modes — first
+pass queried the project's own pinned Blender (5.1.1) directly and
+confirmed `Material.surface_render_method`/`blend_method` have no
+`MULTIPLY` option and neither Cycles nor EEVEE Next expose a
+framebuffer-read node to *material shader graphs*, so a shader-graph-only
+port of the additive fix (`Transparent BSDF` + `Add Shader`) genuinely
+doesn't generalize — initially written up as a real design-call blocker.
+**Corrected in the same session, prompted directly** ("is a multi-render-
+layer + Compositor node graph doable, isn't that what the Compositor tab
+is for?"): right — the *Compositor* is a separate node system that runs
+on finished per-ViewLayer renders, which is exactly a framebuffer read.
+Built and rendered a minimal, real headless test (two ViewLayers, one
+scene, `film_transparent=True`, combined via a Compositor graph — flat
+background color under the Base layer via `AlphaOver`, then `mix(base,
+base*multLayer, factor=multLayer.alpha)`) and verified the rendered
+pixels directly: overlap region `(0.082, 0.094, 0.031)` against a
+hand-computed `(0.084, 0.095, 0.032)`, no-overlap region matching the
+base layer's own unmodified color exactly. Real `dest = mix(dest,
+dest*src, srcAlpha)` — the actual WoW Mod formula — genuinely reproduced.
+Hit and resolved two real Blender-5.x API traps along the way, both
+written up in `RENDER_QUALITY_TODO.md` §3 for future compositor-graph
+code in this project: the compositor tree is now `scene.
+compositing_node_group` (a real NodeGroup with its own `interface`, no
+`CompositorNodeComposite` node anymore — terminal node is
+`NodeGroupOutput`), and node socket string-lookup (`node.inputs["X"]`)
+indexes by display `.name`, not `.identifier` — several nodes
+(`ShaderNodeMix`, `CompositorNodeAlphaOver`) have multiple sockets
+sharing a display name, so bracket lookup silently grabs the wrong one
+instead of erroring; always resolve by iterating `.identifier` explicitly.
+`render_glb.py` pipeline integration (per-material object splitting,
+building the ViewLayer/Compositor graph, confirming the animated case)
+is real follow-up work, not blocked on a design call anymore.
+**Follow-up same session** ("what about Cryptomatte, avoids the mesh
+splitting"): investigated — real, and now fully confirmed working, not
+just plausible. EEVEE Next's `CryptoMaterial` pass genuinely discriminates
+materials on a single unsplit mesh Object (verified via raw pass-channel
+readback: two materials on one two-triangle object produced two distinct
+hash values). First matte-extraction attempt failed on a dumb bug: guessed
+`matte_id = '"mult_mat"'` (quoted), which produced a wrong hash and a
+zero matte. **Fixed on a direct tip from Luna**, who supplied a screenshot
+of Blender's own interactive Cryptomatte picker showing the real field
+format — a plain comma-separated list of material names, no quotes.
+Corrected (`matte_id = "mult_mat"`) and reverified: entry hash now
+matches the raw pass channel exactly, `Matte` output clean (0.0/1.0 on
+the two materials' real pixels). The earlier "would need to reimplement
+MurmurHash3 myself" conclusion from the first pass was wrong — a symptom
+of the quoting bug, not a real API gap. **One more real follow-up, direct
+from Luna** ("if opaque it'll just not be visible, but if the foreground
+object is transparent/translucent the mattes respect it") plus real
+screenshots showing a translucent foreground shape not blocking the
+cubes behind it in a cutout that excluded it: raised the question of
+whether a *single* render (two complementary Cryptomatte cutouts, `src`
+and `dest`) could replace the second-ViewLayer approach entirely, not
+just the object-splitting step. Tested directly with a deliberately
+adversarial control (two fully opaque cubes, one 100% hiding the other)
+on both EEVEE Next and Cycles: the hidden cube's cutout came back
+`(0,0,0,0)`, genuinely empty — real occlusion is never recoverable from
+one render, confirming Luna's own stated rule exactly, not the stronger
+"never need a second render" reading. But the precondition (occluder
+must be non-opaque) turns out to already hold for every real Mod/Mod2x
+material husk exports: `alphaModeForBlend` (`src/export_texture_
+resolution.cpp:230-236`) already collapses every `blendMode > 1` to glTF
+`AlphaMode::Blend`, never `Opaque`, so Blender's importer never sets
+`blend_method='OPAQUE'` for one. **Final recipe, genuinely simpler than
+every earlier version**: one ordinary Combined render, two Cryptomatte
+cutouts (`src` = Mod/Mod2x material names, `dest` = everything else),
+combined via the already-verified `mix(dest, dest*src, coverage)`
+Compositor graph — no second ViewLayer, no object hiding, no mesh
+splitting or Geometry Nodes modifier anywhere, all superseded by this
+single-render version and written up as such (with the superseded
+approaches kept only as a one-paragraph historical note) in
+`RENDER_QUALITY_TODO.md` §3. `render_glb.py` integration itself still not
+built this session, but every open design/technique question is now
+closed. Full suite untouched (no husk source changes this session — all
+items were investigation/tooling, `tools/corpus_scan_tasks/
+shader_names_task.py` new, `render_glb.py` itself not yet touched).
+
+**Addendum, same session, prompted directly** ("you are diverging from
+the task too much"): the "single render, two Cryptomatte cutouts" recipe
+above was itself wrong, caught by Luna's own real interactive node graph
+(two `Cryptomatte` nodes with complementary `matte_id` lists combined via
+ordinary `Add`/`Multiply` compositor math, producing a correct result
+with no second render). The specific error: a Cryptomatte per-material
+cutout isn't the material's own unmixed color — it's the already-blended
+composite masked by that material's coverage — proven with a real test
+(Cycles, `alpha=0.5`: `DEST(back_mat)` cutout RGB was bit-identical to
+the combined pixel's RGB, only alpha differed). Stopped trying to
+algebraically reconstruct a clean `dest`; the real technique is Luna's
+own demonstrated layering approach, tracked as an implementation plan
+(not yet built) in new `TODO/MOD_BLEND_COMPOSITING_TODO.md`, with
+`RENDER_QUALITY_TODO.md` §3 trimmed back down to a findings summary
+pointing at it. **Second addendum, same session**: what looked like a
+genuine EEVEE Next Cryptomatte engine bug (`Matte` output pure black for
+any `blend_method='BLEND'` material, confirmed via matching Cycles vs.
+EEVEE screenshots of the same scene) turned out to be narrower and fully
+fixable — root-caused to `blend_method='BLEND'` silently flipping
+`Material.surface_render_method` from Blender's own default (`DITHERED`)
+to `BLENDED`, and the bug is specific to `BLENDED`, not to `BLEND`-mode
+materials generally. Caught because Luna's own interactive test (with
+`Render Method: Dithered` explicitly visible) contradicted this
+session's scripted tests entirely. Fix: re-assert `surface_render_method
+= 'DITHERED'` after setting `blend_method` — verified this makes EEVEE
+match Cycles exactly, removing the engine restriction that would have
+otherwise forced this feature onto Cycles. Both TODO files updated to
+match. Real lesson banked as a memory entry
+(`feedback_dont_overinvestigate_tangents.md`): stop and check for a more
+direct path instead of re-deriving a whole alternate architecture when a
+debugging side-quest starts looping.
 
 ---
 

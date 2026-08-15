@@ -182,29 +182,45 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   `Combiners_*` pixel shaders have real corpus repros (some with 15,000+
   files) — both TODO files and `TODO/README.md` updated with the real
   numbers, no husk source touched. Third item, `RENDER_QUALITY_TODO.md`'s
-  Mod/Mod2x blend modes, turned out genuinely blocked on a design call,
-  confirmed by directly querying the pinned Blender (5.1.1): neither
-  Cycles nor EEVEE Next expose a framebuffer-read node to material shader
-  graphs, so true multiply compositing (unlike additive) has no honest
-  node-graph implementation — documented three concrete options in
-  `RENDER_QUALITY_TODO.md` §3 rather than guessing at one. Full narrative:
-  `CLAUDE_HISTORY.md`'s top entry (prior session's own staging-commits +
-  doc-discipline-pass entry is the one right below it there).
+  Mod/Mod2x blend modes: confirmed no material-shader-graph trick exists
+  (queried Blender 5.1.1 directly — no framebuffer-read node in either
+  engine), then confirmed the Compositor can do it via Cryptomatte's
+  per-material matte combined with ordinary `Add`/`Multiply` compositor
+  math on a single render — verified interactively in Blender by Luna
+  directly. A real quoting bug in `Cryptomatte.matte_id` found and fixed
+  along the way (wants plain comma-separated material names, no quotes).
+  One real EEVEE Next Cryptomatte bug found, root-caused, and fixed: the
+  `Matte` output is pure black whenever `surface_render_method ==
+  'BLENDED'` — and setting `blend_method = 'BLEND'` (what every real
+  Mod/Mod2x material needs) silently flips that from Blender's own
+  default (`DITHERED`) as an undocumented side effect, so it looked
+  unconditionally broken until Luna's own interactive test (a working
+  node graph, `Render Method: Dithered` visible in her screenshot)
+  contradicted this session's own scripted tests and pointed at the real
+  cause. Fix: re-assert `surface_render_method = 'DITHERED'` after
+  setting `blend_method` — verified this makes EEVEE match Cycles exactly.
+  No engine restriction needed for this feature after all.
+  Implementation (not yet built) tracked in new
+  `TODO/MOD_BLEND_COMPOSITING_TODO.md`, including where the code goes
+  (`tools/husk_blender_geoset_mask.py`, called from `render_glb.py`'s
+  `main()` the same way every other shared post-import fixup already is —
+  no duplicate logic). Full investigation narrative (including two dead
+  ends corrected along the way): `CLAUDE_HISTORY.md`'s top entry (prior
+  session's own staging-commits + doc-discipline-pass entry is the one
+  right below it there).
 - **Next step**: No hard blocker. Independent, well-scoped work still
   open: `MULTI_TEXTURE_LAYER_TODO.md` step 4/5 (Blender-side node recipes,
   now backed by real per-file repro data for both env-mapping and several
-  of the 17 previously-undocumented pixel shaders), `RENDER_QUALITY_TODO.md`'s
-  ambiguous-pool tiebreak/blank-render follow-ups, the dangling-internal-
-  reference corpus scan (`CLEANUP_TODO.md` #2, not yet designed as a
-  `ScanTask`), or the rest of `CLEANUP_TODO.md` #1's comment-hygiene sweep
-  (only 7 files audited so far, out of all of `src/`). Three items
-  explicitly need a design pass before touching code, not more
-  investigation: `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (fuzzy
-  reference-skeleton matching, an ambiguity policy, a new Rigify
-  dependency), Mod/Mod2x multiply blending (confirmed this session:
-  no framebuffer-read primitive in Blender's material shader graphs at
-  all, three options documented in `RENDER_QUALITY_TODO.md` §3, no
-  real-corpus repro driving a choice between them yet), and
+  of the 17 previously-undocumented pixel shaders), `MOD_BLEND_
+  COMPOSITING_TODO.md`'s implementation (node-graph design + verification,
+  the EEVEE Cryptomatte bug), `RENDER_QUALITY_TODO.md`'s ambiguous-pool
+  tiebreak/blank-render follow-ups, the dangling-internal-reference
+  corpus scan (`CLEANUP_TODO.md` #2, not yet designed as a `ScanTask`), or
+  the rest of `CLEANUP_TODO.md` #1's comment-hygiene sweep (only 7 files
+  audited so far, out of all of `src/`). Two items explicitly need a
+  design pass before touching code, not more investigation:
+  `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (fuzzy reference-skeleton
+  matching, an ambiguity policy, a new Rigify dependency) and
   `PIXEL_SHADER_FORMULAS_TODO.md` step 2 (verifying the wow.export-derived
   formulas against real rendered output — now has 14 real repro files to
   pick from, still needs Luna's own visual comparison) — flag these to
