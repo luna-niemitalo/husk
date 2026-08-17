@@ -197,6 +197,42 @@ FuzzyTexturePool scanFuzzyTexturePoolForBasename(const std::string& texturesDir,
 // renders untextured.
 constexpr std::string_view kSdrSuffix = "_sdr";
 
+// Real, corpus-verified race/gender suffix codes (not a guess, not from
+// any wowdev.wiki table -- derived by frequency-counting every real
+// "..._<code>[_]<m|f>.m2" filename across item/objectcomponents/ in a
+// real 130k-file local extraction; only codes with hundreds of real
+// occurrences kept, see TODO/KNOWLEDGE_BASE_DESIGN.md's "local fallback"
+// section for the exact counts). Both the compact ("_bem") and
+// underscore-separated ("_be_m") forms are real and both appear widely
+// across different eras of content, so both are tried for every code
+// rather than special-casing which convention a given code uses.
+constexpr std::array<std::string_view, 20> kRaceCodes = {
+    "be", "dr", "dt", "dw", "gn", "go", "hr", "hu", "kt", "mg",
+    "nb", "ni", "or", "pa", "sc", "ta", "tr", "vu", "wo", "za",
+};
+
+// Strips a trailing race/gender suffix from a lowercase model basename,
+// e.g. "helm_leather_pvpdruid_b_02_scm" -> "helm_leather_pvpdruid_b_02"
+// -- the real naming convention behind husk's own item/objectcomponents/
+// race-variant `.m2` files (22+ real files sharing one base shape,
+// confirmed directly: TODO/KNOWLEDGE_BASE_DESIGN.md). Returns nullopt
+// when no known suffix matches -- never a partial/ambiguous strip.
+std::optional<std::string> stripRaceGenderSuffix(const std::string& basenameLower) {
+    for (std::string_view code : kRaceCodes) {
+        for (char gender : {'m', 'f'}) {
+            for (const std::string& suffix :
+                 {std::string("_") + std::string(code) + gender,
+                  std::string("_") + std::string(code) + "_" + gender}) {
+                if (basenameLower.size() > suffix.size() &&
+                    basenameLower.compare(basenameLower.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                    return basenameLower.substr(0, basenameLower.size() - suffix.size());
+                }
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 }  // namespace
 
 std::optional<std::vector<uint8_t>> readTextureFileBytes(const std::filesystem::path& path,
@@ -505,6 +541,11 @@ FuzzyTexturePool scanFuzzyTexturePool(const std::string& texturesDir, const std:
         modelBasename.compare(modelBasename.size() - kSdrSuffix.size(), kSdrSuffix.size(), kSdrSuffix) == 0) {
         std::string strippedBasename = modelBasename.substr(0, modelBasename.size() - kSdrSuffix.size());
         pool = scanFuzzyTexturePoolForBasename(texturesDir, strippedBasename);
+    }
+    if (pool.files.empty()) {
+        if (auto strippedRaceGender = stripRaceGenderSuffix(modelBasename)) {
+            pool = scanFuzzyTexturePoolForBasename(texturesDir, *strippedRaceGender);
+        }
     }
     return pool;
 }

@@ -13,6 +13,7 @@
 #include <utility>
 
 #include <CLI/CLI.hpp>
+#include <sqlite3.h>
 
 #include "bone.hpp"
 #include "chrcustomization_db2.hpp"
@@ -519,6 +520,82 @@ void attachPhysicsBodies(bool physNone, bool physGiven, const std::string& physP
     }
 }
 
+// --knowledge-db: queries husk's own pre-built knowledge base
+// (TODO/KNOWLEDGE_BASE_DESIGN.md, `husk db2-build`) for this model's
+// resolved object-skin texture, via its own FileDataID (looked up in the
+// same database's `models` table by relative path against
+// `--listfile-root`), and that texture's own real path (via the
+// database's own `textures` table -- lets --knowledge-db alone resolve
+// texture_id -> path cleanly, without also requiring a separate
+// --listfile load just for this one texture). Never a live DB2/CASC read
+// -- the knowledge base is itself a local, pre-built artifact, same
+// "locally-extracted files only" tier as every other sidecar. Returns 0/
+// empty (unresolved) rather than throwing on any lookup miss -- a model
+// or texture outside the knowledge base's coverage is a real, expected
+// case, not an error.
+struct KbObjectSkinResolution {
+    uint32_t textureFileDataId = 0;
+    std::string texturePath;
+};
+KbObjectSkinResolution resolveObjectSkinTextureFromKb(const std::string& kbPath, const std::string& modelPath,
+                                                        const std::string& listfileRoot) {
+    KbObjectSkinResolution result;
+    if (kbPath.empty()) return result;
+    sqlite3* db = nullptr;
+    if (sqlite3_open_v2(kbPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+        std::cerr << "husk: note: --knowledge-db '" << kbPath << "' couldn't be opened -- skipping\n";
+        sqlite3_close(db);
+        return result;
+    }
+
+    std::error_code ec;
+    std::string relPath;
+    if (!listfileRoot.empty()) {
+        auto rel = std::filesystem::relative(std::filesystem::path(modelPath), listfileRoot, ec);
+        if (!ec) relPath = rel.generic_string();
+    }
+    if (relPath.empty()) {
+        sqlite3_close(db);
+        return result;
+    }
+    std::transform(relPath.begin(), relPath.end(), relPath.begin(),
+                    [](unsigned char c) { return std::tolower(c); });
+
+    uint32_t modelFdid = 0;
+    {
+        sqlite3_stmt* stmt = nullptr;
+        sqlite3_prepare_v2(db, "SELECT file_data_id FROM models WHERE lower(path) = ?", -1, &stmt, nullptr);
+        sqlite3_bind_text(stmt, 1, relPath.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) modelFdid = static_cast<uint32_t>(sqlite3_column_int64(stmt, 0));
+        sqlite3_finalize(stmt);
+    }
+
+    if (modelFdid != 0) {
+        sqlite3_stmt* stmt = nullptr;
+        sqlite3_prepare_v2(db, "SELECT texture_file_data_id FROM model_object_skin_texture WHERE model_file_data_id = ?",
+                            -1, &stmt, nullptr);
+        sqlite3_bind_int64(stmt, 1, modelFdid);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            result.textureFileDataId = static_cast<uint32_t>(sqlite3_column_int64(stmt, 0));
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    if (result.textureFileDataId != 0) {
+        sqlite3_stmt* stmt = nullptr;
+        sqlite3_prepare_v2(db, "SELECT path FROM textures WHERE file_data_id = ?", -1, &stmt, nullptr);
+        sqlite3_bind_int64(stmt, 1, result.textureFileDataId);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const unsigned char* text = sqlite3_column_text(stmt, 0);
+            if (text) result.texturePath = reinterpret_cast<const char*>(text);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    sqlite3_close(db);
+    return result;
+}
+
 // --db2-dir/--dbd-dir/--char-layout-id: attaches real character-texture
 // placement geometry (gltf::Skeleton::CharTextureLayout's doc comment) as
 // inert glTF extras. All three must be given -- a missing one is diagnosed
@@ -676,7 +753,7 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
     const std::vector<m2::Vertex>& vertices, const gltf::Mesh& baseMesh, const M2MaterialInputs& m2Inputs,
     const std::string& texturesDir, const std::string& modelPath, const std::string& modelBasename,
     const std::string& texturesOutDir, const std::unordered_map<uint32_t, std::string>& listfile = {},
-    const std::string& listfileRoot = "") {
+    const std::string& listfileRoot = "", uint32_t objectSkinTextureFileDataId = 0) {
     std::vector<gltf::NamedMesh> namedMeshes;
     namedMeshes.reserve(skinsToExport.size());
     for (const auto& [name, path] : skinsToExport) {
@@ -712,7 +789,8 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
 
         auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs,
                                                    texturesDir, modelPath, texturesOutDir, listfile,
-                                                   listfileRoot.empty() ? texturesDir : listfileRoot);
+                                                   listfileRoot.empty() ? texturesDir : listfileRoot,
+                                                   objectSkinTextureFileDataId);
 
         // See BuiltMaterials::distinctSkinSectionIds's own doc comment for
         // why this note exists.
@@ -1080,6 +1158,19 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "any matching --bones-dir correction set with 'selected_by_choice_ids'; "
                     "requires --db2-dir/--dbd-dir too, doesn't filter/apply anything itself, same "
                     "inert-extras treatment as --char-layout-id");
+    app.add_option("--object-skin-texture-id", opts.objectSkinTextureIdArg,
+                    "a real texture FileDataID to fill into any type=2 (object_skin) texture "
+                    "slot that has no FileDataID of its own -- husk can't derive this on its "
+                    "own (it needs the real ItemDisplayInfo/TextureFileData DB2 chain resolved "
+                    "externally), so it must be supplied directly; unset (default) leaves those "
+                    "slots unresolved, same as before this flag existed");
+    app.add_option("--knowledge-db", opts.knowledgeDbArg,
+                    "husk's own pre-built knowledge-base SQLite database (`husk db2-build`, "
+                    "TODO/KNOWLEDGE_BASE_DESIGN.md) -- when given, resolves this model's own "
+                    "object-skin texture automatically (via the database's own model->texture "
+                    "mapping, keyed by the model's FileDataID under --listfile-root), instead of "
+                    "requiring --object-skin-texture-id per invocation; --object-skin-texture-id "
+                    "still wins if both are given");
     app.add_option("--listfile", opts.listfileArg,
                     "a local community-listfile.csv-style snapshot (FileDataID;path per line, "
                     "github.com/wowdev/wow-listfile) -- last-resort fallback when a "
@@ -1245,6 +1336,26 @@ int exportGlb(int argc, char** args) {
     std::string charLayoutIdArg = app.count("--char-layout-id") ? opts.charLayoutIdArg : "";
     std::string customizationChoiceIdsArg =
         app.count("--customization-choice-ids") ? opts.customizationChoiceIdsArg : "";
+    uint32_t objectSkinTextureFileDataId = 0;
+    if (app.count("--object-skin-texture-id")) {
+        try {
+            objectSkinTextureFileDataId = static_cast<uint32_t>(std::stoul(opts.objectSkinTextureIdArg));
+        } catch (const std::exception&) {
+            std::cerr << "husk: note: --object-skin-texture-id '" << opts.objectSkinTextureIdArg
+                      << "' isn't a valid integer -- ignoring\n";
+        }
+    } else if (app.count("--knowledge-db")) {
+        KbObjectSkinResolution kbResolution =
+            resolveObjectSkinTextureFromKb(opts.knowledgeDbArg, modelPath, listfileRoot);
+        objectSkinTextureFileDataId = kbResolution.textureFileDataId;
+        // Fills the embed path's --listfile fallback tier (export_materials.cpp)
+        // straight from the knowledge base's own 'textures' table, without
+        // requiring a separate --listfile load just for this one texture --
+        // only when --listfile didn't already resolve this fdid itself.
+        if (objectSkinTextureFileDataId != 0 && !kbResolution.texturePath.empty()) {
+            listfile.emplace(objectSkinTextureFileDataId, kbResolution.texturePath);
+        }
+    }
 
     try {
         auto modelBytes = readFileBytes(modelPath);
@@ -1309,7 +1420,8 @@ int exportGlb(int argc, char** args) {
         std::string modelBasename = std::filesystem::path(modelPath).stem().string();
         auto namedMeshes =
             buildLodTierMeshes(skinsToExport, vertices, baseMesh, m2Inputs, texturesDir, modelPath,
-                                modelBasename, texturesOutDir, listfile, listfileRoot);
+                                modelBasename, texturesOutDir, listfile, listfileRoot,
+                                objectSkinTextureFileDataId);
 
         // One geoset tag joint per distinct skinSectionId across every LOD
         // tier's primitives -- lets tools/husk_blender_geoset_mask.py

@@ -46,6 +46,14 @@ int db2Info(int argc, char** args);
 // src/cmd_db2.cpp's own doc comment).
 int db2Export(int argc, char** args);
 
+// `db2-build` -- builds husk's own verified knowledge-base SQLite database
+// (TODO/KNOWLEDGE_BASE_DESIGN.md) from --db2-dir + --dbd-dir + --listfile:
+// the DB2 tables today's resolved joins need, a 'models' table (FileDataID
+// -> real path), one resolved join table per known "model needs X"
+// question (today: model_object_skin_texture), and a '_meta' staleness
+// stamp. Consumed by `husk export --knowledge-db`.
+int db2Build(int argc, char** args);
+
 // `blp-export` -- converts a BLP2 texture (or, with --dir, every *.blp file
 // in a directory) to a real PNG, reusing the exact blp::decode/
 // blp::encodePng pipeline `husk export` already uses internally to embed
@@ -77,6 +85,8 @@ struct ExportOptions {
     std::string dbdDirArg;
     std::string charLayoutIdArg;
     std::string customizationChoiceIdsArg;
+    std::string objectSkinTextureIdArg;
+    std::string knowledgeDbArg;
     std::string listfileArg;
     std::string listfileRootArg;
 };

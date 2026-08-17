@@ -69,7 +69,8 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                                             const std::string& modelPath,
                                             const std::string& texturesOutDir,
                                             const std::unordered_map<uint32_t, std::string>& listfile,
-                                            const std::string& listfileRootArg) {
+                                            const std::string& listfileRootArg,
+                                            uint32_t objectSkinTextureFileDataId) {
     const std::string& listfileRoot = listfileRootArg.empty() ? texturesDir : listfileRootArg;
     BuiltMaterials result;
 
@@ -376,6 +377,9 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             uint32_t fdid = (m2.textureFileDataIds && textureIndex < m2.textureFileDataIds->size())
                                  ? (*m2.textureFileDataIds)[textureIndex]
                                  : 0;
+            if (fdid == 0 && gm.textureType == 2 && objectSkinTextureFileDataId != 0) {
+                fdid = objectSkinTextureFileDataId;
+            }
             const std::string& embeddedFilename = m2.textures[textureIndex].filename;
             std::string embeddedStem;
             std::optional<std::vector<uint8_t>> embeddedBytes;

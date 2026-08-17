@@ -101,6 +101,21 @@ GPU_PCI_BUS_IDS = ["pci-0000_10_00_0", "pci-0000_0d_00_0"]
 # no pruning risk and no meaningful cost.
 LISTFILE = Path("/media/luna/userdata/Downloads/community-listfile.csv")
 
+# TODO/KNOWLEDGE_BASE_DESIGN.md: husk's own pre-built knowledge-base
+# database (`husk db2-build --db2-dir ... --dbd-dir ... --listfile ... -o
+# KNOWLEDGE_DB`) -- husk export --knowledge-db does its own model ->
+# object-skin-texture lookup against this, so this driver just passes the
+# flag unconditionally; no per-file Python-side lookup/resolution here
+# anymore (that was resolve_object_skin_textures.py, now deleted -- its
+# join is done once, in husk, at db2-build time instead). $XDG_CACHE_HOME
+# (falling back to ~/.cache, the XDG default), not a hardcoded username's
+# path -- this is a rebuildable husk artifact, not user-supplied data, so
+# it belongs under the cache dir either way (TODO/KNOWLEDGE_BASE_DESIGN.md's
+# "Canonical location"), but the cache dir itself shouldn't assume Luna's
+# own machine layout.
+CACHE_HOME = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+KNOWLEDGE_DB = CACHE_HOME / "husk" / "knowledge.sqlite"
+
 # freedesktop.org thumbnail spec size buckets -- "normal" (128px) is plenty
 # for these (per this driver's own comment above) simple flat-shaded
 # 640x480 renders; not using "large"/512px since nothing here needs it and
@@ -245,6 +260,13 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
         cmd = [str(HUSK_BIN), "export", str(m2_path), "-o", str(scratch_glb), "--anim", "auto"]
         if LISTFILE.exists():
             cmd += ["--listfile", str(LISTFILE), "--listfile-root", str(CORPUS_ROOT)]
+        # --knowledge-db deliberately NOT passed here -- disabled 2026-08-16
+        # after real verification found its object-skin resolution can
+        # confidently return a *wrong*, unrelated item's texture (not just
+        # fail to resolve) even in cases where the real, correct texture is
+        # sitting right next to the model under an obvious name (see
+        # TODO/KNOWLEDGE_BASE_DESIGN.md's "Known-wrong, not just
+        # unverified" status). Re-enable only once that's fixed.
         p = subprocess.run(
             cmd,
             capture_output=True, text=True, timeout=EXPORT_TIMEOUT,
@@ -342,6 +364,14 @@ def run_render_pipeline(paths: list[str], render_dir: Path) -> int:
     pipeline -- concurrency control, resume support, live log, results
     CSV -- not a second copy of it.
     """
+    # Background by design -- this is a multi-hour, all-core resource hog
+    # meant to run alongside other work, not compete with it. Lowered here
+    # (not left to the caller to remember) so it applies regardless of
+    # entry point (full_render.py or this file's own CLI): os.nice() is
+    # inherited by every ProcessPoolExecutor worker (fork) and every
+    # subprocess.run (husk/Blender) launched from them.
+    os.nice(10)
+
     # No manual override for this, deliberately -- the ceiling is always
     # the real machine's own core count. AdaptiveConcurrency (below) is the
     # whole point: it ramps the live window up/down against measured

@@ -155,7 +155,8 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                                             const std::string& modelPath,
                                             const std::string& texturesOutDir = "",
                                             const std::unordered_map<uint32_t, std::string>& listfile = {},
-                                            const std::string& listfileRoot = "");
+                                            const std::string& listfileRoot = "",
+                                            uint32_t objectSkinTextureFileDataId = 0);
 
 // A directory scan finding zero matches looks identical to "the directory
 // doesn't exist"/"can't be read" unless this distinguishes them. Shared by

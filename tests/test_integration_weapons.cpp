@@ -297,6 +297,103 @@ TEST_CASE("husk export: a real weapon's 'fade_animation' extras decode to finite
     std::filesystem::remove(outPath);
 }
 
+TEST_CASE("husk export --object-skin-texture-id: fills a real fdid==0 type=2 (object_skin) "
+          "slot with the supplied FileDataID's texture" *
+          doctest::skip(testWeaponRibbon().empty())) {
+    auto texDir = std::filesystem::temp_directory_path() / "husk-test-object-skin-tex";
+    std::filesystem::create_directories(texDir);
+    auto pngPath = texDir / "999999999.png";
+    {
+        std::ofstream pf(pngPath, std::ios::binary);
+        static const unsigned char kPng1x1[] = {
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+            0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
+            0x77, 0x53, 0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x08, 0xd7, 0x63, 0xf8,
+            0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xdd, 0x8d, 0xb0, 0x00, 0x00, 0x00,
+            0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+        pf.write(reinterpret_cast<const char*>(kPng1x1), sizeof(kPng1x1));
+    }
+
+    auto outPath = std::filesystem::temp_directory_path() / "husk-test-object-skin-tex.glb";
+    std::filesystem::remove(outPath);
+    auto result = runHusk("export \"" + testWeaponRibbon() + "\" -o \"" + outPath.string() +
+                           "\" --textures \"" + texDir.string() +
+                           "\" --object-skin-texture-id 999999999");
+    INFO("output:\n", result.output);
+    REQUIRE(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath.string());
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(!model.images.empty());
+
+    bool foundObjectSkinFdid = false;
+    for (const auto& mat : model.materials) {
+        if (mat.extras.IsObject() && mat.extras.Get("texture_type").IsInt() &&
+            mat.extras.Get("texture_type").GetNumberAsInt() == 2 && mat.values.count("baseColorTexture")) {
+            foundObjectSkinFdid = true;
+        }
+    }
+    CHECK(foundObjectSkinFdid);
+
+    std::filesystem::remove(outPath);
+    std::filesystem::remove_all(texDir);
+}
+
+TEST_CASE("husk export: a race/gender-suffixed model with no exact-basename texture falls back "
+          "to its family basename (suffix stripped), same directory" *
+          doctest::skip(testWeaponRibbon().empty())) {
+    auto dir = std::filesystem::temp_directory_path() / "husk-test-race-suffix-fallback";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+
+    // Real weapon fixture data, copied under a race/gender-suffixed name
+    // ("_orm") -- the model's own internal bytes don't need to match this
+    // filename, only the basename-fuzzy-matching path being exercised
+    // cares about the file's own name.
+    auto m2Src = std::filesystem::path(testWeaponRibbon());
+    std::string familyBasename = "husk_test_family_item";
+    auto m2Dst = dir / (familyBasename + "_orm.m2");
+    std::filesystem::copy_file(m2Src, m2Dst);
+    for (const auto& entry : std::filesystem::directory_iterator(m2Src.parent_path())) {
+        auto skinName = entry.path().filename().string();
+        if (skinName.rfind(m2Src.stem().string(), 0) == 0 && entry.path().extension() == ".skin") {
+            std::string suffix = skinName.substr(m2Src.stem().string().size());
+            std::filesystem::copy_file(entry.path(), dir / (familyBasename + "_orm" + suffix));
+        }
+    }
+
+    auto pngPath = dir / (familyBasename + ".png");
+    {
+        std::ofstream pf(pngPath, std::ios::binary);
+        static const unsigned char kPng1x1[] = {
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+            0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
+            0x77, 0x53, 0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x08, 0xd7, 0x63, 0xf8,
+            0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xdd, 0x8d, 0xb0, 0x00, 0x00, 0x00,
+            0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
+        pf.write(reinterpret_cast<const char*>(kPng1x1), sizeof(kPng1x1));
+    }
+
+    auto outPath = dir / "out.glb";
+    auto result = runHusk("export \"" + m2Dst.string() + "\" -o \"" + outPath.string() + "\"");
+    INFO("output:\n", result.output);
+    REQUIRE(result.exitCode == 0);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath.string());
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(!model.images.empty());
+
+    std::filesystem::remove_all(dir);
+}
+
 TEST_CASE("husk dump-chunks: a real weapon's particle_emitters JSON resolves plausible, "
           "finite color/alpha/scale curve values, not garbage or NaN" *
           doctest::skip(testWeaponParticleStress().empty())) {

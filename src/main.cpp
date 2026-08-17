@@ -365,6 +365,8 @@ int main(int argc, char** argv) {
         "  db2-info <file.db2>          parse and print a WDC5 DB2 file (proof of concept, see --help)\n"
         "  db2-export <file.db2>|--dir <dir> <out.sqlite> [--dbd-dir DIR]\n"
         "                               convert WDC5 DB2 file(s) to a real SQLite database (see --help)\n"
+        "  db2-build --db2-dir DIR --dbd-dir DIR --listfile FILE -o <out.sqlite>\n"
+        "                               build husk's own verified knowledge-base DB (see --help)\n"
         "  blp-export <file.blp> <out.png>\n"
         "  blp-export --dir <blp-dir> <out-dir>\n"
         "                               convert BLP2 texture(s) to PNG (see --help)\n"
@@ -395,6 +397,9 @@ int main(int argc, char** argv) {
     }
     if (command == "db2-export") {
         return husk::commands::db2Export(restArgc, rest);
+    }
+    if (command == "db2-build") {
+        return husk::commands::db2Build(restArgc, rest);
     }
     if (command == "blp-export") {
         return husk::commands::blpExport(restArgc, rest);

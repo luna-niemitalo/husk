@@ -200,29 +200,36 @@ class UnfillableTextureTask:
         # is unconditionally empty regardless of what's on disk.
         alt_basename = basename_lower[: -len("_sdr")] if basename_lower.endswith("_sdr") else None
 
-        any_resolved = False
+        # Per-slot, not per-file: a model with one working texture and one
+        # still-blank slot (e.g. a resolved base skin plus an unresolved
+        # DB2-driven object_skin slot) must still be reported -- an earlier
+        # version broke on the *first* resolved slot and returned None for
+        # the whole file, silently hiding every other slot's real gap (found
+        # live: helm_leather_pvpdruid_b_02_scm.m2 never appeared in this
+        # scan's output at all because one of its two texture slots, an
+        # unrelated placeholder, happened to resolve).
         missing_fdids: list[int] = []
         any_real_fdid = False
+        all_resolved = True
         for idx in used_indices:
             ttype, fdid = textures.get(idx, (None, None))
+            slot_resolved = False
             if fdid:
                 any_real_fdid = True
                 if (model_dir / f"{fdid}.blp").exists() or (model_dir / f"{fdid}.png").exists():
-                    any_resolved = True
-                    break
-                if _listfile_resolves(fdid):
-                    any_resolved = True
-                    break
-            if _has_fuzzy_candidate(model_dir, basename_lower):
-                any_resolved = True
-                break
-            if alt_basename and _has_fuzzy_candidate(model_dir, alt_basename):
-                any_resolved = True
-                break
-            if fdid:
-                missing_fdids.append(fdid)
+                    slot_resolved = True
+                elif _listfile_resolves(fdid):
+                    slot_resolved = True
+            if not slot_resolved and _has_fuzzy_candidate(model_dir, basename_lower):
+                slot_resolved = True
+            if not slot_resolved and alt_basename and _has_fuzzy_candidate(model_dir, alt_basename):
+                slot_resolved = True
+            if not slot_resolved:
+                all_resolved = False
+                if fdid:
+                    missing_fdids.append(fdid)
 
-        if any_resolved:
+        if all_resolved:
             return None
         return {
             "used_texture_count": len(used_indices),

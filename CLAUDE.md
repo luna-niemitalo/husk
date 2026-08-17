@@ -171,80 +171,74 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: New session (2026-08-16). Started from a direct
-  observation during a full-corpus render ("most objectcomponents meshes
-  don't have textures") and ended up rebuilding a chunk of the corpus
-  scan/render tooling. Root cause: item/objectcomponents/collections-style
-  body-fitted armor uses a `type=2` ("object_skin") replaceable texture
-  slot filled by the live client from CharComponentTextureLayoutsID/
-  ItemDisplayInfo DB2 data at runtime, not a standalone file. Built
-  `tools/corpus_scan_tasks/unfillable_texture_task.py` to quantify this,
-  with two real corrections along the way (a `husk export`-per-file first
-  version turned a ~10-minute scan into a multi-hour one, rewritten to
-  `husk info`-only; `BATCH_SIZE=8` copied unmeasured from another task
-  amplified `AdaptiveConcurrency` backoffs via a real `Path.glob()` cost
-  against the corpus's largest directory — root-caused, fixed, then
-  `BATCH_SIZE=8` re-benchmarked as genuinely fine once the real bottleneck
-  was gone). First full scan: 107,737/130,576 flagged, 103,004 with a
-  real missing FileDataID. Handed that 18,747-ID list to the casc-tool
-  project; they extracted 18,742/18,747 (5 confirmed unrecoverable) under
-  real listfile-resolved paths. Rescanning came back byte-identical —
-  found and fixed a real bug: the scan had silently dropped husk's
-  `--listfile` resolution tier (`export_materials.cpp:437-456`'s real
-  three-tier order) when rewritten away from the `husk export`-based
-  version. Fixed, rescanned: **4,891 flagged** (down from 107,737) — 158
-  real remaining extraction-gap files (18 distinct IDs), 4,733
-  structurally replaceable-only (unfixable by extraction, unchanged as
-  expected). Verified end-to-end with a real render smoke test. Rebuilt
-  the render exclusion list/CASC report from the corrected numbers and
-  built `tools/full_render.py` (fresh corpus discovery every run +
-  gitignore-style `.renderignore` for exclusion, replacing the scan-
-  result-subtraction approach that made the listfile bug's damage hard to
-  see) — `render_sample_driver.py`'s render loop factored into
-  `run_render_pipeline()` so both entry points share one tested pipeline.
-  Follow-up DB2 investigation (direct request: "explore why we can't fill
-  this given DB2 access"), fully resolved by end of session, both real
-  blockers fixed: `ItemDisplayInfo`/`ItemDisplayInfoMaterialRes`/
-  `ItemDisplayInfoModelMatRes` were each truncated a few dozen bytes short
-  of a complete record — casc-tool re-extracted all three to full real
-  size, fixed upstream. `CharComponentTextureLayouts.db2` looked like a
-  third, harder "needs an updated TACT key" case at first — **that
-  diagnosis was wrong**. Real investigation (a from-scratch Salsa20 port
-  cross-verified against `pycryptodome`, several IV-derivation hypotheses
-  tried and ruled out against a real 32KB payload, then checking
-  `reference/DBCD`'s and `reference/wow.export`'s own DB2 readers) found
-  neither community tool implements DB2-internal decryption at all — both
-  just skip a `tact_key_hash`-bearing section only if its bytes are
-  all-zero. Checked husk's own corpus: 111/126 real encrypted-flagged
-  sections were already non-zero, readable plaintext (a real CASC
-  extraction already decrypts these before the file lands on disk); only
-  15 (all in the one already-truncated file above) were genuinely still
-  blocked. **husk's own `db2.cpp` had a real bug** — `tactKeyHash != 0`
-  was treated as "always opaque," never checking whether the bytes it
-  actually had were still ciphertext. Fixed:
-  `db2::Section::recordsAvailable()` (`db2.hpp`) is now the one canonical
-  check, replacing four separate skip sites; a second, same-shape
-  `relationshipMap`-all-zero-region bug (used to throw and abort the
-  whole file) fixed alongside it. New regression tests in
-  `tests/test_db2.cpp` (637 cases, was 634). Verified against real data:
-  `CharComponentTextureLayouts.db2` now exports all 5 rows (was 4); the
-  full corpus DB2 batch export gained 446,719 previously-silently-dropped
-  rows. `CHAR_TEXTURE_COMPOSITING_TODO.md` rewritten to reflect the
-  corrected outcome. Full narrative: `CLAUDE_HISTORY.md`'s 2026-08-16
-  entry (two parts — the render-tooling rebuild, then this DB2 fix).
-- **Next step**: `tools/full_render.py` is ready to run
-  (`python tools/full_render.py`, or `--dry-run` first) but hasn't been
-  run to completion this session. The DB2 fix unblocks real data for
-  `husk export --db2-dir/--dbd-dir/--char-layout-id` and
-  `CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 2 that used to come back
-  empty — worth re-verifying those paths pick up the newly-available rows
-  next time either is touched. Otherwise unchanged from before:
-  `MULTI_TEXTURE_LAYER_TODO.md`'s step 5, `RENDER_QUALITY_TODO.md`'s
+- **Current state**: New session (2026-08-16), picked up
+  `TODO/EXPLORATION_TODO.md`. Mapped and quantified the real DB2 chain
+  from a `.m2` FileDataID to a texture FileDataID (full narrative:
+  `CLAUDE_HISTORY.md`'s later 2026-08-16 entry, "`EXPLORATION_TODO.md`
+  follow-up"): `.m2` FileDataID → `ModelFileData.db2` →
+  `ModelResourcesID` → `ItemDisplayInfo.db2`'s `ModelResourcesID_0`/`_1`
+  → `ID`/`ModelMaterialResourcesID_0`/`_1` → `TextureFileData.db2`'s
+  `MaterialResourcesID` → real texture `FileDataID`. Shorter than
+  originally guessed (no `Item`/`ItemAppearance`/`ItemModifiedAppearance`
+  hop needed) and one guessed table (`ComponentTextureFileData.db2`) was
+  wrong — the real target is `TextureFileData.db2`. Verified against a
+  real file end to end. Quantified across all 4,733
+  `replaceable_only` files from the earlier session's unfillable-texture
+  scan: all 4,733 resolve through `ModelFileData`; 4,220 (89.2%) further
+  resolve to a real `ItemDisplayInfo` row with a nonzero
+  `ModelMaterialResourcesID`. **Every one of those 4,220 still dead-ends
+  at the last hop** — `texturefiledata.db2` is a genuine 0-byte file
+  locally, a fresh casc-tool re-extraction gap, not something this
+  session's earlier `recordsAvailable()` fix touches. Also confirmed (not
+  assumed) that the 144 excluded `character/` files are still blocked by
+  `CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 3 0-byte
+  `chrcustomization*.db2` tables, unchanged. Re-audited every DB2
+  consumer in `src/` for the same `recordsAvailable()` blast radius as
+  the earlier fix — none had the bug, nothing else to re-run.
+  **Same-day follow-up**: casc-tool re-extracted `texturefiledata.db2`
+  (was 0 bytes); re-verified the final hop of the chain against real
+  data — 4,216 of the 4,733 `replaceable_only` files now resolve end to
+  end to a real, locally-present texture FileDataID (checked via real
+  listfile path, not filename-by-ID — an early mistake this session,
+  caught before it produced a wrong answer). No casc-tool ask remains
+  for this bucket. `EXPLORATION_TODO.md` trimmed to just the real
+  remaining work (implement the chain in husk, re-render) per its own
+  "punch list, not a log" convention.
+- **Next step**: Object-skin texture resolution is now fixed — not via
+  DB2 (that path stayed too collision-prone even with a real
+  `Item.InventoryType` slot filter, see Hazards) but via a new local
+  fallback tier in husk's own existing fuzzy-basename matcher
+  (`scanFuzzyTexturePool`'s real, corpus-verified race/gender-suffix
+  stripping, `TODO/KNOWLEDGE_BASE_DESIGN.md`'s "Local fallback" section)
+  — verified against both real cases that exposed the DB2 bug, 639/639
+  tests pass. Run the actual full-corpus render now:
+  `direnv exec . tools/venv/bin/python tools/full_render.py` (old
+  renders already cleared to `trash/`), then a real visual spot-check —
+  the actual bar for calling this done. Otherwise unchanged from
+  before: `MULTI_TEXTURE_LAYER_TODO.md`'s step 5, `RENDER_QUALITY_TODO.md`'s
   ambiguous-pool tiebreak/blank-render follow-ups, the dangling-internal-
   reference corpus scan (`CLEANUP_TODO.md` #2), `CLEANUP_TODO.md` #1's
   comment-hygiene sweep, and `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (still
   needs a design pass, not more investigation).
-- **Hazards**: `tools/corpus_scan_tasks/unfillable_texture_task.py` is
+- **Hazards**: `/media/luna/work/cache/husk/knowledge.sqlite` (`husk
+  db2-build`'s output, including `model_object_skin_verified`, its
+  `Item.InventoryType`-filtered table) still contains **real but
+  incomplete** object-skin data — the slot filter eliminates
+  cross-category errors (a weapon texture for a helmet) but same-slot
+  cross-item collisions are still common (confirmed: 15/15 random
+  spot-checked "verified" answers were plausible-slot but wrong-item).
+  Don't pass `--knowledge-db` to `husk export` for real output
+  (`render_sample_driver.py` already doesn't); the feature that actually
+  works now is the local race/gender-suffix fallback, which needs no
+  flag at all. A scratch `db2.sqlite` (full corpus DB2 export, built
+  with `husk db2-export --dir /media/luna/data/wow_export/dbfilesclient
+  --dbd-dir reference/WoWDBDefs`, plus a `listfile_raw`/`corpus_paths`
+  import from `community-listfile.csv` and
+  `corpus_reports/unfillable_textures_full.csv`) was used for this
+  session's real-data joins and lives only in the session scratchpad —
+  not committed, not a persistent artifact, rebuild it fresh if this
+  chain needs re-querying rather than assuming it still exists.
+  `tools/corpus_scan_tasks/unfillable_texture_task.py` is
   the one true source for "does this file's texture actually resolve" —
   `missing_texture_task.py` (same directory) is an older, deliberately
   simpler check that only looks for a literal `<FileDataID>.blp/.png`
