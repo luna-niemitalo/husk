@@ -182,8 +182,9 @@ already gives every `reference/` source in this project (`wow.export`,
 
 ## Concrete next steps (in rough order of expected payoff)
 
-1. ~~Find real corpus files that actually exercise one of the 17
-   undocumented shaders~~ — **done 2026-08-14**:
+1. **Found real corpus files that actually exercise one of the 17
+   undocumented shaders — done 2026-08-14**, kept here because later steps
+   depend on its data:
    `tools/corpus_scan_tasks/shader_names_task.py` (new, transcribes
    `husk::m2::resolveShaderNames` into Python, same pattern
    `shader_id_task.py` already established) run against the full local

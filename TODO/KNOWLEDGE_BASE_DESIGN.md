@@ -59,6 +59,13 @@ New regression test: `tests/test_integration_weapons.cpp`'s
 model copied under a race-suffixed name, a family-basename PNG placed
 alongside it, confirms the fallback actually embeds it).
 
+**Remaining step** (formerly its own `EXPLORATION_TODO.md`, folded in here
+since it's this fix's own direct follow-up, not a separate investigation):
+`render_sample_driver.py`/`tools/full_render.py` need a real run to
+completion — `direnv exec . tools/venv/bin/python tools/full_render.py` —
+then a real visual check of the output. Old renders already cleared to
+`trash/` for a clean run.
+
 ## Known-wrong, not just unverified (2026-08-16)
 
 The original `model_object_skin_texture` join used

@@ -818,8 +818,9 @@ above; this section is about *sequencing* that work, not duplicating it.
    framing round-trips through tinygltf's own loader intact); the
    Blender-specific verification this stage's own text originally flagged
    as missing is now real, automated, headless coverage (see "Testing"
-   below and `TRANSFORM_TRIAGE.md`) — a real animated pose visually
-   confirmed in Blender's own GUI is still the one open item.
+   below) — a real animated pose visually confirmed in Blender's own GUI
+   was the one remaining open item, and is now done too ("Animation looks
+   OK," 2026-08-08).
 2. **Skeleton + skinning, still untextured. Done** — `husk export` now
    resolves the `bones` array (`M2CompBone`: `parent_bone`, `pivot`,
    `flags`, `key_bone_id`; the embedded `M2Track` animation blocks are
@@ -837,8 +838,9 @@ above; this section is about *sequencing* that work, not duplicating it.
    stage is "imports as an armature-bound mesh in the correct bind pose" —
    no animation playback yet. Verified against `bloodelffemale.m2` (119
    bones): exports cleanly, round-trips through tinygltf's own loader with
-   a populated skin/joint hierarchy; **not yet verified** in Blender itself
-   (same caveat as stage 1). Models with a genuinely empty inline `bones`
+   a populated skin/joint hierarchy; bind pose confirmed correct in
+   Blender's own GUI too (same "Animation looks OK" pass as stage 1).
+   Models with a genuinely empty inline `bones`
    array correctly fall back to an unskinned mesh, same as stage 1's
    output — but as stage 3 below explains, "inline `bones` array is empty"
    and "this model has no skeleton" turned out to be different things, so
@@ -896,14 +898,18 @@ above; this section is about *sequencing* that work, not duplicating it.
    battle-tested DDS reader, rather than reimplementing color/alpha
    interpolation math — confirmed pixel-correct against hand-built
    single-block fixtures first (`blp/tests/test_decode.py`), not assumed.
-   Scoped to the three encodings this repo's real test data (1021 `.blp`
-   files under `test_data/character/bloodelf/female/`) actually contains
-   — Palettized (alpha depth 0), DXT1 (opaque), DXT5 (interpolated alpha)
-   — checked empirically before writing any decode code, not assumed;
-   uncompressed BGRA is also implemented (trivial, no library needed) even
-   though this test data doesn't happen to use it. Explicitly deferred:
-   DXT3 (unseen in this repo's test data, so not a confirmed-needed gap
-   yet) and JPEG content (wiki: rare in BLP2). Palette alpha depth 4 is
+   Scoped initially to the encodings this repo's real test data (1021
+   `.blp` files under `test_data/character/bloodelf/female/`) actually
+   contained — Palettized (alpha depth 0), DXT1 (opaque), DXT5
+   (interpolated alpha) — checked empirically before writing any decode
+   code, not assumed; uncompressed BGRA is also implemented (trivial, no
+   library needed) even though this test data doesn't happen to use it.
+   DXT3 is implemented too (`src/blp.cpp`'s generic BC1/BC2/BC3 block
+   decode already covered it structurally; a later 779,056-file
+   local-corpus scan confirmed it pixel-correct against 6,759 real DXT3
+   files, see the format matrix above). Explicitly deferred: JPEG content
+   (wiki: rare in BLP2, confirmed zero real hits in that same corpus scan).
+   Palette alpha depth 4 is
    also deliberately unimplemented and raises a clear error rather than
    guessing — the wiki's own spec table doesn't clearly document that
    value's bit layout, unlike the other three depths. Verified against
@@ -1000,9 +1006,9 @@ above; this section is about *sequencing* that work, not duplicating it.
    `global_seq_<n>`, see below), 73,465 rotation keyframes, all finite and
    unit-norm; and against the `.skel`-sourced `bloodelffemale_hd.m2`: 334
    clips, 84,486 sampler channels, zero non-finite/non-monotonic keyframes
-   (see the Usage section's verified-numbers paragraphs) -- **not yet
-   verified** in Blender itself (does a clip actually play back looking
-   right, not just structurally valid data). A bone track whose
+   (see the Usage section's verified-numbers paragraphs) -- playback also
+   confirmed to look correct in Blender's own GUI ("Animation looks OK,"
+   2026-08-08), not just structurally valid data. A bone track whose
    `global_sequence` field is set instead of belonging to any `M2Sequence`
    (a continuously-looping animation -- eye-glow pulses, torch flicker,
    idle sway, wowdev.wiki "Global Sequences": "always loops") resolves the

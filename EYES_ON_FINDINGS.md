@@ -5,98 +5,15 @@ Findings from a real interactive Blender inspection of a `husk export` output
 orientation are both confirmed good now. **Fully resolved items are punched
 out of this file outright** (git history has the record — same "no `[Fixed]`
 noise" discipline `TODO/TODO_correctness.md` uses), not kept as a closed log.
-Three items remain, each with real open work.
+Two items remain, each with real open work. (A former item 1, material
+naming/dedup granularity, is now fully resolved — `src/export_materials.cpp`'s
+`materialDedupKey`/`materialByKey` merge structurally-identical batches into
+one `gltf::Material` and drop the `batch<N>_` prefix from its name once
+dedup applies, verified on the real `bloodelffemale_hd.m2` export, 114
+materials → 10 — see finding 2's own later correction below for the
+full story; punched out per this file's own convention.)
 
-## 1. Material naming granularity — usability gap, real duplicates confirmed
-
-**Symptom**: dozens of materials named `batch<N>_mat3_tex0_skin` for
-varying `N`, hard to tell apart; ~23-25 of them look identical.
-
-**Grounding**: `src/export_materials.cpp:234` creates one `gltf::Material`
-per `.skin` batch unconditionally — no merge/dedup step exists anywhere in
-`src/`. The name is built from `batch<index>_mat<materialIndex>` (:281),
-then `_tex<textureIndex>` (:374), then `_<textureTypeName>` (:388), then an
-optional filename/FileDataID suffix. Material identity, as far as husk
-models it, is: `mat.blendMode` (:278), `mat.flags` (:279-280,
-two-sided/unlit), and the resolved texture index/type (:359-393);
-`M2Batch.shader_id` is deliberately not read at all (`src/skin.hpp:60`,
-`src/skin.cpp:172`). Rebuilding a real export confirmed 28 batches all
-named `..._mat3_tex0_skin`, all referencing the identical
-`m2.materials[3]`/`m2.textures[0]` by construction — true duplicates in
-every field husk currently models, differing only in which submesh/geoset
-batch draws with them (e.g. separately-toggleable skin geosets sharing one
-base material, which is exactly the kind of per-geoset selection
-`M2_GAPS_TODO.md`'s now-closed `skinSectionId`-extras work was about).
-
-**Verdict**: genuine usability gap, not a correctness bug — every one of
-those materials is already correct, just redundant. Two independent
-improvements, not mutually exclusive:
-
-- **Dedup**: when two batches resolve to the same
-  (`materialIndex`, `textureIndex`, `blendMode`, `flags`, `textureType`)
-  tuple, emit one glTF material and have both primitives reference it,
-  instead of N structurally-identical materials. Straightforward, and
-  shrinks both the material list and the `.glb` JSON.
-- **Naming**: even without dedup, `mat<materialIndex>_tex<textureIndex>`
-  (dropping the per-batch `batch<N>` prefix, or moving it to `extras`
-  rather than the display name) would already make the ~25 duplicates
-  visibly identical instead of visibly distinct in Blender's material
-  list.
-
-Neither is implemented yet — this is a finding, not a fix.
-
-**Confirmed directly in Blender, a later session, real interactive
-inspection**: clicking a face-region primitive in the fixed
-`bloodelffemale_hd.m2` full-auto export shows material name
-`batch77_mat5_tex2_skin_bloodelffemale_hd_3255415` — the naming itself is
-correct (batch/material/texture/type/resolved-filename all line up with
-what that mesh part visually is). But **several other primitives, mapped
-to visibly different body parts, carry the exact same
-`mat5_tex2_skin_bloodelffemale_hd_3255415` suffix** — i.e. this dedup gap
-isn't hypothetical or rare, it's real and directly observable by clicking
-around a real export. This is the same root cause already described
-above (identical `(materialIndex, textureIndex, blendMode, flags,
-textureType)` tuples, one `gltf::Material` per batch, no merge step) —
-not a new finding, but real confirmation that it manifests exactly as
-predicted, plus a concrete real fixture/material name to reproduce it
-against directly (`bloodelffemale_hd.m2`, full auto-resolution export,
-material name above).
-
-**A second session compounded this, worth understanding before touching
-either area**: finding #3 below (`alternate_textures`) makes *every*
-genuinely ambiguous hardcoded-slot material pick the same arbitrary
-default candidate (deliberately — the whole shared pool is identical
-across every ambiguous slot, since husk has no way to tell them apart).
-That means batches which already dedup-collide on `(materialIndex,
-textureIndex, blendMode, flags, textureType)` **now also collide on the
-resolved texture bytes**, for a reason unrelated to the M2's own batch
-data — they're not "the same material because the model author made
-them so," they're "the same material because husk's ambiguous-texture
-fallback can't do better than one shared guess." Untangling which
-`mat5_tex2_skin_...` duplicates are *real* (the model genuinely draws
-several geosets with one shared material, e.g. mutually-exclusive skin
-options) versus *artifacts of the ambiguous-texture fallback* (every
-hardcoded `skin`-type slot ends up structurally identical regardless of
-which real skin-tone file is actually correct for each) is exactly the
-kind of thing dedup work should account for, not paper over — the dedup
-key may need to include something about *which* ambiguous-resolution path
-was taken (e.g. `textureType` alone vs. `textureType` + "this was an
-ambiguous fallback, not a real resolved id"), or ambiguous-slot materials
-may need to stay unmerged specifically because merging them would hide
-that they're independently unresolved, not confirm they're really
-identical.
-
-**For whoever picks this up next**: start from `src/export_materials.cpp`'s
-`buildMaterialsAndPrimitives` (the per-batch material-construction loop) —
-that's both where the dedup key would need to live and where the
-ambiguous-default assignment happens (see finding #3's own "Root cause"
-for the exact lines). Real repro fixture: `bloodelffemale_hd.m2` with its
-real `wow_export`-style texture directory, default (auto) resolution, no
-extra flags — `batch77_mat5_tex2_skin_bloodelffemale_hd_3255415` and its
-siblings are the concrete case to check dedup logic against once it
-exists.
-
-## 2. `husk info`/`export` given a non-M2 file (e.g. a `.skin` directly) fails with a confusing byte-garbage-looking error, not a clean "wrong file type"
+## 1. `husk info`/`export` given a non-M2 file (e.g. a `.skin` directly) fails with a confusing byte-garbage-looking error, not a clean "wrong file type"
 
 **Symptom**: `husk info bloodelffemale_hd_sdr02.skin` (a real `.skin` file
 passed directly, not via `--skin`) fails with:
@@ -155,7 +72,7 @@ yet — this is a finding, not a fix.
 
 Fix by making it possible read just the skin file, and print the magic bits and all of the data we get access to from just that file, so the info tool can be used as an independent exploration tool, without having to always target the m2 file
 
-## 3. `alternate_textures` (this session's own new feature, item 1 above) caused a real 1.9GB/5m39s export (fixed) — and every ambiguous material sharing one identical default texture (found, not yet fixed — see finding #1)
+## 2. `alternate_textures` (this session's own new feature) caused a real 1.9GB/5m39s export (fixed) — and every ambiguous material sharing one identical default texture (found, and later fixed too — see below)
 
 **Symptom**: `husk export` with full auto-resolution against a real
 `bloodelffemale_hd.m2` + real CASC-export texture directory produced a
@@ -251,12 +168,11 @@ in a new form by this session's own `alternate_textures` feature.
 real question turned out to be bigger than "which arbitrary default to
 pick": interactive inspection in Blender showed the *same* material
 identity (`mat5_tex2_skin_bloodelffemale_hd_3255415`) legitimately
-spanning several different mesh parts, which is finding #1's own
-already-documented material-dedup gap, now compounded by this ambiguous-
-default behavior. See finding #1's own follow-up for the full writeup and
-the concrete next step — this note exists so anyone reading #6 in
-isolation knows where the actual continuation lives, without re-deriving
-the connection.
+spanning several different mesh parts, which was the former material-dedup
+finding's own gap (now resolved, see this file's intro), now compounded by
+this ambiguous-default behavior — the dedup fix and this finding's own
+later corrections below both needed to land before the picture was
+complete.
 
 **Fixed, a later session**: `alternate_textures` used to attach the *entire*
 undifferentiated 94-file candidate pool to *every* ambiguous material,
@@ -581,7 +497,12 @@ been working around rather than solving. Full plan, staged, written up in
 `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` rather than here -- goal (Luna,
 directly): a real compositing pipeline, plus Blender-side tooling that
 lets a human pick from the real, correctly-UV-placed candidate options
-per slot. Not started in `src/` yet.
+per slot. Stages 1-2 (WDC5 parser, real placement-rect/blend-mode data
+attached as `chr_texture_layout` skin extras via `--char-layout-id`) are
+now implemented (`src/db2.hpp`/`.cpp`, `src/chrmodel_db2.hpp`/`.cpp`) --
+Stage 3 (resolving *which* file a specific character's customization
+choices select) and Stage 4 (actual pixel compositing) are not, see
+`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` for the current per-stage state.
 
 **Genuinely still open, found while investigating, not yet fixed**: several
 of the real, deterministically-resolved slots (`M2Texture::type == 0`,

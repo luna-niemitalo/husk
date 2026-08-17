@@ -399,14 +399,11 @@ listed here so they aren't lost:
    actual resolved-texture-darkness checking rather than a particle-count
    proxy, then spot-check the remaining ~62 before assuming any of them
    are fresh bugs.
-2. ~~**Mod/Mod2x (§3)**~~ — **done 2026-08-15**, Cryptomatte-matte-driven
-   Compositor darkening of the existing beauty pass, verified against real
-   corpus fixtures end-to-end through `render_glb.py`.
-3. **Billboard ground-truth pass (§4)** — needs Luna's own real-client
+2. **Billboard ground-truth pass (§4)** — needs Luna's own real-client
    comparison, same as the earlier billboard/geoset-mask verification
    pattern in this project's history; not something to chase blind in
    Blender alone a second time.
-4. **Particle-effect Blender-rendering task (§1)** — the 36-file known
+3. **Particle-effect Blender-rendering task (§1)** — the 36-file known
    gap is already excluded from review, so a *real, textured, simulated*
    particle system is still genuinely optional scope expansion, not
    urgent. `tools/husk_blender_geoset_mask.py`'s `apply_emitter_markers`

@@ -43,3 +43,25 @@ matrix to real Blender rendering — not a format wall
 real rendering elsewhere), but the matrix's own application semantics
 (multiply order, local-vs-model space) were never verified against real
 client behavior. See `TODO/BONE_CORRECTION_APPLICATION_TODO.md`.
+
+### 3. `tools/live_gallery`'s three.js viewer — curve playback not yet visually confirmed in a real browser
+
+`static/viewer.html`/`.js` plays back both real skeletal animation
+(`THREE.AnimationMixer`, clip dropdown, play/pause/loop) and husk's own
+extras-driven texture-transform/tint/fade curves (a real JS port of
+`tools/husk_blender_geoset_mask.py`'s curve-eval logic), plus mesh/
+material picking (click to inspect `blend_mode`/`pixel_shader`/
+`vertex_shader`/etc.) and lighting-intensity/exposure sliders. Verified
+structurally (element-ID wiring, extras JSON shape cross-checked against
+`gltf_mesh.cpp`'s actual output, served correctly through a real local
+server) — **not yet visually confirmed in an actual browser** (no headless
+browser available in this environment); worth a real look before treating
+the curve-playback math as trusted the same way the Blender-side port
+already is.
+
+Not attempted, real "overlay shenanigans" stretch scope if there's
+appetite for more: JS-side parity for the Blender interactive script's
+geoset-switch dropdown and texture-layout overlay — the viewer can inspect
+a mesh's material but can't yet toggle geoset variants or preview the
+character-texture-layout compositing rectangles the way
+`husk_blender_geoset_mask.py` does.

@@ -1774,13 +1774,15 @@ directly ("yes, you build while i nap"), implemented the same session.
   against the corrected formula (484/484 + 1 skip via `husk-tests`, 485/485
   via `ctest`) — informative on its own: nothing else in this codebase was
   silently depending on the old formula's specific wrong values.
-- **Deliberately still open, by design, not an oversight**: a real animated
-  clip, visually confirmed in Blender's actual GUI viewport — Luna's own
-  explicit "after all of it is tested and implemented i will verify...
-  until then rely on headless Blender." Every check this session added is
-  numeric; nothing here substitutes for that last look. See
-  `TRANSFORM_TRIAGE.md` for the full investigation, every implementation
-  note, and this one remaining open item.
+- **Deliberately still open at the time, by design, not an oversight**: a
+  real animated clip, visually confirmed in Blender's actual GUI viewport —
+  Luna's own explicit "after all of it is tested and implemented i will
+  verify... until then rely on headless Blender." Every check this session
+  added is numeric; nothing here substituted for that last look. **Since
+  resolved** (2026-08-08): Luna confirmed "Animation looks OK" in Blender's
+  own GUI, closing out the investigation — `TRANSFORM_TRIAGE.md` itself was
+  deleted once this was done, per this project's own "survey's job is done"
+  lifecycle.
 
 **Second follow-up, same day**: node/bone/material naming and texture
 linking were manually confirmed working (a live export with a real

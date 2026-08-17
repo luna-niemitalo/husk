@@ -302,28 +302,29 @@ priority" the old 3/130,576 number implied.
   genuine open design question this session didn't settle — see
   Implementation plan.
 
-## Implementation plan (revised this session, nothing implemented yet)
+## Implementation plan (steps 0-5 all done; kept as the implementation
+record, not a live punch list — the "Open follow-up" section below is)
 
-0. ~~extend this session's corpus scan (or redo it small-scope) to resolve
-   full `shader_id`/`op_count` → `{pixel, vertex}` shader *names* (both the
-   table-lookup and formula paths), and tally how many real batches
-   resolve to an `_Env`-bearing vertex shader~~ — **done 2026-08-14**:
+0. **Extended this session's corpus scan to resolve full
+   `shader_id`/`op_count` → `{pixel, vertex}` shader *names* (both the
+   table-lookup and formula paths), and tallied how many real batches
+   resolve to an `_Env`-bearing vertex shader — done 2026-08-14**:
    `tools/corpus_scan_tasks/shader_names_task.py` (new, transcribes
    `husk::m2::resolveShaderNames` into Python, same pattern
    `shader_id_task.py` already established), run against the full local
    corpus. Result: 41.33% of real batches resolve to an `_Env`-bearing
    vertex shader (see the env-map section above) — the recipe below is
    now confirmed high-priority, not deferred pending a frequency number.
-1. ~~Husk-side (small): add a `shader_id` field to `skin.hpp`'s `Batch`
-   struct, read it in `src/skin.cpp`'s `parseBatches`~~ — **done this
-   session**: `skin::Batch::shaderId` (offset 0x02, u16), covered by a new
+1. **Husk-side (small): added a `shader_id` field to `skin.hpp`'s `Batch`
+   struct, read in `src/skin.cpp`'s `parseBatches` — done**:
+   `skin::Batch::shaderId` (offset 0x02, u16), covered by a new
    `tests/test_skin.cpp` case (both the `0x8000` table-lookup shape and a
    plain low-bits value). Pure parsing only, no behavior change yet —
    the field isn't consumed/exported anywhere downstream. Full suite green,
    611/611 (1 pre-existing unrelated skip).
-2. ~~Husk-side: implement M2GetPixelShaderID/M2GetVertexShaderID... export
-   the resolved {pixel, vertex} name pair as new material extras~~ —
-   **done this session**: `src/m2_shader_names.hpp`/`.cpp` (new,
+2. **Husk-side: implemented M2GetPixelShaderID/M2GetVertexShaderID...
+   exported the resolved {pixel, vertex} name pair as new material extras
+   — done**: `src/m2_shader_names.hpp`/`.cpp` (new,
    `husk::m2::resolveShaderNames`), both branches (`0x8000` table lookup
    against a transcribed 30-row `s_modelShaderEffect` — the pre-8.0.1
    listing; the 8.0.1 variant adds 4 more rows but that section of the
@@ -375,8 +376,8 @@ priority" the old 3/130,576 number implied.
    look like a sane answer," not "matches known-ground-truth," per this
    project's own standing discipline. Worth doing before this is treated
    as fully trusted, but no longer the single-file blocker it was.
-4. ~~**Blender-side**: extend `render_glb.py`'s post-import material
-   rebuild~~ — **done 2026-08-15**: `fix_multi_texture_layers()`
+4. **Blender-side: extended `render_glb.py`'s post-import material
+   rebuild — done 2026-08-15**: `fix_multi_texture_layers()`
    (`render_glb.py`, same site as `fix_additive_materials`, called from
    `main()`). Covers 19 of the real `Combiners_*` formulas as a table of
    small Mix/VectorMath/Math node-graph builders feeding Base Color/Alpha
@@ -406,8 +407,8 @@ priority" the old 3/130,576 number implied.
    fully eligible (`apply_multiply_blend_compositing` operates on the
    render's own beauty pass via the Compositor, never touches a
    material's own node graph).
-5. ~~Verified against a real corpus render with actual combined output~~ —
-   **done 2026-08-17**, two real bugs found and fixed via corpus
+5. **Verified against a real corpus render with actual combined output —
+   done 2026-08-17**, two real bugs found and fixed via corpus
    spot-checks (`ladywaycrest`, `darknaaru`, `devourersandworm`): a
    Blender image-dedup collision dropping the 2nd-layer lookup, and
    `fix_multi_texture_layers`/`fix_additive_materials` only recognizing

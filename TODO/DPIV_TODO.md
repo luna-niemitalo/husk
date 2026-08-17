@@ -182,8 +182,9 @@ the mesh" distance is still real (the raw-space math doesn't depend on
 which axis is "up"), but which axis it's offset along could be
 mislabeled.
 
-**Follow-up, same session: item 3 below run at corpus scale, plus a real
-structural finding it depended on.** Sampled 6 real multi-record files by
+**Follow-up, same session: the same-file-point-sets-close-into-a-polygon
+question run at corpus scale, plus a real structural finding it depended
+on.** Sampled 6 real multi-record files by
 hand first and immediately noticed something the "polygon footprint"
 framing hadn't accounted for: several files have one record that's
 *exactly* `(0.0, 0.0, 0.0)` while a sibling record in the same file is a
@@ -217,50 +218,26 @@ multi-part prop) than one small decal/trigger footprint polygon.
 
 ## Concrete next steps (in rough order of expected payoff)
 
-1. ~~Cross-reference DPIV points against the model's own geometry~~ —
-   **partially done this session**, one real file (see above): not on the
-   mesh surface, not closer to any named bone than to raw vertices. A
-   single file isn't a corpus-scale answer — worth a few more hand-picked
-   cross-checks (an elevated prop and a ground prop each) before treating
-   "not on the surface" as general, but the negative "not bone-pinned"
-   result and the elevation lead below are real enough to act on.
-2. ~~Run the field1-vs-own-bounding-box test at corpus scale~~ — **done
-   this session**, all 2,632 files/2,943 records: confirmed X/Y are
-   bbox-center coordinates (91.4%/77.0% within 10% of center) and found
-   the real shape of `field2` — near-or-below the model's own base
-   (median 6.1% above Z-min, 65.9% within ±20%, 10.1% fully below), not
-   bbox-center at all (only 13.3% within 10% of *center*). See above for
-   the full writeup — this promotes the "ground-contact/shadow-projection
-   anchor" hypothesis from a lead to a real, corpus-supported shape.
-   **New next step this unlocks**: `field2`'s own real distribution is
-   the interesting remaining question — is it *always* within some small
-   fixed tolerance of the base for a "pinned to the ground" subset, with a
-   separate, different pattern (e.g. a fixed offset, or bone-relative
-   instead of bbox-relative) for the outliers? Worth histogramming
-   `field2`'s offset-from-Z-min distribution directly rather than just the
-   two summary buckets used this session, and cross-referencing outliers
+1. **Histogram `field2`'s offset-from-Z-min distribution directly**, rather
+   than the two summary buckets used so far (median 6.1% above Z-min,
+   65.9% within ±20%, 10.1% fully below) — is it *always* within some
+   small fixed tolerance of the base for a "pinned to the ground" subset,
+   with a separate, different pattern (fixed offset, or bone-relative
+   instead of bbox-relative) for the outliers? Cross-reference outliers
    against filenames/content type the way `DETL`'s `flags` bit was
    cracked.
-3. ~~Check whether same-file point sets close into a polygon~~ — **done
-   this session**, all 260 multi-record files: found and filtered out a
-   real zero-placeholder-record pattern first (32% of files), then tested
-   the remaining 136 genuinely-multi-point files — bounded within the
-   model's own volume (never exceeds the bbox diagonal) but only
-   moderately clustered (median 30% of the diagonal), not a tight
-   footprint polygon. See above for the full writeup. **New next step
-   this unlocks**: the zero-placeholder pattern itself is now a real,
-   separate structural question — does a zero record correlate with
-   `field3`'s own value (e.g. "`field3 == 0` means unused slot")? Cheap
-   to check against the same 83-file set already identified, and would
-   help interpret `field3` (item 4 below) at the same time.
-4. **Re-examine field 3 as a category enum, not an index.** With only 4
+2. **Check whether the zero-placeholder-record pattern correlates with
+   `field3`'s own value** (e.g. "`field3 == 0` means unused slot") —
+   cheap to check against the already-identified 83-file placeholder set,
+   and would help interpret `field3` (item 3 below) at the same time.
+3. **Re-examine field 3 as a category enum, not an index.** With only 4
    values (0–3) and no clean ordering, check for correlation with anything
    else per-record-position-independent — e.g. does a specific value always
    pair with a specific relative position (first vs. last point in a
    footprint), or with specific filename patterns (fire/torch vs. window vs.
    structure doodads, the same directory split that cracked `DETL`'s
    `flags` bit this session)?
-5. **Full-name audit of all 2,632 hits.** Only skimmed a handful of
+4. **Full-name audit of all 2,632 hits.** Only skimmed a handful of
    filenames this session (`dpiv_files_for_exploration.txt` has the full
    list) — a systematic pass grouping by directory/naming convention (the
    same method that found `DETL`'s flags-vs-light-prop correlation) might

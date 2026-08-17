@@ -62,7 +62,7 @@ past deliberately, not silently misread.
 | Skeleton / bone hierarchy | native (inline or `.skel`) | native (inline or `.skel`, `SKELLoader.js`) | parity |
 | Multi-root bone forest (35% of real corpus) | synthesized non-joint glTF parent node, real fidelity-preserving fix (see `DESIGN.md`) | unverified — no equivalent code found, but not specifically searched for | open |
 | LOD tiers | native, `--lod all` exports every tier | present (`viewCount`/skin selection read) but depth not compared | open |
-| Geometry-less models (0 vertices, pure VFX — 3,807/130k real files) | exports skeleton + emitter anchors, no crash (fixed this project's own `CORPUS_TODO.md` #1) | unverified | open |
+| Geometry-less models (0 vertices, pure VFX — 3,807/130k real files) | exports skeleton + emitter anchors, no crash (fixed this project's own bug, see `DESIGN.md`'s "A genuinely geometry-less model" note) | unverified | open |
 
 ### Animation
 
@@ -94,7 +94,7 @@ wasn't checked — flagged as open, not claimed as a wow.export bug.
 |---|---|---|---|
 | Base material / texture references | native | native | parity |
 | Multi-texture-layer (`textureCount > 1`) | `extras`-only — no core-glTF slot for WoW's fixed-function combiner math | wow.export **composites layers itself** at export time (canvas-based texture baking, per earlier doc research — not independently re-verified this session) rather than exposing them separately | **structural difference, not a gap either way** — husk exposes raw per-layer data for a downstream tool to blend correctly; wow.export bakes its own blend into one texture. Neither is strictly more correct: baking requires wow.export's own blend-mode math to exactly match the client's, husk's approach requires the downstream consumer to do the blending itself |
-| Hardcoded/replaceable texture slot (`type != 0`) — which *real* texture fills it | not resolvable locally, `texture_type` extras only, by design (no CASC/DB2) | **resolvable** — `src/js/db/caches/DBCharacterCustomization.js`, `DBComponentTextureFileData.js`, `DBItemCharTextures.js`, backed by `src/js/casc/db2.js`/`WDCReader.js` (real WDC/DB2 reader) | **the single biggest structural gap between the two tools, in wow.export's favor for this specific case** — wow.export has live CASC+DB2 access and can query the actual client-side customization tables husk's own `DESIGN.md` non-goals explicitly rule out; this is exactly the "picking which `.bone` slot applies... blocked on client-side DB2 data husk doesn't have" gap `TODO/TODO_correctness.md` already names, confirmed real and solved on the other side |
+| Hardcoded/replaceable texture slot (`type != 0`) — which *real* texture fills it | placement geometry resolvable locally (`--db2-dir/--dbd-dir/--char-layout-id`), but *picking*/compositing the actual texture per slot isn't yet — blocked on `ChrCustomizationOption`/`_Choice` being genuinely 0-byte in the local extraction, not on scope (`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 3), `texture_type` extras marks the gap in the meantime | **resolvable** — `src/js/db/caches/DBCharacterCustomization.js`, `DBComponentTextureFileData.js`, `DBItemCharTextures.js`, backed by `src/js/casc/db2.js`/`WDCReader.js` (real WDC/DB2 reader) | wow.export's live CASC access means it never depends on a local extraction having those specific tables populated, unlike husk's own current real blocker above — a genuine capability gap for this case, though not the DB2-scope wall it was once described as (locally-extracted `.db2` files are in scope for husk, see `DESIGN.md`'s Non-goals) |
 | Texture transform (UV scroll/rotate/scale) | `extras`-only (animated), `native-possible, unverified` (constant) | parsed (`parseChunk_MD21_textureTransforms`) but export-side application not confirmed | open |
 
 ### Collision & physics
@@ -152,17 +152,25 @@ By direct absence-of-code-path in wow.export's own loader:
 
 ## Where wow.export is ahead (confirmed, not inferred)
 
-- **Live CASC + DB2 access**: real `WDCReader`/DB2 caches
+- **Live CASC access**: real `WDCReader`/DB2 caches
   (`DBCharacterCustomization`, `DBComponentTextureFileData`,
-  `DBItemCharTextures`, `DBNpcEquipment`, ...) — this is exactly the
-  external data source `TODO/TODO_correctness.md`'s `.bone`-slot-selection gap
-  and `M2_COMPLETENESS.md`'s "hardcoded texture slot" row both name as
-  blocked on "client-side DB2 data husk doesn't have." wow.export has it.
-  This is the one item on this list worth taking seriously as a real
-  capability gap, not just a scope difference — but closing it would mean
-  husk taking a CASC/DB2 dependency, which `DESIGN.md`'s non-goals
-  explicitly and deliberately reject. Not a bug in husk; a real, named,
-  accepted tradeoff.
+  `DBItemCharTextures`, `DBNpcEquipment`, ...), queried directly against a
+  live game install. husk's own `.bone`-slot-selection gap
+  (`TODO/BONE_CORRECTION_APPLICATION_TODO.md`) and hardcoded-texture-slot
+  compositing gap (`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 3) aren't
+  blocked on DB2 access as such — locally-extracted `.db2` files are in
+  scope and already parsed (`src/db2.hpp`/`chrmodel_db2.hpp`/
+  `chrcustomization_db2.hpp`) — they're blocked on specific customization
+  tables (`ChrCustomizationOption`/`_Choice`) being genuinely 0-byte in the
+  local extraction husk was verified against. wow.export's live CASC
+  connection sidesteps that extraction-completeness problem entirely by
+  never depending on a pre-populated local file in the first place — a real
+  capability gap, but not the "husk would need a CASC/DB2 dependency it
+  deliberately rejects" framing this used to have (`DESIGN.md`'s non-goals
+  reject *live* CASC/DB2 access specifically, not local `.db2` files). Not a
+  bug in husk; a real, named, accepted tradeoff (no live extraction
+  dependency) with a real, named cost (depends on someone's local
+  extraction being complete).
 - WMO/ADT/M3 (out of husk's own declared scope, see above).
 - No manual extraction step needed (browses CASC directly) vs. husk's
   "point it at a directory someone already extracted" model.
@@ -214,7 +222,8 @@ fresh). From a full local-corpus sweep, `tools/corpus_test.py`/
   - `creature/amanitrollchildfemale/amanitrollchildfemale.m2` — bone 2's
     rotation keyframe 1 timestamp is ~2.2 billion ms *before* keyframe 0's
     — out of order by a margin far too large for the existing
-    duplicate-timestamp nudge-repair (`CORPUS_TODO.md` #4, which only
+    duplicate-timestamp nudge-repair (see `DESIGN.md`'s "A duplicate
+    animation keyframe timestamp" note, which only
     handles equal/near-equal timestamps) to apply.
 
   These read as real corrupted/garbage keyframe data (NaN, or a timestamp

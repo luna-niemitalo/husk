@@ -58,9 +58,17 @@ wrist/hand/waist/shoulder bones a weapon-grip or armor-fitting correction
 would need to touch. This is the anatomical signature of **facial** detail
 bones (brow/cheek/ear/chin), not equipment.
 
-**Still open**: the actual slot→context mapping (which in-game
-customization choice picks `BFID[7]` vs. `BFID[13]`) lives in client-side
-DB2 data husk has no access to and, by design, never will (no CASC/DBC
-access — see `DESIGN.md`'s non-goals). Now known to be a customization-
-choice lookup, plausibly facial specifically — not an unresolved LOD or
-equipment question.
+**Resolved, a later session**: the slot→context mapping is a real
+`ChrCustomizationChoiceID` → `ChrCustomizationElement.
+ChrCustomizationBoneSetID` → `ChrCustomizationBoneSet.BoneFileDataID`
+DB2 chain, confirmed against Luna's own local `casc-tool` extraction (same
+"already on disk, never live CASC" tier as every other sidecar —
+`DESIGN.md`'s Non-goals) and wired into `husk export --db2-dir/--dbd-dir/
+--customization-choice-ids` (`src/chrcustomization_db2.hpp`/`.cpp`) —
+matching this section's own "plausibly facial specifically, a
+customization-choice lookup" prediction. `ChrCustomizationOption`/
+`ChrCustomizationChoice` (needed to enumerate real choices without the
+caller supplying an ID directly) are still 0 bytes in the current local
+extraction — a real extraction gap, not a design wall. See
+`TODO/TODO_correctness.md` #2 for the current state, including the
+still-open question of the correction matrix's own application semantics.
