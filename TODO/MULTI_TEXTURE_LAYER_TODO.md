@@ -406,19 +406,50 @@ priority" the old 3/130,576 number implied.
    fully eligible (`apply_multiply_blend_compositing` operates on the
    render's own beauty pass via the Compositor, never touches a
    material's own node graph).
-5. Verified: a synthetic two-texture test material through
-   `fix_multi_texture_layers()` directly (confirms the combiner-math node
-   graph builds and renders without error) and the single-texture env-map
-   path separately (confirms the reflection-vector UV wiring lands on the
-   right socket). **Not yet verified against a real corpus render with
-   actual combined output** — every real corpus file checked this session
-   either had `blend_mode` 3/4 (correctly skipped, owned by the additive
-   fixup) or an additional-texture-layer FileDataID husk couldn't actually
-   embed (no local `--textures` match, so nothing to combine) — real
-   corpus coverage for this specific code path is still open, worth a
-   proper corpus scan (`.skin` batches with `textureCount > 1` *and* a
-   resolvable 2nd-layer FileDataID, `blend_mode` not in `(3, 4)`) before
-   trusting the visual result at scale. `tools/live_gallery`'s fast
-   pass/fail review flow is the intended way to actually judge this once
-   real examples are found, not a client screenshot comparison (see
-   `CLAUDE_HISTORY.md`'s 2026-08-15 entry).
+5. ~~Verified against a real corpus render with actual combined output~~ —
+   **done 2026-08-17**, and it found a real bug, not just confirmation.
+   `creature/ladywaycrest/ladywaycrest.m2` (flagged by the full-corpus
+   render review, `corpus_reports/renders_full_review.jsonl`) turned out
+   to be exactly the open case above: hair material `Combiners_Mod_Mod2x`,
+   `blend_mode` 2 (not 3/4), a resolvable 2nd-layer FileDataID
+   (`ladywaycrest.blp`, embedded correctly by husk). The render still
+   looked wrong — hair rendered as the raw, unmixed `hairfx.blp` overlay
+   (a near-white wispy mask meant to be a subtle animated modulation, not
+   a standalone texture) instead of the real dark hair color with that
+   overlay blended on top.
+
+   Root cause was **not** husk's export (double-checked directly against
+   the raw glTF JSON — both layers correctly resolved, correctly
+   distinct FileDataIDs, correct embedded image bytes) but
+   `fix_multi_texture_layers()`'s own second-layer lookup:
+   `bpy.data.images.get(str(fdid))` assumes Blender's glTF importer keeps
+   an `Image` datablock named after the raw FileDataID whenever husk
+   didn't have an independently-resolved friendly name for it. Blender's
+   importer instead deduplicates *byte-identical* embedded images into a
+   single datablock and keeps only one name — here `ladywaycrest.blp`'s
+   bytes appear twice (once as another material's primary texture, named
+   `"ladywaycrest"`; once as the hair material's second layer, named
+   `"2132462"`), the importer collapses them, `"2132462"` never exists as
+   a datablock name, and the lookup silently returns `None` — the same
+   "nothing to combine" path a genuinely-missing `--textures` match takes,
+   indistinguishable from the outside. Confirmed by direct probe
+   (`bpy.data.images` only had 3 entries for a 5-texture material set)
+   and confirmed fixed by re-deriving the fdid→Image mapping from each
+   material's own reliable `texture_file_data_id` extra instead of
+   trusting the merged datablock's name (`_fdid_to_image_map()`,
+   `render_glb.py`) — re-rendering `ladywaycrest.m2` end to end through
+   the real pipeline afterward now reports "1 multi-texture-layer
+   material(s) combined" and visually shows real dark hair with the
+   `hairfx` overlay as a subtle animated highlight, matching the in-game
+   look.
+
+   Real, open follow-up this found: any model where a `textureCount > 1`
+   batch's second layer happens to be byte-identical to another texture
+   used elsewhere in the same file hits this same merge — not yet
+   quantified how common that collision is across the corpus (worth a
+   scan: same FileDataID appearing as both a primary and a secondary
+   layer in one file, or two different FileDataIDs whose decoded bytes
+   happen to be identical). The fix above is general (keyed by FileDataID
+   semantics, not by datablock naming) so it should cover the collision
+   regardless of frequency, but it hasn't been stress-tested against a
+   case with more than one merged pair in the same file.

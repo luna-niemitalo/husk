@@ -507,6 +507,46 @@ def _env_map_uv(nodes, links):
     return scale.outputs["Vector"]
 
 
+def _fdid_to_image_map() -> dict[int, "bpy.types.Image"]:
+    """Blender's own glTF importer merges byte-identical embedded images
+    into a single `Image` datablock and keeps only one of their names --
+    confirmed real on `creature/ladywaycrest/ladywaycrest.m2` (2026-08-17):
+    `ladywaycrest.blp`'s bytes are embedded twice, once as another
+    material's own resolved-name primary texture (`"ladywaycrest"`), once
+    as the hair material's *second* layer (husk had no independently-
+    resolved friendly name for that occurrence, so it named the image the
+    raw FileDataID, `"2132462"`) -- the importer collapses both into one
+    datablock under whichever name it saw first, silently dropping the
+    other. A lookup keyed on `bpy.data.images.get(str(fdid))` then finds
+    nothing for the merged-away name and `fix_multi_texture_layers` skips
+    real, resolvable combiner work as if the texture were simply missing --
+    this was the actual bug behind the ladywaycrest hair render looking
+    like a raw, unmixed animated-overlay texture (near-white wispy mask)
+    instead of the real dark hair color subtly modulated by it.
+
+    Rebuilt instead from every material's own `texture_file_data_id`
+    extra (husk-authored, reliable, unaffected by the import-time merge)
+    paired with whatever Image datablock actually ended up wired to that
+    material's Base Color -- survives the merge because it doesn't care
+    what the datablock is *named*, only what FileDataID produced it.
+    """
+    mapping: dict[int, "bpy.types.Image"] = {}
+    for mat in bpy.data.materials:
+        fdid = mat.get("texture_file_data_id")
+        if not fdid or not mat.use_nodes or mat.node_tree is None:
+            continue
+        principled = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if principled is None:
+            continue
+        base_input = principled.inputs["Base Color"]
+        if not base_input.is_linked:
+            continue
+        tex_node = base_input.links[0].from_node
+        if tex_node.type == "TEX_IMAGE" and tex_node.image is not None:
+            mapping[int(fdid)] = tex_node.image
+    return mapping
+
+
 def fix_multi_texture_layers() -> tuple[int, int]:
     """WoW's real fixed-function multi-texture-layer combiner math
     (`M2Batch::textureCount > 1`, ~79% of the real corpus per
@@ -532,6 +572,7 @@ def fix_multi_texture_layers() -> tuple[int, int]:
     """
     combiner_fixed = 0
     envmap_fixed = 0
+    fdid_to_image = _fdid_to_image_map()
 
     for mat in bpy.data.materials:
         if mat.get("blend_mode") in (3, 4):
@@ -569,7 +610,9 @@ def fix_multi_texture_layers() -> tuple[int, int]:
 
         layer0 = layers[0]
         tex2_fdid = layer0.get("file_data_id")
-        tex2_image = bpy.data.images.get(str(tex2_fdid)) if tex2_fdid else None
+        tex2_image = None
+        if tex2_fdid:
+            tex2_image = bpy.data.images.get(str(tex2_fdid)) or fdid_to_image.get(int(tex2_fdid))
         if tex2_image is None:
             continue  # husk didn't have a --textures match for this layer -- nothing to combine
 
