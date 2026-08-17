@@ -100,7 +100,61 @@ MIN_ANIMATED_DURATION_SECONDS = 0.05
 EEVEE_RENDER_SAMPLES = 16
 
 
-def fix_additive_materials() -> int:
+def _combine_multi_texture_layers(mat, nodes, links, tex1_node, color_input, fdid_to_image):
+    """Attempts WoW's real multi-texture-layer combiner formula for `mat`
+    (`Combiners_Mod_Mod2x` and friends, `_pixel_shader_formula_table`
+    below), wiring the result into `color_input` in place of whatever
+    plain single-texture link it had. Shared between `fix_multi_texture_
+    layers` (materials that reach it directly) and `fix_additive_
+    materials` (blend_mode 3/4 materials, excluded from the former's own
+    loop -- see its module comment -- but just as capable of naming a real
+    2-layer formula: `creature/darknaaru/darknaaru.m2`'s additive "wing"
+    glow materials are `Combiners_Mod_Mod2x` with a real, resolvable 2nd
+    layer, and previously fell back to a flat, unmodulated single-texture
+    glow instead of the real animated self-multiply shimmer).
+
+    Returns `(applied, alpha_value_socket)`: `alpha_value_socket` is the
+    formula's own resolved alpha output when the formula defines one (None
+    for an opaque-alpha formula, or whenever nothing was combined at all)
+    -- callers needing an alpha value use this instead of falling back to
+    tex1's own raw alpha, since a real 2-layer formula (e.g. `t1a * t2a *
+    2.0`) is a better answer once two layers are genuinely involved.
+    """
+    if tex1_node is None or tex1_node.type != "TEX_IMAGE":
+        return False, None
+    pixel_shader = mat.get("pixel_shader") or ""
+    layers = billboard_align._to_pyobj(mat.get("additional_textures")) or []
+    if not layers or not pixel_shader:
+        return False, None
+    table = _pixel_shader_formula_table(nodes, links)
+    entry = table.get(pixel_shader)
+    if entry is None:
+        return False, None
+    rgb_builder, alpha_spec = entry
+
+    layer0 = layers[0]
+    tex2_fdid = layer0.get("file_data_id")
+    tex2_image = None
+    if tex2_fdid:
+        tex2_image = bpy.data.images.get(str(tex2_fdid)) or fdid_to_image.get(int(tex2_fdid))
+    if tex2_image is None:
+        return False, None  # husk didn't have a --textures match for this layer -- nothing to combine
+
+    tex2_node = nodes.new("ShaderNodeTexImage")
+    tex2_node.name = f"HuskLayer2_{pixel_shader}"
+    tex2_node.image = tex2_image
+
+    t1c, t1a = tex1_node.outputs["Color"], tex1_node.outputs["Alpha"]
+    t2c, t2a = tex2_node.outputs["Color"], tex2_node.outputs["Alpha"]
+
+    result_color = rgb_builder(t1c, t1a, t2c, t2a)
+    links.new(result_color, color_input)
+
+    alpha_socket = alpha_spec(t1c, t1a, t2c, t2a) if callable(alpha_spec) else None
+    return True, alpha_socket
+
+
+def fix_additive_materials(fdid_to_image: dict[int, "bpy.types.Image"]) -> int:
     """WoW blend modes 3 (NoAlphaAdd) and 4 (Add) have no core-glTF
     equivalent (src/gltf_mesh.hpp's Material::blendMode doc comment) --
     husk's default-import shape (Principled BSDF + alpha-blend/hashed) shows
@@ -163,6 +217,20 @@ def fix_additive_materials() -> int:
             else:
                 emission.inputs["Color"].default_value = base_color_input.default_value
 
+        # Real 2-layer combiner formula first (Combiners_Mod_Mod2x and
+        # friends), when this additive material also names a resolvable
+        # 2nd texture layer -- blend_mode 3/4 materials are otherwise
+        # entirely excluded from `fix_multi_texture_layers`'s own pass (see
+        # its module comment), so this is the only place they'd ever get
+        # it. Whatever ends up linked to emission.inputs["Color"] after
+        # this -- either the combined 2-layer result, or the plain single
+        # texture from the branch above when nothing combined -- is what
+        # the premultiply step below reads back out.
+        color_link = emission.inputs["Color"].links[0] if emission.inputs["Color"].is_linked else None
+        tex1_node = color_link.from_node if (color_link and color_link.from_node.type == "TEX_IMAGE") else None
+        combined, alpha_socket = _combine_multi_texture_layers(
+            mat, nodes, links, tex1_node, emission.inputs["Color"], fdid_to_image)
+
         # Additive blending is unconditional pass-through of the background
         # (Transparent BSDF below) plus this texture's own RGB scaled by its
         # own alpha -- alpha isn't a coverage mask here (nothing occludes in
@@ -177,15 +245,22 @@ def fix_additive_materials() -> int:
         # Color into Emission and dropping Alpha rendered the whole textured
         # area at full brightness regardless of alpha, turning a should-fade
         # glow ring into a hard-edged, inverted-looking donut. Premultiplying
-        # here restores that shape from the same texture node's own Alpha
-        # output feeding Color -- whichever branch above set that link.
+        # here restores that shape -- from the combined formula's own alpha
+        # value when one was just resolved above, or (the pre-existing path)
+        # straight from the single texture node's own Alpha output feeding
+        # Color otherwise.
         color_link = emission.inputs["Color"].links[0] if emission.inputs["Color"].is_linked else None
-        if color_link is not None and "Alpha" in color_link.from_node.outputs:
+        alpha_source = None
+        if combined:
+            alpha_source = alpha_socket
+        elif color_link is not None and "Alpha" in color_link.from_node.outputs:
+            alpha_source = color_link.from_node.outputs["Alpha"]
+        if color_link is not None and alpha_source is not None:
             premultiply = nodes.new("ShaderNodeVectorMath")
             premultiply.operation = "MULTIPLY"
             premultiply.location = (emission.location.x - 200, emission.location.y - 50)
             links.new(color_link.from_socket, premultiply.inputs[0])
-            links.new(color_link.from_node.outputs["Alpha"], premultiply.inputs[1])
+            links.new(alpha_source, premultiply.inputs[1])
             links.new(premultiply.outputs["Vector"], emission.inputs["Color"])
 
         transparent = next((n for n in nodes if n.type == "BSDF_TRANSPARENT"), None)
@@ -507,6 +582,57 @@ def _env_map_uv(nodes, links):
     return scale.outputs["Vector"]
 
 
+def _material_color_target(mat) -> tuple[object, object] | None:
+    """Returns (shader_node, color_input_socket) feeding this material's
+    visible base color, across both importer node shapes `fix_
+    additive_materials` above already had to distinguish: a "lit" material
+    imports as a Principled BSDF with Base Color wired to the resolved
+    texture; an "unlit" one (WoW's own M2Material flag 0x01, KHR_materials_
+    unlit) imports as Blender's own emulation graph -- Emission (Color
+    wired to the texture) mixed with a Transparent BSDF -- with no
+    Principled BSDF node at all. `fix_multi_texture_layers` originally only
+    checked for Principled BSDF, so any unlit multi-texture-layer material
+    (real, common -- confirmed on `creature/darknaaru/darknaaru.m2`'s
+    "wing" material, `Combiners_Mod_Mod2x`, unlit: every relevant node
+    search returned nothing and the whole combine silently no-opped,
+    identical-looking symptom to the ladywaycrest bug but a different root
+    cause) never got its combiner math applied. None if neither shape is
+    present.
+    """
+    if not mat.use_nodes or mat.node_tree is None:
+        return None
+    nodes = mat.node_tree.nodes
+    principled = next((n for n in nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if principled is not None:
+        return principled, principled.inputs["Base Color"]
+    emission = next((n for n in nodes if n.type == "EMISSION"), None)
+    if emission is not None:
+        return emission, emission.inputs["Color"]
+    return None
+
+
+def _material_alpha_target(mat, tex1_node):
+    """The (node, input_socket) that should receive a combined alpha value
+    for `mat`, or None if this material has no live alpha wiring to
+    replace (the common opaque case). A Principled BSDF has its own
+    dedicated `Alpha` input; the unlit emulation graph instead wires
+    `tex1_node`'s own `Alpha` output into whichever downstream `Mix
+    Shader`'s `Factor` gates Transparent-vs-Emission -- found generically
+    by walking `tex1_node`'s own outgoing links rather than hardcoding a
+    node name, so it doesn't depend on Blender's importer never renaming
+    its own auto-generated nodes.
+    """
+    principled = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if principled is not None:
+        return principled, principled.inputs["Alpha"]
+    if tex1_node is None:
+        return None
+    for link in mat.node_tree.links:
+        if link.from_node == tex1_node and link.from_socket.name == "Alpha":
+            return link.to_node, link.to_socket
+    return None
+
+
 def _fdid_to_image_map() -> dict[int, "bpy.types.Image"]:
     """Blender's own glTF importer merges byte-identical embedded images
     into a single `Image` datablock and keeps only one of their names --
@@ -533,21 +659,21 @@ def _fdid_to_image_map() -> dict[int, "bpy.types.Image"]:
     mapping: dict[int, "bpy.types.Image"] = {}
     for mat in bpy.data.materials:
         fdid = mat.get("texture_file_data_id")
-        if not fdid or not mat.use_nodes or mat.node_tree is None:
+        if not fdid:
             continue
-        principled = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
-        if principled is None:
+        target = _material_color_target(mat)
+        if target is None:
             continue
-        base_input = principled.inputs["Base Color"]
-        if not base_input.is_linked:
+        _, color_input = target
+        if not color_input.is_linked:
             continue
-        tex_node = base_input.links[0].from_node
+        tex_node = color_input.links[0].from_node
         if tex_node.type == "TEX_IMAGE" and tex_node.image is not None:
             mapping[int(fdid)] = tex_node.image
     return mapping
 
 
-def fix_multi_texture_layers() -> tuple[int, int]:
+def fix_multi_texture_layers(fdid_to_image: dict[int, "bpy.types.Image"]) -> tuple[int, int]:
     """WoW's real fixed-function multi-texture-layer combiner math
     (`M2Batch::textureCount > 1`, ~79% of the real corpus per
     `WIKI_FINDINGS/M2/skin.md`) and env-mapped ("shiny metal") vertex
@@ -572,20 +698,17 @@ def fix_multi_texture_layers() -> tuple[int, int]:
     """
     combiner_fixed = 0
     envmap_fixed = 0
-    fdid_to_image = _fdid_to_image_map()
 
     for mat in bpy.data.materials:
         if mat.get("blend_mode") in (3, 4):
             continue
-        if not mat.use_nodes or mat.node_tree is None:
+        target = _material_color_target(mat)
+        if target is None:
             continue
-        principled = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
-        if principled is None:
-            continue
+        _, color_input = target
         nodes, links = mat.node_tree.nodes, mat.node_tree.links
 
-        base_input = principled.inputs["Base Color"]
-        tex1_node = base_input.links[0].from_node if base_input.is_linked else None
+        tex1_node = color_input.links[0].from_node if color_input.is_linked else None
         if tex1_node is not None and tex1_node.type != "TEX_IMAGE":
             tex1_node = None  # unexpected shape (see module comment) -- skip rather than guess
 
@@ -599,42 +722,20 @@ def fix_multi_texture_layers() -> tuple[int, int]:
             links.new(env_vector, tex1_node.inputs["Vector"])
             envmap_fixed += 1
 
-        pixel_shader = mat.get("pixel_shader") or ""
-        if tex1_node is None or not layers or not pixel_shader:
+        combined, alpha_socket = _combine_multi_texture_layers(
+            mat, nodes, links, tex1_node, color_input, fdid_to_image)
+        if not combined:
             continue
-        table = _pixel_shader_formula_table(nodes, links)
-        entry = table.get(pixel_shader)
-        if entry is None:
-            continue
-        rgb_builder, alpha_spec = entry
 
-        layer0 = layers[0]
-        tex2_fdid = layer0.get("file_data_id")
-        tex2_image = None
-        if tex2_fdid:
-            tex2_image = bpy.data.images.get(str(tex2_fdid)) or fdid_to_image.get(int(tex2_fdid))
-        if tex2_image is None:
-            continue  # husk didn't have a --textures match for this layer -- nothing to combine
-
-        tex2_node = nodes.new("ShaderNodeTexImage")
-        tex2_node.name = f"HuskLayer2_{pixel_shader}"
-        tex2_node.image = tex2_image
-
-        t1c, t1a = tex1_node.outputs["Color"], tex1_node.outputs["Alpha"]
-        t2c, t2a = tex2_node.outputs["Color"], tex2_node.outputs["Alpha"]
-
-        result_color = rgb_builder(t1c, t1a, t2c, t2a)
-        links.new(result_color, base_input)
-
-        alpha_input = principled.inputs["Alpha"]
-        if alpha_spec == ALPHA_OPAQUE:
-            for link in list(alpha_input.links):
-                links.remove(link)
-            alpha_input.default_value = 1.0
-        elif callable(alpha_spec):
-            result_alpha = alpha_spec(t1c, t1a, t2c, t2a)
-            if result_alpha is not None:
-                links.new(result_alpha, alpha_input)
+        alpha_target = _material_alpha_target(mat, tex1_node)
+        if alpha_target is not None:
+            _, alpha_input = alpha_target
+            if alpha_socket is None:
+                for link in list(alpha_input.links):
+                    links.remove(link)
+                alpha_input.default_value = 1.0
+            else:
+                links.new(alpha_socket, alpha_input)
 
         combiner_fixed += 1
 
@@ -786,8 +887,9 @@ def main() -> None:
     # combined bounding box used for camera framing below (Luna caught this
     # from a render where the character was tiny in-frame).
     bpy.ops.import_scene.gltf(filepath=in_glb, disable_bone_shape=True)
-    fixed_additive = fix_additive_materials()
-    multi_layer_fixed, envmap_fixed = fix_multi_texture_layers()
+    fdid_to_image = _fdid_to_image_map()
+    fixed_additive = fix_additive_materials(fdid_to_image)
+    multi_layer_fixed, envmap_fixed = fix_multi_texture_layers(fdid_to_image)
 
     mesh_objs = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     if not mesh_objs:
