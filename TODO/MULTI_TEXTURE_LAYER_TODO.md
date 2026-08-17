@@ -407,49 +407,19 @@ priority" the old 3/130,576 number implied.
    render's own beauty pass via the Compositor, never touches a
    material's own node graph).
 5. ~~Verified against a real corpus render with actual combined output~~ —
-   **done 2026-08-17**, and it found a real bug, not just confirmation.
-   `creature/ladywaycrest/ladywaycrest.m2` (flagged by the full-corpus
-   render review, `corpus_reports/renders_full_review.jsonl`) turned out
-   to be exactly the open case above: hair material `Combiners_Mod_Mod2x`,
-   `blend_mode` 2 (not 3/4), a resolvable 2nd-layer FileDataID
-   (`ladywaycrest.blp`, embedded correctly by husk). The render still
-   looked wrong — hair rendered as the raw, unmixed `hairfx.blp` overlay
-   (a near-white wispy mask meant to be a subtle animated modulation, not
-   a standalone texture) instead of the real dark hair color with that
-   overlay blended on top.
+   **done 2026-08-17**: `creature/ladywaycrest/ladywaycrest.m2`'s hair
+   (flagged by the render review) exposed a real bug in
+   `fix_multi_texture_layers()`'s 2nd-layer lookup, not in husk's export —
+   Blender's glTF importer merges byte-identical embedded images into one
+   datablock and drops any FDID-named duplicate, so the lookup silently
+   found nothing and skipped compositing. Fixed by resolving the 2nd layer
+   through each material's own `texture_file_data_id` extra instead of the
+   (droppable) datablock name. See git history for the full root-cause
+   writeup.
 
-   Root cause was **not** husk's export (double-checked directly against
-   the raw glTF JSON — both layers correctly resolved, correctly
-   distinct FileDataIDs, correct embedded image bytes) but
-   `fix_multi_texture_layers()`'s own second-layer lookup:
-   `bpy.data.images.get(str(fdid))` assumes Blender's glTF importer keeps
-   an `Image` datablock named after the raw FileDataID whenever husk
-   didn't have an independently-resolved friendly name for it. Blender's
-   importer instead deduplicates *byte-identical* embedded images into a
-   single datablock and keeps only one name — here `ladywaycrest.blp`'s
-   bytes appear twice (once as another material's primary texture, named
-   `"ladywaycrest"`; once as the hair material's second layer, named
-   `"2132462"`), the importer collapses them, `"2132462"` never exists as
-   a datablock name, and the lookup silently returns `None` — the same
-   "nothing to combine" path a genuinely-missing `--textures` match takes,
-   indistinguishable from the outside. Confirmed by direct probe
-   (`bpy.data.images` only had 3 entries for a 5-texture material set)
-   and confirmed fixed by re-deriving the fdid→Image mapping from each
-   material's own reliable `texture_file_data_id` extra instead of
-   trusting the merged datablock's name (`_fdid_to_image_map()`,
-   `render_glb.py`) — re-rendering `ladywaycrest.m2` end to end through
-   the real pipeline afterward now reports "1 multi-texture-layer
-   material(s) combined" and visually shows real dark hair with the
-   `hairfx` overlay as a subtle animated highlight, matching the in-game
-   look.
+## Open follow-up
 
-   Real, open follow-up this found: any model where a `textureCount > 1`
-   batch's second layer happens to be byte-identical to another texture
-   used elsewhere in the same file hits this same merge — not yet
-   quantified how common that collision is across the corpus (worth a
-   scan: same FileDataID appearing as both a primary and a secondary
-   layer in one file, or two different FileDataIDs whose decoded bytes
-   happen to be identical). The fix above is general (keyed by FileDataID
-   semantics, not by datablock naming) so it should cover the collision
-   regardless of frequency, but it hasn't been stress-tested against a
-   case with more than one merged pair in the same file.
+- Unquantified how often the image-dedup collision above (a 2nd texture
+  layer byte-identical to another texture used elsewhere in the same
+  file) occurs across the corpus — the fix is general enough it shouldn't
+  matter, but that's untested past the one real case that found it.
