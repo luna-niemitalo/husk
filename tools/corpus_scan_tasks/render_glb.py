@@ -966,14 +966,30 @@ def main() -> None:
     if armature_obj is not None:
         billboards_aligned = billboard_align.apply_billboard_alignment(mesh_objs, armature_obj, cam_obj)
 
+    # Sun/fill energy and world.color below were both too bright/flat
+    # against real in-game reference screenshots -- confirmed directly
+    # (2026-08-17, creature/ladywaycrest, creature/darknaaru): a
+    # translucent, dark, alpha-blended effect layer (hair wisps, energy
+    # trails) that reads as correctly crisp/near-invisible against a dim
+    # in-game background instead reads as a washed-out grey haze against
+    # this renderer's old, much brighter mid-grey studio world -- real
+    # combiner-math bugs were found and fixed alongside this (see git
+    # history), but isolating the same fixed materials against a near-
+    # black world/lower-energy lights alone reproduced the in-game look
+    # convincingly, with no further shader changes. Values below still
+    # aren't literally in-game lighting (a lore-agnostic default is still
+    # needed to keep every corpus model at least visible without per-file
+    # tuning), just dimmer -- confirmed against Blender/three.js glTF
+    # viewers' own much darker default environments as the intended
+    # baseline, not guessed.
     sun_data = bpy.data.lights.new("sun", type="SUN")
-    sun_data.energy = 5.0
+    sun_data.energy = 2.0
     sun_obj = bpy.data.objects.new("sun", sun_data)
     sun_obj.rotation_euler = (math.radians(55), 0, math.radians(35))
     bpy.context.scene.collection.objects.link(sun_obj)
 
     fill_data = bpy.data.lights.new("fill", type="SUN")
-    fill_data.energy = 1.2
+    fill_data.energy = 0.5
     fill_obj = bpy.data.objects.new("fill", fill_data)
     fill_obj.rotation_euler = (math.radians(-40), 0, math.radians(-120))
     bpy.context.scene.collection.objects.link(fill_obj)
@@ -997,7 +1013,15 @@ def main() -> None:
     scene.render.image_settings.file_format = "WEBP"
     scene.render.image_settings.quality = 80  # lossy: these are flat-shaded QA thumbnails, not archival
     scene.world = bpy.data.worlds.new("world")
-    scene.world.color = (0.12, 0.12, 0.14)
+    # world.color (the legacy shorthand) doesn't reliably drive the actual
+    # render here -- confirmed directly (2026-08-17): setting it alone left
+    # the rendered background at a plainly brighter, more neutral grey than
+    # the same nominal value applied through the world's own node tree
+    # (Background node's Color input) side by side. Set explicitly through
+    # the node tree instead, which does match.
+    scene.world.use_nodes = True
+    background_node = scene.world.node_tree.nodes["Background"]
+    background_node.inputs["Color"].default_value = (0.02, 0.02, 0.025, 1.0)
 
     materials = {obj.material_slots[i].material
                  for obj in mesh_objs
