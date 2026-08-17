@@ -407,15 +407,13 @@ priority" the old 3/130,576 number implied.
    render's own beauty pass via the Compositor, never touches a
    material's own node graph).
 5. ~~Verified against a real corpus render with actual combined output~~ —
-   **done 2026-08-17**: `creature/ladywaycrest/ladywaycrest.m2`'s hair
-   (flagged by the render review) exposed a real bug in
-   `fix_multi_texture_layers()`'s 2nd-layer lookup, not in husk's export —
-   Blender's glTF importer merges byte-identical embedded images into one
-   datablock and drops any FDID-named duplicate, so the lookup silently
-   found nothing and skipped compositing. Fixed by resolving the 2nd layer
-   through each material's own `texture_file_data_id` extra instead of the
-   (droppable) datablock name. See git history for the full root-cause
-   writeup.
+   **done 2026-08-17**, two real bugs found and fixed via corpus
+   spot-checks (`ladywaycrest`, `darknaaru`, `devourersandworm`): a
+   Blender image-dedup collision dropping the 2nd-layer lookup, and
+   `fix_multi_texture_layers`/`fix_additive_materials` only recognizing
+   the Principled-BSDF node shape (missing unlit/`KHR_materials_unlit`
+   materials and additive materials with a real 2-layer formula entirely).
+   See git history (commits `cd11c85`, `c9478cb`) for the full writeups.
 
 ## Open follow-up
 
