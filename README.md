@@ -378,6 +378,27 @@ dropdown accordingly -- verified headlessly against a real fixture, including
 the evaluated mesh's own vertex count actually changing between states, not
 just the modifier's stored value.
 
+**Real default geoset selection for creatures/NPCs, from
+`CreatureDisplayInfoGeosetData`.** A genuinely different mechanism from the
+player-character chain above -- creatures/NPCs don't have customization
+choices, they have one real per-display *default* geoset selection baked
+into the data. If `--db2-dir`/`--dbd-dir`/`--creature-display-id` are all
+given, husk resolves that real `CreatureDisplayInfoID` against
+`CreatureDisplayInfoGeosetData.db2` (`src/creature_geoset_db2.hpp`) and
+attaches every matching row as `{geoset_index, geoset_value, geoset_id}` on
+the glTF skin's own `creature_enabled_geosets` extras -- `geoset_id` uses
+`(geoset_index+1)*100+geoset_value` (cross-checked against
+`reference/wow.export`'s own `DBCreatures.js`, deliberately *not* the
+character convention above despite the resemblance). No per-choice caller
+input needed beyond the display ID itself -- unlike
+`--customization-choice-ids`, this *is* a true default. husk still can't
+derive which `CreatureDisplayInfoID` applies to a given `.m2` on its own
+(that's the separate `CreatureDisplayInfo.ModelID` chain), so the caller
+supplies it directly, same pattern as `--char-layout-id`. Verified end to
+end against real local `creaturedisplayinfogeosetdata.db2` data
+(`creature/gnoll2/gnoll2.m2`, display 137795, 13 real rows, every
+`geoset_id` cross-checked by hand against the source DB2 rows).
+
 **`.phys` physics/collision data.** If `--phys` resolves a real `.phys`
 sidecar (see `PFID`'s single-scalar-FileDataID resolution above, mirroring
 `--skel`), husk attaches a minimal per-body placement anchor -- id, owning
@@ -432,10 +453,11 @@ Flags:
 | `--bones-dir <dir>` &#124; `none` | -- | Directory of `<FileDataID>.bone` files (per the model's/`.skel`'s `BFID` array), attached as inert skin `extras`; or `none` to skip | model's own directory |
 | `--phys <path>` &#124; `none` | -- | External `.phys` path, attached as a minimal `physics_bodies` skin `extras` anchor (full records via `dump-chunks`), or `none` to never look for one | same-basename `.phys` next to the model, if any |
 | `--collision` | -- | Include the collision mesh, when present, as real geometry tagged `{"collision": true}` in glTF extras -- off by default: Blender's stock importer has no concept of that tag and renders it like any other mesh, and the collision hull is often larger than and visually occludes the real character (full body/shape/joint records are also always available via `dump-chunks`) | omitted |
-| `--db2-dir <dir>` | -- | Directory of real character `.db2` files -- texture-layout tables for `--char-layout-id` (see above) or `ChrCustomizationElement`/`_Geoset`/`_BoneSet` for `--customization-choice-ids` (below), same directory serves both; combined with `--dbd-dir` and one of the two | unset (feature off) |
+| `--db2-dir <dir>` | -- | Directory of real character/creature `.db2` files -- texture-layout tables for `--char-layout-id` (see above), `ChrCustomizationElement`/`_Geoset`/`_BoneSet` for `--customization-choice-ids`, or `CreatureDisplayInfoGeosetData` for `--creature-display-id` (below), same directory serves all three; combined with `--dbd-dir` and one of the three | unset (feature off) |
 | `--dbd-dir <dir>` | -- | A local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) | unset |
 | `--char-layout-id <id>` | -- | A real `CharComponentTextureLayoutsID` (see `husk db2-export`) -- husk can't derive this on its own | unset |
 | `--customization-choice-ids <id,id,...>` | -- | Comma-separated real `ChrCustomizationChoiceID`(s) (see above) -- resolves each to real `enabled_geosets` extras and marks any matching `--bones-dir` correction set, husk can't enumerate these on its own | unset |
+| `--creature-display-id <id>` | -- | A real `CreatureDisplayInfoID` (see `husk db2-export`) -- resolves that display's real *default* geoset selection (unlike `--customization-choice-ids`, no per-choice input needed) to `creature_enabled_geosets` skin extras via `CreatureDisplayInfoGeosetData`; husk can't derive which display ID applies to a given `.m2` on its own | unset |
 | `--listfile <path>` | -- | A local `community-listfile.csv`-style snapshot (`FileDataID;path` per line, github.com/wowdev/wow-listfile) -- last-resort FileDataID -> real-name lookup when `<FileDataID>.{blp,png}` isn't found next to `--textures` | unset (feature off) |
 | `--listfile-root <dir>` | -- | The corpus root `--listfile`'s paths are relative to -- deliberately separate from `--textures` (which stays the model's own directory by default, driving the directory-local matching above); only meaningful alongside `--listfile` | `--textures` itself |
 

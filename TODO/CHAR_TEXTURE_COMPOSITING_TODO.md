@@ -199,10 +199,33 @@ the current local `casc-tool` export (`chrcustomization.db2`,
 `chrcustomizationcategory.db2`, `chrcustomizationchoice.db2`,
 `chrcustomizationoption.db2`, `chrcustomizationreq.db2` all confirmed
 0 bytes) -- a real extraction gap, not a husk bug, but it blocks Stage 3's
-choice chain specifically until re-extracted. Same class of gap found again
-independently while investigating `PCOL`'s bit-semantics
-(`WIKI_FINDINGS_HISTORY.md` §18) -- `housedecor.db2` and five other
-housing-prefixed tables are also 0 bytes in this same local export, so this
+choice chain specifically until re-extracted.
+
+**Update (2026-08-19): confirmed this is not a re-extraction bug.**
+Tried a real re-extraction of the three name-bearing tables
+(`chrcustomizationoption.db2`/`chrcustomizationchoice.db2`/
+`chrcustomizationcategory.db2`, FileDataIDs 3384247/3450554/3526439) via
+`casc-tool extract` against Luna's real local WoW install --
+`casc-tool` itself reported the real, more specific cause: "FileDataID
+<N> is known but its data isn't available in this local install (likely
+optional/legacy content that was never downloaded)". Unlike the earlier,
+already-fixed `texturefiledata.db2`/`ItemDisplayInfo*` cases (those were
+present-but-truncated, a genuine extraction bug), these three files were
+never downloaded to the local install at all -- a re-extraction of
+existing bytes can't produce data that was never pulled down in the
+first place. Getting real `Name_lang` choice/option names therefore
+routes through `tact-fetch` (`~/dev/tact-fetch`), the sibling project
+built specifically for "FileDataID exists in the manifest, bytes were
+never downloaded, fetch them from Blizzard's CDN" -- its own README
+confirms this is exactly its intended use case, but also that the actual
+CDN-fetch step isn't implemented yet (a deliberate no-op scaffold as of
+this check). Blocked on that project's own progress, not on husk or on
+casc-tool doing anything differently.
+
+Same class of gap found again independently while investigating `PCOL`'s
+bit-semantics (`WIKI_FINDINGS_HISTORY.md` §18) -- `housedecor.db2` and
+five other housing-prefixed tables are also 0 bytes in this same local
+export, so this
 isn't a one-off, it's a recurring property of this specific local
 extraction.
 
@@ -370,6 +393,24 @@ human without needing to understand the underlying DB2 data at all — the
 practical payoff of all four stages above, in the tool a human actually
 looks at.
 
+### Stage 6 — equipped-gear appearance resolution (`husk-appearance/1`'s `gear` field)
+
+Separate chain from Stage 3's body/skin customization materials: given an
+`ItemModifiedAppearanceID` (what `husk appearance-string`'s `gear=SLOT:id`
+entries carry — see `src/appearance_string.hpp`, `src/cmd_appearance.cpp`),
+resolve it to the real equipped-item geometry/texture to render on the base
+character mesh. Not yet started, and not yet resolved which real DB2 chain
+is the right one to reuse: `EXPLORATION_TODO.md`'s already-mapped
+`ModelFileData → ItemDisplayInfo → TextureFileData` path (CLAUDE.md's
+Resume, "`EXPLORATION_TODO.md` follow-up") resolves an *equipped item's own*
+`.m2` to its texture for standalone item rendering — starting point, not a
+confirmed match, since that chain keys off an item/model FileDataID, not an
+`ItemModifiedAppearanceID` directly; the `ItemModifiedAppearance.db2` →
+`ItemAppearance.db2` hop needed to bridge the two hasn't been walked by hand
+yet the way the rest of this chain was. `cmd_appearance.cpp`'s
+`--validate` deliberately only carries `gear` entries through as opaque
+IDs and says so out loud, rather than silently pretending they're resolved.
+
 ## Why staged, not one change
 
 Each stage is independently useful and independently risky: Stage 1 is
@@ -381,6 +422,9 @@ established husk precedent to follow. Stage 4 is new problem *class*
 entirely (image compositing, not data parsing) with its own correctness
 bar (wrong blend math looks *confidently* wrong, the same failure shape
 this project has hit and fixed before with texture defaults). Stage 5
-lives outside `husk export` altogether. Landing them separately, in
+lives outside `husk export` altogether. Stage 6 is scoped but unstarted --
+the DB2 bridge it needs (`ItemModifiedAppearance` → `ItemAppearance`) is
+believed to exist but hasn't been confirmed against real local data the way
+every other chain in this file has. Landing them separately, in
 order, means each one ships tested and useful on its own rather than one
 large, hard-to-review change.

@@ -18,6 +18,7 @@
 #include "bone.hpp"
 #include "chrcustomization_db2.hpp"
 #include "chrmodel_db2.hpp"
+#include "creature_geoset_db2.hpp"
 #include "chunk.hpp"
 #include "commands.hpp"
 #include "export_animation.hpp"
@@ -741,6 +742,53 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
               << " matched bone-correction-set selection(s)\n";
 }
 
+// --db2-dir/--dbd-dir/--creature-display-id: resolves a real
+// CreatureDisplayInfoID against src/creature_geoset_db2.hpp's
+// CreatureDisplayInfoGeosetData.db2, attaching the real default geoset
+// selection as skeleton.creatureEnabledGeosets extras. Unlike
+// attachCustomizationChoices, this is a true default -- no per-choice
+// caller input beyond the display ID itself.
+void attachCreatureGeosets(const std::string& db2Dir, const std::string& dbdDir,
+                            const std::string& creatureDisplayIdArg, gltf::Skeleton& skeleton) {
+    if (db2Dir.empty() && dbdDir.empty() && creatureDisplayIdArg.empty()) return;  // feature simply unused
+    if (db2Dir.empty() || dbdDir.empty() || creatureDisplayIdArg.empty()) {
+        std::cerr << "husk: note: --db2-dir/--dbd-dir/--creature-display-id must all be given "
+                     "together -- skipping creature geoset extras\n";
+        return;
+    }
+
+    uint32_t displayId = 0;
+    try {
+        displayId = static_cast<uint32_t>(std::stoul(creatureDisplayIdArg));
+    } catch (const std::exception&) {
+        std::cerr << "husk: note: --creature-display-id '" << creatureDisplayIdArg
+                  << "' isn't a non-negative integer -- skipping creature geoset extras\n";
+        return;
+    }
+
+    std::optional<creaturegeoset::Data> data = creaturegeoset::load(db2Dir, dbdDir, std::cerr);
+    if (!data) {
+        std::cerr << "husk: note: no CreatureDisplayInfoGeosetData resolved from '" << db2Dir
+                  << "' -- skipping\n";
+        return;
+    }
+
+    auto resolved = creaturegeoset::resolveDisplay(*data, displayId);
+    if (resolved.empty()) {
+        std::cerr << "husk: note: CreatureDisplayInfoID " << displayId
+                  << " has no CreatureDisplayInfoGeosetData rows -- nothing to attach (real and "
+                     "common: most displays enable none of their model's optional geosets)\n";
+        return;
+    }
+
+    for (const auto& r : resolved) {
+        skeleton.creatureEnabledGeosets.push_back({r.geosetIndex, r.geosetValue, r.geosetId});
+    }
+    std::cerr << "husk: note: attached " << resolved.size()
+              << " real default geoset selection(s) for CreatureDisplayInfoID " << displayId
+              << " as inert glTF extras\n";
+}
+
 // One NamedMesh per LOD tier: each resolves its own .skin file's
 // triangle-index lookup/submeshes/batches (see src/skin.hpp) into its own
 // primitives/materials, but reuses `baseMesh`'s shared positions/normals/
@@ -1132,15 +1180,16 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                  "the full body/shape/joint record set is also always available via "
                  "'husk dump-chunks'");
     app.add_option("--db2-dir", opts.db2DirArg,
-                    "directory of real, already-extracted character DB2 files "
+                    "directory of real, already-extracted character/creature DB2 files "
                     "(chrmodelmaterial.db2/charcomponenttexturesections.db2/"
                     "chrmodeltexturelayer.db2/charcomponenttexturelayouts.db2 for --char-layout-id; "
                     "chrcustomizationelement.db2/chrcustomizationgeoset.db2/"
-                    "chrcustomizationboneset.db2 for --customization-choice-ids -- real lowercase "
-                    "casc-tool filenames, same directory serves both) -- combined with --dbd-dir "
-                    "and one of --char-layout-id/--customization-choice-ids to attach real DB2 "
-                    "extras; unset (default) skips these features entirely, same as every other "
-                    "opt-in sidecar");
+                    "chrcustomizationboneset.db2 for --customization-choice-ids; "
+                    "creaturedisplayinfogeosetdata.db2 for --creature-display-id -- real lowercase "
+                    "casc-tool filenames, same directory serves all three) -- combined with --dbd-dir "
+                    "and one of --char-layout-id/--customization-choice-ids/--creature-display-id to "
+                    "attach real DB2 extras; unset (default) skips these features entirely, same as "
+                    "every other opt-in sidecar");
     app.add_option("--dbd-dir", opts.dbdDirArg,
                     "a local WoWDBDefs checkout (github.com/wowdev/WoWDBDefs), used to resolve "
                     "--db2-dir's real column names -- required alongside --db2-dir/"
@@ -1158,6 +1207,13 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "any matching --bones-dir correction set with 'selected_by_choice_ids'; "
                     "requires --db2-dir/--dbd-dir too, doesn't filter/apply anything itself, same "
                     "inert-extras treatment as --char-layout-id");
+    app.add_option("--creature-display-id", opts.creatureDisplayIdArg,
+                    "a real CreatureDisplayInfoID (see `husk db2-export`) to resolve against "
+                    "--db2-dir's creaturedisplayinfogeosetdata.db2 -- attaches that display's real "
+                    "*default* geoset selection as 'creature_enabled_geosets' skin extras (unlike "
+                    "--customization-choice-ids, this is a true default, not a per-choice pick); "
+                    "husk has no way to derive which display ID applies to a given .m2 model on its "
+                    "own, so this must be supplied directly; requires --db2-dir/--dbd-dir too");
     app.add_option("--object-skin-texture-id", opts.objectSkinTextureIdArg,
                     "a real texture FileDataID to fill into any type=2 (object_skin) texture "
                     "slot that has no FileDataID of its own -- husk can't derive this on its "
@@ -1336,6 +1392,8 @@ int exportGlb(int argc, char** args) {
     std::string charLayoutIdArg = app.count("--char-layout-id") ? opts.charLayoutIdArg : "";
     std::string customizationChoiceIdsArg =
         app.count("--customization-choice-ids") ? opts.customizationChoiceIdsArg : "";
+    std::string creatureDisplayIdArg =
+        app.count("--creature-display-id") ? opts.creatureDisplayIdArg : "";
     uint32_t objectSkinTextureFileDataId = 0;
     if (app.count("--object-skin-texture-id")) {
         try {
@@ -1412,6 +1470,7 @@ int exportGlb(int argc, char** args) {
             // marks/extends already-resolved correction sets, never
             // attaches new '.bone' data of its own.
             attachCustomizationChoices(db2Dir, dbdDirForChr, customizationChoiceIdsArg, skeleton);
+            attachCreatureGeosets(db2Dir, dbdDirForChr, creatureDisplayIdArg, skeleton);
             // Needs skeleton.attachments/events already populated (just
             // above), so it can't run inside buildSkeleton itself.
             applyContextualBoneNames(skeleton);

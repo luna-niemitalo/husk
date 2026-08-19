@@ -77,8 +77,11 @@ add_library(husk-lib STATIC
   src/db2table.cpp
   src/chrmodel_db2.cpp
   src/chrcustomization_db2.cpp
+  src/creature_geoset_db2.cpp
   src/cmd_db2.cpp
   src/cmd_blp.cpp
+  src/appearance_string.cpp
+  src/cmd_appearance.cpp
   src/gltf_math.cpp
   src/gltf_mesh.cpp
   src/gltf_skeleton.cpp

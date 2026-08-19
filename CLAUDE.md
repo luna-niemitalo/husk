@@ -32,6 +32,11 @@ tool, `blp/`) converts BLP2 textures to PNG.
   real texture-layer blend info — attached as inert `chr_texture_layout`
   glTF skin `extras`, keyed by a caller-supplied `CharComponentTextureLayoutsID`
   since husk can't derive one on its own; see Resume),
+  `husk export --db2-dir/--dbd-dir/--creature-display-id` (real
+  `CreatureDisplayInfoGeosetData`-derived default geoset selection for
+  creatures/NPCs — a true default, no per-choice caller input needed, unlike
+  the player-character `--customization-choice-ids` chain above — attached
+  as inert `creature_enabled_geosets` glTF skin `extras`; see Resume),
   every export also attaching minimal ribbon/particle placement anchors
   (id/bone/position, `ribbon_emitters`/`particle_emitters` skin `extras`,
   unconditional), every export also emitting one inert geoset "tag" joint
@@ -171,7 +176,83 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state**: New session (2026-08-16), picked up
+- **Current state (2026-08-20)**: Fixed the `db2::resolveFieldString`
+  multi-section string-offset bug (`TODO/TODO_correctness.md` #4, now
+  closed/removed). Root cause: WDC2+ string offsets are relative to a
+  *virtual* blob the client assembles at load time — every section's
+  record data back to back, then every section's string block back to
+  back (`documentation/wowdev-wiki/md/DB2.md`'s WDC2 "String Block"
+  section, explicit about this and about a real Blizzard build once
+  shipping broken DB2s from missing this exact correction). A
+  single-section file's real layout already matches that virtual blob, so
+  the old single-addition formula happened to work for the common case —
+  but a multi-section file (this repo's own `test_data/db2/
+  chrcustomizationcategory.db2`, 2 sections) needs the gap bridged:
+  subtract every later section's record-data size, add every earlier
+  section's string-block size. New `cmd_db2.cpp::
+  stringOffsetSectionCorrection`, threaded through `decodeRecordValues`
+  via a new `sectionIndex` parameter at all 3 call sites. Verified
+  end to end: `chrcustomizationcategory.db2` row 0/1/2/3/4's
+  `CategoryName_lang` now decode as `"Body"`/`"Face"`/`"Accessories"`/
+  `"Hair"`/`"Markings"` (previously `"cessories"`/`"ries"`/garbage —
+  provably wrong, not NUL-preceded); `chrcustomizationoption.db2` (also
+  multi-section) now decodes real English option names (`"Skin Color"`,
+  `"Face"`, `"Hair Style"`, `"Hair Color"`, `"Facial Hair"`). Full suite
+  green, 641/641. `chrcustomizationchoice.db2`'s field 0 still shows
+  occasional garbage on rows whose real value is a small integer, not a
+  string (`resolveFieldString`'s permissive high-byte/UTF-8-continuation
+  heuristic accepting a non-string as printable) — a real, pre-existing,
+  separately-scoped heuristic false-positive, not this bug; not fixed
+  this session, not yet filed as its own TODO item.
+- **Previous state (2026-08-19)**: Added real creature default-geoset
+  selection (`husk export --db2-dir/--dbd-dir --creature-display-id`,
+  `src/creature_geoset_db2.hpp`/`.cpp`, `gltf::Skeleton::
+  CreatureEnabledGeoset`) — resolves `CreatureDisplayInfoGeosetData.db2`
+  into real, no-caller-input-needed default geoset selections, unlike the
+  existing player-character `--customization-choice-ids` chain which needs
+  per-choice IDs supplied. Verified end to end against real local data
+  (`creature/gnoll2/gnoll2.m2`, display 137795, 13 rows, gltf_validator
+  clean). Full suite green, 641/641. Also exported all 23 real HD
+  character models to `.glb` (`/media/luna/work/cache/husk/
+  hd_character_export/`, `tools/export_hd_characters.nu` — the repo's
+  first `.nu` file) for a manual player-character bug hunt — see
+  `CLAUDE_HISTORY.md`'s 2026-08-19 entry for the full narrative, including
+  a real `--skin auto`+`--lod` fallback gap found along the way
+  (`TODO/CLEANUP_TODO.md` #4) and the still-unexplained `scourgemale_hd`
+  NaN keyframe (#1 failure of 23, not yet investigated).
+  **Same-day follow-up**: chased real `ChrCustomizationOption`/`_Choice`/
+  `_Category` name data (for the geoset-defaults work above) through a
+  full cross-project loop — found genuinely blocked locally (bytes never
+  downloaded, not a re-extraction bug), unblocked via the sibling
+  `tact-fetch` project (two real bugs found and fixed *there*: a missing
+  `CASC_OVERCOME_ENCRYPTED` flag causing silent truncation, and a locale
+  override that only touched the wrong CascLib storage handle), and then
+  a third, real bug found in **husk itself** once real English data was
+  finally in hand: `db2::resolveFieldString` misresolves some string-field
+  offsets (confirmed at the byte level — `TODO/TODO_correctness.md` #4).
+  Deliberately left unfixed this session (root cause not found, and it's
+  currently a latent bug — no shipped feature reads strings through this
+  path). Real fixture data now lives in the repo:
+  `test_data/db2/chrcustomization{option,choice,category}.db2`.
+- **Next step**: the `resolveFieldString` bug above is now fixed —
+  `TODO/TODO_correctness.md` #4 closed and removed. The
+  `chrcustomizationchoice.db2` heuristic false-positive noted above
+  (small integers occasionally decoding as garbage strings) is a real,
+  independent, small follow-up if anyone wants it — not yet filed. The
+  manual visual pass over the 22 successfully-exported HD character
+  `.glb`s (deriving sane per-race/gender geoset defaults, hunting further
+  player-character bugs) is still Luna's own next action, not queued husk
+  work — if it turns up bugs, they'll be new entries here. Otherwise
+  unchanged from before: `MULTI_TEXTURE_LAYER_TODO.md`'s step 5,
+  `RENDER_QUALITY_TODO.md`'s ambiguous-pool tiebreak/blank-render
+  follow-ups, the dangling-internal-reference corpus scan
+  (`CLEANUP_TODO.md` #2), `CLEANUP_TODO.md` #1's comment-hygiene sweep,
+  and `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (still needs a design pass).
+
+<details>
+<summary>Previous entry (2026-08-16), preserved for context</summary>
+
+- **Previous state**: picked up
   `TODO/EXPLORATION_TODO.md`. Mapped and quantified the real DB2 chain
   from a `.m2` FileDataID to a texture FileDataID (full narrative:
   `CLAUDE_HISTORY.md`'s later 2026-08-16 entry, "`EXPLORATION_TODO.md`
@@ -204,22 +285,8 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   for this bucket. `EXPLORATION_TODO.md` trimmed to just the real
   remaining work (implement the chain in husk, re-render) per its own
   "punch list, not a log" convention.
-- **Next step**: Object-skin texture resolution is now fixed — not via
-  DB2 (that path stayed too collision-prone even with a real
-  `Item.InventoryType` slot filter, see Hazards) but via a new local
-  fallback tier in husk's own existing fuzzy-basename matcher
-  (`scanFuzzyTexturePool`'s real, corpus-verified race/gender-suffix
-  stripping, `TODO/KNOWLEDGE_BASE_DESIGN.md`'s "Local fallback" section)
-  — verified against both real cases that exposed the DB2 bug, 639/639
-  tests pass. Run the actual full-corpus render now:
-  `direnv exec . tools/venv/bin/python tools/full_render.py` (old
-  renders already cleared to `trash/`), then a real visual spot-check —
-  the actual bar for calling this done. Otherwise unchanged from
-  before: `MULTI_TEXTURE_LAYER_TODO.md`'s step 5, `RENDER_QUALITY_TODO.md`'s
-  ambiguous-pool tiebreak/blank-render follow-ups, the dangling-internal-
-  reference corpus scan (`CLEANUP_TODO.md` #2), `CLEANUP_TODO.md` #1's
-  comment-hygiene sweep, and `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2 (still
-  needs a design pass, not more investigation).
+  (Superseded: see the current-state entry above the `<details>` fold for
+  the up-to-date Next step.)
 - **Hazards**: `/media/luna/work/cache/husk/knowledge.sqlite` (`husk
   db2-build`'s output, including `model_object_skin_verified`, its
   `Item.InventoryType`-filtered table) still contains **real but
@@ -267,3 +334,5 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   has no TACT key store and no Salsa20 implementation, deliberately —
   don't add one; the actual bug this session was husk ignoring data it
   already had, not a missing crypto feature.
+
+</details>

@@ -62,6 +62,10 @@ int db2Build(int argc, char** args);
 // blp/ tool).
 int blpExport(int argc, char** args);
 
+// `appearance-string` -- validates/normalizes a husk-appearance/1 string
+// (see src/appearance_string.hpp, src/cmd_appearance.cpp's own doc comment).
+int appearanceString(int argc, char** args);
+
 // `export`'s real flag surface (see DESIGN.md's "CLI argument grammar for
 // export"), captured here (rather than as a local in cmd_export.cpp) so
 // main.cpp's `--print-completion` can register the exact same options onto
@@ -85,6 +89,7 @@ struct ExportOptions {
     std::string dbdDirArg;
     std::string charLayoutIdArg;
     std::string customizationChoiceIdsArg;
+    std::string creatureDisplayIdArg;
     std::string objectSkinTextureIdArg;
     std::string knowledgeDbArg;
     std::string listfileArg;

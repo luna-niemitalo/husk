@@ -256,6 +256,17 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
         }
         skinExtras["enabled_geosets"] = tinygltf::Value(arr);
     }
+    if (!skeleton->creatureEnabledGeosets.empty()) {
+        tinygltf::Value::Array arr;
+        for (const auto& g : skeleton->creatureEnabledGeosets) {
+            tinygltf::Value::Object obj;
+            obj["geoset_index"] = tinygltf::Value(static_cast<int>(g.geosetIndex));
+            obj["geoset_value"] = tinygltf::Value(static_cast<int>(g.geosetValue));
+            obj["geoset_id"] = tinygltf::Value(static_cast<int>(g.geosetId));
+            arr.push_back(tinygltf::Value(obj));
+        }
+        skinExtras["creature_enabled_geosets"] = tinygltf::Value(arr);
+    }
     auto writeAnchors = [](const std::vector<Skeleton::EmitterAnchor>& anchors) {
         tinygltf::Value::Array arr;
         for (const auto& a : anchors) {

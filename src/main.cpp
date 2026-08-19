@@ -370,6 +370,8 @@ int main(int argc, char** argv) {
         "  blp-export <file.blp> <out.png>\n"
         "  blp-export --dir <blp-dir> <out-dir>\n"
         "                               convert BLP2 texture(s) to PNG (see --help)\n"
+        "  appearance-string --validate <string>\n"
+        "                               validate/normalize a husk-appearance/1 string (see --help)\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -403,6 +405,9 @@ int main(int argc, char** argv) {
     }
     if (command == "blp-export") {
         return husk::commands::blpExport(restArgc, rest);
+    }
+    if (command == "appearance-string") {
+        return husk::commands::appearanceString(restArgc, rest);
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;

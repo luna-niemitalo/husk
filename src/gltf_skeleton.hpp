@@ -116,6 +116,23 @@ struct Skeleton {
     };
     std::vector<EnabledGeoset> enabledGeosets;
 
+    // Real default geoset selections resolved from a caller-supplied
+    // CreatureDisplayInfoID (`husk export --creature-display-id`,
+    // src/creature_geoset_db2.hpp) -- same inert-extras treatment as
+    // EnabledGeoset above, but a genuinely different source and formula
+    // (CreatureDisplayInfoGeosetData, `(GeosetIndex+1)*100+GeosetValue`,
+    // not ChrCustomizationChoice/GeosetType*100+GeosetID), so it stays its
+    // own field rather than overloading EnabledGeoset's choice_id with a
+    // meaning it doesn't have. Unlike EnabledGeoset, this *is* a true
+    // default -- no per-choice caller input needed beyond the display ID
+    // itself.
+    struct CreatureEnabledGeoset {
+        uint32_t geosetIndex = 0;
+        uint32_t geosetValue = 0;
+        uint32_t geosetId = 0;
+    };
+    std::vector<CreatureEnabledGeoset> creatureEnabledGeosets;
+
     // Minimal placement anchors for M2Ribbon/M2Particle emitters -- just
     // enough (id, attach joint, relative position) for a custom Blender
     // script to place a marker/empty at the right spot, same "inert glTF

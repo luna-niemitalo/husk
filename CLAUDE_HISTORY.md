@@ -14,6 +14,201 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-20 — `db2::resolveFieldString`'s multi-section string-offset bug,
+fixed and verified.** Picked up `TODO/TODO_correctness.md` #4 (found and
+deliberately left open the prior session).
+
+Root cause, found by hand-deriving the real WDC2+ string-offset formula
+against `documentation/wowdev-wiki/md/DB2.md`'s own "String Block" section
+(WDC2 subsection) rather than guessing further from `reference/wow.export`
+alone: a WDC2+ string offset is relative to a *virtual* blob the client
+assembles at load time — every section's record data back to back, then
+every section's string block back to back, not the real on-disk section
+layout (which interleaves each section's own records immediately followed
+by that same section's own string block). The wiki page is explicit that
+this exact gap once shipped broken in a real Blizzard build (Patch 8.1.0
+build 27826) before the client-side mitigation was understood. husk's old
+`fieldAbsPos + rawValue` formula is *exactly* that virtual-blob formula
+for the single-section case (the overwhelmingly common one — every
+previously-tested local fixture), which is why this went unnoticed until
+this session's real, English, multi-section `ChrCustomization*` fixtures.
+
+Verified byte-for-byte against `test_data/db2/chrcustomizationcategory.db2`
+(2 sections: 59 real records + 1 TACT-key-encrypted trailing record) by
+hand-parsing the raw header/section/field bytes with `od` independent of
+husk's own code, cross-deriving the correction term two ways (once via
+`reference/wow.export`'s `_readRecordFromSection`/`_readString` algebra
+reduced to concrete numbers, once via the wiki's own prose formula) and
+confirming both agree with the real string-table bytes exactly: row 0's
+`CategoryName_lang` is really `"Body"`, row 1 `"Face"` — a real,
+sequential, sensible category list, replacing the previous silently-wrong
+`"cessories"`/`"ries"` (bytes landing mid-string, never NUL-preceded,
+provably wrong on inspection alone).
+
+Fix: new `cmd_db2.cpp::stringOffsetSectionCorrection` (sums each other
+section's record-data size or string-block size, signed by whether that
+section comes after or before the one being decoded), applied to
+`fieldAbsPos` before it reaches `db2::resolveFieldString`.
+`decodeRecordValues` gained a `sectionIndex` parameter (needed to know
+which section's own correction to apply) threaded through its 3 call
+sites (`printRows`, `buildColumnPlan`, `writeFileTable`'s row loop) —
+`resolveFieldString` itself untouched, the bug was entirely in what
+absolute position was being handed to it, not in the heuristic that reads
+from that position.
+
+Also re-verified `chrcustomizationoption.db2` (also multi-section): real
+English option names now decode correctly (`"Skin Color"`, `"Face"`,
+`"Hair Style"`, `"Hair Color"`, `"Facial Hair"`). Noted but not fixed:
+`chrcustomizationchoice.db2`'s field 0 still occasionally decodes as
+garbage on rows whose real value is a small integer, not a string — a
+separate, pre-existing heuristic false-positive in `resolveFieldString`'s
+permissive high-byte/UTF-8-continuation acceptance rule, not this bug (the
+rows that *are* real strings all decode correctly now). Full suite green,
+641/641. `TODO/TODO_correctness.md` #4 removed per this project's own
+"punch list, not a log" convention — this file is the permanent record.
+
+---
+
+**2026-08-19 — real creature default-geoset selection, plus the full HD
+character roster exported for a manual bug hunt.** Two independent asks.
+
+Creature geosets: added `husk export --db2-dir/--dbd-dir
+--creature-display-id`, resolving a real `CreatureDisplayInfoID` against
+`CreatureDisplayInfoGeosetData.db2` (`src/creature_geoset_db2.hpp`/`.cpp`,
+new files) into real *default* geoset selections attached as
+`creature_enabled_geosets` skin extras (`gltf::Skeleton::
+CreatureEnabledGeoset`, deliberately a separate field from the existing
+player-character `EnabledGeoset`/`enabled_geosets` — different DB2 table,
+different formula, and unlike the player-character chain this one *is* a
+true default, no per-choice caller input needed). Formula
+`(GeosetIndex+1)*100+GeosetValue` cross-checked against
+`reference/wow.export`'s own `DBCreatures.js` before implementing, not
+guessed. Verified end to end against real local data: `creature/gnoll2/
+gnoll2.m2`, `CreatureDisplayInfoID` 137795 (13 real rows, chained by hand
+through `CreatureDisplayInfo.ModelID`/`CreatureModelData.FileDataID`/the
+listfile to find a real local model to export against), every one of the
+13 resulting `geoset_id` values hand-checked against the source DB2 rows,
+`gltf_validator` clean (0 errors/warnings). Full suite green, 641/641 (no
+regressions in the unrelated player-character path). README/completions
+updated to match.
+
+HD character roster: exported all 23 real `*_hd.m2` player-character
+models (every race/gender combo plus the human-transform variant) to
+`.glb`, for a manual visual pass to derive sane per-race/gender geoset
+defaults and hunt for further player-character bugs (this project's own
+"buggiest" area per direct feedback) — output at `/media/luna/work/cache/
+husk/hd_character_export/`. 22/23 succeeded; `scourgemale_hd` hit a real
+non-finite (NaN) bone-2 translation keyframe, husk correctly refusing
+rather than exporting garbage — not investigated further this session,
+likely a local extraction corruption rather than a husk bug, worth a
+second look if it recurs after a fresh extraction.
+
+**Same-day follow-up — real geoset/choice *name* data investigated, found
+genuinely blocked, then unblocked by a sibling project, then a real husk
+bug found underneath it all.** Asked whether character geoset group names
+and individual customization-choice names (e.g. "Hairstyle", a specific
+style's real name) could be resolved from DB2 data. The real tables exist
+(`ChrCustomizationOption.Name_lang`/`ChrCustomizationChoice.Name_lang`/
+`ChrCustomizationCategory`) and `cmd_db2.cpp`'s `resolveFieldString` path
+can read locstring columns (`husk db2-export` already does; correction to
+this entry's own first draft — `db2table.hpp`'s typed-reader path is
+scalar-integer-only by design and was never involved here), but all three
+files are 0 bytes locally — the same gap `CHAR_TEXTURE_COMPOSITING_TODO.md`
+already flagged. Tried a real re-extraction via `casc-tool extract` (into
+the session scratchpad, never Luna's real `wow_export/` tree — writing
+there directly would cross this project's own write-scope hard limit)
+against Luna's real local WoW install: **not a re-extraction bug this
+time** — `casc-tool` itself reports these three FileDataIDs' bytes were
+never downloaded to the local install at all ("known but ... likely
+optional/legacy content that was never downloaded"), unlike the earlier,
+already-fixed `texturefiledata.db2`/
+`ItemDisplayInfo*` truncation cases. Per Luna's own redirect, this
+specific class of gap (manifest-known, bytes-never-downloaded) is exactly
+what the sibling `tact-fetch` project (`~/dev/tact-fetch`) exists for —
+confirmed by reading its own README — but its actual CDN-fetch step isn't
+implemented yet, a deliberate no-op scaffold as of this check. Corrected
+`CHAR_TEXTURE_COMPOSITING_TODO.md`/`TODO/README.md`'s prior "blocked on a
+casc-tool re-extraction" framing to name the real blocker
+(`tact-fetch`'s CDN fetch, not implemented) instead. No husk code changed
+this follow-up — investigation and doc correction only.
+
+**Same-day follow-up #2 — tact-fetch actually tried, two real bugs found
+there, then a third real bug found in husk itself underneath them.**
+Corrected by Luna: tact-fetch's README claiming the CDN-fetch step wasn't
+implemented was stale — its `CLAUDE.md` (the actively-maintained doc) said
+the full pipeline was real and built. Confirmed by running it directly
+(`~/dev/tact-fetch/build/tact-fetch dry-run`/`fetch`, output always routed
+to this session's own scratchpad, never `~/dev/tact-fetch/`'s or Luna's
+own directories — the write-scope hard limit applied to a sibling project
+too, not just to the wow_export tree).
+
+First fetch (my own, no locale override) got real WDC5 data for all 3
+FileDataIDs, but each was **truncated by exactly one trailing record**
+(husk's own `db2-export` caught it: "need N bytes at offset == buffer
+size"). Reported to `tact-fetch-24` (a peer Claude session on this
+machine, via `SendMessage`) with the exact repro. They root-caused it:
+`fetch.cpp` wasn't passing CascLib's `CASC_OVERCOME_ENCRYPTED` flag on the
+fetch handle — casc-tool had already hit and fixed the identical symptom
+(its own 2026-08-16 CHANGELOG entry). Second, independent bug in the same
+report: Luna's own attempt at a locale override (pointing me at
+`~/dev/tact-fetch/development/locale_override/export/_unresolved/`)
+produced byte-identical Korean output to the unforced fetch — tact-fetch-24
+found their earlier override hack only forced locale on the *local-resolve*
+handle (handle A), while the actual fetch handle (B) was hardcoded to
+`CASC_LOCALE_ALL` regardless. Both fixed properly and committed (`17eb073`
+on the tact-fetch side) — `CASC_OVERCOME_ENCRYPTED` now unconditional, plus
+a real `--locale <code>` CLI flag threaded through to handle B. Re-fetched
+clean afterward (`--locale enUS`) and confirmed real English text, no
+truncation, byte-for-byte reproducible against a second independent
+fetch run.
+
+With real, complete, English data finally in hand, found a **third, real
+bug — this one genuinely husk's own**, while eyeballing the decoded
+names: `db2::resolveFieldString` (`src/db2.cpp`) misresolves some
+string-field offsets. Confirmed at the byte level, not guessed:
+`ChrCustomizationCategory`'s row 0 `CategoryName_lang` decodes as
+`"cessories"`, row 1 as `"ries"` — real string-table bytes at file offset
+1415 read `...Face\0Accessories\0Hair\0Mark...`, so `Accessories` genuinely
+starts at 1424 (right after a real NUL), but husk's computed `stringPos`
+for row 0 landed at 1426 (2 bytes in) and row 1 at 1431 (7 bytes in) — a
+*different* wrong offset per row, ruling out a simple constant bug in the
+shared `fieldAbsoluteFilePos` base (independently re-verified correct via
+raw `od` inspection, along with the raw field values themselves). Root
+cause not found this session — `db2.cpp`'s single-addition formula versus
+`reference/wow.export`'s more involved `outsideDataSize + absoluteRecordOffs
++ dataPos + ofs` is the lead for whoever picks this up next. Full writeup
+with the exact repro: `TODO/TODO_correctness.md` #4. Real fixture data
+(the final, clean, `tact-fetch`-sourced enUS files) now lives in the repo
+at `test_data/db2/chrcustomization{option,choice,category}.db2` rather
+than only in session scratch, specifically so this bug stays reproducible
+without needing to re-run any of the above.
+
+Deliberately not fixed blind — `resolveFieldString` is `cmd_db2.cpp`'s
+only string-decode path, shared by every locstring/string column
+`husk db2-export` has ever touched, so a wrong guess here risks a much
+wider regression than the one table this session actually needed. No
+currently-shipped husk feature reads strings through this path today
+(every typed DB2 reader in `src/` goes through `db2table.hpp`'s
+scalar-integer-only `readNamedColumns` instead, unaffected) — this is a
+latent bug, not (yet) a live one, which is exactly why it was safe to stop
+and document rather than rush a fix.
+
+Two real process points worth keeping: (1) `husk export`'s `--skin auto`
+loses its same-basename-numbered-scan fallback when `--lod` is passed
+explicitly (even `--lod 0`, the same value auto already defaults to) —
+found exporting `bloodelffemale_hd.m2` (no `<FileDataID>.skin` present
+locally, only the numbered `bloodelffemale_hd00.skin`); worked around by
+dropping `--lod` from the export script, real gap now tracked as
+`TODO/CLEANUP_TODO.md` #4. (2) Per direct instruction, stopped hand-rolling
+bash loops for the batch export and wrote a real `tools/
+export_hd_characters.nu` script instead (husk itself has no batch/
+directory export mode — `CLEANUP_TODO.md` #3, new) — this project's
+Nushell-for-tooling convention (global `CLAUDE.md`) hadn't actually been
+applied anywhere in `tools/` yet before this session; this is the first
+`.nu` file in the repo.
+
+---
+
 **2026-08-16, same-day follow-up — object-skin resolution actually fixed,
 via local fallback, not DB2**: Continued the correctness investigation
 after `item.db2`/`itemappearance.db2`/`itemmodifiedappearance.db2` got

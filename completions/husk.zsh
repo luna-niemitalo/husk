@@ -40,6 +40,9 @@ _husk() {
                 '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
                 '--char-layout-id[a real CharComponentTextureLayoutsID]:value:_files' \
                 '--customization-choice-ids[comma-separated ChrCustomizationChoiceID(s)]:value:_files' \
+                '--creature-display-id[--creature-display-id]:value:_files' \
+                '--object-skin-texture-id[--object-skin-texture-id]:value:_files' \
+                '--knowledge-db[--knowledge-db]:value:_files' \
                 '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
                 '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_value' \
                 '1:model:_files'

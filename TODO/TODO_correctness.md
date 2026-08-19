@@ -65,3 +65,4 @@ geoset-switch dropdown and texture-layout overlay — the viewer can inspect
 a mesh's material but can't yet toggle geoset variants or preview the
 character-texture-layout compositing rectangles the way
 `husk_blender_geoset_mask.py` does.
+

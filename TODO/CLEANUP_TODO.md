@@ -126,3 +126,29 @@ found 99.9% of "missing" FileDataIDs were actually present under their real
 listfile name, not truly absent (the remaining 0.1% -- 79 real
 FileDataIDs -- is exactly the kind of number this new scan would want to
 reproduce and generalize, not just cite from memory).
+
+## 3. `husk export` has no batch/directory mode
+
+Every call exports exactly one `.m2`. Every multi-file job (corpus scans,
+`tools/full_render.py`, this session's HD-character-roster export) works
+around it externally with its own driver loop instead. Worth a real
+`--input-dir`/glob mode in `cmd_export.cpp` if these loops keep getting
+reinvented — until then, `tools/export_hd_characters.nu` is the pattern to
+copy, not `bash` one-liners.
+
+## 4. `--skin auto` loses its numbered-scan fallback when `--lod` is given explicitly
+
+Found 2026-08-19 exporting the HD character roster: `--skin auto` with no
+`--lod` (`resolveSkin`, `export_skin_resolution.cpp`) tries the SFID-named
+`<FileDataID>.skin` first, then falls back to a same-basename numbered scan
+(`bloodelffemale_hd00.skin`) if that file isn't present locally — real and
+needed, since not every local extraction has FileDataID-named skin files.
+But passing `--lod` explicitly, even `--lod 0` (the same value 'auto'
+already defaults to), routes through `resolveAutoSkinPaths` instead
+(`cmd_export.cpp`'s `resolveSkinsToExport`, gated on `lodGiven`) — which
+has no such fallback and hard-fails if the SFID-named file is missing, even
+though the numbered file sitting right next to it would resolve fine.
+Reproduced on `bloodelffemale_hd.m2`: `--lod 0` fails, no `--lod` succeeds,
+same directory, same files. Worth teaching `resolveAutoSkinPaths` the same
+fallback `resolveSkin` already has, so `--lod`'s behavior doesn't depend on
+whether it was passed explicitly.
