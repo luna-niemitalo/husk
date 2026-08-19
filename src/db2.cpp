@@ -761,6 +761,23 @@ std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const S
 
 std::optional<std::string> resolveFieldString(const std::vector<uint8_t>& fileBytes,
                                                 size_t fieldAbsoluteFilePos, uint64_t rawValue) {
+    // rawValue == 0 is WDC2+'s explicit "no string" sentinel (real client
+    // code special-cases it before ever computing a position, e.g.
+    // reference/wow.export's WDCReader.js: `if (ofs == 0) out[prop] = ''`)
+    // -- NOT a same-position self-reference. Caught here explicitly rather
+    // than falling into the position math below: `fieldAbsoluteFilePos`
+    // now (as of the multi-section string-offset fix) already carries a
+    // per-section correction that can be negative, so a zero rawValue no
+    // longer reliably lands back inside this field's own record bytes --
+    // it can land anywhere earlier in the file, including real binary data
+    // (pallet_data, header fields) that occasionally passes this
+    // function's permissive printable-byte heuristic by sheer coincidence.
+    // Confirmed against real data: chrcustomizationchoice.db2's row 1
+    // field 0 has rawValue 0 and, pre-this-check, resolved to the literal
+    // bytes ".\x8c}\xff" at file offset 17332 -- genuine int32 pallet
+    // data, not a string.
+    if (rawValue == 0) return std::nullopt;
+
     // Absolute file position of the referenced string, per DB2.md's WDC2+
     // rule ("the relative position from the beginning of the field where
     // this offset was stored to the position of the referenced string").

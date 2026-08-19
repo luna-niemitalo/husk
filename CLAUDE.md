@@ -198,12 +198,23 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   provably wrong, not NUL-preceded); `chrcustomizationoption.db2` (also
   multi-section) now decodes real English option names (`"Skin Color"`,
   `"Face"`, `"Hair Style"`, `"Hair Color"`, `"Facial Hair"`). Full suite
-  green, 641/641. `chrcustomizationchoice.db2`'s field 0 still shows
-  occasional garbage on rows whose real value is a small integer, not a
-  string (`resolveFieldString`'s permissive high-byte/UTF-8-continuation
-  heuristic accepting a non-string as printable) — a real, pre-existing,
-  separately-scoped heuristic false-positive, not this bug; not fixed
-  this session, not yet filed as its own TODO item.
+  green, 641/641. **Follow-up, same session**: `chrcustomizationchoice.db2`
+  row 1 field 0 initially still decoded as garbage (`".\x8c}\xff"`) even
+  after the fix above — turned out to be a second, direct consequence of
+  the same fix rather than an unrelated heuristic bug: `rawValue == 0` is
+  WDC2+'s explicit "no string" sentinel (real client code special-cases
+  it before computing any position, confirmed in `reference/wow.export`'s
+  `WDCReader.js`: `if (ofs == 0) out[prop] = ''`), but `resolveFieldString`
+  never special-cased it -- harmless before today's section-correction fix
+  (a zero offset resolved to the field's own record bytes, reliably
+  non-printable), but the correction can now be negative, sending a zero
+  offset into real binary data (pallet_data, confirmed via `od` at file
+  offset 17332) that occasionally passes the printable-byte heuristic by
+  coincidence. Fixed with an explicit `rawValue == 0` early return in
+  `db2::resolveFieldString` (`src/db2.cpp`). Verified: all of
+  `chrcustomizationchoice.db2`'s zero-offset rows now correctly fall back
+  to raw int `0`; `chrcustomizationcategory.db2`'s real names unaffected.
+  Full suite still green.
 - **Previous state (2026-08-19)**: Added real creature default-geoset
   selection (`husk export --db2-dir/--dbd-dir --creature-display-id`,
   `src/creature_geoset_db2.hpp`/`.cpp`, `gltf::Skeleton::
@@ -234,12 +245,9 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   currently a latent bug — no shipped feature reads strings through this
   path). Real fixture data now lives in the repo:
   `test_data/db2/chrcustomization{option,choice,category}.db2`.
-- **Next step**: the `resolveFieldString` bug above is now fixed —
-  `TODO/TODO_correctness.md` #4 closed and removed. The
-  `chrcustomizationchoice.db2` heuristic false-positive noted above
-  (small integers occasionally decoding as garbage strings) is a real,
-  independent, small follow-up if anyone wants it — not yet filed. The
-  manual visual pass over the 22 successfully-exported HD character
+- **Next step**: both `resolveFieldString` bugs above are now fixed —
+  `TODO/TODO_correctness.md` #4 closed and removed, no follow-up queued.
+  The manual visual pass over the 22 successfully-exported HD character
   `.glb`s (deriving sane per-race/gender geoset defaults, hunting further
   player-character bugs) is still Luna's own next action, not queued husk
   work — if it turns up bugs, they'll be new entries here. Otherwise

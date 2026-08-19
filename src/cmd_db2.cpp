@@ -65,6 +65,44 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
     return bytes;
 }
 
+// A WDC2+ string offset is relative to the field's own position in a
+// *virtual* blob the client assembles at load time: every section's record
+// data back to back, followed by every section's string block back to back
+// (DB2.md's "String Block" section, WDC2 subsection -- verified against
+// real multi-section data below). A single-section file's record data and
+// string block are already contiguous in the real file exactly as in that
+// virtual blob, so `fieldAbsPos + rawValue` (this file's original formula)
+// lands correctly with no correction needed -- but a file with more than
+// one section needs the gap between "this section's own string block" and
+// "the virtual blob's string region" bridged explicitly:
+//   - every section's record data *after* this one is skipped in the real
+//     file layout (it sits between this section's records and this
+//     section's own string block) but not in the virtual blob, so it must
+//     be subtracted back out;
+//   - every section's string block *before* this one is real file content
+//     that sits earlier than this section's own string block, so it must
+//     be added in.
+// Verified against real local data (test_data/db2/chrcustomizationcategory.db2,
+// 2 sections, second one TACT-key-encrypted): without this correction,
+// row 0's CategoryName_lang decoded as "cessories" (2 bytes into
+// "Accessories", not NUL-preceded -- provably wrong); with it, row 0
+// decodes as "Body" and row 1 as "Face", both NUL-preceded and both
+// exactly the sequential real category list TODO/TODO_correctness.md #4
+// was written against.
+int64_t stringOffsetSectionCorrection(const db2::File& file, size_t sectionIndex) {
+    int64_t correction = 0;
+    for (size_t i = 0; i < file.sections.size(); ++i) {
+        const db2::Section& s = file.sections[i];
+        int64_t recordDataSize = s.hasOffsetMap()
+                                      ? static_cast<int64_t>(s.header.offsetRecordsEnd) -
+                                            static_cast<int64_t>(s.header.fileOffset)
+                                      : static_cast<int64_t>(s.header.recordCount) * file.header.recordSize;
+        if (i > sectionIndex) correction -= recordDataSize;
+        if (i < sectionIndex) correction += static_cast<int64_t>(s.header.stringTableSize);
+    }
+    return correction;
+}
+
 // One field's resolved value(s) for one record -- unifies db2::decodeField's
 // raw-array output (fixed-width sections, string resolution via
 // db2::resolveFieldString's string-table heuristic) and
@@ -80,9 +118,13 @@ struct FieldValues {
 // Decodes every field of one record, from whichever section shape `section`
 // actually is. `fileBytes` is only used by the fixed-width path (the
 // offset-map path resolves strings inline, no file-wide string-table lookup
-// needed).
+// needed). `sectionIndex` is `section`'s own index into `file.sections` --
+// needed by the fixed-width path's string offsets, which are relative to a
+// virtual all-sections blob, not to this file's own bytes directly (see
+// stringOffsetSectionCorrection).
 std::vector<FieldValues> decodeRecordValues(const db2::File& file, const db2::Section& section,
-                                             const std::vector<uint8_t>& fileBytes, size_t recordIndex) {
+                                             size_t sectionIndex, const std::vector<uint8_t>& fileBytes,
+                                             size_t recordIndex) {
     std::vector<FieldValues> out;
     if (section.hasOffsetMap()) {
         std::vector<db2::OffsetMapFieldValue> fields = db2::decodeOffsetMapRecord(file, section, recordIndex);
@@ -100,9 +142,12 @@ std::vector<FieldValues> decodeRecordValues(const db2::File& file, const db2::Se
             values.size() == 1 && file.fieldStorageInfo[f].storageType == db2::FieldCompression::None;
         std::optional<std::string> str;
         if (isScalarNone) {
-            size_t fieldAbsPos =
-                section.header.fileOffset + recordIndex * file.header.recordSize + file.fieldStructures[f].position;
-            str = db2::resolveFieldString(fileBytes, fieldAbsPos, values[0]);
+            int64_t fieldAbsPos = static_cast<int64_t>(section.header.fileOffset) +
+                                   static_cast<int64_t>(recordIndex) * file.header.recordSize +
+                                   file.fieldStructures[f].position + stringOffsetSectionCorrection(file, sectionIndex);
+            if (fieldAbsPos >= 0) {
+                str = db2::resolveFieldString(fileBytes, static_cast<size_t>(fieldAbsPos), values[0]);
+            }
         }
         out.push_back({std::move(values), std::move(str)});
     }
@@ -216,9 +261,11 @@ void printFields(const db2::File& file) {
 // section-relative one); unused for an offset-map section.
 void printRows(const db2::File& file, const std::vector<uint8_t>& fileBytes, size_t rowLimit) {
     const db2::Section* section = nullptr;
-    for (const db2::Section& s : file.sections) {
-        if (!s.recordsAvailable()) continue;
-        section = &s;
+    size_t sectionIndex = 0;
+    for (size_t i = 0; i < file.sections.size(); ++i) {
+        if (!file.sections[i].recordsAvailable()) continue;
+        section = &file.sections[i];
+        sectionIndex = i;
         break;
     }
     if (!section) {
@@ -230,7 +277,7 @@ void printRows(const db2::File& file, const std::vector<uint8_t>& fileBytes, siz
     std::cout << "  rows (" << n << " of " << section->header.recordCount << "):\n";
     for (size_t r = 0; r < n; ++r) {
         std::cout << "    row " << r << ":";
-        std::vector<FieldValues> fields = decodeRecordValues(file, *section, fileBytes, r);
+        std::vector<FieldValues> fields = decodeRecordValues(file, *section, sectionIndex, fileBytes, r);
         for (size_t f = 0; f < fields.size(); ++f) {
             const FieldValues& values = fields[f];
             std::cout << " [" << f << "]=";
@@ -296,9 +343,9 @@ struct OutputColumn {
 // so this never disagrees with another record's element count for the same
 // field.
 std::vector<std::vector<OutputColumn>> buildColumnPlan(
-    const db2::File& file, const db2::Section& sampleSection, const std::vector<uint8_t>& sampleBytes,
-    const std::optional<std::vector<dbd::Column>>& dbdNames) {
-    std::vector<FieldValues> sample = decodeRecordValues(file, sampleSection, sampleBytes, 0);
+    const db2::File& file, const db2::Section& sampleSection, size_t sampleSectionIndex,
+    const std::vector<uint8_t>& sampleBytes, const std::optional<std::vector<dbd::Column>>& dbdNames) {
+    std::vector<FieldValues> sample = decodeRecordValues(file, sampleSection, sampleSectionIndex, sampleBytes, 0);
     std::vector<std::vector<OutputColumn>> plan(file.fieldStorageInfo.size());
     for (size_t f = 0; f < file.fieldStorageInfo.size(); ++f) {
         std::string baseName = dbdNames ? sanitizeIdentifier((*dbdNames)[f].name)
@@ -446,7 +493,8 @@ std::optional<LoadedFile> loadOneFile(const std::string& path, const std::string
 // case, not an error).
 size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::string>& availableTables) {
     const db2::Section& sampleSection = lf.file.sections[lf.usableSectionIndices[0]];
-    std::vector<std::vector<OutputColumn>> plan = buildColumnPlan(lf.file, sampleSection, lf.bytes, lf.dbdNames);
+    std::vector<std::vector<OutputColumn>> plan =
+        buildColumnPlan(lf.file, sampleSection, lf.usableSectionIndices[0], lf.bytes, lf.dbdNames);
 
     std::string idSqlName = lf.nonInlineIdColumnName ? sanitizeIdentifier(*lf.nonInlineIdColumnName) : "";
 
@@ -526,7 +574,7 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
                 }
                 ++bindIndex;
             }
-            std::vector<FieldValues> fields = decodeRecordValues(lf.file, section, lf.bytes, r);
+            std::vector<FieldValues> fields = decodeRecordValues(lf.file, section, sectionIndex, lf.bytes, r);
             for (size_t f = 0; f < fields.size(); ++f) {
                 bool isFloat = !plan[f].empty() && plan[f][0].isFloat;
                 bindFieldValues(stmt, bindIndex, fields[f], isFloat);

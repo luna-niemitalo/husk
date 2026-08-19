@@ -63,9 +63,31 @@ English option names now decode correctly (`"Skin Color"`, `"Face"`,
 garbage on rows whose real value is a small integer, not a string — a
 separate, pre-existing heuristic false-positive in `resolveFieldString`'s
 permissive high-byte/UTF-8-continuation acceptance rule, not this bug (the
-rows that *are* real strings all decode correctly now). Full suite green,
-641/641. `TODO/TODO_correctness.md` #4 removed per this project's own
-"punch list, not a log" convention — this file is the permanent record.
+rows that *are* real strings all decode correctly now).
+
+**Same-session follow-up, chasing that noted-but-not-fixed garbage
+down**: turned out to be a second, direct consequence of the fix above,
+not an unrelated heuristic bug. WDC2+ treats `rawValue == 0` as an
+explicit "no string" sentinel — real client code special-cases it before
+ever computing a position (`reference/wow.export`'s `WDCReader.js`:
+`if (ofs == 0) out[prop] = ''`) — but `resolveFieldString` never did.
+That was harmless before this session's section-correction fix (a zero
+offset always resolved back to the field's own record bytes, which are
+reliably non-printable binary), but the correction term can now be
+negative, which can send a zero offset into real binary data earlier in
+the file. Confirmed via `od`: `chrcustomizationchoice.db2` row 1's field
+0 has `rawValue == 0` and was resolving to file offset 17332 — genuine
+`pallet_data` bytes (`2e 8c 7d ff 00 ...`) that happen to pass the
+printable-byte heuristic (`.`, a UTF-8-continuation-range byte, `}`,
+another continuation-range byte, then a real NUL) purely by coincidence.
+Fixed with an explicit `rawValue == 0` early return in
+`db2::resolveFieldString` (`src/db2.cpp`, ahead of the existing
+bounds-check comment). Verified: every zero-offset row in
+`chrcustomizationchoice.db2` now correctly falls back to raw int `0`
+instead of garbage; `chrcustomizationcategory.db2`'s real decoded names
+(`"Body"`/`"Face"`/etc.) unaffected. Full suite green, 641/641.
+`TODO/TODO_correctness.md` #4 removed per this project's own "punch
+list, not a log" convention — this file is the permanent record.
 
 ---
 
