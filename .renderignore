@@ -8,3 +8,9 @@
 # of what's on disk. Confirmed against all 144 real character/*.m2 files
 # in the corpus (2026-08-15/16 investigation, CLAUDE_HISTORY.md).
 character/
+
+# Cinematic camera-track models: 0 vertices by design (`husk info`), so
+# there's nothing for tools/corpus_scan_tasks/render_glb.py to render --
+# already handled there as a distinct SKIPPED sentinel, not a failure, but
+# excluding them here too skips the wasted export/import round-trip.
+cameras/

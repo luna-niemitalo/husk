@@ -30,3 +30,11 @@ __pycache__/
 *.json
 *.csv
 *.log
+
+# Blender's own autosave-on-crash backup, one per .blend -- never the file
+# actually referenced by anything, regenerated locally on every crash.
+*.blend1
+
+# tools/corpus_scan_tasks/render_glb.py's scratch render output (default
+# out.glb/out.webm next to wherever it's invoked from).
+/out/

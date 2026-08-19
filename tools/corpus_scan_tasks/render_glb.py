@@ -99,6 +99,8 @@ MIN_ANIMATED_DURATION_SECONDS = 0.05
 # free quality margin over the noisier 1-4 range, not chosen for speed.
 EEVEE_RENDER_SAMPLES = 16
 
+IS_SKYBOX = False  # set True for skybox fixtures (environments/stars)
+
 
 def _combine_multi_texture_layers(mat, nodes, links, tex1_node, color_input, fdid_to_image):
     """Attempts WoW's real multi-texture-layer combiner formula for `mat`
@@ -776,6 +778,9 @@ def _skeletal_action_visibly_animates(mesh_objs, action) -> bool:
     to 20x-scaled bosses (see render_glb.py's own clip_end comment), so a
     fixed absolute drift threshold would be wrong at either extreme.
     """
+    if IS_SKYBOX:
+        return True  # skybox rotates continuously; never treat it as static
+
     scene = bpy.context.scene
     start, end = action.frame_range
     if end <= start:
@@ -876,11 +881,123 @@ def loop_action_natively(action) -> None:
                         fc.modifiers.new("CYCLES")
 
 
+def render_still_frame(scene) -> None:
+    scene.render.image_settings.file_format = "WEBP"
+    scene.render.image_settings.quality = 80  # lossy: these are flat-shaded QA thumbnails, not archival
+    bpy.ops.render.render(write_still=True)
+
+
+def render_animation(scene, materials, duration, action, out_path) -> str:
+    # Closest, not the importer's default Linear -- avoids a real GPU
+    # mip-blur artifact found while building this (a high-frequency
+    # repeating texture pattern renders as a flat, unchanging color
+    # across every frame regardless of true UV/pose state, purely a
+    # render-time sampling quirk, not a data/logic bug -- see
+    # example_exports/README.md's own writeup of the same finding).
+    for mat in materials:
+        if mat.node_tree is None:
+            continue
+        for n in mat.node_tree.nodes:
+            if n.type == "TEX_IMAGE":
+                n.interpolation = "Closest"
+
+    # A real skeletal action shorter than the render window needs a
+    # real (native, Blender-evaluated) loop -- husk_blender_geoset_mask's
+    # own texture-transform/tint-fade curves already loop themselves
+    # (an explicit t % duration inside their own frame_change_pre
+    # handler, unaffected by anything here), but Blender's own pose
+    # evaluation holds the last frame past an action's range by default
+    # (Constant extrapolation) rather than repeating it.
+    window_seconds = min(duration, RENDER_MAX_WINDOW_SECONDS)
+    window_frames = round(window_seconds * RENDER_FPS)
+    if action is not None and 0 < (action.frame_range[1] - action.frame_range[0]) < window_frames:
+        loop_action_natively(action)
+
+    scene.render.fps = RENDER_FPS
+    scene.frame_start = 1
+    scene.frame_end = window_frames
+
+    # Real container format, not the still-image WebP `out_path` was
+    # named for -- an animated preview is a real video now, encoded
+    # directly by Blender itself (WebM/VP9, the exact settings Luna
+    # specified directly), not a PNG-per-frame sequence hand-stitched
+    # into an animated WebP via Pillow afterward. That earlier PNG+PIL
+    # approach worked but was a real, avoidable extra step-and-a-half:
+    # Blender's own animation renderer writes the finished video in one
+    # native call, with no intermediate files on disk at all.
+    final_out_path = str(Path(out_path).with_suffix(".webm"))
+    ifs = scene.render.image_settings
+    ifs.media_type = "VIDEO"
+    ifs.file_format = "FFMPEG"
+    scene.render.ffmpeg.format = "WEBM"
+    scene.render.ffmpeg.codec = "WEBM"  # VP9 -- the only codec Blender pairs with the WEBM container
+    scene.render.ffmpeg.constant_rate_factor = "MEDIUM"
+    scene.render.ffmpeg.ffmpeg_preset = "GOOD"
+    scene.render.ffmpeg.audio_codec = "NONE"  # no scene audio exists; skip encoding a silent track
+    scene.render.filepath = final_out_path
+    scene.render.use_file_extension = False
+
+    # One native call, not a manual per-frame Python loop -- Blender's
+    # own animation renderer steps every frame itself and fires
+    # bpy.app.handlers.frame_change_pre exactly like scene.frame_set()
+    # does (confirmed empirically: 101 handler calls recorded for a
+    # 100-frame animation=True render, real curve values changing every
+    # one of them), so husk_blender_geoset_mask's own registered
+    # handlers (from apply_texture_transform_animation/
+    # apply_tint_fade_animation above) need no special-casing here.
+    # Confirmed real output too, not just "didn't crash": ffprobe on a
+    # real rendered file reports codec_name=vp9, the requested
+    # resolution, and r_frame_rate=24/1 exactly.
+    bpy.ops.render.render(animation=True)
+    return (f", animated ({duration:.2f}s native, {window_frames} frames at "
+            f"{RENDER_FPS}fps over {window_seconds:.2f}s, WebM/VP9)")
+
+
+def create_normal_camera(radius: float, center: "mathutils.Vector") -> "bpy.types.Object":
+    cam_data = bpy.data.cameras.new("cam")
+    cam_obj = bpy.data.objects.new("cam", cam_data)
+    bpy.context.scene.collection.objects.link(cam_obj)
+    cam_data.lens = 35  # wide-ish, generous headroom over a tight fit
+    cam_data.sensor_fit = "VERTICAL"  # most WoW models are tall/thin -- frame by height, not width
+    half_fov = math.atan((cam_data.sensor_height / 2) / cam_data.lens)
+    distance = (radius / math.sin(half_fov)) * 1.03  # 3% margin
+    cam_dir = mathutils.Vector((1, -1.6, 0.5)).normalized()
+    cam_obj.location = center + cam_dir * distance
+    cam_obj.rotation_euler = (center - cam_obj.location).to_track_quat("-Z", "Y").to_euler()
+    # Blender's camera default clip_end (1000) silently culls the entire
+    # object -- a fully blank render, no error -- for any model whose real
+    # posed bounding-box radius exceeds ~322 units (default clip_end / sin
+    # half_fov). Real, not hypothetical: creature/dimensiusboss02.m2's root
+    # bone carries a constant (every one of its 8 sequences agrees) 20x
+    # scale, a genuine large-creature authoring pattern, pushing its own
+    # camera distance to ~1601. clip_end must bracket the far side of the
+    # bounding sphere from the camera, not just the default; clip_start
+    # stays at its default since the near side is never the problem here.
+    cam_data.clip_end = distance + radius * 1.1
+    return cam_obj
+
+
+def create_skybox_camera(radius: float, center: "mathutils.Vector") -> "bpy.types.Object":
+    cam_data = bpy.data.cameras.new("cam")
+    cam_obj = bpy.data.objects.new("cam", cam_data)
+    bpy.context.scene.collection.objects.link(cam_obj)
+    cam_data.lens = 10  # very wide, intent to capture large view of the skybox in one shot
+    # Skybox origin is always the camera's rest position; slight Z offset avoids clipping the ground plane.
+    cam_obj.location = (0, 0, 0.169)
+    cam_obj.rotation_euler = (math.radians(120), 0, 0)
+    cam_data.clip_end = 300
+    return cam_obj
+
+
 def main() -> None:
+    global IS_SKYBOX
+    IS_SKYBOX = False
     argv = sys.argv[sys.argv.index("--") + 1:]
     in_glb, out_path = argv[0], argv[1]
+    TEMPLATE = Path(__file__).resolve().parent / "render_glb.blend"
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.wm.open_mainfile(filepath=str(TEMPLATE))
     # disable_bone_shape=True: the importer's default per-armature "Icosphere"
     # bone-visualization mesh is a real MESH-type scene object with no relation
     # to husk's own exported geometry -- left enabled, it silently inflates the
@@ -921,26 +1038,13 @@ def main() -> None:
     center = (bbox_min + bbox_max) / 2
     radius = max((bbox_max - bbox_min).length / 2, 0.01)
 
-    cam_data = bpy.data.cameras.new("cam")
-    cam_obj = bpy.data.objects.new("cam", cam_data)
-    bpy.context.scene.collection.objects.link(cam_obj)
-    cam_data.lens = 35  # wide-ish, generous headroom over a tight fit
-    cam_data.sensor_fit = "VERTICAL"  # most WoW models are tall/thin -- frame by height, not width
-    half_fov = math.atan((cam_data.sensor_height / 2) / cam_data.lens)
-    distance = (radius / math.sin(half_fov)) * 1.03  # 3% margin
-    cam_dir = mathutils.Vector((1, -1.6, 0.5)).normalized()
-    cam_obj.location = center + cam_dir * distance
-    cam_obj.rotation_euler = (center - cam_obj.location).to_track_quat("-Z", "Y").to_euler()
-    # Blender's camera default clip_end (1000) silently culls the entire
-    # object -- a fully blank render, no error -- for any model whose real
-    # posed bounding-box radius exceeds ~322 units (default clip_end / sin
-    # half_fov). Real, not hypothetical: creature/dimensiusboss02.m2's root
-    # bone carries a constant (every one of its 8 sequences agrees) 20x
-    # scale, a genuine large-creature authoring pattern, pushing its own
-    # camera distance to ~1601. clip_end must bracket the far side of the
-    # bounding sphere from the camera, not just the default; clip_start
-    # stays at its default since the near side is never the problem here.
-    cam_data.clip_end = distance + radius * 1.1
+    if "environments/stars" in in_glb:
+        IS_SKYBOX = True
+        print("Detected skybox fixture, using skybox camera")
+        cam_obj = create_skybox_camera(radius, center)
+    else:
+        print("Detected normal fixture, using normal camera")
+        cam_obj = create_normal_camera(radius, center)
     bpy.context.scene.camera = cam_obj
 
     # Billboard bones (husk's own `_billboard_<mode>` joint-name suffix,
@@ -966,24 +1070,7 @@ def main() -> None:
     if armature_obj is not None:
         billboards_aligned = billboard_align.apply_billboard_alignment(mesh_objs, armature_obj, cam_obj)
 
-    # Sun/fill energy and world.color below were both too bright/flat
-    # against real in-game reference screenshots -- confirmed directly
-    # (2026-08-17, creature/ladywaycrest, creature/darknaaru): a
-    # translucent, dark, alpha-blended effect layer (hair wisps, energy
-    # trails) that reads as correctly crisp/near-invisible against a dim
-    # in-game background instead reads as a washed-out grey haze against
-    # this renderer's old, much brighter mid-grey studio world -- real
-    # combiner-math bugs were found and fixed alongside this (see git
-    # history), but isolating the same fixed materials against a near-
-    # black world/lower-energy lights alone reproduced the in-game look
-    # convincingly, with no further shader changes. Values below still
-    # aren't literally in-game lighting (a lore-agnostic default is still
-    # needed to keep every corpus model at least visible without per-file
-    # tuning), just dimmer -- confirmed against Blender/three.js glTF
-    # viewers' own much darker default environments as the intended
-    # baseline, not guessed.
     sun_data = bpy.data.lights.new("sun", type="SUN")
-    sun_data.energy = 2.0
     sun_obj = bpy.data.objects.new("sun", sun_data)
     sun_obj.rotation_euler = (math.radians(55), 0, math.radians(35))
     bpy.context.scene.collection.objects.link(sun_obj)
@@ -1001,7 +1088,10 @@ def main() -> None:
     # render is cheap either way, but there's no reason to pay full-quality
     # sampling for a flat-shaded QA thumbnail there either).
     scene.eevee.taa_render_samples = EEVEE_RENDER_SAMPLES
-    scene.eevee.use_shadows = False
+    if IS_SKYBOX:
+        scene.eevee.use_shadows = False
+    else:
+        scene.eevee.use_shadows = True
     scene.eevee.use_fast_gi = False
     scene.render.resolution_x = 640
     scene.render.resolution_y = 480
@@ -1010,94 +1100,21 @@ def main() -> None:
     # extension) -- disabled so the caller's own extension is trusted
     # exactly as given, never doubled up (e.g. "foo.webp" -> "foo.webp.webp").
     scene.render.use_file_extension = False
-    scene.render.image_settings.file_format = "WEBP"
-    scene.render.image_settings.quality = 80  # lossy: these are flat-shaded QA thumbnails, not archival
-    scene.world = bpy.data.worlds.new("world")
-    # world.color (the legacy shorthand) doesn't reliably drive the actual
-    # render here -- confirmed directly (2026-08-17): setting it alone left
-    # the rendered background at a plainly brighter, more neutral grey than
-    # the same nominal value applied through the world's own node tree
-    # (Background node's Color input) side by side. Set explicitly through
-    # the node tree instead, which does match.
-    scene.world.use_nodes = True
-    background_node = scene.world.node_tree.nodes["Background"]
-    background_node.inputs["Color"].default_value = (0.02, 0.02, 0.025, 1.0)
-
     materials = {obj.material_slots[i].material
                  for obj in mesh_objs
                  for i in range(len(obj.material_slots))
                  if obj.material_slots[i].material is not None}
     multiply_blended = billboard_align.apply_multiply_blend_compositing(scene, list(materials))
+
     duration, action = render_duration_seconds(armature_obj, materials, mesh_objs)
 
-    final_out_path = out_path
     if duration < MIN_ANIMATED_DURATION_SECONDS:
-        bpy.ops.render.render(write_still=True)
+        render_still_frame(scene)
         anim_note = ""
+        final_out_path = out_path
     else:
-        # Closest, not the importer's default Linear -- avoids a real GPU
-        # mip-blur artifact found while building this (a high-frequency
-        # repeating texture pattern renders as a flat, unchanging color
-        # across every frame regardless of true UV/pose state, purely a
-        # render-time sampling quirk, not a data/logic bug -- see
-        # example_exports/README.md's own writeup of the same finding).
-        for mat in materials:
-            if mat.node_tree is None:
-                continue
-            for n in mat.node_tree.nodes:
-                if n.type == "TEX_IMAGE":
-                    n.interpolation = "Closest"
-
-        # A real skeletal action shorter than the render window needs a
-        # real (native, Blender-evaluated) loop -- husk_blender_geoset_mask's
-        # own texture-transform/tint-fade curves already loop themselves
-        # (an explicit t % duration inside their own frame_change_pre
-        # handler, unaffected by anything here), but Blender's own pose
-        # evaluation holds the last frame past an action's range by default
-        # (Constant extrapolation) rather than repeating it.
-        window_seconds = min(duration, RENDER_MAX_WINDOW_SECONDS)
-        window_frames = round(window_seconds * RENDER_FPS)
-        if action is not None and 0 < (action.frame_range[1] - action.frame_range[0]) < window_frames:
-            loop_action_natively(action)
-
-        scene.render.fps = RENDER_FPS
-        scene.frame_start = 1
-        scene.frame_end = window_frames
-
-        # Real container format, not the still-image WebP `out_path` was
-        # named for -- an animated preview is a real video now, encoded
-        # directly by Blender itself (WebM/VP9, the exact settings Luna
-        # specified directly), not a PNG-per-frame sequence hand-stitched
-        # into an animated WebP via Pillow afterward. That earlier PNG+PIL
-        # approach worked but was a real, avoidable extra step-and-a-half:
-        # Blender's own animation renderer writes the finished video in one
-        # native call, with no intermediate files on disk at all.
+        anim_note = render_animation(scene, materials, duration, action, out_path)
         final_out_path = str(Path(out_path).with_suffix(".webm"))
-        ifs = scene.render.image_settings
-        ifs.media_type = "VIDEO"
-        ifs.file_format = "FFMPEG"
-        scene.render.ffmpeg.format = "WEBM"
-        scene.render.ffmpeg.codec = "WEBM"  # VP9 -- the only codec Blender pairs with the WEBM container
-        scene.render.ffmpeg.constant_rate_factor = "MEDIUM"
-        scene.render.ffmpeg.ffmpeg_preset = "GOOD"
-        scene.render.ffmpeg.audio_codec = "NONE"  # no scene audio exists; skip encoding a silent track
-        scene.render.filepath = final_out_path
-        scene.render.use_file_extension = False
-
-        # One native call, not a manual per-frame Python loop -- Blender's
-        # own animation renderer steps every frame itself and fires
-        # bpy.app.handlers.frame_change_pre exactly like scene.frame_set()
-        # does (confirmed empirically: 101 handler calls recorded for a
-        # 100-frame animation=True render, real curve values changing every
-        # one of them), so husk_blender_geoset_mask's own registered
-        # handlers (from apply_texture_transform_animation/
-        # apply_tint_fade_animation above) need no special-casing here.
-        # Confirmed real output too, not just "didn't crash": ffprobe on a
-        # real rendered file reports codec_name=vp9, the requested
-        # resolution, and r_frame_rate=24/1 exactly.
-        bpy.ops.render.render(animation=True)
-        anim_note = (f", animated ({duration:.2f}s native, {window_frames} frames at "
-                     f"{RENDER_FPS}fps over {window_seconds:.2f}s, WebM/VP9)")
 
     # Real glTF playback (skeletal poses natively, husk's own extras-driven
     # curves via tools/live_gallery/server.py's own future JS-side handling)

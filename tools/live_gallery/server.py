@@ -267,6 +267,11 @@ class Index:
         root = self.root
         for dirpath, _dirnames, filenames in os.walk(root):
             for name in filenames:
+                # A 0-byte file is a render that was killed/crashed
+                # mid-write, not a real thumbnail -- skip it rather than
+                # listing something broken.
+                if os.path.getsize(os.path.join(dirpath, name)) == 0:
+                    continue
                 ext = os.path.splitext(name)[1].lower()
                 is_video = ext in VIDEO_EXTS
                 if ext not in IMAGE_EXTS and not is_video:

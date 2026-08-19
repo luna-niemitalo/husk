@@ -95,6 +95,7 @@ def discover_files(root: Path, patterns: list[str]) -> list[str]:
             skipped += 1
         else:
             kept.append(p)
+
     print(f"  {skipped} excluded by {len(patterns)} .renderignore pattern(s), {len(kept)} remaining", flush=True)
     return kept
 

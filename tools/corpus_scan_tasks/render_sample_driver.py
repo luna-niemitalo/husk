@@ -372,15 +372,21 @@ def run_render_pipeline(paths: list[str], render_dir: Path) -> int:
     # subprocess.run (husk/Blender) launched from them.
     os.nice(10)
 
-    # No manual override for this, deliberately -- the ceiling is always
-    # the real machine's own core count. AdaptiveConcurrency (below) is the
-    # whole point: it ramps the live window up/down against measured
-    # throughput on its own, exactly the shape corpus_scan_framework.py's
-    # own docstring describes it as built for. A hand-picked --max-workers
-    # value only ever second-guesses that algorithm with a worse, static
-    # guess -- caught directly after a run got capped at 16 on a 32-thread
-    # machine for no real reason. Don't reintroduce this flag.
-    max_workers = os.cpu_count() or 8
+    # No manual --max-workers override, deliberately -- AdaptiveConcurrency
+    # (below) is the whole point: it ramps the live window up/down against
+    # measured throughput on its own, exactly the shape
+    # corpus_scan_framework.py's own docstring describes it as built for. A
+    # hand-picked flag value only ever second-guesses that algorithm with a
+    # worse, static guess -- caught directly after a run got capped at 16 on
+    # a 32-thread machine for no real reason. Don't reintroduce that flag.
+    #
+    # The 1.2x here is different in kind, not a reintroduction of the same
+    # bug: it raises the *ceiling* AdaptiveConcurrency is allowed to grow
+    # into (real core count leaves headroom for I/O-bound stalls -- workers
+    # aren't all CPU-bound at once), it doesn't hand the algorithm a fixed
+    # window size. `or 8` covers os.cpu_count() returning None; int() because
+    # a worker count can't be fractional.
+    max_workers = int((os.cpu_count() or 8) * 1.2)
 
     render_dir.mkdir(parents=True, exist_ok=True)
     out_csv = render_dir.parent / (render_dir.name + "_results.csv")
