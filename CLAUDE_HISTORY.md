@@ -14,6 +14,66 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-20 (Blender-switch TODO + its own Step 1, same-day follow-up) —
+wrote `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`, then implemented its
+Step 1 immediately per Luna's own direct instruction.** After the Stage 4
+revert (entry directly below), Luna asked for a self-contained TODO
+scoping the real Blender-side follow-up (Stage 5) so a fresh session could
+pick it up cold. Wrote it: exact `chr_texture_layout`/`chr_enabled_materials`
+extras schema with real JSON examples, the real blend-mode-to-Blender-node
+table, the fact (found while researching, not assumed) that
+`tools/husk_blender_geoset_mask.py`'s existing `apply_texture_layout_overlay`
+already treats `ChrModelMaterial::TextureType` and a material's own
+`texture_type` extras as the same numbering space -- resolving what had
+looked like an open "TextureType vs. M2Texture::type" question from
+earlier in the session -- and a step-by-step plan reusing that file's
+existing raw-JSON-extras-reader/node-building conventions rather than
+inventing a new approach.
+
+The plan's own "Step 1" flagged one real gap: `chr_enabled_materials` only
+ever contained the choice(s) a given `husk export` run actually resolved,
+not every real choice per option a live switch needs to see. Luna's
+immediate follow-up: fix that now, and make it automatic, "not only if
+the user utters the magic words" -- no separate opt-in flag. Implemented:
+`src/cmd_export.cpp`'s existing `--chr-model-id auto` derivation logic
+(FileDataID-primary via `--listfile`, filename-fallback otherwise) was
+factored out into a new `tryDeriveChrModelId` helper, reused in a new code
+path so `attachCustomizationChoices` now computes a `resolvedChrModelId`
+in *every* branch -- including, best-effort and non-fatally, when the
+caller only gave `--customization-choice-ids` with no `--chr-model-id` at
+all (reusing an explicit `--chr-model-id`'s own value directly when both
+were given, no wasted DB2 read). Whenever `resolvedChrModelId` ends up
+with a real answer and the model has real `Option`/`Choice` rows,
+`chrcustomization::namedChoicesForModel` (already existed, previously only
+used to *print* default-choice picks to stderr) now also builds the full
+menu as new `gltf::Skeleton::CustomizationOption`/`CustomizationChoice`
+extras (`gltf_skeleton.hpp`/`.cpp`), serialized as `chr_customization_options`
+-- every real option, every real choice, each with its own real
+`geoset_id`/`materials[]` resolution (reusing the same `TextureFileData.db2`
+lookup lambda the existing `enabled_materials` loop already used, factored
+out once as `resolveFileDataId`).
+
+One existing test broke as a direct, correct consequence: it asserted a
+non-default choice ID's literal string never appeared anywhere in the
+output file, which stopped being true now that the full menu legitimately
+lists every real choice including non-default ones. Fixed by tightening
+the assertion to the real `enabled_geosets` object's own exact shape
+(`{"choice_id":N,"geoset_id":M}`, tinygltf's `std::map`-backed `Object`
+guaranteeing alphabetical key order, confirmed by reading `tiny_gltf.h`
+directly rather than assumed) rather than a blind whole-file substring
+search -- the thing the test actually cared about (never *selected* into
+`enabled_geosets`) is still checked precisely; the thing that legitimately
+changed (appearing in the new full-menu extras) is no longer conflated
+with it. New CLI-tier test added for the "only `--customization-choice-ids`,
+no `--chr-model-id`" enrichment case specifically (real Dracthyr filename-
+fallback fixture, no `--listfile`), verified end to end on the first real
+run. `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`/`TODO/
+CHAR_TEXTURE_COMPOSITING_TODO.md`/`TODO/README.md`/`README.md` all updated
+-- Step 1 marked done, its own former "CLI flag shape" open question
+removed (resolved: automatic, no flag). Full suite green, 654/654.
+
+---
+
 **2026-08-20 (character-texture compositing, Stage 4 revert) — the real
 software pixel compositor from the entry directly below was built,
 verified, committed, then deliberately reverted, same session, after

@@ -121,18 +121,39 @@ then find the `materials[]` entry with the same `texture_type` as that
 `FileDataID`'s texture, placed at which rect, blended how, into which
 atlas size.
 
-### What's NOT exposed yet (the one real gap this file's own work needs to close first)
+### `chr_customization_options` — the full real menu (done, see Step 1)
 
-`chr_enabled_materials` only contains the choice(s) a given `husk export`
-invocation actually resolved (either explicit `--customization-choice-ids`,
-or `--chr-model-id`'s lowest-`OrderIndex` default heuristic) — **not**
-every real choice available for a given option. A live switch needs every
-choice. `src/chrcustomization_db2.hpp`'s `namedChoicesForModel(data,
-chrModelId, err)` already computes exactly this (`std::vector<NamedChoice>`,
-one entry per real `(Option, Choice)` pair for a model, each with its own
-`Resolution` including `materials`) — it's already used to *print* the
-default-choice picks to stderr in `cmd_export.cpp`, just never attached as
-real extras. See "Step 1" below.
+```json
+[
+  {"option_id": 1, "option_name": "Ears", "option_order_index": 0,
+   "choices": [
+     {"choice_id": 11, "choice_name": "Short Fin", "choice_order_index": 0,
+      "geoset_id": 205,
+      "materials": [{"chr_model_texture_target_id": 7, "material_resources_id": 700,
+                      "file_data_id": 800}]}
+   ]}
+]
+```
+
+Every real `(Option, Choice)` pair for the model — not just the choice(s)
+that ended up in `chr_enabled_materials`/`enabled_geosets` above.
+`geoset_id` is omitted when a choice has no geoset element; `materials` is
+an empty array when a choice has no material element (real and common —
+most choices carry only one of geoset/material/boneset, per
+`ChrCustomizationElement`'s own documented exclusivity).
+
+**Attached automatically** whenever a real `ChrModelID` can be determined
+at all — explicit `--chr-model-id <id>`, `--chr-model-id auto`, or (this
+is the part that makes it "by default," not a magic-words flag)
+best-effort auto-derivation attempted even when the caller only gave
+`--customization-choice-ids` with no `--chr-model-id` at all. No separate
+opt-in flag exists or is needed — this was Luna's own explicit
+instruction (`src/cmd_export.cpp`'s `attachCustomizationChoices`/
+`tryDeriveChrModelId`, `gltf::Skeleton::CustomizationOption`/
+`CustomizationChoice` in `gltf_skeleton.hpp`). A Blender script never
+needs a second export run just to see what's selectable — this extras
+array is already there on any real character export that has DB2 access
+and a derivable identity.
 
 ## Real blend modes (already know these — reuse, don't re-derive)
 
@@ -197,48 +218,24 @@ file or its approach** — it's the wrong layer (see Background). Its value
 here is purely as a reference for the blend-mode semantics, which you're
 now re-expressing as Blender nodes instead of C++ loops.
 
-### Step 1 — husk: expose every real choice per option (small C++ change)
+### Step 1 — husk: expose every real choice per option (DONE)
 
-New `husk export` flag, e.g. `--customization-options-for <chrModelId>`
-(or extend `--chr-model-id`'s existing behavior — design call, see "Open
-questions" below) that, given a real `ChrModelID`, calls
-`chrcustomization::namedChoicesForModel` (already exists,
-`src/chrcustomization_db2.hpp`) and attaches **every** real
-`(Option, Choice)` pair's resolution — not just the resolved default(s) —
-as a new skin extras array, e.g. `chr_customization_options`:
+Implemented: `chr_customization_options` (see above) attaches
+automatically, no new flag. `src/cmd_export.cpp` gained
+`tryDeriveChrModelId` (the same primary-FileDataID/fallback-filename logic
+`--chr-model-id auto` always used, factored out so it can also run
+best-effort when only `--customization-choice-ids` was given) and
+`attachCustomizationChoices` now computes `resolvedChrModelId` in every
+code path, then — after its existing `enabled_geosets`/
+`chr_enabled_materials` resolution loop — builds the full menu via
+`chrcustomization::namedChoicesForModel` whenever `resolvedChrModelId` has
+a real value and the model has real `Option`/`Choice` rows at all.
+Verified end to end, including the "only `--customization-choice-ids`,
+no `--chr-model-id`" case (`tests/test_cli_chrcustomization.cpp`, real
+filename-fallback derivation, no `--listfile` needed).
 
-```json
-[
-  {"option_id": 1, "option_name": "Skin Color", "option_order_index": 0,
-   "choices": [
-     {"choice_id": 10, "choice_name": "Bronze 1", "choice_order_index": 0,
-      "chr_model_texture_target_id": 7, "material_resources_id": 700,
-      "file_data_id": 800},
-     {"choice_id": 11, "choice_name": "Bronze 2", "choice_order_index": 1,
-      "chr_model_texture_target_id": 7, "material_resources_id": 701,
-      "file_data_id": 801}
-   ]}
-]
-```
-
-Wire this the same way `attachCustomizationChoices` already does (same
-file, `src/cmd_export.cpp`) — resolve each choice's `Resolution` via
-`chrcustomization::resolveChoice`, resolve each `MaterialResolution`'s
-`fileDataId` via the already-loaded `texturefiledata::Data` (same pattern
-already in `attachCustomizationChoices`'s loop over `resolution.materials`
-— copy that exact logic, don't reinvent it), and skip/report (never
-fabricate) a `fileDataId` of `0`. Add a new
-`gltf::Skeleton::CustomizationOption`/`Choice` struct pair
-(`src/gltf_skeleton.hpp`) mirroring `EnabledMaterial`'s own shape, and a
-new serialization block in `gltf_skeleton.cpp` (same pattern as every
-other skin-extras block there — `skinExtras["chr_customization_options"]
-= ...`). New CLI-tier test in `tests/test_cli_chrcustomization.cpp`
-(reuse that file's existing `buildFlatDb2`/`buildOptionOrChoiceDb2`
-fixture helpers — every table this needs already has a working fixture
-builder there from the Stage 3 work).
-
-This is the *only* new husk-side work this file's whole plan needs —
-everything else is Blender-side.
+This was the only new husk-side work this file's whole plan needed —
+everything else below is Blender-side.
 
 ### Step 2 — Blender: read the new extras
 
@@ -316,15 +313,6 @@ project's own history.
 
 ## Open questions, not yet resolved — flag, don't guess
 
-- **CLI flag shape for Step 1**: a new `--customization-options-for
-  <chrModelId>` flag, or should `--chr-model-id`'s existing behavior just
-  *also* attach every option's every choice unconditionally (more data
-  attached by default, but no new flag to remember)? Lean toward the
-  latter for simplicity, but check with Luna if it meaningfully bloats a
-  typical export's file size (a model with many customization options
-  could have hundreds of choices, each needing a `TextureFileData.db2`
-  lookup — cheap DB2-side, but worth a sanity check against a real
-  character before deciding).
 - **Menu Switch node availability in shader trees**: not confirmed this
   session which Blender node types are actually available for this in the
   pinned 5.1.1 (or whatever version is current when this work starts) —

@@ -365,6 +365,40 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
         }
         skinExtras["chr_enabled_materials"] = tinygltf::Value(arr);
     }
+    if (!skeleton->customizationOptions.empty()) {
+        tinygltf::Value::Array options;
+        for (const auto& opt : skeleton->customizationOptions) {
+            tinygltf::Value::Object optObj;
+            optObj["option_id"] = tinygltf::Value(static_cast<int>(opt.optionId));
+            optObj["option_name"] = tinygltf::Value(opt.optionName);
+            optObj["option_order_index"] = tinygltf::Value(static_cast<int>(opt.optionOrderIndex));
+
+            tinygltf::Value::Array choices;
+            for (const auto& choice : opt.choices) {
+                tinygltf::Value::Object choiceObj;
+                choiceObj["choice_id"] = tinygltf::Value(static_cast<int>(choice.choiceId));
+                choiceObj["choice_name"] = tinygltf::Value(choice.choiceName);
+                choiceObj["choice_order_index"] = tinygltf::Value(static_cast<int>(choice.choiceOrderIndex));
+                if (choice.geosetId) {
+                    choiceObj["geoset_id"] = tinygltf::Value(static_cast<int>(*choice.geosetId));
+                }
+                tinygltf::Value::Array materials;
+                for (const auto& mat : choice.materials) {
+                    tinygltf::Value::Object matObj;
+                    matObj["chr_model_texture_target_id"] =
+                        tinygltf::Value(static_cast<int>(mat.chrModelTextureTargetId));
+                    matObj["material_resources_id"] = tinygltf::Value(static_cast<int>(mat.materialResourcesId));
+                    matObj["file_data_id"] = tinygltf::Value(static_cast<int>(mat.fileDataId));
+                    materials.push_back(tinygltf::Value(matObj));
+                }
+                choiceObj["materials"] = tinygltf::Value(materials);
+                choices.push_back(tinygltf::Value(choiceObj));
+            }
+            optObj["choices"] = tinygltf::Value(choices);
+            options.push_back(tinygltf::Value(optObj));
+        }
+        skinExtras["chr_customization_options"] = tinygltf::Value(options);
+    }
     if (!skinExtras.empty()) {
         skin.extras = tinygltf::Value(skinExtras);
     }

@@ -679,6 +679,16 @@ void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDi
 // BoneFileDataID that was never in --bones-dir's own BFID-array scan (a
 // real, checkable inconsistency, not assumed impossible) is reported and
 // otherwise ignored, not fabricated.
+//
+// Also attaches the FULL real customization menu (skeleton.
+// customizationOptions, TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's own
+// prerequisite) whenever a real ChrModelID can be determined at all --
+// explicit --chr-model-id, --chr-model-id auto, or (best-effort, silently
+// skippable) the same auto-derivation attempted even when only
+// --customization-choice-ids was given. Deliberately automatic, not
+// gated behind a separate opt-in flag -- Luna's own direct instruction:
+// a downstream Blender script needs to see every real choice per option,
+// not just whatever this one export run happened to resolve.
 // Reverse lookup against an already-loaded --listfile map (FileDataID ->
 // real path): finds `modelPath`'s own real FileDataID by matching its
 // path relative to `listfileRoot` against the listfile's own paths,
@@ -705,6 +715,66 @@ std::optional<uint32_t> findFileDataIdForModelPath(const std::unordered_map<uint
     return std::nullopt;
 }
 
+// Real primary(FileDataID)/fallback(filename) ChrModelID derivation --
+// the same logic `--chr-model-id auto` uses (src/chrrace_db2.hpp), factored
+// out so attachCustomizationChoices below can also attempt it best-effort
+// even when the caller only gave --customization-choice-ids (no
+// --chr-model-id at all) -- see that function's own doc comment for why.
+// Returns nullopt (with a reason already reported to `err`) on any real
+// failure -- never a guess.
+std::optional<uint32_t> tryDeriveChrModelId(const std::string& db2Dir, const std::string& dbdDir,
+                                             const std::string& modelPath,
+                                             const std::unordered_map<uint32_t, std::string>& listfile,
+                                             const std::string& listfileRoot, std::ostream& err) {
+    std::optional<chrrace::Data> raceData = chrrace::load(db2Dir, dbdDir, err);
+    if (!raceData) {
+        err << "husk: note: --chr-model-id auto: no chrraces.db2/chrracexchrmodel.db2/"
+               "chrmodel.db2/creaturedisplayinfo.db2/creaturemodeldata.db2 data resolved from '"
+            << db2Dir << "' -- skipping\n";
+        return std::nullopt;
+    }
+
+    // Primary path: the model's own real FileDataID (via --listfile),
+    // resolved through CreatureModelData/CreatureDisplayInfo/ChrModel --
+    // exact file identity, never ambiguous the way race+sex alone can be
+    // (e.g. Dracthyr's dragon form is a real, valid answer to "Dracthyr,
+    // male" too, but not to "this specific FileDataID"). Once this path
+    // finds a real FileDataID match at all, its own answer (including a
+    // reported ambiguity) is trusted over the weaker filename fallback,
+    // not silently overridden by it.
+    std::optional<uint32_t> modelFdid = findFileDataIdForModelPath(listfile, modelPath, listfileRoot);
+    std::optional<uint32_t> derived;
+    if (modelFdid) {
+        derived = chrrace::deriveChrModelIdFromFileDataId(*raceData, *modelFdid, err);
+        if (derived) {
+            err << "husk: note: --chr-model-id auto: derived ChrModelID " << *derived << " from '"
+                << modelPath << "'s own FileDataID " << *modelFdid
+                << " (CreatureModelData/CreatureDisplayInfo/ChrModel chain)\n";
+        }
+    }
+
+    // Fallback: filename-based race+sex matching, only when the primary
+    // path never got a real FileDataID to work with at all (no --listfile,
+    // or this path isn't under --listfile-root/in it).
+    if (!derived && !modelFdid) {
+        std::optional<chrrace::ParsedName> parsed = chrrace::parseModelBasename(modelPath);
+        if (!parsed) {
+            err << "husk: note: --chr-model-id auto: '" << modelPath
+                << "''s own filename doesn't end in \"male\"/\"female\" (after an optional \"_hd\" "
+                   "suffix) -- doesn't match the real character-model naming convention, skipping\n";
+            return std::nullopt;
+        }
+        derived = chrrace::deriveChrModelId(*raceData, *parsed, err);
+        if (derived) {
+            err << "husk: note: --chr-model-id auto: derived ChrModelID " << *derived << " from '"
+                << modelPath << "' (race token '" << parsed->raceToken << "', sex " << parsed->sex
+                << ") -- filename fallback, no --listfile match for this model\n";
+        }
+    }
+
+    return derived;
+}
+
 void attachCustomizationChoices(const std::string& db2Dir, const std::string& dbdDir,
                                  const std::string& choiceIdsArg, const std::string& chrModelIdArg,
                                  const std::string& modelPath,
@@ -727,6 +797,15 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
         return;
     }
 
+    // Resolved both for default-choice picking below (when choiceIdsArg is
+    // empty) and, whenever resolvable at all, to attach the FULL real
+    // per-option choice menu near the end of this function -- automatic,
+    // not gated behind any separate opt-in flag (Luna's own direct
+    // instruction: this should be included by default, not only when the
+    // caller happens to also ask for it). Left empty when neither an
+    // explicit --chr-model-id nor auto-derivation produced a real answer.
+    std::optional<uint32_t> resolvedChrModelId;
+
     std::vector<uint32_t> choiceIds;
     if (!choiceIdsArg.empty()) {
         std::stringstream ss(choiceIdsArg);
@@ -744,63 +823,32 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
             std::cerr << "husk: note: --customization-choice-ids resolved to no real IDs -- skipping\n";
             return;
         }
+
+        // Best-effort enrichment: also try to resolve a real ChrModelID
+        // purely so the full per-option menu can still be attached below,
+        // even though the caller only gave explicit choice IDs -- never
+        // fatal to this function's own primary job (the explicit
+        // choiceIds just parsed above). Reuses --chr-model-id's own value
+        // directly when it was also given (no extra DB2 read needed)
+        // rather than re-deriving.
+        if (!chrModelIdArg.empty() && chrModelIdArg != "auto") {
+            try {
+                resolvedChrModelId = static_cast<uint32_t>(std::stoul(chrModelIdArg));
+            } catch (const std::exception&) {
+                // A garbage --chr-model-id alongside explicit choice IDs --
+                // the explicit choice IDs are what matters here, so this is
+                // a real but non-fatal gap: no full-menu enrichment this run.
+            }
+        } else {
+            resolvedChrModelId = tryDeriveChrModelId(db2Dir, dbdDir, modelPath, listfile, listfileRoot, std::cerr);
+        }
     } else {
-        uint32_t chrModelId = 0;
         if (chrModelIdArg == "auto") {
-            std::optional<chrrace::Data> raceData = chrrace::load(db2Dir, dbdDir, std::cerr);
-            if (!raceData) {
-                std::cerr << "husk: note: --chr-model-id auto: no chrraces.db2/chrracexchrmodel.db2/"
-                             "chrmodel.db2/creaturedisplayinfo.db2/creaturemodeldata.db2 data resolved "
-                             "from '"
-                          << db2Dir << "' -- skipping\n";
-                return;
-            }
-
-            // Primary path: the model's own real FileDataID (via --listfile),
-            // resolved through CreatureModelData/CreatureDisplayInfo/ChrModel --
-            // exact file identity, never ambiguous the way race+sex alone can be
-            // (e.g. Dracthyr's dragon form is a real, valid answer to "Dracthyr,
-            // male" too, but not to "this specific FileDataID"). Once this path
-            // finds a real FileDataID match at all, its own answer (including a
-            // reported ambiguity) is trusted over the weaker filename fallback,
-            // not silently overridden by it.
-            std::optional<uint32_t> modelFdid = findFileDataIdForModelPath(listfile, modelPath, listfileRoot);
-            std::optional<uint32_t> derived;
-            if (modelFdid) {
-                derived = chrrace::deriveChrModelIdFromFileDataId(*raceData, *modelFdid, std::cerr);
-                if (derived) {
-                    std::cerr << "husk: note: --chr-model-id auto: derived ChrModelID " << *derived
-                              << " from '" << modelPath << "'s own FileDataID " << *modelFdid
-                              << " (CreatureModelData/CreatureDisplayInfo/ChrModel chain)\n";
-                }
-            }
-
-            // Fallback: filename-based race+sex matching, only when the
-            // primary path never got a real FileDataID to work with at all
-            // (no --listfile, or this path isn't under --listfile-root/in it).
-            if (!derived && !modelFdid) {
-                std::optional<chrrace::ParsedName> parsed = chrrace::parseModelBasename(modelPath);
-                if (!parsed) {
-                    std::cerr << "husk: note: --chr-model-id auto: '" << modelPath
-                              << "''s own filename doesn't end in \"male\"/\"female\" (after an "
-                                 "optional \"_hd\" suffix) -- doesn't match the real character-model "
-                                 "naming convention, skipping\n";
-                    return;
-                }
-                derived = chrrace::deriveChrModelId(*raceData, *parsed, std::cerr);
-                if (derived) {
-                    std::cerr << "husk: note: --chr-model-id auto: derived ChrModelID " << *derived
-                              << " from '" << modelPath << "' (race token '" << parsed->raceToken
-                              << "', sex " << parsed->sex << ") -- filename fallback, no --listfile "
-                                 "match for this model\n";
-                }
-            }
-
-            if (!derived) return;  // chrrace:: functions already reported why
-            chrModelId = *derived;
+            resolvedChrModelId = tryDeriveChrModelId(db2Dir, dbdDir, modelPath, listfile, listfileRoot, std::cerr);
+            if (!resolvedChrModelId) return;  // tryDeriveChrModelId already reported why
         } else {
             try {
-                chrModelId = static_cast<uint32_t>(std::stoul(chrModelIdArg));
+                resolvedChrModelId = static_cast<uint32_t>(std::stoul(chrModelIdArg));
             } catch (const std::exception&) {
                 std::cerr << "husk: note: --chr-model-id '" << chrModelIdArg
                           << "' isn't a non-negative integer or 'auto' -- skipping "
@@ -808,18 +856,19 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
                 return;
             }
         }
-        choiceIds = chrcustomization::defaultChoiceIdsForModel(*data, chrModelId);
+        choiceIds = chrcustomization::defaultChoiceIdsForModel(*data, *resolvedChrModelId);
         if (choiceIds.empty()) {
-            std::cerr << "husk: note: --chr-model-id " << chrModelId
+            std::cerr << "husk: note: --chr-model-id " << *resolvedChrModelId
                       << " resolved no ChrCustomizationOption/Choice rows (chrcustomizationoption.db2/"
                          "chrcustomizationchoice.db2 not loaded, or no options for this model) -- "
                          "skipping\n";
             return;
         }
-        std::cerr << "husk: note: --chr-model-id " << chrModelId << ": auto-selected " << choiceIds.size()
+        std::cerr << "husk: note: --chr-model-id " << *resolvedChrModelId << ": auto-selected "
+                  << choiceIds.size()
                   << " default choice(s) (lowest OrderIndex per option -- husk's own heuristic, not "
                      "a client-verified default; see --chr-model-id's own help text):\n";
-        for (const auto& nc : chrcustomization::namedChoicesForModel(*data, chrModelId, std::cerr)) {
+        for (const auto& nc : chrcustomization::namedChoicesForModel(*data, *resolvedChrModelId, std::cerr)) {
             if (std::find(choiceIds.begin(), choiceIds.end(), nc.choiceId) == choiceIds.end()) continue;
             std::cerr << "husk:   " << nc.optionName << " (option " << nc.optionId << ") -> "
                       << nc.choiceName << " (choice " << nc.choiceId << ", OrderIndex "
@@ -835,6 +884,11 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
     // fileDataId 0 (unresolved), same "real, reportable gap, not
     // fabricated" policy as everywhere else here.
     std::optional<texturefiledata::Data> tfdData = texturefiledata::load(db2Dir, dbdDir, std::cerr);
+    auto resolveFileDataId = [&tfdData](uint32_t materialResourcesId) -> uint32_t {
+        if (!tfdData) return 0;
+        auto it = tfdData->find(materialResourcesId);
+        return it != tfdData->end() ? it->second : 0;
+    };
 
     size_t geosetsResolved = 0;
     size_t boneSetsMatched = 0;
@@ -864,11 +918,7 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
             }
         }
         for (const auto& matRes : resolution.materials) {
-            uint32_t fileDataId = 0;
-            if (tfdData) {
-                auto it = tfdData->find(matRes.materialResourcesId);
-                if (it != tfdData->end()) fileDataId = it->second;
-            }
+            uint32_t fileDataId = resolveFileDataId(matRes.materialResourcesId);
             if (fileDataId == 0) {
                 std::cerr << "husk: note: ChrCustomizationChoiceID " << choiceId
                           << " resolves to MaterialResourcesID " << matRes.materialResourcesId
@@ -884,6 +934,46 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
               << geosetsResolved << " real geoset selection(s), " << boneSetsMatched
               << " matched bone-correction-set selection(s), " << materialsResolved
               << " real material selection(s)\n";
+
+    // The full real customization menu -- every real ChrCustomizationOption/
+    // Choice for this model, not just the choice(s) resolved into
+    // enabledGeosets/enabledMaterials above. Attached automatically whenever
+    // resolvedChrModelId ended up with a real answer at all (see its own
+    // doc comment above) -- no separate opt-in flag, so a Blender script
+    // building a live choice switch (TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md)
+    // never needs a second export run just to see what's selectable.
+    if (resolvedChrModelId && !data->options.empty() && !data->choices.empty()) {
+        std::vector<gltf::Skeleton::CustomizationOption> options;
+        for (const auto& nc : chrcustomization::namedChoicesForModel(*data, *resolvedChrModelId, std::cerr)) {
+            auto optIt = std::find_if(options.begin(), options.end(),
+                                       [&](const gltf::Skeleton::CustomizationOption& o) {
+                                           return o.optionId == nc.optionId;
+                                       });
+            if (optIt == options.end()) {
+                options.push_back({nc.optionId, nc.optionName, nc.optionOrderIndex, {}});
+                optIt = options.end() - 1;
+            }
+
+            gltf::Skeleton::CustomizationChoice choice;
+            choice.choiceId = nc.choiceId;
+            choice.choiceName = nc.choiceName;
+            choice.choiceOrderIndex = nc.choiceOrderIndex;
+            choice.geosetId = nc.resolution.geosetId;
+            for (const auto& matRes : nc.resolution.materials) {
+                choice.materials.push_back({matRes.chrModelTextureTargetId, matRes.materialResourcesId,
+                                             resolveFileDataId(matRes.materialResourcesId)});
+            }
+            optIt->choices.push_back(std::move(choice));
+        }
+        if (!options.empty()) {
+            size_t totalChoices = 0;
+            for (const auto& o : options) totalChoices += o.choices.size();
+            std::cerr << "husk: note: ChrModelID " << *resolvedChrModelId << ": attached the full real "
+                      << "customization menu (" << options.size() << " option(s), " << totalChoices
+                      << " choice(s) total) as inert chr_customization_options glTF extras\n";
+            skeleton.customizationOptions = std::move(options);
+        }
+    }
 }
 
 // --db2-dir/--dbd-dir/--creature-display-id: resolves a real

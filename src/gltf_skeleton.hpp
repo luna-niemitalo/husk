@@ -142,6 +142,39 @@ struct Skeleton {
     };
     std::vector<EnabledMaterial> enabledMaterials;
 
+    // The full real customization menu for this model -- every real
+    // ChrCustomizationOption/Choice, not just the choice(s) a given `husk
+    // export` run happened to resolve into EnabledGeoset/EnabledMaterial
+    // above (TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's own prerequisite:
+    // a live Blender switch needs to see every real choice, not just
+    // today's default/explicit selection). Attached automatically
+    // whenever a real ChrModelID could be determined at all -- explicit
+    // `--chr-model-id <id>`, or the same auto-derivation
+    // `--chr-model-id auto` uses, attempted best-effort even when only
+    // `--customization-choice-ids` was given -- deliberately **not**
+    // gated behind a separate opt-in flag, so a Blender script never needs
+    // a second export run just to enumerate what's selectable. Same "husk
+    // resolves, never applies" policy as everything else in this file.
+    struct CustomizationChoice {
+        uint32_t choiceId = 0;
+        std::string choiceName;
+        uint32_t choiceOrderIndex = 0;
+        std::optional<uint32_t> geosetId;  // absent when this choice has no geoset element
+        struct Material {
+            uint32_t chrModelTextureTargetId = 0;
+            uint32_t materialResourcesId = 0;
+            uint32_t fileDataId = 0;  // 0 = TextureFileData.db2 didn't resolve this MaterialResourcesID
+        };
+        std::vector<Material> materials;  // empty when this choice has no material element
+    };
+    struct CustomizationOption {
+        uint32_t optionId = 0;
+        std::string optionName;
+        uint32_t optionOrderIndex = 0;
+        std::vector<CustomizationChoice> choices;
+    };
+    std::vector<CustomizationOption> customizationOptions;
+
     // Real default geoset selections resolved from a caller-supplied
     // CreatureDisplayInfoID (`husk export --creature-display-id`,
     // src/creature_geoset_db2.hpp) -- same inert-extras treatment as

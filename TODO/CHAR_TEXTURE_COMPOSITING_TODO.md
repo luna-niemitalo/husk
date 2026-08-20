@@ -425,6 +425,20 @@ already handles that transparently, no new array-reading machinery
 needed) -- the real join key a downstream consumer needs to match a
 resolved `EnabledMaterial` back to its own placement rect/blend mode.
 
+**The full real customization menu is also attached, automatically.**
+Beyond the choice(s) a given export run actually resolves,
+`chr_customization_options` extras (`gltf::Skeleton::CustomizationOption`/
+`CustomizationChoice`) list every real `(Option, Choice)` pair for the
+model, whenever a real `ChrModelID` can be determined at all -- explicit
+`--chr-model-id`, `--chr-model-id auto`, or a best-effort attempt at the
+same derivation even when only `--customization-choice-ids` was given.
+Deliberately **not** gated behind a separate flag -- this was
+`TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`'s own real prerequisite (a live
+Blender switch needs every choice visible, not just today's default/
+explicit pick), and Luna's own direct instruction was that it must be
+on by default. See that file for the full schema and the
+`tryDeriveChrModelId` factoring this needed in `cmd_export.cpp`.
+
 What's still open, deliberately not solved here: per-choice selection for
 a caller wanting a *specific* named choice per option (today's
 `--customization-choice-ids`/`--chr-model-id` chain already covers this --

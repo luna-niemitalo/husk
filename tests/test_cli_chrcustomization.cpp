@@ -565,8 +565,21 @@ TEST_CASE("husk export --chr-model-id: auto-selects the lowest-OrderIndex choice
     CHECK(bytes.find("\"geoset_id\":205") != std::string::npos);
     CHECK(bytes.find("\"choice_id\":20") != std::string::npos);
     CHECK(bytes.find("\"geoset_id\":301") != std::string::npos);
-    // The non-default choice (10, "Long") must never be selected.
-    CHECK(bytes.find("\"choice_id\":10") == std::string::npos);
+    // The non-default choice (10, "Long") must never be *selected* into
+    // enabled_geosets (its own real object shape, {"choice_id":N,
+    // "geoset_id":M} with no other keys between them, tinygltf's own
+    // alphabetical-key Object serialization) -- it's fine, and expected,
+    // for it to show up in chr_customization_options' full real menu below.
+    CHECK(bytes.find("\"choice_id\":10,\"geoset_id\"") == std::string::npos);
+    // The full real customization menu is now attached automatically
+    // (no separate opt-in flag) whenever a real ChrModelID is known --
+    // both options, all three real choices, including the non-default one.
+    CHECK(bytes.find("chr_customization_options") != std::string::npos);
+    CHECK(bytes.find("\"option_name\":\"Face\"") != std::string::npos);
+    CHECK(bytes.find("\"option_name\":\"Hair\"") != std::string::npos);
+    CHECK(bytes.find("\"choice_name\":\"Long\"") != std::string::npos);
+    CHECK(bytes.find("\"choice_name\":\"Short\"") != std::string::npos);
+    CHECK(bytes.find("\"choice_name\":\"Braid\"") != std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -892,6 +905,60 @@ TEST_CASE("husk export --customization-choice-ids + --char-layout-id: the real m
     CHECK(bytes.find("\"file_data_id\":888") != std::string::npos);
     // No compositing extras -- husk stops at real data exposure.
     CHECK(bytes.find("chr_composited_textures") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export --customization-choice-ids (no --chr-model-id at all): the full real "
+          "chr_customization_options menu still gets attached automatically, via the same "
+          "best-effort ChrModelID auto-derivation --chr-model-id auto uses -- Luna's own direct "
+          "instruction that this must be on by default, not gated behind a second flag") {
+    auto dir = defaultsDir("chrcustchoiceenrich");
+    writeFile(dir / "dracthyrfemale.m2", tinyValidM2());
+    writeFile(dir / "dracthyrfemale00.skin", tinyMatchingSkin());
+    writeFile(dir / "dracthyrfemale.skel", boneCorrectionSkel());
+
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::create_directories(db2Dir);
+    // Element/geoset/boneset/option/choice/races/raceModels -- no chrModel/
+    // creatureDisplay/creatureModel tables, since the filename-fallback
+    // derivation path (no --listfile given here) never needs them.
+    writeChrCustomizationDbd(dbdDir, 0x11111111, 0x12121212, 0x13131313, 0x14141414, 0x15151515,
+                              0x16161616, 0x17171717);
+
+    // Choice 11 is a real geoset pick, "Ears -> Short Fin" (OrderIndex 0,
+    // the real default too, but that's incidental to this test).
+    writeFile(db2Dir / "chrcustomizationelement.db2", buildFlatDb2(0x61616161, 0x11111111, {{1, 11, 6, 0}}));
+    writeFile(db2Dir / "chrcustomizationgeoset.db2", buildFlatDb2(0x62626262, 0x12121212, {{6, 2, 5}}));  // 205
+    writeFile(db2Dir / "chrcustomizationboneset.db2", buildFlatDb2(0x63636363, 0x13131313, {}));
+    writeFile(db2Dir / "chrcustomizationoption.db2",
+              buildOptionOrChoiceDb2(0x64646464, 0x14141414, {{1, 89, 0, "Ears"}}));
+    writeFile(db2Dir / "chrcustomizationchoice.db2",
+              buildOptionOrChoiceDb2(0x65656565, 0x15151515, {{11, 1, 0, "Short Fin"}}));
+    writeFile(db2Dir / "chrraces.db2", buildChrRacesDb2(0x66666666, 0x16161616, {{52, "Dracthyr"}}));
+    writeFile(db2Dir / "chrracexchrmodel.db2",
+              buildFlatDb2(0x67676767, 0x17171717, {{1, 52, 1, 89}}));  // race 52, sex 1 (female) -> 89
+
+    // Explicit choice 11 -- deliberately the same as the real default, same
+    // as an existing sibling test's own convention: the point here is that
+    // the explicit-choice-IDs code path runs (not the --chr-model-id
+    // default-derivation path), while chr_customization_options still shows
+    // up because ChrModelID gets derived as a best-effort side effect.
+    auto result = runHusk("export " + (dir / "dracthyrfemale.m2").string() + " --db2-dir " + db2Dir.string() +
+                           " --dbd-dir " + dbdDir.string() + " --customization-choice-ids 11");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("auto-selected") == std::string::npos);  // explicit-choice path, not the default one
+    CHECK(result.output.find("derived ChrModelID 89 from") != std::string::npos);  // the enrichment attempt
+    CHECK(result.output.find("attached the full real customization menu") != std::string::npos);
+
+    fs::path glbPath = dir / "dracthyrfemale.glb";
+    REQUIRE(fs::exists(glbPath));
+    std::ifstream glb(glbPath, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(glb)), std::istreambuf_iterator<char>());
+    CHECK(bytes.find("chr_customization_options") != std::string::npos);
+    CHECK(bytes.find("\"option_name\":\"Ears\"") != std::string::npos);
+    CHECK(bytes.find("\"choice_name\":\"Short Fin\"") != std::string::npos);
 
     fs::remove_all(dir);
 }

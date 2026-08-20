@@ -388,7 +388,21 @@ file_data_id}` on the glTF skin's own `chr_enabled_materials` extras (0 in
 not fabricated). `chr_texture_layout`'s own `texture_layers` entries carry
 the matching `chr_model_texture_target_id` join key, so a downstream
 consumer can find a resolved material's real placement rect/blend mode
-without husk resolving that join itself. Deliberately stops here --
+without husk resolving that join itself.
+
+husk also attaches the **full** real customization menu -- every real
+`ChrCustomizationOption`/`Choice` for the model, not just the choice(s) a
+given export run happened to resolve above -- as `chr_customization_options`
+extras (one entry per option, each with its own `choices[]`, each choice
+carrying its own real `geoset_id`/`materials[]` resolution). This happens
+**automatically** whenever a real `ChrModelID` can be determined at all --
+explicit `--chr-model-id`, `--chr-model-id auto`, or a best-effort attempt
+at the same auto-derivation even when only `--customization-choice-ids`
+was given -- deliberately not gated behind any separate flag, so a
+downstream Blender script (`TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`)
+never needs a second export run just to enumerate what's selectable.
+
+Deliberately stops here --
 actually compositing the pixels is not husk's job (an earlier attempt at
 doing it in software was reverted; Blender's own shader nodes, which have
 Multiply/Overlay/Screen built in natively, are the right layer for that --

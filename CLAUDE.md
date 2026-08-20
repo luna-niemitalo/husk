@@ -176,7 +176,30 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-20, character-texture compositing, reverted +
+- **Current state (2026-08-20, Blender-switch TODO + its own Step 1)**:
+  Wrote `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`, a fully self-contained
+  plan for Stage 5 (live Blender-side customization-choice texture
+  switching, the real follow-up to the reverted Stage 4 compositor below)
+  — then immediately implemented its own Step 1 per Luna's direct
+  instruction that it shouldn't be gated behind a flag: `husk export` now
+  attaches the **full** real customization menu (`chr_customization_options`
+  skin extras — every real `ChrCustomizationOption`/`Choice` for the
+  model, not just the choice(s) a given run resolved) **automatically**,
+  whenever a real `ChrModelID` can be determined at all — explicit
+  `--chr-model-id`, `--chr-model-id auto`, or (new) a best-effort attempt
+  at the same auto-derivation even when only `--customization-choice-ids`
+  was given, no separate opt-in flag. `src/cmd_export.cpp` gained
+  `tryDeriveChrModelId` (the existing `--chr-model-id auto` logic,
+  factored out for reuse) and `gltf::Skeleton::CustomizationOption`/
+  `CustomizationChoice` (`gltf_skeleton.hpp`). Verified end to end,
+  including the "only `--customization-choice-ids`, no `--chr-model-id`
+  at all" enrichment case (real filename-fallback derivation, no
+  `--listfile` needed). One existing test's own stale assertion (checking
+  a choice ID's raw string absence anywhere in the file) was tightened to
+  check the real `enabled_geosets` object shape specifically, since the
+  new extras legitimately mention every choice including non-default
+  ones. Full suite green, 654/654.
+- **Previous state (2026-08-20, character-texture compositing, reverted +
   corrected same session)**: `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s
   Stage 3 (the real `ChrCustomizationMaterial → TextureFileData` FileDataID
   chain) is done — wired into the existing `--customization-choice-ids`/
