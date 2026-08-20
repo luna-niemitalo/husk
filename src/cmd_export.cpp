@@ -682,13 +682,21 @@ void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDi
 //
 // Also attaches the FULL real customization menu (skeleton.
 // customizationOptions, TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's own
-// prerequisite) whenever a real ChrModelID can be determined at all --
-// explicit --chr-model-id, --chr-model-id auto, or (best-effort, silently
-// skippable) the same auto-derivation attempted even when only
-// --customization-choice-ids was given. Deliberately automatic, not
-// gated behind a separate opt-in flag -- Luna's own direct instruction:
-// a downstream Blender script needs to see every real choice per option,
-// not just whatever this one export run happened to resolve.
+// prerequisite) whenever a real ChrModelID can be determined at all.
+// --chr-model-id follows the same auto|none|<id> three-state convention
+// --textures/--skin-dir/--skel already use, but with 'auto' as the
+// *default* rather than something that needs asking for: given only
+// --db2-dir/--dbd-dir (no --chr-model-id, no --customization-choice-ids
+// at all), this function still attempts the same real derivation
+// --chr-model-id auto always did. --chr-model-id none explicitly opts
+// out; an explicit --chr-model-id <id> overrides derivation; an explicit
+// --customization-choice-ids (with no --chr-model-id) still attempts
+// best-effort derivation purely to attach the full menu, unless
+// --chr-model-id none says not to. Deliberately not gated behind a
+// separate opt-in flag -- Luna's own direct instruction: a downstream
+// Blender script needs to see every real choice per option, not just
+// whatever this one export run happened to resolve, and this shouldn't
+// need "the user uttering the magic words" to get.
 // Reverse lookup against an already-loaded --listfile map (FileDataID ->
 // real path): finds `modelPath`'s own real FileDataID by matching its
 // path relative to `listfileRoot` against the listfile's own paths,
@@ -783,12 +791,23 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
     if (db2Dir.empty() && dbdDir.empty() && choiceIdsArg.empty() && chrModelIdArg.empty()) {
         return;  // feature simply unused
     }
-    if (db2Dir.empty() || dbdDir.empty() || (choiceIdsArg.empty() && chrModelIdArg.empty())) {
-        std::cerr << "husk: note: --db2-dir/--dbd-dir plus one of --customization-choice-ids/"
-                     "--chr-model-id must all be given together -- skipping customization-choice "
-                     "extras\n";
+    if (db2Dir.empty() || dbdDir.empty()) {
+        std::cerr << "husk: note: --db2-dir/--dbd-dir are required for any customization-choice "
+                     "extras (--customization-choice-ids/--chr-model-id are optional overrides on "
+                     "top of them, not required themselves) -- skipping\n";
         return;
     }
+    // --customization-choice-ids/--chr-model-id are deliberately NOT
+    // required beyond this point -- given only --db2-dir/--dbd-dir, this
+    // function still attempts the same auto-derivation --chr-model-id
+    // auto/tryDeriveChrModelId always did, and the same lowest-OrderIndex
+    // default-choice heuristic --chr-model-id already used, entirely on
+    // its own. Luna's own direct instruction: this should work by default,
+    // not only when the caller separately utters --customization-choice-ids
+    // or --chr-model-id. Both flags remain real overrides -- an explicit
+    // --chr-model-id skips auto-derivation, an explicit
+    // --customization-choice-ids skips the default-choice heuristic --
+    // just no longer *required* to get anything at all.
 
     std::optional<chrcustomization::Data> data = chrcustomization::load(db2Dir, dbdDir, std::cerr);
     if (!data) {
@@ -830,8 +849,13 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
         // fatal to this function's own primary job (the explicit
         // choiceIds just parsed above). Reuses --chr-model-id's own value
         // directly when it was also given (no extra DB2 read needed)
-        // rather than re-deriving.
-        if (!chrModelIdArg.empty() && chrModelIdArg != "auto") {
+        // rather than re-deriving. Same auto | none | <id> three-state
+        // convention --textures/--skin-dir/--skel already use: unset
+        // (empty) or "auto" both mean "try to derive it," "none" means
+        // "don't," an explicit numeric ID overrides outright.
+        if (chrModelIdArg == "none") {
+            // Explicit opt-out -- no enrichment attempt at all.
+        } else if (!chrModelIdArg.empty() && chrModelIdArg != "auto") {
             try {
                 resolvedChrModelId = static_cast<uint32_t>(std::stoul(chrModelIdArg));
             } catch (const std::exception&) {
@@ -843,7 +867,14 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
             resolvedChrModelId = tryDeriveChrModelId(db2Dir, dbdDir, modelPath, listfile, listfileRoot, std::cerr);
         }
     } else {
-        if (chrModelIdArg == "auto") {
+        // Same auto | none | <id> convention as above -- unset/"auto" both
+        // derive, "none" opts out entirely (nothing else to do without a
+        // real --customization-choice-ids either, so return), an explicit
+        // numeric ID overrides.
+        if (chrModelIdArg == "none") {
+            return;  // explicit opt-out, and no --customization-choice-ids either -- nothing to do
+        }
+        if (chrModelIdArg.empty() || chrModelIdArg == "auto") {
             resolvedChrModelId = tryDeriveChrModelId(db2Dir, dbdDir, modelPath, listfile, listfileRoot, std::cerr);
             if (!resolvedChrModelId) return;  // tryDeriveChrModelId already reported why
         } else {
@@ -851,7 +882,7 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
                 resolvedChrModelId = static_cast<uint32_t>(std::stoul(chrModelIdArg));
             } catch (const std::exception&) {
                 std::cerr << "husk: note: --chr-model-id '" << chrModelIdArg
-                          << "' isn't a non-negative integer or 'auto' -- skipping "
+                          << "' isn't a non-negative integer, 'auto', or 'none' -- skipping "
                              "customization-choice extras\n";
                 return;
             }
@@ -1461,8 +1492,13 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "requires --db2-dir/--dbd-dir too, doesn't filter/apply anything itself, same "
                     "inert-extras treatment as --char-layout-id");
     app.add_option("--chr-model-id", opts.chrModelIdArg,
-                    "a real ChrModelID (see ChrModel.db2 / `husk db2-export`), or the literal 'auto' "
-                    "to derive one automatically. Two derivation paths, tried in order: (1) primary, "
+                    "a real ChrModelID (see ChrModel.db2 / `husk db2-export`), the literal 'auto' to "
+                    "derive one automatically, or 'none' to explicitly disable derivation. Same "
+                    "auto|none|<id> three-state convention as --textures/--skin-dir/--skel -- "
+                    "**unset defaults to 'auto'**: whenever --db2-dir/--dbd-dir are given at all, "
+                    "husk now tries to derive a real character identity and attach its full real "
+                    "customization menu (chr_customization_options) automatically, with no separate "
+                    "flag needed. Two derivation paths, tried in order: (1) primary, "
                     "if --listfile/--listfile-root resolve this .m2's own real FileDataID -- an exact "
                     "identity match via CreatureModelData/CreatureDisplayInfo/ChrModel, never "
                     "ambiguous for a real file (e.g. correctly tells dracthyrmale.m2 apart from "

@@ -396,11 +396,14 @@ given export run happened to resolve above -- as `chr_customization_options`
 extras (one entry per option, each with its own `choices[]`, each choice
 carrying its own real `geoset_id`/`materials[]` resolution). This happens
 **automatically** whenever a real `ChrModelID` can be determined at all --
-explicit `--chr-model-id`, `--chr-model-id auto`, or a best-effort attempt
-at the same auto-derivation even when only `--customization-choice-ids`
-was given -- deliberately not gated behind any separate flag, so a
-downstream Blender script (`TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`)
-never needs a second export run just to enumerate what's selectable.
+`--chr-model-id` defaults to `auto`, so given only `--db2-dir`/`--dbd-dir`
+(no `--chr-model-id`, no `--customization-choice-ids` at all) husk still
+tries to derive one; explicit `--customization-choice-ids` alone also
+triggers the same best-effort attempt purely for this full-menu extras.
+`--chr-model-id none` explicitly opts out. Deliberately not gated behind
+a magic-words flag, so a downstream Blender script (`TODO/
+CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`) never needs a second export run
+just to enumerate what's selectable.
 
 Deliberately stops here --
 actually compositing the pixels is not husk's job (an earlier attempt at
@@ -411,8 +414,8 @@ planned Blender-side node-graph tooling). Verified end to end
 (`tests/test_cli_chrcustomization.cpp`).
 
 **A heuristic default customization choice per option, from real
-`ChrCustomizationOption`/`ChrCustomizationChoice` names.** If
-`--db2-dir`/`--dbd-dir`/`--chr-model-id` are given (and no explicit
+`ChrCustomizationOption`/`ChrCustomizationChoice` names.** Given
+`--db2-dir`/`--dbd-dir` and a resolvable `ChrModelID` (no explicit
 `--customization-choice-ids`, which always wins when both are given), husk
 resolves every real `ChrCustomizationOption` belonging to that
 `ChrModelID` and auto-selects the choice with the lowest real `OrderIndex`
@@ -425,9 +428,9 @@ pair used is printed to stderr (`namedChoicesForModel`) so the caller can
 see what was actually picked. **Not** a client-verified default the way
 `CreatureDisplayInfoGeosetData` is for creatures below -- no DB2 table
 states an explicit default for a player option, this is husk's own
-heuristic (`TODO/TODO_correctness.md` #2). `--chr-model-id` also accepts
-the literal value `auto`, which tries two real derivation paths in order
-(`src/chrrace_db2.hpp`):
+heuristic (`TODO/TODO_correctness.md` #2). `--chr-model-id` defaults to
+the literal value `auto` (no need to pass it explicitly), which tries two
+real derivation paths in order (`src/chrrace_db2.hpp`):
 
 1. **Primary, via the model's own real FileDataID.** If `--listfile`/
    `--listfile-root` resolve the input `.m2`'s own real FileDataID, husk
@@ -541,11 +544,11 @@ Flags:
 | `--bones-dir <dir>` &#124; `none` | -- | Directory of `<FileDataID>.bone` files (per the model's/`.skel`'s `BFID` array), attached as inert skin `extras`; or `none` to skip | model's own directory |
 | `--phys <path>` &#124; `none` | -- | External `.phys` path, attached as a minimal `physics_bodies` skin `extras` anchor (full records via `dump-chunks`), or `none` to never look for one | same-basename `.phys` next to the model, if any |
 | `--collision` | -- | Include the collision mesh, when present, as real geometry tagged `{"collision": true}` in glTF extras -- off by default: Blender's stock importer has no concept of that tag and renders it like any other mesh, and the collision hull is often larger than and visually occludes the real character (full body/shape/joint records are also always available via `dump-chunks`) | omitted |
-| `--db2-dir <dir>` | -- | Directory of real character/creature `.db2` files -- texture-layout tables for `--char-layout-id` (see above), `ChrCustomizationElement`/`_Geoset`/`_BoneSet`/`_Option`/`_Choice` for `--customization-choice-ids`/`--chr-model-id`, or `CreatureDisplayInfoGeosetData` for `--creature-display-id` (below), same directory serves all four; combined with `--dbd-dir` and one of the four | unset (feature off) |
+| `--db2-dir <dir>` | -- | Directory of real character/creature `.db2` files -- texture-layout tables for `--char-layout-id` (see above), `ChrCustomizationElement`/`_Geoset`/`_BoneSet`/`_Option`/`_Choice` for `--customization-choice-ids`/`--chr-model-id`, or `CreatureDisplayInfoGeosetData` for `--creature-display-id` (below), same directory serves all four; combined with `--dbd-dir`. `--char-layout-id`/`--creature-display-id` still need their own explicit ID, but `--chr-model-id` defaults to `auto` -- given only `--db2-dir`/`--dbd-dir`, husk already tries to derive a real character identity and attach its full customization menu, no third flag required | unset (feature off) |
 | `--dbd-dir <dir>` | -- | A local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) | unset |
 | `--char-layout-id <id>` | -- | A real `CharComponentTextureLayoutsID` (see `husk db2-export`) -- husk can't derive this on its own | unset |
 | `--customization-choice-ids <id,id,...>` | -- | Comma-separated real `ChrCustomizationChoiceID`(s) (see above) -- resolves each to real `enabled_geosets`/`chr_enabled_materials` extras and marks any matching `--bones-dir` correction set; always wins over `--chr-model-id` when both are given | unset |
-| `--chr-model-id <id>` &#124; `auto` | -- | A real `ChrModelID` (see above), or `auto` to derive one: primary path via `--listfile`'s FileDataID chain (exact, never ambiguous), fallback via this `.m2`'s own filename (exact race+sex match, never fuzzy; see above) -- auto-selects and resolves a *heuristic default* choice (lowest `OrderIndex`) per real `ChrCustomizationOption` belonging to this model; ignored when `--customization-choice-ids` is also given | unset |
+| `--chr-model-id <id>` &#124; `auto` &#124; `none` | -- | A real `ChrModelID` (see above); `auto` derives one (primary path via `--listfile`'s FileDataID chain, exact and never ambiguous; fallback via this `.m2`'s own filename, exact race+sex match, never fuzzy; see above); `none` explicitly disables derivation. Same `auto`&#124;`none`&#124;`<id>` three-state convention as `--textures`/`--skin-dir`/`--skel`, but **unset already means `auto`** -- given only `--db2-dir`/`--dbd-dir` (no `--chr-model-id` at all), husk still tries to derive a real identity and attach its full customization menu; explicit `--customization-choice-ids` also triggers this same best-effort attempt (for the full-menu extras only) unless `--chr-model-id none` says not to. Auto-selects and resolves a *heuristic default* choice (lowest `OrderIndex`) per real `ChrCustomizationOption`; ignored when `--customization-choice-ids` is also given | `auto` |
 | `--creature-display-id <id>` | -- | A real `CreatureDisplayInfoID` (see `husk db2-export`) -- resolves that display's real *default* geoset selection (unlike `--customization-choice-ids`, no per-choice input needed) to `creature_enabled_geosets` skin extras via `CreatureDisplayInfoGeosetData`; husk can't derive which display ID applies to a given `.m2` on its own | unset |
 | `--listfile <path>` | -- | A local `community-listfile.csv`-style snapshot (`FileDataID;path` per line, github.com/wowdev/wow-listfile) -- last-resort FileDataID -> real-name lookup when `<FileDataID>.{blp,png}` isn't found next to `--textures` | unset (feature off) |
 | `--listfile-root <dir>` | -- | The corpus root `--listfile`'s paths are relative to -- deliberately separate from `--textures` (which stays the model's own directory by default, driving the directory-local matching above); only meaningful alongside `--listfile` | `--textures` itself |

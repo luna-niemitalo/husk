@@ -194,11 +194,17 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   `CustomizationChoice` (`gltf_skeleton.hpp`). Verified end to end,
   including the "only `--customization-choice-ids`, no `--chr-model-id`
   at all" enrichment case (real filename-fallback derivation, no
-  `--listfile` needed). One existing test's own stale assertion (checking
+  `--listfile` needed). **Same-day follow-up**: Luna pushed further --
+  why require any flag at all? `--chr-model-id` now defaults to `auto`
+  (the standard `auto`|`none`|`<id>` convention `--textures`/`--skin-dir`
+  already use, not a one-off "empty means auto" hack) -- given only
+  `--db2-dir`/`--dbd-dir`, husk tries real derivation with zero
+  customization flags; `--chr-model-id none` is the real opt-out. One
+  existing test's own stale assertion (checking
   a choice ID's raw string absence anywhere in the file) was tightened to
   check the real `enabled_geosets` object shape specifically, since the
   new extras legitimately mention every choice including non-default
-  ones. Full suite green, 654/654.
+  ones. Full suite green, 656/656.
 - **Previous state (2026-08-20, character-texture compositing, reverted +
   corrected same session)**: `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s
   Stage 3 (the real `ChrCustomizationMaterial → TextureFileData` FileDataID

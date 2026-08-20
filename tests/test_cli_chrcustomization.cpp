@@ -510,7 +510,7 @@ TEST_CASE("husk export: --customization-choice-ids given without --db2-dir/--dbd
     auto result = runHusk("export " + (dir / "chrcustchoicepartial.m2").string() +
                            " --customization-choice-ids 3");
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("must all be given together") != std::string::npos);
+    CHECK(result.output.find("--db2-dir/--dbd-dir are required") != std::string::npos);
 
     fs::path glbPath = dir / "chrcustchoicepartial.glb";
     REQUIRE(fs::exists(glbPath));
@@ -959,6 +959,91 @@ TEST_CASE("husk export --customization-choice-ids (no --chr-model-id at all): th
     CHECK(bytes.find("chr_customization_options") != std::string::npos);
     CHECK(bytes.find("\"option_name\":\"Ears\"") != std::string::npos);
     CHECK(bytes.find("\"choice_name\":\"Short Fin\"") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export --db2-dir/--dbd-dir alone (no --customization-choice-ids, no "
+          "--chr-model-id at all): the full real chr_customization_options menu still gets "
+          "attached automatically -- 'auto' is the real default for --chr-model-id, same "
+          "auto|none|<id> convention as --textures/--skin-dir/--skel, not a magic-words flag") {
+    auto dir = defaultsDir("chrcustdefaultauto");
+    writeFile(dir / "dracthyrfemale.m2", tinyValidM2());
+    writeFile(dir / "dracthyrfemale00.skin", tinyMatchingSkin());
+    writeFile(dir / "dracthyrfemale.skel", boneCorrectionSkel());
+
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::create_directories(db2Dir);
+    writeChrCustomizationDbd(dbdDir, 0x21212121, 0x22222222, 0x23232323, 0x24242424, 0x25252525,
+                              0x26262626, 0x27272727);
+
+    writeFile(db2Dir / "chrcustomizationelement.db2", buildFlatDb2(0x61616161, 0x21212121, {{1, 11, 6, 0}}));
+    writeFile(db2Dir / "chrcustomizationgeoset.db2", buildFlatDb2(0x62626262, 0x22222222, {{6, 2, 5}}));
+    writeFile(db2Dir / "chrcustomizationboneset.db2", buildFlatDb2(0x63636363, 0x23232323, {}));
+    writeFile(db2Dir / "chrcustomizationoption.db2",
+              buildOptionOrChoiceDb2(0x64646464, 0x24242424, {{1, 89, 0, "Ears"}}));
+    writeFile(db2Dir / "chrcustomizationchoice.db2",
+              buildOptionOrChoiceDb2(0x65656565, 0x25252525, {{11, 1, 0, "Short Fin"}}));
+    writeFile(db2Dir / "chrraces.db2", buildChrRacesDb2(0x66666666, 0x26262626, {{52, "Dracthyr"}}));
+    writeFile(db2Dir / "chrracexchrmodel.db2", buildFlatDb2(0x67676767, 0x27272727, {{1, 52, 1, 89}}));
+
+    // Neither --customization-choice-ids nor --chr-model-id given at all.
+    auto result = runHusk("export " + (dir / "dracthyrfemale.m2").string() + " --db2-dir " + db2Dir.string() +
+                           " --dbd-dir " + dbdDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("derived ChrModelID 89 from") != std::string::npos);
+    CHECK(result.output.find("attached the full real customization menu") != std::string::npos);
+
+    fs::path glbPath = dir / "dracthyrfemale.glb";
+    REQUIRE(fs::exists(glbPath));
+    std::ifstream glb(glbPath, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(glb)), std::istreambuf_iterator<char>());
+    CHECK(bytes.find("chr_customization_options") != std::string::npos);
+    CHECK(bytes.find("\"choice_name\":\"Short Fin\"") != std::string::npos);
+    // Auto-derivation also picks the real default choice, same as
+    // --chr-model-id auto explicitly would.
+    CHECK(bytes.find("\"geoset_id\":205") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export --chr-model-id none: explicitly opts out of ChrModelID derivation, even "
+          "though --db2-dir/--dbd-dir are given -- the real opt-out state of the auto|none|<id> "
+          "convention") {
+    auto dir = defaultsDir("chrmodelidnone");
+    writeFile(dir / "dracthyrfemale.m2", tinyValidM2());
+    writeFile(dir / "dracthyrfemale00.skin", tinyMatchingSkin());
+    writeFile(dir / "dracthyrfemale.skel", boneCorrectionSkel());
+
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::create_directories(db2Dir);
+    writeChrCustomizationDbd(dbdDir, 0x31313131, 0x32323232, 0x33333333, 0x34343434, 0x35353535,
+                              0x36363636, 0x37373737);
+
+    writeFile(db2Dir / "chrcustomizationelement.db2", buildFlatDb2(0x61616161, 0x31313131, {{1, 11, 6, 0}}));
+    writeFile(db2Dir / "chrcustomizationgeoset.db2", buildFlatDb2(0x62626262, 0x32323232, {{6, 2, 5}}));
+    writeFile(db2Dir / "chrcustomizationboneset.db2", buildFlatDb2(0x63636363, 0x33333333, {}));
+    writeFile(db2Dir / "chrcustomizationoption.db2",
+              buildOptionOrChoiceDb2(0x64646464, 0x34343434, {{1, 89, 0, "Ears"}}));
+    writeFile(db2Dir / "chrcustomizationchoice.db2",
+              buildOptionOrChoiceDb2(0x65656565, 0x35353535, {{11, 1, 0, "Short Fin"}}));
+    writeFile(db2Dir / "chrraces.db2", buildChrRacesDb2(0x66666666, 0x36363636, {{52, "Dracthyr"}}));
+    writeFile(db2Dir / "chrracexchrmodel.db2", buildFlatDb2(0x67676767, 0x37373737, {{1, 52, 1, 89}}));
+
+    auto result = runHusk("export " + (dir / "dracthyrfemale.m2").string() + " --db2-dir " + db2Dir.string() +
+                           " --dbd-dir " + dbdDir.string() + " --chr-model-id none");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("derived ChrModelID") == std::string::npos);
+    CHECK(result.output.find("attached the full real customization menu") == std::string::npos);
+
+    fs::path glbPath = dir / "dracthyrfemale.glb";
+    REQUIRE(fs::exists(glbPath));
+    std::ifstream glb(glbPath, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(glb)), std::istreambuf_iterator<char>());
+    CHECK(bytes.find("chr_customization_options") == std::string::npos);
+    CHECK(bytes.find("enabled_geosets") == std::string::npos);
 
     fs::remove_all(dir);
 }

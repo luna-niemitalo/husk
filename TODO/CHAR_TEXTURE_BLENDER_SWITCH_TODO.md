@@ -143,14 +143,19 @@ most choices carry only one of geoset/material/boneset, per
 `ChrCustomizationElement`'s own documented exclusivity).
 
 **Attached automatically** whenever a real `ChrModelID` can be determined
-at all — explicit `--chr-model-id <id>`, `--chr-model-id auto`, or (this
-is the part that makes it "by default," not a magic-words flag)
-best-effort auto-derivation attempted even when the caller only gave
-`--customization-choice-ids` with no `--chr-model-id` at all. No separate
-opt-in flag exists or is needed — this was Luna's own explicit
-instruction (`src/cmd_export.cpp`'s `attachCustomizationChoices`/
-`tryDeriveChrModelId`, `gltf::Skeleton::CustomizationOption`/
-`CustomizationChoice` in `gltf_skeleton.hpp`). A Blender script never
+at all. `--chr-model-id` follows the standard `auto`|`none`|`<id>`
+three-state convention this project already uses for `--textures`/
+`--skin-dir`/`--skel`, except **unset already means `auto`** — given only
+`--db2-dir`/`--dbd-dir` (no `--chr-model-id`, no `--customization-choice-ids`
+at all), husk still attempts real derivation and attaches the full menu.
+An explicit `--customization-choice-ids` alone also triggers the same
+best-effort attempt purely for this extras array. `--chr-model-id none`
+is the real opt-out (no separate flag needed to get it, one exists to
+turn it *off*). This was Luna's own explicit instruction, phrased
+directly: it shouldn't need "the user uttering the magic words"
+(`src/cmd_export.cpp`'s `attachCustomizationChoices`/`tryDeriveChrModelId`,
+`gltf::Skeleton::CustomizationOption`/`CustomizationChoice` in
+`gltf_skeleton.hpp`). A Blender script never
 needs a second export run just to see what's selectable — this extras
 array is already there on any real character export that has DB2 access
 and a derivable identity.
@@ -231,8 +236,12 @@ code path, then — after its existing `enabled_geosets`/
 `chrcustomization::namedChoicesForModel` whenever `resolvedChrModelId` has
 a real value and the model has real `Option`/`Choice` rows at all.
 Verified end to end, including the "only `--customization-choice-ids`,
-no `--chr-model-id`" case (`tests/test_cli_chrcustomization.cpp`, real
-filename-fallback derivation, no `--listfile` needed).
+no `--chr-model-id`" case and the "no customization flags at all, just
+`--db2-dir`/`--dbd-dir`" case (`tests/test_cli_chrcustomization.cpp`, real
+filename-fallback derivation, no `--listfile` needed). `--chr-model-id`
+also gained the real `none` opt-out state, matching this project's
+existing `auto`|`none`|`<id>` convention exactly rather than inventing a
+one-off "empty means auto" special case.
 
 This was the only new husk-side work this file's whole plan needed —
 everything else below is Blender-side.
