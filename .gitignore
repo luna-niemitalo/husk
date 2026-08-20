@@ -14,6 +14,9 @@ documentation
 /corpus_reports/
 /trash/
 
+/references/wow_materials/
+/references/wow_shaders/
+
 # blp/ (Python, uv-managed) -- .venv/ and .pytest_cache/ already carry
 # their own self-excluding .gitignore, these cover the rest.
 __pycache__/
