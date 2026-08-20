@@ -42,11 +42,44 @@ std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::
         return (std::filesystem::path(skinDir) / (std::to_string(ids[index]) + ".skin")).string();
     };
 
+    // Same same-basename-numbered-scan fallback resolveSkin already has for
+    // its own (only ever entry-0) case, generalized to any SFID index --
+    // --lod's behavior shouldn't depend on whether it was passed explicitly
+    // (TODO/CLEANUP_TODO.md's former item 4, reproduced 2026-08-19 on a real
+    // 'bloodelffemale_hd.m2': '--lod 0' failed, no '--lod' succeeded, same
+    // directory, same files -- a real local extraction commonly has
+    // '<basename><N>.skin' files but no FileDataID-named ones at all). Also
+    // makes 'auto'/'--lod' finally check the SFID candidate actually exists
+    // before returning it, rather than deferring that discovery to whatever
+    // later stage tries to open the file.
+    auto resolveOneIndex = [&](size_t index) -> std::string {
+        std::string sfidCandidate = pathFor(index);
+        std::error_code ec;
+        if (std::filesystem::exists(sfidCandidate, ec) && !ec) return sfidCandidate;
+
+        for (const auto& [lod, path] : findSameBasenameSkins(modelPath)) {
+            if (static_cast<size_t>(lod) == index) {
+                std::cerr << "husk: note: 'auto' resolved '" << path
+                          << "' via the same-basename numbered scan (SFID entry " << index
+                          << "'s own '" << sfidCandidate << "' wasn't found locally)\n";
+                return path;
+            }
+        }
+        std::string lodCountNote;
+        if (header.lodCount) {
+            lodCountNote = " (LDV1 lod_count: " + std::to_string(*header.lodCount) + ")";
+        }
+        throw std::runtime_error("'auto' couldn't resolve SFID entry " + std::to_string(index) + " for '" +
+                                  modelPath + "': expected '" + sfidCandidate +
+                                  "', and no matching '<model-basename>" + std::to_string(index) +
+                                  ".skin' exists next to it either" + lodCountNote);
+    };
+
     if (lodArg == "all") {
         std::vector<std::pair<std::string, std::string>> result;
         result.reserve(ids.size());
         for (size_t i = 0; i < ids.size(); ++i) {
-            result.emplace_back("lod" + std::to_string(i), pathFor(i));
+            result.emplace_back("lod" + std::to_string(i), resolveOneIndex(i));
         }
         return result;
     }
@@ -74,7 +107,7 @@ std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::
                                   modelPath + "'s SFID chunk only has " + std::to_string(ids.size()) +
                                   " skin FileDataID(s)" + lodCountNote);
     }
-    return {{lodArg.empty() ? "" : "lod" + std::to_string(index), pathFor(index)}};
+    return {{lodArg.empty() ? "" : "lod" + std::to_string(index), resolveOneIndex(index)}};
 }
 
 std::vector<std::pair<int, std::string>> findSameBasenameSkins(const std::string& modelPath) {
