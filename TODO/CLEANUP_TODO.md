@@ -54,11 +54,26 @@ migrating; the ledger already covers the real cases from the first pass.
 Full suite green, 634/634 (comment-only + one doc-comment fix, no
 behavior change).
 
-**Remaining real scope**: the rest of `src/` (this pass covered exactly
-the 7 files the first pass's own note named, not a full-codebase sweep) —
-still needs a per-file read before this item can close, same caveat as
-before: grep finds candidates, only a human/agent read tells which are
-genuine scope-decision essays worth migrating.
+**Third pass: the rest of `src/` (all remaining `.hpp`/`.cpp`, both prior
+passes only covered specific named files).** Grepped all of `src/` for the
+same keywords, read every hit in context. Verdict: one real migration
+candidate found — `m2_scene.hpp`'s `ParticleEmitter` comment (why pre-Cata
+`M2ParticleOld` shapes aren't implemented, a genuine version-gated scope
+decision, same shape as the original `shader_id` case) — moved to
+`DESIGN.md`'s ledger, inline comment trimmed to a pointer. Also removed a
+stray `// TODO: Remove:` comment sitting right next to it whose own text
+said it was already done (a real file verified, never cleaned up after).
+Everything else found (`skin.cpp`'s two "see skin.hpp's doc comment"
+pointers, `cmd_db2.cpp`'s "see db2.hpp's module comment", `export_animation
+.hpp`'s missing-vs-skipped function contract, `cmd_dump.cpp`'s module-level
+"why dump-chunks exists" doc, `m2_skeleton.hpp`'s already-self-corrected
+`Bone` note from the first pass) was either already the desired pointer-
+not-repeat pattern or a genuine field/function-level contract, not rotting
+scope prose. Full suite green (comment-only change, verified via a clean
+`husk-lib`/`husk` build, no test-suite-relevant behavior touched).
+
+This item is now closed — all three passes done, no further `src/` sweep
+scope remains.
 
 ## 2. A corpus-wide "dangling internal reference" scan — a deliberate counterweight to completeness metrics
 

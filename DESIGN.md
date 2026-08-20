@@ -1040,6 +1040,15 @@ flagged as ongoing cleanup in `TODO/CLEANUP_TODO.md`):
   concern a static-scene exporter doesn't have a consumer for; `identifier`/
   `data`/`bone`/`position` (the parts that place the event as a scene
   anchor) are fully parsed and exported.
+- `ParticleEmitter` (`m2_scene.hpp`): only the Cata+ `M2Particle` shape
+  (492 bytes, gated by `kMinVerifiedParticleVersion`) is parsed. Older
+  pre-BC/pre-Wrath/pre-Cata `M2ParticleOld` shapes (narrower
+  `blendingType`/`emitterType`, no `multiTexScale`, no FBlock curves, no
+  `multiTexScrollMid`/`Range`) are real per wowdev.wiki but not
+  implemented — same "verify against a real file before trusting a stride"
+  policy `kMinVerifiedRecordStrideVersion` already applies to Bone/
+  Sequence/Ribbon (`m2_primitives.hpp`), no real file this project has
+  access to exercises the older shape yet.
 
 **A fast reimplementation of husk's own resolution logic must mirror
 every tier, not the tiers that seemed obviously relevant.** husk's real

@@ -100,25 +100,12 @@ struct Ribbon {
     int8_t textureTransformLookupIndex = 0;
 };
 
-// M2Particle, per wowdev.wiki M2#Particle_emitters -- the Cata+ shape only
-// (M2ParticleOld's late-BC blendingType/emitterType width + Cata's
-// multiTexScale + Wrath's FBlock-based color/alpha/scale/UV curves +
-// Cata's multiTexScrollMid/Range wrapper), 492 (0x1EC) bytes on disk. Per
-// the wiki's own note ("if 0x200 is set or if version is bigger than 271,
-// length of M2ParticleOld is 492"), every real file this parser targets
-// (version >= kMinVerifiedParticleVersion) always uses the 492-byte shape
-// unconditionally, regardless of the per-particle flag -- so there's no
-// version OR per-record branching inside parseParticles, only the
-// file-level kMinVerifiedParticleVersion gate. Older (pre-BC/pre-Wrath/
-// pre-Cata) shapes are real but unverified against any file this project
-// has access to -- not implemented, same "kMinVerified*"-gated policy as
-// Bone/Sequence/Ribbon (see kMinVerifiedRecordStrideVersion,
-// m2_primitives.hpp). M2Track/FBlock fields are stored as raw offsets;
-// full curve resolution lives downstream in `husk dump-chunks`
-// (src/cmd_dump.cpp), same split as Ribbon's tracks.
-// TODO: Remove: verified against mace_2h_bolvar_d_01.m2 (WIKI_FINDINGS.md)
-// -- real fire/ember color gradient, clean fade/grow curves, MultiTexture
-// flag correlates with non-zero multiTexScale.
+// M2Particle, per wowdev.wiki M2#Particle_emitters -- the Cata+ shape only,
+// 492 (0x1EC) bytes on disk, gated by kMinVerifiedParticleVersion. Older
+// (pre-BC/pre-Wrath/pre-Cata) shapes are real but not implemented -- see
+// DESIGN.md's "Deliberately unparsed fields" ledger for why. M2Track/FBlock
+// fields are stored as raw offsets; full curve resolution lives downstream
+// in `husk dump-chunks` (src/cmd_dump.cpp), same split as Ribbon's tracks.
 struct ParticleEmitter {
     uint32_t particleId = 0;  // "Always (as I have seen): -1" per the wiki
     uint32_t flags = 0;       // see wowdev.wiki M2#Particle_Flags
