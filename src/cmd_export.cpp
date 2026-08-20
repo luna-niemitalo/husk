@@ -1786,6 +1786,24 @@ int exportGlb(int argc, char** args) {
     std::unordered_map<uint32_t, std::string> listfile;
     if (app.count("--listfile")) {
         listfile = husk::loadListfile(opts.listfileArg);
+        // A bad --listfile *path* already throws (loadListfile itself, a
+        // direct user mistake worth failing loudly on) -- but a listfile
+        // that opens fine and parses to zero usable entries (genuinely
+        // empty, or every line malformed -- e.g. the wrong file entirely,
+        // or corrupted mid-download) previously degraded *silently*: every
+        // consumer already treats an empty map the same as "no --listfile
+        // given" and falls back to local-only resolution correctly, but
+        // that fallback was invisible, which is the wrong failure mode for
+        // something the caller explicitly asked for. Recoverable (every
+        // downstream feature still has a real local fallback tier), so
+        // this warns rather than aborting the export -- never silent.
+        if (listfile.empty()) {
+            std::cerr << "husk: warning: --listfile '" << opts.listfileArg
+                      << "' loaded but contained no usable entries (empty file, or every line "
+                         "failed to parse) -- every listfile-dependent feature will fall back to "
+                         "local-only resolution for this run, same as if --listfile had never "
+                         "been given\n";
+        }
     }
 
     if (!batchMode) {

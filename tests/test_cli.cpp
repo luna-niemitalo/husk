@@ -864,6 +864,32 @@ TEST_CASE("husk export: --listfile resolves a FileDataID to its real corpus-rela
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export: a --listfile that opens fine but has no usable entries (every line "
+          "malformed, or genuinely empty) warns loudly instead of silently degrading -- the export "
+          "itself still succeeds via local-only fallback, same as if --listfile had never been "
+          "given") {
+    auto dir = defaultsDir("corruptlistfile");
+    writeFile(dir / "corruptlistfile.m2", tinyValidM2());
+    writeFile(dir / "corruptlistfile00.skin", tinyMatchingSkin());
+    auto listfilePath = dir / "listfile.csv";
+    {
+        std::ofstream f(listfilePath);
+        // No ';' separator anywhere, no numeric ID -- every line here fails
+        // loadListfile's own parse, the "wrong file entirely" / "corrupted
+        // mid-download" case this warning exists for.
+        f << "this is not a listfile\nneither is this\n";
+    }
+
+    auto result = runHusk("export " + (dir / "corruptlistfile.m2").string() +
+                           " --listfile " + listfilePath.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("warning: --listfile") != std::string::npos);
+    CHECK(result.output.find("no usable entries") != std::string::npos);
+    CHECK(fs::exists(dir / "corruptlistfile.glb"));
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk export: --listfile-root is independent of --textures -- co-located same-basename "
           "matching keeps using --textures (the model's own directory) while the listfile fallback "
           "reaches into a completely separate corpus root (the real render-job shape: a model's "

@@ -14,6 +14,50 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-20 (overnight batch-export pass, foreign-data follow-up) —
+a corrupted/empty `--listfile` now warns loudly instead of silently
+degrading.** Same autonomous overnight `/loop` session, next item off
+Luna's explicit framing for the session: "warn at recoverable situations
+... [but] throw an unrecoverable error" when a foreign-data failure
+genuinely can't be worked around. Investigated what `husk export`
+actually does when `--listfile` is missing, corrupted, or unreadable.
+
+Found: a bad `--listfile` *path* (the file doesn't open at all) already
+threw `std::runtime_error` before this session — a direct user mistake,
+correctly fails loudly. But a `--listfile` that opens fine and parses to
+*zero usable entries* (an empty file, or content that's the wrong format
+entirely so every line fails `loadListfile`'s own malformed-line skip)
+degraded completely silently: every real consumer of the listfile map
+(`findFileDataIdForModelPath`, the fuzzy-texture-resolution fallback
+tier, `--chr-model-id auto`'s primary derivation path) already treats an
+empty map exactly the same as "no `--listfile` given" and falls back to
+local-only resolution correctly — the recovery already worked, it just
+had zero visibility. Fixed with one loud `std::cerr` warning in
+`exportGlb`, printed once right after the load, only when `--listfile`
+was actually given and the resulting map is empty. The export itself
+still succeeds via the existing local fallback (this is example 1 in
+Luna's framing — recoverable, warn and continue), it's just not silent
+about it anymore.
+
+New regression test (`tests/test_cli.cpp`, right after the existing real
+`--listfile` resolution test for a natural before/after contrast): a
+listfile with two lines of plain prose, no `;` separator anywhere,
+confirms both the warning text and that the export still completes
+(`exitCode == 0`, `.glb` written). Full suite green, 652/652 (up from
+651 — the new test).
+
+Deliberately scoped narrow rather than trying to solve all of foreign-
+data robustness in one pass: this closes the "silent degradation when
+recovery is real" half of Luna's framing. The other half (example 2 —
+an *unrecoverable* error when no fallback can produce a correct answer)
+needed a concrete case to fix, and none was found this pass; flagged as
+`CLAUDE.md`'s Resume's own next step rather than guessed at. Also flagged
+but not investigated: a listfile that's present and parses fine but
+contains *wrong* data (stale snapshot, paths that don't resolve) —
+different failure shape than "corrupted," this fix doesn't see it.
+
+---
+
 **2026-08-20 (overnight batch-export pass) — `husk export --from-list`/
 `--output-dir`, plus committing the previous entry's own uncommitted
 work.** Autonomous overnight `/loop` session (Luna asleep): picked up

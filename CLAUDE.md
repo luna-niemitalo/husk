@@ -203,7 +203,22 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   abort, collision disambiguation, `--output`/`--input` mutual-exclusion
   errors, empty-worklist no-op. `README.md`/`TODO/CLEANUP_TODO.md`/
   completions updated (`--print-completion` regenerated, not hand-edited).
-  Full suite green, 651/651.
+  Full suite green, 651/651. **Same pass, foreign-data robustness follow-up**:
+  a real gap found matching the framing Luna flagged for this overnight
+  session ("warn loudly on a recoverable failure, don't silently
+  degrade") -- `--listfile` opening fine but parsing to zero usable
+  entries (empty file, or every line malformed -- wrong file entirely, or
+  corrupted mid-download) previously degraded with no visibility at all:
+  every consumer already treats an empty listfile map the same as "no
+  `--listfile` given" and falls back to local-only resolution correctly,
+  but nothing ever told the caller that fallback had silently kicked in
+  for a flag they explicitly passed. Fixed with a loud `std::cerr`
+  warning right after the load, once, in `exportGlb` -- the export itself
+  still succeeds via local fallback (recoverable, matches example 1 in
+  Luna's framing), it just isn't silent about it anymore. A bad
+  `--listfile` *path* (file doesn't open) already threw before this
+  change, unaffected. New regression test in `tests/test_cli.cpp`. Full
+  suite green, 652/652.
 - **Previous state (2026-08-20, final)**: The filename-only path's
   "genuinely ambiguous" report for Dracthyr (previous entry below) turned
   out to be husk's own bug, not real caution — Luna asked to investigate
@@ -427,14 +442,25 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   ambiguous-pool tiebreak/blank-render follow-ups, the dangling-internal-
   reference corpus scan (`CLEANUP_TODO.md`, now item 2), `CLEANUP_TODO.md`
   item 1's comment-hygiene sweep, and `BONE_NAME_DEDUCTION_TODO.md`'s
-  Tier 2 (still needs a design pass). An explicit foreign-data-robustness
-  gap Luna flagged for this overnight pass, not yet investigated: what
-  husk actually does when `--listfile` is missing/corrupted/points at
-  something unreadable, and whether it recovers (loud warning, fall back
-  to local matching) or fails hard (unrecoverable error) in exactly the
-  cases where each is the right call — `loadListfile` throws on a bad
-  *path* today but the "corrupted mid-file" and "genuinely needed, no
-  fallback exists" cases haven't been audited end to end.
+  Tier 2 (still needs a design pass). The foreign-data-robustness gap
+  Luna flagged for this overnight pass is partially closed: an empty-
+  after-parsing `--listfile` now warns loudly instead of silently
+  degrading (see the current-state entry above). Not yet audited: the
+  "genuinely needed, no fallback exists" half of Luna's framing (example
+  2 — an unrecoverable error is the *correct* response when no fallback
+  can produce a correct answer) — no concrete case has been found yet
+  where a husk feature both requires listfile/DB2 data and silently
+  produces wrong output instead of erroring when that data is missing;
+  worth a deliberate pass over `--knowledge-db`/`--chr-model-id auto`/
+  `--char-layout-id` et al. specifically hunting for that shape, not just
+  the "listfile missing -> warn and continue" shape already covered.
+  Also not audited: a listfile that's present, non-empty, and *parses*
+  successfully but contains wrong/stale data (rows pointing at paths that
+  don't exist, or a stale snapshot from an older game version) — a
+  different failure mode than "corrupted" (this parses fine, the fix
+  above doesn't see it), closer to the DB2 "known-wrong, not just
+  unverified" case `KNOWLEDGE_BASE_DESIGN.md` already documents for a
+  different chain.
 
 <details>
 <summary>Previous entry (2026-08-16), preserved for context</summary>
