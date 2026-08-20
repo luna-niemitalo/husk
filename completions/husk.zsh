@@ -24,6 +24,7 @@ _husk() {
         export)
             _arguments \
                 '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
                 '(-i --input)'{-i,--input}'[the .m2 file to export]:value:_files' \
                 '(-o --output)'{-o,--output}'[output .glb path]:value:_files' \
                 '--from-list[--from-list]:value:_files' \

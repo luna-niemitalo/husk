@@ -627,6 +627,65 @@ husk export bloodelffemale_hd.m2 out.glb --skin bloodelffemale_hd00.skin \
   --skel bloodelffemale_hd.skel --anim ./anims
 ```
 
+### Config file
+
+`husk export` reads default flag values from a TOML config file, when one
+is found -- for the flags that tend to stay the same across every run on a
+given machine (`--dbd-dir`, `--db2-dir`, `--listfile`, `--listfile-root`,
+`--textures`, ...), so they don't need to be typed on every invocation.
+This is [CLI11](https://github.com/CLIUtils/CLI11)'s own built-in
+`App::set_config` support, not a hand-rolled parser: every config key maps
+directly onto the same `add_option` flag registration the CLI itself uses,
+so it gets the exact same `->check()` validators, the exact same "reject
+`--skin none`, reject a non-numeric `--char-layout-id`" foreign-data
+checking every flag already has -- a config value is validated exactly
+like a user typing the equivalent flag by hand, no separate code path to
+keep in sync (and no way for a config value to bypass a check a flag value
+would have hit).
+
+**Precedence: an explicit CLI flag always wins over a config value, which
+always wins over the flag's own built-in default.** Nothing here changes
+what "unset" means for any flag -- a config file is just a different way
+of supplying the value a flag would otherwise take on the command line.
+
+**Path resolution, in order**: `--config <path>` (explicit) ->
+`$HUSK_CONFIG` (env var) -> `$XDG_CONFIG_HOME/husk/config.toml`, falling
+back to `~/.config/husk/config.toml` if `$XDG_CONFIG_HOME` is unset (the
+standard Linux config-dir convention -- same `$XDG_..._HOME` pattern as
+this project's own cache directory usage, just the config variable
+instead of the cache one). No config file at the resolved path is not an
+error -- same "unset is the no-flag state" convention every other opt-in
+sidecar in this project already follows; export runs exactly as if no
+config file support existed at all.
+
+**Deliberately unfiltered, by design.** Every flag `addExportOptions`
+registers -- including `--input`/`--output`, which change per invocation
+rather than per machine -- is technically config-settable, since CLI11's
+config support has no notion of "these flags but not those." The example
+below only demonstrates the genuinely-stable ones on purpose; nothing
+stops a user from setting `output = "..."` too, but doing so isn't
+advertised, and finding it requires reading this section or the source,
+not stumbling into it by accident. Anyone who does set it did so in the
+same validated TOML syntax husk already understands for every other key,
+so there's no new failure mode to guard against -- just a config that
+makes a specific single-model workflow ("run husk on whatever file I
+name, output always lands next to it") awkward, which is the user's own
+choice to make.
+
+Example `~/.config/husk/config.toml`:
+
+```toml
+dbd-dir = "/home/luna/dev/husk/reference/WoWDBDefs"
+db2-dir = "/media/luna/data/wow_export/dbfilesclient"
+listfile = "/media/luna/data/wow_export/community-listfile.csv"
+listfile-root = "/media/luna/data/wow_export"
+```
+
+Only `export` supports this today -- `db2-export`/`db2-info`/`db2-build`/
+`dump-chunks`/`blp-export`/`info`/`appearance-string` all still hand-parse
+`argv` positionally rather than through a `CLI::App`, which is what
+`set_config` needs to attach to (`TODO/CLEANUP_TODO.md` #3).
+
 ### Importing into Blender
 
 Use **File > Import > glTF 2.0** with its default settings. That's the

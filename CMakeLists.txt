@@ -74,6 +74,7 @@ add_library(husk-lib STATIC
   src/db2.cpp
   src/dbd.cpp
   src/listfile.cpp
+  src/husk_config.cpp
   src/db2table.cpp
   src/chrmodel_db2.cpp
   src/chrcustomization_db2.cpp
@@ -149,6 +150,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_integration_lights.cpp
     tests/test_cli.cpp
     tests/test_cli_batch.cpp
+    tests/test_cli_config.cpp
     tests/test_cli_info.cpp
     tests/test_cli_errors.cpp
     tests/test_cli_argv.cpp

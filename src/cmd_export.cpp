@@ -28,6 +28,7 @@
 #include "export_skin_resolution.hpp"
 #include "export_transform.hpp"
 #include "gltf.hpp"
+#include "husk_config.hpp"
 #include "listfile.hpp"
 #include "m2.hpp"
 #include "phys.hpp"
@@ -1448,6 +1449,19 @@ void printExportSummary(const std::string& outputPath, const std::vector<m2::Ver
 // export's flag surface is declared, shared by exportGlb's own real parse
 // and main.cpp's `--print-completion` introspection.
 void addExportOptions(CLI::App& app, ExportOptions& opts) {
+    // TOML config file for defaults -- CLI11's own set_config() maps config keys onto
+    // these exact add_option() registrations (below), so every flag's own ->check()
+    // validator and CLI-flag > config > default precedence come for free, with no
+    // second parser and no hand-written key->flag table to keep in sync (see
+    // TODO/CLEANUP_TODO.md for the other commands still needing this migration
+    // before they can get the same treatment). Path resolution: --config, else
+    // $HUSK_CONFIG, else husk::defaultConfigPath() (XDG default), else no config --
+    // a missing file at any of those isn't an error (config_required=false).
+    app.set_config("--config", husk::defaultConfigPath(),
+                    "TOML file of default flag values (see README.md's config-file "
+                    "section) -- explicit CLI flags always override a config value")
+        ->envname("HUSK_CONFIG");
+
     // Not ->required() here even though single-file mode needs it -- --from-list
     // mode (below) takes its model paths from a file instead, so requiredness is
     // enforced by hand after parsing (see exportGlb), once it's known which mode

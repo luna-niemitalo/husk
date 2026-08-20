@@ -63,7 +63,11 @@ tool, `blp/`) converts BLP2 textures to PNG.
   flags (`--input`/`--output` positional-fallback, everything else named,
   `--skin`/`--textures`/`--skin-dir`/`--anim`/`--skel`/`--bones-dir`/`--phys`
   three-or-four-state — see `DESIGN.md`'s "CLI argument grammar for
-  `export`"), with generated bash/zsh completions in `completions/`. See
+  `export`"), with generated bash/zsh completions in `completions/`, and
+  optional TOML config-file defaults for the per-machine-stable flags
+  (`--config`/`$HUSK_CONFIG`/XDG-default autodiscovery — see `DESIGN.md`'s
+  "Config-file defaults for `export`" and `README.md`'s "Config file"
+  subsection). See
   `README.md`'s format-support matrix and roadmap for the exact per-feature
   state — that table is the source of truth, not this file.
 - **Target**: a real Blender import path for modern (Legion+ chunked) M2 — see
@@ -176,7 +180,40 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-21, `--char-layout-id` auto-derivation)**:
+- **Current state (2026-08-21, `husk export --config` TOML config-file
+  support)**: `husk export` now reads default flag values from a TOML
+  config file for the per-machine-stable flags (`--dbd-dir`, `--db2-dir`,
+  `--listfile`, `--listfile-root`, `--textures`, ...), avoiding the
+  need to repeat them on every invocation. Deliberately built on
+  [CLI11](https://github.com/CLIUtils/CLI11)'s own `App::set_config`
+  rather than a hand-rolled config parser: config keys map directly onto
+  the same `add_option` registrations `addExportOptions` already
+  declares, so a config value gets the exact same `->check()` validator a
+  CLI flag would (foreign-data checking for free, no second validation
+  path), and CLI11's own precedence already matches what was wanted:
+  explicit CLI flag > config value > built-in default. Path resolution:
+  `--config <path>` > `$HUSK_CONFIG` env var > `husk::defaultConfigPath()`
+  (new `src/husk_config.hpp`/`.cpp` — `$XDG_CONFIG_HOME/husk/config.toml`,
+  falling back to `~/.config/husk/config.toml`); a missing file at the
+  resolved path is not an error, same "unset is the no-flag state"
+  convention every other opt-in sidecar here follows. Deliberately not
+  filtered to a "safe" flag subset — CLI11 has no such notion, and
+  building a filter would be new code fighting the very mechanism chosen
+  to avoid new code — `--input`/`--output` are technically config-settable
+  too, just not shown in the documented example, per Luna's own explicit
+  call ("no reason to stop users from being dumb as long as they do it in
+  a consistent language that is acceptable for our program"). 5 new
+  CLI-tier tests (`tests/test_cli_config.cpp`: config-supplied output,
+  CLI-flag-overrides-config precedence, `$HUSK_CONFIG`, XDG
+  autodiscovery, missing-config-is-not-an-error). `README.md` (new "Config
+  file" subsection under `export`)/`DESIGN.md` (new "Config-file defaults
+  for `export`" subsection)/`completions/` regenerated. `db2-export`/
+  `db2-info`/`db2-build`/`dump-chunks`/`blp-export`/`info`/
+  `appearance-string` all still hand-parse argv positionally rather than
+  through a `CLI::App`, so they can't get this the same free way yet —
+  tracked as `TODO/CLEANUP_TODO.md` #3, not started. Full suite green,
+  662/662.
+- **Previous state (2026-08-21, `--char-layout-id` auto-derivation)**:
   `husk export`'s DB2-driven character features need one fewer flag now.
   `ChrModel.db2`'s loader (`chrrace_db2.cpp`'s `loadChrModels`) now also
   reads its real `CharComponentTextureLayoutID` column (previously only

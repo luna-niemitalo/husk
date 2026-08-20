@@ -125,6 +125,46 @@ this scan is what would turn "the data isn't there" from an assumption
 into a measured, defensible number, worth taking to the casc-tool project
 if it comes back large.
 
+## 3. Migrate `db2-export`/`db2-info`/`db2-build`/`dump-chunks`/`blp-export`/`info`/`appearance-string` to CLI11
+
+Prompted directly (2026-08-21), off the back of adding TOML config-file
+support to `husk export` (`--config`/`$HUSK_CONFIG`/XDG-default autodiscovery,
+`CLI::App::set_config` in `addExportOptions`, `src/husk_config.hpp`/`.cpp`,
+`README.md`'s config-file section). `export`
+is currently the *only* command that parses its argv via a real `CLI::App`
+(`cmd_export.cpp`); every other command (`cmd_db2.cpp`'s `db2Export`/
+`db2Info`/`db2Build`, `cmd_dump.cpp`'s `dumpChunks`, `cmd_blp.cpp`'s
+`blpExport`, `cmd_info.cpp`'s `info`, `cmd_appearance.cpp`'s
+`appearanceString`) hand-parses `argc`/`args[N]` positionally instead.
+
+That means those commands can't get `set_config`'s free config-file support
+the same way `export` did — there's no `CLI::App` for it to attach to, and
+bolting on config support without one would mean either a second, hand-
+written config parser (duplicating validation logic `export`'s CLI11
+`->check()`s already get for free) or a bespoke per-flag config-injection
+shim, both of which are exactly the "duplicate code" outcome this whole
+config-file feature was built to avoid.
+
+Real candidates for config support once migrated, per Luna's own framing —
+anything with a stable-per-machine input dir or a repeatable output
+location: `db2-export --dbd-dir`/output-dir default, `db2-build --db2-dir`/
+`--dbd-dir`/`--listfile`, `dump-chunks`'s own eventual output flags (none
+yet — currently stdout-only), `blp-export --dir`'s output dir. `info` is
+inline-stdout-only with no file-path flags at all, so it may not need this
+at all even after migrating.
+
+`husk::defaultConfigPath()` (`src/husk_config.hpp`) already exists and is
+shared, not `export`-specific — the migration should reuse it as-is via
+each command's own `app.set_config("--config", husk::defaultConfigPath(),
+...)->envname("HUSK_CONFIG")` call, same as `cmd_export.cpp`'s.
+
+Not started. Real open question: whether to give each command's `CLI::App`
+its own registration function (`addExportOptions`'s own pattern) so
+`main.cpp`'s completion-tree introspection keeps working the same way, or
+whether some of these commands' argv shapes (e.g. `db2-export`'s `--dir`
+mode vs. single-file mode, mutually exclusive positional forms) don't map
+cleanly onto CLI11's option model without their own redesign first.
+
 Not started — this is a new tool idea, not yet designed as a `ScanTask`
 the way `animated_texture_effects_task.py` was this session. Real open
 questions before implementation: which reference kinds are cheap enough to

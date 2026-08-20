@@ -1167,6 +1167,50 @@ means the way it can today.
   progressive disclosure: common actions at the top level, rare ones one
   step further out), not per-invocation variance.
 
+### Config-file defaults for `export` (implemented, 2026-08-21)
+
+Same flag surface as above, but a subset of these flags (`--dbd-dir`,
+`--db2-dir`, `--listfile`, `--listfile-root`, `--textures`, ...) tend to be
+per-machine constants — a user's local WoWDBDefs checkout, DB2 extraction
+directory, and listfile snapshot don't change between runs, only the model
+being exported does. Repeating four or five flags on every invocation is
+pure ceremony once that's true.
+
+**Design choice: piggyback entirely on [CLI11](https://github.com/CLIUtils/
+CLI11)'s own `App::set_config`, rather than writing a config parser.**
+`set_config` maps TOML `key = value` pairs directly onto the same
+`add_option` registrations `addExportOptions` already declares — so a
+config value gets the exact same `->check()` validator a CLI flag value
+would (foreign-data checking "for free," §CLAUDE.md's Foreign Data policy —
+a config-supplied `--skin none` is rejected exactly like a hand-typed one,
+with zero new validation code), and CLI11's own precedence order already
+matches what was wanted: an explicit command-line flag beats a config
+value, which beats the flag's own built-in default. No second parser, no
+hand-written key→flag table to keep in sync with `addExportOptions` as
+flags are added or renamed.
+
+**Path resolution**: `--config <path>` > `$HUSK_CONFIG` (via `->envname`)
+> `husk::defaultConfigPath()` (`src/husk_config.hpp`) — `$XDG_CONFIG_HOME/
+husk/config.toml`, falling back to `~/.config/husk/config.toml`. A missing
+file at the resolved path is not an error (`set_config`'s own
+`config_required=false`) — same "unset is the no-flag state" convention
+every other opt-in sidecar in this project already follows. The path
+helper is a standalone shared function, not export-specific, so the other
+commands `TODO/CLEANUP_TODO.md` #3 tracks migrating to CLI11 can reuse it
+verbatim rather than re-deriving the same XDG logic.
+
+**Deliberately not filtered to a "safe" subset of flags.** CLI11's config
+support has no notion of "these flags are config-settable, those aren't" —
+every flag `addExportOptions` registers, `--input`/`--output` included, is
+technically settable via config. Building a filter to block that would be
+new code whose only job is fighting the very mechanism chosen to avoid new
+code. Instead: the documented example config (`README.md`) only shows the
+genuinely per-machine flags, so a user finds `output = "..."` only by
+reading the flag table or the source, never by accident — and if someone
+deliberately sets it anyway, they did so in the same validated TOML syntax
+this project already accepts everywhere else, which is a legitimate (if
+unadvertised) choice, not a bug to guard against.
+
 ### Three-state resolution, not two (§2.11)
 
 `--skin`, `--textures`, `--skin-dir`, `--skel`, and `--bones-dir` all name a
