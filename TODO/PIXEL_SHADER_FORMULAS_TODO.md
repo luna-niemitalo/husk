@@ -14,24 +14,29 @@ with no formula documented at all** (an empty `===Name===` section, no
 `finalColor` math underneath):
 
 ```
-Combiners_Opaque_Mod2xNA_Alpha_Add
-Combiners_Opaque_Mod2xNA_Alpha_3s
-Combiners_Opaque_AddAlpha_Wgt
-Combiners_Mod_Add_Alpha
-Combiners_Opaque_ModNA_Alpha
-Combiners_Mod_AddAlpha_Wgt
-Combiners_Opaque_Mod_Add_Wgt
-Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha
-Combiners_Mod_Dual_Crossfade
-Combiners_Opaque_Mod2xNA_Alpha_Alpha
-Combiners_Mod_Masked_Dual_Crossfade
-Combiners_Opaque_Alpha
-Guild
-Guild_NoBorder
-Guild_Opaque
-Combiners_Mod_Depth
-Illum
+Combiners_Opaque_Mod2xNA_Alpha_Add        -- real corpus match, but diffuse-ambiguous w/ plain Mod2xNA_Alpha (see combiner_hunt/SUMMARY.md)
+Combiners_Opaque_Mod2xNA_Alpha_3s         -- VERIFIED, real corpus match, hand-traced exact
+Combiners_Opaque_AddAlpha_Wgt             -- structurally unresolvable by color math alone (Tier 1)
+Combiners_Mod_Add_Alpha                   -- structurally unresolvable by color math alone (Tier 1)
+Combiners_Opaque_ModNA_Alpha              -- searched, zero real matches in this corpus
+Combiners_Mod_AddAlpha_Wgt                -- structurally unresolvable by color math alone (Tier 1)
+Combiners_Opaque_Mod_Add_Wgt              -- real corpus match, but diffuse-identical to Combiners_Opaque_Alpha (real ambiguity in wow.export's own source)
+Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha  -- searched, zero real matches in this corpus
+Combiners_Mod_Dual_Crossfade              -- not attempted (needs external weight-scalar search, not built)
+Combiners_Opaque_Mod2xNA_Alpha_Alpha      -- VERIFIED, real corpus match, hand-traced exact
+Combiners_Mod_Masked_Dual_Crossfade       -- not attempted (needs external weight-scalar search, not built)
+Combiners_Opaque_Alpha                    -- real corpus match, but diffuse-identical to Combiners_Opaque_Mod_Add_Wgt
+Guild                                     -- 1 real hand-verified example (47c35a45740c769d), not caught by automated search (compiled-swizzle artifact)
+Guild_NoBorder                            -- VERIFIED, 4 real corpus matches, hand-traced exact
+Guild_Opaque                              -- same formula as Guild, differ only by an untested discard
+Combiners_Mod_Depth                       -- structurally unresolvable by color math alone (Tier 1)
+Illum                                     -- not attempted (real formula is "always black," needs a different kind of test)
 ```
+
+Full corpus-verification pass (methodology, per-formula counts, the two
+equivalence-tester bugs found and fixed along the way, and the wiki's own
+formulas cross-checked as a second data point): `references/wow_shaders/
+combiner_hunt/SUMMARY.md`.
 
 `husk`'s own `src/m2_shader_names.cpp` (`TODO/MULTI_TEXTURE_LAYER_TODO.md`'s
 implementation) can already resolve real corpus batches to these exact

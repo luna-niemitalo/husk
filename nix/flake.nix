@@ -101,6 +101,14 @@
           gltf-validator
           blender
           sqlite
+          # vkd3d-compiler/vkd3d-dxbc: disassemble the captured DXBC shader
+          # blobs in references/wow_shaders/ (PIXEL_SHADER_FORMULAS_TODO.md's
+          # matching pass) -- dev-shell only, not part of the husk binary.
+          vkd3d
+          # inotifywait/notify-send: tools/shader_dump_watcher.nu, live-
+          # correlates new wow_shader_dump captures with in-game location.
+          inotify-tools
+          libnotify
         ];
 
         # blp/: BLP2 -> PNG texture conversion (roadmap stage 4). uv manages

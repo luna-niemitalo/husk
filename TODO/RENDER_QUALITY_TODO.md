@@ -389,6 +389,31 @@ listed here so they aren't lost:
   confirmed; two already-understood mechanisms combining is a hypothesis,
   not a verified explanation.
 
+## 7. Real known false-positive risk for missing-texture classification: "Sundered Zerethsteed" mount
+
+Not a husk render repro — spotted directly in-game (mount collection UI),
+flagged here because it's directly relevant to this file's own
+`missing_texture_or_shader` classification theme (§5/§6) and to
+`missing_texture_task.py`/`unfillable_texture_task.py`
+(`CLAUDE_HISTORY.md`).
+
+The mount **Sundered Zerethsteed** (a Zereth Mortis reward mount — cervid/
+ungulate model, corrupted-by-Mawsworn per its own tooltip) is real,
+intentional art that reads almost identically to a UV-checker "missing
+texture" placeholder at a glance: flat grey/white faceted crystal-construct
+look, minimal painted color variation. Genuinely easy to mistake for a
+broken/unresolved texture on sight alone.
+
+Not independently verified against the model's actual FileDataID/texture
+data this session — visual observation only (in-game model preview). If a
+future missing-texture corpus scan flags this file (or any other
+Zereth-Mortis-construct-styled model with the same flat faceted grey/white
+look) as suspicious, check visually before trusting the heuristic — this is
+a confirmed-real case of intentional low-color-variance art, not a repro to
+chase as a bug. Resolve the actual model file first if it becomes relevant
+to a real scan, rather than assuming this note already covers the right
+asset.
+
 ## Suggested priority
 
 1. **The 68 "unexplained" blank renders (§1)** — 6 spot-checked, 0 husk
