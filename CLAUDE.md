@@ -176,7 +176,35 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-20, final)**: The filename-only path's
+- **Current state (2026-08-20, overnight batch-export pass)**: Also
+  committed this pass: the previous entry below's uncommitted
+  `ChrCustomizationOption`/`--chr-model-id auto` work (it had sat
+  unstaged in the working tree since it was written) — no code changes,
+  just closing the loop on `git commit`, the one step that session
+  narrative was missing. New work this pass: `husk export --from-list
+  <file> --output-dir <dir>` (`TODO/CLEANUP_TODO.md`'s former item 3) —
+  batch mode mirroring `casc-tool`'s own `extract-batch --from-list
+  <ids-file> <out-dir>` shape. `exportOneModel` factored out of the old
+  monolithic `exportGlb` so a batch run shares one parsed `ExportOptions`/
+  one `--listfile` load across every entry instead of re-parsing argv or
+  re-reading a multi-million-line CSV per file (the exact cost
+  `loadListfile`'s own doc comment already worried about for
+  `render_sample_driver.py`'s 130k-call driver loop). A single bad entry
+  is reported and skipped, not fatal to the rest of the batch — real
+  corpus worklists are large enough that one truncated/missing file
+  shouldn't abort hours of unrelated work — with a final `N succeeded, M
+  failed` summary line and an exit code reflecting partial failure.
+  Output naming collisions (two entries sharing a basename, common across
+  race/expansion subdirectories in a real corpus) fall back to
+  `<parent-dir-name>_<basename>.glb`, then a numeric suffix. 5 new
+  CLI-tier tests (`tests/test_cli_batch.cpp`, real subprocess spawns via
+  `run_husk.hpp`, same convention as every other `test_cli_*.cpp`):
+  multi-entry batch + comment/blank-line skipping, one-bad-entry-doesn't-
+  abort, collision disambiguation, `--output`/`--input` mutual-exclusion
+  errors, empty-worklist no-op. `README.md`/`TODO/CLEANUP_TODO.md`/
+  completions updated (`--print-completion` regenerated, not hand-edited).
+  Full suite green, 651/651.
+- **Previous state (2026-08-20, final)**: The filename-only path's
   "genuinely ambiguous" report for Dracthyr (previous entry below) turned
   out to be husk's own bug, not real caution — Luna asked to investigate
   after noticing the real `character/dracthyr/` folder has three files
@@ -383,7 +411,9 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   "which character" identity problem, are both done
   (`--chr-model-id auto`, FileDataID chain primary + filename fallback —
   the FileDataID path resolves what used to look like alternate-form
-  ambiguity, e.g. Dracthyr, cleanly). What's left of Stage 3: per-option
+  ambiguity, e.g. Dracthyr, cleanly). `TODO/CLEANUP_TODO.md`'s former
+  item 3 (`husk export` batch mode) is also done, see the current-state
+  entry above. What's left of Stage 3: per-option
   choice selection for a caller wanting a *specific* character rather
   than a default (today's work only derives model identity, not
   per-choice picks); a model whose FileDataID can't be resolved via
@@ -395,9 +425,16 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   they'll be new entries here. Otherwise unchanged from before:
   `MULTI_TEXTURE_LAYER_TODO.md`'s step 5, `RENDER_QUALITY_TODO.md`'s
   ambiguous-pool tiebreak/blank-render follow-ups, the dangling-internal-
-  reference corpus scan (`CLEANUP_TODO.md` #2), `CLEANUP_TODO.md` #1's
-  comment-hygiene sweep, and `BONE_NAME_DEDUCTION_TODO.md`'s Tier 2
-  (still needs a design pass).
+  reference corpus scan (`CLEANUP_TODO.md`, now item 2), `CLEANUP_TODO.md`
+  item 1's comment-hygiene sweep, and `BONE_NAME_DEDUCTION_TODO.md`'s
+  Tier 2 (still needs a design pass). An explicit foreign-data-robustness
+  gap Luna flagged for this overnight pass, not yet investigated: what
+  husk actually does when `--listfile` is missing/corrupted/points at
+  something unreadable, and whether it recovers (loud warning, fall back
+  to local matching) or fails hard (unrecoverable error) in exactly the
+  cases where each is the right call — `loadListfile` throws on a bad
+  *path* today but the "corrupted mid-file" and "genuinely needed, no
+  fallback exists" cases haven't been audited end to end.
 
 <details>
 <summary>Previous entry (2026-08-16), preserved for context</summary>

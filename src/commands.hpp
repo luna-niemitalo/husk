@@ -89,11 +89,14 @@ struct ExportOptions {
     std::string dbdDirArg;
     std::string charLayoutIdArg;
     std::string customizationChoiceIdsArg;
+    std::string chrModelIdArg;
     std::string creatureDisplayIdArg;
     std::string objectSkinTextureIdArg;
     std::string knowledgeDbArg;
     std::string listfileArg;
     std::string listfileRootArg;
+    std::string fromListArg;
+    std::string outputDirArg;
 };
 
 // Declares every export flag (names, defaults, descriptions, the `--skin

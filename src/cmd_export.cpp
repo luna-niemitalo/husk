@@ -17,6 +17,7 @@
 
 #include "bone.hpp"
 #include "chrcustomization_db2.hpp"
+#include "chrrace_db2.hpp"
 #include "chrmodel_db2.hpp"
 #include "creature_geoset_db2.hpp"
 #include "chunk.hpp"
@@ -677,29 +678,44 @@ void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDi
 // BoneFileDataID that was never in --bones-dir's own BFID-array scan (a
 // real, checkable inconsistency, not assumed impossible) is reported and
 // otherwise ignored, not fabricated.
-void attachCustomizationChoices(const std::string& db2Dir, const std::string& dbdDir,
-                                 const std::string& choiceIdsArg, gltf::Skeleton& skeleton) {
-    if (db2Dir.empty() && dbdDir.empty() && choiceIdsArg.empty()) return;  // feature simply unused
-    if (db2Dir.empty() || dbdDir.empty() || choiceIdsArg.empty()) {
-        std::cerr << "husk: note: --db2-dir/--dbd-dir/--customization-choice-ids must all be given "
-                     "together -- skipping customization-choice extras\n";
-        return;
+// Reverse lookup against an already-loaded --listfile map (FileDataID ->
+// real path): finds `modelPath`'s own real FileDataID by matching its
+// path relative to `listfileRoot` against the listfile's own paths,
+// case-insensitively. A linear scan, not an index -- only run once per
+// export when --chr-model-id auto needs it, not worth the memory of a
+// second, reversed copy of a multi-million-row community listfile for a
+// single lookup. Returns nullopt when --listfile wasn't given, the model
+// isn't under --listfile-root, or no listfile row matches -- all three
+// are "primary path unavailable," not errors, since --chr-model-id auto
+// falls back to filename-based matching when this comes back empty.
+std::optional<uint32_t> findFileDataIdForModelPath(const std::unordered_map<uint32_t, std::string>& listfile,
+                                                     const std::string& modelPath,
+                                                     const std::string& listfileRoot) {
+    if (listfile.empty() || listfileRoot.empty()) return std::nullopt;
+    std::error_code ec;
+    auto rel = std::filesystem::relative(std::filesystem::path(modelPath), listfileRoot, ec);
+    if (ec) return std::nullopt;
+    std::string relPath = rel.generic_string();
+    std::transform(relPath.begin(), relPath.end(), relPath.begin(),
+                    [](unsigned char c) { return std::tolower(c); });
+    for (const auto& [fdid, path] : listfile) {
+        if (path == relPath) return fdid;
     }
+    return std::nullopt;
+}
 
-    std::vector<uint32_t> choiceIds;
-    std::stringstream ss(choiceIdsArg);
-    std::string token;
-    while (std::getline(ss, token, ',')) {
-        try {
-            choiceIds.push_back(static_cast<uint32_t>(std::stoul(token)));
-        } catch (const std::exception&) {
-            std::cerr << "husk: note: --customization-choice-ids entry '" << token
-                      << "' isn't a non-negative integer -- skipping customization-choice extras\n";
-            return;
-        }
+void attachCustomizationChoices(const std::string& db2Dir, const std::string& dbdDir,
+                                 const std::string& choiceIdsArg, const std::string& chrModelIdArg,
+                                 const std::string& modelPath,
+                                 const std::unordered_map<uint32_t, std::string>& listfile,
+                                 const std::string& listfileRoot, gltf::Skeleton& skeleton) {
+    if (db2Dir.empty() && dbdDir.empty() && choiceIdsArg.empty() && chrModelIdArg.empty()) {
+        return;  // feature simply unused
     }
-    if (choiceIds.empty()) {
-        std::cerr << "husk: note: --customization-choice-ids resolved to no real IDs -- skipping\n";
+    if (db2Dir.empty() || dbdDir.empty() || (choiceIdsArg.empty() && chrModelIdArg.empty())) {
+        std::cerr << "husk: note: --db2-dir/--dbd-dir plus one of --customization-choice-ids/"
+                     "--chr-model-id must all be given together -- skipping customization-choice "
+                     "extras\n";
         return;
     }
 
@@ -708,6 +724,106 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
         std::cerr << "husk: note: no customization-choice DB2 data resolved from '" << db2Dir
                   << "' -- skipping\n";
         return;
+    }
+
+    std::vector<uint32_t> choiceIds;
+    if (!choiceIdsArg.empty()) {
+        std::stringstream ss(choiceIdsArg);
+        std::string token;
+        while (std::getline(ss, token, ',')) {
+            try {
+                choiceIds.push_back(static_cast<uint32_t>(std::stoul(token)));
+            } catch (const std::exception&) {
+                std::cerr << "husk: note: --customization-choice-ids entry '" << token
+                          << "' isn't a non-negative integer -- skipping customization-choice extras\n";
+                return;
+            }
+        }
+        if (choiceIds.empty()) {
+            std::cerr << "husk: note: --customization-choice-ids resolved to no real IDs -- skipping\n";
+            return;
+        }
+    } else {
+        uint32_t chrModelId = 0;
+        if (chrModelIdArg == "auto") {
+            std::optional<chrrace::Data> raceData = chrrace::load(db2Dir, dbdDir, std::cerr);
+            if (!raceData) {
+                std::cerr << "husk: note: --chr-model-id auto: no chrraces.db2/chrracexchrmodel.db2/"
+                             "chrmodel.db2/creaturedisplayinfo.db2/creaturemodeldata.db2 data resolved "
+                             "from '"
+                          << db2Dir << "' -- skipping\n";
+                return;
+            }
+
+            // Primary path: the model's own real FileDataID (via --listfile),
+            // resolved through CreatureModelData/CreatureDisplayInfo/ChrModel --
+            // exact file identity, never ambiguous the way race+sex alone can be
+            // (e.g. Dracthyr's dragon form is a real, valid answer to "Dracthyr,
+            // male" too, but not to "this specific FileDataID"). Once this path
+            // finds a real FileDataID match at all, its own answer (including a
+            // reported ambiguity) is trusted over the weaker filename fallback,
+            // not silently overridden by it.
+            std::optional<uint32_t> modelFdid = findFileDataIdForModelPath(listfile, modelPath, listfileRoot);
+            std::optional<uint32_t> derived;
+            if (modelFdid) {
+                derived = chrrace::deriveChrModelIdFromFileDataId(*raceData, *modelFdid, std::cerr);
+                if (derived) {
+                    std::cerr << "husk: note: --chr-model-id auto: derived ChrModelID " << *derived
+                              << " from '" << modelPath << "'s own FileDataID " << *modelFdid
+                              << " (CreatureModelData/CreatureDisplayInfo/ChrModel chain)\n";
+                }
+            }
+
+            // Fallback: filename-based race+sex matching, only when the
+            // primary path never got a real FileDataID to work with at all
+            // (no --listfile, or this path isn't under --listfile-root/in it).
+            if (!derived && !modelFdid) {
+                std::optional<chrrace::ParsedName> parsed = chrrace::parseModelBasename(modelPath);
+                if (!parsed) {
+                    std::cerr << "husk: note: --chr-model-id auto: '" << modelPath
+                              << "''s own filename doesn't end in \"male\"/\"female\" (after an "
+                                 "optional \"_hd\" suffix) -- doesn't match the real character-model "
+                                 "naming convention, skipping\n";
+                    return;
+                }
+                derived = chrrace::deriveChrModelId(*raceData, *parsed, std::cerr);
+                if (derived) {
+                    std::cerr << "husk: note: --chr-model-id auto: derived ChrModelID " << *derived
+                              << " from '" << modelPath << "' (race token '" << parsed->raceToken
+                              << "', sex " << parsed->sex << ") -- filename fallback, no --listfile "
+                                 "match for this model\n";
+                }
+            }
+
+            if (!derived) return;  // chrrace:: functions already reported why
+            chrModelId = *derived;
+        } else {
+            try {
+                chrModelId = static_cast<uint32_t>(std::stoul(chrModelIdArg));
+            } catch (const std::exception&) {
+                std::cerr << "husk: note: --chr-model-id '" << chrModelIdArg
+                          << "' isn't a non-negative integer or 'auto' -- skipping "
+                             "customization-choice extras\n";
+                return;
+            }
+        }
+        choiceIds = chrcustomization::defaultChoiceIdsForModel(*data, chrModelId);
+        if (choiceIds.empty()) {
+            std::cerr << "husk: note: --chr-model-id " << chrModelId
+                      << " resolved no ChrCustomizationOption/Choice rows (chrcustomizationoption.db2/"
+                         "chrcustomizationchoice.db2 not loaded, or no options for this model) -- "
+                         "skipping\n";
+            return;
+        }
+        std::cerr << "husk: note: --chr-model-id " << chrModelId << ": auto-selected " << choiceIds.size()
+                  << " default choice(s) (lowest OrderIndex per option -- husk's own heuristic, not "
+                     "a client-verified default; see --chr-model-id's own help text):\n";
+        for (const auto& nc : chrcustomization::namedChoicesForModel(*data, chrModelId, std::cerr)) {
+            if (std::find(choiceIds.begin(), choiceIds.end(), nc.choiceId) == choiceIds.end()) continue;
+            std::cerr << "husk:   " << nc.optionName << " (option " << nc.optionId << ") -> "
+                      << nc.choiceName << " (choice " << nc.choiceId << ", OrderIndex "
+                      << nc.choiceOrderIndex << ")\n";
+        }
     }
 
     size_t geosetsResolved = 0;
@@ -1120,9 +1236,28 @@ void printExportSummary(const std::string& outputPath, const std::vector<m2::Ver
 // export's flag surface is declared, shared by exportGlb's own real parse
 // and main.cpp's `--print-completion` introspection.
 void addExportOptions(CLI::App& app, ExportOptions& opts) {
-    app.add_option("-i,--input,input", opts.modelPath, "the .m2 file to export")->required();
+    // Not ->required() here even though single-file mode needs it -- --from-list
+    // mode (below) takes its model paths from a file instead, so requiredness is
+    // enforced by hand after parsing (see exportGlb), once it's known which mode
+    // this invocation is actually in.
+    app.add_option("-i,--input,input", opts.modelPath, "the .m2 file to export");
     app.add_option("-o,--output,output", opts.outputPath,
-                    "output .glb path (default: '<model-basename>.glb')");
+                    "output .glb path (default: '<model-basename>.glb') -- mutually exclusive "
+                    "with --from-list, which always writes into --output-dir instead");
+    app.add_option("--from-list", opts.fromListArg,
+                    "batch mode: a plain text file of .m2 paths, one per line (blank lines and "
+                    "'#'-prefixed comment lines skipped) -- exports every one of them with the "
+                    "same options given on this command line, opening --listfile once and reusing "
+                    "it across the whole batch rather than reloading it per file, the same "
+                    "'--from-list <ids-file> <out-dir>' shape casc-tool's own 'extract-batch' has. "
+                    "Requires --output-dir instead of --output; one file failing is reported and "
+                    "skipped, not fatal to the rest of the batch -- see the run's own final "
+                    "'N succeeded, M failed' summary line");
+    app.add_option("--output-dir", opts.outputDirArg,
+                    "directory to write each --from-list entry's .glb into (named "
+                    "'<model-basename>.glb', or '<parent-dir-name>_<model-basename>.glb' if two "
+                    "entries in the same batch share a basename) -- required alongside "
+                    "--from-list, meaningless without it");
     app.add_option("-s,--skin", opts.skinArg,
                     "a .skin path, or 'auto' to resolve via the model's own SFID chunk, falling "
                     "back to a same-basename numbered scan next to the model if that doesn't "
@@ -1207,6 +1342,26 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "any matching --bones-dir correction set with 'selected_by_choice_ids'; "
                     "requires --db2-dir/--dbd-dir too, doesn't filter/apply anything itself, same "
                     "inert-extras treatment as --char-layout-id");
+    app.add_option("--chr-model-id", opts.chrModelIdArg,
+                    "a real ChrModelID (see ChrModel.db2 / `husk db2-export`), or the literal 'auto' "
+                    "to derive one automatically. Two derivation paths, tried in order: (1) primary, "
+                    "if --listfile/--listfile-root resolve this .m2's own real FileDataID -- an exact "
+                    "identity match via CreatureModelData/CreatureDisplayInfo/ChrModel, never "
+                    "ambiguous for a real file (e.g. correctly tells dracthyrmale.m2 apart from "
+                    "dracthyrdragon.m2 even though both are valid 'Dracthyr, male' answers); "
+                    "(2) fallback, only when no FileDataID was found: this .m2's own filename against "
+                    "the real client-side <ClientFileString><\"male\"|\"female\">[_hd].m2 convention "
+                    "(exact, case-insensitive match only, never fuzzy) -- can be genuinely ambiguous "
+                    "when a race+sex has more than one real model (e.g. Dracthyr's dragon form). "
+                    "Either path reports and skips rather than guessing when it can't resolve to "
+                    "exactly one real ChrModelID. Either way, once resolved, auto-selects a "
+                    "*sensible default* customization choice per option: the choice "
+                    "with the lowest real OrderIndex under each ChrCustomizationOption belonging to "
+                    "this model, mirroring the character-creation UI's own first-shown option; NOT a "
+                    "client-verified default the way --creature-display-id's geoset selection is "
+                    "(no DB2 table states an explicit player default), husk's own heuristic instead "
+                    "-- see TODO/TODO_correctness.md #2. Ignored when --customization-choice-ids is "
+                    "also given (an explicit pick always wins); requires --db2-dir/--dbd-dir too");
     app.add_option("--creature-display-id", opts.creatureDisplayIdArg,
                     "a real CreatureDisplayInfoID (see `husk db2-export`) to resolve against "
                     "--db2-dir's creaturedisplayinfogeosetdata.db2 -- attaches that display's real "
@@ -1244,27 +1399,25 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "case where a single directory happens to serve both roles");
 }
 
-int exportGlb(int argc, char** args) {
-    ExportOptions opts;
-    CLI::App app{"husk export: WoW M2 (+ .skin/.skel/.anim sidecars) -> glTF 2.0 (.glb)",
-                 "husk export"};
-    addExportOptions(app, opts);
-
-    try {
-        // App::parse(vector<string>&) processes tokens back-to-front
-        // (mirroring how its (argc, argv) sibling reverses argv before
-        // handing off to the same internal _parse) -- reverse `args` into
-        // that expected order, or every flag's value binds to the wrong
-        // neighbor.
-        std::vector<std::string> argVec(args, args + argc);
-        std::reverse(argVec.begin(), argVec.end());
-        app.parse(argVec);
-    } catch (const CLI::ParseError& e) {
-        return app.exit(e);
-    }
-
-    const std::string& modelPath = opts.modelPath;
-    std::string outputPath = opts.outputPath;
+// The single-model export pipeline, unchanged in substance from the old
+// monolithic exportGlb -- factored out so --from-list (below) can call it
+// once per entry, sharing one already-parsed `opts`/`app` and one
+// already-loaded `listfile` across the whole batch instead of re-parsing
+// argv or re-reading a multi-million-line CSV per file. `modelPath`/
+// `outputPath`/`outputGiven` are passed explicitly rather than read off
+// `opts` directly, since those three are the only fields that vary per
+// batch entry -- everything else (--textures, --db2-dir, ...) applies
+// identically to every file in the batch, same as a real casc-tool
+// `extract-batch` run shares its own storage/listfile handle across every
+// extracted entry.
+// `listfile` is taken by value, not by reference: --knowledge-db (below)
+// adds this one model's own resolved object-skin texture into it, and
+// that addition must not leak into the next model's own export when this
+// runs inside a --from-list batch sharing one loaded listfile.
+int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
+                    const std::string& outputPathIn, bool outputGiven,
+                    std::unordered_map<uint32_t, std::string> listfile) {
+    std::string outputPath = outputPathIn;
     bool skinDirGiven = app.count("--skin-dir") > 0;
     bool lodGiven = !opts.lodArg.empty();
 
@@ -1286,7 +1439,7 @@ int exportGlb(int argc, char** args) {
         return 1;
     }
 
-    if (app.count("--output") == 0) {
+    if (!outputGiven) {
         outputPath = std::filesystem::path(modelPath).replace_extension(".glb").string();
         std::cerr << "husk: note: no output path given -- writing to '" << outputPath << "'\n";
     } else if (std::filesystem::is_directory(outputPath)) {
@@ -1333,18 +1486,13 @@ int exportGlb(int argc, char** args) {
     std::string texturesDir = app.count("--textures") ? opts.texturesArg : modelDirStr;
     if (texturesDir == "none") texturesDir.clear();
 
-    // --listfile: optional, unset by default (empty map, same "skip this
-    // tier entirely" behavior as before this flag existed). Loaded once up
-    // front, not per-batch -- a real community-listfile.csv is millions of
-    // lines; every batch/LOD tier in this export shares the same lookup.
+    // `listfile` itself is a parameter now, not loaded here -- see this
+    // function's own doc comment: exportGlb loads it once, before either
+    // the single-file call or the --from-list loop, never per model.
     // --listfile-root is deliberately its own directory, not texturesDir --
     // see that flag's own help text for why reusing texturesDir would
     // silently break the directory-local matching tried before it.
-    std::unordered_map<uint32_t, std::string> listfile;
     std::string listfileRoot = app.count("--listfile-root") ? opts.listfileRootArg : texturesDir;
-    if (app.count("--listfile")) {
-        listfile = husk::loadListfile(opts.listfileArg);
-    }
 
     // --textures-out: unset (the default) means "no disk copy at all" --
     // unlike --textures/--skin-dir/--bones-dir, there's no directory this
@@ -1392,6 +1540,7 @@ int exportGlb(int argc, char** args) {
     std::string charLayoutIdArg = app.count("--char-layout-id") ? opts.charLayoutIdArg : "";
     std::string customizationChoiceIdsArg =
         app.count("--customization-choice-ids") ? opts.customizationChoiceIdsArg : "";
+    std::string chrModelIdArg = app.count("--chr-model-id") ? opts.chrModelIdArg : "";
     std::string creatureDisplayIdArg =
         app.count("--creature-display-id") ? opts.creatureDisplayIdArg : "";
     uint32_t objectSkinTextureFileDataId = 0;
@@ -1469,7 +1618,8 @@ int exportGlb(int argc, char** args) {
             // Must run after attachBoneCorrections just above -- it only
             // marks/extends already-resolved correction sets, never
             // attaches new '.bone' data of its own.
-            attachCustomizationChoices(db2Dir, dbdDirForChr, customizationChoiceIdsArg, skeleton);
+            attachCustomizationChoices(db2Dir, dbdDirForChr, customizationChoiceIdsArg, chrModelIdArg, modelPath,
+                                        listfile, listfileRoot, skeleton);
             attachCreatureGeosets(db2Dir, dbdDirForChr, creatureDisplayIdArg, skeleton);
             // Needs skeleton.attachments/events already populated (just
             // above), so it can't run inside buildSkeleton itself.
@@ -1528,6 +1678,169 @@ int exportGlb(int argc, char** args) {
         std::cerr << "husk: export failed: " << e.what() << "\n";
         return 1;
     }
+}
+
+// Reads --from-list's plain-text worklist: one .m2 path per line, blank
+// lines and '#'-prefixed comments skipped -- same convention casc-tool's
+// own --from-list uses for its FileDataID worklists. A missing/unreadable
+// --from-list is a direct user mistake (bad path), thrown loudly, same
+// "bad flag value fails fast, a malformed *line* doesn't" split
+// loadListfile already draws for --listfile.
+std::vector<std::string> readModelListFile(const std::string& path) {
+    std::ifstream in(path);
+    if (!in) {
+        throw std::runtime_error("couldn't open --from-list '" + path + "'");
+    }
+    std::vector<std::string> result;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();  // tolerate CRLF-saved copies
+        size_t start = line.find_first_not_of(" \t");
+        if (start == std::string::npos) continue;
+        if (line[start] == '#') continue;
+        size_t end = line.find_last_not_of(" \t");
+        result.push_back(line.substr(start, end - start + 1));
+    }
+    return result;
+}
+
+// Picks each batch entry's output filename: '<model-basename>.glb', or,
+// when that collides with an earlier entry in the same batch (real corpora
+// commonly reuse basenames across expansion/race subdirectories),
+// '<parent-dir-name>_<model-basename>.glb', falling back to a numeric
+// suffix if even that still collides. `usedNames` accumulates across the
+// whole batch so collisions are detected regardless of how far apart the
+// colliding entries are in the list.
+std::string pickBatchOutputName(const std::string& modelPath, size_t indexInBatch,
+                                 std::unordered_map<std::string, int>& usedNames) {
+    std::string stem = std::filesystem::path(modelPath).stem().string();
+    std::string name = stem + ".glb";
+    if (usedNames.find(name) == usedNames.end()) {
+        usedNames.emplace(name, 1);
+        return name;
+    }
+    std::string parentName = std::filesystem::path(modelPath).parent_path().filename().string();
+    std::string disambiguated = parentName.empty() ? (stem + "_" + std::to_string(indexInBatch) + ".glb")
+                                                     : (parentName + "_" + stem + ".glb");
+    if (usedNames.find(disambiguated) == usedNames.end()) {
+        usedNames.emplace(disambiguated, 1);
+        return disambiguated;
+    }
+    disambiguated = stem + "_" + std::to_string(indexInBatch) + ".glb";
+    usedNames.emplace(disambiguated, 1);
+    return disambiguated;
+}
+
+int exportGlb(int argc, char** args) {
+    ExportOptions opts;
+    CLI::App app{"husk export: WoW M2 (+ .skin/.skel/.anim sidecars) -> glTF 2.0 (.glb)",
+                 "husk export"};
+    addExportOptions(app, opts);
+
+    try {
+        // App::parse(vector<string>&) processes tokens back-to-front
+        // (mirroring how its (argc, argv) sibling reverses argv before
+        // handing off to the same internal _parse) -- reverse `args` into
+        // that expected order, or every flag's value binds to the wrong
+        // neighbor.
+        std::vector<std::string> argVec(args, args + argc);
+        std::reverse(argVec.begin(), argVec.end());
+        app.parse(argVec);
+    } catch (const CLI::ParseError& e) {
+        return app.exit(e);
+    }
+
+    bool batchMode = app.count("--from-list") > 0;
+
+    // -i/--input is required in single-file mode, meaningless (and never
+    // required) in --from-list mode -- see addExportOptions' comment for
+    // why this can't just be CLI11's own ->required() on the option.
+    if (!batchMode && opts.modelPath.empty()) {
+        std::cerr << "husk: the following arguments are required: --input,input\n";
+        return 1;
+    }
+    if (batchMode && !opts.modelPath.empty()) {
+        std::cerr << "husk: --input/positional input and --from-list are mutually exclusive -- "
+                     "--from-list supplies every model path itself\n";
+        return 1;
+    }
+    if (batchMode && app.count("--output") > 0) {
+        std::cerr << "husk: --output and --from-list are mutually exclusive -- pass --output-dir "
+                     "instead, --from-list always names its own per-file outputs\n";
+        return 1;
+    }
+    if (batchMode && app.count("--output-dir") == 0) {
+        std::cerr << "husk: --from-list requires --output-dir\n";
+        return 1;
+    }
+    if (!batchMode && app.count("--output-dir") > 0) {
+        std::cerr << "husk: --output-dir only does anything alongside --from-list\n";
+        return 1;
+    }
+
+    // --listfile: optional, unset by default (empty map, same "skip this
+    // tier entirely" behavior as before this flag existed). Loaded once up
+    // front, not per-batch-entry -- a real community-listfile.csv is
+    // millions of lines, and --from-list can drive thousands of exports
+    // from one invocation.
+    std::unordered_map<uint32_t, std::string> listfile;
+    if (app.count("--listfile")) {
+        listfile = husk::loadListfile(opts.listfileArg);
+    }
+
+    if (!batchMode) {
+        return exportOneModel(opts, app, opts.modelPath, opts.outputPath, app.count("--output") > 0, listfile);
+    }
+
+    std::vector<std::string> modelPaths;
+    try {
+        modelPaths = readModelListFile(opts.fromListArg);
+    } catch (const std::exception& e) {
+        std::cerr << "husk: " << e.what() << "\n";
+        return 1;
+    }
+    if (modelPaths.empty()) {
+        std::cerr << "husk: note: --from-list '" << opts.fromListArg << "' has no entries -- nothing to do\n";
+        return 0;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(opts.outputDirArg, ec);
+    if (ec) {
+        std::cerr << "husk: couldn't create --output-dir '" << opts.outputDirArg << "': " << ec.message() << "\n";
+        return 1;
+    }
+
+    std::unordered_map<std::string, int> usedNames;
+    size_t succeeded = 0;
+    size_t failed = 0;
+    for (size_t i = 0; i < modelPaths.size(); ++i) {
+        const std::string& modelPath = modelPaths[i];
+        std::string outName = pickBatchOutputName(modelPath, i, usedNames);
+        std::string outputPath = (std::filesystem::path(opts.outputDirArg) / outName).string();
+
+        std::cerr << "husk: [" << (i + 1) << "/" << modelPaths.size() << "] " << modelPath << " -> "
+                  << outputPath << "\n";
+        // Deliberately not fatal: a single bad file in a multi-thousand-entry
+        // worklist shouldn't abort hours of unrelated corpus work -- each
+        // entry's own real error is already printed by exportOneModel itself
+        // (or, for anything thrown before it gets that far, caught here).
+        int rc = 1;
+        try {
+            rc = exportOneModel(opts, app, modelPath, outputPath, /*outputGiven=*/true, listfile);
+        } catch (const std::exception& e) {
+            std::cerr << "husk: export failed: " << e.what() << "\n";
+        }
+        if (rc == 0) {
+            ++succeeded;
+        } else {
+            ++failed;
+        }
+    }
+
+    std::cerr << "husk: batch export done: " << succeeded << " succeeded, " << failed << " failed (of "
+              << modelPaths.size() << ")\n";
+    return failed > 0 ? 1 : 0;
 }
 
 }  // namespace husk::commands

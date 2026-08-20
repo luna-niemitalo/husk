@@ -14,6 +14,84 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-20 (overnight batch-export pass) — `husk export --from-list`/
+`--output-dir`, plus committing the previous entry's own uncommitted
+work.** Autonomous overnight `/loop` session (Luna asleep): picked up
+`TODO/README.md`'s suggested-order list. First found the entire previous
+2026-08-20 session's worth of work (`ChrCustomizationOption`/`_Choice`
+name data, `--chr-model-id auto`, `chrrace_db2`) sitting uncommitted in
+the working tree — full test suite already green per that session's own
+narrative, just never `git commit`ed. Committed it as-is (no code
+changes) before starting new work, so it wasn't lost or silently bundled
+into an unrelated diff.
+
+New work: `TODO/CLEANUP_TODO.md`'s former item 3, `husk export` batch
+mode. `--from-list <file> --output-dir <dir>` exports every `.m2` path
+listed in `<file>` (one per line, blank/`#`-comment lines skipped),
+mirroring `casc-tool`'s own `extract-batch --from-list <ids-file>
+<out-dir>` shape and answering the same "opens storage/loads shared
+resources once, not per file" need — `tools/export_hd_characters.nu`/
+`render_sample_driver.py` each solved this externally by looping `husk
+export` themselves; this solves it in-process instead. Refactored the old
+monolithic `exportGlb` into `exportOneModel` (the real per-model
+pipeline, `modelPath`/`outputPath`/`outputGiven` now parameters instead
+of read off `opts` directly) plus a thin `exportGlb` that either calls it
+once (single-file mode, unchanged behavior) or loops it over `--from-list`
+(batch mode) — `--listfile` is loaded exactly once either way, addressing
+the exact per-call cost `loadListfile`'s own doc comment already flagged
+for `render_sample_driver.py`'s 130k-call driver loop (the map is passed
+by *value* into `exportOneModel`, not by reference, since `--knowledge-db`
+mutates it with one model's own resolved texture and that must not leak
+into the next model in a batch). One bad entry is reported (its own real
+error message) and skipped, not fatal to the rest of the batch — a real
+worklist can be thousands of entries, and one truncated/missing file
+shouldn't cost the rest of an overnight run — with a final `N succeeded,
+M failed` summary line and a nonzero exit code whenever any entry failed.
+Output-name collisions (two entries sharing a basename — common across
+race/expansion subdirectories in a real corpus) fall back to
+`<parent-dir-name>_<basename>.glb`, then a numeric suffix, rather than one
+entry silently overwriting another. `-i`/`--input`'s CLI11 `->required()`
+had to move to a manual post-parse check (`--from-list` supplies model
+paths itself, so `--input` can't be unconditionally required anymore).
+
+Verified: manually against real `test_data/` fixtures (3-entry batch with
+shared `--listfile`, all three mutual-exclusion error paths, one-bad-
+file-among-good-ones both aborts-nothing and reports correctly, exit code
+reflects partial failure) before writing automated coverage. 5 new
+CLI-tier tests, `tests/test_cli_batch.cpp` (real subprocess spawns via
+`run_husk.hpp`, same convention as every other `test_cli_*.cpp` split):
+multi-entry batch + comment/blank-line skipping, one-bad-entry-doesn't-
+abort-the-batch, basename-collision disambiguation, `--output`/`--input`
+mutual-exclusion errors, empty-worklist no-op. `README.md` (new batch-mode
+prose + flag table rows), `TODO/CLEANUP_TODO.md` (item 3 removed, item 4
+renumbered), completions (regenerated via `--print-completion`, never
+hand-edited) all updated. Full suite green, 651/651.
+
+Two commits: the previous session's backlog (`ChrCustomizationOption`
+name data + `--chr-model-id auto`) landed separately from this session's
+batch-export work, kept apart since `git diff --stat` showed a clean
+file-level boundary between them (only `src/cmd_export.cpp`/
+`src/commands.hpp` mixed both — those two files' worth of diff landed in
+the batch-export commit, which is honest about carrying both the
+`--chr-model-id` CLI wiring and the new batch flags).
+
+**Still open, flagged by Luna for this overnight pass specifically, not
+yet investigated**: what husk actually does under corrupted/foreign-data
+conditions it hasn't been deliberately tested against before — a missing
+`--listfile`, one that's present but corrupted/truncated, or an export
+that structurally *needs* listfile/DB2 data to proceed correctly. The
+worked example Luna gave: primary resolution path fails/unavailable →
+warn loudly and fall back to a still-correct secondary path when one
+exists (recoverable) → but throw a real, unrecoverable error rather than
+silently emitting wrong output when no fallback can produce a *correct*
+answer. `loadListfile` already throws on a bad *path* (file doesn't open)
+but a truncated/malformed CSV *content* case, and which of husk's own
+DB2/listfile-dependent features have no fallback at all, haven't been
+audited against this framing yet — next session's actual next step,
+ahead of `KNOWLEDGE_BASE_DESIGN.md`'s full-corpus-render follow-up.
+
+---
+
 **2026-08-20 (final) — the Dracthyr "ambiguity" from the previous entry
 was husk's own bug, not real caution; fixed with a second, more precise
 FileDataID-based derivation path.** Luna: "the dracthyr folder has 3

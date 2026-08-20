@@ -127,16 +127,7 @@ listfile name, not truly absent (the remaining 0.1% -- 79 real
 FileDataIDs -- is exactly the kind of number this new scan would want to
 reproduce and generalize, not just cite from memory).
 
-## 3. `husk export` has no batch/directory mode
-
-Every call exports exactly one `.m2`. Every multi-file job (corpus scans,
-`tools/full_render.py`, this session's HD-character-roster export) works
-around it externally with its own driver loop instead. Worth a real
-`--input-dir`/glob mode in `cmd_export.cpp` if these loops keep getting
-reinvented — until then, `tools/export_hd_characters.nu` is the pattern to
-copy, not `bash` one-liners.
-
-## 4. `--skin auto` loses its numbered-scan fallback when `--lod` is given explicitly
+## 3. `--skin auto` loses its numbered-scan fallback when `--lod` is given explicitly
 
 Found 2026-08-19 exporting the HD character roster: `--skin auto` with no
 `--lod` (`resolveSkin`, `export_skin_resolution.cpp`) tries the SFID-named

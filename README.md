@@ -516,6 +516,24 @@ Flags:
 | `--creature-display-id <id>` | -- | A real `CreatureDisplayInfoID` (see `husk db2-export`) -- resolves that display's real *default* geoset selection (unlike `--customization-choice-ids`, no per-choice input needed) to `creature_enabled_geosets` skin extras via `CreatureDisplayInfoGeosetData`; husk can't derive which display ID applies to a given `.m2` on its own | unset |
 | `--listfile <path>` | -- | A local `community-listfile.csv`-style snapshot (`FileDataID;path` per line, github.com/wowdev/wow-listfile) -- last-resort FileDataID -> real-name lookup when `<FileDataID>.{blp,png}` isn't found next to `--textures` | unset (feature off) |
 | `--listfile-root <dir>` | -- | The corpus root `--listfile`'s paths are relative to -- deliberately separate from `--textures` (which stays the model's own directory by default, driving the directory-local matching above); only meaningful alongside `--listfile` | `--textures` itself |
+| `--from-list <file>` | -- | Batch mode: export every `.m2` path listed one per line in `<file>` (blank lines and `#`-comments skipped), reusing this same command line's options -- including one shared `--listfile` load across the whole batch, not one per file. Mutually exclusive with `--input`/`--output`; requires `--output-dir` instead. One entry failing is reported and skipped, not fatal to the rest of the batch (see the run's own final `N succeeded, M failed` summary line and exit code) | unset (single-file mode) |
+| `--output-dir <dir>` | -- | Where `--from-list` writes each entry's `.glb`, named `<model-basename>.glb` (or `<parent-dir-name>_<model-basename>.glb`, then a numeric suffix, if two entries share a basename) -- required alongside `--from-list`, meaningless without it | -- |
+
+**Batch export.** `--from-list`/`--output-dir` mirror `casc-tool`'s own
+`extract-batch --from-list <ids-file> <out-dir>` shape: a plain worklist
+file instead of one `.m2` per invocation, opening/loading shared resources
+(today, just `--listfile`) once for the whole run instead of once per file
+-- the same problem `tools/export_hd_characters.nu`/`render_sample_driver.py`
+each solved externally by looping `husk export` themselves, now solved
+in-process. Every other flag (`--textures`, `--db2-dir`, `--anim`, ...)
+still applies identically to every entry in the batch, exactly as it would
+to a single `husk export` call with that same model. Example:
+
+```sh
+husk export --from-list corpus_worklist.txt --output-dir out/ \
+  --textures /media/luna/data/wow_export --listfile community-listfile.csv \
+  --listfile-root /media/luna/data/wow_export
+```
 
 Texture resolution deliberately tries real-filename matches before
 `<FileDataID>.png`/`.blp`, for every texture slot, not just ones husk can't

@@ -26,6 +26,8 @@ _husk() {
                 '(-h --help)'{-h,--help}'[print help and exit]' \
                 '(-i --input)'{-i,--input}'[the .m2 file to export]:value:_files' \
                 '(-o --output)'{-o,--output}'[output .glb path]:value:_files' \
+                '--from-list[--from-list]:value:_files' \
+                '--output-dir[--output-dir]:value:_files' \
                 '(-s --skin)'{-s,--skin}'[a .skin path, or auto]:value:_husk_skin_value' \
                 '(-t --textures)'{-t,--textures}'[texture directory, or none]:value:_husk_dir_or_none_value' \
                 '--textures-out[directory to also write decoded .png copies to]:value:_husk_dir_value' \
