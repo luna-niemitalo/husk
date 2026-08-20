@@ -48,6 +48,7 @@ struct Element {
     uint32_t choiceId = 0;
     uint32_t geosetId = 0;    // 0 = "no geoset element" (real and common, not an error)
     uint32_t boneSetId = 0;   // 0 = "no boneset element" (real and common, not an error)
+    uint32_t materialId = 0;  // 0 = "no material element" (real and common, not an error)
 };
 
 struct Geoset {
@@ -60,6 +61,19 @@ struct BoneSet {
     uint32_t id = 0;
     uint32_t boneFileDataId = 0;
     uint32_t modelFileDataId = 0;
+};
+
+// One ChrCustomizationMaterial row -- real: ChrModelTextureTargetID<32>
+// TODO/CHAR_TEXTURE_COMPOSITING_TODO.md Stage 3's own material chain
+// (ChrCustomizationOption -> _Choice -> _Element.ChrCustomizationMaterialID
+// -> this table -> MaterialResourcesID -> TextureFileData.db2's real
+// FileDataID, resolved by src/texturefiledata_db2.hpp, deliberately kept
+// out of this reader -- same "data access only" split chrmodel_db2.hpp
+// already draws for its own tables).
+struct Material {
+    uint32_t id = 0;
+    uint32_t chrModelTextureTargetId = 0;
+    uint32_t materialResourcesId = 0;
 };
 
 // One ChrCustomizationOption row -- a player-facing choice category, e.g.
@@ -87,19 +101,21 @@ struct Data {
     std::vector<Element> elements;
     std::vector<Geoset> geosets;
     std::vector<BoneSet> boneSets;
-    std::vector<Option> options;  // empty when chrcustomizationoption.db2 wasn't loadable
-    std::vector<Choice> choices;  // empty when chrcustomizationchoice.db2 wasn't loadable
+    std::vector<Option> options;   // empty when chrcustomizationoption.db2 wasn't loadable
+    std::vector<Choice> choices;   // empty when chrcustomizationchoice.db2 wasn't loadable
+    std::vector<Material> materials;  // empty when chrcustomizationmaterial.db2 wasn't loadable
 };
 
-// Loads all five tables from `db2Dir` (chrcustomizationelement.db2/
+// Loads all six tables from `db2Dir` (chrcustomizationelement.db2/
 // chrcustomizationgeoset.db2/chrcustomizationboneset.db2/
-// chrcustomizationoption.db2/chrcustomizationchoice.db2, real lowercase
-// casc-tool filenames). Returns nullopt only if every table came back
-// empty. Same per-table "missing file/layout leaves that vector empty with
-// a diagnostic, doesn't fail the whole load" behavior as chrmodel::load --
-// `options`/`choices` staying empty (e.g. those two files were never
-// fetched locally) does not block `elements`/`geosets`/`boneSets` from
-// loading, and vice versa.
+// chrcustomizationoption.db2/chrcustomizationchoice.db2/
+// chrcustomizationmaterial.db2, real lowercase casc-tool filenames).
+// Returns nullopt only if every table came back empty. Same per-table
+// "missing file/layout leaves that vector empty with a diagnostic, doesn't
+// fail the whole load" behavior as chrmodel::load -- `options`/`choices`/
+// `materials` staying empty (e.g. those files were never fetched locally)
+// does not block `elements`/`geosets`/`boneSets` from loading, and vice
+// versa.
 std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err);
 
 // Resolves one real ChrCustomizationChoiceID against already-loaded `data`.
@@ -107,9 +123,27 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
 // and common -- most choices carry only one of geoset/boneset/material/...,
 // not all of them) or the referenced target row doesn't exist in `data`
 // (a real dangling reference, reported to `err`, not fabricated).
+// One real ChrCustomizationMaterial a choice resolves to -- `materialResourcesId`
+// is TextureFileData.db2's own join key (src/texturefiledata_db2.hpp), not a
+// FileDataID itself; resolving the final FileDataID is left to the caller,
+// same "data access only" split as the rest of this file.
+struct MaterialResolution {
+    uint32_t chrModelTextureTargetId = 0;
+    uint32_t materialResourcesId = 0;
+};
+
 struct Resolution {
     std::optional<uint32_t> geosetId;        // GeosetType*100+GeosetID, ready to compare against M2SkinSection.skinSectionId
     std::optional<uint32_t> boneFileDataId;  // ready to compare against a resolved --bones-dir CorrectionSet::fileDataId
+    // A choice can carry more than one ChrCustomizationMaterialID-bearing
+    // Element row (real, e.g. a multi-part composite look) -- unlike
+    // geosetId/boneFileDataId (each choice only ever carries at most one
+    // real value, per ChrCustomizationElement's own "only one of
+    // Geoset/SkinnedModel/Material/BoneSet/CondModel is non-0 at a time"
+    // documented exclusivity), so this is a vector even when usually one
+    // entry long. Empty (not an error) when this choice has no material
+    // element at all.
+    std::vector<MaterialResolution> materials;
 };
 Resolution resolveChoice(const Data& data, uint32_t choiceId, std::ostream& err);
 

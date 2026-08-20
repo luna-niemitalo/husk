@@ -77,9 +77,17 @@ struct SkeletonEmission {
     // multi-root node, if any.
     std::vector<tinygltf::Node> anchorNodes;
 };
+// `images`/`textures` receive one entry each for every Skeleton::
+// CompositedTexture, same "real, otherwise-unreferenced glTF images/
+// textures entries" pattern gltf_mesh.cpp's own AlternateTextureCandidate
+// handling uses -- must be passed in (not model-local) since emitMeshNode
+// (gltf_mesh.cpp) appends its own entries to the same shared, model-wide
+// lists afterward.
 SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton, size_t meshCount,
                                       tinygltf::Buffer& buffer, std::vector<tinygltf::BufferView>& views,
-                                      std::vector<tinygltf::Accessor>& accessors);
+                                      std::vector<tinygltf::Accessor>& accessors,
+                                      std::vector<tinygltf::Image>& images,
+                                      std::vector<tinygltf::Texture>& textures);
 
 // One glTF animation per husk::gltf::Animation -- see Animation's doc
 // comment for the sequence_metadata extras this attaches. Appends sampler

@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "../src/blp.hpp"
 #include "run_husk.hpp"
 #include "test_cli_fixtures.hpp"
 #include "test_cli_fixtures_scenes.hpp"
@@ -790,6 +791,130 @@ TEST_CASE("husk export --chr-model-id auto: the FileDataID chain (via --listfile
     std::ifstream glb(glbPath, std::ios::binary);
     std::string bytes((std::istreambuf_iterator<char>(glb)), std::istreambuf_iterator<char>());
     CHECK(bytes.find("\"geoset_id\":205") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export --customization-choice-ids + --char-layout-id + --textures: the full real "
+          "material chain (ChrCustomizationMaterial -> TextureFileData -> a real texture file -> "
+          "ChrModelTextureLayer/CharComponentTextureSections) resolves end to end into real "
+          "chr_enabled_materials and chr_composited_textures extras -- TODO/"
+          "CHAR_TEXTURE_COMPOSITING_TODO.md Stages 3+4") {
+    auto dir = defaultsDir("chrcustmaterial");
+    writeFile(dir / "chrcustmaterial.m2", tinyValidM2());
+    writeFile(dir / "chrcustmaterial00.skin", tinyMatchingSkin());
+    writeFile(dir / "chrcustmaterial.skel", boneCorrectionSkel());
+
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::path texturesDir = dir / "textures";
+    fs::create_directories(db2Dir);
+    fs::create_directories(dbdDir / "definitions");
+    fs::create_directories(texturesDir);
+
+    writeTextFile(dbdDir / "manifest.json",
+                  "[\n"
+                  "  {\"tableName\": \"ChrCustomizationElement\", \"tableHash\": \"c0000001\"},\n"
+                  "  {\"tableName\": \"ChrCustomizationMaterial\", \"tableHash\": \"c0000004\"},\n"
+                  "  {\"tableName\": \"TextureFileData\", \"tableHash\": \"c0000005\"},\n"
+                  "  {\"tableName\": \"ChrModelMaterial\", \"tableHash\": \"c0000006\"},\n"
+                  "  {\"tableName\": \"CharComponentTextureLayouts\", \"tableHash\": \"c0000007\"},\n"
+                  "  {\"tableName\": \"ChrModelTextureLayer\", \"tableHash\": \"c0000008\"},\n"
+                  "  {\"tableName\": \"CharComponentTextureSections\", \"tableHash\": \"c0000009\"}\n"
+                  "]\n");
+    writeTextFile(dbdDir / "definitions" / "ChrCustomizationElement.dbd",
+                  "COLUMNS\nint ID\nint ChrCustomizationChoiceID\n"
+                  "int<ChrCustomizationGeoset::ID> ChrCustomizationGeosetID\n"
+                  "int<ChrCustomizationBoneSet::ID> ChrCustomizationBoneSetID\n"
+                  "int<ChrCustomizationMaterial::ID> ChrCustomizationMaterialID\n\n"
+                  "LAYOUT d0000001\nBUILD 1.0.0.1\n"
+                  "$id$ID<32>\nChrCustomizationChoiceID<32>\nChrCustomizationGeosetID<32>\n"
+                  "ChrCustomizationBoneSetID<32>\nChrCustomizationMaterialID<32>\n");
+    writeTextFile(dbdDir / "definitions" / "ChrCustomizationMaterial.dbd",
+                  "COLUMNS\nint ID\nint ChrModelTextureTargetID\n"
+                  "int<TextureFileData::MaterialResourcesID> MaterialResourcesID\n\n"
+                  "LAYOUT d0000004\nBUILD 1.0.0.1\n"
+                  "$id$ID<32>\nChrModelTextureTargetID<32>\nMaterialResourcesID<32>\n");
+    writeTextFile(dbdDir / "definitions" / "TextureFileData.dbd",
+                  "COLUMNS\nint<FileData::ID> FileDataID\nint MaterialResourcesID\nint UsageType\n\n"
+                  "LAYOUT d0000005\nBUILD 1.0.0.1\n"
+                  "$id$FileDataID<32>\nMaterialResourcesID<32>\nUsageType<32>\n");
+    writeTextFile(dbdDir / "definitions" / "ChrModelMaterial.dbd",
+                  "COLUMNS\nint ID\n"
+                  "int<CharComponentTextureLayouts::ID> CharComponentTextureLayoutsID\n"
+                  "int TextureType\nint Width\nint Height\nint Flags\n\n"
+                  "LAYOUT d0000006\nBUILD 1.0.0.1\n$id$ID<32>\n"
+                  "CharComponentTextureLayoutsID<32>\nTextureType<32>\nWidth<32>\nHeight<32>\nFlags<32>\n");
+    writeTextFile(dbdDir / "definitions" / "CharComponentTextureLayouts.dbd",
+                  "COLUMNS\nint ID\nint Width\nint Height\n\n"
+                  "LAYOUT d0000007\nBUILD 1.0.0.1\n$id$ID<32>\nWidth<32>\nHeight<32>\n");
+    writeTextFile(dbdDir / "definitions" / "ChrModelTextureLayer.dbd",
+                  "COLUMNS\nint ID\n"
+                  "int<CharComponentTextureLayouts::ID> CharComponentTextureLayoutsID\n"
+                  "int TextureType\nint Layer\nint Flags\nint BlendMode\n"
+                  "int TextureSectionTypeBitMask\nint ChrModelTextureTargetID\n\n"
+                  "LAYOUT d0000008\nBUILD 1.0.0.1\n$id$ID<32>\n"
+                  "CharComponentTextureLayoutsID<32>\nTextureType<32>\nLayer<32>\nFlags<32>\n"
+                  "BlendMode<32>\nTextureSectionTypeBitMask<32>\nChrModelTextureTargetID<32>\n");
+    writeTextFile(dbdDir / "definitions" / "CharComponentTextureSections.dbd",
+                  "COLUMNS\nint ID\n"
+                  "int<CharComponentTextureLayouts::ID> CharComponentTextureLayoutID\n"
+                  "int SectionType\nint X\nint Y\nint Width\nint Height\nint OverlapSectionMask\n\n"
+                  "LAYOUT d0000009\nBUILD 1.0.0.1\n$id$ID<32>\n"
+                  "CharComponentTextureLayoutID<32>\nSectionType<32>\nX<32>\nY<32>\nWidth<32>\nHeight<32>\n"
+                  "OverlapSectionMask<32>\n");
+
+    // Choice 99 owns one Element row carrying ChrCustomizationMaterialID 5
+    // (no geoset/boneset -- this test is only about the material chain).
+    writeFile(db2Dir / "chrcustomizationelement.db2",
+              buildFlatDb2(0xc0000001, 0xd0000001, {{1, 99, 0, 0, 5}}));
+    // Material 5 targets ChrModelTextureTargetID 7, real MaterialResourcesID 777.
+    writeFile(db2Dir / "chrcustomizationmaterial.db2",
+              buildFlatDb2(0xc0000004, 0xd0000004, {{5, 7, 777}}));
+    // TextureFileData: MaterialResourcesID 777 -> real FileDataID 888, UsageType 0
+    // (the base-skin row this reader keeps -- see texturefiledata_db2.hpp).
+    writeFile(db2Dir / "texturefiledata.db2", buildFlatDb2(0xc0000005, 0xd0000005, {{888, 777, 0}}));
+    // Stage 2: layout 42, one 4x4 TextureType-1 base atlas.
+    writeFile(db2Dir / "chrmodelmaterial.db2", buildFlatDb2(0xc0000006, 0xd0000006, {{1, 42, 1, 4, 4, 0}}));
+    writeFile(db2Dir / "charcomponenttexturelayouts.db2",
+              buildFlatDb2(0xc0000007, 0xd0000007, {{42, 4, 4}}));
+    // ChrModelTextureLayer: layout 42, TextureType 1, BlendMode 1 (Blit),
+    // TextureSectionTypeBitMask bit 0 (-> SectionType 0), ChrModelTextureTargetID 7
+    // (matching ChrCustomizationMaterial's own target above).
+    writeFile(db2Dir / "chrmodeltexturelayer.db2",
+              buildFlatDb2(0xc0000008, 0xd0000008, {{1, 42, 1, 0, 0, 1, 0b1, 7}}));
+    // CharComponentTextureSections: layout 42, SectionType 0, the whole 4x4 rect.
+    writeFile(db2Dir / "charcomponenttexturesections.db2",
+              buildFlatDb2(0xc0000009, 0xd0000009, {{1, 42, 0, 0, 0, 4, 4, 0}}));
+
+    // A real, small solid-color PNG at the resolved FileDataID -- husk's
+    // own blp::encodePng, not hand-rolled bytes (matches how this codebase
+    // builds every other real-PNG-bytes fixture).
+    husk::blp::Image srcImg;
+    srcImg.width = 1;
+    srcImg.height = 1;
+    srcImg.rgba = {10, 20, 30, 255};
+    writeFile(texturesDir / "888.png", husk::blp::encodePng(srcImg));
+
+    auto result = runHusk("export " + (dir / "chrcustmaterial.m2").string() + " --db2-dir " + db2Dir.string() +
+                           " --dbd-dir " + dbdDir.string() + " --char-layout-id 42 "
+                           "--customization-choice-ids 99 --textures " + texturesDir.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("1 real material selection(s)") != std::string::npos);
+    CHECK(result.output.find("composited 1 texture(s)") != std::string::npos);
+
+    fs::path glbPath = dir / "chrcustmaterial.glb";
+    REQUIRE(fs::exists(glbPath));
+    std::ifstream glb(glbPath, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(glb)), std::istreambuf_iterator<char>());
+    CHECK(bytes.find("chr_enabled_materials") != std::string::npos);
+    CHECK(bytes.find("\"choice_id\":99") != std::string::npos);
+    CHECK(bytes.find("\"chr_model_texture_target_id\":7") != std::string::npos);
+    CHECK(bytes.find("\"material_resources_id\":777") != std::string::npos);
+    CHECK(bytes.find("\"file_data_id\":888") != std::string::npos);
+    CHECK(bytes.find("chr_composited_textures") != std::string::npos);
+    CHECK(bytes.find("\"texture_type\":1") != std::string::npos);
+    CHECK(bytes.find("\"texture_index\"") != std::string::npos);
 
     fs::remove_all(dir);
 }

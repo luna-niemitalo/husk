@@ -73,6 +73,20 @@ struct ChrModelTextureLayer {
     uint32_t flags = 0;
     uint32_t blendMode = 0;
     uint32_t textureSectionTypeBitMask = 0;
+    // Real, current-layout field: ChrModelTextureTargetID<32>[2] -- an
+    // array (see reference/wow.export's own DBCharacterCustomization.js,
+    // `chr_model_texture_layer_row.ChrModelTextureTargetID[0]`, the real
+    // client join key). Only the first element is real/used by the client
+    // for this join; db2table::readNamedColumns already decodes an inline
+    // array field's first element for any scalar-style named-column
+    // request, so no new array-reading machinery was needed to expose it
+    // here. This is the join key ChrCustomizationMaterial.
+    // ChrModelTextureTargetID (chrcustomization_db2.hpp) matches against --
+    // NOT textureType, which is a separate real field used to join against
+    // ChrModelMaterial for base-atlas sizing instead. 0 on layouts that
+    // predate this field (real, older builds; see chrmodel_db2.cpp's
+    // loader for the fallback).
+    uint32_t chrModelTextureTargetId = 0;
 };
 
 struct CharComponentTextureLayout {

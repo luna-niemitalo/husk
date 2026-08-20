@@ -237,3 +237,23 @@ TEST_CASE("blp::encodePng: round-trips through stb_image_write without throwing"
     CHECK(png[2] == 'N');
     CHECK(png[3] == 'G');
 }
+
+TEST_CASE("blp::decodePng: round-trips real pixels through encodePng -> decodePng exactly -- "
+          "TODO/CHAR_TEXTURE_COMPOSITING_TODO.md Stage 4's first real PNG pixel-decode consumer") {
+    husk::blp::Image img;
+    img.width = 3;
+    img.height = 2;
+    img.rgba = {255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 0,
+                10,  20, 30, 40,  50, 60, 70, 80,  90, 100, 110, 255};
+    auto png = husk::blp::encodePng(img);
+    auto decoded = husk::blp::decodePng(png);
+    CHECK(decoded.width == img.width);
+    CHECK(decoded.height == img.height);
+    REQUIRE(decoded.rgba.size() == img.rgba.size());
+    CHECK(decoded.rgba == img.rgba);
+}
+
+TEST_CASE("blp::decodePng: garbage bytes throw ParseError, not a crash") {
+    std::vector<uint8_t> garbage = {1, 2, 3, 4, 5};
+    CHECK_THROWS_AS(husk::blp::decodePng(garbage), husk::blp::ParseError);
+}

@@ -77,6 +77,8 @@ add_library(husk-lib STATIC
   src/db2table.cpp
   src/chrmodel_db2.cpp
   src/chrcustomization_db2.cpp
+  src/texturefiledata_db2.cpp
+  src/char_composite.cpp
   src/creature_geoset_db2.cpp
   src/chrrace_db2.cpp
   src/cmd_db2.cpp
@@ -129,6 +131,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_bone.cpp
     tests/test_phys.cpp
     tests/test_blp.cpp
+    tests/test_char_composite.cpp
     tests/test_db2.cpp
     tests/test_dbd.cpp
     tests/test_listfile.cpp

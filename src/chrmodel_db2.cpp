@@ -62,12 +62,12 @@ std::vector<ChrModelTextureLayer> loadTextureLayers(const std::string& db2Dir, c
     auto rows = db2table::readNamedColumns(
         joinPath(db2Dir, "chrmodeltexturelayer.db2"), dbdDir,
         {"ID", "CharComponentTextureLayoutsID", "TextureType", "Layer", "Flags", "BlendMode",
-         "TextureSectionTypeBitMask"},
+         "TextureSectionTypeBitMask", "ChrModelTextureTargetID"},
         err);
     if (!rows) return result;
     for (const auto& row : *rows) {
         result.push_back({orZero(row[0]), orZero(row[1]), orZero(row[2]), orZero(row[3]), orZero(row[4]),
-                           orZero(row[5]), orZero(row[6])});
+                           orZero(row[5]), orZero(row[6]), orZero(row[7])});
     }
     return result;
 }

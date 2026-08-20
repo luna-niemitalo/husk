@@ -116,6 +116,49 @@ struct Skeleton {
     };
     std::vector<EnabledGeoset> enabledGeosets;
 
+    // Real texture-material selections resolved from caller-supplied
+    // ChrCustomizationChoiceIDs (same source as EnabledGeoset above,
+    // src/chrcustomization_db2.hpp's Resolution::materials) -- the other
+    // half of TODO/CHAR_TEXTURE_COMPOSITING_TODO.md Stage 3, the material
+    // chain rather than the geoset chain. `fileDataId` is 0 when
+    // TextureFileData.db2 (src/texturefiledata_db2.hpp) didn't resolve this
+    // choice's own MaterialResourcesID -- a real, reportable gap (see
+    // cmd_export.cpp's attachCustomizationChoices), not fabricated. Same
+    // inert-extras treatment as EnabledGeoset: husk does not composite or
+    // apply any of this on its own -- see CompositedTexture below for the
+    // one thing that *does* consume these, still only as an opt-in,
+    // never-auto-applied extra.
+    struct EnabledMaterial {
+        uint32_t choiceId = 0;
+        uint32_t chrModelTextureTargetId = 0;
+        uint32_t materialResourcesId = 0;
+        uint32_t fileDataId = 0;  // 0 = TextureFileData.db2 didn't resolve this MaterialResourcesID
+    };
+    std::vector<EnabledMaterial> enabledMaterials;
+
+    // Real, composited character-texture atlas images (TODO/
+    // CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 4) -- one per real
+    // ChrModelMaterial::TextureType actually covered by a resolved
+    // EnabledMaterial, built by char_composite.hpp from real per-layer
+    // placement/blend data (CharTextureLayout::sections/textureLayers
+    // above) and real decoded pixels (--textures-resolved
+    // EnabledMaterial::fileDataId). Same "inert extras, never auto-applied
+    // to any primitive's own baseColorImagePng" policy as everything else
+    // in this struct -- `textureIndex` points at a real, otherwise-
+    // unreferenced glTF `images`/`textures` entry (same established
+    // pattern gltf_mesh.hpp's own AlternateTextureCandidate::imagePng
+    // uses), for a human/Blender script to pick up, not something
+    // writeGlbMulti wires into any material slot itself.
+    struct CompositedTexture {
+        uint32_t textureType = 0;
+        uint32_t width = 0;
+        uint32_t height = 0;
+        std::vector<uint8_t> imagePng;  // real composited pixels, PNG-encoded -- consumed by
+                                         // writeGlbMulti to build the images/textures entry
+                                         // below, cleared once that's done (see gltf_skeleton.cpp)
+    };
+    std::vector<CompositedTexture> compositedTextures;
+
     // Real default geoset selections resolved from a caller-supplied
     // CreatureDisplayInfoID (`husk export --creature-display-id`,
     // src/creature_geoset_db2.hpp) -- same inert-extras treatment as

@@ -397,37 +397,69 @@ opt-in sidecar. A human/Blender script can cross-reference the attached
 `sections`/`texture_layers` against `alternate_textures` by hand; husk
 itself does not attempt that link.
 
-### Stage 3 — the customization choice chain
+### Stage 3 — the customization choice chain (material half: done)
 
 `ChrModelTextureLayer` links a `TextureType`/`Layer` to a `SectionType` +
 `BlendMode`, but *which* real file fills a given layer for a specific
 character is a separate, longer chain:
 `ChrCustomizationOption` (the player-facing choice, e.g. "Skin Color") →
 `ChrCustomizationChoice` (one selectable value of that option) →
-`ChrCustomizationMaterial` (the FileDataID that choice actually uses,
-keyed by `ChrModelTextureTargetID`) — real DB2 tables, all present locally
-per the file list above. husk has no concept of "a chosen character" today
-(it processes one `.m2` + a texture directory, not a player's saved
-choices) — this stage needs real design work: a new CLI input describing
-which choice ID to use per option (or a sensible default/first-choice
-fallback with a loud note, mirroring how `--textures` fuzzy-matching
-already handles real ambiguity honestly rather than silently).
+`ChrCustomizationElement.ChrCustomizationMaterialID` →
+`ChrCustomizationMaterial` (`ChrModelTextureTargetID` + `MaterialResourcesID`)
+→ `TextureFileData.db2` (`MaterialResourcesID` → real texture `FileDataID`,
+`UsageType == 0` rows only) — now implemented end to end
+(`src/chrcustomization_db2.hpp`'s `Resolution::materials`,
+`src/texturefiledata_db2.hpp`, wired into `husk export`'s existing
+`--customization-choice-ids`/`--chr-model-id` chain, no new CLI flag
+needed). Real, resolved `(choiceId, chrModelTextureTargetId,
+materialResourcesId, fileDataId)` tuples attach as inert
+`chr_enabled_materials` skin extras (`gltf::Skeleton::EnabledMaterial`),
+same "husk resolves, never applies" policy as `chr_enabled_geosets`.
+Verified end to end (`tests/test_cli_chrcustomization.cpp`'s "the full real
+material chain" test): a real `ChrCustomizationChoiceID` resolves through
+every hop to a real `FileDataID`, matched against an actual texture file
+under `--textures`.
 
-### Stage 4 — real pixel compositing
+What's still open, deliberately not solved here: per-choice selection for
+a caller wanting a *specific* named choice per option (today's
+`--customization-choice-ids`/`--chr-model-id` chain already covers this --
+explicit IDs, or a lowest-`OrderIndex` default heuristic -- this stage
+needed no further CLI design work once that existed).
 
-Once Stage 2+3 resolve a real ordered list of (file, placement rect,
-blend mode) per compositing slot (`M2Texture::type` 1/8, per
-`candidateCategoryTypes`' own doc comment in `src/export_texture_resolution.cpp`),
-actually blit/blend each patch onto a base canvas sized from
-`ChrModelMaterial`. `CharMaterialRenderer.js:345-372` enumerates the real
-client's blend-mode branches (several are simple alpha/additive/multiply
-cases; check that file directly for the full list and don't guess at
-one husk hasn't seen) — needs a real software compositor (husk has no
-GPU-shader dependency today and shouldn't gain one for this), operating
-on the same decoded RGBA buffers `blp.hpp`/PNG decoding already produce.
-Output: one real composited PNG per compositing slot, replacing today's
-"one arbitrary/best-guess candidate" `baseColorImagePng` with the actual
-correct look.
+### Stage 4 — real pixel compositing (done)
+
+Once Stage 2+3 resolve a real ordered list of (file, placement rect, blend
+mode) per compositing slot, `src/char_composite.hpp`/`.cpp` blits/blends
+each patch onto a base canvas sized from `ChrModelMaterial`, real per-pixel
+blend math transcribed directly from `reference/wow.export/src/shaders/
+char.fragment.shader` + `CharMaterialRenderer.js`'s own outer GL blendFunc
+switch (BlendMode 0/1 blit, 4 multiply, 6 overlay, 7 screen, 9 alpha
+straight, 15 infer-alpha-blend; any other real BlendMode is refused and
+reported, not guessed at -- the real client's own fallback for those is a
+solid magenta debug square, not something worth reproducing as real
+output). A software compositor, not a GPU shader (husk has no GPU-shader
+dependency and doesn't gain one for this), operating on real decoded RGBA
+buffers -- `src/blp.hpp` gained its first real PNG *pixel* decode
+(`blp::decodePng`, `stbi_load_from_memory`, already linked in via
+tinygltf's own vendored stb_image.h, no new dependency) since every prior
+consumer of "PNG bytes" in this codebase treated them as an opaque blob to
+re-embed as-is.
+
+Output: one composited PNG per real `ChrModelMaterial::TextureType`
+covered by a resolved `EnabledMaterial`, attached as
+`gltf::Skeleton::CompositedTexture` -- same "inert extras, never
+auto-applied to any primitive's own material" policy as every other stage
+in this file, but the image itself is real, otherwise-unreferenced glTF
+`images`/`textures` entries (`chr_composited_textures` extras carrying a
+`texture_index`), the same established pattern
+`gltf_mesh.hpp`'s own `AlternateTextureCandidate` already uses -- **not**
+wired into replacing any primitive's `baseColorImagePng` automatically
+(matching a composited atlas back to the specific primitive(s) that should
+render it needs a `TextureType` → `M2Texture::type` mapping this session
+didn't chase down; a human/Blender script has everything needed to do that
+match by hand). Verified end to end, real blend math unit-tested
+(`tests/test_char_composite.cpp`) and the full DB2-to-pixels chain CLI-tested
+(`tests/test_cli_chrcustomization.cpp`).
 
 ### Stage 5 (stretch) — Blender-side picker tooling
 

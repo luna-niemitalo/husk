@@ -14,6 +14,86 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-20 (character-texture compositing, Stages 3 material chain + 4
+pixel compositing) — `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` Stages 1-4
+are now all done.** Picked up per Luna's own framing that per-choice
+selection is "pointless without" real Stage 4 compositing, so both landed
+in one pass. Stage 3's material half: `chrcustomization_db2.hpp`'s
+`Element`/`Resolution` gained `materialId`/`materials` (a choice can carry
+several real `ChrCustomizationMaterialID`-bearing Element rows, same
+"scan every row, don't stop at the first" discipline the existing
+geoset/boneset code already established), a new `Material` struct/loader
+for `chrcustomizationmaterial.db2`, and a new `src/texturefiledata_db2.hpp`/
+`.cpp` resolving `TextureFileData.db2`'s `MaterialResourcesID -> FileDataID`
+join (`UsageType == 0` rows only, a real filter confirmed against
+`reference/wow.export`'s own `DBCharacterCustomization.js`). Wired into
+the existing `--customization-choice-ids`/`--chr-model-id` chain in
+`cmd_export.cpp` (no new CLI flag) as `chr_enabled_materials` skin extras.
+`chrmodel_db2.hpp`'s `ChrModelTextureLayer` gained
+`chrModelTextureTargetId` (the real join key against
+`ChrCustomizationMaterial.ChrModelTextureTargetID` — a genuinely different
+field from `TextureType`, confirmed against real local
+`chrmodeltexturelayer.db2` bytes, `db2-info` showed the current real
+layout stores it as an array field `[2]`; `db2table::readNamedColumns`
+already decodes an inline array field's first element for a scalar-style
+request, so no new array-reading machinery was needed).
+
+Stage 4: new `src/char_composite.hpp`/`.cpp`, a real software pixel
+compositor -- per-pixel blend math transcribed directly from
+`reference/wow.export/src/shaders/char.fragment.shader` +
+`CharMaterialRenderer.js`'s own outer GL blendFunc switch (BlendMode 0/1
+blit-overwrite, 4 multiply, 6 overlay, 7 screen, 9 alpha-straight with its
+own real alpha-channel accumulation formula distinct from 15's, 15
+infer-alpha-blend; any other real BlendMode -- 2,3,5,8,10-14 -- is refused
+and reported, never guessed at, since the real client's own fallback for
+those is a solid magenta debug square). Nearest-neighbor resampling
+matches the real client's own `TEXTURE_MIN_FILTER: NEAREST` for the layer
+texture. `src/blp.hpp` gained its first real PNG *pixel* decode
+(`blp::decodePng`, `stbi_load_from_memory` via the same already-linked
+tinygltf-vendored stb_image.h `encodePng` already uses, extern-declared
+the same way `blp.cpp` already does for the write side -- no new
+dependency) since every prior consumer of "PNG bytes" in this codebase
+treated them as an opaque blob to re-embed as-is, never actual pixels.
+`cmd_export.cpp`'s new `attachCompositedTextures` joins
+`EnabledMaterial.chrModelTextureTargetId` against
+`ChrModelTextureLayer`/`CharComponentTextureSections` (via the layout ID
+already resolved by `--char-layout-id`) to get each material's real
+placement rect + blend mode, decodes its texture via `resolveTextureBytes`
++ the new `blp::decodePng`, and composites one atlas per real
+`ChrModelMaterial::TextureType`. Output attaches as
+`gltf::Skeleton::CompositedTexture` -> `chr_composited_textures` skin
+extras, with the composited PNG becoming a real, otherwise-unreferenced
+glTF `images`/`textures` entry (`texture_index`) -- same established
+"inert extras, real embedded image, never auto-applied to any material"
+pattern `alternate_textures` already uses. Required threading
+`images`/`textures` into `emitSkeletonAndSkin` (`gltf_skeleton_internal.hpp`/
+`.cpp`) and moving their declaration earlier in `gltf.cpp`'s
+`writeGlbMulti` so both the skeleton-emission phase and the per-mesh
+phase share the same model-wide lists. Deliberately **not** wired into
+replacing any primitive's own `baseColorImagePng` -- matching a
+composited atlas back to the specific primitive(s) that should render it
+needs a `TextureType -> M2Texture::type` mapping this session didn't
+chase down; a human/Blender script has everything it needs to do that
+match by hand, same "husk resolves and attaches, never applies" policy
+every other DB2-derived extras feature in this codebase already follows.
+
+Verified end to end: new unit tests (`tests/test_char_composite.cpp`,
+every blend formula checked against the transcribed real math; `blp.cpp`'s
+`decodePng` round-tripped exactly through `encodePng` in
+`tests/test_blp.cpp`) and a new full-chain CLI test
+(`tests/test_cli_chrcustomization.cpp`) exercising every real hop --
+`ChrCustomizationElement` -> `_Material` -> `TextureFileData` -> a real
+texture file under `--textures` -> `ChrModelTextureLayer`/
+`CharComponentTextureSections` -> a real composited pixel -- passed on
+the first real run against the full synthetic DB2/DBD fixture chain.
+`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`/`TODO/README.md`/`README.md`
+updated; `TODO/COMBINER_HUNT_EXTENSIONS_TODO.md`'s own separate 2026-08-20
+entry (dual-crossfade scalar search + Illum constant-output tier, an
+unrelated same-day session) is a different piece of work, not folded in
+here. Full suite green, 663/663.
+
+---
+
 **2026-08-20 (overnight batch-export pass, foreign-data follow-up) —
 a corrupted/empty `--listfile` now warns loudly instead of silently
 degrading.** Same autonomous overnight `/loop` session, next item off

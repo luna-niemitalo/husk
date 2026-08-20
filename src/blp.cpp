@@ -19,6 +19,13 @@
 // dependency, no second implementation.
 extern "C" unsigned char* stbi_write_png_to_mem(const unsigned char* pixels, int stride_bytes,
                                                  int x, int y, int n, int* out_len);
+// Same already-linked-in-libtinygltf.a story as stbi_write_png_to_mem above,
+// this time stb_image.h's read side (tinygltf needs to decode embedded/
+// external glTF images itself, so STB_IMAGE_IMPLEMENTATION is already
+// compiled in) -- decodePng's own doc comment has the rest.
+extern "C" unsigned char* stbi_load_from_memory(const unsigned char* buffer, int len, int* x, int* y,
+                                                 int* channels_in_file, int desired_channels);
+extern "C" void stbi_image_free(void* retval_from_stbi_load);
 
 namespace husk::blp {
 
@@ -410,6 +417,23 @@ std::vector<uint8_t> encodePng(const Image& img) {
     std::vector<uint8_t> out(png, png + len);
     std::free(png);  // stb_image_write's default allocator (STBIW_MALLOC/FREE unset -> malloc/free)
     return out;
+}
+
+Image decodePng(const std::vector<uint8_t>& fileBytes) {
+    int width = 0, height = 0, channels = 0;
+    unsigned char* pixels =
+        stbi_load_from_memory(fileBytes.data(), static_cast<int>(fileBytes.size()), &width, &height,
+                               &channels, /*desired_channels=*/4);
+    if (!pixels) {
+        throw ParseError("stbi_load_from_memory failed to decode " + std::to_string(fileBytes.size()) +
+                          " byte(s) as a PNG");
+    }
+    Image img;
+    img.width = static_cast<uint32_t>(width);
+    img.height = static_cast<uint32_t>(height);
+    img.rgba.assign(pixels, pixels + static_cast<size_t>(width) * height * 4);
+    stbi_image_free(pixels);
+    return img;
 }
 
 }  // namespace husk::blp

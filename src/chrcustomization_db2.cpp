@@ -18,10 +18,12 @@ std::vector<Element> loadElements(const std::string& db2Dir, const std::string& 
     std::vector<Element> result;
     auto rows = db2table::readNamedColumns(
         joinPath(db2Dir, "chrcustomizationelement.db2"), dbdDir,
-        {"ChrCustomizationChoiceID", "ChrCustomizationGeosetID", "ChrCustomizationBoneSetID"}, err);
+        {"ChrCustomizationChoiceID", "ChrCustomizationGeosetID", "ChrCustomizationBoneSetID",
+         "ChrCustomizationMaterialID"},
+        err);
     if (!rows) return result;
     for (const auto& row : *rows) {
-        result.push_back({orZero(row[0]), orZero(row[1]), orZero(row[2])});
+        result.push_back({orZero(row[0]), orZero(row[1]), orZero(row[2]), orZero(row[3])});
     }
     return result;
 }
@@ -63,6 +65,17 @@ std::vector<Option> loadOptions(const std::string& db2Dir, const std::string& db
     return result;
 }
 
+std::vector<Material> loadMaterials(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
+    std::vector<Material> result;
+    auto rows = db2table::readNamedColumns(joinPath(db2Dir, "chrcustomizationmaterial.db2"), dbdDir,
+                                            {"ID", "ChrModelTextureTargetID", "MaterialResourcesID"}, err);
+    if (!rows) return result;
+    for (const auto& row : *rows) {
+        result.push_back({orZero(row[0]), orZero(row[1]), orZero(row[2])});
+    }
+    return result;
+}
+
 std::vector<Choice> loadChoices(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
     std::vector<Choice> result;
     auto intRows = db2table::readNamedColumns(joinPath(db2Dir, "chrcustomizationchoice.db2"), dbdDir,
@@ -87,8 +100,9 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     data.boneSets = loadBoneSets(db2Dir, dbdDir, err);
     data.options = loadOptions(db2Dir, dbdDir, err);
     data.choices = loadChoices(db2Dir, dbdDir, err);
+    data.materials = loadMaterials(db2Dir, dbdDir, err);
     if (data.elements.empty() && data.geosets.empty() && data.boneSets.empty() && data.options.empty() &&
-        data.choices.empty()) {
+        data.choices.empty() && data.materials.empty()) {
         return std::nullopt;
     }
     return data;
@@ -111,12 +125,14 @@ Resolution resolveChoice(const Data& data, uint32_t choiceId, std::ostream& err)
     // reference/wow.export's own per-field `.set()` loop over every row.
     uint32_t geosetElementId = 0;
     uint32_t boneSetElementId = 0;
+    std::vector<uint32_t> materialElementIds;
     bool anyRow = false;
     for (const auto& e : data.elements) {
         if (e.choiceId != choiceId) continue;
         anyRow = true;
         if (e.geosetId != 0) geosetElementId = e.geosetId;
         if (e.boneSetId != 0) boneSetElementId = e.boneSetId;
+        if (e.materialId != 0) materialElementIds.push_back(e.materialId);
     }
     if (!anyRow) {
         err << "husk: note: ChrCustomizationChoiceID " << choiceId
@@ -151,6 +167,21 @@ Resolution resolveChoice(const Data& data, uint32_t choiceId, std::ostream& err)
         if (!found) {
             err << "husk: note: ChrCustomizationChoiceID " << choiceId << "'s ChrCustomizationBoneSetID "
                 << boneSetElementId << " matched no row in ChrCustomizationBoneSet -- dangling reference\n";
+        }
+    }
+
+    for (uint32_t materialElementId : materialElementIds) {
+        bool found = false;
+        for (const auto& m : data.materials) {
+            if (m.id == materialElementId) {
+                result.materials.push_back({m.chrModelTextureTargetId, m.materialResourcesId});
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            err << "husk: note: ChrCustomizationChoiceID " << choiceId << "'s ChrCustomizationMaterialID "
+                << materialElementId << " matched no row in ChrCustomizationMaterial -- dangling reference\n";
         }
     }
 

@@ -15,7 +15,9 @@
 #include <CLI/CLI.hpp>
 #include <sqlite3.h>
 
+#include "blp.hpp"
 #include "bone.hpp"
+#include "char_composite.hpp"
 #include "chrcustomization_db2.hpp"
 #include "chrrace_db2.hpp"
 #include "chrmodel_db2.hpp"
@@ -26,6 +28,7 @@
 #include "export_materials.hpp"
 #include "export_skeleton.hpp"
 #include "export_skin_resolution.hpp"
+#include "export_texture_resolution.hpp"
 #include "export_transform.hpp"
 #include "gltf.hpp"
 #include "listfile.hpp"
@@ -33,6 +36,7 @@
 #include "phys.hpp"
 #include "skel.hpp"
 #include "skin.hpp"
+#include "texturefiledata_db2.hpp"
 
 // Roadmap stages 1-5 (see README.md): stage 1 resolves an M2's vertex array
 // plus a .skin file's two-level triangle-index lookup (see src/skin.hpp)
@@ -826,8 +830,18 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
         }
     }
 
+    // Loaded once, unconditionally -- cheap relative to the DB2 reads
+    // already done above, and materialsResolved below needs it for every
+    // choice that carries a real ChrCustomizationMaterialID. A missing/
+    // empty texturefiledata.db2 isn't fatal: TextureFileData::load
+    // returning nullopt just means every material below reports
+    // fileDataId 0 (unresolved), same "real, reportable gap, not
+    // fabricated" policy as everywhere else here.
+    std::optional<texturefiledata::Data> tfdData = texturefiledata::load(db2Dir, dbdDir, std::cerr);
+
     size_t geosetsResolved = 0;
     size_t boneSetsMatched = 0;
+    size_t materialsResolved = 0;
     for (uint32_t choiceId : choiceIds) {
         chrcustomization::Resolution resolution = chrcustomization::resolveChoice(*data, choiceId, std::cerr);
         if (resolution.geosetId) {
@@ -852,10 +866,157 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
                              "--bones-dir correction sets -- not marked\n";
             }
         }
+        for (const auto& matRes : resolution.materials) {
+            uint32_t fileDataId = 0;
+            if (tfdData) {
+                auto it = tfdData->find(matRes.materialResourcesId);
+                if (it != tfdData->end()) fileDataId = it->second;
+            }
+            if (fileDataId == 0) {
+                std::cerr << "husk: note: ChrCustomizationChoiceID " << choiceId
+                          << " resolves to MaterialResourcesID " << matRes.materialResourcesId
+                          << ", but texturefiledata.db2 didn't resolve a real FileDataID for it -- "
+                             "attaching with file_data_id 0\n";
+            }
+            skeleton.enabledMaterials.push_back(
+                {choiceId, matRes.chrModelTextureTargetId, matRes.materialResourcesId, fileDataId});
+            ++materialsResolved;
+        }
     }
     std::cerr << "husk: note: resolved " << choiceIds.size() << " customization choice ID(s): "
               << geosetsResolved << " real geoset selection(s), " << boneSetsMatched
-              << " matched bone-correction-set selection(s)\n";
+              << " matched bone-correction-set selection(s), " << materialsResolved
+              << " real material selection(s)\n";
+}
+
+// --db2-dir/--dbd-dir/--char-layout-id/--customization-choice-ids (or
+// --chr-model-id) plus --textures: TODO/CHAR_TEXTURE_COMPOSITING_TODO.md's
+// Stage 4, real pixel compositing (src/char_composite.hpp). Runs after both
+// attachCharTextureLayout (Stage 2's real placement/blend-mode geometry,
+// skeleton.charTextureLayout) and attachCustomizationChoices (Stage 3's
+// real resolved per-choice materials, skeleton.enabledMaterials) --
+// requires both to have actually attached something, plus a real --textures
+// directory to read decoded pixels from; a no-op (not an error) when any
+// prerequisite is missing, same "opt-in, layered on top of the stage
+// before it" pattern as attachCreatureGeosets below.
+//
+// For each resolved EnabledMaterial: joins its own chrModelTextureTargetId
+// against this layout's ChrModelTextureLayer rows (real join key -- see
+// chrmodel_db2.hpp's ChrModelTextureLayer::chrModelTextureTargetId doc
+// comment for why this isn't TextureType) to find its real BlendMode and
+// TextureSectionTypeBitMask, then that bitmask against
+// CharComponentTextureSections' own SectionType to find the real placement
+// rect. Reads the material's own resolved FileDataID via --textures
+// (resolveTextureBytes, same helper every other texture candidate in this
+// codebase uses -- .png tried first, then .blp decoded, both already
+// re-encoded to PNG bytes by the time this function sees them) and decodes
+// real pixels via blp::decodePng -- the first real PNG *pixel* decode this
+// codebase has needed (every other consumer of "PNG bytes" here treats them
+// as an opaque blob to re-embed as-is).
+void attachCompositedTextures(const std::string& db2Dir, const std::string& dbdDir,
+                               const std::string& texturesDir, const std::string& texturesOutDir,
+                               gltf::Skeleton& skeleton) {
+    if (!skeleton.charTextureLayout || skeleton.enabledMaterials.empty() || texturesDir.empty()) {
+        return;  // one or more Stage 2/3/--textures prerequisites missing -- feature simply unused
+    }
+
+    std::optional<chrmodel::Data> data = chrmodel::load(db2Dir, dbdDir, std::cerr);
+    if (!data) {
+        std::cerr << "husk: note: char_composite: no ChrModelTextureLayer/CharComponentTextureSections "
+                     "DB2 data resolved from '"
+                  << db2Dir << "' -- skipping\n";
+        return;
+    }
+
+    uint32_t layoutId = skeleton.charTextureLayout->layoutId;
+    std::unordered_map<uint32_t, std::vector<char_composite::Layer>> layersByTextureType;
+    size_t skippedNoFile = 0, skippedNoLayer = 0, skippedNoSection = 0, skippedNoBytes = 0;
+
+    for (const auto& mat : skeleton.enabledMaterials) {
+        if (mat.fileDataId == 0) {
+            ++skippedNoFile;
+            continue;
+        }
+
+        const chrmodel::ChrModelTextureLayer* layer = nullptr;
+        for (const auto& t : data->textureLayers) {
+            if (t.charComponentTextureLayoutsId == layoutId &&
+                t.chrModelTextureTargetId == mat.chrModelTextureTargetId) {
+                layer = &t;
+                break;
+            }
+        }
+        if (!layer) {
+            ++skippedNoLayer;
+            continue;
+        }
+
+        const chrmodel::CharComponentTextureSection* section = nullptr;
+        for (const auto& s : data->sections) {
+            if (s.charComponentTextureLayoutId != layoutId) continue;
+            if ((layer->textureSectionTypeBitMask & (1u << s.sectionType)) != 0) {
+                section = &s;
+                break;
+            }
+        }
+        if (!section) {
+            ++skippedNoSection;
+            continue;
+        }
+
+        auto bytes = resolveTextureBytes(std::filesystem::path(texturesDir) / std::to_string(mat.fileDataId),
+                                          texturesDir, texturesOutDir);
+        if (!bytes) {
+            ++skippedNoBytes;
+            continue;
+        }
+        blp::Image img;
+        try {
+            img = blp::decodePng(*bytes);
+        } catch (const std::exception& e) {
+            std::cerr << "husk: note: char_composite: FileDataID " << mat.fileDataId
+                      << "'s texture bytes failed to decode as PNG: " << e.what() << " -- skipping\n";
+            continue;
+        }
+
+        char_composite::Layer clayer;
+        clayer.targetId = mat.chrModelTextureTargetId;
+        clayer.image = std::move(img);
+        clayer.x = section->x;
+        clayer.y = section->y;
+        clayer.width = section->width;
+        clayer.height = section->height;
+        clayer.blendMode = layer->blendMode;
+        layersByTextureType[layer->textureType].push_back(std::move(clayer));
+    }
+
+    for (auto& [textureType, layers] : layersByTextureType) {
+        uint32_t width = 0, height = 0;
+        for (const auto& m : skeleton.charTextureLayout->materials) {
+            if (m.textureType == textureType) {
+                width = m.width;
+                height = m.height;
+                break;
+            }
+        }
+        if (width == 0 || height == 0) {
+            std::cerr << "husk: note: char_composite: no ChrModelMaterial base atlas size for TextureType "
+                      << textureType << " -- skipping " << layers.size() << " layer(s)\n";
+            continue;
+        }
+        blp::Image canvas = char_composite::composite(std::move(layers), width, height, std::cerr);
+        gltf::Skeleton::CompositedTexture ct;
+        ct.textureType = textureType;
+        ct.width = canvas.width;
+        ct.height = canvas.height;
+        ct.imagePng = blp::encodePng(canvas);
+        skeleton.compositedTextures.push_back(std::move(ct));
+    }
+
+    std::cerr << "husk: note: char_composite: composited " << skeleton.compositedTextures.size()
+              << " texture(s) (" << skippedNoFile << " unresolved FileDataID, " << skippedNoLayer
+              << " no matching texture-layer, " << skippedNoSection << " no matching section, "
+              << skippedNoBytes << " texture file not found under --textures)\n";
 }
 
 // --db2-dir/--dbd-dir/--creature-display-id: resolves a real
@@ -1620,6 +1781,10 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             // attaches new '.bone' data of its own.
             attachCustomizationChoices(db2Dir, dbdDirForChr, customizationChoiceIdsArg, chrModelIdArg, modelPath,
                                         listfile, listfileRoot, skeleton);
+            // Must run after both attachCharTextureLayout and
+            // attachCustomizationChoices just above -- Stage 4 needs both
+            // stages' own extras already attached.
+            attachCompositedTextures(db2Dir, dbdDirForChr, texturesDir, texturesOutDir, skeleton);
             attachCreatureGeosets(db2Dir, dbdDirForChr, creatureDisplayIdArg, skeleton);
             // Needs skeleton.attachments/events already populated (just
             // above), so it can't run inside buildSkeleton itself.

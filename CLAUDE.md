@@ -176,7 +176,31 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-20, overnight batch-export pass)**: Also
+- **Current state (2026-08-20, character-texture compositing)**:
+  `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stages 3 (the
+  `ChrCustomizationMaterial → TextureFileData` FileDataID chain) and 4
+  (real software pixel compositing, `src/char_composite.hpp`, real blend
+  math transcribed from `reference/wow.export`'s own char shader/renderer)
+  are now both done, per Luna's framing that per-choice selection was
+  "pointless without" real compositing to follow it. Wired into the
+  existing `--customization-choice-ids`/`--chr-model-id`/`--char-layout-id`/
+  `--textures` flags (no new CLI surface) as new `chr_enabled_materials`/
+  `chr_composited_textures` skin extras — the composited image becomes a
+  real, otherwise-unreferenced glTF `images`/`textures` entry, same
+  established pattern `alternate_textures` already uses. `src/blp.hpp`
+  gained its first real PNG *pixel* decode (`blp::decodePng`) since every
+  prior consumer of "PNG bytes" here treated them as an opaque blob.
+  Deliberately not wired into replacing any primitive's own material —
+  matching a composited atlas back to the primitive(s) that should render
+  it needs a `TextureType -> M2Texture::type` mapping not chased down this
+  pass; a human/Blender script has everything it needs to do that by hand.
+  Verified end to end: new blend-math unit tests
+  (`tests/test_char_composite.cpp`), a `decodePng`/`encodePng` round-trip
+  test, and a full-chain CLI test exercising every real hop from a
+  `ChrCustomizationChoiceID` down to a real composited pixel — passed on
+  the first real run. Full suite green, 663/663. Full narrative:
+  `CLAUDE_HISTORY.md`'s 2026-08-20 entry.
+- **Previous state (2026-08-20, overnight batch-export pass)**: Also
   committed this pass: the previous entry below's uncommitted
   `ChrCustomizationOption`/`--chr-model-id auto` work (it had sat
   unstaged in the working tree since it was written) — no code changes,
@@ -422,18 +446,17 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   path). Real fixture data now lives in the repo:
   `test_data/db2/chrcustomization{option,choice,category}.db2`.
 - **Next step**: `TODO/TODO_correctness.md` #2's name-mapping/default-
-  choice work, and `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 3's
-  "which character" identity problem, are both done
-  (`--chr-model-id auto`, FileDataID chain primary + filename fallback —
-  the FileDataID path resolves what used to look like alternate-form
-  ambiguity, e.g. Dracthyr, cleanly). `TODO/CLEANUP_TODO.md`'s former
-  item 3 (`husk export` batch mode) is also done, see the current-state
-  entry above. What's left of Stage 3: per-option
-  choice selection for a caller wanting a *specific* character rather
-  than a default (today's work only derives model identity, not
-  per-choice picks); a model whose FileDataID can't be resolved via
-  --listfile and whose filename doesn't follow the naming convention
-  still needs an explicit `--chr-model-id <id>`. The manual visual pass over the 22
+  choice work, and `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stages 1-4
+  in full (model identity, real placement geometry, the real material
+  FileDataID chain, and real pixel compositing) are all now done — see
+  the current-state entry above for Stages 3/4. `TODO/CLEANUP_TODO.md`'s
+  former item 3 (`husk export` batch mode) is also done. What's left of
+  `CHAR_TEXTURE_COMPOSITING_TODO.md`: Stage 5 (Blender-side picker
+  tooling, reading the new `chr_composited_textures` extras into a real
+  shader node graph) and Stage 6 (equipped-gear appearance resolution via
+  `ItemModifiedAppearanceID`), neither started; a model whose FileDataID
+  can't be resolved via --listfile and whose filename doesn't follow the
+  naming convention still needs an explicit `--chr-model-id <id>`. The manual visual pass over the 22
   successfully-exported HD character `.glb`s (deriving sane per-race/
   gender geoset defaults, hunting further player-character bugs) is still
   Luna's own next action, not queued husk work — if it turns up bugs,
