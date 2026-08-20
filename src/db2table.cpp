@@ -139,4 +139,97 @@ std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& pat
     return rows;
 }
 
+std::optional<std::vector<StringColumnValues>> readNamedStringColumns(
+    const std::string& path, const std::string& dbdDir, const std::vector<std::string>& columnNames,
+    std::ostream& err) {
+    if (dbdDir.empty()) {
+        err << "husk: db2table: '" << path << "': --dbd-dir is required to resolve named columns\n";
+        return std::nullopt;
+    }
+
+    db2::File file;
+    std::vector<uint8_t> fileBytes;
+    try {
+        fileBytes = readFileBytes(path);
+        file = db2::parse(fileBytes);
+    } catch (const std::exception& e) {
+        err << "husk: db2table: couldn't read '" << path << "': " << e.what() << "\n";
+        return std::nullopt;
+    }
+
+    std::optional<dbd::Table> dbdTable = dbd::loadTableForHash(dbdDir, file.header.tableHash);
+    if (!dbdTable) {
+        err << "husk: db2table: no matching WoWDBDefs table for '" << path << "' (table_hash=0x"
+            << std::hex << file.header.tableHash << std::dec << ")\n";
+        return std::nullopt;
+    }
+    const dbd::Layout* layout = dbd::findLayout(*dbdTable, file.header.layoutHash);
+    if (!layout) {
+        err << "husk: db2table: no matching WoWDBDefs layout for '" << path << "' (layout_hash=0x"
+            << std::hex << file.header.layoutHash << std::dec << ")\n";
+        return std::nullopt;
+    }
+
+    std::optional<std::vector<dbd::Column>> inlineColumns =
+        dbd::resolveFieldNames(*dbdTable, *layout, file.fieldStorageInfo);
+
+    std::vector<std::optional<size_t>> fieldIndices;
+    for (const std::string& name : columnNames) {
+        std::optional<size_t> found;
+        if (inlineColumns) {
+            for (size_t i = 0; i < inlineColumns->size(); ++i) {
+                if ((*inlineColumns)[i].name == name) {
+                    found = i;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            err << "husk: db2table: '" << path << "': string column '" << name
+                << "' not resolved as an inline field against this file's real layout\n";
+        }
+        fieldIndices.push_back(found);
+    }
+    if (std::all_of(fieldIndices.begin(), fieldIndices.end(),
+                     [](const std::optional<size_t>& f) { return !f.has_value(); })) {
+        return std::nullopt;
+    }
+
+    std::vector<StringColumnValues> rows;
+    for (size_t sectionIndex = 0; sectionIndex < file.sections.size(); ++sectionIndex) {
+        const db2::Section& section = file.sections[sectionIndex];
+        if (!section.recordsAvailable()) continue;
+        if (!section.offsetMap.empty()) continue;
+
+        for (uint32_t r = 0; r < section.header.recordCount; ++r) {
+            StringColumnValues row;
+            row.reserve(fieldIndices.size());
+            for (const std::optional<size_t>& fieldIndex : fieldIndices) {
+                if (!fieldIndex) {
+                    row.push_back(std::nullopt);
+                    continue;
+                }
+                std::vector<uint64_t> values = db2::decodeField(file, section, r, *fieldIndex);
+                bool isScalarNone =
+                    values.size() == 1 && file.fieldStorageInfo[*fieldIndex].storageType == db2::FieldCompression::None;
+                if (!isScalarNone) {
+                    row.push_back(std::nullopt);
+                    continue;
+                }
+                int64_t fieldAbsPos = static_cast<int64_t>(section.header.fileOffset) +
+                                       static_cast<int64_t>(r) * file.header.recordSize +
+                                       file.fieldStructures[*fieldIndex].position +
+                                       db2::stringOffsetSectionCorrection(file, sectionIndex);
+                std::optional<std::string> str;
+                if (fieldAbsPos >= 0) {
+                    str = db2::resolveFieldString(fileBytes, static_cast<size_t>(fieldAbsPos), values[0]);
+                }
+                row.push_back(std::move(str));
+            }
+            rows.push_back(std::move(row));
+        }
+    }
+    return rows;
+}
+
 }  // namespace husk::db2table

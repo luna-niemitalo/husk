@@ -169,9 +169,11 @@ whenever the target table is also part of the same export batch (verified
 end to end against the real `ChrModelMaterial` -> `CharComponentTexture
 Layouts` chain, see `README.md`'s `db2-export` section and
 `CLAUDE_HISTORY.md`). The fuller `ChrCustomizationOption` -> `_Choice` ->
-`_Material` chain this file's own top note calls for is still not
-verifiable the same way -- several of those exact tables are still 0-byte
-in the current local export, a real extraction gap, not a code gap.
+`_Material` chain this file's own top note calls for is now verifiable
+the same way -- `_Option`/`_Choice`/`_Category` were fetched via
+tact-fetch and placed locally 2026-08-20 (see the Update note below);
+`chrcustomization.db2`/`chrcustomizationreq.db2` remain 0-byte and
+unfetched, not yet confirmed needed for this chain.
 Non-inline relationship data (WDC5's alternate `relationship_mapping`
 foreign-key storage, e.g. real `ChrModelTextureLayer`'s own
 `CharComponentTextureLayoutsID` under some layouts) is now folded into
@@ -193,15 +195,8 @@ resolveFieldNames` proves the *name resolution* half works end to end
 against real data, but nothing yet feeds those names into a typed
 `ChrModelMaterial` struct `export_materials.cpp` could consume.
 
-Worth noting for whoever picks up Stage 2 or the relational-schema side
-project: several of the exact tables this plan needs are 0-byte files in
-the current local `casc-tool` export (`chrcustomization.db2`,
-`chrcustomizationcategory.db2`, `chrcustomizationchoice.db2`,
-`chrcustomizationoption.db2`, `chrcustomizationreq.db2` all confirmed
-0 bytes) -- a real extraction gap, not a husk bug, but it blocks Stage 3's
-choice chain specifically until re-extracted.
-
-**Update (2026-08-19): confirmed this is not a re-extraction bug.**
+**Update (2026-08-19): confirmed the 0-byte `_option`/`_choice`/
+`_category` tables were not a re-extraction bug.**
 Tried a real re-extraction of the three name-bearing tables
 (`chrcustomizationoption.db2`/`chrcustomizationchoice.db2`/
 `chrcustomizationcategory.db2`, FileDataIDs 3384247/3450554/3526439) via
@@ -217,10 +212,66 @@ first place. Getting real `Name_lang` choice/option names therefore
 routes through `tact-fetch` (`~/dev/tact-fetch`), the sibling project
 built specifically for "FileDataID exists in the manifest, bytes were
 never downloaded, fetch them from Blizzard's CDN" -- its own README
-confirms this is exactly its intended use case, but also that the actual
-CDN-fetch step isn't implemented yet (a deliberate no-op scaffold as of
-this check). Blocked on that project's own progress, not on husk or on
-casc-tool doing anything differently.
+confirms this is exactly its intended use case.
+
+**Update (2026-08-19/20): unblocked.** tact-fetch's CDN-fetch step is now
+implemented and live-verified (two real bugs found and fixed along the
+way -- silent tail truncation, a locale flag that didn't actually reach
+the fetch handle -- see `tact-fetch/CLAUDE.md`'s Resume). Used it to fetch
+all three files (`--locale enUS`, FileDataIDs 3384247/3450554/3526439);
+placed at `/media/luna/data/wow_export/dbfilesclient/
+chrcustomization{option,choice,category}.db2` (2026-08-20, previously
+0-byte placeholders there). Verified end to end: `husk db2-export
+--dbd-dir reference/WoWDBDefs` reads `chrcustomizationoption.db2` as 1148
+real rows with real `Name_lang` strings ("Skin Color", "Face", "Hair
+Style", ...). Stage 3's choice-chain design work below is no longer
+blocked on external data -- the full customization-choice chain
+(`ChrCustomizationOption`/`_Choice`/`_Category`, plus the already-present
+`_Material`/`_Element`/`_Geoset`/`_SkinnedModel` tables) is now real,
+local, and readable.
+
+**Same-day follow-up: the name-to-geoset-selector mapping half of this is
+now implemented, in `TODO_correctness.md` #2's scope, not this stage's**
+-- `chrcustomization_db2.hpp`'s `namedChoicesForModel`/
+`defaultChoiceIdsForModel` and `husk export --chr-model-id` (a heuristic
+default: lowest-`OrderIndex` choice per option, not a client-verified
+default).
+
+**Second same-day follow-up: Stage 3's own "which character" identity
+problem is now solved for any real character model, not just ones
+following WoW's filename convention.** `--chr-model-id auto`
+(`src/chrrace_db2.hpp`/`.cpp`) has two paths, tried in order: (1) primary
+-- the model's own real FileDataID (resolved via `--listfile`/
+`--listfile-root`), chased through `CreatureModelData.FileDataID ->
+CreatureDisplayInfo.ModelID -> ChrModel.DisplayID` for an exact,
+never-ambiguous-for-a-real-file answer; (2) fallback, only when no
+FileDataID was found -- `ChrRaces.ClientFileString` + a "male"/"female"
+filename suffix, exact case-insensitive match only. Both report and skip
+(never guess) rather than fabricate an answer.
+
+The FileDataID path exists because the filename-only path turned out to
+have a real gap, found by Luna directly: the `character/dracthyr/`
+folder has three files (`dracthyrmale.m2`/`dracthyrfemale.m2`/
+`dracthyrdragon.m2`), and the earlier "ambiguous, 89 or 127" report for
+Dracthyr male was husk's own bug, not real caution -- traced via the
+real `ChrModel.DisplayID -> CreatureDisplayInfo.ModelID ->
+CreatureModelData.FileDataID` chain that `dracthyrmale.m2`'s own
+FileDataID resolves to exactly `ChrModelID` 127, not 89 (the shared
+dragon form); the two were only ambiguous because race+sex alone is a
+broader question than a specific input file answers. Verified against
+all three real Dracthyr files: `dracthyrmale.m2` -> 127,
+`dracthyrfemale.m2` -> 128, `dracthyrdragon.m2` -> 89, each cross-checked
+directly against `chrmodel.db2`/`creaturedisplayinfo.db2`/
+`creaturemodeldata.db2`. The filename-only fallback (no `--listfile`)
+still correctly reports genuine ambiguity when the FileDataID path isn't
+available.
+
+What's still open: per-choice selection for a caller wanting a *specific*
+character rather than a default (this only derives model identity, not
+which hairstyle/skin-tone a specific character has); and a model with no
+real FileDataID resolvable via `--listfile` and a filename that doesn't
+follow the naming convention still needs an explicit `--chr-model-id
+<id>`.
 
 Same class of gap found again independently while investigating `PCOL`'s
 bit-semantics (`WIKI_FINDINGS_HISTORY.md` §18) -- `housedecor.db2` and

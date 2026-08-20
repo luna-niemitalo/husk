@@ -14,6 +14,272 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-20 (final) — the Dracthyr "ambiguity" from the previous entry
+was husk's own bug, not real caution; fixed with a second, more precise
+FileDataID-based derivation path.** Luna: "the dracthyr folder has 3
+files, dracthyrmale dracthyrfemale and dracthyrdragon, i am guessing that
+the dragon one includes both male and female dragon forms as geosets,
+investigate, as it is possible that the correct context is not ambiguous
+after all."
+
+Checked the real local folder first, not assumed: `find ... -ipath
+"*dracthyr*" -iname "*.m2"` confirmed exactly those three files under
+`character/dracthyr/` (no `female`/`male` subdirectory the way BloodElf
+has -- flat, three files at the top level). Ran `husk info` on all three:
+`dracthyrmale.m2`/`dracthyrfemale.m2` have real inline bones (255/205)
+and a gendered `type=1` skin texture; `dracthyrdragon.m2` has zero inline
+bones and needs an external `.skel` (real SKID 4618751) -- three genuinely
+separate model files, not one shared dragon file with male/female
+geosets as Luna's guess suggested. The real disambiguator turned out to
+be identity, not geosets: chased `ChrModel.DisplayID ->
+CreatureDisplayInfo.ModelID -> CreatureModelData.FileDataID` by hand for
+`ChrModelID` 89 and 127 before writing any code -- 89 resolves to
+`character/dracthyr/dracthyrdragon.m2` (`ChrModel.Sex` = 3, a real
+"shared/none" sentinel, matching that the dragon form is available to
+either sex via in-game transformation, not tied to one), 127 resolves to
+`dracthyrmale.m2` (`ChrModel.Sex` = 0), 128 resolves to
+`dracthyrfemale.m2` (`ChrModel.Sex` = 1). So "Dracthyr, male" genuinely
+has two real answers (89 and 127) -- but "the specific file
+`dracthyrmale.m2`" only has one. The previous entry's race+sex-only path
+was asking the broader question, not the wrong one, but it wasn't the
+*most precise* question husk could ask given what it already had.
+
+Presented this finding plus a design fork to Luna before coding: patch
+the race+sex path's own heuristics (narrower, filename-only) vs. add the
+real FileDataID-based chain (broader, matches how texture resolution
+already prefers exact file identity over guessing). Luna picked the
+FileDataID chain, then immediately added a constraint mid-implementation:
+"this should still work without the listfile, so implement the listfile
+as the primary path with fallback onto the name matching" -- confirming
+the two-tier design already in progress rather than changing it.
+
+New `chrrace::deriveChrModelIdFromFileDataId` (`src/chrrace_db2.hpp`/
+`.cpp`): given a real model FileDataID, resolves
+`CreatureModelData.FileDataID -> CreatureDisplayInfo.ModelID ->
+ChrModel.DisplayID`, needing three more small table readers
+(`ChrModelDisplay`/`CreatureDisplay`/`CreatureModel`, same thin
+`db2table`-backed pattern as everything else in this file) -- same
+"collapse to exactly one distinct answer or report and skip" discipline
+as the race+sex path, kept for the (unlikely but not assumed impossible)
+case where even a real FileDataID resolves to more than one ChrModel row.
+New `findFileDataIdForModelPath` in `cmd_export.cpp`: a linear reverse
+scan over the already-loaded `--listfile` map (FileDataID -> path) to
+find the input `.m2`'s own FileDataID by matching its path relative to
+`--listfile-root` -- deliberately not a second indexed copy of a
+multi-million-row community listfile, since this only runs once per
+export. `--chr-model-id auto`'s logic now tries the FileDataID path
+first; the race+sex path from the previous entry only runs as a fallback
+when no FileDataID was found at all (no `--listfile` given, or this path
+isn't under `--listfile-root`) -- once the FileDataID path resolves
+anything, including a genuine ambiguity report from it specifically,
+that's trusted over the weaker fallback, never silently second-guessed.
+
+Verified end to end against all three real Dracthyr files with a real
+`--listfile community-listfile.csv --listfile-root
+/media/luna/data/wow_export`, each cross-checked by hand against
+`chrmodel.db2`/`creaturedisplayinfo.db2`/`creaturemodeldata.db2` before
+trusting the CLI's own output: `dracthyrmale.m2` -> `ChrModelID` 127 (not
+89 -- the previous entry's own worked example, "dracthyrfemale.m2
+derives ChrModelID 89," was itself wrong on the same grounds; the real
+answer is 128), `dracthyrfemale.m2` -> 128, `dracthyrdragon.m2` -> 89.
+Re-ran the no-`--listfile` case too, to confirm the fallback still
+behaves exactly as the previous entry described: `dracthyrmale.m2`
+without `--listfile` still correctly reports the 89/127 ambiguity and
+skips, since that path only ever had race+sex to work with. 1 new
+CLI-tier test, real `ChrModel`/`CreatureDisplayInfo`/`CreatureModelData`
+fixtures via the existing `buildFlatDb2` plus a `--listfile` CSV fixture
+following `tests/test_cli.cpp`'s own established format
+(`"<FDID>;<path>\n"`). Full suite green, 646/646 (up from 645). Corrected
+the previous entry's wrong "dracthyrfemale.m2 -> 89" claim wherever it
+appeared in `README.md`/`TODO/*.md`/`CLAUDE.md`'s own Resume snapshot --
+per this file's own append-only convention, the historical entry below
+is left as originally written, not rewritten.
+
+---
+
+**2026-08-20 (latest) — `--chr-model-id auto`: derive a real ChrModelID
+from the .m2's own filename, closing most of the previous entry's own
+open question.** Prompted directly by Luna pointing out the real workflow
+isn't "I want char 89" -- it's "file dracthyrfemale.m2 -> husk -> glb",
+and the filename already carries everything needed (race + gender) to
+find the ID, if husk could read it.
+
+Confirmed the real WoW naming convention first, against real data already
+in the repo: `test_data/character/bloodelf/female/bloodelffemale_hd.m2`
+-- basename `<race><sex>[_hd]`, matching `ChrRaces.ClientFileString`
+exactly once resolved. Checked what `ClientFileString` for "Dracthyr"
+actually was before assuming it'd be lowercase/spaced differently from
+the path convention -- it wasn't ("Dracthyr", "BloodElf", "Human", all
+matching their path-convention lowercased forms directly, no aliasing
+needed). `chrraces.db2` (the table with this column) was itself a
+genuine 0-byte file locally -- looked up its real FileDataID from the
+local community-listfile (1305311), dry-ran a `tact-fetch` check first
+(confirmed genuinely missing, not already-local), then did the real
+fetch (a real network call, confirmed with Luna first, since this
+project's own global rules always require asking before outbound network
+writes). Verified the fetched bytes were real WDC5 containing real
+strings ("Dracthyr", "Human", "Troll", ...) before placing them, same
+discipline as the previous entry's three files.
+
+New `src/chrrace_db2.hpp`/`.cpp`: `parseModelBasename` (lowercase,
+strip an optional trailing `_hd`, then split on a "female"/"male" suffix
+-- "female" checked first since "male" is a literal substring of it) and
+`deriveChrModelId` (exact case-insensitive match of the parsed race token
+against every real `ChrRaces.ClientFileString`, joined through
+`ChrRaceXChrModel` for the parsed sex). Built to the letter of Luna's own
+instruction: "the filename matching for race + sex should be 1 to 1
+only, not a fuzzy match... if user opens file 'dracthyrfemale' match it
+to a dracthyr female, if the user opens file 'dwagon_biddies_69' that's
+not gonna match dracthyr female no matter how hard you try, best effort
+to help user while preserving correctness."
+
+That "preserving correctness" requirement caught a real wrinkle before it
+became a real bug: naively assumed (race, sex) would always resolve to
+exactly one `ChrModelID`, but a SQL join over the real fetched data
+proved otherwise -- Dracthyr male resolves to two genuinely distinct real
+`ChrModelID`s (89, 127), a real alternate-form case (dragon form vs.
+Visage form), not a data quality issue to paper over. `deriveChrModelId`
+only returns a value when every match collapses to exactly one distinct
+`ChrModelID` across the whole (race, sex) match set -- a genuine
+ambiguity is reported by name (both candidate IDs printed) and left
+unresolved, same "report and skip, never guess" discipline as every DB2
+extras feature in this codebase already has, not a new pattern invented
+for this one case.
+
+Wired into `husk export --chr-model-id`, which now accepts the literal
+value `auto` alongside a real numeric ID -- when given, it runs the
+derivation above and feeds the result into the exact same
+`defaultChoiceIdsForModel` path the previous entry's numeric-ID mode
+already used, so nothing about choice resolution itself changed, only
+how the `ChrModelID` gets there. Verified end to end against real local
+data three separate ways before trusting it: a synthetic
+`dracthyrfemale.m2` derives `ChrModelID` 89 (cross-checked by hand
+against `chrracexchrmodel.db2` first); a synthetic `dracthyrmale.m2`
+correctly reports the 89/127 ambiguity and skips, rather than silently
+picking one; and a *real* character model already in the repo,
+`bloodelffemale_hd.m2`, derives `ChrModelID` 20 -- independently
+verified via SQL (race 10 = BloodElf, sex 1 -> ChrModelID 20) before
+trusting the CLI's own output. A fourth real check, `dwagon_biddies_69.m2`
+(Luna's own example of a filename that shouldn't match), correctly
+produces "doesn't match the real character-model naming convention" and
+skips.
+
+3 new CLI-tier tests in `tests/test_cli_chrcustomization.cpp` (exact
+match, genuine ambiguity, no match at all), needing a new synthetic
+fixture builder (`buildChrRacesDb2`) for `ChrRaces`' real 2-field
+(ID, string) shape -- same "exercise the real `db2::resolveFieldString`
+path, not a mock" convention the previous entry's `buildOptionOrChoiceDb2`
+established. One real bug caught while writing these tests, not shipped:
+two of the three new tests initially failed because `chrcustomization::load`
+returns `nullopt` when every one of its 5 tables comes back empty, and
+these tests deliberately don't populate `ChrCustomizationOption`/`_Choice`
+-- fixed by giving `ChrCustomizationElement` one throwaway row instead of
+leaving all three legacy tables empty, so `load` succeeds and the
+`--chr-model-id auto` logic is actually reached. `README.md`/`TODO/
+TODO_correctness.md`/`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`/`TODO/
+README.md`/`completions/husk.{bash,zsh}` all updated to match. Full suite
+green, 645/645 (up from 642).
+
+---
+
+**2026-08-20 (later) — recovered last session's fetched `ChrCustomization`
+tables, then implemented the real-names-to-geoset-selector mapping and a
+player default-choice heuristic they unblock.** Picked up from a "what's
+next" check that surfaced two stale claims: `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`
+still said Stage 3 was blocked on `tact-fetch`'s CDN-fetch step being
+unimplemented, and `~/dev/tact-fetch/README.md` still said the same thing
+about itself — but `tact-fetch/CLAUDE.md`'s own Resume showed the fetch
+pipeline fully built and live-verified as of 2026-08-19 (two real bugs
+found and fixed that same day: `FetchOneFile` silently truncating an
+encrypted tail block without `CASC_OVERCOME_ENCRYPTED`, and a `--locale`
+override that only touched the wrong CascLib storage handle).
+
+Confirmed the three files it fetched that day (`chrcustomizationoption.db2`/
+`_choice.db2`/`_category.db2`, FileDataIDs 3384247/3450554/3526439) had
+never actually been placed anywhere — `/media/luna/data/wow_export/
+dbfilesclient/` still held genuine 0-byte placeholders for all three.
+Found them by grepping the earlier session's own Claude scratchpad dir
+(`.../c57e9564-.../scratchpad/`), which turned out to hold *several*
+near-duplicate copies from different fetch passes — an `en_*`-prefixed
+pass and an unprefixed pass, both from before the two bugs above were
+fixed, decoded as unreadable garbage; a `final_*`-prefixed pass, fetched
+after both fixes, decoded as real English strings ("Skin Color", "Hair
+Style", "Body", "Face", ...). Verified which was which by content
+(`strings` + grep for known real customization names), not by filename or
+timestamp — the wrong choice would have silently reintroduced the
+pre-fix truncation/locale bugs into husk's own local data. Copied the
+`final_*` versions into `dbfilesclient/`, verified end to end via `husk
+db2-export --dbd-dir reference/WoWDBDefs` (1148 real `ChrCustomizationOption`
+rows, real `Name_lang` strings). Fixed `tact-fetch/README.md`'s stale
+Status section to match its own `CLAUDE.md`.
+
+With the data confirmed real and in place, implemented what it unblocks
+(`TODO/TODO_correctness.md` #2's "enumerate real choices by name or pick
+a default automatically" gap, and the name-mapping half of `TODO/
+CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 3): `chrcustomization_db2.hpp`/
+`.cpp` now loads `ChrCustomizationOption`/`_Choice` alongside the
+existing `_Element`/`_Geoset`/`_BoneSet` tables. Loading `Name_lang`
+required real string resolution, which `db2table.hpp`'s existing
+`readNamedColumns` never supported (scalar ints only, by its own module
+comment) — added a sibling `readNamedStringColumns`, reusing
+`db2::resolveFieldString` and the multi-section offset correction from
+the previous entry below. That correction (`stringOffsetSectionCorrection`)
+was `cmd_db2.cpp`-local, so it got promoted to a real public
+`db2::stringOffsetSectionCorrection` (`db2.hpp`/`.cpp`) first, so both
+readers share one implementation rather than duplicating the formula —
+`cmd_db2.cpp` updated to call the shared version, no behavior change,
+full suite re-verified green before adding anything new on top.
+
+Two new pure functions on top of the loaded data: `namedChoicesForModel`
+(every real Option/Choice name for a `ChrModelID`, paired with what it
+resolves to via the existing `resolveChoice` — "the mapping of names to
+the geoset selector" this session's task asked for) and
+`defaultChoiceIdsForModel` (the lowest-`OrderIndex` choice per option —
+investigated whether a sensible player default is derivable at all before
+implementing it: no DB2 table states an explicit player default the way
+`CreatureDisplayInfoGeosetData` does for creatures, but `OrderIndex`
+matches the character-creation UI's own real display order, confirmed by
+inspecting real Dracthyr data — "Ears" options 0-5 read "Short Fin",
+"Long Fin", "Notched", "Long Spikes", "Wing", "Natural" in exactly that
+order — so OrderIndex-0 is a reasonable heuristic default, documented as
+husk's own heuristic rather than a client-verified fact, both in code
+comments and in `--chr-model-id`'s own `--help` text).
+
+New CLI surface: `husk export --chr-model-id <id>`. Given alongside
+`--db2-dir`/`--dbd-dir` and no explicit `--customization-choice-ids`
+(which always wins if both are given — an explicit pick from the caller
+beats a heuristic), it auto-selects and resolves a default choice per
+option, printing every real `OptionName -> ChoiceName` pair actually used
+so the caller can see what was picked, not just a silent count. Verified
+end to end against real local data: `ChrModelID` 89 (Dracthyr) resolves
+45 default choices across all its real options, 7 with real geoset
+selections (e.g. "Ears -> Short Fin", `OrderIndex` 0) — cross-checked by
+hand against a direct SQL query over the same fetched tables before
+trusting the CLI output.
+
+New CLI-tier tests in `tests/test_cli_chrcustomization.cpp`: a new
+synthetic fixture builder, `buildOptionOrChoiceDb2`, constructs a real
+single-section WDC5 file with a real string table and real computed
+string offsets — exercises the actual `db2::resolveFieldString` code
+path end to end, not a mock, following this project's own "test the real
+thing" convention. Covers the default-selection tie-break (lowest
+`OrderIndex`, not lowest ID or declaration order), the explicit-choice-
+always-wins-over-default precedence, and the "no Option/Choice rows for
+this model" skip path. Regenerated `completions/husk.{bash,zsh}` for the
+new flag. Updated `README.md`, `TODO/README.md`, `TODO/TODO_correctness.md`,
+`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` to match. Full suite green,
+642/642 (up from 641 — 3 new test cases, 79 new assertions in this file
+alone).
+
+Unrelated cleanup done along the way, while tracking down where the
+fetched files had actually gone: found 397 stale Claude session
+scratchpad directories (~4.6 GB) accumulated across all projects under
+`/media/luna/work/cache/tmp/claude-1000/` — nothing prunes these
+automatically once a session ends. Removed all of them except the
+then-current session's own directory, on explicit confirmation.
+
+---
+
 **2026-08-20 — `db2::resolveFieldString`'s multi-section string-offset bug,
 fixed and verified.** Picked up `TODO/TODO_correctness.md` #4 (found and
 deliberately left open the prior session).

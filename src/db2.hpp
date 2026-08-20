@@ -285,6 +285,21 @@ std::vector<std::optional<uint32_t>> nonInlineRelationValuesByRecord(const File&
 std::optional<std::string> resolveFieldString(const std::vector<uint8_t>& fileBytes,
                                                 size_t fieldAbsoluteFilePos, uint64_t rawValue);
 
+// A fixed-width section's real string offsets are relative to a *virtual*
+// blob the client assembles at load time -- every section's record data
+// back to back, then every section's string block back to back (DB2.md's
+// WDC2 "String Block" section) -- not to this section's own real file
+// layout. This is the correction to bridge that gap for `sectionIndex`:
+// subtract every later section's record-data size, add every earlier
+// section's string-block size. A single-section file's real layout already
+// matches the virtual blob (correction == 0), which is why this only shows
+// up as a bug on multi-section files. Verified against real local data
+// (test_data/db2/chrcustomizationcategory.db2, 2 sections): without this
+// correction, row 0's CategoryName_lang decoded as "cessories" (2 bytes
+// into "Accessories", not NUL-preceded -- provably wrong); with it, row 0
+// decodes as "Body", both NUL-preceded and matching the real category list.
+int64_t stringOffsetSectionCorrection(const File& file, size_t sectionIndex);
+
 // One decoded field's value from an offset-map ("sparse") record -- either a
 // raw unsigned array (same shape decodeField would produce) or a resolved
 // inline string, mutually exclusive (a resolved string leaves `raw` empty).

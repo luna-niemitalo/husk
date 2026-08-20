@@ -65,44 +65,6 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
     return bytes;
 }
 
-// A WDC2+ string offset is relative to the field's own position in a
-// *virtual* blob the client assembles at load time: every section's record
-// data back to back, followed by every section's string block back to back
-// (DB2.md's "String Block" section, WDC2 subsection -- verified against
-// real multi-section data below). A single-section file's record data and
-// string block are already contiguous in the real file exactly as in that
-// virtual blob, so `fieldAbsPos + rawValue` (this file's original formula)
-// lands correctly with no correction needed -- but a file with more than
-// one section needs the gap between "this section's own string block" and
-// "the virtual blob's string region" bridged explicitly:
-//   - every section's record data *after* this one is skipped in the real
-//     file layout (it sits between this section's records and this
-//     section's own string block) but not in the virtual blob, so it must
-//     be subtracted back out;
-//   - every section's string block *before* this one is real file content
-//     that sits earlier than this section's own string block, so it must
-//     be added in.
-// Verified against real local data (test_data/db2/chrcustomizationcategory.db2,
-// 2 sections, second one TACT-key-encrypted): without this correction,
-// row 0's CategoryName_lang decoded as "cessories" (2 bytes into
-// "Accessories", not NUL-preceded -- provably wrong); with it, row 0
-// decodes as "Body" and row 1 as "Face", both NUL-preceded and both
-// exactly the sequential real category list TODO/TODO_correctness.md #4
-// was written against.
-int64_t stringOffsetSectionCorrection(const db2::File& file, size_t sectionIndex) {
-    int64_t correction = 0;
-    for (size_t i = 0; i < file.sections.size(); ++i) {
-        const db2::Section& s = file.sections[i];
-        int64_t recordDataSize = s.hasOffsetMap()
-                                      ? static_cast<int64_t>(s.header.offsetRecordsEnd) -
-                                            static_cast<int64_t>(s.header.fileOffset)
-                                      : static_cast<int64_t>(s.header.recordCount) * file.header.recordSize;
-        if (i > sectionIndex) correction -= recordDataSize;
-        if (i < sectionIndex) correction += static_cast<int64_t>(s.header.stringTableSize);
-    }
-    return correction;
-}
-
 // One field's resolved value(s) for one record -- unifies db2::decodeField's
 // raw-array output (fixed-width sections, string resolution via
 // db2::resolveFieldString's string-table heuristic) and
@@ -121,7 +83,7 @@ struct FieldValues {
 // needed). `sectionIndex` is `section`'s own index into `file.sections` --
 // needed by the fixed-width path's string offsets, which are relative to a
 // virtual all-sections blob, not to this file's own bytes directly (see
-// stringOffsetSectionCorrection).
+// db2::stringOffsetSectionCorrection).
 std::vector<FieldValues> decodeRecordValues(const db2::File& file, const db2::Section& section,
                                              size_t sectionIndex, const std::vector<uint8_t>& fileBytes,
                                              size_t recordIndex) {
@@ -144,7 +106,7 @@ std::vector<FieldValues> decodeRecordValues(const db2::File& file, const db2::Se
         if (isScalarNone) {
             int64_t fieldAbsPos = static_cast<int64_t>(section.header.fileOffset) +
                                    static_cast<int64_t>(recordIndex) * file.header.recordSize +
-                                   file.fieldStructures[f].position + stringOffsetSectionCorrection(file, sectionIndex);
+                                   file.fieldStructures[f].position + db2::stringOffsetSectionCorrection(file, sectionIndex);
             if (fieldAbsPos >= 0) {
                 str = db2::resolveFieldString(fileBytes, static_cast<size_t>(fieldAbsPos), values[0]);
             }

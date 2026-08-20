@@ -48,4 +48,24 @@ std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& pat
                                                            const std::vector<std::string>& columnNames,
                                                            std::ostream& err);
 
+// One row's value for one requested *string* column -- nullopt when this
+// row's field didn't resolve to a plausible string (db2::resolveFieldString's
+// own heuristic, including its `rawValue == 0` "no string" sentinel case).
+using StringColumnValues = std::vector<std::optional<std::string>>;
+
+// Same named-column resolution as readNamedColumns, for inline string
+// fields (e.g. `Name_lang`) instead of scalar integers -- resolved via
+// db2::resolveFieldString, correcting for multi-section files via
+// db2::stringOffsetSectionCorrection (see both for the real string-table
+// layout this depends on). Fixed-width sections only, same as
+// readNamedColumns -- an offset-map/sparse section is skipped, not
+// guessed at (no real caller of this function has hit one yet). A
+// requested column that isn't a real inline field at all (the file's own
+// ID column, a non-inline relation column, or simply unresolved) comes
+// back all-nullopt for that column, same "partial result over total
+// failure" convention as readNamedColumns.
+std::optional<std::vector<StringColumnValues>> readNamedStringColumns(
+    const std::string& path, const std::string& dbdDir, const std::vector<std::string>& columnNames,
+    std::ostream& err);
+
 }  // namespace husk::db2table

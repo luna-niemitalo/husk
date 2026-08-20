@@ -74,6 +74,10 @@ _husk_completions() {
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
                     ;;
+                --chr-model-id)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
                 --creature-display-id)
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
@@ -96,7 +100,7 @@ _husk_completions() {
                     ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --input -i --output -o --skin -s --textures -t --textures-out --skin-dir --anim -a --skel --lod --bones-dir --phys --collision --db2-dir --dbd-dir --char-layout-id --customization-choice-ids --creature-display-id --object-skin-texture-id --knowledge-db --listfile --listfile-root" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --input -i --output -o --skin -s --textures -t --textures-out --skin-dir --anim -a --skel --lod --bones-dir --phys --collision --db2-dir --dbd-dir --char-layout-id --customization-choice-ids --chr-model-id --creature-display-id --object-skin-texture-id --knowledge-db --listfile --listfile-root" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))

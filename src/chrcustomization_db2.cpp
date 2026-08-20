@@ -48,6 +48,36 @@ std::vector<BoneSet> loadBoneSets(const std::string& db2Dir, const std::string& 
     return result;
 }
 
+std::vector<Option> loadOptions(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
+    std::vector<Option> result;
+    auto intRows = db2table::readNamedColumns(joinPath(db2Dir, "chrcustomizationoption.db2"), dbdDir,
+                                               {"ID", "ChrModelID", "OrderIndex"}, err);
+    if (!intRows) return result;
+    auto strRows = db2table::readNamedStringColumns(joinPath(db2Dir, "chrcustomizationoption.db2"), dbdDir,
+                                                      {"Name_lang"}, err);
+    for (size_t i = 0; i < intRows->size(); ++i) {
+        const auto& row = (*intRows)[i];
+        std::string name = (strRows && i < strRows->size()) ? (*strRows)[i][0].value_or("") : "";
+        result.push_back({orZero(row[0]), orZero(row[1]), std::move(name), orZero(row[2])});
+    }
+    return result;
+}
+
+std::vector<Choice> loadChoices(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
+    std::vector<Choice> result;
+    auto intRows = db2table::readNamedColumns(joinPath(db2Dir, "chrcustomizationchoice.db2"), dbdDir,
+                                               {"ID", "ChrCustomizationOptionID", "OrderIndex"}, err);
+    if (!intRows) return result;
+    auto strRows = db2table::readNamedStringColumns(joinPath(db2Dir, "chrcustomizationchoice.db2"), dbdDir,
+                                                      {"Name_lang"}, err);
+    for (size_t i = 0; i < intRows->size(); ++i) {
+        const auto& row = (*intRows)[i];
+        std::string name = (strRows && i < strRows->size()) ? (*strRows)[i][0].value_or("") : "";
+        result.push_back({orZero(row[0]), orZero(row[1]), std::move(name), orZero(row[2])});
+    }
+    return result;
+}
+
 }  // namespace
 
 std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
@@ -55,7 +85,12 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     data.elements = loadElements(db2Dir, dbdDir, err);
     data.geosets = loadGeosets(db2Dir, dbdDir, err);
     data.boneSets = loadBoneSets(db2Dir, dbdDir, err);
-    if (data.elements.empty() && data.geosets.empty() && data.boneSets.empty()) return std::nullopt;
+    data.options = loadOptions(db2Dir, dbdDir, err);
+    data.choices = loadChoices(db2Dir, dbdDir, err);
+    if (data.elements.empty() && data.geosets.empty() && data.boneSets.empty() && data.options.empty() &&
+        data.choices.empty()) {
+        return std::nullopt;
+    }
     return data;
 }
 
@@ -119,6 +154,47 @@ Resolution resolveChoice(const Data& data, uint32_t choiceId, std::ostream& err)
         }
     }
 
+    return result;
+}
+
+std::vector<NamedChoice> namedChoicesForModel(const Data& data, uint32_t chrModelId, std::ostream& err) {
+    std::vector<NamedChoice> result;
+    if (data.options.empty() || data.choices.empty()) return result;
+
+    for (const auto& option : data.options) {
+        if (option.chrModelId != chrModelId) continue;
+        for (const auto& choice : data.choices) {
+            if (choice.optionId != option.id) continue;
+            NamedChoice nc;
+            nc.optionId = option.id;
+            nc.optionName = option.name;
+            nc.optionOrderIndex = option.orderIndex;
+            nc.choiceId = choice.id;
+            nc.choiceName = choice.name;
+            nc.choiceOrderIndex = choice.orderIndex;
+            nc.resolution = resolveChoice(data, choice.id, err);
+            result.push_back(std::move(nc));
+        }
+    }
+    return result;
+}
+
+std::vector<uint32_t> defaultChoiceIdsForModel(const Data& data, uint32_t chrModelId) {
+    std::vector<uint32_t> result;
+    if (data.options.empty() || data.choices.empty()) return result;
+
+    for (const auto& option : data.options) {
+        if (option.chrModelId != chrModelId) continue;
+        const Choice* best = nullptr;
+        for (const auto& choice : data.choices) {
+            if (choice.optionId != option.id) continue;
+            if (!best || choice.orderIndex < best->orderIndex ||
+                (choice.orderIndex == best->orderIndex && choice.id < best->id)) {
+                best = &choice;
+            }
+        }
+        if (best) result.push_back(best->id);
+    }
     return result;
 }
 

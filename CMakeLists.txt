@@ -78,6 +78,7 @@ add_library(husk-lib STATIC
   src/chrmodel_db2.cpp
   src/chrcustomization_db2.cpp
   src/creature_geoset_db2.cpp
+  src/chrrace_db2.cpp
   src/cmd_db2.cpp
   src/cmd_blp.cpp
   src/appearance_string.cpp

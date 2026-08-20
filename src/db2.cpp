@@ -759,6 +759,20 @@ std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const S
     return result;
 }
 
+int64_t stringOffsetSectionCorrection(const File& file, size_t sectionIndex) {
+    int64_t correction = 0;
+    for (size_t i = 0; i < file.sections.size(); ++i) {
+        const Section& s = file.sections[i];
+        int64_t recordDataSize = s.hasOffsetMap()
+                                      ? static_cast<int64_t>(s.header.offsetRecordsEnd) -
+                                            static_cast<int64_t>(s.header.fileOffset)
+                                      : static_cast<int64_t>(s.header.recordCount) * file.header.recordSize;
+        if (i > sectionIndex) correction -= recordDataSize;
+        if (i < sectionIndex) correction += static_cast<int64_t>(s.header.stringTableSize);
+    }
+    return correction;
+}
+
 std::optional<std::string> resolveFieldString(const std::vector<uint8_t>& fileBytes,
                                                 size_t fieldAbsoluteFilePos, uint64_t rawValue) {
     // rawValue == 0 is WDC2+'s explicit "no string" sentinel (real client
