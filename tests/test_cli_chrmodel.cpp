@@ -162,6 +162,75 @@ TEST_CASE("husk export --db2-dir/--dbd-dir/--char-layout-id attaches real chr_te
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export --db2-dir/--dbd-dir/--chr-model-id, no --char-layout-id: auto-derives the "
+          "layout ID from ChrModel.CharComponentTextureLayoutID and still attaches real "
+          "chr_texture_layout extras") {
+    auto dir = defaultsDir("chrmodelautolayout");
+    writeFile(dir / "chrmodelautolayout.m2", tinyValidM2());
+    writeFile(dir / "chrmodelautolayout00.skin", tinyMatchingSkin());
+    writeFile(dir / "chrmodelautolayout.skel", boneCorrectionSkel());
+
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::create_directories(db2Dir);
+    fs::create_directories(dbdDir / "definitions");
+
+    const uint32_t kMaterialHash = 0x51515151;
+    const uint32_t kMaterialLayoutHash = 0x52525252;
+    const uint32_t kLayoutsHash = 0x53535353;
+    const uint32_t kLayoutsLayoutHash = 0x54545454;
+    const uint32_t kChrModelHash = 0x55555555;
+    const uint32_t kChrModelLayoutHash = 0x56565656;
+
+    writeTextFile(dbdDir / "manifest.json",
+                  "[\n"
+                  "  {\"tableName\": \"ChrModelMaterial\", \"tableHash\": \"51515151\"},\n"
+                  "  {\"tableName\": \"CharComponentTextureLayouts\", \"tableHash\": \"53535353\"},\n"
+                  "  {\"tableName\": \"ChrModel\", \"tableHash\": \"55555555\"}\n"
+                  "]\n");
+    writeTextFile(dbdDir / "definitions" / "ChrModelMaterial.dbd",
+                  "COLUMNS\n"
+                  "int ID\n"
+                  "int<CharComponentTextureLayouts::ID> CharComponentTextureLayoutsID\n"
+                  "int TextureType\nint Width\nint Height\nint Flags\n\n"
+                  "LAYOUT 52525252\nBUILD 1.0.0.1\n$id$ID<32>\n"
+                  "CharComponentTextureLayoutsID<32>\nTextureType<32>\nWidth<32>\nHeight<32>\nFlags<32>\n");
+    writeTextFile(dbdDir / "definitions" / "CharComponentTextureLayouts.dbd",
+                  "COLUMNS\nint ID\nint Width\nint Height\n\n"
+                  "LAYOUT 54545454\nBUILD 1.0.0.1\n$id$ID<32>\nWidth<32>\nHeight<32>\n");
+    // Real ChrModel.db2 shape this session's own fix reads: ID/DisplayID
+    // (used elsewhere for --chr-model-id auto derivation) plus
+    // CharComponentTextureLayoutID -- the column this test exists to
+    // verify --char-layout-id can now be derived from.
+    writeTextFile(dbdDir / "definitions" / "ChrModel.dbd",
+                  "COLUMNS\nint ID\nint DisplayID\nint CharComponentTextureLayoutID\n\n"
+                  "LAYOUT 56565656\nBUILD 1.0.0.1\n$id$ID<32>\nDisplayID<32>\n"
+                  "CharComponentTextureLayoutID<32>\n");
+
+    writeFile(db2Dir / "chrmodelmaterial.db2",
+              buildFlatDb2(kMaterialHash, kMaterialLayoutHash, {{1, 42, 1, 1024, 512, 0}}));
+    writeFile(db2Dir / "charcomponenttexturelayouts.db2",
+              buildFlatDb2(kLayoutsHash, kLayoutsLayoutHash, {{42, 2048, 1024}}));
+    // ChrModelID 7's own row points at CharComponentTextureLayoutsID 42 --
+    // the real join this fix relies on.
+    writeFile(db2Dir / "chrmodel.db2", buildFlatDb2(kChrModelHash, kChrModelLayoutHash, {{7, 999, 42}}));
+
+    auto result = runHusk("export " + (dir / "chrmodelautolayout.m2").string() + " --db2-dir " +
+                           db2Dir.string() + " --dbd-dir " + dbdDir.string() + " --chr-model-id 7");
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("--char-layout-id auto-derived as 42 from ChrModelID 7") != std::string::npos);
+    CHECK(result.output.find("attached character texture-layout 42") != std::string::npos);
+
+    fs::path glbPath = dir / "chrmodelautolayout.glb";
+    REQUIRE(fs::exists(glbPath));
+    std::ifstream glb(glbPath, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(glb)), std::istreambuf_iterator<char>());
+    CHECK(bytes.find("chr_texture_layout") != std::string::npos);
+    CHECK(bytes.find("\"layout_id\":42") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk export: --db2-dir given without --dbd-dir/--char-layout-id skips the feature, "
           "doesn't fail the export") {
     auto dir = defaultsDir("chrmodelpartial");

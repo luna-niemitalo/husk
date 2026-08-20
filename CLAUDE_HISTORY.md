@@ -14,6 +14,242 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-21 (CLI ergonomics, round 3 — `--char-layout-id` auto-derivation)
+— Luna asked "is `--char-layout-id` strictly required?" then "yes" to
+closing that gap.** Checked the code rather than assuming: `chrmodel_db2.hpp`'s
+own module comment claimed husk "has no concept" of which
+`CharComponentTextureLayoutsID` applies to a given model, but that was
+stale — `ChrModel.db2` (the exact table `--chr-model-id auto` already
+reads to resolve a `ChrModelID`) has a `CharComponentTextureLayoutID`
+column on the very same row, and `chrrace_db2.cpp`'s `loadChrModels`
+simply wasn't reading it (`{"ID", "DisplayID"}` only). Fixed: extended
+`ChrModelDisplay`/`loadChrModels` to also read that column, and
+`attachCharTextureLayout` (`cmd_export.cpp`, relocated below
+`tryDeriveChrModelId` so it can call it) now auto-derives
+`--char-layout-id` from whichever `ChrModelID` `--chr-model-id` resolves
+— same `auto`/`none`/`<id>` three-state convention as `--chr-model-id`
+itself, an explicit `--char-layout-id` still overriding outright.
+Verified against real data: `bloodelffemale_hd.m2` with only
+`--db2-dir`/`--dbd-dir` (no `--char-layout-id`, no `--chr-model-id`)
+prints `--char-layout-id auto-derived as 122 from ChrModelID 20` — the
+exact value found manually via SQL earlier this session. New regression
+test (`test_cli_chrmodel.cpp`), full suite green (657/657, up from 656 —
+one new test, nothing else changed). Updated `--help` text, `README.md`,
+and `DESIGN.md`'s now-stale "`--db2-dir`/`--dbd-dir`/`--char-layout-id`
+are a simpler two-state pattern, not three" note (was accurate when
+written, superseded by this fix) and `chrmodel_db2.hpp`'s own stale
+module comment. Separately, Luna asked whether `--db2-dir`/`--dbd-dir`
+themselves are "required or nice-to-have for column names" — confirmed
+via `db2table::readNamedColumns` directly: `--dbd-dir` is a hard
+requirement for every `husk export` DB2 feature (returns `nullopt`
+immediately if empty), unlike `husk db2-export`'s own optional
+`field_<N>`-positional fallback, because named-column lookups need real
+WoWDBDefs `layoutHash` mappings to resolve field *positions* correctly —
+a hardcoded positional assumption in husk's own source would only hold
+for one specific `layoutHash` and silently misread fields under any
+other real layout revision Blizzard has shipped, the exact "unvalidated
+data flowing inward" failure this project's own foreign-data policy
+exists to prevent. No change made there — explained, not implemented,
+since vendoring a frozen WoWDBDefs snapshot into husk's own source would
+trade a live, correct-forever dependency for one that silently goes
+stale on the next patch.
+
+---
+
+**2026-08-20 (Blender-switch TODO: real interactive-use fix, round 2 — CLI
+ergonomics) — Luna pushed back on the workflow itself: 8 explicit flags on
+`husk export`, two separate manual `husk blp-export` calls, and a
+`blender` call needing its own `--textures` restating the same directory
+`husk export` was already given.** Checked `husk export --help` directly
+instead of assuming, and found most of that ceremony was self-imposed:
+`--skin`/`--skel`/`--textures`/`--output` already default to `auto`/
+same-basename `.skel`/"the model's own directory"/`<basename>.glb`
+respectively — confirmed by re-running the same export with none of
+them and getting an identical result. Two real fixes: (1)
+`husk_blender_geoset_mask.py`'s own `--textures` now defaults to the
+`.glb`'s own directory when omitted, mirroring `husk export`'s own
+default and matching Luna's own stated real workflow (export lands next
+to the source files; a separate output dir is a deliberate choice, and
+in that case the caller already has the real source dir to pass as the
+override). (2) `_convert_blp_to_png_cached` (new) auto-shells to `husk
+blp-export` and caches the result by FileDataID under the system temp
+dir whenever `_resolve_customization_texture_path` only finds a `.blp`
+match — no more manual pre-conversion step, matching the same
+"auto-detect and convert" behavior `husk export` itself already has for
+its own embedded textures. `_find_husk_binary` locates the real binary
+(`PATH` first, then this repo's own `build/husk`) — explicitly not
+`blp/`'s standalone `husk-blp`, a superseded predecessor. Verified end
+to end with a cleared cache: the conversion happened live during the
+Blender run, no manual step (a real, if initially confusing, false
+negative during verification: the cache landed at `TMPDIR`, which this
+repo's own flake sets to `/media/luna/work/cache/tmp`, not the bare
+`/tmp` a first check looked in). Real workflow is now genuinely short:
+`husk export model.m2 --db2-dir <dir> --dbd-dir <dir> --char-layout-id
+<id>`, then `blender --python tools/husk_blender_geoset_mask.py --
+model.glb` (add `--textures <dir>` only when output isn't next to
+source). One incidental cleanup: an earlier verification pass in this
+session had written a real 79MB `.glb` into the tracked (but
+`.gitignore`d) `test_data/character/bloodelf/female/` fixture directory
+— removed, it was a Claude-generated build artifact, not a fixture.
+
+---
+
+**2026-08-20 (Blender-switch TODO: real interactive-use fix — node graph findability) —
+Luna ran the real pipeline (export, then the post-import script in
+Blender) and reported "I still can't find the options."** The geoset
+switch (this same file's older, working feature) is easy to find because
+it's a Geometry Nodes *modifier* — Blender auto-surfaces its promoted
+inputs in the object's own Modifier panel. A material's Shader Editor
+node tree has no equivalent panel; the previous entry's own new nodes
+also had no `.location` at all, so they piled up at the tree's own
+(0,0) origin, on top of (or invisible near) whatever the material's
+existing 2-5-node graph already had there. First fix attempt: gave every
+node *a* location (`_shader_math`/`_uv_rect_mask` gained a `location`
+parameter). Real, but insufficient — checked directly and found a real
+option with 30 choices contributes ~180 nodes; one real material
+(`mat5_tex2_skin`, two options: Hair Color + Hair Style) ended up with
+**364 top-level nodes**. Individually positioned or not, that's noise,
+not a findable control. Real fix: `_build_customization_option_group`
+now builds each option's whole switch as one self-contained node group
+(its own `Choice Index` input promoted to the group's own interface,
+same technique `_build_section_overlay_group`'s pre-existing "Show
+Overlay" toggle already uses), instantiated as a single labelled,
+green-colored `ShaderNodeGroup` per option directly in the material's
+own tree — the same real material dropped from 364 top-level nodes to
+10, each option now exactly one green node with a directly-editable
+index field, no need to enter the group. Re-verified end to end against
+the same real `bloodelffemale_hd` export + real converted textures: both
+group nodes' `Color`/`Alpha` outputs confirmed linked, both materials'
+Base Color confirmed linked, no exceptions. Along the way, also fixed
+real per-choice texture *resolution* itself, per Luna's own direct
+correction: real files exist locally, just not at the bare
+`<file_data_id>.png` convention the first pass checked — real
+content-named files with the FileDataID as a `_<id>` suffix
+(`eyes00_00_3492879.blp`), shared at the race-level parent directory
+one level above the `female`/`male` folder a caller would naturally pass
+as `--textures`. `_resolve_customization_texture_path` now also tries a
+`*_<file_data_id>.png`/`.blp` glob match in both `--textures` and its
+own parent dir. Converted the real local `.blp` corpus (1,079 files
+under `character/bloodelf/` + `character/bloodelf/female/`) with `husk
+blp-export --dir` — the canonical in-binary tool, per Luna: `blp/`'s
+standalone `husk-blp` Python package is a superseded predecessor kept
+only as the reference implementation `tests/test_blp.cpp` checks the
+real C++ decoder against (`husk export` itself already auto-converts
+`.blp` in-memory for its own embedded materials via
+`readTextureFileBytes` — no change needed there, `blp-export` only
+matters here because this Blender-side script can't reach husk's
+internal C++ decoder). Confirmed with real data, not placeholders:
+"Skin Color" loads 4 genuinely distinct real skin-tone images, "Hair
+Color" loads 5 genuinely distinct real images (verified by reading back
+actual pixel content). Real interactive GUI confirmation — opening the
+file in Blender's own GUI and visually watching the rendered mesh change
+as a group node's index is edited — is still the one open item. No C++
+changed. Full prior narrative for this feature: the entry directly
+below.
+
+---
+
+**2026-08-20 (Blender-switch TODO Steps 2-4: the real node graph, implemented) —
+`TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md` is now fully implemented,
+Blender-side.** Added `read_chr_enabled_materials`/
+`read_chr_customization_options` (same raw-glTF-JSON-extras shape every
+other `read_*` in `tools/husk_blender_geoset_mask.py` already uses) and
+`apply_customization_texture_switch`, a new pipeline stage building a
+real, live, switchable node graph per material: for every real
+`ChrCustomizationOption` that resolves a textured choice onto a given
+material, a `ShaderNodeValue` (0-based choice index, defaulted from
+`chr_enabled_materials`) drives a chain of `Math(COMPARE)`-gated `Mix`
+nodes, each candidate also masked by its own real section rect
+(`_uv_rect_mask`, a second occurrence of `_build_section_overlay_group`'s
+math, kept as a second inline copy per this file's own "third occurrence
+earns a shared helper" convention). Two real findings during
+implementation, not assumed from the TODO's own plan: (1) confirmed
+directly against the pinned Blender 5.1.1 that `ShaderNodeMenuSwitch`
+does not exist (only `GeometryNodeMenuSwitch` does) and that
+`ShaderNodeCompare` doesn't exist in shader trees either — used the
+TODO's own named fallback (`Value` + `Math(COMPARE)`) instead of Menu
+Switch. (2) A `texture_section_type_bit_mask` matching *every* real
+section (a real `-1`/all-bits mask, seen on real base-skin-tone data)
+was initially mishandled as "pick the first matching section" — silently
+masking a whole-atlas base layer down to one small rect. Fixed: a mask
+matching all real sections (or none) now means "no rect restriction",
+distinct from matching exactly one. Also hit and fixed a `KeyError` on
+`ShaderNodeMix` socket lookup: this unified node collapses different
+`data_type`s' sockets to the same short display name at the Python
+`bpy_prop_collection` string-index level, so `inputs["Factor_Float"]`
+threw — fixed by reusing `_node_socket`'s own identifier-based lookup
+(`apply_multiply_blend_compositing`'s own established fix for the exact
+same node type, found by reading that function before writing new code
+against the same API surface). Options combine in real
+`texture_layers[].layer` ascending order via a new
+`CHR_BLEND_MODE_TO_BLEND_TYPE` table, spliced in front of each touched
+material's own Principled BSDF Base Color (same splice technique
+`apply_texture_layout_overlay` already established). New CLI surface:
+`-- model.glb --textures <dir>`, same FileDataID-named `.png`-then-`.blp`
+convention as `resolveTextureBytes` (`.blp` matches are reported and
+skipped since Blender can't load BLP directly).
+
+Verified this session, structurally + via evaluation, not yet a full
+visual pass: a real `husk export --db2-dir --dbd-dir --char-layout-id 122`
+against `test_data/character/bloodelf/female/bloodelffemale_hd.m2` (real
+`ChrModelID` 20 derived via `--chr-model-id auto`, 17 real options/206
+real choices attached) — the real per-choice texture *bytes* for this
+model weren't present in the local corpus (only the base/hair textures
+already embedded in the export were), so the Blender-side pass used a
+`--textures` directory of synthetic placeholder PNGs generated at the
+export's own real resolved `file_data_id`s instead of real content. Ran
+the full `tools/husk_blender_geoset_mask.py` pipeline against that export
+headless: no exceptions, 2 materials touched (skin: Eye Color + Skin
+Color; hair: Skin Color), every built `Mix` node's `Factor`/`A`/`B`
+confirmed fully linked by real socket `identifier` (not display name),
+both touched materials' own Base Color input confirmed linked, and a full
+Cycles depsgraph evaluation (headless render) completed with no
+shader-compile errors.
+
+**Same-day follow-up: real per-choice texture files found (Luna's own
+correction), resolution fixed, re-verified with real (not placeholder)
+data.** Luna pointed at `character/bloodelf/` directly (real local data,
+not assumed) and confirmed real per-choice texture files *are* present —
+just not under the convention `_resolve_customization_texture_path`
+checked: real content-named files with the real FileDataID as a `_<id>`
+suffix (`eyes00_00_3492879.blp`, `bloodelf_hd_hair_color_3493000.blp`),
+shared at the race-level parent directory
+(`character/bloodelf/`), one level above the `female`/`male` folder a
+caller would naturally pass as `--textures`. Fixed:
+`_resolve_customization_texture_path` now also tries a
+`*_<file_data_id>.png`/`.blp` glob match, in both `--textures` and its
+own parent directory. Also corrected on tool naming, per Luna: `blp/`'s
+standalone `husk-blp` Python package is a superseded predecessor, not the
+canonical conversion path — `husk blp-export <file.blp> <out.png>` /
+`husk blp-export --dir <dir> <out-dir>` (embedded in the `husk` binary
+itself) is; converted the real local `character/bloodelf/` +
+`character/bloodelf/female/` `.blp` corpus (1,079 files) with it for
+testing. (`husk export` itself was already confirmed, by reading
+`export_texture_resolution.cpp`, to auto-detect and convert `.blp`
+in-memory for its own embedded base-layer material textures via
+`readTextureFileBytes` — no change needed there; `blp-export` is a
+debugging/manual-conversion tool, only relevant to this Blender-side
+Python script because it can't call husk's internal C++ BLP decoder the
+way `husk export` does.)
+
+Re-ran the same real `bloodelffemale_hd` DB2 export against these real
+converted PNGs: "Skin Color" loaded 4 genuinely distinct real skin-tone
+images (confirmed by distinct first-texel RGBA), "Hair Color" loaded 5
+genuinely distinct real images (also confirmed) — real per-choice
+texture *content*, not synthetic color swatches. One real, non-buggy
+finding along the way: "Hair Style"'s 24 real choices all share the
+identical FileDataID list in `chr_customization_options` — real WoW
+data (hairstyle selection is a geoset switch, not a texture switch), not
+a bug in this code. Real interactive GUI confirmation — toggling a Value
+node's index and *visually* seeing the rendered mesh change in Blender's
+own GUI — is still explicitly **not** done and remains the one open
+item, in both `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md` and
+`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 5 section. No C++
+changed this session — this was Blender-tooling-only work, full existing
+C++ test suite unaffected.
+
+---
+
 **2026-08-20 (Blender-switch TODO + its own Step 1, same-day follow-up) —
 wrote `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`, then implemented its
 Step 1 immediately per Luna's own direct instruction.** After the Stage 4

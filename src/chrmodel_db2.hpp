@@ -21,13 +21,14 @@
 //
 // Scope, deliberately: this is the *data access* layer only. It does NOT
 // resolve *which* CharComponentTextureLayoutsID applies to a given .m2
-// model -- that needs `ChrModel.db2` plus a real display-ID/race/gender
-// identity husk has no concept of today (an open design question, this
-// project's own Stage 3) -- and it does NOT attempt any pixel compositing
-// (Stage 4). `husk export --db2-dir/--dbd-dir/--char-layout-id`
-// (cmd_export.cpp) requires the caller to name the layout ID directly,
-// same "hand husk a plain local answer, don't make it guess" pattern as
-// every other opt-in sidecar this project has.
+// model itself -- that's `chrrace_db2.hpp`'s own real ChrModel.db2 ->
+// CharComponentTextureLayoutID column, joined against whichever
+// ChrModelID `--chr-model-id` resolves (`cmd_export.cpp`'s
+// attachCharTextureLayout) -- and this module does NOT attempt any pixel
+// compositing (Stage 4, deliberately reverted, see CLAUDE_HISTORY.md). An
+// explicit `--char-layout-id` still overrides that derivation outright,
+// same "hand husk a plain local answer instead of making it guess" option
+// every other opt-in sidecar in this project has.
 //
 // Never a hard dependency, same tier as db2.hpp/dbd.hpp: reads whatever
 // `--db2-dir` points at (real lowercase `casc-tool`-exported filenames --

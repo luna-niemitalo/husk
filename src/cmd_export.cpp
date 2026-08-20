@@ -599,75 +599,6 @@ KbObjectSkinResolution resolveObjectSkinTextureFromKb(const std::string& kbPath,
     return result;
 }
 
-// --db2-dir/--dbd-dir/--char-layout-id: attaches real character-texture
-// placement geometry (gltf::Skeleton::CharTextureLayout's doc comment) as
-// inert glTF extras. All three must be given -- a missing one is diagnosed
-// and the feature simply doesn't attach anything, same "not an error, just
-// nothing to offer" treatment as --bones-dir/--phys finding nothing.
-void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDir,
-                              const std::string& charLayoutIdArg, gltf::Skeleton& skeleton) {
-    if (db2Dir.empty() && dbdDir.empty() && charLayoutIdArg.empty()) return;  // feature simply unused
-    if (db2Dir.empty() || dbdDir.empty() || charLayoutIdArg.empty()) {
-        std::cerr << "husk: note: --db2-dir/--dbd-dir/--char-layout-id must all be given together "
-                     "-- skipping character texture-layout extras\n";
-        return;
-    }
-    uint32_t charLayoutId = 0;
-    try {
-        charLayoutId = static_cast<uint32_t>(std::stoul(charLayoutIdArg));
-    } catch (const std::exception&) {
-        std::cerr << "husk: note: --char-layout-id '" << charLayoutIdArg
-                  << "' isn't a non-negative integer -- skipping character texture-layout extras\n";
-        return;
-    }
-
-    std::optional<chrmodel::Data> data = chrmodel::load(db2Dir, dbdDir, std::cerr);
-    if (!data) {
-        std::cerr << "husk: note: no character texture-layout DB2 data resolved from '" << db2Dir
-                  << "' -- skipping\n";
-        return;
-    }
-
-    gltf::Skeleton::CharTextureLayout layout;
-    layout.layoutId = charLayoutId;
-    for (const chrmodel::CharComponentTextureLayout& l : data->layouts) {
-        if (l.id == charLayoutId) {
-            layout.width = l.width;
-            layout.height = l.height;
-            break;
-        }
-    }
-    for (const chrmodel::ChrModelMaterial& m : data->materials) {
-        if (m.charComponentTextureLayoutsId == charLayoutId) {
-            layout.materials.push_back({m.id, m.textureType, m.width, m.height, m.flags});
-        }
-    }
-    for (const chrmodel::CharComponentTextureSection& s : data->sections) {
-        if (s.charComponentTextureLayoutId == charLayoutId) {
-            layout.sections.push_back(
-                {s.id, s.sectionType, s.x, s.y, s.width, s.height, s.overlapSectionMask});
-        }
-    }
-    for (const chrmodel::ChrModelTextureLayer& t : data->textureLayers) {
-        if (t.charComponentTextureLayoutsId == charLayoutId) {
-            layout.textureLayers.push_back({t.id, t.textureType, t.layer, t.flags, t.blendMode,
-                                             t.textureSectionTypeBitMask, t.chrModelTextureTargetId});
-        }
-    }
-
-    if (layout.materials.empty() && layout.sections.empty() && layout.textureLayers.empty()) {
-        std::cerr << "husk: note: CharComponentTextureLayoutsID " << charLayoutId
-                  << " matched no real rows in '" << db2Dir << "' -- skipping\n";
-        return;
-    }
-
-    std::cerr << "husk: note: attached character texture-layout " << charLayoutId << " ("
-              << layout.materials.size() << " material(s), " << layout.sections.size()
-              << " section(s), " << layout.textureLayers.size()
-              << " texture layer(s)) as inert glTF extras\n";
-    skeleton.charTextureLayout = std::move(layout);
-}
-
 // --db2-dir/--dbd-dir/--customization-choice-ids: resolves each real
 // ChrCustomizationChoiceID against src/chrcustomization_db2.hpp's DB2
 // chain (TODO/TODO_correctness.md #2), attaching real geoset selections
@@ -1005,6 +936,138 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
             skeleton.customizationOptions = std::move(options);
         }
     }
+}
+
+// --db2-dir/--dbd-dir/--char-layout-id: attaches real character-texture
+// placement geometry (gltf::Skeleton::CharTextureLayout's doc comment) as
+// inert glTF extras. --db2-dir/--dbd-dir are required; --char-layout-id
+// itself no longer is -- when omitted, this auto-derives it from a
+// resolved ChrModelID's own real ChrModel.CharComponentTextureLayoutID
+// column (the exact same table/row --chr-model-id auto already reads to
+// get the ChrModelID itself -- found and closed same-day, real
+// interactive use: Luna asked "are --db2-dir/--dbd-dir strictly
+// required," which led to checking whether --char-layout-id still needed
+// to be separately spelled out too, and it turned out husk was already
+// one column-read away from not needing it). Same auto|none|<id>
+// three-state convention as --chr-model-id itself for the ChrModelID this
+// derivation needs (see tryDeriveChrModelId above, factored out for reuse
+// by attachCustomizationChoices too): chrModelIdArg empty/"auto" derives,
+// "none" opts the whole fallback out, an explicit
+// numeric ID is used directly, no re-derivation. An explicit
+// --char-layout-id always wins outright, same as before this fallback
+// existed.
+void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDir,
+                              const std::string& charLayoutIdArg, const std::string& chrModelIdArg,
+                              const std::string& modelPath,
+                              const std::unordered_map<uint32_t, std::string>& listfile,
+                              const std::string& listfileRoot, gltf::Skeleton& skeleton) {
+    if (db2Dir.empty() && dbdDir.empty() && charLayoutIdArg.empty() && chrModelIdArg.empty()) {
+        return;  // feature simply unused
+    }
+    if (db2Dir.empty() || dbdDir.empty()) {
+        std::cerr << "husk: note: --db2-dir/--dbd-dir are required for character texture-layout "
+                     "extras (--char-layout-id is an optional override on top of them, not required "
+                     "itself) -- skipping\n";
+        return;
+    }
+
+    uint32_t charLayoutId = 0;
+    if (!charLayoutIdArg.empty()) {
+        try {
+            charLayoutId = static_cast<uint32_t>(std::stoul(charLayoutIdArg));
+        } catch (const std::exception&) {
+            std::cerr << "husk: note: --char-layout-id '" << charLayoutIdArg
+                      << "' isn't a non-negative integer -- skipping character texture-layout extras\n";
+            return;
+        }
+    } else if (chrModelIdArg == "none") {
+        std::cerr << "husk: note: no --char-layout-id given and --chr-model-id none disables "
+                     "auto-derivation -- skipping character texture-layout extras\n";
+        return;
+    } else {
+        std::optional<uint32_t> resolvedChrModelId;
+        if (!chrModelIdArg.empty() && chrModelIdArg != "auto") {
+            try {
+                resolvedChrModelId = static_cast<uint32_t>(std::stoul(chrModelIdArg));
+            } catch (const std::exception&) {
+                std::cerr << "husk: note: --chr-model-id '" << chrModelIdArg
+                          << "' isn't a non-negative integer, 'auto', or 'none' -- skipping character "
+                             "texture-layout extras\n";
+                return;
+            }
+        } else {
+            resolvedChrModelId =
+                tryDeriveChrModelId(db2Dir, dbdDir, modelPath, listfile, listfileRoot, std::cerr);
+            if (!resolvedChrModelId) return;  // tryDeriveChrModelId already reported why
+        }
+
+        std::optional<chrrace::Data> raceData = chrrace::load(db2Dir, dbdDir, std::cerr);
+        if (!raceData) {
+            std::cerr << "husk: note: no ChrModel.db2 data resolved from '" << db2Dir
+                      << "' -- can't auto-derive --char-layout-id -- skipping character "
+                         "texture-layout extras\n";
+            return;
+        }
+        auto it = std::find_if(raceData->chrModels.begin(), raceData->chrModels.end(),
+                                [&](const chrrace::ChrModelDisplay& m) {
+                                    return m.chrModelId == *resolvedChrModelId;
+                                });
+        if (it == raceData->chrModels.end() || it->charComponentTextureLayoutId == 0) {
+            std::cerr << "husk: note: ChrModelID " << *resolvedChrModelId
+                      << " has no real CharComponentTextureLayoutID -- skipping character "
+                         "texture-layout extras\n";
+            return;
+        }
+        charLayoutId = it->charComponentTextureLayoutId;
+        std::cerr << "husk: note: --char-layout-id auto-derived as " << charLayoutId
+                  << " from ChrModelID " << *resolvedChrModelId << "\n";
+    }
+
+    std::optional<chrmodel::Data> data = chrmodel::load(db2Dir, dbdDir, std::cerr);
+    if (!data) {
+        std::cerr << "husk: note: no character texture-layout DB2 data resolved from '" << db2Dir
+                  << "' -- skipping\n";
+        return;
+    }
+
+    gltf::Skeleton::CharTextureLayout layout;
+    layout.layoutId = charLayoutId;
+    for (const chrmodel::CharComponentTextureLayout& l : data->layouts) {
+        if (l.id == charLayoutId) {
+            layout.width = l.width;
+            layout.height = l.height;
+            break;
+        }
+    }
+    for (const chrmodel::ChrModelMaterial& m : data->materials) {
+        if (m.charComponentTextureLayoutsId == charLayoutId) {
+            layout.materials.push_back({m.id, m.textureType, m.width, m.height, m.flags});
+        }
+    }
+    for (const chrmodel::CharComponentTextureSection& s : data->sections) {
+        if (s.charComponentTextureLayoutId == charLayoutId) {
+            layout.sections.push_back(
+                {s.id, s.sectionType, s.x, s.y, s.width, s.height, s.overlapSectionMask});
+        }
+    }
+    for (const chrmodel::ChrModelTextureLayer& t : data->textureLayers) {
+        if (t.charComponentTextureLayoutsId == charLayoutId) {
+            layout.textureLayers.push_back({t.id, t.textureType, t.layer, t.flags, t.blendMode,
+                                             t.textureSectionTypeBitMask, t.chrModelTextureTargetId});
+        }
+    }
+
+    if (layout.materials.empty() && layout.sections.empty() && layout.textureLayers.empty()) {
+        std::cerr << "husk: note: CharComponentTextureLayoutsID " << charLayoutId
+                  << " matched no real rows in '" << db2Dir << "' -- skipping\n";
+        return;
+    }
+
+    std::cerr << "husk: note: attached character texture-layout " << charLayoutId << " ("
+              << layout.materials.size() << " material(s), " << layout.sections.size()
+              << " section(s), " << layout.textureLayers.size()
+              << " texture layer(s)) as inert glTF extras\n";
+    skeleton.charTextureLayout = std::move(layout);
 }
 
 // --db2-dir/--dbd-dir/--creature-display-id: resolves a real
@@ -1481,9 +1544,11 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "`husk db2-export`'s own --dbd-dir");
     app.add_option("--char-layout-id", opts.charLayoutIdArg,
                     "a real CharComponentTextureLayoutsID (see `husk db2-export`) to filter "
-                    "--db2-dir's data down to -- husk has no way to derive which layout ID "
-                    "applies to a given .m2 model on its own, so this must be supplied directly; "
-                    "requires --db2-dir/--dbd-dir too");
+                    "--db2-dir's data down to. Optional -- unset (default) auto-derives it from "
+                    "the resolved --chr-model-id's own real ChrModel.CharComponentTextureLayoutID "
+                    "column (same auto|none|<id> derivation --chr-model-id itself already uses; "
+                    "--chr-model-id none disables this too); an explicit value always overrides. "
+                    "Requires --db2-dir/--dbd-dir either way");
     app.add_option("--customization-choice-ids", opts.customizationChoiceIdsArg,
                     "comma-separated real ChrCustomizationChoiceID(s) to resolve against "
                     "--db2-dir -- attaches each choice's real geoset selection as "
@@ -1768,7 +1833,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             attachEmitterAnchors(blob, header, skeleton);
             attachPlacementNodes(blob, header, header.sequences.count, skeleton);
             attachPhysicsBodies(physNone, physGiven, physPath, modelPath, skeleton);
-            attachCharTextureLayout(db2Dir, dbdDirForChr, charLayoutIdArg, skeleton);
+            attachCharTextureLayout(db2Dir, dbdDirForChr, charLayoutIdArg, chrModelIdArg, modelPath,
+                                     listfile, listfileRoot, skeleton);
             // Must run after attachBoneCorrections just above -- it only
             // marks/extends already-resolved correction sets, never
             // attaches new '.bone' data of its own.

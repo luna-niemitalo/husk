@@ -1215,14 +1215,20 @@ What `none` means, concretely, per flag:
   `<FileDataID>.bone` sits in the default directory; no `bone_correction_sets`
   extras attached at all.
 
-**`--db2-dir`/`--dbd-dir`/`--char-layout-id` are a simpler two-state
-pattern, not three** — there's no model-relative default to fall back to
-for "auto" (husk has no way to derive a `CharComponentTextureLayoutsID`
-from an `.m2` file on its own; see `src/chrmodel_db2.hpp`'s module comment
-for why), so it's just "all three given, or the feature is off." Given only
-some of the three, `attachCharTextureLayout` (`cmd_export.cpp`) prints a
-diagnostic and skips, same as `none` resolving to nothing — never a hard
-failure of the rest of the export.
+**`--db2-dir`/`--dbd-dir` are required together; `--char-layout-id` no
+longer needs its own explicit value** (superseded, 2026-08-21: this used
+to be "all three given, or the feature is off," since husk had no way to
+derive a `CharComponentTextureLayoutsID` from an `.m2` on its own — but
+`--chr-model-id auto` already derives a real `ChrModelID` from the same
+`ChrModel.db2` table that carries `CharComponentTextureLayoutID` on the
+same row, so `attachCharTextureLayout` (`cmd_export.cpp`) now auto-derives
+the layout ID from whichever `ChrModelID` `--chr-model-id` resolves — same
+`auto`/`none`/`<id>` three-state control as `--chr-model-id` itself,
+found and closed same-day after a real interactive-use question: "are
+`--db2-dir`/`--dbd-dir` strictly required, or nice-to-have?"). Given
+`--db2-dir` without `--dbd-dir`, `attachCharTextureLayout` still prints a
+diagnostic and skips, same as before — never a hard failure of the rest
+of the export.
 
 **`--anim` needs four states, not three — it bundles two independent
 questions the generic pattern above collapses into one.** "Should any

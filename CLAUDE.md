@@ -176,7 +176,86 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-20, Blender-switch TODO + its own Step 1)**:
+- **Current state (2026-08-21, `--char-layout-id` auto-derivation)**:
+  `husk export`'s DB2-driven character features need one fewer flag now.
+  `ChrModel.db2`'s loader (`chrrace_db2.cpp`'s `loadChrModels`) now also
+  reads its real `CharComponentTextureLayoutID` column (previously only
+  `ID`/`DisplayID`), and `attachCharTextureLayout` (`cmd_export.cpp`,
+  relocated below `tryDeriveChrModelId` so it can reuse it) auto-derives
+  `--char-layout-id` from whichever `ChrModelID` `--chr-model-id`
+  resolves — same `auto`/`none`/`<id>` convention as `--chr-model-id`
+  itself, explicit value still overrides. Verified against real data:
+  `bloodelffemale_hd.m2` with only `--db2-dir`/`--dbd-dir` now
+  auto-derives layout `122` from `ChrModelID` 20, matching the value
+  found manually earlier in the same session. Real workflow is now just
+  `husk export model.m2 --db2-dir <dir> --dbd-dir <dir>` — no
+  `--char-layout-id` needed for the common case. New regression test,
+  full suite green (657/657). `--help`/`README.md`/`DESIGN.md`/
+  `chrmodel_db2.hpp`'s own now-stale claims (both said husk "has no
+  concept" of which layout ID applies) updated to match. Full narrative,
+  including why `--db2-dir`/`--dbd-dir` themselves stay hard requirements
+  (not just "nice to have for column names" — real WoWDBDefs
+  `layoutHash` mappings are structural, not cosmetic, and a hardcoded
+  positional fallback would silently misread fields under a different
+  real layout revision): `CLAUDE_HISTORY.md`'s newest entry.
+- **Previous state (2026-08-20, Blender-switch TODO: node-graph findability
+  fix)**: `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`'s Blender-side work
+  (Steps 2-4) is implemented and, after two real interactive-use rounds
+  with Luna, now actually usable. `tools/husk_blender_geoset_mask.py`
+  gained `apply_customization_texture_switch` (plus
+  `read_chr_enabled_materials`/`read_chr_customization_options`): a real,
+  live, switchable node graph per material, one closed `ShaderNodeGroup`
+  per real `ChrCustomizationOption` (`_build_customization_option_group`
+  — a `Choice Index` field promoted to the group's own interface, so it's
+  directly editable on the closed node, same technique
+  `_build_section_overlay_group`'s pre-existing "Show Overlay" toggle
+  already uses; internally, a `Math(COMPARE)`-gated chain of `Mix` nodes
+  per choice, each masked by its own real section rect). Real
+  `ShaderNodeMenuSwitch`/`ShaderNodeCompare` confirmed absent from shader
+  trees in the pinned Blender 5.1.1 (only `GeometryNodeMenuSwitch`
+  exists) — this is the TODO's own named fallback for both. Options
+  combine in real `texture_layers[].layer` order via a new blend-mode
+  table, spliced in front of each material's own Principled BSDF Base
+  Color. **The group-node design is itself a fix**: the first version
+  sprayed every node directly into the material's own tree; Luna ran it
+  in Blender and reported "I still can't find the options" — one real
+  option with 30 choices produced ~180 raw nodes, one real material hit
+  364 top-level nodes where the original had 2-5, un-findable regardless
+  of node `.location` (also a real bug the first pass had: no node had
+  *any* location, piling up at the tree's own origin, fixed en route).
+  Collapsing each option into one closed, labelled, green group node
+  dropped that same material to 10 top-level nodes. Also fixed, per
+  Luna's own direct correction: real per-choice texture files exist
+  locally but under a suffix-named convention
+  (`character/bloodelf/eyes00_00_3492879.blp`, FileDataID as a `_<id>`
+  suffix, shared at the race-level parent dir), not the bare
+  `<file_data_id>.blp` the first pass checked —
+  `_resolve_customization_texture_path` now also tries a suffix-glob
+  match in both `--textures` and its parent dir. Converted the real
+  local `.blp` corpus (1,079 files) with `husk blp-export --dir` (the
+  canonical in-binary tool per Luna — `blp/`'s standalone `husk-blp` is a
+  superseded predecessor) and re-verified end to end against the real
+  `bloodelffemale_hd` DB2 export (`ChrModelID` 20, 17 options/206
+  choices): both group nodes' outputs and both materials' Base Color
+  confirmed linked, "Skin Color"/"Hair Color" load genuinely distinct
+  real texture images (confirmed by real pixel content). **Same-day
+  follow-up (round 2, CLI ergonomics)**: Luna pushed back on the
+  workflow itself (8 explicit `husk export` flags + 2 manual `husk
+  blp-export` calls + a `blender --textures` restating the same dir) —
+  checked `husk export --help` directly and found `--skin`/`--skel`/
+  `--textures`/`--output` already default sensibly, no ceremony needed
+  there. Real fixes: the Blender script's own `--textures` now defaults
+  to the `.glb`'s own directory (matches `husk export`'s own default and
+  Luna's real workflow of exporting next to source); a `.blp`-only match
+  now auto-converts via a new `_convert_blp_to_png_cached` (shells to
+  `husk blp-export`, cached by FileDataID under the system temp dir) —
+  no manual conversion step at all anymore. Real workflow is now just
+  `husk export model.m2 --db2-dir <dir> --dbd-dir <dir> --char-layout-id
+  <id>` + `blender --python tools/husk_blender_geoset_mask.py --
+  model.glb` (`--textures <dir>` only when output isn't next to source).
+  No C++ changed either round. Full narrative: `CLAUDE_HISTORY.md`'s
+  three newest 2026-08-20 entries.
+- **Previous state (2026-08-20, Blender-switch TODO + its own Step 1)**:
   Wrote `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`, a fully self-contained
   plan for Stage 5 (live Blender-side customization-choice texture
   switching, the real follow-up to the reverted Stage 4 compositor below)
@@ -472,15 +551,18 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   path). Real fixture data now lives in the repo:
   `test_data/db2/chrcustomization{option,choice,category}.db2`.
 - **Next step**: `TODO/TODO_correctness.md` #2's name-mapping/default-
-  choice work, and `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stages 1-4
+  choice work, and `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stages 1-5
   in full (model identity, real placement geometry, the real material
-  FileDataID chain, and real pixel compositing) are all now done — see
-  the current-state entry above for Stages 3/4. `TODO/CLEANUP_TODO.md`'s
-  former item 3 (`husk export` batch mode) is also done. What's left of
-  `CHAR_TEXTURE_COMPOSITING_TODO.md`: Stage 5 (Blender-side picker
-  tooling, reading the new `chr_composited_textures` extras into a real
-  shader node graph) and Stage 6 (equipped-gear appearance resolution via
-  `ItemModifiedAppearanceID`), neither started; a model whose FileDataID
+  FileDataID chain, and the live Blender-side customization texture
+  switch replacing the reverted pixel compositor) are all now done — see
+  the current-state entry above for Stage 5, `CLAUDE_HISTORY.md` for the
+  full narrative. `TODO/CLEANUP_TODO.md`'s former item 3 (`husk export`
+  batch mode) is also done. What's left of `CHAR_TEXTURE_COMPOSITING_TODO.md`:
+  Stage 5's own real interactive Blender GUI pass with real (not
+  placeholder) per-choice texture bytes, still Luna's own eyes to do
+  (`TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`'s own "Still open" section),
+  and Stage 6 (equipped-gear appearance resolution via
+  `ItemModifiedAppearanceID`), not started; a model whose FileDataID
   can't be resolved via --listfile and whose filename doesn't follow the
   naming convention still needs an explicit `--chr-model-id <id>`. The manual visual pass over the 22
   successfully-exported HD character `.glb`s (deriving sane per-race/

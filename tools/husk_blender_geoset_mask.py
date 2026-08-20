@@ -337,10 +337,15 @@ render visibility are correctly off. A zero-emitter model
 """
 
 import ast
+import glob
 import json
+import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
 
 import bmesh
 import bpy
@@ -753,6 +758,48 @@ def read_enabled_geosets(filepath):
     return None
 
 
+def read_chr_enabled_materials(filepath):
+    """Reads `chr_enabled_materials` straight out of the exported file's own
+    raw glTF JSON (skins[].extras). Returns a list of `{"choice_id",
+    "chr_model_texture_target_id", "material_resources_id",
+    "file_data_id"}` dicts, or None if `filepath` is falsy, isn't a real
+    husk `.glb`/`.gltf`, or genuinely has no such extras (no
+    `--customization-choice-ids`/`--chr-model-id` resolved any material at
+    export time) -- never a guess. `file_data_id` may be `0` on an entry
+    that couldn't resolve a real texture (e.g. a swatch-color-only choice,
+    see TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's own open questions) --
+    callers must check for it, not assume every entry is usable.
+    """
+    data = _read_glb_json(filepath)
+    if data is None:
+        return None
+    for skin in data.get("skins", []):
+        extras = skin.get("extras")
+        if extras and "chr_enabled_materials" in extras:
+            return extras["chr_enabled_materials"]
+    return None
+
+
+def read_chr_customization_options(filepath):
+    """Reads `chr_customization_options` straight out of the exported
+    file's own raw glTF JSON (skins[].extras) -- the full real
+    `(Option, Choice)` menu for the model, not just whichever choice(s)
+    ended up in `chr_enabled_materials`/`enabled_geosets` above. Returns
+    None if `filepath` is falsy, isn't a real husk `.glb`/`.gltf`, or
+    genuinely has no such extras (no derivable `ChrModelID` at export
+    time) -- never a guess. See `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`
+    for the exact real shape of each entry.
+    """
+    data = _read_glb_json(filepath)
+    if data is None:
+        return None
+    for skin in data.get("skins", []):
+        extras = skin.get("extras")
+        if extras and "chr_customization_options" in extras:
+            return extras["chr_customization_options"]
+    return None
+
+
 def read_emitter_anchors(filepath):
     """Reads `ribbon_emitters`/`particle_emitters` straight out of the
     exported file's own raw glTF JSON (skins[].extras) -- see
@@ -966,6 +1013,530 @@ def apply_texture_layout_overlay(layout, materials):
         node_tree.links.new(mix.outputs["Shader"], output_node.inputs["Surface"])
 
         touched += 1
+    return touched
+
+
+# WoW's real char.fragment.shader/CharMaterialRenderer.js blend-mode enum,
+# collapsed to Blender's ShaderNodeMix(data_type='RGBA').blend_type --
+# see TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's own "Real blend modes"
+# table for the full derivation. Modes 0/1/9/15 all resolve to plain 'MIX'
+# here: this function already gates every candidate on its own accumulated
+# alpha (see apply_customization_texture_switch below), so a factor-driven
+# Mix already reproduces "straight overwrite where covered" (0/1) and
+# "standard alpha-over" (9/15) identically -- there is no separate
+# Blender blend_type for either. A blend_mode with no entry here is
+# genuinely unused in character customization per CharMaterialRenderer.js's
+# own comment, or unconfirmed -- flagged at apply time, never guessed.
+CHR_BLEND_MODE_TO_BLEND_TYPE = {
+    0: 'MIX',
+    1: 'MIX',
+    4: 'MULTIPLY',
+    6: 'OVERLAY',
+    7: 'SCREEN',
+    9: 'MIX',
+    15: 'MIX',
+}
+
+
+def _find_husk_binary():
+    """Locates the real `husk` binary (not `blp/`'s standalone `husk-blp`
+    Python package, a superseded predecessor kept only as an independent
+    reference implementation -- see `blp-export`'s own doc comment on
+    `_convert_blp_to_png_cached` below): `PATH` first (the flake's own
+    dev shell puts a build of it there), then this repo's own
+    `build/husk` relative to this script's own location (the common case
+    when this script is run without the flake env activated first --
+    real interactive use, this session). Returns None if neither exists;
+    callers degrade to reporting a `.blp`-only match rather than failing.
+    """
+    exe = shutil.which("husk")
+    if exe:
+        return exe
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidate = os.path.join(script_dir, "..", "build", "husk")
+    return candidate if os.path.isfile(candidate) else None
+
+
+def _convert_blp_to_png_cached(blp_path, file_data_id):
+    """Auto-converts `blp_path` to a real PNG via `husk blp-export`,
+    cached by FileDataID under the system temp dir (`file_data_id`s are
+    globally unique WoW asset identifiers, so this cache is safe to reuse
+    across every run/model/session, not just this one invocation) --
+    real usability fix, prompted directly: an earlier version of this
+    script made the caller manually run `husk blp-export --dir ...`
+    ahead of time as a separate step, which real interactive use (Luna,
+    this session) flagged as exactly the kind of ceremony `husk export`
+    itself already avoids for its own embedded textures (real `.blp`
+    files are auto-detected and decoded in-memory there, no separate
+    step -- see `--textures`'s own `--help` text). This makes the
+    Blender-side path match that same "auto-detect and convert, don't
+    make the user run a second tool" behavior, using `husk blp-export`
+    (the exact same C++ decoder `husk export` itself uses internally,
+    unlike `blp/`'s older, now-superseded standalone Python
+    implementation) as a subprocess since this script's own Python
+    (Blender's bundled interpreter) can't reach husk's internal C++ code
+    directly. Returns None (and prints why) if no `husk` binary is found
+    or the conversion itself fails -- never fatal to the rest of the
+    switch, same as every other per-choice resolution failure here.
+    """
+    cache_dir = os.path.join(tempfile.gettempdir(), "husk_blp_cache")
+    out_path = os.path.join(cache_dir, f"{file_data_id}.png")
+    if os.path.isfile(out_path):
+        return out_path
+
+    husk_bin = _find_husk_binary()
+    if husk_bin is None:
+        return None
+
+    os.makedirs(cache_dir, exist_ok=True)
+    try:
+        result = subprocess.run([husk_bin, "blp-export", blp_path, out_path],
+                                 capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"husk_blender_geoset_mask: 'husk blp-export {blp_path}' failed: {exc}")
+        return None
+    if result.returncode != 0 or not os.path.isfile(out_path):
+        print(f"husk_blender_geoset_mask: 'husk blp-export {blp_path}' failed: "
+              f"{result.stderr.strip() or result.stdout.strip()}")
+        return None
+    return out_path
+
+
+def _resolve_customization_texture_path(textures_dir, file_data_id):
+    """`<textures_dir>/<file_data_id>.png` first -- the exact-name
+    convention every other husk texture resolution already uses
+    (`src/export_texture_resolution.hpp`'s `resolveTextureBytes` doc
+    comment) -- then, since a real corpus extraction commonly keeps
+    character-customization textures under their own real content name
+    with the FileDataID only as a trailing `_<id>` suffix (confirmed
+    against real local data: `character/bloodelf/eyes00_00_3492879.blp`,
+    not `3492879.blp`), a `*_<file_data_id>.png` glob match. Both are
+    tried again in `textures_dir`'s own parent directory too: these
+    per-choice assets are commonly shared across every model under one
+    race (real local data again: every blood elf eye-color file sits at
+    `character/bloodelf/`, one level above the specific `female`/`male`
+    model folder a caller would naturally pass as `--textures`). Blender's
+    own Image Texture node can load a `.png` directly, unlike `.blp` --
+    a `.blp`-only match is auto-converted via `husk blp-export`
+    (`_convert_blp_to_png_cached`, cached by FileDataID) rather than
+    requiring the caller to run that conversion by hand first. Returns
+    None (and prints why) when nothing matches, the match is a `.blp` and
+    no `husk` binary could be found to convert it, or
+    `file_data_id`/`textures_dir` is falsy.
+    """
+    if not textures_dir or not file_data_id:
+        return None
+
+    search_dirs = [textures_dir]
+    parent = os.path.dirname(os.path.normpath(textures_dir))
+    if parent and parent != textures_dir:
+        search_dirs.append(parent)
+
+    blp_match = None
+    for d in search_dirs:
+        exact_png = os.path.join(d, f"{file_data_id}.png")
+        if os.path.isfile(exact_png):
+            return exact_png
+        suffix_png = glob.glob(os.path.join(d, f"*_{file_data_id}.png"))
+        if suffix_png:
+            return sorted(suffix_png)[0]
+
+    for d in search_dirs:
+        exact_blp = os.path.join(d, f"{file_data_id}.blp")
+        if os.path.isfile(exact_blp):
+            blp_match = exact_blp
+            break
+        suffix_blp = glob.glob(os.path.join(d, f"*_{file_data_id}.blp"))
+        if suffix_blp:
+            blp_match = sorted(suffix_blp)[0]
+            break
+
+    if blp_match is not None:
+        converted = _convert_blp_to_png_cached(blp_match, file_data_id)
+        if converted is not None:
+            return converted
+        print(f"husk_blender_geoset_mask: customization choice texture {file_data_id} only "
+              f"matched {blp_match!r} (.blp) -- Blender can't load BLP directly, and no `husk` "
+              "binary was found to auto-convert it (checked PATH and this repo's own build/husk) "
+              "-- skipping this choice")
+    return None
+
+
+def _load_customization_texture_image(path):
+    try:
+        return bpy.data.images.load(path, check_existing=True)
+    except RuntimeError as exc:
+        print(f"husk_blender_geoset_mask: failed to load texture {path!r}: {exc}")
+        return None
+
+
+def _shader_math(node_tree, operation, a, b=None, location=None):
+    """`ShaderNodeMath` with `operation`, `a`/`b` each either a plain
+    number (wired as a constant) or an output socket (linked) -- the same
+    positional-input convention `_build_section_overlay_group` above
+    already established for this exact node type. `location`, when given,
+    is stamped directly onto the new node -- every node this function (and
+    `_uv_rect_mask` below, which chains several of these) creates used to
+    get no location at all, piling up at the tree's own (0,0) origin
+    (found via real interactive use, same real pitfall
+    `apply_texture_layout_overlay`'s own comment already named for its
+    *own* nodes but this file's newer customization-switch code hadn't
+    been fixed to avoid yet). Returns the node's own (single) output
+    socket.
+    """
+    node = node_tree.nodes.new("ShaderNodeMath")
+    node.operation = operation
+    if location is not None:
+        node.location = location
+    for i, value in enumerate((a, b)):
+        if value is None:
+            continue
+        if isinstance(value, (int, float)):
+            node.inputs[i].default_value = value
+        else:
+            node_tree.links.new(value, node.inputs[i])
+    return node.outputs[0]
+
+
+def _uv_rect_mask(node_tree, separate_uv, section, atlas_w, atlas_h, location=None):
+    """Boolean-as-float (0.0/1.0) output socket: 1.0 for a shading point
+    inside `section`'s own real placement rect. Same WoW-top-down-atlas ->
+    Blender-bottom-up-UV-V conversion (and the same not-yet-visually-
+    reconfirmed caveat) as `_build_section_overlay_group` above -- a
+    second real occurrence of the same math, kept as a second inline copy
+    rather than a shared helper per this project's own "abstractions are
+    earned at the third occurrence" convention (see module docstring).
+    `separate_uv` is a `ShaderNodeSeparateXYZ` reading the material's
+    active UV map, built once per material by the caller and reused across
+    every choice's own mask. `location`, when given, anchors every one of
+    the six `ShaderNodeMath` nodes this builds at that same point (a small
+    fixed offset apart per node, not each one individually placed -- this
+    cluster is meant to be read as one atomic "is this choice's own
+    section" unit, not inspected node-by-node) -- see `_shader_math`'s own
+    doc comment for why this matters at all.
+    """
+    x0 = section.get("x", 0) / atlas_w
+    y0 = section.get("y", 0) / atlas_h
+    x1 = x0 + section.get("width", 0) / atlas_w
+    y1 = y0 + section.get("height", 0) / atlas_h
+    v0, v1 = 1.0 - y1, 1.0 - y0
+
+    def offset(dx, dy):
+        if location is None:
+            return None
+        return (location[0] + dx, location[1] + dy)
+
+    ge_x0 = _shader_math(node_tree, 'GREATER_THAN', separate_uv.outputs["X"], x0, offset(0.0, 120.0))
+    le_x1 = _shader_math(node_tree, 'LESS_THAN', separate_uv.outputs["X"], x1, offset(0.0, 40.0))
+    ge_y0 = _shader_math(node_tree, 'GREATER_THAN', separate_uv.outputs["Y"], v0, offset(0.0, -40.0))
+    le_y1 = _shader_math(node_tree, 'LESS_THAN', separate_uv.outputs["Y"], v1, offset(0.0, -120.0))
+    inside_x = _shader_math(node_tree, 'MINIMUM', ge_x0, le_x1, offset(140.0, 80.0))
+    inside_y = _shader_math(node_tree, 'MINIMUM', ge_y0, le_y1, offset(140.0, -80.0))
+    return _shader_math(node_tree, 'MINIMUM', inside_x, inside_y, offset(280.0, 0.0))
+
+
+def _build_customization_option_group(name, choice_infos, atlas_w, atlas_h):
+    """Builds one self-contained node group implementing a single real
+    `ChrCustomizationOption`'s own live choice switch: a `Choice Index`
+    input (a plain float, not a real dropdown -- see
+    `apply_customization_texture_switch`'s own doc comment for why)
+    promoted to the group's own interface, driving a
+    `Math(COMPARE)`-gated chain of `Mix` nodes, one per real choice, each
+    also gated by its own real section rect (`_uv_rect_mask`). Outputs
+    `Color`/`Alpha`.
+
+    This function exists (rather than spraying these same nodes directly
+    into the material's own tree, an earlier version of this session's
+    own work) because of a real usability problem Luna found by actually
+    running this in Blender: a real option can have dozens of real
+    choices (e.g. a real 30-choice Skin Color option), each contributing
+    several nodes -- hundreds of raw nodes end up crammed into a
+    material that otherwise has 2-5. Giving every one of those nodes *a*
+    location (this session's own first fix) stopped them from literally
+    overlapping, but did nothing for "I can't find the options" in
+    practice -- a wall of hundreds of small boxes reads as noise, not as
+    a control. Collapsing the whole thing into one closed, labelled
+    `ShaderNodeGroup` per option is what actually fixes that: promoting
+    `Choice Index` to the group's own interface makes it a directly
+    editable field on the *closed* group node itself (no need to enter
+    the group at all), the exact same technique `_build_section_overlay_group`
+    above already uses for its own "Show Overlay" toggle -- proof this
+    approach already works and ships in this file.
+    """
+    tree = bpy.data.node_groups.new(name, "ShaderNodeTree")
+    tree.interface.new_socket("Choice Index", in_out='INPUT', socket_type='NodeSocketFloat')
+    tree.interface.new_socket("Color", in_out='OUTPUT', socket_type='NodeSocketColor')
+    tree.interface.new_socket("Alpha", in_out='OUTPUT', socket_type='NodeSocketFloat')
+
+    nodes, links = tree.nodes, tree.links
+    group_input = nodes.new("NodeGroupInput")
+    group_input.location = (-900.0, 0.0)
+    group_output = nodes.new("NodeGroupOutput")
+
+    uv_map = nodes.new("ShaderNodeUVMap")
+    uv_map.location = (-900.0, -350.0)
+    separate_uv = nodes.new("ShaderNodeSeparateXYZ")
+    separate_uv.location = (-700.0, -350.0)
+    links.new(uv_map.outputs["UV"], separate_uv.inputs["Vector"])
+
+    accum_color_node = nodes.new("ShaderNodeRGB")
+    accum_color_node.outputs[0].default_value = (0.0, 0.0, 0.0, 1.0)
+    accum_color_node.location = (-500.0, 250.0)
+    accum_color = accum_color_node.outputs[0]
+    accum_alpha_node = nodes.new("ShaderNodeValue")
+    accum_alpha_node.outputs[0].default_value = 0.0
+    accum_alpha_node.location = (-500.0, -100.0)
+    accum_alpha = accum_alpha_node.outputs[0]
+
+    x = -250.0
+    for idx, choice in enumerate(choice_infos):
+        image = _load_customization_texture_image(choice["path"])
+        if image is None:
+            continue
+        img_node = nodes.new("ShaderNodeTexImage")
+        img_node.image = image
+        img_node.label = choice["choice_name"]
+        img_node.location = (x, 450.0)
+
+        # Math(COMPARE)'s own real 3rd input (epsilon) defaults to 0.5,
+        # already exact for a whole-number index equality test.
+        is_selected = _shader_math(tree, 'COMPARE', group_input.outputs["Choice Index"], float(idx),
+                                    location=(x, 120.0))
+        if choice["section"] is not None:
+            rect_mask = _uv_rect_mask(tree, separate_uv, choice["section"], atlas_w, atlas_h,
+                                       location=(x, -180.0))
+            gate = _shader_math(tree, 'MULTIPLY', is_selected, rect_mask, location=(x + 400.0, -30.0))
+        else:
+            gate = is_selected
+
+        # See `apply_customization_texture_switch`'s own comment on
+        # `_node_socket` (identifier, not display-name, lookup) -- same
+        # `ShaderNodeMix` unified-socket gotcha applies inside a node
+        # group exactly as it does directly in a material's own tree.
+        color_mix = nodes.new("ShaderNodeMix")
+        color_mix.data_type = 'RGBA'
+        color_mix.clamp_result = True
+        color_mix.location = (x + 600.0, 250.0)
+        links.new(gate, _node_socket(color_mix.inputs, "Factor_Float"))
+        links.new(accum_color, _node_socket(color_mix.inputs, "A_Color"))
+        links.new(img_node.outputs["Color"], _node_socket(color_mix.inputs, "B_Color"))
+        accum_color = _node_socket(color_mix.outputs, "Result_Color")
+
+        alpha_mix = nodes.new("ShaderNodeMix")
+        alpha_mix.data_type = 'FLOAT'
+        alpha_mix.clamp_result = True
+        alpha_mix.location = (x + 600.0, -100.0)
+        links.new(gate, _node_socket(alpha_mix.inputs, "Factor_Float"))
+        links.new(accum_alpha, _node_socket(alpha_mix.inputs, "A_Float"))
+        links.new(img_node.outputs["Alpha"], _node_socket(alpha_mix.inputs, "B_Float"))
+        accum_alpha = _node_socket(alpha_mix.outputs, "Result_Float")
+
+        x += 750.0
+
+    links.new(accum_color, group_output.inputs["Color"])
+    links.new(accum_alpha, group_output.inputs["Alpha"])
+    group_output.location = (x + 200.0, 0.0)
+    return tree
+
+
+def apply_customization_texture_switch(options, layout, enabled_materials, materials, textures_dir):
+    """Builds a real, live, switchable shader node graph per material that
+    layers `chr_customization_options`' own real per-choice textures onto
+    `chr_texture_layout`'s own real base atlas -- the actual goal of
+    TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md (see that file for the full
+    join-chain derivation and the reverted husk-side pixel compositor this
+    replaces). One dropdown-equivalent per real `ChrCustomizationOption`
+    that resolves a real texture onto a given material: `GeometryNodeMenuSwitch`
+    exists in this Blender version (5.1.1) but `ShaderNodeMenuSwitch` does
+    not (confirmed directly, not assumed) -- material node trees have no
+    real dropdown-widget node at all, so each option gets a plain
+    `ShaderNodeValue` (a 0-based index into that option's own real choices,
+    default set to whichever choice `chr_enabled_materials` actually
+    resolved for this export) driving a `Math(COMPARE)`-gated chain, the
+    same "Value driver + chain of Mix nodes" fallback shape the TODO file's
+    own plan names. Each candidate choice's own contribution is also gated
+    by its own real section rect (`_uv_rect_mask`), so a choice whose
+    texture only covers part of the atlas doesn't paint over the rest.
+    Each option's own switch lives in its own `ShaderNodeGroup`
+    (`_build_customization_option_group`), not inlined directly into the
+    material's own tree -- a real usability fix, not a stylistic one, see
+    that function's own doc comment. Options combine in real
+    `texture_layers[].layer` ascending order (the real client's own draw
+    order) using the real WoW blend mode (`CHR_BLEND_MODE_TO_BLEND_TYPE`),
+    spliced in front of each material's own Principled BSDF `Base Color`
+    input (preserving whatever was already feeding it, same "insert
+    before the existing consumer" technique `apply_texture_layout_overlay`
+    above already uses). Returns the count of materials touched; prints a
+    real choice-name legend per material since there's no dropdown UI to
+    read the names from directly.
+    """
+    material_layout_by_type = {m.get("texture_type"): m for m in layout.get("materials", [])}
+    concerned_types = set(material_layout_by_type)
+    if not concerned_types or not layout.get("texture_layers") or not textures_dir:
+        return 0
+
+    texture_layer_by_target = {tl.get("chr_model_texture_target_id"): tl
+                                for tl in layout.get("texture_layers", [])}
+    sections_by_type = {}
+    for s in layout.get("sections", []):
+        sections_by_type.setdefault(s.get("section_type"), s)
+    default_choice_id_by_target = {e.get("chr_model_texture_target_id"): e.get("choice_id")
+                                    for e in (enabled_materials or [])
+                                    if e.get("file_data_id")}
+
+    touched = 0
+    for mat in materials:
+        mtype = mat.get("texture_type")
+        if mtype not in concerned_types or mat.node_tree is None:
+            continue
+
+        node_tree = mat.node_tree
+        principled = _find_principled_bsdf(node_tree)
+        if principled is None:
+            continue
+        base_color_input = principled.inputs.get("Base Color")
+        if base_color_input is None:
+            continue
+
+        mat_layout = material_layout_by_type[mtype]
+        atlas_w = mat_layout.get("width") or layout.get("width") or 1
+        atlas_h = mat_layout.get("height") or layout.get("height") or 1
+
+        # One (option, target_id, [choice info]) entry per real
+        # ChrCustomizationOption that resolves at least one real, textured
+        # choice onto *this* material's own texture_type -- see the
+        # join-chain derivation in CHAR_TEXTURE_BLENDER_SWITCH_TODO.md.
+        relevant_options = []
+        for option in options:
+            choice_infos = []
+            target_id = None
+            for choice in option.get("choices", []):
+                for m_entry in choice.get("materials", []) or []:
+                    tl = texture_layer_by_target.get(m_entry.get("chr_model_texture_target_id"))
+                    if tl is None or tl.get("texture_type") != mtype:
+                        continue
+                    fdid = m_entry.get("file_data_id")
+                    if not fdid:
+                        continue  # unresolved (e.g. a swatch-color-only choice) -- flagged, not guessed
+                    path = _resolve_customization_texture_path(textures_dir, fdid)
+                    if path is None:
+                        continue
+                    target_id = m_entry.get("chr_model_texture_target_id")
+                    mask = tl.get("texture_section_type_bit_mask") or 0
+                    matching_sections = [s for stype, s in sections_by_type.items()
+                                         if stype is not None and (mask & (1 << stype))]
+                    if len(matching_sections) == 1:
+                        section = matching_sections[0]
+                    else:
+                        # 0 matches (nothing to mask by) or every real section
+                        # type matches (e.g. a real -1/all-bits mask, seen on
+                        # real data for the base skin-tone layer) both mean
+                        # "no localized rect" here -- covers the whole atlas,
+                        # not one arbitrary section. 2+ *but not all* real
+                        # matches is a genuine multi-section case this
+                        # function doesn't OR-combine yet (same open gap as
+                        # `_build_section_overlay_group` above) -- also
+                        # treated as unrestricted rather than picking one
+                        # arbitrary rect and silently masking out the rest.
+                        section = None
+                    choice_infos.append({
+                        "choice_id": choice.get("choice_id"),
+                        "choice_name": choice.get("choice_name") or f"choice_{choice.get('choice_id')}",
+                        "path": path,
+                        "section": section,
+                        "blend_mode": tl.get("blend_mode"),
+                        "layer": tl.get("layer", 0),
+                    })
+                    break  # one resolved target is enough for this material's own type
+            if choice_infos:
+                relevant_options.append((option, target_id, choice_infos))
+
+        if not relevant_options:
+            continue
+
+        relevant_options.sort(key=lambda ov: min(c["layer"] for c in ov[2]))
+
+        # Anchored below the existing graph's own lowest node, same
+        # pitfall/fix `apply_texture_layout_overlay` above already
+        # established -- but this time there's only ~2 top-level nodes
+        # per option (its own group node + the Mix that blends it in),
+        # not hundreds, since `_build_customization_option_group` hides
+        # each option's own real per-choice machinery inside a single
+        # closed node.
+        ROW_HEIGHT = 260.0
+        existing_ys = [n.location.y for n in node_tree.nodes]
+        base_y = (min(existing_ys) if existing_ys else 0.0) - 500.0
+        base_x = principled.location.x - 1200.0
+
+        original_socket = base_color_input.links[0].from_socket if base_color_input.is_linked else None
+        if original_socket is None:
+            const_rgb = node_tree.nodes.new("ShaderNodeRGB")
+            const_rgb.outputs[0].default_value = tuple(base_color_input.default_value)
+            const_rgb.location = (base_x, base_y + ROW_HEIGHT)
+            original_socket = const_rgb.outputs[0]
+
+        current_color = original_socket
+        legend_lines = []
+        for row_i, (option, target_id, choice_infos) in enumerate(relevant_options):
+            row_y = base_y - ROW_HEIGHT * row_i
+            option_name = option.get('option_name', 'Option')
+
+            default_choice_id = default_choice_id_by_target.get(target_id)
+            default_index = next((i for i, c in enumerate(choice_infos)
+                                   if c["choice_id"] == default_choice_id), 0)
+
+            group_tree = _build_customization_option_group(
+                f"Husk_{mat.name}_{option_name}_switch", choice_infos, atlas_w, atlas_h)
+
+            # The one node in this whole row a user actually needs to find
+            # and edit -- given real screen presence (a custom color, extra
+            # width, and its own real name in the label) rather than
+            # blending into the rest of the machinery next to it. Its own
+            # `Choice Index` input is left unlinked, so it shows as a
+            # directly editable field right on this closed node -- no need
+            # to enter the group at all.
+            group_node = node_tree.nodes.new("ShaderNodeGroup")
+            group_node.node_tree = group_tree
+            group_node.label = f"{option_name} choice index"
+            group_node.name = group_node.label
+            group_node.location = (base_x, row_y)
+            group_node.width = 260.0
+            group_node.use_custom_color = True
+            group_node.color = (0.15, 0.55, 0.15)
+            group_node.inputs["Choice Index"].default_value = float(default_index)
+
+            legend_lines.append(f"{option_name} ({group_node.name}): " +
+                                 ", ".join(f"{i}={c['choice_name']}" for i, c in enumerate(choice_infos)))
+
+            blend_mode = choice_infos[0]["blend_mode"]
+            blend_type = CHR_BLEND_MODE_TO_BLEND_TYPE.get(blend_mode)
+            if blend_type is None:
+                print(f"husk_blender_geoset_mask: material {mat.name!r} option "
+                      f"{option_name!r} has unrecognized blend_mode {blend_mode!r} "
+                      "-- falling back to plain Mix")
+                blend_type = 'MIX'
+
+            option_mix = node_tree.nodes.new("ShaderNodeMix")
+            option_mix.data_type = 'RGBA'
+            option_mix.blend_type = blend_type
+            option_mix.clamp_result = True
+            option_mix.location = (base_x + 400.0, row_y)
+            node_tree.links.new(group_node.outputs["Alpha"], _node_socket(option_mix.inputs, "Factor_Float"))
+            node_tree.links.new(current_color, _node_socket(option_mix.inputs, "A_Color"))
+            node_tree.links.new(group_node.outputs["Color"], _node_socket(option_mix.inputs, "B_Color"))
+            current_color = _node_socket(option_mix.outputs, "Result_Color")
+
+        node_tree.links.new(current_color, base_color_input)
+        if legend_lines:
+            print(f"husk_blender_geoset_mask: material {mat.name!r} customization choice legend "
+                  "(in the Shader Editor, select this material, press Home to frame all nodes -- "
+                  "look for the green '<Option> choice index' group node(s); set its own 'Choice "
+                  "Index' field, directly editable on the closed node, to the real 0-based index "
+                  "of the desired choice):")
+            for line in legend_lines:
+                print(f"  {line}")
+        touched += 1
+
     return touched
 
 
@@ -1973,11 +2544,27 @@ def _run_stage(model_name, stage_name, fn):
 def main():
     argv = sys.argv
     filepath = None
+    textures_dir = None
     if "--" in argv:
         extra_args = argv[argv.index("--") + 1:]
-        if extra_args:
+        if extra_args and not extra_args[0].startswith("--"):
             filepath = extra_args[0]
             bpy.ops.import_scene.gltf(filepath=filepath)
+        if "--textures" in extra_args:
+            idx = extra_args.index("--textures")
+            if idx + 1 < len(extra_args):
+                textures_dir = extra_args[idx + 1]
+        elif filepath:
+            # Same "no separate flag needed for the common case" default
+            # `husk export --textures` itself already uses ("the model's
+            # own directory") -- real usability fix, prompted directly:
+            # requiring this explicitly here on top of an already-short
+            # `husk export` invocation defeated the point of that
+            # shortness. Falls back to `_resolve_customization_texture_path`'s
+            # own parent-directory search too, so this still finds a real
+            # race-level shared texture even when the .glb itself sits one
+            # level below (e.g. a `female`/`male` subfolder).
+            textures_dir = os.path.dirname(os.path.abspath(filepath)) or "."
 
     mesh_objs, armature_obj = find_mesh_and_armature()
     model_name = mesh_objs[0].name if mesh_objs else (filepath or "<unknown>")
@@ -2020,6 +2607,33 @@ def main():
               f"(off by default; enable 'Show Overlay' on the HuskChrTextureLayoutOverlay "
               f"node in the Shader Editor)")
 
+    def customization_texture_switch_stage():
+        options = read_chr_customization_options(filepath)
+        if not options:
+            print("husk_blender_geoset_mask: no chr_customization_options extras found "
+                  "(no derivable ChrModelID at export time, or no file path given here) -- "
+                  "skipping the customization texture switch")
+            return
+        layout = read_chr_texture_layout(filepath)
+        if layout is None:
+            print("husk_blender_geoset_mask: chr_customization_options present but no "
+                  "chr_texture_layout extras (no --char-layout-id given at export time) -- "
+                  "can't place customization textures without real section rects, skipping")
+            return
+        if not textures_dir:
+            print("husk_blender_geoset_mask: chr_customization_options/chr_texture_layout "
+                  "present but no '-- <file.glb> --textures <dir>' given -- can't load real "
+                  "per-choice textures, skipping the customization texture switch")
+            return
+        enabled_materials = read_chr_enabled_materials(filepath)
+        touched = apply_customization_texture_switch(options, layout, enabled_materials, materials,
+                                                       textures_dir)
+        if touched:
+            print(f"husk_blender_geoset_mask: {touched} material(s) got a real live customization "
+                  "texture switch -- see the per-material choice legend printed above (no dropdown "
+                  "widget exists for this in shader node trees in this Blender version, see "
+                  "apply_customization_texture_switch's own doc comment)")
+
     def texture_transform_animation_stage():
         touched = apply_texture_transform_animation(materials)
         if touched:
@@ -2052,6 +2666,7 @@ def main():
     _run_stage(model_name, "geoset switch", geoset_stage)
     _run_stage(model_name, "billboard alignment", billboard_stage)
     _run_stage(model_name, "texture-layout overlay", texture_layout_overlay_stage)
+    _run_stage(model_name, "customization texture switch", customization_texture_switch_stage)
     _run_stage(model_name, "texture-transform animation", texture_transform_animation_stage)
     _run_stage(model_name, "tint/fade animation", tint_fade_animation_stage)
     _run_stage(model_name, "emitter placement markers", emitter_marker_stage)

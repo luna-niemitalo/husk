@@ -66,10 +66,15 @@ struct RaceModel {
 };
 
 // One ChrModel.db2 row's identity link -- which real CreatureDisplayInfoID
-// this ChrModelID renders as.
+// this ChrModelID renders as, plus that same row's own real
+// CharComponentTextureLayoutID (used to auto-derive `--char-layout-id`
+// once a ChrModelID is resolved -- see cmd_export.cpp's
+// `attachCharTextureLayout`; 0 when the row has none, same "0 = absent"
+// convention as every other optional DB2 field this project reads).
 struct ChrModelDisplay {
     uint32_t chrModelId = 0;
     uint32_t displayId = 0;
+    uint32_t charComponentTextureLayoutId = 0;
 };
 
 // One CreatureDisplayInfo.db2 row's identity link -- which real

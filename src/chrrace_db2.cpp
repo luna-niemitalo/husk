@@ -53,10 +53,11 @@ std::vector<RaceModel> loadRaceModels(const std::string& db2Dir, const std::stri
 
 std::vector<ChrModelDisplay> loadChrModels(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
     std::vector<ChrModelDisplay> result;
-    auto rows = db2table::readNamedColumns(joinPath(db2Dir, "chrmodel.db2"), dbdDir, {"ID", "DisplayID"}, err);
+    auto rows = db2table::readNamedColumns(joinPath(db2Dir, "chrmodel.db2"), dbdDir,
+                                            {"ID", "DisplayID", "CharComponentTextureLayoutID"}, err);
     if (!rows) return result;
     for (const auto& row : *rows) {
-        result.push_back({orZero(row[0]), orZero(row[1])});
+        result.push_back({orZero(row[0]), orZero(row[1]), orZero(row[2])});
     }
     return result;
 }

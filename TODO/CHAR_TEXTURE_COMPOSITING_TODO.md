@@ -488,9 +488,10 @@ tooling this repo doesn't have yet, same distinction
 `../EYES_ON_FINDINGS.md`'s finding #3/#6 already draws, same "reads raw
 skin extras JSON, builds real node graph" pattern
 `tools/husk_blender_geoset_mask.py` already established for geosets).
-Not started — see `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md` for the full
-plan (exact extras schema, the real blend-mode-to-Blender-node mapping,
-step-by-step implementation, and the open design questions).
+**Implemented** — see `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md` for the
+exact node-graph shape and its own remaining verification step (a real
+interactive Blender GUI pass with real per-choice textures, still
+Luna's own next action).
 
 ### Stage 6 — equipped-gear appearance resolution (`husk-appearance/1`'s `gear` field)
 
