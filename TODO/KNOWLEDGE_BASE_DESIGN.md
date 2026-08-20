@@ -59,12 +59,28 @@ New regression test: `tests/test_integration_weapons.cpp`'s
 model copied under a race-suffixed name, a family-basename PNG placed
 alongside it, confirms the fallback actually embeds it).
 
-**Remaining step** (formerly its own `EXPLORATION_TODO.md`, folded in here
-since it's this fix's own direct follow-up, not a separate investigation):
-`render_sample_driver.py`/`tools/full_render.py` need a real run to
-completion — `direnv exec . tools/venv/bin/python tools/full_render.py` —
-then a real visual check of the output. Old renders already cleared to
-`trash/` for a clean run.
+**Remaining step — human-gated, not independent** (formerly its own
+`EXPLORATION_TODO.md`, folded in here since it's this fix's own direct
+follow-up, not a separate investigation): `render_sample_driver.py`/
+`tools/full_render.py` need a real run to completion —
+`direnv exec . tools/venv/bin/python tools/full_render.py` — then a real
+visual check of the output. Old renders already cleared to `trash/` for a
+clean run.
+
+**Marked human-gated per Luna's explicit correction** (this exact spot has
+cost a previous session real self-inflicted damage, twice): once from
+attempting `rm` on what looked like a scratch/temp file without the
+"ask first" discipline `~/.claude/CLAUDE.md`'s approval matrix already
+requires; once from running the full-corpus render *inline* (blocking,
+foreground) instead of backgrounded — a render over the real multi-hundred-
+thousand-file corpus is exactly the kind of long-running job that belongs
+in `run_in_background`, never a synchronous call that ties up the session
+and risks a timeout-driven kill mid-run. Both mistakes are avoidable with
+this project's own existing rules; the "visual spot-check" step itself is
+also inherently something needing an actual human eye on rendered images,
+not an automated pass/fail. Do not treat this step as independently
+runnable — get Luna's go-ahead before starting the render, and hand the
+actual visual review to her rather than self-certifying it.
 
 ## Known-wrong, not just unverified (2026-08-16)
 

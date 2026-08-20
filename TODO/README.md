@@ -17,7 +17,7 @@ work, corpus scans, well-scoped implementation, investigation).
 | `PIXEL_SHADER_FORMULAS_TODO.md` | Filling wowdev.wiki's 17 undocumented `Combiners_*` formulas | A promising but unverified lead found (`reference/wow.export`'s shader); step 1 (find real corpus repros) done 2026-08-14 — 14/17 have real repros, some with thousands of files | Step 2 (verify against real rendered output): human-gated |
 | `RENDER_QUALITY_TODO.md` | Corpus-review render-quality findings (rotation, textures, alpha, billboards) | Rotation shear + V-scroll direction + `alphaCutoff` fixed (2026-08-14); 68 "unexplained" blank renders downgraded 2026-08-14 (6 spot-checked, 0 real bugs found); Mod/Mod2x multiply-blend compositing implemented and verified 2026-08-15 (`MOD_BLEND_COMPOSITING_TODO.md` closed and deleted); billboard ground-truth, ambiguous-pool tiebreak still open | Billboard ground-truth is human-gated; ambiguous-pool tiebreak independent |
 | `CHAR_TEXTURE_COMPOSITING_TODO.md` | Full DB2-driven character texture compositing (base/overlay skin layers) | Stages 1-2 done (WDC5 parsing, real placement geometry via `--char-layout-id`); Stage 3's former blocker resolved 2026-08-20 (`tact-fetch`); the name-to-geoset-selector mapping and "which character" model-identity derivation are now both implemented (`TODO_correctness.md` #2, `--chr-model-id auto`, exact FileDataID chain via `--listfile` as primary path, exact filename match as fallback — the earlier Dracthyr "alternate-form ambiguity" was husk's own bug, fixed same day) — per-choice selection for a *specific* character (not just a default) is still open; Stages 4-5 (pixel compositing, Blender picker) not started | Independent — no external blocker remains |
-| `KNOWLEDGE_BASE_DESIGN.md` | A husk-owned DB2/listfile knowledge-base design, plus the object-skin-texture-resolution fix it grew out of | Object-skin texture resolution fixed 2026-08-16 — not via the DB2/knowledge-base chain (too collision-prone, kept disabled) but via a new local race/gender-suffix fallback tier in the existing fuzzy-basename matcher; only remaining step is running the real full-corpus render to completion and a visual spot-check | Independent |
+| `KNOWLEDGE_BASE_DESIGN.md` | A husk-owned DB2/listfile knowledge-base design, plus the object-skin-texture-resolution fix it grew out of | Object-skin texture resolution fixed 2026-08-16 — not via the DB2/knowledge-base chain (too collision-prone, kept disabled) but via a new local race/gender-suffix fallback tier in the existing fuzzy-basename matcher; only remaining step is running the real full-corpus render to completion and a visual spot-check | **Human-gated** — a previous session shot itself in the leg here twice (an unauthorized `rm`, an inline/foreground full-corpus render); get Luna's go-ahead before starting the render, and the visual spot-check itself needs her eyes, not self-certification |
 | `BONE_CORRECTION_APPLICATION_TODO.md` | Applying `.bone` correction matrices in Blender, now that selection is resolved | Selection done (2026-08-14); application semantics (multiply order, space) never verified against real client behavior | **Human-gated** — needs a real side-by-side comparison, same as billboard alignment did |
 | `ENGINE_TODO.md` | External-data gaps, and which are actually husk's to close (renumbered 2026-08-14 after former items 1/2 resolved+removed) | #1 hardcoded texture resolution (biggest remaining item, tracked in `CHAR_TEXTURE_COMPOSITING_TODO.md`); #2 `aliasNext` names checked and closed 2026-08-14 (local DB2 schema dropped `Name` around 7.3.5, unrecoverable); #3 `blendTimeOperation` (no data, needs a heuristic); #4 sound linking (unconfirmed); #5 LOD thresholds (a design decision, not a gap) | #4: independent investigation. #3: independent (author a heuristic). #5: a decision, not a task |
 | `BONE_NAME_DEDUCTION_TODO.md` | Tier-2 bone naming (reference-skeleton matching) | Not started; cosmetic only, zero visual/render impact | Independent |
@@ -28,19 +28,18 @@ work, corpus scans, well-scoped implementation, investigation).
 
 ## Suggested order, independent tasks only
 
-1. `KNOWLEDGE_BASE_DESIGN.md` — run the pending full-corpus render to
-   completion and do a real visual spot-check (object-skin resolution
-   itself is already fixed).
-2. `CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 3 — no longer blocked
+1. `CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 3 — no longer blocked
    (`tact-fetch`'s CDN-fetch step works now); the name-to-geoset-selector
    mapping, a default-choice heuristic, and model-identity derivation
    (exact FileDataID chain via `--listfile`, filename fallback) are all
    now implemented (`TODO_correctness.md` #2, `--chr-model-id auto`).
    Still open: per-choice selection for a *specific* character rather
    than a default.
-3. `CLEANUP_TODO.md` — pure hygiene, no functional payoff, do when nothing
-   higher-value is available.
+2. `CLEANUP_TODO.md` item 2 — the dangling-internal-reference corpus scan
+   (item 1, comment hygiene, closed 2026-08-20).
 
 Everything else needs Luna's own interactive/client-side verification
 (`BONE_CORRECTION_APPLICATION_TODO.md`, `RENDER_QUALITY_TODO.md`'s
-billboard ground-truth pass, `PIXEL_SHADER_FORMULAS_TODO.md` step 2).
+billboard ground-truth pass, `PIXEL_SHADER_FORMULAS_TODO.md` step 2,
+`KNOWLEDGE_BASE_DESIGN.md`'s full-corpus render — see its own gate note
+above, this one bit a previous session twice).
