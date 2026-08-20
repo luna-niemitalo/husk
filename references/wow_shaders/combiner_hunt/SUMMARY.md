@@ -58,11 +58,39 @@ no unmodeled tint needed):
 `Combiners_Opaque_ModNA_Alpha` -- zero real matches post-fix.
 `Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha` -- zero real matches post-fix.
 
-**Not implemented, not attempted:** `Combiners_Mod_Dual_Crossfade` /
-`_Masked_Dual_Crossfade` (need an external weight scalar as the blend
-factor itself, not a texture alpha -- this tester's role-search doesn't
-cover that). `Illum` (real formula is "always black," a constant-output
-property, not something formula-equivalence testing is shaped to check).
+**Searched, genuine negative result:** `Combiners_Mod_Dual_Crossfade` /
+`_Masked_Dual_Crossfade`. `equivalence.py` was extended with a scalar-role
+search (`Formula.n_scalar`, candidates drawn as `(cbuffer_name,
+component_index)` pairs from a block's cbuffer-class free inputs, see
+`TODO/COMBINER_HUNT_EXTENSIONS_TODO.md` item 1) to bind the formula's
+`wg`/`wb` blend factors to an external cbuffer scalar component
+(`M2TextureWeight.g`/`.b`) rather than a texture's own alpha channel,
+which every other formula here gets "for free." The search mechanism was
+verified correct against a synthetic block (recovers the right
+`(cbuffer_name, component)` binding with `fitted_scale = [1,1,1]`, see
+git history), then run against the full corpus (32-way sharded by source
+shader, ~1.4s per shard) -- **zero real matches**. A genuine negative
+result, not a tool gap: the search mechanism works, this specific
+3-texture/2-scalar shape just doesn't appear in this particular capture.
+
+**Constant-output tier now implemented for `Illum`** (`constant_output.py`,
+`TODO/COMBINER_HUNT_EXTENSIONS_TODO.md` item 2): every trial re-randomizes
+every one of a block's free inputs independently and checks the output
+stays within `EPS` of `[0,0,0]`. Full-corpus run: **1923 constant-zero
+blocks across 258 distinct shaders**. This is explicitly a **weak**
+signal -- dead code, an unreachable branch, or any other always-off effect
+is also constant-zero, and none of the 1923 beyond the one below have
+been manually read. The original lead
+(`01beee22c3c834c4__sink197`, found by hand while fixing the near-zero-
+scale bug above) was re-checked and remains plausible: its raw
+instructions explicitly `mov r5.xyz, l(0,0,0,0)` two instructions before
+the final `mul r4.xyz, r5.xyzx, r4.xyzx` that produces the sink -- a real
+Mod2xNA-shaped blend (`r3`) gets computed in full, then multiplied by a
+literal zero, structurally consistent with a compiler emitting an
+ubershader case's full diffuse computation and then zeroing it per
+`Illum`'s "mat_diffuse is never set, stays black" semantics. Still not
+confirmed against the surrounding shader's actual `u_pixel_shader` dispatch
+-- flagged as the strongest single example, not a verified finding.
 
 **Structurally unresolvable by color math alone (Tier 1, 5 formulas):**
 `Combiners_Opaque_AddAlpha_Wgt`, `Combiners_Mod_Add_Alpha`,
@@ -115,9 +143,12 @@ wiki's own table, not a gap in this tool.
 (`_3s`, `_Alpha_Alpha`, `Guild_NoBorder`) and 3 more as plausible-but-
 ambiguous (`_Add`, `Opaque_Alpha`, `Mod_Add_Wgt` -- real matches, but
 genuinely indistinguishable from a sibling formula without weight/specular
-modeling this tool doesn't do). 2 formulas got genuine negative results
-worth recording (`ModNA_Alpha`, `UnshAlpha` -- not found, not a bug). 2
-were never attempted (`Dual_Crossfade` family, `Illum` -- need different
-methodology entirely). `Guild`/`Guild_Opaque` stays at its original
-1-example hand-verified state. That's real, honest progress on 8 of the
-17 -- not "solved," but no longer purely a documentation gap either.
+modeling this tool doesn't do). 4 formulas got genuine negative results
+worth recording (`ModNA_Alpha`, `UnshAlpha`, `Dual_Crossfade`,
+`Masked_Dual_Crossfade` -- not found, not a bug; the latter two needed a
+new scalar-role search, built and verified working, see above). `Illum`
+now has a real weak-signal lead set (1923 candidate blocks) plus one
+specific, structurally plausible example, but isn't confirmed. `Guild`/
+`Guild_Opaque` stays at its original 1-example hand-verified state. That's
+real, honest progress on 10 of the 17 -- not "solved," but no longer
+purely a documentation gap either.

@@ -22,15 +22,15 @@ Combiners_Opaque_ModNA_Alpha              -- searched, zero real matches in this
 Combiners_Mod_AddAlpha_Wgt                -- structurally unresolvable by color math alone (Tier 1)
 Combiners_Opaque_Mod_Add_Wgt              -- real corpus match, but diffuse-identical to Combiners_Opaque_Alpha (real ambiguity in wow.export's own source)
 Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha  -- searched, zero real matches in this corpus
-Combiners_Mod_Dual_Crossfade              -- not attempted (needs external weight-scalar search, not built)
+Combiners_Mod_Dual_Crossfade              -- searched (external weight-scalar search now built), zero real matches in this corpus
 Combiners_Opaque_Mod2xNA_Alpha_Alpha      -- VERIFIED, real corpus match, hand-traced exact
-Combiners_Mod_Masked_Dual_Crossfade       -- not attempted (needs external weight-scalar search, not built)
+Combiners_Mod_Masked_Dual_Crossfade       -- searched (same formula as Dual_Crossfade), zero real matches in this corpus
 Combiners_Opaque_Alpha                    -- real corpus match, but diffuse-identical to Combiners_Opaque_Mod_Add_Wgt
 Guild                                     -- 1 real hand-verified example (47c35a45740c769d), not caught by automated search (compiled-swizzle artifact)
 Guild_NoBorder                            -- VERIFIED, 4 real corpus matches, hand-traced exact
 Guild_Opaque                              -- same formula as Guild, differ only by an untested discard
 Combiners_Mod_Depth                       -- structurally unresolvable by color math alone (Tier 1)
-Illum                                     -- not attempted (real formula is "always black," needs a different kind of test)
+Illum                                     -- constant-output tier now built; 1923 constant-zero blocks/258 shaders found (weak signal, unaudited beyond the original lead block -- see combiner_hunt/SUMMARY.md)
 ```
 
 Full corpus-verification pass (methodology, per-formula counts, the two

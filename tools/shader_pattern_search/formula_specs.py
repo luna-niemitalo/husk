@@ -10,9 +10,11 @@ computes for several cases -- see each entry's `note` for what's dropped
 and why that's usually safe (most specular terms don't feed back into the
 diffuse `mat_diffuse` this hunts for).
 
-Every fn(tex, const) -> vec3 takes `tex` as a list of vec4s (rgb+alpha,
-one per texture role in formula order) and `const` as a list of vec3s (one
-per constant-tint role, only Guild-family formulas use these). Equivalence
+Every fn(tex, const, scalars) -> vec3 takes `tex` as a list of vec4s
+(rgb+alpha, one per texture role in formula order), `const` as a list of
+vec3s (one per constant-tint role, only Guild-family formulas use these),
+and `scalars` as a list of floats (one per external cbuffer-scalar role,
+only the Dual_Crossfade family uses these -- see `n_scalar`). Equivalence
 testing (equivalence.py) fits an unmodeled overall tint/scale rather than
 requiring these to predict absolute brightness -- see that module.
 """
@@ -42,30 +44,31 @@ class Formula:
     fn: Callable
     documented: bool
     note: str = ""
+    n_scalar: int = 0
 
 
-def _combiners_mod(tex, const):
+def _combiners_mod(tex, const, scalars):
     return tex[0][:3]
 
 
-def _combiners_mod_mod(tex, const):
+def _combiners_mod_mod(tex, const, scalars):
     return mul3(tex[0][:3], tex[1][:3])
 
 
-def _mod2xna_alpha_wiki(tex, const):
+def _mod2xna_alpha_wiki(tex, const, scalars):
     # wiki: meshColor * ((tex1 - tex1*tex2)*tex1.a + tex1*tex2)
     t1, t2, a = tex[0][:3], tex[1][:3], tex[0][3]
     return [(t1[i] - t1[i] * t2[i]) * a + t1[i] * t2[i] for i in range(3)]
 
 
-def _mod2xna_alpha_wowexport(tex, const):
+def _mod2xna_alpha_wowexport(tex, const, scalars):
     # wow.export: meshColor * mix(tex1*tex2*2, tex1, tex1.a) -- disputed
     # factor-of-2 vs the wiki version above; see PIXEL_SHADER_FORMULAS_TODO.md.
     t1, t2, a = tex[0][:3], tex[1][:3], tex[0][3]
     return mix3([t1[i] * t2[i] * 2 for i in range(3)], t1, a)
 
 
-def _mod2xna_alpha_add(tex, const):
+def _mod2xna_alpha_add(tex, const, scalars):
     # case 15. diffuse-only: identical core to the wow.export Mod2xNA_Alpha
     # formula above -- the only difference (an added specular term using a
     # 3rd texture) isn't part of what's tested. A 2-texture match against
@@ -73,42 +76,42 @@ def _mod2xna_alpha_add(tex, const):
     # (wow.export variant) at the diffuse-only level; only resolvable by
     # also confirming a 3rd texture is used for something specular-shaped
     # elsewhere in the same shader, not attempted here.
-    return _mod2xna_alpha_wowexport(tex, const)
+    return _mod2xna_alpha_wowexport(tex, const, scalars)
 
 
-def _mod2xna_alpha_3s(tex, const):
+def _mod2xna_alpha_3s(tex, const, scalars):
     t1, t2, t3, a3 = tex[0][:3], tex[1][:3], tex[2][:3], tex[2][3]
     return mix3([t1[i] * t2[i] * 2 for i in range(3)], t3, a3)
 
 
-def _opaque_addalpha_wgt(tex, const):
+def _opaque_addalpha_wgt(tex, const, scalars):
     # case 20. diffuse = mesh*tex1, weight only scales a separate specular
     # term -- diffuse itself needs no weight search.
     return tex[0][:3]
 
 
-def _mod_add_alpha(tex, const):
+def _mod_add_alpha(tex, const, scalars):
     # case 21. diffuse = mesh*tex1; tex2/weight only affect discard+specular.
     return tex[0][:3]
 
 
-def _modna_alpha(tex, const):
+def _modna_alpha(tex, const, scalars):
     t1, t2, a = tex[0][:3], tex[1][:3], tex[0][3]
     return mix3(mul3(t1, t2), t1, a)
 
 
-def _mod_addalpha_wgt(tex, const):
+def _mod_addalpha_wgt(tex, const, scalars):
     # case 23. diffuse = mesh*tex1, same shape as _mod_add_alpha's diffuse.
     return tex[0][:3]
 
 
-def _opaque_mod_add_wgt(tex, const):
+def _opaque_mod_add_wgt(tex, const, scalars):
     # case 24. diffuse = mesh*mix(tex1,tex2,tex2.a); weight only scales specular.
     t1, t2, a = tex[0][:3], tex[1][:3], tex[1][3]
     return mix3(t1, t2, a)
 
 
-def _mod2xna_alpha_unshalpha(tex, const):
+def _mod2xna_alpha_unshalpha(tex, const, scalars):
     # case 25. Approximate: real formula scales glow_opacity by an external
     # weight.b this doesn't search for -- assumes weight.b == 1, i.e. treats
     # glow_opacity as plain tex3.a. Flagged, not silently precise.
@@ -119,19 +122,19 @@ def _mod2xna_alpha_unshalpha(tex, const):
     return [inner[i] * (1 - glow) for i in range(3)]
 
 
-def _mod2xna_alpha_alpha(tex, const):
+def _mod2xna_alpha_alpha(tex, const, scalars):
     t1, t2, t3 = tex[0][:3], tex[1][:3], tex[2][:3]
     a1, a3 = tex[0][3], tex[2][3]
     inner = mix3([t1[i] * t2[i] * 2 for i in range(3)], t3, a3)
     return mix3(inner, t1, a1)
 
 
-def _opaque_alpha(tex, const):
+def _opaque_alpha(tex, const, scalars):
     t1, t2, a = tex[0][:3], tex[1][:3], tex[1][3]
     return mix3(t1, t2, a)
 
 
-def _opaque_alpha_alpha(tex, const):
+def _opaque_alpha_alpha(tex, const, scalars):
     # documented: meshResColor * mix(mix(tex1,tex2,tex2.a), tex1, tex1.a)
     t1, t2 = tex[0][:3], tex[1][:3]
     a1, a2 = tex[0][3], tex[1][3]
@@ -139,7 +142,7 @@ def _opaque_alpha_alpha(tex, const):
     return mix3(inner, t1, a1)
 
 
-def _guild(tex, const):
+def _guild(tex, const, scalars):
     # case 30/32 (Guild/Guild_Opaque -- identical color math, differ only
     # by an alpha-discard neither tested here). tex=[tex1,tex2,tex3],
     # const=[generic0,generic1,generic2].
@@ -152,7 +155,7 @@ def _guild(tex, const):
     return mix3(left, right, a3)
 
 
-def _guild_noborder(tex, const):
+def _guild_noborder(tex, const, scalars):
     t1, t2 = tex[0][:3], tex[1][:3]
     a2 = tex[1][3]
     g0, g1 = const[0], const[1]
@@ -160,12 +163,23 @@ def _guild_noborder(tex, const):
     return mul3(t1, inner)
 
 
-def _mod_depth(tex, const):
+def _mod_depth(tex, const, scalars):
     # case 33. Same core shape as Combiners_Mod -- a match here is
     # inherently ambiguous with plain Combiners_Mod at the diffuse-only
     # level; real distinction (a depth-only/alpha-test pass) isn't visible
     # from color math alone.
     return tex[0][:3]
+
+
+def _mod_dual_crossfade(tex, const, scalars):
+    # case 26/28 (Combiners_Mod_Dual_Crossfade / _Masked_Dual_Crossfade --
+    # identical diffuse color math, differ only by an extra tex4.a factor
+    # in discard_alpha, not tested here). wg/wb are external cbuffer scalar
+    # components (M2TextureWeight.g/.b), not texture alpha channels.
+    t1, t2, t3 = tex[0][:3], tex[1][:3], tex[2][:3]
+    wg, wb = clamp01(scalars[0]), clamp01(scalars[1])
+    inner = mix3(t1, t2, wg)
+    return mix3(inner, t3, wb)
 
 
 FORMULAS: list[Formula] = [
@@ -207,11 +221,12 @@ FORMULAS: list[Formula] = [
     Formula("Guild_NoBorder", 2, 2, _guild_noborder, documented=False),
     Formula("Combiners_Mod_Depth", 1, 0, _mod_depth, documented=False,
             note="diffuse-only, trivial shape -- ambiguous vs. Combiners_Mod/AddAlpha_Wgt family"),
-    # Not implemented: Combiners_Mod_Dual_Crossfade / Combiners_Mod_Masked_
-    # Dual_Crossfade need an external weight.g/weight.b scalar as the
-    # blend factor itself (not a texture alpha), which this tester's
-    # role-search doesn't cover yet -- see equivalence.py's module
-    # docstring. Illum (always-black diffuse) needs a different kind of
-    # test entirely (constant-output check, not formula equivalence) --
-    # also not implemented here.
+    Formula("Combiners_Mod_Dual_Crossfade / Combiners_Mod_Masked_Dual_Crossfade", 3, 0, _mod_dual_crossfade,
+            documented=False, n_scalar=2,
+            note="color math identical for both names, differ only by an extra tex4.a factor "
+                 "in discard_alpha (not tested here). wg/wb bind to external cbuffer scalar "
+                 "components (M2TextureWeight.g/.b), searched via equivalence.py's scalar-role loop."),
+    # Not implemented: Illum (always-black diffuse) needs a different kind
+    # of test entirely (constant-output check, not formula equivalence) --
+    # see TODO/COMBINER_HUNT_EXTENSIONS_TODO.md item 2 / invariants.py.
 ]

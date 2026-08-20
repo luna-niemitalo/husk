@@ -53,6 +53,23 @@ missing real matches, not just producing false positives.
   affine-in-alpha, then annihilation). Add a new target formula's
   invariants as a new test function here, same extensibility idea as
   `patterns.py`'s registry.
+- `formula_specs.py` — approach 2, Layer 2c's candidate formulas. One
+  `Formula(name, n_tex, n_const, fn, documented, note, n_scalar)` entry
+  per candidate `Combiners_*`/wiki formula, transcribed from
+  `reference/wow.export/src/shaders/m2.fragment.shader`.
+- `equivalence.py` — approach 2, Layer 2c. Full numeric equivalence
+  testing against every `formula_specs.py` candidate: permutes a block's
+  free inputs into the formula's texture/const/scalar roles, fits an
+  unmodeled per-channel scale on one trial, requires that same scale to
+  reproduce several more independent trials. Stronger than
+  `invariants.py`'s shape battery -- a black-box equivalence oracle, not a
+  heuristic. See its own module docstring for known gaps.
+- `constant_output.py` — approach 2, Layer 2d. A different test shape for
+  formulas whose real output is a hardcoded constant (currently `Illum`,
+  always-black) rather than a function of any input -- something
+  `equivalence.py`'s formula matching can't express. A weak signal (dead
+  code is also constant-output); survivors need a manual read before
+  they count as a real finding.
 
 ## Usage
 
@@ -65,6 +82,11 @@ tools/venv/bin/python3 tools/shader_pattern_search/scan.py --file <hash>.asm -v
 # approach 2: invariant-based matching
 tools/venv/bin/python3 tools/shader_pattern_search/decompose.py          # -> references/wow_shaders/decomposed/
 tools/venv/bin/python3 tools/shader_pattern_search/invariants.py         # -> references/wow_shaders/invariant_survivors.json
+tools/venv/bin/python3 tools/shader_pattern_search/equivalence.py        # -> references/wow_shaders/combiner_hunt/equivalence_results.json
+tools/venv/bin/python3 tools/shader_pattern_search/constant_output.py    # -> references/wow_shaders/combiner_hunt/constant_output_results.json
+
+# fan an expensive formula/full corpus out across cores (single-threaded per invocation):
+tools/venv/bin/python3 tools/shader_pattern_search/equivalence.py --formula-index N --shard i/n
 ```
 
 ## Known limitations (read before trusting a match)
