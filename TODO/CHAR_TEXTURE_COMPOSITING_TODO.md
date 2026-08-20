@@ -452,7 +452,11 @@ one image per full cross-product combination. `Stage 3` above (the real
 this stage is now folded into it -- no separate pixel-compositing work
 remains for husk to do.
 
-### Stage 5 — Blender-side picker tooling (now the real next step)
+### Stage 5 — Blender-side picker tooling (now the real next step, fully scoped in its own file)
+
+**Full implementation plan, self-contained, ready to hand to a fresh
+session: `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`.** Summary only below
+— that file is the source of truth for this stage, not this section.
 
 Luna's original framing: "1 texture as default and rest which match that
 material as unlinked texture nodes" — but *correctly UV-positioned* this
@@ -462,32 +466,10 @@ Blender import script (not `husk export` itself — this is Blender-side
 tooling this repo doesn't have yet, same distinction
 `../EYES_ON_FINDINGS.md`'s finding #3/#6 already draws, same "reads raw
 skin extras JSON, builds real node graph" pattern
-`tools/husk_blender_geoset_mask.py` already established for geosets) that:
-
-1. Reads `chr_texture_layout`'s real placement rects (`sections`) and
-   blend modes (`texture_layers`, joined by `chr_model_texture_target_id`
-   against a resolved `chr_enabled_materials` entry -- Stage 3, done).
-2. For each real `ChrCustomizationOption` on this model
-   (`namedChoicesForModel`-shaped data, not yet exposed as its own export
-   extras -- likely needs a new `chr_options`-style extras list naming
-   every real choice per option, not just the one(s) `--customization-
-   choice-ids`/`--chr-model-id` happened to resolve this run), builds one
-   Image Texture node per real choice's own texture (positioned via a
-   Mapping node onto that choice's real section rect) and a Menu Switch
-   node selecting between them.
-3. Wires the per-layer blend mode via Blender's native Mix Color node
-   (Multiply/Overlay/Screen map directly; Blit/Alpha-Straight/Infer-
-   Alpha-Blend need whatever Mix mode Blender calls plain alpha-over --
-   check directly, don't assume) rather than reimplementing any blend
-   math husk itself no longer does.
-
-Not started. The main open design question: today's DB2 extras only
-expose the choice(s) actually resolved by a given `husk export` run, not
-*every* real choice per option -- Stage 5 needs the latter (to build a
-switch with every real option visible), which likely means a new export
-flag (e.g. `--customization-options-for <chrModelId>`) that resolves and
-attaches every real choice's material chain for a given option, not just
-the caller-selected one(s).
+`tools/husk_blender_geoset_mask.py` already established for geosets).
+Not started — see `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md` for the full
+plan (exact extras schema, the real blend-mode-to-Blender-node mapping,
+step-by-step implementation, and the open design questions).
 
 ### Stage 6 — equipped-gear appearance resolution (`husk-appearance/1`'s `gear` field)
 
