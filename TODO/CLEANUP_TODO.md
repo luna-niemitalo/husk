@@ -4,78 +4,7 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
-## 1. Comment hygiene: move scope/design-decision prose out of headers into DESIGN.md
-
-Prompted directly, off the back of a real, concrete problem: `M2Batch::
-shader_id` sat unparsed for most of this project's life despite this
-project's own completeness docs reading as near-complete, because the
-scope decision to skip it lived only in `skin.hpp`'s own inline doc
-comment ("out of scope for a first metallic-roughness-with-one-texture
-pass") — a comment nobody re-reads once written, so it silently aged from
-"honest, current scope cut" into "stale, wrong claim" as the project's
-ambitions grew well past "first pass." Per `~/nix/claude-rules/
-CODE_COMMENTS.md`: "out of scope"/"not implemented"/"stays unread" is a
-*decision*, not a fact-at-this-line, and belongs in DESIGN.md (reread at
-onboarding, tolerant of slight staleness), not inline (rots silently).
-
-**First pass done this session**: a new "Deliberately unparsed fields"
-ledger in `DESIGN.md`'s Key design decisions, covering `M2SkinSection`/
-`M2Batch` (`skin.hpp`), `.skel`'s unparsed chunks/fields (`skel.hpp`), and
-`M2Event::enabled` (`m2_scene.hpp`) — the inline comments in those four
-spots trimmed to why/gotcha-only content, pointing at the new ledger
-instead of repeating the scope rationale. Also fixed two comments that
-had gone stale in the *other* direction while auditing this (claiming
-something unparsed when it was actually fully resolved elsewhere --
-`m2_skeleton.hpp`'s `Bone` struct, see git history) — same root cause,
-opposite symptom.
-
-**Second pass (2026-08-14): audited the 7 files named above, one by one.**
-Grepped each for "out of scope"/"not implemented"/"unread"/"skipped"/
-"not parsed" and read every hit in context. Verdict: six of seven were
-already correctly inline (boundary contracts, gotchas, non-obvious why —
-`blp.hpp`'s BLP0/BLP1 scope note, `listfile.hpp`'s malformed-line-skip
-rationale, `db2table.hpp`'s offset-map-sections-still-skipped note
-[confirmed still true by checking `db2table.cpp` — no offset-map handling
-wired in there despite `db2.cpp`'s own separate `decodeOffsetMapRecord`
-existing for the lower-level reader], `db2.hpp`'s dropped-`extra*`-fields
-note, `dbd.hpp`'s two `nonInline`/uncheckable-field notes, `m2_animation.hpp`'s
-Color/TextureWeight doc comment — verbose but a real field-level contract,
-not sweep-worthy scope prose). **One real, stale claim found and fixed**:
-`m2_header.hpp`'s `physFileId` doc comment said `.phys` was "a format husk
-doesn't parse yet" — false since `--phys`/`src/phys.cpp` shipped (this
-project's own flagship physics/collision feature); corrected in place to
-describe what's actually true (the *format* is fully parsed, this field is
-only the header's own FileDataID pointer to it, still unresolved to a path
-by husk itself, which was the real, still-accurate boundary). Same
-"stale claim, not a scope decision" shape the first pass already found
-twice in `m2_skeleton.hpp`. No `DESIGN.md` ledger entries needed this
-pass — nothing found was broad enough scope-decision prose to warrant
-migrating; the ledger already covers the real cases from the first pass.
-Full suite green, 634/634 (comment-only + one doc-comment fix, no
-behavior change).
-
-**Third pass: the rest of `src/` (all remaining `.hpp`/`.cpp`, both prior
-passes only covered specific named files).** Grepped all of `src/` for the
-same keywords, read every hit in context. Verdict: one real migration
-candidate found — `m2_scene.hpp`'s `ParticleEmitter` comment (why pre-Cata
-`M2ParticleOld` shapes aren't implemented, a genuine version-gated scope
-decision, same shape as the original `shader_id` case) — moved to
-`DESIGN.md`'s ledger, inline comment trimmed to a pointer. Also removed a
-stray `// TODO: Remove:` comment sitting right next to it whose own text
-said it was already done (a real file verified, never cleaned up after).
-Everything else found (`skin.cpp`'s two "see skin.hpp's doc comment"
-pointers, `cmd_db2.cpp`'s "see db2.hpp's module comment", `export_animation
-.hpp`'s missing-vs-skipped function contract, `cmd_dump.cpp`'s module-level
-"why dump-chunks exists" doc, `m2_skeleton.hpp`'s already-self-corrected
-`Bone` note from the first pass) was either already the desired pointer-
-not-repeat pattern or a genuine field/function-level contract, not rotting
-scope prose. Full suite green (comment-only change, verified via a clean
-`husk-lib`/`husk` build, no test-suite-relevant behavior touched).
-
-This item is now closed — all three passes done, no further `src/` sweep
-scope remains.
-
-## 2. A corpus-wide "dangling internal reference" scan — a deliberate counterweight to completeness metrics
+## 1. A corpus-wide "dangling internal reference" scan — a deliberate counterweight to completeness metrics
 
 Prompted directly (2026-08-13), off the back of a real, concrete example
 this same session hit while picking a texture-transform-animation test

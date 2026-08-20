@@ -56,6 +56,70 @@ int blpExport(int argc, char** args);
 // (see src/appearance_string.hpp, src/cmd_appearance.cpp's own doc comment).
 int appearanceString(int argc, char** args);
 
+// Every struct/addXOptions pair below is the same single-source-of-truth
+// split `ExportOptions`/`addExportOptions` established: the flag surface is
+// declared once here (names, defaults, descriptions), used both by the real
+// command's own parse and by main.cpp's `--print-completion` generator,
+// which never calls `app.parse(...)` on its copy -- only introspects
+// `get_options()`. Kept in `commands.hpp` rather than local to each
+// cmd_*.cpp for the same reason `ExportOptions` is (~/docs/READABILITY.md's
+// single-source-of-truth rule): a second, hand-maintained copy of any of
+// these flag lists would drift out of sync with the one CLI11 actually
+// parses against.
+
+struct InfoOptions {
+    std::string model;
+};
+void addInfoOptions(CLI::App& app, InfoOptions& opts);
+
+struct DumpChunksOptions {
+    std::string model;
+};
+void addDumpChunksOptions(CLI::App& app, DumpChunksOptions& opts);
+
+struct Db2InfoOptions {
+    std::string model;
+    std::string rowsArg = "5";
+};
+void addDb2InfoOptions(CLI::App& app, Db2InfoOptions& opts);
+
+// `pos1`/`pos2` are deliberately generic, not `input`/`output` -- --dir
+// mode's grammar ("--dir <dir> <out>") only leaves one positional token
+// after `--dir` consumes its own value, which binds to `pos1` and is
+// reinterpreted as the output path there; single-file mode ("<in> <out>")
+// uses both positionals for their more obvious meaning. See db2Export's own
+// doc comment in cmd_db2.cpp for why this shape was kept instead of a
+// redesign into new flag names.
+struct Db2ExportOptions {
+    std::string dirArg;
+    std::string dbdDir;
+    std::string pos1;
+    std::string pos2;
+};
+void addDb2ExportOptions(CLI::App& app, Db2ExportOptions& opts);
+
+struct Db2BuildOptions {
+    std::string db2Dir;
+    std::string dbdDir;
+    std::string listfilePath;
+    std::string outputPath;
+};
+void addDb2BuildOptions(CLI::App& app, Db2BuildOptions& opts);
+
+// Same `pos1`/`pos2` reinterpreted-by-mode shape as `Db2ExportOptions`
+// above.
+struct BlpExportOptions {
+    std::string dirArg;
+    std::string pos1;
+    std::string pos2;
+};
+void addBlpExportOptions(CLI::App& app, BlpExportOptions& opts);
+
+struct AppearanceStringOptions {
+    std::string value;
+};
+void addAppearanceStringOptions(CLI::App& app, AppearanceStringOptions& opts);
+
 // `export`'s real flag surface (see DESIGN.md's "CLI argument grammar for
 // export"), captured here (rather than as a local in cmd_export.cpp) so
 // main.cpp's `--print-completion` can register the exact same options onto

@@ -13,6 +13,11 @@ _husk() {
         'export:export a mesh (+ skin/animation) to glTF'
         'info:parse and print an M2 header'
         'dump-chunks:extract misc chunks to JSON'
+        'db2-info:parse and print a WDC5 DB2 file'
+        'db2-export:convert WDC5 DB2 file(s) to a real SQLite database'
+        'db2-build:build husk's own verified knowledge-base DB'
+        'blp-export:convert BLP2 texture(s) to PNG'
+        'appearance-string:validate/normalize a husk-appearance/1 string'
     )
 
     if (( CURRENT == 2 )); then
@@ -59,6 +64,42 @@ _husk() {
         dump-chunks)
             _arguments \
                 '(-h --help)'{-h,--help}'[print help and exit]' \
+                '1:model:_files'
+            ;;
+        db2-info)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--rows[--rows]:value:_files' \
+                '1:model:_files'
+            ;;
+        db2-export)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--dir[--dir]:value:_files' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '1:model:_files'
+            ;;
+        db2-build)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
+                '(-o --output)'{-o,--output}'[output .glb path]:value:_files' \
+                '1:model:_files'
+            ;;
+        blp-export)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--dir[--dir]:value:_files' \
+                '1:model:_files'
+            ;;
+        appearance-string)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--validate[--validate]:value:_files' \
                 '1:model:_files'
             ;;
     esac

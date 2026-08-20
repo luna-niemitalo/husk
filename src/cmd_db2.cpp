@@ -539,8 +539,28 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
 
 }  // namespace
 
+void addDb2ExportOptions(CLI::App& app, Db2ExportOptions& opts) {
+    app.set_config("--config", husk::defaultConfigPath(),
+                    "TOML file of default flag values -- explicit CLI flags always override a "
+                    "config value")
+        ->envname("HUSK_CONFIG");
+    app.add_option("--dir", opts.dirArg, "directory of .db2 files to convert -- batch mode");
+    app.add_option("--dbd-dir", opts.dbdDir,
+                    "a local WoWDBDefs checkout (github.com/wowdev/WoWDBDefs -- manifest.json + "
+                    "definitions/*.dbd), used to resolve real column names/types for each file's "
+                    "own table_hash/layout_hash. Optional -- without it, or if no matching "
+                    "layout is found, columns are named field_<N> instead. In --dir mode, a "
+                    "column with a real WoWDBDefs foreign-key target also gets a real SQLite "
+                    "FOREIGN KEY constraint, but only when the target table is also part of this "
+                    "same export batch");
+    app.add_option("pos1", opts.pos1,
+                    "the .db2 file to convert (single-file mode), or the .db2 directory (--dir "
+                    "mode)");
+    app.add_option("pos2", opts.pos2, "the output .sqlite path");
+}
+
 int db2Export(int argc, char** args) {
-    std::string dirArg, dbdDir, pos1, pos2;
+    Db2ExportOptions opts;
     CLI::App app{
         "Converts one WDC5 DB2 file, or (with --dir) every *.db2 file in a directory, to a real "
         "SQLite database -- one table per file, named from the DBD table name if resolved, else "
@@ -550,23 +570,7 @@ int db2Export(int argc, char** args) {
         "that can't be parsed or has nothing exportable is skipped (with a diagnostic), not "
         "treated as a fatal error for the whole batch.",
         "husk db2-export"};
-    app.set_config("--config", husk::defaultConfigPath(),
-                    "TOML file of default flag values -- explicit CLI flags always override a "
-                    "config value")
-        ->envname("HUSK_CONFIG");
-    app.add_option("--dir", dirArg, "directory of .db2 files to convert -- batch mode");
-    app.add_option("--dbd-dir", dbdDir,
-                    "a local WoWDBDefs checkout (github.com/wowdev/WoWDBDefs -- manifest.json + "
-                    "definitions/*.dbd), used to resolve real column names/types for each file's "
-                    "own table_hash/layout_hash. Optional -- without it, or if no matching "
-                    "layout is found, columns are named field_<N> instead. In --dir mode, a "
-                    "column with a real WoWDBDefs foreign-key target also gets a real SQLite "
-                    "FOREIGN KEY constraint, but only when the target table is also part of this "
-                    "same export batch");
-    app.add_option("pos1", pos1,
-                    "the .db2 file to convert (single-file mode), or the .db2 directory (--dir "
-                    "mode)");
-    app.add_option("pos2", pos2, "the output .sqlite path");
+    addDb2ExportOptions(app, opts);
 
     try {
         std::vector<std::string> argVec(args, args + argc);
@@ -575,6 +579,7 @@ int db2Export(int argc, char** args) {
     } catch (const CLI::ParseError& e) {
         return app.exit(e);
     }
+    const std::string& dbdDir = opts.dbdDir;
 
     bool dirMode = app.count("--dir") > 0;
     std::string inputPath, dirPath, outputPath;
@@ -584,16 +589,16 @@ int db2Export(int argc, char** args) {
                          "output .sqlite path)\n";
             return 1;
         }
-        dirPath = dirArg;
-        outputPath = pos1;
+        dirPath = opts.dirArg;
+        outputPath = opts.pos1;
     } else {
         if (app.count("pos1") != 1 || app.count("pos2") != 1) {
             std::cerr << "husk: db2-export: expected exactly two positional arguments (the "
                          "input .db2 and the output .sqlite path), or --dir for batch mode\n";
             return 1;
         }
-        inputPath = pos1;
-        outputPath = pos2;
+        inputPath = opts.pos1;
+        outputPath = opts.pos2;
     }
 
     std::vector<LoadedFile> loaded;
@@ -784,8 +789,21 @@ std::string stampSourceFiles(const std::string& db2Dir, const std::vector<KbSour
 
 }  // namespace
 
+void addDb2BuildOptions(CLI::App& app, Db2BuildOptions& opts) {
+    app.set_config("--config", husk::defaultConfigPath(),
+                    "TOML file of default flag values -- explicit CLI flags always override a "
+                    "config value")
+        ->envname("HUSK_CONFIG");
+    app.add_option("--db2-dir", opts.db2Dir, "a real, local, already-extracted DB2 directory")
+        ->required();
+    app.add_option("--dbd-dir", opts.dbdDir, "a local WoWDBDefs checkout")->required();
+    app.add_option("--listfile", opts.listfilePath, "a local community-listfile.csv-style snapshot")
+        ->required();
+    app.add_option("-o,--output", opts.outputPath, "the output .sqlite path")->required();
+}
+
 int db2Build(int argc, char** args) {
-    std::string db2Dir, dbdDir, listfilePath, outputPath;
+    Db2BuildOptions opts;
     CLI::App app{
         "Builds husk's own verified knowledge-base SQLite database from a real, local --db2-dir "
         "plus a --listfile snapshot -- TODO/KNOWLEDGE_BASE_DESIGN.md. Ingests the DB2 tables "
@@ -798,15 +816,7 @@ int db2Build(int argc, char** args) {
         "base is stale relative to --db2-dir's current contents (`husk export "
         "--knowledge-db`). Local-only, rebuilt on demand -- never fetched, never committed.",
         "husk db2-build"};
-    app.set_config("--config", husk::defaultConfigPath(),
-                    "TOML file of default flag values -- explicit CLI flags always override a "
-                    "config value")
-        ->envname("HUSK_CONFIG");
-    app.add_option("--db2-dir", db2Dir, "a real, local, already-extracted DB2 directory")->required();
-    app.add_option("--dbd-dir", dbdDir, "a local WoWDBDefs checkout")->required();
-    app.add_option("--listfile", listfilePath, "a local community-listfile.csv-style snapshot")
-        ->required();
-    app.add_option("-o,--output", outputPath, "the output .sqlite path")->required();
+    addDb2BuildOptions(app, opts);
 
     try {
         std::vector<std::string> argVec(args, args + argc);
@@ -815,6 +825,10 @@ int db2Build(int argc, char** args) {
     } catch (const CLI::ParseError& e) {
         return app.exit(e);
     }
+    const std::string& db2Dir = opts.db2Dir;
+    const std::string& dbdDir = opts.dbdDir;
+    const std::string& listfilePath = opts.listfilePath;
+    const std::string& outputPath = opts.outputPath;
 
     std::vector<KbSourceTable> sourceTables(std::begin(kKbSourceTables), std::end(kKbSourceTables));
 
@@ -1127,8 +1141,14 @@ int db2Build(int argc, char** args) {
     return 0;
 }
 
+void addDb2InfoOptions(CLI::App& app, Db2InfoOptions& opts) {
+    app.add_option("model", opts.model, "the .db2 file to inspect")->required();
+    app.add_option("--rows", opts.rowsArg, "how many decoded rows to dump, or 'all'")
+        ->capture_default_str();
+}
+
 int db2Info(int argc, char** args) {
-    std::string path, rowsArg = "5";
+    Db2InfoOptions opts;
     CLI::App app{
         "Parses a WDC5 DB2 file and prints its header, per-section layout, and per-field storage "
         "info. With --rows (default 5, 0 for none, 'all' for every record), also dumps that many "
@@ -1137,8 +1157,7 @@ int db2Info(int argc, char** args) {
         "names are not known (WDC5 carries no column names, only positions/sizes), so fields are "
         "identified by index only.",
         "husk db2-info"};
-    app.add_option("model", path, "the .db2 file to inspect")->required();
-    app.add_option("--rows", rowsArg, "how many decoded rows to dump, or 'all'")->capture_default_str();
+    addDb2InfoOptions(app, opts);
 
     try {
         std::vector<std::string> argVec(args, args + argc);
@@ -1147,18 +1166,19 @@ int db2Info(int argc, char** args) {
     } catch (const CLI::ParseError& e) {
         return app.exit(e);
     }
+    const std::string& path = opts.model;
 
     size_t rowLimit = 5;
-    if (rowsArg == "all") {
+    if (opts.rowsArg == "all") {
         rowLimit = static_cast<size_t>(-1);
     } else {
         try {
             size_t pos = 0;
-            rowLimit = static_cast<size_t>(std::stoul(rowsArg, &pos));
-            if (pos != rowsArg.size()) throw std::invalid_argument(rowsArg);
+            rowLimit = static_cast<size_t>(std::stoul(opts.rowsArg, &pos));
+            if (pos != opts.rowsArg.size()) throw std::invalid_argument(opts.rowsArg);
         } catch (const std::exception&) {
             std::cerr << "husk: db2-info: --rows expects a non-negative integer or 'all', got '"
-                      << rowsArg << "'\n";
+                      << opts.rowsArg << "'\n";
             return 1;
         }
     }

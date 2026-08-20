@@ -83,8 +83,12 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
 
 }  // namespace
 
+void addDumpChunksOptions(CLI::App& app, DumpChunksOptions& opts) {
+    app.add_option("model", opts.model, "the .m2, .bone, or .phys file to dump")->required();
+}
+
 int dumpChunks(int argc, char** args) {
-    std::string path;
+    DumpChunksOptions opts;
     CLI::App app{
         "Extracts M2 data husk doesn't fold into `export`'s glTF output into readable JSON on "
         "stdout: ribbon_emitters/particle_emitters (every field and fully resolved animation "
@@ -97,7 +101,7 @@ int dumpChunks(int argc, char** args) {
         "only a minimal per-body placement anchor to the .glb itself, this is the home for "
         "everything else.",
         "husk dump-chunks"};
-    app.add_option("model", path, "the .m2, .bone, or .phys file to dump")->required();
+    addDumpChunksOptions(app, opts);
 
     try {
         std::vector<std::string> argVec(args, args + argc);
@@ -106,6 +110,7 @@ int dumpChunks(int argc, char** args) {
     } catch (const CLI::ParseError& e) {
         return app.exit(e);
     }
+    const std::string& path = opts.model;
 
     try {
         auto fileBytes = readFileBytes(path);

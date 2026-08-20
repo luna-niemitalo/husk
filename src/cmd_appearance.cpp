@@ -19,14 +19,18 @@
 // claimed-resolved).
 namespace husk::commands {
 
+void addAppearanceStringOptions(CLI::App& app, AppearanceStringOptions& opts) {
+    app.add_option("--validate", opts.value, "the husk-appearance/1 string to validate")->required();
+}
+
 int appearanceString(int argc, char** args) {
-    std::string value;
+    AppearanceStringOptions opts;
     CLI::App app{
         "Parses a husk-appearance/1 string, re-serializes it in canonical form (sorted cust/gear "
         "lists), and prints a summary. `gear` entries are carried through as opaque (slot, "
         "ItemModifiedAppearanceID) pairs only -- husk does not yet resolve them to textures.",
         "husk appearance-string"};
-    app.add_option("--validate", value, "the husk-appearance/1 string to validate")->required();
+    addAppearanceStringOptions(app, opts);
 
     try {
         std::vector<std::string> argVec(args, args + argc);
@@ -37,7 +41,7 @@ int appearanceString(int argc, char** args) {
     }
 
     try {
-        husk::appearance::AppearanceString parsed = husk::appearance::parse(value);
+        husk::appearance::AppearanceString parsed = husk::appearance::parse(opts.value);
         std::cout << "husk: appearance-string: valid\n"
                    << "husk: appearance-string: canonical: " << husk::appearance::serialize(parsed) << "\n"
                    << "husk: appearance-string: race=" << parsed.raceId << " sex=" << parsed.sexId

@@ -68,14 +68,18 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
 
 }  // namespace
 
+void addInfoOptions(CLI::App& app, InfoOptions& opts) {
+    app.add_option("model", opts.model, "the .m2 file to inspect")->required();
+}
+
 int info(int argc, char** args) {
-    std::string path;
+    InfoOptions opts;
     CLI::App app{
         "Parses an M2 model's header and prints what was found: magic/version/name, whether it's "
         "Legion+ chunked, and the record counts (bones, vertices, textures, ...) from the header's "
         "M2Array fields.",
         "husk info"};
-    app.add_option("model", path, "the .m2 file to inspect")->required();
+    addInfoOptions(app, opts);
 
     try {
         std::vector<std::string> argVec(args, args + argc);
@@ -84,6 +88,7 @@ int info(int argc, char** args) {
     } catch (const CLI::ParseError& e) {
         return app.exit(e);
     }
+    const std::string& path = opts.model;
 
     m2::Header h;
     std::vector<uint8_t> blob;

@@ -70,8 +70,16 @@ bool convertOne(const std::string& inputPath, const std::string& outputPath) {
 
 }  // namespace
 
+void addBlpExportOptions(CLI::App& app, BlpExportOptions& opts) {
+    app.add_option("--dir", opts.dirArg, "directory of .blp files to convert -- batch mode");
+    app.add_option("pos1", opts.pos1,
+                    "the .blp file to convert (single-file mode), or the output directory "
+                    "(--dir mode)");
+    app.add_option("pos2", opts.pos2, "the output .png path -- single-file mode only");
+}
+
 int blpExport(int argc, char** args) {
-    std::string dirArg, pos1, pos2;
+    BlpExportOptions opts;
     CLI::App app{
         "Converts one BLP2 texture, or (with --dir) every *.blp file in a directory, to a real "
         "PNG -- mip level 0 (full resolution) only. In --dir mode, output filenames mirror each "
@@ -79,11 +87,7 @@ int blpExport(int argc, char** args) {
         "fails to parse is skipped with a diagnostic, not treated as a fatal error for the whole "
         "batch.",
         "husk blp-export"};
-    app.add_option("--dir", dirArg, "directory of .blp files to convert -- batch mode");
-    app.add_option("pos1", pos1,
-                    "the .blp file to convert (single-file mode), or the output directory "
-                    "(--dir mode)");
-    app.add_option("pos2", pos2, "the output .png path -- single-file mode only");
+    addBlpExportOptions(app, opts);
 
     try {
         std::vector<std::string> argVec(args, args + argc);
@@ -100,8 +104,8 @@ int blpExport(int argc, char** args) {
                          "output directory)\n";
             return 1;
         }
-        std::filesystem::path dirPath = dirArg;
-        std::filesystem::path outDir = pos1;
+        std::filesystem::path dirPath = opts.dirArg;
+        std::filesystem::path outDir = opts.pos1;
 
         std::vector<std::filesystem::path> paths;
         for (const auto& entry : std::filesystem::directory_iterator(dirPath)) {
@@ -134,7 +138,7 @@ int blpExport(int argc, char** args) {
                      ".blp and the output .png), or --dir for batch mode\n";
         return 1;
     }
-    return convertOne(pos1, pos2) ? 0 : 1;
+    return convertOne(opts.pos1, opts.pos2) ? 0 : 1;
 }
 
 }  // namespace husk::commands

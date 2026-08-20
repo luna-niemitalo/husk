@@ -294,27 +294,53 @@ std::string generateZshCompletion(CLI::App& root) {
     return out.str();
 }
 
-// Builds a throwaway CLI11 App tree matching export/info/dump-chunks' real
-// flag surface -- `root`/`exportOpts` must stay alive for this whole
+// Builds a throwaway CLI11 App tree matching every subcommand's real flag
+// surface -- `root`/every `*Opts` below must stay alive for this whole
 // function body, since CLI11 options bind by reference to the address
 // passed at add_option time; only the finished std::string may outlive it.
 // Never calls `.parse(...)` -- only introspects (see collectFlags/
-// allSubcommands above).
+// allSubcommands above). Every subcommand here registers via its own
+// shared `addXOptions` (commands.hpp) -- the same flag declarations the
+// real command's own parse uses, so this tree can never drift out of sync
+// with what CLI11 actually parses against.
 std::string generateCompletionScript(const std::string& shell) {
     CLI::App root{"husk"};
     husk::commands::ExportOptions exportOpts;
+    husk::commands::InfoOptions infoOpts;
+    husk::commands::DumpChunksOptions dumpOpts;
+    husk::commands::Db2InfoOptions db2InfoOpts;
+    husk::commands::Db2ExportOptions db2ExportOpts;
+    husk::commands::Db2BuildOptions db2BuildOpts;
+    husk::commands::BlpExportOptions blpExportOpts;
+    husk::commands::AppearanceStringOptions appearanceOpts;
 
     CLI::App* exportSub =
         root.add_subcommand("export", "export a mesh (+ skin/animation) to glTF");
     husk::commands::addExportOptions(*exportSub, exportOpts);
 
     CLI::App* infoSub = root.add_subcommand("info", "parse and print an M2 header");
-    std::string infoModel;
-    infoSub->add_option("model", infoModel, "the .m2 file to inspect");
+    husk::commands::addInfoOptions(*infoSub, infoOpts);
 
     CLI::App* dumpSub = root.add_subcommand("dump-chunks", "extract misc chunks to JSON");
-    std::string dumpModel;
-    dumpSub->add_option("model", dumpModel, "the .m2 or .bone file to dump");
+    husk::commands::addDumpChunksOptions(*dumpSub, dumpOpts);
+
+    CLI::App* db2InfoSub = root.add_subcommand("db2-info", "parse and print a WDC5 DB2 file");
+    husk::commands::addDb2InfoOptions(*db2InfoSub, db2InfoOpts);
+
+    CLI::App* db2ExportSub =
+        root.add_subcommand("db2-export", "convert WDC5 DB2 file(s) to a real SQLite database");
+    husk::commands::addDb2ExportOptions(*db2ExportSub, db2ExportOpts);
+
+    CLI::App* db2BuildSub =
+        root.add_subcommand("db2-build", "build husk's own verified knowledge-base DB");
+    husk::commands::addDb2BuildOptions(*db2BuildSub, db2BuildOpts);
+
+    CLI::App* blpExportSub = root.add_subcommand("blp-export", "convert BLP2 texture(s) to PNG");
+    husk::commands::addBlpExportOptions(*blpExportSub, blpExportOpts);
+
+    CLI::App* appearanceSub =
+        root.add_subcommand("appearance-string", "validate/normalize a husk-appearance/1 string");
+    husk::commands::addAppearanceStringOptions(*appearanceSub, appearanceOpts);
 
     if (shell == "bash") return generateBashCompletion(root);
     if (shell == "zsh") return generateZshCompletion(root);

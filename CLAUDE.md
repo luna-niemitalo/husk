@@ -180,7 +180,35 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-21, `TODO/CLEANUP_TODO.md` #3: CLI11 migration
+- **Current state (2026-08-21, completion-tree follow-up + `CLEANUP_TODO.md`
+  housekeeping)**: closed the gap flagged at the end of the previous
+  entry's own session summary -- `db2-export`/`db2-info`/`db2-build`/
+  `blp-export`/`appearance-string` were migrated to real `CLI::App`s but
+  never wired into `main.cpp`'s `--print-completion` tree (a pre-existing
+  gap, not new from that migration). Fixed by factoring each command's
+  flag registration into its own shared `addXOptions(CLI::App&, XOptions&)`
+  (new `InfoOptions`/`DumpChunksOptions`/`Db2InfoOptions`/
+  `Db2ExportOptions`/`Db2BuildOptions`/`BlpExportOptions`/
+  `AppearanceStringOptions` in `commands.hpp`), the exact same
+  single-source-of-truth split `ExportOptions`/`addExportOptions` already
+  established -- `generateCompletionScript` (`main.cpp`) now registers
+  all 8 subcommands (`info`/`dump-chunks` were already there, inlined;
+  now share the same real function the command itself parses against)
+  instead of only 3. `completions/husk.{bash,zsh}` regenerated -- real
+  growth (91/41 new lines), not cosmetic, since 5 subcommands' flags were
+  genuinely absent from tab-completion before this. Also closed
+  `TODO/CLEANUP_TODO.md`'s stale item 1 (a comment-hygiene sweep marked
+  "now closed" in its own text but never actually removed from the file,
+  contradicting the doc's own stated "fixed items get removed outright"
+  convention) -- removed, item 2 renumbered to item 1. That leaves
+  exactly one open item (the dangling-internal-reference corpus scan) --
+  a real new multi-hour tool build, not a quick fix, confirmed with Luna
+  before starting rather than assumed (not yet built as of this entry).
+  Full suite green, 669/669 (no
+  behavior change, completions + doc housekeeping + the registration
+  refactor itself, which is a pure move -- every add_option call kept its
+  exact same flag name/description/validator).
+- **Previous state (2026-08-21, `TODO/CLEANUP_TODO.md` #3: CLI11 migration
   for every remaining command)**: `db2-export`/`db2-info`/`db2-build`/
   `dump-chunks`/`blp-export`/`info`/`appearance-string` all now parse argv
   via a real `CLI::App`, matching `export`'s own earlier migration
