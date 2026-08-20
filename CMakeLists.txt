@@ -151,6 +151,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli.cpp
     tests/test_cli_batch.cpp
     tests/test_cli_config.cpp
+    tests/test_cli_appearance.cpp
     tests/test_cli_info.cpp
     tests/test_cli_errors.cpp
     tests/test_cli_argv.cpp

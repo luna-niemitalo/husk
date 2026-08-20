@@ -180,7 +180,53 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-21, `husk export --config` TOML config-file
+- **Current state (2026-08-21, `TODO/CLEANUP_TODO.md` #3: CLI11 migration
+  for every remaining command)**: `db2-export`/`db2-info`/`db2-build`/
+  `dump-chunks`/`blp-export`/`info`/`appearance-string` all now parse argv
+  via a real `CLI::App`, matching `export`'s own earlier migration
+  (previous entry below) instead of hand-rolled `argc`/`args[N]`
+  positional parsing. `db2-export`/`db2-build` also gained the same
+  `--config`/`$HUSK_CONFIG`/XDG-autodiscovery TOML config-file support
+  `export` has (`husk::defaultConfigPath()`, shared, not export-specific,
+  exactly as anticipated) for their genuinely per-machine-stable flags
+  (`--dbd-dir`; `--db2-dir`/`--dbd-dir`/`--listfile`) — `db2-info`/
+  `dump-chunks`/`blp-export`/`info`/`appearance-string` were left without
+  config wiring since none has a flag that's actually per-machine-stable
+  (confirming the earlier "info may not need this at all" guess). The
+  now-fully-dead hand-rolled `isHelpFlag` helper (`commands.hpp`) removed.
+  Every command's own descriptive usage prose was preserved as its
+  `CLI::App`'s own description string, shown by CLI11's real `--help`,
+  rather than discarded. Dual-mode grammars (`db2-export`/`blp-export`'s
+  `--dir <dir> <out>` vs. `<in> <out>`) keep their exact original argv
+  shape via two generically-named positional slots (`pos1`/`pos2`)
+  reinterpreted by mode, rather than a redesign into new flag names —
+  every existing test invocation (`db2-export foo.db2 out.sqlite`,
+  `blp-export --dir <dir> <out-dir>`, ...) still parses identically.
+  **One real regression caught before landing**: the first pass of
+  `db2-export`'s `--dir` mode only checked that exactly one positional
+  followed `--dir`, forgetting to also check that a *second* stray
+  positional hadn't been accepted too — `db2-export --dir <dir> <out>
+  <extra>` silently exported anyway, dropping `<extra>` instead of
+  erroring, caught by manually exercising the dir-mode extras case
+  (blp-export's own analogous code already had the check; db2-export's
+  didn't) — fixed, and a regression test added
+  (`tests/test_cli_db2.cpp`) so it can't silently regress again. 4
+  existing `tests/test_cli_argv.cpp` assertions (info/dump-chunks
+  `--help`/no-args/too-many-args) rewritten to check CLI11's own real
+  generated content (`"required"`/`"not expected"`) instead of the old
+  hand-written `"usage: husk info"` text, same "check real generated
+  content, not stale hand-written prose" precedent `export`'s own earlier
+  migration already set. 12 new CLI-tier tests across
+  `tests/test_cli_db2.cpp` (db2-export dir-mode-extras regression,
+  db2-info basic + bad `--rows`, db2-build required-flags) and new
+  `tests/test_cli_appearance.cpp` (appearance-string had zero prior CLI
+  coverage). `main.cpp`'s `--print-completion` shell-completion tree
+  was deliberately *not* extended to the newly-migrated commands (a
+  pre-existing gap — `db2-export`/`db2-build`/`db2-info`/`blp-export`/
+  `appearance-string` were never in that tree even before this session,
+  only `export`/`info`/`dump-chunks` are) — out of this item's own
+  stated scope, not touched. Full suite green, 669/669.
+- **Previous state (2026-08-21, `husk export --config` TOML config-file
   support)**: `husk export` now reads default flag values from a TOML
   config file for the per-machine-stable flags (`--dbd-dir`, `--db2-dir`,
   `--listfile`, `--listfile-root`, `--textures`, ...), avoiding the

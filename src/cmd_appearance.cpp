@@ -1,5 +1,9 @@
+#include <algorithm>
 #include <iostream>
 #include <string>
+#include <vector>
+
+#include <CLI/CLI.hpp>
 
 #include "appearance_string.hpp"
 #include "commands.hpp"
@@ -15,32 +19,25 @@
 // claimed-resolved).
 namespace husk::commands {
 
-namespace {
-
-void printUsage(std::ostream& out = std::cerr) {
-    out << "usage: husk appearance-string --validate <string>\n"
-           "\n"
-           "Parses a husk-appearance/1 string, re-serializes it in canonical\n"
-           "form (sorted cust/gear lists), and prints a summary. `gear` entries\n"
-           "are carried through as opaque (slot, ItemModifiedAppearanceID) pairs\n"
-           "only -- husk does not yet resolve them to textures (see this\n"
-           "command's own doc comment).\n";
-}
-
-}  // namespace
-
 int appearanceString(int argc, char** args) {
-    if (argc >= 1 && isHelpFlag(args[0])) {
-        printUsage(std::cout);
-        return 0;
-    }
-    if (argc != 2 || std::string(args[0]) != "--validate") {
-        printUsage();
-        return 1;
+    std::string value;
+    CLI::App app{
+        "Parses a husk-appearance/1 string, re-serializes it in canonical form (sorted cust/gear "
+        "lists), and prints a summary. `gear` entries are carried through as opaque (slot, "
+        "ItemModifiedAppearanceID) pairs only -- husk does not yet resolve them to textures.",
+        "husk appearance-string"};
+    app.add_option("--validate", value, "the husk-appearance/1 string to validate")->required();
+
+    try {
+        std::vector<std::string> argVec(args, args + argc);
+        std::reverse(argVec.begin(), argVec.end());
+        app.parse(argVec);
+    } catch (const CLI::ParseError& e) {
+        return app.exit(e);
     }
 
     try {
-        husk::appearance::AppearanceString parsed = husk::appearance::parse(args[1]);
+        husk::appearance::AppearanceString parsed = husk::appearance::parse(value);
         std::cout << "husk: appearance-string: valid\n"
                    << "husk: appearance-string: canonical: " << husk::appearance::serialize(parsed) << "\n"
                    << "husk: appearance-string: race=" << parsed.raceId << " sex=" << parsed.sexId

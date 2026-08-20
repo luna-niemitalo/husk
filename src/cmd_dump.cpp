@@ -3,6 +3,8 @@
 #include <fstream>
 #include <iostream>
 
+#include <CLI/CLI.hpp>
+
 #include "bone.hpp"
 #include "chunk.hpp"
 #include "commands.hpp"
@@ -64,37 +66,6 @@ namespace husk::commands {
 
 namespace {
 
-void printUsage(std::ostream& out = std::cerr) {
-    out << "usage: husk dump-chunks <file.m2>|<file.bone>|<file.phys>\n"
-           "\n"
-           "Extracts M2 data husk doesn't fold into `export`'s glTF output --\n"
-           "into readable JSON on stdout:\n"
-           "\n"
-           "  ribbon_emitters/particle_emitters: every field, and every fully\n"
-           "  resolved animation curve, for the model's own M2Ribbon/M2Particle\n"
-           "  records (procedural emitter data -- no native glTF representation).\n"
-           "  Present in every M2 version. particle_emitters is count-only below\n"
-           "  Cataclysm (see m2::kMinVerifiedParticleVersion).\n"
-           "\n"
-           "  Legion+ chunk tags -- TXAC/EXPT/PABC/PADC/PSBC/PEDC/RPID/GPID/PGD1/\n"
-           "  WFV3/NERF/EDGF/DBOC/TEXL/PFDC/EXP2/DETL/PCOL, all reasonably well\n"
-           "  documented on wowdev.wiki, plus WFV1/WFV2/DPIV/AFRA -- no wowdev.wiki\n"
-           "  struct at all, resolved from real bytes instead. Only present in\n"
-           "  Legion+ chunked files.\n"
-           "\n"
-           "A .bone file (see M2/.skel's BFID chunk) is also accepted --\n"
-           "husk dumps its per-bone correction matrices (see src/bone.hpp;\n"
-           "this shape isn't documented on wowdev.wiki at all, reverse\n"
-           "engineered from real files, so treat field names as inferred).\n"
-           "\n"
-           "A .phys file (see M2's PFID chunk) is also accepted -- husk dumps\n"
-           "every body/shape/joint/PHYV record, each shape/joint resolved to\n"
-           "its real type-specific data inline (see src/phys.hpp; the byte\n"
-           "layout is documented on wowdev.wiki, verified against real files).\n"
-           "`husk export --phys` attaches only a minimal per-body placement\n"
-           "anchor to the .glb itself -- this is the home for everything else.\n";
-}
-
 std::vector<uint8_t> readFileBytes(const std::string& path) {
     errno = 0;
     std::ifstream f(path, std::ios::binary);
@@ -113,16 +84,29 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
 }  // namespace
 
 int dumpChunks(int argc, char** args) {
-    if (argc >= 1 && isHelpFlag(args[0])) {
-        printUsage(std::cout);
-        return 0;
-    }
-    if (argc != 1) {
-        printUsage();
-        return 1;
+    std::string path;
+    CLI::App app{
+        "Extracts M2 data husk doesn't fold into `export`'s glTF output into readable JSON on "
+        "stdout: ribbon_emitters/particle_emitters (every field and fully resolved animation "
+        "curve, present in every M2 version, particle_emitters count-only below Cataclysm); "
+        "Legion+ chunk tags (TXAC/EXPT/PABC/PADC/PSBC/PEDC/RPID/GPID/PGD1/WFV3/NERF/EDGF/DBOC/"
+        "TEXL/PFDC/EXP2/DETL/PCOL, all documented on wowdev.wiki, plus WFV1/WFV2/DPIV/AFRA which "
+        "aren't). A .bone file (M2/.skel's BFID chunk) is also accepted -- dumps its per-bone "
+        "correction matrices (src/bone.hpp). A .phys file (M2's PFID chunk) is also accepted -- "
+        "dumps every body/shape/joint/PHYV record (src/phys.hpp); `husk export --phys` attaches "
+        "only a minimal per-body placement anchor to the .glb itself, this is the home for "
+        "everything else.",
+        "husk dump-chunks"};
+    app.add_option("model", path, "the .m2, .bone, or .phys file to dump")->required();
+
+    try {
+        std::vector<std::string> argVec(args, args + argc);
+        std::reverse(argVec.begin(), argVec.end());
+        app.parse(argVec);
+    } catch (const CLI::ParseError& e) {
+        return app.exit(e);
     }
 
-    std::string path = args[0];
     try {
         auto fileBytes = readFileBytes(path);
 

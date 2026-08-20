@@ -5,6 +5,8 @@
 #include <iostream>
 #include <vector>
 
+#include <CLI/CLI.hpp>
+
 #include "commands.hpp"
 #include "m2.hpp"
 
@@ -40,15 +42,6 @@ bool isUndocumentedChunkTag(const std::string& tag) {
     return std::find(known.begin(), known.end(), tag) == known.end();
 }
 
-void printUsage(std::ostream& out = std::cerr) {
-    out << "usage: husk info <file.m2>\n"
-           "\n"
-           "Parses an M2 model's header and prints what was found:\n"
-           "magic/version/name, whether it's Legion+ chunked, and the\n"
-           "record counts (bones, vertices, textures, ...) from the\n"
-           "header's M2Array fields.\n";
-}
-
 void printArray(const char* label, const m2::Array& a) {
     std::cout << "  " << label << ": " << a.count << " (offset 0x" << std::hex << a.offset
                << std::dec << ")\n";
@@ -76,16 +69,22 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
 }  // namespace
 
 int info(int argc, char** args) {
-    if (argc >= 1 && isHelpFlag(args[0])) {
-        printUsage(std::cout);
-        return 0;
-    }
-    if (argc != 1) {
-        printUsage();
-        return 1;
+    std::string path;
+    CLI::App app{
+        "Parses an M2 model's header and prints what was found: magic/version/name, whether it's "
+        "Legion+ chunked, and the record counts (bones, vertices, textures, ...) from the header's "
+        "M2Array fields.",
+        "husk info"};
+    app.add_option("model", path, "the .m2 file to inspect")->required();
+
+    try {
+        std::vector<std::string> argVec(args, args + argc);
+        std::reverse(argVec.begin(), argVec.end());
+        app.parse(argVec);
+    } catch (const CLI::ParseError& e) {
+        return app.exit(e);
     }
 
-    std::string path = args[0];
     m2::Header h;
     std::vector<uint8_t> blob;
     try {

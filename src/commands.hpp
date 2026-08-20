@@ -9,16 +9,6 @@
 // the subcommand word itself. Returns the process exit code.
 namespace husk::commands {
 
-// Shared by every subcommand's own `--help`/`-h` check (main.cpp only
-// catches this before a subcommand name is read, e.g. `husk --help`;
-// `husk info --help`/`husk dump-chunks --help` need the same check again
-// once `args[0]` is a subcommand's own first positional, or it gets
-// treated as a literal filename -- see each cmd_*.cpp's entry point).
-// `export` no longer needs this: CLI11 recognizes -h/--help itself,
-// anywhere in the argument list, without a hand-rolled pre-pass -- see
-// cmd_export.cpp/DESIGN.md's "CLI argument grammar for export".
-inline bool isHelpFlag(const std::string& arg) { return arg == "--help" || arg == "-h"; }
-
 int info(int argc, char** args);
 
 // `export` is a reserved word, hence the name mismatch with the CLI verb.

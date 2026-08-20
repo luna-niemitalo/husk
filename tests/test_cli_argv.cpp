@@ -112,17 +112,21 @@ TEST_CASE("husk export <file.m2> --help (help after a positional) still prints C
     CHECK(result.output.find("couldn't open") == std::string::npos);
 }
 
-TEST_CASE("husk info --help prints usage and exits 0, not a file-not-found error") {
+TEST_CASE("husk info --help prints CLI11's own generated help and exits 0, not a "
+          "file-not-found error") {
     auto result = runHusk("info --help");
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("usage: husk info") != std::string::npos);
+    CHECK(result.output.find("husk info") != std::string::npos);
+    CHECK(result.output.find("model") != std::string::npos);
     CHECK(result.output.find("couldn't open") == std::string::npos);
 }
 
-TEST_CASE("husk dump-chunks --help prints usage and exits 0, not a file-not-found error") {
+TEST_CASE("husk dump-chunks --help prints CLI11's own generated help and exits 0, not a "
+          "file-not-found error") {
     auto result = runHusk("dump-chunks --help");
     CHECK(result.exitCode == 0);
-    CHECK(result.output.find("usage: husk dump-chunks") != std::string::npos);
+    CHECK(result.output.find("husk dump-chunks") != std::string::npos);
+    CHECK(result.output.find("model") != std::string::npos);
     CHECK(result.output.find("couldn't open") == std::string::npos);
 }
 
@@ -163,12 +167,11 @@ TEST_CASE("husk with an unknown command fails cleanly, not a crash") {
     CHECK(result.output.find("unknown command") != std::string::npos);
 }
 
-// Remaining CLI argv edge cases: each subcommand's argc guard. export's own
-// guard is CLI11's own machinery -- --input is ->required() (addExportOptions),
-// and a flag given with no value is a real CLI11 parse-time error with
-// CLI11's own named exit code (see CLI::ExitCodes in
-// /nix/store/*-cli11-*/include/CLI/Error.hpp). info/dump-chunks's argc
-// guards below are hand-written and unrelated.
+// Remaining CLI argv edge cases: every subcommand's argc guard is now real
+// CLI11 machinery (RequiredError/ExtrasError, CLI11's own named exit codes --
+// see CLI::ExitCodes in /nix/store/*-cli11-*/include/CLI/Error.hpp), not a
+// hand-written usage-text fallback -- info/dump-chunks migrated to a real
+// CLI::App alongside export's own earlier migration (TODO/CLEANUP_TODO.md #3).
 // TODO: Remove: FINDINGS.md §4.3.
 
 TEST_CASE("husk export with no arguments at all fails via CLI11's RequiredError (--input is "
@@ -219,28 +222,32 @@ TEST_CASE("husk export with a 3rd bare positional fails via CLI11's ExtrasError 
     CHECK(result.output.find("not expected") != std::string::npos);
 }
 
-TEST_CASE("husk info with no arguments at all prints usage and exits 1") {
+TEST_CASE("husk info with no arguments at all fails via CLI11's RequiredError ('model' is "
+          "required)") {
     auto result = runHusk("info");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("usage: husk info") != std::string::npos);
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("required") != std::string::npos);
 }
 
-TEST_CASE("husk info with more than one argument prints usage and exits 1") {
+TEST_CASE("husk info with more than one argument fails via CLI11's ExtrasError -- only one "
+          "positional ('model') is declared") {
     auto result = runHusk("info a.m2 b.m2");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("usage: husk info") != std::string::npos);
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("not expected") != std::string::npos);
 }
 
-TEST_CASE("husk dump-chunks with no arguments at all prints usage and exits 1") {
+TEST_CASE("husk dump-chunks with no arguments at all fails via CLI11's RequiredError ('model' "
+          "is required)") {
     auto result = runHusk("dump-chunks");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("usage: husk dump-chunks") != std::string::npos);
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("required") != std::string::npos);
 }
 
-TEST_CASE("husk dump-chunks with more than one argument prints usage and exits 1") {
+TEST_CASE("husk dump-chunks with more than one argument fails via CLI11's ExtrasError -- only "
+          "one positional ('model') is declared") {
     auto result = runHusk("dump-chunks a.m2 b.m2");
-    CHECK(result.exitCode == 1);
-    CHECK(result.output.find("usage: husk dump-chunks") != std::string::npos);
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("not expected") != std::string::npos);
 }
 
 // Adversarial/out-of-range coverage for buildMaterialsAndPrimitives

@@ -360,6 +360,30 @@ TEST_CASE("husk db2-export: synthetic WDC5 file, no --dbd-dir, writes real SQLit
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk db2-export --dir: a 3rd stray positional after the output path is rejected, "
+          "not silently ignored") {
+    // Regression: the CLI11 migration (TODO/CLEANUP_TODO.md #3) initially only checked that
+    // exactly one positional followed --dir, forgetting to also check that no *second* stray
+    // positional had been accepted -- "db2-export --dir <dir> <out> <extra>" silently exported
+    // anyway, dropping "extra" instead of erroring.
+    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-dir-extras";
+    fs::create_directories(dir);
+    fs::path dbPath = dir / "test.db2";
+    fs::path outPath = dir / "test.sqlite";
+    fs::remove(outPath);
+
+    std::vector<uint8_t> bytes = buildSimpleDb2(5);
+    std::ofstream f(dbPath, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    f.close();
+
+    auto result = runHusk("db2-export --dir " + dir.string() + " " + outPath.string() + " extra-positional");
+    CHECK(result.exitCode != 0);
+    CHECK_FALSE(fs::exists(outPath));
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk db2-export: an unknown --dbd-dir table hash falls back to generic column names, "
           "doesn't fail") {
     fs::path dir = fs::temp_directory_path() / "husk-test-db2export-nodbd";
@@ -715,4 +739,50 @@ TEST_CASE(
     sqlite3_close(db);
 
     fs::remove_all(dir);
+}
+
+// `db2-info`/`db2-build`'s own CLI11 migration (TODO/CLEANUP_TODO.md #3) --
+// written alongside it, since neither command had any CLI-tier coverage
+// before. db2-build's real functional behavior needs a 7-file --db2-dir
+// fixture (kKbSourceTables, cmd_db2.cpp) out of scope here; these only cover
+// the argv grammar itself.
+
+TEST_CASE("husk db2-info: prints header/section/field info for a real synthetic file") {
+    fs::path dir = fs::temp_directory_path() / "husk-test-db2info";
+    fs::create_directories(dir);
+    fs::path dbPath = dir / "test.db2";
+
+    std::vector<uint8_t> bytes = buildSimpleDb2(5);
+    std::ofstream f(dbPath, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    f.close();
+
+    auto result = runHusk("db2-info " + dbPath.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("field") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk db2-info --rows: a non-numeric, non-'all' value fails cleanly") {
+    fs::path dir = fs::temp_directory_path() / "husk-test-db2info-badrows";
+    fs::create_directories(dir);
+    fs::path dbPath = dir / "test.db2";
+
+    std::vector<uint8_t> bytes = buildSimpleDb2(5);
+    std::ofstream f(dbPath, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    f.close();
+
+    auto result = runHusk("db2-info " + dbPath.string() + " --rows not-a-number");
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("--rows") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk db2-build: missing required flags fails via CLI11's RequiredError, not a crash") {
+    auto result = runHusk("db2-build --db2-dir /nonexistent");
+    CHECK(result.exitCode != 0);
+    CHECK(result.output.find("required") != std::string::npos);
 }

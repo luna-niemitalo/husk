@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include <CLI/CLI.hpp>
+
 #include "blp.hpp"
 #include "commands.hpp"
 
@@ -22,18 +24,6 @@
 namespace husk::commands {
 
 namespace {
-
-void printUsage(std::ostream& out = std::cerr) {
-    out << "usage: husk blp-export <file.blp> <out.png>\n"
-           "       husk blp-export --dir <blp-dir> <out-dir>\n"
-           "\n"
-           "Converts one BLP2 texture, or (with --dir) every *.blp file in a\n"
-           "directory, to a real PNG -- mip level 0 (full resolution) only.\n"
-           "In --dir mode, output filenames mirror each input's own basename\n"
-           "(<name>.blp -> <name>.png in out-dir); a file that fails to parse\n"
-           "is skipped with a diagnostic, not treated as a fatal error for the\n"
-           "whole batch.\n";
-}
 
 std::vector<uint8_t> readFileBytes(const std::string& path) {
     errno = 0;
@@ -81,19 +71,37 @@ bool convertOne(const std::string& inputPath, const std::string& outputPath) {
 }  // namespace
 
 int blpExport(int argc, char** args) {
-    if (argc >= 1 && isHelpFlag(args[0])) {
-        printUsage(std::cout);
-        return 0;
+    std::string dirArg, pos1, pos2;
+    CLI::App app{
+        "Converts one BLP2 texture, or (with --dir) every *.blp file in a directory, to a real "
+        "PNG -- mip level 0 (full resolution) only. In --dir mode, output filenames mirror each "
+        "input's own basename (<name>.blp -> <name>.png in the output directory); a file that "
+        "fails to parse is skipped with a diagnostic, not treated as a fatal error for the whole "
+        "batch.",
+        "husk blp-export"};
+    app.add_option("--dir", dirArg, "directory of .blp files to convert -- batch mode");
+    app.add_option("pos1", pos1,
+                    "the .blp file to convert (single-file mode), or the output directory "
+                    "(--dir mode)");
+    app.add_option("pos2", pos2, "the output .png path -- single-file mode only");
+
+    try {
+        std::vector<std::string> argVec(args, args + argc);
+        std::reverse(argVec.begin(), argVec.end());
+        app.parse(argVec);
+    } catch (const CLI::ParseError& e) {
+        return app.exit(e);
     }
 
-    bool dirMode = argc >= 1 && std::string(args[0]) == "--dir";
+    bool dirMode = app.count("--dir") > 0;
     if (dirMode) {
-        if (argc != 3) {
-            printUsage();
+        if (app.count("pos1") != 1 || app.count("pos2") != 0) {
+            std::cerr << "husk: blp-export --dir: expected exactly one positional argument (the "
+                         "output directory)\n";
             return 1;
         }
-        std::filesystem::path dirPath = args[1];
-        std::filesystem::path outDir = args[2];
+        std::filesystem::path dirPath = dirArg;
+        std::filesystem::path outDir = pos1;
 
         std::vector<std::filesystem::path> paths;
         for (const auto& entry : std::filesystem::directory_iterator(dirPath)) {
@@ -121,11 +129,12 @@ int blpExport(int argc, char** args) {
         return failed > 0 && converted == 0 ? 1 : 0;
     }
 
-    if (argc != 2) {
-        printUsage();
+    if (app.count("pos1") != 1 || app.count("pos2") != 1) {
+        std::cerr << "husk: blp-export: expected exactly two positional arguments (the input "
+                     ".blp and the output .png), or --dir for batch mode\n";
         return 1;
     }
-    return convertOne(args[0], args[1]) ? 0 : 1;
+    return convertOne(pos1, pos2) ? 0 : 1;
 }
 
 }  // namespace husk::commands
