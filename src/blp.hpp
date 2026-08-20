@@ -44,15 +44,4 @@ Image decode(const std::vector<uint8_t>& fileBytes);
 // no new dependency). Throws ParseError if encoding fails.
 std::vector<uint8_t> encodePng(const Image& img);
 
-// Decodes already-in-memory PNG bytes to the same Image shape decode()
-// returns (stbi_load_from_memory, same already-linked tinygltf-vendored
-// stb_image.h as encodePng's write-side counterpart -- no new dependency).
-// Needed by TODO/CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 4 real pixel
-// compositor (char_composite.hpp): every other consumer of a resolved
-// texture file in this codebase treats "PNG bytes" as an opaque blob to
-// re-embed as-is (readTextureFileBytes, export_texture_resolution.cpp) --
-// this is the first real PNG *pixel* decode husk has needed. Throws
-// ParseError if the bytes aren't a decodable PNG.
-Image decodePng(const std::vector<uint8_t>& fileBytes);
-
 }  // namespace husk::blp

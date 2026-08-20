@@ -176,30 +176,27 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-20, character-texture compositing)**:
-  `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stages 3 (the
-  `ChrCustomizationMaterial → TextureFileData` FileDataID chain) and 4
-  (real software pixel compositing, `src/char_composite.hpp`, real blend
-  math transcribed from `reference/wow.export`'s own char shader/renderer)
-  are now both done, per Luna's framing that per-choice selection was
-  "pointless without" real compositing to follow it. Wired into the
-  existing `--customization-choice-ids`/`--chr-model-id`/`--char-layout-id`/
-  `--textures` flags (no new CLI surface) as new `chr_enabled_materials`/
-  `chr_composited_textures` skin extras — the composited image becomes a
-  real, otherwise-unreferenced glTF `images`/`textures` entry, same
-  established pattern `alternate_textures` already uses. `src/blp.hpp`
-  gained its first real PNG *pixel* decode (`blp::decodePng`) since every
-  prior consumer of "PNG bytes" here treated them as an opaque blob.
-  Deliberately not wired into replacing any primitive's own material —
-  matching a composited atlas back to the primitive(s) that should render
-  it needs a `TextureType -> M2Texture::type` mapping not chased down this
-  pass; a human/Blender script has everything it needs to do that by hand.
-  Verified end to end: new blend-math unit tests
-  (`tests/test_char_composite.cpp`), a `decodePng`/`encodePng` round-trip
-  test, and a full-chain CLI test exercising every real hop from a
-  `ChrCustomizationChoiceID` down to a real composited pixel — passed on
-  the first real run. Full suite green, 663/663. Full narrative:
-  `CLAUDE_HISTORY.md`'s 2026-08-20 entry.
+- **Current state (2026-08-20, character-texture compositing, reverted +
+  corrected same session)**: `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s
+  Stage 3 (the real `ChrCustomizationMaterial → TextureFileData` FileDataID
+  chain) is done — wired into the existing `--customization-choice-ids`/
+  `--chr-model-id` flags (no new CLI surface) as `chr_enabled_materials`
+  skin extras, joined against `chr_texture_layout`'s `texture_layers`
+  (which now also carry `chr_model_texture_target_id`) for placement/blend
+  data. A real software pixel compositor (Stage 4, `src/char_composite.hpp`)
+  was also built and verified this session, then **deliberately reverted**
+  after Luna's own direct pushback: husk doing pixel compositing broke
+  this project's own "attach real data, never interpret/apply it" policy,
+  and Blender's own shader nodes (Mix Color already has Multiply/Overlay/
+  Screen built in) are strictly the better layer for it anyway — live
+  compositing there lets a user switch skin color/tattoo/face-marking
+  independently in real time, something husk precomputing static images
+  fundamentally can't do. Stage 5 (Blender-side node-graph tooling, same
+  "read raw extras JSON, build a real node graph" pattern
+  `husk_blender_geoset_mask.py` already established for geosets) is now
+  the real next step, not started. Full suite green, 653/653. Full
+  narrative, including the reverted compositor's own design: `CLAUDE_HISTORY.md`'s
+  2026-08-20 entries (the compositor build, then its revert).
 - **Previous state (2026-08-20, overnight batch-export pass)**: Also
   committed this pass: the previous entry below's uncommitted
   `ChrCustomizationOption`/`--chr-model-id auto` work (it had sat

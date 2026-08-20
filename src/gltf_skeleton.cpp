@@ -95,9 +95,7 @@ void validateAnimations(const std::vector<Animation>& animations, const Skeleton
 
 SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton, size_t meshCount,
                                       tinygltf::Buffer& buffer, std::vector<tinygltf::BufferView>& views,
-                                      std::vector<tinygltf::Accessor>& accessors,
-                                      std::vector<tinygltf::Image>& images,
-                                      std::vector<tinygltf::Texture>& textures) {
+                                      std::vector<tinygltf::Accessor>& accessors) {
     SkeletonEmission out;
     if (!hasSkeleton) return out;
 
@@ -348,6 +346,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             obj["flags"] = tinygltf::Value(static_cast<int>(t.flags));
             obj["blend_mode"] = tinygltf::Value(static_cast<int>(t.blendMode));
             obj["texture_section_type_bit_mask"] = tinygltf::Value(static_cast<int>(t.textureSectionTypeBitMask));
+            obj["chr_model_texture_target_id"] = tinygltf::Value(static_cast<int>(t.chrModelTextureTargetId));
             textureLayers.push_back(tinygltf::Value(obj));
         }
         layoutObj["texture_layers"] = tinygltf::Value(textureLayers);
@@ -365,38 +364,6 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             arr.push_back(tinygltf::Value(obj));
         }
         skinExtras["chr_enabled_materials"] = tinygltf::Value(arr);
-    }
-    if (!skeleton->compositedTextures.empty()) {
-        tinygltf::Value::Array arr;
-        for (const auto& c : skeleton->compositedTextures) {
-            tinygltf::Value::Object obj;
-            obj["texture_type"] = tinygltf::Value(static_cast<int>(c.textureType));
-            obj["width"] = tinygltf::Value(static_cast<int>(c.width));
-            obj["height"] = tinygltf::Value(static_cast<int>(c.height));
-            if (!c.imagePng.empty()) {
-                // Real, otherwise-unreferenced images/textures entry -- same
-                // established pattern as gltf_mesh.cpp's own
-                // AlternateTextureCandidate handling (see
-                // Skeleton::CompositedTexture's own doc comment).
-                int imgView = appendBufferView(buffer, views, c.imagePng, /*target=*/0);
-                tinygltf::Image img;
-                img.mimeType = "image/png";
-                img.bufferView = imgView;
-                img.name = "chr_composited_texture_type_" + std::to_string(c.textureType);
-                int imgIdx = static_cast<int>(images.size());
-                images.push_back(img);
-
-                tinygltf::Texture tex;
-                tex.source = imgIdx;
-                tex.name = img.name;
-                int texIdx = static_cast<int>(textures.size());
-                textures.push_back(tex);
-
-                obj["texture_index"] = tinygltf::Value(texIdx);
-            }
-            arr.push_back(tinygltf::Value(obj));
-        }
-        skinExtras["chr_composited_textures"] = tinygltf::Value(arr);
     }
     if (!skinExtras.empty()) {
         skin.extras = tinygltf::Value(skinExtras);

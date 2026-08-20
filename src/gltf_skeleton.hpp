@@ -125,9 +125,15 @@ struct Skeleton {
     // choice's own MaterialResourcesID -- a real, reportable gap (see
     // cmd_export.cpp's attachCustomizationChoices), not fabricated. Same
     // inert-extras treatment as EnabledGeoset: husk does not composite or
-    // apply any of this on its own -- see CompositedTexture below for the
-    // one thing that *does* consume these, still only as an opt-in,
-    // never-auto-applied extra.
+    // apply any of this on its own -- pixel compositing is deliberately
+    // NOT husk's job (a prior session-local attempt at doing it in
+    // software here was reverted; Blender's own shader nodes -- Mix Color
+    // already has Multiply/Overlay/Screen built in -- are the right layer
+    // for that, see Stage 4/5's TODO note and the planned Blender-side
+    // tooling). `chrModelTextureTargetId` is the real join key against
+    // CharTextureLayout::textureLayers' own `chrModelTextureTargetId`
+    // above, letting that node-graph tooling find this material's real
+    // placement rect/blend mode without husk resolving it first.
     struct EnabledMaterial {
         uint32_t choiceId = 0;
         uint32_t chrModelTextureTargetId = 0;
@@ -135,29 +141,6 @@ struct Skeleton {
         uint32_t fileDataId = 0;  // 0 = TextureFileData.db2 didn't resolve this MaterialResourcesID
     };
     std::vector<EnabledMaterial> enabledMaterials;
-
-    // Real, composited character-texture atlas images (TODO/
-    // CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 4) -- one per real
-    // ChrModelMaterial::TextureType actually covered by a resolved
-    // EnabledMaterial, built by char_composite.hpp from real per-layer
-    // placement/blend data (CharTextureLayout::sections/textureLayers
-    // above) and real decoded pixels (--textures-resolved
-    // EnabledMaterial::fileDataId). Same "inert extras, never auto-applied
-    // to any primitive's own baseColorImagePng" policy as everything else
-    // in this struct -- `textureIndex` points at a real, otherwise-
-    // unreferenced glTF `images`/`textures` entry (same established
-    // pattern gltf_mesh.hpp's own AlternateTextureCandidate::imagePng
-    // uses), for a human/Blender script to pick up, not something
-    // writeGlbMulti wires into any material slot itself.
-    struct CompositedTexture {
-        uint32_t textureType = 0;
-        uint32_t width = 0;
-        uint32_t height = 0;
-        std::vector<uint8_t> imagePng;  // real composited pixels, PNG-encoded -- consumed by
-                                         // writeGlbMulti to build the images/textures entry
-                                         // below, cleared once that's done (see gltf_skeleton.cpp)
-    };
-    std::vector<CompositedTexture> compositedTextures;
 
     // Real default geoset selections resolved from a caller-supplied
     // CreatureDisplayInfoID (`husk export --creature-display-id`,
@@ -261,6 +244,13 @@ struct Skeleton {
             uint32_t flags = 0;
             uint32_t blendMode = 0;
             uint32_t textureSectionTypeBitMask = 0;
+            // Real join key against EnabledMaterial::chrModelTextureTargetId
+            // above (src/chrmodel_db2.hpp's own doc comment on why this
+            // isn't textureType) -- lets a downstream Blender node-graph
+            // script find *this* layer's real placement rect/blend mode for
+            // a specific resolved customization choice, without husk doing
+            // that join itself.
+            uint32_t chrModelTextureTargetId = 0;
         };
         std::vector<TextureLayer> textureLayers;
     };

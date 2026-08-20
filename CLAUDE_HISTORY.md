@@ -14,6 +14,66 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-20 (character-texture compositing, Stage 4 revert) — the real
+software pixel compositor from the entry directly below was built,
+verified, committed, then deliberately reverted, same session, after
+Luna's own direct pushback.** Her argument, verbatim in spirit: husk isn't
+supposed to do pixel shading at all, that's Blender's job -- husk's job is
+just to expose the resolved data in a standardized format. Agreed with,
+for two independent reasons, not just "the user said so": (1) every other
+DB2-derived feature in this codebase attaches real resolved data and stops
+(`chr_texture_layout`, `enabled_geosets`, bone corrections, physics
+bodies) -- Stage 4 was the one exception, quietly crossing from data
+exposure into actually interpreting/rendering the data, even though it
+dressed itself up as "inert extras" by not wiring the result into any
+material slot; (2) it's also the *wrong* layer for the actual end goal
+(a live per-customization-option choice switch in Blender, discussed
+immediately before this revert) -- Blender's own Mix Color node already
+implements Multiply/Overlay/Screen natively, so the hand-transcribed blend
+math wasn't even buying anything, and live shader compositing lets a user
+switch skin color/tattoo/face-marking independently in real time, which a
+husk-precomputed static image fundamentally cannot do (it would need one
+image per full cross-product combination).
+
+Reverted: `src/char_composite.hpp`/`.cpp` (deleted), `blp::decodePng`
+(deleted, no other consumer), `gltf::Skeleton::CompositedTexture` and its
+`chr_composited_textures` extras (deleted), `cmd_export.cpp`'s
+`attachCompositedTextures` (deleted), the `images`/`textures` threading
+into `emitSkeletonAndSkin` this all needed (reverted, `gltf.cpp`'s
+`images`/`textures` declaration moved back to its original position after
+the skeleton-emission call), `tests/test_char_composite.cpp` (deleted),
+`decodePng`/`encodePng` round-trip tests in `test_blp.cpp` (deleted). Kept
+and slightly extended: Stage 3's real `chr_enabled_materials` resolution
+(the actual valuable part -- real data, not interpretation) and a new
+field, `gltf::Skeleton::CharTextureLayout::TextureLayer::
+chrModelTextureTargetId` (wired from `chrmodel_db2.hpp`'s own
+`ChrModelTextureLayer::chrModelTextureTargetId`, added for the reverted
+compositor's own internal join but kept because a downstream Blender
+script needs exactly the same join to find a resolved material's real
+placement rect/blend mode). The CLI test that used to exercise the full
+compositing pipeline now stops at data exposure -- asserts
+`chr_enabled_materials`/the new join key land correctly, and explicitly
+asserts `chr_composited_textures` is *absent* (husk no longer produces it
+at all). `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s own Stage 4 section
+rewritten to explain the revert and its reasoning rather than silently
+deleted -- the "why" here is genuinely instructive for whoever picks up
+Stage 5 next, unlike a routine implementation-detail cleanup. Stage 5
+(Blender-side node-graph tooling) is scoped in detail as the real next
+step: read `chr_texture_layout`/`chr_enabled_materials`, build an Image
+Texture + Mapping node per real choice's texture, a Menu Switch node per
+option, and wire blend modes via Blender's own native Mix Color node --
+same "read raw skin-extras JSON, build a real node graph" pattern
+`tools/husk_blender_geoset_mask.py` already established for geosets, not
+a new approach invented from scratch. One open design question flagged,
+not yet resolved: today's DB2 extras only expose the choice(s) a given
+`husk export` run actually resolved, not *every* real choice per option --
+Stage 5's switch needs the latter, likely a new export flag. Full suite
+green, 653/653 (net -10 from the compositor entry's 663: 8 compositor unit
+tests + 2 `decodePng` tests removed, 1 CLI test reshaped in place, no net
+new test).
+
+---
+
 **2026-08-20 (character-texture compositing, Stages 3 material chain + 4
 pixel compositing) — `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` Stages 1-4
 are now all done.** Picked up per Luna's own framing that per-choice

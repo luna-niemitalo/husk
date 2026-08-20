@@ -76,20 +76,15 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     // synthesized multi-root parent node, Attachment/Event/Light anchor
     // nodes).
     size_t meshCount = meshes.size();
-    // Declared before emitSkeletonAndSkin (rather than after, as originally
-    // written) so it can append its own real, otherwise-unreferenced
-    // Skeleton::CompositedTexture images/textures entries into the same
-    // shared, model-wide lists emitMeshNode appends to afterward -- see
-    // gltf_skeleton_internal.hpp's emitSkeletonAndSkin doc comment.
-    std::vector<tinygltf::Image> images;
-    std::vector<tinygltf::Texture> textures;
     SkeletonEmission skelEm =
-        emitSkeletonAndSkin(skeleton, hasSkeleton, meshCount, buffer, views, accessors, images, textures);
+        emitSkeletonAndSkin(skeleton, hasSkeleton, meshCount, buffer, views, accessors);
     int skinIdx = skelEm.skinIndex;
     if (skelEm.skin) {
         model.skins = {*skelEm.skin};
     }
 
+    std::vector<tinygltf::Image> images;
+    std::vector<tinygltf::Texture> textures;
     std::vector<tinygltf::Material> tinyMaterials;
     std::vector<tinygltf::Mesh> tinyMeshes;
     std::vector<tinygltf::Node> meshNodes;

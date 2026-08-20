@@ -415,10 +415,15 @@ needed). Real, resolved `(choiceId, chrModelTextureTargetId,
 materialResourcesId, fileDataId)` tuples attach as inert
 `chr_enabled_materials` skin extras (`gltf::Skeleton::EnabledMaterial`),
 same "husk resolves, never applies" policy as `chr_enabled_geosets`.
-Verified end to end (`tests/test_cli_chrcustomization.cpp`'s "the full real
-material chain" test): a real `ChrCustomizationChoiceID` resolves through
-every hop to a real `FileDataID`, matched against an actual texture file
-under `--textures`.
+Verified end to end (`tests/test_cli_chrcustomization.cpp`): a real
+`ChrCustomizationChoiceID` resolves through every hop to a real
+`FileDataID`. `chr_texture_layout`'s own `texture_layers` entries also now
+carry `chr_model_texture_target_id` (`src/chrmodel_db2.hpp`'s
+`ChrModelTextureLayer::chrModelTextureTargetId`, decoded from a real
+current-layout array field's first element -- `db2table::readNamedColumns`
+already handles that transparently, no new array-reading machinery
+needed) -- the real join key a downstream consumer needs to match a
+resolved `EnabledMaterial` back to its own placement rect/blend mode.
 
 What's still open, deliberately not solved here: per-choice selection for
 a caller wanting a *specific* named choice per option (today's
@@ -426,55 +431,63 @@ a caller wanting a *specific* named choice per option (today's
 explicit IDs, or a lowest-`OrderIndex` default heuristic -- this stage
 needed no further CLI design work once that existed).
 
-### Stage 4 — real pixel compositing (done)
+### Stage 4 — real pixel compositing (reverted -- NOT husk's job, see Stage 5)
 
-Once Stage 2+3 resolve a real ordered list of (file, placement rect, blend
-mode) per compositing slot, `src/char_composite.hpp`/`.cpp` blits/blends
-each patch onto a base canvas sized from `ChrModelMaterial`, real per-pixel
-blend math transcribed directly from `reference/wow.export/src/shaders/
-char.fragment.shader` + `CharMaterialRenderer.js`'s own outer GL blendFunc
-switch (BlendMode 0/1 blit, 4 multiply, 6 overlay, 7 screen, 9 alpha
-straight, 15 infer-alpha-blend; any other real BlendMode is refused and
-reported, not guessed at -- the real client's own fallback for those is a
-solid magenta debug square, not something worth reproducing as real
-output). A software compositor, not a GPU shader (husk has no GPU-shader
-dependency and doesn't gain one for this), operating on real decoded RGBA
-buffers -- `src/blp.hpp` gained its first real PNG *pixel* decode
-(`blp::decodePng`, `stbi_load_from_memory`, already linked in via
-tinygltf's own vendored stb_image.h, no new dependency) since every prior
-consumer of "PNG bytes" in this codebase treated them as an opaque blob to
-re-embed as-is.
+**A same-session real pixel compositor (`src/char_composite.hpp`/`.cpp`,
+real blend math transcribed from `reference/wow.export`'s own char shader/
+renderer) was built, verified end to end, then deliberately reverted**
+after Luna's own direct pushback: husk doing pixel compositing at all
+breaks the "attach real resolved data, never interpret/apply it" policy
+every other DB2 feature in this file follows -- Stage 4 was the one
+exception, quietly crossing from data exposure into rendering. Worse, it's
+the *wrong* layer for the actual goal (Stage 5's live per-option choice
+switching): Blender's own Mix Color node already implements Multiply/
+Overlay/Screen natively, so the blend math doesn't need reimplementing at
+all, and live shader compositing lets a user switch skin color *and*
+tattoo *and* face marking independently in real time -- something
+husk precomputing static composited images fundamentally can't do without
+one image per full cross-product combination. `Stage 3` above (the real
+`ChrCustomizationMaterial → TextureFileData` FileDataID chain,
+`chr_enabled_materials` extras) is the actual prerequisite Stage 5 needs;
+this stage is now folded into it -- no separate pixel-compositing work
+remains for husk to do.
 
-Output: one composited PNG per real `ChrModelMaterial::TextureType`
-covered by a resolved `EnabledMaterial`, attached as
-`gltf::Skeleton::CompositedTexture` -- same "inert extras, never
-auto-applied to any primitive's own material" policy as every other stage
-in this file, but the image itself is real, otherwise-unreferenced glTF
-`images`/`textures` entries (`chr_composited_textures` extras carrying a
-`texture_index`), the same established pattern
-`gltf_mesh.hpp`'s own `AlternateTextureCandidate` already uses -- **not**
-wired into replacing any primitive's `baseColorImagePng` automatically
-(matching a composited atlas back to the specific primitive(s) that should
-render it needs a `TextureType` → `M2Texture::type` mapping this session
-didn't chase down; a human/Blender script has everything needed to do that
-match by hand). Verified end to end, real blend math unit-tested
-(`tests/test_char_composite.cpp`) and the full DB2-to-pixels chain CLI-tested
-(`tests/test_cli_chrcustomization.cpp`).
+### Stage 5 — Blender-side picker tooling (now the real next step)
 
-### Stage 5 (stretch) — Blender-side picker tooling
+Luna's original framing: "1 texture as default and rest which match that
+material as unlinked texture nodes" — but *correctly UV-positioned* this
+time, not just floating unlinked nodes with no spatial meaning, **and**
+switchable per real customization option, not just a static default. A
+Blender import script (not `husk export` itself — this is Blender-side
+tooling this repo doesn't have yet, same distinction
+`../EYES_ON_FINDINGS.md`'s finding #3/#6 already draws, same "reads raw
+skin extras JSON, builds real node graph" pattern
+`tools/husk_blender_geoset_mask.py` already established for geosets) that:
 
-Luna's original framing, now buildable for real once Stage 2 exists even
-without 3/4: "1 texture as default and rest which match that material as
-unlinked texture nodes" — but *correctly UV-positioned* this time, not
-just floating unlinked nodes with no spatial meaning. A Blender import
-script (not `husk export` itself — this is Blender-side tooling this repo
-doesn't have yet, same distinction `../EYES_ON_FINDINGS.md`'s finding #3/#6
-already draws) that reads `alternate_textures`' real placement rects
-(Stage 2) and builds a real shader node graph: each candidate wired to a
-UV-mapped region matching its real section rect, toggleable/pickable by a
-human without needing to understand the underlying DB2 data at all — the
-practical payoff of all four stages above, in the tool a human actually
-looks at.
+1. Reads `chr_texture_layout`'s real placement rects (`sections`) and
+   blend modes (`texture_layers`, joined by `chr_model_texture_target_id`
+   against a resolved `chr_enabled_materials` entry -- Stage 3, done).
+2. For each real `ChrCustomizationOption` on this model
+   (`namedChoicesForModel`-shaped data, not yet exposed as its own export
+   extras -- likely needs a new `chr_options`-style extras list naming
+   every real choice per option, not just the one(s) `--customization-
+   choice-ids`/`--chr-model-id` happened to resolve this run), builds one
+   Image Texture node per real choice's own texture (positioned via a
+   Mapping node onto that choice's real section rect) and a Menu Switch
+   node selecting between them.
+3. Wires the per-layer blend mode via Blender's native Mix Color node
+   (Multiply/Overlay/Screen map directly; Blit/Alpha-Straight/Infer-
+   Alpha-Blend need whatever Mix mode Blender calls plain alpha-over --
+   check directly, don't assume) rather than reimplementing any blend
+   math husk itself no longer does.
+
+Not started. The main open design question: today's DB2 extras only
+expose the choice(s) actually resolved by a given `husk export` run, not
+*every* real choice per option -- Stage 5 needs the latter (to build a
+switch with every real option visible), which likely means a new export
+flag (e.g. `--customization-options-for <chrModelId>`) that resolves and
+attaches every real choice's material chain for a given option, not just
+the caller-selected one(s).
 
 ### Stage 6 — equipped-gear appearance resolution (`husk-appearance/1`'s `gear` field)
 
@@ -501,10 +514,11 @@ pure new-format-parsing risk (same shape as any other husk sidecar
 parser, bounded). Stage 2 is low-risk once Stage 1 exists (read two more
 tables, attach data, no new *behavior*). Stage 3 is a real design
 decision (how does a CLI user express "which character") with no
-established husk precedent to follow. Stage 4 is new problem *class*
-entirely (image compositing, not data parsing) with its own correctness
-bar (wrong blend math looks *confidently* wrong, the same failure shape
-this project has hit and fixed before with texture defaults). Stage 5
+established husk precedent to follow. Stage 4 turned out not to be
+husk's job at all -- image compositing is a new problem *class* entirely
+(not data parsing), and doing it in husk broke this project's own "attach
+real data, never interpret/apply it" policy; reverted in favor of Stage 5
+doing the actual compositing live, in Blender, where it belongs. Stage 5
 lives outside `husk export` altogether. Stage 6 is scoped but unstarted --
 the DB2 bridge it needs (`ItemModifiedAppearance` → `ItemAppearance`) is
 believed to exist but hasn't been confirmed against real local data the way

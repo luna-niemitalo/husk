@@ -377,32 +377,24 @@ dropdown accordingly -- verified headlessly against a real fixture, including
 the evaluated mesh's own vertex count actually changing between states, not
 just the modifier's stored value.
 
-**Real texture-material resolution and compositing from a customization
-choice.** The same `--customization-choice-ids`/`--chr-model-id` chain
-above also resolves each choice's real `ChrCustomizationMaterialID` (when
-it has one) through `ChrCustomizationMaterial` and `TextureFileData.db2`
+**Real texture-material resolution from a customization choice.** The same
+`--customization-choice-ids`/`--chr-model-id` chain above also resolves
+each choice's real `ChrCustomizationMaterialID` (when it has one) through
+`ChrCustomizationMaterial` and `TextureFileData.db2`
 (`src/texturefiledata_db2.hpp`) to a real texture `FileDataID`, attached as
 `{choice_id, chr_model_texture_target_id, material_resources_id,
 file_data_id}` on the glTF skin's own `chr_enabled_materials` extras (0 in
 `file_data_id` when `TextureFileData.db2` couldn't resolve it -- reported,
-not fabricated). When both `--char-layout-id` (the placement/blend
-geometry) and these resolved materials are present alongside a real
-`--textures` directory, husk goes one step further and actually
-**composites** the real pixels: `src/char_composite.hpp` blits/blends each
-resolved material's texture onto a base canvas per real
-`ChrModelMaterial::TextureType`, real per-pixel blend math transcribed
-directly from `reference/wow.export`'s own `char.fragment.shader` +
-`CharMaterialRenderer.js` (BlendMode 0/1 blit, 4 multiply, 6 overlay, 7
-screen, 9 alpha-straight, 15 infer-alpha-blend; any other real BlendMode is
-refused and reported rather than guessed at). Output is attached as
-`chr_composited_textures` skin extras -- real, otherwise-unreferenced glTF
-`images`/`textures` entries (`texture_index`), same established pattern
-`alternate_textures` already uses -- **not** wired into replacing any
-primitive's own material automatically (matching a composited atlas back
-to the primitive(s) that should render it needs a `TextureType` ->
-`M2Texture::type` mapping this feature doesn't attempt; a human/Blender
-script has everything it needs to do that by hand). Verified end to end
-(`tests/test_cli_chrcustomization.cpp`, `tests/test_char_composite.cpp`).
+not fabricated). `chr_texture_layout`'s own `texture_layers` entries carry
+the matching `chr_model_texture_target_id` join key, so a downstream
+consumer can find a resolved material's real placement rect/blend mode
+without husk resolving that join itself. Deliberately stops here --
+actually compositing the pixels is not husk's job (an earlier attempt at
+doing it in software was reverted; Blender's own shader nodes, which have
+Multiply/Overlay/Screen built in natively, are the right layer for that --
+see `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 4/5 notes for the
+planned Blender-side node-graph tooling). Verified end to end
+(`tests/test_cli_chrcustomization.cpp`).
 
 **A heuristic default customization choice per option, from real
 `ChrCustomizationOption`/`ChrCustomizationChoice` names.** If
@@ -538,7 +530,7 @@ Flags:
 | `--db2-dir <dir>` | -- | Directory of real character/creature `.db2` files -- texture-layout tables for `--char-layout-id` (see above), `ChrCustomizationElement`/`_Geoset`/`_BoneSet`/`_Option`/`_Choice` for `--customization-choice-ids`/`--chr-model-id`, or `CreatureDisplayInfoGeosetData` for `--creature-display-id` (below), same directory serves all four; combined with `--dbd-dir` and one of the four | unset (feature off) |
 | `--dbd-dir <dir>` | -- | A local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) | unset |
 | `--char-layout-id <id>` | -- | A real `CharComponentTextureLayoutsID` (see `husk db2-export`) -- husk can't derive this on its own | unset |
-| `--customization-choice-ids <id,id,...>` | -- | Comma-separated real `ChrCustomizationChoiceID`(s) (see above) -- resolves each to real `enabled_geosets`/`chr_enabled_materials` extras (the latter real-pixel-composited into `chr_composited_textures` when `--char-layout-id`/`--textures` are also given) and marks any matching `--bones-dir` correction set; always wins over `--chr-model-id` when both are given | unset |
+| `--customization-choice-ids <id,id,...>` | -- | Comma-separated real `ChrCustomizationChoiceID`(s) (see above) -- resolves each to real `enabled_geosets`/`chr_enabled_materials` extras and marks any matching `--bones-dir` correction set; always wins over `--chr-model-id` when both are given | unset |
 | `--chr-model-id <id>` &#124; `auto` | -- | A real `ChrModelID` (see above), or `auto` to derive one: primary path via `--listfile`'s FileDataID chain (exact, never ambiguous), fallback via this `.m2`'s own filename (exact race+sex match, never fuzzy; see above) -- auto-selects and resolves a *heuristic default* choice (lowest `OrderIndex`) per real `ChrCustomizationOption` belonging to this model; ignored when `--customization-choice-ids` is also given | unset |
 | `--creature-display-id <id>` | -- | A real `CreatureDisplayInfoID` (see `husk db2-export`) -- resolves that display's real *default* geoset selection (unlike `--customization-choice-ids`, no per-choice input needed) to `creature_enabled_geosets` skin extras via `CreatureDisplayInfoGeosetData`; husk can't derive which display ID applies to a given `.m2` on its own | unset |
 | `--listfile <path>` | -- | A local `community-listfile.csv`-style snapshot (`FileDataID;path` per line, github.com/wowdev/wow-listfile) -- last-resort FileDataID -> real-name lookup when `<FileDataID>.{blp,png}` isn't found next to `--textures` | unset (feature off) |
