@@ -14,6 +14,82 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-21 (dangling internal reference corpus scan — `TODO/CLEANUP_TODO.md`'s
+last open item, closed).** Built and ran the corpus-wide "dangling internal
+reference" scan the TODO had described but never designed
+(`tools/corpus_scan_tasks/dangling_references_task.py`), after confirming
+scope with Luna first since it was a real new multi-hour tool build, not a
+quick fix. Checks 10 reference kinds against every real `.m2` in the local
+corpus: 5 M2-only lookup arrays (`bone_lookup`/`sequence_lookup`/
+`attachment_lookup`/`camera_lookup`/`texture_lookup`, each entry either a
+`0xFFFF` "unused" sentinel or must resolve within its target array's real
+count) and 5 `.skin`-batch-driven chains needing a matched same-basename
+sibling resolved first (`material_index`/`color_index`/`texture_combo`/
+`texture_weight_combo`/`texture_transform_combo` — the last three walking a
+real combo-table indirection, e.g. `batch.textureComboIndex ->
+textureCombos[i] -> textures[.]`). Field offsets transcribed from husk's own
+real source (`src/m2_primitives.cpp`'s `offset::` table, `src/skin.cpp`'s
+Batch field layout), independent of husk's own code at runtime, same
+"second opinion" discipline every other `find_*.py`/`*_task.py` tool in
+`tools/` already follows. Deliberately excluded, not just forgotten:
+`textureCoordComboIndex` (already documented, in `skin.hpp`'s own doc
+comment and `WIKI_FINDINGS/M2/skin.md`, as carrying real out-of-documented-
+range values believed vestigial — flagging it as "dangling" would manufacture
+noise out of an already-known quirk) and the TXID FileDataID-vs-`--listfile`
+check (the TODO's own explicitly-flagged open question, deferred rather than
+guessed at, since `README.md`'s prior scan already found 99.9% of "missing"
+FileDataIDs were actually present under their real listfile name — a naive
+check here would mostly measure listfile coverage, not real dangling
+references).
+
+**One real bug caught before the full run**: a first-pass smoke test
+(`--limit 500`) showed `texture_transform_combo` dangling at 64% — wildly
+implausible on its face. Root-caused by checking husk's own
+`export_materials.cpp`: `textureTransformCombos` entries use `0xFFFF` as a
+real, expected per-slot "no transform" sentinel *inside the combo table
+itself* (husk treats an out-of-range resolved `transformIndex` there as
+best-effort/skip, never a hard error) — unlike `textureCombos`/
+`textureWeightCombos`, which husk's own code throws a hard error on if their
+resolved value is ever out of range, confirming those two really are
+supposed to always resolve. Fixed by adding the same sentinel check at the
+combo-table-value level, not just the batch-field level; re-verified with a
+synthetic fixture (hand-built minimal MD20 + `.skin` bytes) proving both the
+bug and its fix, and confirming true positives (an intentionally out-of-range
+`boneLookup`/`materialIndex`) are still caught correctly.
+
+**Real corpus result (130,242 of 130,576 `.m2` files parsed and checked,
+129,975 with a resolvable `.skin` sibling)**: every one of the 5 M2-only
+lookup kinds is **100% clean** — zero dangling references across 406,300
+`bone_lookup` + 645,253 `sequence_lookup` + 91,713 `attachment_lookup` +
+9,034 `camera_lookup` + 199,127 `texture_lookup` entries (1.35M+ checked
+references, not one out of range). The 5 `.skin`-dependent kinds show a low,
+real rate (0.06%-0.37%): `material_index` 587/439,426 (0.134%), `color_index`
+332/90,685 (0.366%), `texture_combo` 569/702,737 (0.081%),
+`texture_weight_combo` 258/439,426 (0.059%), `texture_transform_combo`
+306/439,426 (0.070%). Only 92 files (0.07% of the checked corpus) have any
+dangling reference of any kind at all — concentrated almost entirely in
+`item/objectcomponents/head` (29 files) and `item/objectcomponents/
+collections` (18 files), the exact real-item-recolor-variant class
+`CORPUS_TODO.md`'s own history already confirmed 16x for a related
+mismatched-shared-batch-data bug. A representative cluster
+(`armor_flameskull_d_01_green_{dr,dw,kt,hu}_{f,m}.m2`, 6 real recolor
+variants of the same base item) all show the *identical* dangling pattern
+(`material_index=3>=3`, `texture_combo[3]>=3(combos)`,
+`texture_transform_combo->0>=0(transforms)`) — strong, specific evidence
+this is the same known "shared batch data doesn't quite match a recolor
+variant's own smaller table" class, not a new bug and not a casc-tool
+extraction gap. **Verdict, per the TODO's own stated decision rule**: a low
+rate concentrated in a known-benign class is the expected, uninteresting
+outcome (real Blizzard authoring/recolor-tooling quirks, not a structural
+extraction blind spot) — no casc-tool follow-up warranted. `TODO/
+CLEANUP_TODO.md`'s item now closed and removed (this file's narrative is
+the record, per the doc's own "fixed items get removed outright" rule);
+`tools/CORPUS_SCANS.md`'s task table updated. Scan output (`dangling_
+references.csv`/`_scan.log`, gitignored like every other real scan's
+output) not committed — this entry is the durable record.
+
+---
+
 **2026-08-21 (CLI ergonomics, round 3 — `--char-layout-id` auto-derivation)
 — Luna asked "is `--char-layout-id` strictly required?" then "yes" to
 closing that gap.** Checked the code rather than assuming: `chrmodel_db2.hpp`'s

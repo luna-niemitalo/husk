@@ -132,4 +132,5 @@ once one of them also does directory-listing work.
 | `shader_names_task.py` / `shader_id_task.py` | Pixel/vertex shader usage frequency across real batches |
 | `texture_type_collisions_task.py` | Files where more than one texture type maps to the same texture index |
 | `particle_only_task.py` | Blank-render candidates explained by particle-driven-only geometry |
+| `dangling_references_task.py` | Per-reference-kind corpus-wide rate of internal cross-references that don't resolve (`bone_lookup`/`sequence_lookup`/`attachment_lookup`/`camera_lookup`/`texture_lookup`, plus `.skin`-batch-driven `material_index`/`color_index`/`texture_combo`/`texture_weight_combo`/`texture_transform_combo`) — the counterweight to presence-only completeness metrics, see `TODO/CLEANUP_TODO.md` |
 | `render_sample_driver.py` + `render_glb.py` | The actual Blender render pipeline (not a `ScanTask` — a two-stage subprocess pipeline: `husk export` then `blender --background`) |

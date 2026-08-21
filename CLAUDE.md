@@ -200,14 +200,30 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   `TODO/CLEANUP_TODO.md`'s stale item 1 (a comment-hygiene sweep marked
   "now closed" in its own text but never actually removed from the file,
   contradicting the doc's own stated "fixed items get removed outright"
-  convention) -- removed, item 2 renumbered to item 1. That leaves
-  exactly one open item (the dangling-internal-reference corpus scan) --
-  a real new multi-hour tool build, not a quick fix, confirmed with Luna
-  before starting rather than assumed (not yet built as of this entry).
-  Full suite green, 669/669 (no
-  behavior change, completions + doc housekeeping + the registration
-  refactor itself, which is a pure move -- every add_option call kept its
-  exact same flag name/description/validator).
+  convention) -- removed, item 2 renumbered to item 1. Full suite green,
+  669/669 (no behavior change, completions + doc housekeeping + the
+  registration refactor itself, which is a pure move -- every add_option
+  call kept its exact same flag name/description/validator). **Same-day
+  follow-up**: built and ran that one remaining item too (confirmed with
+  Luna first, since it was a real new multi-hour tool build, not a quick
+  fix) -- `tools/corpus_scan_tasks/dangling_references_task.py`, checking
+  10 internal reference kinds against every real local `.m2`. One real bug
+  in the scanner itself caught before the full run (a first-pass smoke
+  test showed an implausible 64% dangling rate for
+  `texture_transform_combo`, root-caused to a missing sentinel check --
+  `textureTransformCombos` entries use `0xFFFF` as a real "no transform"
+  marker, confirmed against `export_materials.cpp`'s own best-effort
+  handling there). Real corpus result (130,242 files checked): every
+  M2-only lookup kind (`bone_lookup`/`sequence_lookup`/
+  `attachment_lookup`/`camera_lookup`/`texture_lookup`) is 100% clean
+  across 1.35M+ references; the `.skin`-dependent kinds show a low real
+  rate (0.06%-0.37%), concentrated almost entirely in
+  `item/objectcomponents/head`/`collections` -- the same real
+  recolor-variant/shared-batch-data class `CORPUS_TODO.md`'s own history
+  already confirmed, not a new bug or a casc-tool extraction gap. `TODO/
+  CLEANUP_TODO.md` is now fully empty; full narrative (including the
+  false-positive bug, the synthetic-fixture verification, and the exact
+  per-kind numbers): `CLAUDE_HISTORY.md`'s newest entry.
 - **Previous state (2026-08-21, `TODO/CLEANUP_TODO.md` #3: CLI11 migration
   for every remaining command)**: `db2-export`/`db2-info`/`db2-build`/
   `dump-chunks`/`blp-export`/`info`/`appearance-string` all now parse argv
