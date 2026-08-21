@@ -115,97 +115,48 @@ void attachEmitterAnchors(const std::vector<uint8_t>& blob, const m2::Header& he
 namespace {
 
 // Resolves an M2Light color track (ambient_color/diffuse_color, both
-// M2Track<C3Vector>) the same way export_materials.cpp's own (file-local,
-// not reusable from here) resolveAnimatedColorCurve resolves M2Color::color
-// -- one gltf::Material::AnimatedColorCurve per M2Sequence with real inline
-// data, plus a synthetic global-sequence entry. `color`'s x/y/z are already
-// 0..1 RGB, not a spatial vector, so no toGltf()/Z-up remap.
+// M2Track<C3Vector>) via the shared resolveAnimatedCurveGeneric
+// (export_transform.hpp) -- the exact same shape
+// export_texture_resolution.cpp's own resolveAnimatedColorCurve resolves
+// M2Color::color with (both were duplicated near-verbatim before that
+// template existed). `color`'s x/y/z are already 0..1 RGB, not a spatial
+// vector, so no toGltf()/Z-up remap.
 std::vector<gltf::Material::AnimatedColorCurve> resolveLightColorCurve(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
-    std::vector<gltf::Material::AnimatedColorCurve> curves;
-    for (size_t si = 0; si < sequenceCount; ++si) {
-        auto raw = m2::resolveVec3TrackSequence(blob, trackOffset, static_cast<uint32_t>(si));
-        if (raw.empty()) continue;
-        gltf::Material::AnimatedColorCurve curve;
-        curve.sequenceIndex = static_cast<int>(si);
-        curve.keyframes.reserve(raw.size());
-        for (const auto& [ts, v] : raw) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, gltf::Vec3{v.x, v.y, v.z});
-        }
-        curves.push_back(std::move(curve));
-    }
-    auto global = m2::resolveVec3GlobalSequenceTrack(blob, trackOffset);
-    if (!global.empty()) {
-        gltf::Material::AnimatedColorCurve curve;
-        curve.keyframes.reserve(global.size());
-        for (const auto& [ts, v] : global) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, gltf::Vec3{v.x, v.y, v.z});
-        }
-        curves.push_back(std::move(curve));
-    }
-    return curves;
+    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedColorCurve>(
+        blob, trackOffset, sequenceCount, m2::resolveVec3TrackSequence, m2::resolveVec3GlobalSequenceTrack,
+        [](const m2::Vec3& v) { return gltf::Vec3{v.x, v.y, v.z}; });
 }
 
 // Resolves an M2Light M2Track<float> field (ambient_intensity/
 // diffuse_intensity/attenuation_start/attenuation_end) -- unlike
-// export_materials.cpp's fixed16-based fade curves, these are already plain
-// floats on the wire (resolveFloatTrackSequence, not resolveRawIntTrackSequence
-// + a fixed16 decode), so no scaling is needed.
+// export_texture_resolution.cpp's fixed16-based fade curves, these are
+// already plain floats on the wire (resolveFloatTrackSequence, not
+// resolveRawIntTrackSequence + a fixed16 decode), so `toValue` is a no-op.
 std::vector<gltf::Material::AnimatedScalarCurve> resolveLightFloatCurve(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
-    std::vector<gltf::Material::AnimatedScalarCurve> curves;
-    for (size_t si = 0; si < sequenceCount; ++si) {
-        auto raw = m2::resolveFloatTrackSequence(blob, trackOffset, static_cast<uint32_t>(si));
-        if (raw.empty()) continue;
-        gltf::Material::AnimatedScalarCurve curve;
-        curve.sequenceIndex = static_cast<int>(si);
-        curve.keyframes.reserve(raw.size());
-        for (const auto& [ts, v] : raw) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, v);
-        }
-        curves.push_back(std::move(curve));
-    }
-    auto global = m2::resolveFloatGlobalSequenceTrack(blob, trackOffset);
-    if (!global.empty()) {
-        gltf::Material::AnimatedScalarCurve curve;
-        curve.keyframes.reserve(global.size());
-        for (const auto& [ts, v] : global) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, v);
-        }
-        curves.push_back(std::move(curve));
-    }
-    return curves;
+    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedScalarCurve>(
+        blob, trackOffset, sequenceCount, m2::resolveFloatTrackSequence,
+        m2::resolveFloatGlobalSequenceTrack, [](float v) { return v; });
 }
 
 // Resolves an M2Track<uint8_t> boolean-ish flag track -- M2Light::visibility
 // ("enabled?") and M2Attachment::animate_attached both have this exact
 // shape, a raw 0/1 flag, not a fixed16-scaled value, so each keyframe's
 // zero-extended raw byte is cast straight to float rather than run through
-// export_materials.cpp's decodeFixed16.
+// export_texture_resolution.cpp's decodeFixed16.
 std::vector<gltf::Material::AnimatedScalarCurve> resolveRawByteTrackCurve(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
-    std::vector<gltf::Material::AnimatedScalarCurve> curves;
-    for (size_t si = 0; si < sequenceCount; ++si) {
-        auto raw = m2::resolveRawIntTrackSequence(blob, trackOffset, static_cast<uint32_t>(si), 1);
-        if (raw.empty()) continue;
-        gltf::Material::AnimatedScalarCurve curve;
-        curve.sequenceIndex = static_cast<int>(si);
-        curve.keyframes.reserve(raw.size());
-        for (const auto& [ts, bits] : raw) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, static_cast<float>(bits));
-        }
-        curves.push_back(std::move(curve));
-    }
-    auto global = m2::resolveRawIntGlobalSequenceTrack(blob, trackOffset, 1);
-    if (!global.empty()) {
-        gltf::Material::AnimatedScalarCurve curve;
-        curve.keyframes.reserve(global.size());
-        for (const auto& [ts, bits] : global) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, static_cast<float>(bits));
-        }
-        curves.push_back(std::move(curve));
-    }
-    return curves;
+    auto resolveSeq = [](const std::vector<uint8_t>& b, uint32_t off, uint32_t si,
+                          const std::vector<uint8_t>* ext) {
+        return m2::resolveRawIntTrackSequence(b, off, si, /*elementSize=*/1, ext);
+    };
+    auto resolveGlobal = [](const std::vector<uint8_t>& b, uint32_t off, const std::vector<uint8_t>* ext) {
+        return m2::resolveRawIntGlobalSequenceTrack(b, off, /*elementSize=*/1, ext);
+    };
+    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedScalarCurve>(
+        blob, trackOffset, sequenceCount, resolveSeq, resolveGlobal,
+        [](uint32_t bits) { return static_cast<float>(bits); });
 }
 
 }  // namespace

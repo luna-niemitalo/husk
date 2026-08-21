@@ -107,4 +107,56 @@ void repairDuplicateTimestampsAndValidate(std::vector<std::pair<uint32_t, T>>& k
     }
 }
 
+// Resolves an animated glTF material curve from an M2Track<T> -- one
+// `Curve` per real M2Sequence with non-empty data, plus a synthetic
+// global-sequence entry, both timestamp-scaled to seconds. Shared by every
+// "M2Track -> glTF curve" resolution across export_texture_resolution.cpp
+// (materials' own tint/fade/UV-transform curves) and export_extras.cpp
+// (M2Light's ambient/diffuse/attenuation/visibility curves) -- these were
+// found duplicated near-verbatim across both files (six functions, one
+// shape) before this template existed; see DESIGN.md's own writeup for the
+// exact duplication found and why this is the one place it's written now.
+// `resolveSequence`/`resolveGlobal` are the matching
+// m2::resolveXTrackSequence/resolveXGlobalSequenceTrack pair for the
+// track's own wire type (a plain function reference for the ones whose
+// signature is exactly `(blob, trackOffset, sequenceIndex[, externalBlob])`/
+// `(blob, trackOffset[, externalBlob])`, or a small lambda for
+// resolveRawIntTrackSequence's own extra `elementSize` parameter -- see
+// this function's callers for both shapes). `toValue` converts one raw
+// (timestamp, T) pair's *value* into `Curve`'s own keyframe value type,
+// applying whatever scaling a given track kind needs (fixed16 decode, a
+// raw byte cast to float, a Vec3/Quat repacked into gltf's own value
+// type, or a no-op) -- the only real difference between any two callers.
+// `externalDataBlob` is always nullptr at every real call site today (none
+// of materials'/lights' animated curves are ever .anim-sourced), passed
+// explicitly rather than omitted since a function *pointer* (unlike a
+// direct call) can't rely on the callee's own default argument.
+template <typename Curve, typename ResolveSeqFn, typename ResolveGlobalFn, typename ToValueFn>
+std::vector<Curve> resolveAnimatedCurveGeneric(const std::vector<uint8_t>& blob, uint32_t trackOffset,
+                                                size_t sequenceCount, ResolveSeqFn resolveSequence,
+                                                ResolveGlobalFn resolveGlobal, ToValueFn toValue) {
+    std::vector<Curve> curves;
+    for (size_t si = 0; si < sequenceCount; ++si) {
+        auto raw = resolveSequence(blob, trackOffset, static_cast<uint32_t>(si), nullptr);
+        if (raw.empty()) continue;
+        Curve curve;
+        curve.sequenceIndex = static_cast<int>(si);
+        curve.keyframes.reserve(raw.size());
+        for (const auto& [ts, v] : raw) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, toValue(v));
+        }
+        curves.push_back(std::move(curve));
+    }
+    auto global = resolveGlobal(blob, trackOffset, nullptr);
+    if (!global.empty()) {
+        Curve curve;
+        curve.keyframes.reserve(global.size());
+        for (const auto& [ts, v] : global) {
+            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, toValue(v));
+        }
+        curves.push_back(std::move(curve));
+    }
+    return curves;
+}
+
 }  // namespace husk::commands

@@ -94,6 +94,10 @@
           gcc
           gdb
           ccache
+          # clang-tools: clang-tidy, for the modernize-*/readability-* lint
+          # pass (raw-loop-vs-algorithm, naive-vs-idiomatic patterns) --
+          # dev-shell only, gcc stays the actual build compiler.
+          clang-tools
           doctest
           tinygltf
           cli11
@@ -167,6 +171,7 @@
                         echo "  ccache:  $CCACHE_DIR"
             			echo "  blender: $(blender --version | head -n1)"
             			echo "  gltf-validator: gltf_validator ${gltf-validator.version}"
+                        echo "  clang-tidy: $(clang-tidy --version | head -n2 | tail -n1)"
                         echo "  doctest: available via find_package(doctest)"
                         echo "  uv:      $(uv --version) -- cd blp/ && uv sync"
           '';

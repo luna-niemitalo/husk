@@ -345,29 +345,45 @@ void checkInnerArrayFits(const Array& inner, size_t elementSize, size_t blobSize
     }
 }
 
-}  // namespace
-
-std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
-    const std::vector<uint8_t>* externalDataBlob) {
+// Shared skeleton behind every resolveXTrackSequence/resolveXGlobalSequenceTrack
+// pair below (Vec3/Quat/RawQuat/float/raw-int) -- each pair differs only in
+// its value type `T`, the wire element size/label, and the per-element
+// `decodeElement` callable, so this is the one place that shape (read
+// TrackMeta, branch on global-sequence membership, validate
+// interpolationType, resolve+bounds-check the inner timestamp/value arrays,
+// decode each element) is written out. `isGlobalVariant` selects which
+// direction the globalSequence check goes and whether `sequenceIndex` or a
+// fixed 0 is passed to trackSequenceInnerArrays -- the only two things that
+// actually differ between a TrackSequence function and its
+// GlobalSequenceTrack sibling. A global-sequence track loops continuously,
+// independent of any M2Sequence -- resolving it by `sequenceIndex` at all
+// (the `isGlobalVariant == false` path, when the track actually *is*
+// global-sequence-driven) would silently attribute its data to whichever
+// M2Sequence happens to occupy the track's outer-array position
+// `sequenceIndex` (see TrackMeta's doc comment), so that case returns empty
+// rather than guessing -- husk doesn't have global_sequences durations to
+// build a real independent clip from one yet. `elementSize` stays a runtime parameter
+// rather than a second template parameter, matching resolveRawIntTrackSequence's
+// own established "elementSize as a runtime value, not a template" precedent
+// (see its own .hpp doc comment) rather than introducing a second style.
+template <typename T, typename DecodeElementFn>
+std::vector<std::pair<uint32_t, T>> resolveTrackGeneric(const std::vector<uint8_t>& blob,
+                                                          uint32_t trackOffset, uint32_t sequenceIndex,
+                                                          bool isGlobalVariant, size_t elementSize,
+                                                          const char* elementLabel,
+                                                          DecodeElementFn decodeElement,
+                                                          const std::vector<uint8_t>* externalDataBlob) {
     TrackMeta meta = readTrackMeta(blob, trackOffset);
-    // A global-sequence track loops continuously, independent of any
-    // M2Sequence -- resolving it by `sequenceIndex` at all would silently
-    // attribute its data to whichever M2Sequence happens to occupy the
-    // track's outer-array position `sequenceIndex` (see TrackMeta's doc
-    // comment). husk doesn't have global_sequences durations to build a
-    // real independent clip yet, so this returns empty rather than guessing
-    // -- strictly more correct than the old behavior, even though it means
-    // no animation comes out for this track today.
-    if (meta.globalSequence != TrackMeta::kNoGlobalSequence) {
+    bool isGlobalTrack = meta.globalSequence != TrackMeta::kNoGlobalSequence;
+    if (isGlobalTrack != isGlobalVariant) {
         return {};
     }
     // interpolation_type 2/3 (cubic bezier/hermite) is only valid for
-    // M2SplineKey<T> tracks per wowdev.wiki -- bone translation/scale,
-    // M2Color, and M2TextureWeight are all plain M2Track<T>, so a real file
-    // reporting 2/3 here means either a version this parser doesn't
-    // understand or a corrupted read, not a case husk can silently keep
-    // reading at the wrong (3x) stride (see TrackMeta's doc comment).
+    // M2SplineKey<T> tracks per wowdev.wiki -- every track kind resolved
+    // through this function is a plain M2Track<T>, so a real file reporting
+    // 2/3 here means either a version this parser doesn't understand or a
+    // corrupted read, not a case husk can silently keep reading at the
+    // wrong (3x) stride (see TrackMeta's doc comment).
     if (meta.interpolationType > 1) {
         throw ParseError("track at offset " + std::to_string(trackOffset) +
                           " has interpolation_type " + std::to_string(meta.interpolationType) +
@@ -375,7 +391,8 @@ std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(
                           "version or corrupted read?");
     }
 
-    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, sequenceIndex);
+    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset,
+                                           isGlobalVariant ? 0 : sequenceIndex);
     if (!inner) {
         return {};
     }
@@ -386,295 +403,19 @@ std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(
     size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
 
     checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
-    checkInnerArrayFits(valuesInner, 12, dataSize, "C3Vector values");
+    checkInnerArrayFits(valuesInner, elementSize, dataSize, elementLabel);
     size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
 
-    std::vector<std::pair<uint32_t, Vec3>> out;
+    std::vector<std::pair<uint32_t, T>> out;
     out.reserve(n);
     for (size_t i = 0; i < n; ++i) {
         uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
-        Vec3 v = readVec3(data, dataSize, valuesInner.offset + i * 12);
+        T v = decodeElement(data, dataSize, valuesInner.offset + i * elementSize);
         out.emplace_back(ts, v);
     }
     return out;
 }
 
-std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
-    const std::vector<uint8_t>* externalDataBlob) {
-    TrackMeta meta = readTrackMeta(blob, trackOffset);
-    // See resolveVec3TrackSequence's identical checks for why these two
-    // conditions are handled before touching the timestamps/values arrays
-    // at all.
-    if (meta.globalSequence != TrackMeta::kNoGlobalSequence) {
-        return {};
-    }
-    if (meta.interpolationType > 1) {
-        throw ParseError("track at offset " + std::to_string(trackOffset) +
-                          " has interpolation_type " + std::to_string(meta.interpolationType) +
-                          ", but this track kind is never M2SplineKey-based -- unexpected file "
-                          "version or corrupted read?");
-    }
-
-    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, sequenceIndex);
-    if (!inner) {
-        return {};
-    }
-    const Array& timestampsInner = inner->first;
-    const Array& valuesInner = inner->second;
-
-    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
-    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
-
-    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
-    checkInnerArrayFits(valuesInner, 8, dataSize, "M2CompQuat values");
-    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
-
-    std::vector<std::pair<uint32_t, Quat>> out;
-    out.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
-        Quat q = readCompQuat(data, dataSize, valuesInner.offset + i * 8);
-        out.emplace_back(ts, q);
-    }
-    return out;
-}
-
-std::vector<std::pair<uint32_t, Vec3>> resolveVec3GlobalSequenceTrack(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset,
-    const std::vector<uint8_t>* externalDataBlob) {
-    TrackMeta meta = readTrackMeta(blob, trackOffset);
-    if (meta.globalSequence == TrackMeta::kNoGlobalSequence) {
-        return {};
-    }
-    if (meta.interpolationType > 1) {
-        throw ParseError("track at offset " + std::to_string(trackOffset) +
-                          " has interpolation_type " + std::to_string(meta.interpolationType) +
-                          ", but this track kind is never M2SplineKey-based -- unexpected file "
-                          "version or corrupted read?");
-    }
-
-    // A global-sequence track's outer M2Array<M2Array<T>> holds exactly one
-    // sub-array (see this function's doc comment) -- index 0 is always the
-    // right (and only) one to resolve, the same way trackSequenceInnerArrays
-    // already resolves a specific M2Sequence's sub-array by index.
-    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, /*sequenceIndex=*/0);
-    if (!inner) {
-        return {};
-    }
-    const Array& timestampsInner = inner->first;
-    const Array& valuesInner = inner->second;
-
-    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
-    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
-
-    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
-    checkInnerArrayFits(valuesInner, 12, dataSize, "C3Vector values");
-    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
-
-    std::vector<std::pair<uint32_t, Vec3>> out;
-    out.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
-        Vec3 v = readVec3(data, dataSize, valuesInner.offset + i * 12);
-        out.emplace_back(ts, v);
-    }
-    return out;
-}
-
-std::vector<std::pair<uint32_t, Quat>> resolveQuatGlobalSequenceTrack(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset,
-    const std::vector<uint8_t>* externalDataBlob) {
-    TrackMeta meta = readTrackMeta(blob, trackOffset);
-    if (meta.globalSequence == TrackMeta::kNoGlobalSequence) {
-        return {};
-    }
-    if (meta.interpolationType > 1) {
-        throw ParseError("track at offset " + std::to_string(trackOffset) +
-                          " has interpolation_type " + std::to_string(meta.interpolationType) +
-                          ", but this track kind is never M2SplineKey-based -- unexpected file "
-                          "version or corrupted read?");
-    }
-
-    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, /*sequenceIndex=*/0);
-    if (!inner) {
-        return {};
-    }
-    const Array& timestampsInner = inner->first;
-    const Array& valuesInner = inner->second;
-
-    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
-    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
-
-    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
-    checkInnerArrayFits(valuesInner, 8, dataSize, "M2CompQuat values");
-    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
-
-    std::vector<std::pair<uint32_t, Quat>> out;
-    out.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
-        Quat q = readCompQuat(data, dataSize, valuesInner.offset + i * 8);
-        out.emplace_back(ts, q);
-    }
-    return out;
-}
-
-std::vector<std::pair<uint32_t, Quat>> resolveRawQuatTrackSequence(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
-    const std::vector<uint8_t>* externalDataBlob) {
-    TrackMeta meta = readTrackMeta(blob, trackOffset);
-    // See resolveVec3TrackSequence's identical checks for why these two
-    // conditions are handled before touching the timestamps/values arrays.
-    if (meta.globalSequence != TrackMeta::kNoGlobalSequence) {
-        return {};
-    }
-    if (meta.interpolationType > 1) {
-        throw ParseError("track at offset " + std::to_string(trackOffset) +
-                          " has interpolation_type " + std::to_string(meta.interpolationType) +
-                          ", but this track kind is never M2SplineKey-based -- unexpected file "
-                          "version or corrupted read?");
-    }
-
-    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, sequenceIndex);
-    if (!inner) {
-        return {};
-    }
-    const Array& timestampsInner = inner->first;
-    const Array& valuesInner = inner->second;
-
-    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
-    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
-
-    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
-    checkInnerArrayFits(valuesInner, 16, dataSize, "C4Quaternion values");
-    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
-
-    std::vector<std::pair<uint32_t, Quat>> out;
-    out.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
-        Quat q = readRawQuat(data, dataSize, valuesInner.offset + i * 16);
-        out.emplace_back(ts, q);
-    }
-    return out;
-}
-
-std::vector<std::pair<uint32_t, Quat>> resolveRawQuatGlobalSequenceTrack(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset,
-    const std::vector<uint8_t>* externalDataBlob) {
-    TrackMeta meta = readTrackMeta(blob, trackOffset);
-    if (meta.globalSequence == TrackMeta::kNoGlobalSequence) {
-        return {};
-    }
-    if (meta.interpolationType > 1) {
-        throw ParseError("track at offset " + std::to_string(trackOffset) +
-                          " has interpolation_type " + std::to_string(meta.interpolationType) +
-                          ", but this track kind is never M2SplineKey-based -- unexpected file "
-                          "version or corrupted read?");
-    }
-
-    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, /*sequenceIndex=*/0);
-    if (!inner) {
-        return {};
-    }
-    const Array& timestampsInner = inner->first;
-    const Array& valuesInner = inner->second;
-
-    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
-    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
-
-    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
-    checkInnerArrayFits(valuesInner, 16, dataSize, "C4Quaternion values");
-    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
-
-    std::vector<std::pair<uint32_t, Quat>> out;
-    out.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
-        Quat q = readRawQuat(data, dataSize, valuesInner.offset + i * 16);
-        out.emplace_back(ts, q);
-    }
-    return out;
-}
-
-std::vector<std::pair<uint32_t, float>> resolveFloatTrackSequence(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
-    const std::vector<uint8_t>* externalDataBlob) {
-    TrackMeta meta = readTrackMeta(blob, trackOffset);
-    if (meta.globalSequence != TrackMeta::kNoGlobalSequence) {
-        return {};
-    }
-    if (meta.interpolationType > 1) {
-        throw ParseError("track at offset " + std::to_string(trackOffset) +
-                          " has interpolation_type " + std::to_string(meta.interpolationType) +
-                          ", but this track kind is never M2SplineKey-based -- unexpected file "
-                          "version or corrupted read?");
-    }
-
-    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, sequenceIndex);
-    if (!inner) {
-        return {};
-    }
-    const Array& timestampsInner = inner->first;
-    const Array& valuesInner = inner->second;
-
-    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
-    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
-
-    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
-    checkInnerArrayFits(valuesInner, 4, dataSize, "float values");
-    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
-
-    std::vector<std::pair<uint32_t, float>> out;
-    out.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
-        float v = readF32(data, dataSize, valuesInner.offset + i * 4);
-        out.emplace_back(ts, v);
-    }
-    return out;
-}
-
-std::vector<std::pair<uint32_t, float>> resolveFloatGlobalSequenceTrack(
-    const std::vector<uint8_t>& blob, uint32_t trackOffset,
-    const std::vector<uint8_t>* externalDataBlob) {
-    TrackMeta meta = readTrackMeta(blob, trackOffset);
-    if (meta.globalSequence == TrackMeta::kNoGlobalSequence) {
-        return {};
-    }
-    if (meta.interpolationType > 1) {
-        throw ParseError("track at offset " + std::to_string(trackOffset) +
-                          " has interpolation_type " + std::to_string(meta.interpolationType) +
-                          ", but this track kind is never M2SplineKey-based -- unexpected file "
-                          "version or corrupted read?");
-    }
-
-    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, /*sequenceIndex=*/0);
-    if (!inner) {
-        return {};
-    }
-    const Array& timestampsInner = inner->first;
-    const Array& valuesInner = inner->second;
-
-    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
-    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
-
-    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
-    checkInnerArrayFits(valuesInner, 4, dataSize, "float values");
-    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
-
-    std::vector<std::pair<uint32_t, float>> out;
-    out.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
-        float v = readF32(data, dataSize, valuesInner.offset + i * 4);
-        out.emplace_back(ts, v);
-    }
-    return out;
-}
-
-namespace {
 uint32_t readRawIntElement(const uint8_t* data, size_t dataSize, size_t off, size_t elementSize) {
     if (elementSize == 1) {
         return readU8(data, dataSize, off);
@@ -685,82 +426,85 @@ uint32_t readRawIntElement(const uint8_t* data, size_t dataSize, size_t off, siz
     throw ParseError("resolveRawIntTrackSequence: unsupported element size " +
                       std::to_string(elementSize) + " (only 1 or 2 are valid)");
 }
+
 }  // namespace
+
+std::vector<std::pair<uint32_t, Vec3>> resolveVec3TrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    const std::vector<uint8_t>* externalDataBlob) {
+    return resolveTrackGeneric<Vec3>(blob, trackOffset, sequenceIndex, /*isGlobalVariant=*/false, 12,
+                                      "C3Vector values", readVec3, externalDataBlob);
+}
+
+std::vector<std::pair<uint32_t, Quat>> resolveQuatTrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    const std::vector<uint8_t>* externalDataBlob) {
+    return resolveTrackGeneric<Quat>(blob, trackOffset, sequenceIndex, /*isGlobalVariant=*/false, 8,
+                                      "M2CompQuat values", readCompQuat, externalDataBlob);
+}
+
+std::vector<std::pair<uint32_t, Vec3>> resolveVec3GlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset,
+    const std::vector<uint8_t>* externalDataBlob) {
+    return resolveTrackGeneric<Vec3>(blob, trackOffset, /*sequenceIndex=*/0, /*isGlobalVariant=*/true, 12,
+                                      "C3Vector values", readVec3, externalDataBlob);
+}
+
+std::vector<std::pair<uint32_t, Quat>> resolveQuatGlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset,
+    const std::vector<uint8_t>* externalDataBlob) {
+    return resolveTrackGeneric<Quat>(blob, trackOffset, /*sequenceIndex=*/0, /*isGlobalVariant=*/true, 8,
+                                      "M2CompQuat values", readCompQuat, externalDataBlob);
+}
+
+std::vector<std::pair<uint32_t, Quat>> resolveRawQuatTrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    const std::vector<uint8_t>* externalDataBlob) {
+    return resolveTrackGeneric<Quat>(blob, trackOffset, sequenceIndex, /*isGlobalVariant=*/false, 16,
+                                      "C4Quaternion values", readRawQuat, externalDataBlob);
+}
+
+std::vector<std::pair<uint32_t, Quat>> resolveRawQuatGlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset,
+    const std::vector<uint8_t>* externalDataBlob) {
+    return resolveTrackGeneric<Quat>(blob, trackOffset, /*sequenceIndex=*/0, /*isGlobalVariant=*/true, 16,
+                                      "C4Quaternion values", readRawQuat, externalDataBlob);
+}
+
+std::vector<std::pair<uint32_t, float>> resolveFloatTrackSequence(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
+    const std::vector<uint8_t>* externalDataBlob) {
+    return resolveTrackGeneric<float>(blob, trackOffset, sequenceIndex, /*isGlobalVariant=*/false, 4,
+                                       "float values", readF32, externalDataBlob);
+}
+
+std::vector<std::pair<uint32_t, float>> resolveFloatGlobalSequenceTrack(
+    const std::vector<uint8_t>& blob, uint32_t trackOffset,
+    const std::vector<uint8_t>* externalDataBlob) {
+    return resolveTrackGeneric<float>(blob, trackOffset, /*sequenceIndex=*/0, /*isGlobalVariant=*/true, 4,
+                                       "float values", readF32, externalDataBlob);
+}
 
 std::vector<std::pair<uint32_t, uint32_t>> resolveRawIntTrackSequence(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, uint32_t sequenceIndex,
     size_t elementSize, const std::vector<uint8_t>* externalDataBlob) {
-    TrackMeta meta = readTrackMeta(blob, trackOffset);
-    if (meta.globalSequence != TrackMeta::kNoGlobalSequence) {
-        return {};
-    }
-    if (meta.interpolationType > 1) {
-        throw ParseError("track at offset " + std::to_string(trackOffset) +
-                          " has interpolation_type " + std::to_string(meta.interpolationType) +
-                          ", but this track kind is never M2SplineKey-based -- unexpected file "
-                          "version or corrupted read?");
-    }
-
-    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, sequenceIndex);
-    if (!inner) {
-        return {};
-    }
-    const Array& timestampsInner = inner->first;
-    const Array& valuesInner = inner->second;
-
-    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
-    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
-
-    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
-    checkInnerArrayFits(valuesInner, elementSize, dataSize, "raw int values");
-    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
-
-    std::vector<std::pair<uint32_t, uint32_t>> out;
-    out.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
-        uint32_t v = readRawIntElement(data, dataSize, valuesInner.offset + i * elementSize, elementSize);
-        out.emplace_back(ts, v);
-    }
-    return out;
+    return resolveTrackGeneric<uint32_t>(
+        blob, trackOffset, sequenceIndex, /*isGlobalVariant=*/false, elementSize, "raw int values",
+        [elementSize](const uint8_t* d, size_t n, size_t off) {
+            return readRawIntElement(d, n, off, elementSize);
+        },
+        externalDataBlob);
 }
 
 std::vector<std::pair<uint32_t, uint32_t>> resolveRawIntGlobalSequenceTrack(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t elementSize,
     const std::vector<uint8_t>* externalDataBlob) {
-    TrackMeta meta = readTrackMeta(blob, trackOffset);
-    if (meta.globalSequence == TrackMeta::kNoGlobalSequence) {
-        return {};
-    }
-    if (meta.interpolationType > 1) {
-        throw ParseError("track at offset " + std::to_string(trackOffset) +
-                          " has interpolation_type " + std::to_string(meta.interpolationType) +
-                          ", but this track kind is never M2SplineKey-based -- unexpected file "
-                          "version or corrupted read?");
-    }
-
-    auto inner = trackSequenceInnerArrays(blob.data(), blob.size(), trackOffset, /*sequenceIndex=*/0);
-    if (!inner) {
-        return {};
-    }
-    const Array& timestampsInner = inner->first;
-    const Array& valuesInner = inner->second;
-
-    const uint8_t* data = externalDataBlob ? externalDataBlob->data() : blob.data();
-    size_t dataSize = externalDataBlob ? externalDataBlob->size() : blob.size();
-
-    checkInnerArrayFits(timestampsInner, 4, dataSize, "timestamps");
-    checkInnerArrayFits(valuesInner, elementSize, dataSize, "raw int values");
-    size_t n = std::min<size_t>(timestampsInner.count, valuesInner.count);
-
-    std::vector<std::pair<uint32_t, uint32_t>> out;
-    out.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        uint32_t ts = readU32(data, dataSize, timestampsInner.offset + i * 4);
-        uint32_t v = readRawIntElement(data, dataSize, valuesInner.offset + i * elementSize, elementSize);
-        out.emplace_back(ts, v);
-    }
-    return out;
+    return resolveTrackGeneric<uint32_t>(
+        blob, trackOffset, /*sequenceIndex=*/0, /*isGlobalVariant=*/true, elementSize, "raw int values",
+        [elementSize](const uint8_t* d, size_t n, size_t off) {
+            return readRawIntElement(d, n, off, elementSize);
+        },
+        externalDataBlob);
 }
 
 namespace {

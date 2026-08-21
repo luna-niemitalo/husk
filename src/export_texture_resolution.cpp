@@ -11,6 +11,7 @@
 
 #include "blp.hpp"
 #include "export_materials.hpp"
+#include "export_transform.hpp"
 #include "m2_animation.hpp"
 
 namespace husk::commands {
@@ -273,82 +274,31 @@ gltf::Material::AlphaMode alphaModeForBlend(uint16_t blendMode) {
 
 std::vector<gltf::Material::AnimatedColorCurve> resolveAnimatedColorCurve(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
-    std::vector<gltf::Material::AnimatedColorCurve> curves;
-    for (size_t si = 0; si < sequenceCount; ++si) {
-        auto raw = m2::resolveVec3TrackSequence(blob, trackOffset, static_cast<uint32_t>(si));
-        if (raw.empty()) continue;
-        gltf::Material::AnimatedColorCurve curve;
-        curve.sequenceIndex = static_cast<int>(si);
-        curve.keyframes.reserve(raw.size());
-        for (const auto& [ts, v] : raw) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, gltf::Vec3{v.x, v.y, v.z});
-        }
-        curves.push_back(std::move(curve));
-    }
-    auto global = m2::resolveVec3GlobalSequenceTrack(blob, trackOffset);
-    if (!global.empty()) {
-        gltf::Material::AnimatedColorCurve curve;
-        curve.keyframes.reserve(global.size());
-        for (const auto& [ts, v] : global) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, gltf::Vec3{v.x, v.y, v.z});
-        }
-        curves.push_back(std::move(curve));
-    }
-    return curves;
+    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedColorCurve>(
+        blob, trackOffset, sequenceCount, m2::resolveVec3TrackSequence, m2::resolveVec3GlobalSequenceTrack,
+        [](const m2::Vec3& v) { return gltf::Vec3{v.x, v.y, v.z}; });
 }
 
 std::vector<gltf::Material::AnimatedQuatCurve> resolveAnimatedRawQuatCurve(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
-    std::vector<gltf::Material::AnimatedQuatCurve> curves;
-    for (size_t si = 0; si < sequenceCount; ++si) {
-        auto raw = m2::resolveRawQuatTrackSequence(blob, trackOffset, static_cast<uint32_t>(si));
-        if (raw.empty()) continue;
-        gltf::Material::AnimatedQuatCurve curve;
-        curve.sequenceIndex = static_cast<int>(si);
-        curve.keyframes.reserve(raw.size());
-        for (const auto& [ts, q] : raw) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f,
-                                          std::array<float, 4>{q.x, q.y, q.z, q.w});
-        }
-        curves.push_back(std::move(curve));
-    }
-    auto global = m2::resolveRawQuatGlobalSequenceTrack(blob, trackOffset);
-    if (!global.empty()) {
-        gltf::Material::AnimatedQuatCurve curve;
-        curve.keyframes.reserve(global.size());
-        for (const auto& [ts, q] : global) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f,
-                                          std::array<float, 4>{q.x, q.y, q.z, q.w});
-        }
-        curves.push_back(std::move(curve));
-    }
-    return curves;
+    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedQuatCurve>(
+        blob, trackOffset, sequenceCount, m2::resolveRawQuatTrackSequence,
+        m2::resolveRawQuatGlobalSequenceTrack,
+        [](const m2::Quat& q) { return std::array<float, 4>{q.x, q.y, q.z, q.w}; });
 }
 
 std::vector<gltf::Material::AnimatedScalarCurve> resolveAnimatedFixed16Curve(
     const std::vector<uint8_t>& blob, uint32_t trackOffset, size_t sequenceCount) {
-    std::vector<gltf::Material::AnimatedScalarCurve> curves;
-    for (size_t si = 0; si < sequenceCount; ++si) {
-        auto raw = m2::resolveRawIntTrackSequence(blob, trackOffset, static_cast<uint32_t>(si), 2);
-        if (raw.empty()) continue;
-        gltf::Material::AnimatedScalarCurve curve;
-        curve.sequenceIndex = static_cast<int>(si);
-        curve.keyframes.reserve(raw.size());
-        for (const auto& [ts, bits] : raw) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, decodeFixed16(bits));
-        }
-        curves.push_back(std::move(curve));
-    }
-    auto global = m2::resolveRawIntGlobalSequenceTrack(blob, trackOffset, 2);
-    if (!global.empty()) {
-        gltf::Material::AnimatedScalarCurve curve;
-        curve.keyframes.reserve(global.size());
-        for (const auto& [ts, bits] : global) {
-            curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, decodeFixed16(bits));
-        }
-        curves.push_back(std::move(curve));
-    }
-    return curves;
+    auto resolveSeq = [](const std::vector<uint8_t>& b, uint32_t off, uint32_t si,
+                          const std::vector<uint8_t>* ext) {
+        return m2::resolveRawIntTrackSequence(b, off, si, /*elementSize=*/2, ext);
+    };
+    auto resolveGlobal = [](const std::vector<uint8_t>& b, uint32_t off, const std::vector<uint8_t>* ext) {
+        return m2::resolveRawIntGlobalSequenceTrack(b, off, /*elementSize=*/2, ext);
+    };
+    return resolveAnimatedCurveGeneric<gltf::Material::AnimatedScalarCurve>(
+        blob, trackOffset, sequenceCount, resolveSeq, resolveGlobal,
+        [](uint32_t bits) { return decodeFixed16(bits); });
 }
 
 std::string lowercaseModelBasename(const std::string& modelPath) {
