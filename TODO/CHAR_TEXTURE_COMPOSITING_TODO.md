@@ -526,8 +526,8 @@ Verified end to end against real local data (`ItemModifiedAppearanceID` 15
 still husk-resolves-only: turning the resolved FileDataIDs into an actual
 attached/rendered weapon or armor piece (positioning at the right
 attachment point, applying the texture) is downstream Blender-side work,
-not started, same split Stage 3/5 already established for body/skin
-customization.
+scoped in `TODO/EQUIPPED_GEAR_RENDER_TODO.md`, same split Stage 3/5
+already established for body/skin customization.
 
 ## Why staged, not one change
 
