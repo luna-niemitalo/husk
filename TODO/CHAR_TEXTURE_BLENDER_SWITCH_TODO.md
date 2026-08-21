@@ -20,29 +20,31 @@ stage:
   textured choice onto that material — builds one closed
   `ShaderNodeGroup` per option (`_build_customization_option_group`, see
   "Node-graph findability" below for why it's a group and not raw nodes
-  in the material's own tree): inside, a `Choice Index` input (0-based,
-  promoted to the group's own interface, defaulted to whichever choice
-  `chr_enabled_materials` actually resolved at export time) drives a
-  `Math(COMPARE)`-gated chain of `Mix` nodes, one per choice, each also
-  gated by its own real section rect (`_uv_rect_mask`) when the layer's
-  `texture_section_type_bit_mask` picks out exactly one real section — a
-  mask matching *every* real section (e.g. a real `-1`/all-bits mask,
-  seen on real base-skin-tone data) or *none* is treated as "whole atlas,
-  no rect restriction", not an arbitrary single-section guess. Options
-  combine in real `texture_layers[].layer` ascending order via
-  `CHR_BLEND_MODE_TO_BLEND_TYPE`, spliced in front of each material's own
-  Principled BSDF `Base Color` (preserving whatever fed it before, same
-  splice technique `apply_texture_layout_overlay` already uses).
-- **No dropdown widget**: confirmed directly against the pinned Blender
-  5.1.1 that `GeometryNodeMenuSwitch` exists but `ShaderNodeMenuSwitch`
-  does not — material node trees have no real Menu Switch equivalent at
-  all. Used the TODO's own named fallback instead (`Value` node + a
-  `Math(COMPARE)`-gated `Mix` chain). Also confirmed `ShaderNodeCompare`
-  doesn't exist in shader trees either (geometry/function-nodes only) —
-  used `ShaderNodeMath(operation='COMPARE')` (built-in epsilon-tolerant
-  equality) instead. A real, per-material console-printed legend
-  (`0=<choice name>, 1=<choice name>, ...`) tells the user which index to
-  type into each option's own group node.
+  in the material's own tree): inside, a real `Choice` dropdown
+  (`NodeSocketMenu`, promoted to the group's own interface, one named
+  enum item per real choice, defaulted to whichever choice
+  `chr_enabled_materials` actually resolved at export time) drives one
+  `GeometryNodeMenuSwitch` (`data_type='BUNDLE'`) — each choice's own
+  `Color`/`Alpha` pair combined into a single `NodeCombineBundle` first,
+  so the switch is genuinely exclusive and there's no per-choice rect
+  masking to get right. Options combine in real `texture_layers[].layer`
+  ascending order via `CHR_BLEND_MODE_TO_BLEND_TYPE`, spliced in front of
+  each material's own Principled BSDF `Base Color` (preserving whatever
+  fed it before, same splice technique `apply_texture_layout_overlay`
+  already uses).
+- **Real dropdown, not a float index**: an earlier version of this
+  session's own work found (confirmed directly against the pinned
+  Blender 5.1.1) that `ShaderNodeMenuSwitch` doesn't exist and fell back
+  to a `Value` node + `Math(COMPARE)`-gated `Mix` chain, with a
+  console-printed legend to decode the index. Real follow-up finding,
+  from Luna's own hand-built prototype (Blender's real Shader Editor,
+  screenshots): `GeometryNodeMenuSwitch` (and the generic
+  `NodeCombineBundle`/`NodeSeparateBundle` pair) can be inserted directly
+  into a `ShaderNodeTree` and works there despite the `GeometryNode`
+  idname — confirmed directly via a headless Blender probe, not assumed.
+  Rebuilt on that: a real `NodeSocketMenu` group input, real named enum
+  items (`choice_name`, not an index), no legend needed since the closed
+  node itself shows the real names.
 - **Node-graph findability**: Luna ran the real pipeline (export, then
   the post-import script) and reported "I still can't find the options"
   — the geoset switch was easy to find because it's a Geometry Nodes
@@ -63,8 +65,8 @@ stage:
   Overlay" toggle already uses) — the same real material dropped from 364
   top-level nodes to 10. **To use**: open the Shader Editor, select the
   material, press Home to frame all nodes, and look for the green
-  `<Option> choice index` group node(s) — their own `Choice Index` field
-  is directly editable right there, no need to enter the group.
+  `<Option> choice` group node(s) — their own `Choice` field is a real
+  dropdown, directly editable right there, no need to enter the group.
 - **Ergonomics — real interactive use, second round**: Luna pushed back
   hard, correctly, on the ceremony the workflow above had grown: one
   `husk export` call with 8 explicit flags, then two separate manual
@@ -163,7 +165,7 @@ choices legitimately resolve to the same single shared texture.
 - **A real interactive Blender GUI pass** — same discipline this whole
   project uses for Blender-side work (no automated pixel-perfect render
   test exists for this kind of feature): open the file in Blender's own
-  GUI, confirm changing an option's own Value node index *visibly*
+  GUI, confirm changing an option's own `Choice` dropdown *visibly*
   changes the rendered skin color/tattoo/hair color/etc. on the actual
   character mesh, patches land in the correct UV position (not
   offset/flipped), blend modes look plausible (multiply darkens, screen
@@ -183,8 +185,26 @@ choices legitimately resolve to the same single shared texture.
   whether `SwatchColor` itself is available in any DB2 table husk already
   reads. Separate follow-up, not blocking (textured choices are the
   common, valuable case).
-- **Multi-section masks**: a `texture_section_type_bit_mask` matching
-  2+ real sections but not *all* of them is treated as "no rect
-  restriction" (same accepted gap `_build_section_overlay_group` already
-  has) rather than OR-combining the matching rects — not seen in this
-  session's real test data, but not handled if it occurs.
+- (Former "multi-section masks" gap is moot: the `MenuSwitch`/`Bundle`
+  rebuild dropped per-choice UV-rect masking entirely — a switch is
+  already exclusive, so there's no accumulation for a rect to protect
+  against.)
+- **Independent color/alpha axes on one texture target (the "tiara"
+  case)**: Luna's own hand-built prototype (real Shader Editor, not this
+  script's output) showed one hair-color material needing two genuinely
+  independent pickers feeding the *same* layer — a color choice (Pink/
+  Blue/...) and a separate coverage choice (With Tiara/Without Tiara,
+  which real tiara-bearing hair variants show more of the model through,
+  i.e. less-covering alpha). Current code composites each real
+  `ChrCustomizationOption` as its own full sequential layer
+  (`apply_customization_texture_switch`'s `relevant_options` loop) —
+  correct *if* "Hair Color" and the tiara case are genuinely two separate
+  `ChrCustomizationOption` rows targeting the same material, still
+  unconfirmed. Luna's own guess, also unconfirmed: the tiara alpha
+  difference tracks which real *hair model/geoset* is selected, not the
+  color option itself — i.e. it may not be reachable through
+  `chr_customization_options`' texture-material chain at all. Not
+  investigated further this session; needs a real look at
+  `chr_customization_options`/`chr_texture_layout` extras for a model
+  with a real tiara-bearing hairstyle before guessing at an
+  implementation.
