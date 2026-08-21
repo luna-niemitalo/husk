@@ -83,6 +83,7 @@ add_library(husk-lib STATIC
   src/chrrace_db2.cpp
   src/animationdata_db2.cpp
   src/cmd_db2.cpp
+  src/cmd_db2_build.cpp
   src/cmd_blp.cpp
   src/appearance_string.cpp
   src/cmd_appearance.cpp
@@ -97,6 +98,7 @@ add_library(husk-lib STATIC
   src/export_texture_resolution.cpp
   src/export_materials.cpp
   src/export_skin_resolution.cpp
+  src/export_extras.cpp
   src/cmd_export.cpp
   src/dump_writer_utils.cpp
   src/dump_emitters.cpp
@@ -133,6 +135,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_phys.cpp
     tests/test_blp.cpp
     tests/test_db2.cpp
+    tests/test_db2_offsetmap.cpp
     tests/test_dbd.cpp
     tests/test_listfile.cpp
     tests/test_db2table.cpp
@@ -141,6 +144,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli_chrmodel.cpp
     tests/test_cli_chrcustomization.cpp
     tests/test_cli_animationdata.cpp
+    tests/test_cli_chrmodel_id.cpp
     tests/test_gltf.cpp
     tests/test_gltf_math.cpp
     tests/test_gltf_mesh.cpp
@@ -151,6 +155,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_integration_texture_transform.cpp
     tests/test_integration_lights.cpp
     tests/test_cli.cpp
+    tests/test_cli_textures.cpp
     tests/test_cli_batch.cpp
     tests/test_cli_config.cpp
     tests/test_cli_appearance.cpp
