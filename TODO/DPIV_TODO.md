@@ -218,30 +218,59 @@ multi-part prop) than one small decal/trigger footprint polygon.
 
 ## Concrete next steps (in rough order of expected payoff)
 
-1. **Histogram `field2`'s offset-from-Z-min distribution directly**, rather
-   than the two summary buckets used so far (median 6.1% above Z-min,
-   65.9% within ±20%, 10.1% fully below) — is it *always* within some
-   small fixed tolerance of the base for a "pinned to the ground" subset,
-   with a separate, different pattern (fixed offset, or bone-relative
-   instead of bbox-relative) for the outliers? Cross-reference outliers
-   against filenames/content type the way `DETL`'s `flags` bit was
-   cracked.
-2. **Check whether the zero-placeholder-record pattern correlates with
-   `field3`'s own value** (e.g. "`field3 == 0` means unused slot") —
-   cheap to check against the already-identified 83-file placeholder set,
-   and would help interpret `field3` (item 3 below) at the same time.
-3. **Re-examine field 3 as a category enum, not an index.** With only 4
-   values (0–3) and no clean ordering, check for correlation with anything
-   else per-record-position-independent — e.g. does a specific value always
-   pair with a specific relative position (first vs. last point in a
-   footprint), or with specific filename patterns (fire/torch vs. window vs.
-   structure doodads, the same directory split that cracked `DETL`'s
-   `flags` bit this session)?
-4. **Full-name audit of all 2,632 hits.** Only skimmed a handful of
-   filenames this session (`dpiv_files_for_exploration.txt` has the full
-   list) — a systematic pass grouping by directory/naming convention (the
-   same method that found `DETL`'s flags-vs-light-prop correlation) might
-   turn up a content-type split worth checking against field 3's values.
+**Items 1-3 below done this session (2026-08-21), against the existing
+cached artifacts (no re-scan needed) — scratch analysis only, not
+committed, same tier as the earlier `pa_kite_lamp` cross-reference.**
+Corpus-wide over all 2,632 files / 2,943 records, decoding the report's
+own captured hex directly (only 8 real 4-record files are truncated to 3
+records — the report only ever captured each hit's first 96 bytes, its
+own stated scope, not a new gap).
+
+1. **Histogrammed `field2`'s offset-from-Z-min directly, excluding the
+   83-file placeholder-record set (item 2's own finding) from the
+   population.** Real median **9.4%** above Z-min (not the earlier 6.1% —
+   that stat's population still included `(0,0,0)` placeholder records,
+   which weren't yet known to be placeholders when it was computed;
+   excluding them is the real correction here), **55.4%** within ±20% of
+   the base (down from 65.9%, same population-correction reason), 15.9%
+   fully below the model's own bbox, and a small but real 1.2% (14
+   records) sitting *above* 100% of the Z-range — i.e. above the model's
+   own bbox top, not just off the base. **No clean bimodal split found**
+   — the distribution is fairly continuous across buckets (28.2% sit in
+   the tightest 0-5% band, but another 24.2% sit in 50-100%), not two
+   cleanly separable "pinned" vs. "outlier" populations. Cross-referencing
+   outliers against filename/content type (this item's own original
+   ask) wasn't done — no directory-level pattern jumped out in the item-3b
+   pass below, so it doesn't look like a quick further win without a
+   longer per-file audit.
+2. **Real correlation found between the zero-placeholder-record pattern
+   and `field3`.** Not the clean binary rule guessed at ("`field3 == 0`
+   means unused slot") — both values appear on both sides — but a real,
+   non-trivial skew: placeholder (zero-point) records are `field3 == 0`
+   73.1% of the time (125/171) vs. only 42.3% (169/400) for real
+   (non-zero-point) records; `field3 == 1` is the strongest "this is a
+   real point" signal, 34.5% of real-point records vs. just 7.6% of
+   placeholders. Useful as a weak secondary signal, not a standalone
+   placeholder detector — the explicit `(0,0,0)` check from the earlier
+   session's own finding is still the reliable one.
+3. **Field 3 vs. record position**: `field3 == 3` **never appears at
+   record position 0** across the full corpus (0 of 145 position-0
+   records) — it only ever shows up at position 1 (9 records) or position
+   2 (6 records). Real, if thin (15 records total), evidence that field 3
+   depends on a record's *role* (first point vs. a later one) rather than
+   being a per-point-independent category tag. **Field 3 vs. top-level
+   directory** (item 3b, single-record files only): no comparable split
+   found — `world`/`models`/`spells` all skew towards `field3 == 0` in
+   roughly the same proportions (90%/95%/81%), not the clean bimodal
+   split `DETL`'s `flags` bit had. Doesn't rule out a subdirectory-level
+   split (only checked top-level), just found nothing at this grain.
+4. **Full-name audit of all 2,632 hits — not done.** Item 3b's directory
+   breakdown is a partial start (`world/` alone is 86% of all hits,
+   2,266/2,632) but a real systematic per-subdirectory pass (the kind
+   that found `DETL`'s flags-vs-light-prop correlation) wasn't run. Still
+   the most likely remaining lever if `field2`'s outlier population (item
+   1) or `field3`'s "position 0 is never 3" split (item 3) turn out to
+   correlate with a specific asset category once actually checked.
 
 ## Artifacts already on hand (don't need to be regenerated)
 
