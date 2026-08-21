@@ -2001,3 +2001,102 @@ rename. Verified end to end against real local data
 (`bloodelffemale_hd.m2`, 338 real clips): all 338 marked as assets, 0
 renamed (consistent with the `AnimationData.Name` finding above — nothing
 to rename to yet).
+
+### Blender-survivable extras live on the skin's root joint, not the skin (2026-08-22)
+
+Every real per-model extras key husk attaches (`chr_texture_layout`,
+`chr_customization_options`, `chr_enabled_materials`, `enabled_geosets`,
+`creature_enabled_geosets`, `bone_correction_sets`, `ribbon_emitters`/
+`particle_emitters`, `physics_bodies`/`physics_joints`) used to live on the
+glTF **skin**'s own `extras` — the semantically "correct" glTF location for
+whole-model metadata, since there's no other natural per-model anchor point
+in core glTF. Real problem, confirmed empirically: Blender's stock glTF
+importer has no supported extras target for a skin at all. Node/mesh/
+material/camera/light/scene extras all land as real Blender custom
+properties post-import; skin extras land nowhere — every `read_*` function
+in `tools/husk_blender_geoset_mask.py` had to re-open the raw `.glb` and
+re-parse the JSON chunk by hand instead of reading from the already-imported
+scene, purely to work around this.
+
+**The fix mirrors the existing geoset-tag-joint trick (`Skeleton::GeosetTag`),
+inverted.** That trick encodes data via vertex *weighting* on a fake joint,
+because Blender's importer turns joint weights into real vertex groups. The
+inverse: encode data via a joint's own node `extras`, because Blender's
+importer *does* keep node/bone extras as real custom properties — confirmed
+directly via a headless Blender round-trip before committing to it, not
+assumed, including with deeply nested structures (arrays of objects, several
+levels): they survive intact as real Blender `IDPropertyGroup`/`list` data.
+
+**Rejected alternative, and why**: mint a brand-new fake carrier joint,
+exactly mirroring `GeosetTag`. The geoset-tag-joint offset arithmetic in
+`gltf_skeleton.cpp`'s `emitSkeletonAndSkin` is threaded through ~10 separate
+places (inverse-bind-matrix buffer sizing, node ordering, parenting, the
+synthetic-root node-index formula, attachment/event/light node offsets
+downstream) — a second, independently-counted category of inert joint would
+mean touching every one of them consistently, real risk of a silent
+off-by-one corrupting the skeleton if one were missed. Piggybacking on the
+skin's own *existing* root joint (`emitSkeletonAndSkin`'s own
+`rootJointNodeIndices.front()`, always a real joint, never the synthesized
+multi-root parent node, which isn't a joint and wouldn't become a real
+Blender Bone) needs none of that — no new node index, no offset-formula
+changes anywhere, just merging a JSON object onto an existing node's
+`extras`. Tradeoff, named directly and accepted: the data rides along on
+that bone permanently (harmless custom-property clutter) rather than being
+read-and-discarded the way a geoset tag is.
+
+**Joint-index resolution is also inline now, not a separate table a
+consumer has to drag around.** Several of these extras entries carry a raw
+numeric bone index (a ribbon anchor's `joint`, a physics body's `joint`, a
+bone-correction's `joint`). Confirmed directly (not assumed) that Blender's
+own post-import bone order does *not* reliably match the raw glTF
+joint-index order — 242/358 mismatches on a real 245-bone character,
+checked by comparing the raw glTF `nodes[]`/`skins[0].joints[]` array
+against `armature.data.bones[]` after a real import — so a Blender-side
+consumer genuinely cannot derive a bone name from a raw index without a
+lookup table of some kind. `gltf_skeleton.cpp` now resolves this itself at
+export time: every such entry also carries a real `bone_name` string
+alongside its raw `joint` index. `joint_names` (the full index-aligned
+roster, still emitted unconditionally) stays too, for a different, still-real
+purpose: it's the one always-present key `_root_joint_extras`
+(`husk_blender_geoset_mask.py`) needs to find the correct carrier bone
+unambiguously on a model whose only *other* real extras happen to be, say,
+one billboard-tagged joint elsewhere (which also gets node extras, but isn't
+the carrier).
+
+**Animation names hit the same Blender-import gap, one level deeper**:
+confirmed directly that Blender's importer drops animation-level `extras`
+too (an imported Action's own custom properties come back empty even when
+the source file's `animations[].extras` was set). `AnimationData.db2` names
+now *also* mirror onto the same root-joint carrier
+(`animation_data_names`), alongside staying on each animation's own
+`sequence_metadata` extras for a raw-JSON consumer that isn't going through
+Blender's importer at all — the one deliberate duplicate in this design,
+since the "natural" glTF location and the one Blender's own importer will
+actually preserve aren't the same place.
+
+**A real crash, found and fixed via a headless reproduction, not assumed
+away**: a bone's own `IDPropertyGroup`/nested-list custom property values
+are *live views* into Blender's own storage, not independent copies.
+Fetching e.g. `chr_customization_options` from the carrier bone, then
+deleting *any* bone afterward (even a wholly unrelated one — real trigger:
+`delete_geoset_tag_bones` removing spent geoset tag bones later in the same
+pipeline pass) invalidates that earlier reference; touching it again
+segfaults Blender outright, not a catchable Python exception. Reproduced
+directly with a minimal repro (fetch the property, delete an unrelated
+bone, touch the earlier reference: real crash) before trusting the fix.
+`_root_joint_extras` now deep-copies the whole structure into plain
+`dict`/`list`/primitives before returning, restoring the same safety a
+plain `json.loads` result always had for free.
+
+**Zero-argument invocation**: per Luna's own direct ask ("the file should be
+runnable as pure Blender script"), `textures_dir` (needed only by the
+customization-texture-switch stage) now falls back to the current `.blend`
+file's own directory (`bpy.path.abspath("//")`, confirmed to return a real
+empty string rather than a silent cwd guess when the file hasn't been
+saved) when no CLI arg is given, preferring a `textures/` subfolder next to
+the `.blend` when one exists. Every other stage already worked with zero
+arguments once the migration above landed — this closes the last gap.
+Verified end to end: a saved `.blend` with a real 245-bone/17-option/
+338-animation model already imported, run via `blender --python
+tools/husk_blender_geoset_mask.py` with no trailing arguments at all,
+completes every stage cleanly.

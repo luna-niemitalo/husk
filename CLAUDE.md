@@ -232,7 +232,52 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   request I left `read_physics_bodies`/`_dump_phys_json`/
   `_phys_elasticity_heuristic`/`apply_physics_jiggle_bones`/
   `physics_jiggle_stage`/`HUSK_OT_install_jiggle_physics` untouched for
-  them to migrate onto `_root_joint_extras` themselves.
+  them to migrate onto `_root_joint_extras` themselves (they since have,
+  same session -- see below).
+
+  **Same-day follow-up (closing the remaining file-path gaps + a real
+  crash)**: Luna pushed further -- "applies to all users of joint indices,
+  not just the one I happen to mention." Every joint-index-bearing extras
+  entry (`bone_correction_sets`, `ribbon_emitters`/`particle_emitters`,
+  `physics_bodies`) now also carries a real `bone_name` resolved by husk
+  itself at export time (`gltf_skeleton.cpp`'s new `resolveBoneName`),
+  alongside the raw `joint` index -- no Blender-side index/name join
+  needed at all anymore. `joint_names` (the full roster) stays too, as the
+  one always-present marker `_root_joint_extras` needs to find the correct
+  carrier bone unambiguously. Animation names (`AnimationData.db2`,
+  previously per-animation extras, which Blender's importer also drops --
+  confirmed directly) now mirror onto the same root-joint carrier
+  (`animation_data_names`, `src/gltf.cpp`), closing the last file-path
+  dependency (`read_animation_clip_names`) -- `_read_glb_json`/the old
+  `_joint_bone_names`/`struct`+`json` imports are now fully dead and
+  removed. **Real crash found and fixed via a headless reproduction, not
+  assumed**: a bone's own `IDPropertyGroup`/nested-list custom property
+  values are live views into Blender's own storage, not independent
+  copies -- deleting *any* bone afterward (even an unrelated one, e.g.
+  `delete_geoset_tag_bones`) can invalidate an earlier-fetched reference
+  and segfault Blender on next access (real repro: fetch the property,
+  delete an unrelated bone, touch the earlier reference -- crash, every
+  time). `_root_joint_extras` now deep-copies everything into plain
+  dicts/lists before returning. Also, per Luna's ask to make the script
+  runnable with zero arguments ("the file should be runnable as pure
+  Blender script"): `textures_dir` now falls back to the current `.blend`
+  file's own directory (`bpy.path.abspath("//")`, confirmed to return a
+  real empty string rather than a silent cwd guess when unsaved) when no
+  CLI arg is given, preferring a `textures/` subfolder next to the
+  `.blend` when one exists. Verified end to end against real 245-bone/
+  17-option/338-animation and 35-bone/3-ribbon-anchor models: every
+  `read_*` works with zero file path, the crash reproduction is fixed,
+  and the full pipeline runs cleanly with genuinely zero arguments (a
+  saved `.blend` with the model already imported, `blender --python
+  script.py`, nothing else). Full C++ suite green, 680/680. New
+  `TODO/SLIM_GLB_EXTERNAL_TEXTURES_TODO.md`: Luna asked whether `husk
+  export` can already produce a `.glb` with zero embedded textures,
+  reading them from an adjacent directory instead -- investigated,
+  confirmed no (every resolved texture always gets embedded via
+  `appendBufferView`, `img.uri` is never set anywhere in this codebase),
+  scoped what implementing it would need (mostly reusing `--textures-out`'s
+  own already-tested disk-write code, `<FileDataID>.png` naming to match
+  every other texture kind here), not started.
 - **Previous state (2026-08-22, `.phys` -> Blender "Jiggle Physics" addon
   wiring)**: `tools/husk_blender_geoset_mask.py` turns real `--phys`
   export data into live secondary motion via the third-party "Jiggle

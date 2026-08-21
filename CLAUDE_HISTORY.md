@@ -14,6 +14,136 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-22, root-joint-extras migration: same-day follow-up (inline bone
+names, animation names, a real crash fix, zero-argument invocation)**:
+Direct continuation of the root-joint-extras migration below, same
+session. Luna pushed on two more things after the initial migration
+landed.
+
+**"Applies to all users of joint indices, not just the one I happen to
+mention."** The initial migration left `read_emitter_anchors` (and, on
+`husk-ed`'s side, `read_physics_bodies`) still needing the raw glTF file
+for one thing: resolving a raw numeric `joint` index to a real Blender
+bone name, via a `joint_names` lookup table. Luna asked whether husk
+itself could just resolve this at export time, for every entry that
+carries a joint index, not only the one she'd asked about first. It can:
+`gltf_skeleton.cpp`'s `emitSkeletonAndSkin` already builds the exact same
+index-aligned name list for `joint_names`; a new `resolveBoneName` lambda
+reuses it to stamp a real `bone_name` string directly onto every
+`bone_correction_sets[].corrections[]`, `ribbon_emitters`/
+`particle_emitters[]`, and `physics_bodies[]` entry, right next to its raw
+`joint` index. `joint_names` itself stays — it's not redundant, it serves
+a different real purpose: the one always-present key `_root_joint_extras`
+needs to unambiguously find the carrier bone among every imported joint
+(some of which may carry *other* extras, like `billboard`, that would
+otherwise give a false match). `read_emitter_anchors` simplified to just
+read `anchor["bone_name"]` directly; `apply_emitter_markers` updated to
+match. Animation names hit the identical Blender-import gap one level
+deeper — confirmed directly (a manual raw-JSON patch + reimport test) that
+Blender's importer drops `animations[].extras` too, so an Action's own
+custom properties come back empty even when the source file had them set.
+Fixed the same way: `src/gltf.cpp` now also mirrors
+`sequence_metadata.animation_data_name` onto the root joint's extras as
+`animation_data_names` (keyed by clip name), right after
+`buildAnimationClips` runs, using the already-known `rootJointNodeIndices`
+from the earlier `emitSkeletonAndSkin` call. `read_animation_clip_names`
+now takes `armature_obj` instead of `filepath`, enumerating clip names
+from `bpy.data.actions` (the imported Action list) and looking up each
+one's real name from the new extras key — sparse by design (only clips
+with a real resolved name get an entry), matching the "absence means
+ordinary" convention everywhere else in this pipeline. With this,
+`_read_glb_json` had zero remaining call sites; deleted outright, along
+with the now-fully-dead old `_joint_bone_names(data)` (superseded by
+`_joint_bone_names_from_extras`, kept for the `physics_bodies` case which
+still wants a `{index: name}` dict rather than per-entry `bone_name`) and
+the now-unused `json`/`struct` imports.
+
+**A real crash, found via a headless reproduction before it was trusted
+as fixed.** Running the whole post-import script against a real,
+already-saved `.blend` (245-bone `bloodelffemale_hd`, 17 real
+customization options) with zero arguments segfaulted Blender outright —
+not a Python exception, a real crash, `Writing: scene.crash.txt`,
+backtrace pointing into `build_geoset_choice_names`'s own
+`option.get("option_name")` call. Root-caused, not patched blind: a
+minimal reproduction (fetch a bone's own nested custom property, delete a
+*completely unrelated* bone via `edit_bones.remove`, then touch the
+earlier-fetched reference again) reproduced the exact same crash
+standalone. Confirmed the underlying fact directly: a bone's
+`IDPropertyGroup`/nested-list custom property values are live views into
+Blender's own internal storage, not independent Python copies — deleting
+any bone (even one that isn't the carrier) can invalidate references
+fetched *before* the deletion, and Blender's own C code doesn't guard
+against touching them afterward. This is exactly what
+`apply_geoset_switches` -> `delete_geoset_tag_bones` does mid-pipeline,
+right between `read_chr_customization_options` fetching the data and
+`build_geoset_choice_names` using it. Fixed at the one shared choke point:
+`_root_joint_extras` now recursively deep-copies every `IDPropertyGroup`/
+nested `list` into plain `dict`/`list`/primitives before returning
+(`_deep_copy_id_property`, new), restoring the same independence
+guarantee a plain `json.loads` result always had for free — every caller
+downstream gets it automatically, not just the one call site that
+happened to crash first. Re-ran the exact failing scenario after the fix:
+clean run, no crash, every stage's real diagnostics printed correctly.
+
+**Zero-argument invocation.** Luna's direct ask: "I would like to get rid
+of the whole need to run the import script from terminal with any
+arguments, the file should be runnable as pure blender script." Checked
+what was actually still blocking that: after the fixes above, every stage
+except the customization-texture-switch already worked from
+`armature_obj` alone, no argv needed — that stage's own `textures_dir`
+was the only remaining gap. Fixed with a fallback chain: explicit CLI
+`--textures` first (unchanged), then the CLI trailing model path's own
+directory (unchanged), then (new) `bpy.path.abspath("//")` — Blender's own
+relative-path convention (an `Image.filepath` can be `//`-prefixed,
+relative to the current `.blend`'s own directory) — confirmed directly,
+not assumed, that this returns a plain empty string (not a silent
+current-working-directory guess) when the `.blend` hasn't been saved
+anywhere, so the fallback only ever fires with a real answer. Luna then
+asked for one more refinement: also check a `textures/` subfolder next to
+the `.blend`, not just the bare directory — implemented by preferring
+`<blend-dir>/textures` when it exists as a real directory, falling back to
+the bare `<blend-dir>` otherwise (and since
+`_resolve_customization_texture_path` already checks both a given
+directory *and* its parent, pointing `textures_dir` at the `textures/`
+subfolder still finds a texture that happens to sit in the bare `.blend`
+directory too, no extra code needed). Verified end to end: saved a real
+`.blend` with `bloodelffemale_hd` already imported, ran `blender
+--background scene.blend --python tools/husk_blender_geoset_mask.py`
+(zero trailing arguments, no `--`, nothing) — every stage ran and printed
+its real diagnostics, including the customization-texture-switch stage
+correctly finding `textures_dir` from the saved `.blend`'s own location.
+
+**A related but separate question, investigated and scoped, not
+implemented**: Luna asked whether `husk export` can *already* produce a
+`.glb` with zero embedded textures, reading them all from an adjacent
+directory in `.png` format instead. Checked directly, not guessed: no —
+`gltf_mesh.cpp`'s material-emission code always does `img.bufferView =
+imgView` (`appendBufferView`, full in-memory embed) for every resolved
+texture; `img.uri` (glTF's real external-reference mechanism) is never
+set anywhere in this codebase, and no CLI flag exists to opt out.
+`--textures-out <dir>` writes a *convenience copy* of decoded `.png`s to
+disk already, but embedding "always happens in-memory regardless" per its
+own doc comment — it doesn't replace embedding. New
+`TODO/SLIM_GLB_EXTERNAL_TEXTURES_TODO.md` scopes what implementing a real
+opt-out would need: a new CLI flag, repurposing `--textures-out`'s
+already-tested disk-write code to write instead of merely copy,
+`<FileDataID>.png` naming (matching the same convention every other
+texture kind in this project already uses, `baseColorTextureFileDataId`
+already carries the ID needed), a still-open quick decision on output
+directory layout (flat vs. a `textures/` subfolder — the latter would
+compose for free with the zero-argument Blender-side fallback above), and
+confirming `gltf_validator`/headless-Blender-import conformance for a
+`.glb` with `uri`-only images the same way `tests/test_conformance.cpp`
+already does for fully-embedded ones. Not started.
+
+`DESIGN.md` gained a new "Blender-survivable extras live on the skin's
+root joint, not the skin" section covering the whole architecture
+(original migration + this follow-up) as a real design decision, not just
+a changelog entry — including the rejected new-fake-joint alternative and
+why. Full C++ suite green, 680/680, throughout every step above.
+
+---
+
 **2026-08-22, skin extras -> root-joint-extras migration**: This session
 started as Blender-side node-graph feedback on the customization texture
 switch (a real hand-built prototype in the Shader Editor: Menu Switch +
