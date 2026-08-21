@@ -15,23 +15,55 @@ stage:
   same shape as the existing `read_chr_texture_layout`/`read_enabled_geosets`).
 - `apply_customization_texture_switch(options, layout, enabled_materials,
   materials, textures_dir)`: for every material whose `texture_type`
-  matches one of `chr_texture_layout`'s own `materials[].texture_type`,
-  and for every real `ChrCustomizationOption` that resolves at least one
-  textured choice onto that material — builds one closed
-  `ShaderNodeGroup` per option (`_build_customization_option_group`, see
-  "Node-graph findability" below for why it's a group and not raw nodes
-  in the material's own tree): inside, a real `Choice` dropdown
-  (`NodeSocketMenu`, promoted to the group's own interface, one named
-  enum item per real choice, defaulted to whichever choice
-  `chr_enabled_materials` actually resolved at export time) drives one
-  `GeometryNodeMenuSwitch` (`data_type='BUNDLE'`) — each choice's own
-  `Color`/`Alpha` pair combined into a single `NodeCombineBundle` first,
-  so the switch is genuinely exclusive and there's no per-choice rect
-  masking to get right. Options combine in real `texture_layers[].layer`
-  ascending order via `CHR_BLEND_MODE_TO_BLEND_TYPE`, spliced in front of
-  each material's own Principled BSDF `Base Color` (preserving whatever
-  fed it before, same splice technique `apply_texture_layout_overlay`
-  already uses).
+  matches one of `chr_texture_layout`'s own `materials[].texture_type` —
+  builds exactly **one** combined `ShaderNodeGroup` for that material
+  (`_build_material_customization_group`), real Base Color/Alpha in
+  (whatever already fed the Principled BSDF, preserved), every relevant
+  real `ChrCustomizationOption`'s own real `Choice` dropdown
+  (`NodeSocketMenu`, one named enum item per real choice, defaulted to
+  whichever choice `chr_enabled_materials` actually resolved) folded in
+  internally and promoted up to *this one* group's own interface, real
+  Color/Alpha out — wired directly to the Principled BSDF, no `Mix` nodes
+  left in the material's own top-level tree at all. Each option's own
+  switch is still built by `_build_customization_option_group` (a real
+  `GeometryNodeMenuSwitch(data_type='BUNDLE')`, each choice's own
+  `Color`/`Alpha` combined into one `NodeCombineBundle` first so the
+  switch is genuinely exclusive), now instanced as a *nested* group inside
+  the one combined per-material group rather than standalone. Options
+  combine in real `texture_layers[].layer` ascending order via
+  `CHR_BLEND_MODE_TO_BLEND_TYPE`. Final Alpha is alpha-clipped
+  (`Math(GREATER_THAN, 0.0)`) before reaching the Principled BSDF's own
+  `Alpha` input, not blended/dithered — real WoW customization textures
+  (hair in particular) use cutout alpha.
+- **One group per material, not one per option (real interactive use,
+  third round)**: Luna ran the pipeline again and found up to 4 stacked
+  group nodes on a single material, each named after a *different*
+  material than the one it was sitting in — a real symptom of the
+  earlier "one small group + external `Mix` per option" design, not
+  reproduced or root-caused further since the whole shape it came from is
+  gone now. Rebuilt so a material gets exactly one combined group
+  (`_build_material_customization_group`, above) with the base texture
+  folded in as the accumulator's starting value — "no mixing needed,
+  ever" outside the group, per Luna's own framing. Verified end to end
+  (headless Blender probe): a two-option case (`Hair Color` + `Tiara`,
+  matching Luna's own hand-built prototype) produces one group node with
+  both dropdowns on it, `Base Color`/`Base Alpha` linked from the
+  material's pre-existing texture, `Color`/`Alpha` linked out through the
+  clip node to the Principled BSDF.
+- **Canonical short names, not the full exporter material name**: group
+  names previously embedded the *entire* verbose glTF material name
+  (`mat0_tex1_char_hair_bloodelffemale_hd_hair_color_5196729`) per Luna's
+  "girthy names" finding. That name already contains a real, short,
+  canonical name — husk's own C++ exporter (`export_materials.cpp`)
+  already appends `m2::textureTypeName`'s own real
+  wowdev.wiki-documented M2 `Texture.type` name (`documentation/
+  wowdev-wiki/md/M2.md`'s "Texture Types" table) as a `_<type>` suffix —
+  it was just buried inside batch/tex-index/FileDataID/embedded-filename
+  cruft. New `M2_TEXTURE_TYPE_NAME` (Python, mirroring the same C++
+  table, same values) names the combined group `Husk_<type>_customization`
+  instead (e.g. `Husk_char_hair_customization`) — confirmed via a
+  headless probe that a material with `texture_type=6` produces a group
+  literally named `char_hair customization`.
 - **Real dropdown, not a float index**: an earlier version of this
   session's own work found (confirmed directly against the pinned
   Blender 5.1.1) that `ShaderNodeMenuSwitch` doesn't exist and fell back
@@ -63,10 +95,12 @@ stage:
   material's own tree (same "promoted socket = directly editable field on
   the closed node" technique `_build_section_overlay_group`'s own "Show
   Overlay" toggle already uses) — the same real material dropped from 364
-  top-level nodes to 10. **To use**: open the Shader Editor, select the
-  material, press Home to frame all nodes, and look for the green
-  `<Option> choice` group node(s) — their own `Choice` field is a real
-  dropdown, directly editable right there, no need to enter the group.
+  top-level nodes to 10 (now further collapsed to one single group node
+  per material, see "One group per material" above). **To use**: open the
+  Shader Editor, select the material, press Home to frame all nodes, and
+  look for the green `<type> customization` group node — every relevant
+  option's own `Choice` field is a real dropdown, directly editable right
+  there, no need to enter the group.
 - **Ergonomics — real interactive use, second round**: Luna pushed back
   hard, correctly, on the ceremony the workflow above had grown: one
   `husk export` call with 8 explicit flags, then two separate manual
@@ -190,21 +224,20 @@ choices legitimately resolve to the same single shared texture.
   already exclusive, so there's no accumulation for a rect to protect
   against.)
 - **Independent color/alpha axes on one texture target (the "tiara"
-  case)**: Luna's own hand-built prototype (real Shader Editor, not this
-  script's output) showed one hair-color material needing two genuinely
-  independent pickers feeding the *same* layer — a color choice (Pink/
-  Blue/...) and a separate coverage choice (With Tiara/Without Tiara,
-  which real tiara-bearing hair variants show more of the model through,
-  i.e. less-covering alpha). Current code composites each real
-  `ChrCustomizationOption` as its own full sequential layer
-  (`apply_customization_texture_switch`'s `relevant_options` loop) —
-  correct *if* "Hair Color" and the tiara case are genuinely two separate
-  `ChrCustomizationOption` rows targeting the same material, still
-  unconfirmed. Luna's own guess, also unconfirmed: the tiara alpha
-  difference tracks which real *hair model/geoset* is selected, not the
-  color option itself — i.e. it may not be reachable through
-  `chr_customization_options`' texture-material chain at all. Not
-  investigated further this session; needs a real look at
-  `chr_customization_options`/`chr_texture_layout` extras for a model
-  with a real tiara-bearing hairstyle before guessing at an
-  implementation.
+  case)**: Luna's own hand-built prototype (real Shader Editor) showed one
+  hair-color material needing two genuinely independent pickers feeding
+  the *same* layer — a color choice (Pink/Blue/...) and a separate
+  coverage choice (With Tiara/Without Tiara, which real tiara-bearing hair
+  variants show more of the model through, i.e. less-covering alpha). The
+  *mechanism* side is now solved for free: `_build_material_customization_group`
+  already folds any number of independent real `ChrCustomizationOption`s
+  targeting the same material into one combined group with one dropdown
+  each (verified with a synthetic two-option "Hair Color" + "Tiara" case,
+  see above). What's still unconfirmed is the *data* side — whether "Hair
+  Color" and the tiara case are genuinely two separate real
+  `ChrCustomizationOption` rows (in which case this already works), or
+  whether (Luna's own guess) the tiara alpha difference tracks which real
+  *hair model/geoset* is selected instead, unreachable through
+  `chr_customization_options`' texture-material chain at all. Needs a real
+  look at `chr_customization_options`/`chr_texture_layout` extras for a
+  model with a real tiara-bearing hairstyle to settle which case this is.

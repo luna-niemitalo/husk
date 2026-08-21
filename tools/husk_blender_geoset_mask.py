@@ -1191,6 +1191,42 @@ CHR_BLEND_MODE_TO_BLEND_TYPE = {
     15: 'MIX',
 }
 
+# wowdev.wiki M2#Textures' "Texture Types" table (documentation/wowdev-wiki/
+# md/M2.md), mirroring src/m2_header.cpp's own textureTypeName -- the exact
+# same table husk's C++ exporter already uses to name a material's own
+# `_<type>` suffix (export_materials.cpp). Used here for a short, real,
+# canonical group/material label instead of re-embedding a whole verbose
+# `mat.name` (which already contains this same short name, buried inside
+# batch/tex-index/FileDataID/embedded-filename cruft) -- see Luna's own
+# "girthy names" finding. IDs 24-26 have no real name per the wiki (kept
+# absent here too, same as the C++ table); an unmapped type falls back to
+# a plain numeric label, never a guess.
+M2_TEXTURE_TYPE_NAME = {
+    1: "skin",
+    2: "object_skin",
+    3: "weapon_blade",
+    4: "weapon_handle",
+    5: "environment",
+    6: "char_hair",
+    7: "char_facial_hair",
+    8: "skin_extra",
+    9: "ui_skin",
+    10: "tauren_mane",
+    11: "monster_1",
+    12: "monster_2",
+    13: "monster_3",
+    14: "item_icon",
+    15: "guild_background_color",
+    16: "guild_emblem_color",
+    17: "guild_border_color",
+    18: "guild_emblem",
+    19: "char_eyes",
+    20: "char_jewelry",
+    21: "char_secondary_skin",
+    22: "char_secondary_hair",
+    23: "char_secondary_armor",
+}
+
 
 def _find_husk_binary():
     """Locates the real `husk` binary (not `blp/`'s standalone `husk-blp`
@@ -1415,30 +1451,119 @@ def _build_customization_option_group(name, choice_infos):
     return tree
 
 
+def _build_material_customization_group(name, relevant_options):
+    """One combined node group per *material*: real Base Color/Alpha in,
+    every relevant real `ChrCustomizationOption`'s own choice-switch
+    layered on top in real `texture_layers[].layer` order using its real
+    WoW blend mode (`CHR_BLEND_MODE_TO_BLEND_TYPE`), real Color/Alpha out.
+
+    Replaces the earlier design of one small group *per option* plus a
+    chain of `Mix` nodes spliced directly into the material's own tree.
+    Luna, running the real pipeline in Blender, found that design put
+    several stacked group nodes on one material with no single obvious
+    "the" node to edit, and asked for exactly one group per material with
+    the base texture already folded in -- no mixing left outside the
+    group at all. Each option's own switch is still built by (unchanged)
+    `_build_customization_option_group` and instanced here as a nested
+    `ShaderNodeGroup`, with its own `Choice` input promoted one level
+    further out -- so every relevant option's own real dropdown ends up on
+    this *one* outer group's own closed node, matching Luna's own
+    hand-built prototype (two independent dropdowns, "Pink" and "With
+    Tiara", on a single group node).
+
+    `relevant_options` is `[(option, choice_infos), ...]`, already sorted
+    by real layer order (see the caller).
+    """
+    tree = bpy.data.node_groups.new(name, "ShaderNodeTree")
+    tree.interface.new_socket("Base Color", in_out='INPUT', socket_type='NodeSocketColor')
+    tree.interface.new_socket("Base Alpha", in_out='INPUT', socket_type='NodeSocketFloat')
+    tree.interface.new_socket("Color", in_out='OUTPUT', socket_type='NodeSocketColor')
+    tree.interface.new_socket("Alpha", in_out='OUTPUT', socket_type='NodeSocketFloat')
+
+    nodes, links = tree.nodes, tree.links
+    group_input = nodes.new("NodeGroupInput")
+    group_input.location = (-900.0, 0.0)
+    group_output = nodes.new("NodeGroupOutput")
+
+    current_color = group_input.outputs["Base Color"]
+    current_alpha = group_input.outputs["Base Alpha"]
+
+    x = -600.0
+    taken_menu_names = set()
+    for option, choice_infos in relevant_options:
+        option_name = _unique_label(option.get('option_name', 'Option'), taken_menu_names)
+        taken_menu_names.add(option_name)
+
+        sub_tree = _build_customization_option_group(f"{name}_{option_name}", choice_infos)
+        sub_node = nodes.new("ShaderNodeGroup")
+        sub_node.node_tree = sub_tree
+        sub_node.label = option_name
+        sub_node.location = (x, 400.0)
+
+        # See `_build_customization_option_group`'s own comment on
+        # `enum_items.new` -- `tree.interface.new_socket` appends the same
+        # way, real (not virtual) sockets always right before the
+        # always-present `__extend__` slot. Confirmed directly (Blender
+        # 5.1.1), not assumed.
+        tree.interface.new_socket(option_name, in_out='INPUT', socket_type='NodeSocketMenu')
+        links.new(group_input.outputs[-2], sub_node.inputs["Choice"])
+
+        blend_mode = choice_infos[0]["blend_mode"]
+        blend_type = CHR_BLEND_MODE_TO_BLEND_TYPE.get(blend_mode)
+        if blend_type is None:
+            print(f"husk_blender_geoset_mask: group {name!r} option {option_name!r} has "
+                  f"unrecognized blend_mode {blend_mode!r} -- falling back to plain Mix")
+            blend_type = 'MIX'
+
+        color_mix = nodes.new("ShaderNodeMix")
+        color_mix.data_type = 'RGBA'
+        color_mix.blend_type = blend_type
+        color_mix.clamp_result = True
+        color_mix.location = (x, 100.0)
+        links.new(sub_node.outputs["Alpha"], _node_socket(color_mix.inputs, "Factor_Float"))
+        links.new(current_color, _node_socket(color_mix.inputs, "A_Color"))
+        links.new(sub_node.outputs["Color"], _node_socket(color_mix.inputs, "B_Color"))
+        current_color = _node_socket(color_mix.outputs, "Result_Color")
+        # The topmost (last, highest-layer) option's own alpha defines the
+        # material's final coverage -- real WoW data backs this for the
+        # hair/tiara case Luna found (a tiara-bearing hair choice's own
+        # texture genuinely carries less-covering alpha than a plain one),
+        # but hasn't been visually reconfirmed for every blend_mode/option
+        # combination -- flagged, not asserted as universally correct.
+        current_alpha = sub_node.outputs["Alpha"]
+
+        x += 400.0
+
+    links.new(current_color, group_output.inputs["Color"])
+    links.new(current_alpha, group_output.inputs["Alpha"])
+    group_output.location = (x + 200.0, 0.0)
+    return tree
+
+
 def apply_customization_texture_switch(options, layout, enabled_materials, materials, textures_dir):
     """Builds a real, live, switchable shader node graph per material that
     layers `chr_customization_options`' own real per-choice textures onto
     `chr_texture_layout`'s own real base atlas -- the actual goal of
     TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md (see that file for the full
     join-chain derivation and the reverted husk-side pixel compositor this
-    replaces). One real dropdown per real `ChrCustomizationOption` that
-    resolves a real texture onto a given material -- `GeometryNodeMenuSwitch`
-    is confirmed directly (Blender 5.1.1) to work inside a material's own
-    `ShaderNodeTree` despite its `GeometryNode` idname, so each option gets
-    a real `NodeSocketMenu` selector (named items, one per real choice --
-    see `_build_customization_option_group`'s own doc comment for why this
-    replaced an earlier float-index/`Math(COMPARE)` fallback), default set
-    to whichever choice `chr_enabled_materials` actually resolved for this
-    export. Each option's own switch lives in its own `ShaderNodeGroup`
-    (`_build_customization_option_group`), not inlined directly into the
-    material's own tree -- a real usability fix, not a stylistic one, see
-    that function's own doc comment. Options combine in real
-    `texture_layers[].layer` ascending order (the real client's own draw
-    order) using the real WoW blend mode (`CHR_BLEND_MODE_TO_BLEND_TYPE`),
-    spliced in front of each material's own Principled BSDF `Base Color`
-    input (preserving whatever was already feeding it, same "insert
-    before the existing consumer" technique `apply_texture_layout_overlay`
-    above already uses). Returns the count of materials touched.
+    replaces). Exactly one combined `ShaderNodeGroup` per material
+    (`_build_material_customization_group`) -- real Base Color/Alpha in
+    (whatever already fed the material's Principled BSDF, preserved, same
+    "insert before the existing consumer" technique
+    `apply_texture_layout_overlay` above already uses), every relevant
+    real `ChrCustomizationOption`'s own real `NodeSocketMenu` dropdown
+    (named items, one per real choice) and its resolved layer folded in
+    internally, real Color/Alpha out -- wired *directly* to the Principled
+    BSDF, no `Mix` nodes left in the material's own top-level tree at all.
+    Each dropdown defaults to whichever choice `chr_enabled_materials`
+    actually resolved for this export. Final Alpha is alpha-clipped (a
+    `Math(GREATER_THAN, 0.0)` node) rather than blended/dithered before
+    reaching the Principled BSDF's own `Alpha` input -- real WoW
+    customization textures (hair in particular) use cutout alpha, not
+    translucency; harmless on a material whose own `blend_method` isn't
+    `'CLIP'` (Blender simply ignores the Alpha input there), so this is
+    always wired, not conditioned on texture_type. Returns the count of
+    materials touched.
     """
     material_layout_by_type = {m.get("texture_type"): m for m in layout.get("materials", [])}
     concerned_types = set(material_layout_by_type)
@@ -1465,14 +1590,18 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
         if base_color_input is None:
             continue
 
-        # One (option, target_id, [choice info]) entry per real
-        # ChrCustomizationOption that resolves at least one real, textured
-        # choice onto *this* material's own texture_type -- see the
-        # join-chain derivation in CHAR_TEXTURE_BLENDER_SWITCH_TODO.md.
+        alpha_input = principled.inputs.get("Alpha")
+
+        # One (option, [choice info]) entry per real ChrCustomizationOption
+        # that resolves at least one real, textured choice onto *this*
+        # material's own texture_type -- see the join-chain derivation in
+        # CHAR_TEXTURE_BLENDER_SWITCH_TODO.md. `default_choice_id_by_target`
+        # is resolved per choice_info below (not carried as a separate
+        # per-option `target_id` anymore -- each choice already knows its
+        # own `target_id`).
         relevant_options = []
         for option in options:
             choice_infos = []
-            target_id = None
             for choice in option.get("choices", []):
                 for m_entry in choice.get("materials", []) or []:
                     tl = texture_layer_by_target.get(m_entry.get("chr_model_texture_target_id"))
@@ -1484,92 +1613,90 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                     path = _resolve_customization_texture_path(textures_dir, fdid)
                     if path is None:
                         continue
-                    target_id = m_entry.get("chr_model_texture_target_id")
                     choice_infos.append({
                         "choice_id": choice.get("choice_id"),
                         "choice_name": choice.get("choice_name") or f"choice_{choice.get('choice_id')}",
                         "path": path,
                         "blend_mode": tl.get("blend_mode"),
                         "layer": tl.get("layer", 0),
+                        "target_id": m_entry.get("chr_model_texture_target_id"),
                     })
                     break  # one resolved target is enough for this material's own type
             if choice_infos:
-                relevant_options.append((option, target_id, choice_infos))
+                relevant_options.append((option, choice_infos))
 
         if not relevant_options:
             continue
 
-        relevant_options.sort(key=lambda ov: min(c["layer"] for c in ov[2]))
+        relevant_options.sort(key=lambda ov: min(c["layer"] for c in ov[1]))
+
+        # Real default choice, per option, set directly on that option's
+        # own promoted `Choice` dropdown -- see
+        # `_build_material_customization_group`'s own doc comment for why
+        # every relevant option's dropdown now lives on one combined group
+        # node rather than one small group node each.
+        for option, choice_infos in relevant_options:
+            for c in choice_infos:
+                c["is_default"] = default_choice_id_by_target.get(c["target_id"]) == c["choice_id"]
+
+        short_type_name = M2_TEXTURE_TYPE_NAME.get(mtype, f"type{mtype}")
+        group_tree = _build_material_customization_group(
+            f"Husk_{short_type_name}_customization", relevant_options)
 
         # Anchored below the existing graph's own lowest node, same
         # pitfall/fix `apply_texture_layout_overlay` above already
-        # established -- but this time there's only ~2 top-level nodes
-        # per option (its own group node + the Mix that blends it in),
-        # not hundreds, since `_build_customization_option_group` hides
-        # each option's own real per-choice machinery inside a single
-        # closed node.
-        ROW_HEIGHT = 260.0
+        # established.
         existing_ys = [n.location.y for n in node_tree.nodes]
-        base_y = (min(existing_ys) if existing_ys else 0.0) - 500.0
-        base_x = principled.location.x - 1200.0
+        base_y = (min(existing_ys) if existing_ys else 0.0) - 400.0
+        base_x = principled.location.x - 900.0
 
-        original_socket = base_color_input.links[0].from_socket if base_color_input.is_linked else None
-        if original_socket is None:
+        original_color_socket = base_color_input.links[0].from_socket if base_color_input.is_linked else None
+        if original_color_socket is None:
             const_rgb = node_tree.nodes.new("ShaderNodeRGB")
             const_rgb.outputs[0].default_value = tuple(base_color_input.default_value)
-            const_rgb.location = (base_x, base_y + ROW_HEIGHT)
-            original_socket = const_rgb.outputs[0]
+            const_rgb.location = (base_x - 300.0, base_y + 150.0)
+            original_color_socket = const_rgb.outputs[0]
 
-        current_color = original_socket
-        for row_i, (option, target_id, choice_infos) in enumerate(relevant_options):
-            row_y = base_y - ROW_HEIGHT * row_i
-            option_name = option.get('option_name', 'Option')
+        original_alpha_socket = (alpha_input.links[0].from_socket
+                                  if alpha_input is not None and alpha_input.is_linked else None)
+        if original_alpha_socket is None:
+            const_alpha = node_tree.nodes.new("ShaderNodeValue")
+            const_alpha.outputs[0].default_value = alpha_input.default_value if alpha_input is not None else 1.0
+            const_alpha.location = (base_x - 300.0, base_y - 150.0)
+            original_alpha_socket = const_alpha.outputs[0]
 
-            default_choice_id = default_choice_id_by_target.get(target_id)
-            default_choice = next((c for c in choice_infos if c["choice_id"] == default_choice_id),
-                                   choice_infos[0])
+        # The one node a user actually needs to find and edit for this
+        # whole material -- given real screen presence (a custom color,
+        # extra width, and its own real name in the label). Every relevant
+        # option's own `Choice` input is left unlinked, so each shows as a
+        # real, directly editable dropdown right on this closed node -- no
+        # need to enter the group at all.
+        group_node = node_tree.nodes.new("ShaderNodeGroup")
+        group_node.node_tree = group_tree
+        group_node.label = f"{short_type_name} customization"
+        group_node.name = group_node.label
+        group_node.location = (base_x, base_y)
+        group_node.width = 260.0
+        group_node.use_custom_color = True
+        group_node.color = (0.15, 0.55, 0.15)
+        node_tree.links.new(original_color_socket, group_node.inputs["Base Color"])
+        node_tree.links.new(original_alpha_socket, group_node.inputs["Base Alpha"])
+        for option, choice_infos in relevant_options:
+            default_choice = next((c for c in choice_infos if c["is_default"]), choice_infos[0])
+            group_node.inputs[option.get('option_name', 'Option')].default_value = \
+                default_choice["choice_name"]
 
-            group_tree = _build_customization_option_group(
-                f"Husk_{mat.name}_{option_name}_switch", choice_infos)
+        node_tree.links.new(group_node.outputs["Color"], base_color_input)
+        if alpha_input is not None:
+            # Alpha-clipped, not blended/dithered -- see this function's
+            # own doc comment for why.
+            clip = node_tree.nodes.new("ShaderNodeMath")
+            clip.operation = 'GREATER_THAN'
+            clip.inputs[1].default_value = 0.0
+            clip.location = (base_x + 400.0, base_y - 150.0)
+            node_tree.links.new(group_node.outputs["Alpha"], clip.inputs[0])
+            node_tree.links.new(clip.outputs[0], alpha_input)
 
-            # The one node in this whole row a user actually needs to find
-            # and edit -- given real screen presence (a custom color, extra
-            # width, and its own real name in the label) rather than
-            # blending into the rest of the machinery next to it. Its own
-            # `Choice` input is left unlinked, so it shows as a real,
-            # directly editable dropdown right on this closed node -- no
-            # need to enter the group at all, and no separate legend to
-            # decode a number against (the old float-index design's own
-            # workaround for not having a real dropdown).
-            group_node = node_tree.nodes.new("ShaderNodeGroup")
-            group_node.node_tree = group_tree
-            group_node.label = f"{option_name} choice"
-            group_node.name = group_node.label
-            group_node.location = (base_x, row_y)
-            group_node.width = 260.0
-            group_node.use_custom_color = True
-            group_node.color = (0.15, 0.55, 0.15)
-            group_node.inputs["Choice"].default_value = default_choice["choice_name"]
-
-            blend_mode = choice_infos[0]["blend_mode"]
-            blend_type = CHR_BLEND_MODE_TO_BLEND_TYPE.get(blend_mode)
-            if blend_type is None:
-                print(f"husk_blender_geoset_mask: material {mat.name!r} option "
-                      f"{option_name!r} has unrecognized blend_mode {blend_mode!r} "
-                      "-- falling back to plain Mix")
-                blend_type = 'MIX'
-
-            option_mix = node_tree.nodes.new("ShaderNodeMix")
-            option_mix.data_type = 'RGBA'
-            option_mix.blend_type = blend_type
-            option_mix.clamp_result = True
-            option_mix.location = (base_x + 400.0, row_y)
-            node_tree.links.new(group_node.outputs["Alpha"], _node_socket(option_mix.inputs, "Factor_Float"))
-            node_tree.links.new(current_color, _node_socket(option_mix.inputs, "A_Color"))
-            node_tree.links.new(group_node.outputs["Color"], _node_socket(option_mix.inputs, "B_Color"))
-            current_color = _node_socket(option_mix.outputs, "Result_Color")
-
-        node_tree.links.new(current_color, base_color_input)
         touched += 1
 
     return touched
@@ -2671,9 +2798,9 @@ def main():
                                                        textures_dir)
         if touched:
             print(f"husk_blender_geoset_mask: {touched} material(s) got a real live customization "
-                  "texture switch -- see the per-material choice legend printed above (no dropdown "
-                  "widget exists for this in shader node trees in this Blender version, see "
-                  "apply_customization_texture_switch's own doc comment)")
+                  "texture switch -- open the Shader Editor, select the material, press Home to "
+                  "frame all nodes, and look for the green '<type> customization' group node; "
+                  "every relevant option's own real dropdown is directly editable right there")
 
     def texture_transform_animation_stage():
         touched = apply_texture_transform_animation(materials)
