@@ -14,6 +14,393 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-22, skin extras -> root-joint-extras migration**: This session
+started as Blender-side node-graph feedback on the customization texture
+switch (a real hand-built prototype in the Shader Editor: Menu Switch +
+Combine/Separate Bundle nodes replacing the earlier Math(COMPARE)/Mix
+chain, then one combined group per material with canonical short names
+and an alpha-clip node, then a real DB2-confirmed bug fix for materials
+conditional on `RelatedChrCustomizationChoiceID` — see this file's own
+earlier 2026-08-22-dated entries below for that full narrative, committed
+separately). Then Luna asked, in the abstract, why the Blender script
+needs a file path argument at all. Answer: `chr_texture_layout`/
+`chr_customization_options`/`chr_enabled_materials`/`enabled_geosets`/
+`ribbon_emitters`/`particle_emitters`/`physics_bodies`/
+`bone_correction_sets`/`creature_enabled_geosets` all live in the glTF
+*skin*'s own `extras`, and Blender's stock glTF importer has no supported
+extras target for a skin at all (confirmed empirically) — every `read_*`
+function had to re-open the raw `.glb` and re-parse the JSON chunk by hand
+instead of reading from the already-imported scene.
+
+Luna's own framing: "this sounds awfully like the problem we had with
+geosets, except inverse" — and it is. The geoset-tag-joint trick
+(`Skeleton::GeosetTag`) encodes data in vertex *weighting* on a fake
+joint, because Blender's importer turns joint weights into real vertex
+groups. The inverse: encode data in a joint's own node `extras`, because
+Blender's importer *does* keep node/bone extras as real custom
+properties. Verified this directly before committing to it, not assumed —
+a headless Blender round-trip (build an armature with a real bone plus an
+inert "DataCarrier" bone, put a JSON payload on the carrier's own custom
+property, export to `.glb` with `export_extras=True`, reimport into a
+fresh scene): `imported_bone.keys() == ['chr_payload']`, value intact.
+Confirmed again with a deeply nested payload (arrays of objects, several
+levels) — survives as a real, navigable `IDPropertyGroup` structure, not
+just a flat string. Also confirmed the fake bone's own data dies with it
+once deleted (as expected, since it's stored on that bone's own
+datablock) — meaning a genuine fake-carrier-joint design would need a
+"read first, delete after" pattern like `delete_geoset_tag_bones` already
+uses for geoset tags.
+
+Given a choice between minting a brand new fake carrier joint (mirroring
+`GeosetTag` exactly) or piggybacking on the skin's own *existing* root
+joint, picked the latter after finding the real cost of the former: the
+geoset-tag-joint offset arithmetic in `gltf_skeleton.cpp`'s
+`emitSkeletonAndSkin` is threaded through ~10 separate places (inverse-
+bind-matrix buffer sizing, node ordering, parenting, the synthetic-root
+node-index formula, attachment/event/light node offsets downstream) — a
+second, independently-counted category of inert joint would mean
+touching every one of them consistently, real risk of a silent off-by-one
+corrupting the skeleton if one were missed. The root-joint approach needs
+none of that: no new node index, no offset-formula changes anywhere,
+just merging a JSON object onto an existing node's `extras`. Tradeoff,
+named directly and confirmed acceptable: the data rides along on that
+bone permanently (harmless custom-property clutter) rather than being
+read-and-discarded like a geoset tag. Confirmed by Luna directly before
+implementing either way.
+
+`gltf_skeleton.cpp`'s `emitSkeletonAndSkin` now merges the whole
+`skinExtras` object onto `out.rootJointNodeIndices.front()`'s own node
+extras (`tinygltf::Value::Object`, merged in — not overwriting — whatever
+that joint's own extras already held, e.g. `billboard`) instead of
+`skin.extras`. `out.rootJointNodeIndices.front()` is always a real joint
+(unlike the synthesized multi-root parent node, which isn't a joint at
+all and wouldn't become a real Blender Bone), guaranteed non-empty
+whenever `skeleton->joints` is.
+
+New `_root_joint_extras(armature_obj)` (`husk_blender_geoset_mask.py`)
+reads it back on the Python side. Deliberately doesn't assume *which*
+imported bone is that root: confirmed directly (not assumed) that
+Blender's own post-import bone order does *not* reliably match the raw
+glTF joint-index order — 242/358 mismatches on a real 245-bone character
+model (`bloodelffemale_hd`), checked by comparing the raw glTF `nodes[]`/
+`skins[0].joints[]` array against `armature.data.bones[]` after a real
+import. So `_root_joint_extras` scans every imported bone for whichever
+one carries any of husk's own known top-level extras keys
+(`_HUSK_ROOT_EXTRAS_KEYS`) rather than hardcoding an index — real, not a
+guess, since exactly one bone ever does (`gltf_skeleton.cpp` merges
+everything into that one place). `read_chr_texture_layout`/
+`read_enabled_geosets`/`read_chr_enabled_materials`/
+`read_chr_customization_options` now take `armature_obj` instead of
+`filepath` and need **no file path at all**. `read_emitter_anchors` also
+migrated its own payload the same way, but still takes `filepath` too —
+resolving a ribbon/particle anchor's raw numeric `joint` index to a
+Blender bone name genuinely still needs the raw glTF JSON's own
+`skins[0].joints`/`nodes[].name` (`_joint_bone_names`, unchanged), for
+the same "Blender's post-import bone order isn't trustworthy" reason
+found above — a real, different need than the one this migration fixes,
+not just a leftover. `read_animation_clip_names` (animation-level
+extras, a different extras target this project hasn't found a
+Blender-survives-import home for) also still needs `_read_glb_json`,
+unchanged.
+
+Verified end to end against the real `bloodelffemale_hd` export (245
+bones, 17 real customization options, 480 real material entries): ran
+the full post-import script normally (all stages — geoset switches,
+texture-layout overlay, customization texture switch — printed their
+real success diagnostics using the new read path) and, separately, with
+zero file path at all (`bpy.ops.import_scene.gltf` directly, then called
+every migrated `read_*` function with only `armature_obj`) — all four
+returned the same real data (`chr_texture_layout` layout 122,
+`chr_customization_options` 17 entries, `enabled_geosets` 3, `chr_enabled_
+materials` 7), confirming the file-path requirement genuinely is gone for
+these. Updated every C++ test that checked `model.skins[0].extras`
+directly: `tests/test_gltf_skeleton.cpp`'s own synthetic single-root
+fixture (`buildChainSkeleton`, joint 0 is always root by construction) now
+checks `model.nodes[model.skins[0].joints[0]].extras`; the two real-corpus
+integration test files (`test_integration.cpp`/`test_integration_
+weapons.cpp`, where real M2 joint order isn't guaranteed to put the root
+at index 0) got a small local `rootJointExtras(model)` helper that scans
+`model.skins[0].joints` for whichever node actually carries extras,
+rather than assuming an index. Full C++ suite green, 678/678.
+
+This landed concurrently with peer session `husk-ed`'s own physics-jiggle
+work touching the exact same files (`gltf_skeleton.cpp`/`.hpp`,
+`tools/husk_blender_geoset_mask.py`) — coordinated live via SendMessage
+after noticing overlapping uncommitted changes on disk mid-session (Luna's
+own heads-up that another agent was active on this project). Their new
+`physics_joints` extras key (a reduced view of the real `.phys` joint
+graph, replacing an earlier `husk dump-chunks` subprocess call at
+Blender-import time) lands in the same `skinExtras` local map right
+before this migration's own merge-onto-root-joint code runs, so it rides
+along for free — no extra plumbing needed on either side. Per their own
+explicit request, left `read_physics_bodies`/`_dump_phys_json`/
+`_phys_elasticity_heuristic`/`apply_physics_jiggle_bones`/
+`physics_jiggle_stage`/`HUSK_OT_install_jiggle_physics` completely
+untouched — they'll migrate those themselves onto `_root_joint_extras`
+now that it exists. README.md's three stale "re-reads the raw file"/"skin
+extras have no supported Blender importer target [so this can't be
+avoided]" mentions of this mechanism updated to match the new reality.
+
+---
+
+**2026-08-22, customization-material conditional-on-another-choice bug
+(`RelatedChrCustomizationChoiceID`)**: Real local DB2 data (queried this
+session via `husk db2-export` + `sqlite3`, not guessed) settled the
+"tiara" open question left by the two Blender node-graph sessions below:
+it's neither a separate `ChrCustomizationOption` nor a pure geoset switch.
+"Tiara" is one choice (real `ChrCustomizationChoiceID` 6639) of the "Hair
+Style" option, and that one choice owns 10 real `ChrCustomizationElement`
+rows — each pairing it with a *different* `RelatedChrCustomizationChoiceID`
+(one of "Hair Color"'s own choices) and its own distinct
+`ChrCustomizationMaterialID`. One dedicated tiara-compatible material per
+hair color, not one unconditional material. `resolveChoice`
+(`src/chrcustomization_db2.cpp`) never read `RelatedChrCustomizationChoiceID`
+at all and attached every one of those 10 materials unconditionally — the
+real, root-caused explanation for the hand-built Blender prototype (below)
+showing several textures loaded and blended together for what should have
+been a single choice. Fixed at the data layer: `Element`/`MaterialResolution`
+now carry `relatedChoiceId`. `attachCustomizationChoices`
+(`--customization-choice-ids`' explicit resolution path) now skips a
+conditional material whose related choice isn't also part of the same
+export's selection. The full-menu enumeration path
+(`chr_customization_options`) has no "current selection" context to filter
+with by design, so it carries `related_choice_id` through in the JSON
+instead (present only when nonzero); `apply_customization_texture_switch`
+(Blender side) conservatively skips any conditional material for now
+rather than guessing which one applies, printing how many it skipped. A
+true fix needs a live cross-product dependency between two dropdowns —
+left as an explicit open item in `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`,
+not guessed at. New regression test in `tests/test_cli_chrcustomization.cpp`.
+Full suite green, 678/678.
+
+---
+
+**2026-08-22, collapse per-material customization switch to one group,
+canonical names, alpha clip**: Real interactive Blender use (Luna) on the
+Menu/Bundle rebuild below surfaced three more findings. (1) Up to 4 group
+nodes were stacking on one material, each named after a *different*
+material than the one it sat in — a symptom of the "one small group +
+external Mix per option" design. Rebuilt around a new
+`_build_material_customization_group`: exactly one combined group per
+material, with the material's pre-existing Base Color/Alpha folded in as
+the accumulator's starting value, every relevant option's own dropdown
+promoted onto that single group's interface, and zero `Mix` nodes left in
+the material's own top-level tree. `_build_customization_option_group`
+(below) unchanged, reused as a nested sub-group. (2) Group/material names
+embedded the entire verbose exporter-generated material name — Luna's
+"girthy names" finding. That name already contains a real short canonical
+name (husk's own C++ exporter already appends `m2::textureTypeName`'s
+real wowdev.wiki M2 `Texture.type` name), just buried in
+batch/tex-index/FileDataID cruft. New `M2_TEXTURE_TYPE_NAME` (Python
+mirror of the same C++ table) names the combined group
+`Husk_<type>_customization` instead. (3) Hair customization textures use
+cutout alpha, not blend/dither — final Alpha now runs through a
+`Math(GREATER_THAN, 0.0)` clip before reaching the Principled BSDF's Alpha
+input, wired unconditionally (harmless on a material whose `blend_method`
+isn't `'CLIP'`). Verified end to end via headless Blender probes: a
+synthetic two-option (Hair Color + Tiara) case produces one group node
+with both dropdowns, and the full `apply_customization_texture_switch`
+call path correctly wires Base Color/Alpha in and Color/clipped-Alpha out
+with a real canonical group name.
+
+---
+
+**2026-08-22, rebuild customization texture switch on real Menu/Bundle
+nodes, not float+Math(COMPARE)**: Luna's own hand-built Shader Editor
+prototype (screenshots) showed `GeometryNodeMenuSwitch` and
+`NodeCombineBundle`/`NodeSeparateBundle` work inside a material's
+`ShaderNodeTree` despite the `GeometryNode` idname — confirmed directly
+against the pinned Blender 5.1.1 via a headless probe, not assumed,
+contradicting an earlier session's "no dropdown widget exists in shader
+node trees" finding. `_build_customization_option_group` now drives a
+real `NodeSocketMenu` dropdown (named items per real choice) into one
+`GeometryNodeMenuSwitch(data_type='BUNDLE')`, each choice's Color+Alpha
+paired via `NodeCombineBundle` so the switch is genuinely exclusive.
+Drops the old Choice-Index-float + `Math(COMPARE)`-gated `Mix` chain, and
+with it the per-choice UV-rect masking (`_uv_rect_mask`/`_shader_math`,
+now dead code, removed) that chain needed to stop choices from bleeding
+into each other while being accumulated — a real switch has nothing left
+for that to protect against. No more console legend either; the dropdown
+shows real choice names directly. Smoke-tested end to end in real
+Blender. `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md` updated to match.
+
+---
+
+**2026-08-22, `.phys` -> Blender "Jiggle Physics" addon wiring**: Luna
+asked, in the abstract, whether WoW's M2 "physics" means bone-chain
+gravity/spring joints or real rigid-body/cloth simulation (answer:
+neither exactly — a bone-chain spring/gravity *constraint* system, see
+`src/phys.hpp`'s `Body`/`Shape`/`Joint` structs), then spotted a real
+third-party Blender addon, "Jiggle Physics" (`naelstrof/
+blender-jiggle-physics`, extensions.blender.org), and asked whether husk
+could drive it from the already-exported `.phys` data. Researched the
+addon's real Python surface (no docs cover this — read its `__init__.py`
+directly via WebFetch): fully scriptable via plain `bpy` properties, no
+`bpy.ops` needed (`pose_bone.jiggle.enable`, `.mode`, `jiggle_angle_
+elasticity`, `jiggle_length_elasticity`, `jiggle_air_drag`, ...) — no C++
+changes needed either, since `husk dump-chunks <file>.phys` already dumps
+the full body/joint/spring graph `physics_bodies` glTF extras
+deliberately don't carry (`gltf_skeleton.hpp`'s own doc comment on that
+split). Verified the one real assumption this needed — that the addon's
+own bone-parent-chain-only solver actually matches WoW's body-to-body
+joint graph — against a real fixture
+(`8xp_heartofazeroth_prop_floatychain.phys`, a 5-body chain prop): every
+real joint edge (`body_a`/`body_b`) matched a real bone parent/child pair
+in the exported skeleton exactly.
+
+Implemented in `tools/husk_blender_geoset_mask.py`: `read_physics_bodies`
+(new, same "read straight off skins[].extras" convention as
+`read_emitter_anchors`, factored the shared `joint -> bone name` lookup
+out to `_joint_bone_names` so both share one implementation), `_dump_phys_
+json` (shells to `husk dump-chunks <file>.phys`, same subprocess
+convention as `_convert_blp_to_png_cached`'s `husk blp-export` call),
+`_phys_elasticity_heuristic` (real spring frequency, when present, maps to
+elasticity via `f/(f+2)`; the far more common real case — a pure
+angle-limit joint with zero motor frequency, confirmed against the real
+fixture, where the restoring force is gravity + a swing limit, not an
+authored spring — falls back to deriving elasticity from the real
+`cone_angle`/twist/revolute swing limits instead; explicitly documented as
+a best-effort approximation, not a physical port, since the addon itself
+is "authorable, not physically accurate" by its own README), and
+`apply_physics_jiggle_bones` (builds the bone chain from the real joint
+graph, skips — loudly, never force-fits — any edge that doesn't match a
+real bone parent/child pair, assigns root/normal/tip `jiggle.mode`). New
+`--phys` flag on the Blender script itself (same-basename auto-detect
+fallback, same convention as `--textures`). Degrades cleanly (one clear
+console line, nothing else touched) when the addon isn't installed —
+confirmed via a real headless run with the addon absent. The real mapping
+logic (chain topology, root/normal/tip assignment, elasticity values) was
+verified headlessly too, without installing the real third-party addon
+into Luna's own Blender profile (a system change out of this session's own
+scope to make unasked) — a throwaway stand-in `PropertyGroup` registered
+with the exact same attribute shape the real addon uses, in a scratch
+harness script, confirmed the real body/joint parsing and chain-topology
+logic produces the expected 5-bone chain (root/normal×3/tip) with 0
+skipped edges. `README.md` gained a new "Turning that into live jiggle in
+Blender" paragraph. Not yet verified against a real character hair/cloak
+`.phys` file (none was available locally this session) or a branching
+joint graph — the skip-on-mismatch path is designed for that case but
+untested against a real one.
+
+**Same-day follow-up**: Luna asked whether the script could prompt to
+install the addon itself, rather than just printing instructions. Added
+`HUSK_OT_install_jiggle_physics` (a real registered `bpy.types.Operator`)
+-- when `physics_jiggle_stage` finds real `physics_bodies` extras but the
+addon missing, and Blender is running interactively (`not
+bpy.app.background`), it defers (`bpy.app.timers`, one event-loop tick,
+same pattern `_update_registered_emitter_markers` already uses -- a plain
+script exec doesn't have a real window/event yet to pop a dialog in) and
+pops a real Blender confirm dialog; only a real click on "Install" reaches
+`execute()`, which resolves the real `blender_org` (extensions.blender.org)
+repo index, checks `bpy.app.online_access`, and calls the real
+`bpy.ops.extensions.repo_sync`/`package_install(pkg_id="jiggle_physics")`
+(package id confirmed from the addon's own real `blender_manifest.toml`).
+Headless/`--background` runs are unaffected -- no window exists there, so
+`physics_jiggle_stage` keeps the console-only message. Deliberately never
+actually ran the real install during verification (would have mutated
+Luna's own real Blender extension state without asking, out of scope to
+do unasked per this project's global write-scope rules) -- verified
+instead that the operator registers cleanly and its real repo-lookup logic
+finds the real `blender_org` repo at index 0 on this machine, everything
+short of the actual network call.
+
+**Same-day follow-up**: Luna flagged a real portability gap in the design
+above -- `apply_physics_jiggle_bones` shelling out to `husk dump-chunks
+<file>.phys` at Blender-*import* time assumes a `husk` binary is
+reachable wherever the `.glb` ends up, which isn't guaranteed (unlike
+every other feature in this project, which resolves once in husk and
+embeds inert, self-contained extras). Fixed on the C++ side: new
+`gltf::Skeleton::PhysicsJoint` (`gltf_skeleton.hpp`) carries a
+deliberately reduced view of the real joint graph -- `bodyA`/`bodyB` plus
+just the scalars `_phys_elasticity_heuristic` actually needs
+(`frequencyHz`/`dampingRatio`, angular-over-linear when a WeldJoint has
+both; `swingLimitDeg`, normalized from whichever real field this joint
+type defines -- ShoulderJoint's `coneAngle`, RevoluteJoint's
+`upperAngle - lowerAngle`) -- deliberately *not* the full resolved record
+(no frame matrices, no shape geometry): those, not raw byte count, were
+the real reason the full graph was kept out of the `.glb` in the first
+place. Populated in `export_extras.cpp`'s `attachPhysicsBodies` (extended,
+not duplicated) and written as a new `physics_joints` extras key
+alongside `physics_bodies` (`gltf_skeleton.cpp`). Verified end to end
+against the same real chain-prop fixture used earlier
+(`8xp_heartofazeroth_prop_floatychain.phys`): re-exported, the `.glb`'s
+own `physics_joints` values matched the earlier `husk dump-chunks` numbers
+exactly (`swing_limit_deg` 45/90/60/90 for the four real joints,
+`frequency_hz`/`damping_ratio` both 0, matching that fixture's own
+motor-frequency-less shape). New `writeGlb` round-trip tests in
+`tests/test_gltf_skeleton.cpp`. Full suite green, 680/680 (678 + 2 new).
+
+**Mid-session coordination**: this landed concurrently with peer session
+`husk-0a`'s own unrelated-but-adjacent fix in the very same file
+(`gltf_skeleton.cpp`) -- Blender's glTF importer drops `skin.extras`
+entirely, so every extras key (including `physics_bodies`/now
+`physics_joints`) needed to move from `skin.extras` onto the skin's own
+root joint node's extras instead, to actually survive a real Blender
+import. Coordinated live via SendMessage rather than editing blind: `physics_joints` was added to the same local `skinExtras` map
+`physics_bodies` already populates, riding along for free on their
+already-landed merge-onto-root-joint-node code with no changes needed on
+either side -- verified together, no clobbering. Division of labor: they
+own the generic `read_*` extras-location migration in
+`tools/husk_blender_geoset_mask.py`; the physics-jiggle-specific
+functions (`read_physics_bodies`, `apply_physics_jiggle_bones`,
+`_phys_elasticity_heuristic`, the install-prompt operator) are held back
+for this session to update once their migration lands, to drop the
+`_dump_phys_json` subprocess call in favor of reading `physics_joints`
+straight off the now-self-contained `.glb`.
+
+**Same-day follow-up (migration landed)**: `husk-0a` finished and shared
+the new `_root_joint_extras(armature_obj)` primitive (a plain dict of
+every real husk extras key on the imported skin's carrier bone, detected
+via a shared `_HUSK_ROOT_EXTRAS_KEYS` list that already includes
+`physics_bodies`/`physics_joints` so physics-only models still detect the
+right bone). Migrated the physics-jiggle functions on top of it:
+`read_physics_bodies` now takes `armature_obj` and reads both extras keys
+via `_root_joint_extras`, still using `_read_glb_json`/`_joint_bone_names`
+only for the raw joint-index -> Blender-bone-name lookup (same pattern
+`read_emitter_anchors` already used); `apply_physics_jiggle_bones`/
+`_phys_elasticity_heuristic` now take the flat `physics_joints` list
+directly instead of a raw `husk dump-chunks` blob (simpler too -- the
+per-joint-type field sniffing collapses to just reading
+`frequency_hz`/`swing_limit_deg`, since husk's own C++ side now does that
+normalization once at export time). `_dump_phys_json` and the `--phys`
+CLI flag on the Blender script are gone entirely -- no `husk` binary, no
+subprocess, no separate `.phys` file needed at Blender-import time
+anymore. Re-verified against the same real floatychain fixture with the
+same throwaway-stand-in-PropertyGroup technique as before: identical
+results to the old dump-chunks path (5 bones enabled, 0 skipped, same
+root/normal/tip modes and elasticity values), confirming the migration
+didn't change behavior, only where the data comes from. `README.md`'s
+jiggle paragraph updated to match. Coordinated the handoff and the (still
+unresolved, deliberately left for Luna rather than decided between
+sessions) commit-ordering question with `husk-0a` via SendMessage.
+
+**Same-day follow-up (last file-path dependency dropped)**: `husk-0a`
+added one more piece per Luna's own ask -- a `joint_names` array
+(index-aligned with `skin.joints`, exact same name string each joint's
+node got) folded into the same root-joint `skinExtras` merge in
+`gltf_skeleton.cpp`, plus a new `_joint_bone_names_from_extras(armature_obj)`
+Python primitive and a widened `_root_joint_extras` carrier-detection
+(keys off `joint_names` specifically now, since it's always present and
+unambiguous, rather than scanning a list of known optional keys). This
+closed the very last raw-file dependency in the physics-jiggle path:
+`read_physics_bodies` dropped its own `filepath` parameter entirely,
+swapping its old `_joint_bone_names(_read_glb_json(filepath))` call for
+`_joint_bone_names_from_extras(armature_obj)` -- same `{joint_index:
+bone_name}` shape, zero file I/O. The now-fully-dead old `_joint_bone_names(data)`
+function (confirmed zero remaining call sites; `_read_glb_json` itself
+stays, still used by the unrelated `read_animation_clip_names`) was
+removed outright rather than kept as an unused shim. Re-verified end to
+end against the real floatychain fixture (had to re-export it first,
+since the cached `.glb` predated the `joint_names` addition and briefly
+read back 0 physics bodies once the carrier-detection changed underneath
+it -- a real, expected consequence of the detection key changing, not a
+bug) -- identical 5-bone/0-skipped result once re-exported with a current
+binary. Full C++ suite re-run, still green. Coordinated the whole
+exchange with `husk-0a` via SendMessage; nothing left queued on either
+side as of this entry.
+
+---
+
 **2026-08-21, `CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 6: equipped-gear
 appearance resolution**: picked up Stage 6, the last open stage of that
 file — resolving a `husk-appearance/1` string's `gear=SLOT:id` entries

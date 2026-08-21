@@ -222,6 +222,38 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
     // may be present) and share one skinExtras object the same way
     // materialExtras does there.
     tinygltf::Value::Object skinExtras;
+    // Real joint index -> the exact same name each joint's own node got
+    // above (billboard suffix included) -- index-aligned with
+    // `skin.joints[0..joints.size()-1]` (real joints only, not geoset
+    // tags). Serves two real, different purposes, both kept: (1)
+    // `joint_names` below is always present, giving `_root_joint_extras`
+    // (Python) and this codebase's own C++ tests an unambiguous marker for
+    // which imported bone is the real carrier -- every *other* key here is
+    // conditional, so without something unconditional there'd be no
+    // reliable way to find it on a model whose only real extras happen to
+    // be, say, one billboard-tagged joint elsewhere. (2) `resolveBoneName`
+    // below additionally resolves every `joint` field to a real
+    // `bone_name` directly in place, so a consumer reading e.g. a single
+    // ribbon anchor doesn't have to separately fetch and join against this
+    // whole table just to answer "which bone is that" -- confirmed
+    // directly that Blender's own post-import bone order does not reliably
+    // match this raw index order (242/358 mismatches on a real 245-bone
+    // character), so a Blender-side consumer genuinely cannot derive a
+    // bone name from a raw index any other way.
+    std::vector<std::string> jointNameByIndex;
+    jointNameByIndex.reserve(out.jointNodes.size());
+    for (const auto& node : out.jointNodes) {
+        jointNameByIndex.push_back(node.name);
+    }
+    tinygltf::Value::Array jointNames;
+    for (const auto& name : jointNameByIndex) {
+        jointNames.emplace_back(name);
+    }
+    skinExtras["joint_names"] = tinygltf::Value(jointNames);
+    auto resolveBoneName = [&jointNameByIndex](int joint) -> std::string {
+        return (joint >= 0 && static_cast<size_t>(joint) < jointNameByIndex.size()) ? jointNameByIndex[joint]
+                                                                                     : std::string();
+    };
     if (!skeleton->correctionSets.empty()) {
         tinygltf::Value::Array sets;
         for (const auto& cs : skeleton->correctionSets) {
@@ -231,6 +263,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             for (const auto& c : cs.corrections) {
                 tinygltf::Value::Object co;
                 co["joint"] = tinygltf::Value(c.joint);
+                co["bone_name"] = tinygltf::Value(resolveBoneName(c.joint));
                 tinygltf::Value::Array mat;
                 for (float f : c.matrix) mat.emplace_back(static_cast<double>(f));
                 co["matrix"] = tinygltf::Value(mat);
@@ -267,12 +300,13 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
         }
         skinExtras["creature_enabled_geosets"] = tinygltf::Value(arr);
     }
-    auto writeAnchors = [](const std::vector<Skeleton::EmitterAnchor>& anchors) {
+    auto writeAnchors = [&resolveBoneName](const std::vector<Skeleton::EmitterAnchor>& anchors) {
         tinygltf::Value::Array arr;
         for (const auto& a : anchors) {
             tinygltf::Value::Object obj;
             obj["id"] = tinygltf::Value(static_cast<int>(a.id));
             obj["joint"] = tinygltf::Value(a.joint);
+            obj["bone_name"] = tinygltf::Value(resolveBoneName(a.joint));
             tinygltf::Value::Object pos;
             pos["x"] = tinygltf::Value(static_cast<double>(a.position.x));
             pos["y"] = tinygltf::Value(static_cast<double>(a.position.y));
@@ -294,6 +328,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             tinygltf::Value::Object obj;
             obj["id"] = tinygltf::Value(static_cast<int>(b.id));
             obj["joint"] = tinygltf::Value(b.joint);
+            obj["bone_name"] = tinygltf::Value(resolveBoneName(b.joint));
             tinygltf::Value::Object pos;
             pos["x"] = tinygltf::Value(static_cast<double>(b.position.x));
             pos["y"] = tinygltf::Value(static_cast<double>(b.position.y));
@@ -303,6 +338,19 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             arr.emplace_back(obj);
         }
         skinExtras["physics_bodies"] = tinygltf::Value(arr);
+    }
+    if (!skeleton->physicsJoints.empty()) {
+        tinygltf::Value::Array arr;
+        for (const auto& j : skeleton->physicsJoints) {
+            tinygltf::Value::Object obj;
+            obj["body_a"] = tinygltf::Value(static_cast<int>(j.bodyA));
+            obj["body_b"] = tinygltf::Value(static_cast<int>(j.bodyB));
+            obj["frequency_hz"] = tinygltf::Value(static_cast<double>(j.frequencyHz));
+            obj["damping_ratio"] = tinygltf::Value(static_cast<double>(j.dampingRatio));
+            obj["swing_limit_deg"] = tinygltf::Value(static_cast<double>(j.swingLimitDeg));
+            arr.emplace_back(obj);
+        }
+        skinExtras["physics_joints"] = tinygltf::Value(arr);
     }
     if (skeleton->charTextureLayout) {
         const Skeleton::CharTextureLayout& layout = *skeleton->charTextureLayout;
@@ -407,8 +455,27 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
         }
         skinExtras["chr_customization_options"] = tinygltf::Value(options);
     }
-    if (!skinExtras.empty()) {
-        skin.extras = tinygltf::Value(skinExtras);
+    // Attached to the skin's own first real root joint's node extras, not
+    // `skin.extras` -- Blender's own glTF importer has no supported target
+    // for a *skin's* extras at all (confirmed empirically: node/mesh/
+    // material/camera/light/scene extras all land as real Blender custom
+    // properties post-import; skin extras land nowhere -- see
+    // tools/husk_blender_geoset_mask.py's module docstring), but it DOES
+    // keep node/bone extras. `out.rootJointNodeIndices.front()` is always a
+    // real joint (unlike the synthesized multi-root parent node, which
+    // isn't a joint at all and wouldn't become a real Blender Bone),
+    // guaranteed non-empty whenever `skeleton->joints` is (every skinned
+    // model has at least one root). Merged with, not overwriting, any
+    // existing extras that joint already carries (e.g. `billboard`, above).
+    if (!skinExtras.empty() && !out.rootJointNodeIndices.empty()) {
+        size_t rootLocalIdx = static_cast<size_t>(out.rootJointNodeIndices.front()) - meshCount;
+        tinygltf::Value::Object merged = out.jointNodes[rootLocalIdx].extras.IsObject()
+                                              ? out.jointNodes[rootLocalIdx].extras.Get<tinygltf::Value::Object>()
+                                              : tinygltf::Value::Object{};
+        for (const auto& [key, value] : skinExtras) {
+            merged[key] = value;
+        }
+        out.jointNodes[rootLocalIdx].extras = tinygltf::Value(merged);
     }
 
     out.skin = skin;

@@ -243,11 +243,55 @@ void attachPhysicsBodies(bool physNone, bool physGiven, const std::string& physP
         skeleton.physicsBodies.push_back(
             {static_cast<uint32_t>(bi), static_cast<int>(b.boneIndex), toGltf(b.position), b.type});
     }
+
+    // See gltf::Skeleton::PhysicsJoint's own doc comment for why this is a
+    // reduced, jiggle-tool-shaped view of the real joint graph, not the
+    // full resolved record `dump_phys.cpp`'s `writePhysJoint` produces.
+    skeleton.physicsJoints.reserve(physFile.joints.size());
+    for (const auto& j : physFile.joints) {
+        gltf::Skeleton::PhysicsJoint pj;
+        pj.bodyA = j.bodyA;
+        pj.bodyB = j.bodyB;
+        switch (j.type) {
+            case 1: {  // shoulder
+                const auto& s = physFile.shoulderJoints[static_cast<size_t>(j.index)];
+                pj.frequencyHz = s.motorFrequencyHz;
+                pj.dampingRatio = s.motorDampingRatio;
+                pj.swingLimitDeg = s.coneAngle;
+                break;
+            }
+            case 2: {  // weld
+                const auto& w = physFile.weldJoints[static_cast<size_t>(j.index)];
+                pj.frequencyHz = w.angularFrequencyHz != 0.0f ? w.angularFrequencyHz : w.linearFrequencyHz;
+                pj.dampingRatio = w.angularFrequencyHz != 0.0f ? w.angularDampingRatio : w.linearDampingRatio;
+                break;
+            }
+            case 3: {  // revolute
+                const auto& r = physFile.revoluteJoints[static_cast<size_t>(j.index)];
+                pj.frequencyHz = r.motorFrequencyHz;
+                pj.dampingRatio = r.motorDampingRatio;
+                pj.swingLimitDeg = std::abs(r.upperAngle - r.lowerAngle);
+                break;
+            }
+            case 4: {  // prismatic
+                const auto& p = physFile.prismaticJoints[static_cast<size_t>(j.index)];
+                pj.frequencyHz = p.motorFrequencyHz;
+                pj.dampingRatio = p.motorDampingRatio;
+                break;
+            }
+            default:
+                break;  // spherical/distance -- no spring or swing-limit field, left at 0
+        }
+        skeleton.physicsJoints.push_back(pj);
+    }
+
     if (!skeleton.physicsBodies.empty()) {
         std::cerr << "husk: note: attached " << skeleton.physicsBodies.size()
-                  << " physics body placement anchor(s) from '" << resolvedPhysPath
-                  << "' as inert glTF extras (id/bone/position/type only -- full body/shape/"
-                     "joint record data via `husk dump-chunks`)\n";
+                  << " physics body placement anchor(s) and " << skeleton.physicsJoints.size()
+                  << " reduced joint spring/limit record(s) from '" << resolvedPhysPath
+                  << "' as inert glTF extras (id/bone/position/type, and body_a/body_b/frequency/"
+                     "damping/swing-limit only -- full body/shape/joint record data, including "
+                     "shape geometry and frame matrices, still needs `husk dump-chunks`)\n";
     }
 }
 

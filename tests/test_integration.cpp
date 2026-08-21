@@ -49,6 +49,25 @@ using husk::test::testTextureCoordComboM2;
 using husk::test::testTextureCoordComboSkin;
 using husk::test::testTexturesDir;
 
+// Blender's own glTF importer drops skin.extras entirely -- husk attaches
+// this data to the skin's own root joint's node extras instead (see
+// gltf_skeleton.cpp's emitSkeletonAndSkin). Real M2 files don't guarantee
+// skin.joints[0] is that root joint (arbitrary source bone-array order,
+// unlike the synthetic unit-test fixtures in test_gltf_skeleton.cpp), so
+// this scans every joint node for the one actually carrying extras rather
+// than assuming an index. Specifically the one carrying `joint_names`
+// (always present on the real carrier, unlike e.g. `billboard`, which can
+// legitimately land on a different, non-carrier joint) -- checking for
+// that exact key, not just any extras object, so a billboard-tagged joint
+// ordered earlier in `skin.joints` can't be mistaken for the carrier.
+const tinygltf::Value& rootJointExtras(const tinygltf::Model& model) {
+    static const tinygltf::Value kEmpty;
+    for (int nodeIdx : model.skins[0].joints) {
+        if (model.nodes[nodeIdx].extras.Has("joint_names")) return model.nodes[nodeIdx].extras;
+    }
+    return kEmpty;
+}
+
 // Shape-only check (see TEST_DESIGN.md#Shape-only-vs-exact-checks): a real
 // character model has bones, so this must have produced a glTF skin, not
 // silently dropped it.
@@ -629,7 +648,7 @@ TEST_CASE(
     INFO("tinygltf error: ", gltfErr);
     REQUIRE(loaded);
     REQUIRE(model.skins.size() == 1);
-    const auto& extras = model.skins[0].extras;
+    const auto& extras = rootJointExtras(model);
     REQUIRE(extras.IsObject());
     const auto& sets = extras.Get("bone_correction_sets");
     REQUIRE(sets.IsArray());

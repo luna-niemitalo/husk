@@ -94,7 +94,7 @@ TEST_CASE("writeGlb: a joint's billboardMode becomes a \"billboard\" key in its 
 }
 
 TEST_CASE("writeGlb: a skeleton's correctionSets round-trip as bone_correction_sets on the "
-          "skin's extras") {
+          "skin's root joint extras") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();
 
@@ -109,7 +109,7 @@ TEST_CASE("writeGlb: a skeleton's correctionSets round-trip as bone_correction_s
     auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
     auto model = loadBack(glb);
 
-    const auto& extras = model.skins[0].extras;
+    const auto& extras = model.nodes[model.skins[0].joints[0]].extras;
     REQUIRE(extras.IsObject());
     const auto& sets = extras.Get("bone_correction_sets");
     REQUIRE(sets.IsArray());
@@ -138,7 +138,10 @@ TEST_CASE("writeGlb: a skeleton with no correctionSets gets no bone_correction_s
     auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
     auto model = loadBack(glb);
 
-    CHECK_FALSE(model.skins[0].extras.IsObject());
+    // joint_names is always present (real structural data, not an
+    // optional anchor list) -- the absence under test here is specifically
+    // bone_correction_sets, not the whole extras object.
+    CHECK_FALSE(model.nodes[model.skins[0].joints[0]].extras.Has("bone_correction_sets"));
 }
 
 TEST_CASE("writeGlb: a correctionSet entry with an out-of-range joint throws") {
@@ -156,7 +159,7 @@ TEST_CASE("writeGlb: a correctionSet entry with an out-of-range joint throws") {
 }
 
 TEST_CASE("writeGlb: a skeleton's ribbonAnchors/particleAnchors round-trip as ribbon_emitters/"
-          "particle_emitters on the skin's extras -- minimal placement data only") {
+          "particle_emitters on the skin's root joint extras -- minimal placement data only") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();
     skel.ribbonAnchors = {{0xFFFFFFFFu, 1, {0.1f, 0.2f, 0.3f}}};
@@ -165,7 +168,7 @@ TEST_CASE("writeGlb: a skeleton's ribbonAnchors/particleAnchors round-trip as ri
     auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
     auto model = loadBack(glb);
 
-    const auto& extras = model.skins[0].extras;
+    const auto& extras = model.nodes[model.skins[0].joints[0]].extras;
     REQUIRE(extras.IsObject());
 
     const auto& ribbons = extras.Get("ribbon_emitters");
@@ -191,7 +194,9 @@ TEST_CASE("writeGlb: a skeleton with no ribbon/particle anchors gets no such ext
     auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
     auto model = loadBack(glb);
 
-    CHECK_FALSE(model.skins[0].extras.IsObject());
+    const auto& extras = model.nodes[model.skins[0].joints[0]].extras;
+    CHECK_FALSE(extras.Has("ribbon_emitters"));
+    CHECK_FALSE(extras.Has("particle_emitters"));
 }
 
 TEST_CASE("writeGlb: a ribbon anchor with an out-of-range joint throws") {
@@ -221,7 +226,7 @@ TEST_CASE("writeGlb: ribbon/particle anchors coexist with bone_correction_sets w
     auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
     auto model = loadBack(glb);
 
-    const auto& extras = model.skins[0].extras;
+    const auto& extras = model.nodes[model.skins[0].joints[0]].extras;
     REQUIRE(extras.IsObject());
     CHECK(extras.Get("bone_correction_sets").IsArray());
     CHECK(extras.Get("ribbon_emitters").IsArray());
@@ -229,7 +234,8 @@ TEST_CASE("writeGlb: ribbon/particle anchors coexist with bone_correction_sets w
 }
 
 TEST_CASE("writeGlb: a skeleton's physicsBodies round-trip as physics_bodies on the skin's "
-          "extras -- minimal placement data only (DESIGN.md's anchor/dump-chunks split)") {
+          "root joint extras -- minimal placement data only (DESIGN.md's anchor/dump-chunks "
+          "split)") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();
     skel.physicsBodies = {{0, 1, {0.1f, 0.2f, 0.3f}, 0}, {1, 0, {1.0f, -1.0f, 0.5f}, 2}};
@@ -237,7 +243,7 @@ TEST_CASE("writeGlb: a skeleton's physicsBodies round-trip as physics_bodies on 
     auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
     auto model = loadBack(glb);
 
-    const auto& extras = model.skins[0].extras;
+    const auto& extras = model.nodes[model.skins[0].joints[0]].extras;
     REQUIRE(extras.IsObject());
     const auto& bodies = extras.Get("physics_bodies");
     REQUIRE(bodies.IsArray());
@@ -259,7 +265,39 @@ TEST_CASE("writeGlb: a skeleton with no physics bodies gets no physics_bodies ex
     auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
     auto model = loadBack(glb);
 
-    CHECK_FALSE(model.skins[0].extras.IsObject());
+    CHECK_FALSE(model.nodes[model.skins[0].joints[0]].extras.Has("physics_bodies"));
+}
+
+TEST_CASE("writeGlb: a skeleton's physicsJoints round-trip as physics_joints on the skin's root "
+          "joint extras -- reduced spring/limit scalars only, no frame matrices/shape geometry") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+    skel.physicsJoints = {{0, 1, 2.5f, 0.7f, 0.0f}, {1, 2, 0.0f, 0.0f, 45.0f}};
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.nodes[model.skins[0].joints[0]].extras;
+    REQUIRE(extras.IsObject());
+    const auto& joints = extras.Get("physics_joints");
+    REQUIRE(joints.IsArray());
+    REQUIRE(joints.ArrayLen() == 2);
+    CHECK(joints.Get(0).Get("body_a").GetNumberAsInt() == 0);
+    CHECK(joints.Get(0).Get("body_b").GetNumberAsInt() == 1);
+    CHECK(joints.Get(0).Get("frequency_hz").GetNumberAsDouble() == doctest::Approx(2.5));
+    CHECK(joints.Get(0).Get("damping_ratio").GetNumberAsDouble() == doctest::Approx(0.7));
+    CHECK(joints.Get(0).Get("swing_limit_deg").GetNumberAsDouble() == doctest::Approx(0.0));
+    CHECK(joints.Get(1).Get("swing_limit_deg").GetNumberAsDouble() == doctest::Approx(45.0));
+}
+
+TEST_CASE("writeGlb: a skeleton with no physics joints gets no physics_joints extras key") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    CHECK_FALSE(model.nodes[model.skins[0].joints[0]].extras.Has("physics_joints"));
 }
 
 TEST_CASE("writeGlb: a physics body with an out-of-range joint throws") {
@@ -283,7 +321,7 @@ TEST_CASE("writeGlb: physics bodies coexist with bone_correction_sets/ribbon_emi
     auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
     auto model = loadBack(glb);
 
-    const auto& extras = model.skins[0].extras;
+    const auto& extras = model.nodes[model.skins[0].joints[0]].extras;
     REQUIRE(extras.IsObject());
     CHECK(extras.Get("bone_correction_sets").IsArray());
     CHECK(extras.Get("ribbon_emitters").IsArray());
@@ -302,9 +340,15 @@ TEST_CASE("writeGlb: a skeleton's attachments/events/lights become real child no
     auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
     auto model = loadBack(glb);
 
-    // No pollution of the skin's extras object -- these are real nodes,
-    // not another anchor list like ribbonAnchors/particleAnchors/physicsBodies.
-    CHECK_FALSE(model.skins[0].extras.IsObject());
+    // No pollution of the root joint's own extras object -- these are real
+    // nodes, not another anchor list like ribbonAnchors/particleAnchors/physicsBodies.
+    // (joint_names is always present -- checking specific anchor-list keys
+    // are absent, not that the whole extras object is.)
+    const auto& extras = model.nodes[model.skins[0].joints[0]].extras;
+    CHECK_FALSE(extras.Has("ribbon_emitters"));
+    CHECK_FALSE(extras.Has("particle_emitters"));
+    CHECK_FALSE(extras.Has("physics_bodies"));
+    CHECK_FALSE(extras.Has("bone_correction_sets"));
 
     auto findNamed = [&](const std::string& name) -> const tinygltf::Node* {
         for (const auto& n : model.nodes) {
@@ -544,7 +588,7 @@ TEST_CASE("writeGlb: attachment/event/light nodes coexist with bone_correction_s
     auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
     auto model = loadBack(glb);
 
-    const auto& extras = model.skins[0].extras;
+    const auto& extras = model.nodes[model.skins[0].joints[0]].extras;
     REQUIRE(extras.IsObject());
     CHECK(extras.Get("bone_correction_sets").IsArray());
     CHECK(extras.Get("ribbon_emitters").IsArray());

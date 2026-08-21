@@ -275,10 +275,12 @@ group with no player-facing customization at all, e.g. the base body)
 keeps the plain numeric label.
 
 The same script's second, independent job: if the export used `--db2-dir/
---dbd-dir/--char-layout-id` (below), it re-reads the real `chr_texture_layout`
-extras (Blender's own glTF importer has no supported extras target for a
-glTF *skin* at all -- confirmed empirically, unlike every other extras this
-project attaches) and adds a toggleable magenta section-boundary overlay to
+--dbd-dir/--char-layout-id` (below), it reads the real `chr_texture_layout`
+extras straight from the already-imported armature (Blender's own glTF
+importer has no supported extras target for a glTF *skin* at all --
+confirmed empirically -- so husk attaches this data to the skin's own root
+joint's node extras instead, which *does* survive import as a real custom
+property; no file path needed) and adds a toggleable magenta section-boundary overlay to
 every material the DB2 data actually concerns (matched by `texture_type`),
 off by default, wired so switching it back off exactly reproduces the
 material's original look. A fourth, independent job (see the Materials
@@ -379,9 +381,10 @@ in the local extraction, were fetched via the sibling `tact-fetch` project
 and placed locally 2026-08-20). Verified end to end
 against real local `chrcustomizationelement.db2`/`chrcustomizationgeoset.db2`/
 `chrcustomizationboneset.db2` data. `tools/husk_blender_geoset_mask.py`
-reads the resulting `enabled_geosets` extras directly (same raw-glTF-JSON-
-reread pattern as `chr_texture_layout` below, since skin extras have no
-supported Blender importer target) and pre-selects each geoset group's
+reads the resulting `enabled_geosets` extras straight from the
+already-imported armature (same root-joint-extras pattern as
+`chr_texture_layout` below, since skin extras have no supported Blender
+importer target) and pre-selects each geoset group's
 dropdown accordingly -- verified headlessly against a real fixture, including
 the evaluated mesh's own vertex count actually changing between states, not
 just the modifier's stored value.
@@ -502,14 +505,56 @@ end against real local `creaturedisplayinfogeosetdata.db2` data
 **`.phys` physics/collision data.** If `--phys` resolves a real `.phys`
 sidecar (see `PFID`'s single-scalar-FileDataID resolution above, mirroring
 `--skel`), husk attaches a minimal per-body placement anchor -- id, owning
-bone, position, body type -- as a `physics_bodies` key on the glTF skin's
-own `extras`, the same "inert placement data only" treatment ribbon/particle
-emitters get. The full record set (every body/shape/joint/`PHYV` field,
-resolved) is *not* duplicated into the `.glb` -- a single real file can have
-40+ bodies, each with several shapes/joints, which would bloat every export
-far more than `bone_correction_sets` ever did -- it's available via `husk
-dump-chunks <file.phys>` instead (see the Usage section below), which also
-accepts a `.phys` file directly, same as `.bone`.
+bone, position, body type -- as a `physics_bodies` key, plus a reduced
+per-joint spring/limit summary (source body pair, real spring frequency/
+damping when the joint carries one, and a normalized swing-limit angle
+otherwise) as a sibling `physics_joints` key, both real extras on the
+exported skeleton -- the same "inert
+placement data only" treatment ribbon/particle emitters get. Both are
+deliberately reduced views, not the full record set: `physics_joints`
+carries none of a joint's own frame matrices or shape geometry, and no
+full body/shape/`PHYV` records at all -- a single real file can have 40+
+bodies, each with several shapes/joints, which would bloat every export
+far more than `bone_correction_sets` ever did. The full resolved record set
+is still available separately via `husk dump-chunks <file.phys>` (see the
+Usage section below, which also accepts a `.phys` file directly, same as
+`.bone`) for anything that needs the geometry `physics_joints` leaves out --
+`physics_bodies`/`physics_joints` alone are enough to drive the Blender-side
+jiggle-bone wiring described next, no separate `husk dump-chunks` call
+needed at Blender-import time.
+
+**Turning that into live jiggle in Blender.** husk itself never simulates
+physics -- it only exports the real data. `tools/husk_blender_geoset_mask.py`
+can wire that data into live secondary motion using the third-party
+["Jiggle Physics" Blender addon](https://extensions.blender.org/add-ons/jiggle-physics/)
+(`naelstrof/blender-jiggle-physics` on GitHub; install it yourself via
+*Edit > Preferences > Get Extensions*, search "Jiggle Physics" -- or, in an
+interactive session, let the script offer to: if it finds real
+`physics_bodies`/`physics_joints` extras but the addon isn't installed, it
+pops a native Blender confirm dialog offering to install it from
+extensions.blender.org directly, real install only on a real click -- this
+script itself never downloads or installs anything on its own;
+headless/`--background` runs just print a console note instead, since
+there's no dialog to show). With the addon enabled, running the script
+against a `--phys`-exported `.glb` reads `physics_bodies`/`physics_joints`
+straight from the already-imported armature -- no `husk` binary, no
+separate `.phys` file, and no extra flag needed at Blender-import time,
+since both extras travel inside the `.glb` itself -- and, for every joint
+edge that lines up with a real bone parent/child pair in the imported
+armature, enables `jiggle` on those bones with a root/normal/tip mode and a
+best-effort elasticity derived from the real spring frequency or swing-limit
+data (see `apply_physics_jiggle_bones`'s own doc comment for exactly how --
+Jiggle Physics' own 0-1 "elasticity" knobs are an authorable approximation,
+not a physical unit, so there's no exact conversion from WoW's own Hz/
+damping-ratio spring fields; treat the result as a starting point to tune by
+eye in the viewport, not a faithful port). A joint edge that connects two
+bodies whose bones *aren't* parent/child in the armature is skipped with a
+console note rather than force-fit, since the addon can only simulate along
+the existing bone hierarchy. Verified end to end against a real chain prop
+(`8xp_heartofazeroth_prop_floatychain.phys`, a 5-bone linear chain, every
+joint edge a real parent/child pair) -- not yet verified against a real
+character hair/cloak `.phys` file (none was available locally this session)
+or a file with a genuinely branching joint graph.
 
 **Character texture-layout geometry.** If `--db2-dir`/`--dbd-dir` are
 given, husk resolves a `CharComponentTextureLayoutsID` against four real
@@ -536,10 +581,11 @@ end to end against the real `bloodelffemale_hd.m2`, both explicitly
 sections, 18 texture layers, real 2048x1024 atlas, headless-Blender-
 import-clean. Since Blender's
 own glTF importer has no supported extras target for a glTF *skin* at all,
-this data is invisible to a plain File > Import -- `tools/
-husk_blender_geoset_mask.py` (above) re-reads it directly from the exported
-file and turns it into a toggleable material overlay, the practical way to
-actually see it in Blender.
+husk attaches this data to the skin's own root joint's node extras instead
+(a real Bone after import, whose custom properties *do* survive) --
+`tools/husk_blender_geoset_mask.py` (above) reads it straight from the
+imported armature and turns it into a toggleable material overlay, the
+practical way to actually see it in Blender.
 
 Flags:
 
@@ -986,7 +1032,7 @@ verified" rather than "confirmed correct."
 | Tangents | ❔ not in the documented base header — appears to be runtime-computed, not stored | ⬜ `VTAN` | ⬜ `MOTA` (often auto-generated client-side for shaders 10/14) | ❔ not checked | ⬛ |
 | Per-vertex colors | 📖 not truly per-vertex (M2's `colors`/`textureWeights` are per-*batch* material tint/fade, not per-vertex mesh color — see `src/m2.cpp`'s `Color`/`TextureWeight`); resolved into glTF `baseColorFactor` by `husk export` as a *static* approximation (only when the underlying `M2Track` is unambiguously constant — real keyframe animation is stage 6, see `DESIGN.md`) | ⬜ `VCL0`/`VCL1` | ⬜ `MOCV`/`MOC2` | ⬜ `MCCV` — genuinely per-vertex here, unlike M2's per-batch tint | ⬛ |
 | LOD / mesh views | 🚧 each LOD tier's `.skin` file's `vertices`/`indices` lookup tables, plus `submeshes`/`batches` (material/texture linkage per submesh, `src/skin.cpp`'s `Submesh`/`Batch`) read directly; `.skin` filename can be given explicitly, or auto-selected via the M2's own `SFID` chunk + `husk export --skin-dir <dir>` (`--skin` defaults to `auto`; defaults to the highest-detail LOD; `--lod <n>` picks a specific `SFID` entry, `--lod all` exports every entry as its own named node in one `.glb`, roadmap stage 8, see Usage) — `LDV1` `lod_count` (`husk info`) is now a real `--lod <n>` range-check consumer, not just display; `Submesh.skinSectionId` (the "geoset ID") is read and carried into every exported primitive as glTF `extras`, but not filtered on (no CASC/DBC data to ground a selection in, see `DESIGN.md`) — every submesh, including mutually-exclusive character-customization options, is always exported; still 🚧 because `Submesh`/`Batch`'s other non-material fields (culling/sort/hardware-bone-limit metadata `src/skin.hpp` documents but doesn't read -- husk exports full per-vertex global joint indices instead of the engine's per-drawcall bone-limit mechanism these exist for, see `src/cmd_export.cpp`'s `buildSkinning`) still aren't | ⬛ `LODS` folds LOD into the one file, no sidecar | ⬛ (`GFID`'s `Flag_Lod` is a different, coarser concept — tracked under World/group structure) | ⬜ real and reportedly substantial (see `ADTLodImplementation.md`, already mirrored locally in `wow_modding`) — not read this session | ⬜ mip pyramid — tracked under Texture pixel data below, not here |
-| Collision / physics | 📖 `bounding_box`/`collision_box`/`collision_sphere_radius` scalars printed by `husk info`; the low-poly hit-test mesh's own content is real, dereferenced data (`m2::CollisionMesh`/`parseCollisionMesh`, `src/m2.cpp`) — `husk export` writes it as a plain indexed triangle mesh in the `.glb` (one more `gltf::NamedMesh`, unskinned even when the render mesh shares a skeleton, per-vertex normals averaged from the M2's own per-face `collision_face_normals`), tagged `{"collision": true}` in glTF node `extras` so a renderer/Blender script can filter it out — not applied to any render/physics behavior itself, this tool has no runtime. The `.phys` sidecar's own *content* (rigid bodies, collision shapes, joints for Blizzard's "Domino" physics engine) is now fully parsed too (`src/phys.hpp`/`phys.cpp`, documented on wowdev.wiki, verified against 103 real files — `WIKI_FINDINGS/PHYS.md`): `husk export --phys` attaches a minimal per-body placement anchor (`physics_bodies` skin extras, same id/bone/position pattern as ribbon/particle emitters below), full body/shape/joint/`PHYV` records via `husk dump-chunks <file.phys>` (see the Usage section's "`.phys` physics/collision data" paragraph). `PCOL` (player-housing collision, War Within 11.1.7+) is also fully parsed, diagnostic-only via `husk dump-chunks` — four independent `(count, offset)` regions (`vertexPositions`/`faceNormals`/`indices`/`flags`), verified against all 2,354 real `PCOL`-bearing files in the local corpus (`WIKI_FINDINGS/M2.md`); no glTF slot, same class as `EXP2`/`PFDC`/`DETL` | ⬜ `M3CL` collision mesh (`CPOS`/`CNML`/`CINX`) | ⬜ `MOBN`/`MOBR` BSP tree, `MCVP` convex volumes, `MOPL` terrain-cutting planes | ⬛ no separate chunk found — terrain collision is presumably the render mesh itself (inferred, not confirmed) | ⬛ |
+| Collision / physics | 📖 `bounding_box`/`collision_box`/`collision_sphere_radius` scalars printed by `husk info`; the low-poly hit-test mesh's own content is real, dereferenced data (`m2::CollisionMesh`/`parseCollisionMesh`, `src/m2.cpp`) — `husk export` writes it as a plain indexed triangle mesh in the `.glb` (one more `gltf::NamedMesh`, unskinned even when the render mesh shares a skeleton, per-vertex normals averaged from the M2's own per-face `collision_face_normals`), tagged `{"collision": true}` in glTF node `extras` so a renderer/Blender script can filter it out — not applied to any render/physics behavior itself, this tool has no runtime. The `.phys` sidecar's own *content* (rigid bodies, collision shapes, joints for Blizzard's "Domino" physics engine) is now fully parsed too (`src/phys.hpp`/`phys.cpp`, documented on wowdev.wiki, verified against 103 real files — `WIKI_FINDINGS/PHYS.md`): `husk export --phys` attaches a minimal per-body placement anchor (`physics_bodies` extras, same id/bone/position pattern as ribbon/particle emitters below) plus a reduced per-joint spring/limit summary (`physics_joints` extras -- body pair, spring frequency/damping or swing-limit angle, no frame matrices/shape geometry), full body/shape/joint/`PHYV` records (including geometry) still needing `husk dump-chunks <file.phys>` (see the Usage section's "`.phys` physics/collision data" paragraph). `PCOL` (player-housing collision, War Within 11.1.7+) is also fully parsed, diagnostic-only via `husk dump-chunks` — four independent `(count, offset)` regions (`vertexPositions`/`faceNormals`/`indices`/`flags`), verified against all 2,354 real `PCOL`-bearing files in the local corpus (`WIKI_FINDINGS/M2.md`); no glTF slot, same class as `EXP2`/`PFDC`/`DETL` | ⬜ `M3CL` collision mesh (`CPOS`/`CNML`/`CINX`) | ⬜ `MOBN`/`MOBR` BSP tree, `MCVP` convex volumes, `MOPL` terrain-cutting planes | ⬛ no separate chunk found — terrain collision is presumably the render mesh itself (inferred, not confirmed) | ⬛ |
 | Materials | 📖 `materials` array (`flags`/`blending_mode`, `src/m2.cpp`'s `parseMaterials`) resolved per-batch and translated to glTF `alphaMode`/`doubleSided`, plus a static color tint/alpha-fade into `baseColorFactor` (see Per-vertex colors above), by `husk export` (`src/cmd_export.cpp`) — write-back to M2 not applicable (glTF-only tool); a batch's additional texture layers (`M2Batch.textureCount > 1` — a real second env-mapped/blended layer, wowdev.wiki M2/.skin#Texture_units) are resolved and surfaced as glTF `extras` (FileDataID/UV set, plus a real embedded-but-unused image if `--textures` has a match) but not rendered — core glTF has no slot for WoW's fixed-function combiner math (`Mod2x`/`Add`/env-map blending) to translate into; a batch's UV scroll/rotate/scale animation (`M2TextureTransform`, `Header::textureTransforms` + `.skin`'s `Batch.textureTransformComboIndex` — flowing lava/water, some portal/aura effects) is likewise resolved (`m2::parseTextureTransforms`) and, for the constant case, translated to a real `KHR_texture_transform` on `baseColorTexture` (`gltf_mesh.cpp`'s `textureTransformToKhr`, pivot-corrected from WoW's texture-center rotation to the extension's own origin-based one, verified against real `bloodknightcharger.m2` data — see `DESIGN.md`'s Key design decisions); the animated case (almost certainly the common one for a real scrolling-UV model) has no such representation regardless of effort, since the extension itself has no animation-channel target, and stays `extras`-only (`gltf::Material::textureTransform`), same as every raw value always is, diagnostically — see `src/m2.hpp`'s `TextureTransform` doc comment | ⬜ `M3SI` Instances → external `MaterialLibrary` (`.mtl3lib`) | ⬜ `MOMT`, `MOM3` (v3 override), `MOUV` (UV anim), per-face `MOPY`/`MPY2`/`MOBS` | ⬜ `MCLY` (per-layer blend/material flags) + `MTXP`/`MTXF` (texture params/flags) | ⬛ |
 | Texture references (names/FileDataIDs) | 📖 `textures` array (`type`/`flags`/`filename`) + `textureCombos` lookup table resolved (`src/m2.cpp`); Legion+ `TXID` chunk FileDataIDs surfaced (`Header::textureFileDataIds`) — same non-resolved-to-a-path treatment as `SKID`, see the Sidecar row below | ⬜ indirect, via `MaterialLibrary` → compiled shader files (`GFAT`/`BLS`) — separate formats, not yet even scoped | ⬜ `MOTX` | ⬜ `MTEX` (texture filename table) | ⬛ BLP is the referenced asset, not a referencer |
 | Texture pixel data | ⬛ | ⬛ | ⬛ | ⬛ BLP is the referenced asset, not a referencer (same as M2/WMO) | 📖 `src/blp.cpp` (C++, embedded in `husk export` itself) — header + mip table resolved, palette/DXT1/DXT3/DXT5/BGRA decode to PNG done in-memory (DXT3 confirmed correct against a real one, part of a 779,056-file local-corpus scan that found 6,759 real DXT3 files); JPEG content unimplemented and confirmed genuinely absent from that same corpus (zero real hits, not just unseen in this repo's own small test set). `blp/` (Python, `husk-blp` CLI) still exists as an independent reference implementation `tests/test_blp.cpp` checks the C++ decoder against |

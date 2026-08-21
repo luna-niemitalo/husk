@@ -30,6 +30,25 @@ using husk::test::testWeaponPhys;
 using husk::test::testWeaponPhysSkin;
 using husk::test::testWeaponRibbon;
 
+// Blender's own glTF importer drops skin.extras entirely -- husk attaches
+// this data to the skin's own root joint's node extras instead (see
+// gltf_skeleton.cpp's emitSkeletonAndSkin). Real M2 files don't guarantee
+// skin.joints[0] is that root joint (arbitrary source bone-array order,
+// unlike the synthetic unit-test fixtures in test_gltf_skeleton.cpp), so
+// this scans every joint node for the one actually carrying extras rather
+// than assuming an index. Specifically the one carrying `joint_names`
+// (always present on the real carrier, unlike e.g. `billboard`, which can
+// legitimately land on a different, non-carrier joint) -- checking for
+// that exact key, not just any extras object, so a billboard-tagged joint
+// ordered earlier in `skin.joints` can't be mistaken for the carrier.
+const tinygltf::Value& rootJointExtras(const tinygltf::Model& model) {
+    static const tinygltf::Value kEmpty;
+    for (int nodeIdx : model.skins[0].joints) {
+        if (model.nodes[nodeIdx].extras.Has("joint_names")) return model.nodes[nodeIdx].extras;
+    }
+    return kEmpty;
+}
+
 // Real ribbon/particle emitter data (weapon models -- see
 // tests/test_data_paths.hpp's kWeaponRibbon/kWeaponParticleA/B/Stress doc
 // comment for how these were chosen). Checks the exported .glb's skin
@@ -54,7 +73,7 @@ void checkEmitterAnchorCounts(const std::string& m2Path, size_t expectedRibbons,
     INFO("tinygltf error: ", gltfErr);
     REQUIRE(loaded);
     REQUIRE(model.skins.size() == 1);
-    const auto& extras = model.skins[0].extras;
+    const auto& extras = rootJointExtras(model);
 
     if (expectedRibbons > 0) {
         REQUIRE(extras.IsObject());
@@ -128,7 +147,7 @@ TEST_CASE("husk export: a real weapon's .phys sidecar (auto-detected, same basen
     INFO("tinygltf error: ", gltfErr);
     REQUIRE(loaded);
     REQUIRE(model.skins.size() == 1);
-    const auto& extras = model.skins[0].extras;
+    const auto& extras = rootJointExtras(model);
     REQUIRE(extras.IsObject());
     const auto& bodies = extras.Get("physics_bodies");
     REQUIRE(bodies.IsArray());

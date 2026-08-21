@@ -162,6 +162,36 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     // gltf_skeleton_internal.hpp's buildAnimationClips doc comment).
     model.animations = buildAnimationClips(animations, meshCount, buffer, views, accessors);
 
+    // Real AnimationData.db2 names, mirrored onto the skin's own root
+    // joint extras (see emitSkeletonAndSkin's own doc comment on why
+    // that's where Blender-survivable extras live) -- confirmed directly,
+    // not assumed, that Blender's glTF importer drops animation-level
+    // extras too (an Action's own custom properties come back empty after
+    // a round trip even when the source file's `animations[].extras` was
+    // set), so a Blender-side consumer needs this reachable from the
+    // imported armature the same way chr_texture_layout etc. already are.
+    // Each animation's own `sequence_metadata.animation_data_name` extras
+    // (built above, in buildAnimationClips) stays too, for a raw-JSON
+    // consumer that isn't going through Blender's importer at all -- the
+    // one deliberate duplicate in this file, since the "natural" glTF
+    // location and the one Blender's own importer will actually preserve
+    // aren't the same place.
+    if (!model.skins.empty() && !skelEm.rootJointNodeIndices.empty()) {
+        tinygltf::Value::Object names;
+        for (const auto& anim : animations) {
+            if (anim.sequenceMetadata && !anim.sequenceMetadata->animationDataName.empty()) {
+                names[anim.name] = tinygltf::Value(anim.sequenceMetadata->animationDataName);
+            }
+        }
+        if (!names.empty()) {
+            tinygltf::Node& rootNode = model.nodes[static_cast<size_t>(skelEm.rootJointNodeIndices.front())];
+            tinygltf::Value::Object merged =
+                rootNode.extras.IsObject() ? rootNode.extras.Get<tinygltf::Value::Object>() : tinygltf::Value::Object{};
+            merged["animation_data_names"] = tinygltf::Value(names);
+            rootNode.extras = tinygltf::Value(merged);
+        }
+    }
+
     // Deferred until every appendBufferView/accessors.push_back above (mesh
     // data, skinning, materials' embedded images, and now animations) has
     // run -- `views`/`accessors` are plain local vectors, not references

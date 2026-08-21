@@ -241,6 +241,41 @@ struct Skeleton {
     };
     std::vector<PhysicsBody> physicsBodies;
 
+    // The real body-to-body spring/limit graph, reduced to just the
+    // scalars a Blender-side jiggle-bone tool needs (`tools/
+    // husk_blender_geoset_mask.py`'s `apply_physics_jiggle_bones`) -- NOT
+    // the full resolved joint record (no frame matrices, no shape
+    // geometry, no per-type field names): those are what makes the full
+    // graph too bloated to embed per PhysicsBody's own doc comment above,
+    // and a Blender tool driving a spring-chain addon has no use for them
+    // anyway. `bodyA`/`bodyB` are raw `.phys` body indices, the same join
+    // key as PhysicsBody::id -- deliberately not resolved to a joint index
+    // here, same "caller already has the body list to join against"
+    // convention `dump_phys.cpp`'s own `writePhysJoint` uses.
+    //
+    // `frequencyHz`/`dampingRatio` are 0 when this joint type carries no
+    // spring (SphericalJoint/DistanceJoint), or when it's genuinely
+    // authored as 0 (common: a pure angle-limit joint with the restoring
+    // force left to gravity + the limit itself, not a spring -- confirmed
+    // against a real fixture, see WIKI_FINDINGS/PHYS.md). Preference order
+    // when a joint type has more than one (WeldJoint has both angular and
+    // linear): angular > linear, matching a jiggle *bone*'s own rotational
+    // motion over a translational spring.
+    //
+    // `swingLimitDeg` folds together whichever real swing-limit field this
+    // joint type actually defines (ShoulderJoint's `coneAngle`, or
+    // `upperTwistAngle - lowerTwistAngle`; RevoluteJoint's
+    // `upperAngle - lowerAngle`) into one normalized scalar -- 0 when this
+    // joint type defines none (SphericalJoint/WeldJoint/PrismaticJoint/
+    // DistanceJoint).
+    struct PhysicsJoint {
+        uint32_t bodyA = 0, bodyB = 0;  // .phys body indices -- join against PhysicsBody::id
+        float frequencyHz = 0;
+        float dampingRatio = 0;
+        float swingLimitDeg = 0;
+    };
+    std::vector<PhysicsJoint> physicsJoints;
+
     // Real DB2-derived character texture-layout geometry (`husk export
     // --db2-dir/--dbd-dir/--char-layout-id`) -- inert glTF extras only,
     // never applied to anything writeGlb itself renders, same treatment as

@@ -14,19 +14,36 @@ spin up a second file for a second kind of extras).
 
 Run inside Blender, e.g.:
   blender --python tools/husk_blender_geoset_mask.py -- model.glb
-(imports model.glb first), or with no trailing args, operates on whatever
+(imports model.glb first -- still the way to tell the script which model
+to load when running standalone, and `--textures <dir>`'s own default
+still comes from it), or with no trailing args, operates on whatever
 mesh+armature objects are already in the current scene (a model already
-imported via Blender's own File > Import, or the Scripting tab). The
-texture-layout overlay (see below) needs the real file path -- unlike every
-other extras this project attaches, `chr_texture_layout` lives on the glTF
-*skin*, and Blender's stock importer has no supported extras target for
-skins at all (confirmed empirically: node/mesh/material/camera/light/scene
-extras all land as real Blender custom properties post-import; skin extras
-land nowhere, not on the Armature object or its data) -- so this script
-re-opens the same file and reads the raw JSON chunk directly for that one
-piece of data, independent of whatever bpy's own importer already did.
-When no trailing arg is given (already-open scene), the texture-layout
-overlay is skipped with a note, since there's no file path left to re-read.
+imported via Blender's own File > Import, or the Scripting tab). Either
+way, once the scene is populated, **no file path is needed for anything
+this script itself reads back** -- every skin-level extras key this
+project attaches (`chr_texture_layout`,
+`chr_customization_options`, `chr_enabled_materials`, `enabled_geosets`,
+`ribbon_emitters`/`particle_emitters`, `physics_bodies`/`physics_joints`,
+...) reads straight from the already-imported scene. Blender's stock glTF
+importer has no supported extras target for a glTF *skin* itself
+(confirmed empirically: node/mesh/material/camera/light/scene extras all
+land as real Blender custom properties post-import; skin extras land
+nowhere -- and neither do animation-level extras, also confirmed directly,
+not assumed), so `gltf_skeleton.cpp` attaches all of it to the skin's own
+root joint's node extras instead -- which *does* survive import as a real
+custom property on that Bone, deeply nested structures included (confirmed
+directly via a headless Blender round-trip). `_root_joint_extras` reads it
+back. A raw numeric bone index (e.g. a ribbon/particle emitter's own
+`joint` field) used to need a separate raw-glTF-JSON re-parse to resolve
+to the actual Blender bone name -- confirmed directly that Blender's own
+post-import bone order does *not* match the raw glTF joint-index order
+(242/358 mismatches on a real 245-bone character) -- until husk itself
+started resolving it at export time (`bone_name`, alongside the raw
+`joint` index, on every entry that carries one; the same real name list
+also travels as `joint_names` on the root joint extras, for
+`_root_joint_extras`'s own unambiguous-carrier-detection use). No raw
+file, no index/name table a caller has to carry around and join
+themselves -- every joint reference is already a real name.
 
 Builds a Geometry Nodes setup, one Menu Switch dropdown per geoset group,
 instead of the Mask-modifier stack an earlier version of this script used
@@ -338,11 +355,9 @@ render visibility are correctly off. A zero-emitter model
 
 import ast
 import glob
-import json
 import os
 import re
 import shutil
-import struct
 import subprocess
 import sys
 import tempfile
@@ -745,124 +760,155 @@ def apply_geoset_switches(mesh_objs, armature_obj, extra_default_overrides=None,
     return all_groups, switch_groups, removed
 
 
-def _read_glb_json(filepath):
-    """Parses `filepath`'s raw glTF JSON chunk directly -- the shared
-    mechanics every `read_*` function below needs, since Blender's own
-    importer has no supported extras target for a glTF *skin* at all
-    (confirmed empirically: node/mesh/material/camera/light/scene extras
-    all land as real Blender custom properties post-import; skin extras
-    land nowhere -- see the module docstring). Third real occurrence of
-    this exact parse (chr_texture_layout, enabled_geosets, now emitter
-    anchors) is what earns it as a shared helper per this project's own
-    "abstractions are earned" rule, rather than a fourth copy-pasted body.
-    Returns None on any falsy/unreadable/unparseable `filepath` -- never a
-    guess, never a hard failure of the caller's own work.
+def _root_joint_extras(armature_obj):
+    """The husk-exported skin's own root joint's custom properties, as a
+    plain dict -- where `chr_texture_layout`/`enabled_geosets`/etc. extras
+    actually live after Blender's own import. Blender's stock glTF importer
+    has no supported extras target for a glTF *skin* at all (confirmed
+    empirically -- see the module docstring), so `gltf_skeleton.cpp`
+    attaches this data to the skin's first real root joint's node extras
+    instead: unlike skin extras, node/bone extras *do* survive import as a
+    real custom property, deeply nested arrays/objects included (confirmed
+    directly via a headless Blender round-trip).
+
+    Doesn't assume *which* imported bone is that root -- Blender's own
+    post-import bone order doesn't reliably match the raw glTF joint-index
+    order (confirmed directly: 242/358 mismatches on a real 245-bone
+    character), so there's no safe index to hardcode. Instead scans for
+    whichever bone actually carries `joint_names`
+    (`gltf_skeleton.cpp`'s own always-present marker -- real structural
+    data, not an optional anchor list, so exactly one bone ever carries it,
+    unlike e.g. `billboard`, which can legitimately land on a different,
+    non-carrier joint and would give a false match). Returns {} when
+    `armature_obj` is falsy or no bone carries it (e.g. a non-husk glTF).
+
+    Real bug found and fixed via a headless Blender crash reproduction,
+    not assumed: a bone's own `IDPropertyGroup`/nested-list custom
+    property values are *live views* into Blender's own storage, not
+    independent copies -- `{key: bone[key] for key in bone.keys()}` alone
+    still holds live references. Deleting *any* bone afterward (even a
+    wholly unrelated one, e.g. `delete_geoset_tag_bones` removing a
+    geoset tag bone) can invalidate those references and segfault
+    Blender on next access -- reproduced directly with a minimal repro
+    (fetch this property, delete an unrelated bone, touch the earlier
+    reference again: real crash, `Writing: .../scene.crash.txt`).
+    `_deep_copy_id_property` below walks the whole structure into plain
+    Python dicts/lists/primitives before returning, so every caller holds
+    genuinely independent data, safe across any later scene mutation --
+    the same safety guarantee the old raw-glTF-JSON-parse approach always
+    had for free (a real `json.loads` result is never a live view into
+    anything).
     """
-    if not filepath:
-        return None
-    try:
-        if filepath.lower().endswith(".gltf"):
-            with open(filepath, "r", encoding="utf-8") as f:
-                return json.load(f)
-        with open(filepath, "rb") as f:
-            raw = f.read()
-        # glTF binary container: 12-byte header (magic/version/length), then
-        # chunks of (length: u32, type: u32, data). The first chunk is
-        # always JSON per the glTF 2.0 spec -- no need to scan for it.
-        (chunk_length, _chunk_type) = struct.unpack_from("<II", raw, 12)
-        return json.loads(raw[20:20 + chunk_length])
-    except (OSError, ValueError, struct.error):
-        return None
+    if armature_obj is None:
+        return {}
+    for bone in armature_obj.data.bones:
+        if "joint_names" in bone.keys():
+            return {key: _deep_copy_id_property(bone[key]) for key in bone.keys()}
+    return {}
 
 
-def read_chr_texture_layout(filepath):
-    """Reads `chr_texture_layout` straight out of the exported file's own
-    raw glTF JSON (skins[].extras). Returns None if `filepath` is falsy,
-    isn't a .glb/.gltf husk could have written, or genuinely has no such
-    extras (no --char-layout-id was given at export time) -- never a
-    guess, never a hard failure of the rest of this script's work.
+def _deep_copy_id_property(value):
+    """Recursively converts a Blender custom-property value (an
+    `IDPropertyGroup` for a nested object, a plain `list` for a nested
+    array -- confirmed directly, not assumed, that Blender already
+    returns arrays as real Python `list`s, just with `IDPropertyGroup`
+    elements/values still live inside) into an independent structure of
+    plain `dict`/`list`/primitives. See `_root_joint_extras`'s own doc
+    comment for why this matters -- without it, a caller holds a
+    reference that can be invalidated (and crash Blender on next access)
+    by an unrelated later bone deletion.
     """
-    data = _read_glb_json(filepath)
-    if data is None:
-        return None
-    for skin in data.get("skins", []):
-        extras = skin.get("extras")
-        if extras and "chr_texture_layout" in extras:
-            return extras["chr_texture_layout"]
-    return None
+    if type(value).__name__ == "IDPropertyGroup":
+        return {key: _deep_copy_id_property(value[key]) for key in value.keys()}
+    if isinstance(value, list):
+        return [_deep_copy_id_property(v) for v in value]
+    return value
 
 
-def read_enabled_geosets(filepath):
-    """Reads `enabled_geosets` straight out of the exported file's own raw
-    glTF JSON (skins[].extras). Returns a list of `{"choice_id": int,
-    "geoset_id": int}` dicts, or None if `filepath` is falsy, isn't a real
-    husk `.glb`/`.gltf`, or genuinely has no such extras (no
+def _joint_bone_names_from_extras(armature_obj):
+    """`{joint_index: bone_name}` from the already-imported armature's own
+    root-joint `joint_names` extras (see `_root_joint_extras`) -- no file
+    path needed. `joint_names[i]` is exactly the name husk gave
+    `skin.joints[i]`'s own node at export time (billboard suffix included),
+    the same real name Blender's importer will have used for that bone.
+    Empty dict when `armature_obj` is falsy or carries no `joint_names`
+    (e.g. a `.glb` exported before this field existed).
+    """
+    names = _root_joint_extras(armature_obj).get("joint_names")
+    if not names:
+        return {}
+    return dict(enumerate(names))
+
+
+def read_chr_texture_layout(armature_obj):
+    """Reads `chr_texture_layout` from the already-imported armature's own
+    root-joint extras (see `_root_joint_extras`) -- no file path needed.
+    Returns None if `armature_obj` is falsy or genuinely has no such extras
+    (no --char-layout-id was given at export time) -- never a guess, never
+    a hard failure of the rest of this script's work.
+    """
+    return _root_joint_extras(armature_obj).get("chr_texture_layout")
+
+
+def read_enabled_geosets(armature_obj):
+    """Reads `enabled_geosets` from the already-imported armature's own
+    root-joint extras (see `_root_joint_extras`) -- no file path needed.
+    Returns a list of `{"choice_id": int, "geoset_id": int}` dicts, or None
+    if `armature_obj` is falsy or genuinely has no such extras (no
     `--customization-choice-ids` was given at export time, or none of the
     given choice IDs resolved a geoset) -- never a guess.
     """
-    data = _read_glb_json(filepath)
-    if data is None:
-        return None
-    for skin in data.get("skins", []):
-        extras = skin.get("extras")
-        if extras and "enabled_geosets" in extras:
-            return extras["enabled_geosets"]
-    return None
+    return _root_joint_extras(armature_obj).get("enabled_geosets")
 
 
-def read_chr_enabled_materials(filepath):
-    """Reads `chr_enabled_materials` straight out of the exported file's own
-    raw glTF JSON (skins[].extras). Returns a list of `{"choice_id",
-    "chr_model_texture_target_id", "material_resources_id",
-    "file_data_id"}` dicts, or None if `filepath` is falsy, isn't a real
-    husk `.glb`/`.gltf`, or genuinely has no such extras (no
+def read_chr_enabled_materials(armature_obj):
+    """Reads `chr_enabled_materials` from the already-imported armature's
+    own root-joint extras (see `_root_joint_extras`) -- no file path
+    needed. Returns a list of `{"choice_id", "chr_model_texture_target_id",
+    "material_resources_id", "file_data_id"}` dicts, or None if
+    `armature_obj` is falsy or genuinely has no such extras (no
     `--customization-choice-ids`/`--chr-model-id` resolved any material at
     export time) -- never a guess. `file_data_id` may be `0` on an entry
     that couldn't resolve a real texture (e.g. a swatch-color-only choice,
     see TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's own open questions) --
     callers must check for it, not assume every entry is usable.
     """
-    data = _read_glb_json(filepath)
-    if data is None:
-        return None
-    for skin in data.get("skins", []):
-        extras = skin.get("extras")
-        if extras and "chr_enabled_materials" in extras:
-            return extras["chr_enabled_materials"]
-    return None
+    return _root_joint_extras(armature_obj).get("chr_enabled_materials")
 
 
-def read_chr_customization_options(filepath):
-    """Reads `chr_customization_options` straight out of the exported
-    file's own raw glTF JSON (skins[].extras) -- the full real
-    `(Option, Choice)` menu for the model, not just whichever choice(s)
-    ended up in `chr_enabled_materials`/`enabled_geosets` above. Returns
-    None if `filepath` is falsy, isn't a real husk `.glb`/`.gltf`, or
+def read_chr_customization_options(armature_obj):
+    """Reads `chr_customization_options` from the already-imported
+    armature's own root-joint extras (see `_root_joint_extras`) -- no file
+    path needed. The full real `(Option, Choice)` menu for the model, not
+    just whichever choice(s) ended up in `chr_enabled_materials`/
+    `enabled_geosets` above. Returns None if `armature_obj` is falsy or
     genuinely has no such extras (no derivable `ChrModelID` at export
     time) -- never a guess. See `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`
     for the exact real shape of each entry.
     """
-    data = _read_glb_json(filepath)
-    if data is None:
-        return None
-    for skin in data.get("skins", []):
-        extras = skin.get("extras")
-        if extras and "chr_customization_options" in extras:
-            return extras["chr_customization_options"]
-    return None
+    return _root_joint_extras(armature_obj).get("chr_customization_options")
 
 
-def read_animation_clip_names(filepath):
+def read_animation_clip_names(armature_obj):
     """`{glTF animation name: real AnimationData.db2 name or None}` for
-    every clip husk wrote to `filepath` -- reads straight from the raw
-    glTF JSON (`animations[].name`/`.extras.sequence_metadata.
-    animation_data_name`, see gltf_skeleton.hpp's `SequenceMetadata::
-    animationDataName` doc comment for why the real name is a separate
-    field, not baked into `name` itself on the husk side). Empty dict (not
-    None) when `filepath` is falsy/unreadable/has no animations -- never a
-    guess. A clip's own value is None (present as a key, but unresolved)
-    when no --db2-dir/--dbd-dir was given at export time, or this clip's
-    id has no real AnimationData.db2 row -- current real local extractions
+    every clip in the current Blender file -- no file path needed.
+    `animation_data_names` (real names, only for clips that actually
+    resolved one) lives on the already-imported armature's own root-joint
+    extras (see `_root_joint_extras`) rather than each animation's own
+    `sequence_metadata.animation_data_name` extras: confirmed directly,
+    not assumed, that Blender's glTF importer drops animation-level
+    extras too (an imported Action's own custom properties come back
+    empty even when the source file's `animations[].extras` was set), the
+    same gap `_root_joint_extras` already works around for skin-level
+    extras. Every clip name still comes from `bpy.data.actions` itself
+    (the imported Action list), not from this dict -- `animation_data_names`
+    is deliberately sparse (present only for clips with a real resolved
+    name, same "absence means ordinary" convention as everywhere else in
+    this pipeline), so it alone can't answer "which clips exist".
+
+    A clip's own value is None (present as a key, but unresolved) when no
+    --db2-dir/--dbd-dir was given at export time, or this clip's id has no
+    real AnimationData.db2 row -- current real local extractions
     (2026-08-21) have no Name column left in AnimationData.db2 at all
     (dropped from the client's own schema at some point after 8.x, see
     animationdata_db2.hpp's own doc comment), so every real husk export
@@ -870,18 +916,8 @@ def read_animation_clip_names(filepath):
     still real and exercised end to end via a synthetic test fixture
     (tests/test_cli_animationdata.cpp) that does carry a Name column.
     """
-    data = _read_glb_json(filepath)
-    if data is None:
-        return {}
-    result = {}
-    for anim in data.get("animations", []):
-        name = anim.get("name")
-        if not name:
-            continue
-        extras = anim.get("extras") or {}
-        meta = extras.get("sequence_metadata") or {}
-        result[name] = meta.get("animation_data_name") or None
-    return result
+    resolved = _root_joint_extras(armature_obj).get("animation_data_names") or {}
+    return {action.name: resolved.get(action.name) for action in bpy.data.actions}
 
 
 def mark_actions_as_assets(clip_names):
@@ -915,49 +951,68 @@ def mark_actions_as_assets(clip_names):
     return marked
 
 
-def read_emitter_anchors(filepath):
-    """Reads `ribbon_emitters`/`particle_emitters` straight out of the
-    exported file's own raw glTF JSON (skins[].extras) -- see
-    gltf_skeleton.hpp's `Skeleton::EmitterAnchor` doc comment: these are
-    deliberately *not* real glTF child nodes (unlike Attachment/Event/
-    Light) despite sharing the exact same "translation relative to an
-    owning joint" shape, because a model can carry dozens of them each
-    with several would-be animation curves -- too high-volume to embed
-    per-.glb, so only the minimal id/joint/position anchor lives here; the
-    full per-emitter data (texture, blend mode, curves) lives in `husk
-    dump-chunks`'s separate JSON output instead, out of this function's
-    reach (and this script's current scope -- see `apply_emitter_markers`).
+def read_emitter_anchors(armature_obj):
+    """Reads `ribbon_emitters`/`particle_emitters` from the already-imported
+    armature's own root-joint extras (see `_root_joint_extras`) -- no file
+    path needed. See gltf_skeleton.hpp's `Skeleton::EmitterAnchor` doc
+    comment: these are deliberately *not* real glTF child nodes (unlike
+    Attachment/Event/Light) despite sharing the exact same "translation
+    relative to an owning joint" shape, because a model can carry dozens of
+    them each with several would-be animation curves -- too high-volume to
+    embed per-.glb, so only the minimal id/joint/position anchor lives
+    here; the full per-emitter data (texture, blend mode, curves) lives in
+    `husk dump-chunks`'s separate JSON output instead, out of this
+    function's reach (and this script's current scope -- see
+    `apply_emitter_markers`).
 
-    Also reads `skins[0].joints`/`nodes[].name` from the same JSON, needed
-    to resolve an anchor's raw `joint` (an index into `skin.joints`, i.e.
-    a raw M2 bone index -- see `gltf_skeleton.cpp`'s `skin.joints.push_back`
-    loop) to the real Blender bone name Blender's importer will have used
-    (`Skeleton::Joint::name` when known, else husk's own `bone_<index>`
-    fallback -- never guessable from the index alone without this lookup).
+    Each anchor's own real Blender bone name is already resolved by husk
+    itself (`bone_name`, alongside the raw `joint` index it was resolved
+    from) -- `gltf_skeleton.cpp` does this at export time now, so no
+    Blender-side index/name-table join is needed here at all (an earlier
+    version of this function did that join itself, using a separate
+    `joint_names` lookup table this same root-joint extras also still
+    carries for other purposes -- see `_root_joint_extras`'s own doc
+    comment).
 
-    Returns `(ribbon_anchors, particle_anchors, joint_bone_names)` --
-    the first two are lists of `{"id", "joint", "position": {"x","y","z"}}`
-    dicts (empty, not None, when absent -- these are usually-present, not
-    opt-in-flag-gated the way chr_texture_layout/enabled_geosets are), the
-    third a `{joint_index: bone_name}` dict. All empty when `filepath` is
-    falsy/unreadable or the model has no skin at all.
+    Returns `(ribbon_anchors, particle_anchors)`, lists of `{"id", "joint",
+    "bone_name", "position": {"x","y","z"}}` dicts (empty, not None, when
+    absent -- these are usually-present, not opt-in-flag-gated the way
+    chr_texture_layout/enabled_geosets are).
     """
-    data = _read_glb_json(filepath)
-    if data is None:
-        return [], [], {}
-    nodes = data.get("nodes", [])
-    joint_bone_names = {}
-    ribbon_anchors, particle_anchors = [], []
-    for skin in data.get("skins", []):
-        skin_joints = skin.get("joints", [])
-        for joint_index, node_index in enumerate(skin_joints):
-            if 0 <= node_index < len(nodes):
-                joint_bone_names[joint_index] = nodes[node_index].get("name", f"bone_{joint_index}")
-        extras = skin.get("extras")
-        if extras:
-            ribbon_anchors = extras.get("ribbon_emitters", []) or ribbon_anchors
-            particle_anchors = extras.get("particle_emitters", []) or particle_anchors
-    return ribbon_anchors, particle_anchors, joint_bone_names
+    extras = _root_joint_extras(armature_obj)
+    ribbon_anchors = extras.get("ribbon_emitters") or []
+    particle_anchors = extras.get("particle_emitters") or []
+    return ribbon_anchors, particle_anchors
+
+
+def read_physics_bodies(armature_obj):
+    """Reads `physics_bodies`/`physics_joints`/`joint_names` from the
+    already-imported armature's own root-joint extras (see
+    `_root_joint_extras`) -- no file path needed. See
+    `gltf::Skeleton::PhysicsBody`/`PhysicsJoint`'s own doc comments
+    (`gltf_skeleton.hpp`) for the exact reduced shape of each: `physics_
+    bodies` is `{"id", "joint", "position": {"x","y","z"}, "body_type"}`
+    per real `.phys` body (`id` is that body's own index into the source
+    `.phys` file's BODY array, the join key `physics_joints` uses); `physics_
+    joints` is `{"body_a", "body_b", "frequency_hz", "damping_ratio",
+    "swing_limit_deg"}` per real `.phys` joint -- both travel inside the
+    `.glb` itself, no separate `husk dump-chunks` call needed (see this
+    section's own module comment on why an earlier version needed one and
+    doesn't anymore). `joint_bone_names` resolves a body's raw `joint`
+    (an index into `skin.joints`, i.e. a raw M2 bone index) to the real
+    Blender bone name, via `_joint_bone_names_from_extras` -- same
+    `joint_names` extras `read_emitter_anchors` reads, no raw file needed
+    for that either anymore.
+
+    Returns `(physics_bodies, physics_joints, joint_bone_names)` --
+    `physics_bodies`/`physics_joints` are `[]`, not None, when the model
+    was exported without `--phys`.
+    """
+    extras = _root_joint_extras(armature_obj)
+    physics_bodies = extras.get("physics_bodies") or []
+    physics_joints = extras.get("physics_joints") or []
+    joint_bone_names = _joint_bone_names_from_extras(armature_obj)
+    return physics_bodies, physics_joints, joint_bone_names
 
 
 def build_geoset_choice_names(chr_customization_options):
@@ -2120,13 +2175,13 @@ def _debug_marker_collection():
     return collection
 
 
-def apply_emitter_markers(armature_obj, filepath):
+def apply_emitter_markers(armature_obj):
     """Places one placement-marker object per real `ribbon_emitters`/
     `particle_emitters` anchor (see `read_emitter_anchors`) -- returns
-    `(ribbon_count, particle_count)`, both 0 if `filepath` gave no anchors
-    (falsy path, no ribbon/particle emitters on this model, or a joint
-    index this model's own skin doesn't have -- logged, not raised, same
-    as `apply_billboard_alignment`'s per-bone skip behavior).
+    `(ribbon_count, particle_count)`, both 0 if `armature_obj` gave no
+    anchors (falsy armature, no ribbon/particle emitters on this model, or
+    a joint index this model's own skin doesn't have -- logged, not
+    raised, same as `apply_billboard_alignment`'s per-bone skip behavior).
 
     Every marker lands in `_debug_marker_collection()` (hidden-by-default,
     excluded from every render pass -- see that function's own doc
@@ -2135,7 +2190,7 @@ def apply_emitter_markers(armature_obj, filepath):
     the moment someone relinks a marker into a different collection, an
     object-level flag doesn't.
     """
-    ribbon_anchors, particle_anchors, joint_bone_names = read_emitter_anchors(filepath)
+    ribbon_anchors, particle_anchors = read_emitter_anchors(armature_obj)
     if not ribbon_anchors and not particle_anchors:
         return 0, 0
 
@@ -2147,11 +2202,10 @@ def apply_emitter_markers(armature_obj, filepath):
             continue
         mesh, mat = _emitter_marker_prototype(kind, color)
         for anchor in anchors:
-            joint = anchor.get("joint", -1)
-            bone_name = joint_bone_names.get(joint)
-            if bone_name is None or bone_name not in armature_obj.pose.bones:
+            bone_name = anchor.get("bone_name")
+            if not bone_name or bone_name not in armature_obj.pose.bones:
                 print(f"husk_blender_geoset_mask: {kind} emitter id={anchor.get('id')} -- "
-                      f"joint {joint} has no matching bone, skipped")
+                      f"joint {anchor.get('joint')} has no matching bone, skipped")
                 continue
             pos = anchor.get("position", {})
             local_offset = mathutils.Vector((pos.get("x", 0.0), pos.get("y", 0.0), pos.get("z", 0.0)))
@@ -2170,6 +2224,253 @@ def apply_emitter_markers(armature_obj, filepath):
         bpy.app.handlers.depsgraph_update_post.append(_update_registered_emitter_markers)
 
     return counts["ribbon"], counts["particle"]
+
+
+# --- .phys jiggle-bone wiring (real spring-chain data -> the "Jiggle
+# Physics" Blender addon, https://extensions.blender.org/add-ons/jiggle-physics/,
+# naelstrof/blender-jiggle-physics on GitHub) ---
+# `read_physics_bodies` reads both `physics_bodies` (per-body placement
+# anchor) and `physics_joints` (a deliberately reduced body-to-body spring/
+# limit graph -- body pair, spring frequency/damping or a normalized
+# swing-limit angle, no frame matrices or shape geometry) straight from the
+# already-imported armature's own root-joint extras (see
+# `_root_joint_extras`) -- both travel inside the `.glb` itself now, no
+# `husk` binary or separate `.phys` file needed at Blender-import time (an
+# earlier version of this shelled out to `husk dump-chunks <file>.phys` for
+# the joint graph; real feedback flagged that as a portability bug, since a
+# `.glb` isn't guaranteed to travel with a `husk` binary nearby -- fixed by
+# embedding the reduced graph in husk's own C++ export instead, see
+# `gltf::Skeleton::PhysicsJoint`). This section drives the Jiggle Physics
+# addon's own plain bpy properties directly from that data -- no bpy.ops
+# needed, the addon has no operator for "enable jiggle on this bone", just
+# PoseBone-level properties (`pose_bone.jiggle.enable`, `.mode`,
+# `jiggle_angle_elasticity`, ...), confirmed by reading the addon's own
+# `__init__.py` (single-file addon, no `bpy.ops.jiggle.*` namespace).
+#
+# WoW's own joint graph connects two *bodies*, not bones directly, and
+# isn't guaranteed to follow the skeleton's own parent/child bone chain --
+# but the Jiggle Physics addon's solver rides *only* on the existing bone
+# parent chain (verlet along parent->child), it has no concept of an
+# arbitrary body-to-body spring graph. Every real fixture checked this
+# session (a real chain prop, `8xp_heartofazeroth_prop_floatychain.phys`)
+# had every joint edge exactly matching a real bone parent/child pair, but
+# this isn't assumed true in general -- any edge that doesn't match the
+# armature's own bone parents is skipped with a loud note, never silently
+# force-fit onto the wrong bone.
+#
+# The addon is deliberately "authorable, not physically accurate" (its own
+# README) -- a 0..1 "elasticity" knob, not real spring math. WoW's own
+# `.phys` spring fields are real physical units (Hz, damping ratio) or, in
+# the very common case observed in the real fixture above, simply
+# absent/zero (a Shoulder/Revolute joint with zero motor frequency -- that
+# file shape describes a swing *limit*, not a spring-back force; the
+# restoring motion is gravity + the cone/twist angle limit, not an
+# authored stiffness). There is no exact conversion between these two
+# systems -- `_phys_elasticity_heuristic` below is a labeled best-effort
+# approximation, meant to be tuned by eye in the viewport afterward, not a
+# physically faithful port.
+
+def _phys_elasticity_heuristic(frequency_hz, swing_limit_deg):
+    """Best-effort `physics_joints` spring/limit data -> Jiggle Physics
+    addon's 0..1 `jiggle_angle_elasticity`/`jiggle_length_elasticity`
+    knobs. See this section's own module-level comment for why this can't
+    be an exact conversion. `frequency_hz`/`swing_limit_deg` are the
+    already-normalized scalars `gltf::Skeleton::PhysicsJoint` resolves on
+    the husk C++ side (real spring frequency when this joint type carries
+    one, else a real swing-limit angle, else both 0) -- this function only
+    owns the elasticity *curve*, not which raw `.phys` field means what.
+
+    Preference order:
+    1. A real nonzero `frequency_hz` -- higher frequency = stiffer, mapped
+       via `f / (f + 2)` (a simple saturating curve chosen so ~2 Hz, a soft
+       cloth-like spring, lands near the addon's own 0.6 default, and
+       higher real frequencies climb toward 1.0).
+    2. No spring frequency at all (the common case observed in real data --
+       a pure angle-limit joint) -- `swing_limit_deg`, when nonzero:
+       narrower allowed swing = stiffer, mapped via
+       `1 - min(swing_deg, 180) / 180`.
+    3. Neither -- the addon's own built-in default (0.6), unchanged.
+    """
+    if frequency_hz:
+        return max(0.0, min(1.0, frequency_hz / (frequency_hz + 2.0)))
+    if swing_limit_deg:
+        return max(0.0, min(1.0, 1.0 - min(swing_limit_deg, 180.0) / 180.0))
+    return 0.6
+
+
+class HUSK_OT_install_jiggle_physics(bpy.types.Operator):
+    """Installs the third-party 'Jiggle Physics' addon (`naelstrof/
+    blender-jiggle-physics`, package id `jiggle_physics`) from
+    extensions.blender.org -- what `apply_physics_jiggle_bones` needs to do
+    anything with real `.phys` spring/joint data. Only ever runs from its
+    own confirm dialog (`invoke`, below): this script itself never
+    downloads or installs anything without a real, explicit click from a
+    human on that dialog -- `execute` (the part that actually calls
+    `bpy.ops.extensions.package_install`) is only reached after that.
+    """
+    bl_idname = "husk.install_jiggle_physics"
+    bl_label = "Install Jiggle Physics addon"
+    bl_options = {'REGISTER'}
+    _PKG_ID = "jiggle_physics"
+    _REPO_MODULE = "blender_org"
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(
+            self, event,
+            title="husk: install the 'Jiggle Physics' addon?",
+            message="Downloads and installs the third-party 'Jiggle Physics' addon "
+                     "(naelstrof/blender-jiggle-physics) from extensions.blender.org, needed "
+                     "to turn this model's real .phys spring/joint data into live jiggle bones.",
+            confirm_text="Install")
+
+    def execute(self, context):
+        repo_index = next((i for i, r in enumerate(context.preferences.extensions.repos)
+                            if r.module == self._REPO_MODULE), None)
+        if repo_index is None:
+            self.report({'ERROR'}, "husk: no 'extensions.blender.org' repository configured in "
+                                    "this Blender -- install manually from "
+                                    "https://extensions.blender.org/add-ons/jiggle-physics/")
+            return {'CANCELLED'}
+        if not bpy.app.online_access:
+            self.report({'ERROR'}, "husk: online access is disabled (Preferences > System > "
+                                    "Network > Allow Online Access) -- enable it, or install "
+                                    "manually from https://extensions.blender.org/add-ons/"
+                                    "jiggle-physics/")
+            return {'CANCELLED'}
+        bpy.ops.extensions.repo_sync(repo_index=repo_index)
+        result = bpy.ops.extensions.package_install(repo_index=repo_index, pkg_id=self._PKG_ID,
+                                                      enable_on_install=True)
+        if 'FINISHED' not in result:
+            self.report({'ERROR'}, "husk: Jiggle Physics install failed -- see the console, or "
+                                    "install manually from https://extensions.blender.org/"
+                                    "add-ons/jiggle-physics/")
+            return {'CANCELLED'}
+        self.report({'INFO'}, "husk: Jiggle Physics installed -- re-run this script (Scripting "
+                               "tab > Run Script, or re-import the .glb) to wire up jiggle bones")
+        return {'FINISHED'}
+
+
+_install_prompt_shown = False
+
+
+def _prompt_install_jiggle_physics():
+    """Pops `HUSK_OT_install_jiggle_physics`'s own confirm dialog, deferred
+    one Blender-event-loop tick via `bpy.app.timers` -- `invoke_confirm`
+    needs a real window/event, which isn't reliably available yet while
+    this script is still executing as part of Blender's own `--python`
+    startup handling (the exact same "not ready until the event loop
+    actually starts spinning" timing issue every deferred-registration
+    pattern in this file works around, e.g. `_update_registered_emitter_markers`).
+    Never prompts more than once per Blender session (`_install_prompt_shown`),
+    and never runs at all in `--background` mode -- there's no window to
+    show a dialog in, so `physics_jiggle_stage` falls back to a
+    console-only message there instead.
+    """
+    global _install_prompt_shown
+    if _install_prompt_shown or bpy.app.background:
+        return
+    _install_prompt_shown = True
+    if not hasattr(bpy.types, "HUSK_OT_install_jiggle_physics"):
+        bpy.utils.register_class(HUSK_OT_install_jiggle_physics)
+
+    def _show():
+        bpy.ops.husk.install_jiggle_physics('INVOKE_DEFAULT')
+        return None
+
+    bpy.app.timers.register(_show, first_interval=0.1)
+
+
+def apply_physics_jiggle_bones(armature_obj, physics_bodies, physics_joints, joint_bone_names):
+    """Wires up the Jiggle Physics addon (see this section's module-level
+    comment) from real `.phys` body/joint data: `physics_bodies` gives
+    `id -> bone`, `physics_joints` gives the real (reduced) joint graph
+    connecting those bodies -- both from this file's own
+    `read_physics_bodies`, both already inside the `.glb`, no separate file
+    or subprocess needed.
+
+    Returns `(enabled_count, skipped_count)`. `enabled_count` is the
+    number of bones that got `pose_bone.jiggle.enable = True`;
+    `skipped_count` counts joint edges that didn't map onto a real bone
+    parent/child pair in this armature (see the module-level comment on
+    why those are dropped, not force-fit). Returns `(0, 0)` if the Jiggle
+    Physics addon isn't installed/enabled, or `physics_bodies`/
+    `physics_joints` is empty (model exported without `--phys`).
+    """
+    if not hasattr(bpy.types.PoseBone, "jiggle"):
+        if bpy.app.background:
+            print("husk_blender_geoset_mask: physics_bodies extras present but the 'Jiggle "
+                  "Physics' addon isn't installed/enabled (Edit > Preferences > Get Extensions, "
+                  "search 'Jiggle Physics', naelstrof/blender-jiggle-physics) -- skipping "
+                  "jiggle-bone setup")
+        else:
+            print("husk_blender_geoset_mask: physics_bodies extras present but the 'Jiggle "
+                  "Physics' addon isn't installed/enabled -- a confirm dialog will offer to "
+                  "install it (husk.install_jiggle_physics); re-run this script afterward to "
+                  "wire up jiggle bones")
+            _prompt_install_jiggle_physics()
+        return 0, 0
+    if not physics_bodies or not physics_joints:
+        return 0, 0
+
+    body_bone = {}
+    for body in physics_bodies:
+        bone_name = joint_bone_names.get(body.get("joint", -1))
+        if bone_name and bone_name in armature_obj.pose.bones:
+            body_bone[body["id"]] = bone_name
+
+    parent_names = {b.name: (b.parent.name if b.parent else None) for b in armature_obj.pose.bones}
+
+    is_child_of = {}  # bone_name -> set of bones it is the jiggle-child of
+    enabled_names = set()
+    skipped = 0
+    for joint in physics_joints:
+        bone_a = body_bone.get(joint.get("body_a"))
+        bone_b = body_bone.get(joint.get("body_b"))
+        if bone_a is None or bone_b is None:
+            continue
+        if parent_names.get(bone_b) == bone_a:
+            child, parent = bone_b, bone_a
+        elif parent_names.get(bone_a) == bone_b:
+            child, parent = bone_a, bone_b
+        else:
+            print(f"husk_blender_geoset_mask: physics joint body {joint.get('body_a')}<->"
+                  f"{joint.get('body_b')} (bones '{bone_a}'/'{bone_b}') isn't a real bone "
+                  "parent/child pair in this armature -- skipped (Jiggle Physics can only "
+                  "chain along the existing bone hierarchy)")
+            skipped += 1
+            continue
+        enabled_names.add(child)
+        enabled_names.add(parent)
+        is_child_of.setdefault(child, set()).add(parent)
+
+        elasticity = _phys_elasticity_heuristic(joint.get("frequency_hz", 0), joint.get("swing_limit_deg", 0))
+        pose_bone = armature_obj.pose.bones[child]
+        pose_bone.jiggle.enable = True
+        pose_bone.jiggle_angle_elasticity = elasticity
+        pose_bone.jiggle_length_elasticity = elasticity
+
+    for name in enabled_names:
+        pose_bone = armature_obj.pose.bones[name]
+        pose_bone.jiggle.enable = True
+        # A bone that's someone's jiggle-child but never a parent itself in
+        # this graph is a chain tip; a bone that's only ever a parent is
+        # this chain's root -- Jiggle Physics' own `mode` enum distinguishes
+        # both from an ordinary mid-chain bone (real behavior difference:
+        # 'root' bones don't simulate themselves, 'tip' bones get no child
+        # to inherit twist from).
+        is_root = name not in is_child_of
+        is_tip = not any(name in parents for parents in is_child_of.values())
+        if is_root and not is_tip:
+            pose_bone.jiggle.mode = 'root'
+        elif is_tip and not is_root:
+            pose_bone.jiggle.mode = 'tip'
+        else:
+            pose_bone.jiggle.mode = 'normal'
+
+    if enabled_names:
+        armature_obj.jiggle.enable = True
+        bpy.context.scene.jiggle.enable = True
+    return len(enabled_names), skipped
 
 
 # --- animated texture-effect playback (ANIMATED_TEXTURE_EFFECTS_TODO.md) ---
@@ -2756,6 +3057,34 @@ def main():
             # level below (e.g. a `female`/`male` subfolder).
             textures_dir = os.path.dirname(os.path.abspath(filepath)) or "."
 
+    if textures_dir is None:
+        # Blender's own relative-path convention (an Image's own `filepath`
+        # can be `//`-prefixed, relative to the current .blend file's own
+        # directory; bpy.path.abspath("//") resolves that base directory
+        # directly) -- same "textures live next to the model" assumption
+        # the CLI-arg-derived default above already makes, just sourced
+        # from the saved .blend file's own location instead of a trailing
+        # argv path. Real: confirmed directly that Blender returns a plain
+        # empty string here (not a silent cwd guess) when the file hasn't
+        # been saved anywhere yet, so this only ever fires with a real
+        # directory. Closes the "runnable as a pure Blender script, no
+        # arguments at all" case Luna asked for -- import the model via
+        # File > Import, save the .blend next to it, run this script from
+        # the Text Editor with zero configuration.
+        blend_dir = bpy.path.abspath("//")
+        if blend_dir:
+            # A real "textures/" subfolder next to the .blend, when
+            # present, is preferred over the bare .blend directory itself
+            # (a real, common asset-layout convention this default should
+            # also recognize, not just "everything flat in one folder").
+            # `_resolve_customization_texture_path`'s own existing
+            # "also check the parent directory" search means using this
+            # subfolder as `textures_dir` still finds a real texture that
+            # instead sits directly in the bare .blend directory -- no
+            # need to check both explicitly here.
+            textures_subdir = os.path.join(blend_dir, "textures")
+            textures_dir = textures_subdir if os.path.isdir(textures_subdir) else blend_dir
+
     mesh_objs, armature_obj = find_mesh_and_armature()
     model_name = mesh_objs[0].name if mesh_objs else (filepath or "<unknown>")
     materials = {obj.material_slots[i].material
@@ -2764,9 +3093,9 @@ def main():
                  if obj.material_slots[i].material is not None}
 
     def geoset_stage():
-        enabled_geosets = read_enabled_geosets(filepath)
+        enabled_geosets = read_enabled_geosets(armature_obj)
         extra_default_overrides = enabled_geosets_to_default_overrides(enabled_geosets)
-        chr_customization_options = read_chr_customization_options(filepath)
+        chr_customization_options = read_chr_customization_options(armature_obj)
         all_groups, switch_groups, removed = apply_geoset_switches(
             mesh_objs, armature_obj, extra_default_overrides, chr_customization_options)
         print(f"husk_blender_geoset_mask: {len(all_groups)} geoset group(s) across "
@@ -2791,10 +3120,10 @@ def main():
               "bone(s) got a camera-facing constraint")
 
     def texture_layout_overlay_stage():
-        layout = read_chr_texture_layout(filepath)
+        layout = read_chr_texture_layout(armature_obj)
         if layout is None:
             print("husk_blender_geoset_mask: no chr_texture_layout extras found "
-                  "(no --char-layout-id given at export time, or no file path given here) -- "
+                  "(no --char-layout-id given at export time, or no armature in the scene) -- "
                   "skipping the texture-layout overlay")
             return
         touched = apply_texture_layout_overlay(layout, materials)
@@ -2804,13 +3133,13 @@ def main():
               f"node in the Shader Editor)")
 
     def customization_texture_switch_stage():
-        options = read_chr_customization_options(filepath)
+        options = read_chr_customization_options(armature_obj)
         if not options:
             print("husk_blender_geoset_mask: no chr_customization_options extras found "
-                  "(no derivable ChrModelID at export time, or no file path given here) -- "
+                  "(no derivable ChrModelID at export time, or no armature in the scene) -- "
                   "skipping the customization texture switch")
             return
-        layout = read_chr_texture_layout(filepath)
+        layout = read_chr_texture_layout(armature_obj)
         if layout is None:
             print("husk_blender_geoset_mask: chr_customization_options present but no "
                   "chr_texture_layout extras (no --char-layout-id given at export time) -- "
@@ -2821,7 +3150,7 @@ def main():
                   "present but no '-- <file.glb> --textures <dir>' given -- can't load real "
                   "per-choice textures, skipping the customization texture switch")
             return
-        enabled_materials = read_chr_enabled_materials(filepath)
+        enabled_materials = read_chr_enabled_materials(armature_obj)
         touched = apply_customization_texture_switch(options, layout, enabled_materials, materials,
                                                        textures_dir)
         if touched:
@@ -2846,14 +3175,14 @@ def main():
                   "apply_tint_fade_animation's own doc comment")
 
     def emitter_marker_stage():
-        ribbon_count, particle_count = apply_emitter_markers(armature_obj, filepath)
+        ribbon_count, particle_count = apply_emitter_markers(armature_obj)
         if ribbon_count or particle_count:
             print(f"husk_blender_geoset_mask: {ribbon_count} ribbon + {particle_count} particle "
                   "emitter placement marker(s) added -- placeholders, not a real particle-effect "
                   "simulation, see apply_emitter_markers's own doc comment")
 
     def animation_asset_stage():
-        clip_names = read_animation_clip_names(filepath)
+        clip_names = read_animation_clip_names(armature_obj)
         if not clip_names:
             return
         marked = mark_actions_as_assets(clip_names)
@@ -2869,6 +3198,21 @@ def main():
                   "multiply-blend compositing (compositor node graph built -- render normally, "
                   "F12, to see it)")
 
+    def physics_jiggle_stage():
+        if armature_obj is None:
+            return
+        physics_bodies, physics_joints, joint_bone_names = read_physics_bodies(armature_obj)
+        if not physics_bodies:
+            return
+        enabled, skipped = apply_physics_jiggle_bones(armature_obj, physics_bodies,
+                                                        physics_joints, joint_bone_names)
+        if enabled:
+            print(f"husk_blender_geoset_mask: {enabled} bone(s) wired up as Jiggle Physics "
+                  f"jiggle bones ({skipped} joint edge(s) skipped, didn't match a real bone "
+                  "parent/child pair) -- enable 'Jiggle' on the armature/scene if this comes back "
+                  "off, and tune per-bone elasticity by eye, see apply_physics_jiggle_bones's own "
+                  "doc comment on why the numbers are a best-effort heuristic, not an exact port")
+
     _run_stage(model_name, "geoset switch", geoset_stage)
     _run_stage(model_name, "billboard alignment", billboard_stage)
     _run_stage(model_name, "texture-layout overlay", texture_layout_overlay_stage)
@@ -2878,6 +3222,7 @@ def main():
     _run_stage(model_name, "emitter placement markers", emitter_marker_stage)
     _run_stage(model_name, "animation asset marking", animation_asset_stage)
     _run_stage(model_name, "multiply-blend compositing", multiply_blend_compositing_stage)
+    _run_stage(model_name, "physics jiggle bones", physics_jiggle_stage)
 
 
 if __name__ == "__main__":
