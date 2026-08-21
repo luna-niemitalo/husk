@@ -26,6 +26,7 @@ work, corpus scans, well-scoped implementation, investigation).
 | `DPIV_TODO.md` | Cracking the `DPIV` mystery chunk's real field semantics | Structural shape characterized (multi-record, ground-anchor-shaped); `field3`'s real meaning still open | Independent (corpus/byte analysis), but world/doodad-placement-adjacent, not core M2 rendering |
 | `TODO_correctness.md` | Misc correctness/usability gaps punch list, including the `tools/live_gallery` browser-viewer verification follow-up | Camera support deprioritized by design; `.bone` slot *selection* now resolved (2026-08-14) — application is `BONE_CORRECTION_APPLICATION_TODO.md`'s job, not this file's; live-viewer curve playback structurally verified, not yet visually confirmed in a real browser; `resolveFieldString`'s multi-section string-offset bug fixed 2026-08-20; #2's name-enumeration/default-choice heuristic now implemented too (2026-08-20, `--chr-model-id`) | N/A — mostly closed or delegated elsewhere |
 | `WORLD/` | WMO/ADT/world-geometry scope (12 files) — a separate project phase, own entry point `../WORLD_COMPLETENESS.md` | Investigated/planned, no code started | Not covered by this index — see `WORLD_COMPLETENESS.md` |
+| `FILE_SPLIT_TODO.md` | A second split pass: 5 `src/`/`tests/` files have grown back past the 1000-line hard limit a prior pass already enforced once (`.py` tools deliberately out of scope) | Not started — 5 scoped split targets, each a pure move, no behavior change | Independent |
 
 ## Suggested order, independent tasks only
 
@@ -34,6 +35,8 @@ work, corpus scans, well-scoped implementation, investigation).
    plus the live Blender-side switch, verified end to end; Stage 5's own
    real-texture interactive pass is human-gated, see its own file).
    `CLEANUP_TODO.md` is now empty (both former items closed).
+2. `FILE_SPLIT_TODO.md` — 5 scoped, low-risk pure-move splits, no design
+   decisions needed.
 
 Everything else needs Luna's own interactive/client-side verification
 (`BONE_CORRECTION_APPLICATION_TODO.md`, `RENDER_QUALITY_TODO.md`'s
