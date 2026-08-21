@@ -520,7 +520,22 @@ def _or_all(node_tree, bool_sockets):
     return acc
 
 
-def _build_group_hidden_term(node_tree, group_input, group, variants, default_item=None):
+def _unique_label(label, taken):
+    """`label`, or `label` disambiguated against `taken` (a set of already-
+    used labels) by appending a running counter -- guards the unexpected-
+    but-not-impossible case of two real choice names colliding (e.g. two
+    different options both offering a choice literally named "None").
+    """
+    if label not in taken:
+        return label
+    n = 2
+    while f"{label} ({n})" in taken:
+        n += 1
+    return f"{label} ({n})"
+
+
+def _build_group_hidden_term(node_tree, group_input, group, variants, default_item=None,
+                              choice_names=None, group_label=None):
     """One geoset group's contribution to the overall "hidden" expression --
     see this module's own doc comment, point 4, for the shape. `variants`
     is `[(variant, vg_name), ...]`, lowest variant first. Returns a boolean
@@ -529,23 +544,39 @@ def _build_group_hidden_term(node_tree, group_input, group, variants, default_it
     `"variant_<n>"` or `"none"`) overrides the default dropdown selection
     when given and valid for this group's own real item set -- see
     `CURATED_DEFAULT_VARIANTS`; falls back to the lowest real variant ID
-    otherwise, same as before that table existed.
+    otherwise, same as before that table existed. `choice_names`
+    (`{variant: real choice name}`, from `build_geoset_choice_names`) and
+    `group_label` (that group's real option name) label the dropdown with
+    real, human-readable strings (e.g. "Short Fin" instead of "variant_7")
+    wherever real DB2 customization-choice data resolved one for this
+    exact group/variant -- variants with no matching real choice keep the
+    plain numeric label. The dropdown item's own internal Blender name
+    (`NodeEnumItem.name`, which doubles as both identifier and displayed
+    label -- there's no separate id/label pair on this node type) becomes
+    the human label when one exists; `default_item`/`CURATED_DEFAULT_VARIANTS`
+    stay in the stable `"variant_<n>"` string format regardless (resolved
+    to the matching item via `label_by_variant` below), so switching a
+    model's own dropdown to human names never breaks a hand-curated or
+    DB2-derived default.
     """
+    choice_names = choice_names or {}
     owns_group = _or_all(node_tree, [_named_attr_gt_zero(node_tree, vg_name) for _, vg_name in variants])
 
     selector = node_tree.nodes.new('GeometryNodeMenuSwitch')
     selector.data_type = 'STRING'
-    selector.label = f"Geoset group {group} (selector)"
+    selector.label = f"{group_label} (group {group} selector)" if group_label else f"Geoset group {group} (selector)"
     # Fresh nodes start with two placeholder items ("A"/"B") that have to
     # be cleared before adding real ones, or they'd linger as two extra,
     # unwired, meaningless dropdown entries.
     selector.enum_definition.enum_items.clear()
     item_names = []
+    label_by_variant = {}
     for variant, vg_name in variants:
-        item_name = f"variant_{variant}"
-        selector.enum_definition.enum_items.new(item_name)
-        selector.inputs[item_name].default_value = vg_name
-        item_names.append(item_name)
+        label = _unique_label(choice_names.get(variant) or f"{VARIANT_PREFIX}{variant}", item_names)
+        selector.enum_definition.enum_items.new(label)
+        selector.inputs[label].default_value = vg_name
+        item_names.append(label)
+        label_by_variant[variant] = label
     selector.enum_definition.enum_items.new(NONE_ITEM_NAME)
     selector.inputs[NONE_ITEM_NAME].default_value = NONE_SENTINEL_ATTR
 
@@ -557,12 +588,22 @@ def _build_group_hidden_term(node_tree, group_input, group, variants, default_it
     # items yet (its valid enum values are derived from whatever it's
     # connected to), so setting default_value first throws "enum ... not
     # found in ()".
+    socket_name = f"{group_label} (group {group})" if group_label else f"Geoset group {group}"
     menu_socket = node_tree.interface.new_socket(
-        name=f"Geoset group {group}", in_out='INPUT', socket_type='NodeSocketMenu')
+        name=socket_name, in_out='INPUT', socket_type='NodeSocketMenu')
     node_tree.links.new(group_input.outputs[menu_socket.name], selector.inputs[0])
     valid_items = item_names + [NONE_ITEM_NAME]
-    if default_item is not None and default_item in valid_items:
-        menu_socket.default_value = default_item
+
+    default_label = None
+    if default_item == NONE_ITEM_NAME:
+        default_label = NONE_ITEM_NAME
+    elif default_item is not None and default_item.startswith(VARIANT_PREFIX):
+        try:
+            default_label = label_by_variant.get(int(default_item[len(VARIANT_PREFIX):]))
+        except ValueError:
+            default_label = None
+    if default_label is not None and default_label in valid_items:
+        menu_socket.default_value = default_label
     else:
         menu_socket.default_value = item_names[0]  # lowest real variant ID visible by default
 
@@ -571,12 +612,18 @@ def _build_group_hidden_term(node_tree, group_input, group, variants, default_it
     return _bool_math(node_tree, 'AND', owns_group, not_selected)
 
 
-def build_geoset_switch_node_group(name, groups, default_overrides=None):
+def build_geoset_switch_node_group(name, groups, default_overrides=None, chr_customization_options=None):
     """One GeometryNodeTree implementing the whole group/variant switch --
     see this module's own doc comment for the full shape. `groups` is
     `geoset_groups(mesh_obj)`'s own return value. `default_overrides` is
     `CURATED_DEFAULT_VARIANTS`'s own per-model `{group: item_name}` dict, or
-    None/empty for the plain lowest-variant default. Builds one combined
+    None/empty for the plain lowest-variant default. `chr_customization_options`
+    (`read_chr_customization_options`'s own return shape, or None) supplies
+    real human names for the dropdown -- see `build_geoset_choice_names`/
+    `_build_group_hidden_term`'s own doc comments; absent entirely for
+    creature models or when no --db2-dir/--dbd-dir was given at export
+    time, in which case every group keeps its plain numeric label, same as
+    before this parameter existed. Builds one combined
     "is this vertex hidden" boolean expression across every multi-variant
     group first (no geometry operations at all), then applies exactly one
     `Separate Geometry` to the pristine input mesh at the very end --
@@ -585,6 +632,7 @@ def build_geoset_switch_node_group(name, groups, default_overrides=None):
     selection boundaries across up to 109 sequential operations.
     """
     default_overrides = default_overrides or {}
+    variant_names, group_option_names = build_geoset_choice_names(chr_customization_options)
     node_tree = bpy.data.node_groups.new(name, 'GeometryNodeTree')
     node_tree.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
     node_tree.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
@@ -602,7 +650,9 @@ def build_geoset_switch_node_group(name, groups, default_overrides=None):
             # switch needed for this group.
             continue
         hidden_terms.append(_build_group_hidden_term(node_tree, group_input, group, switchable,
-                                                       default_overrides.get(group)))
+                                                       default_overrides.get(group),
+                                                       choice_names=variant_names.get(group),
+                                                       group_label=group_option_names.get(group)))
 
     if hidden_terms:
         overall_visible = _bool_math(node_tree, 'NOT', _or_all(node_tree, hidden_terms))
@@ -617,7 +667,7 @@ def build_geoset_switch_node_group(name, groups, default_overrides=None):
     return node_tree
 
 
-def apply_geoset_switch(mesh_obj, extra_default_overrides=None):
+def apply_geoset_switch(mesh_obj, extra_default_overrides=None, chr_customization_options=None):
     """Builds the node group and adds it as a Geometry Nodes modifier;
     returns this mesh object's own `geoset_groups` result. Looks up
     `CURATED_DEFAULT_VARIANTS` by this mesh object's own real name (see
@@ -627,14 +677,16 @@ def apply_geoset_switch(mesh_obj, extra_default_overrides=None):
     return shape, or None) layers on top of and takes priority over
     `CURATED_DEFAULT_VARIANTS` -- real DB2-resolved data from a specific
     character's own customization choices is a stronger signal than a
-    hand-picked, model-wide curated guess.
+    hand-picked, model-wide curated guess. `chr_customization_options`:
+    see `build_geoset_switch_node_group`'s own doc comment.
     """
     groups = geoset_groups(mesh_obj)
     if not groups:
         return groups
     default_overrides = {**CURATED_DEFAULT_VARIANTS.get(_model_key(mesh_obj.name), {}),
                           **(extra_default_overrides or {})}
-    node_tree = build_geoset_switch_node_group(f"{mesh_obj.name}_geoset_switch", groups, default_overrides)
+    node_tree = build_geoset_switch_node_group(f"{mesh_obj.name}_geoset_switch", groups, default_overrides,
+                                                chr_customization_options)
     mod = mesh_obj.modifiers.new(name="HuskGeosetSwitch", type='NODES')
     mod.node_group = node_tree
     return groups
@@ -659,7 +711,7 @@ def delete_geoset_tag_bones(armature_obj, all_groups):
     return removed
 
 
-def apply_geoset_switches(mesh_objs, armature_obj, extra_default_overrides=None):
+def apply_geoset_switches(mesh_objs, armature_obj, extra_default_overrides=None, chr_customization_options=None):
     """Builds the real geoset Menu Switch dropdown for every mesh object
     and deletes the now-unnecessary tag bones -- the single, shared
     "make this a geoset-correct scene" step, used identically by every
@@ -684,7 +736,7 @@ def apply_geoset_switches(mesh_objs, armature_obj, extra_default_overrides=None)
     all_groups = {}
     switch_groups = 0
     for mesh_obj in mesh_objs:
-        groups = apply_geoset_switch(mesh_obj, extra_default_overrides)
+        groups = apply_geoset_switch(mesh_obj, extra_default_overrides, chr_customization_options)
         switch_groups += sum(1 for gid, variants in groups.items()
                               if switchable_variants(gid, variants))
         for gid, variants in groups.items():
@@ -800,6 +852,69 @@ def read_chr_customization_options(filepath):
     return None
 
 
+def read_animation_clip_names(filepath):
+    """`{glTF animation name: real AnimationData.db2 name or None}` for
+    every clip husk wrote to `filepath` -- reads straight from the raw
+    glTF JSON (`animations[].name`/`.extras.sequence_metadata.
+    animation_data_name`, see gltf_skeleton.hpp's `SequenceMetadata::
+    animationDataName` doc comment for why the real name is a separate
+    field, not baked into `name` itself on the husk side). Empty dict (not
+    None) when `filepath` is falsy/unreadable/has no animations -- never a
+    guess. A clip's own value is None (present as a key, but unresolved)
+    when no --db2-dir/--dbd-dir was given at export time, or this clip's
+    id has no real AnimationData.db2 row -- current real local extractions
+    (2026-08-21) have no Name column left in AnimationData.db2 at all
+    (dropped from the client's own schema at some point after 8.x, see
+    animationdata_db2.hpp's own doc comment), so every real husk export
+    today resolves this to None for every clip; the field/plumbing is
+    still real and exercised end to end via a synthetic test fixture
+    (tests/test_cli_animationdata.cpp) that does carry a Name column.
+    """
+    data = _read_glb_json(filepath)
+    if data is None:
+        return {}
+    result = {}
+    for anim in data.get("animations", []):
+        name = anim.get("name")
+        if not name:
+            continue
+        extras = anim.get("extras") or {}
+        meta = extras.get("sequence_metadata") or {}
+        result[name] = meta.get("animation_data_name") or None
+    return result
+
+
+def mark_actions_as_assets(clip_names):
+    """Marks every real husk-exported Action (matched by `clip_names`, see
+    `read_animation_clip_names`) as a Blender asset, so Blender's own
+    Asset Browser becomes a real per-animation picker -- husk's clips are
+    otherwise only reachable by scrubbing the raw Action list or an NLA
+    track by machine name (`anim_<id>_<variationIndex>`/`global_seq_<n>`).
+    A real AnimationData.db2 name (when `read_animation_clip_names`
+    resolved one) becomes the Action's own Blender name too -- this is
+    the one place in this whole pipeline that *renames* rather than just
+    annotates, deliberately: an Action's own name is exactly what both the
+    Asset Browser and the plain Action list show, so a human name has to
+    live there to be visible at all, unlike every other enrichment here
+    (geoset/customization names), which labels a dropdown item rather
+    than renaming anything real. The original machine name survives as
+    the asset's own description, so "which real anim_<id> was this" is
+    never lost even after a rename. Returns the number of actions marked.
+    """
+    marked = 0
+    for clip_name, human_name in clip_names.items():
+        action = bpy.data.actions.get(clip_name)
+        if action is None:
+            continue
+        if not action.asset_data:
+            action.asset_mark()
+        action.asset_data.description = f"husk clip: {clip_name}"
+        if human_name and action.name != human_name:
+            action.name = human_name
+        marked += 1
+    return marked
+
+
 def read_emitter_anchors(filepath):
     """Reads `ribbon_emitters`/`particle_emitters` straight out of the
     exported file's own raw glTF JSON (skins[].extras) -- see
@@ -843,6 +958,45 @@ def read_emitter_anchors(filepath):
             ribbon_anchors = extras.get("ribbon_emitters", []) or ribbon_anchors
             particle_anchors = extras.get("particle_emitters", []) or particle_anchors
     return ribbon_anchors, particle_anchors, joint_bone_names
+
+
+def build_geoset_choice_names(chr_customization_options):
+    """`chr_customization_options` (`read_chr_customization_options`'s own
+    return shape) -> `({group: {variant: choice_name}}, {group: option_name})`
+    -- real DB2-resolved names for the exact geoset group/variant numbers
+    `geoset_groups` already parses off each mesh object's own vertex group
+    names (`choice["geoset_id"] // 100`/`% 100` is the same inverse
+    `enabled_geosets_to_default_overrides` below already uses). Groups/
+    variants with no matching real customization choice (creature models,
+    or a group with no player-facing customization at all -- e.g. group 0's
+    base body) are simply absent from either dict; callers fall back to the
+    plain numeric label for those. A group fed by choices from more than
+    one distinct real option (not expected, not verified against real
+    data) is left out of the second dict rather than picking one option
+    name arbitrarily -- the per-variant names in the first dict are
+    unaffected either way.
+    """
+    variant_names = {}
+    group_option_names = {}
+    group_option_conflict = set()
+    for option in chr_customization_options or []:
+        option_name = option.get("option_name") or ""
+        for choice in option.get("choices", []):
+            geoset_id = choice.get("geoset_id")
+            if geoset_id is None:
+                continue
+            group, variant = geoset_id // 100, geoset_id % 100
+            choice_name = choice.get("choice_name") or ""
+            if choice_name:
+                variant_names.setdefault(group, {})[variant] = choice_name
+            if option_name and group not in group_option_conflict:
+                existing = group_option_names.get(group)
+                if existing is None:
+                    group_option_names[group] = option_name
+                elif existing != option_name:
+                    group_option_conflict.add(group)
+                    del group_option_names[group]
+    return variant_names, group_option_names
 
 
 def enabled_geosets_to_default_overrides(enabled_geosets):
@@ -2576,8 +2730,9 @@ def main():
     def geoset_stage():
         enabled_geosets = read_enabled_geosets(filepath)
         extra_default_overrides = enabled_geosets_to_default_overrides(enabled_geosets)
+        chr_customization_options = read_chr_customization_options(filepath)
         all_groups, switch_groups, removed = apply_geoset_switches(
-            mesh_objs, armature_obj, extra_default_overrides)
+            mesh_objs, armature_obj, extra_default_overrides, chr_customization_options)
         print(f"husk_blender_geoset_mask: {len(all_groups)} geoset group(s) across "
               f"{len(mesh_objs)} mesh object(s), {switch_groups} dropdown switch(es) built, "
               f"{removed} tag bone(s) removed")
@@ -2585,6 +2740,11 @@ def main():
             print(f"husk_blender_geoset_mask: {len(extra_default_overrides)} group default(s) "
                   f"driven by real enabled_geosets extras ({len(enabled_geosets)} customization "
                   "choice(s) resolved at export time), not the curated/lowest-variant fallback")
+        if chr_customization_options:
+            variant_names, group_option_names = build_geoset_choice_names(chr_customization_options)
+            print(f"husk_blender_geoset_mask: {len(group_option_names)} group(s) labeled with a "
+                  f"real option name, {sum(len(v) for v in variant_names.values())} variant(s) "
+                  "labeled with a real choice name, from chr_customization_options")
 
     def billboard_stage():
         billboard_bones = find_billboard_bones(armature_obj)
@@ -2656,6 +2816,16 @@ def main():
                   "emitter placement marker(s) added -- placeholders, not a real particle-effect "
                   "simulation, see apply_emitter_markers's own doc comment")
 
+    def animation_asset_stage():
+        clip_names = read_animation_clip_names(filepath)
+        if not clip_names:
+            return
+        marked = mark_actions_as_assets(clip_names)
+        named = sum(1 for v in clip_names.values() if v)
+        print(f"husk_blender_geoset_mask: {marked} animation Action(s) marked as real Blender "
+              f"assets (Asset Browser-pickable) -- {named} renamed to a real AnimationData.db2 "
+              "name, the rest keeping husk's own anim_<id>_<variationIndex>/global_seq_<n> name")
+
     def multiply_blend_compositing_stage():
         touched = apply_multiply_blend_compositing(bpy.context.scene, list(materials))
         if touched:
@@ -2670,6 +2840,7 @@ def main():
     _run_stage(model_name, "texture-transform animation", texture_transform_animation_stage)
     _run_stage(model_name, "tint/fade animation", tint_fade_animation_stage)
     _run_stage(model_name, "emitter placement markers", emitter_marker_stage)
+    _run_stage(model_name, "animation asset marking", animation_asset_stage)
     _run_stage(model_name, "multiply-blend compositing", multiply_blend_compositing_stage)
 
 

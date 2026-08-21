@@ -42,8 +42,26 @@ inline RunResult runCommand(const std::string& command) {
     return {output, WEXITSTATUS(status)};
 }
 
+// `HUSK_CONFIG=/dev/null` unless `args` already sets it: forces "no config
+// file" isolation from whatever real machine the test suite happens to run
+// on, same discipline runCommand's own callers rely on for a clean
+// environment otherwise. Without this, a developer machine's own real
+// `~/.config/husk/config.toml` (or a set $HUSK_CONFIG) is auto-discovered
+// by every `husk export`/`db2-export`/... invocation exactly like a real
+// user's would be -- config-file support (husk_config.hpp) is deliberately
+// global, not test-aware -- silently injecting real `--dbd-dir`/`--db2-dir`/
+// `--listfile-root` values into tests that never asked for them and don't
+// expect them. Found real, not theorized: 3 CLI-tier tests (a --listfile
+// corpus-root test, a --db2-dir-required-message test, a db2-export
+// generic-vs-real-column-name test) all failed on a machine with such a
+// config file present, each for a different symptom, until traced to this
+// one shared cause and fixed here once instead of patched three separate
+// times. A test that specifically exercises config-file behavior itself
+// (tests/test_cli_config.cpp) calls runCommand directly with its own
+// explicit HUSK_CONFIG/XDG_CONFIG_HOME/--config overrides, bypassing this
+// default entirely -- unaffected either way.
 inline RunResult runHusk(const std::string& args) {
-    return runCommand(std::string(HUSK_BINARY) + " " + args);
+    return runCommand("HUSK_CONFIG=/dev/null " + std::string(HUSK_BINARY) + " " + args);
 }
 
 }  // namespace husk::test

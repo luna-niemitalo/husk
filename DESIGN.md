@@ -1913,3 +1913,91 @@ so the export renders as something by default rather than bare — the same
 geosets already get, applied here for the first time to texture data.
 `husk export`'s own warning now names every embedded alternative and which
 one was arbitrarily chosen as the default.
+
+### Human-readable names for animations/geosets, and Blender's Asset Browser as an animation picker (2026-08-21)
+
+Three related usability gaps, all found the same way: real DB2/glTF-extras
+data husk already produces sat unconsumed by the one consuming tool
+(`tools/husk_blender_geoset_mask.py`) that could turn it into something
+visible. Tracked as `TODO/HUMAN_NAMES_TODO.md`.
+
+**Geoset dropdown labels now use real customization-choice names when
+available, not just `variant_<n>`.** husk already resolves every real
+`ChrCustomizationOption`/`Choice` -> `GeosetType*100+GeosetID` mapping into
+`chr_customization_options` skin extras (`chrcustomization_db2.hpp`,
+`--customization-choice-ids`/`--chr-model-id`'s own auto-enrichment) — the
+gap was purely on the Blender-script side, which built its Menu Switch
+dropdowns from the plain `group_<n>,variant_<n>` vertex-group naming
+convention alone. `build_geoset_choice_names` reshapes
+`chr_customization_options` into `{group: {variant: choice_name}}` +
+`{group: option_name}`; `_build_group_hidden_term` now labels each
+dropdown item with the real choice name (falling back to `variant_<n>`
+when no matching choice exists — creature models, or a group with no
+player-facing customization at all, e.g. group 0's base body) and the
+selector/interface-socket itself with the real option name. **Key
+constraint that shaped this**: `NodeEnumItem` (Menu Switch's own dropdown
+item type) has no separate identifier/label pair — `.name` is both at
+once, unlike a `bpy.types.EnumProperty` triple. Renaming an item's `.name`
+to a human string would have silently broken `default_item` matching
+(`CURATED_DEFAULT_VARIANTS`/`enabled_geosets_to_default_overrides`, both
+keyed by the stable `"variant_<n>"` string). Fixed by keeping
+`default_item`'s own contract exactly as it was — still a `"variant_<n>"`/
+`"none"` string — but resolving it against a `label_by_variant` map built
+alongside the (now human) item names, rather than a direct string-membership
+check. Verified end to end against real local data
+(`bloodelffemale_hd.m2`, `--chr-model-id`/`--customization-choice-ids`):
+6 of 23 real geoset groups on that model resolve a real option name, 30
+variants across them resolve a real choice name; the other 17 groups (no
+player-facing customization at all for that model, e.g. the base body/
+face groups) keep the plain numeric fallback, unchanged from before.
+
+**`husk export` now attaches AnimationData.db2's real Name column
+("Stand", "Walk", ...) to a matching clip's own `sequence_metadata`
+extras when `--db2-dir`/`--dbd-dir` are given — real, verified code, but
+current real local data can't exercise it.** New `animationdata_db2.hpp`/
+`.cpp` (same `db2table.hpp`-backed thin-wrapper pattern as every other
+DB2 reader here), threaded through `buildSequenceMetadata`/
+`buildAnimations` as a new `animation_data_name` field
+(`SequenceMetadata::animationDataName`) — deliberately *not* folded into
+the clip's own stable `anim_<id>_<variationIndex>` glTF `name` (every
+other tool here, including this script's own `read_animation_clip_names`,
+looks clips up by that name; a human name is enrichment, not a rename at
+the husk layer — see the Blender-side asset-marking paragraph below for
+where the actual rename happens). Verified correct via a synthetic WDC5
+fixture that does carry a `Name` column
+(`tests/test_cli_animationdata.cpp`) — but running against real local
+data (`husk db2-info animationdata.db2`, build 12.1.0-era extraction)
+found the real column simply isn't there any more: the resolved real
+layout (`LAYOUT BBF66A3C`) is `ID/Fallback/BehaviorTier/BehaviorID/
+Flags` only, no `Name` field at all. Cross-checked against
+`reference/WoWDBDefs/definitions/AnimationData.dbd`: `Name` was a real
+column through the 1.x-8.x layouts and is absent from every layout from
+roughly 8.x onward — the same "client schema genuinely dropped this
+column, not a husk/casc-tool extraction gap" class `CLAUDE_HISTORY.md`
+already documented for `AnimationData`'s own `aliasNext`-name lookup.
+Nothing to fix in husk here; the plumbing is real and correct, current
+real data just can't feed it a name. `husk_blender_geoset_mask.py`'s own
+`read_animation_clip_names` doc comment records this same finding for
+anyone reading the Blender-side code without this file.
+
+**Blender's own Asset Browser is now a real per-animation picker, via
+`action.asset_mark()`.** husk's own animation clips were previously only
+reachable by scrubbing the raw Action list (or an NLA track) by their
+machine name. `mark_actions_as_assets` (new, `husk_blender_geoset_mask.py`)
+marks every clip's imported Action as a real Blender asset after import,
+matched by the clip's own glTF animation name
+(`read_animation_clip_names`) so it only ever touches this model's own
+actions, never pre-existing ones already in the scene. This is
+deliberately the one place in this whole script that *renames* rather
+than just annotating: a `NodeEnumItem`-style label doesn't exist for
+Actions — the Asset Browser and the plain Action list both show `Action.name`
+directly, so a human name has to live there to be visible at all. When
+`read_animation_clip_names` resolves a real `animation_data_name` (see
+above — not the current real-data case, but real once older/richer
+`AnimationData.db2` data is available), the Action gets renamed to it;
+the original machine name is preserved as the asset's own description
+either way, so "which real `anim_<id>` was this" is never lost to a
+rename. Verified end to end against real local data
+(`bloodelffemale_hd.m2`, 338 real clips): all 338 marked as assets, 0
+renamed (consistent with the `AnimationData.Name` finding above — nothing
+to rename to yet).

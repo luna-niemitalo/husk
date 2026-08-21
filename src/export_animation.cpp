@@ -62,7 +62,8 @@ size_t resolveAliasChain(const std::vector<m2::Sequence>& sequences, size_t star
                               std::to_string(sequences.size()) + " hops (cycle?)");
 }
 
-gltf::Animation::SequenceMetadata buildSequenceMetadata(const m2::Sequence& seq) {
+gltf::Animation::SequenceMetadata buildSequenceMetadata(const m2::Sequence& seq,
+                                                          const std::string& animationDataName) {
     gltf::Animation::SequenceMetadata sm;
     sm.movespeed = seq.movespeed;
     sm.frequency = seq.frequency;
@@ -76,6 +77,7 @@ gltf::Animation::SequenceMetadata buildSequenceMetadata(const m2::Sequence& seq)
     sm.variationNext = seq.variationNext;
     sm.aliasNext = seq.aliasNext;
     sm.isAlias = (seq.flags & kSequenceAliasFlag) != 0;
+    sm.animationDataName = animationDataName;
     return sm;
 }
 
@@ -188,7 +190,8 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                                               const std::vector<m2::Bone>& bones,
                                               const gltf::Skeleton& skeleton,
                                               const std::vector<m2::Sequence>& sequences,
-                                              const M2AnimInputs& animInputs) {
+                                              const M2AnimInputs& animInputs,
+                                              const std::unordered_map<uint32_t, std::string>* animationNames) {
     std::vector<gltf::Animation> animations;
 
     for (size_t si = 0; si < sequences.size(); ++si) {
@@ -276,7 +279,12 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
 
         gltf::Animation anim;
         anim.name = "anim_" + std::to_string(originalSeq.id) + "_" + std::to_string(originalSeq.variationIndex);
-        anim.sequenceMetadata = buildSequenceMetadata(originalSeq);
+        std::string animationDataName;
+        if (animationNames) {
+            auto it = animationNames->find(originalSeq.id);
+            if (it != animationNames->end()) animationDataName = it->second;
+        }
+        anim.sequenceMetadata = buildSequenceMetadata(originalSeq, animationDataName);
 
         for (size_t bi = 0; bi < bones.size(); ++bi) {
             const auto& bone = bones[bi];

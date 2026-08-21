@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "gltf.hpp"
@@ -51,7 +52,12 @@ size_t resolveAliasChain(const std::vector<m2::Sequence>& sequences, size_t star
 // gltf::Animation::SequenceMetadata -- see that struct's doc comment for
 // why these are exposed as inert clip `extras` rather than applied to
 // anything.
-gltf::Animation::SequenceMetadata buildSequenceMetadata(const m2::Sequence& seq);
+// `animationDataName`: real AnimationData.db2 Name for `seq.id`, or empty
+// when unresolved (no --db2-dir/--dbd-dir given, or no matching row) --
+// see gltf::Animation::SequenceMetadata::animationDataName's own doc
+// comment.
+gltf::Animation::SequenceMetadata buildSequenceMetadata(const m2::Sequence& seq,
+                                                          const std::string& animationDataName = {});
 
 // Real wow.export-style extractions name external .anim files
 // <model-basename><animId:04d>-<subAnimId:02d>.anim next to the model, not
@@ -122,10 +128,14 @@ std::vector<gltf::Animation> buildGlobalSequenceAnimations(const std::vector<uin
 // see DESIGN.md#Key-design-decisions for the AFSB byte-layout investigation
 // and the aliasNext chain-resolution investigation behind the two
 // paragraphs above.
-std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
-                                              const std::vector<m2::Bone>& bones,
-                                              const gltf::Skeleton& skeleton,
-                                              const std::vector<m2::Sequence>& sequences,
-                                              const M2AnimInputs& animInputs);
+// `animationNames`: optional real AnimationData.db2 id -> Name lookup
+// (animationdata::toNameMap) -- when given, a sequence whose id has a real
+// row gets that name attached as sequenceMetadata.animationDataName (see
+// its own doc comment for why this doesn't rename the clip itself). Null
+// (the default) when --db2-dir/--dbd-dir weren't given at export time.
+std::vector<gltf::Animation> buildAnimations(
+    const std::vector<uint8_t>& blob, const std::vector<m2::Bone>& bones, const gltf::Skeleton& skeleton,
+    const std::vector<m2::Sequence>& sequences, const M2AnimInputs& animInputs,
+    const std::unordered_map<uint32_t, std::string>* animationNames = nullptr);
 
 }  // namespace husk::commands

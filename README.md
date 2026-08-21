@@ -265,6 +265,15 @@ base skin body, not a real hairstyle choice, and is now always visible
 (`ALWAYS_VISIBLE_VARIANTS`); the tabard-flap dropdown (group 12) toggles
 correctly, confirmed with a per-vertex debug-attribute check isolating the
 real int-value-to-item mapping.
+When the export also carried `chr_customization_options` (automatic
+whenever a real `ChrModelID` can be derived at all -- see above), the
+dropdown's own items and group labels use the real DB2 option/choice
+names ("Short Fin" under "Ears") instead of the plain `variant_<n>`
+numbering, for whichever groups/variants a real customization choice
+actually covers; a group with no matching choice (creature models, or a
+group with no player-facing customization at all, e.g. the base body)
+keeps the plain numeric label.
+
 The same script's second, independent job: if the export used `--db2-dir/
 --dbd-dir/--char-layout-id` (below), it re-reads the real `chr_texture_layout`
 extras (Blender's own glTF importer has no supported extras target for a
@@ -698,6 +707,20 @@ massively wrong (a legacy glTF 1.0 confusion, not a glTF 2.0 issue), and
 bug, not husk's). If Blender ever changes this, re-verify against
 `tests/blender_import_check.py`'s same headless import path before trusting
 a different one.
+
+Each clip's own machine name is `anim_<sequence-id>_<variationIndex>`
+(or `global_seq_<n>` for a global-sequence-driven clip) -- husk also
+attaches a real `AnimationData.db2` name ("Stand", "Walk", ...) as
+`animation_data_name` clip `extras` when `--db2-dir`/`--dbd-dir` are
+given and that sequence id has a real row (current real client
+extractions have dropped the `Name` column from `AnimationData.db2`
+entirely, so this resolves for no real animation today -- see
+`DESIGN.md`). `tools/husk_blender_geoset_mask.py` marks every imported
+Action as a real Blender asset (`action.asset_mark()`) after import, so
+Blender's own Asset Browser works as a per-animation picker instead of
+scrubbing the raw Action/NLA list; when a real `animation_data_name` did
+resolve, the Action is renamed to it (the machine name survives as the
+asset's own description either way).
 
 ### `husk dump-chunks <file.m2>` / `husk dump-chunks <file.bone>` / `husk dump-chunks <file.phys>`
 

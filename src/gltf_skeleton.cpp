@@ -551,6 +551,9 @@ std::vector<tinygltf::Animation> buildAnimationClips(const std::vector<Animation
             meta["variation_next"] = tinygltf::Value(static_cast<int>(sm.variationNext));
             meta["alias_next"] = tinygltf::Value(static_cast<int>(sm.aliasNext));
             meta["is_alias"] = tinygltf::Value(sm.isAlias);
+            if (!sm.animationDataName.empty()) {
+                meta["animation_data_name"] = tinygltf::Value(sm.animationDataName);
+            }
             tinygltf::Value::Object animExtras;
             animExtras["sequence_metadata"] = tinygltf::Value(meta);
             ga.extras = tinygltf::Value(animExtras);

@@ -81,6 +81,7 @@ add_library(husk-lib STATIC
   src/texturefiledata_db2.cpp
   src/creature_geoset_db2.cpp
   src/chrrace_db2.cpp
+  src/animationdata_db2.cpp
   src/cmd_db2.cpp
   src/cmd_blp.cpp
   src/appearance_string.cpp
@@ -139,6 +140,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli_blp_export.cpp
     tests/test_cli_chrmodel.cpp
     tests/test_cli_chrcustomization.cpp
+    tests/test_cli_animationdata.cpp
     tests/test_gltf.cpp
     tests/test_gltf_math.cpp
     tests/test_gltf_mesh.cpp

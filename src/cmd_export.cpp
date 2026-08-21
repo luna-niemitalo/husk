@@ -15,6 +15,7 @@
 #include <CLI/CLI.hpp>
 #include <sqlite3.h>
 
+#include "animationdata_db2.hpp"
 #include "bone.hpp"
 #include "chrcustomization_db2.hpp"
 #include "chrrace_db2.hpp"
@@ -189,14 +190,11 @@ std::vector<m2::Bone> resolveBones(const std::string& modelPath, const std::vect
 // none) short-circuits to no clips at all; global-sequence tracks aren't
 // gated on that model even having per-sequence M2Sequence data, so they're
 // still resolved whenever a bone/skel source is being used at all.
-std::vector<gltf::Animation> resolveAnimationsForModel(bool animNone, bool bonesAreInline, bool haveSkel,
-                                                        const m2::Header& header,
-                                                        const std::vector<uint8_t>& blob,
-                                                        const std::vector<uint8_t>& skelBytes,
-                                                        const std::vector<m2::Bone>& bones,
-                                                        const gltf::Skeleton& skeleton,
-                                                        const std::string& animDir,
-                                                        const std::string& modelPath) {
+std::vector<gltf::Animation> resolveAnimationsForModel(
+    bool animNone, bool bonesAreInline, bool haveSkel, const m2::Header& header,
+    const std::vector<uint8_t>& blob, const std::vector<uint8_t>& skelBytes, const std::vector<m2::Bone>& bones,
+    const gltf::Skeleton& skeleton, const std::string& animDir, const std::string& modelPath,
+    const std::unordered_map<uint32_t, std::string>* animationNames) {
     std::vector<gltf::Animation> animations;
     if (animNone) return animations;
 
@@ -207,7 +205,7 @@ std::vector<gltf::Animation> resolveAnimationsForModel(bool animNone, bool bones
         animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
         animInputs.animDir = animDir;
         animInputs.modelPath = modelPath;
-        animations = buildAnimations(blob, bones, skeleton, sequences, animInputs);
+        animations = buildAnimations(blob, bones, skeleton, sequences, animInputs, animationNames);
         // Global-sequence-driven tracks (continuous looping animation
         // independent of any M2Sequence) aren't tied to `sequences` at
         // all, so this runs unconditionally alongside the per-sequence
@@ -231,7 +229,7 @@ std::vector<gltf::Animation> resolveAnimationsForModel(bool animNone, bool bones
             animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
             animInputs.animDir = animDir;
             animInputs.modelPath = modelPath;
-            animations = buildAnimations(skelTrackBlob, bones, skeleton, sequences, animInputs);
+            animations = buildAnimations(skelTrackBlob, bones, skeleton, sequences, animInputs, animationNames);
         }
         auto globalSeqAnims = buildGlobalSequenceAnimations(skelTrackBlob, bones, skeleton);
         animations.insert(animations.end(), std::make_move_iterator(globalSeqAnims.begin()),
@@ -1836,13 +1834,27 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         auto bones = resolveBones(modelPath, blob, header, skelGiven, skelNone, skelPath, bonesAreInline,
                                    haveSkel, skelBytes);
 
+        // AnimationData.db2's real Name column ("Stand", "Walk", ...) --
+        // opportunistic, same "--db2-dir/--dbd-dir unlocks this, nothing
+        // else required" convention as the other DB2-driven enrichments
+        // below, but independent of any --chr-model-id/--customization-*
+        // flag: every animated model (creature or player) has real
+        // AnimationData.db2 rows, not just characters.
+        std::unordered_map<uint32_t, std::string> animationNames;
+        if (!db2Dir.empty() && !dbdDirForChr.empty()) {
+            if (auto animData = animationdata::load(db2Dir, dbdDirForChr, std::cerr)) {
+                animationNames = animationdata::toNameMap(*animData);
+            }
+        }
+
         gltf::Skeleton skeleton;
         std::vector<gltf::Animation> animations;
         if (!bones.empty()) {
             skeleton = buildSkeleton(bones);
             baseMesh.skinning = buildSkinning(vertices, bones.size());
             animations = resolveAnimationsForModel(animNone, bonesAreInline, haveSkel, header, blob,
-                                                    skelBytes, bones, skeleton, animDir, modelPath);
+                                                    skelBytes, bones, skeleton, animDir, modelPath,
+                                                    animationNames.empty() ? nullptr : &animationNames);
             attachBoneCorrections(bonesDir, bonesAreInline, haveSkel, header, skelBytes, skeleton);
             attachEmitterAnchors(blob, header, skeleton);
             attachPlacementNodes(blob, header, header.sequences.count, skeleton);

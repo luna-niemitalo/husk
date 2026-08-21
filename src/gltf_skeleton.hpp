@@ -472,6 +472,14 @@ struct Animation {
         int16_t variationNext = -1;
         uint16_t aliasNext = 0;
         bool isAlias = false;
+        // Real AnimationData.db2 Name string for this sequence's own id
+        // ("Stand", "Walk", ...) -- empty when unresolved (no --db2-dir/
+        // --dbd-dir given at export time, or this id has no real row).
+        // Deliberately not folded into Animation::name itself: that stays
+        // the stable "anim_<id>_<variationIndex>" machine key every other
+        // tool here (tests, husk_blender_geoset_mask.py) already looks up
+        // clips by -- a human name is enrichment, not a rename.
+        std::string animationDataName;
     };
     std::optional<SequenceMetadata> sequenceMetadata;
 };

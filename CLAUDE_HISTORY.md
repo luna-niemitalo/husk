@@ -14,6 +14,125 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-21 (human-readable geoset/animation names + Blender Asset
+Browser as an animation picker).** Picked up after Luna asked whether the
+texture-overlay switches and geosets had human-readable names, whether
+Blender's Asset Browser could work as an animation picker, and whether a
+human-readable animation name could be found at all — answered all three
+from the real code/data first (texture-switch names: already real DB2
+names; geoset dropdown names: numeric only; Blender asset-library:
+unused; animation names: numeric only, real `AnimationData.db2` table
+exists), then implemented all three per Luna's follow-up ask, punch-list
+tracked and folded straight back into this history + `DESIGN.md`'s new
+"Human-readable names for animations/geosets, and Blender's Asset Browser
+as an animation picker" section per this project's own "closed items get
+removed, not kept as a stray TODO file" convention (`MOD_BLEND_
+COMPOSITING_TODO.md`'s own precedent). Three pieces:
+
+1. **Geoset dropdown names** (`tools/husk_blender_geoset_mask.py`): new
+   `build_geoset_choice_names` reshapes the already-existing
+   `chr_customization_options` skin extras into real per-group/variant
+   names; `_build_group_hidden_term` now labels the Menu Switch dropdown
+   and its group selector/interface socket with them, falling back to
+   the plain `group_<n>,variant_<n>` numbering wherever no real
+   customization choice covers a group/variant (creature models, or a
+   group with no player-facing customization at all, e.g. the base
+   body). Real constraint found along the way: `NodeEnumItem` (Menu
+   Switch's own dropdown item type) has no separate identifier/label
+   pair — `.name` is both at once — so renaming an item to a human
+   string would have silently broken `default_item` matching
+   (`CURATED_DEFAULT_VARIANTS`/`enabled_geosets_to_default_overrides`,
+   both keyed by the stable `"variant_<n>"` string). Fixed by keeping
+   that contract exactly as it was and resolving it against a
+   `label_by_variant` map built alongside the (now human) item names,
+   instead of a direct string-membership check. Verified end to end
+   against real local data (`bloodelffemale_hd.m2`,
+   `--chr-model-id`/`--customization-choice-ids`): 6 of 23 real geoset
+   groups resolve a real option name, 30 variants resolve a real choice
+   name; the other 17 (no player-facing customization at all for that
+   model) keep the plain numeric fallback, unchanged.
+2. **AnimationData.db2 real names** (new `src/animationdata_db2.hpp`/
+   `.cpp`, same `db2table.hpp`-backed thin-wrapper pattern as every other
+   DB2 reader here): `husk export --db2-dir/--dbd-dir` now attaches a
+   matching sequence's real `AnimationData.Name` ("Stand", "Walk", ...)
+   as a new `animation_data_name` field on `sequence_metadata` clip
+   extras (`gltf::Animation::SequenceMetadata::animationDataName`,
+   threaded through `buildSequenceMetadata`/`buildAnimations`) —
+   deliberately *not* folded into the clip's own stable
+   `anim_<id>_<variationIndex>` glTF `name`, which every other tool here
+   still looks clips up by. Verified correct via a synthetic WDC5
+   fixture that does carry a `Name` column
+   (`tests/test_cli_animationdata.cpp`, 2 new CLI-tier tests) — but
+   running against real local data found current real extractions
+   (`husk db2-info animationdata.db2`, build 12.1.0-era) have dropped
+   the `Name` column from `AnimationData.db2` entirely (resolved real
+   layout `BBF66A3C`: `ID/Fallback/BehaviorTier/BehaviorID/Flags` only),
+   matching `reference/WoWDBDefs/definitions/AnimationData.dbd`'s own
+   record of `Name` being present through the 1.x-8.x layouts and absent
+   from every layout since — the same "client schema genuinely dropped
+   this column" class already documented for `aliasNext`'s own name
+   lookup. Nothing left to fix in husk; the plumbing is real and
+   correct, current real data just can't feed it a name (would need an
+   older client build's own DB2 extraction, out of scope here).
+3. **Blender Asset Browser as a real animation picker**
+   (`tools/husk_blender_geoset_mask.py`): new `mark_actions_as_assets`
+   marks every imported clip's Action as a real Blender asset
+   (`action.asset_mark()`) after import, matched by the clip's own glTF
+   animation name (`read_animation_clip_names`) so it only touches this
+   model's own actions, never pre-existing ones already in the scene.
+   Renames the Action to a real `animation_data_name` when one resolved
+   (item 2 above — not the current real-data case); the original machine
+   name survives as the asset's own description either way, so "which
+   real `anim_<id>` was this" is never lost to a rename. This is
+   deliberately the one place in the whole script that renames rather
+   than just annotating: unlike a `NodeEnumItem` dropdown label,
+   `Action.name` is literally what both the Asset Browser and the plain
+   Action list show, so a human name has to live there to be visible at
+   all. Verified end to end against real local data
+   (`bloodelffemale_hd.m2`, 338 real clips): all 338 marked as assets, 0
+   renamed (consistent with item 2's finding).
+
+Full suite green (671/671). **Same-day follow-up, investigating the 3
+pre-existing failures flagged above rather than leaving them
+unexplained**: all three traced to one shared root cause, not three
+separate bugs. This machine has a real `~/.config/husk/config.toml`
+(Luna's own, for her everyday `husk export` workflow — real
+`dbd-dir`/`db2-dir`/`listfile`/`listfile-root` values) that
+`husk_config.hpp`'s XDG-autodiscovery picks up on *every* `husk`
+invocation, including every CLI-tier test's own subprocess spawn — config
+support was deliberately built machine-global, not test-aware. Three
+different tests broke three different ways once that config was actually
+present, each silently: `test_cli.cpp`'s `--listfile` corpus-root test
+got real `listfile-root` injected instead of resolving relative to its
+own synthetic `corpus/` dir, so its planted texture was never found (0
+embedded, not 1) and the "LIST" bytes check failed;
+`test_cli_chrcustomization.cpp`'s "no --db2-dir/--dbd-dir given" test got
+real values for both, so the "are required -- skipping" message it
+checks for never printed at all (the feature ran instead of skipping);
+`test_cli_db2.cpp`'s real `scenescripttext.db2` test got a real
+`dbd-dir`, switching `db2-export` from generic `field_<N>` column names
+(what the test's own SQL queries by) to real WoWDBDefs column names,
+breaking `sqlite3_prepare_v2` outright. Confirmed via `git stash`
+against a clean, completely unmodified checkout (same 3 failures, same
+symptoms) and then confirmed the actual cause directly:
+`HUSK_CONFIG=/dev/null` in front of each reproduction made every one of
+them pass. **Fixed at the shared root, not patched three times**:
+`tests/run_husk.hpp`'s `runHusk` (used by nearly every CLI-tier test)
+now always runs the real binary with `HUSK_CONFIG=/dev/null`, isolating
+every test from whatever config file happens to exist on the machine
+running the suite — the same test-isolation discipline the rest of this
+project already applies to `--textures`/`--listfile`/`--db2-dir` (every
+test builds its own synthetic fixtures rather than depending on
+anything outside its own temp dir), just missing for the config-file
+feature specifically since it's newer than most of the suite. Tests that
+specifically exercise config-file behavior itself
+(`tests/test_cli_config.cpp`) call `runCommand` directly with their own
+explicit `HUSK_CONFIG`/`XDG_CONFIG_HOME`/`--config` overrides, bypassing
+`runHusk` entirely — unaffected either way, confirmed still green. Full
+suite now genuinely 671/671, no known-failing tests left unexplained.
+
+---
+
 **2026-08-21 (dangling internal reference corpus scan — `TODO/CLEANUP_TODO.md`'s
 last open item, closed).** Built and ran the corpus-wide "dangling internal
 reference" scan the TODO had described but never designed

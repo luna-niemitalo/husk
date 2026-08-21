@@ -180,7 +180,45 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-21, completion-tree follow-up + `CLEANUP_TODO.md`
+- **Current state (2026-08-21, human-readable geoset/animation names +
+  Blender Asset Browser as an animation picker)**: answered three
+  usability questions from Luna by reading the real code/data first (see
+  `CLAUDE_HISTORY.md`'s newest entry for the full narrative), then
+  implemented all three. Geoset switch dropdowns
+  (`tools/husk_blender_geoset_mask.py`) now show real customization-
+  choice names ("Short Fin") instead of `variant_<n>` wherever
+  `chr_customization_options` covers a group/variant, falling back to the
+  plain numeric label otherwise -- verified against real data
+  (`bloodelffemale_hd.m2`: 6/23 groups, 30 variants labeled). New
+  `src/animationdata_db2.hpp`/`.cpp` attaches real `AnimationData.db2`
+  names to matching clips' `sequence_metadata` extras when
+  `--db2-dir`/`--dbd-dir` are given -- correct and verified via a
+  synthetic fixture, but current real local extractions have dropped the
+  `Name` column from `AnimationData.db2` entirely (confirmed via `husk
+  db2-info`), so no real export resolves a name today; same "client
+  schema genuinely dropped this column" class as the earlier `aliasNext`-
+  name finding. `mark_actions_as_assets`
+  (`tools/husk_blender_geoset_mask.py`) marks every imported clip's
+  Action as a real Blender asset after import (Asset Browser now works as
+  a per-animation picker), renaming to a real `animation_data_name` when
+  one resolves -- verified against real data (`bloodelffemale_hd.m2`, 338
+  clips marked, 0 renamed, consistent with the AnimationData.db2 finding
+  above). `DESIGN.md`'s new "Human-readable names for animations/geosets,
+  and Blender's Asset Browser as an animation picker" section has the
+  full design rationale; no TODO file was left behind (all three items
+  fully closed this session, folded straight into history per this
+  project's own "closed items get removed, not kept as a stray TODO
+  file" convention). **Same-day follow-up**: investigated the 3 failures
+  initially reported as pre-existing rather than leaving them
+  unexplained -- all three traced to one shared cause, not three bugs:
+  this machine's own real `~/.config/husk/config.toml` (XDG-autodiscovered
+  by every `husk` invocation, including CLI-tier test subprocess spawns)
+  was silently injecting real `dbd-dir`/`db2-dir`/`listfile-root` values
+  into tests that never asked for them. Fixed at the shared root --
+  `tests/run_husk.hpp`'s `runHusk` now always runs with
+  `HUSK_CONFIG=/dev/null` -- rather than patched in each of the 3 tests.
+  Full suite now genuinely green, 671/671, no known-failing tests left.
+- **Previous state (2026-08-21, completion-tree follow-up + `CLEANUP_TODO.md`
   housekeeping)**: closed the gap flagged at the end of the previous
   entry's own session summary -- `db2-export`/`db2-info`/`db2-build`/
   `blp-export`/`appearance-string` were migrated to real `CLI::App`s but
@@ -677,7 +715,9 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   currently a latent bug — no shipped feature reads strings through this
   path). Real fixture data now lives in the repo:
   `test_data/db2/chrcustomization{option,choice,category}.db2`.
-- **Next step**: `TODO/TODO_correctness.md` #2's name-mapping/default-
+- **Next step**: this session's own three items (geoset/animation human
+  names, Blender Asset Browser) are all fully closed, nothing queued from
+  them. Otherwise unchanged: `TODO/TODO_correctness.md` #2's name-mapping/default-
   choice work, and `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stages 1-5
   in full (model identity, real placement geometry, the real material
   FileDataID chain, and the live Blender-side customization texture
