@@ -264,13 +264,34 @@ own stated scope, not a new gap).
    roughly the same proportions (90%/95%/81%), not the clean bimodal
    split `DETL`'s `flags` bit had. Doesn't rule out a subdirectory-level
    split (only checked top-level), just found nothing at this grain.
-4. **Full-name audit of all 2,632 hits — not done.** Item 3b's directory
-   breakdown is a partial start (`world/` alone is 86% of all hits,
-   2,266/2,632) but a real systematic per-subdirectory pass (the kind
-   that found `DETL`'s flags-vs-light-prop correlation) wasn't run. Still
-   the most likely remaining lever if `field2`'s outlier population (item
-   1) or `field3`'s "position 0 is never 3" split (item 3) turn out to
-   correlate with a specific asset category once actually checked.
+4. **Full-name audit — done 2026-08-21, real negative result.** Ran the
+   systematic per-subdirectory pass this item asked for (a real second
+   directory level, e.g. `world/expansion11`, not just top-level
+   `world`/`models`/`spells`), against the existing cached
+   `m2_unknown_chunks_report.json` hex — no re-scan needed. Two checks,
+   both came back flat:
+   - **Zero-point (placeholder) record rate by subdirectory**: uniformly
+     high everywhere — 32.3% (`world/expansion02`) to 100%
+     (`models/creature`, 6/6 files), no directory sitting meaningfully
+     apart from the pack. Corpus-wide, **61.6% of all 2,943 records are
+     exactly `(0,0,0)`** — a real, new, more complete number than the
+     file's earlier "41/260 fully-zero multi-record files" stat, since
+     this one covers every record including single-record files, not
+     just the multi-record subset that stat was scoped to.
+   - **`field3`'s distribution by subdirectory**: also flat — every real
+     subdirectory shows the same `0`-dominant shape (`field3 == 0` at
+     roughly 75-90% everywhere), and the 15 real `field3 == 3` records
+     (item 3's own "never at position 0" finding) are thinly scattered
+     across 6 different subdirectories (`world/expansion11`: 8,
+     `world/expansion06`: 2, others: 1 each) — no concentration in any
+     one real content category.
+
+   **Real conclusion**: neither the zero-point placeholder pattern nor
+   `field3`'s distribution correlates with asset category at the
+   subdirectory level — both are pervasive, corpus-wide shapes, not
+   something tied to a specific kind of prop/doodad/spell-effect. This
+   closes the "is there a directory-level lever" question with a real,
+   checked negative, not an unexplored gap.
 
 ## Artifacts already on hand (don't need to be regenerated)
 

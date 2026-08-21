@@ -132,9 +132,29 @@ now just a pointer, not a duplicate description.
   on this list where the DB2-scope correction above doesn't apply — there
   is no table to find, local or otherwise, because the answer is client
   *logic*, not client *data*.
+- **prior art (checked 2026-08-21)**: neither of this project's two real,
+  vendored open-source reimplementations does anything with this field —
+  `reference/wow.export` parses `blendTimeIn`/`blendTimeOut` in three real
+  loaders (`M2Loader.js`, `M2LegacyLoader.js`, `SKELLoader.js`) but never
+  reads the parsed value again anywhere in either of its two real
+  renderers (`map-viewer/M2Renderer.js`, `3D/renderers/M2RendererGL.js`)
+  — no crossfade, no `THREE.AnimationMixer` `crossFadeTo` call, nothing.
+  `reference/wowser` doesn't reference `blendTime` at all, in its loader
+  or anywhere else — doesn't even parse it. Neither project implements
+  any animation-transition blending mechanism at all, of any kind
+  (searched both for `crossFade`/transition logic generally, not just
+  this field specifically — genuinely absent). **Real, if negative,
+  answer**: the prior-art check doesn't hand over a ready heuristic, but
+  it does hand over a real baseline — a hard cut between clips (no
+  blending at all) already matches what both of this project's own
+  reference implementations actually ship, so that's the honest default
+  if/when this gets built, not an under-ambitious placeholder.
 - **resolution path**: whoever renders the animation has to author a
-  blend-transition heuristic — check prior art in other open-source WoW
-  client reimplementations first. Not gated on DB2 access either way.
+  blend-transition heuristic from scratch — no real prior art exists to
+  crib from in either reference project checked. Not gated on DB2 access
+  either way. Low priority: a hard cut is already a shipping-quality
+  baseline per the check above, so this is a polish item, not a
+  correctness gap.
 
 ## 4. Sound linking (`M2Event` → actual sound)
 
@@ -144,16 +164,52 @@ now just a pointer, not a duplicate description.
   per-event `uint32_t` payload that doesn't decode into a sound reference
   itself).
 - **missing**: which sound plays when a given event fires.
-- **local DB2 status**: unconfirmed whether `SoundKit`-family tables are
-  present locally or whether the identifier-to-sound mapping is even a
-  clean DB2 lookup at all (plausibly partly hardcoded client logic per
-  identifier string, not a uniform table) — not investigated. Worth a real
-  check before assuming this is unreachable, same correction as above.
-- **resolution path**: if a real local `SoundKit`-shaped table resolves
-  the identifier convention, this becomes husk's job like the others
-  above; if the mapping turns out to be hardcoded client logic instead,
-  it stays genuinely external. Only matters for audio parity, not visual
-  fidelity — low priority regardless.
+- **local DB2 status (checked 2026-08-21): split — the general table
+  family is genuinely inaccessible; a real but narrower, creature-only
+  path is open.** Two real, distinct table families exist locally:
+  - `ModelSound`/`ModelSoundEntry`/`ModelSoundAnimEntry`/
+    `ModelSoundOverride`/`ModelSoundSettings`/`ModelSoundTagEntry.db2` —
+    the tables that would plausibly give a *general*, model-agnostic
+    `M2Event` identifier → sound mapping. All six are **100%
+    TACT-key-encrypted in the current local extraction** (`husk
+    db2-info`: `record_count: 0`, "every section is genuinely still
+    encrypted" for each) — genuinely unreachable with current local data,
+    not a husk parsing gap. WoWDBDefs also has no real column names for
+    any of them yet (`Field_10_2_5_52206_000`-style placeholders only),
+    so even a re-extraction wouldn't be immediately readable without
+    upstream WoWDBDefs work too.
+  - `CreatureSoundData.db2` (7,673 real rows, fully readable, real
+    WoWDBDefs column names) — a **fixed table of ~35 named sound-role
+    fields** (`SoundDeathID`, `SoundStandID`, `SoundAggroID`,
+    `SpellCastDirectedSoundID`, `SubmergeSoundID`, `SoundWingFlapID`,
+    ...), each an `int<SoundEntries::ID>` pointing into the real, also-
+    readable `SoundKit`/`SoundKitEntry.db2` (308,197/1,295,501 rows).
+    Reachable today via husk's own existing `--creature-display-id` flag:
+    `CreatureDisplayInfo.SoundID -> CreatureSoundData.ID` (confirmed via
+    the DBD: `CreatureDisplayInfo` has a real
+    `int<CreatureSoundData::ID> SoundID` column). **Real, direct name
+    correlation confirmed against husk's own already-parsed `M2Event`
+    table** (`src/m2_header.cpp`'s `eventName`): `$SCD` →
+    `"PlaySoundKit_spellCastDirected"` matches `SpellCastDirectedSoundID`
+    exactly; `$SMD`/`$SMG` → submerged/submerge match
+    `SubmergedSoundID`/`SubmergeSoundID`; `$WNG` → wingFlap matches
+    `SoundWingFlapID`. Not every documented `M2Event` code has a role
+    match (most are player-character/spell-effect codes with no
+    creature-sound-role equivalent) — this only ever closes a subset,
+    and only for creatures with a `--creature-display-id` given, not
+    player characters or generic doodads/effects.
+- **resolution path**: the general, identifier-driven `ModelSound*` chain
+  stays genuinely blocked (encrypted locally, undocumented upstream) —
+  not husk's to fix without a re-extraction *and* WoWDBDefs coverage
+  neither of which exist yet. The creature-role subset above is real,
+  concrete, and already has every piece husk needs on the DB2 side
+  (`--creature-display-id` derivation already exists,
+  `creature_geoset_db2.hpp` is the precedent for this exact "given a
+  `CreatureDisplayID`, resolve real per-creature data" shape) — a real,
+  scoped follow-up if audio parity for creatures specifically becomes a
+  priority, but still low priority overall (audio, not visual fidelity),
+  and covers only a name-matched subset of event codes, not the general
+  case.
 
 ## 5. LOD distance thresholds
 
@@ -191,8 +247,15 @@ a hypothetical engine's:
    7.3.5 — no local DB2 table can answer this anymore, full stop.
 3. **`blendTimeOperation`** (#3) — no data exists to find, local or
    otherwise; "author a reasonable heuristic," not "go acquire a table."
-4. **Sound linking** (#4) — unconfirmed whether local DB2 access actually
-   closes this one or whether it's genuine client logic; worth a quick
-   check before writing it off.
+   Checked 2026-08-21: neither vendored reference implementation blends
+   transitions at all (hard cut, confirmed by reading both), so a hard
+   cut is already a real, shipping-quality baseline — this is polish, not
+   a gap.
+4. **Sound linking** (#4) — checked 2026-08-21: the general `ModelSound*`
+   chain is genuinely blocked (100% TACT-encrypted locally, undocumented
+   upstream); a narrower creature-only path via `CreatureSoundData`/
+   `--creature-display-id` is real and open, confirmed by direct name
+   correlation against husk's own `M2Event` table, but low priority and
+   partial-coverage regardless.
 5. **LOD thresholds** (#5) — not a missing-data problem at all, just a
    design decision to make; lowest priority regardless of DB2 scope.

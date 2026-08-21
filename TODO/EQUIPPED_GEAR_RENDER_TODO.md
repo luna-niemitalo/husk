@@ -24,19 +24,46 @@ doesn't render or composite).
 
 ## Two real, structurally different sub-problems
 
-`ItemDisplayInfoModelMatRes`'s own `TextureType` field is **not** a
-"weapon vs. armor" marker — wowdev.wiki's `ItemDisplayInfoMaterialRes`
-page (the pre-8.0 ancestor of this table) documents it as a real body
-**texture slot** enum (`UpperArm=0, LowerArm=1, Hands=2, UpperTorso=3,
-LowerTorso=4, UpperLeg=5, LowerLeg=6, Foot=7, Accessory=8`) — the same
-kind of section identifier `CharComponentTextureSections`/
-`texture_section_type_bit_mask` already use elsewhere in this project
-(`chrmodel_db2.hpp`, consumed by `CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`'s
-own node-graph switch). **Not yet cross-checked against a real local
-`ItemDisplayInfoModelMatRes` row + a real body-armor item** to confirm the
-enum still applies unchanged at the current live layout — worth doing
-before trusting this reading for real work, see "Concrete next steps"
-below.
+**Update (2026-08-21): the pre-8.0 body-section-enum hypothesis for
+`TextureType` is now checked against real local data, and falsified.**
+Exported the real local `ChrModelMaterial`/`CharComponentTextureSections`/
+`ItemDisplayInfoModelMatRes` tables to sqlite (`husk db2-export`) and
+compared distinct values directly:
+
+- `CharComponentTextureSections.SectionType` (773 real rows): `{0..14}` —
+  consistent with (a superset of) the old wiki's 0-8 body-section range.
+- `ItemDisplayInfoModelMatRes.TextureType` (141,108 real rows): `{2, 3, 4,
+  5, 24}` only — **`24` alone falsifies the "same 0-8 body-section enum"
+  reading outright**; the old table only ever had 9 possible values.
+  Concentrated almost entirely in `2`/`3`/`4` (99.3% of rows).
+- `reference/wow.export`'s own real, working `DBItemDisplayInfoModelMatRes.js`
+  (a live, shipping implementation, not a guess) **never reads `TextureType`
+  at all** — it collects every texture FileDataID reachable via
+  `MaterialResourcesID` for a given `ItemDisplayInfoID` unconditionally,
+  with no per-type filtering or selection. This is independent confirmation
+  that `TextureType` isn't load-bearing for "which body part does this
+  texture belong to" in any implementation that's actually shipping.
+- A real multi-row example (`ItemDisplayInfoID` 727070, 10 rows) shows
+  `TextureType` 2/3/4 each appearing at both `ModelIndex` 0 and 1, and
+  `TextureType` 3 alone carrying *two different* `MaterialResourcesID`
+  values at the same `ModelIndex` — a shape that fits "texture-map kind"
+  (e.g. diffuse/detail/specular-ish channels for the same surface) far
+  better than "body region," where you'd expect one row per region, not
+  two colliding ones under the same type+index.
+
+**Corrected reading**: `TextureType` is most likely a small, fixed
+*texture-role* enum (which map — diffuse, a secondary detail layer, a
+specular/emissive-ish channel — not *where on the body*), unrelated to
+`CharComponentTextureSections.SectionType`'s enum space. This doesn't
+change Stage 6's own resolution work (it already ignores `TextureType`
+beyond passing it through) but does mean **case 2 below cannot use
+`TextureType` as its section key** the way this file originally assumed —
+seeing which real body section(s) an equipped item's texture(s) actually
+apply to still needs a different real signal, not yet identified. Worth
+checking `ChrModelTextureTargetID` (already resolved for the player-
+customization chain, `chrmodel_db2.hpp`'s `ChrModelTextureLayer`) as the
+next candidate, since it's the field that *does* carry a real section-ish
+selector in the customization chain already wired up.
 
 This means resolved gear splits into two real, differently-rendered
 cases, not one:
@@ -70,15 +97,11 @@ assuming they're mutually exclusive.
 ## Concrete next steps
 
 1. **Ground-truth the `TextureType`/section-enum reading against real
-   local data.** Pick a real body-armor `ItemModifiedAppearanceID` (a
-   chest or leg piece is the safest bet — least likely to also carry
-   standalone geometry), resolve it via `husk appearance-string
-   --db2-dir/--dbd-dir`, and cross-check the resolved `TextureType`
-   value(s) against `CharComponentTextureSections.db2`'s own real section
-   IDs (same table `chrmodel_db2.hpp` already reads) to confirm they're
-   the same enum space, not just structurally similar. Do this before
-   writing any rendering code — get the mapping wrong and case 2 below
-   silently textures the wrong body part.
+   local data — done 2026-08-21, falsified.** See the corrected reading
+   above. Real next sub-step, not yet done: check whether
+   `ChrModelTextureTargetID` (already resolved for the player-
+   customization chain) is reachable from the equipped-gear resolution
+   path at all, and if so whether it's the real section key case 2 needs.
 2. **Case 2 first (object-skin overlay)** — very likely far more common
    than case 1 given the real corpus's own `item/objectcomponents/`
    directory shape (`KNOWLEDGE_BASE_DESIGN.md`'s own prior investigation
