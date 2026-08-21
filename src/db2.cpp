@@ -209,11 +209,11 @@ File parse(const std::vector<uint8_t>& buf) {
     }
 
     requireBytes(pos, h.palletDataSize, buf.size(), "pallet_data");
-    file.palletData.assign(buf.begin() + pos, buf.begin() + pos + h.palletDataSize);
+    file.palletData.assign(buf.data() + pos, buf.data() + pos + h.palletDataSize);
     pos += h.palletDataSize;
 
     requireBytes(pos, h.commonDataSize, buf.size(), "common_data");
-    file.commonData.assign(buf.begin() + pos, buf.begin() + pos + h.commonDataSize);
+    file.commonData.assign(buf.data() + pos, buf.data() + pos + h.commonDataSize);
     pos += h.commonDataSize;
 
     // encrypted_status blocks (DB2.md's WDC4+ section): one per section
@@ -242,13 +242,13 @@ File parse(const std::vector<uint8_t>& buf) {
         if (!hasOffsetMap) {
             size_t bytes = static_cast<size_t>(section.header.recordCount) * h.recordSize;
             requireBytes(sectionPos, bytes, buf.size(), "section.records");
-            section.recordBytes.assign(buf.begin() + sectionPos, buf.begin() + sectionPos + bytes);
+            section.recordBytes.assign(buf.data() + sectionPos, buf.data() + sectionPos + bytes);
             sectionPos += bytes;
 
             requireBytes(sectionPos, section.header.stringTableSize, buf.size(),
                          "section.stringBlock");
-            section.stringBlock.assign(buf.begin() + sectionPos,
-                                        buf.begin() + sectionPos + section.header.stringTableSize);
+            section.stringBlock.assign(buf.data() + sectionPos,
+                                        buf.data() + sectionPos + section.header.stringTableSize);
             sectionPos += section.header.stringTableSize;
         } else {
             requireBytes(sectionPos, section.header.offsetRecordsEnd - sectionPos, buf.size(),
@@ -334,7 +334,7 @@ File parse(const std::vector<uint8_t>& buf) {
             // region. A genuinely inconsistent *non-zero* region still
             // throws below -- that's real corruption, not missing data.
             bool relationshipRegionAllZero =
-                std::all_of(buf.begin() + sectionPos, buf.begin() + relationshipEnd,
+                std::all_of(buf.data() + sectionPos, buf.data() + relationshipEnd,
                             [](uint8_t b) { return b == 0; });
             if (relationshipRegionAllZero) {
                 sectionPos = relationshipEnd;
@@ -499,7 +499,7 @@ std::vector<uint64_t> decodeField(const File& file, const Section& section, size
                                   std::to_string(fieldIndex));
             }
             int16_t structSize = file.fieldStructures[fieldIndex].size;
-            uint32_t elementBits = static_cast<uint32_t>(32 - structSize);
+            auto elementBits = static_cast<uint32_t>(32 - structSize);
             if (elementBits == 0 || info.fieldSizeBits % elementBits != 0) {
                 throw ParseError("db2: field " + std::to_string(fieldIndex) +
                                   " has fieldSizeBits " + std::to_string(info.fieldSizeBits) +
@@ -643,7 +643,7 @@ std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const S
                                       std::to_string(f));
                 }
                 int16_t structSize = file.fieldStructures[f].size;
-                uint32_t elementBits = static_cast<uint32_t>(32 - structSize);
+                auto elementBits = static_cast<uint32_t>(32 - structSize);
                 if (elementBits == 0 || info.fieldSizeBits % elementBits != 0) {
                     throw ParseError("db2: offset-map field " + std::to_string(f) + " has fieldSizeBits " +
                                       std::to_string(info.fieldSizeBits) +
@@ -693,7 +693,8 @@ std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const S
                 } else {
                     value.raw.reserve(arrayLength);
                     for (uint32_t i = 0; i < arrayLength; ++i) {
-                        value.raw.push_back(readBits(record, cursorBits + i * elementBits, elementBits));
+                        value.raw.push_back(readBits(
+                            record, static_cast<uint32_t>(cursorBits) + i * elementBits, elementBits));
                     }
                     cursorBits += info.fieldSizeBits;
                 }
@@ -701,7 +702,7 @@ std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const S
             }
             case FieldCompression::Bitpacked:
             case FieldCompression::BitpackedSigned: {
-                uint64_t raw = readBits(record, cursorBits, info.fieldSizeBits);
+                uint64_t raw = readBits(record, static_cast<uint32_t>(cursorBits), info.fieldSizeBits);
                 if (info.signExtend && info.fieldSizeBits < 64) {
                     uint64_t signBit = uint64_t{1} << (info.fieldSizeBits - 1);
                     if (raw & signBit) raw |= ~((signBit << 1) - 1);
@@ -730,7 +731,7 @@ std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const S
                 break;
             }
             case FieldCompression::BitpackedIndexed: {
-                uint64_t index = readBits(record, cursorBits, info.fieldSizeBits);
+                uint64_t index = readBits(record, static_cast<uint32_t>(cursorBits), info.fieldSizeBits);
                 uint32_t offset =
                     additionalDataOffset(file.fieldStorageInfo, f, FieldCompression::BitpackedIndexed);
                 value.raw = {readPallet4(file.palletData, offset + static_cast<uint32_t>(index) * 4,
@@ -739,7 +740,7 @@ std::vector<OffsetMapFieldValue> decodeOffsetMapRecord(const File& file, const S
                 break;
             }
             case FieldCompression::BitpackedIndexedArray: {
-                uint64_t index = readBits(record, cursorBits, info.fieldSizeBits);
+                uint64_t index = readBits(record, static_cast<uint32_t>(cursorBits), info.fieldSizeBits);
                 uint32_t offset = additionalDataOffset(file.fieldStorageInfo, f,
                                                          FieldCompression::BitpackedIndexedArray);
                 value.raw.reserve(info.arrayCount);

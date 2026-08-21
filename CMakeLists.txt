@@ -51,6 +51,26 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Applied to every target below (husk-lib/husk/husk-tests) via
+# add_compile_options, not per-target, so nothing can quietly opt out.
+# -Wconversion/-Wsign-compare are the ones that matter most here: an
+# implicit narrowing/signedness conversion is exactly the class of "did
+# you mean to do that" bug this project's foreign-data parsing can't
+# afford (see CLAUDE.md's foreign-data discipline) -- an intentional
+# conversion gets a static_cast (silent), an accidental one gets a
+# warning. -Wmissing-field-initializers is deliberately NOT enabled: this
+# codebase aggregate-inits structs that already declare in-class default
+# member initializers for most fields (e.g. Skeleton::Joint), which is
+# exactly the well-documented false-positive case for that warning (gcc
+# warns even though the omitted fields already have real defaults) --
+# enabling it would mean either 60+ call sites spelling out every field
+# name just to silence noise, or a pile of per-line NOLINT-style
+# suppressions; neither is worth it for a warning with no real signal
+# here. find_package's own imported targets (TinyGLTF/CLI11/SQLite3) are
+# treated as SYSTEM includes by CMake already, so these flags don't fire
+# on third-party headers.
+add_compile_options(-Wall -Wextra -Wconversion -Wsign-compare -Wno-missing-field-initializers)
+
 find_package(TinyGLTF CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
 find_package(SQLite3 REQUIRED)
@@ -174,6 +194,22 @@ if(HUSK_BUILD_TESTS)
     tests/test_conformance.cpp
   )
   target_link_libraries(husk-tests PRIVATE husk-lib doctest::doctest)
+  # -Wunused-function only, husk-tests-only: the shared tests/test_*_fixtures.hpp
+  # headers each wrap their helpers in one big anonymous namespace, included
+  # by every test_*.cpp file that needs a subset of them (deliberate --
+  # test_cli_fixtures.hpp's own doc comment) -- any single .cpp TU that
+  # doesn't call every helper in a header it includes trips this warning,
+  # 476 times across the suite, none of them real. The seemingly obvious
+  # fix (mark the helpers `inline` instead of anonymous-namespace, so
+  # they're not "per-TU copies" at all) was checked and rejected: several
+  # fixture headers reuse the exact same helper name for a genuinely
+  # different function (e.g. test_m2_fixtures.hpp's putU32(buf, off, v)
+  # vs. test_cli_fixtures.hpp's putU32(buf, v)) -- collapsing them to
+  # inline linkage risks a silent ODR violation the moment two such
+  # headers are ever included together, for a warning-noise fix. husk-lib/
+  # husk (real production code) keep -Wunused-function -- a truly dead
+  # function there is a real defect, not a fixture-sharing artifact.
+  target_compile_options(husk-tests PRIVATE -Wno-unused-function)
   target_compile_definitions(husk-tests PRIVATE
     HUSK_BINARY="$<TARGET_FILE:husk>"
     # Absolute by construction (see CLAUDE.md's ctest-runs-from-build/ hazard

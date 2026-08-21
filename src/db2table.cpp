@@ -117,7 +117,7 @@ std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& pat
             for (const ColumnResolution& res : resolutions) {
                 switch (res.kind) {
                     case ColumnKind::Id:
-                        row.push_back(db2::recordId(file, section, r));
+                        row.emplace_back(db2::recordId(file, section, r));
                         break;
                     case ColumnKind::Relation:
                         row.push_back(r < relationValues.size() ? relationValues[r] : std::nullopt);
@@ -129,7 +129,7 @@ std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& pat
                         break;
                     }
                     case ColumnKind::Unresolved:
-                        row.push_back(std::nullopt);
+                        row.emplace_back(std::nullopt);
                         break;
                 }
             }
@@ -206,14 +206,14 @@ std::optional<std::vector<StringColumnValues>> readNamedStringColumns(
             row.reserve(fieldIndices.size());
             for (const std::optional<size_t>& fieldIndex : fieldIndices) {
                 if (!fieldIndex) {
-                    row.push_back(std::nullopt);
+                    row.emplace_back(std::nullopt);
                     continue;
                 }
                 std::vector<uint64_t> values = db2::decodeField(file, section, r, *fieldIndex);
                 bool isScalarNone =
                     values.size() == 1 && file.fieldStorageInfo[*fieldIndex].storageType == db2::FieldCompression::None;
                 if (!isScalarNone) {
-                    row.push_back(std::nullopt);
+                    row.emplace_back(std::nullopt);
                     continue;
                 }
                 int64_t fieldAbsPos = static_cast<int64_t>(section.header.fileOffset) +

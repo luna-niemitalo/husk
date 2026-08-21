@@ -204,7 +204,7 @@ struct Section {
     // still-encrypted bytes to begin with. This is the one place that
     // check happens; every `tactKeyHash != 0` consumer elsewhere calls
     // this instead of re-deriving the same logic.
-    bool recordsAvailable() const {
+    [[nodiscard]] bool recordsAvailable() const {
         if (header.tactKeyHash == 0) return true;
         if (!recordBytes.empty()) {
             return std::any_of(recordBytes.begin(), recordBytes.end(), [](uint8_t b) { return b != 0; });
@@ -215,8 +215,8 @@ struct Section {
         return false;
     }
 
-    bool hasOffsetMap() const { return recordsAvailable() && !offsetMap.empty(); }
-    bool hasRelationshipMap() const { return header.relationshipDataSize > 0; }
+    [[nodiscard]] bool hasOffsetMap() const { return recordsAvailable() && !offsetMap.empty(); }
+    [[nodiscard]] bool hasRelationshipMap() const { return header.relationshipDataSize > 0; }
 };
 
 struct File {
@@ -232,7 +232,7 @@ struct File {
 // a magic mismatch or any structural field (a *_size/*_count driving a later
 // read) that runs past the end of the buffer -- foreign data, boundary-
 // validated once here; nothing downstream re-checks bounds.
-File parse(const std::vector<uint8_t>& fileBytes);
+File parse(const std::vector<uint8_t>& buf);
 
 // Decodes field `fieldIndex` of the `recordIndex`-th fixed-width record in
 // `section` (section.recordBytes, NOT the offset-map path) as raw unsigned

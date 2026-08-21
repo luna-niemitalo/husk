@@ -135,9 +135,9 @@ TEST_CASE("husk export: a real weapon's .phys sidecar (auto-detected, same basen
     REQUIRE(static_cast<size_t>(bodies.ArrayLen()) == 10);
 
     std::set<int> boneIndices;
-    for (int i = 0; i < bodies.ArrayLen(); ++i) {
+    for (size_t i = 0; i < bodies.ArrayLen(); ++i) {
         const auto& b = bodies.Get(i);
-        CHECK(b.Get("id").GetNumberAsInt() == i);
+        CHECK(b.Get("id").GetNumberAsInt() == static_cast<int>(i));
         int joint = b.Get("joint").GetNumberAsInt();
         CHECK(joint >= 0);
         CHECK(joint < 17);  // this fixture's own real bone count
@@ -257,11 +257,11 @@ TEST_CASE("husk export: a real weapon's 'fade_animation' extras decode to finite
 
     auto checkScalarCurves = [](const tinygltf::Value& curves) {
         REQUIRE(curves.IsArray());
-        for (int i = 0; i < curves.ArrayLen(); ++i) {
+        for (size_t i = 0; i < curves.ArrayLen(); ++i) {
             const auto& c = curves.Get(i);
             REQUIRE(c.Get("keyframes").IsArray());
             double lastTime = -1.0;
-            for (int k = 0; k < c.Get("keyframes").ArrayLen(); ++k) {
+            for (size_t k = 0; k < c.Get("keyframes").ArrayLen(); ++k) {
                 const auto& kf = c.Get("keyframes").Get(k);
                 double t = kf.Get("time").GetNumberAsDouble();
                 double v = kf.Get("value").GetNumberAsDouble();

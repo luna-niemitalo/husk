@@ -415,7 +415,7 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
         } else if (!chrModelIdArg.empty() && chrModelIdArg != "auto") {
             try {
                 resolvedChrModelId = static_cast<uint32_t>(std::stoul(chrModelIdArg));
-            } catch (const std::exception&) {
+            } catch (const std::exception&) {  // NOLINT(bugprone-empty-catch)
                 // A garbage --chr-model-id alongside explicit choice IDs --
                 // the explicit choice IDs are what matters here, so this is
                 // a real but non-fatal gap: no full-menu enrichment this run.

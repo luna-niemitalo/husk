@@ -234,13 +234,13 @@ std::vector<PolytopeShape> parsePolytopes(const std::vector<Chunk>& chunks) {
         size_t vertBytes = static_cast<size_t>(s.vertexCount) * 12;
         checkFits(n, dataOff, vertBytes, "PLYT vertex data");
         s.vertices.reserve(s.vertexCount);
-        for (uint32_t v = 0; v < s.vertexCount; ++v) s.vertices.push_back(readVec3(d, n, dataOff + v * 12));
+        for (size_t v = 0; v < s.vertexCount; ++v) s.vertices.push_back(readVec3(d, n, dataOff + v * 12));
         dataOff += vertBytes;
 
         size_t unk1Bytes = static_cast<size_t>(s.count10) * 16;
         checkFits(n, dataOff, unk1Bytes, "PLYT unk_1 data");
         s.unk1.reserve(s.count10);
-        for (uint32_t u = 0; u < s.count10; ++u) {
+        for (size_t u = 0; u < s.count10; ++u) {
             std::array<uint8_t, 16> entry{};
             std::memcpy(entry.data(), d + dataOff + u * 16, 16);
             s.unk1.push_back(entry);
@@ -254,7 +254,7 @@ std::vector<PolytopeShape> parsePolytopes(const std::vector<Chunk>& chunks) {
         size_t nodeBytes = static_cast<size_t>(s.nodeCount) * 4;
         checkFits(n, dataOff, nodeBytes, "PLYT node data");
         s.nodes.reserve(s.nodeCount);
-        for (uint32_t nd = 0; nd < s.nodeCount; ++nd) {
+        for (size_t nd = 0; nd < s.nodeCount; ++nd) {
             std::array<int8_t, 4> entry{};
             std::memcpy(entry.data(), d + dataOff + nd * 4, 4);
             s.nodes.push_back(entry);
@@ -474,7 +474,7 @@ void validateReferences(const File& f) {
     for (size_t i = 0; i < f.shapes.size(); ++i) {
         const auto& s = f.shapes[i];
         size_t targetCount = 0;
-        const char* targetName = "";
+        const char* targetName;
         switch (s.type) {
             case 0: targetCount = f.boxes.size(); targetName = "box"; break;
             case 1: targetCount = f.capsules.size(); targetName = "capsule"; break;
@@ -500,7 +500,7 @@ void validateReferences(const File& f) {
                               " body/bodies");
         }
         size_t targetCount = 0;
-        const char* targetName = "";
+        const char* targetName;
         switch (j.type) {
             case 0: targetCount = f.sphericalJoints.size(); targetName = "spherical"; break;
             case 1: targetCount = f.shoulderJoints.size(); targetName = "shoulder"; break;

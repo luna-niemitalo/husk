@@ -31,7 +31,7 @@ std::vector<std::string> globalFlagNames(uint32_t flags) {
     std::vector<std::string> names;
     for (const auto& [bit, name] : kNames) {
         if (flags & bit) {
-            names.push_back(name);
+            names.emplace_back(name);
         }
     }
     return names;

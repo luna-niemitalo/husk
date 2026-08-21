@@ -260,7 +260,7 @@ void dumpDpiv(json::Writer& w, const Chunk& c) {
     for (size_t i = 0; i < n; ++i) {
         size_t off = i * kSize;
         w.beginObject();
-        for (int f = 0; f < 8; ++f) {
+        for (size_t f = 0; f < 8; ++f) {
             w.key("field_" + std::to_string(f));
             w.value(static_cast<double>(readF32(c.data, c.size, off + f * 4)));
         }

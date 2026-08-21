@@ -113,10 +113,10 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     model.textures = textures;
     model.materials = tinyMaterials;
     if (usedUnlitExtension) {
-        model.extensionsUsed.push_back("KHR_materials_unlit");
+        model.extensionsUsed.emplace_back("KHR_materials_unlit");
     }
     if (usedTextureTransformExtension) {
-        model.extensionsUsed.push_back("KHR_texture_transform");
+        model.extensionsUsed.emplace_back("KHR_texture_transform");
     }
     model.meshes = tinyMeshes;
 
@@ -184,7 +184,7 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     }
 
     std::string bytes = out.str();
-    return std::vector<uint8_t>(bytes.begin(), bytes.end());
+    return {bytes.begin(), bytes.end()};
 }
 
 std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& materials,

@@ -63,7 +63,7 @@ void writeVec3(json::Writer& w, const m2::Vec3& v) {
 
 void writeFixed16AsFloat(json::Writer& w, uint32_t raw) {
     int16_t signedRaw;
-    uint16_t bits = static_cast<uint16_t>(raw);
+    auto bits = static_cast<uint16_t>(raw);
     std::memcpy(&signedRaw, &bits, sizeof(signedRaw));
     float v = std::clamp(static_cast<float>(signedRaw) / 32767.0f, 0.0f, 1.0f);
     w.value(static_cast<double>(v));

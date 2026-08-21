@@ -327,7 +327,7 @@ void bindFieldValues(sqlite3_stmt* stmt, int firstBindIndex, const FieldValues& 
         int bindIndex = firstBindIndex + static_cast<int>(i);
         if (isFloat && values.raw.size() == 1) {
             float f;
-            uint32_t bits = static_cast<uint32_t>(values.raw[0]);
+            auto bits = static_cast<uint32_t>(values.raw[0]);
             std::memcpy(&f, &bits, sizeof(f));
             sqlite3_bind_double(stmt, bindIndex, static_cast<double>(f));
             continue;
@@ -426,8 +426,10 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
         for (const OutputColumn& c : plan[f]) {
             createSql << ", \"" << c.sqlName << "\" " << (c.isFloat ? "REAL" : "");
         }
-        if (lf.dbdNames && plan[f].size() == 1 && (*lf.dbdNames)[f].relation) {
-            const dbd::RelationTarget& rel = (*lf.dbdNames)[f].relation.value();
+        const std::optional<dbd::RelationTarget>* relationOpt =
+            (lf.dbdNames && plan[f].size() == 1) ? &(*lf.dbdNames)[f].relation : nullptr;
+        if (relationOpt && *relationOpt) {
+            const dbd::RelationTarget& rel = relationOpt->value();
             std::string targetTable = sanitizeIdentifier(rel.targetTable);
             if (availableTables.count(targetTable) > 0) {
                 fkClauses.push_back("FOREIGN KEY (\"" + plan[f][0].sqlName + "\") REFERENCES \"" +

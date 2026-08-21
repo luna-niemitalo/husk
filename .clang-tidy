@@ -1,0 +1,113 @@
+---
+# clang-tidy config, agreed 2026-08-21. Goal: a routinely-clean lint pass
+# that surfaces real defects (narrowing conversions, precedence bugs,
+# actual modernization) without noise from checks that fight this
+# codebase's own established, deliberate conventions.
+#
+# Whole families excluded outright (house styles or platforms irrelevant
+# to this project -- Linux/x86_64 only, plain C++17, no Google/LLVM/
+# Android/Apple/embedded/kernel target): google-*, llvm-*, fuchsia-*,
+# android-*, objc-*, darwin-*, zircon-*, altera-*, llvmlibc-*, openmp-*,
+# mpi-*, boost-*, abseil-*. cert-*/hicpp-* excluded too -- both are
+# almost entirely aliases of bugprone-*/cppcoreguidelines-* checks under
+# different names; enabling them alongside bugprone-* just reports the
+# same finding twice. cppcoreguidelines-* excluded wholesale (its
+# defaults assume an owning-raw-pointer/RAII-everywhere style this
+# project's bounds-checked-parsing code doesn't follow) except for
+# narrowing-conversions, pulled in via its bugprone-* alias instead.
+#
+# Individually excluded, with reasons (see this project's own CLAUDE.md
+# for the "why" convention these follow):
+#   readability-identifier-length: this codebase deliberately uses short
+#     names in tight, well-scoped loops (i, n, ts, v) -- clang-tidy's
+#     default 3-char minimum fights that on sight.
+#   modernize-use-trailing-return-type: never used anywhere in this
+#     codebase; enabling it would flag literally every function.
+#   readability-braces-around-statements: this codebase's own style
+#     allows an unbraced single-line `if (x) return;` -- see e.g.
+#     m2_animation.cpp's own such lines throughout.
+#   readability-magic-numbers / readability-uppercase-literal-suffix:
+#     this is a binary-format parser -- named byte offsets/sizes/masks
+#     are already the norm where it matters; blanket-flagging every
+#     literal (0x0C, 4, 12, ...) in offset arithmetic would drown real
+#     signal.
+#   readability-else-after-return / readability-avoid-nested-conditional-operator:
+#     stylistic-only, no real defect signal, would just create churn
+#     across guard-clause-heavy parsing code that already reads clearly.
+#   portability-avoid-pragma-once: this project targets Linux/x86_64
+#     only (see nix/flake.nix's own `platforms`) and already uses
+#     `#pragma once` everywhere -- the check exists for cross-compiler
+#     portability this project doesn't need.
+#   bugprone-easily-swappable-parameters: checked against real output --
+#     fires on ~15+ existing `(const std::string&, const std::string&, ...)`
+#     signatures throughout src/, all named clearly at every real call
+#     site (`--db2-dir`/`--dbd-dir`-shaped flag-resolution functions,
+#     mostly) -- restructuring all of them (wrapper types, reordered
+#     params) for marginal swap-safety isn't worth the churn this session.
+#   readability-function-cognitive-complexity: this project's own
+#     foreign-data parsing style is deliberately long, linear,
+#     "one field -> one check -> one destination" functions (see
+#     CLAUDE.md's Foreign Data policy) -- splitting a correct, linear
+#     parse function into artificial sub-functions purely to satisfy a
+#     complexity score fights that convention rather than serving it.
+#   readability-implicit-bool-conversion: checked against real output --
+#     100% `if (ptr)`/`if (count)` truthiness checks, the standard modern
+#     C++ idiom this codebase uses throughout; requiring `!= nullptr`/
+#     `!= 0` everywhere would be a step backward in style, not forward.
+#   readability-isolate-declaration: real but purely cosmetic (`uint16_t
+#     c0, c1;`-style multi-declarations, 16 sites) -- no defect signal,
+#     left for a future pass if wanted rather than bundled into this one.
+#   readability-math-missing-parentheses: checked against real output --
+#     all 116 hits are `+`/`-` mixed with `*` (e.g. `offset + i * stride`,
+#     this codebase's single most common binary-offset idiom), the one
+#     precedence rule with essentially zero real-world ambiguity risk;
+#     the check's real value (catching e.g. `a & b == c`) never triggered
+#     once in this codebase.
+#   performance-enum-size: real but low-value here -- every flagged enum
+#     (FieldCompression, ColumnKind, ColumnType, State, AlphaMode) is a
+#     small in-memory value, never stored at scale; the byte savings
+#     don't justify the per-enum ABI-safety review needed before shrinking
+#     one already crossing static_cast<uint32_t>() boundaries with real
+#     file data.
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  portability-*,
+  clang-analyzer-*,
+  modernize-*,
+  readability-*,
+  -google-*,
+  -llvm-*,
+  -llvmlibc-*,
+  -fuchsia-*,
+  -android-*,
+  -objc-*,
+  -darwin-*,
+  -zircon-*,
+  -altera-*,
+  -openmp-*,
+  -mpi-*,
+  -boost-*,
+  -abseil-*,
+  -cert-*,
+  -hicpp-*,
+  -cppcoreguidelines-*,
+  cppcoreguidelines-narrowing-conversions,
+  -readability-identifier-length,
+  -modernize-use-trailing-return-type,
+  -readability-braces-around-statements,
+  -readability-magic-numbers,
+  -readability-uppercase-literal-suffix,
+  -readability-else-after-return,
+  -readability-avoid-nested-conditional-operator,
+  -portability-avoid-pragma-once,
+  -bugprone-easily-swappable-parameters,
+  -readability-function-cognitive-complexity,
+  -readability-implicit-bool-conversion,
+  -readability-isolate-declaration,
+  -readability-math-missing-parentheses,
+  -performance-enum-size
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*'
+FormatStyle: none

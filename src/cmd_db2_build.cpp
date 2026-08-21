@@ -373,7 +373,7 @@ int db2Build(int argc, char** args) {
                 sqlite3_stmt* stmt = nullptr;
                 sqlite3_prepare_v2(db, "SELECT file_data_id, path FROM models", -1, &stmt, nullptr);
                 while (sqlite3_step(stmt) == SQLITE_ROW) {
-                    uint32_t fid = static_cast<uint32_t>(sqlite3_column_int64(stmt, 0));
+                    auto fid = static_cast<uint32_t>(sqlite3_column_int64(stmt, 0));
                     std::string path = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
                     std::transform(path.begin(), path.end(), path.begin(),
                                     [](unsigned char c) { return std::tolower(c); });
@@ -387,7 +387,7 @@ int db2Build(int argc, char** args) {
                 sqlite3_prepare_v2(db, "SELECT item_display_info_id, inventory_type FROM item_display_inventory_type",
                                     -1, &stmt, nullptr);
                 while (sqlite3_step(stmt) == SQLITE_ROW) {
-                    uint32_t displayId = static_cast<uint32_t>(sqlite3_column_int64(stmt, 0));
+                    auto displayId = static_cast<uint32_t>(sqlite3_column_int64(stmt, 0));
                     int invType = sqlite3_column_int(stmt, 1);
                     invTypesByDisplayId[displayId].insert(invType);
                 }
@@ -405,9 +405,9 @@ int db2Build(int argc, char** args) {
                                 -1, &candStmt, nullptr);
             size_t verifiedCount = 0;
             while (sqlite3_step(candStmt) == SQLITE_ROW) {
-                uint32_t modelFid = static_cast<uint32_t>(sqlite3_column_int64(candStmt, 0));
-                uint32_t displayId = static_cast<uint32_t>(sqlite3_column_int64(candStmt, 1));
-                uint32_t texFid = static_cast<uint32_t>(sqlite3_column_int64(candStmt, 2));
+                auto modelFid = static_cast<uint32_t>(sqlite3_column_int64(candStmt, 0));
+                auto displayId = static_cast<uint32_t>(sqlite3_column_int64(candStmt, 1));
+                auto texFid = static_cast<uint32_t>(sqlite3_column_int64(candStmt, 2));
 
                 auto pathIt = modelPathByFid.find(modelFid);
                 if (pathIt == modelPathByFid.end()) continue;

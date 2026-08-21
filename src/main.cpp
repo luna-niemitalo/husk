@@ -96,7 +96,7 @@ std::string bashValueCompletion(const std::string& longName) {
                "2>/dev/null; COMPREPLY+=($(compgen -f -- \"$cur\"))";
     }
     if (longName == "--lod") {
-        return "COMPREPLY=($(compgen -W \"all\" -- \"$cur\"))";
+        return R"(COMPREPLY=($(compgen -W "all" -- "$cur")))";
     }
     return "COMPREPLY=($(compgen -f -- \"$cur\"))";  // --input/--output/--listfile: plain filenames
 }
@@ -113,6 +113,7 @@ std::string generateBashCompletion(CLI::App& root) {
 
     auto subs = allSubcommands(root);
     std::vector<std::string> subNames;
+    subNames.reserve(subs.size());
     for (CLI::App* sub : subs) subNames.push_back(sub->get_name());
     out << "    local subcommands=\"" << join(subNames, " ") << "\"\n"
         << "\n"

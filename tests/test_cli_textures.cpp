@@ -297,7 +297,7 @@ TEST_CASE("husk export: two hardcoded slots of genuinely different M2Texture::ty
         // the jewelry slot's material name, the other is the skin slot's.
         bool isJewelry = mat.name.find("char_jewelry") != std::string::npos;
 
-        for (int i = 0; i < alt.ArrayLen(); ++i) {
+        for (size_t i = 0; i < alt.ArrayLen(); ++i) {
             std::string filename = alt.Get(i).Get("filename").Get<std::string>();
             if (isJewelry) {
                 CHECK(filename.find("jewelry_color") != std::string::npos);
@@ -356,7 +356,7 @@ TEST_CASE("husk export: a char_jewelry (type 20) slot only offers 'jewelry_color
     // Only the two jewelry_color candidates -- body_jewelry/bracelets
     // excluded entirely, not merely deprioritized.
     REQUIRE(alt.ArrayLen() == 2);
-    for (int i = 0; i < alt.ArrayLen(); ++i) {
+    for (size_t i = 0; i < alt.ArrayLen(); ++i) {
         std::string filename = alt.Get(i).Get("filename").Get<std::string>();
         CHECK(filename.find("jewelry_color") != std::string::npos);
     }

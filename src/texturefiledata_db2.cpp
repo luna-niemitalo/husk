@@ -19,9 +19,12 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
 
     Data data;
     for (const auto& row : *rows) {
-        if (!row[0] || !row[1] || !row[2]) continue;
-        if (*row[2] != 0) continue;  // UsageType != 0: a real but different-purpose row, see header doc
-        data.emplace(*row[1], *row[0]);
+        const std::optional<uint32_t>& fileDataIdOpt = row[0];
+        const std::optional<uint32_t>& materialResourcesIdOpt = row[1];
+        const std::optional<uint32_t>& usageTypeOpt = row[2];
+        if (!fileDataIdOpt || !materialResourcesIdOpt || !usageTypeOpt) continue;
+        if (*usageTypeOpt != 0) continue;  // a real but different-purpose row, see header doc
+        data.emplace(*materialResourcesIdOpt, *fileDataIdOpt);
     }
     if (data.empty()) return std::nullopt;
     return data;

@@ -93,7 +93,7 @@ Header parseHeader(const std::vector<uint8_t>& f) {
     h.preferredFormat = f[kPreferredFormatOff];
     h.width = readU32(f.data(), kWidthOff);
     h.height = readU32(f.data(), kHeightOff);
-    for (int i = 0; i < kMipmapCount; ++i) {
+    for (size_t i = 0; i < kMipmapCount; ++i) {
         h.mipOffsets[i] = readU32(f.data(), kMipOffsetsOff + 4 * i);
     }
     h.palette = f.data() + kPaletteOff;
@@ -118,9 +118,9 @@ const uint8_t* sliceOrThrow(const std::vector<uint8_t>& f, size_t offset, size_t
 // every other small, fully-specified binary format.
 
 void unpack565(uint16_t c, uint8_t& r, uint8_t& g, uint8_t& b) {
-    uint8_t r5 = (c >> 11) & 0x1F;
-    uint8_t g6 = (c >> 5) & 0x3F;
-    uint8_t b5 = c & 0x1F;
+    auto r5 = static_cast<uint8_t>((c >> 11) & 0x1F);
+    auto g6 = static_cast<uint8_t>((c >> 5) & 0x3F);
+    auto b5 = static_cast<uint8_t>(c & 0x1F);
     r = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
     g = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
     b = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
@@ -315,7 +315,7 @@ Image decodePalette(const Header& h, const uint8_t* indexData, const uint8_t* al
 
     for (size_t i = 0; i < n; ++i) {
         uint8_t palIdx = indexData[i];
-        const uint8_t* entry = h.palette + palIdx * 4;  // BGRX
+        const uint8_t* entry = h.palette + static_cast<size_t>(palIdx) * 4;  // BGRX
         img.rgba[i * 4 + 0] = entry[2];
         img.rgba[i * 4 + 1] = entry[1];
         img.rgba[i * 4 + 2] = entry[0];

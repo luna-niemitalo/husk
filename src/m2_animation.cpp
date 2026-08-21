@@ -661,7 +661,7 @@ std::vector<uint8_t> extractAnimBlob(const std::vector<uint8_t>& animFileBytes, 
         }
         throw ParseError("chunked .anim file has no AFM2 chunk; chunks found: [" + found + "]");
     }
-    return std::vector<uint8_t>(afm2->data, afm2->data + afm2->size);
+    return {afm2->data, afm2->data + afm2->size};
 }
 
 }  // namespace husk::m2

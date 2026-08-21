@@ -49,11 +49,11 @@ TEST_CASE("husk export: a real glue model's light nodes get plausible 'type'/'li
 
     auto checkScalarCurves = [](const tinygltf::Value& curves) {
         REQUIRE(curves.IsArray());
-        for (int i = 0; i < curves.ArrayLen(); ++i) {
+        for (size_t i = 0; i < curves.ArrayLen(); ++i) {
             const auto& kfs = curves.Get(i).Get("keyframes");
             REQUIRE(kfs.IsArray());
             double lastTime = -1.0;
-            for (int k = 0; k < kfs.ArrayLen(); ++k) {
+            for (size_t k = 0; k < kfs.ArrayLen(); ++k) {
                 double t = kfs.Get(k).Get("time").GetNumberAsDouble();
                 double v = kfs.Get(k).Get("value").GetNumberAsDouble();
                 CHECK(std::isfinite(t));
@@ -65,11 +65,11 @@ TEST_CASE("husk export: a real glue model's light nodes get plausible 'type'/'li
     };
     auto checkColorCurves = [](const tinygltf::Value& curves) {
         REQUIRE(curves.IsArray());
-        for (int i = 0; i < curves.ArrayLen(); ++i) {
+        for (size_t i = 0; i < curves.ArrayLen(); ++i) {
             const auto& kfs = curves.Get(i).Get("keyframes");
             REQUIRE(kfs.IsArray());
             double lastTime = -1.0;
-            for (int k = 0; k < kfs.ArrayLen(); ++k) {
+            for (size_t k = 0; k < kfs.ArrayLen(); ++k) {
                 double t = kfs.Get(k).Get("time").GetNumberAsDouble();
                 const auto& v = kfs.Get(k).Get("value");
                 REQUIRE(v.IsArray());

@@ -179,7 +179,7 @@ std::vector<gltf::JointWeights> buildSkinning(const std::vector<m2::Vertex>& ver
                                           " bones");
             }
             jw.joints[j] = v.boneIndices[j];
-            jw.weights[j] = v.boneWeights[j] / 255.0f;
+            jw.weights[j] = static_cast<float>(v.boneWeights[j]) / 255.0f;
         }
         skinning.push_back(jw);
     }

@@ -232,17 +232,17 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
                 tinygltf::Value::Object co;
                 co["joint"] = tinygltf::Value(c.joint);
                 tinygltf::Value::Array mat;
-                for (float f : c.matrix) mat.push_back(tinygltf::Value(static_cast<double>(f)));
+                for (float f : c.matrix) mat.emplace_back(static_cast<double>(f));
                 co["matrix"] = tinygltf::Value(mat);
-                corrections.push_back(tinygltf::Value(co));
+                corrections.emplace_back(co);
             }
             setObj["corrections"] = tinygltf::Value(corrections);
             if (!cs.selectedByChoiceIds.empty()) {
                 tinygltf::Value::Array choiceIds;
-                for (uint32_t id : cs.selectedByChoiceIds) choiceIds.push_back(tinygltf::Value(static_cast<int>(id)));
+                for (uint32_t id : cs.selectedByChoiceIds) choiceIds.emplace_back(static_cast<int>(id));
                 setObj["selected_by_choice_ids"] = tinygltf::Value(choiceIds);
             }
-            sets.push_back(tinygltf::Value(setObj));
+            sets.emplace_back(setObj);
         }
         skinExtras["bone_correction_sets"] = tinygltf::Value(sets);
     }
@@ -252,7 +252,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             tinygltf::Value::Object obj;
             obj["choice_id"] = tinygltf::Value(static_cast<int>(g.choiceId));
             obj["geoset_id"] = tinygltf::Value(static_cast<int>(g.geosetId));
-            arr.push_back(tinygltf::Value(obj));
+            arr.emplace_back(obj);
         }
         skinExtras["enabled_geosets"] = tinygltf::Value(arr);
     }
@@ -263,7 +263,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             obj["geoset_index"] = tinygltf::Value(static_cast<int>(g.geosetIndex));
             obj["geoset_value"] = tinygltf::Value(static_cast<int>(g.geosetValue));
             obj["geoset_id"] = tinygltf::Value(static_cast<int>(g.geosetId));
-            arr.push_back(tinygltf::Value(obj));
+            arr.emplace_back(obj);
         }
         skinExtras["creature_enabled_geosets"] = tinygltf::Value(arr);
     }
@@ -278,7 +278,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             pos["y"] = tinygltf::Value(static_cast<double>(a.position.y));
             pos["z"] = tinygltf::Value(static_cast<double>(a.position.z));
             obj["position"] = tinygltf::Value(pos);
-            arr.push_back(tinygltf::Value(obj));
+            arr.emplace_back(obj);
         }
         return arr;
     };
@@ -300,7 +300,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             pos["z"] = tinygltf::Value(static_cast<double>(b.position.z));
             obj["position"] = tinygltf::Value(pos);
             obj["body_type"] = tinygltf::Value(static_cast<int>(b.bodyType));
-            arr.push_back(tinygltf::Value(obj));
+            arr.emplace_back(obj);
         }
         skinExtras["physics_bodies"] = tinygltf::Value(arr);
     }
@@ -319,7 +319,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             obj["width"] = tinygltf::Value(static_cast<int>(m.width));
             obj["height"] = tinygltf::Value(static_cast<int>(m.height));
             obj["flags"] = tinygltf::Value(static_cast<int>(m.flags));
-            materials.push_back(tinygltf::Value(obj));
+            materials.emplace_back(obj);
         }
         layoutObj["materials"] = tinygltf::Value(materials);
 
@@ -333,7 +333,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             obj["width"] = tinygltf::Value(static_cast<int>(s.width));
             obj["height"] = tinygltf::Value(static_cast<int>(s.height));
             obj["overlap_section_mask"] = tinygltf::Value(static_cast<int>(s.overlapSectionMask));
-            sections.push_back(tinygltf::Value(obj));
+            sections.emplace_back(obj);
         }
         layoutObj["sections"] = tinygltf::Value(sections);
 
@@ -347,7 +347,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             obj["blend_mode"] = tinygltf::Value(static_cast<int>(t.blendMode));
             obj["texture_section_type_bit_mask"] = tinygltf::Value(static_cast<int>(t.textureSectionTypeBitMask));
             obj["chr_model_texture_target_id"] = tinygltf::Value(static_cast<int>(t.chrModelTextureTargetId));
-            textureLayers.push_back(tinygltf::Value(obj));
+            textureLayers.emplace_back(obj);
         }
         layoutObj["texture_layers"] = tinygltf::Value(textureLayers);
 
@@ -361,7 +361,7 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             obj["chr_model_texture_target_id"] = tinygltf::Value(static_cast<int>(m.chrModelTextureTargetId));
             obj["material_resources_id"] = tinygltf::Value(static_cast<int>(m.materialResourcesId));
             obj["file_data_id"] = tinygltf::Value(static_cast<int>(m.fileDataId));
-            arr.push_back(tinygltf::Value(obj));
+            arr.emplace_back(obj);
         }
         skinExtras["chr_enabled_materials"] = tinygltf::Value(arr);
     }
@@ -389,13 +389,13 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
                         tinygltf::Value(static_cast<int>(mat.chrModelTextureTargetId));
                     matObj["material_resources_id"] = tinygltf::Value(static_cast<int>(mat.materialResourcesId));
                     matObj["file_data_id"] = tinygltf::Value(static_cast<int>(mat.fileDataId));
-                    materials.push_back(tinygltf::Value(matObj));
+                    materials.emplace_back(matObj);
                 }
                 choiceObj["materials"] = tinygltf::Value(materials);
-                choices.push_back(tinygltf::Value(choiceObj));
+                choices.emplace_back(choiceObj);
             }
             optObj["choices"] = tinygltf::Value(choices);
-            options.push_back(tinygltf::Value(optObj));
+            options.emplace_back(optObj);
         }
         skinExtras["chr_customization_options"] = tinygltf::Value(options);
     }
@@ -441,10 +441,10 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
                 kf["value"] = tinygltf::Value(tinygltf::Value::Array{
                     tinygltf::Value(static_cast<double>(v.x)), tinygltf::Value(static_cast<double>(v.y)),
                     tinygltf::Value(static_cast<double>(v.z))});
-                kfs.push_back(tinygltf::Value(kf));
+                kfs.emplace_back(kf);
             }
             co["keyframes"] = tinygltf::Value(kfs);
-            out.push_back(tinygltf::Value(co));
+            out.emplace_back(co);
         }
         return out;
     };
@@ -458,10 +458,10 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
                 tinygltf::Value::Object kf;
                 kf["time"] = tinygltf::Value(static_cast<double>(t));
                 kf["value"] = tinygltf::Value(static_cast<double>(v));
-                kfs.push_back(tinygltf::Value(kf));
+                kfs.emplace_back(kf);
             }
             co["keyframes"] = tinygltf::Value(kfs);
-            out.push_back(tinygltf::Value(co));
+            out.emplace_back(co);
         }
         return out;
     };

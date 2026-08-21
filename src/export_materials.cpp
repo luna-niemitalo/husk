@@ -553,6 +553,7 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
                     gm.alternateTextureCandidates = resolution.alternateTextureCandidates;
                     if (resolution.isAmbiguous) {
                         std::vector<std::string> allFileNames;
+                        allFileNames.reserve(resolution.alternateTextureCandidates.size());
                         for (const auto& cand : resolution.alternateTextureCandidates) {
                             allFileNames.push_back(cand.filename);
                         }

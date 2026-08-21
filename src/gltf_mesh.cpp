@@ -206,10 +206,10 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
                 kf["value"] = tinygltf::Value(tinygltf::Value::Array{
                     tinygltf::Value(static_cast<double>(v.x)), tinygltf::Value(static_cast<double>(v.y)),
                     tinygltf::Value(static_cast<double>(v.z))});
-                kfs.push_back(tinygltf::Value(kf));
+                kfs.emplace_back(kf);
             }
             co["keyframes"] = tinygltf::Value(kfs);
-            out.push_back(tinygltf::Value(co));
+            out.emplace_back(co);
         }
         return out;
     };
@@ -248,7 +248,7 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
 
                 layerObj["texture_index"] = tinygltf::Value(texIdx);
             }
-            layers.push_back(tinygltf::Value(layerObj));
+            layers.emplace_back(layerObj);
         }
         materialExtras["additional_textures"] = tinygltf::Value(layers);
     }
@@ -304,10 +304,10 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
                     kf["value"] = tinygltf::Value(tinygltf::Value::Array{
                         tinygltf::Value(static_cast<double>(q[0])), tinygltf::Value(static_cast<double>(q[1])),
                         tinygltf::Value(static_cast<double>(q[2])), tinygltf::Value(static_cast<double>(q[3]))});
-                    kfs.push_back(tinygltf::Value(kf));
+                    kfs.emplace_back(kf);
                 }
                 co["keyframes"] = tinygltf::Value(kfs);
-                curves.push_back(tinygltf::Value(co));
+                curves.emplace_back(co);
             }
             xfAnimObj["rotation"] = tinygltf::Value(curves);
         }
@@ -398,7 +398,7 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
                 }
                 candObj["texture_index"] = tinygltf::Value(texIdx);
             }
-            candidates.push_back(tinygltf::Value(candObj));
+            candidates.emplace_back(candObj);
         }
         materialExtras["alternate_textures"] = tinygltf::Value(candidates);
     }
@@ -426,10 +426,10 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
                 tinygltf::Value::Object kf;
                 kf["time"] = tinygltf::Value(static_cast<double>(t));
                 kf["value"] = tinygltf::Value(static_cast<double>(v));
-                kfs.push_back(tinygltf::Value(kf));
+                kfs.emplace_back(kf);
             }
             co["keyframes"] = tinygltf::Value(kfs);
-            out.push_back(tinygltf::Value(co));
+            out.emplace_back(co);
         }
         return out;
     };

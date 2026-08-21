@@ -92,7 +92,7 @@ std::vector<uint8_t> boneTrackBlob(const std::vector<uint8_t>& fileBytes) {
                           " bytes, need at least " + std::to_string(kHeaderSize) +
                           " for its header");
     }
-    return std::vector<uint8_t>(skb1.data, skb1.data + skb1.size);
+    return {skb1.data, skb1.data + skb1.size};
 }
 
 namespace {

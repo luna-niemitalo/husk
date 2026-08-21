@@ -332,11 +332,15 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
             }
         }
         if (outOfRangeCount > 0) {
+            // exception-message construction on a rare error path, not a hot
+            // loop; the `+` chain reads more clearly than += here.
+            // NOLINTBEGIN(performance-inefficient-string-concatenation)
             throw std::runtime_error(
                 "'" + path + "' references " + std::to_string(outOfRangeCount) +
                 " out-of-range M2 vertex index(es) (up to " + std::to_string(maxOutOfRange) +
                 ") but '" + modelPath + "' only has " + std::to_string(vertices.size()) +
                 " vertices -- model/.skin mismatch?");
+            // NOLINTEND(performance-inefficient-string-concatenation)
         }
 
         auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs,

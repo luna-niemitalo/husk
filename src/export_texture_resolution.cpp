@@ -49,7 +49,7 @@ void writeTextureOutCopy(const std::filesystem::path& path, const std::string& t
 // M2#Colors_and_transparency's own "0 - transparent, 0x7FFF - opaque"
 // scale).
 float decodeFixed16(uint32_t bits) {
-    uint16_t b = static_cast<uint16_t>(bits);
+    auto b = static_cast<uint16_t>(bits);
     int16_t raw;
     std::memcpy(&raw, &b, sizeof(raw));
     return std::clamp(static_cast<float>(raw) / 32767.0f, 0.0f, 1.0f);
