@@ -164,6 +164,14 @@ struct Skeleton {
             uint32_t chrModelTextureTargetId = 0;
             uint32_t materialResourcesId = 0;
             uint32_t fileDataId = 0;  // 0 = TextureFileData.db2 didn't resolve this MaterialResourcesID
+            // husk::chrcustomization::MaterialResolution::relatedChoiceId,
+            // carried through unchanged -- 0 = unconditional; nonzero = this
+            // material only applies when that other real
+            // ChrCustomizationChoiceID (from a different, related option) is
+            // *also* selected. husk resolves, never applies -- filtering on
+            // this is the consumer's job, same policy as every other extras
+            // field in this file.
+            uint32_t relatedChoiceId = 0;
         };
         std::vector<Material> materials;  // empty when this choice has no material element
     };

@@ -441,3 +441,92 @@ TEST_CASE("husk export --customization-choice-ids + --char-layout-id: the real m
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export --customization-choice-ids: a material conditional on another real "
+          "ChrCustomizationChoiceID (RelatedChrCustomizationChoiceID) is only attached when that "
+          "other choice is also part of this export's own selection -- real data found this "
+          "session: a real 'Tiara' Hairstyle choice carries one dedicated material per real Hair "
+          "Color choice, not one unconditional material; blending all of them in indiscriminately "
+          "(this test's own regression) was the real bug found in Blender") {
+    auto dir = defaultsDir("chrcustrelated");
+    writeFile(dir / "chrcustrelated.m2", tinyValidM2());
+    writeFile(dir / "chrcustrelated00.skin", tinyMatchingSkin());
+    writeFile(dir / "chrcustrelated.skel", boneCorrectionSkel());
+
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::create_directories(db2Dir);
+    fs::create_directories(dbdDir / "definitions");
+
+    writeTextFile(dbdDir / "manifest.json",
+                  "[\n"
+                  "  {\"tableName\": \"ChrCustomizationElement\", \"tableHash\": \"c0000001\"},\n"
+                  "  {\"tableName\": \"ChrCustomizationMaterial\", \"tableHash\": \"c0000004\"},\n"
+                  "  {\"tableName\": \"TextureFileData\", \"tableHash\": \"c0000005\"}\n"
+                  "]\n");
+    writeTextFile(dbdDir / "definitions" / "ChrCustomizationElement.dbd",
+                  "COLUMNS\nint ID\nint ChrCustomizationChoiceID\n"
+                  "int<ChrCustomizationGeoset::ID> ChrCustomizationGeosetID\n"
+                  "int<ChrCustomizationBoneSet::ID> ChrCustomizationBoneSetID\n"
+                  "int<ChrCustomizationMaterial::ID> ChrCustomizationMaterialID\n"
+                  "int<ChrCustomizationChoice::ID> RelatedChrCustomizationChoiceID\n\n"
+                  "LAYOUT d0000001\nBUILD 1.0.0.1\n"
+                  "$id$ID<32>\nChrCustomizationChoiceID<32>\nChrCustomizationGeosetID<32>\n"
+                  "ChrCustomizationBoneSetID<32>\nChrCustomizationMaterialID<32>\n"
+                  "RelatedChrCustomizationChoiceID<32>\n");
+    writeTextFile(dbdDir / "definitions" / "ChrCustomizationMaterial.dbd",
+                  "COLUMNS\nint ID\nint ChrModelTextureTargetID\n"
+                  "int<TextureFileData::MaterialResourcesID> MaterialResourcesID\n\n"
+                  "LAYOUT d0000004\nBUILD 1.0.0.1\n"
+                  "$id$ID<32>\nChrModelTextureTargetID<32>\nMaterialResourcesID<32>\n");
+    writeTextFile(dbdDir / "definitions" / "TextureFileData.dbd",
+                  "COLUMNS\nint<FileData::ID> FileDataID\nint MaterialResourcesID\nint UsageType\n\n"
+                  "LAYOUT d0000005\nBUILD 1.0.0.1\n"
+                  "$id$FileDataID<32>\nMaterialResourcesID<32>\nUsageType<32>\n");
+
+    // Choice 99 ("Tiara") owns two Element rows: material 5 (unconditional,
+    // RelatedChrCustomizationChoiceID 0) and material 6 (only applies
+    // together with choice 200, a real Hair Color choice -- real shape,
+    // not invented, see real choice 6639's own 10 such rows found this
+    // session).
+    writeFile(db2Dir / "chrcustomizationelement.db2",
+              buildFlatDb2(0xc0000001, 0xd0000001, {{1, 99, 0, 0, 5, 0}, {2, 99, 0, 0, 6, 200}}));
+    writeFile(db2Dir / "chrcustomizationmaterial.db2",
+              buildFlatDb2(0xc0000004, 0xd0000004, {{5, 7, 777}, {6, 8, 778}}));
+    writeFile(db2Dir / "texturefiledata.db2",
+              buildFlatDb2(0xc0000005, 0xd0000005, {{888, 777, 0}, {889, 778, 0}}));
+
+    // Choice 200 is not selected -- only the unconditional material (5,
+    // FileDataID 888) should attach; the conditional one (6, FileDataID
+    // 889) must be skipped, not blended in.
+    auto onlyTiara = runHusk("export " + (dir / "chrcustrelated.m2").string() + " --db2-dir " + db2Dir.string() +
+                              " --dbd-dir " + dbdDir.string() + " --customization-choice-ids 99");
+    CHECK(onlyTiara.exitCode == 0);
+    CHECK(onlyTiara.output.find("1 real material selection(s)") != std::string::npos);
+    CHECK(onlyTiara.output.find("1 conditional material(s) skipped") != std::string::npos);
+
+    fs::path glbPath1 = dir / "chrcustrelated.glb";
+    REQUIRE(fs::exists(glbPath1));
+    std::ifstream glb1(glbPath1, std::ios::binary);
+    std::string bytes1((std::istreambuf_iterator<char>(glb1)), std::istreambuf_iterator<char>());
+    CHECK(bytes1.find("\"file_data_id\":888") != std::string::npos);
+    CHECK(bytes1.find("\"file_data_id\":889") == std::string::npos);
+    fs::remove(glbPath1);
+
+    // Both choices selected -- now the conditional material (889) is
+    // real and correct to attach too, alongside the unconditional one.
+    auto both = runHusk("export " + (dir / "chrcustrelated.m2").string() + " --db2-dir " + db2Dir.string() +
+                         " --dbd-dir " + dbdDir.string() + " --customization-choice-ids 99,200");
+    CHECK(both.exitCode == 0);
+    CHECK(both.output.find("2 real material selection(s)") != std::string::npos);
+    CHECK(both.output.find("conditional material(s) skipped") == std::string::npos);
+
+    fs::path glbPath2 = dir / "chrcustrelated.glb";
+    REQUIRE(fs::exists(glbPath2));
+    std::ifstream glb2(glbPath2, std::ios::binary);
+    std::string bytes2((std::istreambuf_iterator<char>(glb2)), std::istreambuf_iterator<char>());
+    CHECK(bytes2.find("\"file_data_id\":888") != std::string::npos);
+    CHECK(bytes2.find("\"file_data_id\":889") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+

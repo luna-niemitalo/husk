@@ -19,11 +19,11 @@ std::vector<Element> loadElements(const std::string& db2Dir, const std::string& 
     auto rows = db2table::readNamedColumns(
         joinPath(db2Dir, "chrcustomizationelement.db2"), dbdDir,
         {"ChrCustomizationChoiceID", "ChrCustomizationGeosetID", "ChrCustomizationBoneSetID",
-         "ChrCustomizationMaterialID"},
+         "ChrCustomizationMaterialID", "RelatedChrCustomizationChoiceID"},
         err);
     if (!rows) return result;
     for (const auto& row : *rows) {
-        result.push_back({orZero(row[0]), orZero(row[1]), orZero(row[2]), orZero(row[3])});
+        result.push_back({orZero(row[0]), orZero(row[1]), orZero(row[2]), orZero(row[3]), orZero(row[4])});
     }
     return result;
 }
@@ -125,14 +125,18 @@ Resolution resolveChoice(const Data& data, uint32_t choiceId, std::ostream& err)
     // reference/wow.export's own per-field `.set()` loop over every row.
     uint32_t geosetElementId = 0;
     uint32_t boneSetElementId = 0;
-    std::vector<uint32_t> materialElementIds;
+    // (materialId, relatedChoiceId) per Element row -- relatedChoiceId
+    // travels with its own materialId, not collapsed into a single flag,
+    // since a choice's several material rows can each carry a *different*
+    // relatedChoiceId (see Element::relatedChoiceId's own doc comment).
+    std::vector<std::pair<uint32_t, uint32_t>> materialElements;
     bool anyRow = false;
     for (const auto& e : data.elements) {
         if (e.choiceId != choiceId) continue;
         anyRow = true;
         if (e.geosetId != 0) geosetElementId = e.geosetId;
         if (e.boneSetId != 0) boneSetElementId = e.boneSetId;
-        if (e.materialId != 0) materialElementIds.push_back(e.materialId);
+        if (e.materialId != 0) materialElements.push_back({e.materialId, e.relatedChoiceId});
     }
     if (!anyRow) {
         err << "husk: note: ChrCustomizationChoiceID " << choiceId
@@ -170,11 +174,11 @@ Resolution resolveChoice(const Data& data, uint32_t choiceId, std::ostream& err)
         }
     }
 
-    for (uint32_t materialElementId : materialElementIds) {
+    for (const auto& [materialElementId, relatedChoiceId] : materialElements) {
         bool found = false;
         for (const auto& m : data.materials) {
             if (m.id == materialElementId) {
-                result.materials.push_back({m.chrModelTextureTargetId, m.materialResourcesId});
+                result.materials.push_back({m.chrModelTextureTargetId, m.materialResourcesId, relatedChoiceId});
                 found = true;
                 break;
             }

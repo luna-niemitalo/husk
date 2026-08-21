@@ -223,21 +223,46 @@ choices legitimately resolve to the same single shared texture.
   rebuild dropped per-choice UV-rect masking entirely — a switch is
   already exclusive, so there's no accumulation for a rect to protect
   against.)
-- **Independent color/alpha axes on one texture target (the "tiara"
-  case)**: Luna's own hand-built prototype (real Shader Editor) showed one
-  hair-color material needing two genuinely independent pickers feeding
-  the *same* layer — a color choice (Pink/Blue/...) and a separate
-  coverage choice (With Tiara/Without Tiara, which real tiara-bearing hair
-  variants show more of the model through, i.e. less-covering alpha). The
-  *mechanism* side is now solved for free: `_build_material_customization_group`
-  already folds any number of independent real `ChrCustomizationOption`s
-  targeting the same material into one combined group with one dropdown
-  each (verified with a synthetic two-option "Hair Color" + "Tiara" case,
-  see above). What's still unconfirmed is the *data* side — whether "Hair
-  Color" and the tiara case are genuinely two separate real
-  `ChrCustomizationOption` rows (in which case this already works), or
-  whether (Luna's own guess) the tiara alpha difference tracks which real
-  *hair model/geoset* is selected instead, unreachable through
-  `chr_customization_options`' texture-material chain at all. Needs a real
-  look at `chr_customization_options`/`chr_texture_layout` extras for a
-  model with a real tiara-bearing hairstyle to settle which case this is.
+- **The "tiara" case, settled and partially fixed**: real data (this
+  session, `--db2-dir`/`husk db2-export` + `sqlite3` against the real
+  local corpus, not guessed) confirms neither of the two guesses above —
+  it's a *third* real shape. "Tiara" is one **choice** (real
+  `ChrCustomizationChoiceID` 6639) of the "Hair Style" **option** (real
+  option 121, `ChrModelID` 20 — the same model as `bloodelffemale_hd`),
+  not a separate option and not purely a geoset switch. That one choice
+  owns **10** real `ChrCustomizationElement` rows, each pairing the same
+  choice with a *different* `RelatedChrCustomizationChoiceID` (one of
+  "Hair Color"'s own real choices, option 122) and its own distinct
+  `ChrCustomizationMaterialID` — one dedicated tiara-compatible material
+  per real hair color, not one unconditional material. husk's own
+  `resolveChoice` (`src/chrcustomization_db2.cpp`) never read
+  `RelatedChrCustomizationChoiceID` at all and attached every one of
+  those 10 materials unconditionally — the real, root-caused explanation
+  for Luna's own screenshot showing several `choice_XXXXX` textures all
+  loaded and blended together for what should have been a single "Tiara"
+  pick.
+
+  **Fixed at the data layer**: `Element`/`MaterialResolution` now carry
+  `relatedChoiceId` (parsed from the real DB2 column, 0 = unconditional);
+  `attachCustomizationChoices` (`src/export_extras.cpp`, the
+  `--customization-choice-ids` explicit-resolution path) now skips a
+  conditional material whose related choice isn't *also* part of the
+  same export's own selection, rather than attaching it as if
+  unconditional — real regression test in
+  `tests/test_cli_chrcustomization.cpp`. The *full-menu* enumeration path
+  (`chr_customization_options`, everything `_build_material_customization_group`
+  consumes) has no such "current selection" context to filter with by
+  design, so it now carries `related_choice_id` through in the JSON
+  (present only when nonzero) instead, and
+  `apply_customization_texture_switch` (Blender side) conservatively
+  **skips** any conditional material for now rather than guessing which
+  one applies, printing a count of how many it skipped.
+
+  **Still open**: a true fix needs the Blender-side switch to pick the
+  *right* one of the 10 materials live, based on whichever Hair Color
+  choice is currently selected in that same group node — a real
+  cross-product dependency between two dropdowns, not the independent-
+  axes shape this file assumed earlier. That's a genuinely new
+  interaction pattern (one dropdown's value gating another's available
+  data) beyond anything built so far here, and needs Luna's own steer on
+  the UX before implementing rather than guessing at one.

@@ -1577,6 +1577,7 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                                     if e.get("file_data_id")}
 
     touched = 0
+    skipped_related_materials = 0
     for mat in materials:
         mtype = mat.get("texture_type")
         if mtype not in concerned_types or mat.node_tree is None:
@@ -1606,6 +1607,27 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                 for m_entry in choice.get("materials", []) or []:
                     tl = texture_layer_by_target.get(m_entry.get("chr_model_texture_target_id"))
                     if tl is None or tl.get("texture_type") != mtype:
+                        continue
+                    if m_entry.get("related_choice_id"):
+                        # This material only applies together with that
+                        # other real ChrCustomizationChoiceID (a different,
+                        # related option) also being selected -- e.g. a real
+                        # "Tiara" Hairstyle choice carries one dedicated
+                        # material per real Hair Color choice, not one
+                        # unconditional material. This switch has no live
+                        # notion of "what's currently selected in the other
+                        # dropdown" (each option's own Menu Switch is
+                        # independent), so a conditional material can't be
+                        # correctly resolved here yet -- conservatively
+                        # skipped rather than blended in as if unconditional
+                        # (the bug this filter replaces: every conditional
+                        # variant was previously attached and layered
+                        # together, indiscriminately). See
+                        # TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's own
+                        # "Independent color/alpha axes" item for the real
+                        # follow-up (a true cross-product dropdown) this
+                        # still needs.
+                        skipped_related_materials += 1
                         continue
                     fdid = m_entry.get("file_data_id")
                     if not fdid:
@@ -1698,6 +1720,12 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
             node_tree.links.new(clip.outputs[0], alpha_input)
 
         touched += 1
+
+    if skipped_related_materials:
+        print(f"husk_blender_geoset_mask: {skipped_related_materials} conditional material(s) "
+              "skipped (each only applies together with another specific choice, not resolvable "
+              "by this switch yet -- see CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's own "
+              "\"Independent color/alpha axes\" item)")
 
     return touched
 

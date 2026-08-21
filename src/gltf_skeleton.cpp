@@ -389,6 +389,14 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
                         tinygltf::Value(static_cast<int>(mat.chrModelTextureTargetId));
                     matObj["material_resources_id"] = tinygltf::Value(static_cast<int>(mat.materialResourcesId));
                     matObj["file_data_id"] = tinygltf::Value(static_cast<int>(mat.fileDataId));
+                    // Present only when nonzero -- see
+                    // Skeleton::CustomizationChoice::Material::relatedChoiceId's
+                    // own doc comment. Absent means unconditional, same
+                    // "absence means ordinary" convention every other extras
+                    // field here uses.
+                    if (mat.relatedChoiceId != 0) {
+                        matObj["related_choice_id"] = tinygltf::Value(static_cast<int>(mat.relatedChoiceId));
+                    }
                     materials.emplace_back(matObj);
                 }
                 choiceObj["materials"] = tinygltf::Value(materials);

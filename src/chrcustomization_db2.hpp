@@ -49,6 +49,17 @@ struct Element {
     uint32_t geosetId = 0;    // 0 = "no geoset element" (real and common, not an error)
     uint32_t boneSetId = 0;   // 0 = "no boneset element" (real and common, not an error)
     uint32_t materialId = 0;  // 0 = "no material element" (real and common, not an error)
+    // 0 = this material applies unconditionally. Nonzero = this material
+    // only applies when the *other* named ChrCustomizationChoiceID (from a
+    // different, related option) is *also* the one currently selected --
+    // real, confirmed against local data: e.g. a real "Tiara" Hairstyle
+    // choice carries 10 Element rows, each pairing the same
+    // ChrCustomizationChoiceID with a *different* RelatedChrCustomizationChoiceID
+    // (one of that model's own real Hair Color choices) and its own
+    // distinct ChrCustomizationMaterialID -- one dedicated tiara-compatible
+    // material per hair color, not 10 simultaneously valid alternatives.
+    // See resolveChoice's own doc comment for why this must not be dropped.
+    uint32_t relatedChoiceId = 0;
 };
 
 struct Geoset {
@@ -130,6 +141,13 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
 struct MaterialResolution {
     uint32_t chrModelTextureTargetId = 0;
     uint32_t materialResourcesId = 0;
+    // Element::relatedChoiceId, carried through unchanged -- 0 means this
+    // material is unconditional; nonzero means it only applies when that
+    // other real ChrCustomizationChoiceID is also selected. resolveChoice
+    // does not filter on this (it resolves one choice in isolation and has
+    // no notion of "what else is currently selected") -- the caller must,
+    // see resolveChoice's own doc comment.
+    uint32_t relatedChoiceId = 0;
 };
 
 struct Resolution {

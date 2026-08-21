@@ -10,6 +10,7 @@
 #include <optional>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 
 #include "bone.hpp"
 #include "chrcustomization_db2.hpp"
@@ -478,9 +479,21 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
         return it != tfdData->end() ? it->second : 0;
     };
 
+    // For filtering resolution.materials below: a material whose own
+    // Element row carries a nonzero relatedChoiceId only applies when that
+    // *other* choice is also part of this same export's real selection --
+    // see chrcustomization::Element::relatedChoiceId's own doc comment for
+    // the real data (a "Tiara" Hairstyle choice with 10 conditional
+    // materials, one per real Hair Color choice) that makes this matter:
+    // without this filter, resolving Tiara alone would attach all 10 as if
+    // simultaneously valid, when only the one matching the caller's own
+    // selected Hair Color choice actually is.
+    std::unordered_set<uint32_t> choiceIdSet(choiceIds.begin(), choiceIds.end());
+
     size_t geosetsResolved = 0;
     size_t boneSetsMatched = 0;
     size_t materialsResolved = 0;
+    size_t materialsSkippedUnmatchedRelated = 0;
     for (uint32_t choiceId : choiceIds) {
         chrcustomization::Resolution resolution = chrcustomization::resolveChoice(*data, choiceId, std::cerr);
         if (resolution.geosetId) {
@@ -506,6 +519,15 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
             }
         }
         for (const auto& matRes : resolution.materials) {
+            if (matRes.relatedChoiceId != 0 && !choiceIdSet.count(matRes.relatedChoiceId)) {
+                std::cerr << "husk: note: ChrCustomizationChoiceID " << choiceId
+                          << "'s MaterialResourcesID " << matRes.materialResourcesId
+                          << " only applies together with ChrCustomizationChoiceID "
+                          << matRes.relatedChoiceId << ", which isn't part of this export's own "
+                             "selection -- not attaching\n";
+                ++materialsSkippedUnmatchedRelated;
+                continue;
+            }
             uint32_t fileDataId = resolveFileDataId(matRes.materialResourcesId);
             if (fileDataId == 0) {
                 std::cerr << "husk: note: ChrCustomizationChoiceID " << choiceId
@@ -517,6 +539,10 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
                 {choiceId, matRes.chrModelTextureTargetId, matRes.materialResourcesId, fileDataId});
             ++materialsResolved;
         }
+    }
+    if (materialsSkippedUnmatchedRelated) {
+        std::cerr << "husk: note: " << materialsSkippedUnmatchedRelated << " conditional material(s) "
+                     "skipped (their own related choice wasn't part of this export's selection)\n";
     }
     std::cerr << "husk: note: resolved " << choiceIds.size() << " customization choice ID(s): "
               << geosetsResolved << " real geoset selection(s), " << boneSetsMatched
@@ -549,7 +575,8 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
             choice.geosetId = nc.resolution.geosetId;
             for (const auto& matRes : nc.resolution.materials) {
                 choice.materials.push_back({matRes.chrModelTextureTargetId, matRes.materialResourcesId,
-                                             resolveFileDataId(matRes.materialResourcesId)});
+                                             resolveFileDataId(matRes.materialResourcesId),
+                                             matRes.relatedChoiceId});
             }
             optIt->choices.push_back(std::move(choice));
         }
