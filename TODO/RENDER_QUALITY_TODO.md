@@ -144,17 +144,30 @@ match) and, where relevant, re-rendered through the real
   correctly-resolved, legitimately-black texture contributes zero light
   by definition) — just without a particle emitter, so
   `particle_only_task.py`'s exclude-candidate heuristic
-  (`blend_mode >= 3 AND particle_count > 0`) doesn't catch it. **Real,
-  scoped follow-up, not done this session**: the heuristic's particle
-  requirement was a proxy for "this model's only real visible content is
-  something husk can't bake into geometry," but the actual root cause
-  (additive blend + black source texture) doesn't need particles at all
-  — relaxing the candidate scan to check resolved-texture darkness
-  directly (export via husk, decode the embedded base-color PNG, mean
-  brightness near 0) instead of proxying through particle-presence would
-  catch this class too, without the false-positive risk plain blend-mode
-  checking alone has (documented above: 90%+ of additive+particle
-  candidates aren't actually blank).
+  (`blend_mode >= 3 AND particle_count > 0`) doesn't catch it.
+
+  **Follow-up done (2026-08-21)**: new `tools/corpus_scan_tasks/
+  black_additive_task.py` — flags files where every material is
+  additive-family AND the resolved primary texture (same three-tier
+  literal/`--listfile`/fuzzy resolution `unfillable_texture_task.py`
+  mirrors, `.blp` converted to `.png` via `husk blp-export`, cached) has
+  a genuinely-black mean pixel brightness (< 4.0/255), no particle
+  emitter required. Full local corpus (130,576 `.m2` files, 39.8s, 0
+  concurrency backoffs): **179 candidates**, 100 also particle-bearing
+  (already covered by `particle_only_task.py`), **79 with zero particle
+  emitters** — the exact class `particle_only_task.py` structurally
+  can't see. Cross-checked against `blank_renders_classified.csv`'s 104
+  already-confirmed-blank stills: 3 of the 79 already appear there
+  (including `deathwingcorruptedjaw` itself, the original repro), the
+  other 76 are mostly `spells/` cast/decal VFX markers not yet in the
+  6,610-still review sample. Output:
+  `corpus_reports/black_additive_candidates.csv` (raw, all 179, includes
+  `resolved_texture`/`mean_brightness` per row for spot-checking).
+  **Not yet done**: folding the 79 into an exclude list the way
+  `particle_only_exclude_list.txt` excludes its own class — worth a
+  human spot-check first (same caution `particle_only_task.py`'s own doc
+  comment already states: a false positive here silently hides a file
+  from review, not just mis-sorts it).
 - **`ui_alliance_lowres.webp`**/**`ui_horde_lowres.webp`**/
   **`ui_pandarencharacterselect_lowres.webp`** (4 vertices each) — not
   visible meshes at all: real attachment points (Shield/HandRight), 3
@@ -265,12 +278,15 @@ or the already-tracked `MULTI_TEXTURE_LAYER_TODO.md` gap, not a fresh
 resolution-inconsistency bug — nothing to fix here without a fresher
 repro.
 
-**Worth re-checking, not re-investigating from scratch**: `bloodelffemale_hd.m2`'s
-three `textureType == 0` FileDataID slots (3536810/4530998/5210137) with
-no local file in the real export directory, previously flagged as "genuinely
-still open... whether specific to this local export or a wider gap is
-unconfirmed" (`CLAUDE_HISTORY.md`). Worth checking whether it's systemic
-across the current corpus now that `--listfile` resolution exists.
+**Closed, already resolved**: `bloodelffemale_hd.m2`'s three
+`textureType == 0` FileDataID slots (3536810/4530998/5210137), earlier
+flagged as unconfirmed whether specific-to-this-export or a wider gap —
+`CLAUDE_HISTORY.md`'s 2026-08-09 `--listfile` entry already answered this
+directly: all three resolve via `--listfile`/`--listfile-root` once
+`--textures` is pointed at the corpus root instead of the model's own
+directory (verified then, real listfile-resolved names embedded). Not a
+gap, just a stale "worth re-checking" note that predated the fix that
+already checked it.
 
 ## 3. Alpha-channel issues
 
