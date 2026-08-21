@@ -99,6 +99,8 @@ add_library(husk-lib STATIC
   src/chrmodel_db2.cpp
   src/chrcustomization_db2.cpp
   src/texturefiledata_db2.cpp
+  src/modelfiledata_db2.cpp
+  src/itemappearance_db2.cpp
   src/creature_geoset_db2.cpp
   src/chrrace_db2.cpp
   src/animationdata_db2.cpp

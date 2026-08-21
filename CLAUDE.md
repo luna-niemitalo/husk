@@ -180,7 +180,33 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-21, human-readable geoset/animation names +
+- **Current state (2026-08-21, `CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 6:
+  equipped-gear appearance resolution)**: `husk appearance-string`'s `gear`
+  entries (opaque `ItemModifiedAppearanceID`s since the format was first
+  built) now resolve to real equipped-item data given `--db2-dir`/
+  `--dbd-dir`. New `src/itemappearance_db2.hpp`/`.cpp` (the real
+  `ItemModifiedAppearance -> ItemAppearance -> ItemDisplayInfo ->
+  ItemDisplayInfoModelMatRes` chain -- this stage's own previously-open
+  bridge question, now confirmed against the current local extraction's
+  live layout hashes) and `src/modelfiledata_db2.hpp`/`.cpp` (new --
+  `ModelFileData.db2`'s `ModelResourcesID -> FileDataID` reverse lookup,
+  `texturefiledata_db2.hpp`'s missing sibling). `--db2-dir`/`--dbd-dir`
+  also gained `--config`/`$HUSK_CONFIG` support, same as `export`/
+  `db2-build`. Verified end to end against real local data
+  (`ItemModifiedAppearanceID` 15 -> `ItemDisplayInfoID` 1542 -> model
+  FileDataID 370361 -> texture FileDataID 148134, each hop independently
+  cross-checked via `husk db2-export` + `sqlite3` before trusting the
+  command's own output). 2 new CLI-tier tests (`tests/
+  test_cli_appearance.cpp`, a synthetic 6-table DB2 fixture). Same "husk
+  resolves, never applies" policy as every other DB2 feature here --
+  turning the resolved FileDataIDs into an actually attached/rendered
+  weapon or armor piece is downstream Blender-side work, not started, out
+  of this stage's own scope. `README.md` gained a new "`husk
+  appearance-string`" section; `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`/
+  `TODO/README.md` updated (Stages 1-6 all now done). Full suite green,
+  674/674 (671 + 3 new). Full narrative: `CLAUDE_HISTORY.md`'s newest
+  entry.
+- **Previous state (2026-08-21, human-readable geoset/animation names +
   Blender Asset Browser as an animation picker)**: answered three
   usability questions from Luna by reading the real code/data first (see
   `CLAUDE_HISTORY.md`'s newest entry for the full narrative), then
@@ -715,9 +741,12 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   currently a latent bug — no shipped feature reads strings through this
   path). Real fixture data now lives in the repo:
   `test_data/db2/chrcustomization{option,choice,category}.db2`.
-- **Next step**: this session's own three items (geoset/animation human
-  names, Blender Asset Browser) are all fully closed, nothing queued from
-  them. Otherwise unchanged: `TODO/TODO_correctness.md` #2's name-mapping/default-
+- **Next step**: this session's own two items (human-readable names +
+  Blender Asset Browser, then `CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 6
+  equipped-gear resolution) are all fully closed, nothing queued from
+  them -- Stage 6's own "not started" mention two paragraphs below is now
+  stale, see the current-state entry above instead. Otherwise unchanged:
+  `TODO/TODO_correctness.md` #2's name-mapping/default-
   choice work, and `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stages 1-5
   in full (model identity, real placement geometry, the real material
   FileDataID chain, and the live Blender-side customization texture

@@ -99,7 +99,10 @@ _husk() {
         appearance-string)
             _arguments \
                 '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
                 '--validate[--validate]:value:_files' \
+                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
                 '1:model:_files'
             ;;
     esac

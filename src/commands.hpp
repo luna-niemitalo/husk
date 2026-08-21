@@ -117,6 +117,12 @@ void addBlpExportOptions(CLI::App& app, BlpExportOptions& opts);
 
 struct AppearanceStringOptions {
     std::string value;
+    // Optional -- when both given, `gear` entries resolve to real equipped-
+    // item DB2 data (TODO/CHAR_TEXTURE_COMPOSITING_TODO.md Stage 6) instead
+    // of staying opaque IDs. Same role/naming as `export`'s own --db2-dir/
+    // --dbd-dir.
+    std::string db2DirArg;
+    std::string dbdDirArg;
 };
 void addAppearanceStringOptions(CLI::App& app, AppearanceStringOptions& opts);
 

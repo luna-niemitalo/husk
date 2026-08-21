@@ -14,6 +14,97 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-21, `CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 6: equipped-gear
+appearance resolution**: picked up Stage 6, the last open stage of that
+file — resolving a `husk-appearance/1` string's `gear=SLOT:id` entries
+(real `ItemModifiedAppearanceID`s, `src/appearance_string.hpp`) to real
+equipped-item model/texture FileDataIDs. The stage's own previously-open
+question was which real DB2 chain bridges `ItemModifiedAppearanceID` to
+`ItemDisplayInfoID` — resolved by reading `cmd_db2_build.cpp`'s own
+already-shipped SQL for the adjacent object-skin problem
+(`model_object_skin_candidates`/`item_display_inventory_type`), which
+already uses the real chain via `ItemAppearance`/`ItemModifiedAppearance`/
+`Item` for a different purpose (equip-slot verification), plus a direct
+cross-check of all four tables' current live layout hashes against
+`reference/WoWDBDefs` (`ItemModifiedAppearance` 0x3a6c979, `ItemAppearance`
+0x481c4281, `ItemDisplayInfo` 0x9f3ab8a9, `ItemDisplayInfoModelMatRes`
+0x52510d63, both `ModelFileData`/`TextureFileData` also confirmed) — the
+real chain is `ItemModifiedAppearance.ItemAppearanceID ->
+ItemAppearance.ItemDisplayInfoID -> ItemDisplayInfo.ModelResourcesID`
+(element 0 of the real 2-entry array field, same "_0 only" convention
+`cmd_db2_build.cpp`'s own comment already documents for this exact field)
+plus `ItemDisplayInfoModelMatRes` rows keyed by `ItemDisplayInfoID` for the
+real `(MaterialResourcesID, TextureType, ModelIndex)` triples.
+
+New `src/itemappearance_db2.hpp`/`.cpp` (the four-table chain reader,
+"data access only" split matching `chrcustomization_db2.hpp`'s own
+convention — final FileDataID resolution stays in
+`modelfiledata_db2.hpp`/`texturefiledata_db2.hpp`, not fused into this
+reader) and `src/modelfiledata_db2.hpp`/`.cpp` (new — `ModelFileData.db2`'s
+`ModelResourcesID -> FileDataID` reverse lookup, `texturefiledata_db2.hpp`'s
+missing sibling; kept as a `ModelResourcesID -> vector<FileDataID>` map
+since one `ModelResourcesID` can legitimately own several real LOD-variant
+FileDataIDs, same "keep every real candidate" policy `cmd_db2_build.cpp`'s
+own multi-`ItemDisplayInfoID` handling already established).
+
+`husk appearance-string` gained `--db2-dir`/`--dbd-dir` (with
+`--config`/`$HUSK_CONFIG` support, same as `export`/`db2-build` — the
+first time `appearance-string` has had a genuinely per-machine-stable
+flag worth wiring, closing the gap an earlier session's own investigation
+explicitly left open "since none has a flag that's actually
+per-machine-stable"). Given both, each `gear` entry resolves and prints a
+real `ItemDisplayInfoID` plus the equipped item's own `.m2` FileDataID(s)
+(`model=...`) and texture FileDataID(s) (`texture(type=N)=...`); without
+both flags, `gear` entries stay opaque, same "current vs target" honesty
+`cmd_appearance.cpp`'s own doc comment already had.
+
+**Verified end to end against real local data, every hop independently
+cross-checked before trusting the command's own output** (not just "it
+compiled and ran"): built via `husk db2-export` + direct `sqlite3` queries
+against the real local `itemmodifiedappearance.db2`/`itemappearance.db2`/
+`itemdisplayinfo.db2`/`itemdisplayinfomodelmatres.db2`/`modelfiledata.db2`/
+`texturefiledata.db2`. First attempt (`ItemModifiedAppearanceID` 14 ->
+`ItemAppearanceID` 153 -> `ItemDisplayInfoID` 675536) hit a real dangling
+reference — confirmed via `sqlite3` that 675536 genuinely isn't present in
+the 72,419 readable rows of `itemdisplayinfo.db2` (117 rows across 15
+sections are TACT-key-encrypted, a real, already-documented extraction
+gap, not a husk bug) — correctly reported as "dangling reference", not
+silently guessed at. Found a real, fully-resolving chain instead
+(`ItemModifiedAppearanceID` 15 -> `ItemAppearanceID` 154 ->
+`ItemDisplayInfoID` 1542 -> `ModelResourcesID` 160 -> model FileDataID
+370361 -> `MaterialResourcesID` 22758 -> texture FileDataID 148134) and
+cross-checked every single hop directly against the real DB2 data via
+`sqlite3` before trusting `husk appearance-string`'s own output — all
+matched exactly.
+
+2 new CLI-tier tests (`tests/test_cli_appearance.cpp`, a synthetic 6-table
+DB2 fixture set built the same "own local copy of `buildFlatDb2`/
+`writeTextFile`, every field declared plain inline" way
+`tests/test_cli_chrmodel_id.cpp`'s own comment already documents): the
+full real-chain resolution case (mirroring the real numbers found above),
+and a genuinely-unresolved case (no matching row at all). `README.md`
+gained a new "`husk appearance-string`" section (there wasn't one before —
+the command previously only got a passing mention in the `--config`
+section, itself stale by the time this session started, still describing
+`appearance-string` as hand-parsing argv when the CLI11 migration had
+already landed in an earlier session) plus a `--config` support-list fix.
+`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 6 section and its "Why
+staged, not one change" closing paragraph, `TODO/README.md`'s index table
+and "Suggested order" section, and `completions/husk.{bash,zsh}`
+(regenerated via `--print-completion=bash`/`=zsh` — first attempt
+accidentally captured the flake's own shellHook stdout+stderr into the
+completion files by redirecting `2>&1`, caught immediately since
+`--print-completion=bash` prints nothing without the `=shell` argument
+form and the file shrank instead of growing; reverted via `git checkout`
+and redone correctly) all updated. Full suite green, 674/674 (671 + 3
+new). Deliberately still husk-resolves-only, same split every other DB2
+feature here follows: turning the resolved FileDataIDs into an actually
+attached/rendered weapon or armor piece (positioning at the right
+attachment point, applying the texture) is downstream Blender-side work,
+out of this stage's own scope, not started.
+
+---
+
 **2026-08-21 (human-readable geoset/animation names + Blender Asset
 Browser as an animation picker).** Picked up after Luna asked whether the
 texture-overlay switches and geosets had human-readable names, whether

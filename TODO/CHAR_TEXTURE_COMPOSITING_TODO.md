@@ -493,23 +493,41 @@ exact node-graph shape and its own remaining verification step (a real
 interactive Blender GUI pass with real per-choice textures, still
 Luna's own next action).
 
-### Stage 6 — equipped-gear appearance resolution (`husk-appearance/1`'s `gear` field)
+### Stage 6 — equipped-gear appearance resolution (`husk-appearance/1`'s `gear` field) — done
 
 Separate chain from Stage 3's body/skin customization materials: given an
 `ItemModifiedAppearanceID` (what `husk appearance-string`'s `gear=SLOT:id`
 entries carry — see `src/appearance_string.hpp`, `src/cmd_appearance.cpp`),
-resolve it to the real equipped-item geometry/texture to render on the base
-character mesh. Not yet started, and not yet resolved which real DB2 chain
-is the right one to reuse: `EXPLORATION_TODO.md`'s already-mapped
-`ModelFileData → ItemDisplayInfo → TextureFileData` path (CLAUDE.md's
-Resume, "`EXPLORATION_TODO.md` follow-up") resolves an *equipped item's own*
-`.m2` to its texture for standalone item rendering — starting point, not a
-confirmed match, since that chain keys off an item/model FileDataID, not an
-`ItemModifiedAppearanceID` directly; the `ItemModifiedAppearance.db2` →
-`ItemAppearance.db2` hop needed to bridge the two hasn't been walked by hand
-yet the way the rest of this chain was. `cmd_appearance.cpp`'s
-`--validate` deliberately only carries `gear` entries through as opaque
-IDs and says so out loud, rather than silently pretending they're resolved.
+resolve it to the real equipped-item geometry/texture FileDataIDs. Implemented
+(2026-08-21): the real bridge this stage's own open question named —
+`ItemModifiedAppearance.ItemAppearanceID → ItemAppearance.ItemDisplayInfoID`
+— confirmed against the current local extraction's own live layout hashes
+(all four tables' fields checked directly against `reference/WoWDBDefs`,
+cross-checked against `cmd_db2_build.cpp`'s own already-shipped,
+wow.export-matching SQL for the adjacent object-skin problem — same "NOT
+`ModelMaterialResourcesID_0/1` directly" correctness note applies here
+too). New `src/itemappearance_db2.hpp`/`.cpp` (the
+`ItemModifiedAppearance → ItemAppearance → ItemDisplayInfo →
+ItemDisplayInfoModelMatRes` chain, "data access only" split matching
+`chrcustomization_db2.hpp`'s own convention) and `src/modelfiledata_db2.hpp`/
+`.cpp` (new — `ModelFileData.db2`'s `ModelResourcesID → FileDataID` reverse
+lookup, `texturefiledata_db2.hpp`'s own sibling, previously unbuilt).
+`husk appearance-string` gained `--db2-dir`/`--dbd-dir` (with `--config`
+support, same as `export`/`db2-build`): each `gear` entry resolves to a
+real `ItemDisplayInfoID` plus the equipped item's own `.m2` FileDataID(s)
+and texture FileDataID(s), printed per entry — without both flags, `gear`
+entries stay opaque IDs, same "current vs target" honesty as before.
+Verified end to end against real local data (`ItemModifiedAppearanceID` 15
+→ `ItemDisplayInfoID` 1542 → model FileDataID 370361 → texture FileDataID
+148134, each hop independently cross-checked via `husk db2-export` +
+`sqlite3` before trusting the command's own output). 2 new CLI-tier tests
+(`tests/test_cli_appearance.cpp`: full chain resolution against a synthetic
+6-table DB2 fixture, and a dangling-reference/unresolved case). Deliberately
+still husk-resolves-only: turning the resolved FileDataIDs into an actual
+attached/rendered weapon or armor piece (positioning at the right
+attachment point, applying the texture) is downstream Blender-side work,
+not started, same split Stage 3/5 already established for body/skin
+customization.
 
 ## Why staged, not one change
 
@@ -523,9 +541,10 @@ husk's job at all -- image compositing is a new problem *class* entirely
 (not data parsing), and doing it in husk broke this project's own "attach
 real data, never interpret/apply it" policy; reverted in favor of Stage 5
 doing the actual compositing live, in Blender, where it belongs. Stage 5
-lives outside `husk export` altogether. Stage 6 is scoped but unstarted --
-the DB2 bridge it needs (`ItemModifiedAppearance` → `ItemAppearance`) is
-believed to exist but hasn't been confirmed against real local data the way
-every other chain in this file has. Landing them separately, in
-order, means each one ships tested and useful on its own rather than one
-large, hard-to-review change.
+lives outside `husk export` altogether. Stage 6's own DB2 bridge
+(`ItemModifiedAppearance` → `ItemAppearance`) is now confirmed against real
+local data, same as every other chain in this file, and the resolution
+itself is done — what's left of Stage 6 (actually attaching/rendering the
+resolved gear) lives outside `husk export` too, same shape as Stage 5.
+Landing them separately, in order, means each one ships tested and useful
+on its own rather than one large, hard-to-review change.

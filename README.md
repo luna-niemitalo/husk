@@ -690,10 +690,11 @@ listfile = "/media/luna/data/wow_export/community-listfile.csv"
 listfile-root = "/media/luna/data/wow_export"
 ```
 
-Only `export` supports this today -- `db2-export`/`db2-info`/`db2-build`/
-`dump-chunks`/`blp-export`/`info`/`appearance-string` all still hand-parse
-`argv` positionally rather than through a `CLI::App`, which is what
-`set_config` needs to attach to (`TODO/CLEANUP_TODO.md` #3).
+`export`, `db2-export`, `db2-build`, and `appearance-string` (its
+`--db2-dir`/`--dbd-dir`, used to resolve `gear` entries -- see
+"`husk appearance-string`" below) support this; `db2-info`/`dump-chunks`/
+`blp-export`/`info` don't, since none of their flags are actually
+per-machine-stable.
 
 ### Importing into Blender
 
@@ -876,6 +877,29 @@ contains real `function Scene:WaitTimer(waitTime)` source) and real
 `conversationline.db2` (69,312 rows of real numeric fields, including
 negative/large 32-bit values like `AdditionalDuration = -2500`, correctly
 never misread as text).
+
+### `husk appearance-string --validate <string>`
+
+Validates/normalizes a `husk-appearance/1` string (`race=<id> sex=<0|1>
+cust=<id,id,...> gear=<SLOT:id,SLOT:id,...>`, see `src/appearance_string.hpp`
+for the full grammar) -- husk's own compact "what a character looks like"
+serialization, deliberately not an addon export format (see that file's
+own doc comment for why raw item IDs are the wrong thing to encode
+post-Legion).
+
+With `--db2-dir`/`--dbd-dir`, each `gear=SLOT:id` entry's
+`ItemModifiedAppearanceID` resolves through the real DB2 chain
+(`ItemModifiedAppearance` -> `ItemAppearance` -> `ItemDisplayInfo` ->
+`ItemDisplayInfoModelMatRes`, `src/itemappearance_db2.hpp`) to the real
+equipped item's own `.m2` FileDataID (via `ModelFileData`,
+`src/modelfiledata_db2.hpp`) and texture FileDataID(s) (via
+`TextureFileData`, `src/texturefiledata_db2.hpp`) -- printed per entry,
+e.g. `gear MAINHAND:15 -> ItemDisplayInfoID=1542 model=370361
+texture(type=2)=148134`. Without both flags, `gear` entries stay opaque
+`(slot, ItemModifiedAppearanceID)` pairs. Same "husk resolves, never
+applies" policy as every other DB2-driven feature -- turning the resolved
+FileDataIDs into an actual attached/rendered weapon or armor piece is
+downstream (Blender-side) work, not done by this command.
 
 ### Texture conversion
 

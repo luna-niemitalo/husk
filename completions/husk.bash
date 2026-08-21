@@ -209,13 +209,25 @@ _husk_completions() {
             ;;
         appearance-string)
             case "$prev" in
+                --config)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
                 --validate)
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
                     ;;
+                --db2-dir)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --dbd-dir)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --validate" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --validate --db2-dir --dbd-dir" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
