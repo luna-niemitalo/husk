@@ -178,6 +178,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_integration_lights.cpp
     tests/test_cli.cpp
     tests/test_cli_textures.cpp
+    tests/test_cli_slim_textures.cpp
     tests/test_cli_batch.cpp
     tests/test_cli_config.cpp
     tests/test_cli_appearance.cpp

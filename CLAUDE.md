@@ -180,7 +180,62 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-22, skin extras -> root-joint-extras migration)**:
+- **Current state (2026-08-22, `--slim-textures` external-texture export +
+  clean-texture-naming investigation)**: Implemented
+  `TODO/SLIM_GLB_EXTERNAL_TEXTURES_TODO.md` (now closed and deleted):
+  `husk export --slim-textures` writes each resolved base-color texture as
+  a real `<output-dir>/textures/<name>.png` file (named by real
+  FileDataID when known, else the resolved source filename -- same
+  convention every other texture kind in this project already uses) and
+  sets glTF `img.uri` to the relative path instead of embedding via
+  `img.bufferView`/`appendBufferView` -- off by default, existing embed
+  behavior unchanged. Multiple materials sharing one image dedupe through
+  the existing `alternateTextureCache` (write once, share the URI).
+  `additionalTextureLayers`/`alternateTextureCandidates` (rare/diagnostic
+  extras-only images) stay embedded regardless, out of this pass's scope.
+  **Real bug found and fixed along the way**: tinygltf's own
+  `WriteGltfSceneToStream` silently collapses any `img.uri` down to its
+  bare basename (`GetBaseFilename`) whenever `img.image` (tinygltf's own
+  decoded-pixel buffer, which husk never populates) is empty -- would have
+  silently truncated `textures/<name>.png` to `<name>.png` in the JSON
+  while the real file sits one directory level down, confirmed by reading
+  `tiny_gltf.h` directly rather than assumed. Fixed with a custom
+  `SetImageWriter` callback (`src/gltf.cpp`) that hands back the real URI
+  unchanged -- a no-op for every embedded image. New CLI-tier tests
+  (`tests/test_cli_slim_textures.cpp`: size/dir/uri assertions, dedup,
+  differential gltf_validator check) plus a new Blender-tier conformance
+  test proving Blender's importer actually decodes real pixels from the
+  external directory against the real `bloodelffemale_hd` fixture (not
+  just "import doesn't error"). Verified independently by this session (not
+  just the implementing agent's own report): clean rebuild, full suite
+  green, 681/681 (677 + 4 new, 0 regressions). `README.md`/completions
+  updated.
+
+  **Same-session follow-up (investigation only, no code changed)**: Luna
+  asked whether husk can resolve wow_export's verbose material-batch
+  texture names (`batch1_mat3_tex5_..._<fileid>.png`) down to something
+  as clean as `scalpupperhair00_08_hd_<fileid>.png`, using mappings husk
+  already has. Found texture *matching* already works regardless of
+  naming convention -- `_resolve_customization_texture_path`'s existing
+  `*_<file_data_id>.png` suffix-glob (`tools/husk_blender_geoset_mask.py`)
+  matches both wow_export naming styles by construction, since both end
+  in `_<fileid>.png`. The real gap is *display* naming: the Blender
+  `Image` datablock loaded via `_load_customization_texture_image` keeps
+  Blender's default (the source file's own ugly basename) even though the
+  node label right next to it already uses a real, clean
+  `choice_name` from `chr_customization_options` extras; `--slim-textures`
+  itself (above) writes clean-but-bare `<FileDataID>.png`, not a
+  human-readable name. husk already has the data to fix both, via two
+  sources currently unwired to either site: `chr_customization_options`'
+  real option/choice names (already reaches Blender, just not used as the
+  image name), and `--listfile`'s FileDataID -> real-content-path map
+  (already loaded and used elsewhere in husk, e.g.
+  `findFileDataIdForModelPath`, but never attached to any texture-bearing
+  extras struct -- this is the actual source of the short
+  `scalpupperhair00_08`-style name Luna gave as the target). Written up
+  as `TODO/CLEAN_TEXTURE_NAMES_TODO.md` (genuine, well-scoped follow-up,
+  not implemented this session per the investigation-first brief).
+- **Previous state (2026-08-22, skin extras -> root-joint-extras migration)**:
   Luna asked why `husk_blender_geoset_mask.py`'s post-import functions need
   a file path at all -- answer: `chr_texture_layout`/`chr_customization_options`/
   `chr_enabled_materials`/`enabled_geosets`/etc. live on the glTF *skin*'s

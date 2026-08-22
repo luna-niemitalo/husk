@@ -77,7 +77,8 @@ struct Error : std::runtime_error {
 // doc comment).
 std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& materials = {},
                                const Skeleton* skeleton = nullptr,
-                               const std::vector<Animation>& animations = {});
+                               const std::vector<Animation>& animations = {},
+                               const std::string& slimTexturesOutputDir = "");
 
 // Serializes multiple meshes into one .glb, each as its own named node (and
 // its own glTF mesh/primitives/materials) -- husk export --lod all's case
@@ -173,8 +174,25 @@ std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& mat
 // writeGlb(mesh, materials, skeleton, animations) is exactly
 // writeGlbMulti({{"", mesh, materials}}, skeleton, animations) -- the
 // single-mesh case is this function with one, unnamed, entry.
+//
+// `slimTexturesOutputDir` (--slim-textures, TODO/
+// SLIM_GLB_EXTERNAL_TEXTURES_TODO.md) is the directory the resulting .glb
+// itself will be written into. Left empty (the default), every resolved
+// baseColorImagePng is embedded in the .glb's own binary buffer as before
+// (img.bufferView). Non-empty instead writes each one as a real
+// '<slimTexturesOutputDir>/textures/<name>.png' file (named by real
+// FileDataID when known, else the resolved source filename -- see
+// gltf_mesh.hpp's Material::baseColorTextureFileDataId/baseColorImageName)
+// and sets `img.uri` to the relative path 'textures/<name>.png' instead of
+// `img.bufferView` -- a real external glTF image reference, resolved by
+// Blender's own importer relative to the .glb/.gltf file's directory.
+// Materials sharing the same resolved image write the file once and share
+// the same URI (the existing alternateTextureCache dedup, gltf_mesh.cpp).
+// AdditionalTextureLayer/AlternateTextureCandidate images (extras-only,
+// diagnostic/rare) always stay embedded regardless of this parameter.
 std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes,
                                     const Skeleton* skeleton = nullptr,
-                                    const std::vector<Animation>& animations = {});
+                                    const std::vector<Animation>& animations = {},
+                                    const std::string& slimTexturesOutputDir = "");
 
 }  // namespace husk::gltf

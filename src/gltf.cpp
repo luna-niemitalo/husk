@@ -41,7 +41,8 @@
 namespace husk::gltf {
 
 std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const Skeleton* skeleton,
-                                    const std::vector<Animation>& animations) {
+                                    const std::vector<Animation>& animations,
+                                    const std::string& slimTexturesOutputDir) {
     bool hasSkeleton = skeleton != nullptr && !skeleton->joints.empty();
     if (meshes.empty() && !hasSkeleton) {
         throw Error("writeGlbMulti: meshes must not be empty without a skeleton to fall back to "
@@ -103,7 +104,7 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
         MeshEmission em = emitMeshNode(nm, hasSkeleton, skinIdx, buffer, views, accessors, images,
                                         textures, tinyMaterials, usedUnlitExtension,
                                         usedTextureTransformExtension, alternateTextureCache,
-                                        skelEm.geosetTagJointIndex);
+                                        skelEm.geosetTagJointIndex, slimTexturesOutputDir);
         tinyMeshes.push_back(em.mesh);
         em.node.mesh = static_cast<int>(tinyMeshes.size()) - 1;
         meshNodes.push_back(em.node);
@@ -203,6 +204,31 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     model.buffers = {buffer};
 
     tinygltf::TinyGLTF writer;
+    // WriteGltfSceneToStream's own image-serialization step (tinygltf's
+    // UpdateImageObject, tiny_gltf.h) unconditionally reduces any `img.uri`
+    // we set down to GetBaseFilename(uri) -- e.g. our own real
+    // 'textures/<name>.png' (--slim-textures, gltf_mesh.cpp's
+    // writeSlimTextureFile) collapses to bare '<name>.png', silently
+    // breaking the very file already written to disk at that relative
+    // path -- whenever `img.image` (tinygltf's own decoded-pixel buffer,
+    // which husk never populates; it hands tinygltf pre-encoded PNG bytes
+    // instead) is empty, regardless of the `embedImages` argument
+    // (WriteGltfSceneToStream always passes true, since it can't write a
+    // separate file to a stream target anyway -- confirmed by reading
+    // tiny_gltf.h directly, not assumed). A custom writer callback is the
+    // only hook tinygltf exposes to intervene: this one ignores the
+    // basename tinygltf already computed and hands back `image->uri`
+    // (the real, full relative path we set) unchanged. A no-op for every
+    // embedded (bufferView-based, uri empty) image -- UpdateImageObject
+    // never even calls this callback for those (filename stays empty).
+    writer.SetImageWriter(
+        [](const std::string*, const std::string*, const tinygltf::Image* image, bool,
+           const tinygltf::FsCallbacks*, const tinygltf::URICallbacks*, std::string* outUri,
+           void*) -> bool {
+            *outUri = image->uri;
+            return true;
+        },
+        nullptr);
     std::ostringstream out(std::ios::binary);
     if (!writer.WriteGltfSceneToStream(&model, out, /*prettyPrint=*/false, /*writeBinary=*/true)) {
         throw Error(
@@ -218,8 +244,9 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
 }
 
 std::vector<uint8_t> writeGlb(const Mesh& mesh, const std::vector<Material>& materials,
-                               const Skeleton* skeleton, const std::vector<Animation>& animations) {
-    return writeGlbMulti({NamedMesh{"", mesh, materials}}, skeleton, animations);
+                               const Skeleton* skeleton, const std::vector<Animation>& animations,
+                               const std::string& slimTexturesOutputDir) {
+    return writeGlbMulti({NamedMesh{"", mesh, materials}}, skeleton, animations, slimTexturesOutputDir);
 }
 
 }  // namespace husk::gltf

@@ -157,6 +157,7 @@ struct ExportOptions {
     std::string listfileRootArg;
     std::string fromListArg;
     std::string outputDirArg;
+    bool slimTextures = false;
 };
 
 // Declares every export flag (names, defaults, descriptions, the `--skin

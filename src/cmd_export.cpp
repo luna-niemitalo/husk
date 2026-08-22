@@ -527,6 +527,15 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "directory to also write each --textures .blp's decoded .png to, mirroring its "
                     "location under --textures (default: unset -- decoded textures stay in-memory "
                     "only, embedded straight into the .glb, nothing written to disk)");
+    app.add_flag("--slim-textures", opts.slimTextures,
+                 "write resolved base-color textures as real '<output-dir>/textures/<name>.png' "
+                 "files (named by real FileDataID when known, else the resolved source filename) "
+                 "and reference them via glTF's own external image URI, instead of embedding them "
+                 "in the .glb's binary buffer -- off by default (embed, the existing behavior); "
+                 "produces a much smaller .glb for a real character export, at the cost of the "
+                 ".glb no longer being a single self-contained file (the 'textures/' directory "
+                 "must travel with it). Additional-texture-layer and ambiguous-candidate extras "
+                 "images stay embedded regardless -- see README.md");
     app.add_option("--skin-dir", opts.skinDirArg,
                     "directory 'auto' searches for the SFID-declared '<FileDataID>.skin' file, or "
                     "'none' to skip that stage (default: the model's own directory)");
@@ -927,7 +936,18 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         size_t renderMeshCount = namedMeshes.size();
         appendCollisionMesh(header, blob, modelPath, opts.collisionRequested, namedMeshes);
 
-        auto glb = gltf::writeGlbMulti(namedMeshes, bones.empty() ? nullptr : &skeleton, animations);
+        // --slim-textures: the directory the .glb itself is about to be
+        // written into (empty string -- not "." -- when unset, matching
+        // writeGlbMulti's own "off" convention; parent_path() of a
+        // basename-only outputPath, e.g. "model.glb", is legitimately empty
+        // too, meaning "here, the current directory").
+        std::string slimTexturesOutputDir;
+        if (opts.slimTextures) {
+            auto outDir = std::filesystem::path(outputPath).parent_path();
+            slimTexturesOutputDir = outDir.empty() ? "." : outDir.string();
+        }
+        auto glb = gltf::writeGlbMulti(namedMeshes, bones.empty() ? nullptr : &skeleton, animations,
+                                        slimTexturesOutputDir);
 
         errno = 0;
         std::ofstream out(outputPath, std::ios::binary);

@@ -215,6 +215,7 @@ std::string zshFlagLabel(const std::string& longName) {
     if (longName == "--skin") return "a .skin path, or auto";
     if (longName == "--textures") return "texture directory, or none";
     if (longName == "--textures-out") return "directory to also write decoded .png copies to";
+    if (longName == "--slim-textures") return "write textures as external files instead of embedding";
     if (longName == "--skin-dir") return "skin-search directory, or none";
     if (longName == "--anim") return "auto, inline, none, or a directory";
     if (longName == "--skel") return "external .skel path, or none";

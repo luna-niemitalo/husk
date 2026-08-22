@@ -40,6 +40,8 @@ using husk::test::runHusk;
 using husk::test::testM2;
 using husk::test::testQuadrupedM2;
 using husk::test::testQuadrupedSkin;
+using husk::test::testSkelM2;
+using husk::test::testSkelSkin;
 using husk::test::testSkin;
 using husk::test::testWeaponParticleB;
 using husk::test::testWeaponParticleStress;
@@ -714,6 +716,92 @@ TEST_CASE("husk export: a real quadruped creature (wolf.m2) imports into Blender
 #else
 TEST_CASE("husk export: a real quadruped creature (wolf.m2) imports into Blender (headless) "
           "with bone/vertex counts matching tinygltf's own reading of the same file" *
+          doctest::skip(true)) {
+}
+#endif
+
+// --slim-textures' own glTF-Validator conformance check (does a real
+// external-image-only .glb still validate cleanly) lives in tests/
+// test_cli_slim_textures.cpp instead of here, against a small synthetic
+// fixture -- every real local test_data/ fixture with an actually-
+// resolvable local texture file (only bloodelffemale_hd's own directory
+// has real '.blp' files) also happens to trip a real, pre-existing,
+// wholly unrelated glTF-Validator finding (duplicate JOINTS_0 values on a
+// shared vertex -- confirmed present in the plain, non-slim embedded
+// export too, so not something this feature introduced) that would make
+// this check fail for a reason having nothing to do with --slim-textures
+// itself. The Blender pixel-decode check just below still uses that real
+// fixture -- Blender's importer doesn't run glTF-Validator's own spec
+// checks, so it's unaffected by that unrelated finding.
+
+#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_IMPORT_SCRIPT)
+TEST_CASE("husk export --slim-textures: Blender's own importer resolves and decodes the real "
+          "pixels of every externally-referenced texture from the adjacent 'textures/' "
+          "directory, not just imports without erroring" *
+          doctest::skip(testSkelM2().empty() || testSkelSkin().empty())) {
+    // testM2()/testSkin() (bloodelffemale.m2, the fixture the gltf_validator
+    // check above uses) has no real locally-resolvable texture file under
+    // this suite's own strict config isolation (tests/run_husk.hpp forces
+    // HUSK_CONFIG=/dev/null so a real ~/.config/husk/config.toml's
+    // --listfile-root can't silently widen resolution for a real interactive
+    // run but not this test) -- confirmed directly, not assumed: under that
+    // isolation it slim-exports with zero external images, which would make
+    // every check below vacuously true. testSkelM2()/testSkelSkin()
+    // (bloodelffemale_hd.m2) sits next to real local '.blp' files
+    // (test_data/character/bloodelf/female/) that resolve without any
+    // config/listfile at all -- the real fixture this test actually needs.
+    std::string m2Path = testSkelM2();
+    std::string skinPath = testSkelSkin();
+
+    auto outDir = std::filesystem::temp_directory_path() / "husk-test-blender-slim";
+    std::filesystem::remove_all(outDir);
+    std::filesystem::create_directories(outDir);
+    auto outPath = (outDir / "slim.glb").string();
+
+    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" +
+                                 skinPath + "\" --slim-textures");
+    INFO("husk export output:\n", exportResult.output);
+    REQUIRE(exportResult.exitCode == 0);
+
+    // Ground truth, independent of Blender: tinygltf's own reading of the
+    // same file has at least one image with a real external `uri` (not
+    // `bufferView`) -- confirms the export actually took the slim path
+    // (real texture data resolved to embed) rather than this fixture
+    // happening to have zero resolvable textures at all, which would make
+    // every check below vacuously true.
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&model, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    size_t externalImageCount = 0;
+    for (const auto& img : model.images) {
+        if (!img.uri.empty() && img.bufferView < 0) ++externalImageCount;
+    }
+    REQUIRE(externalImageCount > 0);
+
+    auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
+                                     " --background --factory-startup --python-exit-code 1 --python \"" +
+                                     std::string(HUSK_BLENDER_IMPORT_SCRIPT) + "\" -- \"" + outPath + "\"");
+    INFO("blender output:\n", blenderResult.output);
+    REQUIRE(blenderResult.exitCode == 0);
+
+    CHECK(parseProbeInt(blenderResult.output, "loaded_image_count") ==
+          static_cast<int>(model.images.size()));
+    // A failed/unresolved external image resolves to a real Blender Image
+    // datablock with size (0, 0) -- these being > 0 is the real proof
+    // Blender's importer found 'textures/<name>.png' next to slim.glb and
+    // decoded real pixels from it, not just that import() didn't throw.
+    CHECK(parseProbeInt(blenderResult.output, "min_image_width") > 0);
+    CHECK(parseProbeInt(blenderResult.output, "min_image_height") > 0);
+
+    std::filesystem::remove_all(outDir);
+}
+#else
+TEST_CASE("husk export --slim-textures: Blender's own importer resolves and decodes the real "
+          "pixels of every externally-referenced texture from the adjacent 'textures/' "
+          "directory, not just imports without erroring" *
           doctest::skip(true)) {
 }
 #endif

@@ -44,6 +44,22 @@ def main():
     print("HUSK_PROBE total_vertex_count=%d" % sum(len(o.data.vertices) for o in meshes))
     print("HUSK_PROBE action_count=%d" % len(bpy.data.actions))
 
+    # --slim-textures conformance (tests/test_conformance.cpp): confirms
+    # Blender's own importer actually resolved and decoded each external
+    # 'textures/<name>.png' image husk wrote next to the .glb, not just
+    # that import didn't error -- a failed/unresolved external image still
+    # shows up in bpy.data.images, just with size (0, 0). min_image_width/
+    # height across every *real* loaded image (excluding Blender's own
+    # always-present "Render Result"/"Viewer Node" compositor images, which
+    # report unrelated sizes and aren't textures the .glb ever declared) is
+    # 0 iff at least one image failed to resolve/decode.
+    real_images = [img for img in bpy.data.images if img.name not in ("Render Result", "Viewer Node")]
+    print("HUSK_PROBE loaded_image_count=%d" % len(real_images))
+    widths = [img.size[0] for img in real_images]
+    heights = [img.size[1] for img in real_images]
+    print("HUSK_PROBE min_image_width=%d" % (min(widths) if widths else -1))
+    print("HUSK_PROBE min_image_height=%d" % (min(heights) if heights else -1))
+
     # cmd_export.cpp tags the collision mesh's glTF node extras with
     # {"collision": true} (gltf::NamedMesh::isCollision) -- find it by that
     # tag rather than by name, so this probe still works

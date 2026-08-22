@@ -37,6 +37,7 @@ _husk() {
                 '(-s --skin)'{-s,--skin}'[a .skin path, or auto]:value:_husk_skin_value' \
                 '(-t --textures)'{-t,--textures}'[texture directory, or none]:value:_husk_dir_or_none_value' \
                 '--textures-out[directory to also write decoded .png copies to]:value:_husk_dir_value' \
+                '--slim-textures[write textures as external files instead of embedding]' \
                 '--skin-dir[skin-search directory, or none]:value:_husk_dir_or_none_value' \
                 '(-a --anim)'{-a,--anim}'[auto, inline, none, or a directory]:value:_husk_anim_value' \
                 '--skel[external .skel path, or none]:value:_husk_file_or_none_value' \

@@ -53,6 +53,16 @@ struct MeshEmission {
 // SkeletonEmission's own output, gltf_skeleton_internal.hpp) drives a
 // second JOINTS_1/WEIGHTS_1 attribute set -- see Skeleton::GeosetTag's doc
 // comment (gltf_skeleton.hpp) for the mechanism this builds.
+// `slimTexturesOutputDir` (--slim-textures, empty means off/embed-as-usual)
+// is the directory the final .glb itself will be written into -- when
+// non-empty, this material's own baseColorImagePng is written as a real
+// '<slimTexturesOutputDir>/textures/<name>.png' file instead of being
+// embedded in the .glb's binary buffer, with `img.uri` set to the
+// relative path 'textures/<name>.png' rather than `img.bufferView` (see
+// emitMaterial, gltf_mesh.cpp). AlternateTextureCandidate images
+// (alternate_textures extras) always stay embedded regardless -- see
+// TODO/SLIM_GLB_EXTERNAL_TEXTURES_TODO.md's own step 6 framing (rare,
+// small, diagnostic-only pool, out of this feature's scope).
 MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, tinygltf::Buffer& buffer,
                            std::vector<tinygltf::BufferView>& views,
                            std::vector<tinygltf::Accessor>& accessors, std::vector<tinygltf::Image>& images,
@@ -60,6 +70,7 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
                            std::vector<tinygltf::Material>& tinyMaterials, bool& usedUnlitExtension,
                            bool& usedTextureTransformExtension,
                            std::unordered_map<std::string, int>& alternateTextureCache,
-                           const std::unordered_map<int, uint32_t>& geosetTagJointIndex);
+                           const std::unordered_map<int, uint32_t>& geosetTagJointIndex,
+                           const std::string& slimTexturesOutputDir = "");
 
 }  // namespace husk::gltf

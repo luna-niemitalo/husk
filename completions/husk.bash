@@ -112,7 +112,7 @@ _husk_completions() {
                     ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --config --input -i --output -o --from-list --output-dir --skin -s --textures -t --textures-out --skin-dir --anim -a --skel --lod --bones-dir --phys --collision --db2-dir --dbd-dir --char-layout-id --customization-choice-ids --chr-model-id --creature-display-id --object-skin-texture-id --knowledge-db --listfile --listfile-root" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --input -i --output -o --from-list --output-dir --skin -s --textures -t --textures-out --slim-textures --skin-dir --anim -a --skel --lod --bones-dir --phys --collision --db2-dir --dbd-dir --char-layout-id --customization-choice-ids --chr-model-id --creature-display-id --object-skin-texture-id --knowledge-db --listfile --listfile-root" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))

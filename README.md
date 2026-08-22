@@ -596,6 +596,7 @@ Flags:
 | `--skin <path>` &#124; `auto` | `-s` | `.skin` path, or `auto` (see above); never `none` | `auto` |
 | `--textures <dir>` &#124; `none` | `-t` | Directory of `.png` or raw `.blp` files (the latter decoded in-memory, no separate step) for real `baseColorTexture` images, or `none` to never embed one -- matched by real filename first (the M2's own embedded name, or the model's own basename-prefixed convention), `<FileDataID>.{png,blp}` only as a fallback, see below | model's own directory |
 | `--textures-out <dir>` | -- | Also write each decoded `.blp`'s `.png` to `<dir>`, mirroring its location under `--textures` -- a convenience copy only, embedding itself always happens in-memory regardless | unset (in-memory only) |
+| `--slim-textures` | -- | Write each resolved base-color texture as a real `<output-dir>/textures/<name>.png` file and reference it via glTF's own external image `uri`, instead of embedding it in the `.glb`'s binary buffer -- see below | off (embed, the default) |
 | `--skin-dir <dir>` &#124; `none` | -- | Directory `auto` searches for the SFID-declared `<FileDataID>.skin`, or `none` to skip that stage | model's own directory |
 | `--anim <dir>` &#124; `auto`/`inline`/`none` | `-a` | See the four states above | `auto` |
 | `--skel <path>` &#124; `none` | -- | External `.skel` path (0-inline-bone models only), or `none` to never look for one | same-basename `.skel` next to the model, if any |
@@ -659,6 +660,29 @@ other way to verify a FileDataID's real name against the file it claimed).
 If no matching image is found in the resolved `--textures` directory,
 materials still carry the correct blend mode, culling, and tint/fade -- they
 render as a flat tinted surface instead of the real WoW texture.
+
+**Slim (external-texture) export.** `--slim-textures` writes each resolved
+base-color texture as a real `<output-dir>/textures/<name>.png` file (named
+by real FileDataID when the batch resolved one, else the resolved source
+filename -- the same naming this project already uses for every other
+texture kind) instead of embedding it in the `.glb`'s own binary buffer,
+setting the glTF `image.uri` to the relative path `textures/<name>.png`
+instead of `image.bufferView` -- a real external glTF image reference,
+resolved by any spec-conformant importer (including Blender's own) relative
+to the `.glb`/`.gltf` file's directory. Materials sharing the same resolved
+image write the file once and share the same `uri` (the existing
+alternate-texture dedup cache, now also gating the write). Meaningfully
+smaller `.glb` files for a real character export, at the cost of the
+`.glb` no longer being a single self-contained file -- the `textures/`
+directory has to travel with it. Additional-texture-layer
+(`textureCount > 1`) and ambiguous-hardcoded-slot-candidate (`alternate_
+textures` extras) images always stay embedded regardless of this flag --
+comparatively rare/small, diagnostic-only pools, out of this flag's scope.
+
+```sh
+husk export bloodelffemale_hd.m2 -o out/bloodelffemale_hd.glb --slim-textures
+# writes out/bloodelffemale_hd.glb *and* out/textures/<name>.png per texture
+```
 
 Shell completion (bash/zsh) for every subcommand and flag above ships in
 `completions/` -- see that directory's own files, generated from husk's real

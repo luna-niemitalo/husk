@@ -4,6 +4,8 @@
 #include <array>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <iostream>
 #include <unordered_map>
 
 #include "gltf_buffer_utils.hpp"
@@ -40,6 +42,43 @@ struct KhrTextureTransform {
 
 // Same epsilon find_texture_transform_files.py's is_identity_rotation uses.
 constexpr double kPlanarRotationEpsilon = 1e-4;
+
+// Real filesystem separators only -- baseColorImageName/candidate filenames
+// are always a real local file's own stem (export_materials.cpp), never
+// foreign/network data, but a defensive replace costs nothing and rules out
+// a resolved name ever escaping the intended 'textures/' output directory.
+std::string sanitizeTextureFilenameStem(const std::string& stem) {
+    std::string out = stem;
+    std::replace(out.begin(), out.end(), '/', '_');
+    std::replace(out.begin(), out.end(), '\\', '_');
+    return out;
+}
+
+// --slim-textures' write-instead-of-embed path (TODO/
+// SLIM_GLB_EXTERNAL_TEXTURES_TODO.md): writes `pngBytes` to
+// '<slimTexturesOutputDir>/textures/<filenameStem>.png' and returns the
+// glTF-relative URI ('textures/<filenameStem>.png') `emitMaterial` sets on
+// `img.uri`. A write failure is reported and otherwise ignored -- matches
+// --textures-out's own existing best-effort convention
+// (export_texture_resolution.cpp's writeTextureOutCopy) -- but unlike that
+// convenience copy, this *is* the texture's only representation in the
+// export, so the caller still gets a real (if textureless) glTF material
+// rather than a hard failure over one disk write.
+std::string writeSlimTextureFile(const std::string& slimTexturesOutputDir, const std::string& filenameStem,
+                                  const std::vector<uint8_t>& pngBytes) {
+    std::string filename = sanitizeTextureFilenameStem(filenameStem) + ".png";
+    std::filesystem::path texDir = std::filesystem::path(slimTexturesOutputDir) / "textures";
+    std::error_code ec;
+    std::filesystem::create_directories(texDir, ec);
+    std::filesystem::path outPath = texDir / filename;
+    std::ofstream out(outPath, std::ios::binary);
+    if (!out) {
+        std::cout << "husk: warning: couldn't write '" << outPath.string() << "' (--slim-textures)\n";
+        return "";
+    }
+    out.write(reinterpret_cast<const char*>(pngBytes.data()), static_cast<std::streamsize>(pngBytes.size()));
+    return "textures/" + filename;
+}
 
 // Returns nullopt when the quaternion isn't a pure rotation about the UV
 // plane's normal (x/y components beyond floating-point noise) --
@@ -88,7 +127,8 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
                                  std::vector<tinygltf::Image>& images,
                                  std::vector<tinygltf::Texture>& textures, int uv2AccIdx,
                                  bool& usedUnlitExtension, bool& usedTextureTransformExtension,
-                                 std::unordered_map<std::string, int>& alternateTextureCache) {
+                                 std::unordered_map<std::string, int>& alternateTextureCache,
+                                 const std::string& slimTexturesOutputDir) {
     tinygltf::Material tm;
     tm.name = mat.name;
     tm.alphaMode = alphaModeString(mat.alphaMode);
@@ -129,15 +169,38 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
         if (cached != alternateTextureCache.end()) {
             texIdx = cached->second;
         } else {
-            int imgView = appendBufferView(buffer, views, mat.baseColorImagePng, /*target=*/0);
             tinygltf::Image img;
-            img.mimeType = "image/png";
-            img.bufferView = imgView;
             // Real source filename (Material::baseColorImageName's own doc
             // comment) -- without this, Blender's glTF importer falls back
             // to an auto-generated "Image_<N>" name, which is what
             // prompted this.
             img.name = mat.baseColorImageName;
+            if (!slimTexturesOutputDir.empty()) {
+                // --slim-textures: write instead of embed (TODO/
+                // SLIM_GLB_EXTERNAL_TEXTURES_TODO.md). Naming: real
+                // FileDataID when known (same '<FileDataID>.png' convention
+                // every other texture kind in this project already uses --
+                // see gltf_mesh.hpp's baseColorTextureFileDataId doc
+                // comment), falling back to the real source-file stem
+                // (baseColorImageName) for the "no FileDataID" case (a
+                // hardcoded/customization-driven slot's embedded-filename-
+                // only source).
+                std::string stem = mat.baseColorTextureFileDataId != 0
+                                        ? std::to_string(mat.baseColorTextureFileDataId)
+                                        : mat.baseColorImageName;
+                std::string uri = writeSlimTextureFile(slimTexturesOutputDir, stem, mat.baseColorImagePng);
+                if (!uri.empty()) {
+                    img.uri = uri;
+                } else {
+                    // Write failed -- fall back to embedding rather than
+                    // silently losing the texture entirely.
+                    img.mimeType = "image/png";
+                    img.bufferView = appendBufferView(buffer, views, mat.baseColorImagePng, /*target=*/0);
+                }
+            } else {
+                img.mimeType = "image/png";
+                img.bufferView = appendBufferView(buffer, views, mat.baseColorImagePng, /*target=*/0);
+            }
             int imgIdx = static_cast<int>(images.size());
             images.push_back(img);
 
@@ -520,7 +583,8 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
                            std::vector<tinygltf::Material>& tinyMaterials, bool& usedUnlitExtension,
                            bool& usedTextureTransformExtension,
                            std::unordered_map<std::string, int>& alternateTextureCache,
-                           const std::unordered_map<int, uint32_t>& geosetTagJointIndex) {
+                           const std::unordered_map<int, uint32_t>& geosetTagJointIndex,
+                           const std::string& slimTexturesOutputDir) {
     const Mesh& mesh = nm.mesh;
     size_t n = mesh.positions.size();
     bool hasTexCoords2 = !mesh.texCoords2.empty();
@@ -715,7 +779,7 @@ MeshEmission emitMeshNode(const NamedMesh& nm, bool hasSkeleton, int skinIdx, ti
     for (const auto& mat : nm.materials) {
         tinyMaterials.push_back(emitMaterial(mat, buffer, views, images, textures, uv2AccIdx,
                                               usedUnlitExtension, usedTextureTransformExtension,
-                                              alternateTextureCache));
+                                              alternateTextureCache, slimTexturesOutputDir));
     }
 
     std::vector<tinygltf::Primitive> tinyPrims;
