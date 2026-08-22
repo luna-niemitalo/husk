@@ -117,6 +117,43 @@ TEST_CASE("husk export --slim-textures: two materials sharing the same resolved 
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export --slim-textures: a real --listfile content name wins over the bare "
+          "FileDataID for the written filename, even when a local exact \"<fdid>.png\" file is what "
+          "actually supplied the embedded bytes") {
+    auto dir = defaultsDir("slimtex-listfile-name");
+    writeFile(dir / "listfileslim.m2", oneTexturedModel(5050505));
+    writeFile(dir / "listfileslim00.skin", oneTexturedModelSkin());
+    // Exact-FileDataID match -- this is what actually supplies the
+    // embedded bytes (the deterministic tier tried before --listfile).
+    writeFile(dir / "5050505.png", solidColorPng(4, 4, 50, 60, 70));
+
+    auto corpusRoot = dir / "corpus";
+    fs::create_directories(corpusRoot / "character/human/male");
+    auto listfilePath = dir / "listfile.csv";
+    {
+        std::ofstream f(listfilePath);
+        f << "5050505;character/human/male/deathknighteyeglow.blp\n";
+    }
+
+    auto slimDir = dir / "slimout";
+    fs::create_directories(slimDir);
+    auto slimPath = slimDir / "slim.glb";
+    auto result = runHusk("export " + (dir / "listfileslim.m2").string() + " -o " + slimPath.string() +
+                           " --listfile " + listfilePath.string() + " --listfile-root " + corpusRoot.string() +
+                           " --slim-textures");
+    CHECK(result.exitCode == 0);
+    INFO(result.output);
+    REQUIRE(fs::exists(slimPath));
+
+    // The written file is named after the real listfile content stem, not
+    // the bare FileDataID -- even though the FileDataID-exact tier is what
+    // actually resolved the embedded bytes.
+    CHECK(fs::exists(slimDir / "textures" / "deathknighteyeglow.png"));
+    CHECK_FALSE(fs::exists(slimDir / "textures" / "5050505.png"));
+
+    fs::remove_all(dir);
+}
+
 #ifdef HUSK_GLTF_VALIDATOR
 // Pulls the integer after "Errors: " out of a real `gltf_validator -a`
 // text report -- the same "N errors" summary line every -a invocation

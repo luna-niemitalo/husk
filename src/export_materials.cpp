@@ -61,16 +61,27 @@ std::filesystem::directory_iterator scanDirOrWarn(const std::string& dir, const 
     return it;
 }
 
-BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangleIndices,
-                                            const std::vector<skin::Submesh>& submeshes,
-                                            const std::vector<skin::Batch>& batches,
-                                            const M2MaterialInputs& m2,
-                                            const std::string& texturesDir,
-                                            const std::string& modelPath,
-                                            const std::string& texturesOutDir,
-                                            const std::unordered_map<uint32_t, std::string>& listfile,
-                                            const std::string& listfileRootArg,
-                                            uint32_t objectSkinTextureFileDataId) {
+std::unordered_map<uint32_t, CustomizationNameEntry> buildCustomizationNameLookup(
+    const gltf::Skeleton& skeleton) {
+    std::unordered_map<uint32_t, CustomizationNameEntry> out;
+    for (const auto& option : skeleton.customizationOptions) {
+        for (const auto& choice : option.choices) {
+            for (const auto& mat : choice.materials) {
+                if (mat.fileDataId == 0) continue;
+                out[mat.fileDataId] = {option.optionName, choice.choiceName};
+            }
+        }
+    }
+    return out;
+}
+
+BuiltMaterials buildMaterialsAndPrimitives(
+    const std::vector<uint32_t>& triangleIndices, const std::vector<skin::Submesh>& submeshes,
+    const std::vector<skin::Batch>& batches, const M2MaterialInputs& m2, const std::string& texturesDir,
+    const std::string& modelPath, const std::string& texturesOutDir,
+    const std::unordered_map<uint32_t, std::string>& listfile, const std::string& listfileRootArg,
+    uint32_t objectSkinTextureFileDataId,
+    const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames) {
     const std::string& listfileRoot = listfileRootArg.empty() ? texturesDir : listfileRootArg;
     BuiltMaterials result;
 
@@ -409,6 +420,25 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
             if (fdid != 0) {
                 gm.name += "_fdid" + std::to_string(fdid);
                 gm.baseColorTextureFileDataId = fdid;
+                // Real --listfile content name and/or ChrCustomizationOption/
+                // Choice name, when either resolves this exact FileDataID --
+                // independent of which tier below actually supplies
+                // baseColorImagePng's bytes (e.g. a local "<fdid>.png" file
+                // can exist even when the listfile also knows this
+                // FileDataID's real content-relative path). See gltf::
+                // Material::realContentName/customizationChoiceName's own
+                // doc comments -- the name-priority assignment at this
+                // batch's dedup point (below) is what actually consumes
+                // these.
+                if (!listfile.empty()) {
+                    if (auto found = listfile.find(fdid); found != listfile.end()) {
+                        gm.realContentName = std::filesystem::path(found->second).stem().string();
+                    }
+                }
+                if (auto nameIt = customizationNames.find(fdid); nameIt != customizationNames.end()) {
+                    gm.customizationOptionName = nameIt->second.optionName;
+                    gm.customizationChoiceName = nameIt->second.choiceName;
+                }
             }
 
             bool embedded = false;
@@ -673,7 +703,29 @@ BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangle
         } else {
             size_t idx = result.materials.size();
             materialByKey.emplace(std::move(dedupKey), idx);
-            gm.name = gm.name.substr(batchPrefix.size());
+            // The full verbose chain -- kept as extras-only diagnostics
+            // (gltf::Material::diagnosticName) for cross-referencing this
+            // material back to its source .skin batch/texture index, now
+            // that gm.name itself (below) prefers a cleaner, human-readable
+            // identity when one resolves.
+            gm.diagnosticName = gm.name.substr(batchPrefix.size());
+            // Real display-name priority: a resolved ChrCustomizationOption/
+            // Choice name (this material's own baseColorTextureFileDataId
+            // cross-referenced a real customization choice) -> else the
+            // texture's own semantic type name (m2::textureTypeName,
+            // already human-readable, e.g. "skin"/"char_hair") -> else fall
+            // back to the full diagnostic chain (the common case for
+            // non-customization prop/weapon materials, which have no
+            // textureType-name-worthy slot at all).
+            if (!gm.customizationChoiceName.empty()) {
+                gm.name = gm.customizationOptionName.empty()
+                              ? gm.customizationChoiceName
+                              : gm.customizationOptionName + ": " + gm.customizationChoiceName;
+            } else if (const char* typeName = m2::textureTypeName(gm.textureType)) {
+                gm.name = typeName;
+            } else {
+                gm.name = gm.diagnosticName;
+            }
             prim.materialIndex = static_cast<int>(idx);
             result.materials.push_back(std::move(gm));
         }

@@ -1481,6 +1481,16 @@ def _build_customization_option_group(name, choice_infos):
         image = _load_customization_texture_image(choice["path"])
         if image is None:
             continue
+        # Real, human-readable Image datablock name -- clean-name priority
+        # (real listfile content name -> choice_name -> whatever
+        # bpy.data.images.load
+        # already picked from `path`'s own basename, e.g. a bare
+        # FileDataID or a verbose wow_export-style filename). Renamed
+        # post-load rather than passed to `.load()` itself, since Blender
+        # names a freshly-loaded image from its file path regardless.
+        clean_name = choice.get("content_name") or choice.get("choice_name")
+        if clean_name:
+            image.name = clean_name
         img_node = nodes.new("ShaderNodeTexImage")
         img_node.image = image
         img_node.label = choice["choice_name"]
@@ -1693,6 +1703,14 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                     choice_infos.append({
                         "choice_id": choice.get("choice_id"),
                         "choice_name": choice.get("choice_name") or f"choice_{choice.get('choice_id')}",
+                        # Real --listfile content-path stem (e.g.
+                        # "scalpupperhair00_08"), when husk's own export
+                        # resolved one for this material -- clean-name
+                        # priority: this beats choice_name for the loaded
+                        # Image datablock's own name below. None when --listfile
+                        # wasn't given at export time, or didn't resolve
+                        # this fileDataId.
+                        "content_name": m_entry.get("content_name"),
                         "path": path,
                         "blend_mode": tl.get("blend_mode"),
                         "layer": tl.get("layer", 0),

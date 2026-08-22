@@ -618,9 +618,24 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
             choice.choiceOrderIndex = nc.choiceOrderIndex;
             choice.geosetId = nc.resolution.geosetId;
             for (const auto& matRes : nc.resolution.materials) {
-                choice.materials.push_back({matRes.chrModelTextureTargetId, matRes.materialResourcesId,
-                                             resolveFileDataId(matRes.materialResourcesId),
-                                             matRes.relatedChoiceId});
+                gltf::Skeleton::CustomizationChoice::Material cm;
+                cm.chrModelTextureTargetId = matRes.chrModelTextureTargetId;
+                cm.materialResourcesId = matRes.materialResourcesId;
+                cm.fileDataId = resolveFileDataId(matRes.materialResourcesId);
+                cm.relatedChoiceId = matRes.relatedChoiceId;
+                // Real --listfile content name, for cleaner human-readable
+                // texture naming downstream (Blender image datablocks,
+                // --slim-textures' written filenames) -- the already-loaded
+                // --listfile map is a parameter of
+                // this whole function; resolved here rather than deferred,
+                // since this is the one site that owns fileDataId
+                // resolution for every real customization-choice material.
+                if (cm.fileDataId != 0 && !listfile.empty()) {
+                    if (auto found = listfile.find(cm.fileDataId); found != listfile.end()) {
+                        cm.contentName = std::filesystem::path(found->second).stem().string();
+                    }
+                }
+                choice.materials.push_back(std::move(cm));
             }
             optIt->choices.push_back(std::move(choice));
         }

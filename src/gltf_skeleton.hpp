@@ -172,6 +172,19 @@ struct Skeleton {
             // this is the consumer's job, same policy as every other extras
             // field in this file.
             uint32_t relatedChoiceId = 0;
+            // Real listfile-resolved content-path stem for `fileDataId`
+            // (no extension), e.g. "scalpupperhair00_08" -- resolved from
+            // the already-loaded --listfile map (cmd_export.cpp's
+            // attachCustomizationChoices), when it has a real entry for
+            // this fileDataId. Empty when --listfile wasn't given, or
+            // didn't resolve this specific fileDataId (a real, reportable
+            // gap, not fabricated). The Blender-side texture-switch
+            // tooling (tools/husk_blender_geoset_mask.py) prefers this over
+            // `choiceName`/a bare `fileDataId` when naming the loaded
+            // Image datablock, since it's the real human-content name
+            // (e.g. "scalpupperhair00_08") rather than a husk- or
+            // choice-name-derived string.
+            std::string contentName;
         };
         std::vector<Material> materials;  // empty when this choice has no material element
     };

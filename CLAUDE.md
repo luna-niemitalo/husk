@@ -180,7 +180,63 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-22, `--slim-textures` external-texture export +
+- **Current state (2026-08-22, clean texture + material naming)**: Closed
+  `TODO/CLEAN_TEXTURE_NAMES_TODO.md` (deleted, both halves done). Luna
+  flagged material names as the same mess as the texture-naming gap below
+  ("mat3_tex5_skin_haircolor_shininess_bloodelffemale_hd_texture_<fdid>"
+  is `gltf::Material::name` itself — the *visible Blender material name*,
+  `emitMaterial` sets `tm.name = mat.name` verbatim). Both texture and
+  material naming now follow one shared priority chain: a real
+  `--listfile` content-path stem (e.g. "scalpupperhair00_08") → a real
+  `ChrCustomizationOption`/`Choice` name (e.g. "Hair Color: Blonde 01") →
+  the texture's own semantic type name (`m2::textureTypeName`, e.g.
+  "skin"/"char_hair") → the old full verbose diagnostic chain, kept
+  outright (moved, not deleted) as a new extras-only `diagnostic_name`
+  field (`gltf::Material::diagnosticName`) so a Blender material can still
+  be cross-referenced back to its source `.skin` batch/texture index.
+  Confirmed first that `materialDedupKey` (`export_texture_resolution.cpp`)
+  never keys on `gm.name`, so this rename is dedup-safe by construction.
+  New `gltf::Skeleton::CustomizationChoice::Material::contentName`
+  (`--listfile`-resolved, `gltf_skeleton.hpp`/`.cpp`) and
+  `gltf::Material::realContentName`/`customizationOptionName`/
+  `customizationChoiceName`/`diagnosticName` (`gltf_mesh.hpp`); new
+  `buildCustomizationNameLookup` (`export_materials.hpp`/`.cpp`)
+  cross-references a material's own `baseColorTextureFileDataId` against
+  the model's real customization menu. `--slim-textures`' `writeSlimTextureFile`
+  naming follows the same priority (listfile name → choice name → bare
+  FileDataID → source stem). Blender side
+  (`tools/husk_blender_geoset_mask.py`): the loaded customization-choice
+  `Image` datablock is renamed post-load to the clean name (Blender
+  otherwise names it from the source file path's own basename regardless
+  of `.load()` args). Verified end to end against the real
+  `bloodelffemale_hd` fixture (real `--db2-dir`/`--dbd-dir`/`--listfile`):
+  materials went from `mat0_tex1_char_hair_bloodelffemale_hd_hair_style_
+  3500071`/`mat5_tex2_skin`/etc. to `"char_hair"`/`"skin"`/`"char_jewelry"`/
+  `"char_eyes"`/`"object_skin"`/`"ui_skin"` (real character-customization
+  hardcoded slots carry no FileDataID in the M2 itself — only the separate
+  DB2 chain does — so the customization-choice-name tier never fired on
+  *this* real fixture; every real win here came from the `textureTypeName`
+  tier, with the customization-name tier exercised by a new synthetic unit
+  test instead), while a genuinely unidentifiable material
+  (`mat9_tex10_fdid3536810`) correctly fell through to the diagnostic
+  chain unchanged — confirming the fallback doesn't regress the common
+  non-customization case. `--slim-textures` on the same fixture confirmed
+  listfile-content-name priority end to end too: two FileDataID-only
+  materials wrote `textures/bloodelffemale_hd_<fdid>.png` (real listfile
+  content name) instead of bare `<fdid>.png`, reverting to the old
+  bare-FileDataID behavior when the listfile was disabled
+  (`HUSK_CONFIG=/dev/null`) — confirming the new path is genuinely gated
+  on real listfile data, not silently always-on. 3 pre-existing tests
+  updated (they asserted on the old verbose `name`; now assert on
+  `diagnostic_name` instead — same information, new location, matching
+  this project's own "verbose chain moved, not deleted" design), 3 new
+  tests added. Verified independently by this session (not just the
+  implementing agent's own report): clean rebuild, full suite green,
+  684/684 (681/681 + 3 new, 0 regressions). This session's own material-
+  name format choice ("`{optionName}: {choiceName}`" when both resolve,
+  else just `choiceName`) wasn't specified in the TODO's own scoping pass
+  — a judgment call, not yet Luna-reviewed in the actual Blender UI.
+- **Previous state (2026-08-22, `--slim-textures` external-texture export +
   clean-texture-naming investigation)**: Implemented
   `TODO/SLIM_GLB_EXTERNAL_TEXTURES_TODO.md` (now closed and deleted):
   `husk export --slim-textures` writes each resolved base-color texture as

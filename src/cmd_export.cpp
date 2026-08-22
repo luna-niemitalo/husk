@@ -305,7 +305,8 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
     const std::vector<m2::Vertex>& vertices, const gltf::Mesh& baseMesh, const M2MaterialInputs& m2Inputs,
     const std::string& texturesDir, const std::string& modelPath, const std::string& modelBasename,
     const std::string& texturesOutDir, const std::unordered_map<uint32_t, std::string>& listfile = {},
-    const std::string& listfileRoot = "", uint32_t objectSkinTextureFileDataId = 0) {
+    const std::string& listfileRoot = "", uint32_t objectSkinTextureFileDataId = 0,
+    const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames = {}) {
     std::vector<gltf::NamedMesh> namedMeshes;
     namedMeshes.reserve(skinsToExport.size());
     for (const auto& [name, path] : skinsToExport) {
@@ -346,7 +347,7 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
         auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs,
                                                    texturesDir, modelPath, texturesOutDir, listfile,
                                                    listfileRoot.empty() ? texturesDir : listfileRoot,
-                                                   objectSkinTextureFileDataId);
+                                                   objectSkinTextureFileDataId, customizationNames);
 
         // See BuiltMaterials::distinctSkinSectionIds's own doc comment for
         // why this note exists.
@@ -904,10 +905,17 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         }
 
         std::string modelBasename = std::filesystem::path(modelPath).stem().string();
+        // Built from skeleton.customizationOptions, already populated by
+        // attachCustomizationChoices above -- lets a batch's own resolved
+        // texture FileDataID pick up a real ChrCustomizationOption/Choice
+        // name for its material's display name. Empty when the feature
+        // wasn't used this run (no derivable ChrModelID), same as every
+        // other DB2-driven enrichment here.
+        auto customizationNames = buildCustomizationNameLookup(skeleton);
         auto namedMeshes =
             buildLodTierMeshes(skinsToExport, vertices, baseMesh, m2Inputs, texturesDir, modelPath,
                                 modelBasename, texturesOutDir, listfile, listfileRoot,
-                                objectSkinTextureFileDataId);
+                                objectSkinTextureFileDataId, customizationNames);
 
         // One geoset tag joint per distinct skinSectionId across every LOD
         // tier's primitives -- lets tools/husk_blender_geoset_mask.py

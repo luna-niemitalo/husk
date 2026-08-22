@@ -177,17 +177,27 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
             img.name = mat.baseColorImageName;
             if (!slimTexturesOutputDir.empty()) {
                 // --slim-textures: write instead of embed (TODO/
-                // SLIM_GLB_EXTERNAL_TEXTURES_TODO.md). Naming: real
-                // FileDataID when known (same '<FileDataID>.png' convention
-                // every other texture kind in this project already uses --
-                // see gltf_mesh.hpp's baseColorTextureFileDataId doc
-                // comment), falling back to the real source-file stem
-                // (baseColorImageName) for the "no FileDataID" case (a
-                // hardcoded/customization-driven slot's embedded-filename-
-                // only source).
-                std::string stem = mat.baseColorTextureFileDataId != 0
-                                        ? std::to_string(mat.baseColorTextureFileDataId)
-                                        : mat.baseColorImageName;
+                // SLIM_GLB_EXTERNAL_TEXTURES_TODO.md). Naming priority: a
+                // real --listfile content name, then a real
+                // ChrCustomizationOption/Choice
+                // name, then the real FileDataID (same '<FileDataID>.png'
+                // convention every other texture kind in this project
+                // already uses -- see gltf_mesh.hpp's
+                // baseColorTextureFileDataId doc comment), falling back to
+                // the real source-file stem (baseColorImageName) only for
+                // the "no FileDataID at all" case (a hardcoded/
+                // customization-driven slot's embedded-filename-only
+                // source).
+                std::string stem;
+                if (!mat.realContentName.empty()) {
+                    stem = mat.realContentName;
+                } else if (!mat.customizationChoiceName.empty()) {
+                    stem = mat.customizationChoiceName;
+                } else if (mat.baseColorTextureFileDataId != 0) {
+                    stem = std::to_string(mat.baseColorTextureFileDataId);
+                } else {
+                    stem = mat.baseColorImageName;
+                }
                 std::string uri = writeSlimTextureFile(slimTexturesOutputDir, stem, mat.baseColorImagePng);
                 if (!uri.empty()) {
                     img.uri = uri;
@@ -405,6 +415,14 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
     if (mat.baseColorTextureFileDataId != 0) {
         materialExtras["texture_file_data_id"] =
             tinygltf::Value(static_cast<int>(mat.baseColorTextureFileDataId));
+    }
+
+    // The full verbose diagnostic name -- see gltf_mesh.hpp's Material::
+    // diagnosticName doc comment for why this exists separately from `name`
+    // (which now prefers a cleaner, human-readable identity when one
+    // resolves). Always present once a material is built.
+    if (!mat.diagnosticName.empty()) {
+        materialExtras["diagnostic_name"] = tinygltf::Value(mat.diagnosticName);
     }
 
     // Ambiguous hardcoded-slot candidates -- see gltf_mesh.hpp's

@@ -87,6 +87,34 @@ struct BuiltMaterials {
     std::vector<AmbiguousMatch> ambiguousMatches;
 };
 
+// Real ChrCustomizationOption/Choice name(s) for a texture-bearing
+// FileDataID, cross-referenced from gltf::Skeleton::customizationOptions --
+// built once per export (buildCustomizationNameLookup, below) and threaded
+// into buildMaterialsAndPrimitives so a batch's own resolved
+// baseColorTextureFileDataId can pick up a real human name for both the
+// material's own display `name` and (via gltf::Material::
+// customizationOptionName/customizationChoiceName) --slim-textures'
+// written filename, instead of husk's own verbose diagnostic chain.
+struct CustomizationNameEntry {
+    std::string optionName;
+    std::string choiceName;
+};
+
+// Flattens every real Material entry across skeleton.customizationOptions
+// into one fileDataId -> {optionName, choiceName} map -- the natural
+// cross-reference buildMaterialsAndPrimitives needs, since a material only
+// knows its own resolved FileDataID, not which customization choice (if
+// any) it came from. Empty when skeleton.customizationOptions is (no
+// derivable ChrModelID at export time, or --db2-dir/--dbd-dir weren't
+// given) -- same "absence means this feature is unused" convention as
+// every other DB2-driven enrichment in this project. A FileDataID
+// appearing under more than one real choice (not verified against real
+// data one way or the other) keeps whichever choice this scan reaches
+// last -- same "good enough for a human display name, not a strict
+// identity claim" tier as the rest of this naming pass.
+std::unordered_map<uint32_t, CustomizationNameEntry> buildCustomizationNameLookup(
+    const gltf::Skeleton& skeleton);
+
 // Everything buildMaterialsAndPrimitives needs out of the M2 itself (as
 // opposed to the .skin file's own submeshes/batches) to resolve one batch
 // into a real glTF material -- bundled since the M2 side alone is seven
@@ -147,16 +175,19 @@ struct M2MaterialInputs {
 // `texturesDir` when empty, for the case where one directory happens to
 // serve both roles. Empty `listfile` (the default) skips this tier
 // entirely, same as before this parameter existed.
-BuiltMaterials buildMaterialsAndPrimitives(const std::vector<uint32_t>& triangleIndices,
-                                            const std::vector<skin::Submesh>& submeshes,
-                                            const std::vector<skin::Batch>& batches,
-                                            const M2MaterialInputs& m2,
-                                            const std::string& texturesDir,
-                                            const std::string& modelPath,
-                                            const std::string& texturesOutDir = "",
-                                            const std::unordered_map<uint32_t, std::string>& listfile = {},
-                                            const std::string& listfileRoot = "",
-                                            uint32_t objectSkinTextureFileDataId = 0);
+// `customizationNames` (buildCustomizationNameLookup's own output), when
+// non-empty, lets a batch whose resolved baseColorTextureFileDataId
+// matches a real ChrCustomizationOption/Choice pick up that choice's real
+// name for both its own display `name` and (as a fallback tier)
+// --slim-textures' written filename -- see gltf::Material::
+// customizationOptionName/customizationChoiceName's own doc comment.
+BuiltMaterials buildMaterialsAndPrimitives(
+    const std::vector<uint32_t>& triangleIndices, const std::vector<skin::Submesh>& submeshes,
+    const std::vector<skin::Batch>& batches, const M2MaterialInputs& m2, const std::string& texturesDir,
+    const std::string& modelPath, const std::string& texturesOutDir = "",
+    const std::unordered_map<uint32_t, std::string>& listfile = {}, const std::string& listfileRoot = "",
+    uint32_t objectSkinTextureFileDataId = 0,
+    const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames = {});
 
 // A directory scan finding zero matches looks identical to "the directory
 // doesn't exist"/"can't be read" unless this distinguishes them. Shared by

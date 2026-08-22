@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <tiny_gltf.h>
 #include <vector>
 
 #include "run_husk.hpp"
@@ -205,6 +206,102 @@ void writeChrCustomizationDbd(const fs::path& dbdDir, uint32_t elementLayoutHash
                << "LAYOUT " << std::hex << boneSetLayoutHash << std::dec << "\nBUILD 1.0.0.1\n"
                << "$id$ID<32>\nBoneFileDataID<32>\n";
     writeTextFile(dbdDir / "definitions" / "ChrCustomizationBoneSet.dbd", boneSetDbd.str());
+}
+
+// One row for buildOptionOrChoiceDb2: ID, a foreign key (ChrModelID for
+// Option, ChrCustomizationOptionID for Choice), OrderIndex, and a real
+// Name_lang string -- same shape/builder as tests/test_cli_chrmodel_id.cpp's
+// own copy (per-file-fixture convention, see that file's own doc comment),
+// needed here (unlike this file's other tests) to give a real
+// ChrCustomizationOption/Choice a real human name for the material-naming
+// test below.
+struct NamedRow {
+    uint32_t id;
+    uint32_t fk;
+    uint32_t orderIndex;
+    std::string name;
+};
+
+std::vector<uint8_t> buildOptionOrChoiceDb2(uint32_t tableHash, uint32_t layoutHash,
+                                             const std::vector<NamedRow>& rows) {
+    constexpr uint32_t fieldCount = 4;
+    constexpr size_t recordSize = fieldCount * 4;
+    size_t sectionFileOffset =
+        kHeaderSize + kSectionHeaderSize + fieldCount * kFieldStructureSize + fieldCount * kFieldStorageInfoSize;
+    size_t recordDataEnd = sectionFileOffset + rows.size() * recordSize;
+
+    std::string stringTable;
+    std::vector<size_t> nameOffsetInTable(rows.size());
+    for (size_t i = 0; i < rows.size(); ++i) {
+        nameOffsetInTable[i] = stringTable.size();
+        stringTable += rows[i].name;
+        stringTable += '\0';
+    }
+    size_t stringTableSize = stringTable.size();
+    size_t total = recordDataEnd + stringTableSize;
+
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;
+    putU32(buf, p, fieldCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, tableHash); p += 4;
+    putU32(buf, p, layoutHash); p += 4;
+    putU32(buf, p, 1); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU16(buf, p, 0); p += 2;
+    putU16(buf, p, 0); p += 2;
+    putU32(buf, p, fieldCount); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, fieldCount * kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 1); p += 4;
+    REQUIRE(p == kHeaderSize);
+
+    putU64(buf, p, 0); p += 8;
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    REQUIRE(p == kHeaderSize + kSectionHeaderSize);
+
+    for (uint32_t i = 0; i < fieldCount; ++i) { putU16(buf, p, 0); p += 2; putU16(buf, p, static_cast<uint16_t>(i * 4)); p += 2; }
+    for (uint32_t i = 0; i < fieldCount; ++i) {
+        putU16(buf, p, static_cast<uint16_t>(i * 32)); p += 2;
+        putU16(buf, p, 32); p += 2;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+    }
+    REQUIRE(p == sectionFileOffset);
+
+    for (size_t i = 0; i < rows.size(); ++i) {
+        size_t recordPos = sectionFileOffset + i * recordSize;
+        putU32(buf, recordPos + 0, rows[i].id);
+        putU32(buf, recordPos + 4, rows[i].fk);
+        putU32(buf, recordPos + 8, rows[i].orderIndex);
+        size_t stringAbsPos = recordDataEnd + nameOffsetInTable[i];
+        size_t fieldAbsPos = recordPos + 12;
+        putU32(buf, recordPos + 12, static_cast<uint32_t>(stringAbsPos - fieldAbsPos));
+    }
+    p = recordDataEnd;
+    std::memcpy(buf.data() + p, stringTable.data(), stringTable.size());
+    p += stringTable.size();
+    REQUIRE(p == total);
+    return buf;
 }
 
 }  // namespace
@@ -526,6 +623,104 @@ TEST_CASE("husk export --customization-choice-ids: a material conditional on ano
     std::string bytes2((std::istreambuf_iterator<char>(glb2)), std::istreambuf_iterator<char>());
     CHECK(bytes2.find("\"file_data_id\":888") != std::string::npos);
     CHECK(bytes2.find("\"file_data_id\":889") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export: a material whose resolved FileDataID cross-references a real "
+          "ChrCustomizationOption/Choice gets that choice's own human name as its display `name` "
+          "(not the verbose diagnostic chain, which moves to `diagnostic_name` extras instead), and "
+          "this doesn't regress dedup -- two batches resolving to the exact same texture still merge "
+          "into one glTF material despite the new name-priority logic touching this same code path "
+          "(materialDedupKey itself never reads gm.name -- this is the regression check for that).") {
+    auto dir = defaultsDir("chrcust-material-name");
+    writeFile(dir / "custname.m2", oneTexturedModel(888));
+    writeFile(dir / "custname00.skin", twoBatchesSameComboSkin());
+    // attachCustomizationChoices only runs alongside a real skeleton
+    // (cmd_export.cpp's `if (!bones.empty())` block) -- a real bone needs
+    // to exist for this test's --chr-model-id/customization-menu wiring to
+    // exercise at all, same auto-detected external .skel other
+    // customization-choice tests in this file use.
+    writeFile(dir / "custname.skel", boneCorrectionSkel());
+
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::create_directories(db2Dir);
+    fs::create_directories(dbdDir / "definitions");
+
+    writeTextFile(dbdDir / "manifest.json",
+                  "[\n"
+                  "  {\"tableName\": \"ChrCustomizationElement\", \"tableHash\": \"c0000001\"},\n"
+                  "  {\"tableName\": \"ChrCustomizationMaterial\", \"tableHash\": \"c0000004\"},\n"
+                  "  {\"tableName\": \"TextureFileData\", \"tableHash\": \"c0000005\"},\n"
+                  "  {\"tableName\": \"ChrCustomizationOption\", \"tableHash\": \"64646464\"},\n"
+                  "  {\"tableName\": \"ChrCustomizationChoice\", \"tableHash\": \"65656565\"}\n"
+                  "]\n");
+    writeTextFile(dbdDir / "definitions" / "ChrCustomizationElement.dbd",
+                  "COLUMNS\nint ID\nint ChrCustomizationChoiceID\n"
+                  "int<ChrCustomizationGeoset::ID> ChrCustomizationGeosetID\n"
+                  "int<ChrCustomizationBoneSet::ID> ChrCustomizationBoneSetID\n"
+                  "int<ChrCustomizationMaterial::ID> ChrCustomizationMaterialID\n\n"
+                  "LAYOUT d0000001\nBUILD 1.0.0.1\n"
+                  "$id$ID<32>\nChrCustomizationChoiceID<32>\nChrCustomizationGeosetID<32>\n"
+                  "ChrCustomizationBoneSetID<32>\nChrCustomizationMaterialID<32>\n");
+    writeTextFile(dbdDir / "definitions" / "ChrCustomizationMaterial.dbd",
+                  "COLUMNS\nint ID\nint ChrModelTextureTargetID\n"
+                  "int<TextureFileData::MaterialResourcesID> MaterialResourcesID\n\n"
+                  "LAYOUT d0000004\nBUILD 1.0.0.1\n"
+                  "$id$ID<32>\nChrModelTextureTargetID<32>\nMaterialResourcesID<32>\n");
+    writeTextFile(dbdDir / "definitions" / "TextureFileData.dbd",
+                  "COLUMNS\nint<FileData::ID> FileDataID\nint MaterialResourcesID\nint UsageType\n\n"
+                  "LAYOUT d0000005\nBUILD 1.0.0.1\n"
+                  "$id$FileDataID<32>\nMaterialResourcesID<32>\nUsageType<32>\n");
+    writeTextFile(dbdDir / "definitions" / "ChrCustomizationOption.dbd",
+                  "COLUMNS\nint ID\nint ChrModelID\nint OrderIndex\nlocstring Name_lang\n\n"
+                  "LAYOUT a4a4a4a4\nBUILD 1.0.0.1\n"
+                  "$id$ID<32>\nChrModelID<32>\nOrderIndex<32>\nName_lang<32>\n");
+    writeTextFile(dbdDir / "definitions" / "ChrCustomizationChoice.dbd",
+                  "COLUMNS\nint ID\nint ChrCustomizationOptionID\nint OrderIndex\nlocstring Name_lang\n\n"
+                  "LAYOUT a5a5a5a5\nBUILD 1.0.0.1\n"
+                  "$id$ID<32>\nChrCustomizationOptionID<32>\nOrderIndex<32>\nName_lang<32>\n");
+
+    // Choice 99 (option 10, "Hair Color") owns one Element row carrying
+    // ChrCustomizationMaterialID 5.
+    writeFile(db2Dir / "chrcustomizationelement.db2",
+              buildFlatDb2(0xc0000001, 0xd0000001, {{1, 99, 0, 0, 5}}));
+    // Material 5 targets ChrModelTextureTargetID 7, real MaterialResourcesID 777.
+    writeFile(db2Dir / "chrcustomizationmaterial.db2",
+              buildFlatDb2(0xc0000004, 0xd0000004, {{5, 7, 777}}));
+    // TextureFileData: MaterialResourcesID 777 -> real FileDataID 888 -- the
+    // exact same FileDataID this test's own oneTexturedModel(888) uses, so
+    // the M2's own resolved baseColorTextureFileDataId cross-references
+    // this real customization choice.
+    writeFile(db2Dir / "texturefiledata.db2", buildFlatDb2(0xc0000005, 0xd0000005, {{888, 777, 0}}));
+    writeFile(db2Dir / "chrcustomizationoption.db2",
+              buildOptionOrChoiceDb2(0x64646464, 0xa4a4a4a4, {{10, 42, 0, "Hair Color"}}));
+    writeFile(db2Dir / "chrcustomizationchoice.db2",
+              buildOptionOrChoiceDb2(0x65656565, 0xa5a5a5a5, {{99, 10, 0, "Blonde 01"}}));
+
+    auto result = runHusk("export " + (dir / "custname.m2").string() + " --db2-dir " + db2Dir.string() +
+                           " --dbd-dir " + dbdDir.string() + " --chr-model-id 42");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    fs::path glbPath = dir / "custname.glb";
+    REQUIRE(fs::exists(glbPath));
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model model;
+    std::string err, warn;
+    REQUIRE(loader.LoadBinaryFromFile(&model, &err, &warn, glbPath.string()));
+
+    // One merged material (not two), despite twoBatchesSameComboSkin()'s
+    // two separate batches -- both resolve the exact same FileDataID, so
+    // dedup must still collapse them.
+    REQUIRE(model.materials.size() == 1);
+    // The real customization choice's own name, not husk's verbose
+    // diagnostic chain.
+    CHECK(model.materials[0].name == "Hair Color: Blonde 01");
+    REQUIRE(model.materials[0].extras.Has("diagnostic_name"));
+    CHECK(model.materials[0].extras.Get("diagnostic_name").Get<std::string>().find("fdid888") !=
+          std::string::npos);
 
     fs::remove_all(dir);
 }

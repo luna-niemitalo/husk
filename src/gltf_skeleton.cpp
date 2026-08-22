@@ -445,6 +445,14 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
                     if (mat.relatedChoiceId != 0) {
                         matObj["related_choice_id"] = tinygltf::Value(static_cast<int>(mat.relatedChoiceId));
                     }
+                    // Real --listfile content name, when resolved -- see
+                    // Skeleton::CustomizationChoice::Material::contentName's
+                    // own doc comment. Absent (not empty-string) when
+                    // unresolved, same "absence means ordinary" convention
+                    // as related_choice_id above.
+                    if (!mat.contentName.empty()) {
+                        matObj["content_name"] = tinygltf::Value(mat.contentName);
+                    }
                     materials.emplace_back(matObj);
                 }
                 choiceObj["materials"] = tinygltf::Value(materials);

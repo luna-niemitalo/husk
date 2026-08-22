@@ -95,6 +95,44 @@ struct Material {
     // reference doesn't depend on it at all. Empty only when
     // baseColorImagePng itself is (nothing resolved).
     std::string baseColorImageName;
+    // Real --listfile content-path stem (no extension) for
+    // baseColorTextureFileDataId, e.g. "scalpupperhair00_08" --
+    // independent of which tier actually supplied baseColorImagePng's
+    // bytes (a local "<FileDataID>.png" file can exist even when the
+    // listfile also knows this FileDataID's real content-relative path,
+    // in which case baseColorImageName above stays the bare FileDataID
+    // string but this field carries the real name). Set in
+    // export_materials.cpp whenever --listfile resolves
+    // baseColorTextureFileDataId, regardless of embed path. Used to
+    // prefer a clean, human name over a bare FileDataID for
+    // --slim-textures' written filename (gltf_mesh.cpp's
+    // writeSlimTextureFile). Empty when --listfile wasn't given, or didn't
+    // resolve this FileDataID.
+    std::string realContentName;
+    // Real `ChrCustomizationOption`/`Choice` name(s) this material's own
+    // baseColorTextureFileDataId cross-references against the model's
+    // real customization menu (gltf::Skeleton::customizationOptions),
+    // when one exists -- set in export_materials.cpp. Used for both the
+    // material's own display `name` (below) and, when realContentName
+    // above is empty, --slim-textures' written filename -- same priority
+    // in both cases. Empty when this material's texture isn't a real
+    // customization choice (e.g. any non-character prop/weapon material,
+    // or a character material husk couldn't cross-reference at all).
+    std::string customizationOptionName;
+    std::string customizationChoiceName;
+    // The full verbose diagnostic chain this material's own `name` field
+    // used to be unconditionally
+    // ("mat<N>_tex<T>_<typeName>_fdid<id>_<embeddedStem-or-nameSuffix>",
+    // export_materials.cpp) -- still computed and carried here (extras-only,
+    // `diagnostic_name`) so a Blender material can still be cross-referenced
+    // back to its source .skin batch/texture index, now that `name` itself
+    // prefers a cleaner, human-readable identity when one resolves (real
+    // customization choice/option name, else a bare textureTypeName, else
+    // this chain -- see export_materials.cpp's name-priority assignment).
+    // Never empty once a material is built (always at least "mat<N>"),
+    // same "always present, cheap" treatment textureType's own
+    // bookkeeping gets elsewhere in this file.
+    std::string diagnosticName;
     // Which of Mesh::texCoords (0) or Mesh::texCoords2 (1) baseColorImagePng
     // should be sampled with -- from the .skin Batch's own
     // textureCoordComboIndex (wowdev.wiki M2/.skin#geosetIndex's "Texture

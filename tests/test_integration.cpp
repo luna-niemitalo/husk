@@ -673,8 +673,11 @@ TEST_CASE(
 // hardcoded slots (nonzero type -- skin/hair/etc.) and at least one real,
 // filename/FileDataID-based texture (type 0), so this exercises both the
 // present-when-nonzero and absent-when-zero halves of the convention on
-// real data, not just the synthetic fixtures in test_gltf.cpp. Material
-// names encode their own textureIndex (`..._tex<N>...`, see
+// real data, not just the synthetic fixtures in test_gltf.cpp. The
+// material's own `diagnostic_name` extras (the full verbose chain, kept
+// for exactly this kind of cross-referencing now that the display `name`
+// itself prefers a cleaner identity) encodes its own textureIndex
+// (`..._tex<N>...`, see
 // cmd_export.cpp's buildMaterialsAndPrimitives) -- parsed directly rather
 // than assuming batch index == material index, since a batch with
 // indexCount == 0 is skipped and would desync that assumption.
@@ -722,12 +725,16 @@ TEST_CASE("husk export: a real character model's per-material 'texture_type' ext
     bool foundNonzero = false;
     bool foundZero = false;
     for (const auto& mat : model.materials) {
-        auto texIdx = textureIndexFromMaterialName(mat.name);
+        REQUIRE(mat.extras.IsObject());
+        REQUIRE(mat.extras.Has("diagnostic_name"));
+        std::string diagnosticName = mat.extras.Get("diagnostic_name").Get<std::string>();
+        auto texIdx = textureIndexFromMaterialName(diagnosticName);
         if (!texIdx || static_cast<size_t>(*texIdx) >= textures.size()) {
             continue;
         }
         uint32_t expectedType = textures[*texIdx].type;
-        INFO("material ", mat.name, " -> texture ", *texIdx, " expected type ", expectedType);
+        INFO("material ", mat.name, " (diagnostic_name ", diagnosticName, ") -> texture ", *texIdx,
+             " expected type ", expectedType);
         if (expectedType != 0) {
             foundNonzero = true;
             REQUIRE(mat.extras.IsObject());
