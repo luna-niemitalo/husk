@@ -304,6 +304,105 @@ std::vector<uint8_t> buildOptionOrChoiceDb2(uint32_t tableHash, uint32_t layoutH
     return buf;
 }
 
+// One row for buildOptionWithCategoryDb2 -- ChrCustomizationOption with a
+// real ChrCustomizationCategoryID column, which buildOptionOrChoiceDb2's
+// own fixed 4-field shape (id, fk, orderIndex, name) has no room for. A
+// separate, purpose-built builder rather than widening
+// buildOptionOrChoiceDb2 itself -- that one's two existing call sites use
+// their own already-passing bespoke DBD text this session deliberately
+// doesn't touch (see the module-level "no extensive alteration beyond the
+// task's own scope" convention).
+struct OptionWithCategoryRow {
+    uint32_t id;
+    uint32_t chrModelId;
+    uint32_t orderIndex;
+    uint32_t categoryId;
+    std::string name;
+};
+
+std::vector<uint8_t> buildOptionWithCategoryDb2(uint32_t tableHash, uint32_t layoutHash,
+                                                 const std::vector<OptionWithCategoryRow>& rows) {
+    constexpr uint32_t fieldCount = 5;
+    constexpr size_t recordSize = fieldCount * 4;
+    size_t sectionFileOffset =
+        kHeaderSize + kSectionHeaderSize + fieldCount * kFieldStructureSize + fieldCount * kFieldStorageInfoSize;
+    size_t recordDataEnd = sectionFileOffset + rows.size() * recordSize;
+
+    std::string stringTable;
+    std::vector<size_t> nameOffsetInTable(rows.size());
+    for (size_t i = 0; i < rows.size(); ++i) {
+        nameOffsetInTable[i] = stringTable.size();
+        stringTable += rows[i].name;
+        stringTable += '\0';
+    }
+    size_t stringTableSize = stringTable.size();
+    size_t total = recordDataEnd + stringTableSize;
+
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;
+    putU32(buf, p, fieldCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, tableHash); p += 4;
+    putU32(buf, p, layoutHash); p += 4;
+    putU32(buf, p, 1); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU16(buf, p, 0); p += 2;
+    putU16(buf, p, 0); p += 2;
+    putU32(buf, p, fieldCount); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, fieldCount * kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 1); p += 4;
+    REQUIRE(p == kHeaderSize);
+
+    putU64(buf, p, 0); p += 8;
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    REQUIRE(p == kHeaderSize + kSectionHeaderSize);
+
+    for (uint32_t i = 0; i < fieldCount; ++i) { putU16(buf, p, 0); p += 2; putU16(buf, p, static_cast<uint16_t>(i * 4)); p += 2; }
+    for (uint32_t i = 0; i < fieldCount; ++i) {
+        putU16(buf, p, static_cast<uint16_t>(i * 32)); p += 2;
+        putU16(buf, p, 32); p += 2;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+        putU32(buf, p, 0); p += 4;
+    }
+    REQUIRE(p == sectionFileOffset);
+
+    for (size_t i = 0; i < rows.size(); ++i) {
+        size_t recordPos = sectionFileOffset + i * recordSize;
+        putU32(buf, recordPos + 0, rows[i].id);
+        putU32(buf, recordPos + 4, rows[i].chrModelId);
+        putU32(buf, recordPos + 8, rows[i].orderIndex);
+        putU32(buf, recordPos + 12, rows[i].categoryId);
+        size_t stringAbsPos = recordDataEnd + nameOffsetInTable[i];
+        size_t fieldAbsPos = recordPos + 16;
+        putU32(buf, recordPos + 16, static_cast<uint32_t>(stringAbsPos - fieldAbsPos));
+    }
+    p = recordDataEnd;
+    std::memcpy(buf.data() + p, stringTable.data(), stringTable.size());
+    p += stringTable.size();
+    REQUIRE(p == total);
+    return buf;
+}
+
 }  // namespace
 
 TEST_CASE("husk export --customization-choice-ids resolves a real geoset selection and marks a "
@@ -721,6 +820,104 @@ TEST_CASE("husk export: a material whose resolved FileDataID cross-references a 
     REQUIRE(model.materials[0].extras.Has("diagnostic_name"));
     CHECK(model.materials[0].extras.Get("diagnostic_name").Get<std::string>().find("fdid888") !=
           std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export --chr-model-id: chr_customization_options extras carry a real "
+          "ChrCustomizationCategory grouping (category_id/category_name/category_order_index) for "
+          "an option whose ChrCustomizationCategoryID resolves, and carry none at all -- no "
+          "fabricated grouping -- for an option whose ChrCustomizationCategoryID is 0") {
+    auto dir = defaultsDir("chrcustcategory");
+    writeFile(dir / "chrcustcategory.m2", tinyValidM2());
+    writeFile(dir / "chrcustcategory00.skin", tinyMatchingSkin());
+    writeFile(dir / "chrcustcategory.skel", boneCorrectionSkel());
+
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::create_directories(db2Dir);
+    fs::create_directories(dbdDir / "definitions");
+
+    writeTextFile(dbdDir / "manifest.json",
+                  "[\n"
+                  "  {\"tableName\": \"ChrCustomizationOption\", \"tableHash\": \"c1000001\"},\n"
+                  "  {\"tableName\": \"ChrCustomizationChoice\", \"tableHash\": \"c1000002\"},\n"
+                  "  {\"tableName\": \"ChrCustomizationCategory\", \"tableHash\": \"c1000003\"}\n"
+                  "]\n");
+    writeTextFile(dbdDir / "definitions" / "ChrCustomizationOption.dbd",
+                  "COLUMNS\nint ID\nint ChrModelID\nint OrderIndex\n"
+                  "int<ChrCustomizationCategory::ID> ChrCustomizationCategoryID\nlocstring Name_lang\n\n"
+                  "LAYOUT d1000001\nBUILD 1.0.0.1\n"
+                  "$id$ID<32>\nChrModelID<32>\nOrderIndex<32>\nChrCustomizationCategoryID<32>\nName_lang<32>\n");
+    writeTextFile(dbdDir / "definitions" / "ChrCustomizationChoice.dbd",
+                  "COLUMNS\nint ID\nint ChrCustomizationOptionID\nint OrderIndex\nlocstring Name_lang\n\n"
+                  "LAYOUT d1000002\nBUILD 1.0.0.1\n"
+                  "$id$ID<32>\nChrCustomizationOptionID<32>\nOrderIndex<32>\nName_lang<32>\n");
+    // Unused (4th) int column kept only so this reuses buildOptionOrChoiceDb2's
+    // existing 4-field (id, fk, orderIndex, name) shape unchanged -- real
+    // ChrCustomizationCategory has no such field, this is a synthetic-fixture
+    // convenience, not a claim about the real table's layout (see
+    // ChrCustomizationCategory.dbd's own real COLUMNS for the true shape).
+    writeTextFile(dbdDir / "definitions" / "ChrCustomizationCategory.dbd",
+                  "COLUMNS\nint ID\nint Unused\nint OrderIndex\nlocstring CategoryName_lang\n\n"
+                  "LAYOUT d1000003\nBUILD 1.0.0.1\n"
+                  "$id$ID<32>\nUnused<32>\nOrderIndex<32>\nCategoryName_lang<32>\n");
+
+    // Real local data this mirrors (ChrModelID 20, verified via
+    // `husk db2-export` + sqlite3 against test_data/db2/chrcustomization{option,category}.db2
+    // before writing this synthetic fixture): options 119/122 group under
+    // category 2 ("Face"), option 583 has no category at all (categoryId 0).
+    writeFile(db2Dir / "chrcustomizationoption.db2",
+              buildOptionWithCategoryDb2(0xc1000001, 0xd1000001,
+                                          {{119, 42, 0, 2, "Skin Color"},
+                                           {122, 42, 1, 2, "Hair Color"},
+                                           {583, 42, 2, 0, "Ears"}}));
+    writeFile(db2Dir / "chrcustomizationchoice.db2",
+              buildOptionOrChoiceDb2(0xc1000002, 0xd1000002,
+                                      {{1190, 119, 0, "Pale"}, {1220, 122, 0, "Black"}, {5830, 583, 0, "Round"}}));
+    writeFile(db2Dir / "chrcustomizationcategory.db2",
+              buildOptionOrChoiceDb2(0xc1000003, 0xd1000003, {{2, 0, 1, "Face"}}));
+
+    auto result = runHusk("export " + (dir / "chrcustcategory.m2").string() + " --db2-dir " + db2Dir.string() +
+                           " --dbd-dir " + dbdDir.string() + " --chr-model-id 42");
+    INFO("output:\n", result.output);
+    CHECK(result.exitCode == 0);
+
+    fs::path glbPath = dir / "chrcustcategory.glb";
+    REQUIRE(fs::exists(glbPath));
+    std::ifstream glb(glbPath, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(glb)), std::istreambuf_iterator<char>());
+
+    // "Skin Color"/"Hair Color" (option 119/122) both carry the real "Face"
+    // category grouping.
+    CHECK(bytes.find("\"option_name\":\"Skin Color\"") != std::string::npos);
+    CHECK(bytes.find("\"category_id\":2") != std::string::npos);
+    CHECK(bytes.find("\"category_name\":\"Face\"") != std::string::npos);
+    CHECK(bytes.find("\"category_order_index\":1") != std::string::npos);
+
+    CHECK(bytes.find("\"option_id\":583") != std::string::npos);  // "Ears" is really present
+
+    // "Ears" (option 583) has ChrCustomizationCategoryID 0 -- no category
+    // key at all should be attached for it, not a fabricated/zeroed one.
+    // Counted rather than isolated by substring position -- tinygltf's own
+    // Value::Object serializes keys alphabetically, not insertion order, so
+    // "choices" can land *before* "option_id" within the very same object
+    // once there's no category_id/category_name/category_order_index block
+    // ahead of it (confirmed directly: this broke an earlier version of
+    // this check that assumed "choices" always comes after "option_id").
+    // Exactly 2 real category attachments exist (options 119/122) -- if
+    // Ears got a fabricated third, this count would catch it regardless of
+    // where in the file it landed.
+    auto countOccurrences = [&](const std::string& needle) {
+        size_t count = 0, pos = 0;
+        while ((pos = bytes.find(needle, pos)) != std::string::npos) {
+            ++count;
+            pos += needle.size();
+        }
+        return count;
+    };
+    CHECK(countOccurrences("\"category_id\"") == 2);
+    CHECK(countOccurrences("\"category_name\"") == 2);
 
     fs::remove_all(dir);
 }

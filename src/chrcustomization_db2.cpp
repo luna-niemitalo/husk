@@ -52,15 +52,31 @@ std::vector<BoneSet> loadBoneSets(const std::string& db2Dir, const std::string& 
 
 std::vector<Option> loadOptions(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
     std::vector<Option> result;
-    auto intRows = db2table::readNamedColumns(joinPath(db2Dir, "chrcustomizationoption.db2"), dbdDir,
-                                               {"ID", "ChrModelID", "OrderIndex"}, err);
+    auto intRows = db2table::readNamedColumns(
+        joinPath(db2Dir, "chrcustomizationoption.db2"), dbdDir,
+        {"ID", "ChrModelID", "OrderIndex", "ChrCustomizationCategoryID"}, err);
     if (!intRows) return result;
     auto strRows = db2table::readNamedStringColumns(joinPath(db2Dir, "chrcustomizationoption.db2"), dbdDir,
                                                       {"Name_lang"}, err);
     for (size_t i = 0; i < intRows->size(); ++i) {
         const auto& row = (*intRows)[i];
         std::string name = (strRows && i < strRows->size()) ? (*strRows)[i][0].value_or("") : "";
-        result.push_back({orZero(row[0]), orZero(row[1]), std::move(name), orZero(row[2])});
+        result.push_back({orZero(row[0]), orZero(row[1]), std::move(name), orZero(row[2]), orZero(row[3])});
+    }
+    return result;
+}
+
+std::vector<Category> loadCategories(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
+    std::vector<Category> result;
+    auto intRows = db2table::readNamedColumns(joinPath(db2Dir, "chrcustomizationcategory.db2"), dbdDir,
+                                               {"ID", "OrderIndex"}, err);
+    if (!intRows) return result;
+    auto strRows = db2table::readNamedStringColumns(joinPath(db2Dir, "chrcustomizationcategory.db2"), dbdDir,
+                                                      {"CategoryName_lang"}, err);
+    for (size_t i = 0; i < intRows->size(); ++i) {
+        const auto& row = (*intRows)[i];
+        std::string name = (strRows && i < strRows->size()) ? (*strRows)[i][0].value_or("") : "";
+        result.push_back({orZero(row[0]), std::move(name), orZero(row[1])});
     }
     return result;
 }
@@ -101,8 +117,9 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     data.options = loadOptions(db2Dir, dbdDir, err);
     data.choices = loadChoices(db2Dir, dbdDir, err);
     data.materials = loadMaterials(db2Dir, dbdDir, err);
+    data.categories = loadCategories(db2Dir, dbdDir, err);
     if (data.elements.empty() && data.geosets.empty() && data.boneSets.empty() && data.options.empty() &&
-        data.choices.empty() && data.materials.empty()) {
+        data.choices.empty() && data.materials.empty() && data.categories.empty()) {
         return std::nullopt;
     }
     return data;
@@ -198,12 +215,30 @@ std::vector<NamedChoice> namedChoicesForModel(const Data& data, uint32_t chrMode
 
     for (const auto& option : data.options) {
         if (option.chrModelId != chrModelId) continue;
+        const Category* category = nullptr;
+        if (option.categoryId != 0) {
+            for (const auto& c : data.categories) {
+                if (c.id == option.categoryId) {
+                    category = &c;
+                    break;
+                }
+            }
+            if (category == nullptr) {
+                err << "husk: note: ChrCustomizationOption " << option.id << "'s ChrCustomizationCategoryID "
+                    << option.categoryId << " matched no row in ChrCustomizationCategory -- dangling reference\n";
+            }
+        }
         for (const auto& choice : data.choices) {
             if (choice.optionId != option.id) continue;
             NamedChoice nc;
             nc.optionId = option.id;
             nc.optionName = option.name;
             nc.optionOrderIndex = option.orderIndex;
+            if (category != nullptr) {
+                nc.categoryId = category->id;
+                nc.categoryName = category->name;
+                nc.categoryOrderIndex = category->orderIndex;
+            }
             nc.choiceId = choice.id;
             nc.choiceName = choice.name;
             nc.choiceOrderIndex = choice.orderIndex;

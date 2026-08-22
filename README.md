@@ -412,6 +412,14 @@ carrying its own real `geoset_id`/`materials[]` resolution). This happens
 (no `--chr-model-id`, no `--customization-choice-ids` at all) husk still
 tries to derive one; explicit `--customization-choice-ids` alone also
 triggers the same best-effort attempt purely for this full-menu extras.
+Each option also carries its real `ChrCustomizationCategory` grouping when
+one resolves (`category_id`/`category_name`/`category_order_index` --
+e.g. "Face"/"Hair"/"Body"/"Accessories"/"Markings", the same real section
+headers the in-game character-creation screen uses), present only when a
+real category was found -- absent, not a fabricated `0`/`""`, for an
+option whose `ChrCustomizationCategoryID` is 0 or doesn't resolve.
+`tools/husk_blender_options_panel.py` groups its own option list under
+these real category headers instead of one flat list.
 `--chr-model-id none` explicitly opts out. Deliberately not gated behind
 a magic-words flag, so a downstream Blender script (`TODO/
 CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`) never needs a second export run
@@ -813,6 +821,27 @@ Blender's own Asset Browser works as a per-animation picker instead of
 scrubbing the raw Action/NLA list; when a real `animation_data_name` did
 resolve, the Action is renamed to it (the machine name survives as the
 asset's own description either way).
+
+`tools/husk_blender_options_panel.py` is a separate, persistent N-panel
+(`View3D > husk` tab) for browsing/editing a character's real
+customization-choice menu once imported -- unlike
+`husk_blender_geoset_mask.py` (post-import wiring, run once), this one is
+meant to travel with the `.blend` file itself (embed it as a registered
+`Text` datablock to have it self-install on every future open). Real
+per-model option/choice list, real cross-option dependency status (from
+husk's own resolved `related_choice_id` data), and -- run after
+`husk_blender_geoset_mask.py`'s own node graphs/modifiers exist -- live
+two-way sync with both mechanisms it builds: picking a choice here pushes
+it into the real `NodeSocketMenu` texture-switch sockets on each relevant
+material *and* the real `HuskGeosetSwitch` Geometry Nodes modifier input
+for any choice with a `geoset_id`, and loading reads the current
+selection back from whichever of the two applies, rather than always
+showing each option's first choice. See
+`tools/BLENDER_OPTIONS_PANEL.md` for the full design writeup (including a
+real reference-rig investigation, two dynamic-schema approaches tested
+headlessly before picking one, and how the live node-graph wiring was
+verified against that file's own current node shape) and
+`tools/test_husk_blender_options_panel.py` for its test coverage.
 
 ### `husk dump-chunks <file.m2>` / `husk dump-chunks <file.bone>` / `husk dump-chunks <file.phys>`
 

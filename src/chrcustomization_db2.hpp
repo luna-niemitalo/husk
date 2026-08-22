@@ -87,6 +87,17 @@ struct Material {
     uint32_t materialResourcesId = 0;
 };
 
+// One ChrCustomizationCategory row -- the real UI section header a group
+// of Options is shown under in the in-game character-creation screen
+// (e.g. "Face", "Hair", "Body", "Accessories", "Markings"). Client-global,
+// not scoped to a ChrModelID -- unlike Option/Choice, the same category
+// row is shared across every race/gender.
+struct Category {
+    uint32_t id = 0;
+    std::string name;         // real CategoryName_lang string; empty when unresolved
+    uint32_t orderIndex = 0;  // real UI section display order
+};
+
 // One ChrCustomizationOption row -- a player-facing choice category, e.g.
 // "Skin Color" or "Hair Style", scoped to one real ChrModelID (one
 // race+gender combination, same key chrmodel_db2.hpp's own tables use).
@@ -95,6 +106,7 @@ struct Option {
     uint32_t chrModelId = 0;
     std::string name;       // real Name_lang string; empty when unresolved
     uint32_t orderIndex = 0;  // real UI display order within this model's option list
+    uint32_t categoryId = 0;  // ChrCustomizationCategoryID; 0 = no real category resolved
 };
 
 // One ChrCustomizationChoice row -- one selectable value of an Option, e.g.
@@ -115,12 +127,14 @@ struct Data {
     std::vector<Option> options;   // empty when chrcustomizationoption.db2 wasn't loadable
     std::vector<Choice> choices;   // empty when chrcustomizationchoice.db2 wasn't loadable
     std::vector<Material> materials;  // empty when chrcustomizationmaterial.db2 wasn't loadable
+    std::vector<Category> categories;  // empty when chrcustomizationcategory.db2 wasn't loadable
 };
 
-// Loads all six tables from `db2Dir` (chrcustomizationelement.db2/
+// Loads all seven tables from `db2Dir` (chrcustomizationelement.db2/
 // chrcustomizationgeoset.db2/chrcustomizationboneset.db2/
 // chrcustomizationoption.db2/chrcustomizationchoice.db2/
-// chrcustomizationmaterial.db2, real lowercase casc-tool filenames).
+// chrcustomizationmaterial.db2/chrcustomizationcategory.db2, real
+// lowercase casc-tool filenames).
 // Returns nullopt only if every table came back empty. Same per-table
 // "missing file/layout leaves that vector empty with a diagnostic, doesn't
 // fail the whole load" behavior as chrmodel::load -- `options`/`choices`/
@@ -175,6 +189,13 @@ struct NamedChoice {
     uint32_t optionId = 0;
     std::string optionName;
     uint32_t optionOrderIndex = 0;
+    // Resolved from Option::categoryId against Data::categories -- 0/empty
+    // when the option carries no real ChrCustomizationCategoryID, or it
+    // doesn't match any loaded Category row (chrcustomizationcategory.db2
+    // wasn't loadable, or a genuine dangling reference), never guessed.
+    uint32_t categoryId = 0;
+    std::string categoryName;
+    uint32_t categoryOrderIndex = 0;
     uint32_t choiceId = 0;
     std::string choiceName;
     uint32_t choiceOrderIndex = 0;

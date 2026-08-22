@@ -192,6 +192,16 @@ struct Skeleton {
         uint32_t optionId = 0;
         std::string optionName;
         uint32_t optionOrderIndex = 0;
+        // Real ChrCustomizationCategory data (chrcustomization::Category,
+        // resolved via ChrCustomizationOption::ChrCustomizationCategoryID)
+        // -- the real UI section this option is grouped under in-game
+        // ("Face", "Hair", "Body", ...). 0/empty when this option carries
+        // no real category (chrcustomizationcategory.db2 wasn't loaded, or
+        // a genuine dangling reference), same "attach what's real, never
+        // fabricate a grouping" policy as everything else in this file.
+        uint32_t categoryId = 0;
+        std::string categoryName;
+        uint32_t categoryOrderIndex = 0;
         std::vector<CustomizationChoice> choices;
     };
     std::vector<CustomizationOption> customizationOptions;

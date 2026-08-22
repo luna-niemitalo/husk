@@ -610,7 +610,8 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
                                            return o.optionId == nc.optionId;
                                        });
             if (optIt == options.end()) {
-                options.push_back({nc.optionId, nc.optionName, nc.optionOrderIndex, {}});
+                options.push_back({nc.optionId, nc.optionName, nc.optionOrderIndex, nc.categoryId,
+                                    nc.categoryName, nc.categoryOrderIndex, {}});
                 optIt = options.end() - 1;
             }
 

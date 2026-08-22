@@ -420,6 +420,16 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
             optObj["option_id"] = tinygltf::Value(static_cast<int>(opt.optionId));
             optObj["option_name"] = tinygltf::Value(opt.optionName);
             optObj["option_order_index"] = tinygltf::Value(static_cast<int>(opt.optionOrderIndex));
+            // Present only when a real category resolved -- absence means
+            // "no category data" (chrcustomizationcategory.db2 wasn't
+            // loaded, or a genuine dangling reference), never a fabricated
+            // grouping. See Skeleton::CustomizationOption::categoryId's own
+            // doc comment.
+            if (opt.categoryId) {
+                optObj["category_id"] = tinygltf::Value(static_cast<int>(opt.categoryId));
+                optObj["category_name"] = tinygltf::Value(opt.categoryName);
+                optObj["category_order_index"] = tinygltf::Value(static_cast<int>(opt.categoryOrderIndex));
+            }
 
             tinygltf::Value::Array choices;
             for (const auto& choice : opt.choices) {
