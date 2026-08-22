@@ -209,13 +209,11 @@ class UnfillableTextureTask:
         # scan's output at all because one of its two texture slots, an
         # unrelated placeholder, happened to resolve).
         missing_fdids: list[int] = []
-        any_real_fdid = False
         all_resolved = True
         for idx in used_indices:
             ttype, fdid = textures.get(idx, (None, None))
             slot_resolved = False
             if fdid:
-                any_real_fdid = True
                 if (model_dir / f"{fdid}.blp").exists() or (model_dir / f"{fdid}.png").exists():
                     slot_resolved = True
                 elif _listfile_resolves(fdid):
@@ -234,13 +232,21 @@ class UnfillableTextureTask:
         return {
             "used_texture_count": len(used_indices),
             "missing_file_data_ids": " ".join(str(f) for f in missing_fdids),
-            # True when every used slot is a replaceable type (type=2/3/...,
-            # no FileDataID at all) -- these have nothing for a CASC
-            # re-extraction to fill in (they're not standalone files; the
-            # live client composites them from DB2 data at runtime). Only
-            # rows with a real missing_file_data_ids entry are an actual
-            # extraction gap worth reporting upstream.
-            "replaceable_only": not any_real_fdid,
+            # True when every *unresolved* slot is a replaceable type
+            # (type=2/3/..., no FileDataID at all) -- these have nothing for
+            # a CASC re-extraction to fill in (they're not standalone files;
+            # the live client composites them from DB2 data at runtime).
+            # Deliberately keyed on missing_fdids (the unresolved slots),
+            # not on whether the file has *any* real-fdid slot anywhere --
+            # an earlier version used the latter and wrongly bucketed any
+            # file mixing one resolved real-fdid slot with one unresolved
+            # replaceable slot (extremely common in item/objectcomponents:
+            # a real base texture plus a DB2-driven object_skin overlay) as
+            # a "genuine extraction gap", inflating that count ~300x in a
+            # real corpus run (found 2026-08-22: 51,215 files flagged,
+            # 51,186 of them with an empty missing_file_data_ids -- i.e.
+            # nothing for a re-extraction to actually fill in).
+            "replaceable_only": not missing_fdids,
         }
 
     @staticmethod

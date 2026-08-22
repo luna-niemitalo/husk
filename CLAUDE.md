@@ -180,7 +180,85 @@ Full session-by-session narrative: `CLAUDE_HISTORY.md` (append new entries
 there, most recent first). This section is a snapshot, not a log — update it
 in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
 
-- **Current state (2026-08-22, clean texture + material naming)**: Closed
+- **Current state (2026-08-22, post-patch corpus scan re-run + two real
+  scan-tooling bugs found and fixed)**: A new WoW client patch landed, so
+  Luna ran a fresh full `casc-tool extract-batch` export (130,576 ->
+  132,863 `.m2` files, 170G -> 284G) and asked which `tools/
+  corpus_scan_tasks/*.py` scans were worth re-running against it, whether
+  each still complies with `tools/CORPUS_SCANS.md`'s performance rules,
+  and to run the worthwhile ones in the background (never inline, never
+  blocking) once the export finished — explicitly waiting for
+  `casc-tool`'s own process to exit first rather than assuming any fixed
+  wait. Judged all 11 real task modules: `missing_texture_task.py`
+  skipped (superseded by `unfillable_texture_task.py`, over-flags by its
+  own module doc), `animated_texture_effects_task.py`/
+  `detect_billboards.py` skipped (their own consuming TODOs are closed/
+  human-gated, no open work depends on fresh data), `example_texture_
+  count.py` skipped (template, not a real check); the other 9
+  (`casc_size_mismatch`, `dangling_references`, `unfillable_texture`,
+  `m2_full_validation`, `shader_id`, `shader_names`,
+  `texture_type_collisions`, `black_additive`, `particle_only`,
+  `expansion` — 10 actually, all with real open consumers) approved and
+  run, output to `corpus_reports/corpus_scan_22_08/`. The render pipeline
+  (`render_glb.py`/`render_sample_driver.py`) was deliberately left
+  untouched, same human-gated policy as always — and a *separate*,
+  already-running `render_sample_driver.py` process (started by some
+  other actor, not this session, against `corpus_reports/
+  patch_new_m2_files_20260822.abs.txt`) was noticed mid-session and left
+  alone rather than interfered with.
+
+  **Two real bugs found in the scan tooling itself before/during the
+  run, both fixed**: (1) `dangling_references_task.py`'s
+  `_find_same_basename_skins` used an uncached `Path.glob()` per `.m2`
+  file — the exact pathological-directory shape `CORPUS_SCANS.md`'s own
+  gotcha #2 already documents elsewhere, since `item/objectcomponents/
+  collections` (the corpus's largest directory) holds thousands of `.m2`
+  files itself, each paying a full uncached directory relist. Fixed with
+  the same `lru_cache`+`os.scandir` pattern `unfillable_texture_task.py`
+  already established, verified to preserve exact original match
+  semantics (case-sensitive basename prefix, case-insensitive `.skin`
+  suffix) before trusting it, smoke-tested clean. (2)
+  `unfillable_texture_task.py`'s `replaceable_only` field was computed
+  per-*file* (`any_real_fdid`: does *any* texture slot anywhere in the
+  file have a real FileDataID) instead of per-*failure* (do the
+  specific *unresolved* slots have one) — so any file mixing one
+  resolved real-FDID texture with one unresolved DB2-driven slot (the
+  norm in `item/objectcomponents`: a real base texture plus a per-item
+  `object_skin` recolor overlay) got wrongly bucketed as a "genuine CASC
+  re-extraction gap." This inflated that headline number from a real 29
+  files to a false 51,215 (300x) on the first full run — caught by
+  noticing the jump from the historical baseline (158/18 FileDataIDs)
+  was implausible, verified against a concrete real example
+  (`item/objectcomponents/ammo/arrow_bow_1h_dragondungeon_c_01.m2`, via
+  direct `husk info`) before touching the code, fixed (`replaceable_only`
+  now keys off `missing_fdids`, the same list already populated for the
+  correct reason), full corpus re-run confirmed the fix: 29 files / 15
+  distinct FileDataIDs, back in line with the historical baseline.
+
+  **One genuine open bug found, not fixed this session (effort-scoped)**:
+  `m2_full_validation_task.py` hung on the real full-corpus run — zero
+  `tqdm` progress for the entire 1-hour driver timeout, not just slow —
+  despite clean, fast, bounded reproductions against the same real root
+  (`--limit 40`, and an earlier `--limit 60` against `creature/` only).
+  No orphaned `husk`/`corpus_scan_framework` processes were left behind
+  after the timeout kill. Logged as `TODO/CLEANUP_TODO.md` item 2 with
+  full repro details and a plausible-but-unconfirmed theory (a
+  `subprocess.run(timeout=60)` grandchild process keeping a stdout/
+  stderr pipe open past the parent's kill, making Python's own
+  post-timeout blocking `communicate()` retry hang indefinitely) rather
+  than guessed at further.
+
+  **Results, all in line with expectations for a patch bump** (small
+  proportional growth matching the ~1.75% corpus-size increase, no red
+  flags): `casc_size_mismatch` 0/1,796,990 clean (fresh extraction
+  matches CASC's own reported sizes exactly); `dangling_references`
+  same ~0.1-0.4% skin-dependent rate as before, M2-only lookups still
+  100% clean; `unfillable_texture` (post-fix) 29 genuine gap files;
+  `shader_id`/`shader_names`/`texture_type_collisions`/`black_additive`/
+  `particle_only`/`expansion` all proportionally consistent with their
+  own prior corpus-wide baselines. Full narrative: `CLAUDE_HISTORY.md`'s
+  newest entry.
+- **Previous state (2026-08-22, clean texture + material naming)**: Closed
   `TODO/CLEAN_TEXTURE_NAMES_TODO.md` (deleted, both halves done). Luna
   flagged material names as the same mess as the texture-naming gap below
   ("mat3_tex5_skin_haircolor_shininess_bloodelffemale_hd_texture_<fdid>"
@@ -1015,11 +1093,18 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   currently a latent bug — no shipped feature reads strings through this
   path). Real fixture data now lives in the repo:
   `test_data/db2/chrcustomization{option,choice,category}.db2`.
-- **Next step**: this session's own two items (human-readable names +
-  Blender Asset Browser, then `CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 6
-  equipped-gear resolution) are all fully closed, nothing queued from
-  them -- Stage 6's own "not started" mention two paragraphs below is now
-  stale, see the current-state entry above instead. Otherwise unchanged:
+- **Next step**: this session's own post-patch corpus-scan re-run is
+  fully closed except one open item it surfaced: `TODO/CLEANUP_TODO.md`
+  item 2, `m2_full_validation_task.py`'s real full-corpus-scale hang
+  (clean on every bounded reproduction, so it needs a live-attach
+  investigation -- `strace -f`/`py-spy dump` mid-hang -- not more
+  guessing from a killed run's silence). Everything else below predates
+  that session and is otherwise still accurate. The earlier
+  human-readable names + Blender Asset Browser and `CHAR_TEXTURE_
+  COMPOSITING_TODO.md` Stage 6 equipped-gear resolution items are all
+  fully closed too, nothing queued from them -- Stage 6's own "not
+  started" mention two paragraphs below is stale, see the relevant
+  previous-state entry instead. Otherwise unchanged:
   `TODO/TODO_correctness.md` #2's name-mapping/default-
   choice work, and `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stages 1-5
   in full (model identity, real placement geometry, the real material

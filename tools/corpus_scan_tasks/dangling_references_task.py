@@ -70,6 +70,8 @@ Usage:
         --root /media/luna/data/wow_export --output-stem dangling_references
 """
 
+import functools
+import os
 import re
 import struct
 from pathlib import Path
@@ -183,6 +185,24 @@ def _check_lookup_array(blob: bytes, lookup_off: int, target_count: int,
     return checked, dangling, examples
 
 
+@functools.lru_cache(maxsize=32)
+def _skin_names(model_dir_str: str) -> tuple[str, ...]:
+    """Every .skin filename (original case) in a directory, one real
+    `os.scandir` pass. Same fix as unfillable_texture_task.py's
+    `_texture_stems_lower` for the same underlying cause: a plain
+    `Path.glob()` per file re-lists the whole directory every call, and
+    item/objectcomponents/collections (the corpus's largest directory)
+    holds thousands of .m2 files itself -- an uncached glob there costs
+    ~70ms per call, stacked onto every one of those files. lru_cache pays
+    the scandir cost once per directory, not once per file in it.
+    """
+    try:
+        with os.scandir(model_dir_str) as it:
+            return tuple(e.name for e in it if e.is_file() and e.name.lower().endswith(".skin"))
+    except OSError:
+        return ()
+
+
 def _find_same_basename_skins(m2_path: Path) -> list[Path]:
     """Same-basename numeric-suffix .skin lookup (every LOD sibling), same
     convention find_texture_transform_files.py/find_texture_type_collisions.py
@@ -190,7 +210,11 @@ def _find_same_basename_skins(m2_path: Path) -> list[Path]:
     naming convention, falling back to any-digit-run.
     """
     basename = m2_path.stem
-    candidates = list(m2_path.parent.glob(f"{basename}*.skin"))
+    model_dir = m2_path.parent
+    candidates = [
+        model_dir / name for name in _skin_names(str(model_dir))
+        if name.startswith(basename)
+    ]
     suffix_re = re.compile(r"^(\d+)\.skin$", re.IGNORECASE)
     two_digit, any_digit = [], []
     for c in candidates:

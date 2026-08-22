@@ -14,6 +14,193 @@ deletions handled their own back-references).
 
 ---
 
+**2026-08-22, WoW patch diff: new-`.m2` scan + render pass (investigation
+only, no husk code changed)**: Luna flagged a WoW client patch had landed
+and asked for a filtered list of new `.m2` files, comparing the freshly
+re-extracted `/media/luna/data/wow_export` against the pre-patch snapshot
+preserved at `/media/luna/data/wow_export_old`. Plain `find`+`comm` diff
+(no husk code needed for this half) found 2,551 `.m2` files present in
+the new tree but absent from the old one — saved to
+`corpus_reports/patch_new_m2_files_20260822.txt` (gitignored, like every
+other `corpus_reports/` output; not committed). Spot-checking the list:
+mostly new creature/mount/pet models (`axolotlpet`, `babysnake`,
+`flyingserpentmount`, ...) and cutscene (`igc_1210_*`) content, consistent
+with a real content patch rather than a re-extraction artifact.
+
+Then rendered all 2,551 through the existing `tools/corpus_scan_tasks/
+render_sample_driver.py` pipeline (`husk export` → headless Blender →
+`.webp`/`.webm`), per Luna's explicit go-ahead for this specific,
+smaller-than-full-corpus run (the full-130k-file render step stays
+human-gated by policy — this wasn't that). Output:
+`corpus_reports/renders_patch_20260822/` (thumbnails, gitignored),
+`corpus_reports/renders_patch_20260822_results.csv` (per-file
+export_ok/render_ok/detail). **2,294/2,551 (89.9%) rendered
+successfully.** Failure breakdown (257 total, all investigation, nothing
+fixed — see below for why):
+
+- **190 render timeouts** (180s Blender per-file cap), several with
+  "Video append frame N" partway through, concentrated in `models/spells`
+  (86 of the dir's failures) and `item/objectcomponents` — consistent
+  with heavier VFX/particle-animation renders and `.webm` video encoding
+  being slow, not an obvious new husk bug (not independently confirmed
+  file-by-file this session).
+- **52 export failures**, all `'auto' couldn't resolve a .skin file for
+  ...` — 45 in `item/objectcomponents`, 4 in `models/creature`, 2 in
+  `models/world`, 1 in `creature/axolotlpet`. The `item/objectcomponents`
+  concentration matches this project's own already-documented corpus
+  quirk (`CORPUS_TODO.md`'s shared-batch-data/`.skin`-pairing findings —
+  see `CLAUDE.md`'s own "Boundaries"/history entries on the dangling-
+  reference corpus scan), not a new gap from this patch specifically.
+
+No husk code was touched this session — this was a one-off ops/diff
+task, not a bugfix. If any of these 257 failures turn out on closer
+inspection to be a genuinely new gap (rather than the known
+`item/objectcomponents` class or ordinary VFX-render slowness), that
+would be new, separate work — not queued here.
+
+---
+
+**2026-08-22, post-patch corpus scan re-run: two real scan-tooling bugs
+found and fixed, one real hang found and logged**: A new WoW client patch
+landed; Luna kicked off a fresh full `casc-tool extract-batch` export
+(130,576 -> 132,863 `.m2` files, 170G -> 284G local corpus) and asked
+which of `tools/corpus_scan_tasks/*.py`'s scans were worth re-running
+against it — judge whether each still has real value (vs. its own job
+already being 100% solved), verify each still complies with `tools/
+CORPUS_SCANS.md`'s own performance rules, then run the worthwhile ones,
+explicitly not inline (background only, per Luna: "there is a possibility
+that you find a broken one that will get stuck forever"). Also explicitly
+told to wait for the real export to finish first rather than guess a
+timing — confirmed the live `casc-tool` process directly (`ps aux`) and
+polled it via a backgrounded `while kill -0 <pid>` wait rather than
+sleeping blindly, notified automatically when it exited.
+
+**Task-by-task judgment** (11 real task modules total, `example_texture_
+count.py` itself is a template, not counted): `missing_texture_task.py`
+skipped — its own module doc already says it's superseded by
+`unfillable_texture_task.py` (over-flags anything the real fuzzy fallback
+would resolve). `animated_texture_effects_task.py`/`detect_billboards.py`
+skipped — both fed one-off investigations whose own consuming TODOs are
+already closed or human-gated (billboard ground-truth), so no open work
+actually depends on re-running them against fresh data. The other 9
+(`casc_size_mismatch`, `dangling_references`, `unfillable_texture`,
+`m2_full_validation`, `shader_id`, `shader_names`,
+`texture_type_collisions`, `black_additive`, `particle_only`,
+`expansion`) all still have real open consumers (`PIXEL_SHADER_
+FORMULAS_TODO.md`, `RENDER_QUALITY_TODO.md`, the render-exclude-list
+pipeline, `live_gallery`'s expansion overlay, or are directly relevant to
+a *fresh* CASC export specifically, like `casc_size_mismatch`) — approved
+and smoke-tested individually against a bounded real sample before
+committing to a full run. The full render pipeline
+(`render_glb.py`/`render_sample_driver.py`) was deliberately excluded,
+same standing human-gated policy from a prior session's incident memory
+— and, separately, a `render_sample_driver.py` process was found already
+running mid-session (`ps aux`, started 09:35, invoked against
+`corpus_reports/patch_new_m2_files_20260822.abs.txt` — not started by
+this session), left completely alone rather than interfered with or
+investigated further.
+
+**Bug #1: `dangling_references_task.py`'s uncached per-file glob.**
+`_find_same_basename_skins` called `m2_path.parent.glob(f"{basename}*.skin")`
+directly, once per `.m2` file — the exact pathological-directory shape
+`CORPUS_SCANS.md`'s own gotcha #2 already documents (an uncached
+`Path.glob()` re-lists its whole directory every call, no cross-call
+cache). Confirmed this wasn't hypothetical: `item/objectcomponents/
+collections`, the corpus's single largest directory, holds 5,336 `.m2`
+files itself (`find ... -maxdepth 1 -name '*.m2' | wc -l`), each one
+paying that uncached relist cost. Fixed with the identical `functools.
+lru_cache`+`os.scandir` pattern `unfillable_texture_task.py` already
+established for the same directory in an earlier session — new
+`_skin_names(model_dir_str)` caches every `.skin` filename (original
+case preserved, not lowercased, to avoid a real correctness bug a first
+draft of the fix introduced: reconstructing a `Path` from a lowercased
+cached name would silently mismatch a real mixed-case filename on a
+case-sensitive filesystem) per directory, `_find_same_basename_skins`
+filters that cached tuple by prefix instead of re-globbing. Verified the
+fix preserves exact original match semantics (case-sensitive basename
+prefix, `.skin` suffix checked case-insensitively via `.lower().
+endswith`) before trusting it, then smoke-tested against `creature/`
+(`--limit 500`) — same dangling-rate shape as the historical baseline,
+confirming correctness wasn't disturbed by the caching change.
+
+**Bug #2: `unfillable_texture_task.py`'s `replaceable_only`
+misclassification (the real headline finding this session).** The first
+full post-patch run reported 56,027 files with an unresolved texture
+slot, of which 51,215 were flagged as "genuine CASC re-extraction gap"
+(vs. the historical baseline's 158/18 distinct FileDataIDs) — a 300x
+jump that didn't survive a sanity check. Root cause, found by directly
+inspecting the CSV rather than trusting the summary line: `replaceable_
+only` was computed as `not any_real_fdid`, where `any_real_fdid` flips
+true the instant *any* texture slot in the file has a real FileDataID —
+resolved or not, relevant to the actual failure or not. A file with one
+resolved real-FDID base texture plus one unresolved fdid-less DB2-driven
+`object_skin` overlay slot (the norm across `item/objectcomponents`: a
+real base texture, a per-item recolor overlay with no standalone file by
+design) got `any_real_fdid=True` from its *resolved* slot, so it was
+wrongly counted as an extraction gap even though the specific slot that
+actually failed had no FileDataID at all to re-extract. Confirmed
+directly against a concrete real file before touching any code
+(`item/objectcomponents/ammo/arrow_bow_1h_dragondungeon_c_01.m2`, via
+`husk info`: texture 0 is `type=2 object_skin` with no FileDataID at all
+— the one that fails — texture 1 is a real, listfile-resolved FileDataID
+that's fine). A directory breakdown of the 51,186-row false-positive set
+confirmed the mechanism was systemic, not this one file's fluke: 50,371
+of 51,186 (98.4%) live under `item/objectcomponents`, exactly the class
+`CLEANUP_TODO.md`'s own earlier dangling-reference sweep already
+identified as the corpus's one real recolor-variant/shared-batch-data
+gap. Fixed by keying `replaceable_only` off `missing_fdids` (the list
+already correctly populated only for *unresolved* slots with a real
+FileDataID) instead of `any_real_fdid` — a smaller, more surgical fix
+than it first looked, since the correct signal already existed in the
+function, just wasn't the one driving the classification. Verified with
+a bounded smoke test (`item/objectcomponents/ammo`, the repro file now
+correctly lands in `replaceable_only`) then a full corpus re-run: 29
+files / 15 distinct FileDataIDs, back in line with the historical
+baseline shape.
+
+**Bug #3 (not fixed, logged): `m2_full_validation_task.py` hangs at real
+corpus scale.** Ran fifth in the sequential batch; printed `found 132863
+files` then produced *zero* `tqdm` progress updates for the entire
+1-hour driver-level `timeout` before being killed — not merely slow,
+genuinely stuck, since not even one of its `BATCH_SIZE=4` batches ever
+completed. Two bounded reproductions against the same real corpus root
+(`--limit 40` against the full root, and an earlier `--limit 60` smoke
+test against `creature/` alone, both before the full run) completed
+cleanly in single-digit seconds each — this bug is real but scale-gated,
+not present in the task's own logic at any size actually tested.
+Checked for and ruled out the simplest explanation (`ps aux` after the
+kill showed zero orphaned `husk`/`corpus_scan_framework` processes, so
+nothing was left holding a lock or file handle) without fully
+root-causing it — logged as `TODO/CLEANUP_TODO.md` item 2 with the full
+repro shape and a named-but-unconfirmed theory (`subprocess.run(...,
+timeout=60)`'s post-timeout cleanup path calls a second, *blocking*
+`communicate()` after killing the direct child; if `_rich_export`'s `husk
+export --anim auto` sidecar auto-discovery ever spawns or leaves behind a
+grandchild process that inherits the stdout/stderr pipe, that blocking
+retry would hang forever waiting for a pipe EOF that never comes, since
+the direct child's death alone doesn't close a pipe still held open by a
+survivor) rather than spending further session budget chasing it without
+a live repro to attach to.
+
+**Final results, all consistent with a routine patch bump**: `casc_size_
+mismatch` 0/1,796,990 (clean — the fresh extraction's on-disk sizes
+matches CASC's own reported sizes exactly, confirming the export itself
+completed cleanly from a size-integrity standpoint); `dangling_references`
+same ~0.1-0.4% skin-dependent dangling rate as the prior baseline,
+M2-only lookups still 100% clean across 1.46M+ references;
+`unfillable_texture` (post-fix) 29 genuine gap files across 15 FileDataIDs;
+`shader_id`/`shader_names`/`texture_type_collisions`/`black_additive`/
+`particle_only`/`expansion` all scaled proportionally with the ~1.75%
+corpus-size growth, no rate changed enough to suggest a new structural
+issue. Output: `corpus_reports/corpus_scan_22_08/` (9 CSV+log pairs).
+`TODO/CLEANUP_TODO.md` gained item 2 (the unresolved hang); items 1 and
+the two fixed-bug narratives above are the only code changes this
+session (`tools/corpus_scan_tasks/dangling_references_task.py`,
+`tools/corpus_scan_tasks/unfillable_texture_task.py`) — no `src/` changes,
+this was scan-tooling-only.
+
+---
+
 **2026-08-22, root-joint-extras migration: same-day follow-up (inline bone
 names, animation names, a real crash fix, zero-argument invocation)**:
 Direct continuation of the root-joint-extras migration below, same
