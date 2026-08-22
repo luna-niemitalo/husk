@@ -149,6 +149,7 @@ struct ExportOptions {
     std::string dbdDirArg;
     std::string charLayoutIdArg;
     std::string customizationChoiceIdsArg;
+    std::string appearanceArg;
     std::string chrModelIdArg;
     std::string creatureDisplayIdArg;
     std::string objectSkinTextureIdArg;

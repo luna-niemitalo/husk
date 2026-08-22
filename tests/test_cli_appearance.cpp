@@ -123,7 +123,8 @@ void writeItemAppearanceDbd(const fs::path& dbdDir) {
                   "  {\"tableName\": \"ItemDisplayInfo\", \"tableHash\": \"a0000003\"},\n"
                   "  {\"tableName\": \"ItemDisplayInfoModelMatRes\", \"tableHash\": \"a0000004\"},\n"
                   "  {\"tableName\": \"ModelFileData\", \"tableHash\": \"a0000005\"},\n"
-                  "  {\"tableName\": \"TextureFileData\", \"tableHash\": \"a0000006\"}\n"
+                  "  {\"tableName\": \"TextureFileData\", \"tableHash\": \"a0000006\"},\n"
+                  "  {\"tableName\": \"ItemDisplayInfoMaterialRes\", \"tableHash\": \"a0000007\"}\n"
                   "]\n");
     writeTextFile(dbdDir / "definitions" / "ItemModifiedAppearance.dbd",
                   "COLUMNS\nint ID\nint ItemAppearanceID\n\n"
@@ -144,6 +145,10 @@ void writeItemAppearanceDbd(const fs::path& dbdDir) {
     writeTextFile(dbdDir / "definitions" / "TextureFileData.dbd",
                   "COLUMNS\nint FileDataID\nint MaterialResourcesID\nint UsageType\n\n"
                   "LAYOUT b0000006\nBUILD 1.0.0.1\n$id$FileDataID<32>\nMaterialResourcesID<32>\nUsageType<32>\n");
+    writeTextFile(dbdDir / "definitions" / "ItemDisplayInfoMaterialRes.dbd",
+                  "COLUMNS\nint ID\nint ItemDisplayInfoID\nint ComponentSection\nint MaterialResourcesID\n\n"
+                  "LAYOUT b0000007\nBUILD 1.0.0.1\n$id$ID<32>\nItemDisplayInfoID<32>\nComponentSection<32>\n"
+                  "MaterialResourcesID<32>\n");
 }
 
 }  // namespace
@@ -205,6 +210,44 @@ TEST_CASE("husk appearance-string --db2-dir/--dbd-dir: a real gear ItemModifiedA
     CHECK(result.output.find("gear MAINHAND:15 -> ItemDisplayInfoID=1542") != std::string::npos);
     CHECK(result.output.find("model=370361") != std::string::npos);
     CHECK(result.output.find("texture(type=2)=148134") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk appearance-string --db2-dir/--dbd-dir: an ItemDisplayInfoMaterialRes-bearing item "
+          "resolves real base-character-mesh section overlays (case 2, EQUIPPED_GEAR_RENDER_TODO.md "
+          "step 1's own real ComponentSection finding) alongside case 1's own ModelMatRes texture -- "
+          "a real multi-section item (e.g. boots spanning LEG_LOWER + FOOT) carries more than one "
+          "section() entry, not just the first.") {
+    auto dir = defaultsDir("appearancegearsection");
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::create_directories(db2Dir);
+    writeItemAppearanceDbd(dbdDir);
+
+    // Real-shaped chain, IDs inspired by a real local ItemDisplayInfoID (233)
+    // that genuinely carries two ComponentSection rows (6=LEG_LOWER, 7=FOOT).
+    writeFile(db2Dir / "itemmodifiedappearance.db2", buildFlatDb2(0xa0000001, 0xb0000001, {{367, 495}}));
+    writeFile(db2Dir / "itemappearance.db2", buildFlatDb2(0xa0000002, 0xb0000002, {{495, 233}}));
+    writeFile(db2Dir / "itemdisplayinfo.db2", buildFlatDb2(0xa0000003, 0xb0000003, {{233, 0}}));
+    writeFile(db2Dir / "itemdisplayinfomodelmatres.db2", buildFlatDb2(0xa0000004, 0xb0000004, {}));
+    writeFile(db2Dir / "modelfiledata.db2", buildFlatDb2(0xa0000005, 0xb0000005, {}));
+    // MaterialResourcesID 34187/27801 -> real texture FileDataIDs, UsageType 0.
+    writeFile(db2Dir / "texturefiledata.db2",
+              buildFlatDb2(0xa0000006, 0xb0000006, {{500001, 34187, 0}, {500002, 27801, 0}}));
+    // ItemDisplayInfoID 233 owns two ItemDisplayInfoMaterialRes rows: section 6
+    // (LEG_LOWER) -> MaterialResourcesID 34187, section 7 (FOOT) -> 27801.
+    writeFile(db2Dir / "itemdisplayinfomaterialres.db2",
+              buildFlatDb2(0xa0000007, 0xb0000007, {{1, 233, 6, 34187}, {2, 233, 7, 27801}}));
+
+    std::ostringstream cmd;
+    cmd << "appearance-string --validate \"husk-appearance/1 gear=FEET:367\""
+        << " --db2-dir " << db2Dir.string() << " --dbd-dir " << dbdDir.string();
+    auto result = runHusk(cmd.str());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("gear FEET:367 -> ItemDisplayInfoID=233") != std::string::npos);
+    CHECK(result.output.find("section(6)=500001") != std::string::npos);
+    CHECK(result.output.find("section(7)=500002") != std::string::npos);
 
     fs::remove_all(dir);
 }

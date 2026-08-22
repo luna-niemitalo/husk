@@ -16,6 +16,7 @@
 #include <sqlite3.h>
 
 #include "animationdata_db2.hpp"
+#include "appearance_string.hpp"
 #include "chunk.hpp"
 #include "commands.hpp"
 #include "export_animation.hpp"
@@ -600,6 +601,18 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "any matching --bones-dir correction set with 'selected_by_choice_ids'; "
                     "requires --db2-dir/--dbd-dir too, doesn't filter/apply anything itself, same "
                     "inert-extras treatment as --char-layout-id");
+    app.add_option("--appearance", opts.appearanceArg,
+                    "a husk-appearance/1 string (src/appearance_string.hpp) -- an alternative, "
+                    "superset way to drive customization/gear resolution in one flag: its 'cust' "
+                    "field feeds the exact same resolution --customization-choice-ids does, and its "
+                    "'gear' field resolves each real (SLOT, ItemModifiedAppearanceID) pair "
+                    "(src/itemappearance_db2.hpp) to real equipped-item texture/geometry data, "
+                    "attached as inert 'gear_section_overlays'/'gear_items' skin extras (see "
+                    "TODO/EQUIPPED_GEAR_RENDER_TODO.md) -- husk resolves, never applies. Mutually "
+                    "exclusive with --customization-choice-ids (pick one); requires --db2-dir/"
+                    "--dbd-dir, same as every other DB2-driven enrichment here. 'race'/'sex' fields "
+                    "are informational only -- --chr-model-id's own existing auto-derivation is still "
+                    "what determines the resolved character identity");
     app.add_option("--chr-model-id", opts.chrModelIdArg,
                     "a real ChrModelID (see ChrModel.db2 / `husk db2-export`), the literal 'auto' to "
                     "derive one automatically, or 'none' to explicitly disable derivation. Same "
@@ -662,6 +675,110 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "case where a single directory happens to serve both roles");
 }
 
+// Forward declaration: exportGearAuxItemModels (below) recursively calls
+// this same function to export each resolved --appearance gear item's own
+// standalone geometry as its own real .glb -- reusing the exact
+// single-model pipeline every other `husk export` call already goes
+// through (the same function --from-list's own batch loop calls per
+// entry), rather than a second, parallel export path.
+int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
+                    const std::string& outputPathIn, bool outputGiven,
+                    std::unordered_map<uint32_t, std::string> listfile);
+
+// --appearance's case-1 gear items (skeleton.gearItems, already populated
+// by attachGearAppearance with real model FileDataIDs) each need their own
+// real .glb -- resolved via --listfile/--listfile-root (the FileDataID ->
+// real local .m2 path direction, same data every other listfile-driven
+// feature here already has loaded) and exported by recursively calling
+// exportOneModel with a fresh, all-defaults ExportOptions/CLI::App (no
+// --appearance of its own -- an item model doesn't need or want its own
+// gear resolution). Written to '<mainOutputDir>/aux_models/<slot>_<fdid>.glb'
+// (a real, predictable, fixed-convention sibling directory, same role
+// --slim-textures' 'textures/' subdirectory already plays), with the
+// RELATIVE path (e.g. "aux_models/mainhand_370361.glb") baked into
+// GearItem::auxGlbPath -- the Blender-side consumer needs zero listfile
+// access, zero husk subprocess call, and zero FileDataID resolution of its
+// own, same "no external file-path knowledge beyond what's baked into
+// extras" discipline every other Blender-side reader in this project
+// already follows. A resolution/export failure for one item is reported
+// and leaves that item's auxGlbPath empty -- never fatal to the rest of
+// the export, same policy as every other per-entry DB2 resolution here.
+void exportGearAuxItemModels(gltf::Skeleton& skeleton, const std::unordered_map<uint32_t, std::string>& listfile,
+                              const std::string& listfileRoot, const std::string& mainOutputPath) {
+    if (skeleton.gearItems.empty()) return;
+    if (listfile.empty() || listfileRoot.empty()) {
+        std::cerr << "husk: note: --appearance resolved " << skeleton.gearItems.size()
+                  << " gear item(s) with real geometry, but no --listfile/--listfile-root was "
+                     "given -- can't resolve real item .m2 paths, aux_models export skipped for "
+                     "all of them\n";
+        return;
+    }
+
+    std::filesystem::path mainDir = std::filesystem::path(mainOutputPath).parent_path();
+    if (mainDir.empty()) mainDir = ".";
+    std::filesystem::path auxDir = mainDir / "aux_models";
+
+    // Fresh, all-defaults options/parse (empty argv) -- deliberately NOT
+    // `opts`/`app` from the caller: an item model gets its own ordinary
+    // '--skin auto'/'--textures <its own dir>' resolution, not the base
+    // character's flags, and critically must NOT carry the base model's
+    // own --appearance forward (that would recurse into resolving gear for
+    // the *item*, which is never meaningful).
+    ExportOptions itemOpts;
+    CLI::App itemApp{"husk export (internal -- gear-item aux model)", "husk export"};
+    addExportOptions(itemApp, itemOpts);
+    try {
+        itemApp.parse(std::vector<std::string>{});
+    } catch (const CLI::ParseError&) {
+        return;  // defensive only -- an empty argv parse against this grammar doesn't throw
+    }
+
+    for (auto& item : skeleton.gearItems) {
+        if (item.modelFileDataIds.empty()) continue;
+        uint32_t fdid = item.modelFileDataIds.front();
+
+        auto it = listfile.find(fdid);
+        if (it == listfile.end()) {
+            std::cerr << "husk: note: gear slot '" << item.slot << "' model FileDataID " << fdid
+                      << " has no --listfile entry -- can't export its own aux .glb, skipping\n";
+            continue;
+        }
+        std::filesystem::path itemModelPath = std::filesystem::path(listfileRoot) / it->second;
+        std::error_code ec;
+        if (!std::filesystem::exists(itemModelPath, ec) || ec) {
+            std::cerr << "husk: note: gear slot '" << item.slot << "' model FileDataID " << fdid
+                      << " resolved to '" << itemModelPath.string()
+                      << "' via --listfile, but that file doesn't exist locally -- skipping\n";
+            continue;
+        }
+
+        std::error_code mkEc;
+        std::filesystem::create_directories(auxDir, mkEc);
+        if (mkEc) {
+            std::cerr << "husk: note: couldn't create '" << auxDir.string()
+                      << "' for gear aux models: " << mkEc.message() << " -- skipping\n";
+            continue;
+        }
+
+        std::string slotLower = item.slot;
+        std::transform(slotLower.begin(), slotLower.end(), slotLower.begin(),
+                        [](unsigned char c) { return std::tolower(c); });
+        std::string auxRelPath = "aux_models/" + slotLower + "_" + std::to_string(fdid) + ".glb";
+        std::filesystem::path auxAbsPath = mainDir / auxRelPath;
+
+        int rc = exportOneModel(itemOpts, itemApp, itemModelPath.string(), auxAbsPath.string(),
+                                 /*outputGiven=*/true, listfile);
+        if (rc == 0) {
+            item.auxGlbPath = auxRelPath;
+            std::cerr << "husk: note: gear slot '" << item.slot << "' item model exported to '"
+                      << auxAbsPath.string() << "'\n";
+        } else {
+            std::cerr << "husk: note: gear slot '" << item.slot
+                      << "' item model export failed -- aux_glb_path left unset\n";
+        }
+    }
+}
+
 // The single-model export pipeline, unchanged in substance from the old
 // monolithic exportGlb -- factored out so --from-list (below) can call it
 // once per entry, sharing one already-parsed `opts`/`app` and one
@@ -699,6 +816,12 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     }
     if (lodGiven && skinDirGiven && opts.skinDirArg == "none") {
         std::cerr << "husk: --lod needs the SFID-based resolution --skin-dir 'none' disables\n";
+        return 1;
+    }
+    bool appearanceGiven = app.count("--appearance") > 0;
+    if (appearanceGiven && app.count("--customization-choice-ids") > 0) {
+        std::cerr << "husk: --appearance and --customization-choice-ids are mutually exclusive -- "
+                     "--appearance's own 'cust' field already supplies the same choice IDs\n";
         return 1;
     }
 
@@ -803,6 +926,31 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     std::string charLayoutIdArg = app.count("--char-layout-id") ? opts.charLayoutIdArg : "";
     std::string customizationChoiceIdsArg =
         app.count("--customization-choice-ids") ? opts.customizationChoiceIdsArg : "";
+    std::vector<appearance::GearEntry> gearEntries;
+    if (appearanceGiven) {
+        // Mutual exclusivity with --customization-choice-ids already
+        // enforced above -- customizationChoiceIdsArg is still empty here,
+        // safe to fill from --appearance's own 'cust' field. A malformed
+        // --appearance string is a direct user mistake, same "bad flag
+        // value fails fast" treatment husk-appearance/1's own parser
+        // already gives `husk appearance-string`.
+        appearance::AppearanceString parsed;
+        try {
+            parsed = appearance::parse(opts.appearanceArg);
+        } catch (const appearance::ParseError& e) {
+            std::cerr << "husk: --appearance: " << e.what() << "\n";
+            return 1;
+        }
+        if (!parsed.customizationChoiceIds.empty()) {
+            std::ostringstream ids;
+            for (size_t i = 0; i < parsed.customizationChoiceIds.size(); ++i) {
+                if (i) ids << ",";
+                ids << parsed.customizationChoiceIds[i];
+            }
+            customizationChoiceIdsArg = ids.str();
+        }
+        gearEntries = parsed.gear;
+    }
     std::string chrModelIdArg = app.count("--chr-model-id") ? opts.chrModelIdArg : "";
     std::string creatureDisplayIdArg =
         app.count("--creature-display-id") ? opts.creatureDisplayIdArg : "";
@@ -899,6 +1047,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             attachCustomizationChoices(db2Dir, dbdDirForChr, customizationChoiceIdsArg, chrModelIdArg, modelPath,
                                         listfile, listfileRoot, skeleton);
             attachCreatureGeosets(db2Dir, dbdDirForChr, creatureDisplayIdArg, skeleton);
+            attachGearAppearance(db2Dir, dbdDirForChr, gearEntries, skeleton);
+            exportGearAuxItemModels(skeleton, listfile, listfileRoot, outputPath);
             // Needs skeleton.attachments/events already populated (just
             // above), so it can't run inside buildSkeleton itself.
             applyContextualBoneNames(skeleton);

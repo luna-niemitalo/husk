@@ -57,13 +57,59 @@ specular/emissive-ish channel — not *where on the body*), unrelated to
 `CharComponentTextureSections.SectionType`'s enum space. This doesn't
 change Stage 6's own resolution work (it already ignores `TextureType`
 beyond passing it through) but does mean **case 2 below cannot use
-`TextureType` as its section key** the way this file originally assumed —
-seeing which real body section(s) an equipped item's texture(s) actually
-apply to still needs a different real signal, not yet identified. Worth
-checking `ChrModelTextureTargetID` (already resolved for the player-
-customization chain, `chrmodel_db2.hpp`'s `ChrModelTextureLayer`) as the
-next candidate, since it's the field that *does* carry a real section-ish
-selector in the customization chain already wired up.
+`TextureType` as its section key** the way this file originally assumed.
+
+**Update (2026-08-22): the real section key found and wired in --
+`ChrModelTextureTargetID` is NOT it, `ItemDisplayInfoMaterialRes.
+ComponentSection` is.** Checked `ChrModelTextureTargetID` reachability
+first, per this file's own prior next-step: confirmed absent from every
+column of `ItemDisplayInfo`/`ItemDisplayInfoModelMatRes` in the current
+local WoWDBDefs layout (`husk db2-export` + direct schema inspection),
+and a real `MaterialResourcesID`-namespace join between
+`ItemDisplayInfoModelMatRes` and `ChrCustomizationMaterial` (the only
+table that carries `ChrModelTextureTargetID`) returns just 2 matches out
+of 35,706 distinct local values -- noise, not a real shared key.
+Falsified.
+
+Found the real answer instead by reading `reference/wow.export`'s own
+shipping equipped-item compositing code
+(`src/js/modules/tab_characters.js`'s item-texture loop,
+`src/js/db/caches/DBItemCharTextures.js`) rather than guessing further
+from column names: the real client does NOT use
+`ItemDisplayInfoModelMatRes` for case 2 at all -- that table (and its
+`TextureType`) is case 1's own texture (a standalone item's own separate
+geometry, e.g. a weapon's blade). Case 2 goes through a **different,
+sibling real table**, `ItemDisplayInfoMaterialRes` (note "Material", not
+"Model" -- a real, separate, 230k-row-local table, not an alias), whose
+`ComponentSection` column *is* the section key: confirmed against real
+local data that its distinct values are exactly `{0..8}`, matching
+`reference/wow.export`'s own shipping `COMPONENT_SECTION` enum
+(`ARM_UPPER`=0 .. `ACCESSORY`=8), a real subset of
+`CharComponentTextureSections.SectionType`'s broader `{0..14}` range. A
+real multi-section item was confirmed locally (`ItemDisplayInfoID` 233:
+`ComponentSection` 6/LEG_LOWER -> `MaterialResourcesID` 34187,
+`ComponentSection` 7/FOOT -> `MaterialResourcesID` 27801 -- a
+boots-shaped item, plausible), traced end to end from a real
+`ItemModifiedAppearanceID` (367 -> `ItemAppearanceID` 495 ->
+`ItemDisplayInfoID` 233) via `husk db2-export`/sqlite before trusting it.
+(`TextureFileData.db2`'s final `MaterialResourcesID -> FileDataID` hop
+couldn't be independently re-verified this session -- the file is
+currently a genuine 0-byte-or-missing gap in this machine's local
+extraction, same pre-existing re-extraction-flakiness class documented
+elsewhere in this project's history, unrelated to this finding.)
+
+**Implemented**: `src/itemappearance_db2.hpp`/`.cpp` now also loads
+`itemdisplayinfomaterialres.db2` (new `MaterialRes` struct,
+`Data::materialRes`, `Resolution::sectionMaterials`) alongside the
+existing `ModelMatRes`/`materials` (case 1, kept, now documented as
+case-1-only). `husk appearance-string`'s `gear` output
+(`src/cmd_appearance.cpp`) now prints `section(N)=<fdid>` per resolved
+section overlay, alongside case 1's existing `texture(type=N)=<fdid>`.
+Still "husk resolves, never applies" -- CLI stdout only, no glTF extras
+(that stays step 2's own open design question below). 2 new CLI-tier
+tests in `tests/test_cli_appearance.cpp` (multi-section resolution using
+the real `ItemDisplayInfoID` 233 shape above, synthetic fixture). Full
+suite green.
 
 This means resolved gear splits into two real, differently-rendered
 cases, not one:
@@ -96,57 +142,124 @@ assuming they're mutually exclusive.
 
 ## Concrete next steps
 
-1. **Ground-truth the `TextureType`/section-enum reading against real
-   local data — done 2026-08-21, falsified.** See the corrected reading
-   above. Real next sub-step, not yet done: check whether
-   `ChrModelTextureTargetID` (already resolved for the player-
-   customization chain) is reachable from the equipped-gear resolution
-   path at all, and if so whether it's the real section key case 2 needs.
-2. **Case 2 first (object-skin overlay)** — very likely far more common
-   than case 1 given the real corpus's own `item/objectcomponents/`
-   directory shape (`KNOWLEDGE_BASE_DESIGN.md`'s own prior investigation
-   already found this class dominant), and reuses
-   `apply_customization_texture_switch`'s existing node-graph machinery
-   almost directly: a new Blender-side reader
-   (`read_gear_appearance` or similar, same "parse raw extras/CLI JSON,
-   build a real node graph" pattern) needs the resolved `(TextureType,
-   texture FileDataID)` pairs — currently only printed to stdout by
-   `husk appearance-string`, not yet exposed as glTF `extras` the way
-   `chr_enabled_materials`/`chr_customization_options` are. Real design
-   question, not yet settled: does this data belong on `husk export`'s
-   own skin `extras` (would need `husk export` to accept a `gear=...`
-   argument, same shape `--customization-choice-ids` already has) or
-   stay a separate `husk appearance-string` output a caller feeds into
-   the Blender script alongside the `.glb` path? The former matches this
-   project's existing "husk attaches, Blender consumes extras" pattern
-   more closely; the latter avoids growing `husk export`'s own flag
-   surface for a feature that's arguably orthogonal to a single-model
-   export. Worth a real design pass before committing either way.
-3. **Case 1 (standalone geometry attachment)** — needs a second glTF
-   import + a real transform placing it at the base character's resolved
-   attachment-point bone. `tools/husk_blender_geoset_mask.py` already
-   knows how to read a model's own attachment-derived bone names; the new
-   piece is importing a *second* `.glb` (the equipped item, exported
-   separately via a normal `husk export <item.m2>` call once its
-   FileDataID resolves to a real local file — same `--listfile`
-   resolution path every other husk feature already uses) and parenting
-   it to the right bone with the real M2 attachment offset applied (not
-   just bone-parented at the bone's own origin — `M2Attachment`'s own
-   `position` field, already exported per-node, is exactly this offset).
-   Multiple real attachment slots exist per item class (`Shield`,
-   `HandRight`, `HandLeft`, `Helm`, ...) — resolving *which* attachment
-   point a given equipped slot (`gear=MAINHAND:...` etc.) maps to is
-   itself real work: `husk-appearance/1`'s `SLOT` token is caller-defined
-   (`src/appearance_string.hpp`'s own doc comment: "an opaque uppercase
-   token... husk's grammar does not hardcode Blizzard's equipment-slot
-   name enum"), so a slot->attachment-point mapping table needs to live
-   in the Blender-side consumer, not husk itself.
+1. **Ground-truth the section-key reading against real local data — done,
+   2026-08-21 (`TextureType` falsified) + 2026-08-22 (`ChrModelTextureTargetID`
+   falsified, `ItemDisplayInfoMaterialRes.ComponentSection` confirmed and
+   wired).** See the corrected reading above — this step is closed.
+   `husk appearance-string --db2-dir/--dbd-dir` now prints real
+   `section(N)=<fdid>` entries per resolved case-2 overlay.
+2. **Case 1 (standalone-geometry attachment) — done, 2026-08-22 (this
+   session, priority flipped to case-1-first per Luna's own direct
+   instruction: "structurally simple... one correctly-set-up positional
+   constraint/parent relationship," vs. case 2's genuinely hard
+   compositing work, hard enough that Blizzard's own live client visibly
+   gets it wrong sometimes).** `husk export --appearance` (new flag,
+   `src/appearance_string.hpp`'s `AppearanceString` in, `cust` feeding the
+   same resolution `--customization-choice-ids` already drove, `gear`
+   feeding the new logic here — mutually exclusive with
+   `--customization-choice-ids`) resolves each `gear=SLOT:id` entry's case
+   1 data (`gltf::Skeleton::GearItem`, `gltf_skeleton.hpp`) into
+   `gear_items` skin extras (root-joint node extras, same merge site every
+   other feature here uses). Critically, husk itself — not the Blender
+   script — resolves the item's own real FileDataID to a real local `.m2`
+   (via the already-loaded `--listfile`/`--listfile-root`) and
+   **recursively exports that item's own `.glb`**
+   (`exportGearAuxItemModels`, `src/cmd_export.cpp`, reusing the exact
+   same `exportOneModel` function `--from-list` batch mode already
+   factored out — not a second export path) to a real, predictable
+   `<output-dir>/aux_models/<slot>_<fdid>.glb` sibling file, with the
+   RELATIVE path baked into `GearItem::auxGlbPath`. This was a real
+   design correction mid-session (Luna's own direct call): an earlier
+   draft had the Blender script itself resolve `--listfile` and shell out
+   to `husk export` at import time — rejected as breaking this project's
+   own "self-contained `.glb`, zero external file-path knowledge beyond
+   what's baked into extras" discipline (the same reason
+   `_root_joint_extras` replaced every earlier raw-file-path `read_*`
+   function). Blender-side (`tools/husk_blender_geoset_mask.py`):
+   `read_gear_items`/`apply_gear_items` join `aux_glb_path` against the
+   main `.glb`'s own directory, import it, and parent the result to the
+   real `attachment_<id>` object this slot maps to
+   (`GEAR_SLOT_TO_ATTACHMENT_IDS`, a real slot-name -> `M2Attachment` id
+   table sourced from `documentation/wowdev-wiki/md/M2.md`'s own
+   Attachments table — `SLOT` is caller-defined per
+   `appearance_string.hpp`'s own doc comment, so this mapping is this
+   script's own convention, not something husk validates). Confirmed
+   directly via a headless Blender round-trip that `attachment_<id>`
+   objects already import as real Empties, `parent_type='BONE'`-parented
+   to the correct bone with `M2Attachment::position`'s own offset already
+   baked into `.location` — so parenting the imported item at local-space
+   origin reproduces correct placement with **no second manual offset**,
+   confirming the "mechanically simple" framing was right. Verified end
+   to end against real local data: `ItemModifiedAppearanceID` 15 (real
+   chain: `ItemAppearanceID` 154 → `ItemDisplayInfoID` 1542 →
+   `ModelResourcesID` 160 → real `.m2` FileDataID 370361,
+   `creature/pygmy/pygmyshaman.m2`, cross-checked directly via
+   `husk db2-export`/sqlite before trusting it) exported against
+   `bloodelffemale.m2` (`gear=MAINHAND:15`) produced a real
+   `aux_models/mainhand_370361.glb`, and the Blender script (given only
+   the main `.glb`'s own path, no `--listfile` anywhere) placed a real
+   `gear_mainhand_att1` Empty parented to `attachment_1`
+   (`Armature`/`Icosphere.001` children moved together, confirmed via
+   headless inspection). New CLI-tier tests
+   (`tests/test_cli_gear_export.cpp`: mutual-exclusivity, malformed
+   string, no-db2-dir skip, case-1 extras shape, real aux-model export +
+   `aux_glb_path`, case-2 extras shape, `cust` field wiring) — 7 new
+   tests, full suite green.
+3. **Case 2 (object-skin overlay) — best-effort, DB2 resolution + extras
+   done, Blender-side rendering NOT done.** `attachGearAppearance`
+   (`src/export_extras.cpp`) also resolves each entry's `sectionMaterials`
+   (case 2) into `gear_section_overlays` skin extras
+   (`gltf::Skeleton::GearSectionOverlay` — `slot`, `componentSection`,
+   `materialResourcesId`, resolved texture `fileDataId`), same
+   `--appearance` flag, same extras-merge site as case 1. What's still
+   missing, explicitly out of this session's budget per the case-1-first
+   priority call: the actual Blender-side node-graph compositing that
+   would make an equipped item's texture visibly override/compete with
+   whichever customization choice currently owns that
+   `chr_texture_layout` section — `apply_customization_texture_switch`'s
+   existing per-choice node groups would need a gear-override Mix node
+   spliced in front of the Base Color input (see that function's own node
+   graph, `tools/husk_blender_geoset_mask.py`), gated by a real rect test
+   reusing `_build_section_overlay_group`'s existing UV/section-rect
+   machinery against `ComponentSection` rather than a per-choice `Show
+   Overlay` toggle. Not started. A further real refinement
+   `reference/wow.export`'s own code applies before this that husk
+   doesn't yet: `DBComponentTextureFileData.getTextureForRaceGender`
+   picks the best of several real per-race/gender texture variants
+   sharing one `MaterialResourcesID` — `componenttexturefiledata.db2`,
+   present locally, not yet read by husk anywhere.
 4. **Real interactive Blender GUI pass**, same standing discipline every
    other Blender-side feature here follows (`CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`'s
-   own "Still open" section is the template): once either case renders
-   structurally, get a real screenshot/GUI confirmation that the result
-   looks plausible against real in-game appearance — not something to
-   self-certify.
+   own "Still open" section is the template): case 1 renders
+   structurally and was verified headless this session (real placement
+   confirmed by inspecting the actual object hierarchy/transforms in a
+   headless Blender process) — but a real screenshot/GUI confirmation
+   that the equipped item looks plausible against real in-game appearance
+   is still Luna's own next action, not self-certified here. Case 2 has
+   nothing to visually check yet (Blender-side rendering not built).
+5. **Stretch goal, not started: a Blender-side weapon display-state
+   toggle (in-hand / sheathed-on-back / sheathed-on-hip)** — Luna's own
+   idea, flagged explicitly as "fun to have," not required. Real
+   grounding: `M2Attachment` ids 1/2 (HandRight/HandLeft, in-hand), 26/27/28
+   (SheathMainHand/SheathOffHand/SheathShield, hip-ish sheath points),
+   30/31 (LargeWeaponLeft/LargeWeaponRight, back-mounted large weapons),
+   and a `HipWeaponLeft`/`HipWeaponRight` pair nearby in the same table
+   (`documentation/wowdev-wiki/md/M2.md`'s Attachments section) — every
+   one of these already exports as a real named `attachment_<id>` child
+   node unconditionally, regardless of gear, so this is a re-parenting
+   toggle (or a Child-Of/Copy-Transforms constraint re-target), not a new
+   resolution mechanism. **Important framing correction from Luna,
+   mid-session**: WoW's "Midnight" minor patch made sheathing genuinely
+   player-choosable for most weapon classes (one-handed swords/offhands
+   can sheathe at hip OR back — real, valid alternatives, not one
+   derivable correct answer) — so a real `Item.db2` `SheathType` lookup
+   would NOT give "the correct" single answer even in principle for
+   current content, not just "husk hasn't resolved it yet." A manual
+   Blender dropdown/toggle among whichever real attachment nodes actually
+   exist on a given character is therefore the structurally correct
+   design here, not a fallback approximation of a better automatic
+   answer — frame it that way if/when this gets built. Not attempted this
+   session (case 1 + case 2's DB2 half filled the available budget).
 
 ## Why this is its own file
 

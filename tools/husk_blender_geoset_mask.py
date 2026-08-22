@@ -1015,6 +1015,181 @@ def read_physics_bodies(armature_obj):
     return physics_bodies, physics_joints, joint_bone_names
 
 
+def read_gear_items(armature_obj):
+    """Reads `gear_items` (`husk export --appearance`'s 'gear' field, case 1
+    -- standalone-geometry equipped items: weapons/shields/shoulders/helms)
+    from the already-imported armature's own root-joint extras (see
+    `_root_joint_extras`) -- no file path needed. Returns a list of
+    `{"slot", "item_modified_appearance_id", "model_file_data_ids",
+    "materials"}` dicts (see `gltf::Skeleton::GearItem`, `gltf_skeleton.hpp`),
+    or `[]` if `armature_obj` is falsy or genuinely has no such extras (no
+    `--appearance` with a real 'gear' entry resolving case-1 data was given
+    at export time) -- never a guess. `model_file_data_ids` may be empty on
+    an entry with only case-2 (section-overlay) data -- callers must check.
+    """
+    return _root_joint_extras(armature_obj).get("gear_items") or []
+
+
+# husk-appearance/1's own SLOT token is caller-defined and NOT validated
+# against Blizzard's own equipment-slot enum (src/appearance_string.hpp's
+# own doc comment: "an opaque uppercase token... husk's grammar does not
+# hardcode Blizzard's equipment-slot name enum") -- this table is *this
+# script's own* convention, mapping the common WoW inventory-slot names a
+# caller is most likely to use onto the real M2Attachment id(s)
+# (documentation/wowdev-wiki/md/M2.md's "Attachments" section table,
+# confirmed against real husk-exported data: every base character export
+# carries these as real named `attachment_<id>` child objects
+# unconditionally, regardless of gear -- see `apply_gear_items`'s own doc
+# comment). A slot mapping to more than one id (SHOULDER) gets one real
+# imported copy of the item parented at each id -- WoW mirrors a shoulder
+# piece onto both real attachment points, not one. RANGED has no separate
+# real attachment id of its own in the wowdev.wiki table (ranged weapons
+# share HandRight with melee mainhand weapons in practice) -- a real,
+# checkable gap, not an oversight. A slot token not in this table is
+# reported and skipped, never guessed at.
+GEAR_SLOT_TO_ATTACHMENT_IDS = {
+    "MAINHAND": [1],    # HandRight / ItemVisual1
+    "HAND": [1],
+    "OFFHAND": [2],     # HandLeft / ItemVisual2
+    "SHIELD": [0],      # Shield / MountMain / ItemVisual0
+    "RANGED": [1],      # best-effort: shares HandRight, no dedicated real id
+    "HEAD": [11],       # Helm
+    "HELM": [11],
+    "SHOULDER": [5, 6],  # ShoulderRight + ShoulderLeft
+    "SHOULDERS": [5, 6],
+    "BACK": [12],       # Back
+    "CLOAK": [12],
+    "CAPE": [12],
+    "CHEST": [34],      # Chest
+    "WAIST": [53],      # BeltBuckle
+    "BELT": [53],
+}
+
+
+def _import_gltf_top_level_objects(filepath):
+    """Imports `filepath` via Blender's stock glTF importer and returns
+    just the newly-created top-level objects (`.parent is None`) --
+    diffed against `bpy.data.objects` before/after the import call, since
+    `bpy.ops.import_scene.gltf` itself doesn't hand back a usable object
+    list. A real item export can bring in more than one top-level object
+    (e.g. a real armature alongside its mesh, for a rare skinned prop) --
+    every one of them needs to move together, so the caller wraps them
+    all under one new parent Empty rather than assuming exactly one.
+    """
+    before = set(bpy.data.objects.keys())
+    bpy.ops.import_scene.gltf(filepath=filepath)
+    after = set(bpy.data.objects.keys())
+    new_names = after - before
+    return [obj for name in new_names if (obj := bpy.data.objects.get(name)) is not None
+            and obj.parent is None]
+
+
+def apply_gear_items(armature_obj, gear_items, main_glb_path):
+    """Case 1 (TODO/EQUIPPED_GEAR_RENDER_TODO.md) -- turns each real
+    `gear_items` entry (`read_gear_items`) into a real second `.glb`
+    imported and parented to the base character's own real
+    `attachment_<id>` node. Mechanically simple by design (per Luna's own
+    framing: "one correctly-set-up positional constraint/parent
+    relationship relative to the armature"): `attachment_<id>` objects are
+    already real Empties, bone-parented (`parent_type='BONE'`) to the
+    correct real bone with the real `M2Attachment::position` offset baked
+    into their own `.location` (confirmed directly via a headless
+    round-trip against a real fixture, `bloodelffemale.m2`) -- so parenting
+    an imported item's own root object(s) to that Empty at local-space
+    origin reproduces correct in-game placement with no second manual
+    offset, exactly the way the real client attaches an item model at its
+    own authored origin to the resolved attachment point.
+
+    Each entry's own `aux_glb_path` -- a path RELATIVE to `main_glb_path`'s
+    own directory -- is resolved and imported directly
+    (`_import_gltf_top_level_objects`); no listfile, no `husk` subprocess,
+    no FileDataID resolution happens on this side at all. husk itself
+    already resolved the item's real FileDataID -> local `.m2` path (via
+    its own `--listfile`/`--listfile-root`) and exported its `.glb` to
+    `<main .glb's own dir>/aux_models/...` at `husk export --appearance`
+    time (`exportGearAuxItemModels`, `src/cmd_export.cpp`) -- same
+    "husk resolves/prepares, Blender-side script only reads back
+    already-baked extras" discipline `_root_joint_extras` established for
+    every other extras field here (this project's own standing "no
+    external file-path knowledge beyond what's baked into extras or found
+    by a fixed relative-path convention" rule). Parents one copy per real
+    `attachment_<id>` object this slot maps to (`GEAR_SLOT_TO_ATTACHMENT_IDS`)
+    that actually exists on this character's own skeleton (a real, common
+    case: not every model has every attachment id -- reported and skipped
+    per missing id, not fatal to the rest). Returns the number of gear
+    items that got at least one real attachment placed.
+    """
+    if not gear_items:
+        return 0
+    if armature_obj is None:
+        print("husk_blender_geoset_mask: gear_items present but no armature in the scene -- "
+              "skipping gear attachment")
+        return 0
+    main_glb_dir = os.path.dirname(os.path.abspath(main_glb_path)) if main_glb_path else None
+
+    attached = 0
+    for item in gear_items:
+        slot = (item.get("slot") or "").upper()
+        appearance_id = item.get("item_modified_appearance_id")
+        aux_glb_rel = item.get("aux_glb_path")
+        if not aux_glb_rel:
+            print(f"husk_blender_geoset_mask: gear slot '{slot}' (appearance "
+                  f"{appearance_id}) has no aux_glb_path -- husk didn't export this item's own "
+                  "geometry (missing --listfile/--listfile-root at export time, no listfile "
+                  "entry for its model FileDataID, or a genuine DB2/case-2-only gap) -- skipping")
+            continue
+        if main_glb_dir is None:
+            print(f"husk_blender_geoset_mask: gear slot '{slot}' has a real aux_glb_path but "
+                  "this script wasn't given the main .glb's own file path -- can't resolve the "
+                  "relative aux_models path, skipping (run with '-- <file.glb>', not a bare "
+                  "already-imported scene)")
+            continue
+
+        attachment_ids = GEAR_SLOT_TO_ATTACHMENT_IDS.get(slot)
+        if not attachment_ids:
+            print(f"husk_blender_geoset_mask: gear slot '{slot}' isn't in this script's own "
+                  "SLOT -> M2Attachment-id table (GEAR_SLOT_TO_ATTACHMENT_IDS) -- skipping, "
+                  "not guessed at")
+            continue
+
+        item_glb = os.path.join(main_glb_dir, aux_glb_rel)
+        if not os.path.isfile(item_glb):
+            print(f"husk_blender_geoset_mask: gear slot '{slot}' aux_glb_path '{aux_glb_rel}' "
+                  f"doesn't exist under '{main_glb_dir}' -- skipping (moved the .glb without its "
+                  "aux_models/ sibling directory?)")
+            continue
+
+        placed_any = False
+        for attachment_id in attachment_ids:
+            attachment_obj = bpy.data.objects.get(f"attachment_{attachment_id}")
+            if attachment_obj is None:
+                print(f"husk_blender_geoset_mask: gear slot '{slot}' wants attachment_"
+                      f"{attachment_id}, but this character's own skeleton has no such "
+                      "attachment node -- skipping this attachment point (real and common: "
+                      "not every model carries every M2Attachment id)")
+                continue
+
+            new_objs = _import_gltf_top_level_objects(item_glb)
+            if not new_objs:
+                print(f"husk_blender_geoset_mask: importing '{item_glb}' for gear slot "
+                      f"'{slot}' produced no new top-level object -- skipping")
+                continue
+
+            carrier = bpy.data.objects.new(f"gear_{slot.lower()}_att{attachment_id}", None)
+            bpy.context.collection.objects.link(carrier)
+            carrier.parent = attachment_obj
+            carrier.location = (0.0, 0.0, 0.0)
+            for obj in new_objs:
+                obj.parent = carrier
+                obj.location = (0.0, 0.0, 0.0)
+            placed_any = True
+
+        if placed_any:
+            attached += 1
+
+    return attached
+
+
 def build_geoset_choice_names(chr_customization_options):
     """`chr_customization_options` (`read_chr_customization_options`'s own
     return shape) -> `({group: {variant: choice_name}}, {group: option_name})`
@@ -3231,6 +3406,16 @@ def main():
                   "off, and tune per-bone elasticity by eye, see apply_physics_jiggle_bones's own "
                   "doc comment on why the numbers are a best-effort heuristic, not an exact port")
 
+    def gear_item_stage():
+        gear_items = read_gear_items(armature_obj)
+        if not gear_items:
+            return
+        attached = apply_gear_items(armature_obj, gear_items, filepath)
+        print(f"husk_blender_geoset_mask: {attached}/{len(gear_items)} gear_items entry(ies) got "
+              "at least one real attachment_<id> placement (case 1 -- standalone-geometry "
+              "equipped items; case 2/object-skin overlay isn't rendered by this script yet, see "
+              "TODO/EQUIPPED_GEAR_RENDER_TODO.md)")
+
     _run_stage(model_name, "geoset switch", geoset_stage)
     _run_stage(model_name, "billboard alignment", billboard_stage)
     _run_stage(model_name, "texture-layout overlay", texture_layout_overlay_stage)
@@ -3241,6 +3426,7 @@ def main():
     _run_stage(model_name, "animation asset marking", animation_asset_stage)
     _run_stage(model_name, "multiply-blend compositing", multiply_blend_compositing_stage)
     _run_stage(model_name, "physics jiggle bones", physics_jiggle_stage)
+    _run_stage(model_name, "gear item attachment", gear_item_stage)
 
 
 if __name__ == "__main__":

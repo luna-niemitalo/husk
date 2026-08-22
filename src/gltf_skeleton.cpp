@@ -463,6 +463,48 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
         }
         skinExtras["chr_customization_options"] = tinygltf::Value(options);
     }
+    if (!skeleton->gearSectionOverlays.empty()) {
+        tinygltf::Value::Array arr;
+        for (const auto& g : skeleton->gearSectionOverlays) {
+            tinygltf::Value::Object obj;
+            obj["slot"] = tinygltf::Value(g.slot);
+            obj["item_modified_appearance_id"] = tinygltf::Value(static_cast<int>(g.itemModifiedAppearanceId));
+            tinygltf::Value::Array sections;
+            for (const auto& s : g.sections) {
+                tinygltf::Value::Object sObj;
+                sObj["component_section"] = tinygltf::Value(static_cast<int>(s.componentSection));
+                sObj["material_resources_id"] = tinygltf::Value(static_cast<int>(s.materialResourcesId));
+                sObj["file_data_id"] = tinygltf::Value(static_cast<int>(s.fileDataId));
+                sections.emplace_back(sObj);
+            }
+            obj["sections"] = tinygltf::Value(sections);
+            arr.emplace_back(obj);
+        }
+        skinExtras["gear_section_overlays"] = tinygltf::Value(arr);
+    }
+    if (!skeleton->gearItems.empty()) {
+        tinygltf::Value::Array arr;
+        for (const auto& g : skeleton->gearItems) {
+            tinygltf::Value::Object obj;
+            obj["slot"] = tinygltf::Value(g.slot);
+            obj["item_modified_appearance_id"] = tinygltf::Value(static_cast<int>(g.itemModifiedAppearanceId));
+            tinygltf::Value::Array modelIds;
+            for (uint32_t fdid : g.modelFileDataIds) modelIds.emplace_back(static_cast<int>(fdid));
+            obj["model_file_data_ids"] = tinygltf::Value(modelIds);
+            if (!g.auxGlbPath.empty()) obj["aux_glb_path"] = tinygltf::Value(g.auxGlbPath);
+            tinygltf::Value::Array materials;
+            for (const auto& m : g.materials) {
+                tinygltf::Value::Object mObj;
+                mObj["texture_type"] = tinygltf::Value(static_cast<int>(m.textureType));
+                mObj["material_resources_id"] = tinygltf::Value(static_cast<int>(m.materialResourcesId));
+                mObj["file_data_id"] = tinygltf::Value(static_cast<int>(m.fileDataId));
+                materials.emplace_back(mObj);
+            }
+            obj["materials"] = tinygltf::Value(materials);
+            arr.emplace_back(obj);
+        }
+        skinExtras["gear_items"] = tinygltf::Value(arr);
+    }
     // Attached to the skin's own first real root joint's node extras, not
     // `skin.extras` -- Blender's own glTF importer has no supported target
     // for a *skin's* extras at all (confirmed empirically: node/mesh/

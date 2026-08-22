@@ -413,6 +413,86 @@ struct Skeleton {
     };
     std::vector<Light> lights;
 
+    // Real equipped-gear resolution (`husk export --appearance`,
+    // TODO/EQUIPPED_GEAR_RENDER_TODO.md's "case 2" -- object-skin texture
+    // overlay items, most body armor). Same "husk resolves, never applies"
+    // inert-extras treatment as EnabledMaterial/CharTextureLayout above:
+    // husk does not composite or select anything here, it only attaches
+    // the real ItemModifiedAppearanceID -> ItemDisplayInfoID ->
+    // ItemDisplayInfoMaterialRes -> TextureFileData chain
+    // (src/itemappearance_db2.hpp) so a Blender-side node graph can
+    // override whichever CharTextureLayout::Section a section's own
+    // `componentSection` value identifies -- confirmed against real local
+    // data (`husk db2-export`) that ItemDisplayInfoMaterialRes.
+    // ComponentSection's real distinct values ({0..8}) are a genuine
+    // subset of CharComponentTextureSections.SectionType's own {0..14}
+    // range, and a real multi-section item (ItemDisplayInfoID 233:
+    // ComponentSection 6/LEG_LOWER + 7/FOOT) resolves to two section rows,
+    // not one -- see EQUIPPED_GEAR_RENDER_TODO.md's own investigation.
+    // `fileDataId` is 0 when TextureFileData.db2 didn't resolve this
+    // entry's own MaterialResourcesID -- a real, reportable gap (this
+    // machine's own local extraction is currently missing
+    // texturefiledata.db2 entirely, a known pre-existing re-extraction gap
+    // documented in CLAUDE.md's Resume section, unrelated to this
+    // feature), not fabricated.
+    struct GearSectionOverlay {
+        std::string slot;                   // the caller's own opaque husk-appearance/1 SLOT token
+        uint32_t itemModifiedAppearanceId = 0;
+        struct Section {
+            uint32_t componentSection = 0;  // real CharComponentTextureSections.SectionType-space value
+            uint32_t materialResourcesId = 0;
+            uint32_t fileDataId = 0;        // 0 = TextureFileData.db2 didn't resolve this MaterialResourcesID
+        };
+        std::vector<Section> sections;      // empty when this appearance carries no case-2 data at all
+    };
+    std::vector<GearSectionOverlay> gearSectionOverlays;
+
+    // Real equipped-gear resolution, "case 1" (standalone-geometry items --
+    // weapons, shields, some helms): the item's own separate `.m2`
+    // FileDataID(s) (`src/modelfiledata_db2.hpp`, one ModelResourcesID can
+    // resolve to several real FileDataIDs, e.g. different LOD variants --
+    // kept as a vector, never collapsed to one, same policy as
+    // itemappearance::Resolution::materials) plus its own per-texture-role
+    // materials (`src/itemappearance_db2.hpp`'s ModelMatRes, keyed by a
+    // real texture-role `textureType`, NOT a body section -- see that
+    // file's own doc comment for why `TextureType` was falsified as a
+    // section-enum reading). Same inert-extras, husk-resolves-never-applies
+    // treatment as GearSectionOverlay above; attaching a second real `.m2`
+    // as its own glTF object/parenting it to the base character's real
+    // attachment-point node is downstream Blender-side work, not something
+    // writeGlbMulti does.
+    struct GearItem {
+        std::string slot;
+        uint32_t itemModifiedAppearanceId = 0;
+        std::vector<uint32_t> modelFileDataIds;
+        // Real, already-exported `.glb` for this item's own standalone
+        // geometry (the first entry of modelFileDataIds, resolved via
+        // --listfile at `husk export` time) -- a path RELATIVE to the
+        // directory the main model's own .glb was written into (e.g.
+        // "aux_models/mainhand_370361.glb"), never absolute: keeps the
+        // whole export self-contained and relocatable as one directory,
+        // the same "no external file-path knowledge beyond what's baked
+        // into extras" discipline every other Blender-side consumer here
+        // already follows (tools/husk_blender_geoset_mask.py's own
+        // _root_joint_extras migration). Empty when export didn't happen
+        // -- no --listfile/--listfile-root given, this FileDataID had no
+        // listfile entry, or the resolved local file didn't exist -- a
+        // real, reportable gap, not fabricated. husk exports this file by
+        // recursively reusing the same single-model pipeline every other
+        // `husk export` call uses (see exportGearAuxItemModels/
+        // exportOneModel's own recursive call in cmd_export.cpp), so the
+        // Blender-side consumer never needs to shell out to husk or
+        // resolve a listfile itself.
+        std::string auxGlbPath;
+        struct Material {
+            uint32_t textureType = 0;
+            uint32_t materialResourcesId = 0;
+            uint32_t fileDataId = 0;
+        };
+        std::vector<Material> materials;
+    };
+    std::vector<GearItem> gearItems;
+
     // One inert placeholder joint per distinct geoset ID a model's
     // primitives carry (Primitive::skinSectionId, gltf_mesh.hpp) --
     // the mechanism tools/husk_blender_geoset_mask.py uses to make WoW's

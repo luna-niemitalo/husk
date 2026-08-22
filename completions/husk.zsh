@@ -49,6 +49,7 @@ _husk() {
                 '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
                 '--char-layout-id[a real CharComponentTextureLayoutsID]:value:_files' \
                 '--customization-choice-ids[comma-separated ChrCustomizationChoiceID(s)]:value:_files' \
+                '--appearance[--appearance]:value:_files' \
                 '--chr-model-id[--chr-model-id]:value:_files' \
                 '--creature-display-id[--creature-display-id]:value:_files' \
                 '--object-skin-texture-id[--object-skin-texture-id]:value:_files' \

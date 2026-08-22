@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "appearance_string.hpp"
 #include "gltf.hpp"
 #include "m2.hpp"
 
@@ -131,6 +132,22 @@ void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDi
 // caller input beyond the display ID itself.
 void attachCreatureGeosets(const std::string& db2Dir, const std::string& dbdDir,
                             const std::string& creatureDisplayIdArg, gltf::Skeleton& skeleton);
+
+// `husk export --appearance`'s `gear` entries: resolves each real
+// (SLOT, ItemModifiedAppearanceID) pair against src/itemappearance_db2.hpp's
+// DB2 chain, attaching case 2 (object-skin section overlay, most body
+// armor) as skeleton.gearSectionOverlays and case 1 (standalone-geometry
+// items -- weapons, shields, some helms) as skeleton.gearItems -- see
+// TODO/EQUIPPED_GEAR_RENDER_TODO.md. Same "husk resolves, never applies"
+// policy as attachCustomizationChoices/attachCharTextureLayout above;
+// --db2-dir/--dbd-dir are required (same as every other DB2-driven
+// enrichment here) -- a non-empty `gear` with either missing is reported
+// and skipped, not fatal to the rest of the export. `modelfiledata`/
+// `texturefiledata` DB2 tables are each independently optional (a missing
+// one just leaves that hop's FileDataID at 0, same "reportable gap, not
+// fabricated" treatment `itemappearance::Resolution` itself already uses).
+void attachGearAppearance(const std::string& db2Dir, const std::string& dbdDir,
+                           const std::vector<appearance::GearEntry>& gear, gltf::Skeleton& skeleton);
 
 // The collision mesh (physics/hit-testing, m2::CollisionMesh) is a plain
 // triangle mesh with an unambiguous glTF translation -- unlike geoset

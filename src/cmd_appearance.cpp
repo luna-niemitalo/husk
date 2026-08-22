@@ -20,6 +20,10 @@
 // CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 6, src/itemappearance_db2.hpp) --
 // otherwise they stay opaque (slot, ItemModifiedAppearanceID) pairs, same
 // "current vs target" honesty as every other still-partial feature here.
+// Output carries both real gear cases (TODO/EQUIPPED_GEAR_RENDER_TODO.md):
+// `texture(type=N)=<fdid>` is case 1 (the item's own standalone geometry's
+// texture), `section(N)=<fdid>` is case 2 (a base-character-mesh section
+// overlay, N a real CharComponentTextureSections.SectionType-space value).
 namespace husk::commands {
 
 void addAppearanceStringOptions(CLI::App& app, AppearanceStringOptions& opts) {
@@ -105,6 +109,12 @@ int appearanceString(int argc, char** args) {
                     auto it = textureFileData->find(m.materialResourcesId);
                     if (it != textureFileData->end()) {
                         std::cout << " texture(type=" << m.textureType << ")=" << it->second;
+                    }
+                }
+                for (const husk::itemappearance::MaterialRes& m : resolution.sectionMaterials) {
+                    auto it = textureFileData->find(m.materialResourcesId);
+                    if (it != textureFileData->end()) {
+                        std::cout << " section(" << m.componentSection << ")=" << it->second;
                     }
                 }
             }

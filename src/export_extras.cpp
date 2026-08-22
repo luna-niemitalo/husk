@@ -18,6 +18,8 @@
 #include "chrrace_db2.hpp"
 #include "creature_geoset_db2.hpp"
 #include "export_transform.hpp"
+#include "itemappearance_db2.hpp"
+#include "modelfiledata_db2.hpp"
 #include "phys.hpp"
 #include "skel.hpp"
 #include "texturefiledata_db2.hpp"
@@ -803,6 +805,93 @@ void attachCreatureGeosets(const std::string& db2Dir, const std::string& dbdDir,
     std::cerr << "husk: note: attached " << resolved.size()
               << " real default geoset selection(s) for CreatureDisplayInfoID " << displayId
               << " as inert glTF extras\n";
+}
+
+void attachGearAppearance(const std::string& db2Dir, const std::string& dbdDir,
+                           const std::vector<appearance::GearEntry>& gear, gltf::Skeleton& skeleton) {
+    if (gear.empty()) return;  // feature simply unused
+    if (db2Dir.empty() || dbdDir.empty()) {
+        std::cerr << "husk: note: --db2-dir/--dbd-dir are required to resolve --appearance's "
+                     "'gear' entries -- skipping gear extras\n";
+        return;
+    }
+
+    std::optional<itemappearance::Data> data = itemappearance::load(db2Dir, dbdDir, std::cerr);
+    if (!data) {
+        std::cerr << "husk: note: no item-appearance DB2 data resolved from '" << db2Dir
+                  << "' -- skipping gear extras\n";
+        return;
+    }
+    // Each independently optional -- a missing one just leaves that hop's
+    // FileDataID at 0 for every gear entry, same "reportable gap, not
+    // fabricated" treatment as every other DB2-driven enrichment here.
+    std::optional<modelfiledata::Data> modelData = modelfiledata::load(db2Dir, dbdDir, std::cerr);
+    std::optional<texturefiledata::Data> textureData = texturefiledata::load(db2Dir, dbdDir, std::cerr);
+
+    size_t sectionCount = 0;
+    size_t itemCount = 0;
+    for (const auto& entry : gear) {
+        itemappearance::Resolution resolution =
+            itemappearance::resolve(*data, static_cast<uint32_t>(entry.itemModifiedAppearanceId), std::cerr);
+        if (!resolution.itemDisplayInfoId) {
+            std::cerr << "husk: note: gear entry '" << entry.slot << ":" << entry.itemModifiedAppearanceId
+                      << "' didn't resolve to a real ItemDisplayInfoID -- skipping\n";
+            continue;
+        }
+
+        if (!resolution.sectionMaterials.empty()) {
+            gltf::Skeleton::GearSectionOverlay overlay;
+            overlay.slot = entry.slot;
+            overlay.itemModifiedAppearanceId = static_cast<uint32_t>(entry.itemModifiedAppearanceId);
+            overlay.sections.reserve(resolution.sectionMaterials.size());
+            for (const auto& m : resolution.sectionMaterials) {
+                uint32_t fileDataId = 0;
+                if (textureData) {
+                    auto it = textureData->find(m.materialResourcesId);
+                    if (it != textureData->end()) fileDataId = it->second;
+                }
+                overlay.sections.push_back({m.componentSection, m.materialResourcesId, fileDataId});
+            }
+            skeleton.gearSectionOverlays.push_back(std::move(overlay));
+            ++sectionCount;
+        }
+
+        // A real ModelResourcesID of 0 means "this ItemDisplayInfo has no
+        // standalone geometry" (a real, common case-2-only item) -- not
+        // "unresolved" (itemappearance::resolve always fills the optional
+        // with DisplayInfo::modelResourcesId's raw value, zero included),
+        // so this must check the *value*, not just optional-has-value, or
+        // every case-2-only item would wrongly get an empty GearItem entry.
+        bool hasRealModel = resolution.modelResourcesId && *resolution.modelResourcesId != 0;
+        if (hasRealModel || !resolution.materials.empty()) {
+            gltf::Skeleton::GearItem item;
+            item.slot = entry.slot;
+            item.itemModifiedAppearanceId = static_cast<uint32_t>(entry.itemModifiedAppearanceId);
+            if (hasRealModel && modelData) {
+                auto it = modelData->find(*resolution.modelResourcesId);
+                if (it != modelData->end()) item.modelFileDataIds = it->second;
+            }
+            item.materials.reserve(resolution.materials.size());
+            for (const auto& m : resolution.materials) {
+                uint32_t fileDataId = 0;
+                if (textureData) {
+                    auto it = textureData->find(m.materialResourcesId);
+                    if (it != textureData->end()) fileDataId = it->second;
+                }
+                item.materials.push_back({m.textureType, m.materialResourcesId, fileDataId});
+            }
+            skeleton.gearItems.push_back(std::move(item));
+            ++itemCount;
+        }
+    }
+
+    if (sectionCount > 0 || itemCount > 0) {
+        std::cerr << "husk: note: attached " << sectionCount
+                  << " gear section-overlay entry(ies) (case 2) and " << itemCount
+                  << " gear item entry(ies) (case 1) from --appearance's 'gear' field as inert "
+                     "glTF extras (not applied to the render -- see "
+                     "TODO/EQUIPPED_GEAR_RENDER_TODO.md)\n";
+    }
 }
 
 void appendCollisionMesh(const m2::Header& header, const std::vector<uint8_t>& blob,

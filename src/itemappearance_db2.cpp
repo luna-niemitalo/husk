@@ -57,6 +57,15 @@ std::vector<ModelMatRes> loadModelMatRes(const std::string& db2Dir, const std::s
     return result;
 }
 
+std::vector<MaterialRes> loadMaterialRes(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
+    std::vector<MaterialRes> result;
+    auto rows = db2table::readNamedColumns(joinPath(db2Dir, "itemdisplayinfomaterialres.db2"), dbdDir,
+                                            {"ItemDisplayInfoID", "ComponentSection", "MaterialResourcesID"}, err);
+    if (!rows) return result;
+    for (const auto& row : *rows) result.push_back({orZero(row[0]), orZero(row[1]), orZero(row[2])});
+    return result;
+}
+
 }  // namespace
 
 std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, std::ostream& err) {
@@ -65,8 +74,9 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     data.appearances = loadAppearances(db2Dir, dbdDir, err);
     data.displayInfos = loadDisplayInfos(db2Dir, dbdDir, err);
     data.modelMatRes = loadModelMatRes(db2Dir, dbdDir, err);
+    data.materialRes = loadMaterialRes(db2Dir, dbdDir, err);
     if (data.modifiedAppearances.empty() && data.appearances.empty() && data.displayInfos.empty() &&
-        data.modelMatRes.empty()) {
+        data.modelMatRes.empty() && data.materialRes.empty()) {
         return std::nullopt;
     }
     return data;
@@ -118,6 +128,9 @@ Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ost
 
     for (const auto& m : data.modelMatRes) {
         if (m.itemDisplayInfoId == displayInfo->id) result.materials.push_back(m);
+    }
+    for (const auto& m : data.materialRes) {
+        if (m.itemDisplayInfoId == displayInfo->id) result.sectionMaterials.push_back(m);
     }
 
     return result;
