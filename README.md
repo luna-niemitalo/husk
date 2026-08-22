@@ -596,7 +596,7 @@ Flags:
 | `--skin <path>` &#124; `auto` | `-s` | `.skin` path, or `auto` (see above); never `none` | `auto` |
 | `--textures <dir>` &#124; `none` | `-t` | Directory of `.png` or raw `.blp` files (the latter decoded in-memory, no separate step) for real `baseColorTexture` images, or `none` to never embed one -- matched by real filename first (the M2's own embedded name, or the model's own basename-prefixed convention), `<FileDataID>.{png,blp}` only as a fallback, see below | model's own directory |
 | `--textures-out <dir>` | -- | Also write each decoded `.blp`'s `.png` to `<dir>`, mirroring its location under `--textures` -- a convenience copy only, embedding itself always happens in-memory regardless | unset (in-memory only) |
-| `--slim-textures` | -- | Write each resolved base-color texture as a real `<output-dir>/textures/<name>.png` file and reference it via glTF's own external image `uri`, instead of embedding it in the `.glb`'s binary buffer -- see below | off (embed, the default) |
+| `--slim-textures` | -- | Write each resolved base-color texture as a real `<output-dir>/textures/<name>.png` file (clean-named -- see "Material and texture naming" below) and reference it via glTF's own external image `uri`, instead of embedding it in the `.glb`'s binary buffer -- see below | off (embed, the default) |
 | `--skin-dir <dir>` &#124; `none` | -- | Directory `auto` searches for the SFID-declared `<FileDataID>.skin`, or `none` to skip that stage | model's own directory |
 | `--anim <dir>` &#124; `auto`/`inline`/`none` | `-a` | See the four states above | `auto` |
 | `--skel <path>` &#124; `none` | -- | External `.skel` path (0-inline-bone models only), or `none` to never look for one | same-basename `.skel` next to the model, if any |
@@ -649,8 +649,9 @@ remains unclaimed (two or more: reported, never guessed at). A `.blp`
 candidate at any of these steps is decoded and PNG-re-encoded in memory
 (`src/blp.cpp`) -- no `husk-blp` invocation, no intermediate file, unless
 `--textures-out` is given. Whichever FileDataID husk resolved for a slot is
-recorded either way (material name suffix, and `texture_file_data_id`
-glTF extras) even when a differently-named file supplied the actual image.
+recorded either way (`texture_file_data_id` glTF extras, plus the full
+diagnostic chain in `diagnostic_name` extras, see "Material and texture
+naming" below) even when a differently-named file supplied the actual image.
 Only (1), (2), and (3) above are genuinely deterministic; a match via (4)
 prints a `husk: warning:` line naming the material and file (plus the
 resolved FileDataID, if the slot has one, so it can be checked against a
@@ -663,18 +664,16 @@ render as a flat tinted surface instead of the real WoW texture.
 
 **Slim (external-texture) export.** `--slim-textures` writes each resolved
 base-color texture as a real `<output-dir>/textures/<name>.png` file (named
-by real FileDataID when the batch resolved one, else the resolved source
-filename -- the same naming this project already uses for every other
-texture kind) instead of embedding it in the `.glb`'s own binary buffer,
-setting the glTF `image.uri` to the relative path `textures/<name>.png`
-instead of `image.bufferView` -- a real external glTF image reference,
-resolved by any spec-conformant importer (including Blender's own) relative
-to the `.glb`/`.gltf` file's directory. Materials sharing the same resolved
-image write the file once and share the same `uri` (the existing
-alternate-texture dedup cache, now also gating the write). Meaningfully
-smaller `.glb` files for a real character export, at the cost of the
-`.glb` no longer being a single self-contained file -- the `textures/`
-directory has to travel with it. Additional-texture-layer
+per the priority chain below) instead of embedding it in the `.glb`'s own
+binary buffer, setting the glTF `image.uri` to the relative path
+`textures/<name>.png` instead of `image.bufferView` -- a real external glTF
+image reference, resolved by any spec-conformant importer (including
+Blender's own) relative to the `.glb`/`.gltf` file's directory. Materials
+sharing the same resolved image write the file once and share the same
+`uri` (the existing alternate-texture dedup cache, now also gating the
+write). Meaningfully smaller `.glb` files for a real character export, at
+the cost of the `.glb` no longer being a single self-contained file -- the
+`textures/` directory has to travel with it. Additional-texture-layer
 (`textureCount > 1`) and ambiguous-hardcoded-slot-candidate (`alternate_
 textures` extras) images always stay embedded regardless of this flag --
 comparatively rare/small, diagnostic-only pools, out of this flag's scope.
@@ -683,6 +682,27 @@ comparatively rare/small, diagnostic-only pools, out of this flag's scope.
 husk export bloodelffemale_hd.m2 -o out/bloodelffemale_hd.glb --slim-textures
 # writes out/bloodelffemale_hd.glb *and* out/textures/<name>.png per texture
 ```
+
+**Material and texture naming.** A resolved material's own glTF `name`
+(the name Blender's own Material list shows) and, under `--slim-textures`
+above, its written texture filename's stem both follow the same
+human-readable priority chain, most-specific first: (1) a real
+`--listfile` content-path name (e.g. `scalpupperhair00_08`), when
+`--listfile` resolved this material's `baseColorTextureFileDataId`; (2) a
+real `ChrCustomizationOption`/`Choice` name (e.g. `Hair Color: Blonde 01`)
+cross-referenced from `--chr-model-id`/`--db2-dir`'s customization menu,
+when this FileDataID matches a real customization choice; (3) the
+texture's own semantic type name (`m2::textureTypeName`, e.g. `skin`,
+`char_hair`) whenever WoW's own `M2Texture::type` identifies the slot;
+(4) otherwise, the full diagnostic chain
+(`mat<N>_tex<T>_<type>_fdid<id>_<stem>`) husk always computes regardless.
+That diagnostic chain is never discarded -- it's carried on every material
+as `diagnostic_name` glTF extras, so a Blender material can still be
+cross-referenced back to its source `.skin` batch/texture index even once
+`name` itself shows something cleaner. A material with no FileDataID, no
+customization match, and no known texture type (most non-character
+prop/weapon materials) falls straight through to (4), same as before this
+naming priority existed.
 
 Shell completion (bash/zsh) for every subcommand and flag above ships in
 `completions/` -- see that directory's own files, generated from husk's real
