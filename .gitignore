@@ -41,3 +41,7 @@ __pycache__/
 # tools/corpus_scan_tasks/render_glb.py's scratch render output (default
 # out.glb/out.webm next to wherever it's invoked from).
 /out/
+
+# playwright-mcp's own per-call snapshot/screenshot dump (page-*.yml,
+# console-*.log), written next to wherever a session invokes it from.
+/.playwright-mcp/
