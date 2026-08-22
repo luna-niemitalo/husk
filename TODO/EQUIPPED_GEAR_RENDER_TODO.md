@@ -260,6 +260,13 @@ assuming they're mutually exclusive.
    design here, not a fallback approximation of a better automatic
    answer — frame it that way if/when this gets built. Not attempted this
    session (case 1 + case 2's DB2 half filled the available budget).
+   **Deliberately deferred until after the new Blender-side panel
+   (separate script, cross-option-constraint UI for customization/geoset
+   choices, a different session's own in-flight work) lands** — that
+   panel is the natural home for a per-character display-state toggle
+   like this one, and building this stretch goal first risked
+   duplicating UI/state-management groundwork the panel is already
+   laying down.
 
 ## Why this is its own file
 
