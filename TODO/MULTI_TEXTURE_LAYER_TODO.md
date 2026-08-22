@@ -418,7 +418,19 @@ record, not a live punch list — the "Open follow-up" section below is)
 
 ## Open follow-up
 
-- Unquantified how often the image-dedup collision above (a 2nd texture
-  layer byte-identical to another texture used elsewhere in the same
-  file) occurs across the corpus — the fix is general enough it shouldn't
-  matter, but that's untested past the one real case that found it.
+- ~~Unquantified how often the image-dedup collision above occurs across
+  the corpus~~ — **done 2026-08-22**, via a new
+  `tools/corpus_scan_tasks/texture_dedup_collision_task.py` (restricted to
+  files with a real `textureCount > 1` batch, since that's the only shape
+  the bug can hit; hashes each distinct resolved texture FileDataID's
+  bytes — literal `<fdid>.blp/png` or `--listfile`-resolved path only, the
+  two tiers that resolve to one definite per-fdid file — and flags any
+  file where two distinct FileDataIDs share identical bytes). Full local
+  corpus (132,863 `.m2` files): **69 files (0.052%) hit the collision
+  shape**, 149 distinct FileDataIDs involved across them — real and
+  confirmed at scale, not just the one file that originally found it, but
+  genuinely rare. The fix (`_fdid_to_image_map()` in `render_glb.py`,
+  keyed by each material's own `texture_file_data_id` extra rather than
+  Blender's merged-datablock name) is general by construction, so all 69
+  are already covered — no further code change needed. Full results:
+  `corpus_reports/texture_dedup_collision.csv`.
