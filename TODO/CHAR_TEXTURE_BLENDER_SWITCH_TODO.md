@@ -4,6 +4,24 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
+## Why this lives in Blender, not husk
+
+A real pixel compositor was built in husk (`src/char_composite.hpp`/`.cpp`,
+blend math ported from `reference/wow.export`'s own char shader/renderer),
+verified end to end, then deliberately reverted (2026-08-20) after Luna's
+own direct pushback: husk doing pixel compositing at all breaks the
+"attach real resolved data, never interpret/apply it" policy every other
+DB2 feature in this project follows. It's also the wrong layer for the
+actual goal here: Blender's own Mix Color node already implements
+Multiply/Overlay/Screen natively, so the blend math doesn't need
+reimplementing, and live shader compositing lets a user switch skin color
+*and* tattoo *and* face marking independently in real time — something
+husk precomputing static composited images fundamentally can't do without
+one image per full cross-product combination. `CHAR_TEXTURE_COMPOSITING_
+TODO.md`'s Stage 3 (the real `ChrCustomizationMaterial → TextureFileData`
+FileDataID chain, `chr_enabled_materials` extras) is the actual
+prerequisite this file's own switch consumes.
+
 ## What's implemented
 
 `tools/husk_blender_geoset_mask.py` now has a real, live, switchable

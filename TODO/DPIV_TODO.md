@@ -49,11 +49,14 @@ Decoded every field across all 2,632 files / 2,943 records directly from
   confirmed shape.
 - Fields 4–7 are `0.0` in all 2,943 records without exception — real,
   reserved-looking padding, not silently-corrupted data.
-- Filenames skew toward `models/unknown/unk_exp11_*` (new/still-unreleased
-  content) and decorative doodad/spell-FX models (a chandelier, a crystal-
-  tuning-fork spell effect, an undead campfire) — consistent with recent
-  content still missing wiki documentation, not a parsing gap on husk's
-  side.
+- Filenames skew toward `models/unknown/unk_exp11_*` (`exp11` = Midnight,
+  WoW's current/11th expansion — shipped content, not unreleased) and
+  decorative doodad/spell-FX models (a chandelier, a crystal-tuning-fork
+  spell effect, an undead campfire). The skew just means these are recent
+  enough that wowdev.wiki hasn't documented `DPIV` yet — not a parsing gap
+  on husk's side, and not a reason the field semantics are unknowable:
+  cracking them from real corpus data (as the rest of this file does) is
+  how the wiki gap actually gets closed, not something to wait out.
 - `reference/wow.export` doesn't parse `DPIV` at all (zero references) —
   no independent corroboration available from that source either; this
   file's own findings rest entirely on real corpus data.
@@ -292,6 +295,82 @@ own stated scope, not a new gap).
    something tied to a specific kind of prop/doodad/spell-effect. This
    closes the "is there a directory-level lever" question with a real,
    checked negative, not an unexplored gap.
+
+## Current resolution: what's settled, what's still genuinely open
+
+**Settled, not worth re-investigating**:
+- Struct shape: 8×float32 records, `chunk.size / 32` count, fields 4-7
+  always zero (real padding).
+- `field0`/`field1` (x/y): the model's own bounding-box-center X/Y
+  coordinates — corpus-wide, tight (median 2.0%/0.2% off-center). Not
+  independently meaningful positions; they reduce to geometry husk
+  already has elsewhere.
+- The zero-record ("placeholder") pattern is real and pervasive
+  (61.6% of all records corpus-wide) but doesn't correlate with asset
+  category/directory — nothing left to mine there.
+
+**Still genuinely open, not just unattempted**:
+- `field2` (z): a real placement value that does *not* reduce to
+  bbox geometry the way field0/field1 do — sits near-or-below the
+  model's own base (median 9.4% above Z-min, 15.9% fully below the
+  bbox), consistent with a ground-contact/shadow-projection anchor, but
+  *why* it varies the way it does (continuous distribution, no clean
+  bimodal split, no directory correlation) is unexplained.
+- `field3`: a small integer tag (0-3), weakly correlated with the
+  placeholder pattern and with record position (never `3` at position
+  0), but no clean rule found for what it actually encodes.
+
+**Why there was no further corpus-*statistics* next step queued**: every
+lever this session had — per-file, per-record, per-directory, per-position
+statistical correlation against `m2_unknown_chunks_report.json`'s cached
+hex — had been pulled, and the remaining unknowns (`field2`'s exact
+role, `field3`'s tag semantics) didn't yield to any of them. Closing this
+further needs a different evidence source than corpus statistics alone
+can supply. Item 5 below is exactly that different source: not another
+statistic, but a real visual side-by-side, letting Luna's own eyes catch
+a pattern a number can't surface. Not blocking anything either way:
+`DPIV` is diagnostic-only (`husk dump-chunks`), never consumed
+by `husk export`, so this stays a real but low-priority open question,
+not a stalled dependency.
+
+5. **New, not yet done: a visual grid render, categorized by `field2` and
+   by `field3`, for Luna's own side-by-side eyeballing.** Corpus
+   statistics found real distributions for both fields but no rule that
+   explains them — the next real evidence source is a human looking at
+   what these files actually *are*, grouped by category, rather than
+   another number. Two separate grids (same method, different split):
+
+   - **By `field2`** (the ground-contact-anchor lead): split into two
+     screen segments — left: files where `field2` sits **fully below the
+     model's own bounding box** (the 15.9% negative-offset group, item
+     1's own real finding); right: files where it sits **at or above the
+     base** (the remaining 84.1%, spanning the near-base cluster out
+     through the long tail). Pick a representative sample per side (e.g.
+     12-20 files each, not the full 2,632 — enough to spot a visual
+     pattern, not a full render sweep), render each via the existing
+     `husk export` + Blender render pipeline
+     (`tools/corpus_scan_tasks/render_glb.py` + its `render_glb.blend`
+     template — same tool this project already uses for corpus-review
+     renders in `RENDER_QUALITY_TODO.md`), with the real `DPIV` point(s)
+     themselves visualized as an overlay marker (an empty/gizmo at the
+     point's own world-space position, same change-of-basis this file's
+     own earlier geometric cross-reference already used) so the point's
+     placement relative to the mesh is visible in the same shot —
+     overlay-marker support doesn't exist in the render script today and
+     would need adding. Arrange each side's sample into one grid image
+     (thumbnail montage, not individually paged) so the two categories
+     are directly comparable at a glance.
+   - **By `field3`** (the small integer tag, 0-3): same method, but one
+     grid segment per real value seen (`0`/`1`/`2`/`3`) instead of a
+     two-way split — four columns/quadrants, a representative sample per
+     value, same point-overlay rendering, same montage-per-category
+     assembly.
+
+   **Gate: human-gated** — this step's whole point is Luna's own visual
+   read of the grids, same discipline every other "does this look right"
+   step in this project uses (billboard ground-truth, the animation
+   visual pass, etc.); assembling the renders/grids themselves is
+   independent, scriptable work, but the actual pattern-spotting isn't.
 
 ## Artifacts already on hand (don't need to be regenerated)
 
