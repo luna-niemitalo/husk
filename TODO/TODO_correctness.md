@@ -104,20 +104,32 @@ real rendering elsewhere), but the matrix's own application semantics
 (multiply order, local-vs-model space) were never verified against real
 client behavior. See `TODO/BONE_CORRECTION_APPLICATION_TODO.md`.
 
-### 3. `tools/live_gallery`'s three.js viewer — curve playback not yet visually confirmed in a real browser
+### 3. `tools/live_gallery`'s three.js viewer — curve playback now confirmed in a real browser; one real gap found and fixed along the way
 
-`static/viewer.html`/`.js` plays back both real skeletal animation
-(`THREE.AnimationMixer`, clip dropdown, play/pause/loop) and husk's own
-extras-driven texture-transform/tint/fade curves (a real JS port of
-`tools/husk_blender_geoset_mask.py`'s curve-eval logic), plus mesh/
-material picking (click to inspect `blend_mode`/`pixel_shader`/
-`vertex_shader`/etc.) and lighting-intensity/exposure sliders. Verified
-structurally (element-ID wiring, extras JSON shape cross-checked against
-`gltf_mesh.cpp`'s actual output, served correctly through a real local
-server) — **not yet visually confirmed in an actual browser** (no headless
-browser available in this environment); worth a real look before treating
-the curve-playback math as trusted the same way the Blender-side port
-already is.
+Resolved 2026-08-22 (playwright-mcp finally wired up, see
+`nix/flake.nix`/`tools/playwright_mcp_launch.nu`): navigated a real headless
+Chromium to the viewer and confirmed `texture_transform_animation` curves
+genuinely animate (not just load statically) via a rigorous check — a
+`gl.readPixels` sum over the whole canvas taken a second apart differed
+(424867044 → 425706380) on a real 201-keyframe curve fixture
+(`item/objectcomponents/head/helm_plate_raiddeathknightulatek_d_01_wo_f.glb`).
+
+**Real bug found and fixed in the same pass**: `viewer.js` read `blend_mode`
+extras only for the click-to-inspect diagnostic text, never applied it —
+every `alphaMode: BLEND` material got Three.js's default `NormalBlending`
+regardless of husk's real `blend_mode` (WoW modes 3/4, additive, have no
+core-glTF equivalent — same gap `render_glb.py`'s `fix_additive_materials()`
+already solves for the Blender pipeline). A real additive glow/spark
+material rendered as a hard, fully-visible slab instead of a soft glow.
+Fixed with a JS-side port of the same recipe (`applyAdditiveBlending`,
+`viewer.js`): relocates the base-color texture to `emissiveMap`, zeroes
+`color`, sets `THREE.AdditiveBlending` + `depthWrite: false` — verified via
+a live before/after screenshot comparison on the same real fixture.
+`updateMaterialCurveAnimations` was also patched to fall back to
+`material.emissiveMap` when `.map` has been relocated this way, so a
+material with both an additive `blend_mode` and a `texture_transform_animation`
+curve (the real fixture above has exactly this combination on its base
+metal material) doesn't silently stop finding its texture.
 
 Not attempted, real "overlay shenanigans" stretch scope if there's
 appetite for more: JS-side parity for the Blender interactive script's
@@ -125,4 +137,54 @@ geoset-switch dropdown and texture-layout overlay — the viewer can inspect
 a mesh's material but can't yet toggle geoset variants or preview the
 character-texture-layout compositing rectangles the way
 `husk_blender_geoset_mask.py` does.
+
+### 4. Fuzzy same-basename texture resolution can attach a wrong (not just missing) texture to a dynamically-populated M2 slot
+
+Found while visually inspecting item 3's fixture in a real browser against
+a real in-game reference screenshot Luna provided: the fixture's helm has
+a `weapon_blade` (M2 texture type 3) decorative element that should read
+as a subtle green hazy glow in-game, but exports showing a solid,
+opaque-looking brown/tan panel using the helmet's own metal-shell texture.
+
+Root-caused via `husk info` against the real `.m2`
+(`item/objectcomponents/head/helm_plate_raiddeathknightulatek_d_01_wo_f.m2`):
+texture index 0 (`type=3`, `weapon_blade`) **and** texture index 1
+(`type=2`, `object_skin`) both have FileDataID **0** on-disk — both are
+real, honest "client fills this in at runtime" slots (every M2 texture
+type 1-23 is inherently dynamic/contextual, `m2::textureTypeName`'s own
+table). `object_skin`'s runtime content is a per-item quality-tint recolor
+(`_blue`/`_green`/`_orange` sibling `.blp` files sitting locally next to
+the model — legitimately resolvable via same-basename fuzzy matching).
+`weapon_blade`'s runtime content is something else entirely — very likely
+a spell-visual/enchant-glow effect texture with no local equivalent at all
+(matches the reference: a green haze, not a color-tint variant of the
+metal shell).
+
+The bug: `candidateAllowedForType()` (`export_texture_resolution.cpp:125`)
+only restricts a fuzzy candidate when its filename category is
+*recognized* (the fixed character-customization vocabulary in
+`candidateCategoryTypes()` — `skin_color`, `hair_color`, etc.). Quality-
+tint tokens like `blue`/`green`/`orange` aren't in that table, so per the
+function's own documented "unrecognized categories are always allowed"
+default, they're offered to *every* ambiguous slot — including
+`weapon_blade`, which has nothing to do with quality-tint recoloring.
+Confirmed directly against the real export: both `object_skin` materials
+*and* every `weapon_blade` material resolved to the exact same image
+(`helm_plate_raiddeathknightulatek_d_01_blue`).
+
+**Not fixed this session** (logged per Luna's own call — a real
+export-pipeline change, not the viewer.js fix above, needs its own
+verification pass rather than riding along). Likely shape of a fix:
+`candidateAllowedForType`/`candidateCategoryTypes` need a way to say "this
+texture type accepts *only* recognized categories, never the unrecognized-
+category fallback" for types that are purely runtime-populated with no
+static local equivalent (`weapon_blade` confirmed; worth auditing the rest
+of the 1-23 range for the same shape before generalizing). The corrected
+behavior would leave `weapon_blade` honestly unresolved (no `baseColorImagePng`,
+`fileDataId: 0`) rather than confidently wrong — consistent with this
+project's own "never a silent misread" foreign-data discipline. Whether
+this is a real corpus-wide problem (vs. a one-file coincidence) isn't
+quantified yet — worth a scan across every file with 2+ ambiguous slots
+sharing one unrecognized-category candidate pool before treating it as
+high-priority.
 

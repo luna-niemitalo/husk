@@ -58,6 +58,51 @@ function installBillboardSupport(gltf) {
 CUSTOM_GLTF_EXTENSIONS.push((gltf) => installBillboardSupport(gltf));
 
 /*
+ * Additive-blend material rebuild (blend_mode 3/4 extras, WoW's
+ * NoAlphaAdd/Add) -- the JS-side counterpart to
+ * tools/corpus_scan_tasks/render_glb.py's fix_additive_materials().
+ *
+ * Core glTF has no additive-blend mode (gltf_mesh.hpp's own Material::
+ * blendMode doc comment), so husk exports GLTFLoader's standard alpha-blend
+ * shape (alphaMode BLEND) and leaves the real blend_mode as material
+ * extras for a consumer to reinterpret. Left alone, GLTFLoader's default
+ * MeshStandardMaterial (lit, THREE.NormalBlending) makes a glow/smoke
+ * layer's mostly-black texture read as a solid dark, clearly-bordered
+ * panel -- confirmed directly against a real corpus file (a raid helm's
+ * additive smoke-plume sub-mesh rendering as a hard visible slab instead
+ * of a soft wisp). WoW's own compositing contributes nothing where the
+ * texture is black; the fix here is the same one render_glb.py already
+ * uses -- treat the base-color texture as unlit emissive, composited via
+ * real additive blending, so black contributes nothing and depth never
+ * occludes what's behind it.
+ */
+function applyAdditiveBlending(gltf) {
+  gltf.scene.traverse((object) => {
+    const mats = Array.isArray(object.material) ? object.material : (object.material ? [object.material] : []);
+    for (const mat of mats) {
+      const blendMode = mat?.userData?.blend_mode;
+      if (blendMode !== 3 && blendMode !== 4) continue;
+      if (mat.userData.__additiveApplied) continue;
+      mat.userData.__additiveApplied = true;
+
+      mat.emissiveMap = mat.map;
+      mat.emissive.setRGB(1, 1, 1);
+      mat.emissiveIntensity = 1;
+      mat.map = null;
+      mat.color.setRGB(0, 0, 0);
+      mat.metalness = 0;
+      mat.roughness = 1;
+      mat.blending = THREE.AdditiveBlending;
+      mat.transparent = true;
+      mat.depthWrite = false;
+      mat.needsUpdate = true;
+    }
+  });
+}
+
+CUSTOM_GLTF_EXTENSIONS.push((gltf) => applyAdditiveBlending(gltf));
+
+/*
  * Material curve animation (texture_transform_animation/tint_animation/
  * fade_animation extras) -- husk's own JS-side port of
  * tools/husk_blender_geoset_mask.py's apply_texture_transform_animation/
@@ -178,7 +223,11 @@ function collectMaterialCurveAnimations(gltf) {
 function updateMaterialCurveAnimations(elapsed) {
   for (const entry of materialCurveAnimations) {
     const t = entry.duration > 0 ? elapsed % entry.duration : 0;
-    const map = entry.material.map;
+    // applyAdditiveBlending (above) relocates a blend_mode 3/4 material's
+    // texture from .map to .emissiveMap -- fall back to that so a curve
+    // still finds its texture on such a material instead of silently
+    // no-oping once .map goes null.
+    const map = entry.material.map || entry.material.emissiveMap;
     if (entry.translation && map) {
       const [x, y] = evalVec3Curve(entry.translation[0].keyframes, t);
       // glTF's own on-disk UV convention already grows V downward, same as

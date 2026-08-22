@@ -233,10 +233,28 @@ choices legitimately resolve to the same single shared texture.
   materials`/`chr_customization_options` extras only carry what
   `ChrCustomizationMaterial` resolves, so a swatch-only choice has no
   `materials` entry at all and is silently absent from the switch (not
-  wrong, just incomplete — flagged, not guessed). Not investigated
-  whether `SwatchColor` itself is available in any DB2 table husk already
-  reads. Separate follow-up, not blocking (textured choices are the
-  common, valuable case).
+  wrong, just incomplete — flagged, not guessed). Separate follow-up, not
+  blocking (textured choices are the common, valuable case).
+
+  **Investigated 2026-08-22**: `SwatchColor` is real, and it's not a
+  separate DB2 table lookup — it's a column directly on
+  `ChrCustomizationChoice.db2` itself (confirmed via
+  `reference/WoWDBDefs/definitions/ChrCustomizationChoice.dbd`), the same
+  file `chrcustomization_db2.cpp::loadChoices` already opens for
+  `Name_lang`/`OrderIndex`. So no new sidecar file is needed. What *is*
+  a real, currently-missing piece: every real layout since build
+  9.0.1.34081 stores it as `SwatchColor<32>[2]` (a genuine two-element
+  array field, one real RGB-ish pair per choice — earlier 3.4.0-era
+  layouts split it into scalar `SwatchColor1`/`SwatchColor2` columns
+  instead), and `db2table::readNamedColumns` is explicitly scoped to
+  scalar columns only (`db2table.hpp`'s own doc comment: "a real WDC5
+  array field would need its own richer API, not silently flattened
+  here") — it has no way to read an array field's individual elements
+  today. Closing this needs either a small `readNamedColumns`-adjacent
+  array-column API in `db2table.hpp`/`.cpp`, or a narrower one-off reader
+  inside `chrcustomization_db2.cpp` itself. Not implemented this session
+  (scoped, not started) — real next step, no longer blocked on "does the
+  data exist at all."
 - (Former "multi-section masks" gap is moot: the `MenuSwitch`/`Bundle`
   rebuild dropped per-choice UV-rect masking entirely — a switch is
   already exclusive, so there's no accumulation for a rect to protect
