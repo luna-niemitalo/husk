@@ -139,6 +139,14 @@ directory, both empty). Possibly a pre-Legion/pre-`objectcomponents` era asset u
 different, older naming convention this session didn't identify -- open question, not
 resolved.
 
+**One lead checked and ruled out, worth recording so it isn't re-chased**: a generic
+`item/texturecomponents/*texture/shirt_basic_a_04_purple_*` recolor family exists
+(with its own dedicated icon, `inv_shirt_basic_a_04_purple`) and matches by color name
+-- but Luna confirmed directly this is a *different, newer* shirt, not this classic
+(patch 1.1) item. The real asset this vanilla-era item actually uses is still unknown;
+there's a real, different path somewhere that wasn't found this session. `item=4335`
+on Wowhead confirms the real item, for whoever picks this back up.
+
 **Funny edge case, exactly as Luna flagged it**: SHIRT's `.transmog.item.name` is
 literally *"Rich Purple Silk Shirt"* -- the same string as the equipped item's own
 `.name`. Blizzard's API does not represent "not transmogrified" as an absent
