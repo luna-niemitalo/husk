@@ -37,7 +37,7 @@ Linore's actual skin tone/hair/face customization applied correctly -- no gear
 rendered on it yet, which matches husk's own documented current state
 (`TODO/EQUIPPED_GEAR_RENDER_TODO.md`: gear resolves, doesn't render).
 
-## Finding 1 (bug, confirmed, not yet fixed): gear items resolve to the wrong item's geometry
+## Finding 1 (bug, confirmed, FIXED 2026-08-23): gear items resolve to the wrong item's geometry
 
 `--appearance`'s case-1 (standalone-geometry) gear resolution
 (`attachGearAppearance`/`exportGearAuxItemModels`, `src/export_extras.cpp:811`,
@@ -103,11 +103,67 @@ against an independent reference tool like wow.export/DBCD reading the same file
 flagging for a dedicated session with this doc's own verified ground-truth table above
 as the pass/fail check.
 
-**Also worth checking, not done this session**: whether other tables using
-`bitpacked_indexed_array` share this bug (a quick way to scope the blast radius before
-fixing) -- `ModelMaterialResourcesID`/`ModelType`/`GeosetGroup`/`AttachmentGeosetGroup`/
-`HelmetGeosetVis` are all the same field kind in the same table and would need the same
-fix.
+**Root cause, found and fixed (2026-08-23)**: confirmed via a byte-level debugging
+session against the real `itemdisplayinfo.db2` bytes (a small standalone C++ driver
+linked straight against `src/db2.cpp`, `db2::parse`/`db2::decodeField`/`db2::recordId`
+called directly -- not reimplemented, the real parser). `db2::additionalDataOffset`
+(`src/db2.cpp`) summed `additionalDataSize` only over *prior fields of the exact same
+`FieldCompression` value* -- but `BitpackedIndexed` (type 3) and `BitpackedIndexedArray`
+(type 4) both draw from the **same** `pallet_data` block (DB2.md's own
+`field_storage_info` doc comment: additional_data_offset sums "any previous fields which
+are stored in the same block", grouped by *block* -- `pallet_data` vs. `common_data` --
+not by the finer-grained storage type). `ItemDisplayInfo.db2`'s real layout is exactly
+this shape: 10 `BitpackedIndexed` scalar fields (`GeosetGroupOverride`...`Flags`) before
+`ModelResourcesID`'s `BitpackedIndexedArray` field -- so every `BitpackedIndexedArray`
+read in this table landed 9,032 bytes short of its real pallet region (the summed
+`additionalDataSize` of those 10 prior fields), decoding a real-but-unrelated pallet
+entry instead of throwing or visibly failing. Confirmed byte-for-byte against real data
+before touching the code: for Barbed Rootwand's `ItemDisplayInfoID` 719823, the correct
+value (81950, this doc's own verified ground truth) lives at real pallet_data byte
+offset 80608 -- exactly `9032 (prior BitpackedIndexed fields' additionalDataSize) + 8947
+(the real decoded index) * 4 * 2 (arrayCount)`, matching the buggy code's own computed
+index precisely once the missing 9,032-byte block offset is added back in.
+
+**Fix**: `additionalDataOffset` now groups by block (a new `sharesAdditionalDataBlock`
+helper: `BitpackedIndexed`/`BitpackedIndexedArray` share `pallet_data`; `CommonData` is
+`common_data`, alone) instead of by exact storage type. Re-verified against all 4 of
+this doc's own reverse-lookup ground-truth values, end to end through real DB2 data
+(`husk db2-export` + `sqlite3`, not just the isolated debug driver): MAIN_HAND (Barbed
+Rootwand) now resolves `ModelResourcesID` 81950 (was 72423), OFF_HAND (Elderbloom
+Lantern) 82047 (was 82047's neighbor, previously wrong), WAIST (Sacred Templar's Buckle)
+76889, HEAD (Tasteful Eyeglasses) 59419 -- all four exactly matching this doc's own
+independently-derived ground truth table above, 4 for 4. New regression test
+(`tests/test_db2.cpp`, a synthetic 2-field file: one `BitpackedIndexed` field followed
+by one `BitpackedIndexedArray` field sharing `pallet_data`, reproducing the exact real
+bug shape) plus a full-suite re-run, both green (696/696 -- 695 pre-existing + 1 new, 0
+regressions). Same fix automatically covers the blast-radius question below --
+`ModelMaterialResourcesID`/`ModelType`/`GeosetGroup`/`AttachmentGeosetGroup`/
+`HelmetGeosetVis` all go through the same `additionalDataOffset`, no per-field
+workaround needed.
+
+Not re-investigated this session: whether this bug affects any *other* table beyond
+`ItemDisplayInfo.db2` (any WDC5 table mixing `BitpackedIndexed` and
+`BitpackedIndexedArray` fields would have been affected identically) -- the fix is
+general (in the shared decode path, not `ItemDisplayInfo`-specific), so no further
+per-table work is expected to be needed, but no corpus-wide re-scan across every other
+`.db2` table was run to confirm no other consumer's behavior visibly changed.
+
+**New, separate, smaller gap found while re-verifying the fix against a real Linore
+export**: `ModelFileData.db2`'s `ModelResourcesID -> FileDataID` mapping is not always
+1:1 -- HEAD (Tasteful Eyeglasses, `ModelResourcesID` 59419) has **33** candidate
+FileDataIDs, one per race/sex variant of the same eyeglasses geometry
+(`helm_glasses_b_01_be_m.m2`, `..._ni_f.m2`, ...), not 33 unrelated items. `husk export`
+already captures every candidate (`gltf::Skeleton::GearItem::modelFileDataIds`,
+`export_extras.cpp:873`) but `cmd_export.cpp:738` picks `.front()` unconditionally, with
+no race/sex filtering -- so the re-verification export's `aux_models/head_3774115.glb`
+is `helm_glasses_b_01_be_m.m2` (Blood Elf male), not the Night Elf female variant
+Linore actually needs. MAIN_HAND/OFF_HAND/WAIST were all unambiguous (each resolved to
+exactly one FileDataID) so this doesn't affect them. Not fixed this session (out of
+Finding 1's own scope -- Finding 1 was specifically about the wrong
+`ModelResourcesID`, which is now correct; picking the right FileDataID *among* a
+correct `ModelResourcesID`'s real candidates is a distinct, smaller problem), but
+recorded here since it was found live during verification and would otherwise look
+like Finding 1 recurring.
 
 ## Finding 1b (new this session): 4 of the 6 dangling gear slots have no standalone model at all -- by design, not a bug
 
@@ -344,3 +400,20 @@ assume one technique for all of `gear_items`.
   discussed in Finding 1.
 - `example_exports/linore/linore_preview.webp` -- rendered preview (base body +
   customization only, matching husk's current real capability).
+
+## Re-verification run (2026-08-23, after Finding 1's fix)
+
+Re-ran the exact same recipe end to end (`blizzard_profile_fetch.py` against the same
+real Linore, `husk export --appearance` against the same real
+`nightelffemale_hd.m2`, `render_glb.py`) to confirm the fix holds through the real
+pipeline, not just in isolation. `example_exports/linore/{linore.glb,
+linore_preview.webp}` and `example_exports/linore/aux_models/*.glb` were all
+regenerated. `aux_models/{main_hand_6652916,off_hand_6652915,waist_6255289}.glb` now
+carry exactly the real FileDataIDs this doc's own ground-truth table names (previously
+`main_hand_5646084`/`off_hand_5645757`/`waist_4674142` -- all three wrong, per Finding
+1). `aux_models/head_3774115.glb` is a real, correct-`ModelResourcesID` eyeglasses
+model, but the wrong race/sex variant of it -- see Finding 1's new addendum above. The
+render itself (`linore_preview.webp`) is unchanged from before this session: it still
+only shows the base body + customization (husk's gear extras aren't consumed by the
+render pipeline yet, `TODO/EQUIPPED_GEAR_RENDER_TODO.md` -- Finding 1 fixed *what
+gear resolves to*, not whether it's rendered).

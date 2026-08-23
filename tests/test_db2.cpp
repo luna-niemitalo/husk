@@ -547,6 +547,158 @@ TEST_CASE("db2::decodeField sign-extends a bitpacked field") {
     CHECK(static_cast<int64_t>(values[0]) == -6);
 }
 
+// Regression for a real bug found against real ItemDisplayInfo.db2 data
+// (CHARACTER_PIPELINE_TEST_FINDINGS.md Finding 1): BitpackedIndexed and
+// BitpackedIndexedArray fields both draw their additional data from the
+// same physical pallet_data block (DB2.md's field_storage_info doc comment:
+// additional_data_offset sums "any previous fields which are stored in the
+// same block"), but additionalDataOffset used to filter by the exact
+// storage type instead of by block -- so a BitpackedIndexedArray field
+// preceded by a BitpackedIndexed field (the real ItemDisplayInfo.db2 shape:
+// ten BitpackedIndexed scalar fields before ModelResourcesID's
+// BitpackedIndexedArray) silently read from the wrong pallet_data offset,
+// landing on a real but unrelated value instead of throwing.
+TEST_CASE("db2::decodeField: a BitpackedIndexedArray field's pallet offset accounts for "
+          "a preceding BitpackedIndexed field's pallet_data usage") {
+    // field0: BitpackedIndexed, 4-bit index, 3 pallet entries (12 bytes).
+    // field1: BitpackedIndexedArray, 4-bit index, arrayCount=1, 2 pallet
+    // entries (8 bytes) -- must start at pallet byte offset 12, right after
+    // field0's own 12 bytes, not at offset 0.
+    size_t recordSize = 1;
+    size_t stringTableSize = 1;
+    size_t palletDataSize = 20;  // field0: 3*4=12, field1: 2*4=8
+    size_t sectionFileOffset = kHeaderSize + kSectionHeaderSize + 2 * kFieldStructureSize +
+                                2 * kFieldStorageInfoSize + palletDataSize;
+    size_t total = sectionFileOffset + recordSize + stringTableSize;
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, 1);
+    p += 4;  // recordCount
+    putU32(buf, p, 2);
+    p += 4;  // fieldCount
+    putU32(buf, p, static_cast<uint32_t>(recordSize));
+    p += 4;  // recordSize
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize));
+    p += 4;  // stringTableSize
+    putU32(buf, p, 0);
+    p += 4;  // tableHash
+    putU32(buf, p, 0);
+    p += 4;  // layoutHash
+    putU32(buf, p, 1);
+    p += 4;  // minId
+    putU32(buf, p, 1);
+    p += 4;  // maxId
+    putU32(buf, p, 0);
+    p += 4;  // locale
+    putU16(buf, p, 0);
+    p += 2;  // flags
+    putU16(buf, p, 0);
+    p += 2;  // idIndex
+    putU32(buf, p, 2);
+    p += 4;  // totalFieldCount
+    putU32(buf, p, 0);
+    p += 4;  // bitpackedDataOffset
+    putU32(buf, p, 0);
+    p += 4;  // lookupColumnCount
+    putU32(buf, p, 2 * kFieldStorageInfoSize);
+    p += 4;  // fieldStorageInfoSize
+    putU32(buf, p, 0);
+    p += 4;  // commonDataSize
+    putU32(buf, p, static_cast<uint32_t>(palletDataSize));
+    p += 4;  // palletDataSize
+    putU32(buf, p, 1);
+    p += 4;  // sectionCount
+    CHECK(p == kHeaderSize);
+
+    putU64(buf, p, 0);
+    p += 8;  // tactKeyHash
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset));
+    p += 4;  // fileOffset
+    putU32(buf, p, 1);
+    p += 4;  // recordCount
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize));
+    p += 4;  // stringTableSize
+    putU32(buf, p, 0);
+    p += 4;  // offsetRecordsEnd
+    putU32(buf, p, 0);
+    p += 4;  // idListSize
+    putU32(buf, p, 0);
+    p += 4;  // relationshipDataSize
+    putU32(buf, p, 0);
+    p += 4;  // offsetMapIdCount
+    putU32(buf, p, 0);
+    p += 4;  // copyTableCount
+    CHECK(p == kHeaderSize + kSectionHeaderSize);
+
+    // field_structure[0..1] (unused for these storage types)
+    putU16(buf, p, 0);
+    p += 2;
+    putU16(buf, p, 0);
+    p += 2;
+    putU16(buf, p, 0);
+    p += 2;
+    putU16(buf, p, 0);
+    p += 2;
+
+    // field_storage_info[0]: BitpackedIndexed, 4-bit index at bit 0
+    putU16(buf, p, 0);
+    p += 2;  // fieldOffsetBits
+    putU16(buf, p, 4);
+    p += 2;  // fieldSizeBits
+    putU32(buf, p, 12);
+    p += 4;  // additionalDataSize
+    putU32(buf, p, static_cast<uint32_t>(husk::db2::FieldCompression::BitpackedIndexed));
+    p += 4;
+    putU32(buf, p, 0);
+    p += 4;
+    putU32(buf, p, 0);
+    p += 4;
+    putU32(buf, p, 0);
+    p += 4;
+
+    // field_storage_info[1]: BitpackedIndexedArray, 4-bit index at bit 4, arrayCount=1
+    putU16(buf, p, 4);
+    p += 2;  // fieldOffsetBits
+    putU16(buf, p, 4);
+    p += 2;  // fieldSizeBits
+    putU32(buf, p, 8);
+    p += 4;  // additionalDataSize
+    putU32(buf, p, static_cast<uint32_t>(husk::db2::FieldCompression::BitpackedIndexedArray));
+    p += 4;
+    putU32(buf, p, 0);
+    p += 4;  // bitpacking_offset_bits
+    putU32(buf, p, 0);
+    p += 4;  // bitpacking_size_bits
+    putU32(buf, p, 1);
+    p += 4;  // arrayCount
+    CHECK(p == kHeaderSize + kSectionHeaderSize + 2 * kFieldStructureSize + 2 * kFieldStorageInfoSize);
+
+    // pallet_data: field0's 3 entries (111, 222, 333), then field1's 2
+    // entries (444, 555) starting at byte 12.
+    putU32(buf, p + 0, 111);
+    putU32(buf, p + 4, 222);
+    putU32(buf, p + 8, 333);
+    putU32(buf, p + 12, 444);
+    putU32(buf, p + 16, 555);
+    p += static_cast<uint32_t>(palletDataSize);
+    CHECK(p == sectionFileOffset);
+
+    // record: field0 index=1 (low nibble), field1 index=1 (high nibble)
+    buf[p] = 0x11;
+
+    auto file = husk::db2::parse(buf);
+    auto field0 = husk::db2::decodeField(file, file.sections[0], 0, 0);
+    REQUIRE(field0.size() == 1);
+    CHECK(field0[0] == 222);  // pallet_data[1] within field0's own 3-entry region
+
+    auto field1 = husk::db2::decodeField(file, file.sections[0], 0, 1);
+    REQUIRE(field1.size() == 1);
+    CHECK(field1[0] == 555);  // pallet_data[12 + 1*4*1] -- field1's own region, not field0's
+}
+
 TEST_CASE("db2::resolveFieldString finds a plausible in-bounds C string") {
     std::vector<uint8_t> buf(64, 0);
     const char* text = "hello";

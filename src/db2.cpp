@@ -426,16 +426,33 @@ uint32_t rowIdForRecord(const File& file, const Section& section, const std::vec
     return static_cast<uint32_t>(recordIndex);
 }
 
+// Whether two storage types' additionalDataSize bytes land in the same
+// physical block. Only two blocks exist (DB2.md's field_storage_info doc
+// comment): common_data (CommonData alone) and pallet_data (BitpackedIndexed
+// *and* BitpackedIndexedArray both -- "you pull a 4-byte value from
+// pallet_data" is said of both type 3 and type 4 alike, and DB2.md is
+// explicit that additional_data_offset sums "any previous fields which are
+// stored in the same block (common_data or pallet_data)", i.e. grouped by
+// block, not by the finer-grained storage type).
+bool sharesAdditionalDataBlock(FieldCompression a, FieldCompression b) {
+    auto isPallet = [](FieldCompression t) {
+        return t == FieldCompression::BitpackedIndexed || t == FieldCompression::BitpackedIndexedArray;
+    };
+    if (isPallet(a) && isPallet(b)) return true;
+    return a == b;
+}
+
 // Sums additionalDataSize over every field before `fieldIndex` that shares
-// `type` (CommonData -> common_data, BitpackedIndexed(Array) -> pallet_data)
-// -- DB2.md: "these sections are in the same order as the field_info, so to
-// find the offset, add up the additional_data_size of any previous fields
-// which are stored in the same block".
+// `type`'s block (CommonData -> common_data, BitpackedIndexed/
+// BitpackedIndexedArray -> pallet_data, both together) -- DB2.md: "these
+// sections are in the same order as the field_info, so to find the offset,
+// add up the additional_data_size of any previous fields which are stored in
+// the same block".
 uint32_t additionalDataOffset(const std::vector<FieldStorageInfo>& infos, size_t fieldIndex,
                                FieldCompression type) {
     uint32_t offset = 0;
     for (size_t i = 0; i < fieldIndex; ++i) {
-        if (infos[i].storageType == type) offset += infos[i].additionalDataSize;
+        if (sharesAdditionalDataBlock(infos[i].storageType, type)) offset += infos[i].additionalDataSize;
     }
     return offset;
 }
