@@ -112,6 +112,20 @@ Resolution resolve(const Data& data, uint32_t itemModifiedAppearanceId, std::ost
     }
     result.itemDisplayInfoId = appearance->itemDisplayInfoId;
 
+    // A real, common sentinel, not a dangling reference: ItemAppearance's
+    // own ItemDisplayInfoID column literally stores 0 when the player has
+    // transmogrified this slot to Hidden (confirmed directly against real
+    // data -- e.g. a real "Hidden Shoulder"/"Hidden Tabard" appearance's
+    // ItemAppearance row has ItemDisplayInfoID=0 verbatim, not an absent
+    // row husk failed to find). Same "0 is a real value, not unresolved"
+    // convention GearItem's own modelResourcesId==0 check already applies
+    // one hop downstream (export_extras.cpp). Returning here (materials/
+    // sectionMaterials/modelResourcesId left unset) makes
+    // attachGearAppearance's existing empty-result handling naturally skip
+    // creating any extras for this slot -- correct, since Hidden has
+    // nothing to attach -- without the misleading "dangling reference" log.
+    if (appearance->itemDisplayInfoId == 0) return result;
+
     const DisplayInfo* displayInfo = nullptr;
     for (const auto& d : data.displayInfos) {
         if (d.id == appearance->itemDisplayInfoId) {

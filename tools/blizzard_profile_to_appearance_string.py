@@ -2,30 +2,26 @@
 """Converts Blizzard Character Equipment/Appearance Summary API JSON into a
 husk-appearance/1 string (src/appearance_string.hpp's grammar).
 
-Fetch the two payloads yourself first (see README section this script's
-own --help prints), e.g.:
+Fetch the two payloads with tools/blizzard_profile_fetch.py first (it also
+has an --race/--sex mode that calls straight into this module and skips the
+two-step dance below entirely):
 
-    curl -s -H "Authorization: Bearer $TOKEN" \\
-      "https://eu.api.blizzard.com/profile/wow/character/<realm>/<name>/equipment?namespace=profile-eu&locale=en_GB" \\
-      > equipment.json
-    curl -s -H "Authorization: Bearer $TOKEN" \\
-      "https://eu.api.blizzard.com/profile/wow/character/<realm>/<name>/appearance?namespace=profile-eu&locale=en_GB" \\
-      > appearance.json
+    tools/venv/bin/python3 tools/blizzard_profile_fetch.py \\
+      <realm> <name> --race 52 --sex 0 --out-dir /tmp/wow_profiles
 
-Then:
+Or standalone, on JSON fetched some other way:
 
     python3 tools/blizzard_profile_to_appearance_string.py \\
       --race 52 --sex 0 equipment.json appearance.json
 
-THIS SCRIPT'S CORE ASSUMPTION, ISOLATED ON PURPOSE:
-Blizzard's exact JSON field names below were never confirmed against a live
-response this session (the armory site 500'd, and no Blizzard API client was
-registered to call the profile endpoints directly -- see CLAUDE.md's Resume).
-They're husk's best-confidence recollection of the documented API shape, not
-verified paste-and-run. If a real payload uses different keys, ASSUMED_PATHS
-below is the ONLY place that needs to change -- every other part of this
-script, and all of husk's own appearance_string.hpp/cmd_appearance.cpp, is
-independent of Blizzard's exact schema and needs no changes.
+ASSUMED_PATHS below was written against Blizzard's documented API shape
+without a live response to check it against. It's since been confirmed
+correct against a real character's live payload (2026-08-23, via
+blizzard_profile_fetch.py) -- field names below are verified, not guessed.
+If a future API change breaks them, ASSUMED_PATHS is still the ONLY place
+that needs to change -- every other part of this script, and all of husk's
+own appearance_string.hpp/cmd_appearance.cpp, is independent of Blizzard's
+exact schema.
 """
 
 import argparse
@@ -93,6 +89,15 @@ def extract_customizations(appearance_json: dict) -> list[int]:
     return choices
 
 
+def build_appearance_string(equipment_json: dict, appearance_json: dict, race: int, sex: int) -> str:
+    gear = extract_gear(equipment_json)
+    cust = extract_customizations(appearance_json)
+
+    cust_field = ",".join(str(c) for c in sorted(cust))
+    gear_field = ",".join(f"{slot}:{aid}" for slot, aid in sorted(gear))
+    return f"husk-appearance/1 race={race} sex={sex} cust={cust_field} gear={gear_field}"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("equipment_json", help="path to the Character Equipment Summary response")
@@ -106,12 +111,7 @@ def main() -> int:
     with open(args.appearance_json) as f:
         appearance_json = json.load(f)
 
-    gear = extract_gear(equipment_json)
-    cust = extract_customizations(appearance_json)
-
-    cust_field = ",".join(str(c) for c in sorted(cust))
-    gear_field = ",".join(f"{slot}:{aid}" for slot, aid in sorted(gear))
-    print(f"husk-appearance/1 race={args.race} sex={args.sex} cust={cust_field} gear={gear_field}")
+    print(build_appearance_string(equipment_json, appearance_json, args.race, args.sex))
     return 0
 
 
