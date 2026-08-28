@@ -16,15 +16,21 @@
 //   there's a real cross-check that this schema genuinely covers what they
 //   need, not just what looks plausible.
 //
-// No JSON parsing library is pulled in for this (per the task's own "don't
-// add a JSON library" constraint) -- looksLikeValidJson below is a
-// lightweight bracket/string-aware balance check, not a full parser; exact
-// field/value assertions still go through substring matching on the raw
-// text, same as tests/test_dump_emitters.cpp already does against
-// json_writer.hpp's other real consumer (`husk dump-chunks`).
+// Validity is checked with a real parser, not a balance check. No new
+// dependency is added to do it: `json.hpp` (nlohmann) already ships inside
+// tinygltf's own include directory, and husk-lib links tinygltf PUBLIC, so
+// husk-tests already has it on the include path. This matters more here
+// than for json_writer.hpp's other consumer (`husk dump-chunks`, checked by
+// substring in tests/test_dump_emitters.cpp): the entire point of `--json`
+// is that *other* parsers consume it, so "a real parser accepts this" is
+// the actual contract, and a bracket-balance check would pass a document
+// with a trailing comma or a malformed number that every real consumer
+// rejects.
 
 #include <cstdint>
 #include <cstring>
+#include <json.hpp>
+#include <optional>
 #include <doctest/doctest.h>
 #include <filesystem>
 #include <string>
@@ -39,37 +45,14 @@ namespace fs = std::filesystem;
 
 namespace {
 
-// Balanced-bracket/string-aware sanity check: every '{'/'[' outside a
-// string is matched by a later '}'/']', with proper backslash-escape and
-// quote handling inside strings. Doesn't validate full JSON grammar (number
-// syntax, comma placement, duplicate keys, ...) -- json_writer.hpp's own
-// Writer already owns getting that part right; this just confirms the
-// overall document is well-formed, not silently truncated or malformed.
-bool looksLikeValidJson(const std::string& s) {
-    int depth = 0;
-    bool inString = false;
-    bool escaped = false;
-    for (char c : s) {
-        if (inString) {
-            if (escaped) {
-                escaped = false;
-            } else if (c == '\\') {
-                escaped = true;
-            } else if (c == '"') {
-                inString = false;
-            }
-            continue;
-        }
-        if (c == '"') {
-            inString = true;
-        } else if (c == '{' || c == '[') {
-            ++depth;
-        } else if (c == '}' || c == ']') {
-            --depth;
-            if (depth < 0) return false;
-        }
-    }
-    return !inString && depth == 0;
+// Full JSON grammar check via nlohmann (see the header comment for why a
+// real parser rather than a balance check, and why it costs no new
+// dependency). Returns the parsed document so callers can assert on real
+// typed values instead of substring-matching the raw text.
+std::optional<nlohmann::json> parseJson(const std::string& s) {
+    auto parsed = nlohmann::json::parse(s, nullptr, /*allow_exceptions=*/false);
+    if (parsed.is_discarded()) return std::nullopt;
+    return parsed;
 }
 
 }  // namespace
@@ -95,12 +78,13 @@ TEST_CASE("husk info --json: emits a single well-formed JSON object, not prose")
 
     auto result = runHusk("info --json " + path.string());
     CHECK(result.exitCode == 0);
-    CHECK(looksLikeValidJson(result.output));
+    auto doc = parseJson(result.output);
+    REQUIRE(doc.has_value());
     // Prose-only markers must be absent.
     CHECK(result.output.find("  format: ") == std::string::npos);
-    CHECK(result.output.find("\"path\": ") != std::string::npos);
-    CHECK(result.output.find("\"format\": \"pre_legion\"") != std::string::npos);
-    CHECK(result.output.find("\"version\": 274") != std::string::npos);
+    CHECK(doc->at("path").is_string());
+    CHECK(doc->at("format") == "pre_legion");
+    CHECK(doc->at("version") == 274);
 
     fs::remove(path);
 }
@@ -130,10 +114,11 @@ TEST_CASE("husk info --json: reports vertices/particle_emitters counts and per-m
 
     auto result = runHusk("info --json " + path.string());
     CHECK(result.exitCode == 0);
-    CHECK(looksLikeValidJson(result.output));
-    CHECK(result.output.find("\"vertices\": {\n    \"count\": 1,") != std::string::npos);
-    CHECK(result.output.find("\"particle_emitters\": {\n    \"count\": 0,") != std::string::npos);
-    CHECK(result.output.find("\"blend_mode\": 4") != std::string::npos);
+    auto doc = parseJson(result.output);
+    REQUIRE(doc.has_value());
+    CHECK(doc->at("vertices").at("count") == 1);
+    CHECK(doc->at("particle_emitters").at("count") == 0);
+    CHECK(doc->at("materials").at("entries").at(0).at("blend_mode") == 4);
 
     fs::remove(path);
 }
@@ -156,10 +141,12 @@ TEST_CASE("husk info --json: format/chunk fields reflect a Legion+ chunked file,
 
     auto result = runHusk("info --json " + path.string());
     CHECK(result.exitCode == 0);
-    CHECK(looksLikeValidJson(result.output));
-    CHECK(result.output.find("\"format\": \"legion_chunked\"") != std::string::npos);
+    auto doc = parseJson(result.output);
+    REQUIRE(doc.has_value());
+    CHECK(doc->at("format") == "legion_chunked");
+    CHECK(doc->at("chunks").at("tags").get<std::vector<std::string>>().size() > 0);
     CHECK(result.output.find("\"SFID\"") != std::string::npos);
-    CHECK(result.output.find("\"undocumented_tags\": [\n      \"ZZZZ\"") != std::string::npos);
+    CHECK(doc->at("chunks").at("undocumented_tags") == nlohmann::json::array({"ZZZZ"}));
 
     fs::remove(path);
 }
@@ -182,9 +169,10 @@ TEST_CASE("husk info --json: real fixture (bloodelffemale.m2) -- vertices/partic
 
     auto result = runHusk("info --json " + path);
     CHECK(result.exitCode == 0);
-    CHECK(looksLikeValidJson(result.output));
-    CHECK(result.output.find("\"vertices\": {\n    \"count\": 8061,") != std::string::npos);
-    CHECK(result.output.find("\"particle_emitters\": {\n    \"count\": 0,") != std::string::npos);
+    auto doc = parseJson(result.output);
+    REQUIRE(doc.has_value());
+    CHECK(doc->at("vertices").at("count") == 8061);
+    CHECK(doc->at("particle_emitters").at("count") == 0);
 
     // Same real file, no --json: still plain prose, not JSON.
     auto proseResult = runHusk("info " + path);
@@ -199,11 +187,12 @@ TEST_CASE("husk info --json: real fixture with both ribbon and particle emitters
 
     auto result = runHusk("info --json " + path);
     CHECK(result.exitCode == 0);
-    CHECK(looksLikeValidJson(result.output));
+    auto doc = parseJson(result.output);
+    REQUIRE(doc.has_value());
     // Cross-checked against `husk info` (no --json) on the same file before
     // writing this test: ribbon_emitters: 1, particle_emitters: 2.
-    CHECK(result.output.find("\"ribbon_emitters\": {\n    \"count\": 1,") != std::string::npos);
-    CHECK(result.output.find("\"particle_emitters\": {\n    \"count\": 2,") != std::string::npos);
-    CHECK(result.output.find("\"particle_id\": 4294967295") != std::string::npos);
-    CHECK(result.output.find("\"version_verified\": true") != std::string::npos);
+    CHECK(doc->at("ribbon_emitters").at("count") == 1);
+    CHECK(doc->at("particle_emitters").at("count") == 2);
+    CHECK(doc->at("particle_emitters").at("entries").at(0).at("particle_id") == 4294967295u);
+    CHECK(doc->at("record_stride_version_verified") == true);
 }

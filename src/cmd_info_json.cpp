@@ -24,6 +24,11 @@
 // JSON object in that case, rather than a `null` placeholder -- a consumer
 // checking "does this key exist" gets the same answer prose's own
 // presence/absence already gave it.
+//
+// Every bitfield is a `{"value", "hex"}` object (see writeFlags), never a
+// bare hex string: prose can afford hex-only because a human reads it, but a
+// parser testing a bit shouldn't have to convert a string back to a number
+// first.
 namespace husk::commands {
 
 namespace {
@@ -65,6 +70,20 @@ std::string hex(uint32_t v) {
     std::ostringstream ss;
     ss << "0x" << std::hex << v;
     return ss.str();
+}
+
+// Every bitfield in this document emits the same {value, hex} pair, so a
+// consumer never has to parse "0x4" back into a number to test a bit --
+// prose can afford hex-only because a human reads it; a parser can't.
+// global_flags additionally carries decoded `names`; the per-record flags
+// below have no decoder to name their bits yet.
+void writeFlags(json::Writer& w, uint32_t flags) {
+    w.beginObject();
+    w.key("value");
+    w.value(static_cast<int64_t>(flags));
+    w.key("hex");
+    w.value(hex(flags));
+    w.endObject();
 }
 
 void writeOptionalName(json::Writer& w, const char* key, const char* name) {
@@ -211,7 +230,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
             w.key("type");
             w.value(static_cast<int64_t>(t.type));
             w.key("flags");
-            w.value(hex(t.flags));
+            writeFlags(w, t.flags);
             w.key("filename");
             if (t.type == 0) {
                 w.value(t.filename);
@@ -262,7 +281,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
             w.key("index");
             w.value(static_cast<int64_t>(i));
             w.key("flags");
-            w.value(hex(materials[i].flags));
+            writeFlags(w, materials[i].flags);
             w.key("blend_mode");
             w.value(static_cast<int64_t>(materials[i].blendMode));
             w.endObject();
