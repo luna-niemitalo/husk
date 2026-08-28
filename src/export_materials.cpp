@@ -521,7 +521,7 @@ BuiltMaterials buildMaterialsAndPrimitives(
                         // Read step only, routed through
                         // sources::resolveClaimedFuzzyPoolTextureBytes
                         // (AUDIT.md §1.1's tier 3, partially wrapped --
-                        // RESOURCE_CATALOG.md's Open Questions explains why
+                        // RESOURCE_CATALOG.md's Settled section explains why
                         // the claim-and-remove step above and the ambiguous
                         // branch below stay outside Resolved<T> for now). A
                         // decode failure here deliberately does NOT fall

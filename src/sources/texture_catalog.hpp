@@ -60,8 +60,10 @@ struct FuzzyPoolTextureResult {
 // NOT the claim-and-remove-from-the-shared-pool half
 // (`claimSoleFuzzyTextureCandidate`) or the genuine-ambiguity fan-out
 // (`filterCandidatesForType`/`orderCandidatesForDefault`,
-// `AlternateTextureCandidate`). `RESOURCE_CATALOG.md`'s Open Questions
-// section explains why: tier 3's real orchestration has three outcomes
+// `AlternateTextureCandidate`). `RESOURCE_CATALOG.md`'s Settled section
+// ("Tier 3's shape") explains why, and what absorbs this wrapper once the
+// `sources::Catalog` object owns the claim step too: tier 3's real
+// orchestration has three outcomes
 // (a sole candidate read successfully; zero candidates at all; 2+
 // candidates, a *different* success shape, not a miss), and the caller's
 // own control flow -- claim first, only fall through to the ambiguity scan

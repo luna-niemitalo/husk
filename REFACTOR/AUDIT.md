@@ -42,7 +42,8 @@ through `sources::Resolved<T>` one at a time (`REFACTOR_LOG.md`'s
 2026-08-28 entries) — tiers 1 (literal) and 2 (listfile) fully done, tier 3
 (fuzzy same-basename pool) partially (its deterministic read step only;
 the claim-and-remove and ambiguity-fan-out logic stay outside `Resolved<T>`
-for now, see `RESOURCE_CATALOG.md`'s Open Questions). This narrows *how*
+until the `Catalog` object owns the claim step — `RESOURCE_CATALOG.md`'s
+Settled section, "Tier 3's shape"). This narrows *how*
 the real implementation reports its own outcomes; it does not yet touch
 the Python/Blender mirrors named in the table above, so this section stays
 open until those are addressed too (`CLI_AND_TOOLING.md` §3).

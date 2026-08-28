@@ -57,10 +57,10 @@ migrated — only its deterministic "read what was already claimed" half
 (`resolveClaimedFuzzyPoolTextureBytes`); the claim-and-remove step
 (`claimSoleFuzzyTextureCandidate`) and the genuine-ambiguity fan-out
 (`filterCandidatesForType`/`orderCandidatesForDefault`,
-`AlternateTextureCandidate`) deliberately stay outside `Resolved<T>` — see
-the Open Questions entry below for why folding all three of tier 3's real
-outcomes into one hit/miss shape isn't a safe mechanical move the way tiers
-1/2 were. The Python/Blender mirrors are entirely untouched by this — they
+`AlternateTextureCandidate`) deliberately stay outside `Resolved<T>` for now
+— see the Settled section below ("Tier 3's shape") for why folding all three
+of tier 3's real outcomes into one hit/miss shape isn't a safe mechanical move
+the way tiers 1/2 were, and for what the finished shape is instead. The Python/Blender mirrors are entirely untouched by this — they
 can't call into `src/sources/` at all; that gap is what `CLI_AND_TOOLING.md`
 §3's structured-output work is for.
 
@@ -159,39 +159,100 @@ raw bytes must say in its own docstring **which** husk understanding it is
 deliberately going behind, so the next reader can tell a considered exception
 from an unconverted leftover.
 
-## Open questions
+## Settled
 
-- Does the catalog own *reading* (returning bytes) or only *locating* (returning
-  paths)? Returning bytes lets it cache decoded BLP→PNG once — which is exactly
-  what the Blender script currently reimplements as a temp-dir cache keyed by
-  FileDataID. Leaning: bytes, with the decode cache inside.
-- `--listfile-root` defaults to `--textures` today. Under the catalog that
-  coupling can be stated once instead of re-derived at
-  `cmd_export.cpp:881`; whether it should survive at all is a separate call.
-- **Tier 3's `Resolved<T>` shape isn't a two-way hit/miss.** Tiers 1/2 are
-  already wrapped (`REFACTOR_LOG.md`'s 2026-08-28 entries); tier 3 (fuzzy
-  same-basename pool) resists the same treatment because
-  `export_materials.cpp`'s real orchestration
-  (`claimSoleFuzzyTextureCandidate` then, only on its *miss*,
-  `filterCandidatesForType` for a genuine multi-candidate ambiguity fan-out)
-  has three distinguishable outcomes, not two: (1) a sole unambiguous
-  candidate, claimed and read — a real hit; (2) zero candidates at all —
-  a real miss, nothing left to try; (3) 2+ type-compatible candidates —
-  not a miss, a *different* success shape (every candidate embedded as an
-  `AlternateTextureCandidate`, `orderCandidatesForDefault` picking which one
-  is wired as the default). A naive `Resolved<T>::hit`/`::miss` collapse
-  loses the distinction between (2) and "claimed the sole candidate but
-  failed to decode its bytes" — which matters because the real code only
-  re-runs the ambiguity scan on (2), not on a decode failure of an already-
-  claimed-and-removed pool entry (the pool has already lost that entry
-  either way, so re-scanning after a decode failure would report a smaller,
-  wrong candidate set). Two ways to resolve this, not decided here: (a) a
-  `Resolved<std::variant<T, AmbiguousCandidates>>`, letting the ambiguous
-  branch's own richer data ride the same envelope Resolved<T> already
-  provides; or (b) leave tier 3's ambiguous branch outside `Resolved<T>`
-  entirely (it already returns a *list* with per-candidate metadata, not
-  one T) and only wrap the deterministic claim-and-read half, keeping the
-  three-way branch explicit in the caller rather than folded into one
-  `if (resolved)` the way tiers 1/2 could be. Leaning (b) — narrower, no new
-  generic-container question — but this needs a look before either is
-  implemented, not a call made silently inside a REFACTOR_LOG tick.
+Three questions this document carried as open are answered below. Each was
+answerable from `README.md`'s own invariants rather than from taste, which is
+why they were settled rather than escalated. The one question that genuinely is
+*not* answerable that way — what **encoding** the resolved bytes are in — is
+flagged in `BUNDLE_FORMAT.md`'s "Needs a decision before stage 1 hardens"
+section, because it constrains this file's surface and that file's payload
+convention at the same time.
+
+### The catalog owns *reading*, not only *locating*
+
+`textureBytes(...)` returns bytes, and the decode cache lives inside the catalog
+— which is exactly what deletes the Blender script's private temp-dir cache
+keyed by FileDataID.
+
+The resolved path travels as **provenance on `Resolved<T>`**, not as a second
+`texturePath()` surface. A parallel locating API would immediately need its own
+tier order to answer "which path", and two tier orders for one question is the
+original I2 violation reappearing under a new name. A caller that needs the path
+(`--slim-textures` writing a file, a diagnostic naming what it read) reads it off
+the same answer that produced the bytes.
+
+`modelPath(fdid)` stays a separate surface, and is not an exception to that: a
+model path is handed onward to another pipeline as a *baked relative reference*
+(`GearItem::auxGlbPath`, I3's precedent), never opened by the catalog itself.
+
+### `--listfile-root` keeps defaulting to `--textures`
+
+Kept, and stated once. It is a real convenience for the actual workflow (one
+extracted corpus tree serving as both), and dropping it would break every
+existing config file and invocation for no gain. What is wrong today is that the
+coupling is re-derived in two places (`cmd_export.cpp:918`, and the
+`listfileRoot.empty() ? texturesDir : listfileRoot` fallback at
+`cmd_export.cpp:355`), so a reader cannot tell which is authoritative. The
+catalog constructor resolves it once, and `describe()` names the effective root
+(I4) — a read operation, not something inferred from behavior.
+
+### Tier 3's shape: the three-way branch is catalog-internal, not a `Resolved<T>` question
+
+Neither of the two resolutions previously proposed, because both accept a premise
+that stops being true once the `Catalog` object exists: that the *caller* has to
+see three outcomes at all.
+
+Under the target surface, `textureBytes(fdid, textureType, modelContext)` runs
+every tier internally — including the claim-and-remove step, which mutates
+catalog-owned pool state and was therefore never legitimately
+`export_materials.cpp`'s business. The caller sees one `Resolved<T>`. The
+distinction that made a naive collapse unsafe ("zero candidates, go scan the
+pool" vs. "claimed, then failed to decode — do not re-scan the now-depleted
+pool") is *sequencing inside one function*; it only looks like a type problem
+because the two steps are currently split across an API boundary.
+
+What `Resolved<T>` gains is **not** a `variant`. It gains an alternates field:
+
+```
+template <typename T> struct Resolved {
+    std::optional<T>       value;       // the default pick, already chosen
+    ResolutionTier         tier;
+    std::string            reason;
+    std::vector<Alternate> alternates;  // non-empty == genuinely ambiguous
+};
+```
+
+Ambiguity *is* provenance, which is what I4 already says `Resolved<T>` carries —
+"2+ type-compatible candidates matched, `orderCandidatesForDefault` picked this
+one" is the same kind of statement as "tier 2 fired from this root". The
+ambiguous branch already produces a single chosen default
+(`alternateTextureCandidates.front()`, `export_materials.cpp`), so it is not a
+disjoint success shape: it is a hit that knows it was a coin toss.
+`std::variant<T, AmbiguousCandidates>` would instead force every caller of every
+catalog surface to handle a case exactly one tier can ever produce — a generic
+container earned by one occurrence.
+
+The narrow wrap already landed (`resolveClaimedFuzzyPoolTextureBytes`, read step
+only, caller keeps its explicit branch) is the correct interim: it is the subset
+of this answer that is true *today*, before the `Catalog` object exists to own
+the claim step. It does not need revisiting when the rest lands — it gets
+absorbed.
+
+## Where the two unordered tiers sit
+
+`ResolutionTier` (`src/sources/resolved.hpp`) already names five tiers while the
+normative order above lists three. The two extras are ordered here so the
+migration is not the place that discovers it has to decide:
+
+4. **Parent-directory same-basename** — after tier 3, because it searches a
+   strictly broader pool than the model's own directory, and a more specific
+   match must never lose to a less specific one. A real corpus fact today living
+   as one consumer's private extension (`husk_blender_geoset_mask.py`).
+5. **Knowledge base** — last, and only when `--knowledge-db` is given. It is
+   documented known-wrong (`TODO/KNOWLEDGE_BASE_DESIGN.md`), so nothing able to
+   answer from real data should ever lose to it.
+
+Both orderings change real resolution outcomes for real files — which is exactly
+what stage 1's resolution-ledger gate exists to catch: every delta attributed,
+never assumed away.

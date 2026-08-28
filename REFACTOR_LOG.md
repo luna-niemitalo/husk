@@ -8,6 +8,68 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-28 — review pass over the staged work: four open questions answered, one escalated
+
+**What**: No code behavior changed. A review of this session's
+`[UNVERIFIED/STAGING]` commits and the questions their agents left behind,
+against `REFACTOR/README.md`'s invariants and `POTENTIAL_PLAN/`'s
+architectural test. Independently re-verified first rather than trusting the
+commit messages: clean build, full suite green, 721/721 — matching the
+newest entry's own claim.
+
+**Answered, and moved out of "Open questions" into the owning document's
+Settled section** (`RESOURCE_CATALOG.md`, `CANONICAL_MODEL.md`):
+
+1. *Catalog owns reading or only locating?* — **reading**. The resolved path
+   travels as provenance on `Resolved<T>`, not as a parallel `texturePath()`
+   surface, because a second locating API needs its own tier order and two
+   tier orders for one question is I2 failing again under a new name.
+2. *Does `--listfile-root`'s default to `--textures` survive?* — **yes**, kept
+   and stated once (it is re-derived at `cmd_export.cpp:918` *and* `:355`
+   today), with `describe()` naming the effective root per I4.
+3. *Tier 3's `Resolved<T>` shape* — **neither** proposed resolution. Both
+   accepted that the caller has to see three outcomes; under the real
+   `Catalog` object it sees one, because the claim-and-remove step mutates
+   catalog-owned pool state and was never legitimately the caller's business.
+   `Resolved<T>` grows an `alternates` field rather than a `std::variant`:
+   the ambiguous branch already picks a single default
+   (`alternateTextureCandidates.front()`), so it is a hit that knows it was a
+   coin toss, not a disjoint success shape. The narrow wrap already landed is
+   the correct interim and gets absorbed, not revisited. Also ordered the two
+   tiers `ResolutionTier` names but the normative order never placed
+   (parent-directory after tier 3; knowledge-base last).
+4. *How canon distinguishes "no customization" from "no DB2 to ask"* —
+   recorded **once per source, per table**, as a flat `sources` record on the
+   bundle manifest; canon subtrees stay plain optionals. Availability is a
+   process-level fact decided by process-level flags, so a three-state wrapper
+   on every canon field would tax every field to express one fact. Per table
+   rather than per run because a single 0-byte table beside good ones is this
+   project's documented real failure mode (`texturefiledata.db2`).
+
+**Escalated instead of decided** (`BUNDLE_FORMAT.md`'s new "Needs a decision
+before stage 1 hardens"): **what encoding resolved texture bytes carry.**
+Today the answer is implicitly decoded PNG, at the *sources* layer. WoW's BLP
+is usually DXT1/3/5 — already GPU-uploadable — so a PNG-only catalog decides
+"texture encoding" above the boundary `POTENTIAL_PLAN` §10 explicitly places
+it below, and any later runtime backend re-decodes and re-compresses data that
+arrived ready. Cheap to tag now, unrecoverable once PNG is the only thing that
+ever reaches a caller. Recommendation recorded (tag the encoding, keep PNG as
+the only transcode husk performs); flagged rather than taken because it changes
+the stage-2 signature and the stage-4 payload rule together.
+
+Also added one non-optional constraint to `BUNDLE_FORMAT.md`'s deliberately
+open `aux/` nesting-vs-sharing call: schema v1 must allow a resource `uri`
+pointing outside its own bundle directory, so measuring payload sizes later
+settles it with a producer change instead of a schema bump.
+
+**Not touched**: every stale citation of the removed "Open Questions" heading
+was repointed (`AUDIT.md` §1.1, `src/sources/texture_catalog.hpp`,
+`src/export_materials.cpp`) — comment text only, no code.
+
+**Verified**: full suite green, 721/721, unchanged before and after.
+
+---
+
 ## 2026-08-28 — tier 3 partially through `Resolved<T>`: the fuzzy-pool read step only, plus a written design question for the rest
 
 **What**: `RESOURCE_CATALOG.md`'s Open Questions section gained a new entry

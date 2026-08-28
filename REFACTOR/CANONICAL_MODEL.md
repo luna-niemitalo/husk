@@ -162,15 +162,28 @@ reversed, so here is the real one. Of 54 test files:
   `test_export_skeleton.cpp`, `test_conformance.cpp`,
   `test_integration.cpp`, `test_integration_weapons.cpp`.
 
-## Open questions
-
-- How much of the definition layer husk can populate without DB2 present. Today
-  most DB2-driven enrichment degrades to "absent"; canon needs to distinguish
-  *"this model has no customization"* from *"no DB2 was available to ask"* —
-  the same distinction I6's `NameSource` draws for names, applied to whole
-  subtrees.
-
 ## Settled
+
+- **"Absent" vs. "unasked" is recorded once per source, not per node.** The
+  distinction is required — a consumer must be able to tell *"this model has no
+  customization"* from *"no DB2 was available to ask"* — but it does **not**
+  become a three-state wrapper on every canon field. Wrapping each subtree would
+  tax every field in `canon::` to express a fact that is uniform across the whole
+  run: source availability is decided by process-level flags (`--db2-dir`,
+  `--dbd-dir`, `--listfile`), not per node.
+
+  So canon subtrees stay plain optionals, and the bundle manifest carries a flat
+  `sources` record stating what was available to ask — **per table, not per
+  run**, because the real failure mode this project has already hit is a single
+  table being a 0-byte extraction gap while the rest of the directory is fine
+  (`texturefiledata.db2`, `chrcustomization*.db2`; see `CLAUDE.md`'s Hazards).
+  A per-run boolean would have called those runs "DB2 available" and been wrong
+  about exactly the subtree that mattered.
+
+  `absent + source unavailable` = unknown; `absent + source available` = the
+  model genuinely has none. Two facts, each recorded once, combined by the
+  consumer — the same shape as I6's `NameSource`, which annotates the *name* it
+  travels with rather than lifting every name into a wrapper type.
 
 - **`canon::Definition` travels per model, and a model may reference other
   models** — a character references the item models it wears rather than

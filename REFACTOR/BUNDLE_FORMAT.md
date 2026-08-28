@@ -85,11 +85,19 @@ resources
   collision
 items                 <- I7: identity → slots[] → components[]
 references            <- other bundles this one points at (see below)
+sources               <- which sources husk could actually ask, per table
 ```
 
 `schema_version` is the load-bearing addition. Today's 13 root-joint extras keys
 and 34 material extras keys have no version at all, so a consumer cannot tell a
 husk that predates a key from one where the key is legitimately absent.
+
+`sources` is the manifest half of `CANONICAL_MODEL.md`'s "absent vs. unasked"
+answer: a flat record of which DB2 tables / listfile / texture directories were
+actually readable at write time, so an empty subtree elsewhere in the manifest
+can be read as *"the model has none"* rather than *"nobody asked"*. Per table,
+not per run — a single 0-byte table beside a directory of good ones is this
+project's documented real failure mode, not a hypothetical.
 
 ## Embed or reference — one rule
 
@@ -169,3 +177,45 @@ avoids duplicate texture payloads when a character and its gear use overlapping
 textures. The cross-bundle reference decision above pushes gently toward
 nesting — a referenced bundle that is independently openable is exactly what a
 `uri` to another manifest implies — but real payload sizes should settle it.
+
+The one constraint that is *not* left open, because it is what keeps the
+measurement affordable: schema v1 must let a resource `uri` point outside its
+own bundle directory, so whichever way it is measured, switching later is a
+producer change and not a schema bump.
+
+## Needs a decision before stage 1 hardens
+
+**What encoding do resolved texture bytes carry?**
+
+Not settled here, because it is not a taste question and it constrains two
+layers at once — `RESOURCE_CATALOG.md`'s `textureBytes(...) -> Resolved<bytes>`
+and this file's `textures/<name>.png` payload convention. Both are being written
+right now; both are cheap to state and expensive to retrofit, because the cost
+lands on every catalog call site *and* every bundle already written.
+
+- **Today, implicitly**: decoded PNG. `resolveTextureBytes` decodes BLP→PNG at
+  the source layer, the Blender script caches PNG, `--slim-textures` writes PNG,
+  and the shape sketch above says `textures/<name>.png`.
+- **The cost**: WoW's BLP is usually DXT1/3/5 — block-compressed, i.e. already
+  in a form a GPU consumes directly. Decoding to PNG in the *sources* layer
+  discards that, so any future runtime backend must re-decode and re-compress
+  data that arrived ready to upload. That is `POTENTIAL_PLAN`'s §10 test failing
+  in the one direction it is meant to catch: "texture encoding" is named there
+  as a thing that belongs *below* the boundary, and a PNG-only catalog decides it
+  above.
+- **The alternative**: the catalog returns bytes tagged with their encoding
+  (`{bytes, encoding: Bc1|Bc2|Bc3|Bgra|Palettized|Png}`), keeps the original
+  blocks when it has them, and PNG becomes a *writer-side* transcode — which is
+  where it belongs anyway, since PNG exists for glTF and Blender specifically.
+  The bundle then stores whichever payload the writer chose, named by the `Ref`'s
+  own `uri`, and a manifest reader learns the encoding from the entry rather than
+  from a file extension convention.
+- **What is not being claimed**: that a runtime backend is close, or that this
+  should be built now. Only that the *tag* is nearly free today and unrecoverable
+  later — once PNG is the only thing that ever reached the catalog's callers, the
+  original bytes are gone from the pipeline entirely.
+
+Recommendation: tag the encoding now, keep PNG as the only transcode husk
+actually performs, and let the bundle payload stay `.png` until something needs
+otherwise. Flagged rather than taken, because it changes the stage-2 surface
+signature and the stage-4 payload rule together.
