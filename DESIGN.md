@@ -18,6 +18,13 @@ under `tools/` (independent-of-husk "second opinion" verification, plus a
 generalized parallel corpus-scan framework) are documented in `TOOLS.md`,
 not here — that's tooling, not husk's own export architecture.
 
+**This file describes the tree as it stands.** The *target* architecture — a
+four-stage `parse -> resolve -> canonical -> write` pipeline, a single
+resolution boundary, a native bundle format and a real Blender addon — lives
+in `REFACTOR/`, deliberately kept separate so current and target never blur
+(`READABILITY.md` §3.10). Nothing in `REFACTOR/` is implemented; where it
+contradicts this file, this file is what the code actually does today.
+
 ## Goal
 
 A real Blender import path for modern (Legion+, chunked) WoW M2 models —
@@ -139,8 +146,18 @@ Non-goals, by design, not oversight:
   too poor to prioritize right now, at this stage of the project. Revisit
   if/when core M2/WMO/ADT coverage stops being the bottleneck on visual
   fidelity.
-- No Blender addon. A `.glb` file Blender's stock importer can open is the
-  entire deliverable.
+- ~~No Blender addon. A `.glb` file Blender's stock importer can open is the
+  entire deliverable.~~ **Superseded, 2026-08-28.** This stopped being true
+  some time ago and the non-goal was never retired: `tools/` now holds ~4,150
+  lines of Blender Python (`husk_blender_geoset_mask.py`,
+  `husk_blender_options_panel.py`) building Geometry Nodes switches, shader
+  node graphs, jiggle-physics chains and a registered `View3D` N-panel --
+  an addon in everything but packaging. The agreed direction is now
+  `M2 -> canonical -> Blender` via a native husk bundle read by a real,
+  packaged addon, with glTF demoted to an optional best-effort projection
+  (POTENTIAL_PLAN's Canonical Data Model doc, section 13). See `REFACTOR/`
+  for the target pipeline; none of it is implemented yet, and everything
+  else in this file still describes the tree as it actually stands.
 
 ## Pipeline / module map
 

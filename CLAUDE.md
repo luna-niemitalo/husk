@@ -70,6 +70,15 @@ tool, `blp/`) converts BLP2 textures to PNG.
   subsection). See
   `README.md`'s format-support matrix and roadmap for the exact per-feature
   state — that table is the source of truth, not this file.
+- **Architecture direction (2026-08-28, documented, not implemented)**: the
+  agreed target is `M2 -> canonical -> Blender` via a four-stage pipeline
+  (`parse -> resolve -> canonical -> write`), one resource-resolution
+  boundary object, a native husk bundle format, and a real packaged Blender
+  addon; glTF becomes an optional best-effort projection. Written up in
+  `REFACTOR/` (index: `REFACTOR/README.md`), including `REFACTOR/AUDIT.md`'s
+  evidence inventory of every duplicated/divergent path found. **No code has
+  changed** — everything under Current/Boundaries below still describes the
+  real tree.
 - **Target**: a real Blender import path for modern (Legion+ chunked) M2 — see
   `DESIGN.md`'s Goal section. All 8 roadmap stages are now done, including stage 7
   (output hardening: real exports now run through the Khronos glTF-Validator *and*
