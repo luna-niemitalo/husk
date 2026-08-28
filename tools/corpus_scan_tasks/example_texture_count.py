@@ -33,7 +33,15 @@ import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; 
 class TextureCountTask:
     GLOB_PATTERNS = ["*.m2"]
     FIELDNAMES = ["texture_count"]
-    PARALLEL_MODE = "process"  # shells out to husk per file, real subprocess cost
+    # Shells out to husk per file. This template used to struct-unpack the
+    # header in-process instead, so copying it now teaches every new task to
+    # pay a subprocess per file -- deliberate, and the right default (a task
+    # consuming husk's understanding should ask husk, not re-derive it), but
+    # see expansion_task.py's own note for the measured cost. A task that is
+    # genuinely *interrogating* the bytes behind husk's understanding should
+    # read them raw and say so in its docstring, per
+    # REFACTOR/RESOURCE_CATALOG.md's excavation escape hatch.
+    PARALLEL_MODE = "process"
     BATCH_SIZE = 1  # dominated by the husk subprocess spawn, not IPC dispatch -- see CORPUS_SCANS.md's BATCH_SIZE gotcha
 
     @staticmethod

@@ -42,7 +42,16 @@ import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; 
 class ExpansionTask:
     GLOB_PATTERNS = ["*.m2"]
     FIELDNAMES = ["version", "chunked", "expansion", "tier"]
-    PARALLEL_MODE = "process"  # shells out to husk per file now, real subprocess cost
+    # Shells out to husk per file *now* -- this task used to read 16 header
+    # bytes in-process with zero subprocesses, so the conversion is a real
+    # measured cost, not a neutral swap: 3,000 creature/ files went from
+    # 1-2s to 7s (~4-5x; ~1.5min -> ~5min extrapolated over the full 132k
+    # corpus). Accepted deliberately -- what it buys is deleting a
+    # hand-transcribed copy of src/m2_primitives.cpp's expansionForVersion
+    # table that had to be kept in sync by hand, which is the drift this
+    # refactor exists to remove. Revisit only if this scan ever moves onto
+    # a hot path; a few minutes per full-corpus run is not one.
+    PARALLEL_MODE = "process"
     BATCH_SIZE = 1  # dominated by the husk subprocess spawn, not IPC dispatch -- see CORPUS_SCANS.md's BATCH_SIZE gotcha; not measured against a higher value
 
     @staticmethod
