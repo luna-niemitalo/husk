@@ -104,6 +104,32 @@ closing it for good belongs in `src/` (embed every real per-choice
 texture, not only same-basename-ambiguous ones), out of this session's
 scope (`src/` was off-limits, peer agents working there).
 
+**This gap already has a name, established independently while verifying
+the above**: those files sit one directory *up* from the model, under a
+different naming convention — `character/nightelf/eyes00_00_3509222.blp`,
+not `character/nightelf/female/nightelffemale_hd_*.blp`. That is exactly
+`RESOURCE_CATALOG.md`'s **tier 4** (parent-directory same-basename), the
+tier that document already says "is a real corpus fact, so it belongs in
+the catalog — as a named tier, not as one consumer's private extension,"
+and that `Catalog::texture()` still carries as a marked, deliberate gap.
+So the `src/` fix is not open-ended: **port tier 4 into the catalog, and
+embed what it resolves.** husk already knows these FileDataIDs — they
+travel today in `chr_customization_options` extras (`materials[].
+file_data_id`), which is how the Blender script knows to look for them at
+all; only their *bytes* are missing from the `.glb`. Doing that makes the
+Blender fallback genuinely dead code rather than a documented-narrow one,
+and closes the regression noted below in the same move.
+
+**Regression to close, stated as one rather than folded into the design
+win**: auto-conversion of a `.blp`-only match was not incidental — it was
+added specifically in response to Luna's pushback on workflow ceremony,
+and `CLAUDE.md`'s Resume records the result as "no manual conversion step
+at all anymore." Removing the subprocess is right (I3), but the honest
+accounting is that it traded a user-facing capability for an invariant,
+and the trade is only temporary if tier 4 lands. Until then a real
+nightelf export switches 4 of 5 materials instead of 5 unless the caller
+runs `husk blp-export --dir` first.
+
 Per I3, the `husk blp-export` subprocess and its `PATH`/`../build/husk`
 binary lookup are removed outright regardless — a `.glb` is not
 guaranteed to travel with a `husk` binary (the same portability argument
