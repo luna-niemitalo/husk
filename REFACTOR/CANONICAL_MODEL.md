@@ -21,8 +21,8 @@ were the transport, gear keyed by slot because that's what one exporter needed.
 
 ## The three layers
 
-POTENTIAL_PLAN's model, mapped onto data husk already parses — so this reads as
-a migration target, not a greenfield design.
+The Canonical Data Model doc's model, mapped onto data husk already parses —
+so this reads as a migration target, not a greenfield design.
 
 | Layer | Question | Real WoW data | Where it lives today |
 |---|---|---|---|
@@ -30,7 +30,7 @@ a migration target, not a greenfield design.
 | **Selection** | What did *this* instance choose? | race/sex, chosen choice IDs, equipped items, creature display | `--appearance`, `enabled_geosets`, `creature_enabled_geosets`, `gear_*` |
 | **Resources** | What things realize those choices? | mesh, skeleton, animation, material, physics, emitters, corrections, collision | `gltf::Skeleton` + `gltf::Mesh` + `gltf::Material` |
 
-The distinction is not cosmetic (POTENTIAL_PLAN §4): `NightElf.face[12]` and
+The distinction is not cosmetic (Canonical Data Model §4): `NightElf.face[12]` and
 `Dwarf.face[12]` are different resources reached by the same index. A selection
 is only meaningful against the definition that scopes it. Today both live as
 sibling extras keys with nothing marking which is which (I5).
@@ -71,7 +71,7 @@ kind of thing*.
 
 `canon::Mesh` submeshes carry their real geoset id/group/variant. This retires
 both current encodings at once: the fake tag joints
-(`Skeleton::GeosetTag`) and the per-primitive extras. POTENTIAL_PLAN §13 names
+(`Skeleton::GeosetTag`) and the per-primitive extras. Canonical Data Model §13 names
 the fake-joint trick specifically as the thing a canonical model exists to
 eliminate.
 
@@ -85,10 +85,12 @@ channel and the other became extras. Canon has one.
 
 ### Version-collapsed physics
 
-`PHYS v1..v5` decoders converge on one `canon::Physics` (POTENTIAL_PLAN §2/§4),
-carrying the **full** joint graph. `gltf::Skeleton::PhysicsJoint` deliberately
-drops frame matrices and shape geometry because glTF extras were the transport;
-that reduction is a writer decision and belongs in the writer.
+`PHYS v1..v5` decoders converge on one `canon::Physics` (Eventual Goals, "Treat
+WoW File Formats as Serialization Formats" / "Build Version-Agnostic Semantic
+Compilers"), carrying the **full** joint graph. `gltf::Skeleton::PhysicsJoint`
+deliberately drops frame matrices and shape geometry because glTF extras
+were the transport; that reduction is a writer decision and belongs in the
+writer.
 
 ### Declarative population
 
@@ -131,7 +133,8 @@ calls. `m2::Model` is that output — the whole file, parsed once, with the thre
 commands consuming views of it rather than each choosing a different subset
 (`AUDIT.md` §2.1).
 
-This keeps the POTENTIAL_PLAN §4 split honest: decoders produce a complete
+This keeps the Eventual Goals "Build Version-Agnostic Semantic Compilers"
+split honest: decoders produce a complete
 format-shaped model, and canon is what interprets it.
 
 ## What canon must not contain (I1)
@@ -139,7 +142,7 @@ format-shaped model, and canon is what interprets it.
 No filesystem paths. No `tinygltf::` types. No `bpy` concepts. No GPU or
 API objects. No transport artifacts.
 
-The architectural test, from POTENTIAL_PLAN §10: *could a software renderer,
+The architectural test, from Canonical Data Model §10: *could a software renderer,
 Blender, and a GPU backend each consume this unchanged?* If a field only makes
 sense to one of them, it belongs in that writer.
 

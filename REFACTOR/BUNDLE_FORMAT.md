@@ -11,7 +11,7 @@ through `extras` onto a heuristically located carrier bone, a physics joint
 graph deliberately truncated to fit, and no schema version anywhere
 (`AUDIT.md` §3).
 
-Per POTENTIAL_PLAN §13, glTF is a *projection* of the recovered semantics, not
+Per Canonical Data Model §13, glTF is a *projection* of the recovered semantics, not
 the semantics. The bundle is what the canonical model actually writes; glTF stays
 as an optional exporter that may omit what it cannot express.
 

@@ -120,7 +120,7 @@ because there is no model in which to state the relationship declaratively —
 
 - **Geosets shipped as fake bones.** `Skeleton::GeosetTag`
   (`gltf_skeleton.hpp:538`) mints one inert joint per distinct geoset ID purely
-  so Blender's importer materializes it as a vertex group. POTENTIAL_PLAN §13
+  so Blender's importer materializes it as a vertex group. Canonical Data Model §13
   names this exact pattern as the thing a canonical model exists to stop doing.
   It also inflates `skin.joints` well past real-time skinning budgets, which the
   Blender script then has to undo (`delete_geoset_tag_bones`).

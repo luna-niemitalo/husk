@@ -8,6 +8,14 @@ purpose (`READABILITY.md` §3.10 — current and target never blurred).
 Same conventions as `TODO/`: each file is an open punch list, closed items get
 removed outright, git history is the record.
 
+**Citation shorthand** used throughout this directory, since both design
+documents number their sections from 1 and would otherwise collide:
+
+- *Canonical Data Model §N* → `POTENTIAL_PLAN/WoW RE — Canonical Data Model and Implementation Boundary.md`
+- *Eventual Goals* → `POTENTIAL_PLAN/Eventual Potential Goals for WoW RE Project.md`.
+  Note this file concatenates three documents that each restart their own
+  section numbering, so it is cited by section *title*, never by number.
+
 ## Why
 
 husk grew outward from `cmd_export.cpp` rather than down through named stages.
@@ -89,7 +97,7 @@ via which fallback, is a *read operation* (`CLI.md` §2.4/§2.11), not something
 inferred from an export summary after the fact. This is also what makes the
 migration gates below affordable to run.
 
-**I5 — definition ≠ selection.** POTENTIAL_PLAN §4: "NightElf.face[12]" (what
+**I5 — definition ≠ selection.** Canonical Data Model §4: "NightElf.face[12]" (what
 option 12 *is*) and "this character chose 12" are different kinds of fact. Today
 `chr_customization_options` (definition) and `enabled_geosets` (selection) are
 sibling extras keys with no structural distinction between them.
@@ -133,7 +141,7 @@ drifting implementations into one exposes *why* things look wrong today.
 
 Out of scope, deliberately: everything in `POTENTIAL_PLAN/` about engines, GPU
 backends, and GFX906. The canonical model is designed so those stay *possible*
-(POTENTIAL_PLAN §10's architectural test), not so they happen next. Current
+(Canonical Data Model §10's architectural test), not so they happen next. Current
 trajectory is `M2 → canonical → Blender`.
 
 ## Migration order
