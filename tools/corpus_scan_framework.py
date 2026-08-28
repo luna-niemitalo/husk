@@ -78,6 +78,7 @@ import argparse
 import csv
 import importlib
 import itertools
+import json
 import os
 import re
 import shutil
@@ -124,6 +125,28 @@ sys.modules.setdefault("corpus_scan_framework", sys.modules[__name__])
 # task modules read `corpus_scan_framework.HUSK_BIN` instead of each
 # hardcoding their own copy (REFACTOR/CLI_AND_TOOLING.md §4).
 HUSK_BIN: str = shutil.which("husk") or str(REPO_ROOT / "build" / "husk")
+
+
+def husk_info_json(path: Path, timeout: float = 15.0) -> dict | None:
+    """Runs `husk info <path> --json` and returns the parsed object, or None
+    on any failure (nonexistent/corrupt file, non-zero exit, timeout,
+    unparseable stdout) -- the same "return None to skip this file" contract
+    every task's own analyze() already uses. One shared invocation point
+    instead of each JSON-consuming task rolling its own subprocess +
+    json.loads (REFACTOR/CLI_AND_TOOLING.md §3) -- see
+    src/cmd_info_json.cpp's own doc comment for the schema this returns.
+    """
+    try:
+        p = subprocess.run([HUSK_BIN, "info", str(path), "--json"],
+                            capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
+    if p.returncode != 0:
+        return None
+    try:
+        return json.loads(p.stdout)
+    except json.JSONDecodeError:
+        return None
 
 
 @runtime_checkable

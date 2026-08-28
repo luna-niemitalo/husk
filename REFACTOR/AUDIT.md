@@ -66,6 +66,20 @@ the real C++ side of this section; it does not yet touch the Python/Blender
 mirrors named in the table above, so this section stays open until those are
 addressed too (`CLI_AND_TOOLING.md` §3).
 
+A later pass converted five other `tools/corpus_scan_tasks/*.py` modules
+(`particle_only_task.py`, `detect_billboards.py`, `expansion_task.py`,
+`example_texture_count.py`, and half of `black_additive_task.py`) from
+`husk info` prose-scraping to `husk info --json`
+(`REFACTOR_LOG.md`'s newest entry, `CLI_AND_TOOLING.md` §3) — a different
+duplication than this section's own (structured-field scraping, not
+texture-tier resolution), so it does not close §1.1. `black_additive_task.py`'s
+own texture-*resolution* half (`_resolve_texture_path`, still shelling out
+to `husk blp-export` for pixel bytes) is the same tier-mirroring class this
+section's table already names for `unfillable_texture_task.py` — deliberately
+left untouched by that pass, still a live instance of this section's problem.
+`unfillable_texture_task.py` and `tools/husk_blender_geoset_mask.py`'s own
+mirrors remain the two real open items.
+
 ---
 
 ## 2. Missing internal representation

@@ -27,10 +27,12 @@ no_objectcomponents.txt already excludes item/objectcomponents/ wholesale
 -- a false positive here would silently hide a file from review, not just
 mis-sort it.
 
-Uses `husk info` per file (matches this project's own existing
-unfillable_texture_task.py/expansion_task.py convention: read exactly what
-husk's own resolution logic sees, not a second, possibly-diverging
-struct-unpack of the format).
+Consumes `husk info --json` per file (REFACTOR/CLI_AND_TOOLING.md §3 --
+matches this project's own existing unfillable_texture_task.py/
+expansion_task.py convention: read exactly what husk's own resolution
+logic sees, not a second, possibly-diverging struct-unpack of the format;
+structured JSON instead of prose-scraping since husk makes no promise the
+prose stays stable).
 
 Run with:
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
@@ -39,20 +41,13 @@ Run with:
 """
 from __future__ import annotations
 
-import re
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; HUSK_BIN read from there, see REFACTOR/CLI_AND_TOOLING.md §4
+import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; husk_info_json read from there, see REFACTOR/CLI_AND_TOOLING.md §3
 
-HUSK_BIN = csf.HUSK_BIN
 TIMEOUT = 15.0
-
-VERTICES_RE = re.compile(r"^\s*vertices: (\d+) ")
-MATERIAL_RE = re.compile(r"^\s*material \d+: flags=0x[0-9a-fA-F]+ blend_mode=(\d+)\s*$")
-PARTICLE_COUNT_RE = re.compile(r"^\s*particle_emitters: (\d+) ")
 
 # M2Material blend_mode >= 3 is the additive family (Add/AddAlpha/Mod/
 # Mod2x/...) -- 0 (Opaque) and 1 (AlphaKey) are real, ordinary surfaces;
@@ -60,16 +55,6 @@ PARTICLE_COUNT_RE = re.compile(r"^\s*particle_emitters: (\d+) ")
 # -- see wowdev.wiki M2#Materials and this project's own
 # alphaModeForBlend (src/export_materials.cpp).
 ADDITIVE_FAMILY_THRESHOLD = 3
-
-
-def _husk_info_lines(path: Path) -> list[str]:
-    try:
-        p = subprocess.run([str(HUSK_BIN), "info", str(path)], capture_output=True, text=True, timeout=TIMEOUT)
-    except subprocess.TimeoutExpired:
-        return []
-    if p.returncode != 0:
-        return []
-    return p.stdout.splitlines()
 
 
 class ParticleOnlyTask:
@@ -80,25 +65,13 @@ class ParticleOnlyTask:
 
     @staticmethod
     def analyze(path: Path) -> dict | None:
-        lines = _husk_info_lines(path)
-        if not lines:
+        info = csf.husk_info_json(path, timeout=TIMEOUT)
+        if info is None:
             return None
 
-        vertex_count = 0
-        blend_modes: list[int] = []
-        particle_count = 0
-        for line in lines:
-            m = VERTICES_RE.match(line)
-            if m:
-                vertex_count = int(m.group(1))
-                continue
-            m = MATERIAL_RE.match(line)
-            if m:
-                blend_modes.append(int(m.group(1)))
-                continue
-            m = PARTICLE_COUNT_RE.match(line)
-            if m:
-                particle_count = int(m.group(1))
+        vertex_count = info["vertices"]["count"]
+        blend_modes = [m["blend_mode"] for m in info["materials"]["entries"]]
+        particle_count = info["particle_emitters"]["count"]
 
         # Not our target case: no real geometry (already handled separately
         # by husk's zero-vertex fallback path, a different TODO item), no

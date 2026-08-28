@@ -1,10 +1,15 @@
-import re
-import subprocess
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; husk_info_json read from there, see REFACTOR/CLI_AND_TOOLING.md §3
 
 class BillboardDetectionTask:
 	"""
-	Scans M2 files for the 'billboard' property in bone records using `husk info`.
+	Scans M2 files for the 'billboard' property in bone records, via
+	`husk info --json` (REFACTOR/CLI_AND_TOOLING.md §3 -- structured JSON
+	instead of scraping `husk info`'s prose, which husk makes no promise to
+	keep stable).
 
 	This task is designed to provide data for investigating:
 	1. Bone counts in billboarded models.
@@ -26,59 +31,24 @@ class BillboardDetectionTask:
 
 	@staticmethod
 	def analyze(path: Path) -> dict | None:
-		try:
-			# Run husk info on the file
-			# We use check=True to ensure we don't process error output
-			result = subprocess.run(
-				["/home/luna/dev/husk/build/husk", "info", str(path)],
-				capture_output=True,
-				text=True,
-				check=True
-			)
-			output = result.stdout
-		except subprocess.SubprocessError as e:
-			# write a subprocess crash to a log file
-			with open("husk_errors.log", "a") as log_file:
-				log_file.write(f"Error processing {path}: {e}\n")
-				return None
-		except Exception as e:
-			# If husk fails or isn't found, skip the file
-			print(f"Warning: Failed to run husk on {path}. Error: {e}")
-			exit(1)
+		info = csf.husk_info_json(path)
+		if info is None:
 			return None
 
+		total_bones = info["bones"]["count"]
+		billboard_bones = info["bones"]["billboard_bones"]
 
-		# Regex patterns to extract data from husk info output
-		# Example: "bones: 3 (offset 0x190)"
-		bone_count_re = re.compile(r"bones:\s+(\d+)")
-		# Example: "  bone 1: billboard=spherical"
-		billboard_re = re.compile(r"bone\s+(\d+):\s+billboard=(\w+)")
+		# Same "first match" behavior the old regex .search() had -- only the
+		# first billboarded bone in index order is reported, not every one.
+		if not billboard_bones:
+			return None
+		first = billboard_bones[0]
 
-		total_bones = None
-		match_bone_id = None
-		billboard_type = None
-
-		# 1. Extract total bone count
-		bone_count_match = bone_count_re.search(output)
-		if bone_count_match:
-			total_bones = int(bone_count_match.group(1))
-
-		# 2. Extract billboard information
-		# We look for the specific bone that has the billboard flag
-		billboard_match = billboard_re.search(output)
-		if billboard_match:
-			match_bone_id = int(billboard_match.group(1))
-			billboard_type = billboard_match.group(2)
-
-		# If we found a billboard, return the data. Otherwise, return None to skip.
-		if billboard_type:
-			return {
-				"total_bones": total_bones,
-				"billboard_bone_id": match_bone_id,
-				"billboard_type": billboard_type
-			}
-
-		return None
+		return {
+			"total_bones": total_bones,
+			"billboard_bone_id": first["index"],
+			"billboard_type": first["billboard_mode"]
+		}
 
 	@staticmethod
 	def summarize(rows: list[dict], total_files: int) -> list[str]:

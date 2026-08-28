@@ -174,15 +174,15 @@ Applied to all 18 modules under `tools/corpus_scan_tasks/` (15 scan tasks plus
 | Task | Verdict |
 |---|---|
 | `unfillable_texture_task.py` | **Catalog.** The headline conversion — this is the tier mirror that already broke once. |
-| `black_additive_task.py` | **Catalog.** Needs resolved texture bytes; currently shells out to `blp-export` itself. |
+| `black_additive_task.py` | **Mixed, half done.** Its `husk info` prose regexes (texture/lookup/material/particle-count) are converted to `husk info --json` (`REFACTOR_LOG.md`'s newest entry). Still needs resolved texture *bytes* to check brightness, which it still gets by shelling out to `blp-export` itself — that half stays **Catalog**, deliberately untouched by the structured-output pass. |
 | `texture_dedup_collision_task.py` | **Catalog.** Needs resolved bytes to compare them. |
 | `texture_type_collisions_task.py` | **Catalog.** Consumes resolved slots. |
 | `m2_full_validation_task.py` | **Catalog.** Drives a real export already. |
-| `animated_texture_effects_task.py` | **Structured output.** Consumes husk's own track resolution. |
-| `expansion_task.py` | **Structured output.** Version/expansion off the header. |
-| `particle_only_task.py` | **Structured output.** Currently regex-scrapes `husk info`. |
-| `detect_billboards.py` | **Structured output.** Same. |
-| `example_texture_count.py` | **Structured output.** It is the copy-paste template, so it must model the right pattern. |
+| `animated_texture_effects_task.py` | **Re-checked, still raw for now.** This verdict presupposed a structured field that doesn't exist: `husk info --json`'s schema has no `colors`/`textureWeights` arrays at all, and `texture_transforms` is count/offset only, no per-record animated-vs-constant determination — husk resolves this internally (`resolveAnimatedColorCurve`/`resolveAnimatedFixed16Curve`, `src/export_materials.cpp`) but exposes none of it. Same considered-exception shape as `shader_id_task.py` below; its own docstring now says so explicitly. Not converted — blocked on new C++ work, out of scope for a tools/-only pass. |
+| `expansion_task.py` | **Done.** Converted to `husk info --json`'s `format`/`version`/`expansion`/`record_stride_version_verified` fields — no longer a hand-transcribed second copy of `expansionForVersion`'s table. |
+| `particle_only_task.py` | **Done.** Converted to `husk info --json`'s `vertices.count`/`materials[].blend_mode`/`particle_emitters.count`. |
+| `detect_billboards.py` | **Done.** Converted to `husk info --json`'s `bones.count`/`bones.billboard_bones[]`; also picked up `corpus_scan_framework.HUSK_BIN` for free (was hardcoding an absolute build path). |
+| `example_texture_count.py` | **Done.** Converted to `husk info --json`'s `textures.count` — it is the copy-paste template, so it now models the structured-output pattern new tasks should start from. |
 | `casc_size_mismatch_task.py` | **Mixed.** Catalog for FileDataID↔path; the size comparison against CASC's own report is genuinely external, keep it raw. |
 | `dangling_references_task.py` | **Mixed.** Excavation by purpose (finding broken internal references), but its `_find_same_basename_skins` duplicates sidecar resolution — that half moves to the catalog. |
 | `shader_id_task.py` | **Re-checked, still raw for now.** Its stale docstring (said husk parses no `shader_id`) is fixed. Reclassifying to structured output turned out premature: husk parses `shaderId`/resolves its name internally (`skin.hpp`/`m2_shader_names.hpp`) but neither `husk info` nor `dump-chunks` exposes either anywhere yet — no structured output exists to consume. Docstring now states this explicitly (the excavation-escape-hatch rule this section itself sets), so the raw read is a considered exception, not an unconverted leftover; revisit once `CLI_AND_TOOLING.md` §3's `husk info --json`/`husk resolve` lands. |

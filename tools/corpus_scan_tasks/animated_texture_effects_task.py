@@ -38,6 +38,19 @@ the TODO's own scoping question is "how many files carry this kind of
 curve at all", not "how many render it"). Kept as a documented gap rather
 than a guess.
 
+Checked against `husk info --json` (REFACTOR/CLI_AND_TOOLING.md §3) before
+writing this note: `colors`/`textureWeights` aren't emitted in that schema
+at all, and `texture_transforms` is count/offset only, no per-record
+entries -- husk's own resolveAnimatedColorCurve/resolveAnimatedFixed16Curve
+(src/export_materials.cpp) do this determination internally, but nothing
+in `husk info` or `dump-chunks` surfaces it. Same considered-exception
+shape `shader_id_task.py` already documents for itself: there is currently
+no structured output this task could consume instead of reading raw bytes,
+so it stays a deliberate second implementation
+(REFACTOR/RESOURCE_CATALOG.md's excavation-escape-hatch rule) rather than
+an unconverted leftover -- revisit if `CLI_AND_TOOLING.md` §3 ever grows a
+per-track animated/constant field.
+
 Usage:
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.animated_texture_effects_task:AnimatedTextureEffectsTask \\

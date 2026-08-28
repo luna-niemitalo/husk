@@ -18,11 +18,12 @@ src/cmd_export.cpp's own version warnings (kMinVerifiedRecordStrideVersion
   - chunked (Legion+, real MD21 wrapper): "supported" -- husk's actual,
     verified target.
 
-Version/expansion-label logic is a second, independent read of the same
-bytes src/m2_primitives.cpp's own expansionForVersion parses (same
-"second opinion" discipline WIKI_FINDINGS.md/tools/ already use elsewhere)
--- not a shared implementation, so keep the two in sync by hand if
-DESIGN.md's version table is ever revised.
+Consumes `husk info --json` per file (REFACTOR/CLI_AND_TOOLING.md §3):
+`format`/`version`/`expansion`/`record_stride_version_verified` are all
+real fields of that schema (`src/cmd_info_json.cpp`), including the exact
+`expansionForVersion` table this file used to hand-transcribe -- so this
+is no longer a second, independent implementation to keep in sync by hand,
+it consumes husk's own answer directly.
 
 Run with:
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
@@ -31,70 +32,36 @@ Run with:
 """
 from __future__ import annotations
 
-import struct
+import sys
 from pathlib import Path
 
-_VERSION_OFFSET = 0x004
-_MIN_HEADER_SIZE = 0x008
-
-# Transcribed from src/m2_primitives.cpp's own expansionForVersion table
-# (wowdev.wiki M2#Versions) -- see this file's own docstring for why this
-# is a second, independent copy, not a shared implementation.
-_EXPANSION_ROWS = [
-    (256, 256, "Pre-Release"),
-    (256, 257, "Classic"),
-    (260, 263, "The Burning Crusade"),
-    (264, 264, "Wrath of the Lich King"),
-    (265, 272, "Cataclysm"),
-    (272, 272, "Mists of Pandaria / Warlords of Draenor"),
-    (272, 274, "Legion / Battle for Azeroth / Shadowlands"),
-]
-
-_MIN_VERIFIED_VERSION = 264  # src/cmd_export.cpp's kMinVerifiedRecordStrideVersion, Wrath
-
-
-def _expansion_label(version: int) -> str:
-    labels = [label for lo, hi, label in _EXPANSION_ROWS if lo <= version <= hi]
-    return " or ".join(labels) if labels else "unknown"
-
-
-def _is_chunked(data: bytes) -> bool:
-    return len(data) >= 4 and data[0:4] == b"MD21"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; husk_info_json read from there, see REFACTOR/CLI_AND_TOOLING.md §3
 
 
 class ExpansionTask:
     GLOB_PATTERNS = ["*.m2"]
     FIELDNAMES = ["version", "chunked", "expansion", "tier"]
-    PARALLEL_MODE = "process"  # plain struct-unpack CPU work, no subprocesses
+    PARALLEL_MODE = "process"  # shells out to husk per file now, real subprocess cost
+    BATCH_SIZE = 1  # dominated by the husk subprocess spawn, not IPC dispatch -- see CORPUS_SCANS.md's BATCH_SIZE gotcha; not measured against a higher value
 
     @staticmethod
     def analyze(path: Path) -> dict | None:
-        try:
-            data = path.read_bytes()
-        except OSError:
+        info = csf.husk_info_json(path)
+        if info is None:
             return None
-        chunked = _is_chunked(data)
-        blob = data
-        if chunked:
-            # MD21-wrapped: real header bytes start after the "MD21"+size
-            # chunk prefix, same unwrap example_texture_count.py's
-            # _extract_md20_blob does.
-            if len(data) < 8:
-                return None
-            csize = struct.unpack_from("<I", data, 4)[0]
-            blob = data[8:8 + csize]
-        if len(blob) < _MIN_HEADER_SIZE or blob[0:4] != b"MD20":
-            return None
-        version = struct.unpack_from("<I", blob, _VERSION_OFFSET)[0]
+
+        chunked = info["format"] == "legion_chunked"
+        version = info["version"]
 
         if chunked:
             tier = "supported"
-        elif version >= _MIN_VERIFIED_VERSION:
+        elif info["record_stride_version_verified"]:
             tier = "sketchy"
         else:
             tier = "out_of_scope"
 
-        return {"version": version, "chunked": chunked, "expansion": _expansion_label(version), "tier": tier}
+        return {"version": version, "chunked": chunked, "expansion": info["expansion"], "tier": tier}
 
     @staticmethod
     def summarize(rows: list[dict], total_files: int) -> list[str]:

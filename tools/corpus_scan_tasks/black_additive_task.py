@@ -27,6 +27,14 @@ slot -- multi-material models could have one dark and one bright texture,
 which this task would miss. Good enough for a candidate list to spot-check
 against corpus_reports/renders_full, not a proof.
 
+The structural read (textures/lookup/materials/particle count) consumes
+`husk info --json` (REFACTOR/CLI_AND_TOOLING.md §3) instead of scraping
+prose. Texture *pixel bytes* are a separate matter -- husk has no verb
+that hands back decoded pixels, so this task still shells out to `husk
+blp-export` itself (see _decode_mean_brightness below), deliberately left
+alone by this conversion pass; that half belongs to the resource-catalog
+work `RESOURCE_CATALOG.md`'s own verdict table names for this task.
+
 Run with:
     direnv exec . tools/venv/bin/python tools/corpus_scan_framework.py \\
         --task corpus_scan_tasks.black_additive_task:BlackAdditiveTask \\
@@ -36,24 +44,18 @@ from __future__ import annotations
 
 import functools
 import os
-import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; ROOT/LISTFILE/HUSK_BIN read from there, see REFACTOR/CLI_AND_TOOLING.md §4
+import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; ROOT/LISTFILE/HUSK_BIN/husk_info_json read from there, see REFACTOR/CLI_AND_TOOLING.md §3/§4
 
 HUSK_BIN = csf.HUSK_BIN
 TIMEOUT = 15.0
 BLP_TIMEOUT = 10.0
 BLP_CACHE_DIR = Path(tempfile.gettempdir()) / "husk_black_additive_blp_cache"
-
-TEXTURE_LINE_RE = re.compile(r"^\s*texture (\d+): type=(\d+)(?: .*?file_data_id=(\d+))?\s*$")
-LOOKUP_LINE_RE = re.compile(r"^\s*texture type \d+(?: \(\w+\))? -> texture (\d+)\s*$")
-MATERIAL_RE = re.compile(r"^\s*material \d+: flags=0x[0-9a-fA-F]+ blend_mode=(\d+)\s*$")
-PARTICLE_COUNT_RE = re.compile(r"^\s*particle_emitters: (\d+) ")
 
 # Same additive-family threshold particle_only_task.py uses -- 0 (Opaque)/
 # 1 (AlphaKey) are ordinary surfaces, 2 (Alpha) is real translucency (glass,
@@ -172,16 +174,6 @@ def _decode_mean_brightness(image_path: Path) -> float | None:
     return sum(channel_means) / 3.0
 
 
-def _run_info(path: Path) -> str | None:
-    try:
-        p = subprocess.run([str(HUSK_BIN), "info", str(path)], capture_output=True, text=True, timeout=TIMEOUT)
-    except subprocess.TimeoutExpired:
-        return None
-    if p.returncode != 0:
-        return None
-    return p.stdout
-
-
 class BlackAdditiveTask:
     GLOB_PATTERNS = ["*.m2"]
     FIELDNAMES = ["material_count", "blend_modes", "particle_emitter_count", "resolved_texture", "mean_brightness"]
@@ -190,31 +182,16 @@ class BlackAdditiveTask:
 
     @staticmethod
     def analyze(path: Path) -> dict | None:
-        out = _run_info(path)
-        if out is None:
+        info = csf.husk_info_json(path, timeout=TIMEOUT)
+        if info is None:
             return None
 
-        textures: dict[int, tuple[int, int | None]] = {}
-        used_indices: set[int] = set()
-        blend_modes: list[int] = []
-        particle_count = 0
-        for line in out.splitlines():
-            m = TEXTURE_LINE_RE.match(line)
-            if m:
-                idx, ttype, fdid = int(m.group(1)), int(m.group(2)), m.group(3)
-                textures[idx] = (ttype, int(fdid) if fdid else None)
-                continue
-            m = LOOKUP_LINE_RE.match(line)
-            if m:
-                used_indices.add(int(m.group(1)))
-                continue
-            m = MATERIAL_RE.match(line)
-            if m:
-                blend_modes.append(int(m.group(1)))
-                continue
-            m = PARTICLE_COUNT_RE.match(line)
-            if m:
-                particle_count = int(m.group(1))
+        fdid_by_index: dict[int, int | None] = {
+            t["index"]: t["file_data_id"] for t in info["textures"]["entries"]
+        }
+        used_indices = {e["texture_index"] for e in info["texture_lookup"].get("entries", [])}
+        blend_modes = [m["blend_mode"] for m in info["materials"]["entries"]]
+        particle_count = info["particle_emitters"]["count"]
 
         if not blend_modes or not used_indices:
             return None
@@ -224,7 +201,7 @@ class BlackAdditiveTask:
         model_dir = path.parent
         basename_lower = path.stem.lower()
         first_idx = min(used_indices)
-        _, fdid = textures.get(first_idx, (None, None))
+        fdid = fdid_by_index.get(first_idx)
 
         resolved_path = _resolve_texture_path(model_dir, basename_lower, fdid)
         if resolved_path is None:

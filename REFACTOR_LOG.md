@@ -8,6 +8,104 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-29 — `CLI_AND_TOOLING.md` §3's second half: five corpus-scan tasks converted to `husk info --json`
+
+**What**: `particle_only_task.py`, `detect_billboards.py`, `expansion_task.py`,
+`example_texture_count.py`, and `black_additive_task.py`'s own `husk info`
+prose regexes (`TEXTURE_LINE_RE`/`LOOKUP_LINE_RE`/`MATERIAL_RE`/
+`PARTICLE_COUNT_RE`) now parse `husk info --json` instead of regexing prose
+husk never promised to keep stable. New `corpus_scan_framework.husk_info_json(path,
+timeout=15.0)` is the one shared invocation point (subprocess + `json.loads`,
+returns `None` on any failure the same way every task's own `analyze()`
+already treats a skip) — each task kept its own analysis logic, only the
+subprocess-and-parse boilerplate moved to the framework, per the brief's
+"a sixth copy of the same subprocess call is the duplication this whole
+refactor is about." `example_texture_count.py` (the copy-paste template)
+now models the structured-output pattern for new tasks to start from.
+`detect_billboards.py` also picked up `corpus_scan_framework.HUSK_BIN`
+for free (was hardcoding `/home/luna/dev/husk/build/husk`) and lost a
+worker-killing `exit(1)` on a bare subprocess exception, both incidental
+to routing it through the shared helper rather than a deliberate second
+fix. `expansion_task.py` stopped hand-transcribing `expansionForVersion`'s
+table — it now reads the real `expansion` field husk itself computes.
+
+**Why**: `REFACTOR/AUDIT.md`/`CLI_AND_TOOLING.md` §3 named these five (plus
+`black_additive_task.py`'s prose half) as the "structured output" tier of
+`RESOURCE_CATALOG.md`'s excavation-escape-hatch verdict table — tasks
+consuming husk's own understanding of a file, not interrogating raw bytes
+behind it, so a hand-rolled second implementation is a bug waiting to
+happen (already one, per `AUDIT.md` §1.1's tier-2-silently-dropped
+incident on the texture-resolution side).
+
+**What it deliberately did not touch**: `black_additive_task.py`'s texture
+*resolution* (`_resolve_texture_path`) and pixel-brightness decode
+(`_decode_mean_brightness`, still shelling out to `husk blp-export`) —
+needs resolved bytes, which is `AUDIT.md` §1.1/`RESOURCE_CATALOG.md`'s
+Catalog work, a separate piece in progress by a peer session; only its
+four `husk info` prose regexes converted. `unfillable_texture_task.py`,
+`texture_dedup_collision_task.py`, `texture_type_collisions_task.py`, and
+`m2_full_validation_task.py` — all need structured *resolution* output,
+which doesn't exist yet, out of scope per the brief. `shader_id_task.py`/
+`shader_names_task.py` (documented raw-read exceptions), `casc_size_mismatch_task.py`,
+`dangling_references_task.py`, and every render driver — untouched, per
+the brief. Nothing under `src/`/`tests/` touched.
+
+**`animated_texture_effects_task.py` — found blocked, not converted,
+contradicting the brief and `RESOURCE_CATALOG.md`'s own verdict table**:
+its verdict said "Structured output. Consumes husk's own track resolution,"
+but `husk info --json`'s schema has no `colors`/`textureWeights` arrays at
+all, and `texture_transforms` is count/offset only — no per-record
+animated-vs-constant field exists anywhere in `husk info` or `dump-chunks`.
+husk resolves this internally (`resolveAnimatedColorCurve`/
+`resolveAnimatedFixed16Curve`, `src/export_materials.cpp`) but exposes none
+of it. This is the same considered-exception shape `shader_id_task.py`
+already documents for itself, not a task I could honestly convert without
+either fabricating a wrong field or adding new `src/cmd_info_json.cpp`
+fields (out of scope — "do not touch anything under `src/`", a peer agent
+working there). Left the task's actual logic untouched; added a docstring
+paragraph naming the gap explicitly, matching `shader_id_task.py`'s own
+precedent, so the next reader can tell a considered exception from an
+unconverted leftover. `RESOURCE_CATALOG.md`'s verdict table and `AUDIT.md`
+§1.1 both updated to reflect this — see those files' own diffs.
+
+**Verified**: a differential run, not a full corpus scan (the brief's own
+gate: pure readers whose logic didn't change, so any output delta is a
+conversion bug, not a finding). Built a baseline copy of the pre-change
+`corpus_scan_framework.py` + the five task files (`git show HEAD:...`,
+symlinked `build/husk` to the real binary) and ran both baseline and
+converted versions of every task against three real corpus subdirectories
+(`creature` 300 files, `item/objectcomponents` 200, `character` 144 — 644
+files, three different corpus areas, comfortably past "a few hundred").
+Raw CSV diffs showed row-order differences for `detect_billboards.py`/
+`expansion_task.py`; traced to `run_corpus_scan`'s own pre-existing
+non-deterministic completion order (`rows.append` as
+`ProcessPoolExecutor` futures complete, never sorted before `writerows` —
+present in both baseline and converted code paths identically, since
+`run_corpus_scan` itself wasn't touched) — sorted diffs on all 5 tasks
+across all 3 roots came back byte-identical. Also ran targeted single-file/
+larger-limit checks to exercise paths the 644-file sample didn't hit:
+`black_additive_task.py` against `creature/deathwingcorruptedjaw.m2` (the
+file this task's own docstring is about) and `creature/spectralcat2.m2`
+(the one file that passed the additive-only filter in the 300-file sample)
+both agreed (0 rows, texture resolution/brightness rejected both, matching
+before and after); a wider `--limit 1500` run against `creature/` found
+one real match (`firesprite.m2`, 5 additive materials, 12 particle
+emitters, resolved to `firespriteglowred.blp`, mean brightness 0.000) with
+every field byte-identical between baseline and converted output.
+`example_texture_count.py` against `cameras/` (all 33 real camera `.m2`
+files have zero M2Texture records) came back byte-identical sorted. One
+gap not exercised by any real local file: `expansion_task.py`'s
+`"sketchy"`/`"out_of_scope"` tiers — every file checked (creature/
+objectcomponents/character/cameras, ~2,000+ files total across all runs)
+is Legion+ chunked (`MD21`), consistent with this being a live-patch CASC
+extraction with no older-format assets present; the tier logic itself is
+a two-line boolean read off husk's own `record_stride_version_verified`
+field, low risk, but genuinely untested against real non-chunked data.
+`REFACTOR/RESOURCE_CATALOG.md`'s task table and `REFACTOR/AUDIT.md` §1.1
+updated to reflect exactly what converted.
+
+---
+
 ## 2026-08-28 — `husk::sources::Catalog`: the real texture-tier object, AUDIT.md §1.1's C++ side closed
 
 **What**: `src/sources/catalog.hpp`/`.cpp` — the object `RESOURCE_CATALOG.md`
