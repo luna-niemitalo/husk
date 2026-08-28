@@ -26,12 +26,17 @@ model.husk/
   mesh.bin
   skeleton.bin
   animation.bin
-  textures/<name>.png
+  textures/<name>.<ext>  <- source encoding by default; see "Texture encoding"
   aux/<item>/…           <- nested bundles, same shape
 ```
 
 Binary payloads are separate files rather than a packed blob so that a human can
-look at a texture with an image viewer and a diff can show which payload changed.
+open one on its own and a diff can show which payload changed. Every one of them
+is subject to I8: a binary payload is permitted only where husk has a verb that
+emits its human-readable equivalent, and the manifest itself is always JSON.
+`mesh.bin` / `skeleton.bin` / `animation.bin` therefore each carry a standing
+obligation — a `husk dump` path that renders them readable — not a licence to be
+opaque because they are large.
 
 **I3, restated concretely**: a consumer opens `manifest.json` and never looks
 anywhere else. Every path in it is relative to the manifest. There is no
@@ -183,39 +188,71 @@ measurement affordable: schema v1 must let a resource `uri` point outside its
 own bundle directory, so whichever way it is measured, switching later is a
 producer change and not a schema bump.
 
-## Needs a decision before stage 1 hardens
+## Texture encoding — settled
 
-**What encoding do resolved texture bytes carry?**
+**Canonical is the source encoding. PNG is a projection husk emits on request.**
 
-Not settled here, because it is not a taste question and it constrains two
-layers at once — `RESOURCE_CATALOG.md`'s `textureBytes(...) -> Resolved<bytes>`
-and this file's `textures/<name>.png` payload convention. Both are being written
-right now; both are cheap to state and expensive to retrofit, because the cost
-lands on every catalog call site *and* every bundle already written.
+Three constraints were weighed (Luna's, 2026-08-28): the store should be
+readable and explorable; it should be human-readable *or trivially transformable*
+to it (I8); and it must not pay avoidable transform quality losses. A fourth
+rules out the naive option before the other three even apply — **raw decoded
+pixels are not a candidate**. An uncompressed RGBA dump of a real corpus is
+enormous, which is the whole reason a canonical *format* is being chosen rather
+than bytes being spilled to disk. Both surviving candidates are compressed; that
+is the price of entry, not a tiebreaker.
 
-- **Today, implicitly**: decoded PNG. `resolveTextureBytes` decodes BLP→PNG at
-  the source layer, the Blender script caches PNG, `--slim-textures` writes PNG,
-  and the shape sketch above says `textures/<name>.png`.
-- **The cost**: WoW's BLP is usually DXT1/3/5 — block-compressed, i.e. already
-  in a form a GPU consumes directly. Decoding to PNG in the *sources* layer
-  discards that, so any future runtime backend must re-decode and re-compress
-  data that arrived ready to upload. That is `POTENTIAL_PLAN`'s §10 test failing
-  in the one direction it is meant to catch: "texture encoding" is named there
-  as a thing that belongs *below* the boundary, and a PNG-only catalog decides it
-  above.
-- **The alternative**: the catalog returns bytes tagged with their encoding
-  (`{bytes, encoding: Bc1|Bc2|Bc3|Bgra|Palettized|Png}`), keeps the original
-  blocks when it has them, and PNG becomes a *writer-side* transcode — which is
-  where it belongs anyway, since PNG exists for glTF and Blender specifically.
-  The bundle then stores whichever payload the writer chose, named by the `Ref`'s
-  own `uri`, and a manifest reader learns the encoding from the entry rather than
-  from a file extension convention.
-- **What is not being claimed**: that a runtime backend is close, or that this
-  should be built now. Only that the *tag* is nearly free today and unrecoverable
-  later — once PNG is the only thing that ever reached the catalog's callers, the
-  original bytes are gone from the pipeline entirely.
+### Why the source encoding wins
 
-Recommendation: tag the encoding now, keep PNG as the only transcode husk
-actually performs, and let the bundle payload stay `.png` until something needs
-otherwise. Flagged rather than taken, because it changes the stage-2 surface
-signature and the stage-4 payload rule together.
+The three constraints do not actually conflict, because the readability
+requirement is satisfied by its own escape clause and the quality requirement is
+not satisfiable in the other direction:
+
+- **The transform is asymmetric, and only one direction is lossless.**
+  BLP's DXT1/3/5 payload decodes to pixels deterministically — husk already does
+  it, for all five BLP encodings, verified against the real corpus. The reverse
+  is a *re-encode*: PNG → DXT throws away information and cannot reproduce the
+  blocks it started from. Storing PNG therefore spends something irreversible at
+  the moment of ingest, and spends it to buy a convenience that was one command
+  away. Storing BLP keeps both outputs available permanently.
+- **A canonical store that cannot reproduce its own input is not canonical.**
+  That is the general form of the point above, and it is why I8 says convert on
+  output, never on intake.
+- **Readability is satisfied, not waived.** `husk blp-export` is one command
+  against a complete decoder husk already ships. That is exactly the
+  "trivially transformable" case I8 provides for — the clause exists for
+  situations like this one, not as a loophole around them.
+- **The engine goal comes along free rather than being traded for.** DXT blocks
+  are what a GPU consumes; keeping them means no re-decode-and-re-compress round
+  trip later. Worth noting this is a *consequence* of the losslessness argument,
+  not an independent reason — the decision would be the same with no engine in
+  the picture.
+
+One accuracy point that reinforces rather than decorates the above: DXT decoding
+is only exact *with respect to a chosen decoder*. The 1/3 and 2/3 interpolants
+have historically differed in low-bit rounding between implementations, so a PNG
+does not record "the pixels" — it records one decoder's reading of the blocks.
+The blocks are the actual artifact; a PNG is an interpretation of them.
+
+### What this means concretely
+
+- **Stage 2** (`RESOURCE_CATALOG.md`): the catalog returns bytes **tagged with
+  their encoding** — `{bytes, encoding: Bc1|Bc2|Bc3|Bgra|Palettized|Png}` — and
+  never pre-decodes. Its decode cache becomes a *transcode* cache, populated only
+  when a caller asks for pixels.
+- **Stage 4** (this file): a texture resource entry names its encoding, and may
+  carry more than one variant of the same texture. Bundles written for archival
+  or engine use keep the source payload; bundles written for Blender or glTF
+  carry the PNG variant husk generated for them. The consumer reads the encoding
+  off the manifest and never guesses from a file extension.
+- **The Blender addon needs no BLP decoder, and I3 stays intact.** husk writes
+  the PNG variant at export time *because the target was Blender*, which is the
+  same "resolve once, bake the answer in" move `GearItem::auxGlbPath` already
+  makes. The addon does not shell out to husk and does not go looking; it opens
+  what the manifest names.
+- **The shape sketch's `textures/<name>.png` is therefore an example, not the
+  rule.** The rule is that the `Ref` names the payload and its encoding.
+
+The only hard commitment is the one that is expensive to reverse: **husk never
+discards the source encoding, and PNG is never the only form it holds.** Which
+variants a given bundle ships is a writer decision that can change later without
+a schema bump.

@@ -117,6 +117,22 @@ consumer can eventually load *the tunic*, not "the chest half of the tunic".
 not.** The constraint is only that nothing in the model may make it impossible
 later.
 
+**I8 — husk stores what it was given; readability is a transform it owes, not a
+conversion it bakes in.** Luna's rule, stated for the whole project: stored data
+is *preferably* human-readable, **or trivially transformable to human-readable**.
+The escape clause is what does the work here. A payload may stay in its source
+encoding precisely because husk can hand you the readable form on request — and
+that obligation is real: **a binary payload is only permitted where husk has a
+verb that emits its human-readable equivalent.** Manifests, indexes and anything
+describing structure are human-readable unconditionally (JSON).
+
+The direction matters, and it is the half that is easy to get backwards.
+Converting on ingest looks like it satisfies the rule, but it spends something
+irreversible to buy convenience that was one command away. So: convert on
+*output*, never on *intake*; a canonical store that cannot reproduce its own
+input is not canonical. See `BUNDLE_FORMAT.md`'s "Texture encoding" for the case
+that forced this to be written down.
+
 ## No gate is "output is unchanged"
 
 Current exports have never been visually correct. Byte-identity would therefore

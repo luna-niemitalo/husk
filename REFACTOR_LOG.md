@@ -8,6 +8,64 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-28 — Luna settles texture encoding; the rule generalizes into I8
+
+**What**: The one question the review pass below escalated is answered, and the
+answer turned out to be general enough to become an invariant rather than a
+texture-specific ruling.
+
+Luna's three inputs: the canonical store should be readable and explorable;
+stored data should be human-readable *or trivially transformable* to it; and the
+balance to strike is readability against transform quality losses. Plus, sent
+mid-pass, the reason a format is being chosen at all — raw decoded pixels are
+enormous, so "just dump the bytes" was never a candidate and neither surviving
+option wins on size alone.
+
+**Decision — canonical is the source encoding; PNG is a projection husk emits on
+request.** The three constraints do not actually conflict, because the
+readability requirement is met by its own escape clause while the quality
+requirement is only satisfiable in one direction: BLP's DXT payload decodes to
+pixels deterministically (husk already ships that decoder, all five encodings,
+verified against the real corpus), but PNG → DXT is a re-encode that cannot
+reproduce the blocks it started from. Converting on ingest therefore spends
+something irreversible to buy a convenience that was one command away — and a
+canonical store that cannot reproduce its own input is not canonical. The engine
+benefit (blocks are what a GPU consumes, no round trip) follows as a consequence
+rather than being traded for; the decision would be the same with no engine in
+the picture.
+
+**Generalized as I8** (`REFACTOR/README.md`), because Luna stated it as applying
+to *any* storage format here, not just textures: husk stores what it was given,
+and readability is a transform it owes. Two teeth in it — a binary payload is
+permitted only where husk has a verb that emits its human-readable equivalent
+(so `mesh.bin`/`skeleton.bin`/`animation.bin` each carry a standing `husk dump`
+obligation, not a licence to be opaque), and conversion happens on output, never
+on intake.
+
+**Consequences recorded**: the catalog's texture surface becomes
+`texture(...) -> Resolved<EncodedTexture>` (`{bytes, encoding}`, never bare
+pixels) and its decode cache becomes a *transcode* cache; a bundle texture entry
+names its encoding and may carry more than one variant; the Blender addon still
+needs no BLP decoder and I3 stays intact, because husk writes the PNG variant at
+export time *because the target was Blender* — the same "resolve once, bake the
+answer in" move `GearItem::auxGlbPath` already makes. The shape sketch's
+`textures/<name>.png` is demoted to an example; the rule is that the `Ref` names
+the payload and its encoding.
+
+The only hard commitment, i.e. the expensive-to-reverse part: husk never discards
+the source encoding, and PNG is never the only form it holds. Which variants a
+given bundle ships stays a writer decision, changeable later without a schema
+bump.
+
+**What this deliberately does not do**: change any code. No current behavior is
+wrong under this decision — `--slim-textures` and the glTF writer emit PNG
+because their *target* requires PNG, which is exactly the settled shape. What
+changes is where the decode is allowed to happen once `sources::Catalog` exists,
+which is why this was worth settling before that object is written rather than
+after. Full suite green, 721/721, unchanged.
+
+---
+
 ## 2026-08-28 — the knowledge-base tier through `Resolved<T>`, its known-wrongness now riding provenance
 
 **What**: `resolveObjectSkinTextureFromKb` (`cmd_export.cpp`, tier 5 —

@@ -25,13 +25,19 @@ model path, `--textures`, `--listfile` + `--listfile-root`, `--db2-dir`,
 `--dbd-dir`, `--skin-dir`, `--anim`, `--bones-dir`.
 
 ```
-textureBytes(fdid, textureType, modelContext) -> Resolved<bytes>
+texture(fdid, textureType, modelContext)      -> Resolved<EncodedTexture>
 modelPath(fdid)                               -> Resolved<path>
 fileDataIdForPath(path)                       -> Resolved<fdid>
 sidecar(kind, fdid | sameBasenameConvention)  -> Resolved<bytes>
 db2(tableName)                                -> const Table&      (cached)
 describe()                                    -> the ledger, see I4
 ```
+
+`EncodedTexture` is `{bytes, encoding}`, never bare pixels — I8 and
+`BUNDLE_FORMAT.md`'s "Texture encoding": the catalog hands back what it was
+given, tagged, and a caller that wants PNG asks for the transcode explicitly.
+Decoding on the way *in* would spend the source encoding irreversibly to save a
+call, which is the one thing that decision forbids.
 
 `Resolved<T>` is not a bare `optional`. It carries **how** the answer was
 reached — which tier fired, which directory, which fallback, and for a name,
@@ -163,17 +169,20 @@ from an unconverted leftover.
 
 Three questions this document carried as open are answered below. Each was
 answerable from `README.md`'s own invariants rather than from taste, which is
-why they were settled rather than escalated. The one question that genuinely is
-*not* answerable that way — what **encoding** the resolved bytes are in — is
-flagged in `BUNDLE_FORMAT.md`'s "Needs a decision before stage 1 hardens"
-section, because it constrains this file's surface and that file's payload
-convention at the same time.
+why they were settled rather than escalated. A fourth — what **encoding** the
+resolved bytes are in — was escalated instead, because it constrains this file's
+surface and `BUNDLE_FORMAT.md`'s payload convention at the same time; Luna
+settled it the same day, and the reasoning lives in that file's "Texture
+encoding" section. The consequence here is that the texture surface returns
+`EncodedTexture`, not pixels (see Surface, above).
 
 ### The catalog owns *reading*, not only *locating*
 
-`textureBytes(...)` returns bytes, and the decode cache lives inside the catalog
-— which is exactly what deletes the Blender script's private temp-dir cache
-keyed by FileDataID.
+`texture(...)` returns bytes rather than a path, and the transcode cache lives
+inside the catalog — which is exactly what deletes the Blender script's private
+temp-dir BLP→PNG cache keyed by FileDataID. It is a *transcode* cache, not a
+decode-on-ingest step: the source encoding is what the catalog holds, and pixels
+are produced only when a caller asks for them (I8).
 
 The resolved path travels as **provenance on `Resolved<T>`**, not as a second
 `texturePath()` surface. A parallel locating API would immediately need its own
@@ -203,7 +212,7 @@ Neither of the two resolutions previously proposed, because both accept a premis
 that stops being true once the `Catalog` object exists: that the *caller* has to
 see three outcomes at all.
 
-Under the target surface, `textureBytes(fdid, textureType, modelContext)` runs
+Under the target surface, `texture(fdid, textureType, modelContext)` runs
 every tier internally — including the claim-and-remove step, which mutates
 catalog-owned pool state and was therefore never legitimately
 `export_materials.cpp`'s business. The caller sees one `Resolved<T>`. The
