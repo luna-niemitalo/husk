@@ -133,12 +133,14 @@ public:
     // control-flow decision anywhere in this file depends on it.
     std::string describe() const;
 
-private:
-    struct ModelState {
-        husk::commands::FuzzyTexturePool pool;
-        bool poolInitialized = false;
-        std::unordered_map<uint16_t, Resolved<EncodedTexture>> slotCache;
-    };
+    // One line per distinct (model, textureSlotIndex) resolved so far, in
+    // resolution order -- the same data `describe()` renders as prose,
+    // structured for a consumer that needs to tell "tier 2 answered" from
+    // "tier 3 guessed among 218 candidates" programmatically (I4, I6;
+    // `husk resolve`, REFACTOR/CLI_AND_TOOLING.md §3) instead of parsing
+    // `describe()`'s own free text back apart. A read operation, same as
+    // `describe()` -- no control-flow decision anywhere in this file
+    // depends on it.
     struct LedgerEntry {
         std::string modelPath;
         uint16_t textureSlotIndex = 0;
@@ -149,6 +151,19 @@ private:
         std::string reason;
         size_t byteCount = 0;
         size_t alternateCount = 0;
+        // The resolved image's own name (EncodedTexture::imageName on a
+        // hit, empty on a miss) -- "the resolved path or filename" a
+        // structured consumer needs alongside the tier, not reconstructed
+        // by parsing `reason`'s free text.
+        std::string resolvedName;
+    };
+    const std::vector<LedgerEntry>& ledger() const { return ledger_; }
+
+private:
+    struct ModelState {
+        husk::commands::FuzzyTexturePool pool;
+        bool poolInitialized = false;
+        std::unordered_map<uint16_t, Resolved<EncodedTexture>> slotCache;
     };
 
     ModelState& stateForModel(const TextureModelContext& model);

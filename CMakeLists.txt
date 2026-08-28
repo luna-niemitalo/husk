@@ -127,6 +127,7 @@ add_library(husk-lib STATIC
   src/export_skin_resolution.cpp
   src/export_extras.cpp
   src/cmd_export.cpp
+  src/cmd_resolve.cpp
   src/dump_writer_utils.cpp
   src/dump_emitters.cpp
   src/dump_phys.cpp
@@ -188,6 +189,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli.cpp
     tests/test_cli_textures.cpp
     tests/test_cli_slim_textures.cpp
+    tests/test_cli_resolve.cpp
     tests/test_cli_batch.cpp
     tests/test_cli_config.cpp
     tests/test_cli_appearance.cpp

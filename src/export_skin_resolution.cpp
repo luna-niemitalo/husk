@@ -193,4 +193,25 @@ std::vector<std::pair<std::string, std::string>> resolveSkin(const m2::Header& h
                               "either -- pass an explicit .skin path instead of 'auto'");
 }
 
+std::vector<std::pair<std::string, std::string>> resolveSkinsToExport(const m2::Header& header,
+                                                                        const std::string& modelPath,
+                                                                        const std::string& skinDir,
+                                                                        bool skinDirNone, bool lodGiven,
+                                                                        const std::string& lodArg,
+                                                                        const std::string& skinArg) {
+    if (skinArg != "auto") {
+        return {{"", skinArg}};
+    }
+    if (lodGiven) {
+        auto skinsToExport = resolveAutoSkinPaths(header, skinDir, modelPath, lodArg);
+        for (const auto& [name, path] : skinsToExport) {
+            std::cerr << "husk: note: 'auto' resolved '" << path << "'"
+                      << (name.empty() ? " (SFID entry 0, highest-detail LOD)\n"
+                                        : " (SFID, " + name + ")\n");
+        }
+        return skinsToExport;
+    }
+    return resolveSkin(header, modelPath, skinDir, skinDirNone);
+}
+
 }  // namespace husk::commands

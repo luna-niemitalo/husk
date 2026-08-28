@@ -4,7 +4,7 @@ _husk_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string"
+    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "$subcommands" -- "$cur"))
@@ -232,6 +232,51 @@ _husk_completions() {
             esac
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--help -h --config --validate --db2-dir --dbd-dir" -- "$cur"))
+                return
+            fi
+            COMPREPLY=($(compgen -f -- "$cur"))
+            ;;
+        resolve)
+            case "$prev" in
+                --input|-i)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --skin|-s)
+                    COMPREPLY=($(compgen -W "auto" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --skin-dir)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --lod)
+                    COMPREPLY=($(compgen -W "all" -- "$cur"))
+                    return
+                    ;;
+                --textures|-t)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --textures-out)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --listfile)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --listfile-root)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --object-skin-texture-id)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+            esac
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--help -h --input -i --skin -s --skin-dir --lod --textures -t --textures-out --listfile --listfile-root --object-skin-texture-id" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))

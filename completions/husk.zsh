@@ -18,6 +18,7 @@ _husk() {
         'db2-build:build husk's own verified knowledge-base DB'
         'blp-export:convert BLP2 texture(s) to PNG'
         'appearance-string:validate/normalize a husk-appearance/1 string'
+        'resolve:print sources::Catalog's texture-resolution ledger as JSON'
     )
 
     if (( CURRENT == 2 )); then
@@ -107,6 +108,20 @@ _husk() {
                 '--validate[--validate]:value:_files' \
                 '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
                 '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '1:model:_files'
+            ;;
+        resolve)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '(-i --input)'{-i,--input}'[the .m2 file to export]:value:_files' \
+                '(-s --skin)'{-s,--skin}'[a .skin path, or auto]:value:_husk_skin_value' \
+                '--skin-dir[skin-search directory, or none]:value:_husk_dir_or_none_value' \
+                '--lod[LOD index, or all]:value:(all)' \
+                '(-t --textures)'{-t,--textures}'[texture directory, or none]:value:_husk_dir_or_none_value' \
+                '--textures-out[directory to also write decoded .png copies to]:value:_husk_dir_value' \
+                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
+                '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_value' \
+                '--object-skin-texture-id[--object-skin-texture-id]:value:_files' \
                 '1:model:_files'
             ;;
     esac

@@ -57,6 +57,11 @@ int blpExport(int argc, char** args);
 // (see src/appearance_string.hpp, src/cmd_appearance.cpp's own doc comment).
 int appearanceString(int argc, char** args);
 
+// `resolve` -- structured JSON dump of `sources::Catalog`'s texture-
+// resolution ledger (see cmd_resolve.cpp's own doc comment, and
+// `ResolveOptions` below).
+int resolve(int argc, char** args);
+
 // Every struct/addXOptions pair below is the same single-source-of-truth
 // split `ExportOptions`/`addExportOptions` established: the flag surface is
 // declared once here (names, defaults, descriptions), used both by the real
@@ -141,6 +146,33 @@ struct AppearanceStringOptions {
     std::string dbdDirArg;
 };
 void addAppearanceStringOptions(CLI::App& app, AppearanceStringOptions& opts);
+
+// `resolve` -- REFACTOR/CLI_AND_TOOLING.md §3's `husk resolve` verb: prints
+// `sources::Catalog`'s own texture-resolution ledger as JSON, driving the
+// exact same tier-order code `export` uses (`buildMaterialsAndPrimitives`,
+// `resolveSkinsToExport`) but stopping once every batch's texture slot has
+// been resolved -- no skeleton/animation/mesh-accessor build, no glTF
+// serialization, no file write. See cmd_resolve.cpp's own doc comment for
+// why this is a separate command rather than an `--explain-textures=json`
+// extension: two of the four corpus tasks this unblocks
+// (`unfillable_texture_task.py`, `texture_dedup_collision_task.py`) already
+// deliberately avoid a real `husk export` per file, at 132k-file corpus
+// scale, for exactly the cost a full export/glb-write pays (see those
+// tasks' own module doc comments) -- forcing them onto `export` to get a
+// structured answer would reintroduce the cost their own history already
+// rejected.
+struct ResolveOptions {
+    std::string model;
+    std::string skinArg = "auto";
+    std::string skinDirArg;
+    std::string lodArg;
+    std::string texturesArg;
+    std::string texturesOutArg;
+    std::string listfileArg;
+    std::string listfileRootArg;
+    std::string objectSkinTextureIdArg;
+};
+void addResolveOptions(CLI::App& app, ResolveOptions& opts);
 
 // `export`'s real flag surface (see DESIGN.md's "CLI argument grammar for
 // export"), captured here (rather than as a local in cmd_export.cpp) so

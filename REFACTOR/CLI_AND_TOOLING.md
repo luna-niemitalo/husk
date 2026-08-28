@@ -122,9 +122,43 @@ latest entry): a structured JSON twin of every field the prose path prints,
 including the three fields real scan tasks already scrape
 (`vertices.count`, `particle_emitters.count`, `materials[].blend_mode`).
 Purely additive — prose is unchanged, byte for byte, without `--json`.
-**Not done**: converting `tools/corpus_scan_tasks/*.py`'s own regexes over
-to consume this (a separate, later pass — the eight tasks named above still
-scrape prose today), and the `husk resolve` verb.
+Five of the eight prose-scraping tasks are now converted to consume it
+(`REFACTOR_LOG.md`'s 2026-08-29 "five corpus-scan tasks converted" entry).
+
+**`husk resolve` done** (`src/cmd_resolve.cpp`, `REFACTOR_LOG.md`'s
+2026-08-29 "`husk resolve`, a new verb" entry) — the real answer to this
+section's own open question, decided in favor of a separate verb over
+`--explain-textures=json`. The deciding fact, found by reading the four
+consuming tasks `RESOURCE_CATALOG.md`'s excavation-escape-hatch table names
+rather than guessing: two of them (`unfillable_texture_task.py`,
+`texture_dedup_collision_task.py`) deliberately avoid a real `husk export`
+per file today, at 132k-file corpus scale, because an earlier version that
+*did* shell out to `export` had to be reverted over exactly the cost a full
+mesh/skin build + image embed + `.glb` write pays (see that task's own doc
+comment). Extending `--explain-textures` would have forced that cost back
+onto them just to get a structured answer — the same trap this section
+exists to close. `resolve` instead runs only as much of `export`'s own
+pipeline as texture resolution needs (header/material/texture arrays, each
+`.skin`'s submeshes/batches, `sources::Catalog::texture()` via the *same*
+`buildMaterialsAndPrimitives`/`resolveSkinsToExport` `export` itself calls,
+never a second mirror of which slots are "used") and stops there — no
+skeleton/animation/mesh-accessor build, no `.glb` write. Every field the
+prose `--explain-textures` ledger carries survives in the JSON (`model_
+path`, `texture_slot_index`, `file_data_id`, `texture_type`, `found`,
+`tier`, `resolved_name`, `byte_count`, `alternate_count`, `reason`) via a
+new public `sources::Catalog::LedgerEntry`/`ledger()` — `describe()`'s own
+prose is untouched (confirmed by diff, not by inspection). Not yet done:
+converting `unfillable_texture_task.py`/`texture_dedup_collision_task.py`/
+`texture_type_collisions_task.py`/`m2_full_validation_task.py` themselves
+to consume it (out of this pass's scope — a peer session's own follow-up,
+per `RESOURCE_CATALOG.md`'s excavation-escape-hatch table); porting tier 4
+(parent-directory same-basename, still a documented gap in `Catalog::
+texture()` itself); wiring `--knowledge-db`'s SQLite-driven object-skin
+auto-derivation into `resolve` (it accepts the resolved FileDataID directly
+via `--object-skin-texture-id` instead, same manual-override path `export`
+itself has). **Not done**: converting `tools/corpus_scan_tasks/*.py`'s own
+regexes over to consume this (a separate, later pass — three of the eight
+tasks named above still scrape prose today).
 
 `describe()` / `--explain` output serves double duty here: it satisfies I4 for
 interactive use *and* it is what makes the stage-1 migration gate in

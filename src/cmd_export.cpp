@@ -69,30 +69,6 @@ namespace husk::commands {
 
 namespace {
 
-// Resolves which .skin file(s) to export, honoring --skin/--skin-dir/--lod
-// (see resolveSkin/resolveAutoSkinPaths's own doc comments), printing the
-// same "'auto' resolved ..." notes the inline code used to.
-std::vector<std::pair<std::string, std::string>> resolveSkinsToExport(const m2::Header& header,
-                                                                        const std::string& modelPath,
-                                                                        const std::string& skinDir,
-                                                                        bool skinDirNone, bool lodGiven,
-                                                                        const std::string& lodArg,
-                                                                        const std::string& skinArg) {
-    if (skinArg != "auto") {
-        return {{"", skinArg}};
-    }
-    if (lodGiven) {
-        auto skinsToExport = resolveAutoSkinPaths(header, skinDir, modelPath, lodArg);
-        for (const auto& [name, path] : skinsToExport) {
-            std::cerr << "husk: note: 'auto' resolved '" << path << "'"
-                      << (name.empty() ? " (SFID entry 0, highest-detail LOD)\n"
-                                        : " (SFID, " + name + ")\n");
-        }
-        return skinsToExport;
-    }
-    return resolveSkin(header, modelPath, skinDir, skinDirNone);
-}
-
 // Builds the M2's own global vertex list (positions/normals/UVs, Z-up ->
 // Y-up converted) -- shared by every LOD tier (a .skin file only ever
 // selects a *subset* of it via its own vertices/indices two-level lookup,

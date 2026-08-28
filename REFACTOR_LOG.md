@@ -8,6 +8,120 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-29 — `CLI_AND_TOOLING.md` §3: `husk resolve`, a new verb for the texture-resolution ledger
+
+**What**: a new `husk resolve <model.m2> [--skin/--skin-dir/--lod/--textures/
+--textures-out/--listfile/--listfile-root/--object-skin-texture-id]` command
+(`src/cmd_resolve.cpp`, registered via `ResolveOptions`/`addResolveOptions`
+in `commands.hpp` and `main.cpp`'s `--print-completion` tree, same
+`addXOptions` split every other command uses) that prints `sources::
+Catalog`'s texture-resolution ledger as one JSON document on stdout — the
+structured twin the free-text `--explain-textures` ledger never had. Every
+field the prose ledger carries survives: `model_path`, `texture_slot_index`,
+`file_data_id`, `texture_type`, `found`, `tier` (the real `ResolutionTier`
+name — `literal`/`listfile`/`fuzzy-same-basename-pool`/`miss`), `resolved_
+name`, `byte_count`, `alternate_count`, and `reason` (miss reason on a miss,
+free-text provenance detail on a hit). New public `sources::Catalog::
+LedgerEntry`/`ledger()` (`src/sources/catalog.hpp`/`.cpp`) exposes the
+ledger structurally instead of only as `describe()`'s rendered prose;
+`LedgerEntry` gained one new field (`resolvedName`, from `EncodedTexture::
+imageName`) that `describe()` itself never reads, so its own prose is
+untouched. `resolveSkinsToExport` (`--skin`/`--skin-dir`/`--lod`'s shared
+resolution glue) moved out of `cmd_export.cpp`'s anonymous namespace into
+`export_skin_resolution.hpp`/`.cpp` (byte-identical body, pure move) so
+`resolve` reuses the exact function `export` does rather than a second
+copy — the whole point of this feature is one implementation two callers
+can trust, and duplicating even the flag-resolution glue would undercut
+that from inside the fix meant to prevent it.
+
+**Why a new verb, not `--explain-textures=json`**: `CLI_AND_TOOLING.md`
+§3 named both shapes and asked for the choice to be justified against what
+the four consuming tasks (`RESOURCE_CATALOG.md`'s excavation-escape-hatch
+table: `unfillable_texture_task.py`, `texture_dedup_collision_task.py`,
+`texture_type_collisions_task.py`, `m2_full_validation_task.py`) actually
+need — decisively, whether a task must pay for a full `.glb` export just to
+learn where a texture resolved. Read all four before deciding: two of them
+(`unfillable_texture_task.py`, `texture_dedup_collision_task.py`)
+deliberately shell out to the cheap, header-only `husk info` per file, not
+`husk export` — `unfillable_texture_task.py`'s own doc comment records an
+earlier version that *did* call a real `husk export` per file and had to be
+reverted, because a full mesh/skin build + image embed + `.glb` write
+turned a ~10-minute scan into a multi-hour one for no accuracy that task
+needs, at 132k-file corpus scale. Extending `--explain-textures` would
+force exactly that cost back onto both of them to get a machine-readable
+answer — the same trap the brief itself is written against. `husk resolve`
+instead runs only as much of `export`'s own pipeline as answers "where did
+every batch's texture resolve": the M2 header/material/texture arrays,
+each exported `.skin`'s submeshes/batches, and `sources::Catalog::
+texture()` — via the *same* `buildMaterialsAndPrimitives`/
+`resolveSkinsToExport` functions `export` calls (I2), never a second,
+simplified mirror of which slots are "used." Deliberately skipped, since
+none of them affect which tier answers a texture slot: `m2::parseVertices`
+(materials/textures never touch vertex data), the skeleton/bone/animation/
+DB2-character pipeline, mesh-accessor/glTF assembly, and the final `.glb`
+write.
+
+**Real bugs found and fixed while building this, both real CLI-tier test
+failures, not assumed**: (1) `cmd_resolve.cpp`'s first parse used
+`app.parse(argc, args)` (the `(int, char**)` overload) instead of the
+`vector<string>` overload every other command's own entry point uses
+(`cmd_export.cpp` et al.) — that overload treats `args[0]` as the program
+name and discards it, but `args` here already excludes both the program
+name *and* the subcommand word (`commands.hpp`'s own doc comment on every
+`int(int argc, char** args)` entry point), so a bare positional model path
+was silently eaten as a fake "program name" and `--input` came back empty.
+Fixed to match the established `vector<string> argVec(...); reverse(...);
+app.parse(argVec)` pattern. (2) `buildMaterialsAndPrimitives` itself prints
+one real diagnostic straight to `std::cout` on a non-empty leftover fuzzy
+pool (`export_materials.cpp`'s "N texture file(s) ... share this model's
+basename" note) — harmless for `export`, whose stdout carries no contract
+beyond human prose, but fatal for `resolve`: a real run against the
+218-candidate `nightelffemale_hd.m2` pool (see Verification) prepended
+that note ahead of the JSON and broke `jq .` outright. Fixed with a scoped
+`CoutToStderrGuard` (`cmd_resolve.cpp`, local to this file only) that
+redirects `std::cout` to a buffer for the duration of each
+`buildMaterialsAndPrimitives` call and re-emits whatever it captured on
+stderr instead — `export_materials.cpp` itself is untouched, so `export`'s
+own stdout is unaffected.
+
+**What it deliberately did not touch**: resolution behavior/tier order
+(zero edits to `Catalog::texture()`'s own logic — only a new `resolvedName`
+field appended to the ledger struct, populated from data the catalog
+already computed); tier 4 (parent-directory same-basename), not ported,
+same documented gap `texture()`'s own doc comment already carries;
+`--knowledge-db`'s SQLite-driven `objectSkinTextureFileDataId` auto-
+derivation (`resolve` only accepts the resolved FileDataID directly via
+`--object-skin-texture-id`, same as `export`'s own manual-override path) —
+flagged in the flag's own `--help` text as a scope line, not a silent gap;
+`--explain-textures`'s prose format (`Catalog::describe()`'s function body
+has zero diff — confirmed by reading the diff, not by inspection); `tools/
+corpus_scan_tasks/*.py` (a peer session's own follow-up, per the brief —
+`unfillable_texture_task.py` et al. still shell out to `husk info`/regex-
+scrape, unconverted).
+
+**Verification**: full suite green, 744/744 (739 baseline + 5 new
+`tests/test_cli_resolve.cpp` cases: JSON parses via a real parser
+(nlohmann, already on the include path through tinygltf, same convention
+`test_cli_info_json.cpp` established) for a literal/tier-1 hit, a
+`--listfile`/tier-2 hit, a genuinely ambiguous tier-3 hit reporting its
+real `alternate_count`, a miss reporting a non-empty `reason`, and an
+unresolvable `--skin auto` failing loudly through the shared
+`resolveSkinsToExport` error message). Prose-unchanged verified two ways:
+`Catalog::describe()`'s own diff is a no-op (confirmed by reading it), and
+the pre-existing `test_cli_textures.cpp` "`--explain-textures`... silent
+without the flag" test (unmodified by this session) still passes unchanged
+against the exact same substrings it always has. Exercised against the
+real 218-candidate ambiguous pool named in the brief
+(`nightelffemale_hd.m2` + `--textures .../character/nightelf/female`,
+real local corpus data): `jq .` parses the output cleanly, `alternate_
+count: 218` on the real ambiguous slot, `resolved_name` matches the same
+default `orderCandidatesForDefault` would pick for `export`. Deliberately
+did **not** `git stash` to diff against a pre-change binary for this
+verification, since a peer session had concurrent uncommitted edits to
+`tools/corpus_scan_tasks/*.py` at the time (visible in `git status`) that
+a stash/pop cycle around them risked disturbing — the source-diff-plus-
+unmodified-test evidence above was judged sufficient instead.
+
 ## 2026-08-29 — `CLI_AND_TOOLING.md` §3's second half: five corpus-scan tasks converted to `husk info --json`
 
 **What**: `particle_only_task.py`, `detect_billboards.py`, `expansion_task.py`,

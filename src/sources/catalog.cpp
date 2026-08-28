@@ -209,7 +209,8 @@ Resolved<EncodedTexture> Catalog::texture(uint32_t fdid, uint32_t textureType, c
 
     ledger_.push_back(LedgerEntry{model.modelPath, model.textureSlotIndex, fdid, textureType, result.found(),
                                    result.tier, result.reason, result.value ? result.value->bytes.size() : 0,
-                                   result.alternates.size()});
+                                   result.alternates.size(),
+                                   result.value ? result.value->imageName : std::string()});
     state.slotCache.emplace(model.textureSlotIndex, result);
     return result;
 }

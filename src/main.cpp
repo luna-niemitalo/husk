@@ -332,6 +332,7 @@ std::string generateCompletionScript(const std::string& shell) {
     husk::commands::Db2BuildOptions db2BuildOpts;
     husk::commands::BlpExportOptions blpExportOpts;
     husk::commands::AppearanceStringOptions appearanceOpts;
+    husk::commands::ResolveOptions resolveOpts;
 
     CLI::App* exportSub =
         root.add_subcommand("export", "export a mesh (+ skin/animation) to glTF");
@@ -360,6 +361,10 @@ std::string generateCompletionScript(const std::string& shell) {
     CLI::App* appearanceSub =
         root.add_subcommand("appearance-string", "validate/normalize a husk-appearance/1 string");
     husk::commands::addAppearanceStringOptions(*appearanceSub, appearanceOpts);
+
+    CLI::App* resolveSub =
+        root.add_subcommand("resolve", "print sources::Catalog's texture-resolution ledger as JSON");
+    husk::commands::addResolveOptions(*resolveSub, resolveOpts);
 
     if (shell == "bash") return generateBashCompletion(root);
     if (shell == "zsh") return generateZshCompletion(root);
@@ -417,6 +422,7 @@ int main(int argc, char** argv) {
         "                               convert BLP2 texture(s) to PNG (see --help)\n"
         "  appearance-string --validate <string>\n"
         "                               validate/normalize a husk-appearance/1 string (see --help)\n"
+        "  resolve <file.m2> [args...]  print texture-resolution ledger as JSON (see --help)\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -453,6 +459,9 @@ int main(int argc, char** argv) {
     }
     if (command == "appearance-string") {
         return husk::commands::appearanceString(restArgc, rest);
+    }
+    if (command == "resolve") {
+        return husk::commands::resolve(restArgc, rest);
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;

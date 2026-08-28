@@ -63,4 +63,21 @@ std::vector<std::pair<std::string, std::string>> resolveSkin(const m2::Header& h
                                                                const std::string& skinDir,
                                                                bool skinDirNone);
 
+// Top-level --skin/--skin-dir/--lod resolution, honoring the same
+// three-flag interaction cmd_export.cpp's own CLI grammar defines: an
+// explicit --skin path bypasses SFID resolution entirely; --lod (only
+// meaningful alongside --skin auto) selects resolveAutoSkinPaths's
+// SFID-declared entries instead of the same-basename numbered scan;
+// otherwise falls through to resolveSkin's own auto behavior. Shared by
+// exportGlb and cmd_resolve.cpp (REFACTOR/CLI_AND_TOOLING.md §3's `husk
+// resolve`) so the two commands can never silently pick a different .skin
+// file for the same flags -- moved out of cmd_export.cpp's own anonymous
+// namespace for exactly that reuse, no behavior change.
+std::vector<std::pair<std::string, std::string>> resolveSkinsToExport(const m2::Header& header,
+                                                                        const std::string& modelPath,
+                                                                        const std::string& skinDir,
+                                                                        bool skinDirNone, bool lodGiven,
+                                                                        const std::string& lodArg,
+                                                                        const std::string& skinArg);
+
 }  // namespace husk::commands

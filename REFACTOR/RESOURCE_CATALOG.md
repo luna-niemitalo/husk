@@ -191,6 +191,22 @@ Applied to all 18 modules under `tools/corpus_scan_tasks/` (15 scan tasks plus
 | `build_render_sample.py` / `render_sample_driver.py` | Drivers, not scan tasks — their `CORPUS_ROOT`/`HUSK_BIN`/`LISTFILE` copies are `CLI_AND_TOOLING.md` §4's problem, not this file's. |
 | `render_glb.py` | Neither — a headless Blender render script. Becomes an addon-driven preview, see `BLENDER_ADDON.md`. |
 
+**The "Catalog" verdicts' own prerequisite is now built**: every row marked
+**Catalog** above (`unfillable_texture_task.py`, `texture_dedup_collision_
+task.py`, `texture_type_collisions_task.py`, `m2_full_validation_task.py`)
+needed a way to consume the catalog's own resolution *without* re-deriving
+it — `CLI_AND_TOOLING.md` §3's `husk resolve` verb now exists for exactly
+this (`src/cmd_resolve.cpp`, `REFACTOR_LOG.md`'s 2026-08-29 "`husk
+resolve`, a new verb" entry): one JSON document per model, one entry per
+texture slot, naming the tier/fdid/resolved name/alternate count/miss
+reason `sources::Catalog::texture()` already computed — built specifically
+so `unfillable_texture_task.py`/`texture_dedup_collision_task.py` (which
+deliberately avoid a real `husk export` per file today, at 132k-file
+corpus scale — see that task's own doc comment) don't have to start paying
+that cost just to stop re-deriving resolution by hand. Converting the four
+tasks themselves to actually call it is still open, deliberately left for
+a peer session's own follow-up pass rather than done here.
+
 The rule to write into `tools/CORPUS_SCANS.md` alongside this: a task that reads
 raw bytes must say in its own docstring **which** husk understanding it is
 deliberately going behind, so the next reader can tell a considered exception
