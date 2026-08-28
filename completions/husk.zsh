@@ -113,6 +113,7 @@ _husk() {
         resolve)
             _arguments \
                 '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
                 '(-i --input)'{-i,--input}'[the .m2 file to export]:value:_files' \
                 '(-s --skin)'{-s,--skin}'[a .skin path, or auto]:value:_husk_skin_value' \
                 '--skin-dir[skin-search directory, or none]:value:_husk_dir_or_none_value' \

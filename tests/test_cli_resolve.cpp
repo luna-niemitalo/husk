@@ -179,3 +179,48 @@ TEST_CASE("husk resolve: --skin/--skin-dir/--lod share export's exact grammar --
 
     fs::remove_all(dir);
 }
+
+TEST_CASE("husk resolve and export --explain-textures agree on the same slot -- the drift this "
+          "ledger exists to expose, pinned so a divergence fails here instead of silently "
+          "mis-attributing a tier to a corpus task") {
+    // Found for real, not hypothetically: `resolve` shipped without
+    // `export`'s config-file wiring, so a configured listfile reached one
+    // command and not the other and four slots on a real character model
+    // reported tier 3 here while `export` resolved them via tier 2. Same
+    // question, two answers -- exactly what REFACTOR/README.md's I2 forbids.
+    // A config file is what diverged, so this test supplies one rather than
+    // passing --listfile explicitly (which both commands already honored).
+    auto dir = defaultsDir("resolve-agrees");
+    writeFile(dir / "agreetex.m2", oneTexturedModel(1018799));
+    writeFile(dir / "agreetex00.skin", oneTexturedModelSkin());
+    auto corpusRoot = dir / "corpus";
+    fs::create_directories(corpusRoot / "character/human/male");
+    writeFile(corpusRoot / "character/human/male/deathknighteyeglow.png", {'L', 'I', 'S', 'T'});
+    {
+        std::ofstream f(dir / "listfile.csv");
+        f << "1018799;character/human/male/deathknighteyeglow.blp\n";
+    }
+    {
+        std::ofstream f(dir / "config.toml");
+        f << "listfile = \"" << (dir / "listfile.csv").string() << "\"\n";
+    }
+    auto configArg = " --config " + (dir / "config.toml").string();
+
+    auto resolved = runHusk("resolve " + (dir / "agreetex.m2").string() + " --textures " +
+                             corpusRoot.string() + configArg);
+    CHECK(resolved.exitCode == 0);
+    auto doc = parseJsonFromMixedOutput(resolved.output);
+    REQUIRE(doc.has_value());
+    REQUIRE((*doc)["slots"].size() == 1);
+    auto tier = (*doc)["slots"][0]["tier"].get<std::string>();
+    CHECK(tier == "listfile");
+
+    auto exported = runHusk("export " + (dir / "agreetex.m2").string() + " --textures " +
+                             corpusRoot.string() + " --explain-textures --output " +
+                             (dir / "agreetex.glb").string() + configArg);
+    CHECK(exported.exitCode == 0);
+    // The prose ledger must name the same tier resolve just reported.
+    CHECK(exported.output.find(tier + " HIT") != std::string::npos);
+
+    fs::remove_all(dir);
+}

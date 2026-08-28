@@ -238,6 +238,10 @@ _husk_completions() {
             ;;
         resolve)
             case "$prev" in
+                --config)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
                 --input|-i)
                     COMPREPLY=($(compgen -f -- "$cur"))
                     return
@@ -276,7 +280,7 @@ _husk_completions() {
                     ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --input -i --skin -s --skin-dir --lod --textures -t --textures-out --listfile --listfile-root --object-skin-texture-id" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --input -i --skin -s --skin-dir --lod --textures -t --textures-out --listfile --listfile-root --object-skin-texture-id" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
