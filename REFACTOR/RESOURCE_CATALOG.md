@@ -38,6 +38,13 @@ reached — which tier fired, which directory, which fallback, and for a name,
 which source (I6). That is not diagnostics bolted on; it is what makes I4 true
 and what makes the stage-1 migration gate affordable to run.
 
+The type itself (`husk::sources::Resolved<T>`, `ResolutionTier`, `tierName`)
+now exists — `src/sources/resolved.hpp`, landed as pure scaffolding ahead of
+the `Catalog` object per `REFACTOR_LOG.md`'s 2026-08-28 "Resolved<T>
+scaffolding" entry, the same "boring infrastructure first" pattern
+`db2_cache.hpp` used. Nothing constructs one yet — no tier below has been
+migrated to report provenance through it.
+
 A miss is a first-class answer with a reason, not an empty optional the caller
 has to guess about. `FOREIGN_DATA.md` §2 already requires expected-vs-actual on
 failure; today that requirement is met unevenly, per call site.

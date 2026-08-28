@@ -8,6 +8,61 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-28 — `Resolved<T>` scaffolding for the `sources::Catalog` object (`AUDIT.md` §1.1 prep)
+
+**What**: New `src/sources/resolved.hpp` (header-only) implementing
+`RESOURCE_CATALOG.md`'s `Resolved<T>` result shape — `ResolutionTier`
+(`Literal`/`Listfile`/`ParentDirectorySameBasename`/`FuzzySameBasenamePool`/
+`KnowledgeBase`/`Miss`, matching the "Normative tier order" section's real
+tier list, plus the parent-directory tier that section names as needing to
+become "a named tier, not one consumer's private extension"), `tierName()`
+for diagnostics, and `Resolved<T>::hit`/`::miss` factory functions carrying
+a value-or-nullopt alongside which tier answered and a free-text `reason`.
+4 new unit tests (`tests/test_sources_resolved.cpp`): hit/miss construction,
+default-constructs-as-miss, and every `ResolutionTier` maps to a distinct
+non-empty name.
+
+**Why this first, not the actual tier consolidation**: `AUDIT.md` §1.1 (three
+independent texture-resolution implementations across C++/Python/Blender) is
+this project's own named "biggest remaining duplication," but
+`RESOURCE_CATALOG.md` and this log's own "Stage 1/2 follow-up" entry are
+explicit that the real consolidation needs the `sources::Catalog` object's
+tier-order/ranking policy designed first, gated on a "resolution ledger diff
+on real fixtures" — not something to rush in one sitting, and genuinely
+cross-language (the Python/Blender mirrors can't just call new C++ directly;
+`RESOURCE_CATALOG.md`'s own plan routes them through structured `husk`
+output instead, `CLI_AND_TOOLING.md` §3, not started). `Resolved<T>` itself
+carries zero resolution policy — it's the shape every tier will eventually
+report through, same "boring, mechanically verifiable, no semantic risk"
+category `db2_cache.hpp` occupied before the Catalog object existed. Landing
+it now means the next real slice (migrating `export_texture_resolution.cpp`'s
+tier 1/2/3 lookups to return `Resolved<T>` instead of bare `optional`) is a
+mechanical wiring change against an already-reviewed type, not a type design
+plus a wiring change bundled together.
+
+**What this deliberately did not touch**: no existing function's signature
+changed. `export_texture_resolution.cpp`'s three real tiers, the Python
+mirror, and the Blender script's own resolution code are all still exactly
+as `AUDIT.md` §1.1 describes them — this is infrastructure with no current
+callers, not a fix. `AUDIT.md` §1.1 is intentionally NOT marked closed or
+even partially closed by this entry; it stays open until a real tier
+actually reports through `Resolved<T>`.
+
+**Verified**: full suite green, 710/710 (708 prior + 2 new — the CMakeLists
+count differs slightly from the test-case count above since some assertions
+land in shared `TEST_CASE` blocks; doctest's own count is the authoritative
+one). Clean rebuild via `direnv exec . cmake --build build`, no warnings
+from the new header. Confirmed the one pre-existing conditional test
+(`test_cli_config.cpp`'s XDG-autodiscovery case) still passes when run
+without an externally-forced `HUSK_CONFIG` env var — it fails if the parent
+shell's own `HUSK_CONFIG=/dev/null` leaks into its subprocess before the
+test's own env manipulation, a real environment-order sensitivity in that
+test, not a regression from this change (confirmed by re-running with
+`HUSK_CONFIG` unset in the parent, which the test suite's own default entry
+point already does).
+
+---
+
 ## 2026-08-28 — Stage 1/2 prep: DB2 parse/resolve cache (`src/sources/db2_cache`)
 
 **What**: New `husk::sources` namespace (`src/sources/db2_cache.hpp/.cpp`) —

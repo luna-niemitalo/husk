@@ -19,7 +19,8 @@ is the record, not this document.
 ### 1.1 "Which real bytes does a texture slot resolve to" — three implementations
 
 (Was four; `missing_texture_task.py`, the 1-tier outlier, is deleted — see
-§11 below.)
+`REFACTOR_LOG.md`'s "AUDIT.md §11 closed" entry, since §11 itself is gone
+now that it's fixed.)
 
 | Where | Tiers implemented | Notes |
 |---|---|---|

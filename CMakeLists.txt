@@ -164,6 +164,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_listfile.cpp
     tests/test_db2table.cpp
     tests/test_sources_catalog.cpp
+    tests/test_sources_resolved.cpp
     tests/test_cli_db2.cpp
     tests/test_cli_blp_export.cpp
     tests/test_cli_chrmodel.cpp
