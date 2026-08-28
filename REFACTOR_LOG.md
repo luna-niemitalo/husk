@@ -220,3 +220,78 @@ notes a fully-unset run would, and a clean export (exit 0, 195498
 vertices/45418 triangles/245 bones/338 clips) — confirming `'none'`
 disables the feature even when a *different* real flag in the same
 group is still given, not just when both are absent.
+
+---
+
+## 2026-08-28 — Three subagent tasks: README.md's stale Blender-addon
+claim fixed, `AUDIT.md` §9/§10 closed/flagged, §1 flag grouping in
+progress
+
+Spawned three isolated-worktree subagents in parallel on independent
+`AUDIT.md` items, per Luna's own request, then reviewed and merged each
+by hand rather than trusting their own "done" claims.
+
+**Agent 1 (DESIGN.md/README.md non-goal fix) — landed, half redundant**:
+the agent's worktree was branched from `19e3ab6`, several commits behind
+`master` — it never saw `31cfff7` ("Add REFACTOR/..."), which turned out
+to have *already* fixed `DESIGN.md`'s stale "No Blender addon" non-goal
+that same day, with different (strikethrough + "Superseded, 2026-08-28")
+phrasing. The agent's `DESIGN.md` diff would have duplicated/conflicted
+with that, so it was **discarded**. Its `README.md` fix (the Roadmap
+section's identical stale claim — "husk doesn't write a Blender addon
+itself... Blender-side concerns... are explicitly out of scope" — which
+`31cfff7` never touched) was still genuinely needed and **was applied**,
+by hand, adapted to point at `DESIGN.md`'s now-different phrasing rather
+than cherry-picking the agent's commit verbatim. `AUDIT.md` §9 (both
+bullets — the Blender-addon claim and the separately-already-fixed
+`cmd_export.cpp` layout-ID comment from two commits ago) is now fully
+resolved and removed.
+
+**Agent 2 (file-size ceiling exception comments) — correctly refused,
+real blocker found**: the task asked for one-line exception comments per
+`FILE_SIZE.md` §4's format. The agent discovered `FILE_SIZE.md` **does
+not exist anywhere in this repo's history** (`git log --all
+--diff-filter=A -- FILE_SIZE.md` — never committed, on any branch) —
+despite being cited as real by `AUDIT.md` §10 itself,
+`REFACTOR/BLENDER_ADDON.md:46`, and two `tests/test_integration*.cpp`
+files. Rather than fabricate a plausible-sounding exception-category
+taxonomy that might contradict whatever was actually intended, the agent
+stopped and reported the blocker — the right call. `AUDIT.md` §10 updated
+to state this explicitly: the *policy* (1000-line ceiling, §4 comment
+requirement) is real and consistently referenced, but the document that
+was supposed to define it never got written. This item can't close via
+comment-writing alone; it needs `FILE_SIZE.md` authored first, which is
+Luna's call, not something to guess at autonomously.
+
+**Agent 3 (`->group()` flag taxonomy, `CLI_AND_TOOLING.md` §1) — reapplied
+by hand, not merged**: same root problem as Agent 1 — this worktree also
+branched from `19e3ab6`, so its `src/cmd_export.cpp` predates every commit
+this session made to that file (`ae04e39`'s `'none'` support and help-text
+updates, most recently). Rather than resolve a diverged three-way merge,
+took the agent's own grouping decisions (verified correct against
+`CLI_AND_TOOLING.md` §1's table) and reapplied `->group("...")` to all 27
+call sites (26 `add_option`/`add_flag` + the `--config` `set_config()`) by
+hand on the current file. Two real discrepancies the agent found and
+flagged, both confirmed independently before trusting them: `--textures`
+exists in code but isn't in the table at all (placed under "Input /
+output" — the agent's own judgment call, kept, since it sits with
+`--textures-out`/`--slim-textures` and controls I/O-adjacent behavior, not
+resolution policy the way `--skin-dir`/`--bones-dir` do); `--format` is in
+the table but doesn't exist anywhere in the code (left alone — not
+invented).
+
+**Verified independently** (not just the agent's own claims): full suite
+green, 700/700 in the real environment (694 + tonight's various additions,
+0 regressions) — the agent's own reported "643/643, 52 skipped" was a
+fixture-availability artifact of running from an isolated worktree missing
+several `HUSK_TEST_*`-relevant symlinks/env, not a real discrepancy.
+`husk export --help` shows all 7 group headers (`Diagnostics`, `Input /
+output`, `Batch`, `Model sidecars`, `Game data`, `Character`, `Appearance /
+gear`) in registration order. Diffed `--print-completion=bash`/`=zsh`
+output byte-for-byte before and after — confirmed identical, so
+`completions/` correctly needed no regeneration (the generator walks
+`get_options()` directly, not the formatted `--help` groups).
+
+**Overall verified**: full suite green, 700/700, after all of this
+entry's changes (the README.md fix, both `AUDIT.md` trims, and the flag
+grouping) landed together.

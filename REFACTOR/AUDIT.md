@@ -223,21 +223,24 @@ The fix is subtraction, not relocation — see `CLI_AND_TOOLING.md` §4.
 
 ---
 
-## 9. Doc/reality drift
-
-- `DESIGN.md:142-143` states as a non-goal: *"No Blender addon. A `.glb` file
-  Blender's stock importer can open is the entire deliverable."* There are
-  ~4,150 lines of Blender Python in `tools/` implementing an addon in all but
-  packaging.
-- `src/cmd_export.cpp:919-923` still comments that husk "has no way to derive a
-  layout ID on its own." Auto-derivation has existed since 2026-08-21.
-
----
-
 ## 10. File-size ceiling
 
 `FILE_SIZE.md` sets a 1000-line ceiling, and §4 requires any file past it to
-carry a one-line comment naming which exception applies. None of these do:
+carry a one-line comment naming which exception applies. **Blocked: `FILE_SIZE.md`
+itself does not exist anywhere in this repo or its git history** (checked
+`git log --all --diff-filter=A -- FILE_SIZE.md` — never added, on any
+branch), despite being cited as if real here and in
+`REFACTOR/BLENDER_ADDON.md:46` and two `tests/test_integration*.cpp` files.
+The *policy* (1000-line ceiling, §4 exception-comment requirement) is
+referenced consistently enough to be a real convention someone intended to
+write down — the document itself just never got committed. Adding the
+per-file exception comments below needs `FILE_SIZE.md` to exist first, so
+this item can't be closed by comment-writing alone; it needs `FILE_SIZE.md`
+authored (its §4 exact exception categories/comment format aren't
+recoverable from any of the citing call sites, which only ever reference it
+by name).
+
+None of these four carry the required comment:
 
 | File | Lines |
 |---|---|

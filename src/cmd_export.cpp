@@ -482,16 +482,19 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
     app.set_config("--config", husk::defaultConfigPath(),
                     "TOML file of default flag values (see README.md's config-file "
                     "section) -- explicit CLI flags always override a config value")
-        ->envname("HUSK_CONFIG");
+        ->envname("HUSK_CONFIG")
+        ->group("Diagnostics");
 
     // Not ->required() here even though single-file mode needs it -- --from-list
     // mode (below) takes its model paths from a file instead, so requiredness is
     // enforced by hand after parsing (see exportGlb), once it's known which mode
     // this invocation is actually in.
-    app.add_option("-i,--input,input", opts.modelPath, "the .m2 file to export");
+    app.add_option("-i,--input,input", opts.modelPath, "the .m2 file to export")
+        ->group("Input / output");
     app.add_option("-o,--output,output", opts.outputPath,
                     "output .glb path (default: '<model-basename>.glb') -- mutually exclusive "
-                    "with --from-list, which always writes into --output-dir instead");
+                    "with --from-list, which always writes into --output-dir instead")
+        ->group("Input / output");
     app.add_option("--from-list", opts.fromListArg,
                     "batch mode: a plain text file of .m2 paths, one per line (blank lines and "
                     "'#'-prefixed comment lines skipped) -- exports every one of them with the "
@@ -500,12 +503,14 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "'--from-list <ids-file> <out-dir>' shape casc-tool's own 'extract-batch' has. "
                     "Requires --output-dir instead of --output; one file failing is reported and "
                     "skipped, not fatal to the rest of the batch -- see the run's own final "
-                    "'N succeeded, M failed' summary line");
+                    "'N succeeded, M failed' summary line")
+        ->group("Batch");
     app.add_option("--output-dir", opts.outputDirArg,
                     "directory to write each --from-list entry's .glb into (named "
                     "'<model-basename>.glb', or '<parent-dir-name>_<model-basename>.glb' if two "
                     "entries in the same batch share a basename) -- required alongside "
-                    "--from-list, meaningless without it");
+                    "--from-list, meaningless without it")
+        ->group("Batch");
     app.add_option("-s,--skin", opts.skinArg,
                     "a .skin path, or 'auto' to resolve via the model's own SFID chunk, falling "
                     "back to a same-basename numbered scan next to the model if that doesn't "
@@ -520,15 +525,18 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                 }
                 return "";
             },
-            "SKIN");
+            "SKIN")
+        ->group("Model sidecars");
     app.add_option("-t,--textures", opts.texturesArg,
                     "directory of already-converted '<FileDataID>.png' files, raw '<FileDataID>.blp' "
                     "files (decoded and embedded in-memory, no separate husk-blp step needed), or "
-                    "'none' to skip embedding images (default: the model's own directory)");
+                    "'none' to skip embedding images (default: the model's own directory)")
+        ->group("Input / output");
     app.add_option("--textures-out", opts.texturesOutArg,
                     "directory to also write each --textures .blp's decoded .png to, mirroring its "
                     "location under --textures (default: unset -- decoded textures stay in-memory "
-                    "only, embedded straight into the .glb, nothing written to disk)");
+                    "only, embedded straight into the .glb, nothing written to disk)")
+        ->group("Input / output");
     app.add_flag("--slim-textures", opts.slimTextures,
                  "write resolved base-color textures as real '<output-dir>/textures/<name>.png' "
                  "files (named by real FileDataID when known, else the resolved source filename) "
@@ -537,40 +545,48 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                  "produces a much smaller .glb for a real character export, at the cost of the "
                  ".glb no longer being a single self-contained file (the 'textures/' directory "
                  "must travel with it). Additional-texture-layer and ambiguous-candidate extras "
-                 "images stay embedded regardless -- see README.md");
+                 "images stay embedded regardless -- see README.md")
+        ->group("Input / output");
     app.add_option("--skin-dir", opts.skinDirArg,
                     "directory 'auto' searches for the SFID-declared '<FileDataID>.skin' file, or "
-                    "'none' to skip that stage (default: the model's own directory)");
+                    "'none' to skip that stage (default: the model's own directory)")
+        ->group("Model sidecars");
     app.add_option("-a,--anim", opts.animArg,
                     "'auto': inline + global-sequence + best-effort external directory search; "
                     "'inline': inline + global-sequence only, no external search; 'none': no "
                     "animation clips at all (bind pose only); or a directory of "
                     "'<FileDataID>.anim' files, falling back to "
                     "'<model-basename><animId>-<subId>.anim' when a FileDataID-named file isn't found")
-        ->capture_default_str();
+        ->capture_default_str()
+        ->group("Model sidecars");
     app.add_option("--skel", opts.skelArg,
                     "external .skel path (only relevant for a model with 0 inline bones), or "
                     "'none' to never look for one (default: a same-basename '.skel' next to the "
-                    "model, if any)");
+                    "model, if any)")
+        ->group("Model sidecars");
     app.add_option("--lod", opts.lodArg,
                     "'<n>' or 'all' -- only meaningful when --skin resolves via 'auto' (default: "
-                    "entry 0)");
+                    "entry 0)")
+        ->group("Model sidecars");
     app.add_option("--bones-dir", opts.bonesDirArg,
                     "directory of already-extracted '<FileDataID>.bone' files (per the model's/"
                     "'.skel's BFID array), or 'none' to skip (default: the model's own directory) "
-                    "-- attached as inert glTF extras only, never applied to the render");
+                    "-- attached as inert glTF extras only, never applied to the render")
+        ->group("Model sidecars");
     app.add_option("--phys", opts.physArg,
                     "external .phys path (per the model's own PFID scalar), or 'none' to never "
                     "look for one (default: a same-basename '.phys' next to the model, if any) -- "
                     "a minimal per-body placement anchor is attached as inert glTF extras; the "
-                    "full body/shape/joint record set is available via 'husk dump-chunks' instead");
+                    "full body/shape/joint record set is available via 'husk dump-chunks' instead")
+        ->group("Model sidecars");
     app.add_flag("--collision", opts.collisionRequested,
                  "include the collision mesh, when present, as real (unskinned) geometry tagged "
                  "{\"collision\": true} in glTF extras -- off by default, since Blender's stock "
                  "importer has no concept of that tag and renders it like any other mesh, and the "
                  "collision hull is often larger than and visually occludes the real character; "
                  "the full body/shape/joint record set is also always available via "
-                 "'husk dump-chunks'");
+                 "'husk dump-chunks'")
+        ->group("Model sidecars");
     app.add_option("--db2-dir", opts.db2DirArg,
                     "directory of real, already-extracted character/creature DB2 files "
                     "(chrmodelmaterial.db2/charcomponenttexturesections.db2/"
@@ -583,27 +599,31 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "attach real DB2 extras; unset (default) skips these features entirely, same as "
                     "every other opt-in sidecar. 'none' explicitly opts out even when --config/"
                     "$HUSK_CONFIG supplies a value -- the one per-invocation override a config "
-                    "default previously had no way to disable");
+                    "default previously had no way to disable")
+        ->group("Game data");
     app.add_option("--dbd-dir", opts.dbdDirArg,
                     "a local WoWDBDefs checkout (github.com/wowdev/WoWDBDefs), used to resolve "
                     "--db2-dir's real column names -- required alongside --db2-dir/"
                     "--char-layout-id or --db2-dir/--customization-choice-ids, same role as "
                     "`husk db2-export`'s own --dbd-dir. 'none' explicitly opts out even when "
-                    "--config/$HUSK_CONFIG supplies a value");
+                    "--config/$HUSK_CONFIG supplies a value")
+        ->group("Game data");
     app.add_option("--char-layout-id", opts.charLayoutIdArg,
                     "a real CharComponentTextureLayoutsID (see `husk db2-export`) to filter "
                     "--db2-dir's data down to. Optional -- unset (default) auto-derives it from "
                     "the resolved --chr-model-id's own real ChrModel.CharComponentTextureLayoutID "
                     "column (same auto|none|<id> derivation --chr-model-id itself already uses; "
                     "--chr-model-id none disables this too); an explicit value always overrides. "
-                    "Requires --db2-dir/--dbd-dir either way");
+                    "Requires --db2-dir/--dbd-dir either way")
+        ->group("Character");
     app.add_option("--customization-choice-ids", opts.customizationChoiceIdsArg,
                     "comma-separated real ChrCustomizationChoiceID(s) to resolve against "
                     "--db2-dir -- attaches each choice's real geoset selection as "
                     "'enabled_geosets' skin extras, and marks "
                     "any matching --bones-dir correction set with 'selected_by_choice_ids'; "
                     "requires --db2-dir/--dbd-dir too, doesn't filter/apply anything itself, same "
-                    "inert-extras treatment as --char-layout-id");
+                    "inert-extras treatment as --char-layout-id")
+        ->group("Character");
     app.add_option("--appearance", opts.appearanceArg,
                     "a husk-appearance/1 string (src/appearance_string.hpp) -- an alternative, "
                     "superset way to drive customization/gear resolution in one flag: its 'cust' "
@@ -615,7 +635,8 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "exclusive with --customization-choice-ids (pick one); requires --db2-dir/"
                     "--dbd-dir, same as every other DB2-driven enrichment here. 'race'/'sex' fields "
                     "are informational only -- --chr-model-id's own existing auto-derivation is still "
-                    "what determines the resolved character identity");
+                    "what determines the resolved character identity")
+        ->group("Appearance / gear");
     app.add_option("--chr-model-id", opts.chrModelIdArg,
                     "a real ChrModelID (see ChrModel.db2 / `husk db2-export`), the literal 'auto' to "
                     "derive one automatically, or 'none' to explicitly disable derivation. Same "
@@ -640,27 +661,31 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "client-verified default the way --creature-display-id's geoset selection is "
                     "(no DB2 table states an explicit player default), husk's own heuristic instead "
                     "-- see TODO/TODO_correctness.md #2. Ignored when --customization-choice-ids is "
-                    "also given (an explicit pick always wins); requires --db2-dir/--dbd-dir too");
+                    "also given (an explicit pick always wins); requires --db2-dir/--dbd-dir too")
+        ->group("Character");
     app.add_option("--creature-display-id", opts.creatureDisplayIdArg,
                     "a real CreatureDisplayInfoID (see `husk db2-export`) to resolve against "
                     "--db2-dir's creaturedisplayinfogeosetdata.db2 -- attaches that display's real "
                     "*default* geoset selection as 'creature_enabled_geosets' skin extras (unlike "
                     "--customization-choice-ids, this is a true default, not a per-choice pick); "
                     "husk has no way to derive which display ID applies to a given .m2 model on its "
-                    "own, so this must be supplied directly; requires --db2-dir/--dbd-dir too");
+                    "own, so this must be supplied directly; requires --db2-dir/--dbd-dir too")
+        ->group("Character");
     app.add_option("--object-skin-texture-id", opts.objectSkinTextureIdArg,
                     "a real texture FileDataID to fill into any type=2 (object_skin) texture "
                     "slot that has no FileDataID of its own -- husk can't derive this on its "
                     "own (it needs the real ItemDisplayInfo/TextureFileData DB2 chain resolved "
                     "externally), so it must be supplied directly; unset (default) leaves those "
-                    "slots unresolved, same as before this flag existed");
+                    "slots unresolved, same as before this flag existed")
+        ->group("Appearance / gear");
     app.add_option("--knowledge-db", opts.knowledgeDbArg,
                     "husk's own pre-built knowledge-base SQLite database (`husk db2-build`, "
                     "TODO/KNOWLEDGE_BASE_DESIGN.md) -- when given, resolves this model's own "
                     "object-skin texture automatically (via the database's own model->texture "
                     "mapping, keyed by the model's FileDataID under --listfile-root), instead of "
                     "requiring --object-skin-texture-id per invocation; --object-skin-texture-id "
-                    "still wins if both are given");
+                    "still wins if both are given")
+        ->group("Diagnostics");
     app.add_option("--listfile", opts.listfileArg,
                     "a local community-listfile.csv-style snapshot (FileDataID;path per line, "
                     "github.com/wowdev/wow-listfile) -- last-resort fallback when a "
@@ -669,7 +694,8 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "instead, before falling back to the same-basename fuzzy pool. Optional; unset "
                     "(default) skips this tier entirely, same as every other opt-in sidecar -- "
                     "never fetched by husk itself, same tier as --dbd-dir's WoWDBDefs checkout. "
-                    "'none' explicitly opts out even when --config/$HUSK_CONFIG supplies a value");
+                    "'none' explicitly opts out even when --config/$HUSK_CONFIG supplies a value")
+        ->group("Game data");
     app.add_option("--listfile-root", opts.listfileRootArg,
                     "the corpus root --listfile's paths are relative to -- deliberately separate "
                     "from --textures, since --textures also drives the *directory-local* "
@@ -677,7 +703,8 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "is typically many directories away from any one model. Only meaningful "
                     "alongside --listfile; ignored otherwise. Default: --textures itself, for the "
                     "case where a single directory happens to serve both roles. 'none' explicitly "
-                    "opts out even when --config/$HUSK_CONFIG supplies a value");
+                    "opts out even when --config/$HUSK_CONFIG supplies a value")
+        ->group("Game data");
 }
 
 // Forward declaration: exportGearAuxItemModels (below) recursively calls

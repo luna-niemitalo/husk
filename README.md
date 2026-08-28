@@ -1144,13 +1144,15 @@ locally as a directory, `wowdev-wiki/md/WDL/`). All: not started.
 ## Roadmap: modern M2 → Blender, via glTF
 
 The eventual goal is a real Blender import path — mesh, skeleton, textures,
-materials, and animation, for a *modern* (Legion+ chunked) M2. husk doesn't
-write a Blender addon itself; the target is a sensible glTF 2.0 export
-(binary `.glb`, core PBR metallic-roughness material model) that Blender's
-own built-in glTF importer can open unmodified. That keeps husk's job
-scoped to "read WoW formats, write correct glTF" — Blender-side concerns
-(addon UI, live reimport, etc.) are explicitly out of scope unless the
-glTF path turns out to be insufficient.
+materials, and animation, for a *modern* (Legion+ chunked) M2. The core
+target is still a sensible glTF 2.0 export (binary `.glb`, core PBR
+metallic-roughness material model) that Blender's own built-in glTF importer
+can open unmodified — but `tools/` has since grown substantial Blender-side
+tooling beyond that (`husk_blender_geoset_mask.py`/`husk_blender_options_panel.py`:
+Geometry Nodes switches, shader node graphs, jiggle-physics wiring, a
+registered `View3D` panel), run as standalone scripts, not yet packaged as an
+installable Blender addon — see `DESIGN.md`'s Non-goals for the current/target
+split, and `REFACTOR/BLENDER_ADDON.md` for the tracked packaging plan.
 
 The order below is a dependency chain, not a wishlist — each stage only
 makes sense once the one before it works, and each is meant to be a

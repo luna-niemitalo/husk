@@ -18,11 +18,23 @@ already knows.
 
 ## 1. Taxonomy: 26 flags, no groups
 
-`export` registers 26 options (`cmd_export.cpp:491-673`) with **zero
+**Done** (`src/cmd_export.cpp`'s `addExportOptions`, see `REFACTOR_LOG.md`'s
+2026-08-28 entry) — every option below now carries a real `->group(...)`
+call; `husk export --help` shows the 7 headers below instead of one flat
+list. Two real discrepancies found while doing this, neither invented:
+`--textures` exists in code but was missing from the table entirely (placed
+under "Input / output"); `--format` is in the table but doesn't exist in
+code at all (left alone). `--print-completion` output is confirmed
+byte-identical before/after, since the completion generator walks
+`get_options()` directly rather than the formatted `--help` groups — so
+`completions/` needed no regeneration for this change specifically.
+
+`export` used to register 26 options (`cmd_export.cpp:491-673`) with **zero
 `->group()` calls** — `CLI.md` §1's flat-namespace failure verbatim: one
 undifferentiated list the user must hold entirely in memory or re-search.
 
-Proposed grouping, each nameable in under three words (`CLI.md` §2.1):
+The grouping actually used, each nameable in under three words (`CLI.md`
+§2.1):
 
 | Group | Flags |
 |---|---|
@@ -46,7 +58,9 @@ Three grammars for one shape of question today (`AUDIT.md` §7):
 - `--anim` — four-state: `auto` / `inline` / `none` / path
 - `--skin`, `--textures`, `--skin-dir`, `--skel`, `--bones-dir`, `--phys` —
   three-state
-- `--db2-dir`, `--dbd-dir`, `--listfile`, `--listfile-root` — two-state
+- `--db2-dir`, `--dbd-dir`, `--listfile`, `--listfile-root` — **was**
+  two-state; now three (`value` / unset / `'none'`), see "The state that
+  *is* missing" below — **done**.
 
 ### Why `auto` is not universal — write this down
 
@@ -63,20 +77,32 @@ point at external tools and checkouts with no canonical location; an `auto`
 there would be husk guessing at someone's filesystem layout and being
 confidently wrong. Guessing is worse than asking.
 
-### The state that *is* missing is `none`
+### The state that *was* missing is `none`
 
-Since config-file defaults landed, a configured `listfile` / `db2-dir` cannot be
-switched off for a single invocation. There is no per-flag opt-out at all.
+**Done** (`src/cmd_export.cpp`, `REFACTOR_LOG.md`'s 2026-08-28 entry) —
+`--db2-dir`/`--dbd-dir`/`--listfile`/`--listfile-root` all accept `'none'`
+now, explicitly overriding a `--config`/`$HUSK_CONFIG`-supplied value for a
+single invocation. Deliberately scoped to `export` only — `db2-build`'s own
+same-named flags are all `->required()` (no off-state is meaningful when
+the command can't do anything without them), and `db2-info`/
+`appearance-string` never got `--config` wiring in the first place, so
+they have no config default to opt back out of. Shell completions made
+subcommand-aware (`bashValueCompletion`/`zshValueAction` now take the
+subcommand name) so `'none'` is only suggested where it's actually
+honored.
 
-The evidence that this is a real gap rather than a theoretical one:
-`tests/run_husk.hpp` has to blank the **entire** config
-(`HUSK_CONFIG=/dev/null`) on every subprocess spawn to get a clean run — because
-three tests were silently picking up this machine's real `~/.config/husk/config.toml`
-and failing for reasons unrelated to what they were testing.
-
-So: add `none` to those four flags. Two real states plus unset — explicitly
-*not* the same three states `--skin`/`--textures` have, and the docs should say
-so rather than implying one uniform rule.
+Previously: since config-file defaults landed, a configured `listfile` /
+`db2-dir` couldn't be switched off for a single invocation at all — no
+per-flag opt-out existed. The evidence this was a real gap rather than a
+theoretical one: `tests/run_husk.hpp` has to blank the **entire** config
+(`HUSK_CONFIG=/dev/null`) on every subprocess spawn to get a clean run —
+because three tests were silently picking up this machine's real
+`~/.config/husk/config.toml` and failing for reasons unrelated to what
+they were testing. (`run_husk.hpp`'s blanket `HUSK_CONFIG=/dev/null` stays
+as-is even after this fix — it's still the right blanket safety net for
+every *other* test that doesn't care about config behavior specifically;
+only the tests exercising `'none'` itself pass `--config` explicitly to
+work around it.)
 
 ---
 
