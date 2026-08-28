@@ -60,3 +60,47 @@ implicit exercise via existing `test_db2table.cpp` cases, 0 regressions).
 No behavior change intended or observed — `husk export`/`husk db2-export`
 CLI-tier tests exercising the DB2 chains (`chrmodel`, `chrcustomization`,
 `chrrace`, `texturefiledata`, `animationdata`) all pass unchanged.
+
+---
+
+## 2026-08-28 — Stage 1/2 follow-up: `attachCharTextureLayout`'s own double `chrrace::load`
+
+**What**: Traced whether last entry's cache actually closed `AUDIT.md`
+§1.3 in full, per that section's own claim ("`chrrace::load` runs from
+three call sites... each call re-parses"). Confirmed every DB2 consumer in
+this codebase goes through `db2table::readNamedColumns`/
+`readNamedStringColumns` (grepped all nine `*_db2.cpp` modules), so the
+raw-parse duplication is now genuinely gone everywhere, not just for
+`chrrace`. But found one real duplication the cache doesn't reach:
+`attachCharTextureLayout` (`src/export_extras.cpp:656`) calls
+`tryDeriveChrModelId` — which loads a full `chrrace::Data` internally
+just to derive one ID and then discards it — and then, three lines later,
+calls `chrrace::load` *again* on the same `(db2Dir, dbdDir)` to get the
+data back. Two `chrrace::Data` builds (vector construction, joins) back to
+back in one function call, every time `--chr-model-id auto` (the default)
+resolves for `--char-layout-id` auto-derivation.
+
+Fixed by giving `tryDeriveChrModelId` an optional out-param
+(`std::optional<chrrace::Data>* raceDataOut = nullptr`, default keeps the
+other two call sites — `attachCustomizationChoices`' two branches —
+untouched) that hands back the `chrrace::Data` it already built.
+`attachCharTextureLayout` now only calls `chrrace::load` itself in the
+explicit-`--chr-model-id`-value branch, where `tryDeriveChrModelId` was
+never called at all.
+
+**Why this one, not §1.1/§1.2 next**: `RESOURCE_CATALOG.md`'s real
+texture-resolution/FileDataID-path consolidation (§1.1/§1.2) needs the
+`sources::Catalog` object itself designed first — a multi-file, semantics-
+touching change this project's own gate ("resolution ledger diff on real
+fixtures") says shouldn't be rushed. This was a same-shape, same-file,
+mechanically verifiable follow-up already flagged by the audit, cheap to
+verify in isolation.
+
+**Verified**: full suite green, 694/694, identical assertion count to the
+pre-change baseline (0 regressions). Real end-to-end smoke test against
+local data (`husk export test_data/character/bloodelf/female/
+bloodelffemale_hd.m2 --db2-dir /media/luna/data/wow_export/dbfilesclient
+--dbd-dir reference/WoWDBDefs`): output unchanged from the historical
+baseline recorded in `CLAUDE.md`'s Resume section — ChrModelID 20, layout
+122, 17 default choices — confirming the removed reload was genuinely
+redundant, not silently load-bearing.

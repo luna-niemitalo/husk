@@ -331,11 +331,17 @@ std::optional<uint32_t> findFileDataIdForModelPath(const std::unordered_map<uint
 // even when the caller only gave --customization-choice-ids (no
 // --chr-model-id at all) -- see that function's own doc comment for why.
 // Returns nullopt (with a reason already reported to `err`) on any real
-// failure -- never a guess.
+// failure -- never a guess. `raceDataOut`, when non-null, receives the same
+// chrrace::Data this function loads to derive the ID -- lets a caller that
+// also needs the raw table data avoid AUDIT.md #1.3's exact shape of
+// duplication (attachCharTextureLayout used to call chrrace::load a second
+// time immediately after this function's own internal call, discarding
+// nothing but the wall-clock cost of redoing it).
 std::optional<uint32_t> tryDeriveChrModelId(const std::string& db2Dir, const std::string& dbdDir,
                                              const std::string& modelPath,
                                              const std::unordered_map<uint32_t, std::string>& listfile,
-                                             const std::string& listfileRoot, std::ostream& err) {
+                                             const std::string& listfileRoot, std::ostream& err,
+                                             std::optional<chrrace::Data>* raceDataOut = nullptr) {
     std::optional<chrrace::Data> raceData = chrrace::load(db2Dir, dbdDir, err);
     if (!raceData) {
         err << "husk: note: --chr-model-id auto: no chrraces.db2/chrracexchrmodel.db2/"
@@ -343,6 +349,7 @@ std::optional<uint32_t> tryDeriveChrModelId(const std::string& db2Dir, const std
             << db2Dir << "' -- skipping\n";
         return std::nullopt;
     }
+    if (raceDataOut) *raceDataOut = raceData;
 
     // Primary path: the model's own real FileDataID (via --listfile),
     // resolved through CreatureModelData/CreatureDisplayInfo/ChrModel --
@@ -683,6 +690,7 @@ void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDi
         return;
     } else {
         std::optional<uint32_t> resolvedChrModelId;
+        std::optional<chrrace::Data> raceData;
         if (!chrModelIdArg.empty() && chrModelIdArg != "auto") {
             try {
                 resolvedChrModelId = static_cast<uint32_t>(std::stoul(chrModelIdArg));
@@ -694,11 +702,16 @@ void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDi
             }
         } else {
             resolvedChrModelId =
-                tryDeriveChrModelId(db2Dir, dbdDir, modelPath, listfile, listfileRoot, std::cerr);
+                tryDeriveChrModelId(db2Dir, dbdDir, modelPath, listfile, listfileRoot, std::cerr, &raceData);
             if (!resolvedChrModelId) return;  // tryDeriveChrModelId already reported why
         }
 
-        std::optional<chrrace::Data> raceData = chrrace::load(db2Dir, dbdDir, std::cerr);
+        // Explicit --chr-model-id skips tryDeriveChrModelId entirely, so
+        // raceData is still empty in that branch -- load it now. The auto
+        // branch above already populated it via raceDataOut, so this is a
+        // no-op there (AUDIT.md #1.3: this used to be an unconditional
+        // second chrrace::load right after tryDeriveChrModelId's own).
+        if (!raceData) raceData = chrrace::load(db2Dir, dbdDir, std::cerr);
         if (!raceData) {
             std::cerr << "husk: note: no ChrModel.db2 data resolved from '" << db2Dir
                       << "' -- can't auto-derive --char-layout-id -- skipping character "
