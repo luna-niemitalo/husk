@@ -173,12 +173,13 @@ matter.
 
 ### Also
 
-- `missing_texture_task.py` is superseded by `unfillable_texture_task.py` by its
-  own module doc, yet remains runnable — delete it, rather than continuing to
-  warn about it in `CLAUDE.md`'s Hazards.
-- `shader_id_task.py` / `shader_names_task.py` justify their own raw parsers
-  with a claim that is no longer true (husk parses `Batch::shaderId` at
-  `skin.cpp:195`). Re-check, then convert.
+Both done — see `REFACTOR_LOG.md`'s entry closing `AUDIT.md` §11:
+`missing_texture_task.py` deleted (was superseded by
+`unfillable_texture_task.py` by its own module doc); `shader_id_task.py`'s
+stale "husk parses no shader_id" claim corrected (husk does parse it,
+`skin.hpp`/`m2_shader_names.hpp`, but nothing exposes it structurally yet —
+converting the task itself stays blocked on `CLI_AND_TOOLING.md` §3's
+structured-output work below, not started).
 
 ---
 

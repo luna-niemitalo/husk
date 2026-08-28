@@ -28,7 +28,7 @@ no_objectcomponents.txt already excludes item/objectcomponents/ wholesale
 mis-sort it.
 
 Uses `husk info` per file (matches this project's own existing
-missing_texture_task.py/expansion_task.py convention: read exactly what
+unfillable_texture_task.py/expansion_task.py convention: read exactly what
 husk's own resolution logic sees, not a second, possibly-diverging
 struct-unpack of the format).
 
@@ -71,7 +71,7 @@ def _husk_info_lines(path: Path) -> list[str]:
 class ParticleOnlyTask:
     GLOB_PATTERNS = ["*.m2"]
     FIELDNAMES = ["vertex_count", "material_count", "blend_modes", "particle_emitter_count"]
-    PARALLEL_MODE = "process"  # shells out to husk per file, same cost profile as missing_texture_task
+    PARALLEL_MODE = "process"  # shells out to husk per file, same cost profile as unfillable_texture_task
     BATCH_SIZE = 8
 
     @staticmethod

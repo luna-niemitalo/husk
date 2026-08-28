@@ -116,9 +116,9 @@ Applied to all 18 modules under `tools/corpus_scan_tasks/` (15 scan tasks plus
 | `example_texture_count.py` | **Structured output.** It is the copy-paste template, so it must model the right pattern. |
 | `casc_size_mismatch_task.py` | **Mixed.** Catalog for FileDataID↔path; the size comparison against CASC's own report is genuinely external, keep it raw. |
 | `dangling_references_task.py` | **Mixed.** Excavation by purpose (finding broken internal references), but its `_find_same_basename_skins` duplicates sidecar resolution — that half moves to the catalog. |
-| `shader_id_task.py` | **Reclassify.** Its docstring says husk parses no `shader_id`; husk has since `skin.cpp:195`. Re-check, then almost certainly structured output. |
-| `shader_names_task.py` | Same — `m2_shader_names.hpp` now resolves these. |
-| `missing_texture_task.py` | **Delete.** Superseded by `unfillable_texture_task.py` by its own admission. |
+| `shader_id_task.py` | **Re-checked, still raw for now.** Its stale docstring (said husk parses no `shader_id`) is fixed. Reclassifying to structured output turned out premature: husk parses `shaderId`/resolves its name internally (`skin.hpp`/`m2_shader_names.hpp`) but neither `husk info` nor `dump-chunks` exposes either anywhere yet — no structured output exists to consume. Docstring now states this explicitly (the excavation-escape-hatch rule this section itself sets), so the raw read is a considered exception, not an unconverted leftover; revisit once `CLI_AND_TOOLING.md` §3's `husk info --json`/`husk resolve` lands. |
+| `shader_names_task.py` | Same underlying fact (`m2_shader_names.hpp` resolves these internally, nothing structured to consume yet) — but its own docstring already said so before this pass; no fix needed. |
+| `missing_texture_task.py` | **Done.** Deleted — was superseded by `unfillable_texture_task.py` by its own admission; every reference to it elsewhere (`CORPUS_SCANS.md`, `TOOLS.md`, sibling task comments) repointed or historicized. |
 | `build_render_sample.py` / `render_sample_driver.py` | Drivers, not scan tasks — their `CORPUS_ROOT`/`HUSK_BIN`/`LISTFILE` copies are `CLI_AND_TOOLING.md` §4's problem, not this file's. |
 | `render_glb.py` | Neither — a headless Blender render script. Becomes an addon-driven preview, see `BLENDER_ADDON.md`. |
 

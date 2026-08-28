@@ -117,16 +117,16 @@ measured before/after (backoff count + files/sec, against a directory
 or sample actually representative of the corpus's worst case, not just
 whatever `--limit N` happens to grab) written into a comment next to
 the value. Never copy a batch size from another task's file without
-checking the new task's own latency profile — `missing_texture_task.py`
-and `unfillable_texture_task.py` do superficially similar work
-(`husk info` per file) but have very different per-file cost shapes
-once one of them also does directory-listing work.
+checking the new task's own latency profile — the historical case that
+established this rule: a deleted predecessor of `unfillable_texture_task.py`
+(`missing_texture_task.py`, superseded and removed, see git history) did
+superficially similar work (`husk info` per file) but had a very
+different per-file cost shape once it also did directory-listing work.
 
 ## Existing tasks, for reference
 
 | Task | What it checks |
 |---|---|
-| `missing_texture_task.py` | Texture FileDataIDs with no literal same-directory `.blp`/`.png` (over-flags anything husk's fuzzy fallback would actually resolve — see `unfillable_texture_task.py` for the corrected version) |
 | `unfillable_texture_task.py` | Actually-used texture slots (via `texture_lookup`) with no literal *and* no fuzzy-same-basename local file — nothing husk's real resolution could find |
 | `m2_full_validation_task.py` | Full per-file structural validation: header parse, rich export, dump-chunks, fidelity/finite/mesh-completeness checks |
 | `shader_names_task.py` / `shader_id_task.py` | Pixel/vertex shader usage frequency across real batches |

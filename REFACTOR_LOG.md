@@ -343,3 +343,69 @@ rebuilt and tested; both Python files independently confirmed to still
 parse via `ast.parse` through `tools/venv`'s own interpreter). `AUDIT.md`
 §10 removed outright now that it's genuinely closed, not just
 worked around.
+
+---
+
+## 2026-08-28 — `AUDIT.md` §11 closed: `missing_texture_task.py` deleted,
+`shader_id_task.py`'s stale claim corrected (partially — real blocker
+found)
+
+**`missing_texture_task.py`**: superseded by `unfillable_texture_task.py`
+per its own module doc, but still present and runnable — the exact
+"future session picks the wrong one" risk `CLAUDE.md`'s own Hazards
+section already had to warn about. Moved to `./trash/` (not `rm`, per
+this loop's own instruction). Verified no code depends on it (grep across
+`tools/` found only comment-level "same cost profile as"/"matches this
+convention" mentions, no imports) before moving it, then fixed every
+surviving reference rather than leaving them dangling: `tools/CORPUS_SCANS.md`'s
+task table (row removed) and its own "rule going forward" paragraph
+(rephrased to cite the deleted file as historical precedent, not a live
+example); `particle_only_task.py`/`casc_size_mismatch_task.py`'s
+comparison comments repointed at `unfillable_texture_task.py` (dropped
+one comparison entirely rather than inventing a citation
+`unfillable_texture_task.py` doesn't actually support — the `_unresolved/`
+FileDataID convention isn't documented in either survivor, only casc-tool's
+own README); `unfillable_texture_task.py`'s own docstring updated to
+describe superseding a deleted file rather than differing from a live
+one; `TOOLS.md`'s tool catalog (entry removed, it's current-state
+documentation, unlike `CLAUDE.md`'s session-narrative mentions which were
+left alone as accurate history); `TODO/RENDER_QUALITY_TODO.md`'s one
+cross-reference repointed.
+
+**`shader_id_task.py`**: confirmed the stale claim directly — its
+docstring said *"husk currently parses no field of M2Batch's on-disk
+shader_id"*; `src/skin.hpp:70`/`skin.cpp:195` (`Batch::shaderId`) and
+`src/m2_shader_names.hpp` (`resolveShaderNames`) both do, and the exact
+byte offsets the Python task hand-parses (`_SHADER_ID_OFFSET = 0x02`,
+`_TEXTURE_COUNT_OFFSET = 0x0E`, `_BATCH_STRIDE = 0x18`) were checked
+directly against `skin.cpp`'s real `parseBatches` and confirmed to match.
+Fixed the false claim. **But the reclassification `RESOURCE_CATALOG.md`
+itself predicted ("almost certainly structured output") turned out
+premature, not just a rename**: grepped `cmd_info.cpp`/`cmd_dump.cpp` for
+any consumer of `shaderId`/`resolveShaderNames` and found none — both are
+used *only* internally by `export_materials.cpp`. Neither `husk info` nor
+`husk dump-chunks` exposes this field or its resolved name anywhere in
+their own output today, so there is currently nothing structured for the
+corpus task to consume instead of reading raw bytes. Rewrote the
+docstring to state this explicitly, satisfying `RESOURCE_CATALOG.md`'s
+own excavation-escape-hatch rule ("a task that reads raw bytes must say
+in its own docstring which husk understanding it is deliberately going
+behind") — the raw read is now a documented, considered exception, not
+an unconverted leftover, pending `CLI_AND_TOOLING.md` §3's structured-
+output work (`husk info --json`/`husk resolve`, not started).
+`shader_names_task.py` was checked too (same underlying fact) and found
+to already document this correctly — no fix needed there, confirmed by
+reading rather than assumed from `RESOURCE_CATALOG.md`'s table alone.
+
+`RESOURCE_CATALOG.md`'s own corpus-task classification table and
+`CLI_AND_TOOLING.md` §4's "Also" bullets updated to match the real,
+partial disposition (docstring fixed; reclassification blocked on real,
+cited, unstarted work) rather than left claiming a clean "Delete"/
+"Reclassify" that oversimplifies what's actually true now. `AUDIT.md`
+§11 removed outright, both items genuinely resolved.
+
+**Verified**: full suite green, 700/700 (unaffected by this entry --
+C++ untouched). All four edited Python files independently confirmed to
+still parse via `ast.parse`. Swept for dangling `missing_texture_task`
+references across the whole repo afterward; every remaining hit is a
+deliberate historical/explanatory mention, not a live dependency.

@@ -109,16 +109,6 @@ produce something a human looks at, not a CSV.
   machine's own download location, gitignored, never fetched by this
   script). Every result (pass/fail/skip) is appended to a live-tailable log
   the instant it's known, not batched to the end.
-- `corpus_scan_tasks/missing_texture_task.py` — a `corpus_scan_framework`
-  `ScanTask` (see above): flags every `.m2` referencing a FileDataID-named
-  texture slot with no exact `<FileDataID>.{blp,png}` file next to the
-  model. On its own this is mostly a false-positive detector (a real
-  extraction commonly keeps files under their real name elsewhere in the
-  tree, which isn't a bug) — see this task's own module docstring and
-  `casc-tool`'s `FAILURES.md` item 13 for the real cross-referencing
-  methodology (against a real listfile *and* a full local `.blp` path
-  index) needed to separate a genuine gap from a naming-convention
-  mismatch. Motivated `husk export --listfile`/`--listfile-root`.
 - `corpus_scan_tasks/expansion_task.py` — a `corpus_scan_framework`
   `ScanTask` tagging every `.m2` with its real M2 version, wowdev.wiki
   expansion label, and a coarse support tier (unsupported/sketchy/

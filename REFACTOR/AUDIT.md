@@ -16,14 +16,16 @@ is the record, not this document.
 
 ## 1. Duplicated resolution
 
-### 1.1 "Which real bytes does a texture slot resolve to" — four implementations
+### 1.1 "Which real bytes does a texture slot resolve to" — three implementations
+
+(Was four; `missing_texture_task.py`, the 1-tier outlier, is deleted — see
+§11 below.)
 
 | Where | Tiers implemented | Notes |
 |---|---|---|
 | `src/export_texture_resolution.cpp` | 3 (literal FileDataID → listfile → fuzzy same-basename pool) | The real one. `export_materials.cpp:397-560` drives it. |
 | `tools/corpus_scan_tasks/unfillable_texture_task.py:16-31` | 3, hand-mirrored | Its own docstring names the mirroring as deliberate. |
-| `tools/corpus_scan_tasks/missing_texture_task.py` | 1 (literal only) | Its own module doc admits it over-flags anything the other tiers would resolve. |
-| `tools/husk_blender_geoset_mask.py:1550-1607` | 2 + parent-dir glob + `husk blp-export` subprocess | Different tier order *and* a different fallback set from all three above. |
+| `tools/husk_blender_geoset_mask.py:1550-1607` | 2 + parent-dir glob + `husk blp-export` subprocess | Different tier order *and* a different fallback set from both above. |
 
 This shape has already caused one real incident: tier 2 was silently dropped
 from the Python mirror during a rewrite, and a real 18,742-file CASC
@@ -221,17 +223,3 @@ Two consequences:
 
 The fix is subtraction, not relocation — see `CLI_AND_TOOLING.md` §4.
 
----
-
-## 11. Stale claims inside the corpus tooling itself
-
-- `tools/corpus_scan_tasks/shader_id_task.py`'s own docstring states *"husk
-  currently parses no field of M2Batch's on-disk shader_id"* — and builds its own
-  raw parser on that basis. husk has parsed it since
-  `src/skin.cpp:195` (`Batch::shaderId`, `skin.hpp:70`), with real name
-  resolution in `src/m2_shader_names.hpp`. The task is duplicating a parser that
-  now exists, on the strength of a comment that is no longer true.
-- `tools/corpus_scan_tasks/missing_texture_task.py` is superseded outright by
-  `unfillable_texture_task.py` — its own module doc says it over-flags — but it
-  is still present and still runnable, so a future session can pick the wrong one
-  the same way `CLAUDE.md`'s Hazards section has to warn against.

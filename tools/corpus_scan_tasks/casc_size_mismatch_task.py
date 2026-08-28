@@ -21,10 +21,9 @@ mapping instead of each process paying its own ~5s CASC-list cost (see
 CORPUS_SCANS.md's own guidance on when "thread" is the right call).
 
 Corpus files under `_unresolved/` (CascLib's own `FILE########.dat`
-convention for FileDataIDs the listfile can't name -- see this project's
-`missing_texture_task.py` and casc-tool's README) are matched by decoding
-that hex FileDataID and looking it up directly, since they have no
-listfile-resolved name to match by.
+convention for FileDataIDs the listfile can't name -- see casc-tool's own
+README) are matched by decoding that hex FileDataID and looking it up
+directly, since they have no listfile-resolved name to match by.
 
 A mismatch here doesn't by itself prove corruption -- a locally newer/
 older CASC build than the one the corpus was exported from would show

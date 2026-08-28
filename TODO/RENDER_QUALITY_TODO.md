@@ -410,8 +410,8 @@ listed here so they aren't lost:
 Not a husk render repro — spotted directly in-game (mount collection UI),
 flagged here because it's directly relevant to this file's own
 `missing_texture_or_shader` classification theme (§5/§6) and to
-`missing_texture_task.py`/`unfillable_texture_task.py`
-(`CLAUDE_HISTORY.md`).
+`unfillable_texture_task.py` (`missing_texture_task.py`'s superseding
+replacement — see `CLAUDE_HISTORY.md`).
 
 The mount **Sundered Zerethsteed** (a Zereth Mortis reward mount — cervid/
 ungulate model, corrupted-by-Mawsworn per its own tooltip) is real,

@@ -2,17 +2,17 @@
 resolve to nothing local -- no literal FileDataID .blp/.png, no listfile-
 resolved real-name path, and no same-basename fuzzy candidate either
 (husk export's own three resolution tiers, mirrored here). Cheap by
-design (`husk info`, header-only, no export -- same shape as
-missing_texture_task.py), NOT a full `husk export` per file: an earlier
-version of this task shelled out to real `husk export` per file to get
-its exact embedded-texture count, which is correct but does a full
-mesh/skin build + image embed + .glb write for all 130k files -- turned
-a ~10-minute scan into a multi-hour one for no accuracy this task
-actually needs. Corrected after direct feedback.
+design (`husk info`, header-only, no export), NOT a full `husk export`
+per file: an earlier version of this task shelled out to real `husk
+export` per file to get its exact embedded-texture count, which is
+correct but does a full mesh/skin build + image embed + .glb write for
+all 130k files -- turned a ~10-minute scan into a multi-hour one for no
+accuracy this task actually needs. Corrected after direct feedback.
 
-Different from missing_texture_task.py (which only checks the literal
-`<FileDataID>.blp/.png` path and therefore over-flags anything husk's
-listfile or fuzzy fallback would actually resolve) -- this task mirrors
+Supersedes and replaces the now-deleted `missing_texture_task.py` (which
+only checked the literal `<FileDataID>.blp/.png` path and therefore
+over-flagged anything husk's listfile or fuzzy fallback would actually
+resolve, per its own module doc, see git history) -- this task mirrors
 all three of husk's real tiers, in husk's own precedence order
 (export_materials.cpp:437-456): (1) literal `<FileDataID>.blp/.png` next
 to the model, (2) --listfile lookup (a real corpus export commonly keeps

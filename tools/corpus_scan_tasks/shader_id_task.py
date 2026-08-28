@@ -1,10 +1,21 @@
 """Real M2Batch::shader_id corpus scan, for TODO/MULTI_TEXTURE_LAYER_TODO.md.
 
-husk currently parses no field of M2Batch's on-disk shader_id (offset 0x02,
-see src/skin.cpp's parseBatches) despite it being the one field that makes
-the Cata+ combiner-formula-selection question tractable without a WotLK-era
-heuristic derivation (see wowdev.wiki M2/.skin.wiki's M2GetPixelShaderID/
-M2GetVertexShaderID). This task answers, over the *full* local corpus (not
+husk does parse M2Batch's on-disk shader_id (offset 0x02, `m2::Batch::shaderId`,
+src/skin.hpp/.cpp) and resolve it to real shader names
+(`m2::resolveShaderNames`, src/m2_shader_names.hpp/.cpp) -- this docstring's
+own earlier claim that it didn't is stale (REFACTOR/AUDIT.md caught it).
+Both are consumed internally by `export_materials.cpp` alone, though:
+neither `husk info` nor `husk dump-chunks` exposes shaderId/the resolved
+name anywhere in their own JSON/text output today, so there is currently
+no structured husk output this task could consume instead of reading raw
+bytes itself (REFACTOR/RESOURCE_CATALOG.md's excavation-escape-hatch rule:
+a raw-byte read is a considered exception, not an unconverted leftover,
+once it says here which husk understanding it's going behind -- this is
+that statement). Re-parsing here transcribes the exact same offsets/struct
+layout `src/skin.cpp`'s `parseBatches` uses, so it should be revisited if a
+structured-output surface for this field ever lands
+(REFACTOR/CLI_AND_TOOLING.md §3's `husk info --json`/`husk resolve`, not
+started). This task answers, over the *full* local corpus (not
 a hand-picked sample): how often is the 0x8000 table-lookup path used, how
 often is textureCount > 1, and how often does a real multi-texture batch
 carry shader_id == 0 (which would make it un-resolvable either way).
