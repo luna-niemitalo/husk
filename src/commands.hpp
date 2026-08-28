@@ -175,6 +175,8 @@ struct ExportOptions {
     std::string fromListArg;
     std::string outputDirArg;
     bool slimTextures = false;
+    // REFACTOR/README.md's I4 -- see the flag's own --help text.
+    bool explainTextures = false;
 };
 
 // Declares every export flag (names, defaults, descriptions, the `--skin

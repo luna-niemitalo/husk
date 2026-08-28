@@ -815,3 +815,31 @@ TEST_CASE("husk export: a '_sdr' model with no non-'_sdr' fallback candidates ei
 
     fs::remove_all(dir);
 }
+
+TEST_CASE("husk export --explain-textures: the resolution ledger is a read operation (I4), "
+          "naming the tier and file behind every slot -- and silent without the flag") {
+    auto dir = defaultsDir("explaintextures");
+    writeFile(dir / "explainmale.m2", oneTexturedModelWithType(1));
+    writeFile(dir / "explainmale00.skin", oneTexturedModelSkin());
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+    writeFile(dir / "explainmale_skin_body.png", onePixelPng);
+
+    auto quiet = runHusk("export " + (dir / "explainmale.m2").string());
+    CHECK(quiet.exitCode == 0);
+    CHECK(quiet.output.find("sources::Catalog:") == std::string::npos);
+
+    auto loud = runHusk("export --explain-textures " + (dir / "explainmale.m2").string());
+    CHECK(loud.exitCode == 0);
+    CHECK(loud.output.find("sources::Catalog:") != std::string::npos);
+    // The tier that actually answered, and the file it picked -- not just
+    // "a texture was found".
+    CHECK(loud.output.find("fuzzy-same-basename-pool HIT") != std::string::npos);
+    CHECK(loud.output.find("explainmale_skin_body") != std::string::npos);
+
+    fs::remove_all(dir);
+}

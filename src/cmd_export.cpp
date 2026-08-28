@@ -582,6 +582,14 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "location under --textures (default: unset -- decoded textures stay in-memory "
                     "only, embedded straight into the .glb, nothing written to disk)")
         ->group("Input / output");
+    app.add_flag("--explain-textures", opts.explainTextures,
+                 "after exporting, print the texture-resolution ledger: for every texture slot, "
+                 "which tier answered it (literal / listfile / fuzzy same-basename pool / "
+                 "knowledge base), which file it resolved to, whether the pool was genuinely "
+                 "ambiguous, and on a miss the reason it failed -- off by default. Use this to "
+                 "diff resolution behavior before vs. after a change, rather than inferring it "
+                 "from the export summary")
+        ->group("Diagnostics");
     app.add_flag("--slim-textures", opts.slimTextures,
                  "write resolved base-color textures as real '<output-dir>/textures/<name>.png' "
                  "files (named by real FileDataID when known, else the resolved source filename) "
@@ -1219,6 +1227,14 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         }
 
         printExportSummary(outputPath, vertices, bones, animations, namedMeshes, renderMeshCount);
+        // I4: which tier answered each texture slot is a read operation, not
+        // something inferred from the summary above after the fact. This is
+        // also what makes REFACTOR/README.md's stage-1 gate (a resolution
+        // ledger diffed before vs. after a resolution change) affordable to
+        // run at all -- without it the ledger exists only inside the object.
+        if (opts.explainTextures) {
+            std::cout << catalog.describe();
+        }
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "husk: export failed: " << e.what() << "\n";

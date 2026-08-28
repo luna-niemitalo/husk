@@ -104,7 +104,7 @@ two more, diffing stdout/stderr and the output `.glb` byte-for-byte:
 |---|---|---|
 | `test_data/character/bloodelf/female/bloodelffemale_hd.m2` | 25 fuzzy/ambiguous matches (default `--textures`) | identical |
 | `nightelffemale_hd.m2` (`--textures` at the real corpus dir) | a real 218-candidate ambiguous pool on one slot | identical |
-| `creature/wolf/wolf.m2` (incl. `--lod all`, 2 tiers) | 2 fuzzy/ambiguous matches, exercising cross-tier pool sharing | identical |
+| `creature/wolf/wolf.m2` (single-LOD only — see the correction below) | 2 fuzzy/ambiguous matches | identical |
 | `item/objectcomponents/weapon/sword_1h_artifactskywall_d_06.m2` | 13 fuzzy/ambiguous matches | identical |
 | `item/objectcomponents/shoulder/lshoulder_robe_d_01.m2` `--knowledge-db` | real KB hit, exercises `registerPathOverride` | identical |
 
@@ -113,15 +113,37 @@ significance. The four tiers already agreed with each other in the real
 C++ implementation before this pass (the drift `AUDIT.md` §1.1 documents is
 against the *Python/Blender* mirrors, untouched here); consolidating them
 into one object changed where the tier order lives, not any resolution
-outcome. The `--lod all` case was worth checking specifically since sharing
-one `Catalog`/pool across LOD tiers (new) could in principle diverge from
-each tier rescanning its own fresh pool (old behavior) — empirically, for
-this real 2-tier fixture, it didn't: LOD tiers of one model reference the
-same M2 texture-array entries, so the same slots ask the same questions and
-get the same memoized answers either way. Not proven exhaustively for every
-possible corpus shape, only verified on this one real case — flagged for a
-second look if a future corpus scan ever needs `--lod all` alongside a
-`Catalog`-sharing change again.
+outcome.
+
+**Correction, from the independent verification pass (same day).** The
+original version of this entry claimed the `--lod all` multi-tier case was
+exercised and found byte-identical. **It was not, and cannot currently be**:
+`husk export test_data/creature/wolf/wolf.m2 --lod all` *fails* — `auto`
+resolves SFID entry 0 but not entry 1, since the corpus names LOD skins
+`<basename>_lod01.skin` while `auto` looks for `<basename>1.skin` (the
+pre-existing gap already tracked as `TODO/CLEANUP_TODO.md`'s `--skin auto` +
+`--lod` item). The ledger row compared two *failed* exports, which are indeed
+identical to each other and prove nothing. Re-checked against the real corpus
+too (`nightelffemale_hd.m2 --lod all`, 7 real LOD tiers on disk): same
+failure, same cause. **No fixture in `test_data/` has more than one `.skin`
+at all**, so there is currently no way to run this case.
+
+The change is therefore **real and unverified**, and it deserves naming
+plainly rather than leaving inside a "not proven exhaustively" hedge. Before
+this pass, `buildMaterialsAndPrimitives` built its own `FuzzyTexturePool` per
+call — its own comment said "scanned once per skin/LOD" — so each LOD tier
+got a *fresh* pool. Now one `Catalog` spans every tier of a model. Reading
+the code, the outcome should be *better*, not merely equal: `texture()`
+memoizes per `(modelPath, textureSlotIndex)`, and LOD tiers of one model
+share both, so every tier now returns one agreed answer, where the old
+fresh-pool-per-tier design could hand two tiers different files for the same
+slot depending on batch order (claim-and-remove is order-sensitive). That is
+a plausible fix, not a regression — but it is reasoning, not measurement, and
+this project's gate is measurement.
+
+Verifying it needs a real multi-LOD fixture husk can actually resolve, which
+is blocked on the `--skin auto` + `--lod` gap above. Recorded here rather
+than closed.
 
 ---
 
