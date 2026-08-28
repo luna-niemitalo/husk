@@ -8,6 +8,94 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-29 — `AUDIT.md` §1.1/§4: retire the Blender script's private texture-resolution mirror
+
+**What**: `tools/husk_blender_geoset_mask.py`'s `_find_husk_binary`/
+`_convert_blp_to_png_cached` are deleted outright — the script no longer
+shells out to a `husk` binary (found via `PATH` or `../build/husk`) to
+run `blp-export` at Blender-import time. `_resolve_customization_texture_path`
+is reduced from "PNG or BLP, auto-converting BLP via the subprocess above"
+to PNG-only filesystem lookup (still textures dir + parent dir, both
+tiers unchanged); a `.blp`-only match is now reported by name and skipped,
+not converted. `import subprocess`/`shutil`/`tempfile` removed (no other
+call sites). Same portability argument that already moved `.phys` data
+into the export itself rather than shelling out at import time (I3;
+`CLAUDE.md`'s Resume has that precedent) — a `.glb` is not guaranteed to
+travel with a `husk` binary next to it.
+
+**Why not delete the fallback outright**: measured first, per the brief.
+Instrumented the resolution loop (temporarily, reverted before
+committing) and ran real headless Blender imports against two real
+fixtures (`nightelffemale_hd`, real corpus data; `bloodelffemale_hd`,
+`test_data/`), both with and without `--textures`. Commit `a86b07f`'s
+embedded-image path (`_find_embedded_customization_image`, reading
+husk's own same-basename ambiguity-pool candidates straight out of the
+`.glb`) is indeed the primary path — 81/559 nightelf, 24/826 bloodelf
+choice-texture considerations resolved there. But the filesystem fallback
+is not dead: **7/559 (1.25%) on nightelf, 0/826 on bloodelf**, every one
+of the 7 a real eye-color customization choice (`eyes00_00_3509222.blp`
+etc.) that husk's export never embeds, because it carries a real, distinct
+FileDataID and so never enters the same-basename ambiguity pool the
+embedded path reads from (that pool only exists for hardcoded slots with
+*no* FileDataID to disambiguate by). This is a real, identifiable class,
+not noise — so per the brief's own fork, the fallback stays, documented,
+and the finding (husk's export should eventually embed every real
+per-choice texture, not only ambiguous ones) is recorded in `AUDIT.md`
+§1.1 for `src/` to close later, out of this session's scope (`src/` was
+off-limits, peer agents working there).
+
+**Verification, all real headless `blender --background` runs, not
+"ran without erroring"**:
+- Before/after material-switch counts on nightelf: 5 materials switched
+  both before this change (subprocess converting the 7 `.blp`s live) and
+  after, *given* the caller pre-converts once via
+  `husk blp-export --dir <dir> <out-dir>` (verified: converted the real
+  local eye-color `.blp`s this way, pointed `--textures` at the output
+  dir, got 5/5 again, zero `husk` subprocess calls). Without
+  pre-conversion, 4/5 (the 5th is exactly the 7 skipped choices, each
+  named individually in the printed skip message) — a loud, documented,
+  one-time-fixable drop, not a silent one. bloodelf: 1/1 materials
+  unchanged either way (0 fallback hits there).
+- Pixel-level check (not just image-count): all 7 fallback-loaded eye
+  images confirmed to carry distinct real pixel content via a headless
+  pixel-hash comparison (7/7 distinct hashes, real 256x128 textures).
+- **No `husk` binary reachable**: confirmed by code inspection (zero
+  `subprocess`/`shutil.which` call sites remain anywhere in the file) and
+  by running under the flake dev shell, whose `PATH` was independently
+  confirmed to carry no `husk` binary at all (`shutil.which("husk")`
+  fails there even before this change).
+- Both `husk_blender_geoset_mask.py` and `husk_blender_options_panel.py`
+  still run standalone with zero arguments (against a pre-populated,
+  saved `.blend`) and with a `.glb` argument (fresh scene) — 4 real
+  headless runs covering both files × both modes, all clean, no
+  `FAILED stage` lines, no exceptions attributable to this change (one
+  unrelated pre-existing Blender extension-incompatibility warning and
+  one unrelated transient crash during Blender's own glTF animation
+  import, both reproduced/explained, neither touching this code path).
+
+**Step 3 (shared module for the duplicated helpers) — investigated,
+left alone, reason recorded in-place**: see `AUDIT.md` §4's updated
+entry and the grounded comment now in
+`tools/husk_blender_options_panel.py:87-104` — a real headless
+round-trip proved `__file__` for a registered embedded Text datablock is
+a synthetic, non-filesystem value, so a `__file__`-relative sibling
+import would break the one deployment mode
+(`husk_blender_options_panel.py` self-installing from inside a `.blend`
+with zero setup) that file exists separately to serve. Not a
+precautionary "might diverge" call anymore — a demonstrated blocker.
+
+**Deliberately not touched**: `tools/corpus_scan_tasks/
+unfillable_texture_task.py`'s own hand-mirrored resolution tiers
+(explicitly off-limits this session — peer agents working in
+`tools/corpus_scan_tasks/`); `src/`'s own export-side gap this session's
+finding points at (embedding every real per-choice texture, not only
+same-basename-ambiguous ones) — also off-limits (`src/`); the geoset
+vertex-group naming duplication in `husk_blender_options_panel.py`
+(`:73-84`) — same `__file__` blocker as the helper functions, not
+revisited as a separate case.
+
+---
+
 ## 2026-08-29 — `CLI_AND_TOOLING.md` §3: `husk resolve`, a new verb for the texture-resolution ledger
 
 **What**: a new `husk resolve <model.m2> [--skin/--skin-dir/--lod/--textures/

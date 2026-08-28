@@ -361,10 +361,7 @@ import ast
 import glob
 import os
 import re
-import shutil
-import subprocess
 import sys
-import tempfile
 
 import bmesh
 import bpy
@@ -1487,70 +1484,6 @@ M2_TEXTURE_TYPE_NAME = {
 }
 
 
-def _find_husk_binary():
-    """Locates the real `husk` binary (not `blp/`'s standalone `husk-blp`
-    Python package, a superseded predecessor kept only as an independent
-    reference implementation -- see `blp-export`'s own doc comment on
-    `_convert_blp_to_png_cached` below): `PATH` first (the flake's own
-    dev shell puts a build of it there), then this repo's own
-    `build/husk` relative to this script's own location (the common case
-    when this script is run without the flake env activated first --
-    real interactive use, this session). Returns None if neither exists;
-    callers degrade to reporting a `.blp`-only match rather than failing.
-    """
-    exe = shutil.which("husk")
-    if exe:
-        return exe
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    candidate = os.path.join(script_dir, "..", "build", "husk")
-    return candidate if os.path.isfile(candidate) else None
-
-
-def _convert_blp_to_png_cached(blp_path, file_data_id):
-    """Auto-converts `blp_path` to a real PNG via `husk blp-export`,
-    cached by FileDataID under the system temp dir (`file_data_id`s are
-    globally unique WoW asset identifiers, so this cache is safe to reuse
-    across every run/model/session, not just this one invocation) --
-    real usability fix, prompted directly: an earlier version of this
-    script made the caller manually run `husk blp-export --dir ...`
-    ahead of time as a separate step, which real interactive use (Luna,
-    this session) flagged as exactly the kind of ceremony `husk export`
-    itself already avoids for its own embedded textures (real `.blp`
-    files are auto-detected and decoded in-memory there, no separate
-    step -- see `--textures`'s own `--help` text). This makes the
-    Blender-side path match that same "auto-detect and convert, don't
-    make the user run a second tool" behavior, using `husk blp-export`
-    (the exact same C++ decoder `husk export` itself uses internally,
-    unlike `blp/`'s older, now-superseded standalone Python
-    implementation) as a subprocess since this script's own Python
-    (Blender's bundled interpreter) can't reach husk's internal C++ code
-    directly. Returns None (and prints why) if no `husk` binary is found
-    or the conversion itself fails -- never fatal to the rest of the
-    switch, same as every other per-choice resolution failure here.
-    """
-    cache_dir = os.path.join(tempfile.gettempdir(), "husk_blp_cache")
-    out_path = os.path.join(cache_dir, f"{file_data_id}.png")
-    if os.path.isfile(out_path):
-        return out_path
-
-    husk_bin = _find_husk_binary()
-    if husk_bin is None:
-        return None
-
-    os.makedirs(cache_dir, exist_ok=True)
-    try:
-        result = subprocess.run([husk_bin, "blp-export", blp_path, out_path],
-                                 capture_output=True, text=True, timeout=30, check=False)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"husk_blender_geoset_mask: 'husk blp-export {blp_path}' failed: {exc}")
-        return None
-    if result.returncode != 0 or not os.path.isfile(out_path):
-        print(f"husk_blender_geoset_mask: 'husk blp-export {blp_path}' failed: "
-              f"{result.stderr.strip() or result.stdout.strip()}")
-        return None
-    return out_path
-
-
 def _resolve_customization_texture_path(textures_dir, file_data_id):
     """`<textures_dir>/<file_data_id>.png` first -- the exact-name
     convention every other husk texture resolution already uses
@@ -1564,14 +1497,31 @@ def _resolve_customization_texture_path(textures_dir, file_data_id):
     per-choice assets are commonly shared across every model under one
     race (real local data again: every blood elf eye-color file sits at
     `character/bloodelf/`, one level above the specific `female`/`male`
-    model folder a caller would naturally pass as `--textures`). Blender's
-    own Image Texture node can load a `.png` directly, unlike `.blp` --
-    a `.blp`-only match is auto-converted via `husk blp-export`
-    (`_convert_blp_to_png_cached`, cached by FileDataID) rather than
-    requiring the caller to run that conversion by hand first. Returns
-    None (and prints why) when nothing matches, the match is a `.blp` and
-    no `husk` binary could be found to convert it, or
-    `file_data_id`/`textures_dir` is falsy.
+    model folder a caller would naturally pass as `--textures`).
+
+    PNG only, deliberately -- REFACTOR/AUDIT.md §1.1/§4 named an earlier
+    version of this function's own `husk blp-export` subprocess (shelling
+    out to a `husk` binary found via `PATH`/`../build/husk`) as an I3
+    violation: a `.glb` is not guaranteed to travel with a `husk` binary,
+    the same portability argument that already moved `.phys` data into
+    the export itself rather than shelling out at import time (see
+    `CLAUDE.md`'s Resume). A `.blp`-only match is reported and skipped
+    here, not converted -- run `husk blp-export --dir <dir> <out-dir>`
+    once, ahead of time (output filenames mirror each input's own
+    basename, so the same suffix-glob match above still finds them), and
+    point `--textures` at the converted directory. This function still
+    fires for a real, narrow class measured against real fixtures: on a
+    real `nightelffemale_hd` export, 7 of 559 customization-choice
+    textures considered (1.25%, all real eye-color choices, e.g.
+    `eyes00_00_3509222.blp`) resolve only here -- husk's own export never
+    embeds them, because they carry real, distinct FileDataIDs and so
+    never enter the same-basename ambiguity pool that
+    `_find_embedded_customization_image` reads from (that pool only
+    exists for hardcoded slots with no FileDataID to disambiguate by).
+    Closing that gap for good is husk's own export job, not this
+    function's -- see the finding recorded in `REFACTOR/AUDIT.md` §1.1.
+    Returns None (and prints why) when nothing matches, the only match is
+    a `.blp`, or `file_data_id`/`textures_dir` is falsy.
     """
     if not textures_dir or not file_data_id:
         return None
@@ -1601,13 +1551,11 @@ def _resolve_customization_texture_path(textures_dir, file_data_id):
             break
 
     if blp_match is not None:
-        converted = _convert_blp_to_png_cached(blp_match, file_data_id)
-        if converted is not None:
-            return converted
         print(f"husk_blender_geoset_mask: customization choice texture {file_data_id} only "
-              f"matched {blp_match!r} (.blp) -- Blender can't load BLP directly, and no `husk` "
-              "binary was found to auto-convert it (checked PATH and this repo's own build/husk) "
-              "-- skipping this choice")
+              f"matched {blp_match!r} (.blp) -- Blender can't load BLP directly, and this script "
+              "no longer shells out to `husk blp-export` to convert it (I3 -- see "
+              "REFACTOR/AUDIT.md §1.1). Run `husk blp-export --dir <dir> <out-dir>` once ahead of "
+              "time and point --textures at the converted directory -- skipping this choice")
     return None
 
 

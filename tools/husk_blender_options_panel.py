@@ -90,10 +90,20 @@ _GEOSET_GROUP_SOCKET_RE = re.compile(r" \(group (\d+)\)$")
 # IDPropertyGroup/list values are live views into Blender's storage, not
 # independent copies, and can segfault Blender if read again after an
 # unrelated bone deletion -- see that file's own doc comment for the full
-# crash repro) -- NOT imported from that file, since it's under active
-# concurrent edit in a sibling session and this script is meant to stand
-# alone. If the two ever diverge, `husk_blender_geoset_mask.py`'s copy is
-# the more battle-tested one; resync from there.
+# crash repro). REFACTOR/AUDIT.md §4 named this a real duplication to fix;
+# investigated (2026-08-29) whether a shared sibling module could replace
+# both copies, and found a real, not just precautionary, blocker: this
+# file's whole reason for existing separately is running as a *registered
+# embedded Text datablock* so a `.blend` self-installs with zero setup
+# (see this file's own module docstring) -- confirmed directly via a
+# headless round-trip that in that mode `__file__` is a synthetic value
+# (`<blend path>/<text name>`, e.g.
+# `.../probe.blend/probe_text`), not a real filesystem path, so a
+# `__file__`-relative import of a sibling module resolves nothing and
+# breaks the one deployment mode this duplication exists to serve. Kept
+# as a copy for that reason. If the two ever diverge,
+# `husk_blender_geoset_mask.py`'s copy is the more battle-tested one;
+# resync from there.
 # -----------------------------------------------------------------------
 
 def _deep_copy_id_property(value):

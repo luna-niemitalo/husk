@@ -26,7 +26,7 @@ now that it's fixed.)
 |---|---|---|
 | `src/sources/catalog.cpp` (`Catalog::texture()`) | 3 (literal → listfile → fuzzy same-basename pool, incl. claim-and-remove + ambiguity) | The real one, now a single object owning the tier order — `export_materials.cpp`'s own three-way branch is gone, replaced by one `catalog.texture(...)` call. Built on `src/export_texture_resolution.cpp`'s primitives (scan/filter/order/read), which stay the shared implementation detail, not a second policy. |
 | `tools/corpus_scan_tasks/unfillable_texture_task.py:16-31` | 3, hand-mirrored | Its own docstring names the mirroring as deliberate. |
-| `tools/husk_blender_geoset_mask.py:1550-1607` | 2 + parent-dir glob + `husk blp-export` subprocess | Different tier order *and* a different fallback set from both above. |
+| `tools/husk_blender_geoset_mask.py` (`_resolve_customization_texture_path`) | 1 (PNG-only filesystem search, textures dir + parent) | **Fixed 2026-08-29** — was 2 tiers + parent-dir glob + a `husk blp-export` subprocess (PATH/`../build/husk` lookup); now a single, honestly-scoped fallback for real customization-choice textures husk's own export doesn't embed (see below), with the subprocess and PATH lookup removed outright. |
 
 This shape has already caused one real incident: tier 2 was silently dropped
 from the Python mirror during a rewrite, and a real 18,742-file CASC
@@ -77,8 +77,52 @@ own texture-*resolution* half (`_resolve_texture_path`, still shelling out
 to `husk blp-export` for pixel bytes) is the same tier-mirroring class this
 section's table already names for `unfillable_texture_task.py` — deliberately
 left untouched by that pass, still a live instance of this section's problem.
-`unfillable_texture_task.py` and `tools/husk_blender_geoset_mask.py`'s own
-mirrors remain the two real open items.
+`unfillable_texture_task.py`'s own mirror remains the one real open item;
+`tools/husk_blender_geoset_mask.py`'s is now closed (below).
+
+**`tools/husk_blender_geoset_mask.py` closed 2026-08-29**: commit `a86b07f`
+had already made husk's own same-basename ambiguity-pool candidates embed
+directly in the `.glb` (`export_texture_resolution.cpp`), which
+`_find_embedded_customization_image` reads via
+`import_unused_materials=True` — measured as the primary path on a real
+`nightelffemale_hd` export (81/559 customization-choice textures
+considered, 5 materials switched) before this fix, leaving
+`_resolve_customization_texture_path`'s filesystem mirror (2 tiers +
+parent-dir glob + `husk blp-export` subprocess) as an unmeasured
+fallback whose real firing rate this section already flagged as open.
+Measured it directly (instrumented, real headless Blender runs, both
+real fixtures, `--textures` given and omitted): the fallback fires for a
+real, narrow, identifiable class — **7 of 559 (1.25%) on
+`nightelffemale_hd`, 0 of 826 on `bloodelffemale_hd`**, every hit a real
+eye-color customization choice (e.g. `eyes00_00_3509222.blp`) that husk's
+export never embeds, because it carries a real, distinct FileDataID and
+so never enters the same-basename ambiguity pool
+`_find_embedded_customization_image` reads from (that pool only exists
+for hardcoded slots with *no* FileDataID to disambiguate by). This is a
+real gap in husk's own export, not a reason to keep a private resolver —
+closing it for good belongs in `src/` (embed every real per-choice
+texture, not only same-basename-ambiguous ones), out of this session's
+scope (`src/` was off-limits, peer agents working there).
+
+Per I3, the `husk blp-export` subprocess and its `PATH`/`../build/husk`
+binary lookup are removed outright regardless — a `.glb` is not
+guaranteed to travel with a `husk` binary (the same portability argument
+that already moved `.phys` data into the export itself, see `CLAUDE.md`'s
+Resume). The filesystem fallback itself is kept (documented, narrow,
+still fires for the real class above) but reduced to PNG-only lookup; a
+`.blp`-only match is now reported and skipped, not auto-converted — the
+caller runs `husk blp-export --dir <dir> <out-dir>` once, ahead of time
+(output filenames mirror each input's own basename, so the same
+suffix-glob still finds them). Verified end to end: with the real
+eye-color `.blp`s left unconverted, 4/5 materials switch (the 5th needs
+those choices, loudly reported by name — no silent drop); with them
+pre-converted via `husk blp-export --dir`, 5/5 materials switch again,
+identical to before this fix, all 7 fallback-loaded images confirmed to
+carry distinct real pixel content (not placeholders) via a headless
+pixel-hash check. Confirmed via code inspection and a real headless run
+that no `husk` binary is reachable or invoked anywhere in the script
+anymore (`subprocess`/`shutil`/`tempfile` imports removed, zero call
+sites remain).
 
 ---
 
@@ -153,19 +197,38 @@ because there is no model in which to state the relationship declaratively —
 
 ## 4. Blender-side coupling — every item violates I3
 
-- **Six discovery mechanisms for one question** ("where is this texture"), in
-  `tools/husk_blender_geoset_mask.py`: a `--textures` CLI argument
-  (`:3309-3312`), the `.glb`'s own directory (`:3323`), the current `.blend`
-  file's directory (`:3339`), a preferred `textures/` subdirectory (`:3350`),
-  a `*_<fdid>.png` glob in the textures dir *and its parent* (`:1575-1596`),
-  and a `husk` binary found on `PATH` or at `../build/husk` (`:1497-1502`) to
-  shell out to `blp-export` (`:1538`).
-- **Duplicated helpers with a manual resync policy.**
+- **Four discovery mechanisms for one question** ("where is this texture"), in
+  `tools/husk_blender_geoset_mask.py`: a `--textures` CLI argument, the
+  `.glb`'s own directory, the current `.blend` file's directory, a preferred
+  `textures/` subdirectory, and a `*_<fdid>.png` glob in the textures dir
+  *and its parent*. **Reduced from six 2026-08-29**: the `husk` binary found
+  on `PATH` or at `../build/husk`, and the `husk blp-export` subprocess it
+  shelled out to, are both removed outright (`REFACTOR/AUDIT.md` §1.1's
+  "closed 2026-08-29" entry has the measurement and rationale — the
+  remaining filesystem glob fires for a real, narrow, now-documented class
+  of texture husk's own export doesn't embed, a finding for `src/` to
+  eventually close, not a reason to keep the subprocess). The four remaining
+  mechanisms are all real "told where to look," not "went looking" —
+  `--textures`/the `.glb`'s directory/the `.blend`'s directory/the
+  `textures/` subdirectory are all ways of being handed a starting
+  directory, and the same-basename glob inside it is the one piece still
+  worth a future I3 pass if `src/`'s own embedding gap ever closes and makes
+  it moot.
+- **Duplicated helpers, now with a load-bearing reason, not just policy.**
   `_root_joint_extras` / `_deep_copy_id_property` are copied verbatim into
-  `tools/husk_blender_options_panel.py:99-119`, with a comment describing the
-  copy as a deliberate "resync from there if they ever diverge" policy. The
-  geoset vertex-group naming convention is duplicated a third time in the same
-  file, as a regex plus two prefix constants (`:73-84`).
+  `tools/husk_blender_options_panel.py:99-119`. **Investigated 2026-08-29**
+  whether a shared sibling module could replace both copies: found a real
+  blocker, not just a precaution — `husk_blender_options_panel.py`'s whole
+  reason for existing as a separate file is running as a *registered
+  embedded Text datablock* so a `.blend` self-installs with zero setup, and
+  a headless round-trip confirmed `__file__` in that mode is a synthetic
+  value (`<blend path>/<text name>`), not a real filesystem path, so a
+  `__file__`-relative sibling import would resolve nothing there. Left as a
+  documented copy; the comment at `:87-104` now states this concretely
+  instead of citing sibling-session concurrency. The geoset vertex-group
+  naming convention is still duplicated a third time in the same file, as a
+  regex plus two prefix constants (`:73-84`) — same blocker applies, not
+  revisited separately.
 - **`render_glb.py` renders a pipeline that isn't the pipeline.** It imports
   `husk_blender_geoset_mask` for billboard alignment only (`:41-42`) and never runs
   the customization or geoset stages, so previews of any model carrying
