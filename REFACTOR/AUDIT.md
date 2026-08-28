@@ -223,38 +223,6 @@ The fix is subtraction, not relocation — see `CLI_AND_TOOLING.md` §4.
 
 ---
 
-## 10. File-size ceiling
-
-`FILE_SIZE.md` sets a 1000-line ceiling, and §4 requires any file past it to
-carry a one-line comment naming which exception applies. **Blocked: `FILE_SIZE.md`
-itself does not exist anywhere in this repo or its git history** (checked
-`git log --all --diff-filter=A -- FILE_SIZE.md` — never added, on any
-branch), despite being cited as if real here and in
-`REFACTOR/BLENDER_ADDON.md:46` and two `tests/test_integration*.cpp` files.
-The *policy* (1000-line ceiling, §4 exception-comment requirement) is
-referenced consistently enough to be a real convention someone intended to
-write down — the document itself just never got committed. Adding the
-per-file exception comments below needs `FILE_SIZE.md` to exist first, so
-this item can't be closed by comment-writing alone; it needs `FILE_SIZE.md`
-authored (its §4 exact exception categories/comment format aren't
-recoverable from any of the citing call sites, which only ever reference it
-by name).
-
-None of these four carry the required comment:
-
-| File | Lines |
-|---|---|
-| `tools/husk_blender_geoset_mask.py` | 3505 |
-| `src/cmd_export.cpp` | 1310 |
-| `tools/corpus_scan_tasks/render_glb.py` | 1144 |
-| `src/export_extras.cpp` | 1040 |
-
-The stage split in `REFACTOR/README.md` resolves three of the four structurally
-rather than by cutting them at arbitrary lines; `render_glb.py` is addressed in
-`BLENDER_ADDON.md`.
-
----
-
 ## 11. Stale claims inside the corpus tooling itself
 
 - `tools/corpus_scan_tasks/shader_id_task.py`'s own docstring states *"husk

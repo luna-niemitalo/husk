@@ -1,0 +1,1 @@
+/home/luna/nix/claude-rules/FILE_SIZE.md

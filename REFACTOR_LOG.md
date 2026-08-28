@@ -295,3 +295,51 @@ output byte-for-byte before and after — confirmed identical, so
 **Overall verified**: full suite green, 700/700, after all of this
 entry's changes (the README.md fix, both `AUDIT.md` trims, and the flag
 grouping) landed together.
+
+---
+
+## 2026-08-28 — `AUDIT.md` §10 unblocked: `FILE_SIZE.md` symlinked in,
+real per-file exception comments added
+
+Luna corrected the "`FILE_SIZE.md` doesn't exist" finding from the
+subagent above: it exists at `~/nix/claude-rules/FILE_SIZE.md`, the same
+home this repo's own `.claude/rules/nix.md` already symlinks from for
+Nix conventions. Symlinked `FILE_SIZE.md` (repo root) →
+`~/nix/claude-rules/FILE_SIZE.md`, matching that established convention
+— every citation in this codebase (`AUDIT.md`, `BLENDER_ADDON.md`,
+`tests/test_integration*.cpp`) already refers to it as a bare
+repo-root-relative name.
+
+With the real policy doc in hand, read it properly (its §3 names three
+genuine exceptions: a chain-not-hub-and-spoke split, one sequential
+process with no real seams, or a flat list of many small identically-
+shaped items — and its §4 is explicit that the required comment is "not
+a paragraph — a pointer") and checked each of the four oversized files'
+actual structure against those three categories rather than writing a
+generic placeholder for all four:
+
+- `src/export_extras.cpp` — genuinely fits §3's third exception: ~9
+  independent, identically-shaped `attachX()` enrichment functions, each
+  readable alone.
+- `src/cmd_export.cpp` — a real mix, not one clean fit: `addExportOptions`/
+  the `resolve*` helpers are §3's third exception (flat, independent),
+  but `exportOneModel` itself is §3's second (one genuinely sequential
+  per-model pipeline). Said so explicitly rather than picking one
+  arbitrarily.
+- `tools/husk_blender_geoset_mask.py` / `tools/corpus_scan_tasks/render_glb.py`
+  — neither fits any of the three genuine exceptions honestly; both are
+  oversized because real addon-module packaging (`REFACTOR/BLENDER_ADDON.md`)
+  hasn't happened yet. Said that plainly instead of forcing a false
+  exception claim — `FILE_SIZE.md` §2's own default ("if none of these
+  genuinely apply... split it") makes clear an exception should never be
+  claimed just to satisfy the ceiling-comment requirement.
+
+One-line comments (not paragraphs, per §4) added near the top of all
+four files, each naming its real disposition and, where relevant, which
+`REFACTOR/` stage is expected to resolve it.
+
+**Verified**: full suite green, 700/700, 0 regressions (C++ files
+rebuilt and tested; both Python files independently confirmed to still
+parse via `ast.parse` through `tools/venv`'s own interpreter). `AUDIT.md`
+§10 removed outright now that it's genuinely closed, not just
+worked around.

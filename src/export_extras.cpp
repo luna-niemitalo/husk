@@ -1,3 +1,7 @@
+// Over FILE_SIZE.md's ceiling: a flat list of ~9 independent,
+// identically-shaped attachX() enrichment functions (§3's "flat list of
+// many small, independent, identically-shaped items") -- each readable
+// alone; splitting would just relocate the same flat list into more files.
 #include "export_extras.hpp"
 
 #include <algorithm>

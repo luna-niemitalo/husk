@@ -353,6 +353,10 @@ render visibility are correctly off. A zero-emitter model
 (`bloodelffemale.m2`) is a silent no-op.
 """
 
+# Over FILE_SIZE.md's ceiling, no genuine §3 exception applies -- oversized
+# because it predates real addon-module packaging; REFACTOR/BLENDER_ADDON.md
+# tracks splitting it into separate installed-addon submodules, not started.
+
 import ast
 import glob
 import os

@@ -30,6 +30,11 @@ to stderr) on any failure -- the caller captures stdout+stderr and stores
 it as this file's failure detail, same "let the tool print its own real
 error" discipline as husk's own ParseError text.
 """
+
+# Over FILE_SIZE.md's ceiling, no genuine §3 exception applies -- becomes an
+# addon-driven preview per REFACTOR/BLENDER_ADDON.md/RESOURCE_CATALOG.md's
+# own corpus-task classification, not yet split.
+
 import math
 import shutil
 import sys

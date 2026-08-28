@@ -1,3 +1,7 @@
+// Over FILE_SIZE.md's ceiling: §3's "flat independent helpers" exception
+// (addExportOptions, resolveBones, ...) plus exportOneModel's own "one
+// sequential process" exception, in one file -- REFACTOR/README.md's
+// canon/writers split is expected to eventually separate the two.
 #include <algorithm>
 #include <cerrno>
 #include <cmath>
