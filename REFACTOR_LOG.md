@@ -8,6 +8,47 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-28 — tier 3 partially through `Resolved<T>`: the fuzzy-pool read step only, plus a written design question for the rest
+
+**What**: `RESOURCE_CATALOG.md`'s Open Questions section gained a new entry
+spelling out why tier 3 (fuzzy same-basename pool) can't be wrapped in
+`Resolved<T>` the same mechanical way tiers 1/2 were: the real
+`export_materials.cpp` orchestration has three outcomes, not two — a sole
+candidate claimed and read (hit), zero candidates at all (a real miss,
+falls through to the ambiguity scan), or 2+ type-compatible candidates
+(a *different* success shape — every candidate embedded as an
+`AlternateTextureCandidate`, not a single `T`). A bare `Resolved<T>::hit`/
+`::miss` collapse would conflate "zero candidates, go scan for ambiguity"
+with "claimed the sole candidate but failed to decode it, don't re-scan
+the now-depleted pool" — a real behavior-preservation risk, not a
+style question. Two resolutions proposed (`Resolved<std::variant<T,
+AmbiguousCandidates>>`, or scope `Resolved<T>` to only the deterministic
+read step and keep the three-way branch explicit in the caller), leaning
+toward the second, but written up as an open question for review rather
+than decided unilaterally under this loop's own timebox.
+
+**What was still safely mechanical, and done**: the second option's
+narrower half — `sources::resolveClaimedFuzzyPoolTextureBytes(claimedPath,
+texturesDir, texturesOutDir) -> Resolved<FuzzyPoolTextureResult>`
+(`src/sources/texture_catalog.hpp`/`.cpp`) wraps *only* the "read the bytes
+of an already-claimed candidate" step, identical in shape to tiers 1/2. The
+caller (`export_materials.cpp`'s fuzzy-pool block) keeps calling
+`claimSoleFuzzyTextureCandidate` itself and keeps its exact original
+three-way `if (fuzzy) { if (decoded) {...} } else { ...ambiguity scan... }`
+structure — only the innermost `readTextureFileBytes` call is replaced,
+so a decode failure still silently leaves `resolution.found` false without
+ever reaching the ambiguity branch, exactly as before. 2 new tests
+(`tests/test_sources_texture_catalog.cpp`): hit (real file), miss (claimed
+path doesn't exist, reason names it).
+
+**Verified**: full suite green, 721/721 (719 prior + 2 new, 0 regressions).
+The real multi-candidate/ambiguity integration coverage
+(`HUSK_TEST_MULTITEX_M2`/`_SKIN`-backed tests exercising the
+`AlternateTextureCandidate` fan-out this change didn't touch) passed
+unchanged, confirming the untouched branch really is untouched.
+
+---
+
 ## 2026-08-28 — `AUDIT.md` §1.2 fully closed: the two name-only listfile lookups consolidated
 
 **What**: The last two duplicated forward-lookup sites §1.2 had flagged but

@@ -52,13 +52,17 @@ baseColorTexture resolution *and* the `additionalTextureLayers` loop's own
 previously-separate copy, found while doing this) now call them instead of
 duplicating the lookup inline (`REFACTOR_LOG.md`'s 2026-08-28 "first"/
 "second real tier through Resolved<T>" entries, verbatim behavior, verified
-against the full suite). Tier 3 (fuzzy same-basename pool) is not migrated
-yet — it sits inside `export_materials.cpp`'s ambiguous-candidate/alternate-
-texture-candidate logic, which needs more care than a mechanical wrapper
-(see that log entry's "why this tier, not 2 or 3 next" for the reasoning,
-now half-resolved). The Python/Blender mirrors are entirely untouched by
-this — they can't call into `src/sources/` at all; that gap is what
-`CLI_AND_TOOLING.md` §3's structured-output work is for.
+against the full suite). Tier 3 (fuzzy same-basename pool) is **partially**
+migrated — only its deterministic "read what was already claimed" half
+(`resolveClaimedFuzzyPoolTextureBytes`); the claim-and-remove step
+(`claimSoleFuzzyTextureCandidate`) and the genuine-ambiguity fan-out
+(`filterCandidatesForType`/`orderCandidatesForDefault`,
+`AlternateTextureCandidate`) deliberately stay outside `Resolved<T>` — see
+the Open Questions entry below for why folding all three of tier 3's real
+outcomes into one hit/miss shape isn't a safe mechanical move the way tiers
+1/2 were. The Python/Blender mirrors are entirely untouched by this — they
+can't call into `src/sources/` at all; that gap is what `CLI_AND_TOOLING.md`
+§3's structured-output work is for.
 
 A miss is a first-class answer with a reason, not an empty optional the caller
 has to guess about. `FOREIGN_DATA.md` §2 already requires expected-vs-actual on
@@ -164,3 +168,30 @@ from an unconverted leftover.
 - `--listfile-root` defaults to `--textures` today. Under the catalog that
   coupling can be stated once instead of re-derived at
   `cmd_export.cpp:881`; whether it should survive at all is a separate call.
+- **Tier 3's `Resolved<T>` shape isn't a two-way hit/miss.** Tiers 1/2 are
+  already wrapped (`REFACTOR_LOG.md`'s 2026-08-28 entries); tier 3 (fuzzy
+  same-basename pool) resists the same treatment because
+  `export_materials.cpp`'s real orchestration
+  (`claimSoleFuzzyTextureCandidate` then, only on its *miss*,
+  `filterCandidatesForType` for a genuine multi-candidate ambiguity fan-out)
+  has three distinguishable outcomes, not two: (1) a sole unambiguous
+  candidate, claimed and read — a real hit; (2) zero candidates at all —
+  a real miss, nothing left to try; (3) 2+ type-compatible candidates —
+  not a miss, a *different* success shape (every candidate embedded as an
+  `AlternateTextureCandidate`, `orderCandidatesForDefault` picking which one
+  is wired as the default). A naive `Resolved<T>::hit`/`::miss` collapse
+  loses the distinction between (2) and "claimed the sole candidate but
+  failed to decode its bytes" — which matters because the real code only
+  re-runs the ambiguity scan on (2), not on a decode failure of an already-
+  claimed-and-removed pool entry (the pool has already lost that entry
+  either way, so re-scanning after a decode failure would report a smaller,
+  wrong candidate set). Two ways to resolve this, not decided here: (a) a
+  `Resolved<std::variant<T, AmbiguousCandidates>>`, letting the ambiguous
+  branch's own richer data ride the same envelope Resolved<T> already
+  provides; or (b) leave tier 3's ambiguous branch outside `Resolved<T>`
+  entirely (it already returns a *list* with per-candidate metadata, not
+  one T) and only wrap the deterministic claim-and-read half, keeping the
+  three-way branch explicit in the caller rather than folded into one
+  `if (resolved)` the way tiers 1/2 could be. Leaning (b) — narrower, no new
+  generic-container question — but this needs a look before either is
+  implemented, not a call made silently inside a REFACTOR_LOG tick.

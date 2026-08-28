@@ -11,6 +11,7 @@
 
 #include "../src/sources/texture_catalog.hpp"
 
+using husk::sources::resolveClaimedFuzzyPoolTextureBytes;
 using husk::sources::resolveLiteralTextureBytes;
 using husk::sources::resolveListfileTextureBytes;
 using husk::sources::ResolutionTier;
@@ -91,4 +92,31 @@ TEST_CASE("sources::resolveListfileTextureBytes misses (with a reason) when the 
     CHECK_FALSE(r.found());
     CHECK(r.tier == ResolutionTier::Listfile);
     CHECK(r.reason.find("nope") != std::string::npos);
+}
+
+TEST_CASE("sources::resolveClaimedFuzzyPoolTextureBytes hits when the claimed path is a real, readable file") {
+    auto dir = fs::temp_directory_path() / "husk-texture-catalog-test-fuzzy-hit";
+    fs::create_directories(dir);
+    std::vector<uint8_t> pngBytes = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xEF};
+    auto claimed = dir / "bloodelffemale_skin_color_3500123.png";
+    writeFile(claimed, pngBytes);
+
+    auto r = resolveClaimedFuzzyPoolTextureBytes(claimed, dir.string(), "");
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);
+    CHECK(r.value->bytes == pngBytes);
+    CHECK(r.value->imageName == "bloodelffemale_skin_color_3500123");
+    CHECK(r.value->matchedFilename == "bloodelffemale_skin_color_3500123.png");
+}
+
+TEST_CASE("sources::resolveClaimedFuzzyPoolTextureBytes misses (with a reason) when the claimed path can't be read") {
+    auto dir = fs::temp_directory_path() / "husk-texture-catalog-test-fuzzy-miss";
+    fs::create_directories(dir);
+    auto claimed = dir / "does_not_exist.png";  // claimSoleFuzzyTextureCandidate already popped this from the
+                                                  // pool by the time this is called -- it just isn't on disk.
+
+    auto r = resolveClaimedFuzzyPoolTextureBytes(claimed, dir.string(), "");
+    CHECK_FALSE(r.found());
+    CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);
+    CHECK(r.reason.find("does_not_exist.png") != std::string::npos);
 }

@@ -518,12 +518,24 @@ BuiltMaterials buildMaterialsAndPrimitives(
                 if (isNewIndex) {
                     if (auto fuzzy =
                             claimSoleFuzzyTextureCandidate(fuzzyTexturePool, gm.textureType, modelBasenameLower)) {
-                        if (auto bytes = readTextureFileBytes(*fuzzy, texturesDir, texturesOutDir)) {
+                        // Read step only, routed through
+                        // sources::resolveClaimedFuzzyPoolTextureBytes
+                        // (AUDIT.md §1.1's tier 3, partially wrapped --
+                        // RESOURCE_CATALOG.md's Open Questions explains why
+                        // the claim-and-remove step above and the ambiguous
+                        // branch below stay outside Resolved<T> for now). A
+                        // decode failure here deliberately does NOT fall
+                        // into the ambiguity scan below -- same as before
+                        // this change: the pool already lost this entry via
+                        // the claim above, so re-scanning would report a
+                        // smaller, wrong candidate set.
+                        if (auto resolved = husk::sources::resolveClaimedFuzzyPoolTextureBytes(
+                                *fuzzy, texturesDir, texturesOutDir)) {
                             resolution.found = true;
-                            resolution.nameSuffix = "_" + fuzzy->stem().string();
-                            resolution.baseColorImagePng = std::move(*bytes);
-                            resolution.baseColorImageName = fuzzy->stem().string();
-                            resolution.matchedFilename = fuzzy->filename().string();
+                            resolution.nameSuffix = "_" + resolved.value->imageName;
+                            resolution.baseColorImagePng = std::move(resolved.value->bytes);
+                            resolution.baseColorImageName = resolved.value->imageName;
+                            resolution.matchedFilename = resolved.value->matchedFilename;
                         }
                     } else {
                         // Not claimed (removed) from the shared pool -- every

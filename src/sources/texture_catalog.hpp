@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -46,5 +47,33 @@ struct ListfileTextureResult {
 Resolved<ListfileTextureResult> resolveListfileTextureBytes(
     uint32_t fdid, const std::unordered_map<uint32_t, std::string>& listfile, const std::string& listfileRoot,
     const std::string& texturesOutDir);
+
+// Bytes plus the two display names export_materials.cpp's fuzzy-pool call
+// site derives from the claimed candidate's own path.
+struct FuzzyPoolTextureResult {
+    std::vector<uint8_t> bytes;
+    std::string imageName;       // claimedPath.stem()
+    std::string matchedFilename;  // claimedPath.filename()
+};
+
+// The read half of tier 3 ("fuzzy same-basename pool") ONLY -- deliberately
+// NOT the claim-and-remove-from-the-shared-pool half
+// (`claimSoleFuzzyTextureCandidate`) or the genuine-ambiguity fan-out
+// (`filterCandidatesForType`/`orderCandidatesForDefault`,
+// `AlternateTextureCandidate`). `RESOURCE_CATALOG.md`'s Open Questions
+// section explains why: tier 3's real orchestration has three outcomes
+// (a sole candidate read successfully; zero candidates at all; 2+
+// candidates, a *different* success shape, not a miss), and the caller's
+// own control flow -- claim first, only fall through to the ambiguity scan
+// when nothing was claimed at all, never when a claimed candidate merely
+// failed to decode -- can't be preserved by folding all three into one
+// `Resolved<T>`. This wrapper takes an already-claimed path (the caller
+// still owns `claimSoleFuzzyTextureCandidate` and its own branch on
+// whether anything was claimed) and only reports provenance for the
+// deterministic "read what was claimed" step -- same shape as tiers 1/2,
+// scoped to the one sub-step that actually has a clean two-way outcome.
+Resolved<FuzzyPoolTextureResult> resolveClaimedFuzzyPoolTextureBytes(const std::filesystem::path& claimedPath,
+                                                                       const std::string& texturesDir,
+                                                                       const std::string& texturesOutDir);
 
 }  // namespace husk::sources

@@ -42,4 +42,18 @@ Resolved<ListfileTextureResult> resolveListfileTextureBytes(
             " but neither .png nor .blp exists there");
 }
 
+Resolved<FuzzyPoolTextureResult> resolveClaimedFuzzyPoolTextureBytes(const std::filesystem::path& claimedPath,
+                                                                       const std::string& texturesDir,
+                                                                       const std::string& texturesOutDir) {
+    if (auto bytes = husk::commands::readTextureFileBytes(claimedPath, texturesDir, texturesOutDir)) {
+        FuzzyPoolTextureResult result{std::move(*bytes), claimedPath.stem().string(),
+                                       claimedPath.filename().string()};
+        return Resolved<FuzzyPoolTextureResult>::hit(std::move(result), ResolutionTier::FuzzySameBasenamePool,
+                                                       "claimed '" + claimedPath.string() + "' from the pool");
+    }
+    return Resolved<FuzzyPoolTextureResult>::miss(
+        ResolutionTier::FuzzySameBasenamePool,
+        "claimed '" + claimedPath.string() + "' from the pool but failed to read/decode it");
+}
+
 }  // namespace husk::sources
