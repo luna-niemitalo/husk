@@ -8,6 +8,47 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-28 — the knowledge-base tier through `Resolved<T>`, its known-wrongness now riding provenance
+
+**What**: `resolveObjectSkinTextureFromKb` (`cmd_export.cpp`, tier 5 —
+"knowledge base" — per the previous entry's tier ordering) now returns
+`husk::sources::Resolved<KbObjectSkinResolution>` instead of a bare struct.
+Every early-return got a `ResolutionTier::KnowledgeBase` tag and a reason
+naming *why* it missed (`--knowledge-db` not given, the file wouldn't open,
+the model path isn't under `listfileRoot`, no `models` row, no
+`model_object_skin_texture` row) — none of these had any diagnostic text
+before this change; a caller only ever saw "0/empty, try something else."
+The one hit path's reason is the exact pre-existing warning string
+(`CLI_AND_TOOLING.md` §5's original fix, `1ae5bac`), moved into the
+function that owns the resolution instead of reconstructed at the call
+site — the call site now just does `std::cerr << "husk: warning: " <<
+kbResolved.reason`.
+
+**Why this slice**: suggested directly by the peer session doing the
+concurrent Catalog-object design review (`2a34d31`'s "review pass" entry
+above) as a genuinely independent, self-contained piece of §1.1 that
+doesn't touch the fuzzy-pool/claim-step question that entry settled, and
+doesn't depend on `CLI_AND_TOOLING.md` §3 (the real blocker for converting
+the Python/Blender mirrors). `RESOURCE_CATALOG.md`'s "Where the two
+unordered tiers sit" had already named this tier and ordered it (last,
+since it's documented known-wrong) but nothing had wired it through
+`Resolved<T>` yet.
+
+**What this deliberately did not touch**: the SQL itself, the three-query
+shape, the `--object-skin-texture-id`-takes-precedence branch above it in
+`exportOneModel`, and the listfile-injection side effect
+(`cmd_export.cpp`'s `listfile.emplace(...)`) `AUDIT.md`'s now-closed §1.2
+already flagged as real duplication-adjacent surface left for the
+`Catalog` object, not this slice.
+
+**Verified**: full suite green, 721/721, byte-identical to before (no new
+tests added — the existing `tests/test_cli_knowledge_db.cpp` pair already
+asserts the exact hit-warning text and the exact miss-silence behavior at
+the CLI level, and both passed unchanged, confirming this was genuinely a
+verbatim-behavior move).
+
+---
+
 ## 2026-08-28 — review pass over the staged work: four open questions answered, one escalated
 
 **What**: No code behavior changed. A review of this session's

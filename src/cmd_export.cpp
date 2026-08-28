@@ -36,6 +36,7 @@
 #include "skel.hpp"
 #include "skin.hpp"
 #include "sources/listfile_catalog.hpp"
+#include "sources/resolved.hpp"
 
 // Roadmap stages 1-5 (see README.md): stage 1 resolves an M2's vertex array
 // plus a .skin file's two-level triangle-index lookup (see src/skin.hpp)
@@ -240,15 +241,32 @@ struct KbObjectSkinResolution {
     uint32_t textureFileDataId = 0;
     std::string texturePath;
 };
-KbObjectSkinResolution resolveObjectSkinTextureFromKb(const std::string& kbPath, const std::string& modelPath,
-                                                        const std::string& listfileRoot) {
-    KbObjectSkinResolution result;
-    if (kbPath.empty()) return result;
+
+// Tier 5 ("knowledge base") of RESOURCE_CATALOG.md's tier order --
+// documented-known-wrong (TODO/KNOWLEDGE_BASE_DESIGN.md: same-slot
+// cross-item collisions), so its `Resolved<T>::reason` on a hit carries
+// that caveat as real provenance rather than a separate ad-hoc warning at
+// the call site (REFACTOR/CLI_AND_TOOLING.md §5's original fix, now folded
+// into the same envelope every other tier reports through -- see
+// REFACTOR_LOG.md's 2026-08-28 entry). A miss (kb path empty, db won't
+// open, model path not under listfileRoot, no matching row at any of the
+// three joins) is a real, expected case, not an error -- see this
+// function's own callers, which treat 0/empty as "nothing resolved,
+// fall back to whatever else is available."
+husk::sources::Resolved<KbObjectSkinResolution> resolveObjectSkinTextureFromKb(const std::string& kbPath,
+                                                                                 const std::string& modelPath,
+                                                                                 const std::string& listfileRoot) {
+    using husk::sources::Resolved;
+    using husk::sources::ResolutionTier;
+    if (kbPath.empty()) {
+        return Resolved<KbObjectSkinResolution>::miss(ResolutionTier::KnowledgeBase, "--knowledge-db not given");
+    }
     sqlite3* db = nullptr;
     if (sqlite3_open_v2(kbPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
         std::cerr << "husk: note: --knowledge-db '" << kbPath << "' couldn't be opened -- skipping\n";
         sqlite3_close(db);
-        return result;
+        return Resolved<KbObjectSkinResolution>::miss(ResolutionTier::KnowledgeBase,
+                                                         "couldn't open '" + kbPath + "'");
     }
 
     std::error_code ec;
@@ -259,7 +277,8 @@ KbObjectSkinResolution resolveObjectSkinTextureFromKb(const std::string& kbPath,
     }
     if (relPath.empty()) {
         sqlite3_close(db);
-        return result;
+        return Resolved<KbObjectSkinResolution>::miss(
+            ResolutionTier::KnowledgeBase, "'" + modelPath + "' is not relative to listfileRoot '" + listfileRoot + "'");
     }
     std::transform(relPath.begin(), relPath.end(), relPath.begin(),
                     [](unsigned char c) { return std::tolower(c); });
@@ -272,8 +291,14 @@ KbObjectSkinResolution resolveObjectSkinTextureFromKb(const std::string& kbPath,
         if (sqlite3_step(stmt) == SQLITE_ROW) modelFdid = static_cast<uint32_t>(sqlite3_column_int64(stmt, 0));
         sqlite3_finalize(stmt);
     }
+    if (modelFdid == 0) {
+        sqlite3_close(db);
+        return Resolved<KbObjectSkinResolution>::miss(ResolutionTier::KnowledgeBase,
+                                                         "no 'models' row for '" + relPath + "'");
+    }
 
-    if (modelFdid != 0) {
+    KbObjectSkinResolution result;
+    {
         sqlite3_stmt* stmt = nullptr;
         sqlite3_prepare_v2(db, "SELECT texture_file_data_id FROM model_object_skin_texture WHERE model_file_data_id = ?",
                             -1, &stmt, nullptr);
@@ -283,8 +308,14 @@ KbObjectSkinResolution resolveObjectSkinTextureFromKb(const std::string& kbPath,
         }
         sqlite3_finalize(stmt);
     }
+    if (result.textureFileDataId == 0) {
+        sqlite3_close(db);
+        return Resolved<KbObjectSkinResolution>::miss(
+            ResolutionTier::KnowledgeBase,
+            "no model_object_skin_texture row for model FileDataID " + std::to_string(modelFdid));
+    }
 
-    if (result.textureFileDataId != 0) {
+    {
         sqlite3_stmt* stmt = nullptr;
         sqlite3_prepare_v2(db, "SELECT path FROM textures WHERE file_data_id = ?", -1, &stmt, nullptr);
         sqlite3_bind_int64(stmt, 1, result.textureFileDataId);
@@ -296,7 +327,15 @@ KbObjectSkinResolution resolveObjectSkinTextureFromKb(const std::string& kbPath,
     }
 
     sqlite3_close(db);
-    return result;
+    // Verbatim text of the pre-Resolved<T> ad-hoc warning
+    // (REFACTOR/CLI_AND_TOOLING.md §5's original fix) -- kept exact so it
+    // still carries the caller's own message unchanged, just sourced from
+    // provenance now instead of constructed again at the call site.
+    std::string reason = "--knowledge-db resolved texture FileDataID " + std::to_string(result.textureFileDataId) +
+                          " for this model's object-skin slot -- this resolution is known to produce wrong "
+                          "same-slot matches often enough not to trust as primary (see "
+                          "TODO/KNOWLEDGE_BASE_DESIGN.md); verify before relying on it";
+    return Resolved<KbObjectSkinResolution>::hit(result, ResolutionTier::KnowledgeBase, std::move(reason));
 }
 
 // One NamedMesh per LOD tier: each resolves its own .skin file's
@@ -1006,26 +1045,18 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                       << "' isn't a valid integer -- ignoring\n";
         }
     } else if (app.count("--knowledge-db")) {
-        KbObjectSkinResolution kbResolution =
-            resolveObjectSkinTextureFromKb(opts.knowledgeDbArg, modelPath, listfileRoot);
-        objectSkinTextureFileDataId = kbResolution.textureFileDataId;
+        auto kbResolved = resolveObjectSkinTextureFromKb(opts.knowledgeDbArg, modelPath, listfileRoot);
+        objectSkinTextureFileDataId = kbResolved.found() ? kbResolved.value->textureFileDataId : 0;
         // Fills the embed path's --listfile fallback tier (export_materials.cpp)
         // straight from the knowledge base's own 'textures' table, without
         // requiring a separate --listfile load just for this one texture --
         // only when --listfile didn't already resolve this fdid itself.
-        if (objectSkinTextureFileDataId != 0 && !kbResolution.texturePath.empty()) {
-            listfile.emplace(objectSkinTextureFileDataId, kbResolution.texturePath);
-            // --knowledge-db is documented-known-wrong (TODO/KNOWLEDGE_BASE_DESIGN.md:
-            // same-slot cross-item collisions, 15/15 real spot-checks wrong-item), kept
-            // deliberately as diagnostic/future-work infrastructure rather than removed
-            // -- surface that at the point an answer is actually about to be used (I4,
-            // REFACTOR/CLI_AND_TOOLING.md §5), not only in a hazards note a caller of
-            // this flag may never read.
-            std::cerr << "husk: warning: --knowledge-db resolved texture FileDataID "
-                      << objectSkinTextureFileDataId << " for this model's object-skin slot -- "
-                      << "this resolution is known to produce wrong same-slot matches often "
-                      << "enough not to trust as primary (see TODO/KNOWLEDGE_BASE_DESIGN.md); "
-                      << "verify before relying on it\n";
+        // Known-wrongness (I4, REFACTOR/CLI_AND_TOOLING.md §5) now rides
+        // kbResolved.reason -- resolveObjectSkinTextureFromKb's own doc
+        // comment -- instead of being reconstructed here.
+        if (kbResolved.found() && !kbResolved.value->texturePath.empty()) {
+            listfile.emplace(objectSkinTextureFileDataId, kbResolved.value->texturePath);
+            std::cerr << "husk: warning: " << kbResolved.reason << "\n";
         }
     }
 
