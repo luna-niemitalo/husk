@@ -229,12 +229,23 @@ structured-output work below, not started).
 
 ## 5. `--knowledge-db`
 
-Documented as known-wrong and unusable for real output (`CLAUDE.md` Hazards,
-`TODO/KNOWLEDGE_BASE_DESIGN.md`: same-slot cross-item collisions, 15/15 spot
-checks wrong-item), yet still a live flag — and one that mutates the shared
-listfile map mid-export (`cmd_export.cpp:973-975`) so another subsystem picks up
-its answer.
+**Decided and done** (`REFACTOR_LOG.md`'s 2026-08-28 entry): keep, not
+retire — `TODO/KNOWLEDGE_BASE_DESIGN.md` already made this call explicitly
+("kept as diagnostic/future-work infrastructure, not load-bearing";
+disabled by default in `render_sample_driver.py`), so retiring the flag
+here would have reopened a decision already made rather than executing
+it. What was actually missing was the I4 half: `cmd_export.cpp` now
+prints a real warning at the exact point a `--knowledge-db` answer is
+about to be used (naming the resolved FileDataID and pointing at
+`TODO/KNOWLEDGE_BASE_DESIGN.md`), instead of the known-wrongness living
+only in a hazards note a caller of this flag might never read. First
+CLI-tier coverage this flag has ever had
+(`tests/test_cli_knowledge_db.cpp`: a real resolution prints the warning,
+a miss prints nothing).
 
-Decide explicitly rather than leaving it: retire it, or keep it behind the
-catalog with its known-wrongness surfaced at point of use (I4) instead of only
-in a hazards note a caller may never read.
+Still true, not attempted here: this flag mutates the shared listfile map
+mid-export (`cmd_export.cpp`, `if (objectSkinTextureFileDataId != 0 &&
+!kbResolution.texturePath.empty()) listfile.emplace(...)`) so another
+subsystem picks up its answer — a real instance of `AUDIT.md` §1.2's
+FileDataID→path duplication, left for the catalog (`RESOURCE_CATALOG.md`)
+rather than patched around here.

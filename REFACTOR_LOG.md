@@ -507,3 +507,74 @@ touched `ROOT`/`LISTFILE`/`HUSK_BIN` at all. `AUDIT.md` §8 and
 `CLI_AND_TOOLING.md` §4 updated to reflect the real, verified disposition
 (including both bugs found, and the deliberate `render_sample_driver.py`
 exception) rather than the original speculative fix description.
+
+---
+
+## 2026-08-28 -- correct HUSK_BIN doc wording per Luna's live correction
+
+**What**: Luna corrected the previous entry's framing immediately after it
+landed: "the flake does put the husk in the path, if the flake is
+installed, not so in the dev shell." The previous entry's docs described
+`CLI_AND_TOOLING.md` §4's original "the flake dev shell already puts husk
+on PATH" claim as simply wrong -- overstated. It's accurate that
+installing the flake as a package (`nix profile install`/`nix run`) does
+put `husk` on `PATH` via the normal Nix mechanism; what's actually true
+(and what the live smoke test caught) is narrower: the *dev shell*
+(`direnv exec .` / `nix develop`) doesn't, by design -- a dev shell hands
+you the tools to build the project, not the project's own not-yet-rebuilt
+output. Corrected the framing in `AUDIT.md` §8, `CLI_AND_TOOLING.md` §4,
+and `corpus_scan_framework.py`'s own `HUSK_BIN` comment. This file's
+previous entry is left as-is (historical record, not edited after the
+fact).
+
+**Why**: precision matters here specifically because the wrong framing
+would have pointed a future reader at "fix the flake's dev shell" as the
+real fix, when that's not actually broken for its own purpose --
+the `shutil.which`-first fallback already committed is correct exactly
+because both cases (package-installed vs. dev-shell-only) are real and
+need to be handled, not because one of them is a bug to fix upstream.
+
+**Verified**: comment/doc-only + one code-comment change in
+`corpus_scan_framework.py`; re-parsed via `ast.parse`, no behavior change
+(the `shutil.which(...) or <build path>` logic itself is untouched).
+
+---
+
+## 2026-08-28 -- close AUDIT.md §7/CLI_AND_TOOLING.md §5: `--knowledge-db`'s known-wrongness now surfaces at point of use
+
+**What**: `src/cmd_export.cpp`'s `--knowledge-db` handling now prints a
+real `std::cerr` warning at the exact point a knowledge-base resolution
+is about to be used (naming the resolved texture FileDataID and pointing
+at `TODO/KNOWLEDGE_BASE_DESIGN.md`), instead of the flag's documented
+known-wrongness (same-slot cross-item collisions, 15/15 real spot checks
+wrong-item) living only in `CLAUDE.md`'s Hazards section -- a note a
+caller of this flag might never read. First CLI-tier test coverage this
+flag has ever had: `tests/test_cli_knowledge_db.cpp`, a new file with a
+minimal synthetic SQLite fixture built directly against the exact three
+raw tables/columns `resolveObjectSkinTextureFromKb` queries (not `husk
+db2-build`'s real view/join machinery, which the runtime code doesn't
+care about), covering both a real resolution (warning printed, names the
+right FileDataID) and a miss (no warning, matching the function's own
+"empty/0 is a real, expected case" contract).
+
+**Why**: `CLI_AND_TOOLING.md` §5 framed this as needing an explicit
+decision -- retire the flag, or keep it with its known-wrongness surfaced
+at point of use (I4). Checked `TODO/KNOWLEDGE_BASE_DESIGN.md` first
+rather than deciding fresh: that file already made this exact call
+("kept as diagnostic/future-work infrastructure, not load-bearing";
+`render_sample_driver.py` deliberately never passes `--knowledge-db`).
+Retiring the flag here would have silently reopened an already-settled
+decision instead of executing it -- the actual gap was narrower than "no
+decision has been made," it was "the decision that *was* made was never
+wired into the CLI's own output."
+
+**What was deliberately not touched**: the flag still mutates the shared
+listfile map mid-export to let the embed path pick up its answer
+(`cmd_export.cpp`'s `listfile.emplace(...)` call) -- a real instance of
+`AUDIT.md` §1.2's FileDataID→path duplication. Fixing that means the
+catalog (`RESOURCE_CATALOG.md`, not built), not a local patch here.
+
+**Verified**: full suite green, 702/702 (700 + 2 new, 0 regressions).
+Both new tests independently confirmed passing in isolation
+(`-tc="*knowledge-db*"`) before the full-suite run. `AUDIT.md` §7 and
+`CLI_AND_TOOLING.md` §5 updated to the real, verified disposition.

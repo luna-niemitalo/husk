@@ -1014,6 +1014,17 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         // only when --listfile didn't already resolve this fdid itself.
         if (objectSkinTextureFileDataId != 0 && !kbResolution.texturePath.empty()) {
             listfile.emplace(objectSkinTextureFileDataId, kbResolution.texturePath);
+            // --knowledge-db is documented-known-wrong (TODO/KNOWLEDGE_BASE_DESIGN.md:
+            // same-slot cross-item collisions, 15/15 real spot-checks wrong-item), kept
+            // deliberately as diagnostic/future-work infrastructure rather than removed
+            // -- surface that at the point an answer is actually about to be used (I4,
+            // REFACTOR/CLI_AND_TOOLING.md §5), not only in a hazards note a caller of
+            // this flag may never read.
+            std::cerr << "husk: warning: --knowledge-db resolved texture FileDataID "
+                      << objectSkinTextureFileDataId << " for this model's object-skin slot -- "
+                      << "this resolution is known to produce wrong same-slot matches often "
+                      << "enough not to trust as primary (see TODO/KNOWLEDGE_BASE_DESIGN.md); "
+                      << "verify before relying on it\n";
         }
     }
 

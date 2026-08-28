@@ -196,10 +196,12 @@ Two consequences:
   (`HUSK_CONFIG=/dev/null`) to get a clean run.
 - **`husk info` emits human text only**, while `dump-chunks` emits JSON. Eight
   corpus tasks regex-scrape the former.
-- **`--knowledge-db` is documented as known-wrong** and unusable for real output
-  (`CLAUDE.md` Hazards; `TODO/KNOWLEDGE_BASE_DESIGN.md`), yet remains a live
-  flag that mutates the shared listfile map mid-export
-  (`cmd_export.cpp:965-976`).
+- **`--knowledge-db` is documented as known-wrong** (`CLAUDE.md` Hazards;
+  `TODO/KNOWLEDGE_BASE_DESIGN.md`) and remains a live flag by deliberate
+  decision (kept as diagnostic/future-work infrastructure, not retired).
+  **Done**: the known-wrongness now surfaces at point of use (I4) — see
+  `CLI_AND_TOOLING.md` §5. Still mutates the shared listfile map
+  mid-export, a real instance of §1.2's duplication, left for the catalog.
 
 ---
 
