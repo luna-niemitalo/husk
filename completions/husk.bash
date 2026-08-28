@@ -71,11 +71,11 @@ _husk_completions() {
                     return
                     ;;
                 --db2-dir)
-                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
                     return
                     ;;
                 --dbd-dir)
-                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
                     return
                     ;;
                 --char-layout-id)
@@ -107,11 +107,11 @@ _husk_completions() {
                     return
                     ;;
                 --listfile)
-                    COMPREPLY=($(compgen -f -- "$cur"))
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -f -- "$cur"))
                     return
                     ;;
                 --listfile-root)
-                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
                     return
                     ;;
             esac

@@ -74,7 +74,15 @@ std::string join(const std::vector<std::string>& parts, const std::string& sep) 
 // state-machine table, added on top of introspection and keyed only by flag
 // identity -- matches every other case in this codebase where CLI11 alone
 // can't carry the full contract (e.g. `--skin none`'s rejection).
-std::string bashValueCompletion(const std::string& longName) {
+//
+// `subName` disambiguates `--db2-dir`/`--dbd-dir`/`--listfile`, which are
+// also registered (without 'none' support) on db2-build/db2-info/
+// appearance-string -- `export`'s own instances are the only ones that
+// accept 'none' (REFACTOR/CLI_AND_TOOLING.md §2's "the missing state" fix;
+// db2-build's own three are `->required()`, so an off-state doesn't apply,
+// and db2-info/appearance-string never got --config wiring in the first
+// place, so they have no config-supplied default to opt back out of).
+std::string bashValueCompletion(const std::string& longName, const std::string& subName) {
     if (longName == "--skin") {
         return "COMPREPLY=($(compgen -W \"auto\" -- \"$cur\")); compopt -o filenames "
                "2>/dev/null; COMPREPLY+=($(compgen -f -- \"$cur\"))";
@@ -83,7 +91,9 @@ std::string bashValueCompletion(const std::string& longName) {
         return "COMPREPLY=($(compgen -W \"auto inline none\" -- \"$cur\")); compopt -o "
                "filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- \"$cur\"))";
     }
-    if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir") {
+    bool exportNoneDir = subName == "export" &&
+                          (longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root");
+    if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir" || exportNoneDir) {
         return "COMPREPLY=($(compgen -W \"none\" -- \"$cur\")); compopt -o filenames "
                "2>/dev/null; COMPREPLY+=($(compgen -d -- \"$cur\"))";
     }
@@ -91,14 +101,15 @@ std::string bashValueCompletion(const std::string& longName) {
         longName == "--listfile-root") {
         return "compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- \"$cur\"))";
     }
-    if (longName == "--skel" || longName == "--phys") {
+    bool exportNoneFile = subName == "export" && longName == "--listfile";
+    if (longName == "--skel" || longName == "--phys" || exportNoneFile) {
         return "COMPREPLY=($(compgen -W \"none\" -- \"$cur\")); compopt -o filenames "
                "2>/dev/null; COMPREPLY+=($(compgen -f -- \"$cur\"))";
     }
     if (longName == "--lod") {
         return R"(COMPREPLY=($(compgen -W "all" -- "$cur")))";
     }
-    return "COMPREPLY=($(compgen -f -- \"$cur\"))";  // --input/--output/--listfile: plain filenames
+    return "COMPREPLY=($(compgen -f -- \"$cur\"))";  // --input/--output: plain filenames
 }
 
 std::string generateBashCompletion(CLI::App& root) {
@@ -135,7 +146,7 @@ std::string generateBashCompletion(CLI::App& root) {
             for (const auto& f : flags) {
                 if (!f.takesValue) continue;
                 out << "                " << join(flagTokens(f), "|") << ")\n"
-                    << "                    " << bashValueCompletion(f.longName) << "\n"
+                    << "                    " << bashValueCompletion(f.longName, sub->get_name()) << "\n"
                     << "                    return\n"
                     << "                    ;;\n";
             }
@@ -190,15 +201,20 @@ const std::vector<ZshHelper>& zshHelpers() {
     return helpers;
 }
 
-std::string zshValueAction(const std::string& longName) {
+// See bashValueCompletion's own comment for why `subName` matters here:
+// --db2-dir/--dbd-dir/--listfile only accept 'none' on `export`.
+std::string zshValueAction(const std::string& longName, const std::string& subName) {
     if (longName == "--skin") return "_husk_skin_value";
     if (longName == "--anim") return "_husk_anim_value";
-    if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir")
+    bool exportNoneDir = subName == "export" &&
+                          (longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root");
+    if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir" || exportNoneDir)
         return "_husk_dir_or_none_value";
     if (longName == "--textures-out" || longName == "--db2-dir" || longName == "--dbd-dir" ||
         longName == "--listfile-root")
         return "_husk_dir_value";
-    if (longName == "--skel" || longName == "--phys") return "_husk_file_or_none_value";
+    bool exportNoneFile = subName == "export" && longName == "--listfile";
+    if (longName == "--skel" || longName == "--phys" || exportNoneFile) return "_husk_file_or_none_value";
     if (longName == "--lod") return "(all)";
     return "_files";
 }
@@ -277,7 +293,7 @@ std::string generateZshCompletion(CLI::App& root) {
                 }
                 spec += "[" + zshFlagLabel(f.longName.empty() ? f.shortName : f.longName) + "]";
                 if (f.takesValue) {
-                    spec += ":value:" + zshValueAction(f.longName);
+                    spec += ":value:" + zshValueAction(f.longName, sub->get_name());
                 }
                 spec += "'";
                 out << "                " << spec << " \\\n";

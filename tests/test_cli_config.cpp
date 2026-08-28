@@ -10,6 +10,7 @@
 
 #include "run_husk.hpp"
 #include "test_cli_fixtures.hpp"
+#include "test_cli_fixtures_scenes.hpp"
 
 using husk::test::runHusk;
 using husk::test::runCommand;
@@ -84,6 +85,63 @@ TEST_CASE("husk export: XDG_CONFIG_HOME/husk/config.toml is auto-discovered with
                                           std::string(HUSK_BINARY) + " export " + (dir / "alpha.m2").string());
     CHECK(result.exitCode == 0);
     CHECK(fs::exists(outPath));
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export --db2-dir none / --dbd-dir none: overrides a config-supplied value") {
+    // REFACTOR/CLI_AND_TOOLING.md §2's "missing state" fix: --db2-dir/
+    // --dbd-dir/--listfile/--listfile-root are optional two-state flags
+    // (AUDIT.md §7) that, before this, had no way to be switched off for a
+    // single invocation once a config file supplied a value. Real dirs
+    // with no actual .db2/WoWDBDefs content in them, on purpose -- this
+    // test only checks whether husk *attempts* customization-choice DB2
+    // resolution at all (a real "no data resolved from '<dir>'" note),
+    // not whether that resolution succeeds.
+    auto dir = defaultsDir("config-db2-none");
+    writeFile(dir / "alpha.m2", tinyValidM2());
+    writeFile(dir / "alpha00.skin", tinyMatchingSkin());
+    // attachCustomizationChoices (the function whose stderr note this test
+    // looks for) is only reached when the model resolves real bones
+    // (cmd_export.cpp's `if (!bones.empty())` gate) -- a same-basename
+    // .skel sidecar is the same external-bones convention
+    // test_cli_chrmodel_id.cpp's own DB2-driven tests already use.
+    writeFile(dir / "alpha.skel", boneCorrectionSkel());
+    fs::create_directories(dir / "empty-db2");
+    fs::create_directories(dir / "empty-dbd");
+    auto configPath = dir / "husk-config.toml";
+    writeConfig(configPath, "db2-dir = \"" + (dir / "empty-db2").string() +
+                                 "\"\ndbd-dir = \"" + (dir / "empty-dbd").string() + "\"\n");
+
+    auto configHonored = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string());
+    CHECK(configHonored.exitCode == 0);
+    CHECK(configHonored.output.find("DB2 data resolved from") != std::string::npos);
+
+    auto explicitNone = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string() +
+                                 " --db2-dir none --dbd-dir none");
+    CHECK(explicitNone.exitCode == 0);
+    CHECK(explicitNone.output.find("DB2 data resolved from") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export --listfile none: overrides a config-supplied value") {
+    auto dir = defaultsDir("config-listfile-none");
+    writeFile(dir / "alpha.m2", tinyValidM2());
+    writeFile(dir / "alpha00.skin", tinyMatchingSkin());
+    auto listfilePath = dir / "empty-listfile.csv";
+    writeFile(listfilePath, {});  // opens fine, zero usable entries -- triggers the real warning path
+    auto configPath = dir / "husk-config.toml";
+    writeConfig(configPath, "listfile = \"" + listfilePath.string() + "\"\n");
+
+    auto configHonored = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string());
+    CHECK(configHonored.exitCode == 0);
+    CHECK(configHonored.output.find("loaded but contained no usable entries") != std::string::npos);
+
+    auto explicitNone = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string() +
+                                 " --listfile none");
+    CHECK(explicitNone.exitCode == 0);
+    CHECK(explicitNone.output.find("loaded but contained no usable entries") == std::string::npos);
 
     fs::remove_all(dir);
 }

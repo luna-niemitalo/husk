@@ -581,12 +581,15 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "casc-tool filenames, same directory serves all three) -- combined with --dbd-dir "
                     "and one of --char-layout-id/--customization-choice-ids/--creature-display-id to "
                     "attach real DB2 extras; unset (default) skips these features entirely, same as "
-                    "every other opt-in sidecar");
+                    "every other opt-in sidecar. 'none' explicitly opts out even when --config/"
+                    "$HUSK_CONFIG supplies a value -- the one per-invocation override a config "
+                    "default previously had no way to disable");
     app.add_option("--dbd-dir", opts.dbdDirArg,
                     "a local WoWDBDefs checkout (github.com/wowdev/WoWDBDefs), used to resolve "
                     "--db2-dir's real column names -- required alongside --db2-dir/"
                     "--char-layout-id or --db2-dir/--customization-choice-ids, same role as "
-                    "`husk db2-export`'s own --dbd-dir");
+                    "`husk db2-export`'s own --dbd-dir. 'none' explicitly opts out even when "
+                    "--config/$HUSK_CONFIG supplies a value");
     app.add_option("--char-layout-id", opts.charLayoutIdArg,
                     "a real CharComponentTextureLayoutsID (see `husk db2-export`) to filter "
                     "--db2-dir's data down to. Optional -- unset (default) auto-derives it from "
@@ -665,14 +668,16 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "to --textures: looks up its real name and tries '<listfile-root>/<real-path>' "
                     "instead, before falling back to the same-basename fuzzy pool. Optional; unset "
                     "(default) skips this tier entirely, same as every other opt-in sidecar -- "
-                    "never fetched by husk itself, same tier as --dbd-dir's WoWDBDefs checkout");
+                    "never fetched by husk itself, same tier as --dbd-dir's WoWDBDefs checkout. "
+                    "'none' explicitly opts out even when --config/$HUSK_CONFIG supplies a value");
     app.add_option("--listfile-root", opts.listfileRootArg,
                     "the corpus root --listfile's paths are relative to -- deliberately separate "
                     "from --textures, since --textures also drives the *directory-local* "
                     "embedded-filename/same-basename matching tried first, and a real corpus root "
                     "is typically many directories away from any one model. Only meaningful "
                     "alongside --listfile; ignored otherwise. Default: --textures itself, for the "
-                    "case where a single directory happens to serve both roles");
+                    "case where a single directory happens to serve both roles. 'none' explicitly "
+                    "opts out even when --config/$HUSK_CONFIG supplies a value");
 }
 
 // Forward declaration: exportGearAuxItemModels (below) recursively calls
@@ -879,6 +884,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     // see that flag's own help text for why reusing texturesDir would
     // silently break the directory-local matching tried before it.
     std::string listfileRoot = app.count("--listfile-root") ? opts.listfileRootArg : texturesDir;
+    if (listfileRoot == "none") listfileRoot.clear();
 
     // --textures-out: unset (the default) means "no disk copy at all" --
     // unlike --textures/--skin-dir/--bones-dir, there's no directory this
@@ -916,13 +922,18 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     bool physNone = physGiven && opts.physArg == "none";
     std::string physPath = (physGiven && !physNone) ? opts.physArg : "";
 
-    // --db2-dir/--dbd-dir/--char-layout-id: no three-state resolution here
-    // (unlike --bones-dir/--phys) -- there's no model-relative default to
-    // fall back to, since husk has no way to derive a layout ID on its own
-    // (see chrmodel_db2.hpp's module comment). All three must be given
-    // together or the feature is simply off.
+    // --db2-dir/--dbd-dir: two-state, not three (REFACTOR/CLI_AND_TOOLING.md
+    // §2) -- unlike --bones-dir/--phys, there's no model-relative default to
+    // fall back to, since these point at an external checkout/extraction
+    // with no canonical location ("auto" would just be husk guessing at
+    // someone's filesystem layout). 'none' explicitly opts out even when a
+    // config file supplies a value -- the state that convention was
+    // otherwise missing, since a configured value previously couldn't be
+    // switched off per invocation at all.
     std::string db2Dir = app.count("--db2-dir") ? opts.db2DirArg : "";
+    if (db2Dir == "none") db2Dir.clear();
     std::string dbdDirForChr = app.count("--dbd-dir") ? opts.dbdDirArg : "";
+    if (dbdDirForChr == "none") dbdDirForChr.clear();
     std::string charLayoutIdArg = app.count("--char-layout-id") ? opts.charLayoutIdArg : "";
     std::string customizationChoiceIdsArg =
         app.count("--customization-choice-ids") ? opts.customizationChoiceIdsArg : "";
@@ -1230,7 +1241,7 @@ int exportGlb(int argc, char** args) {
     // millions of lines, and --from-list can drive thousands of exports
     // from one invocation.
     std::unordered_map<uint32_t, std::string> listfile;
-    if (app.count("--listfile")) {
+    if (app.count("--listfile") && opts.listfileArg != "none") {
         listfile = husk::loadListfile(opts.listfileArg);
         // A bad --listfile *path* already throws (loadListfile itself, a
         // direct user mistake worth failing loudly on) -- but a listfile

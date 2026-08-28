@@ -156,3 +156,67 @@ regressions). `tests/test_cli_chrmodel_id.cpp`'s existing FileDataID-
 primary-path coverage (the Dracthyr disambiguation case) passed unchanged,
 confirming the move preserved behavior at the CLI level too, not just in
 the new unit test.
+
+---
+
+## 2026-08-28 — `CLI_AND_TOOLING.md` §2: the missing `none` state for `--db2-dir`/`--dbd-dir`/`--listfile`/`--listfile-root`
+
+**What**: `AUDIT.md` §7 and `CLI_AND_TOOLING.md` §2 both named a real,
+scoped gap distinct from the "three grammars" observation they otherwise
+just explain: since `--config`/`$HUSK_CONFIG` TOML defaults landed, a
+config-supplied `db2-dir`/`dbd-dir`/`listfile`/`listfile-root` on `husk
+export` had **no per-invocation opt-out** — the evidence cited was that
+`tests/run_husk.hpp` has to blank the *entire* config
+(`HUSK_CONFIG=/dev/null`) on every subprocess spawn just to get a clean
+run. Added the literal value `'none'` to all four, same convention
+`--textures`/`--skin-dir`/`--bones-dir` already use: `db2Dir`/
+`dbdDirForChr` (`cmd_export.cpp`) now clear to empty on `'none'`, the
+`--listfile` load is skipped outright, `listfileRoot` clears too. Fixed
+the stale `--db2-dir`/`--dbd-dir` comment `AUDIT.md` §9 also flagged
+("husk has no way to derive a layout ID on its own" — untrue since
+2026-08-21's `--char-layout-id` auto-derivation) in the same edit, since
+it sat directly above the code this touched.
+
+**Scope decision**: `--db2-dir`/`--dbd-dir` are also registered on
+`db2-build` (all three `->required()` there — no off-state is meaningful
+for a command that can't do anything without them), `db2-info`, and
+`appearance-string` (neither of which ever got `--config` wiring in the
+first place, so neither has a config-supplied default to opt back out
+of). Only `export`'s own instances gained `'none'` — extending it to the
+others would be solving a gap that doesn't exist for them.
+
+**Shell completions**: `bashValueCompletion`/`zshValueAction`
+(`src/main.cpp`) are keyed only by flag *name*, shared across every
+subcommand's own flag table — naively adding `'none'` there would have
+offered it as a completion for `db2-build --db2-dir` too, where it isn't
+actually honored. Made both functions take the subcommand name as a
+second parameter so the `'none'`-offering branch can check `subName ==
+"export"` before firing; `db2-build`'s own `--db2-dir`/`--dbd-dir`/
+`--listfile` completions are unchanged (directory/file completion only,
+no `'none'` word). `completions/husk.{bash,zsh}` regenerated via
+`--print-completion`.
+
+**New tests** (`tests/test_cli_config.cpp`, 2 cases): config supplies
+`db2-dir`/`dbd-dir` pointing at real-but-empty directories, asserting the
+customization-DB2-resolution attempt fires (a real "...DB2 data resolved
+from..." stderr note) without `'none'` and doesn't fire with `--db2-dir
+none --dbd-dir none`; same shape for `--listfile none` against a
+config-supplied listfile path. **A real gotcha found writing these**: the
+first draft used `tinyValidM2()` alone, which has zero inline bones —
+`attachCustomizationChoices`/`attachCharTextureLayout` are both gated
+behind `cmd_export.cpp`'s `if (!bones.empty())` block, so neither ever
+ran and the assertion silently checked the wrong thing (a `MESSAGE()`
+dump of the real subprocess output caught this, not guesswork). Fixed by
+adding a same-basename `.skel` sidecar (`boneCorrectionSkel()`,
+`tests/test_cli_fixtures_scenes.hpp` — the exact fixture
+`tests/test_cli_chrmodel_id.cpp`'s own DB2 tests already use for the same
+reason).
+
+**Verified**: full suite green, 700/700 (698 prior + 2 new, 0
+regressions). Real end-to-end smoke test against `bloodelffemale_hd.m2`
+with real local DB2 data: `--db2-dir none --dbd-dir <real dir>` produces
+the exact same three "--db2-dir/--dbd-dir are required... skipping"
+notes a fully-unset run would, and a clean export (exit 0, 195498
+vertices/45418 triangles/245 bones/338 clips) — confirming `'none'`
+disables the feature even when a *different* real flag in the same
+group is still given, not just when both are absent.

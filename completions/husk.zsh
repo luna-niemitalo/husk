@@ -45,8 +45,8 @@ _husk() {
                 '--bones-dir[bone-correction directory, or none]:value:_husk_dir_or_none_value' \
                 '--phys[external .phys path, or none]:value:_husk_file_or_none_value' \
                 '--collision[include the collision mesh (off by default)]' \
-                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
-                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_or_none_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_or_none_value' \
                 '--char-layout-id[a real CharComponentTextureLayoutsID]:value:_files' \
                 '--customization-choice-ids[comma-separated ChrCustomizationChoiceID(s)]:value:_files' \
                 '--appearance[--appearance]:value:_files' \
@@ -54,8 +54,8 @@ _husk() {
                 '--creature-display-id[--creature-display-id]:value:_files' \
                 '--object-skin-texture-id[--object-skin-texture-id]:value:_files' \
                 '--knowledge-db[--knowledge-db]:value:_files' \
-                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
-                '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_value' \
+                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_husk_file_or_none_value' \
+                '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_or_none_value' \
                 '1:model:_files'
             ;;
         info)
