@@ -44,15 +44,19 @@ the `Catalog` object per `REFACTOR_LOG.md`'s 2026-08-28 "Resolved<T>
 scaffolding" entry, the same "boring infrastructure first" pattern
 `db2_cache.hpp` used.
 
-Tier 1 (literal `<texturesDir>/<FileDataID>.{png,blp}`) now reports through
-it — `src/sources/texture_catalog.hpp`'s `resolveLiteralTextureBytes`,
-`export_materials.cpp`'s real texture-tier call site now calls it instead of
-`resolveTextureBytes` directly (`REFACTOR_LOG.md`'s "first real tier through
-Resolved<T>" entry, verbatim behavior, verified against the full suite).
-Tiers 2 (listfile) and 3 (fuzzy same-basename pool) are not migrated yet —
-tier 3 in particular sits inside `export_materials.cpp`'s ambiguous-
-candidate/alternate-texture-candidate logic, which needs more care than a
-mechanical wrapper. The Python/Blender mirrors are entirely untouched by
+Tiers 1 (literal `<texturesDir>/<FileDataID>.{png,blp}`) and 2 (listfile) now
+report through it — `src/sources/texture_catalog.hpp`'s
+`resolveLiteralTextureBytes`/`resolveListfileTextureBytes`,
+`export_materials.cpp`'s real texture-tier call sites (both the primary
+baseColorTexture resolution *and* the `additionalTextureLayers` loop's own
+previously-separate copy, found while doing this) now call them instead of
+duplicating the lookup inline (`REFACTOR_LOG.md`'s 2026-08-28 "first"/
+"second real tier through Resolved<T>" entries, verbatim behavior, verified
+against the full suite). Tier 3 (fuzzy same-basename pool) is not migrated
+yet — it sits inside `export_materials.cpp`'s ambiguous-candidate/alternate-
+texture-candidate logic, which needs more care than a mechanical wrapper
+(see that log entry's "why this tier, not 2 or 3 next" for the reasoning,
+now half-resolved). The Python/Blender mirrors are entirely untouched by
 this — they can't call into `src/sources/` at all; that gap is what
 `CLI_AND_TOOLING.md` §3's structured-output work is for.
 

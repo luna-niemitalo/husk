@@ -8,6 +8,51 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-28 — second real tier through `Resolved<T>`: listfile texture lookup (`AUDIT.md` §1.1), plus a fifth §1.2 site found and fixed
+
+**What**: `src/sources/texture_catalog.hpp` gained
+`resolveListfileTextureBytes(fdid, listfile, listfileRoot, texturesOutDir)
+-> Resolved<ListfileTextureResult>` — `RESOURCE_CATALOG.md`'s tier 2
+(`<listfileRoot>/<real content path>`), delegating to the already-
+consolidated `sources::pathForFileDataId` (§1.2) for the path and
+`husk::commands::resolveTextureBytes` for the bytes; `ListfileTextureResult`
+bundles `bytes` with the display `imageName` the call site also needs
+(`stem.filename()`), since both come out of the same resolved path.
+`export_materials.cpp`'s primary baseColorTexture listfile-fallback block
+now calls it instead of the inline `pathForFileDataId` + `resolveTextureBytes`
+pair. 3 new tests (`tests/test_sources_texture_catalog.cpp`): hit, miss
+(no listfile row), miss (listfile row names a file that doesn't exist).
+
+**A fifth §1.2 forward-lookup site found while doing this, not previously
+named**: `export_materials.cpp`'s `additionalTextureLayers` loop
+(`textureCount > 1` batches) had its *own* independent
+`listfile.find(fdid)` + manual `listfileRoot / path` join + separate inline
+literal-tier check — the exact same duplication `AUDIT.md` §1.2 already
+named two instances of, just never counted as a third because it's a
+different loop further down the same function. Found by grepping
+`listfile.find(` across `src/` while confirming there was only one real
+call site to migrate for tier 2 — there were two. Fixed the same way as
+the primary site: now calls `resolveLiteralTextureBytes` then
+`resolveListfileTextureBytes`, same tier order, verified the join-order
+difference (original code stripped the extension *before* joining with
+`listfileRoot`; `pathForFileDataId` joins first, then the caller strips —
+extension replacement only touches the last path component, so both orders
+produce an identical final path) before trusting the swap. `AUDIT.md` §1.2
+updated to name this as a fifth site the original audit missed, not silently
+folded into the existing count. Also flagged, but deliberately not fixed
+this tick (out of this session's byte-resolution scope): two *name-only*
+`listfile.find(fdid)` + `.stem()` duplicates (`export_materials.cpp:436`,
+`export_extras.cpp:623`) — identical to each other, no bytes/path involved,
+a real but smaller follow-up.
+
+**Verified**: full suite green, 716/716 (713 prior + 3 new, 0 regressions).
+The `additionalTextureLayers` fix has real existing coverage
+(`HUSK_TEST_MULTITEX_M2`/`_SKIN`-backed integration tests) that passed
+unchanged, confirming the join-order equivalence held in practice, not just
+in reasoning.
+
+---
+
 ## 2026-08-28 — first real tier through `Resolved<T>`: literal texture lookup (`AUDIT.md` §1.1)
 
 **What**: New `src/sources/texture_catalog.hpp`/`.cpp`:

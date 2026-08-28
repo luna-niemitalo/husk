@@ -43,17 +43,34 @@ quietly wrong for weeks.
 `findFileDataIdForModelPath` (`src/export_extras.cpp`) moved to
 `husk::sources::fileDataIdForPath` (§1.3, an earlier session).
 
-**Forward direction (FileDataID → path), two of four, done this session**
-(`REFACTOR_LOG.md`'s 2026-08-28 entry) — `husk::sources::pathForFileDataId`
+**Forward direction (FileDataID → path), three of the four originally named,
+done** (`REFACTOR_LOG.md`'s 2026-08-28 entries) — `husk::sources::pathForFileDataId`
 (`src/sources/listfile_catalog.hpp`/`.cpp`), a verbatim-behavior move of
-the identical `listfile.find(fdid)` + root-join step both call sites
+the identical `listfile.find(fdid)` + root-join step every call site
 duplicated:
 
-- The forward lookup inline in `export_materials.cpp`'s texture-tier
-  fallback — now calls `pathForFileDataId`, still does its own
-  extension-stripping afterward.
+- The forward lookup inline in `export_materials.cpp`'s primary
+  baseColorTexture texture-tier fallback — now calls `pathForFileDataId`
+  (via `sources::resolveListfileTextureBytes`, §1.1's tier-2 wrapper), still
+  does its own extension-stripping afterward.
 - `exportGearAuxItemModels` (`src/cmd_export.cpp`) — now calls
   `pathForFileDataId`, still does its own existence check + error text.
+- **A fifth site, not in this section's original four-site count**:
+  `export_materials.cpp`'s `additionalTextureLayers` loop (multi-texture-
+  layer batches, `textureCount > 1`) had its *own* independent
+  `listfile.find(fdid)` + manual join, found while wiring the primary
+  site's tier 2 through `Resolved<T>` — same duplication, just missed by
+  the original audit pass. Now also routed through
+  `resolveLiteralTextureBytes`/`resolveListfileTextureBytes`.
+
+**Still separately duplicated, not covered by any of the above**: the two
+name-only lookups — `export_materials.cpp:436`'s `gm.realContentName`
+assignment and `export_extras.cpp:623`'s `cm.contentName` assignment — both
+do `listfile.find(fdid)` then `.stem().string()` for display naming only
+(no bytes, no path read). Identical to each other, not yet consolidated;
+a real, small follow-up (`sources::contentNameForFileDataId(listfile, fdid)
+-> optional<string>`), not attempted this session to keep this tick's scope
+to the byte-resolution tiers.
 
 **Deliberately still separate** (different data sources/languages, not
 the same duplication):

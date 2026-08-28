@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "../export_texture_resolution.hpp"
+#include "listfile_catalog.hpp"
 
 namespace husk::sources {
 
@@ -19,6 +20,26 @@ Resolved<std::vector<uint8_t>> resolveLiteralTextureBytes(uint32_t fdid, const s
     }
     return Resolved<std::vector<uint8_t>>::miss(
         ResolutionTier::Literal, "neither '" + stem.string() + ".png' nor '" + stem.string() + ".blp' exists");
+}
+
+Resolved<ListfileTextureResult> resolveListfileTextureBytes(
+    uint32_t fdid, const std::unordered_map<uint32_t, std::string>& listfile, const std::string& listfileRoot,
+    const std::string& texturesOutDir) {
+    auto found = pathForFileDataId(listfile, listfileRoot, fdid);
+    if (!found) {
+        return Resolved<ListfileTextureResult>::miss(
+            ResolutionTier::Listfile, "no listfile row for FileDataID " + std::to_string(fdid));
+    }
+    auto stem = found->replace_extension();
+    if (auto bytes = husk::commands::resolveTextureBytes(stem, listfileRoot, texturesOutDir)) {
+        ListfileTextureResult result{std::move(*bytes), stem.filename().string()};
+        return Resolved<ListfileTextureResult>::hit(std::move(result), ResolutionTier::Listfile,
+                                                      stem.string() + ".{png,blp}");
+    }
+    return Resolved<ListfileTextureResult>::miss(
+        ResolutionTier::Listfile,
+        "listfile names '" + stem.string() + "' for FileDataID " + std::to_string(fdid) +
+            " but neither .png nor .blp exists there");
 }
 
 }  // namespace husk::sources

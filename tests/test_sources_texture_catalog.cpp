@@ -7,10 +7,12 @@
 
 #include <filesystem>
 #include <fstream>
+#include <unordered_map>
 
 #include "../src/sources/texture_catalog.hpp"
 
 using husk::sources::resolveLiteralTextureBytes;
+using husk::sources::resolveListfileTextureBytes;
 using husk::sources::ResolutionTier;
 
 namespace {
@@ -57,4 +59,36 @@ TEST_CASE("sources::resolveLiteralTextureBytes misses when texturesDir is empty"
     CHECK_FALSE(r.found());
     CHECK(r.tier == ResolutionTier::Literal);
     CHECK(r.reason == "texturesDir is empty");
+}
+
+TEST_CASE("sources::resolveListfileTextureBytes hits when the listfile names a real, present file") {
+    auto root = fs::temp_directory_path() / "husk-texture-catalog-test-listfile-hit";
+    fs::create_directories(root / "world" / "goober");
+    std::vector<uint8_t> pngBytes = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
+    writeFile(root / "world" / "goober" / "bubble.png", pngBytes);
+
+    std::unordered_map<uint32_t, std::string> listfile{{555, "world/goober/bubble.blp"}};
+    auto r = resolveListfileTextureBytes(555, listfile, root.string(), "");
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::Listfile);
+    CHECK(r.value->bytes == pngBytes);
+    CHECK(r.value->imageName == "bubble");
+}
+
+TEST_CASE("sources::resolveListfileTextureBytes misses (with a reason) when the listfile has no row for the fdid") {
+    std::unordered_map<uint32_t, std::string> listfile{{1, "world/some/other/path.blp"}};
+    auto r = resolveListfileTextureBytes(999, listfile, "/tmp/husk-texture-catalog-test-listfile-miss", "");
+    CHECK_FALSE(r.found());
+    CHECK(r.tier == ResolutionTier::Listfile);
+    CHECK(r.reason.find("999") != std::string::npos);
+}
+
+TEST_CASE("sources::resolveListfileTextureBytes misses (with a reason) when the listfile row's file doesn't exist") {
+    auto root = fs::temp_directory_path() / "husk-texture-catalog-test-listfile-dangling";
+    fs::create_directories(root);
+    std::unordered_map<uint32_t, std::string> listfile{{7, "world/nope.blp"}};
+    auto r = resolveListfileTextureBytes(7, listfile, root.string(), "");
+    CHECK_FALSE(r.found());
+    CHECK(r.tier == ResolutionTier::Listfile);
+    CHECK(r.reason.find("nope") != std::string::npos);
 }

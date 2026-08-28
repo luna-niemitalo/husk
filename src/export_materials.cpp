@@ -489,13 +489,16 @@ BuiltMaterials buildMaterialsAndPrimitives(
                 // itself: the corpus root a listfile's paths are relative to
                 // is typically many directories away from any one model,
                 // unlike the directory-local matching above.
-                if (auto found = husk::sources::pathForFileDataId(listfile, listfileRoot, fdid)) {
-                    auto stem = found->replace_extension();
-                    if (auto bytes = resolveTextureBytes(stem, listfileRoot, texturesOutDir)) {
-                        gm.baseColorImagePng = std::move(*bytes);
-                        gm.baseColorImageName = stem.filename().string();
-                        embedded = true;
-                    }
+                // Routed through sources::resolveListfileTextureBytes
+                // (AUDIT.md §1.1's tier 2, wrapped in Resolved<T> --
+                // REFACTOR_LOG.md's "second real tier through Resolved<T>"
+                // entry) -- same pathForFileDataId + resolveTextureBytes
+                // pair as before, now reporting which tier/path answered.
+                if (auto resolved = husk::sources::resolveListfileTextureBytes(fdid, listfile, listfileRoot,
+                                                                                 texturesOutDir)) {
+                    gm.baseColorImagePng = std::move(resolved.value->bytes);
+                    gm.baseColorImageName = std::move(resolved.value->imageName);
+                    embedded = true;
                 }
             }
             if (!embedded) {
@@ -625,21 +628,19 @@ BuiltMaterials buildMaterialsAndPrimitives(
                 if (m2.textureFileDataIds && layerTextureIndex < m2.textureFileDataIds->size()) {
                     al.fileDataId = (*m2.textureFileDataIds)[layerTextureIndex];
                     if (al.fileDataId != 0 && !texturesDir.empty()) {
-                        if (auto bytes = resolveTextureBytes(std::filesystem::path(texturesDir) /
-                                                                  std::to_string(al.fileDataId),
-                                                              texturesDir, texturesOutDir)) {
-                            al.imagePng = std::move(*bytes);
+                        // Same tier 1 -> tier 2 order as the primary
+                        // baseColorTexture resolution above, now through the
+                        // same Resolved<T>-wrapped helpers (AUDIT.md §1.1) --
+                        // best-effort, same "supplementary metadata" tier as
+                        // the rest of this loop, so a miss here is silently
+                        // left blank rather than reported.
+                        if (auto resolved = husk::sources::resolveLiteralTextureBytes(al.fileDataId, texturesDir,
+                                                                                        texturesOutDir)) {
+                            al.imagePng = std::move(*resolved.value);
                         } else if (!listfile.empty()) {
-                            // Same --listfile fallback as the primary
-                            // baseColorTexture resolution above -- best-
-                            // effort, same "supplementary metadata" tier as
-                            // the rest of this loop.
-                            if (auto found = listfile.find(al.fileDataId); found != listfile.end()) {
-                                auto stem = std::filesystem::path(listfileRoot) /
-                                            std::filesystem::path(found->second).replace_extension();
-                                if (auto bytes2 = resolveTextureBytes(stem, listfileRoot, texturesOutDir)) {
-                                    al.imagePng = std::move(*bytes2);
-                                }
+                            if (auto resolved2 = husk::sources::resolveListfileTextureBytes(
+                                    al.fileDataId, listfile, listfileRoot, texturesOutDir)) {
+                                al.imagePng = std::move(resolved2.value->bytes);
                             }
                         }
                     }
