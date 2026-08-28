@@ -92,8 +92,14 @@ rather than inherited:
 
 ## What this stage deletes
 
-- Four texture-resolution implementations → one (`AUDIT.md` §1.1).
-- Four FileDataID→path implementations → one (§1.2).
+- Three texture-resolution implementations → one (`AUDIT.md` §1.1, in
+  progress — tiers 1/2 of the real C++ implementation done, see below).
+- Five FileDataID→path/name implementations → one. **Done**
+  (`husk::sources::pathForFileDataId`/`contentNameForFileDataId`,
+  `src/sources/listfile_catalog.hpp`/`.cpp` — see `REFACTOR_LOG.md`'s
+  2026-08-28 entries; the two-more-than-originally-counted knowledge-base
+  and Python-mirror cases stay deliberately separate, different backing
+  store/language, not the same duplication).
 - The `chrrace::load` ×3 / `texturefiledata::load` ×2 / same-file-parsed-twice
   DB2 pattern → one cache. **Done** (`src/sources/db2_cache.hpp`, see
   `REFACTOR_LOG.md`'s 2026-08-28 entries) — this was the free half of stage

@@ -37,55 +37,6 @@ quietly wrong for weeks.
 `CLAUDE.md`'s own Hazards section already warns readers which of these to trust
 — a documentation workaround for a structural problem.
 
-### 1.2 FileDataID → local path
-
-**Reverse direction (path → FileDataID) done** — the former
-`findFileDataIdForModelPath` (`src/export_extras.cpp`) moved to
-`husk::sources::fileDataIdForPath` (§1.3, an earlier session).
-
-**Forward direction (FileDataID → path), three of the four originally named,
-done** (`REFACTOR_LOG.md`'s 2026-08-28 entries) — `husk::sources::pathForFileDataId`
-(`src/sources/listfile_catalog.hpp`/`.cpp`), a verbatim-behavior move of
-the identical `listfile.find(fdid)` + root-join step every call site
-duplicated:
-
-- The forward lookup inline in `export_materials.cpp`'s primary
-  baseColorTexture texture-tier fallback — now calls `pathForFileDataId`
-  (via `sources::resolveListfileTextureBytes`, §1.1's tier-2 wrapper), still
-  does its own extension-stripping afterward.
-- `exportGearAuxItemModels` (`src/cmd_export.cpp`) — now calls
-  `pathForFileDataId`, still does its own existence check + error text.
-- **A fifth site, not in this section's original four-site count**:
-  `export_materials.cpp`'s `additionalTextureLayers` loop (multi-texture-
-  layer batches, `textureCount > 1`) had its *own* independent
-  `listfile.find(fdid)` + manual join, found while wiring the primary
-  site's tier 2 through `Resolved<T>` — same duplication, just missed by
-  the original audit pass. Now also routed through
-  `resolveLiteralTextureBytes`/`resolveListfileTextureBytes`.
-
-**Still separately duplicated, not covered by any of the above**: the two
-name-only lookups — `export_materials.cpp:436`'s `gm.realContentName`
-assignment and `export_extras.cpp:623`'s `cm.contentName` assignment — both
-do `listfile.find(fdid)` then `.stem().string()` for display naming only
-(no bytes, no path read). Identical to each other, not yet consolidated;
-a real, small follow-up (`sources::contentNameForFileDataId(listfile, fdid)
--> optional<string>`), not attempted this session to keep this tick's scope
-to the byte-resolution tiers.
-
-**Deliberately still separate** (different data sources/languages, not
-the same duplication):
-
-- `resolveObjectSkinTextureFromKb` (`src/cmd_export.cpp`) — the same
-  question answered out of the knowledge-base SQLite instead (a genuinely
-  different backing store), then *injected back into the listfile map*
-  (`cmd_export.cpp`'s `listfile.emplace(...)`) so the embed path picks it
-  up — this injection itself is real duplication-adjacent surface, left
-  for the real catalog object (§4 of `CLI_AND_TOOLING.md`'s
-  `--knowledge-db` entry already flags it).
-- `_load_listfile` (`tools/corpus_scan_tasks/unfillable_texture_task.py`) —
-  a separate implementation, in Python, outside this C++ consolidation's
-  reach.
-
 ---
 
 ## 2. Missing internal representation
@@ -237,7 +188,8 @@ Two consequences:
   decision (kept as diagnostic/future-work infrastructure, not retired).
   **Done**: the known-wrongness now surfaces at point of use (I4) — see
   `CLI_AND_TOOLING.md` §5. Still mutates the shared listfile map
-  mid-export, a real instance of §1.2's duplication, left for the catalog.
+  mid-export, a real instance of the now-closed §1.2's FileDataID→path
+  duplication (`REFACTOR_LOG.md`), left for the catalog.
 
 ---
 

@@ -246,6 +246,6 @@ a miss prints nothing).
 Still true, not attempted here: this flag mutates the shared listfile map
 mid-export (`cmd_export.cpp`, `if (objectSkinTextureFileDataId != 0 &&
 !kbResolution.texturePath.empty()) listfile.emplace(...)`) so another
-subsystem picks up its answer — a real instance of `AUDIT.md` §1.2's
-FileDataID→path duplication, left for the catalog (`RESOURCE_CATALOG.md`)
-rather than patched around here.
+subsystem picks up its answer — a real instance of the FileDataID→path
+duplication `AUDIT.md`'s now-closed §1.2 named (`REFACTOR_LOG.md`), left
+for the catalog (`RESOURCE_CATALOG.md`) rather than patched around here.

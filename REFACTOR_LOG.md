@@ -8,6 +8,48 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-28 — `AUDIT.md` §1.2 fully closed: the two name-only listfile lookups consolidated
+
+**What**: The last two duplicated forward-lookup sites §1.2 had flagged but
+not yet fixed — `export_materials.cpp`'s `gm.realContentName` assignment
+and `export_extras.cpp`'s `cm.contentName` assignment, both a bare
+`listfile.find(fdid)` + `.stem().string()` for display naming only (no
+bytes, no path read, so neither needed `pathForFileDataId`'s root-join) —
+are now one function: `sources::contentNameForFileDataId(listfile, fdid) ->
+optional<string>` (`src/sources/listfile_catalog.hpp`/`.cpp`, third
+function in that file alongside `fileDataIdForPath`/`pathForFileDataId`).
+Both call sites now use it verbatim (the `export_extras.cpp` site keeps its
+own `cm.fileDataId != 0` guard rather than pushing it into the shared
+function, since `pathForFileDataId`/`fileDataIdForPath` don't special-case
+fdid 0 either — consistent with the rest of this file). 3 new tests
+(`tests/test_sources_catalog.cpp`): hit, empty-listfile miss, unknown-fdid
+miss.
+
+With this, `AUDIT.md` §1.2 ("FileDataID → local path") is genuinely closed:
+every forward lookup this section named — the two mechanical byte/path
+duplicates, the fifth site the previous entry found, and these last two
+name-only ones — goes through `src/sources/listfile_catalog.hpp` now.
+Removed §1.2 outright per `AUDIT.md`'s own "an item is removed when it's
+fixed" convention (matching how §1.3/§11 were handled), and fixed the three
+live citations that would otherwise have gone stale: `AUDIT.md`'s own
+`--knowledge-db` bullet (§7's listfile-injection note), `CLI_AND_TOOLING.md`'s
+matching `--knowledge-db` entry, and `RESOURCE_CATALOG.md`'s "what this
+stage deletes" list (now says five implementations → one, done, rather than
+four → one, not started).
+
+**What stays open, unchanged**: `resolveObjectSkinTextureFromKb`'s
+knowledge-base SQLite lookup and its listfile-map injection
+(`cmd_export.cpp`'s `listfile.emplace(...)`), and the Python mirror
+(`unfillable_texture_task.py`'s `_load_listfile`) — both were always
+"deliberately still separate" (different backing store/language), not part
+of what closed here, still real duplication-adjacent surface left for the
+eventual `sources::Catalog` object.
+
+**Verified**: full suite green, 719/719 (716 prior + 3 new, 0 regressions).
+Clean rebuild, no new warnings.
+
+---
+
 ## 2026-08-28 — second real tier through `Resolved<T>`: listfile texture lookup (`AUDIT.md` §1.1), plus a fifth §1.2 site found and fixed
 
 **What**: `src/sources/texture_catalog.hpp` gained

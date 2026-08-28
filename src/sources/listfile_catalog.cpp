@@ -37,4 +37,12 @@ std::optional<std::filesystem::path> pathForFileDataId(const std::unordered_map<
     return std::filesystem::path(listfileRoot) / found->second;
 }
 
+std::optional<std::string> contentNameForFileDataId(const std::unordered_map<uint32_t, std::string>& listfile,
+                                                      uint32_t fdid) {
+    if (listfile.empty()) return std::nullopt;
+    auto found = listfile.find(fdid);
+    if (found == listfile.end()) return std::nullopt;
+    return std::filesystem::path(found->second).stem().string();
+}
+
 }  // namespace husk::sources

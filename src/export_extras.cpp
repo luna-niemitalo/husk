@@ -619,9 +619,9 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
                 // this whole function; resolved here rather than deferred,
                 // since this is the one site that owns fileDataId
                 // resolution for every real customization-choice material.
-                if (cm.fileDataId != 0 && !listfile.empty()) {
-                    if (auto found = listfile.find(cm.fileDataId); found != listfile.end()) {
-                        cm.contentName = std::filesystem::path(found->second).stem().string();
+                if (cm.fileDataId != 0) {
+                    if (auto name = husk::sources::contentNameForFileDataId(listfile, cm.fileDataId)) {
+                        cm.contentName = *name;
                     }
                 }
                 choice.materials.push_back(std::move(cm));

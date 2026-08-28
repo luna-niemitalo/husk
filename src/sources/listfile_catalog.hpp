@@ -55,4 +55,17 @@ std::optional<uint32_t> fileDataIdForPath(const std::unordered_map<uint32_t, std
 std::optional<std::filesystem::path> pathForFileDataId(const std::unordered_map<uint32_t, std::string>& listfile,
                                                          const std::string& listfileRoot, uint32_t fdid);
 
+// The real --listfile content name for `fdid`, for human-readable display
+// (Blender image datablock/material names, --slim-textures' written
+// filenames) -- `listfile[fdid]`'s own stem, no root join needed (a display
+// name, not a path to read). Verbatim move of the identical
+// `listfile.find(fdid)` + `.stem().string()` step two call sites
+// duplicated (`export_materials.cpp`'s `gm.realContentName`,
+// `export_extras.cpp`'s `cm.contentName` -- `AUDIT.md` §1.2's "fifth site"
+// entry's own follow-up). Returns nullopt when `listfile` is empty or
+// `fdid` has no row -- same "primary path unavailable" convention as the
+// other two functions here.
+std::optional<std::string> contentNameForFileDataId(const std::unordered_map<uint32_t, std::string>& listfile,
+                                                      uint32_t fdid);
+
 }  // namespace husk::sources

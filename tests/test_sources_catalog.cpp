@@ -11,6 +11,7 @@
 
 #include "../src/sources/listfile_catalog.hpp"
 
+using husk::sources::contentNameForFileDataId;
 using husk::sources::fileDataIdForPath;
 using husk::sources::pathForFileDataId;
 
@@ -63,4 +64,21 @@ TEST_CASE("sources::pathForFileDataId does NOT require listfileRoot non-empty --
     auto result = pathForFileDataId(listfile, "", 1);
     REQUIRE(result.has_value());
     CHECK(*result == "world/foo.m2");
+}
+
+TEST_CASE("sources::contentNameForFileDataId returns the listfile row's own stem, no root needed") {
+    std::unordered_map<uint32_t, std::string> listfile{{555, "world/goober/bubble.blp"}};
+    auto result = contentNameForFileDataId(listfile, 555);
+    REQUIRE(result.has_value());
+    CHECK(*result == "bubble");
+}
+
+TEST_CASE("sources::contentNameForFileDataId returns nullopt when the listfile is empty") {
+    std::unordered_map<uint32_t, std::string> listfile;
+    CHECK_FALSE(contentNameForFileDataId(listfile, 1).has_value());
+}
+
+TEST_CASE("sources::contentNameForFileDataId returns nullopt when the FileDataID has no listfile row") {
+    std::unordered_map<uint32_t, std::string> listfile{{1, "world/some/other/path.blp"}};
+    CHECK_FALSE(contentNameForFileDataId(listfile, 999).has_value());
 }

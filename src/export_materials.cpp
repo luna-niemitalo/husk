@@ -432,10 +432,8 @@ BuiltMaterials buildMaterialsAndPrimitives(
                 // doc comments -- the name-priority assignment at this
                 // batch's dedup point (below) is what actually consumes
                 // these.
-                if (!listfile.empty()) {
-                    if (auto found = listfile.find(fdid); found != listfile.end()) {
-                        gm.realContentName = std::filesystem::path(found->second).stem().string();
-                    }
+                if (auto name = husk::sources::contentNameForFileDataId(listfile, fdid)) {
+                    gm.realContentName = *name;
                 }
                 if (auto nameIt = customizationNames.find(fdid); nameIt != customizationNames.end()) {
                     gm.customizationOptionName = nameIt->second.optionName;
