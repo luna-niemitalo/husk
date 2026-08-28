@@ -8,6 +8,55 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-28 — the no-proprietary-formats clarification: the container is DDS, and I8 grows a third part
+
+**What**: Luna clarified the decision below before any code was written against
+it: husk stores **no proprietary format**. A proprietary input — M2, BLP, DB2 —
+gets rehoused into something a publicly available tool can open, so husk is *the*
+tool with built-in support for this data and never the *mandatory* one. Stated
+explicitly for texture containers: an industry-standard container, not a raw
+`.bin`.
+
+**What it changes**: the payload half of the entry below is unaffected — the DXT
+blocks are still what gets kept, still bit-exact, still never re-encoded to PNG
+at ingest. What changes is the *container*: not BLP (proprietary — reading it
+needs husk or a WoW-specific tool), and not a headerless block dump (no public
+tool opens that). **DDS**, chosen because it holds the blocks verbatim behind a
+124-byte header — a header swap, not a transcode — and because Blender, GIMP,
+Pillow, Compressonator and DirectXTex all open one today.
+
+The deciding practical fact, found rather than assumed:
+`blp/src/husk_blp/decode.py:62` (`_build_minimal_dds`) already builds exactly
+this container, and its own comment already notes it is "standard Microsoft DDS
+layout, not WoW-specific". The transform is implemented, exercised, and known
+cheap; what changes is that its output becomes a stored artifact instead of a
+throwaway intermediate handed to Pillow.
+
+KTX2 was the considered alternative and is the more modern, Khronos-owned choice
+with better headroom for mip/array/cubemap cases an engine would want. It loses
+on the one criterion that decided this — Blender has no native KTX2 support, and
+casual viewer support is thinner. Recorded as a default, not a one-way door: the
+encoding tag makes the container swappable.
+
+**I8 restated in three parts** (`REFACTOR/README.md`), since the clarification is
+project-wide and not texture-specific: nothing proprietary is stored; stored data
+is human-readable or trivially transformable to it; convert on output, never on
+intake. They combine into one move — keep the payload bit-exact, swap the
+container for an open one, generate readable projections on demand. Note the
+first part's own teeth: "not proprietary" is not the same as "openable", and the
+bar is the second one.
+
+**One consequence recorded rather than answered**: `mesh.bin` / `skeleton.bin` /
+`animation.bin` in the shape sketch pass I8's readable-verb test but have never
+been held to its openable-container test — they are a placeholder from before I8
+existed. Marked in `BUNDLE_FORMAT.md` as a **stage-4 question**, not a blocker
+for stages 1–3, to be answered the same way the texture case was. Recorded so the
+placeholder is not later mistaken for a decision.
+
+**Verified**: docs only, no code. Full suite green, 721/721, unchanged.
+
+---
+
 ## 2026-08-28 — Luna settles texture encoding; the rule generalizes into I8
 
 **What**: The one question the review pass below escalated is answered, and the

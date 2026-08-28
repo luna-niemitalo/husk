@@ -26,17 +26,24 @@ model.husk/
   mesh.bin
   skeleton.bin
   animation.bin
-  textures/<name>.<ext>  <- source encoding by default; see "Texture encoding"
+  textures/<name>.dds    <- blocks verbatim in an open container; see below
   aux/<item>/…           <- nested bundles, same shape
 ```
 
 Binary payloads are separate files rather than a packed blob so that a human can
 open one on its own and a diff can show which payload changed. Every one of them
-is subject to I8: a binary payload is permitted only where husk has a verb that
-emits its human-readable equivalent, and the manifest itself is always JSON.
-`mesh.bin` / `skeleton.bin` / `animation.bin` therefore each carry a standing
-obligation — a `husk dump` path that renders them readable — not a licence to be
-opaque because they are large.
+is subject to I8, which sets two tests: husk must have a verb that renders it
+human-readable, **and** it must not be a headerless dump that only husk can make
+sense of. The manifest itself is always JSON.
+
+`mesh.bin` / `skeleton.bin` / `animation.bin` as sketched above pass the first
+test and have not yet been held to the second — the names are a placeholder from
+before I8 was written down. Deciding what open container carries geometry,
+skeleton and curve data is a **stage-4 question**, not a blocker for stages 1–3,
+and it should be answered the same way the texture case was: find the container
+that holds husk's own payload without transforming it, and prefer one a public
+tool already opens. It is recorded here so the placeholder is not mistaken for a
+decision.
 
 **I3, restated concretely**: a consumer opens `manifest.json` and never looks
 anywhere else. Every path in it is relative to the manifest. There is no
@@ -190,37 +197,75 @@ producer change and not a schema bump.
 
 ## Texture encoding — settled
 
-**Canonical is the source encoding. PNG is a projection husk emits on request.**
+**Canonical is the source *payload*, rehoused in an open container: DDS.
+PNG is a projection husk emits on request.**
 
-Three constraints were weighed (Luna's, 2026-08-28): the store should be
-readable and explorable; it should be human-readable *or trivially transformable*
-to it (I8); and it must not pay avoidable transform quality losses. A fourth
-rules out the naive option before the other three even apply — **raw decoded
-pixels are not a candidate**. An uncompressed RGBA dump of a real corpus is
-enormous, which is the whole reason a canonical *format* is being chosen rather
-than bytes being spilled to disk. Both surviving candidates are compressed; that
-is the price of entry, not a tiebreaker.
+Four constraints were weighed (Luna's, 2026-08-28): the store should be readable
+and explorable; it should be human-readable *or trivially transformable* to it
+(I8); it must not pay avoidable transform quality losses; and **husk stores no
+proprietary format** — if the input is a proprietary encoding, husk rehouses it
+in something a publicly available tool can open, so husk is *the* tool with
+built-in support, never the *mandatory* one.
 
-### Why the source encoding wins
+A fifth point rules out the naive option before any of those apply: **raw decoded
+pixels are not a candidate.** An uncompressed dump of a real corpus is enormous,
+which is the whole reason a canonical *format* is being chosen rather than bytes
+being spilled to disk. Every surviving candidate is compressed; that is the price
+of entry, not a tiebreaker.
 
-The three constraints do not actually conflict, because the readability
-requirement is satisfied by its own escape clause and the quality requirement is
-not satisfiable in the other direction:
+Those four constraints eliminate all three obvious answers and leave exactly one:
+
+| Candidate | Fails on |
+|---|---|
+| BLP verbatim | Proprietary. Reading it requires husk or a WoW-specific tool. |
+| PNG | Lossy re-encode of the blocks (see below), and discards GPU-native form. |
+| Raw `.bin` of DXT blocks | Not a format. No public tool opens a headerless block dump. |
+| **DDS** | **Nothing.** |
+
+### Why DDS
+
+- **It holds the blocks verbatim.** A DDS file is `DDS ` + a 124-byte header +
+  the block data unchanged. Rehousing BLP's DXT1/3/5 payload into it is a header
+  swap, not a transcode — zero loss, byte-identical blocks, still directly
+  GPU-uploadable.
+- **husk already does exactly this.** `blp/src/husk_blp/decode.py:62`
+  (`_build_minimal_dds`) builds precisely this container today, to hand blocks to
+  Pillow's own decoder, and its comment already notes it is "standard Microsoft
+  DDS layout, not WoW-specific". The transform is implemented, exercised, and
+  known cheap; what changes is that its output becomes a stored artifact rather
+  than a throwaway intermediate.
+- **Public tooling is broad and immediate** — Blender opens DDS natively, as do
+  GIMP, Pillow, Compressonator and DirectXTex. That is the "husk is not
+  mandatory" constraint met with tools someone already has, not with a spec they
+  could theoretically implement.
+- **KTX2 was the considered alternative** and is the more modern, Khronos-owned
+  choice, with better headroom for mip/array/cubemap cases an engine would
+  eventually want. It loses today on the one criterion that decided this: Blender
+  has no native KTX2 support, and casual viewer support is thinner. The encoding
+  tag makes the container swappable if that changes — this is a default, not a
+  one-way door.
+
+### Why the source payload wins over re-encoding to PNG
+
+The readability and quality constraints do not conflict, because readability is
+satisfied by its own escape clause while quality is only satisfiable in one
+direction:
 
 - **The transform is asymmetric, and only one direction is lossless.**
-  BLP's DXT1/3/5 payload decodes to pixels deterministically — husk already does
-  it, for all five BLP encodings, verified against the real corpus. The reverse
-  is a *re-encode*: PNG → DXT throws away information and cannot reproduce the
-  blocks it started from. Storing PNG therefore spends something irreversible at
-  the moment of ingest, and spends it to buy a convenience that was one command
-  away. Storing BLP keeps both outputs available permanently.
+  DXT1/3/5 decodes to pixels deterministically — husk already does it, for all
+  five BLP encodings, verified against the real corpus. The reverse is a
+  *re-encode*: PNG → DXT throws away information and cannot reproduce the blocks
+  it started from. Storing PNG therefore spends something irreversible at the
+  moment of ingest, and spends it to buy a convenience that was one command away.
+  Storing the blocks keeps both outputs available permanently.
 - **A canonical store that cannot reproduce its own input is not canonical.**
   That is the general form of the point above, and it is why I8 says convert on
   output, never on intake.
-- **Readability is satisfied, not waived.** `husk blp-export` is one command
-  against a complete decoder husk already ships. That is exactly the
-  "trivially transformable" case I8 provides for — the clause exists for
-  situations like this one, not as a loophole around them.
+- **Readability is satisfied, not waived.** A stored DDS opens in Blender or GIMP
+  directly, and `husk blp-export` remains one command against a complete decoder
+  husk already ships. That is the "trivially transformable" case I8 provides for
+  — and with DDS it is barely even a transform, since a public tool opens the
+  stored artifact as it sits.
 - **The engine goal comes along free rather than being traded for.** DXT blocks
   are what a GPU consumes; keeping them means no re-decode-and-re-compress round
   trip later. Worth noting this is a *consequence* of the losslessness argument,
@@ -237,22 +282,26 @@ The blocks are the actual artifact; a PNG is an interpretation of them.
 
 - **Stage 2** (`RESOURCE_CATALOG.md`): the catalog returns bytes **tagged with
   their encoding** — `{bytes, encoding: Bc1|Bc2|Bc3|Bgra|Palettized|Png}` — and
-  never pre-decodes. Its decode cache becomes a *transcode* cache, populated only
-  when a caller asks for pixels.
-- **Stage 4** (this file): a texture resource entry names its encoding, and may
-  carry more than one variant of the same texture. Bundles written for archival
-  or engine use keep the source payload; bundles written for Blender or glTF
-  carry the PNG variant husk generated for them. The consumer reads the encoding
-  off the manifest and never guesses from a file extension.
+  never pre-decodes. Its transcode cache is populated only when a caller asks for
+  pixels. The tag names the *payload*, independently of whichever container the
+  writer later puts it in.
+- **Stage 4** (this file): a texture resource entry names its encoding and
+  container, and may carry more than one variant of the same texture. Bundles
+  written for archival or engine use carry the DDS-housed blocks; bundles written
+  for Blender or glTF carry the PNG variant husk generated for them. The consumer
+  reads that off the manifest and never guesses from a file extension.
 - **The Blender addon needs no BLP decoder, and I3 stays intact.** husk writes
   the PNG variant at export time *because the target was Blender*, which is the
   same "resolve once, bake the answer in" move `GearItem::auxGlbPath` already
   makes. The addon does not shell out to husk and does not go looking; it opens
-  what the manifest names.
+  what the manifest names. (It could open the DDS directly — Blender reads DDS —
+  but being *told* which payload to use is the point, not being able to guess.)
 - **The shape sketch's `textures/<name>.png` is therefore an example, not the
-  rule.** The rule is that the `Ref` names the payload and its encoding.
+  rule.** The rule is that the `Ref` names the payload, its encoding, and its
+  container.
 
 The only hard commitment is the one that is expensive to reverse: **husk never
-discards the source encoding, and PNG is never the only form it holds.** Which
-variants a given bundle ships is a writer decision that can change later without
+discards the source payload, never stores it in a proprietary container, and
+never holds PNG as the only form.** Which variants a given bundle ships is a
+writer decision that can change later without
 a schema bump.

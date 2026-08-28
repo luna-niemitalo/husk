@@ -34,10 +34,12 @@ describe()                                    -> the ledger, see I4
 ```
 
 `EncodedTexture` is `{bytes, encoding}`, never bare pixels — I8 and
-`BUNDLE_FORMAT.md`'s "Texture encoding": the catalog hands back what it was
-given, tagged, and a caller that wants PNG asks for the transcode explicitly.
-Decoding on the way *in* would spend the source encoding irreversibly to save a
-call, which is the one thing that decision forbids.
+`BUNDLE_FORMAT.md`'s "Texture encoding": the catalog hands back the payload it
+was given, tagged, and a caller that wants PNG asks for the transcode explicitly.
+Decoding on the way *in* would spend the source payload irreversibly to save a
+call, which is the one thing that decision forbids. The tag describes the payload
+only; choosing its open container (DDS) is a *writer* concern, so the catalog
+never needs to know about one.
 
 `Resolved<T>` is not a bare `optional`. It carries **how** the answer was
 reached — which tier fired, which directory, which fallback, and for a name,

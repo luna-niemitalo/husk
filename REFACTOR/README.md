@@ -117,21 +117,30 @@ consumer can eventually load *the tunic*, not "the chest half of the tunic".
 not.** The constraint is only that nothing in the model may make it impossible
 later.
 
-**I8 — husk stores what it was given; readability is a transform it owes, not a
-conversion it bakes in.** Luna's rule, stated for the whole project: stored data
-is *preferably* human-readable, **or trivially transformable to human-readable**.
-The escape clause is what does the work here. A payload may stay in its source
-encoding precisely because husk can hand you the readable form on request — and
-that obligation is real: **a binary payload is only permitted where husk has a
-verb that emits its human-readable equivalent.** Manifests, indexes and anything
-describing structure are human-readable unconditionally (JSON).
+**I8 — husk preserves the payload, never the proprietary container; readability
+is a transform it owes, not a conversion it bakes in.** Luna's rule, stated for
+the whole project, in three parts:
 
-The direction matters, and it is the half that is easy to get backwards.
-Converting on ingest looks like it satisfies the rule, but it spends something
-irreversible to buy convenience that was one command away. So: convert on
-*output*, never on *intake*; a canonical store that cannot reproduce its own
-input is not canonical. See `BUNDLE_FORMAT.md`'s "Texture encoding" for the case
-that forced this to be written down.
+- **Nothing proprietary is stored.** A proprietary input — an M2, a BLP, a DB2 —
+  is rehoused into a format a publicly available tool can open. husk is *the*
+  tool with built-in support for this data; it is never the *mandatory* one. A
+  headerless dump of extracted bytes fails this too: "not proprietary" is not the
+  same as "openable", and the bar is the second one.
+- **Stored data is human-readable, or trivially transformable to it.** The escape
+  clause is what lets a compressed payload stay compressed — and the obligation
+  it creates is real: **a binary payload is only permitted where husk has a verb
+  that emits its human-readable equivalent.** Manifests, indexes and anything
+  describing structure are human-readable unconditionally (JSON).
+- **Convert on output, never on intake.** This is the half that is easy to get
+  backwards. Converting at ingest looks like it satisfies the rule above, but it
+  spends something irreversible to buy convenience that was one command away. A
+  canonical store that cannot reproduce its own input is not canonical.
+
+The three combine into one move: keep the *payload* bit-exact, swap the
+*container* for an open one, and generate readable projections on demand. See
+`BUNDLE_FORMAT.md`'s "Texture encoding" for the case that forced this to be
+written down — BLP's DXT blocks preserved verbatim inside a standard DDS
+container, with PNG emitted on request.
 
 ## No gate is "output is unchanged"
 
