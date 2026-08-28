@@ -48,28 +48,6 @@ quietly wrong for weeks.
 - `_load_listfile` (`tools/corpus_scan_tasks/unfillable_texture_task.py:95`) —
   a fifth, in Python.
 
-### 1.3 DB2 tables re-read per feature
-
-Every `*_db2.cpp` module opens and fully parses its own files, with no shared
-cache. Within a single `husk export` run:
-
-- `chrrace::load` runs from three call sites — `export_extras.cpp:339` (inside
-  `tryDeriveChrModelId`, itself called from three places: `:471`, `:482`,
-  `:697`) and again at `:701`. Each call re-parses `chrraces.db2`,
-  `chrracexchrmodel.db2`, `chrmodel.db2`, `creaturedisplayinfo.db2`,
-  `creaturemodeldata.db2`.
-- `texturefiledata::load` runs twice — `export_extras.cpp:521` and `:830`.
-- `readNamedColumns` and `readNamedStringColumns` each re-parse the **same file
-  from scratch** to get int columns and string columns separately:
-  `chrcustomizationoption.db2` (`chrcustomization_db2.cpp:55,59`),
-  `chrcustomizationchoice.db2` (`:97,100`),
-  `chrcustomizationcategory.db2` (`:71,74`),
-  `chrraces.db2` (`chrrace_db2.cpp:32,34`),
-  `animationdata.db2` (`animationdata_db2.cpp:19,21`).
-
-None of this is a correctness bug today. It is the structural precondition for
-one: five places that each decide independently when to load what.
-
 ---
 
 ## 2. Missing internal representation

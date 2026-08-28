@@ -104,3 +104,55 @@ bloodelffemale_hd.m2 --db2-dir /media/luna/data/wow_export/dbfilesclient
 baseline recorded in `CLAUDE.md`'s Resume section — ChrModelID 20, layout
 122, 17 default choices — confirming the removed reload was genuinely
 redundant, not silently load-bearing.
+
+---
+
+## 2026-08-28 — Stage 1/2: closed §1.3 in `AUDIT.md`; moved the reverse FileDataID↔path lookup into `src/sources/`
+
+**What, part 1 (doc)**: Verified §1.3's claim is now fully addressed —
+every `*_db2.cpp` module goes through `db2table::readNamedColumns`/
+`readNamedStringColumns` (checked all nine modules), which share the
+`db2_cache` from two commits ago, and `attachCharTextureLayout`'s own
+extra `chrrace::load` (previous entry) is gone too. Removed §1.3 from
+`AUDIT.md` outright, per that file's own "an item is removed when it's
+fixed" convention, and updated `RESOURCE_CATALOG.md`'s dangling `§1.3`
+citation to point at this log instead of a section that no longer exists.
+
+**What, part 2 (code)**: `RESOURCE_CATALOG.md`'s stage-2 surface names
+`fileDataIdForPath(path) -> Resolved<fdid>` as one of the catalog's real
+jobs. `AUDIT.md` §1.2 already named the one existing implementation of
+that direction — `findFileDataIdForModelPath`, a file-private static in
+`export_extras.cpp:312`, a linear reverse scan over the `--listfile` map.
+Moved it verbatim (no logic change) to `src/sources/listfile_catalog.hpp/
+.cpp` as `sources::fileDataIdForPath`, the first inhabitant of what
+`RESOURCE_CATALOG.md` calls `husk::sources::Catalog`. New
+`tests/test_sources_catalog.cpp` (4 cases) — this function had zero direct
+unit coverage before, only reachable through the `--chr-model-id auto`
+CLI path (`tests/test_cli_chrmodel_id.cpp`).
+
+**Real bug caught in the new test, not the moved code**: the first test
+draft used `/root` as a fixture `listfileRoot`. `std::filesystem::relative`
+internally canonicalizes both paths, and `/root` is a real, permission-
+restricted directory on this machine — the call failed with EACCES
+unrelated to any logic under test, initially read as a regression. Fixed
+by using a `/tmp`-rooted fixture path instead; worth noting since any
+future test in this codebase building similar path fixtures should avoid
+`/root`, `/boot`, and other real restricted system paths as stand-ins for
+"a directory that doesn't need to exist."
+
+**What this deliberately did not touch**: the *forward* FileDataID→path
+direction (`AUDIT.md` §1.2's other three implementations —
+`export_materials.cpp`'s texture-tier lookup, `exportGearAuxItemModels`,
+`resolveObjectSkinTextureFromKb`'s knowledge-base path plus its listfile-
+map injection). Each returns a different shape (a texture stem to try
+multiple extensions against vs. a full existence-checked model path) and
+consolidating them for real needs the actual `sources::Catalog` object's
+tier-order design (`RESOURCE_CATALOG.md`'s "Normative tier order"), not a
+superficial merge. §1.2 stays open in `AUDIT.md`, now missing only its
+first bullet.
+
+**Verified**: full suite green, 698/698 (694 prior + 4 new, 0
+regressions). `tests/test_cli_chrmodel_id.cpp`'s existing FileDataID-
+primary-path coverage (the Dracthyr disambiguation case) passed unchanged,
+confirming the move preserved behavior at the CLI level too, not just in
+the new unit test.

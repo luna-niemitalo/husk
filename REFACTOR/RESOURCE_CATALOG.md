@@ -73,8 +73,10 @@ rather than inherited:
 - Four texture-resolution implementations → one (`AUDIT.md` §1.1).
 - Four FileDataID→path implementations → one (§1.2).
 - The `chrrace::load` ×3 / `texturefiledata::load` ×2 / same-file-parsed-twice
-  DB2 pattern → one cache (§1.3). This is free: no semantic change, just the
-  table being read once.
+  DB2 pattern → one cache. **Done** (`src/sources/db2_cache.hpp`, see
+  `REFACTOR_LOG.md`'s 2026-08-28 entries) — this was the free half of stage
+  2, no semantic change, just the table being read once; it landed ahead of
+  the `Catalog` object itself since it needed no resolution-policy design.
 - `resolveObjectSkinTextureFromKb`'s listfile-map injection
   (`cmd_export.cpp:973-975`) — a feature reaching sideways into another
   feature's data structure because there was no shared place to put an answer.

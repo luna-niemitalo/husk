@@ -22,6 +22,7 @@
 #include "modelfiledata_db2.hpp"
 #include "phys.hpp"
 #include "skel.hpp"
+#include "sources/listfile_catalog.hpp"
 #include "texturefiledata_db2.hpp"
 
 // The attachX() helper group's definitions -- split out of cmd_export.cpp
@@ -299,32 +300,6 @@ void attachPhysicsBodies(bool physNone, bool physGiven, const std::string& physP
 
 namespace {
 
-// Reverse lookup against an already-loaded --listfile map (FileDataID ->
-// real path): finds `modelPath`'s own real FileDataID by matching its
-// path relative to `listfileRoot` against the listfile's own paths,
-// case-insensitively. A linear scan, not an index -- only run once per
-// export when --chr-model-id auto needs it, not worth the memory of a
-// second, reversed copy of a multi-million-row community listfile for a
-// single lookup. Returns nullopt when --listfile wasn't given, the model
-// isn't under --listfile-root, or no listfile row matches -- all three
-// are "primary path unavailable," not errors, since --chr-model-id auto
-// falls back to filename-based matching when this comes back empty.
-std::optional<uint32_t> findFileDataIdForModelPath(const std::unordered_map<uint32_t, std::string>& listfile,
-                                                     const std::string& modelPath,
-                                                     const std::string& listfileRoot) {
-    if (listfile.empty() || listfileRoot.empty()) return std::nullopt;
-    std::error_code ec;
-    auto rel = std::filesystem::relative(std::filesystem::path(modelPath), listfileRoot, ec);
-    if (ec) return std::nullopt;
-    std::string relPath = rel.generic_string();
-    std::transform(relPath.begin(), relPath.end(), relPath.begin(),
-                    [](unsigned char c) { return std::tolower(c); });
-    for (const auto& [fdid, path] : listfile) {
-        if (path == relPath) return fdid;
-    }
-    return std::nullopt;
-}
-
 // Real primary(FileDataID)/fallback(filename) ChrModelID derivation --
 // the same logic `--chr-model-id auto` uses (src/chrrace_db2.hpp), factored
 // out so attachCustomizationChoices below can also attempt it best-effort
@@ -359,7 +334,7 @@ std::optional<uint32_t> tryDeriveChrModelId(const std::string& db2Dir, const std
     // finds a real FileDataID match at all, its own answer (including a
     // reported ambiguity) is trusted over the weaker filename fallback,
     // not silently overridden by it.
-    std::optional<uint32_t> modelFdid = findFileDataIdForModelPath(listfile, modelPath, listfileRoot);
+    std::optional<uint32_t> modelFdid = sources::fileDataIdForPath(listfile, modelPath, listfileRoot);
     std::optional<uint32_t> derived;
     if (modelFdid) {
         derived = chrrace::deriveChrModelIdFromFileDataId(*raceData, *modelFdid, err);
