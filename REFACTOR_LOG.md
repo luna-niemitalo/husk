@@ -409,3 +409,95 @@ C++ untouched). All four edited Python files independently confirmed to
 still parse via `ast.parse`. Swept for dangling `missing_texture_task`
 references across the whole repo afterward; every remaining hit is a
 deliberate historical/explanatory mention, not a live dependency.
+
+---
+
+## 2026-08-28 -- close AUDIT.md §8: corpus-tooling CORPUS_ROOT/HUSK_BIN/LISTFILE duplication
+
+**What**: `corpus_scan_framework.py` now exposes `ROOT`, `LISTFILE`, and
+`HUSK_BIN` as single, dynamically-read module-level values instead of each
+task hardcoding its own copy. `ROOT`/`LISTFILE` are set once per run by
+`_init_worker` (from the real `--root`/`--listfile` the run was launched
+with -- `--listfile` is a new framework CLI flag, previously nonexistent);
+`HUSK_BIN` is computed once at import time. `black_additive_task.py`,
+`casc_size_mismatch_task.py`, `unfillable_texture_task.py`,
+`texture_dedup_collision_task.py`, `m2_full_validation_task.py`, and
+`particle_only_task.py` had their own `CORPUS_ROOT`/`HUSK_BIN`/`LISTFILE`
+constants deleted and now read `corpus_scan_framework.ROOT`/`.LISTFILE`/
+`.HUSK_BIN` (aliased as `csf` at import) instead.
+`corpus_checks.py`'s own separate `HUSK_BIN` default (used only by
+`m2_full_validation_task.py` and `corpus_checks_example.py`) was fixed at
+its one real source rather than overridden per-caller.
+
+**Why**: `CLI_AND_TOOLING.md` §4 named this as three distinct duplication
+bugs (`CORPUS_ROOT` in 6 modules, `HUSK_BIN` in 7, `LISTFILE` in 5) and
+prescribed subtraction, not relocation -- a task should never declare its
+own copy of something the framework already knows.
+
+**Two real bugs found and fixed while implementing this, neither
+hypothetical -- both caught by a real smoke-test run against 40 live
+corpus files, not assumed from reading the doc**:
+
+1. `CLI_AND_TOOLING.md` §4's own prescribed fix for `HUSK_BIN` (a bare
+   `"husk"`, trusting its own claim that the flake dev shell puts husk on
+   `PATH`) fails outright on the real environment -- verified live,
+   `.direnv/bin` carries no `husk` symlink. Fixed with
+   `shutil.which("husk") or str(REPO_ROOT / "build" / "husk")`, the same
+   `shutil.which`-first idiom `corpus_checks.py` already used for
+   `GLTF_VALIDATOR_BIN` -- PATH first (correct once/if the flake is ever
+   fixed), falling back to the known-good local build path today.
+2. Every task module's own docstring documents running
+   `corpus_scan_framework.py` directly as a script
+   (`python tools/corpus_scan_framework.py --task ...`), which loads it as
+   `__main__` -- a *different* module object from the
+   `corpus_scan_framework` a task gets via its own
+   `import corpus_scan_framework as csf`, with independent globals.
+   `_init_worker` was setting `ROOT`/`LISTFILE` on whichever identity
+   actually ran, while every task read them off the other, untouched,
+   still-`None` one (`AttributeError: 'NoneType' object has no attribute
+   'exists'`). Fixed with one `sys.modules.setdefault("corpus_scan_framework",
+   sys.modules[__name__])` at module load, so both names always resolve to
+   the same object regardless of which one loaded first. `_init_worker`
+   was also reordered to set `ROOT`/`LISTFILE` *before* importing the task
+   module (a task's own module-level code, e.g. `m2_full_validation_task.py`'s
+   `cc.CORPUS_ROOT` reconciliation, can only see the real value if it's
+   already set by then) -- though `m2_full_validation_task.py` itself was
+   further changed to set `cc.CORPUS_ROOT` lazily inside `analyze()`
+   rather than at module import time regardless, since under
+   `ProcessPoolExecutor`'s default fork start method a forked worker
+   inherits the parent's already-executed top-level code rather than
+   re-running it, so import-time assignment alone isn't reliable across
+   start methods.
+
+**What was deliberately not touched**: `render_sample_driver.py` -- a
+driver script with its own argv (not a `ScanTask` invoked through
+`corpus_scan_framework.py --task`), and part of the render pipeline this
+project has repeatedly treated as human-gated (`CLAUDE.md` Hazards,
+`feedback_knowledge_base_render_human_gated` memory). It still has its own
+`CORPUS_ROOT`/`HUSK_BIN`/`LISTFILE` copies -- a real follow-up if that
+pipeline is ever folded into this same mechanism, not attempted here.
+`verify_appearance_string_pipeline.py` and `corpus_test.py`'s own
+hardcoded `HUSK_BIN` copies were also left alone: the former is a
+standalone build-check script with an intentionally different design (a
+friendly `.exists()` check plus a build hint, not the same disease), and
+the latter is `corpus_checks.py`'s own docstring-documented "kept as-is,
+untouched, reference for its own now-superseded approach" predecessor.
+
+**Verified**: full suite green, 700/700 (C++ untouched by this entry).
+All touched Python files confirmed to still parse via `ast.parse`.
+Real end-to-end smoke tests against live local corpus data (not just
+syntax checks) for every touched task, each with `--limit` against
+`/media/luna/data/wow_export`, zero errors in every case:
+`unfillable_texture_task` (40 files), `black_additive_task` (40),
+`casc_size_mismatch_task` (40, thread-mode, exercises the real
+`casc-tool list` subprocess), `texture_dedup_collision_task` (30),
+`particle_only_task` (30), `m2_full_validation_task` (10, the task with
+CLEANUP_TODO.md's own known full-corpus-scale hang -- deliberately kept
+to a small `--limit`, consistent with that item's own note that small
+bounded runs are clean). Also re-ran one untouched task
+(`expansion_task`, 20 files) through the now-modified shared framework to
+confirm the framework-level changes didn't regress a task that never
+touched `ROOT`/`LISTFILE`/`HUSK_BIN` at all. `AUDIT.md` §8 and
+`CLI_AND_TOOLING.md` §4 updated to reflect the real, verified disposition
+(including both bugs found, and the deliberate `render_sample_driver.py`
+exception) rather than the original speculative fix description.

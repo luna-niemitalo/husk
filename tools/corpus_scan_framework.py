@@ -80,6 +80,7 @@ import importlib
 import itertools
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -94,6 +95,32 @@ except ImportError:
     tqdm = None
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Every task's own docstring documents running this file directly
+# ("python tools/corpus_scan_framework.py --task ..."), which loads this
+# module as "__main__" -- a *separate* module object from the
+# "corpus_scan_framework" a task module gets via its own `import
+# corpus_scan_framework`, with its own independent globals. Without this
+# alias, _init_worker (bound to whichever identity actually ran) sets
+# ROOT/LISTFILE/HUSK_BIN on one module object while every task reads them
+# off the other, untouched, still-None one -- a real bug caught live via
+# this session's own smoke test (AttributeError: 'NoneType' object has no
+# attribute 'exists'), not a hypothetical. Registering both names against
+# the same object once, unconditionally, makes `import corpus_scan_framework`
+# from anywhere -- __main__ or a task module -- resolve to one shared
+# instance regardless of which name this file was first loaded under.
+sys.modules.setdefault("corpus_scan_framework", sys.modules[__name__])
+
+# PATH first (correct once the flake dev shell actually installs husk onto
+# it -- it currently doesn't: verified live, `.direnv/bin` carries no husk
+# symlink, so CLI_AND_TOOLING.md §4's "the flake dev shell already puts
+# husk on PATH" claim is stale/wrong for the real environment as of this
+# writing), falling back to the known-good local build path -- same
+# shutil.which-first idiom this module already uses for gltf_validator in
+# corpus_checks.py's GLTF_VALIDATOR_BIN. The single place this is computed;
+# task modules read `corpus_scan_framework.HUSK_BIN` instead of each
+# hardcoding their own copy (REFACTOR/CLI_AND_TOOLING.md §4).
+HUSK_BIN: str = shutil.which("husk") or str(REPO_ROOT / "build" / "husk")
 
 
 @runtime_checkable
@@ -142,9 +169,26 @@ def _import_task(spec: str):
 # open handles, whatever) without the framework caring.
 _worker_task = None
 
+# The root/listfile a task is actually being run with, for the same reason
+# a task never declares its own copy (REFACTOR/CLI_AND_TOOLING.md §4): a
+# task module reads these as `corpus_scan_framework.ROOT`/`.LISTFILE`
+# (dynamic attribute lookup, so it always sees the current run's value,
+# never a stale import-time copy) instead of hardcoding a path. Both are
+# unset (None) until _init_worker runs -- a task calling analyze() from
+# anywhere else without going through run_corpus_scan is a bug, not a
+# case to silently default around.
+ROOT: Path | None = None
+LISTFILE: Path | None = None
 
-def _init_worker(task_spec: str) -> None:
-    global _worker_task
+
+def _init_worker(task_spec: str, root: Path, listfile: Path | None) -> None:
+    global _worker_task, ROOT, LISTFILE
+    # Set before importing the task: a task module may read ROOT/LISTFILE
+    # at its own import time (e.g. to seed a sibling module's globals --
+    # see m2_full_validation_task.py's cc.CORPUS_ROOT reconciliation), and
+    # that only sees the real value if it's already set by then.
+    ROOT = root
+    LISTFILE = listfile
     _worker_task = _import_task(task_spec)
 
 
@@ -431,6 +475,7 @@ def run_corpus_scan(
     tick_seconds: float = 6.0,
     min_samples_per_tick: int = 15,
     batch_size: int | None = None,
+    listfile: Path | None = None,
 ) -> int:
     """Runs `task` over every file under `root` matching task.GLOB_PATTERNS,
     with a live-adjusted concurrency budget (see AdaptiveConcurrency), and
@@ -470,9 +515,9 @@ def run_corpus_scan(
     scanned = 0
 
     executor_cls = ThreadPoolExecutor if parallel_mode == "thread" else ProcessPoolExecutor
-    executor_kwargs = {} if parallel_mode == "thread" else {"initializer": _init_worker, "initargs": (task_spec,)}
+    executor_kwargs = {} if parallel_mode == "thread" else {"initializer": _init_worker, "initargs": (task_spec, root, listfile)}
     if parallel_mode == "thread":
-        _init_worker(task_spec)  # populate _worker_task in-process; threads share it
+        _init_worker(task_spec, root, listfile)  # populate _worker_task/ROOT/LISTFILE in-process; threads share it
 
     progress = tqdm(total=total_files, desc=f"scanning ({parallel_mode}, window={controller.window}, batch={batch_size})", unit="file") if tqdm else None
     with executor_cls(max_workers=max_workers, **executor_kwargs) as pool:
@@ -578,13 +623,16 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=None, help="default: repo root")
     parser.add_argument("--batch-size", type=int, default=None,
                          help="files per dispatched task, default: task.BATCH_SIZE or 1")
+    parser.add_argument("--listfile", type=Path, default=Path("/media/luna/userdata/Downloads/community-listfile.csv"),
+                         help="community-listfile.csv path, exposed to tasks as corpus_scan_framework.LISTFILE "
+                              "(the single copy every task-module LISTFILE constant used to duplicate)")
     args = parser.parse_args()
 
     sys.path.insert(0, str(REPO_ROOT / "tools"))
     task = _import_task(args.task)
     return run_corpus_scan(task, root=args.root, output_stem=args.output_stem, max_workers=args.max_workers,
                             initial_workers=args.initial_workers, limit=args.limit, output_dir=args.output_dir,
-                            batch_size=args.batch_size)
+                            batch_size=args.batch_size, listfile=args.listfile)
 
 
 if __name__ == "__main__":

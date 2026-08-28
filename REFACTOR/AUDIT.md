@@ -205,21 +205,37 @@ Two consequences:
 
 ## 8. Duplicated / drifting constants in corpus tooling
 
-`corpus_scan_framework.py:572` already takes `--root` as a real argument. Yet:
+**Done** for every real `ScanTask`-shaped module (`corpus_scan_framework.py`
+now exposes `ROOT`/`LISTFILE`/`HUSK_BIN` as single shared, dynamically-read
+values — see `CLI_AND_TOOLING.md` §4 and `REFACTOR_LOG.md`'s 2026-08-28
+entry closing this item). `black_additive_task.py`, `casc_size_mismatch_task.py`,
+`unfillable_texture_task.py`, `texture_dedup_collision_task.py`,
+`m2_full_validation_task.py`, and `particle_only_task.py` no longer declare
+their own copies. Deliberately **not** touched: `render_sample_driver.py`
+(a driver script with its own argv, not a `ScanTask`, and part of the
+render pipeline this project has repeatedly treated as human-gated —
+see `CLAUDE.md`'s Hazards) still has its own `CORPUS_ROOT`/`HUSK_BIN`/
+`LISTFILE` copies.
 
-- `CORPUS_ROOT` is re-declared in **6 task modules** (`black_additive_task.py:47`,
-  `casc_size_mismatch_task.py:53`, `unfillable_texture_task.py:59`,
-  `texture_dedup_collision_task.py:56`, `render_sample_driver.py:54`,
-  `m2_full_validation_task.py:29`) — seven copies of one value counting the
-  framework's own hardcoded default. A task can silently disagree with the root
-  it is actually being run against.
-- `HUSK_BIN = .../build/husk` in **7 modules**, while the flake dev shell
-  already puts `husk` on `PATH` — the same disease as the Blender script's
-  `_find_husk_binary`, and it silently pins scans to a stale local build.
-- `LISTFILE` in **5 modules**.
-- `m2_full_validation_task.py:34-37` reconciles the copies by reaching into
-  *another module's* globals: `cc.CORPUS_ROOT = ...`, `cc.HUSK_BIN = ...`,
-  `cc.TIMEOUT = ...`.
+Two real bugs found and fixed along the way, neither hypothetical:
+
+- `HUSK_BIN = "husk"` alone (the fix `CLI_AND_TOOLING.md` §4 originally
+  proposed, trusting that doc's own claim the flake dev shell puts `husk`
+  on `PATH`) **fails on the real environment** — verified live,
+  `.direnv/bin` carries no `husk` symlink. Fixed with the same
+  `shutil.which("husk") or <build path>` fallback `corpus_checks.py`
+  already used for `GLTF_VALIDATOR_BIN`, in one place
+  (`corpus_scan_framework.HUSK_BIN`), read by every consumer.
+- Every task module's own docstring documents running
+  `corpus_scan_framework.py` directly as a script — which loads it as
+  `__main__`, a *separate* module object from the `corpus_scan_framework`
+  a task gets via its own `import corpus_scan_framework`. `_init_worker`
+  was setting `ROOT`/`LISTFILE` on whichever identity actually ran while
+  every task read them off the other, untouched, still-`None` one — caught
+  live via a real smoke-test run (`AttributeError: 'NoneType' object has
+  no attribute 'exists'`), not assumed. Fixed with one `sys.modules.
+  setdefault("corpus_scan_framework", sys.modules[__name__])` so both
+  names resolve to the same object regardless of which one loaded first.
 
 The fix is subtraction, not relocation — see `CLI_AND_TOOLING.md` §4.
 

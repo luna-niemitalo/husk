@@ -42,14 +42,16 @@ from __future__ import annotations
 import csv
 import re
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; ROOT/LISTFILE read dynamically below, see REFACTOR/CLI_AND_TOOLING.md §4
+
 CASC_TOOL_BIN = Path("/home/luna/dev/casc-tool/build/casc-tool")
 STORAGE = Path("/media/luna/games/World of Warcraft")
-LISTFILE = Path("/media/luna/userdata/Downloads/community-listfile.csv")
 KEYS = Path("/home/luna/dev/casc-tool/development/TACTKeys/WoW.txt")
-CORPUS_ROOT = Path("/media/luna/data/wow_export")
 LIST_TIMEOUT = 120.0
 
 # CascLib's own convention for a FileDataID with no listfile name, e.g.
@@ -85,7 +87,7 @@ def _load_casc_sizes() -> tuple[dict[str, tuple[int, int]], dict[int, int]]:
     with _load_lock:
         if _cache is None:
             p = subprocess.run(
-                [str(CASC_TOOL_BIN), "list", "*", "--storage", str(STORAGE), "--listfile", str(LISTFILE),
+                [str(CASC_TOOL_BIN), "list", "*", "--storage", str(STORAGE), "--listfile", str(csf.LISTFILE),
                  "--keys", str(KEYS), "--format", "csv", "--limit", "0"],
                 capture_output=True, text=True, timeout=LIST_TIMEOUT, check=True,
             )
@@ -148,7 +150,7 @@ class CascSizeMismatchTask:
     def analyze(path: Path) -> dict | None:
         if not path.is_file():
             return None
-        rel_posix = path.relative_to(CORPUS_ROOT).as_posix()
+        rel_posix = path.relative_to(csf.ROOT).as_posix()
         casc_size, fdid = _casc_size_for(rel_posix)
         if casc_size is None:
             return None

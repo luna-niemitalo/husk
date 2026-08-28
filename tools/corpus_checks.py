@@ -49,7 +49,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CORPUS_ROOT: Path | None = None            # root every mirrored path is relative to
 STATUS_DIR: Path | None = None             # per-file <name>.status.json, mirrored under here
 SCRATCH_DIR: Path | None = None            # per-file scratch .glb + validator report, mirrored (put this on tmpfs)
-HUSK_BIN = REPO_ROOT / "build" / "husk"
+# PATH first, falling back to the known-good local build path -- verified
+# live that the flake dev shell does NOT currently put husk on PATH
+# (CLI_AND_TOOLING.md §4's claim that it does is stale), so a bare "husk"
+# alone would break every real invocation; shutil.which-first matches this
+# module's own GLTF_VALIDATOR_BIN idiom below.
+HUSK_BIN = shutil.which("husk") or str(REPO_ROOT / "build" / "husk")
 GLTF_VALIDATOR_BIN = shutil.which("gltf_validator")
 TIMEOUT = 30.0                             # seconds, per husk invocation
 VALIDATOR_TIMEOUT = 120.0                  # seconds, per gltf_validator invocation

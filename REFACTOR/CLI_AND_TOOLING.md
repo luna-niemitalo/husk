@@ -130,7 +130,22 @@ framework, sourced from husk's config file — is the wrong one. It would preser
 all three underlying problems in a tidier box, and couple verification tooling to
 the configuration of the thing it is meant to independently verify.
 
-Each constant is a distinct bug with its own fix:
+**Done** for every real `ScanTask` module (`REFACTOR_LOG.md`'s 2026-08-28
+entry): `corpus_scan_framework.py` now exposes `ROOT`/`LISTFILE`/`HUSK_BIN`
+as single, dynamically-read values (`corpus_scan_framework.ROOT`, etc.) set
+once per run by `_init_worker`, not per-module hardcoded constants.
+`black_additive_task.py`, `casc_size_mismatch_task.py`,
+`unfillable_texture_task.py`, `texture_dedup_collision_task.py`,
+`m2_full_validation_task.py`, and `particle_only_task.py` all had their own
+copies deleted; `corpus_checks.py`'s own `HUSK_BIN` default was fixed at
+its one real source instead of overridden per-caller.
+`render_sample_driver.py` was deliberately left alone — a driver script
+with its own argv, not a `ScanTask`, and part of the render pipeline this
+project already treats as human-gated (`CLAUDE.md` Hazards); it still has
+its own `CORPUS_ROOT`/`HUSK_BIN`/`LISTFILE` copies, a real follow-up if
+that pipeline is ever brought into this same mechanism.
+
+Each constant was a distinct bug with its own fix:
 
 ### `CORPUS_ROOT` — a value the framework already receives
 
@@ -147,29 +162,53 @@ into *another module's* globals (`cc.CORPUS_ROOT = ...`, `cc.HUSK_BIN = ...`,
 `cc.TIMEOUT = ...`) — a workaround for a problem that only exists because the
 value was duplicated in the first place.
 
-**Fix**: a task never declares a root. It receives the one it is being run with.
-Delete all seven declarations, the framework's default included — an unspecified
-root should be an error, not a silent guess at one machine's layout.
+**Fix, as shipped**: a task never declares a root. It reads
+`corpus_scan_framework.ROOT`, set once by `_init_worker` from the `--root`
+the run was actually launched with.
 
-### `HUSK_BIN` — a binary the environment already provides
+### `HUSK_BIN` — a binary the environment does *not* currently provide
 
-Hardcoded to `/home/luna/dev/husk/build/husk` in seven modules, while the flake
-dev shell already puts `husk` on `PATH`. This silently pins every scan to
-whatever stale build happens to sit in `build/`, and it is the same disease as
-the Blender script's `_find_husk_binary`.
+Hardcoded to `/home/luna/dev/husk/build/husk` in seven modules. This
+document previously claimed the flake dev shell already puts `husk` on
+`PATH` and that the fix was simply to rely on that — **verified false
+live** while implementing this: `.direnv/bin` carries no `husk` symlink, so
+a bare `"husk"` subprocess call fails outright (caught by a real smoke test
+run, not assumed).
 
-**Fix**: run inside the env (`direnv exec .`, as `CORPUS_SCANS.md` already
-documents) and use the tool the env provides.
+**Fix, as shipped**: `corpus_scan_framework.HUSK_BIN = shutil.which("husk")
+or str(REPO_ROOT / "build" / "husk")` — PATH first (correct once/if the
+flake is ever fixed to install it), falling back to the known-good local
+build path today. Same `shutil.which`-first idiom `corpus_checks.py`
+already used for `GLTF_VALIDATOR_BIN`. One computed value, read by every
+consumer instead of each hardcoding its own copy.
 
-### `LISTFILE` — a resolution input that shouldn't be visible
+### `LISTFILE` — consolidated, not yet eliminated
 
-Declared in five modules. Under the catalog, a task that needs *resolved* data
-has no business knowing a listfile path at all — it asks husk
-(`RESOURCE_CATALOG.md`).
+Declared in five modules. The catalog's eventual answer (a task that needs
+*resolved* data asks husk instead of knowing a listfile path at all,
+`RESOURCE_CATALOG.md`) is still not built, so this doesn't yet retire the
+constant for these tasks — they still shell out to `husk info`/`blp-export`
+and need a real listfile path to pass through. What's fixed now is the
+duplication itself: one `--listfile` CLI flag on the framework, exposed as
+`corpus_scan_framework.LISTFILE`, instead of five separately hardcoded
+paths that could drift from each other and from what the framework's own
+`--root` was pointed at.
 
-**Fix**: the constant ceases to exist for catalog-using tasks. It survives only
-where an excavation task genuinely treats the listfile itself as its subject
-matter.
+**Real bug found and fixed while wiring this in**: every task module's own
+docstring documents running `corpus_scan_framework.py` directly as a
+script (`python tools/corpus_scan_framework.py --task ...`), which loads it
+as `__main__` — a *different* module object from the `corpus_scan_framework`
+a task gets via its own `import corpus_scan_framework as csf`, with
+independent globals. `_init_worker` was setting `ROOT`/`LISTFILE` on
+whichever identity happened to run, while every task read them off the
+other, untouched, still-`None` one. Caught by a real smoke-test run against
+40 live corpus files (`AttributeError: 'NoneType' object has no attribute
+'exists'`), fixed with `sys.modules.setdefault("corpus_scan_framework",
+sys.modules[__name__])` at module load, so both names always resolve to one
+shared object. Re-verified clean afterward against 5 real tasks
+(`unfillable_texture_task`, `black_additive_task`, `casc_size_mismatch_task`,
+`texture_dedup_collision_task`, `m2_full_validation_task`), each run
+against real local corpus files with `--limit`, zero errors.
 
 ### Also
 

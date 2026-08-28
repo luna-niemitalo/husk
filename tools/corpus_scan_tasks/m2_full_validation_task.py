@@ -25,17 +25,25 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import corpus_checks as cc
+import corpus_scan_framework as csf  # ROOT read dynamically below, see REFACTOR/CLI_AND_TOOLING.md §4
 
-CORPUS_ROOT = Path("/media/luna/data/wow_export")
 STATUS_DIR = Path("/media/luna/work/husk_corpus_scratch/status")
 SCRATCH_DIR = Path("/media/luna/work/husk_corpus_scratch/scratch")
 LIVE_LOG_PATH = Path("/home/luna/dev/husk/corpus_reports/m2_full_validation_live.log")
 
-cc.CORPUS_ROOT = CORPUS_ROOT
 cc.STATUS_DIR = STATUS_DIR
 cc.SCRATCH_DIR = SCRATCH_DIR
-cc.HUSK_BIN = Path("/home/luna/dev/husk/build/husk")
 cc.TIMEOUT = 60.0
+# cc.HUSK_BIN is left at corpus_checks.py's own default ("husk", PATH-
+# resolved) -- no override needed now that the default itself is fixed.
+
+# cc.CORPUS_ROOT is deliberately NOT set here at import time: under
+# ProcessPoolExecutor's default fork start method, this module's top-level
+# code runs once in the main process (before _init_worker has set
+# csf.ROOT), and forked workers just inherit that already-executed,
+# stale/unset state -- re-import in the child is a sys.modules cache hit,
+# not a re-run. analyze() below sets it fresh on every call instead, which
+# is correct under fork, spawn, and thread mode alike.
 
 
 def _rich_export(m2_path) -> bool:
@@ -131,6 +139,7 @@ BATCH_SIZE = 4
 
 
 def analyze(path: Path) -> dict | None:
+    cc.CORPUS_ROOT = csf.ROOT
     t0 = time.monotonic()
     header_ok = cc.test_header(path)
     export_ok = _rich_export(path)

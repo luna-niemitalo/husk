@@ -41,9 +41,13 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
-HUSK_BIN = Path("/home/luna/dev/husk/build/husk")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; HUSK_BIN read from there, see REFACTOR/CLI_AND_TOOLING.md §4
+
+HUSK_BIN = csf.HUSK_BIN
 TIMEOUT = 15.0
 
 VERTICES_RE = re.compile(r"^\s*vertices: (\d+) ")

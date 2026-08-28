@@ -52,12 +52,14 @@ import functools
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
-HUSK_BIN = Path("/home/luna/dev/husk/build/husk")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; ROOT/LISTFILE/HUSK_BIN read from there, see REFACTOR/CLI_AND_TOOLING.md §4
+
+HUSK_BIN = csf.HUSK_BIN
 TIMEOUT = 15.0
-CORPUS_ROOT = Path("/media/luna/data/wow_export")
-LISTFILE = Path("/media/luna/userdata/Downloads/community-listfile.csv")
 
 TEXTURE_LINE_RE = re.compile(r"^\s*texture (\d+): type=(\d+)(?: .*?file_data_id=(\d+))?\s*$")
 LOOKUP_LINE_RE = re.compile(r"^\s*texture type \d+(?: \(\w+\))? -> texture (\d+)\s*$")
@@ -101,9 +103,9 @@ def _load_listfile() -> dict[int, str]:
     'FileDataID;path' per line.
     """
     table: dict[int, str] = {}
-    if not LISTFILE.exists():
+    if not csf.LISTFILE.exists():
         return table
-    with LISTFILE.open("r", encoding="utf-8", errors="replace") as f:
+    with csf.LISTFILE.open("r", encoding="utf-8", errors="replace") as f:
         for line in f:
             fdid_str, _, rel_path = line.partition(";")
             if not rel_path:
@@ -119,7 +121,7 @@ def _listfile_resolves(fdid: int) -> bool:
     rel_path = _load_listfile().get(fdid)
     if rel_path is None:
         return False
-    stem = CORPUS_ROOT / Path(rel_path).with_suffix("")
+    stem = csf.ROOT / Path(rel_path).with_suffix("")
     return stem.with_suffix(".png").exists() or stem.with_suffix(".blp").exists()
 
 

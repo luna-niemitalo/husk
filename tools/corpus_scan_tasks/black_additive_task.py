@@ -38,14 +38,16 @@ import functools
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
-HUSK_BIN = Path("/home/luna/dev/husk/build/husk")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; ROOT/LISTFILE/HUSK_BIN read from there, see REFACTOR/CLI_AND_TOOLING.md §4
+
+HUSK_BIN = csf.HUSK_BIN
 TIMEOUT = 15.0
 BLP_TIMEOUT = 10.0
-CORPUS_ROOT = Path("/media/luna/data/wow_export")
-LISTFILE = Path("/media/luna/userdata/Downloads/community-listfile.csv")
 BLP_CACHE_DIR = Path(tempfile.gettempdir()) / "husk_black_additive_blp_cache"
 
 TEXTURE_LINE_RE = re.compile(r"^\s*texture (\d+): type=(\d+)(?: .*?file_data_id=(\d+))?\s*$")
@@ -79,9 +81,9 @@ def _texture_stems_lower(model_dir_str: str) -> tuple[str, ...]:
 @functools.lru_cache(maxsize=1)
 def _load_listfile() -> dict[int, str]:
     table: dict[int, str] = {}
-    if not LISTFILE.exists():
+    if not csf.LISTFILE.exists():
         return table
-    with LISTFILE.open("r", encoding="utf-8", errors="replace") as f:
+    with csf.LISTFILE.open("r", encoding="utf-8", errors="replace") as f:
         for line in f:
             fdid_str, _, rel_path = line.partition(";")
             if not rel_path:
@@ -115,7 +117,7 @@ def _resolve_texture_path(model_dir: Path, basename_lower: str, fdid: int | None
                 return candidate
         rel_path = _load_listfile().get(fdid)
         if rel_path is not None:
-            stem = CORPUS_ROOT / Path(rel_path).with_suffix("")
+            stem = csf.ROOT / Path(rel_path).with_suffix("")
             for ext in (".png", ".blp"):
                 candidate = stem.with_suffix(ext)
                 if candidate.exists():
@@ -236,7 +238,7 @@ class BlackAdditiveTask:
             "material_count": len(blend_modes),
             "blend_modes": ";".join(str(b) for b in blend_modes),
             "particle_emitter_count": particle_count,
-            "resolved_texture": str(resolved_path.relative_to(CORPUS_ROOT)) if resolved_path.is_relative_to(CORPUS_ROOT) else str(resolved_path),
+            "resolved_texture": str(resolved_path.relative_to(csf.ROOT)) if resolved_path.is_relative_to(csf.ROOT) else str(resolved_path),
             "mean_brightness": f"{mean_brightness:.3f}",
         }
 
