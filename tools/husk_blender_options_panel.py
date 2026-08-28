@@ -266,7 +266,7 @@ def recompute_dependency_status(armature_obj):
             continue
         related_ids = {
             m["related_choice_id"]
-            for m in choice.get("materials", [])
+            for m in choice.get("materials") or []
             if m.get("related_choice_id", 0) != 0
         }
         if not related_ids:
@@ -615,7 +615,7 @@ def main():
     if "--" in argv:
         extra_args = argv[argv.index("--") + 1:]
         if extra_args and not extra_args[0].startswith("--"):
-            bpy.ops.import_scene.gltf(filepath=extra_args[0])
+            bpy.ops.import_scene.gltf(filepath=extra_args[0], import_unused_materials=True)
 
     register()
 

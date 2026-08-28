@@ -435,6 +435,21 @@ CURATED_DEFAULT_VARIANTS = {
 }
 
 
+GLOBAL_DEFAULT_VARIANTS = {
+    # Geoset group 32 is the standard WoW "Face" slot across every real
+    # character model (see wowdev.wiki's geoset-group table) -- variant_1
+    # renders no face detail at all on the models checked so far, variant_2
+    # is the real playable default. Confirmed by Luna directly (not husk's
+    # own guess) across bloodelffemale_hd and nightelffemale_hd; applied
+    # globally rather than per-model like CURATED_DEFAULT_VARIANTS since
+    # the group's own meaning (not just its correct value) is the same
+    # across every race/model, unlike CURATED_DEFAULT_VARIANTS' other
+    # entries. Lowest precedence of the three default sources: real
+    # enabled_geosets extras > CURATED_DEFAULT_VARIANTS > this.
+    32: "variant_2",
+}
+
+
 def _model_key(mesh_obj_name):
     """Strips Blender's own ".001"-style dedup suffix (added on a second
     import of the same-named object) so `CURATED_DEFAULT_VARIANTS` still
@@ -696,13 +711,17 @@ def apply_geoset_switch(mesh_obj, extra_default_overrides=None, chr_customizatio
     return shape, or None) layers on top of and takes priority over
     `CURATED_DEFAULT_VARIANTS` -- real DB2-resolved data from a specific
     character's own customization choices is a stronger signal than a
-    hand-picked, model-wide curated guess. `chr_customization_options`:
-    see `build_geoset_switch_node_group`'s own doc comment.
+    hand-picked, model-wide curated guess. `GLOBAL_DEFAULT_VARIANTS` sits
+    below both (same-race-agnostic defaults, weaker than either a specific
+    model's own curated table or real per-export DB2 data).
+    `chr_customization_options`: see `build_geoset_switch_node_group`'s own
+    doc comment.
     """
     groups = geoset_groups(mesh_obj)
     if not groups:
         return groups
-    default_overrides = {**CURATED_DEFAULT_VARIANTS.get(_model_key(mesh_obj.name), {}),
+    default_overrides = {**GLOBAL_DEFAULT_VARIANTS,
+                          **CURATED_DEFAULT_VARIANTS.get(_model_key(mesh_obj.name), {}),
                           **(extra_default_overrides or {})}
     node_tree = build_geoset_switch_node_group(f"{mesh_obj.name}_geoset_switch", groups, default_overrides,
                                                 chr_customization_options)
@@ -1081,7 +1100,13 @@ def _import_gltf_top_level_objects(filepath):
     all under one new parent Empty rather than assuming exactly one.
     """
     before = set(bpy.data.objects.keys())
-    bpy.ops.import_scene.gltf(filepath=filepath)
+    # import_unused_materials=True: Blender's own default (False) silently
+    # drops any material/image not assigned to a mesh primitive on import --
+    # husk's exported .glb can carry real dangling materials/textures (see
+    # this project's own dangling-reference corpus scan), and dropping them
+    # here would make them undiscoverable in Blender even though they're
+    # still real data in the file.
+    bpy.ops.import_scene.gltf(filepath=filepath, import_unused_materials=True)
     after = set(bpy.data.objects.keys())
     new_names = after - before
     return [obj for name in new_names if (obj := bpy.data.objects.get(name)) is not None
@@ -1586,6 +1611,40 @@ def _resolve_customization_texture_path(textures_dir, file_data_id):
     return None
 
 
+def _find_embedded_customization_image(file_data_id, content_name):
+    """The `.glb` itself already embeds real pixel data for most
+    customization-choice textures -- husk's own same-basename texture-
+    candidate resolution (`export_texture_resolution.cpp`) attaches every
+    ambiguous candidate for a hardcoded slot (hair/face/skin/tattoo/...) as
+    a real, separately embedded glTF image via `alternate_textures` extras
+    (`gltf_mesh.cpp`), and Blender's stock importer loads every one of
+    them into `bpy.data.images` when imported with
+    `import_unused_materials=True` (this script's own import call already
+    does). No external `--textures` dir or `husk` binary/subprocess is
+    needed for any choice covered this way -- confirmed directly against a
+    real nightelf export (315 real embedded images for 12 materials,
+    matching the naming convention below exactly). Only a choice whose
+    texture was never part of any same-basename ambiguity pool falls
+    through to `_resolve_customization_texture_path`'s external-file path.
+    Matches by `content_name` first (exact), then by the same
+    `*_<file_data_id>` suffix convention `_resolve_customization_texture_path`
+    already uses for the filesystem case -- both are real source-filename
+    stems, so this is the same match, just against already-loaded
+    datablocks instead of files on disk.
+    """
+    if content_name:
+        image = bpy.data.images.get(content_name)
+        if image is not None:
+            return image
+    if not file_data_id:
+        return None
+    suffix = f"_{file_data_id}"
+    for image in bpy.data.images:
+        if image.name == str(file_data_id) or image.name.endswith(suffix):
+            return image
+    return None
+
+
 def _load_customization_texture_image(path):
     try:
         return bpy.data.images.load(path, check_existing=True)
@@ -1657,19 +1716,19 @@ def _build_customization_option_group(name, choice_infos):
 
     x = -600.0
     for choice in choice_infos:
-        image = _load_customization_texture_image(choice["path"])
-        if image is None:
-            continue
+        image = choice["image"]
         # Real, human-readable Image datablock name -- clean-name priority
         # (real listfile content name -> choice_name -> whatever
-        # bpy.data.images.load
-        # already picked from `path`'s own basename, e.g. a bare
-        # FileDataID or a verbose wow_export-style filename). Renamed
-        # post-load rather than passed to `.load()` itself, since Blender
-        # names a freshly-loaded image from its file path regardless.
-        clean_name = choice.get("content_name") or choice.get("choice_name")
-        if clean_name:
-            image.name = clean_name
+        # bpy.data.images.load already picked from the source path's own
+        # basename). Skipped for an already-embedded image: its name is
+        # already husk's own real source stem, and renaming it would break
+        # any other choice/material that later looks up this same shared
+        # datablock by that exact name -- see choice["embedded"]'s own
+        # doc comment above.
+        if not choice["embedded"]:
+            clean_name = choice.get("content_name") or choice.get("choice_name")
+            if clean_name:
+                image.name = clean_name
         img_node = nodes.new("ShaderNodeTexImage")
         img_node.image = image
         img_node.label = choice["choice_name"]
@@ -1811,8 +1870,14 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
     """
     material_layout_by_type = {m.get("texture_type"): m for m in layout.get("materials", [])}
     concerned_types = set(material_layout_by_type)
-    if not concerned_types or not layout.get("texture_layers") or not textures_dir:
+    if not concerned_types or not layout.get("texture_layers"):
         return 0
+    # `textures_dir` is no longer a hard requirement: most choice textures
+    # are already embedded in the .glb itself (husk's own same-basename
+    # candidate resolution, see _find_embedded_customization_image) and
+    # get found without ever touching the filesystem. `textures_dir` only
+    # still matters as a fallback for a choice whose texture wasn't part
+    # of that embedded pool -- checked per-choice below, not gated here.
 
     texture_layer_by_target = {tl.get("chr_model_texture_target_id"): tl
                                 for tl in layout.get("texture_layers", [])}
@@ -1821,7 +1886,6 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                                     if e.get("file_data_id")}
 
     touched = 0
-    skipped_related_materials = 0
     for mat in materials:
         mtype = mat.get("texture_type")
         if mtype not in concerned_types or mat.node_tree is None:
@@ -1852,33 +1916,37 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                     tl = texture_layer_by_target.get(m_entry.get("chr_model_texture_target_id"))
                     if tl is None or tl.get("texture_type") != mtype:
                         continue
-                    if m_entry.get("related_choice_id"):
-                        # This material only applies together with that
-                        # other real ChrCustomizationChoiceID (a different,
-                        # related option) also being selected -- e.g. a real
-                        # "Tiara" Hairstyle choice carries one dedicated
-                        # material per real Hair Color choice, not one
-                        # unconditional material. This switch has no live
-                        # notion of "what's currently selected in the other
-                        # dropdown" (each option's own Menu Switch is
-                        # independent), so a conditional material can't be
-                        # correctly resolved here yet -- conservatively
-                        # skipped rather than blended in as if unconditional
-                        # (the bug this filter replaces: every conditional
-                        # variant was previously attached and layered
-                        # together, indiscriminately). See
-                        # TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's own
-                        # "Independent color/alpha axes" item for the real
-                        # follow-up (a true cross-product dropdown) this
-                        # still needs.
-                        skipped_related_materials += 1
-                        continue
+                    # `related_choice_id` (this material only really applies
+                    # together with some other option's specific choice) is
+                    # deliberately NOT filtered here -- per Luna's direct
+                    # call, every choice should be pickable regardless of
+                    # whether it's "correct" for whatever else is currently
+                    # selected; enforcing which combinations make sense is
+                    # the Blender-side options panel's job
+                    # (husk_blender_options_panel.py), not this switch's.
+                    # The per-choice `break` below still caps this at one
+                    # texture per choice, so this doesn't reintroduce the
+                    # older multi-material-layering bug.
                     fdid = m_entry.get("file_data_id")
                     if not fdid:
                         continue  # unresolved (e.g. a swatch-color-only choice) -- flagged, not guessed
-                    path = _resolve_customization_texture_path(textures_dir, fdid)
-                    if path is None:
-                        continue
+                    content_name = m_entry.get("content_name")
+                    # Already embedded in the .glb itself (husk's own
+                    # same-basename texture-candidate resolution) and
+                    # already loaded into bpy.data.images by this script's
+                    # own import_unused_materials=True import -- tried
+                    # first, no external files or husk binary needed for
+                    # the common case. See _find_embedded_customization_image's
+                    # own doc comment.
+                    image = _find_embedded_customization_image(fdid, content_name)
+                    embedded = image is not None
+                    if image is None:
+                        path = _resolve_customization_texture_path(textures_dir, fdid)
+                        if path is None:
+                            continue
+                        image = _load_customization_texture_image(path)
+                        if image is None:
+                            continue
                     choice_infos.append({
                         "choice_id": choice.get("choice_id"),
                         "choice_name": choice.get("choice_name") or f"choice_{choice.get('choice_id')}",
@@ -1889,8 +1957,18 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                         # Image datablock's own name below. None when --listfile
                         # wasn't given at export time, or didn't resolve
                         # this fileDataId.
-                        "content_name": m_entry.get("content_name"),
-                        "path": path,
+                        "content_name": content_name,
+                        # An embedded image's name is already husk's own
+                        # real source stem (that's exactly how it was
+                        # matched above) -- renaming it below would break
+                        # any *other* choice/material that later looks up
+                        # this same shared datablock by that exact name
+                        # (_find_embedded_customization_image's own
+                        # fdid-suffix match). Only a freshly-loaded external
+                        # file (named from its own path by bpy.data.images.load)
+                        # still needs the clean-name pass.
+                        "embedded": embedded,
+                        "image": image,
                         "blend_mode": tl.get("blend_mode"),
                         "layer": tl.get("layer", 0),
                         "target_id": m_entry.get("chr_model_texture_target_id"),
@@ -1972,12 +2050,6 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
             node_tree.links.new(clip.outputs[0], alpha_input)
 
         touched += 1
-
-    if skipped_related_materials:
-        print(f"husk_blender_geoset_mask: {skipped_related_materials} conditional material(s) "
-              "skipped (each only applies together with another specific choice, not resolvable "
-              "by this switch yet -- see CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's own "
-              "\"Independent color/alpha axes\" item)")
 
     return touched
 
@@ -3237,7 +3309,7 @@ def main():
         extra_args = argv[argv.index("--") + 1:]
         if extra_args and not extra_args[0].startswith("--"):
             filepath = extra_args[0]
-            bpy.ops.import_scene.gltf(filepath=filepath)
+            bpy.ops.import_scene.gltf(filepath=filepath, import_unused_materials=True)
         if "--textures" in extra_args:
             idx = extra_args.index("--textures")
             if idx + 1 < len(extra_args):
@@ -3343,10 +3415,10 @@ def main():
                   "can't place customization textures without real section rects, skipping")
             return
         if not textures_dir:
-            print("husk_blender_geoset_mask: chr_customization_options/chr_texture_layout "
-                  "present but no '-- <file.glb> --textures <dir>' given -- can't load real "
-                  "per-choice textures, skipping the customization texture switch")
-            return
+            print("husk_blender_geoset_mask: no '-- <file.glb> --textures <dir>' given -- "
+                  "still trying, since most choice textures are already embedded in the .glb "
+                  "itself; only a choice whose texture isn't part of that embedded pool will be "
+                  "skipped")
         enabled_materials = read_chr_enabled_materials(armature_obj)
         touched = apply_customization_texture_switch(options, layout, enabled_materials, materials,
                                                        textures_dir)
