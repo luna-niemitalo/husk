@@ -79,47 +79,21 @@ std::unordered_map<uint32_t, CustomizationNameEntry> buildCustomizationNameLooku
 
 BuiltMaterials buildMaterialsAndPrimitives(
     const std::vector<uint32_t>& triangleIndices, const std::vector<skin::Submesh>& submeshes,
-    const std::vector<skin::Batch>& batches, const M2MaterialInputs& m2, const std::string& texturesDir,
-    const std::string& modelPath, const std::string& texturesOutDir,
+    const std::vector<skin::Batch>& batches, const M2MaterialInputs& m2, husk::sources::Catalog& catalog,
+    const std::string& texturesDir, const std::string& modelPath, const std::string& texturesOutDir,
     const std::unordered_map<uint32_t, std::string>& listfile, const std::string& listfileRootArg,
     uint32_t objectSkinTextureFileDataId,
     const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames) {
     const std::string& listfileRoot = listfileRootArg.empty() ? texturesDir : listfileRootArg;
     BuiltMaterials result;
 
-    // Scanned once per skin/LOD, shared and depleted across every batch
-    // below -- see scanFuzzyTexturePool's doc comment for why a fresh
-    // per-batch scan would wrongly reuse the same real file across every
-    // unresolved slot.
-    FuzzyTexturePool fuzzyTexturePool = scanFuzzyTexturePool(texturesDir, modelPath);
-    std::string modelBasenameLower = lowercaseModelBasename(modelPath);
-
-    // A same-basename fuzzy candidate whose own trailing FileDataID matches
-    // one of this exact M2's own texture-array entries (TXID chunk) is
-    // never a plausible guess for an unrelated hardcoded slot -- it's
-    // already a real, specifically-identified texture belonging to some
-    // *other* M2 texture-array index (e.g. a particle/ribbon-emitter
-    // sprite, referenced by array index rather than by any material
-    // batch), not an unknown file a human just happened to name after this
-    // model. Real bug this fixes: `ethereal2_f.m2`'s monster_1/monster_2/
-    // monster_3/environment slots (no FileDataID of their own -- runtime-
-    // filled by the client, not stored in the M2 at all) were picking up
-    // this same model's own particle-effect sprite textures purely because
-    // they share the model's basename under the community listfile's
-    // naming convention, rendering the arm/leg geosets with an almost
-    // entirely transparent ribbon-trail image instead of no candidate at
-    // all.
-    if (m2.textureFileDataIds) {
-        fuzzyTexturePool.files.erase(
-            std::remove_if(fuzzyTexturePool.files.begin(), fuzzyTexturePool.files.end(),
-                            [&](const std::filesystem::path& p) {
-                                auto fdid = fuzzyCandidateFileDataId(p, modelBasenameLower);
-                                return fdid && std::find(m2.textureFileDataIds->begin(),
-                                                          m2.textureFileDataIds->end(),
-                                                          *fdid) != m2.textureFileDataIds->end();
-                            }),
-            fuzzyTexturePool.files.end());
-    }
+    // Model identity + this M2's own texture-array FileDataIDs -- catalog's
+    // own pool-exclusion rule (ethereal2_f.m2's particle-sprite-vs-
+    // hardcoded-slot bug, see sources::Catalog's own doc comment) applies
+    // once, the first time this modelPath is seen by `catalog`.
+    husk::sources::TextureModelContext modelCtx;
+    modelCtx.modelPath = modelPath;
+    if (m2.textureFileDataIds) modelCtx.ownTextureFileDataIds = *m2.textureFileDataIds;
 
     // Content signature (materialDedupKey) -> that material's index in
     // result.materials -- real M2 corpus models routinely have dozens of
@@ -134,45 +108,15 @@ BuiltMaterials buildMaterialsAndPrimitives(
     // existing material instead of creating a new one.
     std::unordered_map<std::string, size_t> materialByKey;
 
-    // Ambiguous-candidate byte cache, keyed by path -- a real character
-    // model can have dozens of hardcoded slots that are *all* ambiguous
-    // against the *same* shared candidate pool (confirmed: 19 slots, 94
-    // candidates each, on a real `bloodelffemale_hd.m2` export), and
-    // without this every one of those slots independently re-reads and
-    // re-decodes every candidate from disk -- 1,786 redundant BLP decodes
-    // for that one real file, ~5.5 minutes of runtime for what should be
-    // ~94. Read once, reused by every ambiguous slot that needs the same
-    // file (see gltf_mesh.cpp's emitMaterial for the matching fix that
-    // also keeps the *embedded* bytes from being duplicated once per
-    // material in the final .glb, not just the read/decode cost here).
-    std::map<std::filesystem::path, std::vector<uint8_t>> ambiguousCandidateCache;
-
-    // Per-M2-texture-array-index fuzzy resolution cache -- a real M2
-    // texture slot (fdid == 0, or a resolved fdid with no matching local
-    // file) can be referenced by more than one batch, e.g.
-    // `argustalbukmount.m2`'s texture 0 (the sole monster_1 candidate) is
-    // used by both a body batch and a separate horns-geoset batch. Without
-    // this, the second batch to reach the block below re-runs
-    // claimSoleFuzzyTextureCandidate against the *same* shared, depleting
-    // pool -- already emptied by the first batch, so the horns geoset
-    // silently got no texture at all (a real, confirmed bug: the pool's
-    // "claim and remove" design is correct for genuinely *different*
-    // hardcoded slots competing for one pool, but wrong for the same slot
-    // being resolved twice). Keying by textureIndex (not materialIndex or
-    // gm.textureType) makes every batch that references the identical M2
-    // texture-array entry agree on the identical answer, which also lets
-    // materialDedupKey (below) correctly merge them into one glTF material
-    // instead of two.
-    struct FuzzyResolution {
-        bool found = false;
-        bool isAmbiguous = false;  // true -> ambiguousMatches-style diagnostic, false -> fuzzyMatches-style
-        std::string nameSuffix;
-        std::vector<uint8_t> baseColorImagePng;
-        std::string baseColorImageName;
-        std::string matchedFilename;
-        std::vector<gltf::Material::AlternateTextureCandidate> alternateTextureCandidates;
-    };
-    std::unordered_map<uint16_t, FuzzyResolution> fuzzyResolutionByTextureIndex;
+    // The ambiguous-candidate byte cache and the per-M2-texture-array-index
+    // memoization that used to live here (a real character model can have
+    // dozens of hardcoded slots all ambiguous against the *same* shared
+    // pool -- 19 slots, 94 candidates each, on a real `bloodelffemale_hd.m2`
+    // export -- and more than one batch can reference the identical M2
+    // texture-array entry, e.g. `argustalbukmount.m2`'s monster_1 texture
+    // used by both a body batch and a horns-geoset batch) are now owned by
+    // `catalog` itself -- see sources::Catalog::texture()'s own doc comment
+    // for the identical reasoning, moved rather than duplicated.
 
     if (batches.empty()) {
         // A genuinely geometry-less .skin (real corpus
@@ -454,161 +398,55 @@ BuiltMaterials buildMaterialsAndPrimitives(
                 gm.baseColorImageName = embeddedStem;
                 embedded = true;
             }
-            if (!embedded && fdid != 0 && !texturesDir.empty()) {
-                // Deterministic whenever the file is actually present --
-                // still the right answer for a real extraction that *does*
-                // use the FileDataID-named convention (this project's own
-                // test fixtures and the common "casc-tool-style"
-                // "<FileDataID>.{png,blp}" layout both do).
-                // Routed through sources::resolveLiteralTextureBytes
-                // (AUDIT.md §1.1's tier 1, wrapped in Resolved<T> --
-                // REFACTOR_LOG.md's "first real tier through Resolved<T>"
-                // entry) rather than calling resolveTextureBytes directly --
-                // same bytes, same lookup, now reporting which tier/path
-                // answered instead of a bare optional.
-                if (auto resolved = husk::sources::resolveLiteralTextureBytes(fdid, texturesDir, texturesOutDir)) {
-                    gm.baseColorImagePng = std::move(*resolved.value);
-                    gm.baseColorImageName = std::to_string(fdid);
-                    embedded = true;
-                }
-            }
-            if (!embedded && fdid != 0 && !texturesDir.empty() && !listfile.empty()) {
-                // --listfile fallback: a real corpus export commonly keeps
-                // files under their real name/path (e.g.
-                // "world/goober/bubble.blp"), not renamed to a bare
-                // FileDataID -- confirmed against a real 130k-file corpus
-                // scan (casc-tool's own FAILURES.md item 13), where 99.9%
-                // of "missing" FileDataID textures turned out to be present
-                // elsewhere in the tree under their real listfile name.
-                // Still deterministic (the listfile is real data, not a
-                // guess), so this comes before the fuzzy same-basename pool
-                // below -- resolved against `listfileRoot` (--listfile-root,
-                // defaulting to texturesDir), deliberately not `texturesDir`
-                // itself: the corpus root a listfile's paths are relative to
-                // is typically many directories away from any one model,
-                // unlike the directory-local matching above.
-                // Routed through sources::resolveListfileTextureBytes
-                // (AUDIT.md §1.1's tier 2, wrapped in Resolved<T> --
-                // REFACTOR_LOG.md's "second real tier through Resolved<T>"
-                // entry) -- same pathForFileDataId + resolveTextureBytes
-                // pair as before, now reporting which tier/path answered.
-                if (auto resolved = husk::sources::resolveListfileTextureBytes(fdid, listfile, listfileRoot,
-                                                                                 texturesOutDir)) {
-                    gm.baseColorImagePng = std::move(resolved.value->bytes);
-                    gm.baseColorImageName = std::move(resolved.value->imageName);
-                    embedded = true;
-                }
-            }
             if (!embedded) {
-                // Last resort, for whatever's left unresolved after both
-                // deterministic paths above -- a genuinely hardcoded slot
-                // (fdid == 0, as before this change), *or* a slot whose
-                // FileDataID resolved but no "<fdid>.{png,blp}" actually
-                // exists in texturesDir (new: previously this case silently
-                // embedded nothing, even when a real, descriptively-named
-                // file for it was sitting right there unclaimed).
+                // Every fdid-driven tier -- literal, listfile, and the
+                // same-basename fuzzy pool (including its claim-and-remove
+                // state and genuine-ambiguity fan-out) -- now resolves
+                // through one sources::Catalog::texture() call
+                // (AUDIT.md §1.1, RESOURCE_CATALOG.md's Settled section
+                // "Tier 3's shape"). The old three-way branch (claimed-and-
+                // read / nothing-claimed-so-scan-for-ambiguity / 2+
+                // candidates) collapses into one Resolved<EncodedTexture>,
+                // with genuine ambiguity riding `alternates` rather than a
+                // separate success shape. `catalog` memoizes per (modelPath,
+                // textureSlotIndex) internally, so a second batch
+                // referencing the identical M2 texture-array entry gets the
+                // identical answer without re-touching the shared, depleting
+                // pool -- the same guarantee this file's own local
+                // per-textureIndex cache used to provide, now catalog-owned.
                 //
-                // Resolved once per M2 texture-array index and cached
-                // (fuzzyResolutionByTextureIndex, declared above) -- see its
-                // own doc comment for why a second batch referencing the
-                // same textureIndex must reuse this answer rather than
-                // re-touching the shared, depleting pool.
-                auto [cacheIt, isNewIndex] = fuzzyResolutionByTextureIndex.try_emplace(textureIndex);
-                FuzzyResolution& resolution = cacheIt->second;
-                if (isNewIndex) {
-                    if (auto fuzzy =
-                            claimSoleFuzzyTextureCandidate(fuzzyTexturePool, gm.textureType, modelBasenameLower)) {
-                        // Read step only, routed through
-                        // sources::resolveClaimedFuzzyPoolTextureBytes
-                        // (AUDIT.md §1.1's tier 3, partially wrapped --
-                        // RESOURCE_CATALOG.md's Settled section explains why
-                        // the claim-and-remove step above and the ambiguous
-                        // branch below stay outside Resolved<T> for now). A
-                        // decode failure here deliberately does NOT fall
-                        // into the ambiguity scan below -- same as before
-                        // this change: the pool already lost this entry via
-                        // the claim above, so re-scanning would report a
-                        // smaller, wrong candidate set.
-                        if (auto resolved = husk::sources::resolveClaimedFuzzyPoolTextureBytes(
-                                *fuzzy, texturesDir, texturesOutDir)) {
-                            resolution.found = true;
-                            resolution.nameSuffix = "_" + resolved.value->imageName;
-                            resolution.baseColorImagePng = std::move(resolved.value->bytes);
-                            resolution.baseColorImageName = resolved.value->imageName;
-                            resolution.matchedFilename = resolved.value->matchedFilename;
+                // Tier 1/2 hits (literal/listfile -- deterministic, no
+                // guess) don't get a `gm.name` suffix or a fuzzy/ambiguous
+                // diagnostic entry; only a genuine tier-3 fuzzy-pool hit
+                // does, matching this function's pre-Catalog behavior
+                // exactly.
+                modelCtx.textureSlotIndex = textureIndex;
+                auto resolved = catalog.texture(fdid, gm.textureType, modelCtx, mat.blendMode > 2);
+                if (resolved.found()) {
+                    gm.baseColorImagePng = std::move(resolved.value->bytes);
+                    gm.baseColorImageName = resolved.value->imageName;
+                    if (resolved.tier == husk::sources::ResolutionTier::FuzzySameBasenamePool) {
+                        gm.name += "_" + resolved.value->imageName;
+                        for (auto& alt : resolved.alternates) {
+                            gltf::Material::AlternateTextureCandidate cand;
+                            cand.filename = alt.filename;
+                            cand.category = alt.category;
+                            cand.width = alt.width;
+                            cand.height = alt.height;
+                            cand.imagePng = std::move(alt.imagePng);
+                            gm.alternateTextureCandidates.push_back(std::move(cand));
                         }
-                    } else {
-                        // Not claimed (removed) from the shared pool -- every
-                        // other ambiguous slot is equally uninformed about
-                        // *this* slot's own real candidates and deserves its
-                        // own independently-filtered view, not whichever's left
-                        // after an earlier slot's pick. Narrowed to only the
-                        // candidates compatible with this slot's textureType,
-                        // preferring real recognized-category matches over
-                        // unlabeled ones (filterCandidatesForType's doc
-                        // comment) -- a real, grounded exclusion, not a guess
-                        // about which one is correct.
-                        auto matching =
-                            filterCandidatesForType(fuzzyTexturePool.files, gm.textureType, modelBasenameLower);
-                        if (matching.size() > 1) {
-                            // Genuinely ambiguous: 2+ type-compatible
-                            // candidates, no way to tell which one this slot
-                            // actually wants. Embed every one of them
-                            // (gltf_mesh.hpp's AlternateTextureCandidate doc
-                            // comment has the full rationale), same "export
-                            // everything, let the client filter" treatment
-                            // mutually-exclusive geosets already get --
-                            // reordered first so the most plausible default
-                            // (orderCandidatesForDefault's doc comment) lands at
-                            // front(), the one that becomes the wired default.
-                            orderCandidatesForDefault(matching, texturesDir, texturesOutDir, modelBasenameLower,
-                                                       ambiguousCandidateCache, mat.blendMode > 2);
-                            for (const auto& candidatePath : matching) {
-                                auto cached = ambiguousCandidateCache.find(candidatePath);
-                                if (cached == ambiguousCandidateCache.end()) {
-                                    auto bytes = readTextureFileBytes(candidatePath, texturesDir, texturesOutDir);
-                                    if (!bytes) continue;
-                                    cached = ambiguousCandidateCache.emplace(candidatePath, std::move(*bytes)).first;
-                                }
-                                gltf::Material::AlternateTextureCandidate cand;
-                                cand.filename = candidatePath.filename().string();
-                                auto category = classifyCandidateCategory(candidatePath, modelBasenameLower);
-                                cand.category = category.value_or(std::string());
-                                auto [candWidth, candHeight] = pngDimensions(cached->second);
-                                cand.width = candWidth;
-                                cand.height = candHeight;
-                                cand.imagePng = cached->second;
-                                resolution.alternateTextureCandidates.push_back(std::move(cand));
+                        if (!gm.alternateTextureCandidates.empty()) {
+                            std::vector<std::string> allFileNames;
+                            allFileNames.reserve(gm.alternateTextureCandidates.size());
+                            for (const auto& cand : gm.alternateTextureCandidates) {
+                                allFileNames.push_back(cand.filename);
                             }
-                            if (!resolution.alternateTextureCandidates.empty()) {
-                                const auto& chosen = resolution.alternateTextureCandidates.front();
-                                resolution.found = true;
-                                resolution.isAmbiguous = true;
-                                resolution.nameSuffix =
-                                    "_" + std::filesystem::path(chosen.filename).stem().string();
-                                resolution.baseColorImagePng = chosen.imagePng;
-                                resolution.baseColorImageName =
-                                    std::filesystem::path(chosen.filename).stem().string();
-                                resolution.matchedFilename = chosen.filename;
-                            }
+                            result.ambiguousMatches.push_back(
+                                {gm.name, resolved.value->matchedFilename, std::move(allFileNames), fdid});
+                        } else {
+                            result.fuzzyMatches.push_back({gm.name, resolved.value->matchedFilename, fdid});
                         }
-                    }
-                }
-                if (resolution.found) {
-                    gm.name += resolution.nameSuffix;
-                    gm.baseColorImagePng = resolution.baseColorImagePng;
-                    gm.baseColorImageName = resolution.baseColorImageName;
-                    gm.alternateTextureCandidates = resolution.alternateTextureCandidates;
-                    if (resolution.isAmbiguous) {
-                        std::vector<std::string> allFileNames;
-                        allFileNames.reserve(resolution.alternateTextureCandidates.size());
-                        for (const auto& cand : resolution.alternateTextureCandidates) {
-                            allFileNames.push_back(cand.filename);
-                        }
-                        result.ambiguousMatches.push_back(
-                            {gm.name, resolution.matchedFilename, std::move(allFileNames), fdid});
-                    } else {
-                        result.fuzzyMatches.push_back({gm.name, resolution.matchedFilename, fdid});
                     }
                 }
             }
@@ -754,9 +592,12 @@ BuiltMaterials buildMaterialsAndPrimitives(
     // needed it (fine, silent) or 2+ files shared the model's basename and
     // husk couldn't tell which unresolved slot(s) they belonged to. Reported
     // once per skin/LOD, not per batch, so their existence is visible
-    // without being noisy.
-    if (fuzzyTexturePool.files.size() > 1) {
-        std::cout << "husk: note: " << fuzzyTexturePool.files.size()
+    // without being noisy. Read from `catalog` now (this model's pool state
+    // is catalog-owned, not a local variable here) -- see
+    // sources::Catalog::remainingTexturePoolSize's own doc comment.
+    size_t remainingPoolFiles = catalog.remainingTexturePoolSize(modelPath);
+    if (remainingPoolFiles > 1) {
+        std::cout << "husk: note: " << remainingPoolFiles
                   << " texture file(s) in '" << texturesDir
                   << "' share this model's basename but husk can't tell which hardcoded texture "
                      "slot each belongs to -- none were embedded\n";

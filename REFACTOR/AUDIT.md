@@ -24,7 +24,7 @@ now that it's fixed.)
 
 | Where | Tiers implemented | Notes |
 |---|---|---|
-| `src/export_texture_resolution.cpp` | 3 (literal FileDataID → listfile → fuzzy same-basename pool) | The real one. `export_materials.cpp:397-560` drives it. |
+| `src/sources/catalog.cpp` (`Catalog::texture()`) | 3 (literal → listfile → fuzzy same-basename pool, incl. claim-and-remove + ambiguity) | The real one, now a single object owning the tier order — `export_materials.cpp`'s own three-way branch is gone, replaced by one `catalog.texture(...)` call. Built on `src/export_texture_resolution.cpp`'s primitives (scan/filter/order/read), which stay the shared implementation detail, not a second policy. |
 | `tools/corpus_scan_tasks/unfillable_texture_task.py:16-31` | 3, hand-mirrored | Its own docstring names the mirroring as deliberate. |
 | `tools/husk_blender_geoset_mask.py:1550-1607` | 2 + parent-dir glob + `husk blp-export` subprocess | Different tier order *and* a different fallback set from both above. |
 
@@ -37,20 +37,34 @@ quietly wrong for weeks.
 `CLAUDE.md`'s own Hazards section already warns readers which of these to trust
 — a documentation workaround for a structural problem.
 
-**In progress**: the real C++ implementation's tiers are being wired
-through `sources::Resolved<T>` one at a time (`REFACTOR_LOG.md`'s
-2026-08-28 entries) — tiers 1 (literal) and 2 (listfile) fully done, tier 3
-(fuzzy same-basename pool) partially (its deterministic read step only;
-the claim-and-remove and ambiguity-fan-out logic stay outside `Resolved<T>`
-until the `Catalog` object owns the claim step — `RESOURCE_CATALOG.md`'s
-Settled section, "Tier 3's shape"), and the knowledge-base tier
+**In progress**: the real C++ implementation is now one object,
+`husk::sources::Catalog` (`src/sources/catalog.hpp`/`.cpp`,
+`REFACTOR_LOG.md`'s newest entry) — tiers 1 (literal), 2 (listfile), and 3
+(fuzzy same-basename pool, including the claim-and-remove step and the
+genuine-ambiguity fan-out, previously split across
+`resolveClaimedFuzzyPoolTextureBytes` + an explicit caller-side branch) all
+resolve through one `texture(fdid, textureType, modelContext,
+preferGlowVariant) -> Resolved<EncodedTexture>` call, with ambiguity riding
+`Resolved<T>::alternates` rather than a separate success shape
+(`RESOURCE_CATALOG.md`'s Settled section, "Tier 3's shape" — now fully
+closed, not partial). The knowledge-base tier
 (`resolveObjectSkinTextureFromKb`, `cmd_export.cpp` — `RESOURCE_CATALOG.md`'s
-"Where the two unordered tiers sit" names it tier 5) now also done, its
-known-wrongness caveat (`CLI_AND_TOOLING.md` §5) riding `Resolved<T>::reason`
-instead of a separately-constructed warning string. This narrows *how*
-the real implementation reports its own outcomes; it does not yet touch
-the Python/Blender mirrors named in the table above, so this section stays
-open until those are addressed too (`CLI_AND_TOOLING.md` §3).
+"Where the two unordered tiers sit" names it tier 5) stays a pre-step outside
+`Catalog::texture()` by design (it answers "which fdid", not "given this
+fdid, find bytes"), but its one real catalog-shaped duty — the sideways
+`listfile.emplace(...)` mutation `AUDIT.md` §7 flagged — is now
+`Catalog::registerPathOverride`, closing that bullet too. Tier 4
+(parent-directory same-basename) stays a marked, deliberate gap in
+`Catalog::texture()`'s own doc comment — Blender-script-only, not ported
+this pass; porting it changes real resolution outcomes and needs its own
+ledger run. Verified via a resolution-ledger diff (byte-identical output,
+zero delta) on `bloodelffemale_hd`, `nightelffemale_hd` (a real
+218-candidate ambiguous pool), `wolf.m2` (incl. `--lod all`), and
+`sword_1h_artifactskywall_d_06.m2` (13 real fuzzy/ambiguous matches), plus a
+`--knowledge-db`-driven item exercising `registerPathOverride`. This closes
+the real C++ side of this section; it does not yet touch the Python/Blender
+mirrors named in the table above, so this section stays open until those are
+addressed too (`CLI_AND_TOOLING.md` §3).
 
 ---
 
@@ -202,9 +216,9 @@ Two consequences:
   `TODO/KNOWLEDGE_BASE_DESIGN.md`) and remains a live flag by deliberate
   decision (kept as diagnostic/future-work infrastructure, not retired).
   **Done**: the known-wrongness now surfaces at point of use (I4) — see
-  `CLI_AND_TOOLING.md` §5. Still mutates the shared listfile map
-  mid-export, a real instance of the now-closed §1.2's FileDataID→path
-  duplication (`REFACTOR_LOG.md`), left for the catalog.
+  `CLI_AND_TOOLING.md` §5. The shared-listfile-map mid-export mutation is
+  also **done** — `sources::Catalog::registerPathOverride` (§1.1, above)
+  replaces it, verified end to end against a real `--knowledge-db` hit.
 
 ---
 

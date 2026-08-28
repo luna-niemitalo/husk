@@ -8,6 +8,123 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-28 — `husk::sources::Catalog`: the real texture-tier object, AUDIT.md §1.1's C++ side closed
+
+**What**: `src/sources/catalog.hpp`/`.cpp` — the object `RESOURCE_CATALOG.md`
+has been describing since it existed: one place that owns the texture tier
+order (literal → listfile → fuzzy same-basename pool) and the mutable pool
+state tier 3's claim-and-remove step needs, replacing
+`export_materials.cpp`'s inline three-way branch (claimed-and-read /
+nothing-claimed-so-scan-for-ambiguity / 2+ candidates) with one
+`texture(fdid, textureType, modelContext, preferGlowVariant) ->
+Resolved<EncodedTexture>` call per slot. `EncodedTexture` is `{bytes,
+encoding, imageName, matchedFilename}` — `encoding` (`TextureEncoding::Png`/
+`Blp`) exists per I8/`BUNDLE_FORMAT.md`'s "Texture encoding" even though
+every producer today still tags `Png` (every real tier still decodes BLP →
+PNG on read, unchanged — the tag is what makes moving that decode to a
+writer later a call-site change instead of a type change, not a claim that
+the decode already moved). `Resolved<T>` (`resolved.hpp`) gained the
+`alternates` field `RESOURCE_CATALOG.md`'s Settled section describes — a new
+`Alternate` struct (filename/category/width/height/imagePng), non-empty
+meaning genuinely ambiguous, the chosen default included in the list rather
+than excluded from it. `Catalog::registerPathOverride(fdid, path)` replaces
+`resolveObjectSkinTextureFromKb`'s `listfile.emplace(...)` sideways mutation
+(`AUDIT.md` §7, now closed) — the `--knowledge-db` object-skin substitution
+still runs as its own pre-step in `cmd_export.cpp` (a genuinely different
+question — "which fdid stands in for this slot" vs. "given this fdid, find
+bytes" — not folded into `texture()`), but no longer touches the caller's
+own `--listfile` map to do it. `Catalog` is constructed once per
+`exportOneModel` call (`cmd_export.cpp`), shared across every LOD tier of
+that one model's own `buildMaterialsAndPrimitives` calls, not reconstructed
+per tier — not yet hoisted further up to span a whole `--from-list` batch
+(see "What it deliberately did not touch").
+
+**Why**: `AUDIT.md` §1.1's own framing — "the tiers exist; the object that
+owns the tier order does not" — plus a real, load-bearing consequence: tier
+3's claim-and-remove pool state and its per-M2-texture-slot memoization
+(`fuzzyResolutionByTextureIndex`, guarding against the real
+`argustalbukmount.m2` bug where two batches sharing one M2 texture-array
+entry could otherwise deplete the shared pool twice) lived as local
+variables in `export_materials.cpp`, unreachable by anything else and
+un-testable except through a full CLI export. Neither is true anymore.
+
+**What it deliberately did not touch**:
+- **Tier 4 (parent-directory same-basename)** — Blender-script-only today,
+  a marked gap in `Catalog::texture()`'s own doc comment pointing at
+  `RESOURCE_CATALOG.md`. Porting it changes real resolution outcomes for
+  real files and needs its own ledger run — out of this pass's scope, per
+  the brief.
+- **The Python/Blender mirrors** — can't call into `src/sources/` at all;
+  `AUDIT.md` §1.1 stays open for exactly this reason. `CLI_AND_TOOLING.md`
+  §3's structured-output work is the eventual bridge.
+- **Hoisting `Catalog` above one model's own export.** `RESOURCE_CATALOG.md`'s
+  "constructed once per export... never per model" is satisfied at the
+  single-model granularity (shared across that model's own LOD tiers, which
+  it wasn't before — each `buildMaterialsAndPrimitives` call used to rescan
+  a fresh, independent pool per tier); sharing one instance across an entire
+  `--from-list` batch (a coarser, also-valid reading of that same sentence)
+  would need `exportOneModel`'s own signature to accept an externally-owned
+  `Catalog&`, a larger integration change than collapsing the tier
+  orchestration itself. Nothing in `Catalog`'s own state assumes
+  single-model lifetime (model-scoped state is already keyed by
+  `modelPath`, not by the object's lifetime) — the object is ready for that
+  hoist, it just isn't wired that far up yet.
+- **The additionalTextureLayers loop** (`export_materials.cpp`) still calls
+  `resolveLiteralTextureBytes`/`resolveListfileTextureBytes` directly, not
+  `Catalog::texture()` — it's deliberately literal/listfile-only, never the
+  shared fuzzy pool (supplementary per-layer metadata competing for the same
+  claim-and-remove pool as a model's primary hardcoded slots would be a new
+  behavior, not a refactor).
+- **The two remaining `listfileRoot.empty() ? texturesDir : listfileRoot`
+  re-derivations** (`cmd_export.cpp`, `export_materials.cpp`'s own function
+  signature) stay, alongside `Catalog`'s own constructor doing the identical
+  fallback for its internal use — both existing sites serve callers beyond
+  `Catalog` (`attachCharTextureLayout`, `resolveObjectSkinTextureFromKb`,
+  `exportGearAuxItemModels`, ...) that need a real `listfileRoot` string
+  independent of the catalog. `RESOURCE_CATALOG.md`'s "resolved once, not
+  re-derived per caller" is true *inside* `Catalog` (and `describe()` names
+  the effective root); it is not yet true project-wide, and this pass didn't
+  claim otherwise.
+
+**Verified**: full suite green, 738/738 (728 baseline + 10 new
+`tests/test_sources_resource_catalog.cpp` cases: a hit per tier, a total
+miss with a reason, genuine ambiguity producing `alternates` including the
+chosen default, pool depletion across two distinct slots, per-slot
+memoization across two batches sharing one M2 texture index, the own-fdid
+pool exclusion, `registerPathOverride` resolving without mutating the
+caller's map, and `describe()`'s ledger content) — 0 regressions.
+
+Resolution-ledger diff (this stage's actual gate, `REFACTOR/README.md`'s
+"every difference is explained and attributed"): built a `husk-before`
+binary from the pre-`Catalog` commit and a `husk-after` binary from this
+change, then ran real `husk export` against the four required fixtures plus
+two more, diffing stdout/stderr and the output `.glb` byte-for-byte:
+
+| Fixture | Real tier-3 activity | `.glb` bytes |
+|---|---|---|
+| `test_data/character/bloodelf/female/bloodelffemale_hd.m2` | 25 fuzzy/ambiguous matches (default `--textures`) | identical |
+| `nightelffemale_hd.m2` (`--textures` at the real corpus dir) | a real 218-candidate ambiguous pool on one slot | identical |
+| `creature/wolf/wolf.m2` (incl. `--lod all`, 2 tiers) | 2 fuzzy/ambiguous matches, exercising cross-tier pool sharing | identical |
+| `item/objectcomponents/weapon/sword_1h_artifactskywall_d_06.m2` | 13 fuzzy/ambiguous matches | identical |
+| `item/objectcomponents/shoulder/lshoulder_robe_d_01.m2` `--knowledge-db` | real KB hit, exercises `registerPathOverride` | identical |
+
+**Zero delta, every fixture, honestly reported** — not manufactured
+significance. The four tiers already agreed with each other in the real
+C++ implementation before this pass (the drift `AUDIT.md` §1.1 documents is
+against the *Python/Blender* mirrors, untouched here); consolidating them
+into one object changed where the tier order lives, not any resolution
+outcome. The `--lod all` case was worth checking specifically since sharing
+one `Catalog`/pool across LOD tiers (new) could in principle diverge from
+each tier rescanning its own fresh pool (old behavior) — empirically, for
+this real 2-tier fixture, it didn't: LOD tiers of one model reference the
+same M2 texture-array entries, so the same slots ask the same questions and
+get the same memoized answers either way. Not proven exhaustively for every
+possible corpus shape, only verified on this one real case — flagged for a
+second look if a future corpus scan ever needs `--lod all` alongside a
+`Catalog`-sharing change again.
+
+---
+
 ## 2026-08-28 — `husk info --json`: CLI_AND_TOOLING.md §3's first half
 
 **What**: `husk info --json` (`src/commands.hpp`'s new `InfoOptions::json`,

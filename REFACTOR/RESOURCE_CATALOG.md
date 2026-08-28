@@ -52,25 +52,50 @@ the `Catalog` object per `REFACTOR_LOG.md`'s 2026-08-28 "Resolved<T>
 scaffolding" entry, the same "boring infrastructure first" pattern
 `db2_cache.hpp` used.
 
-Tiers 1 (literal `<texturesDir>/<FileDataID>.{png,blp}`) and 2 (listfile) now
-report through it — `src/sources/texture_catalog.hpp`'s
-`resolveLiteralTextureBytes`/`resolveListfileTextureBytes`,
-`export_materials.cpp`'s real texture-tier call sites (both the primary
-baseColorTexture resolution *and* the `additionalTextureLayers` loop's own
-previously-separate copy, found while doing this) now call them instead of
-duplicating the lookup inline (`REFACTOR_LOG.md`'s 2026-08-28 "first"/
-"second real tier through Resolved<T>" entries, verbatim behavior, verified
-against the full suite). Tier 3 (fuzzy same-basename pool) is **partially**
-migrated — only its deterministic "read what was already claimed" half
-(`resolveClaimedFuzzyPoolTextureBytes`); the claim-and-remove step
-(`claimSoleFuzzyTextureCandidate`) and the genuine-ambiguity fan-out
-(`filterCandidatesForType`/`orderCandidatesForDefault`,
-`AlternateTextureCandidate`) deliberately stay outside `Resolved<T>` for now
-— see the Settled section below ("Tier 3's shape") for why folding all three
-of tier 3's real outcomes into one hit/miss shape isn't a safe mechanical move
-the way tiers 1/2 were, and for what the finished shape is instead. The Python/Blender mirrors are entirely untouched by this — they
-can't call into `src/sources/` at all; that gap is what `CLI_AND_TOOLING.md`
-§3's structured-output work is for.
+The real `husk::sources::Catalog` object now exists — `src/sources/
+catalog.hpp`/`.cpp`, `REFACTOR_LOG.md`'s newest entry. `texture(fdid,
+textureType, modelContext, preferGlowVariant)` owns tiers 1 (literal), 2
+(listfile), and 3 (fuzzy same-basename pool, **including** the
+claim-and-remove step and the genuine-ambiguity fan-out — the three-way
+branch `export_materials.cpp` used to see is gone; the caller now gets one
+`Resolved<EncodedTexture>` per slot, ambiguity riding `alternates` per the
+Settled section below) in the documented order. Memoized per (modelPath,
+textureSlotIndex) inside the catalog, replacing the file-local
+`fuzzyResolutionByTextureIndex` cache `export_materials.cpp` used to keep
+for the identical reason (two batches referencing one M2 texture-array entry
+must agree on one answer). `registerPathOverride(fdid, path)` replaces the
+`--knowledge-db` object-skin tier's sideways `listfile.emplace(...)` mutation
+(`AUDIT.md` §7 — now closed) with a catalog-owned override, never touching
+the caller's own `--listfile` map. `preferGlowVariant` is a fourth parameter
+beyond the three named in this document's own pseudocode above — a real
+per-batch signal (`M2Material::blendMode > 2`) `orderCandidatesForDefault`'s
+ambiguity ranking needs and no other part of `modelContext` legitimately
+carries; flagged here rather than silently added.
+
+Deliberately **not** owned by `texture()`: tier 4 (parent-directory
+same-basename — still Blender-script-only, a marked gap in `texture()`'s own
+doc comment, not ported this pass) and tier 5 (knowledge base — stays a
+pre-step the caller runs once per model and feeds back through the normal
+`fdid` parameter, since "which fdid should stand in for this slot" is a
+different question than "given this fdid, find bytes"; see `catalog.hpp`'s
+own doc comment for the full reasoning). `modelPath(fdid)`/
+`fileDataIdForPath(path)`/`sidecar(...)`/`db2(...)` are still the FileDataID<->
+path surface (`AUDIT.md` §1.2, closed separately) and future sidecar/DB2
+work — not part of this pass, which was scoped to the texture half only.
+
+Verified via a resolution-ledger diff on real fixtures rather than by reading
+`describe()`'s own output: `bloodelffemale_hd`, `nightelffemale_hd` (a real
+218-candidate ambiguous pool), a creature (`wolf.m2`, incl. `--lod all`'s
+2-tier case), an item (`sword_1h_artifactskywall_d_06.m2`, 13 real fuzzy/
+ambiguous matches), and a `--knowledge-db`-driven item exercising
+`registerPathOverride` end to end — every export byte-identical before vs.
+after this object existed. Zero delta, honestly: the four tiers already
+agreed with each other before this pass (unlike the Python/Blender mirrors,
+`AUDIT.md` §1.1's real remaining drift), so consolidating them into one
+object didn't change any resolution outcome, only where the tier order lives.
+The Python/Blender mirrors are entirely untouched by this — they can't call
+into `src/sources/` at all; that gap is what `CLI_AND_TOOLING.md` §3's
+structured-output work is for.
 
 A miss is a first-class answer with a reason, not an empty optional the caller
 has to guess about. `FOREIGN_DATA.md` §2 already requires expected-vs-actual on
@@ -105,7 +130,9 @@ rather than inherited:
 ## What this stage deletes
 
 - Three texture-resolution implementations → one (`AUDIT.md` §1.1, in
-  progress — tiers 1/2 of the real C++ implementation done, see below).
+  progress — the real C++ implementation is now one object
+  (`sources::Catalog`, all three tiers), the Python/Blender mirrors are
+  still separate, see below).
 - Five FileDataID→path/name implementations → one. **Done**
   (`husk::sources::pathForFileDataId`/`contentNameForFileDataId`,
   `src/sources/listfile_catalog.hpp`/`.cpp` — see `REFACTOR_LOG.md`'s
@@ -117,9 +144,11 @@ rather than inherited:
   `REFACTOR_LOG.md`'s 2026-08-28 entries) — this was the free half of stage
   2, no semantic change, just the table being read once; it landed ahead of
   the `Catalog` object itself since it needed no resolution-policy design.
-- `resolveObjectSkinTextureFromKb`'s listfile-map injection
-  (`cmd_export.cpp:973-975`) — a feature reaching sideways into another
-  feature's data structure because there was no shared place to put an answer.
+- `resolveObjectSkinTextureFromKb`'s listfile-map injection. **Done** —
+  replaced by `Catalog::registerPathOverride`, see above; verified
+  end to end against a real `--knowledge-db` hit
+  (`item/objectcomponents/shoulder/lshoulder_robe_d_01.m2`), byte-identical
+  output before and after the mechanism swap.
 
 ## The excavation escape hatch
 
@@ -244,11 +273,20 @@ disjoint success shape: it is a hit that knows it was a coin toss.
 catalog surface to handle a case exactly one tier can ever produce — a generic
 container earned by one occurrence.
 
-The narrow wrap already landed (`resolveClaimedFuzzyPoolTextureBytes`, read step
-only, caller keeps its explicit branch) is the correct interim: it is the subset
-of this answer that is true *today*, before the `Catalog` object exists to own
-the claim step. It does not need revisiting when the rest lands — it gets
-absorbed.
+**Done.** `sources::Catalog::texture()` (`src/sources/catalog.cpp`) owns the
+claim step exactly as described above: `filterCandidatesForType` runs once
+(the pre-`Catalog` call site ran it twice — once inside
+`claimSoleFuzzyTextureCandidate`, once again in the caller's own ambiguity
+branch — always producing the identical set, since nothing mutated the pool
+between the two calls, so this is a real, harmless simplification, not a
+behavior change), and the exactly-one/zero/2-or-more split becomes one
+`Resolved<EncodedTexture>` with `alternates` populated only in the last case.
+The narrow wrap (`resolveClaimedFuzzyPoolTextureBytes`, read step only) that
+was the correct interim before this landed is now absorbed — its own
+Resolved<T>-reporting logic lives inline in `Catalog::resolveFuzzyTier`
+instead, and `export_materials.cpp` no longer calls it or
+`claimSoleFuzzyTextureCandidate`/`filterCandidatesForType`/
+`orderCandidatesForDefault` directly at all.
 
 ## Where the two unordered tiers sit
 

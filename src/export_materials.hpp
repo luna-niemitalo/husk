@@ -10,6 +10,7 @@
 #include "gltf.hpp"
 #include "m2.hpp"
 #include "skin.hpp"
+#include "sources/catalog.hpp"
 
 // Batch -> material/primitive resolution (textures, tint/fade, UV
 // transforms, multi-texture-layer metadata) -- split out of cmd_export.cpp
@@ -181,10 +182,21 @@ struct M2MaterialInputs {
 // name for both its own display `name` and (as a fallback tier)
 // --slim-textures' written filename -- see gltf::Material::
 // customizationOptionName/customizationChoiceName's own doc comment.
+// `catalog` (REFACTOR/RESOURCE_CATALOG.md's sources::Catalog, AUDIT.md
+// §1.1) owns the primary baseColorTexture's fdid-driven resolution --
+// literal/listfile/fuzzy-pool tiers, including the pool's claim-and-remove
+// state, shared across every batch (and every LOD tier, if the caller
+// reuses one Catalog instance across `buildMaterialsAndPrimitives` calls
+// for the same model). `texturesDir`/`listfile`/`listfileRoot`/
+// `texturesOutDir` stay as their own parameters too -- they're still needed
+// for the embedded-M2-filename lookup (not fdid-driven, so out of
+// `Catalog`'s surface) and the best-effort additionalTextureLayers loop
+// (deliberately literal/listfile only, never the shared fuzzy pool -- see
+// this file's own doc comment at that loop).
 BuiltMaterials buildMaterialsAndPrimitives(
     const std::vector<uint32_t>& triangleIndices, const std::vector<skin::Submesh>& submeshes,
-    const std::vector<skin::Batch>& batches, const M2MaterialInputs& m2, const std::string& texturesDir,
-    const std::string& modelPath, const std::string& texturesOutDir = "",
+    const std::vector<skin::Batch>& batches, const M2MaterialInputs& m2, husk::sources::Catalog& catalog,
+    const std::string& texturesDir, const std::string& modelPath, const std::string& texturesOutDir = "",
     const std::unordered_map<uint32_t, std::string>& listfile = {}, const std::string& listfileRoot = "",
     uint32_t objectSkinTextureFileDataId = 0,
     const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames = {});

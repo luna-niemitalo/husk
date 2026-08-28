@@ -1,9 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 // REFACTOR/RESOURCE_CATALOG.md's `Resolved<T>` -- the return shape every
 // `sources::Catalog` surface (`textureBytes`, `modelPath`,
@@ -59,6 +61,24 @@ constexpr std::string_view tierName(ResolutionTier tier) {
     return "miss";
 }
 
+// One candidate out of a genuinely ambiguous match set -- RESOURCE_CATALOG.md's
+// Settled section, "Tier 3's shape": ambiguity is provenance, not a disjoint
+// success shape, so `Resolved<T>` carries it as a field (`alternates`,
+// below) rather than as a `std::variant<T, AmbiguousCandidates>`. Shaped
+// for the one real consumer that has this today (the fuzzy same-basename
+// texture pool -- filename/category/dimensions/PNG bytes, the same fields
+// `gltf::Material::AlternateTextureCandidate` already carries) rather than
+// genericized over `T`; per READABILITY.md's "abstractions are earned",
+// generalize this only once a second, differently-shaped `Resolved<T>`
+// consumer actually needs ambiguity too.
+struct Alternate {
+    std::string filename;
+    std::string category;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    std::vector<uint8_t> imagePng;
+};
+
 // A resolution outcome carrying provenance alongside (or instead of) the
 // value -- RESOURCE_CATALOG.md: "which tier fired, which directory, which
 // fallback". `reason` is free text for the specific detail that varies per
@@ -69,16 +89,23 @@ struct Resolved {
     std::optional<T> value;
     ResolutionTier tier = ResolutionTier::Miss;
     std::string reason;
+    // Non-empty means genuinely ambiguous (2+ type-compatible candidates,
+    // `value` is the tier's own chosen default among them -- "a hit that
+    // knows it was a coin toss", RESOURCE_CATALOG.md's own phrase). The
+    // chosen default is included in this list too, not excluded from it --
+    // a caller wanting the full candidate set never has to special-case
+    // "front() is duplicated".
+    std::vector<Alternate> alternates;
 
     bool found() const { return value.has_value(); }
     explicit operator bool() const { return found(); }
 
     static Resolved<T> hit(T v, ResolutionTier t, std::string reason = {}) {
-        return Resolved<T>{std::optional<T>(std::move(v)), t, std::move(reason)};
+        return Resolved<T>{std::optional<T>(std::move(v)), t, std::move(reason), {}};
     }
 
     static Resolved<T> miss(ResolutionTier attemptedTier, std::string reason) {
-        return Resolved<T>{std::nullopt, attemptedTier, std::move(reason)};
+        return Resolved<T>{std::nullopt, attemptedTier, std::move(reason), {}};
     }
 };
 

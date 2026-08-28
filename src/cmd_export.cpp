@@ -348,9 +348,10 @@ husk::sources::Resolved<KbObjectSkinResolution> resolveObjectSkinTextureFromKb(c
 std::vector<gltf::NamedMesh> buildLodTierMeshes(
     const std::vector<std::pair<std::string, std::string>>& skinsToExport,
     const std::vector<m2::Vertex>& vertices, const gltf::Mesh& baseMesh, const M2MaterialInputs& m2Inputs,
-    const std::string& texturesDir, const std::string& modelPath, const std::string& modelBasename,
-    const std::string& texturesOutDir, const std::unordered_map<uint32_t, std::string>& listfile = {},
-    const std::string& listfileRoot = "", uint32_t objectSkinTextureFileDataId = 0,
+    husk::sources::Catalog& catalog, const std::string& texturesDir, const std::string& modelPath,
+    const std::string& modelBasename, const std::string& texturesOutDir,
+    const std::unordered_map<uint32_t, std::string>& listfile = {}, const std::string& listfileRoot = "",
+    uint32_t objectSkinTextureFileDataId = 0,
     const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames = {}) {
     std::vector<gltf::NamedMesh> namedMeshes;
     namedMeshes.reserve(skinsToExport.size());
@@ -389,7 +390,7 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
             // NOLINTEND(performance-inefficient-string-concatenation)
         }
 
-        auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs,
+        auto built = buildMaterialsAndPrimitives(triangleIndices, submeshes, batches, m2Inputs, catalog,
                                                    texturesDir, modelPath, texturesOutDir, listfile,
                                                    listfileRoot.empty() ? texturesDir : listfileRoot,
                                                    objectSkinTextureFileDataId, customizationNames);
@@ -1036,6 +1037,15 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     std::string chrModelIdArg = app.count("--chr-model-id") ? opts.chrModelIdArg : "";
     std::string creatureDisplayIdArg =
         app.count("--creature-display-id") ? opts.creatureDisplayIdArg : "";
+    // Constructed once for this whole model export (every LOD tier's
+    // buildMaterialsAndPrimitives call below shares this one instance,
+    // never a fresh Catalog per tier) -- REFACTOR/RESOURCE_CATALOG.md's
+    // Surface section, "never per model" read as its finer-grained sibling:
+    // this is the single-model-export granularity, one level below "once
+    // per --from-list batch" (not wired up to span a whole batch yet -- see
+    // this session's own REFACTOR_LOG.md entry for that scoping call).
+    husk::sources::Catalog catalog(texturesDir, listfile, listfileRoot, texturesOutDir);
+
     uint32_t objectSkinTextureFileDataId = 0;
     if (app.count("--object-skin-texture-id")) {
         try {
@@ -1047,15 +1057,20 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     } else if (app.count("--knowledge-db")) {
         auto kbResolved = resolveObjectSkinTextureFromKb(opts.knowledgeDbArg, modelPath, listfileRoot);
         objectSkinTextureFileDataId = kbResolved.found() ? kbResolved.value->textureFileDataId : 0;
-        // Fills the embed path's --listfile fallback tier (export_materials.cpp)
-        // straight from the knowledge base's own 'textures' table, without
-        // requiring a separate --listfile load just for this one texture --
-        // only when --listfile didn't already resolve this fdid itself.
-        // Known-wrongness (I4, REFACTOR/CLI_AND_TOOLING.md §5) now rides
+        // Fills the embed path's --listfile fallback tier
+        // (sources::Catalog::texture(), tier 2) straight from the knowledge
+        // base's own 'textures' table, without requiring a separate
+        // --listfile load just for this one texture -- only when
+        // --listfile didn't already resolve this fdid itself. Registered
+        // on `catalog` (AUDIT.md §7: "still mutates the shared listfile map
+        // mid-export", now closed) instead of injecting into `listfile`
+        // itself, so this model's own KB override can never leak into any
+        // other caller that also holds a reference to the same map.
+        // Known-wrongness (I4, REFACTOR/CLI_AND_TOOLING.md §5) still rides
         // kbResolved.reason -- resolveObjectSkinTextureFromKb's own doc
         // comment -- instead of being reconstructed here.
         if (kbResolved.found() && !kbResolved.value->texturePath.empty()) {
-            listfile.emplace(objectSkinTextureFileDataId, kbResolved.value->texturePath);
+            catalog.registerPathOverride(objectSkinTextureFileDataId, kbResolved.value->texturePath);
             std::cerr << "husk: warning: " << kbResolved.reason << "\n";
         }
     }
@@ -1148,7 +1163,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         // other DB2-driven enrichment here.
         auto customizationNames = buildCustomizationNameLookup(skeleton);
         auto namedMeshes =
-            buildLodTierMeshes(skinsToExport, vertices, baseMesh, m2Inputs, texturesDir, modelPath,
+            buildLodTierMeshes(skinsToExport, vertices, baseMesh, m2Inputs, catalog, texturesDir, modelPath,
                                 modelBasename, texturesOutDir, listfile, listfileRoot,
                                 objectSkinTextureFileDataId, customizationNames);
 

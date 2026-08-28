@@ -98,6 +98,7 @@ add_library(husk-lib STATIC
   src/sources/db2_cache.cpp
   src/sources/listfile_catalog.cpp
   src/sources/texture_catalog.cpp
+  src/sources/catalog.cpp
   src/db2table.cpp
   src/chrmodel_db2.cpp
   src/chrcustomization_db2.cpp
@@ -168,6 +169,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_sources_catalog.cpp
     tests/test_sources_resolved.cpp
     tests/test_sources_texture_catalog.cpp
+    tests/test_sources_resource_catalog.cpp
     tests/test_cli_db2.cpp
     tests/test_cli_blp_export.cpp
     tests/test_cli_chrmodel.cpp
