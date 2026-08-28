@@ -166,19 +166,24 @@ value was duplicated in the first place.
 `corpus_scan_framework.ROOT`, set once by `_init_worker` from the `--root`
 the run was actually launched with.
 
-### `HUSK_BIN` — a binary the environment does *not* currently provide
+### `HUSK_BIN` — the dev shell doesn't provide this; installing the flake package does
 
 Hardcoded to `/home/luna/dev/husk/build/husk` in seven modules. This
 document previously claimed the flake dev shell already puts `husk` on
 `PATH` and that the fix was simply to rely on that — **verified false
 live** while implementing this: `.direnv/bin` carries no `husk` symlink, so
 a bare `"husk"` subprocess call fails outright (caught by a real smoke test
-run, not assumed).
+run, not assumed). Luna's own correction: this isn't a dev-shell bug —
+installing the flake as a package (`nix profile install`/`nix run`) *does*
+put `husk` on `PATH`, that's just not the environment this corpus tooling
+actually runs in. A dev shell hands you the tools to build the project,
+not the project's own not-yet-(re)built output, by design.
 
 **Fix, as shipped**: `corpus_scan_framework.HUSK_BIN = shutil.which("husk")
-or str(REPO_ROOT / "build" / "husk")` — PATH first (correct once/if the
-flake is ever fixed to install it), falling back to the known-good local
-build path today. Same `shutil.which`-first idiom `corpus_checks.py`
+or str(REPO_ROOT / "build" / "husk")` — PATH first (correct when husk is
+installed as a flake package), falling back to the known-good local build
+path (correct in the dev shell this tooling runs under today). Same
+`shutil.which`-first idiom `corpus_checks.py`
 already used for `GLTF_VALIDATOR_BIN`. One computed value, read by every
 consumer instead of each hardcoding its own copy.
 

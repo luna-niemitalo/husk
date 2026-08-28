@@ -441,11 +441,17 @@ corpus files, not assumed from reading the doc**:
 1. `CLI_AND_TOOLING.md` §4's own prescribed fix for `HUSK_BIN` (a bare
    `"husk"`, trusting its own claim that the flake dev shell puts husk on
    `PATH`) fails outright on the real environment -- verified live,
-   `.direnv/bin` carries no `husk` symlink. Fixed with
+   `.direnv/bin` carries no `husk` symlink. Luna's own correction after
+   this landed: not a dev-shell bug -- installing the flake as a package
+   (`nix profile install`/`nix run`) does put `husk` on `PATH`, that's
+   just not the dev-shell environment this corpus tooling actually runs
+   under (a dev shell hands you the build tools, not the project's own
+   not-yet-rebuilt output, by design). Fixed with
    `shutil.which("husk") or str(REPO_ROOT / "build" / "husk")`, the same
    `shutil.which`-first idiom `corpus_checks.py` already used for
-   `GLTF_VALIDATOR_BIN` -- PATH first (correct once/if the flake is ever
-   fixed), falling back to the known-good local build path today.
+   `GLTF_VALIDATOR_BIN` -- PATH first (correct for a package install),
+   falling back to the known-good local build path (correct in the dev
+   shell today).
 2. Every task module's own docstring documents running
    `corpus_scan_framework.py` directly as a script
    (`python tools/corpus_scan_framework.py --task ...`), which loads it as

@@ -111,11 +111,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # instance regardless of which name this file was first loaded under.
 sys.modules.setdefault("corpus_scan_framework", sys.modules[__name__])
 
-# PATH first (correct once the flake dev shell actually installs husk onto
-# it -- it currently doesn't: verified live, `.direnv/bin` carries no husk
-# symlink, so CLI_AND_TOOLING.md §4's "the flake dev shell already puts
-# husk on PATH" claim is stale/wrong for the real environment as of this
-# writing), falling back to the known-good local build path -- same
+# PATH first -- correct when husk is installed as a flake package (`nix
+# profile install`/`nix run`), which does put it on PATH. Not correct in
+# the *dev shell* this tooling actually runs under (`direnv exec .` /
+# `nix develop`): verified live, `.direnv/bin` carries no husk symlink --
+# a dev shell gives you the tools to build husk, not the built product,
+# by design, so CLI_AND_TOOLING.md §4's original "the flake dev shell
+# already puts husk on PATH" claim was wrong for that specific
+# environment. Falls back to the known-good local build path -- same
 # shutil.which-first idiom this module already uses for gltf_validator in
 # corpus_checks.py's GLTF_VALIDATOR_BIN. The single place this is computed;
 # task modules read `corpus_scan_framework.HUSK_BIN` instead of each
