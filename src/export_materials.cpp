@@ -7,6 +7,7 @@
 #include "export_texture_resolution.hpp"
 #include "m2_shader_names.hpp"
 #include "sources/listfile_catalog.hpp"
+#include "sources/texture_catalog.hpp"
 
 // buildMaterialsAndPrimitives: one .skin batch -> one glTF material +
 // primitive (blend mode/render flags, static tint/fade, texture slot,
@@ -461,10 +462,14 @@ BuiltMaterials buildMaterialsAndPrimitives(
                 // use the FileDataID-named convention (this project's own
                 // test fixtures and the common "casc-tool-style"
                 // "<FileDataID>.{png,blp}" layout both do).
-                if (auto bytes = resolveTextureBytes(std::filesystem::path(texturesDir) /
-                                                          std::to_string(fdid),
-                                                      texturesDir, texturesOutDir)) {
-                    gm.baseColorImagePng = std::move(*bytes);
+                // Routed through sources::resolveLiteralTextureBytes
+                // (AUDIT.md §1.1's tier 1, wrapped in Resolved<T> --
+                // REFACTOR_LOG.md's "first real tier through Resolved<T>"
+                // entry) rather than calling resolveTextureBytes directly --
+                // same bytes, same lookup, now reporting which tier/path
+                // answered instead of a bare optional.
+                if (auto resolved = husk::sources::resolveLiteralTextureBytes(fdid, texturesDir, texturesOutDir)) {
+                    gm.baseColorImagePng = std::move(*resolved.value);
                     gm.baseColorImageName = std::to_string(fdid);
                     embedded = true;
                 }

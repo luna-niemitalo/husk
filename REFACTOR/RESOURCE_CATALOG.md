@@ -42,8 +42,19 @@ The type itself (`husk::sources::Resolved<T>`, `ResolutionTier`, `tierName`)
 now exists — `src/sources/resolved.hpp`, landed as pure scaffolding ahead of
 the `Catalog` object per `REFACTOR_LOG.md`'s 2026-08-28 "Resolved<T>
 scaffolding" entry, the same "boring infrastructure first" pattern
-`db2_cache.hpp` used. Nothing constructs one yet — no tier below has been
-migrated to report provenance through it.
+`db2_cache.hpp` used.
+
+Tier 1 (literal `<texturesDir>/<FileDataID>.{png,blp}`) now reports through
+it — `src/sources/texture_catalog.hpp`'s `resolveLiteralTextureBytes`,
+`export_materials.cpp`'s real texture-tier call site now calls it instead of
+`resolveTextureBytes` directly (`REFACTOR_LOG.md`'s "first real tier through
+Resolved<T>" entry, verbatim behavior, verified against the full suite).
+Tiers 2 (listfile) and 3 (fuzzy same-basename pool) are not migrated yet —
+tier 3 in particular sits inside `export_materials.cpp`'s ambiguous-
+candidate/alternate-texture-candidate logic, which needs more care than a
+mechanical wrapper. The Python/Blender mirrors are entirely untouched by
+this — they can't call into `src/sources/` at all; that gap is what
+`CLI_AND_TOOLING.md` §3's structured-output work is for.
 
 A miss is a first-class answer with a reason, not an empty optional the caller
 has to guess about. `FOREIGN_DATA.md` §2 already requires expected-vs-actual on

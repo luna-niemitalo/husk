@@ -8,6 +8,52 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-28 — first real tier through `Resolved<T>`: literal texture lookup (`AUDIT.md` §1.1)
+
+**What**: New `src/sources/texture_catalog.hpp`/`.cpp`:
+`resolveLiteralTextureBytes(fdid, texturesDir, texturesOutDir) ->
+Resolved<vector<uint8_t>>` — `RESOURCE_CATALOG.md`'s tier 1 ("Literal —
+`<texturesDir>/<FileDataID>.png`, then `.blp`. PNG wins when both exist"),
+implemented as a thin wrapper delegating entirely to the existing, unchanged
+`husk::commands::resolveTextureBytes` — no new lookup logic, only the
+`Resolved<T>` provenance (`ResolutionTier::Literal`, plus a `reason` naming
+the stem tried on a hit or "neither .png nor .blp exists" on a miss).
+`export_materials.cpp`'s real texture-tier call site (the "Deterministic
+whenever the file is actually present" block, previously calling
+`resolveTextureBytes` inline) now calls this instead — same bytes, same
+outcome, now behind a boundary the eventual `sources::Catalog` object can
+own outright. 3 new tests (`tests/test_sources_texture_catalog.cpp`): hit,
+miss-with-reason, and empty-`texturesDir`-is-a-miss.
+
+**Why this tier, not 2 or 3 next**: tier 1 is the simplest of the three —
+one deterministic file check, no shared mutable pool, no caller-specific
+post-processing beyond `gm.baseColorImageName = std::to_string(fdid)`
+(unchanged). Tier 2 (listfile) already has its lookup mechanism
+consolidated (`sources::pathForFileDataId`, §1.2) but not wrapped in
+`Resolved<T>` yet — a smaller follow-up. Tier 3 (fuzzy same-basename pool)
+is the one `RESOURCE_CATALOG.md` itself flags as needing real design work
+first (`claimSoleFuzzyTextureCandidate`'s claim-and-remove pool state,
+`orderCandidatesForDefault`'s ranking heuristics, and the
+alternate-texture-candidate fan-out for genuine ambiguity) — wrapping it
+today would either lose information `Resolved<T>` can't yet express (which
+of several candidates, and why) or force that design under this loop's
+own timebox instead of Luna's review. Doing tiers in increasing order of
+entanglement, not `RESOURCE_CATALOG.md`'s own listed order.
+
+**What this deliberately did not touch**: tiers 2/3, the Python mirror
+(`unfillable_texture_task.py`), and the Blender script's own resolution
+code are all unchanged — `AUDIT.md` §1.1 stays open, now with one of its
+three tiers (in the "real" C++ implementation only) reporting provenance.
+No behavior change at any call site — verified, not just intended.
+
+**Verified**: full suite green, 713/713 (710 prior + 3 new, 0 regressions).
+Clean rebuild with no new compiler warnings. The touched call site's own
+existing CLI-tier coverage (`tests/test_cli_textures.cpp`'s literal-FileDataID
+resolution cases) passed unchanged, confirming behavior preservation at the
+CLI level, not just in the new unit test.
+
+---
+
 ## 2026-08-28 — `Resolved<T>` scaffolding for the `sources::Catalog` object (`AUDIT.md` §1.1 prep)
 
 **What**: New `src/sources/resolved.hpp` (header-only) implementing
