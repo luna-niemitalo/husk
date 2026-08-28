@@ -1,27 +1,14 @@
 #include "db2table.hpp"
 
 #include <algorithm>
-#include <cerrno>
-#include <cstring>
-#include <fstream>
-#include <iterator>
 
 #include "db2.hpp"
 #include "dbd.hpp"
+#include "sources/db2_cache.hpp"
 
 namespace husk::db2table {
 
 namespace {
-
-std::vector<uint8_t> readFileBytes(const std::string& path) {
-    errno = 0;
-    std::ifstream f(path, std::ios::binary);
-    if (!f) {
-        throw db2::ParseError("couldn't open '" + path + "' for reading: " + std::strerror(errno));
-    }
-    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    return bytes;
-}
 
 enum class ColumnKind { Inline, Id, Relation, Unresolved };
 
@@ -41,32 +28,14 @@ std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& pat
         return std::nullopt;
     }
 
-    db2::File file;
-    try {
-        std::vector<uint8_t> bytes = readFileBytes(path);
-        file = db2::parse(bytes);
-    } catch (const std::exception& e) {
-        err << "husk: db2table: couldn't read '" << path << "': " << e.what() << "\n";
-        return std::nullopt;
-    }
+    const sources::ParsedDb2* parsed = sources::getParsedDb2(path, dbdDir, err);
+    if (!parsed) return std::nullopt;
+    const db2::File& file = parsed->file;
+    const dbd::Layout& layout = *parsed->layout;
+    const std::optional<std::vector<dbd::Column>>& inlineColumns = parsed->inlineColumns;
 
-    std::optional<dbd::Table> dbdTable = dbd::loadTableForHash(dbdDir, file.header.tableHash);
-    if (!dbdTable) {
-        err << "husk: db2table: no matching WoWDBDefs table for '" << path << "' (table_hash=0x"
-            << std::hex << file.header.tableHash << std::dec << ")\n";
-        return std::nullopt;
-    }
-    const dbd::Layout* layout = dbd::findLayout(*dbdTable, file.header.layoutHash);
-    if (!layout) {
-        err << "husk: db2table: no matching WoWDBDefs layout for '" << path << "' (layout_hash=0x"
-            << std::hex << file.header.layoutHash << std::dec << ")\n";
-        return std::nullopt;
-    }
-
-    std::optional<std::vector<dbd::Column>> inlineColumns =
-        dbd::resolveFieldNames(*dbdTable, *layout, file.fieldStorageInfo);
-    std::optional<std::string> idFieldName = dbd::findIdFieldName(*layout);
-    std::vector<std::string> relationFieldNames = dbd::findNonInlineNonIdFieldNames(*layout);
+    std::optional<std::string> idFieldName = dbd::findIdFieldName(layout);
+    std::vector<std::string> relationFieldNames = dbd::findNonInlineNonIdFieldNames(layout);
 
     std::vector<ColumnResolution> resolutions;
     for (const std::string& name : columnNames) {
@@ -101,7 +70,7 @@ std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& pat
     }
 
     std::vector<ColumnValues> rows;
-    for (db2::Section& section : file.sections) {
+    for (const db2::Section& section : file.sections) {
         if (!section.recordsAvailable()) continue;
         if (!section.offsetMap.empty()) continue;
 
@@ -147,31 +116,11 @@ std::optional<std::vector<StringColumnValues>> readNamedStringColumns(
         return std::nullopt;
     }
 
-    db2::File file;
-    std::vector<uint8_t> fileBytes;
-    try {
-        fileBytes = readFileBytes(path);
-        file = db2::parse(fileBytes);
-    } catch (const std::exception& e) {
-        err << "husk: db2table: couldn't read '" << path << "': " << e.what() << "\n";
-        return std::nullopt;
-    }
-
-    std::optional<dbd::Table> dbdTable = dbd::loadTableForHash(dbdDir, file.header.tableHash);
-    if (!dbdTable) {
-        err << "husk: db2table: no matching WoWDBDefs table for '" << path << "' (table_hash=0x"
-            << std::hex << file.header.tableHash << std::dec << ")\n";
-        return std::nullopt;
-    }
-    const dbd::Layout* layout = dbd::findLayout(*dbdTable, file.header.layoutHash);
-    if (!layout) {
-        err << "husk: db2table: no matching WoWDBDefs layout for '" << path << "' (layout_hash=0x"
-            << std::hex << file.header.layoutHash << std::dec << ")\n";
-        return std::nullopt;
-    }
-
-    std::optional<std::vector<dbd::Column>> inlineColumns =
-        dbd::resolveFieldNames(*dbdTable, *layout, file.fieldStorageInfo);
+    const sources::ParsedDb2* parsed = sources::getParsedDb2(path, dbdDir, err);
+    if (!parsed) return std::nullopt;
+    const db2::File& file = parsed->file;
+    const std::vector<uint8_t>& fileBytes = parsed->fileBytes;
+    const std::optional<std::vector<dbd::Column>>& inlineColumns = parsed->inlineColumns;
 
     std::vector<std::optional<size_t>> fieldIndices;
     for (const std::string& name : columnNames) {

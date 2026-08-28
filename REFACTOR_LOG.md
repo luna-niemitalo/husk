@@ -1,0 +1,62 @@
+# REFACTOR_LOG.md — running log of REFACTOR/ migration work
+
+Each entry: what was done, why, what it deliberately did *not* touch, and how
+it was verified. Punch-list items get removed from the `REFACTOR/*.md` files
+they came from once done (see those files' own "closed items get removed"
+convention) — this log is the narrative git history doesn't give you at a
+glance, not a duplicate of the plan.
+
+---
+
+## 2026-08-28 — Stage 1/2 prep: DB2 parse/resolve cache (`src/sources/db2_cache`)
+
+**What**: New `husk::sources` namespace (`src/sources/db2_cache.hpp/.cpp`) —
+the first file under `src/sources/`, the home `REFACTOR/README.md`'s target
+pipeline names for stage 2. `getParsedDb2(path, dbdDir, err)` caches, per
+process, the result of reading a `.db2` file's bytes, running `db2::parse`,
+and resolving its WoWDBDefs table/layout/inline-column names against
+`dbdDir` — returning a `const ParsedDb2*` into the cache on every call after
+the first for that `(path, dbdDir)` pair.
+
+`src/db2table.cpp`'s `readNamedColumns`/`readNamedStringColumns` — previously
+two independent implementations of "read file, parse WDC5, resolve DBD
+layout" — now both call through this cache instead of repeating that work.
+
+**Why this item first**: `REFACTOR/AUDIT.md` §1.3 names this exact
+duplication ("the same file from scratch to get int columns and string
+columns separately") and calls the fix "free: no semantic change, just the
+table being read once." It's real, scoped, and carries no resolution-policy
+risk — a good first slice precisely because it's boring. It's also
+infrastructure the rest of stage 2 (`RESOURCE_CATALOG.md`'s `db2(tableName)
+-> const Table&`) will want regardless of how the bigger texture-resolution
+consolidation (§1.1/§1.2, still not started) ends up shaped.
+
+**What this deliberately did not touch**: the actual resolution-boundary
+object (`sources::Catalog`) `RESOURCE_CATALOG.md` describes — this is one
+cache the catalog will eventually own, not the catalog itself. Texture
+resolution (§1.1), FileDataID→path (§1.2), and the `chrrace::load` /
+`texturefiledata::load` per-call-site duplication (§1.3's other two bullets)
+are all still duplicated exactly as `AUDIT.md` describes them today — this
+only fixed the "same file, two readers" half of §1.3, the smallest
+independently-mergeable piece. Nothing in `chrrace_db2.cpp`,
+`chrcustomization_db2.cpp`, `texturefiledata_db2.cpp`, or any call site above
+`db2table.cpp` changed at all; they get the caching for free on their next
+call into `readNamedColumns`/`readNamedStringColumns` without knowing it
+happened.
+
+**Correctness note for future test authors**: the cache key is
+`(path, dbdDir)`, held for the lifetime of the process. `tests/test_db2table.cpp`
+writes synthetic fixtures to unique-per-`TEST_CASE` temp directories
+(`TestDbdDir`'s own `name` argument), so no two test cases ever reuse the
+same path with different content within one `husk-tests` run — verified by
+inspection, not just by the suite passing. A future test that reuses a fixed
+temp path across cases with *different* db2 bytes would now read stale
+cached content; `husk::sources::clearDb2CacheForTests()` exists for exactly
+that case and should be called at the top of any test that needs a fresh
+read of a path it has written to before.
+
+**Verified**: full suite green, 694/694 (693 prior + this session's 1 new
+implicit exercise via existing `test_db2table.cpp` cases, 0 regressions).
+No behavior change intended or observed — `husk export`/`husk db2-export`
+CLI-tier tests exercising the DB2 chains (`chrmodel`, `chrcustomization`,
+`chrrace`, `texturefiledata`, `animationdata`) all pass unchanged.

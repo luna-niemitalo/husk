@@ -95,6 +95,7 @@ add_library(husk-lib STATIC
   src/dbd.cpp
   src/listfile.cpp
   src/husk_config.cpp
+  src/sources/db2_cache.cpp
   src/db2table.cpp
   src/chrmodel_db2.cpp
   src/chrcustomization_db2.cpp
