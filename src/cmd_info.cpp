@@ -7,12 +7,11 @@
 
 #include <CLI/CLI.hpp>
 
+#include "cmd_info_json.hpp"
 #include "commands.hpp"
 #include "m2.hpp"
 
 namespace husk::commands {
-
-namespace {
 
 // Every top-level M2 chunk tag documented on wowdev.wiki/M2#Chunks as of
 // this fetch (2026-07-25) -- 30 of them, spanning client build 7.0.1.20740
@@ -27,7 +26,9 @@ namespace {
 // explicitly rather than not at all: a tag turning up in a real file that
 // isn't even in this list is a strong, specific signal that the format
 // moved, surfaced right here instead of silently doing nothing (see
-// isUndocumentedChunkTag below).
+// isUndocumentedChunkTag below). Declared in commands.hpp (not anonymous
+// here) so cmd_info_json.cpp's --json path shares this exact list rather
+// than carrying a second, driftable copy.
 const std::vector<std::string>& documentedM2ChunkTags() {
     static const std::vector<std::string> tags = {
         "MD21", "PFID", "SFID", "AFID", "BFID", "TXAC", "EXPT", "EXP2", "PABC", "PADC",
@@ -41,6 +42,8 @@ bool isUndocumentedChunkTag(const std::string& tag) {
     const auto& known = documentedM2ChunkTags();
     return std::find(known.begin(), known.end(), tag) == known.end();
 }
+
+namespace {
 
 void printArray(const char* label, const m2::Array& a) {
     std::cout << "  " << label << ": " << a.count << " (offset 0x" << std::hex << a.offset
@@ -70,6 +73,10 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
 
 void addInfoOptions(CLI::App& app, InfoOptions& opts) {
     app.add_option("model", opts.model, "the .m2 file to inspect")->required();
+    app.add_flag("--json", opts.json,
+                 "print a structured JSON twin of the same information instead of prose, for "
+                 "scripts/corpus-scan tasks to parse (see cmd_info_json.cpp) -- off by default, "
+                 "prose output unchanged either way");
 }
 
 int info(int argc, char** args) {
@@ -106,6 +113,11 @@ int info(int argc, char** args) {
         // TODO: Remove: found via FAILURES.md #1.
         std::cerr << "husk: couldn't read '" << path << "': " << e.what() << "\n";
         return 1;
+    }
+
+    if (opts.json) {
+        printInfoJson(std::cout, path, h, blob);
+        return 0;
     }
 
     std::cout << path << "\n";

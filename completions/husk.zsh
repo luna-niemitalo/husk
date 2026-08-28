@@ -61,6 +61,7 @@ _husk() {
         info)
             _arguments \
                 '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--json[print structured JSON instead of prose]' \
                 '1:model:_files'
             ;;
         dump-chunks)

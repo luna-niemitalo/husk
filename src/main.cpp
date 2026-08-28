@@ -245,6 +245,7 @@ std::string zshFlagLabel(const std::string& longName) {
     if (longName == "--customization-choice-ids") return "comma-separated ChrCustomizationChoiceID(s)";
     if (longName == "--listfile") return "community-listfile.csv snapshot, for FileDataID names";
     if (longName == "--listfile-root") return "corpus root the listfile paths are relative to";
+    if (longName == "--json") return "print structured JSON instead of prose";
     if (longName == "--help") return "print help and exit";
     return longName;
 }

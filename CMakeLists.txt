@@ -117,6 +117,7 @@ add_library(husk-lib STATIC
   src/gltf_skeleton.cpp
   src/gltf.cpp
   src/cmd_info.cpp
+  src/cmd_info_json.cpp
   src/export_transform.cpp
   src/export_skeleton.cpp
   src/export_animation.cpp
@@ -191,6 +192,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli_gear_export.cpp
     tests/test_cli_knowledge_db.cpp
     tests/test_cli_info.cpp
+    tests/test_cli_info_json.cpp
     tests/test_cli_errors.cpp
     tests/test_cli_argv.cpp
     tests/test_cli_skin.cpp

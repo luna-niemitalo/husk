@@ -123,7 +123,7 @@ _husk_completions() {
             ;;
         info)
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --json" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))

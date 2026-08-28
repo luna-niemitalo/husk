@@ -125,6 +125,15 @@ Parses the header only and prints:
   husk's known-M2-chunk-tag list (see `DESIGN.md` for why that matters for
   this format).
 
+`husk info --json` prints the same information as one structured JSON
+document on stdout instead of the prose above (see
+`src/cmd_info_json.cpp`'s own doc comment for the field-by-field schema) --
+built so `tools/corpus_scan_tasks/*.py` can eventually parse husk's own
+answer instead of regexing prose text husk never promised to keep stable
+(REFACTOR/CLI_AND_TOOLING.md §3; converting those tasks over is separate,
+not-yet-done follow-up work). Purely additive: prose output is unchanged,
+byte for byte, when `--json` isn't given.
+
 ### `husk export --input <file.m2> [OPTIONS]`
 
 Resolves the M2's vertices and the `.skin`'s triangle-index lookup into one

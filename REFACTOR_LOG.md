@@ -8,6 +8,66 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-28 — `husk info --json`: CLI_AND_TOOLING.md §3's first half
+
+**What**: `husk info --json` (`src/commands.hpp`'s new `InfoOptions::json`,
+`src/cmd_info.cpp`, new `src/cmd_info_json.hpp`/`.cpp`) prints a structured
+JSON document with every field the existing prose path prints -- format/
+version/name, `global_flags` (raw value, hex, decoded bit names), every
+`m2::Array`-backed field as `{"count", "offset"}` plus a same-named
+`entries` array wherever the prose path dereferences it (sequences, bones,
+textures, materials, attachments/events/lights/cameras, ribbon/particle
+emitters, ...), sidecar FileDataIDs (skin/bone/anim/phys/texture),
+chunk tags plus which ones are outside husk's known-tag list, and the
+bounding/collision geometry. Three fields get particular attention since
+real consumers already scrape them out of prose today
+(`tools/corpus_scan_tasks/black_additive_task.py`/`particle_only_task.py`):
+`vertices.count`, `particle_emitters.count`, and `materials[].blend_mode`.
+
+**Why**: `REFACTOR/AUDIT.md`/`CLI_AND_TOOLING.md` §3 named this directly --
+eight corpus-scan tasks regex-scrape `husk info`'s prose with patterns like
+`^\s*particle_emitters: (\d+) ` compiled against text husk never promised
+to keep stable. A real JSON output gives those tasks something to actually
+parse.
+
+**What it deliberately did not touch**: converting
+`tools/corpus_scan_tasks/*.py`'s own regexes over to consume this JSON --
+explicitly out of scope per the brief, a separate later pass; those eight
+tasks still scrape prose today, unchanged. The `husk resolve` verb §3 also
+mentions is untouched too. Prose output itself is unchanged, byte for byte
+-- verified by diffing `husk info <file>` (no `--json`) against a binary
+built from the pre-change commit across 7 real fixtures (character,
+creature, weapon, and VFX models spanning EXP2/PCOL/coord-combo chunk
+content) plus the error/no-args/`--help` paths; the only difference
+anywhere is `--help`'s new `--json` line, which is expected. Internally,
+`documentedM2ChunkTags`/`isUndocumentedChunkTag` moved from an anonymous
+namespace in `cmd_info.cpp` to `namespace husk::commands` (declared in
+`commands.hpp`) so the new JSON path can share the exact same curated
+chunk-tag list instead of carrying a second, driftable copy -- a pure
+visibility change, logic untouched.
+
+**Verified**: new `tests/test_cli_info_json.cpp` (7 cases) -- flag absence
+leaves prose alone (byte-diffed manually as above, plus a regression test
+asserting no `{` appears), `--json` emits a single well-formed JSON
+document (bracket/string-aware balance check, no JSON library added, same
+"don't add a JSON library" scope the brief set), the three consumer fields
+resolve correctly against both a synthetic fixture and two real ones
+(`test_data/bloodelffemale.m2`: vertices.count 8061, particle_emitters.count
+0; `test_data/item/objectcomponents/weapon/sword_1h_artifactskywall_d_06.m2`,
+chosen because it's a rare real fixture with both ribbon_emitters and
+particle_emitters populated: ribbon_emitters.count 1, particle_emitters.count
+2, cross-checked against `husk info`'s own prose on the same file before
+writing the assertions), an undocumented chunk tag surfaces in
+`chunks.undocumented_tags`, and a malformed file fails the same way
+(`exit 1`, no partial JSON) regardless of `--json`. `completions/husk.{bash,zsh}`
+regenerated via `--print-completion` (never hand-edited) -- `main.cpp` gained
+a `zshFlagLabel` entry for `--json` so the zsh completion shows a real label
+instead of falling back to the bare flag name. `README.md`'s `husk info`
+section and `REFACTOR/CLI_AND_TOOLING.md` §3 updated to mark this half
+done. Full suite green, 728/728 (721 + 7 new, 0 regressions).
+
+---
+
 ## 2026-08-28 — the no-proprietary-formats clarification: the container is DDS, and I8 grows a third part
 
 **What**: Luna clarified the decision below before any code was written against

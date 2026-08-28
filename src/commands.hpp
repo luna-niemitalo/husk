@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <CLI/CLI.hpp>
 
@@ -69,8 +70,23 @@ int appearanceString(int argc, char** args);
 
 struct InfoOptions {
     std::string model;
+    // REFACTOR/CLI_AND_TOOLING.md §3: a structured twin of the prose output
+    // below, so corpus-scan tasks (tools/corpus_scan_tasks/*.py) can parse
+    // husk's own answer instead of regexing text husk never promised to
+    // keep stable. Off by default -- prose stays byte-identical either way.
+    bool json = false;
 };
 void addInfoOptions(CLI::App& app, InfoOptions& opts);
+
+// Shared between cmd_info.cpp's prose path and cmd_info_json.cpp's --json
+// path -- husk's own curated list of every wowdev.wiki-documented M2 chunk
+// tag (see cmd_info.cpp's own doc comment on the list itself), and the
+// check for a real file carrying a tag outside it (a signal the format grew
+// a new chunk since this list was last updated). Single source of truth so
+// the two output paths can't silently drift apart on what counts as
+// "known".
+const std::vector<std::string>& documentedM2ChunkTags();
+bool isUndocumentedChunkTag(const std::string& tag);
 
 struct DumpChunksOptions {
     std::string model;

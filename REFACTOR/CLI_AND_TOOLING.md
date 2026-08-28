@@ -117,6 +117,15 @@ Add `husk info --json` at minimum, and consider a `husk resolve` verb exposing
 the catalog's own answers (`RESOURCE_CATALOG.md`) — that is what lets a corpus
 task consume husk's resolution instead of reimplementing it.
 
+**`husk info --json` done** (`src/cmd_info_json.cpp`, `REFACTOR_LOG.md`'s
+latest entry): a structured JSON twin of every field the prose path prints,
+including the three fields real scan tasks already scrape
+(`vertices.count`, `particle_emitters.count`, `materials[].blend_mode`).
+Purely additive — prose is unchanged, byte for byte, without `--json`.
+**Not done**: converting `tools/corpus_scan_tasks/*.py`'s own regexes over
+to consume this (a separate, later pass — the eight tasks named above still
+scrape prose today), and the `husk resolve` verb.
+
 `describe()` / `--explain` output serves double duty here: it satisfies I4 for
 interactive use *and* it is what makes the stage-1 migration gate in
 `REFACTOR/README.md` affordable to run.
