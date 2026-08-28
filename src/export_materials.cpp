@@ -6,6 +6,7 @@
 
 #include "export_texture_resolution.hpp"
 #include "m2_shader_names.hpp"
+#include "sources/listfile_catalog.hpp"
 
 // buildMaterialsAndPrimitives: one .skin batch -> one glTF material +
 // primitive (blend mode/render flags, static tint/fade, texture slot,
@@ -483,9 +484,8 @@ BuiltMaterials buildMaterialsAndPrimitives(
                 // itself: the corpus root a listfile's paths are relative to
                 // is typically many directories away from any one model,
                 // unlike the directory-local matching above.
-                if (auto found = listfile.find(fdid); found != listfile.end()) {
-                    auto stem = std::filesystem::path(listfileRoot) /
-                                std::filesystem::path(found->second).replace_extension();
+                if (auto found = husk::sources::pathForFileDataId(listfile, listfileRoot, fdid)) {
+                    auto stem = found->replace_extension();
                     if (auto bytes = resolveTextureBytes(stem, listfileRoot, texturesOutDir)) {
                         gm.baseColorImagePng = std::move(*bytes);
                         gm.baseColorImageName = stem.filename().string();

@@ -35,6 +35,7 @@
 #include "m2.hpp"
 #include "skel.hpp"
 #include "skin.hpp"
+#include "sources/listfile_catalog.hpp"
 
 // Roadmap stages 1-5 (see README.md): stage 1 resolves an M2's vertex array
 // plus a .skin file's two-level triangle-index lookup (see src/skin.hpp)
@@ -773,13 +774,13 @@ void exportGearAuxItemModels(gltf::Skeleton& skeleton, const std::unordered_map<
         if (item.modelFileDataIds.empty()) continue;
         uint32_t fdid = item.modelFileDataIds.front();
 
-        auto it = listfile.find(fdid);
-        if (it == listfile.end()) {
+        auto resolved = husk::sources::pathForFileDataId(listfile, listfileRoot, fdid);
+        if (!resolved) {
             std::cerr << "husk: note: gear slot '" << item.slot << "' model FileDataID " << fdid
                       << " has no --listfile entry -- can't export its own aux .glb, skipping\n";
             continue;
         }
-        std::filesystem::path itemModelPath = std::filesystem::path(listfileRoot) / it->second;
+        std::filesystem::path itemModelPath = *resolved;
         std::error_code ec;
         if (!std::filesystem::exists(itemModelPath, ec) || ec) {
             std::cerr << "husk: note: gear slot '" << item.slot << "' model FileDataID " << fdid

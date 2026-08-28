@@ -578,3 +578,60 @@ catalog (`RESOURCE_CATALOG.md`, not built), not a local patch here.
 Both new tests independently confirmed passing in isolation
 (`-tc="*knowledge-db*"`) before the full-suite run. `AUDIT.md` §7 and
 `CLI_AND_TOOLING.md` §5 updated to the real, verified disposition.
+
+---
+
+## 2026-08-28 -- partial AUDIT.md §1.2: forward FileDataID -> path consolidation (2 of 4 sites)
+
+**What**: `src/sources/listfile_catalog.hpp`/`.cpp` (already home to
+`fileDataIdForPath`, the reverse-direction lookup from an earlier
+session's §1.3 close) gained `pathForFileDataId(listfile, listfileRoot,
+fdid) -> optional<path>` -- the forward direction. Two of the four sites
+`AUDIT.md` §1.2 named now call it instead of duplicating `listfile.find(fdid)`
++ a `listfileRoot` join inline: `export_materials.cpp`'s texture-tier
+`--listfile` fallback, and `cmd_export.cpp`'s `exportGearAuxItemModels`.
+Each caller's own post-lookup behavior (extension stripping in one,
+an explicit existence check + diagnostic text in the other) stayed
+exactly where it was -- only the identical "look it up" step moved.
+
+**Why**: continuing the same incremental pattern §1.3's reverse-direction
+move already established, rather than waiting for the full
+`sources::Catalog` object `RESOURCE_CATALOG.md` describes (multi-session
+work, not a single loop tick) -- this is explicitly framed there as the
+"free half of stage 2" category db2_cache.hpp already used: consolidating
+duplicated *mechanism* now, leaving duplicated *policy* (ranking,
+provenance/`Resolved<T>`, caching) for when the real catalog object is
+built.
+
+**A real behavior-preservation subtlety caught before landing, not
+assumed**: the two call sites disagreed on whether an empty
+`listfileRoot` was even checked. `exportGearAuxItemModels` already
+early-returns before ever reaching the lookup if `listfileRoot` is empty;
+`export_materials.cpp`'s site never checked that at all, relying on
+`std::filesystem::path("") / rel` acting as an identity join for a caller
+that passes `--listfile` without `--listfile-root`. A first draft of
+`pathForFileDataId` early-returned `nullopt` on an empty `listfileRoot`
+unconditionally -- which would have been a real, if obscure, behavior
+change for that specific edge case (the fallback tier silently stops
+firing instead of trying a CWD-relative path). Fixed by dropping that
+check from the shared helper entirely (only `listfile.empty()` is
+checked) -- `exportGearAuxItemModels` still gets the same effective
+guarantee via its own existing early return, and `export_materials.cpp`
+gets its exact original behavior back.
+
+**Deliberately left alone**: `resolveObjectSkinTextureFromKb`'s
+knowledge-base SQLite lookup (a genuinely different backing store, not
+the same duplication) and its listfile-map injection
+(`cmd_export.cpp`'s `listfile.emplace(...)` after a KB hit -- itself
+duplication-adjacent surface, but a real catalog-object question, not a
+verbatim-move one); `unfillable_texture_task.py`'s own Python
+`_load_listfile`, outside this C++ consolidation's reach entirely.
+
+**Verified**: full suite green, 706/706 (702 + 4 new, 0 regressions) --
+4 new unit tests in `tests/test_sources_catalog.cpp` for
+`pathForFileDataId` itself (a real join, empty-listfile miss, unknown-fdid
+miss, and the empty-listfileRoot identity-join case specifically,
+regression-testing the subtlety above), plus the full existing
+`test_cli_textures.cpp`/`test_cli_gear_export.cpp` suites (both call
+sites' own real CLI-tier coverage) passing unchanged -- confirms
+behavior preservation end-to-end, not just at the new unit's own level.

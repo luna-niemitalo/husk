@@ -36,19 +36,37 @@ quietly wrong for weeks.
 `CLAUDE.md`'s own Hazards section already warns readers which of these to trust
 — a documentation workaround for a structural problem.
 
-### 1.2 FileDataID → local path — four more
+### 1.2 FileDataID → local path
 
-- `findFileDataIdForModelPath` (`src/export_extras.cpp:312`) — a *linear reverse
-  scan* over the loaded listfile map, path → FileDataID.
-- The forward lookup inline in `export_materials.cpp:471-489`.
-- `exportGearAuxItemModels` (`src/cmd_export.cpp:740`) — its own
-  `listfile.find(fdid)` + existence check + error text.
-- `resolveObjectSkinTextureFromKb` (`src/cmd_export.cpp:238`) — the same
-  question answered out of the knowledge-base SQLite instead, then *injected
-  back into the listfile map* (`cmd_export.cpp:973-975`) so the embed path picks
-  it up.
-- `_load_listfile` (`tools/corpus_scan_tasks/unfillable_texture_task.py:95`) —
-  a fifth, in Python.
+**Reverse direction (path → FileDataID) done** — the former
+`findFileDataIdForModelPath` (`src/export_extras.cpp`) moved to
+`husk::sources::fileDataIdForPath` (§1.3, an earlier session).
+
+**Forward direction (FileDataID → path), two of four, done this session**
+(`REFACTOR_LOG.md`'s 2026-08-28 entry) — `husk::sources::pathForFileDataId`
+(`src/sources/listfile_catalog.hpp`/`.cpp`), a verbatim-behavior move of
+the identical `listfile.find(fdid)` + root-join step both call sites
+duplicated:
+
+- The forward lookup inline in `export_materials.cpp`'s texture-tier
+  fallback — now calls `pathForFileDataId`, still does its own
+  extension-stripping afterward.
+- `exportGearAuxItemModels` (`src/cmd_export.cpp`) — now calls
+  `pathForFileDataId`, still does its own existence check + error text.
+
+**Deliberately still separate** (different data sources/languages, not
+the same duplication):
+
+- `resolveObjectSkinTextureFromKb` (`src/cmd_export.cpp`) — the same
+  question answered out of the knowledge-base SQLite instead (a genuinely
+  different backing store), then *injected back into the listfile map*
+  (`cmd_export.cpp`'s `listfile.emplace(...)`) so the embed path picks it
+  up — this injection itself is real duplication-adjacent surface, left
+  for the real catalog object (§4 of `CLI_AND_TOOLING.md`'s
+  `--knowledge-db` entry already flags it).
+- `_load_listfile` (`tools/corpus_scan_tasks/unfillable_texture_task.py`) —
+  a separate implementation, in Python, outside this C++ consolidation's
+  reach.
 
 ---
 

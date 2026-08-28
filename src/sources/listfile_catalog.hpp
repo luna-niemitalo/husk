@@ -1,24 +1,27 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <unordered_map>
 
-// First slice of REFACTOR/RESOURCE_CATALOG.md's stage-2 FileDataID<->path
+// Two slices of REFACTOR/RESOURCE_CATALOG.md's stage-2 FileDataID<->path
 // surface (`fileDataIdForPath`/`modelPath` in that document's own naming).
-// Only the reverse direction (path -> FileDataID) lives here so far --
-// REFACTOR/AUDIT.md #1.2 names four *forward* FileDataID -> path
-// implementations too (export_materials.cpp's texture-tier lookup,
-// exportGearAuxItemModels, resolveObjectSkinTextureFromKb's knowledge-base
-// path plus its listfile-map injection), each with different result shapes
-// (a texture stem vs. a full existence-checked model path) -- consolidating
-// those needs the real sources::Catalog object RESOURCE_CATALOG.md
-// describes, not a superficial merge, so they're deliberately untouched
-// here. This is the one existing reverse-lookup implementation, moved
-// verbatim (no logic change) so it's independently testable and has a real
-// home under src/sources/ instead of living as a file-private static in
-// export_extras.cpp.
+// REFACTOR/AUDIT.md #1.2 names three more forward-direction sites beyond
+// what's consolidated here: resolveObjectSkinTextureFromKb's own
+// knowledge-base path (a genuinely different backing store -- SQLite, not
+// the listfile map -- so not the same duplication) and its listfile-map
+// injection (`cmd_export.cpp`'s `listfile.emplace(...)` after a KB hit),
+// and the deeper policy question of ranking/caching/a real `Resolved<T>`
+// result type with provenance (I6) -- those need the real `sources::Catalog`
+// object this document describes, not a superficial merge, so they stay
+// untouched here. What both `fileDataIdForPath` and `pathForFileDataId`
+// below share is narrower and safe to consolidate now: the literal
+// "look this FileDataID/path up in an already-loaded listfile map, joined
+// against listfileRoot" step, moved verbatim (no behavior change) out of
+// each of its 3 original call sites so it has one real home under
+// src/sources/ instead of being retyped at each one.
 namespace husk::sources {
 
 // Reverse lookup against an already-loaded --listfile map (FileDataID ->
@@ -33,5 +36,23 @@ namespace husk::sources {
 // comes back empty.
 std::optional<uint32_t> fileDataIdForPath(const std::unordered_map<uint32_t, std::string>& listfile,
                                            const std::string& modelPath, const std::string& listfileRoot);
+
+// Forward lookup: `listfileRoot / listfile[fdid]`, or nullopt when
+// `listfile` is empty or `fdid` has no listfile row. Deliberately does NOT
+// also require `listfileRoot` non-empty -- one of the two original call
+// sites never checked that either (relying on an empty root acting as an
+// identity join), so requiring it here would be a real behavior change,
+// not a verbatim move; the other call site already checks it before ever
+// reaching this function. Also does NOT check the resulting path's
+// existence, and does NOT strip its extension -- both original call sites
+// (export_materials.cpp's
+// texture-tier lookup, exportGearAuxItemModels) did different
+// caller-specific things with the raw joined path afterward (extension
+// stripping for further fuzzy-extension matching in one, an explicit
+// existence check with its own diagnostic message in the other), and this
+// helper only replaces the "look it up" step both duplicated identically,
+// not that caller-specific handling.
+std::optional<std::filesystem::path> pathForFileDataId(const std::unordered_map<uint32_t, std::string>& listfile,
+                                                         const std::string& listfileRoot, uint32_t fdid);
 
 }  // namespace husk::sources
