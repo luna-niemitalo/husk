@@ -334,8 +334,13 @@ Two consequences:
 
 ## 7. Interface inconsistency
 
-- **26 `export` flags, zero `->group()` calls** (`cmd_export.cpp:491-673`) —
-  `CLI.md` §1's flat-namespace failure verbatim.
+- ~~**26 `export` flags, zero `->group()` calls**~~ — **done**, found already
+  fixed when re-checked 2026-08-29: all 28 of `cmd_export.cpp`'s
+  `add_option`/`add_flag` registrations carry a `->group()`, across seven
+  groups (Model sidecars 8, Input / output 5, Game data 4, Character 4,
+  Diagnostics 3, Batch 2, Appearance / gear 2), and `husk export --help`
+  renders them sectioned. `cmd_resolve.cpp` was written grouped from the
+  start. `CLI.md` §1's flat-namespace failure no longer applies here.
 - **Three grammars for one shape of question.**
   `--anim` is four-state (`auto` / `inline` / `none` / path);
   `--skin`, `--textures`, `--skin-dir`, `--skel`, `--bones-dir`, `--phys` are
@@ -348,8 +353,17 @@ Two consequences:
   `listfile`/`db2-dir` cannot be switched off per-invocation at all. The
   evidence is that `tests/run_husk.hpp` has to blank the entire config
   (`HUSK_CONFIG=/dev/null`) to get a clean run.
-- **`husk info` emits human text only**, while `dump-chunks` emits JSON. Eight
-  corpus tasks regex-scrape the former.
+- ~~**`husk info` emits human text only**, while `dump-chunks` emits JSON.
+  Eight corpus tasks regex-scrape the former.~~ — **effectively done**,
+  re-counted 2026-08-29. `husk info --json` exists (`src/cmd_info_json.cpp`);
+  `corpus_scan_framework.py` exposes only `husk_info_json`/`husk_resolve_json`
+  and no prose-parsing helper at all, so no task can scrape by accident.
+  Exactly **one** direct `husk info` prose call survives in `tools/`:
+  `texture_dedup_collision_task.py:169`. It is not blocked on the JSON verb —
+  it is one of the two tasks §1.1 already records as blocked on husk being
+  able to hand back the bytes for a *resolved slot*, and it should be
+  converted in that pass, not this one. Counted here so the number stops
+  reading as eight.
 - **`--knowledge-db` is documented as known-wrong** (`CLAUDE.md` Hazards;
   `TODO/KNOWLEDGE_BASE_DESIGN.md`) and remains a live flag by deliberate
   decision (kept as diagnostic/future-work infrastructure, not retired).
