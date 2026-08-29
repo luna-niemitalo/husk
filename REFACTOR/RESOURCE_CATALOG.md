@@ -65,8 +65,8 @@ textureSlotIndex) inside the catalog, replacing the file-local
 for the identical reason (two batches referencing one M2 texture-array entry
 must agree on one answer). `registerPathOverride(fdid, path)` replaces the
 `--knowledge-db` object-skin tier's sideways `listfile.emplace(...)` mutation
-(`AUDIT.md` §7 — now closed) with a catalog-owned override, never touching
-the caller's own `--listfile` map. `preferGlowVariant` is a fourth parameter
+with a catalog-owned override, never touching the caller's own `--listfile`
+map (which the caller may share with other consumers). `preferGlowVariant` is a fourth parameter
 beyond the three named in this document's own pseudocode above — a real
 per-batch signal (`M2Material::blendMode > 2`) `orderCandidatesForDefault`'s
 ambiguity ranking needs and no other part of `modelContext` legitimately

@@ -742,8 +742,7 @@ TEST_CASE(
 }
 
 TEST_CASE("husk db2-export --dbd-dir none: overrides a config-supplied value") {
-    // REFACTOR/AUDIT.md §7's "missing none" gap, extended past `export`
-    // alone (DESIGN.md's "Three-state resolution, not two"): `--dbd-dir` is
+    // DESIGN.md's "Three-state resolution, not two": `--dbd-dir` is
     // optional and config-backed here too (single-file mode has no
     // `--db2-dir`/`--listfile` of its own to gain the same fix). A real
     // matching manifest.json/.dbd pair makes the column name observable

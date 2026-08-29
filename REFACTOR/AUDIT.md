@@ -66,8 +66,8 @@ closed, not partial). The knowledge-base tier
 "Where the two unordered tiers sit" names it tier 5) stays a pre-step outside
 `Catalog::texture()` by design (it answers "which fdid", not "given this
 fdid, find bytes"), but its one real catalog-shaped duty — the sideways
-`listfile.emplace(...)` mutation `AUDIT.md` §7 flagged — is now
-`Catalog::registerPathOverride`, closing that bullet too. Tier 4
+`listfile.emplace(...)` mutation of the caller's own shared map — is now
+`Catalog::registerPathOverride`. Tier 4
 (parent-directory same-basename) stays a marked, deliberate gap in
 `Catalog::texture()`'s own doc comment — Blender-script-only, not ported
 this pass; porting it changes real resolution outcomes and needs its own
@@ -329,19 +329,6 @@ Two consequences:
   `"bone_" + index` fallback at `gltf_skeleton.cpp:136`) yet travel as plain
   strings that read as authoritative — including into `joint_names` and every
   `bone_name` field on physics, emitter, correction and gear entries.
-
----
-
-## 7. Interface inconsistency — closed 2026-08-29
-
-All four bullets are fixed; the narrative is `REFACTOR_LOG.md`'s
-2026-08-28/29 entries and git history, per this file's own "an item is
-removed when it is fixed" rule. The heading is kept as a numbering anchor
-only — roughly eight source comments and tests cite "AUDIT.md §7" for the
-two gaps it named (the shared-listfile-map mutation, now
-`Catalog::registerPathOverride`; and the missing `none` opt-out, now on
-every subcommand that has `--config` wiring and doesn't `->required()` the
-flag). Do not renumber the sections around it.
 
 ---
 

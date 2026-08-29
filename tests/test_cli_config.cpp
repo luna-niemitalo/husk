@@ -90,10 +90,9 @@ TEST_CASE("husk export: XDG_CONFIG_HOME/husk/config.toml is auto-discovered with
 }
 
 TEST_CASE("husk export --db2-dir none / --dbd-dir none: overrides a config-supplied value") {
-    // REFACTOR/CLI_AND_TOOLING.md §2's "missing state" fix: --db2-dir/
-    // --dbd-dir/--listfile/--listfile-root are optional two-state flags
-    // (AUDIT.md §7) that, before this, had no way to be switched off for a
-    // single invocation once a config file supplied a value. Real dirs
+    // 'none' is how a config-supplied --db2-dir/--dbd-dir is switched off
+    // for a single invocation (DESIGN.md's "Three-state resolution, not
+    // two"); without it a config value cannot be overridden at all. Real dirs
     // with no actual .db2/WoWDBDefs content in them, on purpose -- this
     // test only checks whether husk *attempts* customization-choice DB2
     // resolution at all (a real "no data resolved from '<dir>'" note),
@@ -147,8 +146,9 @@ TEST_CASE("husk export --listfile none: overrides a config-supplied value") {
 }
 
 TEST_CASE("husk export --listfile-root none: overrides a config-supplied value") {
-    // Closes the fourth of AUDIT.md §7's four named flags (--db2-dir/
-    // --dbd-dir/--listfile above; --listfile-root here).
+    // --listfile-root's own 'none' opt-out (DESIGN.md's "Three-state
+    // resolution, not two"); --db2-dir/--dbd-dir/--listfile are covered
+    // above.
     //
     // --listfile-root's own fallback-to-default only fires downstream, at
     // the texture-resolution call site (`buildLodTierMeshes`'s

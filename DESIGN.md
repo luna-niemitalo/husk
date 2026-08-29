@@ -1321,9 +1321,7 @@ and lost the other. Four states:
 ### `--db2-dir`/`--dbd-dir`/`--listfile`/`--listfile-root`: no `auto`, and why
 
 These four never get the `auto` state above — deliberately, not an
-oversight, though the reason went unwritten long enough that
-`REFACTOR/AUDIT.md`/`CLI_AND_TOOLING.md` §2 both flagged it as a real gap.
-This section is that write-up.
+oversight. This section is that write-up.
 
 **`auto` is only honest when the input describes where the thing is.** For
 `--skin`/`--skel`/`--anim`/`--bones-dir`, *what* to look for is real

@@ -81,9 +81,7 @@ std::string join(const std::vector<std::string>& parts, const std::string& sep) 
 // --config wiring in the first place, so it has no config-supplied default
 // to opt back out of. Every *other* subcommand these flags appear on has
 // both --config wiring and an optional (non-required) flag, so 'none' is
-// real there too (DESIGN.md's "Three-state resolution, not two";
-// REFACTOR/CLI_AND_TOOLING.md §2's "the missing state" fix, since extended
-// past `export` alone).
+// real there too (DESIGN.md's "Three-state resolution, not two").
 bool noneOptOutSupported(const std::string& subName, const std::string& longName) {
     if (subName == "export") {
         return longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile" ||

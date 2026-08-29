@@ -279,9 +279,8 @@ TEST_CASE("husk appearance-string --db2-dir/--dbd-dir: an ItemModifiedAppearance
 
 TEST_CASE("husk appearance-string --db2-dir none / --dbd-dir none: overrides a config-supplied "
           "value") {
-    // REFACTOR/AUDIT.md §7's "missing none" gap, extended past `export`
-    // alone (DESIGN.md's "Three-state resolution, not two") -- appearance-
-    // string gained --config wiring for its own --db2-dir/--dbd-dir, so a
+    // DESIGN.md's "Three-state resolution, not two" -- appearance-
+    // string has --config wiring for its own --db2-dir/--dbd-dir, so a
     // configured value needs the same per-invocation opt-out `export`'s
     // instances already have. Reuses the exact chain the first gear-
     // resolution test above already verifies works; this test only cares

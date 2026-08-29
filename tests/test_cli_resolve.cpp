@@ -226,8 +226,7 @@ TEST_CASE("husk resolve and export --explain-textures agree on the same slot -- 
 }
 
 TEST_CASE("husk resolve --listfile none: overrides a config-supplied value") {
-    // REFACTOR/AUDIT.md §7's "missing none" gap, extended past `export`
-    // alone (DESIGN.md's "Three-state resolution, not two") -- `resolve`
+    // DESIGN.md's "Three-state resolution, not two" -- `resolve`
     // shares `export`'s own --config wiring for --listfile/--listfile-root,
     // so a configured listfile needs the same per-invocation opt-out.
     // Same fixture shape as the "agree" test above: with the config

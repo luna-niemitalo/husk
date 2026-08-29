@@ -184,8 +184,8 @@ TEST_CASE("Catalog::registerPathOverride lets tier 2 resolve a fdid with no real
     REQUIRE(r.found());
     CHECK(r.tier == ResolutionTier::Listfile);
     CHECK(r.value->bytes == kPng);
-    // The caller's own map is untouched -- this was the AUDIT.md §7 hack
-    // (`listfile.emplace(...)`) the override mechanism replaces.
+    // The caller's own map is untouched: a caller may share it with other
+    // consumers, so an override must never be written back into it.
     CHECK(callerListfile.size() == 1);
     CHECK(callerListfile.count(9001) == 0);
 }

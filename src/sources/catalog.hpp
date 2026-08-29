@@ -101,19 +101,17 @@ public:
     //   slot, since the M2 itself gives none" -- not "given this fdid,
     //   find bytes". It stays a pre-step the caller runs once per model,
     //   feeding its answer back through the normal fdid parameter here
-    //   exactly as before; the one thing that pre-step used to do that
-    //   *did* belong to this object -- mutating the caller's own
-    //   `--listfile` map sideways to inject its answer (AUDIT.md §7) -- is
-    //   replaced by `registerPathOverride`, below.
+    //   exactly as before. Injecting its answer is this object's job, not
+    //   the caller's: see `registerPathOverride`, below.
     Resolved<EncodedTexture> texture(uint32_t fdid, uint32_t textureType, const TextureModelContext& model,
                                       bool preferGlowVariant = false);
 
     // Registers a direct fdid -> real-content-path answer the tier-2
     // (listfile) lookup should treat as if it were a real listfile row --
     // without mutating the actual `--listfile` map the catalog was
-    // constructed with (AUDIT.md §7's "still mutates the shared listfile
-    // map mid-export", now closed: see `resolveObjectSkinTextureFromKb`'s
-    // own call site in `cmd_export.cpp`). An override always wins over a
+    // constructed with -- a caller may hold that map by reference and
+    // share it with other consumers, so a per-model answer written into it
+    // would leak. An override always wins over a
     // real listfile row for the same fdid -- there should never be a real
     // collision (the object-skin slot's fdid is husk-derived, not a real
     // M2-embedded one), but if one ever happened, trusting the more

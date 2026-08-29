@@ -1041,10 +1041,9 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         // base's own 'textures' table, without requiring a separate
         // --listfile load just for this one texture -- only when
         // --listfile didn't already resolve this fdid itself. Registered
-        // on `catalog` (AUDIT.md §7: "still mutates the shared listfile map
-        // mid-export", now closed) instead of injecting into `listfile`
-        // itself, so this model's own KB override can never leak into any
-        // other caller that also holds a reference to the same map.
+        // on `catalog` instead of injecting into `listfile` itself, so this
+        // model's own KB override can never leak into any other caller that
+        // also holds a reference to the same map.
         // Known-wrongness (I4, REFACTOR/CLI_AND_TOOLING.md §5) still rides
         // kbResolved.reason -- resolveObjectSkinTextureFromKb's own doc
         // comment -- instead of being reconstructed here.
