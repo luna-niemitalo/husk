@@ -1318,6 +1318,67 @@ and lost the other. Four states:
   stage; inline sequences and global-sequence tracks are still resolved on
   top of it, same as `auto`.
 
+### `--db2-dir`/`--dbd-dir`/`--listfile`/`--listfile-root`: no `auto`, and why
+
+These four never get the `auto` state above — deliberately, not an
+oversight, though the reason went unwritten long enough that
+`REFACTOR/AUDIT.md`/`CLI_AND_TOOLING.md` §2 both flagged it as a real gap.
+This section is that write-up.
+
+**`auto` is only honest when the input describes where the thing is.** For
+`--skin`/`--skel`/`--anim`/`--bones-dir`, *what* to look for is real
+derivation from the model's own bytes — `SFID`/`SKID`/`AFID`/`BFID` name a
+FileDataID the model itself declares, even when *where* to search still
+falls back to a directory default. `--db2-dir`, `--dbd-dir`, `--listfile`,
+and `--listfile-root` name external tools and checkouts an `.m2` never
+references at all: a WoWDBDefs git clone, a DB2 extraction directory, a
+community-listfile snapshot. There is nothing in the model for `auto` to
+derive from — an `auto` here would be husk guessing at someone's filesystem
+layout (`~/wow-stuff`? `./db2`? `/media/*/wow_export`?) and being
+confidently wrong when the guess missed. Guessing is worse than asking, so
+these four stay **unset, or an explicit path** — never `auto`.
+
+**They did gain a real third *control* state, `none`, once config-file
+defaults could supply a value worth opting back out of** (`--config`/
+`$HUSK_CONFIG`, below): `none` explicitly overrides a config-supplied value
+for one invocation, behaving exactly as if the flag had never been set at
+all. This was the one state the convention above was actually missing —
+before it existed, a configured `listfile`/`db2-dir` had no per-invocation
+opt-out whatsoever; the evidence was that `tests/run_husk.hpp` had to blank
+the *entire* config (`HUSK_CONFIG=/dev/null`) on every test subprocess just
+to get a clean run, rather than a specific test being able to disable one
+flag. `none` beats a config value the same way an explicit CLI flag always
+beats config (CLI11's own `App::set_config` precedence — verified against a
+real config file plus an explicit `none`, not assumed).
+
+What `none` means, concretely, per flag:
+
+- `--db2-dir none` / `--dbd-dir none` — never attempt any DB2-driven
+  enrichment (`--char-layout-id`, `--customization-choice-ids`,
+  `--chr-model-id`, `--creature-display-id`, `--appearance`'s `gear`
+  resolution), even when `--config`/`$HUSK_CONFIG` supplies a directory.
+- `--listfile none` — never load the FileDataID → real-path fallback tier,
+  even when one is configured.
+- `--listfile-root none` — clears a configured root override; meaningless
+  without `--listfile` resolving something in the first place, same as an
+  unset `--listfile-root` already is.
+
+Scoped to wherever a config default actually exists to opt back out of, not
+uniformly: all four on `export`; `--listfile`/`--listfile-root` on
+`resolve` (its own texture-only pipeline has no DB2 flags at all);
+`--dbd-dir` on `db2-export` (its only flag from this group — `db2-export`
+converts specific `.db2` files directly, so it has no `--db2-dir`/
+`--listfile` of its own); `--db2-dir`/`--dbd-dir` on `appearance-string`
+(gear resolution only, no listfile). **Not** on `db2-build`, whose own
+`--db2-dir`/`--dbd-dir`/`--listfile` are all `->required()` — no off-state
+is meaningful for a command that cannot run at all without them; **not** on
+`db2-info`, which never got `--config` wiring in the first place, so it has
+no configured default to opt out of either.
+
+(A directory genuinely named `none` is a pathological case this convention
+doesn't special-case for, same as every other three-state flag here — not
+worth escaping machinery over.)
+
 ### Does `inline` generalize past `--anim`?
 
 Worth deriving as a general rule rather than deciding per-flag by feel,

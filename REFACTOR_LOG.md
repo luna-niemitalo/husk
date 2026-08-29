@@ -8,6 +8,83 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-29 — `AUDIT.md` §7's "missing none": extended past `export` to `resolve`/`db2-export`/`appearance-string`, plus the written-down `auto` justification
+
+**What**: The 2026-08-28 fix (previous entry below) landed `'none'` on
+`export`'s own `--db2-dir`/`--dbd-dir`/`--listfile`/`--listfile-root`, but
+`AUDIT.md` §7's bullet was never retired for it — checking the tree found
+why: `resolve` already had `'none'` support for `--listfile`/
+`--listfile-root` (it shares `export`'s own `--config` wiring and flag-
+parsing glue, `cmd_resolve.cpp`), but `db2-export`'s optional, config-backed
+`--dbd-dir` and `appearance-string`'s optional, config-backed `--db2-dir`/
+`--dbd-dir` (the latter having gained `--config` wiring sometime after
+`CLI_AND_TOOLING.md` §2 was first written, which still claimed otherwise)
+did not. Fixed both: `cmd_db2.cpp`'s `db2Export` now clears a literal
+`'none'` `--dbd-dir` to empty before use (mirroring `export`'s own
+one-line fix exactly); `cmd_appearance.cpp`'s `appearanceString` does the
+same for `--db2-dir`/`--dbd-dir`. `db2-build` deliberately untouched — its
+three same-named flags are all `->required()`, so no off-state applies.
+`src/main.cpp`'s completion generator (`bashValueCompletion`/
+`zshValueAction`) had the old `subName == "export"` gate replaced with a
+shared `noneOptOutSupported(subName, longName)` helper covering all four
+subcommands correctly; `completions/husk.{bash,zsh}` regenerated (diff
+confirmed scoped to exactly `db2-export`'s `--dbd-dir`, `appearance-
+string`'s `--db2-dir`/`--dbd-dir`, and `resolve`'s `--listfile`/
+`--listfile-root` — `export`'s own block and `db2-build`'s were untouched).
+
+Also closed the other open half of `AUDIT.md` §7's bullet: the "why don't
+these get `auto`" reasoning existed only in `CLI_AND_TOOLING.md` §2 and a
+code comment in `cmd_export.cpp` (itself now trimmed to a pointer, not a
+restatement) — moved into `DESIGN.md`'s "Three-state resolution, not two"
+section as a new subsection, the single source of truth a `--help` reader
+or a future session would actually find. `README.md`'s flag table/"Config
+file" section and the `db2-export`/`appearance-string` prose sections
+updated to match (all previously silent on `'none'` for these four flags).
+
+**Real gap found, not assumed**: naive CLI-level differential tests (config
+supplies a value; `'none'` should behave as if unset) don't always
+discriminate the fix from its absence. Checked directly for every new test
+by temporarily reverting the one-line fix and re-running just that case
+before trusting it:
+- `db2-export --dbd-dir none` — does **not** discriminate. A literal,
+  uncleared `'none'` passed to `dbd::loadTableForHash` just fails to find a
+  real `./none/manifest.json` (in virtually any real cwd) and falls back to
+  the same "generic field_<N> column names" message a correctly-cleared
+  empty string would. Kept anyway (documented as a known limitation in the
+  test's own comment) since it still pins the real CLI contract and the
+  underlying mechanism is proven correct in the two siblings below.
+- `appearance-string --db2-dir/--dbd-dir none` — **does** discriminate: an
+  uncleared `'none'` is non-empty, so it skips the early "gear entries not
+  resolved" message and instead prints "couldn't load the item-appearance
+  DB2 chain from 'none'" — confirmed failing without the fix.
+- `resolve --listfile none` — **does** discriminate: an uncleared `'none'`
+  reaches `husk::loadListfile("none")`, which throws (no such file),
+  caught and turned into a non-zero exit code — confirmed failing without
+  the fix.
+- `export --listfile-root none` — the first draft (real content under the
+  *configured* root, `'none'` expected to miss it) did **not**
+  discriminate, for the same reason as `db2-export` above (the fallback to
+  `--textures` only fires once `listfileRoot` is truly empty, at the
+  downstream `buildLodTierMeshes` call site — a literal uncleared `'none'`
+  just fails to resolve the same way a correctly-substituted-but-empty
+  `--textures` would if `--textures` also lacked the file). Rewritten with
+  the fixture inverted (real content under `--textures`, the *configured*
+  root deliberately missing it) — confirmed failing without the fix.
+
+**Verified**: full suite green, 749/749 (745 baseline + 4 new: `tests/
+test_cli_db2.cpp`'s `db2-export --dbd-dir none`, `tests/
+test_cli_appearance.cpp`'s `appearance-string --db2-dir/--dbd-dir none`,
+`tests/test_cli_resolve.cpp`'s `resolve --listfile none`, `tests/
+test_cli_config.cpp`'s `export --listfile-root none`). Each new test's
+real discriminating power (or lack of it) checked directly per the above,
+not assumed from the pattern alone. `tests/run_husk.hpp`'s blanket
+`HUSK_CONFIG=/dev/null` deliberately left unchanged — narrowing it risks
+silently changing what every other CLI test in this tier exercises, for a
+benefit too small to justify that risk; the existing pattern (tests that
+care about config pass `--config` explicitly) already covers this.
+
+---
+
 ## 2026-08-29 — `unfillable_texture_task.py` onto `husk resolve`; two sibling conversions written and reverted
 
 **What**: `unfillable_texture_task.py` no longer re-derives husk's tier order

@@ -82,7 +82,7 @@ _husk() {
                 '(-h --help)'{-h,--help}'[print help and exit]' \
                 '--config[--config]:value:_files' \
                 '--dir[--dir]:value:_files' \
-                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_or_none_value' \
                 '1:model:_files'
             ;;
         db2-build)
@@ -106,8 +106,8 @@ _husk() {
                 '(-h --help)'{-h,--help}'[print help and exit]' \
                 '--config[--config]:value:_files' \
                 '--validate[--validate]:value:_files' \
-                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
-                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_or_none_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_or_none_value' \
                 '1:model:_files'
             ;;
         resolve)
@@ -120,8 +120,8 @@ _husk() {
                 '--lod[LOD index, or all]:value:(all)' \
                 '(-t --textures)'{-t,--textures}'[texture directory, or none]:value:_husk_dir_or_none_value' \
                 '--textures-out[directory to also write decoded .png copies to]:value:_husk_dir_value' \
-                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
-                '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_value' \
+                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_husk_file_or_none_value' \
+                '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_or_none_value' \
                 '--object-skin-texture-id[--object-skin-texture-id]:value:_files' \
                 '1:model:_files'
             ;;

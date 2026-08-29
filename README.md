@@ -621,15 +621,15 @@ Flags:
 | `--bones-dir <dir>` &#124; `none` | -- | Directory of `<FileDataID>.bone` files (per the model's/`.skel`'s `BFID` array), attached as inert skin `extras`; or `none` to skip | model's own directory |
 | `--phys <path>` &#124; `none` | -- | External `.phys` path, attached as a minimal `physics_bodies` skin `extras` anchor (full records via `dump-chunks`), or `none` to never look for one | same-basename `.phys` next to the model, if any |
 | `--collision` | -- | Include the collision mesh, when present, as real geometry tagged `{"collision": true}` in glTF extras -- off by default: Blender's stock importer has no concept of that tag and renders it like any other mesh, and the collision hull is often larger than and visually occludes the real character (full body/shape/joint records are also always available via `dump-chunks`) | omitted |
-| `--db2-dir <dir>` | -- | Directory of real character/creature `.db2` files -- texture-layout tables for `--char-layout-id` (see above), `ChrCustomizationElement`/`_Geoset`/`_BoneSet`/`_Option`/`_Choice` for `--customization-choice-ids`/`--chr-model-id`, or `CreatureDisplayInfoGeosetData` for `--creature-display-id` (below), same directory serves all four; combined with `--dbd-dir`. `--creature-display-id` still needs its own explicit ID (husk has no default for it), but `--chr-model-id` defaults to `auto` and `--char-layout-id` auto-derives from whatever `--chr-model-id` resolves -- given only `--db2-dir`/`--dbd-dir`, husk already tries to derive a real character identity, its own texture-layout geometry, and its full customization menu, no third flag required | unset (feature off) |
-| `--dbd-dir <dir>` | -- | A local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) | unset |
+| `--db2-dir <dir>` &#124; `none` | -- | Directory of real character/creature `.db2` files -- texture-layout tables for `--char-layout-id` (see above), `ChrCustomizationElement`/`_Geoset`/`_BoneSet`/`_Option`/`_Choice` for `--customization-choice-ids`/`--chr-model-id`, or `CreatureDisplayInfoGeosetData` for `--creature-display-id` (below), same directory serves all four; combined with `--dbd-dir`. `--creature-display-id` still needs its own explicit ID (husk has no default for it), but `--chr-model-id` defaults to `auto` and `--char-layout-id` auto-derives from whatever `--chr-model-id` resolves -- given only `--db2-dir`/`--dbd-dir`, husk already tries to derive a real character identity, its own texture-layout geometry, and its full customization menu, no third flag required. No `auto` state -- husk has nothing in the model to derive an external checkout's location from (see DESIGN.md's "Three-state resolution, not two"); `none` explicitly opts out even when `--config`/`$HUSK_CONFIG` supplies a directory | unset (feature off) |
+| `--dbd-dir <dir>` &#124; `none` | -- | A local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`); `none` explicitly opts out of a configured value, same as `--db2-dir` | unset |
 | `--char-layout-id <id>` | -- | A real `CharComponentTextureLayoutsID` (see `husk db2-export`). Optional -- unset (default) auto-derives it from the resolved `--chr-model-id`'s own real `ChrModel.CharComponentTextureLayoutID` column; an explicit value always overrides | unset (auto-derives from `--chr-model-id`) |
 | `--customization-choice-ids <id,id,...>` | -- | Comma-separated real `ChrCustomizationChoiceID`(s) (see above) -- resolves each to real `enabled_geosets`/`chr_enabled_materials` extras and marks any matching `--bones-dir` correction set; always wins over `--chr-model-id` when both are given | unset |
 | `--chr-model-id <id>` &#124; `auto` &#124; `none` | -- | A real `ChrModelID` (see above); `auto` derives one (primary path via `--listfile`'s FileDataID chain, exact and never ambiguous; fallback via this `.m2`'s own filename, exact race+sex match, never fuzzy; see above); `none` explicitly disables derivation. Same `auto`&#124;`none`&#124;`<id>` three-state convention as `--textures`/`--skin-dir`/`--skel`, but **unset already means `auto`** -- given only `--db2-dir`/`--dbd-dir` (no `--chr-model-id` at all), husk still tries to derive a real identity and attach its full customization menu; explicit `--customization-choice-ids` also triggers this same best-effort attempt (for the full-menu extras only) unless `--chr-model-id none` says not to. Auto-selects and resolves a *heuristic default* choice (lowest `OrderIndex`) per real `ChrCustomizationOption`; ignored when `--customization-choice-ids` is also given | `auto` |
 | `--creature-display-id <id>` | -- | A real `CreatureDisplayInfoID` (see `husk db2-export`) -- resolves that display's real *default* geoset selection (unlike `--customization-choice-ids`, no per-choice input needed) to `creature_enabled_geosets` skin extras via `CreatureDisplayInfoGeosetData`; husk can't derive which display ID applies to a given `.m2` on its own | unset |
 | `--appearance <string>` | -- | A `husk-appearance/1` string (see "`husk appearance-string`" below) -- an alternative, superset way to drive customization/gear resolution in one flag: its `cust` field feeds the exact same resolution `--customization-choice-ids` does; its `gear` field resolves each real `(SLOT, ItemModifiedAppearanceID)` pair to real equipped-item data via `src/itemappearance_db2.hpp` -- standalone-geometry items (weapons/shields/shoulders/helms) as `gear_items` skin extras (the item's own `.m2`/texture FileDataID(s)), object-skin section-overlay items (most body armor) as `gear_section_overlays` skin extras (`ComponentSection` -> texture FileDataID). Husk resolves, never applies -- see `tools/husk_blender_geoset_mask.py`'s `apply_gear_items` for the Blender-side attachment step. Mutually exclusive with `--customization-choice-ids`; requires `--db2-dir`/`--dbd-dir` | unset |
-| `--listfile <path>` | -- | A local `community-listfile.csv`-style snapshot (`FileDataID;path` per line, github.com/wowdev/wow-listfile) -- last-resort FileDataID -> real-name lookup when `<FileDataID>.{blp,png}` isn't found next to `--textures` | unset (feature off) |
-| `--listfile-root <dir>` | -- | The corpus root `--listfile`'s paths are relative to -- deliberately separate from `--textures` (which stays the model's own directory by default, driving the directory-local matching above); only meaningful alongside `--listfile` | `--textures` itself |
+| `--listfile <path>` &#124; `none` | -- | A local `community-listfile.csv`-style snapshot (`FileDataID;path` per line, github.com/wowdev/wow-listfile) -- last-resort FileDataID -> real-name lookup when `<FileDataID>.{blp,png}` isn't found next to `--textures`. No `auto` (same reason as `--db2-dir`); `none` explicitly opts out of a configured value | unset (feature off) |
+| `--listfile-root <dir>` &#124; `none` | -- | The corpus root `--listfile`'s paths are relative to -- deliberately separate from `--textures` (which stays the model's own directory by default, driving the directory-local matching above); only meaningful alongside `--listfile`. `none` explicitly opts out of a configured value | `--textures` itself |
 | `--from-list <file>` | -- | Batch mode: export every `.m2` path listed one per line in `<file>` (blank lines and `#`-comments skipped), reusing this same command line's options -- including one shared `--listfile` load across the whole batch, not one per file. Mutually exclusive with `--input`/`--output`; requires `--output-dir` instead. One entry failing is reported and skipped, not fatal to the rest of the batch (see the run's own final `N succeeded, M failed` summary line and exit code) | unset (single-file mode) |
 | `--output-dir <dir>` | -- | Where `--from-list` writes each entry's `.glb`, named `<model-basename>.glb` (or `<parent-dir-name>_<model-basename>.glb`, then a numeric suffix, if two entries share a basename) -- required alongside `--from-list`, meaningless without it | -- |
 
@@ -765,6 +765,19 @@ always wins over the flag's own built-in default.** Nothing here changes
 what "unset" means for any flag -- a config file is just a different way
 of supplying the value a flag would otherwise take on the command line.
 
+**Opting a single flag back out.** `--db2-dir`, `--dbd-dir`, `--listfile`,
+and `--listfile-root` also accept the literal value `none`, which beats a
+config-supplied value the same way an explicit CLI flag always beats config
+-- `husk export model.m2 --listfile none` runs exactly as if `listfile`
+were never set in the config at all, without touching the rest of the
+config. See DESIGN.md's "Three-state resolution, not two" for why these
+four flags don't get `auto` too. Scoped to wherever a config default
+actually exists to opt back out of: all four on `export`; `--listfile`/
+`--listfile-root` on `resolve`; `--dbd-dir` on `db2-export`; `--db2-dir`/
+`--dbd-dir` on `appearance-string`. Not on `db2-build`, whose own three are
+required (no off-state is meaningful for a command that can't run without
+them).
+
 **Path resolution, in order**: `--config <path>` (explicit) ->
 `$HUSK_CONFIG` (env var) -> `$XDG_CONFIG_HOME/husk/config.toml`, falling
 back to `~/.config/husk/config.toml` if `$XDG_CONFIG_HOME` is unset (the
@@ -798,7 +811,7 @@ listfile = "/media/luna/data/wow_export/community-listfile.csv"
 listfile-root = "/media/luna/data/wow_export"
 ```
 
-`export`, `db2-export`, `db2-build`, and `appearance-string` (its
+`export`, `resolve`, `db2-export`, `db2-build`, and `appearance-string` (its
 `--db2-dir`/`--dbd-dir`, used to resolve `gear` entries -- see
 "`husk appearance-string`" below) support this; `db2-info`/`dump-chunks`/
 `blp-export`/`info` don't, since none of their flags are actually
@@ -940,7 +953,9 @@ its documented grammar, not vendored/linked code -- without `--dbd-dir`, or
 when no matching layout is found, columns fall back to generic `field_<N>`
 names instead, the same "expose honestly, don't guess" convention this
 project already uses for undocumented M2 chunk fields (`AFRA`/`DPIV`/
-`WFV1`, `WIKI_FINDINGS/M2.md`). A layout match isn't taken on field *count*
+`WFV1`, `WIKI_FINDINGS/M2.md`). `--dbd-dir none` explicitly opts out even
+when `--config`/`$HUSK_CONFIG` supplies one, same as `export`'s own
+`--dbd-dir` (see "Config file" above). A layout match isn't taken on field *count*
 alone either: each matched field's own declared `<Size>`/`[Length]` is
 cross-checked against that same-position `field_storage_info` entry in the
 real file (`dbd::resolveFieldNames`), so a `.dbd` layout with the right
@@ -1028,7 +1043,10 @@ texture(type=2)=148134`. Without both flags, `gear` entries stay opaque
 `(slot, ItemModifiedAppearanceID)` pairs. Same "husk resolves, never
 applies" policy as every other DB2-driven feature -- turning the resolved
 FileDataIDs into an actual attached/rendered weapon or armor piece is
-downstream (Blender-side) work, not done by this command.
+downstream (Blender-side) work, not done by this command. `--db2-dir none`/
+`--dbd-dir none` explicitly opt out even when `--config`/`$HUSK_CONFIG`
+supplies a value, same as `export`'s own instances of these flags (see
+"Config file" above).
 
 ### Texture conversion
 

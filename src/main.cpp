@@ -75,13 +75,26 @@ std::string join(const std::vector<std::string>& parts, const std::string& sep) 
 // identity -- matches every other case in this codebase where CLI11 alone
 // can't carry the full contract (e.g. `--skin none`'s rejection).
 //
-// `subName` disambiguates `--db2-dir`/`--dbd-dir`/`--listfile`, which are
-// also registered (without 'none' support) on db2-build/db2-info/
-// appearance-string -- `export`'s own instances are the only ones that
-// accept 'none' (REFACTOR/CLI_AND_TOOLING.md §2's "the missing state" fix;
-// db2-build's own three are `->required()`, so an off-state doesn't apply,
-// and db2-info/appearance-string never got --config wiring in the first
-// place, so they have no config-supplied default to opt back out of).
+// `--db2-dir`/`--dbd-dir`/`--listfile`/`--listfile-root` are also registered
+// on db2-build/db2-info, which don't accept 'none' -- db2-build's own three
+// are `->required()`, so an off-state doesn't apply, and db2-info never got
+// --config wiring in the first place, so it has no config-supplied default
+// to opt back out of. Every *other* subcommand these flags appear on has
+// both --config wiring and an optional (non-required) flag, so 'none' is
+// real there too (DESIGN.md's "Three-state resolution, not two";
+// REFACTOR/CLI_AND_TOOLING.md §2's "the missing state" fix, since extended
+// past `export` alone).
+bool noneOptOutSupported(const std::string& subName, const std::string& longName) {
+    if (subName == "export") {
+        return longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile" ||
+               longName == "--listfile-root";
+    }
+    if (subName == "resolve") return longName == "--listfile" || longName == "--listfile-root";
+    if (subName == "db2-export") return longName == "--dbd-dir";
+    if (subName == "appearance-string") return longName == "--db2-dir" || longName == "--dbd-dir";
+    return false;
+}
+
 std::string bashValueCompletion(const std::string& longName, const std::string& subName) {
     if (longName == "--skin") {
         return "COMPREPLY=($(compgen -W \"auto\" -- \"$cur\")); compopt -o filenames "
@@ -91,25 +104,25 @@ std::string bashValueCompletion(const std::string& longName, const std::string& 
         return "COMPREPLY=($(compgen -W \"auto inline none\" -- \"$cur\")); compopt -o "
                "filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- \"$cur\"))";
     }
-    bool exportNoneDir = subName == "export" &&
-                          (longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root");
-    if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir" || exportNoneDir) {
+    bool dirFlag = longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root";
+    bool fileFlag = longName == "--listfile";
+    bool noneOk = noneOptOutSupported(subName, longName);
+    if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir" ||
+        (dirFlag && noneOk)) {
         return "COMPREPLY=($(compgen -W \"none\" -- \"$cur\")); compopt -o filenames "
                "2>/dev/null; COMPREPLY+=($(compgen -d -- \"$cur\"))";
     }
-    if (longName == "--textures-out" || longName == "--db2-dir" || longName == "--dbd-dir" ||
-        longName == "--listfile-root") {
+    if (longName == "--textures-out" || (dirFlag && !noneOk)) {
         return "compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- \"$cur\"))";
     }
-    bool exportNoneFile = subName == "export" && longName == "--listfile";
-    if (longName == "--skel" || longName == "--phys" || exportNoneFile) {
+    if (longName == "--skel" || longName == "--phys" || (fileFlag && noneOk)) {
         return "COMPREPLY=($(compgen -W \"none\" -- \"$cur\")); compopt -o filenames "
                "2>/dev/null; COMPREPLY+=($(compgen -f -- \"$cur\"))";
     }
     if (longName == "--lod") {
         return R"(COMPREPLY=($(compgen -W "all" -- "$cur")))";
     }
-    return "COMPREPLY=($(compgen -f -- \"$cur\"))";  // --input/--output: plain filenames
+    return "COMPREPLY=($(compgen -f -- \"$cur\"))";  // --input/--output/listfile-without-none: plain filenames
 }
 
 std::string generateBashCompletion(CLI::App& root) {
@@ -201,20 +214,19 @@ const std::vector<ZshHelper>& zshHelpers() {
     return helpers;
 }
 
-// See bashValueCompletion's own comment for why `subName` matters here:
-// --db2-dir/--dbd-dir/--listfile only accept 'none' on `export`.
+// See noneOptOutSupported's own comment for why `subName` matters here:
+// --db2-dir/--dbd-dir/--listfile/--listfile-root only accept 'none' on some
+// of the subcommands they're registered on.
 std::string zshValueAction(const std::string& longName, const std::string& subName) {
     if (longName == "--skin") return "_husk_skin_value";
     if (longName == "--anim") return "_husk_anim_value";
-    bool exportNoneDir = subName == "export" &&
-                          (longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root");
-    if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir" || exportNoneDir)
+    bool dirFlag = longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile-root";
+    bool fileFlag = longName == "--listfile";
+    bool noneOk = noneOptOutSupported(subName, longName);
+    if (longName == "--textures" || longName == "--skin-dir" || longName == "--bones-dir" || (dirFlag && noneOk))
         return "_husk_dir_or_none_value";
-    if (longName == "--textures-out" || longName == "--db2-dir" || longName == "--dbd-dir" ||
-        longName == "--listfile-root")
-        return "_husk_dir_value";
-    bool exportNoneFile = subName == "export" && longName == "--listfile";
-    if (longName == "--skel" || longName == "--phys" || exportNoneFile) return "_husk_file_or_none_value";
+    if (longName == "--textures-out" || (dirFlag && !noneOk)) return "_husk_dir_value";
+    if (longName == "--skel" || longName == "--phys" || (fileFlag && noneOk)) return "_husk_file_or_none_value";
     if (longName == "--lod") return "(all)";
     return "_files";
 }

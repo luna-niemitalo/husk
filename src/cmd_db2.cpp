@@ -519,7 +519,8 @@ void addDb2ExportOptions(CLI::App& app, Db2ExportOptions& opts) {
                     "layout is found, columns are named field_<N> instead. In --dir mode, a "
                     "column with a real WoWDBDefs foreign-key target also gets a real SQLite "
                     "FOREIGN KEY constraint, but only when the target table is also part of this "
-                    "same export batch");
+                    "same export batch. 'none' explicitly opts out even when --config/$HUSK_CONFIG "
+                    "supplies a value (DESIGN.md's \"Three-state resolution, not two\")");
     app.add_option("pos1", opts.pos1,
                     "the .db2 file to convert (single-file mode), or the .db2 directory (--dir "
                     "mode)");
@@ -546,7 +547,11 @@ int db2Export(int argc, char** args) {
     } catch (const CLI::ParseError& e) {
         return app.exit(e);
     }
-    const std::string& dbdDir = opts.dbdDir;
+    // 'none' opts out of a --config/$HUSK_CONFIG-supplied --dbd-dir for this
+    // one invocation -- same convention as export's own --dbd-dir (DESIGN.md's
+    // "Three-state resolution, not two").
+    std::string dbdDir = opts.dbdDir;
+    if (dbdDir == "none") dbdDir.clear();
 
     bool dirMode = app.count("--dir") > 0;
     std::string inputPath, dirPath, outputPath;

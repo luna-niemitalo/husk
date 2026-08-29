@@ -146,6 +146,61 @@ TEST_CASE("husk export --listfile none: overrides a config-supplied value") {
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export --listfile-root none: overrides a config-supplied value") {
+    // Closes the fourth of AUDIT.md §7's four named flags (--db2-dir/
+    // --dbd-dir/--listfile above; --listfile-root here).
+    //
+    // --listfile-root's own fallback-to-default only fires downstream, at
+    // the texture-resolution call site (`buildLodTierMeshes`'s
+    // `listfileRoot.empty() ? texturesDir : listfileRoot`, cmd_export.cpp)
+    // -- reached only once `listfileRoot` is truly empty. So the config-
+    // honored case must be the one where the (wrong) root fails to
+    // resolve, and 'none' the one that succeeds by falling back to
+    // --textures -- checked directly (temporarily reverting the
+    // `listfileRoot == "none" -> clear()` fix and re-running just this
+    // case) before trusting it: the opposite assertion shape (real content
+    // under a --listfile-root-supplied corpus dir, 'none' expected to miss
+    // it) turned out NOT to discriminate the fix at all, since a literal,
+    // uncleared 'none' used as a directory prefix just fails to resolve
+    // the same way an empty string substituted for --textures would if
+    // --textures also lacked the file -- both look like "no listfile HIT"
+    // regardless of whether the fix exists. This shape does discriminate:
+    // confirmed the disabled-fix rebuild fails this exact case.
+    auto dir = defaultsDir("config-listfile-root-none");
+    writeFile(dir / "alpha.m2", oneTexturedModel(1018799));
+    writeFile(dir / "alpha00.skin", oneTexturedModelSkin());
+    auto texturesDir = dir / "textures";
+    fs::create_directories(texturesDir / "character/human/male");
+    writeFile(texturesDir / "character/human/male/deathknighteyeglow.png", {'L', 'I', 'S', 'T'});
+    auto wrongRoot = dir / "wrong-root";  // real dir, deliberately missing the file above
+    fs::create_directories(wrongRoot);
+    auto listfilePath = dir / "listfile.csv";
+    {
+        std::ofstream f(listfilePath);
+        f << "1018799;character/human/male/deathknighteyeglow.blp\n";
+    }
+    auto configPath = dir / "husk-config.toml";
+    writeConfig(configPath, "listfile = \"" + listfilePath.string() + "\"\nlistfile-root = \"" +
+                                 wrongRoot.string() + "\"\n");
+
+    auto configHonored = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string() +
+                                  " --textures " + texturesDir.string() + " --explain-textures --output " +
+                                  (dir / "config.glb").string());
+    CHECK(configHonored.exitCode == 0);
+    // The configured root doesn't have the file -- the listfile tier must miss.
+    CHECK(configHonored.output.find("listfile HIT") == std::string::npos);
+
+    auto explicitNone = runHusk("export " + (dir / "alpha.m2").string() + " --config " + configPath.string() +
+                                 " --textures " + texturesDir.string() + " --listfile-root none " +
+                                 "--explain-textures --output " + (dir / "none.glb").string());
+    CHECK(explicitNone.exitCode == 0);
+    // 'none' clears the configured (wrong) root, falling back to
+    // --textures -- which does have the file -- so the listfile tier hits.
+    CHECK(explicitNone.output.find("listfile HIT") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk export: a nonexistent config path (autodiscovery finds nothing) is not an error") {
     auto dir = defaultsDir("config-missing");
     writeFile(dir / "alpha.m2", tinyValidM2());

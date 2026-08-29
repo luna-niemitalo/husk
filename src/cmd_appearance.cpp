@@ -34,10 +34,13 @@ void addAppearanceStringOptions(CLI::App& app, AppearanceStringOptions& opts) {
     app.add_option("--validate", opts.value, "the husk-appearance/1 string to validate")->required();
     app.add_option("--db2-dir", opts.db2DirArg,
                     "a real, local, already-extracted DB2 directory -- with --dbd-dir, resolves `gear` "
-                    "entries to real equipped-item model/texture FileDataIDs instead of leaving them opaque");
+                    "entries to real equipped-item model/texture FileDataIDs instead of leaving them "
+                    "opaque. 'none' explicitly opts out even when --config/$HUSK_CONFIG supplies a "
+                    "value (DESIGN.md's \"Three-state resolution, not two\")");
     app.add_option("--dbd-dir", opts.dbdDirArg,
                     "a local WoWDBDefs checkout, resolving --db2-dir's real column names -- required "
-                    "alongside --db2-dir");
+                    "alongside --db2-dir. 'none' explicitly opts out even when --config/$HUSK_CONFIG "
+                    "supplies a value");
 }
 
 int appearanceString(int argc, char** args) {
@@ -57,6 +60,12 @@ int appearanceString(int argc, char** args) {
     } catch (const CLI::ParseError& e) {
         return app.exit(e);
     }
+
+    // 'none' opts out of a --config/$HUSK_CONFIG-supplied value for this one
+    // invocation -- same convention as export's own --db2-dir/--dbd-dir
+    // (DESIGN.md's "Three-state resolution, not two").
+    if (opts.db2DirArg == "none") opts.db2DirArg.clear();
+    if (opts.dbdDirArg == "none") opts.dbdDirArg.clear();
 
     try {
         husk::appearance::AppearanceString parsed = husk::appearance::parse(opts.value);

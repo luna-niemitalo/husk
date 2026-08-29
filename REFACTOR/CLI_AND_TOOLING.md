@@ -64,9 +64,10 @@ Three grammars for one shape of question today (`AUDIT.md` §7):
 
 ### Why `auto` is not universal — write this down
 
-The two-state group is **not** an oversight, and the reason belongs in
-`DESIGN.md`'s three-state section, which currently states the rule without its
-precondition:
+**Done** (2026-08-29) — the reason now lives in `DESIGN.md`'s "Three-state
+resolution, not two" section, in its own subsection
+(`--db2-dir`/`--dbd-dir`/`--listfile`/`--listfile-root`: no `auto`, and
+why), not just here:
 
 > `auto` is only honest when the input describes where the thing is.
 
@@ -79,17 +80,22 @@ confidently wrong. Guessing is worse than asking.
 
 ### The state that *was* missing is `none`
 
-**Done** (`src/cmd_export.cpp`, `REFACTOR_LOG.md`'s 2026-08-28 entry) —
-`--db2-dir`/`--dbd-dir`/`--listfile`/`--listfile-root` all accept `'none'`
-now, explicitly overriding a `--config`/`$HUSK_CONFIG`-supplied value for a
-single invocation. Deliberately scoped to `export` only — `db2-build`'s own
-same-named flags are all `->required()` (no off-state is meaningful when
-the command can't do anything without them), and `db2-info`/
-`appearance-string` never got `--config` wiring in the first place, so
-they have no config default to opt back out of. Shell completions made
-subcommand-aware (`bashValueCompletion`/`zshValueAction` now take the
-subcommand name) so `'none'` is only suggested where it's actually
-honored.
+**Done**, and since extended past `export` alone (`REFACTOR_LOG.md`'s
+2026-08-28 and 2026-08-29 entries) — `--db2-dir`/`--dbd-dir`/`--listfile`/
+`--listfile-root` accept `'none'` wherever a `--config`/`$HUSK_CONFIG`-
+supplied value could otherwise not be switched off for one invocation: all
+four on `export`; `--listfile`/`--listfile-root` on `resolve` (its own
+texture-only pipeline has no DB2 flags at all); `--dbd-dir` on
+`db2-export` (its only flag from this group); `--db2-dir`/`--dbd-dir` on
+`appearance-string` (which did gain `--config` wiring since this section
+was first written — corrected here). Deliberately **not** on `db2-build` —
+its own three same-named flags are all `->required()`, so no off-state is
+meaningful for a command that can't do anything without them — or
+`db2-info`, which never got `--config` wiring at all, so it has no
+configured default to opt back out of. Shell completions made
+subcommand-aware (`bashValueCompletion`/`zshValueAction`/the shared
+`noneOptOutSupported` helper in `src/main.cpp`, now take the subcommand
+name) so `'none'` is only suggested where it's actually honored.
 
 Previously: since config-file defaults landed, a configured `listfile` /
 `db2-dir` couldn't be switched off for a single invocation at all — no
@@ -98,11 +104,14 @@ theoretical one: `tests/run_husk.hpp` has to blank the **entire** config
 (`HUSK_CONFIG=/dev/null`) on every subprocess spawn to get a clean run —
 because three tests were silently picking up this machine's real
 `~/.config/husk/config.toml` and failing for reasons unrelated to what
-they were testing. (`run_husk.hpp`'s blanket `HUSK_CONFIG=/dev/null` stays
-as-is even after this fix — it's still the right blanket safety net for
-every *other* test that doesn't care about config behavior specifically;
-only the tests exercising `'none'` itself pass `--config` explicitly to
-work around it.)
+they were testing. `run_husk.hpp`'s blanket `HUSK_CONFIG=/dev/null` stays
+as-is even after this fix (re-confirmed 2026-08-29, not just assumed still
+true) — it's still the right blanket safety net for every *other* test
+that doesn't care about config behavior specifically; only the tests
+exercising `'none'` itself pass `--config` explicitly to work around it.
+Narrowing it further would risk silently changing what every other CLI
+test in this tier actually exercises, for a benefit (skipping one `--config
+/dev/null` argument) too small to justify that risk.
 
 ---
 

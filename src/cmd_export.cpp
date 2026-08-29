@@ -978,14 +978,9 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
     bool physNone = physGiven && opts.physArg == "none";
     std::string physPath = (physGiven && !physNone) ? opts.physArg : "";
 
-    // --db2-dir/--dbd-dir: two-state, not three (REFACTOR/CLI_AND_TOOLING.md
-    // §2) -- unlike --bones-dir/--phys, there's no model-relative default to
-    // fall back to, since these point at an external checkout/extraction
-    // with no canonical location ("auto" would just be husk guessing at
-    // someone's filesystem layout). 'none' explicitly opts out even when a
-    // config file supplies a value -- the state that convention was
-    // otherwise missing, since a configured value previously couldn't be
-    // switched off per invocation at all.
+    // --db2-dir/--dbd-dir get no 'auto' (full rationale: DESIGN.md's
+    // "Three-state resolution, not two"); 'none' opts out of a
+    // --config/$HUSK_CONFIG-supplied value for this one invocation.
     std::string db2Dir = app.count("--db2-dir") ? opts.db2DirArg : "";
     if (db2Dir == "none") db2Dir.clear();
     std::string dbdDirForChr = app.count("--dbd-dir") ? opts.dbdDirArg : "";

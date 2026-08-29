@@ -341,18 +341,27 @@ Two consequences:
   Diagnostics 3, Batch 2, Appearance / gear 2), and `husk export --help`
   renders them sectioned. `cmd_resolve.cpp` was written grouped from the
   start. `CLI.md` §1's flat-namespace failure no longer applies here.
-- **Three grammars for one shape of question.**
-  `--anim` is four-state (`auto` / `inline` / `none` / path);
-  `--skin`, `--textures`, `--skin-dir`, `--skel`, `--bones-dir`, `--phys` are
-  three-state; `--db2-dir`, `--dbd-dir`, `--listfile`, `--listfile-root` are
-  two-state.
-  The two-state case has a real justification — `auto` is only honest when the
-  input describes where the thing is, and an external checkout has no canonical
-  location — but that reason is written down nowhere. What *is* a genuine gap is
-  the missing `none`: since config-file defaults landed, a configured
-  `listfile`/`db2-dir` cannot be switched off per-invocation at all. The
-  evidence is that `tests/run_husk.hpp` has to blank the entire config
-  (`HUSK_CONFIG=/dev/null`) to get a clean run.
+- ~~**Three grammars for one shape of question.**~~ — **done**, re-checked
+  2026-08-29. `--anim` stays four-state (`auto` / `inline` / `none` /
+  path); `--skin`, `--textures`, `--skin-dir`, `--skel`, `--bones-dir`,
+  `--phys` stay three-state. `--db2-dir`, `--dbd-dir`, `--listfile`,
+  `--listfile-root` were two-state (`value` / unset) — the missing `none`
+  this bullet named is now real, on every subcommand that both has
+  `--config` wiring for the flag and doesn't `->required()` it: all four on
+  `export`, `--listfile`/`--listfile-root` on `resolve`, `--dbd-dir` on
+  `db2-export`, `--db2-dir`/`--dbd-dir` on `appearance-string`. Correctly
+  still absent on `db2-build` (its own three are `->required()` — no
+  off-state is meaningful for a command that can't run without them) and
+  `db2-info` (never got `--config` wiring, so nothing to opt out of). The
+  `auto`-is-only-honest-when-the-input-describes-where-the-thing-is
+  justification for why these four still don't get `auto` is now written
+  down too, in `DESIGN.md`'s "Three-state resolution, not two" section
+  (previously nowhere, as this bullet itself noted). `tests/run_husk.hpp`'s
+  own blanket `HUSK_CONFIG=/dev/null` was deliberately left as-is — still
+  the right default for every test that doesn't care about config behavior
+  specifically; the new/existing `none`-exercising tests each pass
+  `--config` explicitly instead, the same pattern the original
+  `--db2-dir none`/`--dbd-dir none`/`--listfile none` tests already used.
 - ~~**`husk info` emits human text only**, while `dump-chunks` emits JSON.
   Eight corpus tasks regex-scrape the former.~~ — **effectively done**,
   re-counted 2026-08-29. `husk info --json` exists (`src/cmd_info_json.cpp`);

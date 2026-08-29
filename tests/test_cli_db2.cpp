@@ -741,6 +741,70 @@ TEST_CASE(
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk db2-export --dbd-dir none: overrides a config-supplied value") {
+    // REFACTOR/AUDIT.md §7's "missing none" gap, extended past `export`
+    // alone (DESIGN.md's "Three-state resolution, not two"): `--dbd-dir` is
+    // optional and config-backed here too (single-file mode has no
+    // `--db2-dir`/`--listfile` of its own to gain the same fix). A real
+    // matching manifest.json/.dbd pair makes the column name observable
+    // either way -- "generic field_<N> column names" in the output is the
+    // same signal the "unknown --dbd-dir table hash" test above already
+    // uses.
+    //
+    // Known limitation, checked directly (temporarily reverting the
+    // `dbdDir == "none" -> clear()` fix and re-running just this case):
+    // this assertion alone can't tell "cleared" apart from "left as the
+    // literal string 'none' and passed to dbd::loadTableForHash, which
+    // also fails to find a real './none/manifest.json' and falls back the
+    // same way" -- db2-export has no "attempted DB2 resolution but found
+    // nothing" message the way export/appearance-string's identical
+    // one-line fix does (see those commands' own none tests, which DO
+    // fail without their fix). Kept anyway: it still pins the real,
+    // promised CLI contract (the flag is accepted, doesn't crash, and
+    // produces the documented fallback), and the underlying mechanism is
+    // the same single `if (x == "none") x.clear();` line proven to matter
+    // in the two sibling commands.
+    fs::path dir = fs::temp_directory_path() / "husk-test-db2export-dbddir-none";
+    fs::remove_all(dir);
+    fs::path dbdDir = dir / "dbd";
+    fs::create_directories(dbdDir / "definitions");
+    fs::path dbPath = dir / "widget.db2";
+    fs::path outPath = dir / "out.sqlite";
+
+    const uint32_t kTableHash = 0xCAFEBABE;
+    const uint32_t kLayoutHash = 0xDEADBEEF;
+    writeFile(dbPath, buildDb2WithFields(kTableHash, kLayoutHash, {{10}, {20}}));
+
+    std::ofstream manifest(dbdDir / "manifest.json");
+    manifest << "[{\"tableName\": \"Widget\", \"tableHash\": \"" << std::hex << kTableHash << "\"}]\n"
+             << std::dec;
+    manifest.close();
+    std::ofstream widgetDbd(dbdDir / "definitions" / "Widget.dbd");
+    widgetDbd << "COLUMNS\n"
+              << "int MyValue\n"
+              << "\n"
+              << "LAYOUT " << std::hex << kLayoutHash << "\n"
+              << std::dec << "BUILD 1.0.0.1\n"
+              << "$id$MyValue<32>\n";
+    widgetDbd.close();
+
+    std::ofstream config(dir / "config.toml");
+    config << "dbd-dir = \"" << dbdDir.string() << "\"\n";
+    config.close();
+    auto configArg = " --config " + (dir / "config.toml").string();
+
+    auto configHonored = runHusk("db2-export " + dbPath.string() + " " + outPath.string() + configArg);
+    CHECK(configHonored.exitCode == 0);
+    CHECK(configHonored.output.find("generic field_<N> column names") == std::string::npos);
+
+    auto explicitNone =
+        runHusk("db2-export " + dbPath.string() + " " + outPath.string() + configArg + " --dbd-dir none");
+    CHECK(explicitNone.exitCode == 0);
+    CHECK(explicitNone.output.find("generic field_<N> column names") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
 // `db2-info`/`db2-build`'s own CLI11 migration (TODO/CLEANUP_TODO.md #3) --
 // written alongside it, since neither command had any CLI-tier coverage
 // before. db2-build's real functional behavior needs a 7-file --db2-dir

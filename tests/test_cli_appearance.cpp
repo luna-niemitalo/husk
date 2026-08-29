@@ -276,3 +276,46 @@ TEST_CASE("husk appearance-string --db2-dir/--dbd-dir: an ItemModifiedAppearance
 
     fs::remove_all(dir);
 }
+
+TEST_CASE("husk appearance-string --db2-dir none / --dbd-dir none: overrides a config-supplied "
+          "value") {
+    // REFACTOR/AUDIT.md §7's "missing none" gap, extended past `export`
+    // alone (DESIGN.md's "Three-state resolution, not two") -- appearance-
+    // string gained --config wiring for its own --db2-dir/--dbd-dir, so a
+    // configured value needs the same per-invocation opt-out `export`'s
+    // instances already have. Reuses the exact chain the first gear-
+    // resolution test above already verifies works; this test only cares
+    // whether it's *attempted* at all.
+    auto dir = defaultsDir("appearancegearconfignone");
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::create_directories(db2Dir);
+    writeItemAppearanceDbd(dbdDir);
+
+    writeFile(db2Dir / "itemmodifiedappearance.db2", buildFlatDb2(0xa0000001, 0xb0000001, {{15, 154}}));
+    writeFile(db2Dir / "itemappearance.db2", buildFlatDb2(0xa0000002, 0xb0000002, {{154, 1542}}));
+    writeFile(db2Dir / "itemdisplayinfo.db2", buildFlatDb2(0xa0000003, 0xb0000003, {{1542, 160}}));
+    writeFile(db2Dir / "itemdisplayinfomodelmatres.db2",
+              buildFlatDb2(0xa0000004, 0xb0000004, {{1, 1542, 22758, 2, 0}}));
+    writeFile(db2Dir / "modelfiledata.db2", buildFlatDb2(0xa0000005, 0xb0000005, {{370361, 160}}));
+    writeFile(db2Dir / "texturefiledata.db2", buildFlatDb2(0xa0000006, 0xb0000006, {{148134, 22758, 0}}));
+
+    std::ofstream config(dir / "config.toml");
+    config << "db2-dir = \"" << db2Dir.string() << "\"\n"
+           << "dbd-dir = \"" << dbdDir.string() << "\"\n";
+    config.close();
+    auto configArg = " --config " + (dir / "config.toml").string();
+
+    auto configHonored =
+        runHusk("appearance-string --validate \"husk-appearance/1 gear=MAINHAND:15\"" + configArg);
+    CHECK(configHonored.exitCode == 0);
+    CHECK(configHonored.output.find("model=370361") != std::string::npos);
+
+    auto explicitNone = runHusk("appearance-string --validate \"husk-appearance/1 gear=MAINHAND:15\"" +
+                                 configArg + " --db2-dir none --dbd-dir none");
+    CHECK(explicitNone.exitCode == 0);
+    CHECK(explicitNone.output.find("gear entries not resolved") != std::string::npos);
+    CHECK(explicitNone.output.find("model=370361") == std::string::npos);
+
+    fs::remove_all(dir);
+}

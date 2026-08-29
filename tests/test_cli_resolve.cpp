@@ -224,3 +224,45 @@ TEST_CASE("husk resolve and export --explain-textures agree on the same slot -- 
 
     fs::remove_all(dir);
 }
+
+TEST_CASE("husk resolve --listfile none: overrides a config-supplied value") {
+    // REFACTOR/AUDIT.md §7's "missing none" gap, extended past `export`
+    // alone (DESIGN.md's "Three-state resolution, not two") -- `resolve`
+    // shares `export`'s own --config wiring for --listfile/--listfile-root,
+    // so a configured listfile needs the same per-invocation opt-out.
+    // Same fixture shape as the "agree" test above: with the config
+    // honored, the slot resolves via the 'listfile' tier; with 'none', the
+    // listfile tier is never tried at all, so the slot falls through to a
+    // miss (nothing else in --textures matches this FileDataID).
+    auto dir = defaultsDir("resolve-listfile-none");
+    writeFile(dir / "nonetex.m2", oneTexturedModel(1018799));
+    writeFile(dir / "nonetex00.skin", oneTexturedModelSkin());
+    auto corpusRoot = dir / "corpus";
+    fs::create_directories(corpusRoot / "character/human/male");
+    writeFile(corpusRoot / "character/human/male/deathknighteyeglow.png", {'L', 'I', 'S', 'T'});
+    {
+        std::ofstream f(dir / "listfile.csv");
+        f << "1018799;character/human/male/deathknighteyeglow.blp\n";
+    }
+    {
+        std::ofstream f(dir / "config.toml");
+        f << "listfile = \"" << (dir / "listfile.csv").string() << "\"\n";
+    }
+    auto configArg = " --config " + (dir / "config.toml").string();
+
+    auto configHonored = runHusk("resolve " + (dir / "nonetex.m2").string() + " --textures " +
+                                  corpusRoot.string() + configArg);
+    CHECK(configHonored.exitCode == 0);
+    auto honoredDoc = parseJsonFromMixedOutput(configHonored.output);
+    REQUIRE(honoredDoc.has_value());
+    CHECK((*honoredDoc)["slots"][0]["tier"].get<std::string>() == "listfile");
+
+    auto explicitNone = runHusk("resolve " + (dir / "nonetex.m2").string() + " --textures " +
+                                 corpusRoot.string() + configArg + " --listfile none");
+    CHECK(explicitNone.exitCode == 0);
+    auto noneDoc = parseJsonFromMixedOutput(explicitNone.output);
+    REQUIRE(noneDoc.has_value());
+    CHECK((*noneDoc)["slots"][0]["tier"].get<std::string>() != "listfile");
+
+    fs::remove_all(dir);
+}
