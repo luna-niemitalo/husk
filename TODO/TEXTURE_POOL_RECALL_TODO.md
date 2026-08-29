@@ -92,6 +92,168 @@ recall figure suggests: most of what it drops is art that model genuinely does
 not use. Do not treat the recall cost as pure loss without checking which
 files it actually removes.
 
+## Step 2 investigation (2026-08-29): the DB2-preferred tier is type-conditional, not universal
+
+Investigation-only pass, no production code touched. Full commands in
+"Reproducing the step-2 numbers" below. Everything here is **real data**
+(`husk export --db2-dir/--dbd-dir` against the real local
+`bloodelffemale_hd.m2`/`chrmodeltexturelayer.db2` extraction, real `--dbd-dir`
+schema, real chr_texture_layout/chr_customization_options extras read back
+out of the produced `.glb`) unless marked **wiki** (a hypothesis, not yet
+independently confirmed for the specific case cited).
+
+**Q1 — is there a real mapping from M2 `textureType` to `ChrModelTextureTargetID`?**
+Yes, but it is two separate facts, not one join:
+
+- M2's own hardcoded texture-type numbering (`m2_header.cpp`'s `textureTypeName`,
+  e.g. 1=skin, 6=char_hair, 9=ui_skin, 19=char_eyes, 20=char_jewelry) **is the
+  same enum space** as `ChrModelMaterial.TextureType` /
+  `ChrModelTextureLayer.TextureType`. Confirmed three ways: (a) real —
+  `reference/WoWDBDefs/definitions/ChrModelTextureLayer.dbd` declares
+  `TextureType` and `ChrModelTextureTargetID<32>[2]` as two distinct real
+  columns, matching `chrmodel_db2.hpp`'s own claim that they're separate
+  fields, not the same one read two ways; (b) **wiki** —
+  `documentation/wowdev-wiki/md/Character_Customization.md` names the overlay
+  layers "6, 8, 10, 19, 20, 21, 22, 24", exactly M2's own char_hair/
+  skin_extra/tauren_mane/char_eyes/char_jewelry/char_secondary_skin/
+  char_secondary_hair/[unnamed 24] numbering; (c) real — `bloodelffemale_hd`'s
+  own exported `chr_texture_layout.materials` carries `texture_type` values
+  `{1, 6, 9, 19, 20}`, exactly the 5 non-object_skin hardcoded M2 slots this
+  model's own `husk resolve`/`--explain-textures` ledger shows with `fdid=0`
+  (type 2/object_skin is the 6th hardcoded slot on this model and correctly
+  has **no** `ChrModelMaterial` row at all — real, matches the wiki's own
+  "Object Skin -- Item, Capes" description, i.e. genuinely outside the
+  character-atlas system, not a gap).
+- `ChrModelTextureTargetID` is a **separate join key**, not derivable from
+  `textureType` alone — it identifies one specific layer *within* a
+  `textureType` group. Cardinality is **1:N, N real and layout-specific**, not
+  1:1. Measured two ways: per-model (`bloodelffemale_hd`'s own layout 122):
+  type 1 (skin) → 13 distinct targets, type 6 (hair) → 1, type 9 (ui_skin) → 1,
+  type 19 (eyes) → 2, type 20 (jewelry) → 1. Corpus-wide (all 928 real rows of
+  `chrmodeltexturelayer.db2`, ~74 distinct real `CharComponentTextureLayoutsID`
+  layouts, no model filter): type 1's layer count per layout ranges 1–14
+  (mean 7.9; only 11/74 layouts, 14.9%, have exactly 1); type 6 ranges 1–2
+  (mean 1.07); type 19 ranges 1–2 (mean 1.95); type 20 ranges 1–2 (mean 1.09).
+  **So "N==1" must be checked per (`CharComponentTextureLayoutsID`,
+  `textureType`) at runtime from already-loaded `chrmodel::Data` — it is not
+  implied by the M2 `textureType` value alone**, even though 6/9/20 happen to
+  be single-layer for *this* model.
+- `ChrModelTextureTargetID` is **not** globally unique across `textureType`s
+  in the whole table (10 target IDs are each reused by 2–5 different
+  `textureType`s corpus-wide — real, measured via `sqlite3` on the full
+  `db2-export`) — but **is** unique within one
+  (`CharComponentTextureLayoutsID`, target) pair in 927/928 real rows (one
+  real exception found: layout 195, target 2, spans 3 distinct
+  `textureType`s — not investigated further). Any join must stay scoped by
+  the model's own real `CharComponentTextureLayoutsID`, matching how
+  `chr_texture_layout` is already structured today.
+
+**Q2 — is a DB2-preferred tier even the right shape for type 1 (skin)?** No,
+confirmed by real data, not just the concern's own reasoning. The wiki
+itself says character skins are "several layers" with an explicit unfinished
+TODO for "how to compile base layer texture as well as how to overlay layer
+> 1 textures" — a hypothesis until checked. Checked: `bloodelffemale_hd`'s
+own `chr_texture_layout` has 13 real `texture_layers` for `texture_type=1`,
+fed by **at least 5 independently selectable `ChrCustomizationOption`s**
+(Skin Color → targets 1/13/14, Face → target 5, Hair Style → target 12,
+Tattoo Color → target 16, Bracelets → target 26), each contributing its own
+real FileDataID to a distinct pixel region — `chr_texture_layout.sections`
+gives real non-overlapping placement rects tiling one shared 2048×1024 atlas
+(confirmed: the first 4 sections tile the atlas's top-left quadrant with
+real disjoint x/y/width/height). There is no single fdid to prefer here —
+"prefer the DB2 fdid" is not expressible for type 1 on this model, and (per
+the corpus-wide count above) not on 85% of real layouts either. This is the
+one part of the concern in the task brief that the investigation fully
+confirms: the premise "one fdid per hardcoded slot" is wrong for skin.
+
+**Q3 — which M2 texture types get a clean single-fdid DB2 answer?** None of
+them unconditionally — even the 3 single-layer types found for this model
+(6/hair, 9/ui_skin, 20/jewelry) have real failure modes, found by actually
+resolving default choices, not assumed:
+
+| type | target | default choice (OrderIndex 0) | result |
+|---|---|---|---|
+| 20 char_jewelry | 38 | fdid 3613861 | clean hit — **matches** what the fuzzy pool arbitrarily picked (coincidence, not causation: the pool has no notion of OrderIndex) |
+| 19 char_eyes | 25 | fdid 3492879 (`eyes00_00_3492879`) | clean hit — **differs** from the fuzzy pool's arbitrary pick (fdid 3608322) — a real case where a DB2 tier changes the answer, target 44 (the type's 2nd layer) has no feeding option in this model at all |
+| 6 char_hair | 10 | choice 1801, `materials: null` | **no usable fdid** — the real default choice for Hair Color carries no material row for target 10 at all; a DB2 tier must fall through to the pool here, not replace it |
+| 9 ui_skin | 40 | choice 1857 "None", `materials: null` | **no usable fdid** — real default is deliberately no blindfold texture; the pool's arbitrary pick (fdid 7758260, a real "Flame" blindfold) is objectively wrong relative to the true default, but a DB2 tier that *only* tries the default choice also produces nothing here, not a fix by itself — a non-default "Flame" choice for the same target carries *two* material rows disambiguated only by `related_choice_id` against a second, unidentified option, a real conditional-material case out of this pass's scope to resolve further |
+
+**Q4 — where does the tier go, replace or precede the pool?** Precede
+(fall through), never replace outright — the Hair Color/Blindfold gaps above
+are proof a hard "replace" breaks real cases this session actually hit. The
+tier is:
+
+- **Type-conditional**: fires only for a (this model's real
+  `CharComponentTextureLayoutsID`, this slot's `textureType`) pair with
+  exactly one live `ChrModelTextureLayer` row — a runtime count against
+  already-loaded `chrmodel::Data`, never a hardcoded type list (type 6/9/20
+  being single-layer is a fact about *this* layout, not a fact about those
+  type numbers in general — see Q1's corpus-wide range).
+- **Choice-dependent**: needs a resolved `ChrCustomizationChoiceID` for
+  whichever `ChrCustomizationOption` feeds that one target — explicit
+  `--customization-choice-ids`, or the existing
+  `defaultChoiceIdsForModel` heuristic (already documented as husk's own
+  guess, not client-authoritative).
+- **Best-effort**: on a miss (no live single-layer target, no resolved
+  choice, or — as found above — a resolved choice with no material row for
+  that target), falls through to tier 3 exactly like tier 1/2 already do.
+- **Ranked between tier 2 (listfile) and tier 3 (fuzzy pool)** when it does
+  fire: it is exactly as deterministic as tier 2 (a real, named, chosen
+  answer, not a guess) once the two conditions above hold, so by
+  `RESOURCE_CATALOG.md`'s own "deterministic outranks tier 3" logic it
+  belongs directly after tier 2, not folded into tier 3 and not a full new
+  top-level tier either.
+- **New plumbing, not a one-line change**: `Catalog::texture()` today takes
+  only `(fdid, textureType, TextureModelContext)` — no DB2 handle at all.
+  This tier needs an optional injected `chrcustomization::Data` +
+  `chrmodel::Data` + the resolved choice-ID map, present only when the
+  caller has them (`cmd_export.cpp` already loads all three for the existing
+  `--customization-choice-ids`/`--chr-model-id` flow) — a real new
+  constructor parameter / setter on `Catalog`, not something step 3's
+  tag-conjunction work touches.
+
+**Not determined this pass** (flagging rather than guessing):
+- Whether type 8 (skin_extra)/21/22/23 (secondary skin/hair/armor)/24
+  (unnamed) follow the same textureType↔TextureType correspondence — plausible
+  by the same wiki citation, but `bloodelffemale_hd`'s own layout uses none of
+  them, so this session found zero real rows to confirm those specific types.
+- Why layout 195 has one target ID spanning 3 texture types — not
+  investigated (which race/model it belongs to, whether it's a real
+  exception or a `resolveFieldString`-class data-decode artifact).
+- How common the Blindfold-style `related_choice_id`-conditioned multi-material
+  case is corpus-wide (rare edge case vs. common pattern) — would need a
+  corpus-wide query, out of this investigation-only pass's scope.
+- Whether the Hair Color/Blindfold "default choice has no material" gaps
+  found on `bloodelffemale_hd` are common across races/models or specific to
+  blood elf — only one real model was resolved end to end this pass.
+
+### Reproducing the step-2 numbers
+
+```
+husk export bloodelffemale_hd.m2 --output out.glb --explain-textures
+  # (config.toml already supplies --db2-dir/--dbd-dir/--listfile for this
+  # machine — see ~/.config/husk/config.toml)
+  # ledger lines of the form "slot N fdid=0 type=T -> fuzzy-same-basename-pool"
+  # are the hardcoded-slot rows this investigation is about.
+```
+Then, on the produced `.glb`: find the root-joint node whose `extras` carries
+`chr_texture_layout`/`chr_customization_options` (per-glb, no fixed node
+index — see `CLAUDE.md`'s "skin extras -> root-joint-extras migration"
+entry), and inspect `.materials`/`.texture_layers`/`.sections`/
+`.customizationOptions[].choices[].materials` directly (`jq` over the
+extracted JSON chunk works fine — no husk-side tooling needed for this
+one-off check).
+
+For the corpus-wide `ChrModelTextureTargetID` cardinality numbers:
+```
+husk db2-export --dbd-dir reference/WoWDBDefs \
+  /media/luna/data/wow_export/dbfilesclient/chrmodeltexturelayer.db2 out.sqlite
+sqlite3 out.sqlite "SELECT TextureType, MIN(cnt), MAX(cnt), AVG(cnt) FROM
+  (SELECT CharComponentTextureLayoutsID, TextureType, COUNT(*) cnt
+   FROM ChrModelTextureLayer GROUP BY CharComponentTextureLayoutsID, TextureType)
+  GROUP BY TextureType ORDER BY TextureType;"
+```
+
 ## Steps
 
 1. **Derive the tag vocabulary from the corpus, not by hand.** The prototype's
@@ -102,8 +264,27 @@ files it actually removes.
    Derive *co-occurrence* too, not just frequency — the parent/child and
    orthogonal-axis structure above is what makes conjunctions work, and it is
    not guessable from a token list alone.
-2. **Make `Catalog::texture()` prefer the DB2-resolved FileDataID for character
-   models** before any pool tier runs.
+2. **Make `Catalog::texture()` try a new DB2-character tier between tier 2
+   (listfile) and tier 3 (fuzzy pool), scoped to exactly the case it's proven
+   correct for**: given the model's real `CharComponentTextureLayoutsID`
+   (already resolved upstream, same as `--char-layout-id`/`--chr-model-id`
+   today) and the slot's own `textureType`, look up the live
+   `ChrModelTextureLayer` rows for that (layout, type) pair from already-loaded
+   `chrmodel::Data`. Fire *only* when that count is exactly 1 (a runtime
+   check, never a hardcoded type list — see the Q1/Q4 findings above for why
+   type 1/skin fails this on ~85% of real layouts, and why 6/9/20 pass it on
+   this model but aren't guaranteed to elsewhere), *and* a
+   `ChrCustomizationChoiceID` is resolved for whichever option feeds that
+   target (explicit `--customization-choice-ids`, or the existing
+   `defaultChoiceIdsForModel` heuristic), *and* `resolveChoice` for that
+   choice actually yields a material for that target (it may not — see the
+   Hair Color/Blindfold default-choice gaps in the Q3 table). Any of those
+   three conditions failing is a normal, expected miss for this tier, not an
+   error — fall through to tier 3 exactly as tier 1/2 already do. Needs new
+   plumbing on `Catalog` (an optional injected `chrcustomization::Data` +
+   `chrmodel::Data` + resolved choice map — `Catalog::texture()`'s current
+   signature has no DB2 handle at all), not a one-line change inside the
+   existing tiers.
 3. **Replace the pool's `startswith` gate with a tag-conjunction query**, keeping the
    existing per-type filter. Expect pool sizes to *grow* for broad tags (face
    750, skin 139) and shrink for narrow ones (hair 27, eyes 13, jewelry 8) —
