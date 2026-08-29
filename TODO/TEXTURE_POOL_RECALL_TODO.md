@@ -687,6 +687,44 @@ Also removed from the Steps list below: **extend `--slim-textures` to
 `layer.imagePng` sites, commit `a6af32f`), the Steps list just hadn't been
 trimmed after it landed.
 
+## Where this stands (2026-08-29, supervisor-verified end state)
+
+Independently re-run against the pre-everything binary (commit `a2ad9cb`),
+not taken from any agent's report. `bloodelffemale_hd`, all six hardcoded
+slots:
+
+| slot | type | before | now |
+|---|---|---|---|
+| 2 | 1 skin | pool, 64 cands | pool, **421 cands**, same default |
+| 1 | 6 hair | pool, 12 | pool, **26**, same default |
+| 9 | 19 eyes | pool, 9 | pool, **10**, same default |
+| 3 | 20 jewelry | pool, 2 | **`db2-character`**, same fdid |
+| 0 | 9 blindfold | pool, 2 | pool, 2, unchanged |
+| 4 | 2 object_skin | pool, 3 | pool, **3**, default restored to the original |
+
+`creature/gnoll2` and the weapon fixture are **byte-identical to `a2ad9cb`**
+— the non-character majority is untouched by any of this.
+
+**Honest read: no rendered character texture has changed on the HD model.**
+Five of six slots resolve to the same file they did before; the sixth
+(jewelry) resolves to the same FileDataID, just authoritatively rather than
+by luck. What changed is that the right answers are now *reachable*
+(recall 15.9% → 91.3%) and one slot is deterministic. Turning that into
+visibly better characters is item 1 below, and it needs a real Blender
+look first — "which of 26 candidate skin files is right" is not decidable
+from filenames.
+
+The one visible win so far is the non-HD model, where hair went from a
+891-way coin toss landing on a demon-hunter horns texture to a single
+deterministic match.
+
+**Size**: the HD `.glb` is ~200 MB embedded (up from 109 MB) because every
+candidate rides along as an `alternate_textures` diagnostic. With
+`--slim-textures` it is **92 MB** and the candidates become real files next
+to it. Accepted as fine at this stage; the untagged-type fix above saved
+only ~1 MB, since the type-1 skin slot's 421 candidates dominate, not
+`object_skin`'s.
+
 ## Steps
 
 1. **Rank the candidate set — it is now the binding constraint.** The set
