@@ -184,7 +184,12 @@ test coverage elsewhere in `tests/` (`test_cli_gear_export.cpp` for
 `test_integration.cpp` for `bone_correction_sets`, `test_gltf_skeleton.cpp`/
 `test_integration_lights.cpp` for the Light anchor keys). Two exceptions,
 found while writing this document, are worth flagging directly:
-`creature_enabled_geosets` and `animation_data_names` are both covered by
-`tests/test_cli_creature_geosets.cpp` and `tests/test_cli_animationdata.cpp`
-— four test cases each, asserting the real extras key on the skin's root
-joint plus the negative "flag not given, key absent" case.
+`creature_enabled_geosets` and `animation_data_names` were both real,
+shipped features with **no test referencing their literal extras key** —
+`tests/test_cli_creature_geosets.cpp` did not exist at all, and
+`tests/test_cli_animationdata.cpp` covered only `sequence_metadata`'s
+animation names, not the root-joint `animation_data_names` object.
+
+**Closed 2026-08-29**: six tests added across those two files, asserting
+each key on the skin's root joint plus the negative "flag not given, key
+absent" case.
