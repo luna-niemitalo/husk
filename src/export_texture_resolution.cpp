@@ -291,6 +291,7 @@ FuzzyTexturePool scanFuzzyTexturePoolForBasename(const std::string& texturesDir,
     // already-converted "<name>.png" and its source "<name>.blp" counts as
     // one real candidate, not two, and PNG wins (no decode needed).
     std::map<std::string, std::filesystem::path> byStem;
+    std::set<std::string> narrowStems;  // startsWithBasename, tracked alongside -- see FuzzyTexturePool::narrowAdmitted
     for (const auto& entry : scanDirOrWarn(texturesDir, "textures directory")) {
         if (!entry.is_regular_file()) continue;
         const auto& path = entry.path();
@@ -308,8 +309,12 @@ FuzzyTexturePool scanFuzzyTexturePoolForBasename(const std::string& texturesDir,
         if (filenameCarriesHdToken(stemLower) != modelWantsHd) continue;  // hard `_hd` partition
         auto [it, inserted] = byStem.try_emplace(stemLower, path);
         if (!inserted && path.extension() == ".png") it->second = path;  // PNG wins over BLP
+        if (startsWithBasename) narrowStems.insert(stemLower);
     }
-    for (auto& [stem, path] : byStem) pool.files.push_back(std::move(path));
+    for (auto& [stem, path] : byStem) {
+        if (narrowStems.count(stem)) pool.narrowAdmitted.insert(path);
+        pool.files.push_back(std::move(path));
+    }
     std::sort(pool.files.begin(), pool.files.end());
     return pool;
 }

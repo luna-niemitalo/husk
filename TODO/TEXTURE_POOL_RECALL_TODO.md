@@ -618,6 +618,75 @@ New tests: `tests/test_sources_resource_catalog.cpp` (7 cases on
 outranks the fuzzy pool, each of the three miss conditions, and tier-1
 precedence; 3 cases on `buildCharacterTextureContext`'s own reduction).
 
+## Constrained-pool findings (2026-08-29): narrow gate restored for untagged types
+
+Investigated first, per this item's own brief, rather than reasoned about:
+checked what a real `object_skin` (type 2) candidate would need to be named
+to ever get a tag clause. Answer: it can't. `documentation/wowdev-wiki/md/M2.md`
+names the type's own real convention directly — `TEX_COMPONENT_OBJECT_SKIN --
+Object Skin -- Item, Capes ("Item\ObjectComponents\Cape\*.blp")` — the real
+texture for this slot lives in a completely different top-level directory
+than the character model itself (equipped-item art, not character art), the
+same chain `CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 6 already resolves via
+`ItemModifiedAppearanceID`, never via a filename guess in the model's own
+directory. No tag, however cleverly derived, admits the right file into a
+same-directory scan when the right file isn't in that directory at all —
+this forecloses option 1 (give it a real clause) for `object_skin`
+specifically, confirming the TODO's own step-1 finding rather than just
+citing it. The other untagged types (weapon/environment/monster replaceable
+slots) already resolve correctly off the narrow gate today (recolor-style
+same-basename names, e.g. `gnoll2_armor_brown.blp`) — no measured recall gap
+motivates widening them either.
+
+**Chose option 2**: kept the model-global widened *scan* (unchanged — tagged
+types still need it), but restricted the *per-type query* back down to the
+scan's narrow (`startswith(basename)`-only) admission for any texture type
+with no `textureTypeTagClauses` entry. Implementation is query-time
+filtering, the simplest of the three shapes the brief offered: `FuzzyTexturePool`
+gained one field, `narrowAdmitted` (a `std::set<std::filesystem::path>`,
+populated once during `scanFuzzyTexturePoolForBasename` alongside the
+existing wide `files` list — no second directory scan, no second mutable
+list to keep depleted in sync with claim-and-remove). `Catalog::resolveFuzzyTier`
+intersects `state.pool.files` (the live, already-depleted pool) against
+`narrowAdmitted` before calling `filterCandidatesForType`, only when
+`filterCandidatesByTextureTag` returned `nullopt` for this type — tagged
+types are untouched, still querying the full wide pool.
+
+**Real ledger deltas**, `husk export --explain-textures`, HEAD (`d05a94f`,
+tag-widened pool with no per-type restriction) vs. after this fix, the same
+four models:
+
+| model | slot / type | before | after |
+|---|---|---|---|
+| `bloodelffemale_hd` | slot 4, type 2 (object_skin) | 386 alternates, default `bloodelffemaleskin00_00_hd.blp` | **3 alternates**, default `bloodelffemale_hd_3255415.blp` — exactly the pre-tag-widening (`a2ad9cb`) answer, byte-for-byte |
+| `bloodelffemale_hd` | slot 2, type 1 (skin, tagged) | 421 alternates | 421 alternates, same default — **unchanged** |
+| `bloodelffemale_hd` | slot 1, type 6 (hair, tagged) | 26 alternates | 26 alternates, same default — **unchanged** |
+| `bloodelffemale_hd` | slot 9, type 19 (eyes, tagged) | 10 alternates | 10 alternates, same default — **unchanged** |
+| `bloodelffemale_hd` | slot 3, type 20 (jewelry, tagged) | `db2-character` HIT (tier 3 never reached) | unchanged |
+| `bloodelffemale` | slot 1, type 2 (object_skin) | 503 alternates | 428 alternates, same (still-wrong) default `bloodelffemale_dh_horns.blp` — the `_hd` hard partition (a real correctness fix, not part of this item's scope) stays in effect; only the tag-only-admitted files drop out |
+| `gnoll2` | (no taggable slots) | — | **byte-for-byte identical `.glb`** |
+| `12be_bloodelf_crafting_brush01` | (resolves via tier 1/2, never reaches tier 3) | — | **byte-for-byte identical `.glb`** |
+
+The HD `object_skin` reversion to the exact pre-widening answer (3
+candidates, same default file) is expected, not a coincidence: `_hd`
+partitioning didn't change that slot's candidate set before (all 3 original
+candidates were already `_hd`), so restoring the narrow admission alone
+reconstructs the original pool exactly. The non-HD model's `object_skin`
+default stays the known-wrong `dh_horns.blp` either way — unaffected by this
+item, tracked as an accepted limitation in this doc's own "Step 3/5
+findings" section, not reopened here.
+
+New tests: `tests/test_sources_resource_catalog.cpp`, two cases — an
+untagged type (`object_skin`) never draws a wide-only candidate into its
+query (sole narrow match, unambiguous), and a tagged type (`skin`) still
+does (proving the restriction is type-specific, not a blanket revert).
+
+Also removed from the Steps list below: **extend `--slim-textures` to
+`alternate_textures`/additional texture layers** — already implemented
+(`gltf_mesh.cpp`'s `writeSlimTextureFile` calls at the `cand.imagePng`/
+`layer.imagePng` sites, commit `a6af32f`), the Steps list just hadn't been
+trimmed after it landed.
+
 ## Steps
 
 1. **Rank the candidate set — it is now the binding constraint.** The set
@@ -628,14 +697,7 @@ precedence; 3 cases on `buildCharacterTextureContext`'s own reduction).
    built for a 94-candidate starved pool and is now choosing among hundreds.
    This is the highest-value remaining item: the right answer is reachable for
    the first time and is not being picked.
-2. **Constrain the widened pool for untagged texture types.** Types with no
-   tag clause (`object_skin` and every non-character replaceable type) fall
-   back to the old category filter but still inherit the *widened scan gate*,
-   so they now pick arbitrarily from a much larger set — HD `object_skin` went
-   from 3 candidates to 386. No test covers this and no evidence says the new
-   picks are better. Either give those types a real clause, or keep the narrow
-   gate for types that have none.
-3. **Decide claim-and-remove on measured behavior, not its stated purpose.**
+2. **Decide claim-and-remove on measured behavior, not its stated purpose.**
    It does **not** currently provide the "one image can't fill every slot"
    property it is described as providing: `Catalog::resolveFuzzyTier` only
    erases from the pool in the `matching.size() == 1` branch, so the ambiguous
@@ -644,15 +706,7 @@ precedence; 3 cases on `buildCharacterTextureContext`'s own reduction).
    same file before this change. Removing it is therefore close to a no-op for
    the ambiguous path; the real question is whether the sole-candidate branch's
    depletion is worth keeping on its own.
-4. **Extend `--slim-textures` to `alternate_textures` and the additional
-   texture layers.** Today it externalizes only the base-color image;
-   `cand.imagePng` and `layer.imagePng` (`gltf_mesh.cpp`) both
-   `appendBufferView` unconditionally, ignoring `slimTexturesOutputDir`.
-   Those are exactly the payload the widened candidate set grows, so
-   covering them makes pool width cost disk next to the `.glb` rather than
-   `.glb` size, with no loss of diagnostic coverage. Reuses the existing
-   `alternateTextureCache` for dedup and `writeSlimTextureFile` for naming.
-5. **Re-run the resolution-ledger diff** (`husk export --explain-textures` /
+3. **Re-run the resolution-ledger diff** (`husk export --explain-textures` /
    `husk resolve`, `REFACTOR/README.md`'s stage-1 gate) after each of the
    above, the same way the "Step 3/5 findings" section already did. Every
    delta attributed; deltas here are expected and are the point.

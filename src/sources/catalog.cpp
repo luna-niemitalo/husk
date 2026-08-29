@@ -1,6 +1,7 @@
 #include "catalog.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <sstream>
 #include <tuple>
 
@@ -182,12 +183,28 @@ Resolved<EncodedTexture> Catalog::resolveFuzzyTier(ModelState& state, uint32_t t
     // A real tag-conjunction query when textureType has one
     // (filterCandidatesByTextureTag doesn't need -- and doesn't use -- the
     // modelBasename-prefix filterCandidatesForType's own classification
-    // requires), falling back to the older category classifier unchanged
-    // for every type that table has no established tag for.
+    // requires), falling back to the older category classifier for every
+    // type that table has no established tag for.
     auto tagMatching = husk::commands::filterCandidatesByTextureTag(state.pool.files, textureType);
-    auto matching = tagMatching ? std::move(*tagMatching)
-                                 : husk::commands::filterCandidatesForType(state.pool.files, textureType,
-                                                                            basenameLower);
+    std::vector<std::filesystem::path> matching;
+    if (tagMatching) {
+        matching = std::move(*tagMatching);
+    } else {
+        // No real tag clause exists for this type -- the tag-vocabulary
+        // widening that justifies a bigger pool for *taggable* types isn't
+        // grounded for this one, so restrict back down to the pool's
+        // original startswith(basename) admission before falling back to
+        // filterCandidatesForType, same as before the widening existed.
+        // Real evidence this matters: object_skin's own real texture lives
+        // in a completely different directory (wowdev.wiki M2.md:
+        // "Item\ObjectComponents\Cape\*.blp"), so no filename tag in this
+        // model's own texture directory could ever be the right answer --
+        // widening its pool only adds noise, never a fix.
+        std::vector<std::filesystem::path> narrowFiles;
+        std::copy_if(state.pool.files.begin(), state.pool.files.end(), std::back_inserter(narrowFiles),
+                     [&](const std::filesystem::path& p) { return state.pool.narrowAdmitted.count(p) != 0; });
+        matching = husk::commands::filterCandidatesForType(narrowFiles, textureType, basenameLower);
+    }
 
     if (matching.empty()) {
         return Resolved<EncodedTexture>::miss(

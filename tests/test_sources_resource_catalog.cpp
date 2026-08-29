@@ -323,6 +323,58 @@ TEST_CASE("Catalog::texture: an '_hd' model never draws non-'_hd' art either -- 
     CHECK(r.value->matchedFilename == "elfmale_hd_skin_color_1000.png");
 }
 
+TEST_CASE("Catalog::texture: an untagged texture type (no textureTypeTagClauses entry) never draws "
+          "a tag-only-admitted candidate into its own query -- the pool-scan admission is widened "
+          "for every type, including ones with no real tag clause to justify it, so the per-type "
+          "query must itself restrict back down to the original startswith(basename) admission for "
+          "those types (real bloodelffemale_hd regression: object_skin/type 2 went from 3 candidates "
+          "to 386 before this restriction existed, purely from inheriting a wider gate a different "
+          "type's own clause earned)") {
+    auto dir = fs::temp_directory_path() / "husk-catalog-untagged-type-narrow-gate";
+    fs::create_directories(dir);
+    // Narrow-admissible: starts with the model's own basename.
+    writeFile(dir / "mymodel_1000.png", kPng);
+    // Wide-only: shares no basename with the model at all, admitted into the
+    // pool solely by carrying a real vocabulary tag ("skin") -- exactly the
+    // shape scanFuzzyTexturePoolForBasename's OR-widened admission exists
+    // for, and exactly what an untagged type must not be offered.
+    std::vector<uint8_t> otherPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
+    writeFile(dir / "somethingelse_skin_2000.png", otherPng);
+
+    Catalog cat(dir.string(), {}, "", "");
+    // textureType 2 = object_skin, real M2 type with no textureTypeTagClauses
+    // entry (confirmed unreachable by any filename tag, see
+    // export_texture_resolution.cpp's own textureTypeTagClauses doc comment).
+    auto r = cat.texture(0, /*textureType=*/2, ctxFor((dir / "mymodel.m2").string()));
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);
+    // Sole match, not ambiguous -- the wide-only candidate was never even
+    // offered to this query, so there was nothing to disambiguate.
+    CHECK(r.alternates.empty());
+    CHECK(r.value->matchedFilename == "mymodel_1000.png");
+}
+
+TEST_CASE("Catalog::texture: a *taggable* texture type still draws a tag-only-admitted candidate "
+          "with no basename relation at all -- the narrow-gate restriction above is type-specific, "
+          "not a blanket revert of the pool-scan widening; tagged types keep their real recall gain") {
+    auto dir = fs::temp_directory_path() / "husk-catalog-tagged-type-keeps-wide-gate";
+    fs::create_directories(dir);
+    writeFile(dir / "mymodel_1000.png", kPng);  // narrow-admissible, but no "skin"/"face"/etc. tag
+    std::vector<uint8_t> otherPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
+    writeFile(dir / "somethingelse_skin_2000.png", otherPng);  // wide-only, real "skin" tag
+
+    Catalog cat(dir.string(), {}, "", "");
+    // textureType 1 = skin, has a real textureTypeTagClauses entry -- only
+    // the "skin"-tagged file satisfies the query; "mymodel_1000" carries no
+    // vocabulary tag at all and is correctly excluded by the tag query
+    // itself, not by the narrow-gate restriction (which doesn't apply here).
+    auto r = cat.texture(0, /*textureType=*/1, ctxFor((dir / "mymodel.m2").string()));
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);
+    CHECK(r.alternates.empty());
+    CHECK(r.value->matchedFilename == "somethingelse_skin_2000.png");
+}
+
 // The DB2-character tier -- opt-in via setCharacterTextureContext, ranked
 // between tier 2 (listfile) and tier 3 (fuzzy pool). Below: the clean no-op
 // (feature unused), the real fires-correctly case (reproducing

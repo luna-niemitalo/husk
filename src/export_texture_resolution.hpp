@@ -189,6 +189,22 @@ void orderCandidatesForDefault(std::vector<std::filesystem::path>& candidates, c
 // model wire in the exact same file).
 struct FuzzyTexturePool {
     std::vector<std::filesystem::path> files;
+
+    // The subset of `files` admitted by the original startswith(modelBasename)
+    // rule alone -- computed once at scan time (scanFuzzyTexturePoolForBasename),
+    // independent of the later tag-vocabulary widening that also admits a file
+    // carrying a real kTextureTagVocabulary token with no basename relation at
+    // all. A texture type with no real tag clause in textureTypeTagClauses
+    // (object_skin, every non-character replaceable type) has no way to tell a
+    // widened-pool file apart from noise -- filterCandidatesForType's own
+    // category classification requires the basename prefix to even parse a
+    // category out of a candidate, so a same-basename requirement was always
+    // implicit in what that path can do with a file. This set lets a caller
+    // restrict back down to that original admission for exactly those types,
+    // without a second directory scan or a second stored file list to keep in
+    // sync with pool depletion -- membership is checked against the live
+    // (already-depleted) `files`, never mutated on its own.
+    std::set<std::filesystem::path> narrowAdmitted;
 };
 
 // Hands out the pool's sole remaining entry compatible with `textureType`
