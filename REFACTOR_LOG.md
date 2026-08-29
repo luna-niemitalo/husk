@@ -8,6 +8,72 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-29 — `AUDIT.md` §3's third bullet: `extras` schema version + `EXTRAS_SCHEMA.md`
+
+**What**: Closed "No schema version anywhere." Added `kExtrasSchemaVersion`
+(`src/gltf.hpp`, currently `1`), written to two places: always to
+`model.asset.extras.schema_version` (`gltf.cpp`, the spec-correct,
+always-present producer-metadata slot — present even for a skeleton-less
+mesh-only export with no root joint to carry anything else), and mirrored
+onto the skin's root joint's own `schema_version` extras key
+(`gltf_skeleton.cpp`, alongside `joint_names`) whenever a skin exists, the
+same "Blender drops this, mirror it onto the root joint instead" reasoning
+`animation_data_names` already established (`DESIGN.md`'s "Blender-
+survivable extras live on the skin's root joint, not the skin"). New
+`EXTRAS_SCHEMA.md`: the missing index, one table per carrier (asset/
+root-joint/material/primitive/mesh-node/joint-node/anchor-node/animation-
+clip), derived from the code and cross-checked against a real export, not
+transcribed from the audit bullet. `tools/husk_blender_geoset_mask.py`
+gained `check_schema_version` (reads the root-joint mirror via the
+existing `_root_joint_extras`, no new file access) — prints a one-line
+diagnostic (match/older/newer/missing), never raises, run as the first
+`_run_stage` in `main()`.
+
+**Real recount, not trusted from the audit bullet**: the root-joint
+carrier held 14 real distinct keys before this session, not 13 —
+`animation_data_names` is set in `gltf.cpp`, not `gltf_skeleton.cpp`'s
+`skinExtras` block the audit's own citation pointed at (same carrier node,
+different source file), so a single-file grep missed it. Now 15 with
+`schema_version` added. The audit's "34 material and primitive extras
+keys" also doesn't decompose cleanly into "material" and "primitive" as
+stated: scoped strictly to `Material.extras`/`Primitive.extras`/the
+mesh-node `collision` extra, the real count is 12 material top-level keys
++ 3 primitive keys + 1 node key = 16 top-level, or 33 counting every
+nested sub-key inside the 12 material structures; 34 is only reached by
+also folding in `billboard`, a *joint*-node extra the audit hadn't
+otherwise separated out as its own category. `EXTRAS_SCHEMA.md` has the
+full corrected breakdown.
+
+**Blender-side enforcement judgment call**: soft print only, never a hard
+reject. Every real `.glb` husk has exported before this session has no
+`schema_version` at all, and every `read_*` function in
+`husk_blender_geoset_mask.py` already treats each of its own keys as
+independently optional — a hard gate here would be the one inconsistent
+enforcement point in an otherwise fully permissive reader, and would make
+every already-exported real fixture unreadable by a freshly updated script
+for no functional reason.
+
+**Verified**: real export (`bloodelffemale_hd.m2`, this machine's
+`~/.config/husk/config.toml` supplying `--db2-dir`/`--dbd-dir`/
+`--listfile`) — raw JSON inspection confirmed
+`asset.extras.schema_version == 1` and the same value mirrored onto the
+root joint (node "Main", alongside `chr_customization_options`/
+`chr_enabled_materials`/`chr_texture_layout`/`enabled_geosets`/
+`joint_names` — this model didn't exercise `--bones-dir`/`--phys`/
+`--creature-display-id`/`--appearance`, so those keys weren't present to
+check, confirmed by code instead). Headless Blender round-trip of the same
+export through the updated script printed `schema_version 1 matches this
+script's own 1`. New C++ tests (`tests/test_gltf.cpp`,
+`tests/test_gltf_skeleton.cpp`) assert the version on both a skeleton-less
+mesh-only export and a skinned export. Full suite green, 752/752 (749 + 3
+new), 1 skipped, same as baseline. Two real gaps surfaced while writing
+`EXTRAS_SCHEMA.md`, not fixed here (out of this item's scope): neither
+`creature_enabled_geosets` nor `animation_data_names` has any test
+anywhere in `tests/` referencing that key or its backing C++ type, despite
+both being real, shipped, `CLAUDE_HISTORY.md`-documented features.
+
+---
+
 ## 2026-08-29 — `AUDIT.md` §7's "missing none": extended past `export` to `resolve`/`db2-export`/`appearance-string`, plus the written-down `auto` justification
 
 **What**: The 2026-08-28 fix (previous entry below) landed `'none'` on

@@ -2176,3 +2176,67 @@ Verified end to end: a saved `.blend` with a real 245-bone/17-option/
 338-animation model already imported, run via `blender --python
 tools/husk_blender_geoset_mask.py` with no trailing arguments at all,
 completes every stage cleanly.
+
+### `extras` schema version + `EXTRAS_SCHEMA.md` index (2026-08-29)
+
+Closed `REFACTOR/AUDIT.md` §3's "No schema version anywhere" finding.
+Real recount at the time of closing: the root-joint carrier above held 14
+real distinct keys before this session (the audit's own count of 13 missed
+`animation_data_names`, set in `gltf.cpp` rather than `gltf_skeleton.cpp`'s
+`skinExtras` block the audit's own citation pointed at — same carrier
+node, different source file, easy to miss with a single-file grep), now
+15 with `schema_version` added. The audit's separate "34 material and
+primitive extras keys" figure does not cleanly decompose into "material
+keys" and "primitive keys" as stated — the real count, scoped strictly to
+`tinygltf::Material.extras`/`tinygltf::Primitive.extras`/the mesh-node
+`collision` extra, is 12 material top-level keys (`additional_textures`,
+`texture_transform`, `texture_transform_animation`, `texture_type`,
+`blend_mode`, `pixel_shader`, `vertex_shader`, `texture_file_data_id`,
+`diagnostic_name`, `alternate_textures`, `tint_animation`,
+`fade_animation`) + 3 primitive keys (`geoset_id`/`geoset_group`/
+`geoset_variant`) + 1 node key (`collision`) = 16, or 33 if every nested
+sub-key inside those 12 material structures is also counted (`keyframes`,
+`time`, `value`, `sequence_index`, `filename`, ...); 34 is only reached by
+also folding in `billboard` — a per-*joint*-node extra, a fourth category
+this document didn't previously separate out. `EXTRAS_SCHEMA.md` is the
+real index now, derived from the code and a real export, not from the
+audit bullet — see it for the full per-key table across all seven carrier
+categories (document/root-joint/material/primitive/mesh-node/joint-node/
+anchor-node/animation-clip).
+
+**Two homes for the version, not one**, because no single location is
+both universally present and Blender-survivable: `model.asset.extras.
+schema_version` (`gltf.cpp`) is the spec-correct, always-present producer-
+metadata slot — present even for a skeleton-less mesh-only export, which
+has no root joint to carry anything else documented above at all — while
+a mirror on the root joint's own `schema_version` extras key (`gltf_
+skeleton.cpp`, alongside `joint_names`) rides the exact mechanism this
+section already built for `animation_data_names`, since `asset.extras`
+itself is not preserved on any Blender datablock post-import (confirmed
+empirically, same class of gap as `skin.extras`/animation-level `extras`
+above — `asset` has no Blender-object correspondence at all, unlike node/
+mesh/material/camera/light). `kExtrasSchemaVersion` (`src/gltf.hpp`) is
+the one constant both writes read from, so the two copies can never drift
+by construction.
+
+**Versions the extras schema, not the husk binary** — deliberately: the
+two change at different rates (the binary gets bug fixes and new features
+constantly; the extras *shape* only needs a bump when an existing key's
+meaning changes underneath a consumer), and a downstream reader cares
+about the latter, not the former. Bumping on every commit would make the
+number noise; bumping only on a real shape change keeps it a meaningful
+signal.
+
+**Blender-side enforcement is a soft print, not a hard reject** —
+`check_schema_version` (`tools/husk_blender_geoset_mask.py`) reads the
+root-joint mirror and always prints one line (match, older, newer, or
+missing entirely), never raises. A hard reject was considered and
+rejected outright: every real `.glb` husk has exported before this
+session has no `schema_version` key at all, and this script's own
+`read_*` functions already treat every key as independently optional —
+rejecting on a missing/older version would be the one inconsistent hard
+gate in an otherwise fully permissive reader, and would make every
+already-exported real fixture (the HD character exports, the corpus
+render samples, ...) unreadable by a freshly updated script for no
+functional reason (the underlying data is still perfectly readable; only
+the version marker is absent or behind).

@@ -144,6 +144,20 @@ TEST_CASE("writeGlb: a skeleton with no correctionSets gets no bone_correction_s
     CHECK_FALSE(model.nodes[model.skins[0].joints[0]].extras.Has("bone_correction_sets"));
 }
 
+TEST_CASE("writeGlb: schema_version is always present on the skin's root joint extras, alongside "
+          "joint_names, and matches kExtrasSchemaVersion (EXTRAS_SCHEMA.md)") {
+    auto mesh = buildSkinnedTriangleMesh();
+    auto skel = buildChainSkeleton();
+
+    auto glb = husk::gltf::writeGlb(mesh, {}, &skel);
+    auto model = loadBack(glb);
+
+    const auto& extras = model.nodes[model.skins[0].joints[0]].extras;
+    REQUIRE(extras.IsObject());
+    REQUIRE(extras.Has("schema_version"));
+    CHECK(extras.Get("schema_version").GetNumberAsInt() == husk::gltf::kExtrasSchemaVersion);
+}
+
 TEST_CASE("writeGlb: a correctionSet entry with an out-of-range joint throws") {
     auto mesh = buildSkinnedTriangleMesh();
     auto skel = buildChainSkeleton();

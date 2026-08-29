@@ -25,6 +25,24 @@ struct Error : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
+// Version of husk's own `extras` schema -- the shape/naming/nesting of the
+// keys documented in EXTRAS_SCHEMA.md, not the husk binary's own version
+// (see that file's own header for why these are versioned separately).
+// Bump only on a change a consumer must react to (a key renamed, removed,
+// restructured, or reinterpreted) -- adding a wholly new key is additive
+// and does not need a bump, matching JSON's own "unknown keys are ignored"
+// convention every consumer here already relies on. Written to two places
+// by writeGlbMulti/emitSkeletonAndSkin (gltf.cpp/gltf_skeleton.cpp): always
+// to `model.asset.extras.schema_version` (the spec-correct, always-present
+// producer-metadata slot -- present even for a skeleton-less mesh-only
+// export, which has no root joint to carry anything at all), and mirrored
+// onto the skin's root joint's own `schema_version` extras key whenever a
+// skin exists, alongside every other key documented in EXTRAS_SCHEMA.md --
+// the same "confirmed Blender drops this, mirror it onto the root joint
+// instead" reasoning as `animation_data_names` (see DESIGN.md's "Blender-
+// survivable extras live on the skin's root joint, not the skin").
+inline constexpr int kExtrasSchemaVersion = 1;
+
 // Serializes `mesh` as a minimal glTF binary (.glb): one buffer holding
 // positions/normals/texCoords/indices, one mesh with one TRIANGLES
 // primitive per `mesh.primitives` entry, one node, one scene. Throws Error

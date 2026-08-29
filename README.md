@@ -819,6 +819,11 @@ per-machine-stable.
 
 ### Importing into Blender
 
+See `EXTRAS_SCHEMA.md` for the full index of every `extras` key husk
+attaches (where each one lives -- document/root-joint/material/primitive/
+node/animation -- what it carries, and which feature produces it), plus
+the `schema_version` this data is versioned under.
+
 Use **File > Import > glTF 2.0** with its default settings. That's the
 only import path this project's own real-interactive-use testing found to
 work correctly end to end (rest pose, animation playback, orientation,

@@ -56,6 +56,14 @@ std::vector<uint8_t> writeGlbMulti(const std::vector<NamedMesh>& meshes, const S
     tinygltf::Model model;
     model.asset.version = "2.0";
     model.asset.generator = "husk";
+    // Always present, regardless of whether this export has a skeleton at
+    // all -- unlike every other husk extras key (all merged onto the
+    // skin's root joint, gltf_skeleton.cpp), which needs a real skin to
+    // exist. See kExtrasSchemaVersion's own doc comment (gltf.hpp) for why
+    // this is versioned separately from the husk binary, and
+    // EXTRAS_SCHEMA.md for the full key index this version number covers.
+    model.asset.extras =
+        tinygltf::Value(tinygltf::Value::Object{{"schema_version", tinygltf::Value(kExtrasSchemaVersion)}});
 
     tinygltf::Buffer buffer;
     std::vector<tinygltf::BufferView> views;

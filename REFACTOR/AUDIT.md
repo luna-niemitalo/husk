@@ -245,15 +245,6 @@ because there is no model in which to state the relationship declaratively —
   that carrier by *scanning bones for known husk key names*
   (`_root_joint_extras`), because post-import bone order does not match glTF
   joint order (242/358 mismatches measured on a real 245-bone character).
-- **No schema version anywhere.** 13 root-joint extras keys
-  (`bone_correction_sets`, `chr_customization_options`, `chr_enabled_materials`,
-  `chr_texture_layout`, `creature_enabled_geosets`, `enabled_geosets`,
-  `gear_items`, `gear_section_overlays`, `joint_names`, `particle_emitters`,
-  `physics_bodies`, `physics_joints`, `ribbon_emitters`) plus 34 material and
-  primitive extras keys, and no index document listing them. The only producer
-  marker in the whole file is `model.asset.generator = "husk"`
-  (`gltf.cpp:58`).
-
 ---
 
 ## 4. Blender-side coupling — every item violates I3

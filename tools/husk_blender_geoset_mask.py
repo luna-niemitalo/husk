@@ -367,6 +367,14 @@ import bmesh
 import bpy
 import mathutils
 
+# The husk `extras` schema version this script was written against (see
+# `EXTRAS_SCHEMA.md`, and `kExtrasSchemaVersion`'s own doc comment,
+# src/gltf.hpp, for what "schema" means here -- the shape/naming of the
+# extras keys, not the husk binary's own version). `check_schema_version`
+# only ever prints -- see its own doc comment for why a hard reject is
+# wrong here.
+EXPECTED_EXTRAS_SCHEMA_VERSION = 1
+
 GROUP_PREFIX = "group_"
 VARIANT_PREFIX = "variant_"
 NONE_ITEM_NAME = "none"
@@ -843,6 +851,59 @@ def _deep_copy_id_property(value):
     if isinstance(value, list):
         return [_deep_copy_id_property(v) for v in value]
     return value
+
+
+def check_schema_version(armature_obj):
+    """Reads `schema_version` from the root-joint extras (see
+    `_root_joint_extras`) and prints a one-line diagnostic comparing it
+    against `EXPECTED_EXTRAS_SCHEMA_VERSION` -- informational only, never
+    raises, and never blocks any later stage. Three real cases:
+
+    - Missing entirely: a `.glb` exported before this field existed (every
+      real fixture exported before this session). Every other `read_*`
+      function here already treats each of its own keys as independently
+      optional (`chr_texture_layout`/`physics_bodies`/etc. all check for
+      `None`/absence rather than assuming presence) -- there is nothing to
+      gate on, so this just says so and moves on.
+    - Older than expected: fine by construction. A version bump only ever
+      means "a key changed shape/meaning in a way old readers should know
+      about" (see `EXTRAS_SCHEMA.md`'s own header) -- this script's own
+      `EXPECTED_EXTRAS_SCHEMA_VERSION` says what it was written against,
+      and every real key read below already degrades gracefully when
+      absent, so an older file just has fewer/older-shaped keys, not a
+      broken one.
+    - Newer than expected: this script may be older than the exporter that
+      produced the file -- printed loudly since a key this script doesn't
+      know about yet could carry data worth updating this script for, but
+      still not fatal: an unrecognized key is simply never read, matching
+      JSON's own "unknown keys are ignored" convention every consumer here
+      already relies on.
+
+    A hard reject was considered and rejected: this project has real
+    already-exported `.glb`s with no `schema_version` at all, and rejecting
+    those outright would make this script strictly less useful than just
+    not checking at all.
+    """
+    found = _root_joint_extras(armature_obj).get("schema_version")
+    if found is None:
+        print("husk_blender_geoset_mask: no schema_version extras found (exported before this "
+              f"field existed) -- reading as best-effort against schema version "
+              f"{EXPECTED_EXTRAS_SCHEMA_VERSION}, this script's own baseline")
+    elif found > EXPECTED_EXTRAS_SCHEMA_VERSION:
+        print(f"husk_blender_geoset_mask: file schema_version {found} is newer than this script's "
+              f"own {EXPECTED_EXTRAS_SCHEMA_VERSION} -- some extras keys may not be recognized, "
+              "consider updating this script")
+    elif found < EXPECTED_EXTRAS_SCHEMA_VERSION:
+        print(f"husk_blender_geoset_mask: file schema_version {found} is older than this script's "
+              f"own {EXPECTED_EXTRAS_SCHEMA_VERSION} -- reading as best-effort, every read_* "
+              "function here already tolerates missing/older-shaped keys")
+    else:
+        # The common case -- printed too, not just the mismatch cases, so a
+        # run's own log can confirm this check actually happened rather
+        # than looking identical to a script too old to have it at all.
+        print(f"husk_blender_geoset_mask: schema_version {found} matches this script's own "
+              f"{EXPECTED_EXTRAS_SCHEMA_VERSION}")
+    return found
 
 
 def _joint_bone_names_from_extras(armature_obj):
@@ -3440,6 +3501,7 @@ def main():
               "equipped items; case 2/object-skin overlay isn't rendered by this script yet, see "
               "TODO/EQUIPPED_GEAR_RENDER_TODO.md)")
 
+    _run_stage(model_name, "schema version check", lambda: check_schema_version(armature_obj))
     _run_stage(model_name, "geoset switch", geoset_stage)
     _run_stage(model_name, "billboard alignment", billboard_stage)
     _run_stage(model_name, "texture-layout overlay", texture_layout_overlay_stage)

@@ -250,6 +250,14 @@ SkeletonEmission emitSkeletonAndSkin(const Skeleton* skeleton, bool hasSkeleton,
         jointNames.emplace_back(name);
     }
     skinExtras["joint_names"] = tinygltf::Value(jointNames);
+    // Mirrors `model.asset.extras.schema_version` (gltf.cpp) -- see
+    // kExtrasSchemaVersion's own doc comment (gltf.hpp) for why both
+    // places carry it. Unconditional, same reasoning as `joint_names`
+    // above: `_root_joint_extras` (tools/husk_blender_geoset_mask.py)
+    // needs at least one always-present key to find the carrier bone on a
+    // model whose only other real extras happen to be, say, one
+    // billboard-tagged joint elsewhere.
+    skinExtras["schema_version"] = tinygltf::Value(kExtrasSchemaVersion);
     auto resolveBoneName = [&jointNameByIndex](int joint) -> std::string {
         return (joint >= 0 && static_cast<size_t>(joint) < jointNameByIndex.size()) ? jointNameByIndex[joint]
                                                                                      : std::string();

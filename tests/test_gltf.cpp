@@ -57,6 +57,18 @@ TEST_CASE("writeGlbMulti: one node (with its own mesh) per entry, named and scen
     CHECK(model.scenes[model.defaultScene].nodes[1] == 1);
 }
 
+TEST_CASE("writeGlbMulti: asset.extras.schema_version is always present, even for a skeleton-less "
+          "mesh-only export with no root joint to mirror it onto (EXTRAS_SCHEMA.md)") {
+    husk::gltf::NamedMesh a{"lod0", buildTriangleMesh(), {}};
+    auto glb = husk::gltf::writeGlbMulti({a});
+    auto model = loadBack(glb);
+
+    REQUIRE(model.skins.empty());  // the case that rules out a root-joint mirror entirely
+    REQUIRE(model.asset.extras.IsObject());
+    REQUIRE(model.asset.extras.Has("schema_version"));
+    CHECK(model.asset.extras.Get("schema_version").GetNumberAsInt() == husk::gltf::kExtrasSchemaVersion);
+}
+
 TEST_CASE("writeGlbMulti: empty meshes throws") {
     CHECK_THROWS_AS(husk::gltf::writeGlbMulti({}), husk::gltf::Error);
 }
@@ -80,6 +92,20 @@ TEST_CASE("writeGlbMulti: empty meshes with a skeleton that has no joints throws
           "skeleton at all -- nothing to fall back to)") {
     husk::gltf::Skeleton emptySkel;
     CHECK_THROWS_AS(husk::gltf::writeGlbMulti({}, &emptySkel), husk::gltf::Error);
+}
+
+TEST_CASE("writeGlbMulti: asset.extras.schema_version and the root joint's own schema_version "
+          "mirror never drift -- one kExtrasSchemaVersion constant, two writes (EXTRAS_SCHEMA.md)") {
+    auto skel = buildChainSkeleton();
+    auto glb = husk::gltf::writeGlbMulti({}, &skel);
+    auto model = loadBack(glb);
+
+    REQUIRE(model.asset.extras.Has("schema_version"));
+    REQUIRE(model.skins.size() == 1);
+    const auto& rootExtras = model.nodes[model.skins[0].joints[0]].extras;
+    REQUIRE(rootExtras.Has("schema_version"));
+    CHECK(model.asset.extras.Get("schema_version").GetNumberAsInt() ==
+          rootExtras.Get("schema_version").GetNumberAsInt());
 }
 
 TEST_CASE("writeGlbMulti: each entry's materials are numbered locally, remapped into one shared "
