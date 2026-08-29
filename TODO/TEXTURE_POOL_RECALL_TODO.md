@@ -533,6 +533,24 @@ is not evidence of improvement either. **Every untagged texture type now
 picks arbitrarily from a much wider pool than before** — that is the main
 risk this change introduces and it is not covered by any test.
 
+**3. Output size moves hard in both directions, because every ambiguous
+candidate is embedded as an `alternate_textures` extra.** Measured on the
+same two models — material count and embedded-render-texture count are
+identical before and after in both cases, so this is entirely diagnostic
+payload, not render content:
+
+| model | before | after |
+|---|---|---|
+| `bloodelffemale_hd` | 109 MB | **201 MB** (+84%) |
+| `bloodelffemale` | 128 MB | **24 MB** (−81%) |
+
+The non-HD drop is the `_hd` partition working exactly as intended — ~463
+inapplicable candidates are no longer embedded. The HD growth is the
+widened gate, and 201 MB for one character is a real usability problem for
+Blender import. Narrowing the candidate set (steps 2 and 3 below) shrinks
+this automatically; capping or dropping `alternate_textures` for very
+large pools is the separate lever if it does not.
+
 ## Steps
 
 1. **Make `Catalog::texture()` try a new DB2-character tier between tier 2
