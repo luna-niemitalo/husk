@@ -183,12 +183,8 @@ test coverage elsewhere in `tests/` (`test_cli_gear_export.cpp` for
 `ribbon_emitters`/`particle_emitters`, `test_gltf_skeleton.cpp`/
 `test_integration.cpp` for `bone_correction_sets`, `test_gltf_skeleton.cpp`/
 `test_integration_lights.cpp` for the Light anchor keys). Two exceptions,
-found while writing this document, are worth flagging directly: neither
-`creature_enabled_geosets` nor `animation_data_names` has any test
-anywhere in `tests/` referencing that literal key (or the C++ types behind
-them, `CreatureEnabledGeoset`/`animationDataName`) — both are real,
-shipped, code-verified features (see `CLAUDE_HISTORY.md`'s entries on
-`--creature-display-id` and `AnimationData.db2` names), just not covered
-by this project's own regression suite. Not fixed here — out of this
-document's own scope — but a real gap this audit surfaced, not assumed
-covered.
+found while writing this document, are worth flagging directly:
+`creature_enabled_geosets` and `animation_data_names` are both covered by
+`tests/test_cli_creature_geosets.cpp` and `tests/test_cli_animationdata.cpp`
+— four test cases each, asserting the real extras key on the skin's root
+joint plus the negative "flag not given, key absent" case.
