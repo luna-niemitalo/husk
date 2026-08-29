@@ -181,3 +181,75 @@ TEST_CASE("husk export with no --db2-dir/--dbd-dir: sequence_metadata has no "
 
     fs::remove_all(dir);
 }
+
+TEST_CASE("husk export --db2-dir/--dbd-dir: animation_data_names root-level object on skin's root "
+          "joint node extras maps animation machine names to their real AnimationData.db2 names, end "
+          "to end") {
+    auto dir = defaultsDir("animdatanamesroot");
+    writeFile(dir / "animdatanamesroot.m2", tinyAnimatedM2());  // 1 inline sequence, id=100
+    writeFile(dir / "animdatanamesroot00.skin", tinyMatchingSkin());
+    // Need a skeleton for extras to attach to the root joint
+    writeFile(dir / "animdatanamesroot.skel", boneCorrectionSkel());
+
+    fs::path db2Dir = dir / "db2";
+    fs::path dbdDir = dir / "dbd";
+    fs::create_directories(db2Dir);
+    fs::create_directories(dbdDir / "definitions");
+
+    const uint32_t kAnimHash = 0x61616161;
+    const uint32_t kAnimLayoutHash = 0x62626262;
+
+    writeTextFile(dbdDir / "manifest.json",
+                  "[\n  {\"tableName\": \"AnimationData\", \"tableHash\": \"61616161\"}\n]\n");
+    writeTextFile(dbdDir / "definitions" / "AnimationData.dbd",
+                  "COLUMNS\nint ID\nstring Name\n\n"
+                  "LAYOUT 62626262\nBUILD 1.0.0.1\n$id$ID<32>\nName\n");
+
+    // Sequence 100 (tinyAnimatedM2's own id) gets the name "Idle"; sequence 999
+    // is unrelated noise, proving lookup is by id, not by table position.
+    writeFile(db2Dir / "animationdata.db2",
+              buildAnimationDataDb2(kAnimHash, kAnimLayoutHash, {{100, "Idle"}, {999, "Walk"}}));
+
+    auto result = runHusk("export " + (dir / "animdatanamesroot.m2").string() +
+                          " --skin " + (dir / "animdatanamesroot00.skin").string() +
+                          " --db2-dir " + db2Dir.string() +
+                          " --dbd-dir " + dbdDir.string());
+    CHECK(result.exitCode == 0);
+
+    fs::path glbPath = dir / "animdatanamesroot.glb";
+    REQUIRE(fs::exists(glbPath));
+    std::ifstream glb(glbPath, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(glb)), std::istreambuf_iterator<char>());
+
+    // The root-level animation_data_names object should map animation names to their real DB2 names
+    CHECK(bytes.find("\"animation_data_names\"") != std::string::npos);
+    CHECK(bytes.find("\"anim_100_0\":\"Idle\"") != std::string::npos);
+    // Unmatched sequence 999 name should not appear
+    CHECK(bytes.find("Walk") == std::string::npos);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("husk export without --db2-dir/--dbd-dir: animation_data_names root-level object is not "
+          "attached to the root joint extras") {
+    auto dir = defaultsDir("animdatanamesrootnodb2");
+    writeFile(dir / "animdatanamesrootnodb2.m2", tinyAnimatedM2());
+    writeFile(dir / "animdatanamesrootnodb200.skin", tinyMatchingSkin());
+    writeFile(dir / "animdatanamesrootnodb2.skel", boneCorrectionSkel());
+
+    auto result = runHusk("export " + (dir / "animdatanamesrootnodb2.m2").string() +
+                          " --skin " + (dir / "animdatanamesrootnodb200.skin").string());
+    CHECK(result.exitCode == 0);
+
+    fs::path glbPath = dir / "animdatanamesrootnodb2.glb";
+    REQUIRE(fs::exists(glbPath));
+    std::ifstream glb(glbPath, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(glb)), std::istreambuf_iterator<char>());
+
+    // Without DB2 data, the root-level animation_data_names should not be attached
+    // (note: individual sequence_metadata.animation_data_name also won't be there, but
+    // we're specifically checking for the root-level object here)
+    CHECK(bytes.find("\"animation_data_names\"") == std::string::npos);
+
+    fs::remove_all(dir);
+}
