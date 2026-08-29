@@ -56,6 +56,42 @@ reality here (`texturefiledata.db2`, `chrcustomization*.db2`). Falling back to
 "files tagged `tattoo`" degrades far better than "files starting with the model
 name" — a wrong tattoo beats a face texture on the eyeballs.
 
+## Tags are a filter set, not a classification
+
+A file carries a *set* of tokens; a query is a **conjunction** of the tokens
+implied by what is being looked for. One tag per texture type does not work,
+because the coarse tokens are shared across disjoint subcategories — measured
+in `character/bloodelf/female/`:
+
+| query | pool |
+|---|---|
+| `skin` | 154 |
+| `skin` + `color` | **12** |
+| `skin` + `pelvis` | 40 |
+| `skin` + `torso` | 40 |
+| `skin` + `naked` | 80 (= pelvis 40 + torso 40) |
+| `hair` + `color` | 5 |
+| `scalp` + `upper` | 14 (`scalp` + `lower` = 0 — scalp is always upper) |
+| `tattoo` + `_e` | 36 of 72 (clean binary variant axis) |
+
+So `naked` is a parent of `torso`/`pelvis`, and `color` is an orthogonal axis
+crossing them. A single tag is a coarse gate; the intersection is the query.
+The query's tokens come from two places husk already has: the slot's own
+texture type, and (with DB2) the `ChrCustomizationOption` name — "Skin Color"
+yields `skin` + `color`, which is exactly the 12-file pool.
+
+## HD/non-HD is a hard partition, not a preference
+
+389 of the 415 ground-truth files carry `_hd`. There are 210 `facelower` files
+in the folder, **none** `_hd`, and **none** in the HD model's ground truth —
+`facelower` is a non-HD-only concept. Ground truth by token: 246 faceupper,
+0 facelower, 60 skin, 36 tattoo, 30 naked, 29 hair, 19 eye, 13 scalp, 2 jewel.
+
+So `_hd` filtering for an `_hd` model is more correct than the 98.6% → 89.9%
+recall figure suggests: most of what it drops is art that model genuinely does
+not use. Do not treat the recall cost as pure loss without checking which
+files it actually removes.
+
 ## Steps
 
 1. **Derive the tag vocabulary from the corpus, not by hand.** The prototype's
@@ -63,9 +99,12 @@ name" — a wrong tattoo beats a face texture on the eyeballs.
    returned 0 candidates because those textures live with items). Do it the way
    `stripRaceGenderSuffix`'s race codes were derived: frequency-count tokens
    across a real extraction, keep only high-occurrence ones, record the counts.
+   Derive *co-occurrence* too, not just frequency — the parent/child and
+   orthogonal-axis structure above is what makes conjunctions work, and it is
+   not guessable from a token list alone.
 2. **Make `Catalog::texture()` prefer the DB2-resolved FileDataID for character
    models** before any pool tier runs.
-3. **Replace the pool's `startswith` gate with the tag gate**, keeping the
+3. **Replace the pool's `startswith` gate with a tag-conjunction query**, keeping the
    existing per-type filter. Expect pool sizes to *grow* for broad tags (face
    750, skin 139) and shrink for narrow ones (hair 27, eyes 13, jewelry 8) —
    size is the wrong metric, recall is the right one.
@@ -73,8 +112,10 @@ name" — a wrong tattoo beats a face texture on the eyeballs.
    slot" property comes from type compatibility instead, and the failure mode it
    causes today (permanent deletion from an already-starved pool) is worse than
    the problem it solves.
-5. **Apply `_hd` discipline per model variant**, not globally: it costs recall
-   (98.6% → 89.9%) but removes the base model's 49.6% false-positive rate.
+5. **Apply `_hd` discipline per model variant**, not globally — see the
+   partition section above: the headline 98.6% → 89.9% recall cost is mostly
+   art the `_hd` model genuinely does not use, and it removes the base model's
+   49.6% false-positive rate.
 6. **Re-run the resolution-ledger diff** (`husk export --explain-textures` /
    `husk resolve`, `REFACTOR/README.md`'s stage-1 gate). Every delta attributed;
    deltas here are expected and are the point.
