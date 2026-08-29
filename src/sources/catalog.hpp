@@ -74,6 +74,42 @@ struct TextureModelContext {
     uint16_t textureSlotIndex = 0;
 };
 
+// The data a DB2-character texture tier between listfile and the fuzzy pool
+// needs, already resolved by the caller before `Catalog::texture()` is ever
+// asked about a slot -- `cmd_export.cpp` already runs
+// `attachCharTextureLayout`/`attachCustomizationChoices` (into
+// `gltf::Skeleton::charTextureLayout`/`enabledMaterials`) ahead of the LOD
+// build loop that owns this `Catalog` instance, so this struct is built
+// from that output rather than a second DB2 load or a reimplementation of
+// `chrcustomization::resolveChoice`'s own relatedChoiceId filtering --
+// `sources::` stays free of any DB2/gltf dependency of its own, and the one
+// real place that chain is resolved stays the one place it's resolved (I2).
+// Both maps are already scoped to this model's own real
+// `CharComponentTextureLayoutsID`/resolved `ChrCustomizationChoiceID`
+// selection -- `Catalog` does no further scoping of its own.
+struct CharacterTextureContext {
+    // M2 textureType -> ChrModelTextureTargetID, present only for a
+    // (this model's layout, textureType) pair with exactly one live
+    // `ChrModelTextureLayer` row. This has to be a real per-model runtime
+    // count, not a hardcoded list of "known good" types: a character skin
+    // (type 1) can carry over a dozen independently-selectable texture
+    // layers tiling one shared atlas (Skin Color, Face, Hair Style, Tattoo
+    // Color, Bracelets, ...), so there is no single fdid to prefer for it,
+    // and other types that happen to carry only one layer on one model's
+    // layout are not guaranteed to elsewhere -- only a model's own live row
+    // count can tell the two cases apart. Absent for every other type.
+    std::unordered_map<uint32_t, uint32_t> singleLayerTargetByTextureType;
+    // ChrModelTextureTargetID -> resolved real texture FileDataID, from
+    // this export's own resolved customization choices -- already filtered
+    // for Element::relatedChoiceId conditions and resolved through
+    // texturefiledata.db2 (see export_extras.cpp's attachCustomizationChoices).
+    // A target present here with `fileDataId == 0` is a real, distinct miss
+    // (a material element exists but TextureFileData.db2 didn't resolve
+    // it) -- never silently dropped, but never treated as a fdid to try
+    // either (fdid 0 has no literal/listfile answer by construction).
+    std::unordered_map<uint32_t, uint32_t> fileDataIdByTarget;
+};
+
 // Constructed once per export (or once per `--from-list` batch -- never per
 // model; per-model state lives inside the catalog, keyed by
 // `TextureModelContext::modelPath`, not in the object's own lifetime).
@@ -82,12 +118,26 @@ public:
     Catalog(std::string texturesDir, std::unordered_map<uint32_t, std::string> listfile, std::string listfileRoot,
             std::string texturesOutDir);
 
+    // Opt-in, best-effort DB2-character tier (see `CharacterTextureContext`'s
+    // own doc comment) -- absent by default, a clean no-op for every model
+    // this wasn't set for (most models, most invocations have no derivable
+    // player-character identity at all). Applies to every slot this
+    // `Catalog` resolves from here on, not per-model scoped -- one `Catalog`
+    // instance is already one model export (see the class's own doc comment
+    // above), so there is only ever one real context to set.
+    void setCharacterTextureContext(CharacterTextureContext ctx);
+
     // RESOURCE_CATALOG.md's "Normative tier order", the real object owning
     // it: literal `<texturesDir>/<fdid>.{png,blp}` -> `--listfile` ->
+    // DB2-character (opt-in, see `setCharacterTextureContext`) ->
     // same-basename fuzzy pool (claim-and-remove, now catalog-owned --
     // RESOURCE_CATALOG.md's Settled section, "Tier 3's shape": the three-way
     // branch a caller used to see -- claimed-and-read / nothing-claimed-so-
     // scan-for-ambiguity / 2+ candidates -- collapses into this one call).
+    // The DB2-character tier produces a fdid, never bytes of its own --
+    // read via the same `resolveLiteralTier`/`resolveListfileTier` calls
+    // tier 1/2 already make (never a fourth way to turn a fdid into bytes),
+    // just against a DB2-derived fdid instead of the slot's own M2 one.
     //
     // Deliberately does NOT include:
     // - Tier 4 (parent-directory same-basename). Blender-script-only today
@@ -167,6 +217,7 @@ private:
     ModelState& stateForModel(const TextureModelContext& model);
     Resolved<EncodedTexture> resolveLiteralTier(uint32_t fdid) const;
     Resolved<EncodedTexture> resolveListfileTier(uint32_t fdid) const;
+    Resolved<EncodedTexture> resolveDb2CharacterTier(uint32_t textureType) const;
     Resolved<EncodedTexture> resolveFuzzyTier(ModelState& state, uint32_t textureType,
                                                const std::string& modelPath, bool preferGlowVariant);
     // `--listfile-root` keeps defaulting to `--textures` (RESOURCE_CATALOG.md's
@@ -178,6 +229,7 @@ private:
     std::string listfileRoot_;
     std::string texturesOutDir_;
     std::unordered_map<uint32_t, std::string> pathOverrides_;
+    std::optional<CharacterTextureContext> characterContext_;
 
     std::unordered_map<std::string, ModelState> modelStates_;
     // Shared across every model this catalog instance ever resolves an

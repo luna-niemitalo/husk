@@ -565,30 +565,62 @@ Extending it there keeps every candidate available as a real file next to
 the `.glb`, dedupes through the existing `alternateTextureCache`, and
 costs no diagnostic fidelity. Tracked as its own item below.
 
+## Step 1 findings (2026-08-29): the DB2-character tier, real deltas, and why the eyes slot didn't move
+
+Implemented as `sources::CharacterTextureContext` + `Catalog::resolveDb2CharacterTier`
+(`src/sources/catalog.hpp`/`.cpp`), reusing already-resolved
+`gltf::Skeleton::charTextureLayout`/`enabledMaterials` (populated upstream by
+`attachCharTextureLayout`/`attachCustomizationChoices`, `cmd_export.cpp`) via
+a new `buildCharacterTextureContext` reduction
+(`src/export_materials.hpp`/`.cpp`) instead of a second DB2 load or a
+reimplementation of `chrcustomization::resolveChoice`'s own `relatedChoiceId`
+filtering — `sources::` stays free of any DB2 dependency of its own, and the
+one real place that chain is resolved stays the one place it's resolved (I2).
+The tier itself does no scoping of its own: `buildCharacterTextureContext`
+hands it two already-scoped maps (`textureType -> target` for exactly-one-row
+types, `target -> fileDataId` from the resolved choice selection), and the
+tier tries the DB2-derived fdid through the same `resolveLiteralTier`/
+`resolveListfileTier` calls tier 1/2 already use — never a fourth way to turn
+an fdid into bytes.
+
+**Real ledger delta**, `bloodelffemale_hd.m2`: exactly one slot changed —
+type 20 (char_jewelry), target 38, `fuzzy-same-basename-pool` (2 alternates,
+defaulted to `..._jewelry_color_3613861.blp`) → `db2-character` HIT, same
+FileDataID (3613861), same bytes. A real tier-precedence change with an
+incidentally identical answer, exactly as Q3 predicted. Verified against the
+real compiled binary (not reasoned about); `gnoll2.m2` and
+`12be_bloodelf_crafting_brush01.m2` (non-character) are byte-for-byte
+identical to a HEAD-only build with this change stashed out — the tier is a
+provable no-op for non-character models.
+
+**Two slots that stay on `fuzzy-same-basename-pool`, confirmed correct, not
+gaps**: type 6 (char_hair) and type 9 (ui_skin/blindfold) both have exactly
+one live target on this model's layout, but their real resolved default
+choices carry no material element at all (Hair Color, Blindfold "None" — see
+the Q3 table) — condition 2/3 genuinely fails, so the tier misses as
+designed and falls through unchanged.
+
+**Type 19 (char_eyes) also stays on `fuzzy-same-basename-pool` — and should**,
+contrary to a naive reading of "the DB2 default names FileDataID 3492879, so
+this slot should change." Confirmed directly against `chrmodeltexturelayer.db2`
+(`CharComponentTextureLayoutsID=122, TextureType=19` → 2 real rows, targets
+25 and 44) that this model's own layout genuinely has 2 live targets for
+type 19, matching Q1's own corpus measurement exactly. The tier's "exactly
+one row" gate — mandated by this section's own design, precisely to avoid
+guessing among skin's 13 targets — correctly excludes it. Target 25 alone
+would resolve cleanly (per Q3), but the gate doesn't inspect individual
+targets in isolation; it requires the *type* to be unambiguous first. Firing
+anyway would mean special-casing away the exact safety property this tier
+exists for.
+
+New tests: `tests/test_sources_resource_catalog.cpp` (7 cases on
+`Catalog::texture`'s new tier — no-op unset, no-op empty context, fires and
+outranks the fuzzy pool, each of the three miss conditions, and tier-1
+precedence; 3 cases on `buildCharacterTextureContext`'s own reduction).
+
 ## Steps
 
-1. **Make `Catalog::texture()` try a new DB2-character tier between tier 2
-   (listfile) and tier 3 (fuzzy pool), scoped to exactly the case it's proven
-   correct for**: given the model's real `CharComponentTextureLayoutsID`
-   (already resolved upstream, same as `--char-layout-id`/`--chr-model-id`
-   today) and the slot's own `textureType`, look up the live
-   `ChrModelTextureLayer` rows for that (layout, type) pair from already-loaded
-   `chrmodel::Data`. Fire *only* when that count is exactly 1 (a runtime
-   check, never a hardcoded type list — see the Q1/Q4 findings above for why
-   type 1/skin fails this on ~85% of real layouts, and why 6/9/20 pass it on
-   this model but aren't guaranteed to elsewhere), *and* a
-   `ChrCustomizationChoiceID` is resolved for whichever option feeds that
-   target (explicit `--customization-choice-ids`, or the existing
-   `defaultChoiceIdsForModel` heuristic), *and* `resolveChoice` for that
-   choice actually yields a material for that target (it may not — see the
-   Hair Color/Blindfold default-choice gaps in the Q3 table). Any of those
-   three conditions failing is a normal, expected miss for this tier, not an
-   error — fall through to tier 3 exactly as tier 1/2 already do. Needs new
-   plumbing on `Catalog` (an optional injected `chrcustomization::Data` +
-   `chrmodel::Data` + resolved choice map — `Catalog::texture()`'s current
-   signature has no DB2 handle at all), not a one-line change inside the
-   existing tiers.
-2. **Rank the candidate set — it is now the binding constraint.** The set
+1. **Rank the candidate set — it is now the binding constraint.** The set
    fix landed; the picker did not. Measured: the non-HD skin slot has 26 real
    `nakedtorsoskin`/`nakedpelvisskin` files among its candidates and
    `orderCandidatesForDefault` still ranks `bloodelf_female_dh_tattoo_00.blp`
@@ -596,14 +628,14 @@ costs no diagnostic fidelity. Tracked as its own item below.
    built for a 94-candidate starved pool and is now choosing among hundreds.
    This is the highest-value remaining item: the right answer is reachable for
    the first time and is not being picked.
-3. **Constrain the widened pool for untagged texture types.** Types with no
+2. **Constrain the widened pool for untagged texture types.** Types with no
    tag clause (`object_skin` and every non-character replaceable type) fall
    back to the old category filter but still inherit the *widened scan gate*,
    so they now pick arbitrarily from a much larger set — HD `object_skin` went
    from 3 candidates to 386. No test covers this and no evidence says the new
    picks are better. Either give those types a real clause, or keep the narrow
    gate for types that have none.
-4. **Decide claim-and-remove on measured behavior, not its stated purpose.**
+3. **Decide claim-and-remove on measured behavior, not its stated purpose.**
    It does **not** currently provide the "one image can't fill every slot"
    property it is described as providing: `Catalog::resolveFuzzyTier` only
    erases from the pool in the `matching.size() == 1` branch, so the ambiguous
@@ -612,7 +644,7 @@ costs no diagnostic fidelity. Tracked as its own item below.
    same file before this change. Removing it is therefore close to a no-op for
    the ambiguous path; the real question is whether the sole-candidate branch's
    depletion is worth keeping on its own.
-5. **Extend `--slim-textures` to `alternate_textures` and the additional
+4. **Extend `--slim-textures` to `alternate_textures` and the additional
    texture layers.** Today it externalizes only the base-color image;
    `cand.imagePng` and `layer.imagePng` (`gltf_mesh.cpp`) both
    `appendBufferView` unconditionally, ignoring `slimTexturesOutputDir`.
@@ -620,7 +652,7 @@ costs no diagnostic fidelity. Tracked as its own item below.
    covering them makes pool width cost disk next to the `.glb` rather than
    `.glb` size, with no loss of diagnostic coverage. Reuses the existing
    `alternateTextureCache` for dedup and `writeSlimTextureFile` for naming.
-6. **Re-run the resolution-ledger diff** (`husk export --explain-textures` /
+5. **Re-run the resolution-ledger diff** (`husk export --explain-textures` /
    `husk resolve`, `REFACTOR/README.md`'s stage-1 gate) after each of the
    above, the same way the "Step 3/5 findings" section already did. Every
    delta attributed; deltas here are expected and are the point.

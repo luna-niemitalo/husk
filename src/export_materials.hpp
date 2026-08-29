@@ -116,6 +116,17 @@ struct CustomizationNameEntry {
 std::unordered_map<uint32_t, CustomizationNameEntry> buildCustomizationNameLookup(
     const gltf::Skeleton& skeleton);
 
+// Reduces `skeleton.charTextureLayout`/`enabledMaterials` (already resolved
+// by `attachCharTextureLayout`/`attachCustomizationChoices`, cmd_export.cpp)
+// into the two plain maps `sources::Catalog`'s DB2-character tier needs --
+// see `sources::CharacterTextureContext`'s own doc comment for why this
+// reads already-resolved skeleton extras instead of a second DB2 load or a
+// reimplementation of `chrcustomization::resolveChoice`'s own filtering.
+// Empty maps (a harmless no-op `CharacterTextureContext`) when either
+// skeleton field is empty -- same "absence means this feature is unused"
+// convention as buildCustomizationNameLookup above.
+sources::CharacterTextureContext buildCharacterTextureContext(const gltf::Skeleton& skeleton);
+
 // Everything buildMaterialsAndPrimitives needs out of the M2 itself (as
 // opposed to the .skin file's own submeshes/batches) to resolve one batch
 // into a real glTF material -- bundled since the M2 side alone is seven

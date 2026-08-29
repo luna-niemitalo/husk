@@ -1124,6 +1124,12 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             // attaches new '.bone' data of its own.
             attachCustomizationChoices(db2Dir, dbdDirForChr, customizationChoiceIdsArg, chrModelIdArg, modelPath,
                                         listfile, listfileRoot, skeleton);
+            // Feeds sources::Catalog's opt-in DB2-character texture tier --
+            // must run after both attach calls above, since it reads their
+            // output (charTextureLayout/enabledMaterials), not DB2 data of
+            // its own. A clean no-op when neither populated anything (no
+            // derivable ChrModelID, or --db2-dir/--dbd-dir weren't given).
+            catalog.setCharacterTextureContext(buildCharacterTextureContext(skeleton));
             attachCreatureGeosets(db2Dir, dbdDirForChr, creatureDisplayIdArg, skeleton);
             attachGearAppearance(db2Dir, dbdDirForChr, gearEntries, skeleton);
             exportGearAuxItemModels(skeleton, listfile, listfileRoot, outputPath);

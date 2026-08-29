@@ -9,10 +9,12 @@
 #include <filesystem>
 #include <fstream>
 
+#include "../src/export_materials.hpp"
 #include "../src/export_texture_resolution.hpp"
 #include "../src/sources/catalog.hpp"
 
 using husk::sources::Catalog;
+using husk::sources::CharacterTextureContext;
 using husk::sources::ResolutionTier;
 using husk::sources::TextureModelContext;
 
@@ -319,4 +321,186 @@ TEST_CASE("Catalog::texture: an '_hd' model never draws non-'_hd' art either -- 
     REQUIRE(r.found());
     CHECK(r.alternates.empty());
     CHECK(r.value->matchedFilename == "elfmale_hd_skin_color_1000.png");
+}
+
+// The DB2-character tier -- opt-in via setCharacterTextureContext, ranked
+// between tier 2 (listfile) and tier 3 (fuzzy pool). Below: the clean no-op
+// (feature unused), the real fires-correctly case (reproducing
+// bloodelffemale_hd's own jewelry slot), and each of the three independent
+// miss conditions (no single-layer target for this type, no resolved
+// choice feeding that target, resolved but with fileDataId 0).
+
+TEST_CASE("Catalog::texture: setCharacterTextureContext never called is a clean no-op -- "
+          "every model/invocation without --db2-dir/--dbd-dir behaves exactly as before this "
+          "tier existed, falling straight through to the fuzzy pool") {
+    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-unset";
+    fs::create_directories(dir);
+    writeFile(dir / "mymodel_9999.png", kPng);
+
+    Catalog cat(dir.string(), {}, "", "");
+    auto r = cat.texture(0, /*textureType=*/999, ctxFor((dir / "mymodel.m2").string()));
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);
+}
+
+TEST_CASE("Catalog::texture: an explicitly-set but empty CharacterTextureContext is also a "
+          "clean no-op -- absence of a matching entry, not the absence of the struct itself, "
+          "is what makes this tier miss") {
+    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-empty";
+    fs::create_directories(dir);
+    writeFile(dir / "mymodel_9999.png", kPng);
+
+    Catalog cat(dir.string(), {}, "", "");
+    cat.setCharacterTextureContext(CharacterTextureContext{});
+    auto r = cat.texture(0, /*textureType=*/999, ctxFor((dir / "mymodel.m2").string()));
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);
+}
+
+TEST_CASE("Catalog::texture: the DB2-character tier fires when all three conditions hold, "
+          "reads the DB2-derived FileDataID via the normal literal tier, and outranks the fuzzy "
+          "pool even when the pool also has a type-compatible candidate -- reproduces the real "
+          "bloodelffemale_hd jewelry-slot delta (fuzzy pool's arbitrary pick happened to be the "
+          "same file, target 38 -> FileDataID 3613861)") {
+    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-fires";
+    fs::create_directories(dir);
+    writeFile(dir / "3613861.png", kPng);  // the DB2-derived fdid, resolved via tier 1 (literal)
+    std::vector<uint8_t> poolPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
+    writeFile(dir / "elfmale_jewelry_color_9999999.png", poolPng);  // a real, distinct fuzzy-pool candidate
+
+    Catalog cat(dir.string(), {}, "", "");
+    CharacterTextureContext ctx;
+    ctx.singleLayerTargetByTextureType[20] = 38;  // type 20 = char_jewelry, real target from Q1
+    ctx.fileDataIdByTarget[38] = 3613861;
+    cat.setCharacterTextureContext(ctx);
+
+    auto r = cat.texture(0, /*textureType=*/20, ctxFor((dir / "elfmale_hd.m2").string()));
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::Db2Character);
+    CHECK(r.value->bytes == kPng);
+    CHECK(r.value->imageName == "3613861");
+    // The fuzzy pool's own candidate was never touched -- this tier answers
+    // via tier 1/2 machinery, not tier 3, so the pool stays fully intact for
+    // whatever slot actually needs it.
+    CHECK(cat.remainingTexturePoolSize((dir / "elfmale_hd.m2").string()) == 0);
+}
+
+TEST_CASE("Catalog::texture: DB2-character tier misses (falls through to the fuzzy pool) when "
+          "the texture type has no single-layer target at all -- the real multi-layer-type case "
+          "(e.g. skin, or eyes on a layout with 2 live targets), never a hardcoded type list") {
+    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-miss-no-target";
+    fs::create_directories(dir);
+    writeFile(dir / "mymodel_1111.png", kPng);
+
+    Catalog cat(dir.string(), {}, "", "");
+    CharacterTextureContext ctx;
+    ctx.fileDataIdByTarget[38] = 3613861;  // a resolved material exists, but for a different target
+    cat.setCharacterTextureContext(ctx);
+
+    auto r = cat.texture(0, /*textureType=*/999, ctxFor((dir / "mymodel.m2").string()));
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);  // never Db2Character
+}
+
+TEST_CASE("Catalog::texture: DB2-character tier misses when the single-layer target has no "
+          "resolved customization choice feeding it -- e.g. Hair Color/Blindfold's real "
+          "'materials: null' default-choice gap") {
+    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-miss-no-choice";
+    fs::create_directories(dir);
+    writeFile(dir / "mymodel_1111.png", kPng);
+
+    Catalog cat(dir.string(), {}, "", "");
+    CharacterTextureContext ctx;
+    // textureType 999 -- not a real M2 type, no tag-conjunction clause, so
+    // the fuzzy-pool fallback below matches via the plain basename-prefix
+    // path; this test is about the DB2-tier's own miss condition, not tier
+    // 3's tag conjunction.
+    ctx.singleLayerTargetByTextureType[999] = 10;  // a target -- but no fileDataIdByTarget entry at all
+    cat.setCharacterTextureContext(ctx);
+
+    auto r = cat.texture(0, /*textureType=*/999, ctxFor((dir / "mymodel.m2").string()));
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);
+}
+
+TEST_CASE("Catalog::texture: DB2-character tier misses when the resolved material carries "
+          "FileDataID 0 -- a real material element exists, but texturefiledata.db2 didn't "
+          "resolve it, distinct from 'no material at all'") {
+    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-miss-fdid-zero";
+    fs::create_directories(dir);
+    writeFile(dir / "mymodel_1111.png", kPng);
+
+    Catalog cat(dir.string(), {}, "", "");
+    CharacterTextureContext ctx;  // textureType 999 -- see the previous test's own comment
+    ctx.singleLayerTargetByTextureType[999] = 10;
+    ctx.fileDataIdByTarget[10] = 0;  // resolved element, unresolved FileDataID
+    cat.setCharacterTextureContext(ctx);
+
+    auto r = cat.texture(0, /*textureType=*/999, ctxFor((dir / "mymodel.m2").string()));
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);
+}
+
+TEST_CASE("Catalog::texture: the DB2-character tier is never consulted when the slot's own M2 "
+          "fdid already resolves via tier 1/2 -- it sits strictly between listfile and the fuzzy "
+          "pool, not ahead of the deterministic tiers") {
+    auto dir = fs::temp_directory_path() / "husk-catalog-db2-character-tier1-wins";
+    fs::create_directories(dir);
+    writeFile(dir / "424242.png", kPng);  // the slot's own real fdid, resolves via tier 1
+
+    Catalog cat(dir.string(), {}, "", "");
+    CharacterTextureContext ctx;
+    ctx.singleLayerTargetByTextureType[1] = 5;
+    ctx.fileDataIdByTarget[5] = 999999;  // would resolve to a different file if consulted at all
+    cat.setCharacterTextureContext(ctx);
+
+    auto r = cat.texture(424242, /*textureType=*/1, ctxFor((dir / "mymodel.m2").string()));
+    REQUIRE(r.found());
+    CHECK(r.tier == ResolutionTier::Literal);
+}
+
+// buildCharacterTextureContext (export_materials.hpp/.cpp) -- the reduction
+// that feeds setCharacterTextureContext above, built from the same
+// gltf::Skeleton fields attachCharTextureLayout/attachCustomizationChoices
+// already populate (cmd_export.cpp), never a second DB2 load of its own.
+
+TEST_CASE("buildCharacterTextureContext: an unpopulated skeleton (no DB2 data at all) reduces to "
+          "two empty maps -- the clean no-op every other DB2-driven enrichment in this project "
+          "guarantees") {
+    husk::gltf::Skeleton skeleton;
+    auto ctx = husk::commands::buildCharacterTextureContext(skeleton);
+    CHECK(ctx.singleLayerTargetByTextureType.empty());
+    CHECK(ctx.fileDataIdByTarget.empty());
+}
+
+TEST_CASE("buildCharacterTextureContext: a textureType with exactly one real ChrModelTextureLayer "
+          "row maps to that row's own target; a textureType with more than one (real skin/type-1 "
+          "shape) is excluded entirely, never picking an arbitrary one of the several targets") {
+    husk::gltf::Skeleton skeleton;
+    husk::gltf::Skeleton::CharTextureLayout layout;
+    layout.textureLayers.push_back({1, /*textureType=*/6, 0, 0, 0, 0, /*chrModelTextureTargetId=*/10});
+    layout.textureLayers.push_back({2, /*textureType=*/1, 0, 0, 0, 0, /*chrModelTextureTargetId=*/1});
+    layout.textureLayers.push_back({3, /*textureType=*/1, 0, 0, 0, 0, /*chrModelTextureTargetId=*/13});
+    skeleton.charTextureLayout = layout;
+
+    auto ctx = husk::commands::buildCharacterTextureContext(skeleton);
+    REQUIRE(ctx.singleLayerTargetByTextureType.count(6) == 1);
+    CHECK(ctx.singleLayerTargetByTextureType.at(6) == 10);
+    CHECK(ctx.singleLayerTargetByTextureType.count(1) == 0);  // 2 rows -- excluded, not guessed at
+}
+
+TEST_CASE("buildCharacterTextureContext: enabledMaterials reduces straight to a target -> "
+          "fileDataId map, fileDataId 0 kept (not dropped) since it's a real, distinct miss for "
+          "the DB2-character tier to report") {
+    husk::gltf::Skeleton skeleton;
+    skeleton.enabledMaterials.push_back({/*choiceId=*/100, /*chrModelTextureTargetId=*/38,
+                                          /*materialResourcesId=*/500, /*fileDataId=*/3613861});
+    skeleton.enabledMaterials.push_back({/*choiceId=*/101, /*chrModelTextureTargetId=*/10,
+                                          /*materialResourcesId=*/501, /*fileDataId=*/0});
+
+    auto ctx = husk::commands::buildCharacterTextureContext(skeleton);
+    REQUIRE(ctx.fileDataIdByTarget.count(38) == 1);
+    CHECK(ctx.fileDataIdByTarget.at(38) == 3613861);
+    REQUIRE(ctx.fileDataIdByTarget.count(10) == 1);
+    CHECK(ctx.fileDataIdByTarget.at(10) == 0);
 }

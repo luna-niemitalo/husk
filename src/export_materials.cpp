@@ -77,6 +77,35 @@ std::unordered_map<uint32_t, CustomizationNameEntry> buildCustomizationNameLooku
     return out;
 }
 
+sources::CharacterTextureContext buildCharacterTextureContext(const gltf::Skeleton& skeleton) {
+    sources::CharacterTextureContext ctx;
+
+    if (skeleton.charTextureLayout) {
+        std::unordered_map<uint32_t, uint32_t> rowCountByType;
+        std::unordered_map<uint32_t, uint32_t> lastTargetByType;
+        for (const auto& layer : skeleton.charTextureLayout->textureLayers) {
+            ++rowCountByType[layer.textureType];
+            lastTargetByType[layer.textureType] = layer.chrModelTextureTargetId;
+        }
+        for (const auto& [textureType, count] : rowCountByType) {
+            if (count == 1) ctx.singleLayerTargetByTextureType[textureType] = lastTargetByType[textureType];
+        }
+    }
+
+    // A target claimed by more than one resolved EnabledMaterial (a real
+    // but out-of-scope case -- see chrcustomization::Element::
+    // relatedChoiceId's own doc comment, "Blindfold"'s two related-choice-
+    // conditioned materials for one target) keeps whichever this scan
+    // reaches last, same "good enough for a best-effort tier, not a strict
+    // identity claim" tolerance buildCustomizationNameLookup's own doc
+    // comment already states for the identical shape of ambiguity.
+    for (const auto& mat : skeleton.enabledMaterials) {
+        ctx.fileDataIdByTarget[mat.chrModelTextureTargetId] = mat.fileDataId;
+    }
+
+    return ctx;
+}
+
 BuiltMaterials buildMaterialsAndPrimitives(
     const std::vector<uint32_t>& triangleIndices, const std::vector<skin::Submesh>& submeshes,
     const std::vector<skin::Batch>& batches, const M2MaterialInputs& m2, husk::sources::Catalog& catalog,

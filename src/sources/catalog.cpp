@@ -21,6 +21,10 @@ void Catalog::registerPathOverride(uint32_t fdid, std::string realContentPath) {
     pathOverrides_[fdid] = std::move(realContentPath);
 }
 
+void Catalog::setCharacterTextureContext(CharacterTextureContext ctx) {
+    characterContext_ = std::move(ctx);
+}
+
 std::optional<std::filesystem::path> Catalog::listfileTargetPath(uint32_t fdid) const {
     if (auto ov = pathOverrides_.find(fdid); ov != pathOverrides_.end()) {
         // Same join `pathForFileDataId` uses (listfile_catalog.cpp): not
@@ -101,6 +105,62 @@ Resolved<EncodedTexture> Catalog::resolveListfileTier(uint32_t fdid) const {
     et.bytes = std::move(*bytes);
     et.imageName = stem.filename().string();
     return Resolved<EncodedTexture>::hit(std::move(et), ResolutionTier::Listfile, stem.string() + ".{png,blp}");
+}
+
+// The DB2-character tier, between tier 2 (listfile) and tier 3 (fuzzy
+// pool) -- see `CharacterTextureContext`'s own doc comment for where the
+// two maps it reads come from. Three independent conditions all have to
+// hold (a single-layer target exists for this type, a customization choice
+// resolves a material for that target, and that material carries a real
+// FileDataID); any single miss here is normal and expected, not an error --
+// the caller falls through to tier 3 exactly as a tier 1/2 miss already
+// does.
+Resolved<EncodedTexture> Catalog::resolveDb2CharacterTier(uint32_t textureType) const {
+    if (!characterContext_) {
+        return Resolved<EncodedTexture>::miss(ResolutionTier::Db2Character,
+                                               "no DB2 character-texture context set for this export "
+                                               "(not a resolved player-character model, or --db2-dir/"
+                                               "--dbd-dir weren't given)");
+    }
+    auto targetIt = characterContext_->singleLayerTargetByTextureType.find(textureType);
+    if (targetIt == characterContext_->singleLayerTargetByTextureType.end()) {
+        return Resolved<EncodedTexture>::miss(
+            ResolutionTier::Db2Character, "texture type " + std::to_string(textureType) +
+                                               " doesn't have exactly one live ChrModelTextureLayer "
+                                               "target for this model's own CharComponentTextureLayoutsID");
+    }
+    uint32_t target = targetIt->second;
+    auto fdidIt = characterContext_->fileDataIdByTarget.find(target);
+    if (fdidIt == characterContext_->fileDataIdByTarget.end()) {
+        return Resolved<EncodedTexture>::miss(
+            ResolutionTier::Db2Character, "ChrModelTextureTargetID " + std::to_string(target) +
+                                               " has no resolved ChrCustomizationChoiceID feeding it "
+                                               "(no explicit/default choice selects a material for "
+                                               "this target)");
+    }
+    if (fdidIt->second == 0) {
+        return Resolved<EncodedTexture>::miss(
+            ResolutionTier::Db2Character, "ChrModelTextureTargetID " + std::to_string(target) +
+                                               "'s resolved customization choice has a material element, "
+                                               "but texturefiledata.db2 didn't resolve a real FileDataID "
+                                               "for it");
+    }
+
+    uint32_t dbFdid = fdidIt->second;
+    Resolved<EncodedTexture> result = resolveLiteralTier(dbFdid);
+    if (!result.found()) result = resolveListfileTier(dbFdid);
+    if (!result.found()) {
+        return Resolved<EncodedTexture>::miss(
+            ResolutionTier::Db2Character, "DB2 names FileDataID " + std::to_string(dbFdid) + " for target " +
+                                               std::to_string(target) +
+                                               ", but neither literal nor listfile resolution found bytes "
+                                               "for it (" +
+                                               result.reason + ")");
+    }
+    result.tier = ResolutionTier::Db2Character;
+    result.reason = "DB2 character texture layout names FileDataID " + std::to_string(dbFdid) +
+                     " for ChrModelTextureTargetID " + std::to_string(target) + " (" + result.reason + ")";
+    return result;
 }
 
 // Tier 3, the real orchestration `RESOURCE_CATALOG.md`'s Settled section
@@ -207,6 +267,9 @@ Resolved<EncodedTexture> Catalog::texture(uint32_t fdid, uint32_t textureType, c
     if (fdid != 0) {
         result = resolveLiteralTier(fdid);
         if (!result.found()) result = resolveListfileTier(fdid);
+    }
+    if (!result.found()) {
+        result = resolveDb2CharacterTier(textureType);
     }
     if (!result.found()) {
         result = resolveFuzzyTier(state, textureType, model.modelPath, preferGlowVariant);
