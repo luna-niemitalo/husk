@@ -817,6 +817,62 @@ listfile-root = "/media/luna/data/wow_export"
 `blp-export`/`info` don't, since none of their flags are actually
 per-machine-stable.
 
+### Listfile cache
+
+`--listfile` normally means re-parsing a real `community-listfile.csv`
+(~148MB, ~2.2M rows) from scratch on every invocation -- most of a real
+`husk resolve`/`export` call's own runtime on a simple model. Every
+command that loads `--listfile` (`export`, `resolve`, `db2-build`) now
+does so through a persistent, on-disk, packed-binary cache instead, so
+repeated invocations against the same listfile skip that parse. This is a
+pure optimization: cached or not, resolution results are identical --
+nothing about how `--listfile` behaves from the outside changes.
+
+If you find a `~/.cache/husk/` directory (or `$XDG_CACHE_HOME/husk`) and
+weren't sure what put it there, this is it: `listfile.bin` (the cached
+data) and `listfile.tag` (a freshness marker, content-empty -- only its
+mtime matters). Safe to delete either or both at any time; the next
+`--listfile` invocation just rebuilds them.
+
+**Staleness**: the cache stays warm for 10 minutes of actual use --
+`listfile.tag`'s mtime is refreshed on every hit, so a corpus scan that
+keeps calling `husk` never sees it expire, but an idle machine reparses
+fresh the next time around rather than trusting a cache that might be
+hours or days stale. Independently of that timer, the cache also checks
+the source file's own path/size/mtime on every use within the freshness
+window -- pointing `--listfile` at a different file, or editing the same
+file in place, always forces a rebuild, never a silent stale read.
+
+**Location**: `$XDG_CACHE_HOME/husk`, falling back to `$HOME/.cache/husk`
+-- mirrors the sibling `tact-fetch` project's own cache-directory
+convention. `$HUSK_CACHE_DIR` overrides it, if you want the cache
+somewhere else (or want to keep several isolated from each other).
+
+**Measured real-world impact is modest, not dramatic** -- worth stating
+plainly rather than overselling it. `husk resolve` against the real
+`bloodelffemale.m2`/`bloodelffemale_hd.m2` fixture from this project's own
+test corpus, n≥5 per condition, real `--listfile`:
+
+| Model | uncached (pre-cache HEAD) | cold cache (first use) | warm cache |
+|---|---|---|---|
+| simple item, no fuzzy-resolution pool (`cape_special_explorer_b_03.m2`) | ~696ms | ~984ms | ~668ms |
+| customization-heavy character (`bloodelffemale_hd.m2`) | ~17.58s | ~17.81s | ~17.59s |
+
+Warm cache is only about 4% faster than the uncached baseline on the
+simple model, and statistically indistinguishable on the character model
+(whose own same-basename fuzzy-pool resolution -- unrelated to
+`--listfile` -- dominates total runtime there). Cold cache is measurably
+*slower* than the uncached baseline (the same parse, plus a sort and a
+~145MB write, paid once). Root cause and what a real fix would need: see
+`DESIGN.md`'s "Listfile cache" section, specifically the "deliberate
+deviation" note -- eliminating the CSV's own text-scan cost turned out to
+matter less than expected, because building the final 2.2M-entry
+`unordered_map` (not the scan that feeds it) is the actual dominant cost,
+and every current caller still needs that full map.
+
+See `DESIGN.md`'s "Listfile cache" section for the full staleness/
+invalidation/concurrency design and why it's shaped this way.
+
 ### Importing into Blender
 
 See `EXTRAS_SCHEMA.md` for the full index of every `extras` key husk

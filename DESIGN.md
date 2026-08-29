@@ -1233,6 +1233,125 @@ deliberately sets it anyway, they did so in the same validated TOML syntax
 this project already accepts everywhere else, which is a legitimate (if
 unadvertised) choice, not a bug to guard against.
 
+### Listfile cache (implemented, 2026-08-29)
+
+`husk::loadListfile` (`src/listfile.hpp`/`.cpp`) re-parses the whole
+`--listfile` CSV from scratch on every invocation — no persistent process
+to cache a parsed listfile across calls, and a real
+`community-listfile.csv` is ~148MB/2.2M rows. Measured cost: ~0.5s of a
+~0.7s `husk resolve` call on a simple model (`TODO/CLEANUP_TODO.md`'s own
+listfile-caching item, before it closed). A corpus scan invokes `husk`
+once per file across 130k+ files, so this cost is paid, in full, that many
+times.
+
+`src/listfile_cache.hpp`/`.cpp` adds `loadListfileCached` — same contract
+as `loadListfile` (a bad `--listfile` path still throws, a malformed line
+is still silently skipped, results are byte-for-byte identical either
+way), backed by a persistent on-disk cache. `cmd_export.cpp`,
+`cmd_resolve.cpp`, and `cmd_db2_build.cpp` — every real call site that
+loads a `--listfile` — call this instead of the raw parser now.
+
+**Location**: `$XDG_CACHE_HOME/husk` (falling back to `$HOME/.cache/husk`,
+then a temp dir) — mirrors the sibling `tact-fetch` project's
+`TactFetchCacheDir()` convention (`~/dev/tact-fetch/src/cache_dir.h`) bit
+for bit, so a user who already knows that project's layout recognizes
+this one. `$HUSK_CACHE_DIR` overrides it, same "explicit env var beats the
+XDG default" shape `$HUSK_CONFIG` already uses (`husk_config.hpp`) — used
+by this project's own test suite (`tests/run_husk.hpp`) to keep CLI-tier
+tests' synthetic `--listfile` fixtures out of a real machine's real cache
+dir, and available to a caller who wants an isolated cache for the same
+reason. Two artifacts live there: `listfile.bin` (the packed cache) and
+`listfile.tag` (the freshness marker below).
+
+**Staleness — a tag file's mtime, not atime.** `listfile.tag`'s own mtime
+is refreshed on every use. If it's older than 10 minutes, the cache is
+never even considered for reuse, regardless of whether the source CSV
+itself changed — Luna's own framing: "when we are hammering it, it stays
+cached ... it only stays alive for the single session it's actively
+working on." **Deliberately not atime-based**, despite atime nominally
+existing for exactly this "was this read recently" question: this
+machine's own real `unreliable_pool` ZFS dataset (where the cache
+actually lives) is mounted `noatime`/`atime=off`, confirmed empirically —
+atime is never updated on read here, so it can't drive staleness at all.
+A tag file's mtime is a write husk fully controls, independent of
+whatever mount options happen to be in effect.
+
+**Source invalidation.** A time-fresh tag alone doesn't prove the cache is
+still *correct* — `--listfile` could point at a different file, or the
+same file could have been edited in place, and this project has already
+been bitten once by silently-wrong listfile data (`WIKI_FINDINGS.md`'s
+CRLF/resolveFieldString history). So the cache header also carries the
+source's own path, size, and mtime, checked against the caller's `path`
+on every load *within* the freshness window; any mismatch is a rebuild,
+never a warning — same "recoverable, so no silent partial state" instinct
+`cmd_export.cpp`'s empty-listfile warning already follows, just resolved
+by rebuilding instead of merely flagging it. CRLF handling is untouched:
+the cache is built from `loadListfile`'s own already-correct parse, so
+whatever tolerance that function has for `\r`-terminated lines is
+inherited for free, not re-implemented.
+
+**Concurrency.** `tools/corpus_scan_framework.py` runs ~9 `husk`
+subprocesses in parallel; several can hit a cold or just-expired cache at
+the same instant and each independently decide to rebuild. That's
+accepted, not a bug to prevent with locking — every rebuilder parses the
+same source file, so the redundant work produces equivalent (if not
+byte-identical in write order) content. What must never happen is a
+reader observing a *partially written* cache file. `writeCacheAtomic`
+never writes `listfile.bin` directly: it writes a per-process, per-call
+temp file in the same directory, then `rename()`s it over the real name.
+`rename()` within one filesystem is atomic — a concurrent reader's `fopen`
+either lands before the rename (sees the old complete file, even via an
+fd already open when the rename happens) or after (sees the new complete
+file); a torn read is not possible. If two writers race, whichever
+`rename()` lands last simply wins.
+
+**Format**: a packed binary, not a re-serialized CSV or a flat
+`unordered_map` dump — a fixed header (magic/version/source identity/
+entry count/blob size) followed by a `FileDataID`-sorted `uint32_t` array,
+a parallel `uint32_t` length array, and one string blob holding every
+path's bytes back to back. Loading is a straight sequential read (no
+`memchr` scans for `;`/`\n`, no digit-by-digit integer parsing, no CRLF
+stripping) plus a single prefix-sum pass over the length array to slice
+the blob — real parsing work `loadListfile`'s own text scan pays that this
+format never does. The on-disk array being kept sorted is deliberate
+beyond just "matches how it's naturally built": it's directly
+binary-searchable in principle, for a future caller that only needs a
+handful of point lookups rather than the whole map (see the deviation
+below for why no caller does that yet).
+
+**Deliberate deviation from a literal "avoid materializing 2.2M
+`unordered_map` entries" reading, and what it actually costs**:
+`loadListfileCached`'s return type is still
+`std::unordered_map<uint32_t, std::string>`, and it still builds one on
+every call — cache hit or miss. `unordered_map<uint32_t, std::string>` is
+the load-bearing type across ~20 real call sites (`export_extras.hpp`,
+`export_materials.hpp`, `sources::Catalog`/`ListfileCatalog`/
+`TextureCatalog`, `cmd_export.cpp`, several test files), each already
+tested against that exact contract; migrating every consumer to query the
+packed array directly (binary search per lookup, no map at all) is a
+second, separable refactor with real risk of its own — out of scope here.
+
+**Measured, not assumed, and the number is smaller than hoped**: a real
+n≥5 `husk resolve` comparison (README.md's timing table has the full
+numbers) shows the warm-cache path is only marginally faster than the
+uncached baseline — about 4% on a simple item model with no
+same-basename fuzzy pool (~696ms uncached vs. ~668ms warm), and
+statistically indistinguishable on a customization-heavy character model
+whose own fuzzy-pool resolution already dominates total runtime regardless
+of `--listfile`. The cold-cache path (first use, or after the 10-minute
+tag expires) is measurably *slower* than the uncached baseline — the same
+parse, plus a sort over 2.2M entries and a ~145MB write, paid once. Root
+cause: eliminating the CSV's own text scan (the `memchr`/digit-parsing
+work `loadListfile`'s doc comment describes) turned out not to be where
+most of the cost lives. Building the final `unordered_map` — 2.2M string
+allocations plus 2.2M hash-table insertions — dominates, and every format
+choice that still hands back a full `unordered_map` pays that cost
+identically, cached or not. Closing that gap for real would mean the
+migration named above: callers doing direct binary-search point lookups
+against the packed array instead of a fully materialized map. That's a
+correctness-neutral, well-scoped, but genuinely separate piece of work,
+not attempted here.
+
 ### Three-state resolution, not two (§2.11)
 
 `--skin`, `--textures`, `--skin-dir`, `--skel`, and `--bones-dir` all name a

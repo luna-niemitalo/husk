@@ -32,6 +32,7 @@
 #include "gltf.hpp"
 #include "husk_config.hpp"
 #include "listfile.hpp"
+#include "listfile_cache.hpp"
 #include "m2.hpp"
 #include "skel.hpp"
 #include "skin.hpp"
@@ -1323,7 +1324,11 @@ int exportGlb(int argc, char** args) {
     // from one invocation.
     std::unordered_map<uint32_t, std::string> listfile;
     if (app.count("--listfile") && opts.listfileArg != "none") {
-        listfile = husk::loadListfile(opts.listfileArg);
+        // loadListfileCached: identical result to husk::loadListfile, just
+        // backed by a persistent on-disk cache so repeated invocations
+        // against the same --listfile within a session skip re-parsing
+        // ~148MB of CSV (see listfile_cache.hpp/DESIGN.md).
+        listfile = husk::loadListfileCached(opts.listfileArg);
         // A bad --listfile *path* already throws (loadListfile itself, a
         // direct user mistake worth failing loudly on) -- but a listfile
         // that opens fine and parses to zero usable entries (genuinely

@@ -13,6 +13,7 @@
 #include "husk_config.hpp"
 #include "json_writer.hpp"
 #include "listfile.hpp"
+#include "listfile_cache.hpp"
 #include "m2.hpp"
 #include "skin.hpp"
 #include "sources/catalog.hpp"
@@ -231,7 +232,11 @@ int resolve(int argc, char** args) {
     std::unordered_map<uint32_t, std::string> listfile;
     if (app.count("--listfile") && opts.listfileArg != "none") {
         try {
-            listfile = husk::loadListfile(opts.listfileArg);
+            // loadListfileCached: identical result to husk::loadListfile,
+            // backed by a persistent on-disk cache (listfile_cache.hpp) --
+            // this is the hot path `resolve` exists to make cheap, and a
+            // real corpus scan calls it once per file.
+            listfile = husk::loadListfileCached(opts.listfileArg);
         } catch (const std::exception& e) {
             std::cerr << "husk: resolve failed: " << e.what() << "\n";
             return 1;

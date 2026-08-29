@@ -48,82 +48,20 @@ and when, not this file.
    mid-hang) to catch it live instead of guessing from a killed run's
    silence.
 
-3. **`husk` should ingest `community-listfile.csv` once into a cached,
-   fast-to-load format instead of re-parsing ~148MB of CSV on every
-   invocation of anything that reads `--listfile`.** Found 2026-08-29
-   converting `unfillable_texture_task.py`/`texture_dedup_collision_task.py`/
-   `black_additive_task.py` onto `husk resolve`
-   (`REFACTOR/RESOURCE_CATALOG.md`'s "excavation escape hatch" table,
-   `REFACTOR_LOG.md`'s newest entry). Controlled measurement (n=8 runs
-   each, min/median/mean, `HUSK_CONFIG=/dev/null` to rule out
-   `~/.config/husk/config.toml` silently autodiscovering its own
-   `listfile`/`listfile-root` regardless of a CLI flag — a real gotcha hit
-   live while benchmarking this, see the note below) found two separate,
-   additive per-invocation costs, not one:
-   - `--listfile` itself: `husk::loadListfile` re-parses the full
-     ~148MB/2.2M-row CSV from scratch on every invocation, no persistent
-     cache the way the deleted Python-side `functools.lru_cache`d mirrors
-     had (those paid it once per *worker process*, not once per *file*).
-     Isolated by holding everything else constant and varying only
-     listfile size: a 1-row listfile costs ~0.2s/invocation, the real
-     2.2M-row one costs ~0.7s — **the parse itself is ~0.5s, roughly 70%
-     of a real invocation's cost**, confirming this is the dominant
-     factor, not a minor one. Consistent with the earlier per-model
-     measurement: a small item model (`cape_special_explorer_b_03.m2`)
-     went from 76.3ms median without `--listfile` to 776.5ms with it (a
-     ~700ms jump); a large character model (`bloodelffemale_hd.m2`) from
-     2989.9ms to 3893.2ms (a ~900ms jump) — the same order-of-magnitude
-     fixed cost regardless of model complexity.
-   - Resolution itself, independent of `--listfile`: **scales with the
-     model's own same-basename fuzzy-pool size**, and can dwarf the
-     listfile cost on customization-heavy character models —
-     `bloodelffemale_hd.m2` (real character customization directory, many
-     candidate textures) measured 2989.9ms median even with `--listfile`
-     omitted entirely, vs. 76.3ms for the simple item model above (both
-     `--listfile`-less). `husk info --json` on the same two files: 2.5ms
-     and 44.1ms respectively — resolve costs roughly 30-70x `husk info`
-     even before `--listfile` enters the picture, worse the larger the
-     fuzzy pool.
+3. **The listfile cache's warm path is only marginally faster than the
+   uncached baseline (~4% on a simple model, unmeasurable on a
+   fuzzy-pool-heavy one) -- much smaller than hoped.** Built 2026-08-29
+   (`src/listfile_cache.hpp`/`.cpp`, `DESIGN.md`'s "Listfile cache"
+   section has the full real-vs-expected numbers). Root cause, measured
+   not assumed: building the final `unordered_map<uint32_t, std::string>`
+   (2.2M string allocations + hash insertions) dominates real cost, not
+   the CSV text-scan this cache eliminates -- and every current caller
+   still needs that full map materialized (`export_extras.hpp`,
+   `export_materials.hpp`, `sources::Catalog`/`ListfileCatalog`/
+   `TextureCatalog`, ~20 sites total). The cache's on-disk format is
+   already a sorted `FileDataID` array + string blob, directly
+   binary-searchable -- closing this gap for real means migrating callers
+   to point lookups against that array instead of a fully materialized
+   map, a separate, correctness-neutral but real refactor. Not attempted
+   this session (out of a caching-only pass's scope).
 
-   For the bulk of the real corpus (simple items/creatures, small or no
-   fuzzy pool — the large majority of `item/objectcomponents`, this
-   project's own largest directory), the listfile parse is the dominant,
-   avoidable cost; for a minority of customization-heavy character
-   models, fuzzy-pool resolution already costs seconds on its own. At
-   full-corpus scale (~130k files) either way is tens of thousands of
-   seconds paid per scan run, which these three tasks' own stated design
-   constraint ("a ~10-minute scan, not a multi-hour one",
-   `unfillable_texture_task.py`'s own docstring) cannot absorb as-is, so
-   **do not run any of the three converted tasks at full-corpus scale
-   until this is addressed** (a bounded/subdirectory-scale run is fine —
-   the correctness of the conversion itself is independently verified,
-   see `REFACTOR_LOG.md`).
-
-   **The fix**: give `husk` itself a cached, pre-ingested representation
-   of the listfile instead of re-parsing raw CSV every time — the same
-   "ingest the slow source once, cache it in a fast format" move `husk
-   db2-build`'s own knowledge base already makes for DB2 data, and the
-   same move `tools/corpus_scan_tasks/casc_size_mismatch_task.py`'s
-   `_load_casc_sizes` makes for `casc-tool list`'s output in Python (a
-   double-checked-locked, process-wide cache — read that function's own
-   doc comment for why a bare `functools.lru_cache` wasn't enough under
-   its `PARALLEL_MODE = "thread"`; Luna's own measure of that fix: several
-   hours down to ~11 seconds). That Python precedent doesn't transfer
-   directly, though, and this has to be a `src/` fix, not a `tools/` one:
-   `casc_size_mismatch_task.py` can cache in-process because it runs
-   `PARALLEL_MODE = "thread"` — every worker thread shares one Python
-   process's memory. `unfillable_texture_task.py` and friends run
-   `PARALLEL_MODE = "process"`, and regardless of mode the actual CSV
-   parse happens inside a **separate `husk` subprocess per file** — no
-   Python-side cache, in any parallel mode, can reach across that process
-   boundary. The 0.5s lives inside `husk` itself, so the fix has to too.
-   This would also speed up `husk export`, not just `resolve` — both pay
-   the identical `loadListfile` parse today. A `--from-list` batch mode on
-   `resolve` (mirroring `export`'s own, `cmd_export.cpp`'s
-   `exportOneModel`) is a weaker, narrower variant of the same idea worth
-   considering as a complement, not a replacement — it would amortize the
-   parse across one process's whole batch, but the real fix is not
-   re-parsing 148MB of CSV at all once a cache exists. Not fixed this
-   session — out of a tools/-only pass's scope. Working around it in
-   Python (re-adding a listfile cache on the caller's side) would just
-   resurrect the duplication this conversion exists to delete.

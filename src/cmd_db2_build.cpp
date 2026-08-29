@@ -16,6 +16,7 @@
 #include "commands.hpp"
 #include "husk_config.hpp"
 #include "listfile.hpp"
+#include "listfile_cache.hpp"
 
 // `husk db2-build` -- builds husk's own verified knowledge-base SQLite
 // database (TODO/KNOWLEDGE_BASE_DESIGN.md), split out of cmd_db2.cpp per
@@ -213,7 +214,9 @@ int db2Build(int argc, char** args) {
                        << "\"\n";
         }
 
-        auto listfile = husk::loadListfile(listfilePath);
+        // loadListfileCached: identical result to husk::loadListfile,
+        // backed by a persistent on-disk cache (listfile_cache.hpp).
+        auto listfile = husk::loadListfileCached(listfilePath);
 
         // Shared by 'models'/'textures' below -- both are the same
         // "listfile row -> one extension-filtered flat table" shape, just a

@@ -60,8 +60,28 @@ inline RunResult runCommand(const std::string& command) {
 // (tests/test_cli_config.cpp) calls runCommand directly with its own
 // explicit HUSK_CONFIG/XDG_CONFIG_HOME/--config overrides, bypassing this
 // default entirely -- unaffected either way.
+//
+// `HUSK_CACHE_DIR` gets the same "isolate from the real machine" treatment,
+// same reasoning as `HUSK_CONFIG` above: any CLI-tier test that passes its
+// own `--listfile <synthetic fixture>` now goes through
+// listfile_cache.hpp's persistent on-disk cache (cmd_export.cpp/
+// cmd_resolve.cpp/cmd_db2_build.cpp all call loadListfileCached), and
+// without an override that cache lives at the real machine's
+// `$XDG_CACHE_HOME/husk` -- silently writing throwaway test fixtures into
+// a real user's actual cache directory. The cache's own source-identity
+// check (DESIGN.md) makes this self-healing rather than a correctness bug
+// (a different --listfile path/size/mtime is always a forced rebuild), but
+// polluting a real machine's real cache as a side effect of running tests
+// is still worth avoiding outright, not just tolerating. One shared
+// directory for the whole test run (not one per invocation) is
+// deliberate: tests never depend on cache state across runHusk() calls,
+// so sharing costs nothing and avoids leaving one throwaway cache dir per
+// test case behind.
 inline RunResult runHusk(const std::string& args) {
-    return runCommand("HUSK_CONFIG=/dev/null " + std::string(HUSK_BINARY) + " " + args);
+    static const std::string cacheDir =
+        (envOrEmpty("TMPDIR").empty() ? "/tmp" : envOrEmpty("TMPDIR")) + "/husk-test-listfile-cache";
+    return runCommand("HUSK_CONFIG=/dev/null HUSK_CACHE_DIR=" + cacheDir + " " + std::string(HUSK_BINARY) + " " +
+                       args);
 }
 
 }  // namespace husk::test
