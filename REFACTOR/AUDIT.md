@@ -332,54 +332,16 @@ Two consequences:
 
 ---
 
-## 7. Interface inconsistency
+## 7. Interface inconsistency — closed 2026-08-29
 
-- ~~**26 `export` flags, zero `->group()` calls**~~ — **done**, found already
-  fixed when re-checked 2026-08-29: all 28 of `cmd_export.cpp`'s
-  `add_option`/`add_flag` registrations carry a `->group()`, across seven
-  groups (Model sidecars 8, Input / output 5, Game data 4, Character 4,
-  Diagnostics 3, Batch 2, Appearance / gear 2), and `husk export --help`
-  renders them sectioned. `cmd_resolve.cpp` was written grouped from the
-  start. `CLI.md` §1's flat-namespace failure no longer applies here.
-- ~~**Three grammars for one shape of question.**~~ — **done**, re-checked
-  2026-08-29. `--anim` stays four-state (`auto` / `inline` / `none` /
-  path); `--skin`, `--textures`, `--skin-dir`, `--skel`, `--bones-dir`,
-  `--phys` stay three-state. `--db2-dir`, `--dbd-dir`, `--listfile`,
-  `--listfile-root` were two-state (`value` / unset) — the missing `none`
-  this bullet named is now real, on every subcommand that both has
-  `--config` wiring for the flag and doesn't `->required()` it: all four on
-  `export`, `--listfile`/`--listfile-root` on `resolve`, `--dbd-dir` on
-  `db2-export`, `--db2-dir`/`--dbd-dir` on `appearance-string`. Correctly
-  still absent on `db2-build` (its own three are `->required()` — no
-  off-state is meaningful for a command that can't run without them) and
-  `db2-info` (never got `--config` wiring, so nothing to opt out of). The
-  `auto`-is-only-honest-when-the-input-describes-where-the-thing-is
-  justification for why these four still don't get `auto` is now written
-  down too, in `DESIGN.md`'s "Three-state resolution, not two" section
-  (previously nowhere, as this bullet itself noted). `tests/run_husk.hpp`'s
-  own blanket `HUSK_CONFIG=/dev/null` was deliberately left as-is — still
-  the right default for every test that doesn't care about config behavior
-  specifically; the new/existing `none`-exercising tests each pass
-  `--config` explicitly instead, the same pattern the original
-  `--db2-dir none`/`--dbd-dir none`/`--listfile none` tests already used.
-- ~~**`husk info` emits human text only**, while `dump-chunks` emits JSON.
-  Eight corpus tasks regex-scrape the former.~~ — **effectively done**,
-  re-counted 2026-08-29. `husk info --json` exists (`src/cmd_info_json.cpp`);
-  `corpus_scan_framework.py` exposes only `husk_info_json`/`husk_resolve_json`
-  and no prose-parsing helper at all, so no task can scrape by accident.
-  Exactly **one** direct `husk info` prose call survives in `tools/`:
-  `texture_dedup_collision_task.py:169`. It is not blocked on the JSON verb —
-  it is one of the two tasks §1.1 already records as blocked on husk being
-  able to hand back the bytes for a *resolved slot*, and it should be
-  converted in that pass, not this one. Counted here so the number stops
-  reading as eight.
-- **`--knowledge-db` is documented as known-wrong** (`CLAUDE.md` Hazards;
-  `TODO/KNOWLEDGE_BASE_DESIGN.md`) and remains a live flag by deliberate
-  decision (kept as diagnostic/future-work infrastructure, not retired).
-  **Done**: the known-wrongness now surfaces at point of use (I4) — see
-  `CLI_AND_TOOLING.md` §5. The shared-listfile-map mid-export mutation is
-  also **done** — `sources::Catalog::registerPathOverride` (§1.1, above)
-  replaces it, verified end to end against a real `--knowledge-db` hit.
+All four bullets are fixed; the narrative is `REFACTOR_LOG.md`'s
+2026-08-28/29 entries and git history, per this file's own "an item is
+removed when it is fixed" rule. The heading is kept as a numbering anchor
+only — roughly eight source comments and tests cite "AUDIT.md §7" for the
+two gaps it named (the shared-listfile-map mutation, now
+`Catalog::registerPathOverride`; and the missing `none` opt-out, now on
+every subcommand that has `--config` wiring and doesn't `->required()` the
+flag). Do not renumber the sections around it.
 
 ---
 
