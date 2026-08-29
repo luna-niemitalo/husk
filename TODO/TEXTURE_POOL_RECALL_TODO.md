@@ -545,11 +545,25 @@ payload, not render content:
 | `bloodelffemale` | 128 MB | **24 MB** (−81%) |
 
 The non-HD drop is the `_hd` partition working exactly as intended — ~463
-inapplicable candidates are no longer embedded. The HD growth is the
-widened gate, and 201 MB for one character is a real usability problem for
-Blender import. Narrowing the candidate set (steps 2 and 3 below) shrinks
-this automatically; capping or dropping `alternate_textures` for very
-large pools is the separate lever if it does not.
+inapplicable candidates are no longer embedded, on a model where they were
+all inapplicable by construction. That is the significant number here.
+
+**The HD doubling is acceptable and is not a blocker** (Luna's call,
+2026-08-29): a 2x increase on a single, unusually complex character model,
+on a workstation doing character work, is not a real cost. Do not trade
+diagnostic coverage away to avoid it — in particular, do **not** cap or
+drop `alternate_textures` for large pools, which would discard exactly the
+evidence the ranking work below needs.
+
+The right lever is `--slim-textures`, which already exists but currently
+externalizes **only** the base-color texture: `alternate_textures`
+(`cand.imagePng`) and the additional texture layers (`layer.imagePng`)
+both call `appendBufferView` unconditionally in `gltf_mesh.cpp`, with no
+`slimTexturesOutputDir` check at all. So the one payload responsible for
+this growth is precisely the one `--slim-textures` does not cover.
+Extending it there keeps every candidate available as a real file next to
+the `.glb`, dedupes through the existing `alternateTextureCache`, and
+costs no diagnostic fidelity. Tracked as its own item below.
 
 ## Steps
 
@@ -598,7 +612,15 @@ large pools is the separate lever if it does not.
    same file before this change. Removing it is therefore close to a no-op for
    the ambiguous path; the real question is whether the sole-candidate branch's
    depletion is worth keeping on its own.
-5. **Re-run the resolution-ledger diff** (`husk export --explain-textures` /
+5. **Extend `--slim-textures` to `alternate_textures` and the additional
+   texture layers.** Today it externalizes only the base-color image;
+   `cand.imagePng` and `layer.imagePng` (`gltf_mesh.cpp`) both
+   `appendBufferView` unconditionally, ignoring `slimTexturesOutputDir`.
+   Those are exactly the payload the widened candidate set grows, so
+   covering them makes pool width cost disk next to the `.glb` rather than
+   `.glb` size, with no loss of diagnostic coverage. Reuses the existing
+   `alternateTextureCache` for dedup and `writeSlimTextureFile` for naming.
+6. **Re-run the resolution-ledger diff** (`husk export --explain-textures` /
    `husk resolve`, `REFACTOR/README.md`'s stage-1 gate) after each of the
    above, the same way the "Step 3/5 findings" section already did. Every
    delta attributed; deltas here are expected and are the point.
