@@ -8,6 +8,103 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-08-29 — `unfillable_texture_task.py` onto `husk resolve`; two sibling conversions written and reverted
+
+**What**: `unfillable_texture_task.py` no longer re-derives husk's tier order
+in Python. Its `analyze()` is now "call `husk resolve`, read `found` per slot"
+(−208/+62 lines in that file; −424/+302 across `tools/`). Both hard-won
+historical fixes survive the rewrite: per-slot rather than per-file flagging,
+and `replaceable_only` keyed on the *unresolved* slots (the bug that once
+inflated a real count ~300x).
+
+**The delta table — the point of the exercise.** Same 1344-file sample
+(`item/objectcomponents/collections`, `character`, `creature`), 0 errors:
+
+| | flagged |
+|---|---|
+| Python mirror (before) | **638** |
+| `husk resolve` (after) | **131** |
+
+Not a subset in either direction — 520 the mirror flagged that husk resolves,
+13 husk flags that the mirror missed. Both attributed:
+
+- **520 over-flags → a missing basename attempt.** Sampled 20 files: 26 of 27
+  resolved slots came from tier 3. `scanFuzzyTexturePool` tries *three*
+  basenames — the model's own, `_sdr`-stripped, and race/gender-suffix-stripped
+  (`stripRaceGenderSuffix`, 20 corpus-verified race codes). The mirror had only
+  the first two. Example: `armor_alchemy_b_01_tr_m.m2` resolves to
+  `armor_alchemy_b_01_4855190` in husk and looked unresolvable to the scan.
+- **13 under-flags → a missing type filter.** `_has_fuzzy_candidate` returned
+  True for *any* non-numeric stem sharing the basename, with no texture-type
+  check; husk filters by type. `creature/geode/geode.m2` slot 3: "no
+  same-basename pool candidates compatible with texture type 11". These are
+  false negatives in a scan whose whole purpose is finding unresolvable
+  textures — the direction that hides findings.
+
+Both are the same shape as the tier-2 incident this file's own docstring
+records: a fallback present in husk, silently absent from the mirror. Third
+occurrence, same file, same structural cause.
+
+**Two sibling conversions written and reverted the same session.**
+`texture_dedup_collision_task.py` and `black_additive_task.py` need resolved
+*bytes*, not metadata, and the conversion drove them from `husk resolve
+--textures-out` on the belief that it exports each slot's resolved bytes named
+by `resolved_name`. It does not. Per its own implementation
+(`writeTextureOutCopy`), it is a best-effort *convenience copy* of textures
+husk happened to decode — "not the thing the export itself depends on", write
+failures ignored. So it skips slots resolved from an already-`.png` source and
+also writes ambiguity-scan candidates that never became any slot's answer.
+Measured on `creature/bearice/bearice.m2`: **4 slots resolved, 2 files written,
+one of the two (`bearice_dark.png`) not a resolved slot at all.**
+
+Caught by running the dedup task properly and finding **0 collisions where it
+previously found 3**, including nothing for its own canonical positive case.
+`black_additive_task.py` had the identical flaw and would silently skip any
+already-`.png` texture; its differential passed only because its single
+matching row happened to be a `.blp`. Both reverted to HEAD; the framework
+helper's docstring now states what `--textures-out` actually is, with the
+bearice numbers, so nothing is rebuilt on the wrong premise.
+
+**The real blocker, named**: `husk resolve` exposes resolution *metadata*
+(`found`/`tier`/`file_data_id`/`byte_count`) and nothing else. That is enough
+for "did this slot resolve, and via which tier" — the question
+`unfillable_texture_task.py` asks — and insufficient for any task comparing
+resolved content. Giving husk a real per-slot byte export is what unblocks the
+rest; `TODO/CLEANUP_TODO.md`.
+
+**Also fixed here**: the summary line claimed files where "NONE of them resolve
+locally" while the code has always flagged on *any* unresolved slot (its own
+comment cites `helm_leather_pvpdruid_b_02_scm.m2`, unreported precisely because
+one unrelated slot resolved). Pre-existing, but it misdescribed the headline
+number in every corpus report.
+
+**Verification, and four process errors worth recording** — every one of these
+produced a wrong intermediate conclusion before being caught:
+
+1. A `pgrep`-based completion watch whose own command line contained the
+   pattern it grepped for, so it matched itself and reported "still running"
+   for 4h20m after the runs had died. Watches now key on PID.
+2. The differential runner (inherited from the agent) never called
+   `run_corpus_scan` — it was a plain `for path in worklist` loop, bypassing
+   `AdaptiveConcurrency` entirely. `pgrep -x husk` returning 1 was visible
+   throughout and read past. Replaced with a driver that monkeypatches
+   `discover` so the framework keeps the real corpus root and the bounded
+   worklist: 9 concurrent workers instead of 1.
+3. That replacement initially lacked an `if __name__ == "__main__"` guard —
+   with a forkserver every worker re-imported it, re-parsed argv and launched
+   a nested scan (`BrokenProcessPool`).
+4. It then sampled with `sorted(rglob())[:600]` while the original used
+   `csf.discover(..., limit=600)`, which the framework documents as *filesystem
+   walk order, not lexicographic*. Same 1344 count, different files, ~24 of 131
+   overlapping — nearly reported as "severe non-determinism" before the cause
+   was found. Once matched, parallel and sequential are **byte-identical
+   (131/131, all in common)**, confirming parallelism changes speed only.
+
+Also confirmed directly that `husk resolve` is deterministic (same file, three
+runs, identical ledger) before blaming any of the above on it.
+
+---
+
 ## 2026-08-29 — `AUDIT.md` §1.1/§4: retire the Blender script's private texture-resolution mirror
 
 **What**: `tools/husk_blender_geoset_mask.py`'s `_find_husk_binary`/

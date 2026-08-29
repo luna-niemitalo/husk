@@ -149,6 +149,116 @@ def husk_info_json(path: Path, timeout: float = 15.0) -> dict | None:
         return None
 
 
+def husk_resolve_json(path: Path, timeout: float = 20.0, textures_out: str | Path | None = None) -> dict | None:
+    """Runs `husk resolve <path>` and returns the parsed texture-resolution
+    ledger, or None on any failure -- same "return None to skip this file"
+    contract as husk_info_json above. One shared invocation point instead
+    of each catalog-consuming task rolling its own subprocess + json.loads
+    (REFACTOR/RESOURCE_CATALOG.md's "excavation escape hatch" table: this
+    is the thing `husk resolve` exists so those tasks stop re-deriving
+    husk's own literal/listfile/fuzzy tier order in Python -- see
+    src/cmd_resolve.cpp's own doc comment for the ledger schema this
+    returns).
+
+    `HUSK_CONFIG=/dev/null` is load-bearing, not defensive boilerplate:
+    unlike `husk info`, `husk resolve` reads --listfile/--listfile-root
+    (among others) through the same --config/$HUSK_CONFIG machinery
+    `export` uses, so a machine's own ~/.config/husk/config.toml silently
+    substitutes its own listfile/root for this scan's explicit LISTFILE/
+    ROOT the instant it exists -- confirmed live on this machine (a bare
+    call with no --listfile flag at all still came back with a real
+    2,206,298-row listfile loaded). A corpus-scan report's numbers must
+    depend only on this module's own explicit LISTFILE/ROOT, never silently
+    on whatever config the machine running it happens to have -- same
+    reasoning as tests/run_husk.hpp's identical fix for the CLI test suite
+    (CLAUDE_HISTORY.md's 2026-08-21 entry).
+
+    --listfile is passed only when LISTFILE resolves to a real, present
+    file (mirrors every task's own pre-conversion `_load_listfile()` guard,
+    which silently skipped listfile resolution when it didn't exist rather
+    than failing the file); --listfile-root is ROOT, the same corpus root
+    every removed hand-rolled tier mirror resolved listfile paths against.
+
+    `textures_out` is passed straight through as `husk resolve`'s own
+    --textures-out. **It is NOT a way to get every resolved texture's bytes
+    onto disk, and a task must not treat it as one.** An earlier version of
+    this docstring claimed it was; that claim was wrong and two task
+    conversions built on it had to be reverted. What --textures-out
+    actually is, per its own implementation
+    (`writeTextureOutCopy`, export_texture_resolution.cpp): a best-effort
+    *convenience copy* of textures husk happened to decode, explicitly "not
+    the thing the export itself depends on", write failures ignored. So it
+    writes decoded `.blp` sources only -- a slot already resolved from a
+    real `.png` produces no file at all -- and it also writes candidates
+    decoded during an ambiguity scan that never became any slot's answer.
+    Measured on `creature/bearice/bearice.m2`: 4 slots resolved, 2 files
+    written, and one of the two (`bearice_dark.png`) is not a resolved slot.
+
+    Matching `outdir/*.png` stems against ledger `resolved_name`s therefore
+    silently under-reports, in the direction that hides findings: a task
+    that needs resolved *bytes* (comparing content for dedup collisions,
+    measuring pixel brightness) cannot be driven from this and stays on its
+    own decode path for now. `husk resolve` exposes resolution *metadata*
+    (found/tier/file_data_id/byte_count) and nothing else -- which is
+    enough for "did this slot resolve, and via which tier", the question
+    unfillable_texture_task.py actually asks. Giving husk a real per-slot
+    byte export is the gap that would unblock the rest; see
+    TODO/CLEANUP_TODO.md.
+
+    PERFORMANCE, measured 2026-08-29 (see REFACTOR_LOG.md/TODO/
+    CLEANUP_TODO.md item 3 for the full controlled numbers, n=8 runs
+    each, plus a listfile-size-isolation run): two separate, additive
+    costs, not one. (1) --listfile: husk re-parses the full ~148MB/2.2M-row
+    community-listfile.csv from scratch on *every* invocation (no
+    process-lifetime cache the way the removed Python-side
+    `functools.lru_cache`d `_load_listfile()` had). Isolated by holding
+    everything else constant and varying only listfile size: a 1-row
+    listfile costs ~0.2s/invocation, the real 2.2M-row one costs ~0.7s --
+    the parse itself is ~0.5s, **~70% of a real invocation's cost, the
+    dominant factor**. Consistent with the earlier per-model numbers: a
+    small item model went 76ms without --listfile -> 776ms with; a large
+    character model went 2990ms -> 3893ms -- same ~700-900ms fixed delta
+    regardless of model complexity. (Confirm any re-measurement passes
+    HUSK_CONFIG=/dev/null, as this function already does below -- without
+    it, ~/.config/husk/config.toml can silently autodiscover its own
+    --listfile/--listfile-root even when neither is passed on the CLI,
+    which will make a "with vs without --listfile" comparison compare the
+    same listfile against itself and read as free.) (2) resolution
+    itself, independent of --listfile: scales with the model's own
+    same-basename fuzzy-pool size, and can dwarf (1) on
+    customization-heavy character models -- the same bloodelffemale_hd
+    measurement above costs ~3s even with --listfile omitted entirely, vs
+    ~10-70x husk info --json on the same files either way. Which cost
+    dominates depends on the file: --listfile dominates for the bulk of
+    the corpus (small/no fuzzy pool), fuzzy-pool resolution dominates for
+    a minority of character models. Either way, at full-corpus scale
+    (~130k files) this is tens of thousands of seconds per scan -- the
+    real fix is a `src/`-level one (husk should ingest the listfile once
+    into a cached, fast-to-load format, the same move `husk db2-build`
+    already makes for DB2 data -- see TODO/CLEANUP_TODO.md item 3; a
+    `--from-list` batch mode is a weaker complementary idea, not a
+    substitute), out of this pass's scope to fix (tools/-only) rather
+    than worked around here by re-adding a Python-side listfile cache
+    husk resolve is supposed to make unnecessary.
+    """
+    cmd = [HUSK_BIN, "resolve", str(path)]
+    if LISTFILE is not None and LISTFILE.exists():
+        cmd += ["--listfile", str(LISTFILE), "--listfile-root", str(ROOT)]
+    if textures_out is not None:
+        cmd += ["--textures-out", str(textures_out)]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                            env={**os.environ, "HUSK_CONFIG": "/dev/null"})
+    except subprocess.TimeoutExpired:
+        return None
+    if p.returncode != 0:
+        return None
+    try:
+        return json.loads(p.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
 @runtime_checkable
 class ScanTask(Protocol):
     """The one interface a task-assignment module needs to implement.

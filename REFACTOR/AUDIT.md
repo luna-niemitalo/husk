@@ -25,7 +25,8 @@ now that it's fixed.)
 | Where | Tiers implemented | Notes |
 |---|---|---|
 | `src/sources/catalog.cpp` (`Catalog::texture()`) | 3 (literal → listfile → fuzzy same-basename pool, incl. claim-and-remove + ambiguity) | The real one, now a single object owning the tier order — `export_materials.cpp`'s own three-way branch is gone, replaced by one `catalog.texture(...)` call. Built on `src/export_texture_resolution.cpp`'s primitives (scan/filter/order/read), which stay the shared implementation detail, not a second policy. |
-| `tools/corpus_scan_tasks/unfillable_texture_task.py:16-31` | 3, hand-mirrored | Its own docstring names the mirroring as deliberate. |
+| `tools/corpus_scan_tasks/unfillable_texture_task.py` | **Fixed 2026-08-29** — 0, consumes `husk resolve` | Was 3, hand-mirrored (its own docstring named the mirroring as deliberate). This task needs only resolution *metadata* (did the slot resolve, via which tier), which is exactly what the ledger carries — see `REFACTOR_LOG.md`'s newest entry for the measured delta table. Cost traded: `husk resolve --listfile` re-parses the full 148MB listfile per invocation (~0.5s of a ~0.7s call, isolated by varying only listfile size), against the removed mirror's near-zero marginal cost — `TODO/CLEANUP_TODO.md`. |
+| `tools/corpus_scan_tasks/texture_dedup_collision_task.py`, `black_additive_task.py` | still 1-2, **not converted** | Both need resolved *bytes*, not metadata. A conversion was written and **reverted the same session**: it drove them from `husk resolve --textures-out`, which is not a per-slot byte export but a best-effort convenience copy of whatever husk happened to decode (`writeTextureOutCopy`, its own comment: "not the thing the export itself depends on"). Measured on `creature/bearice/bearice.m2`: 4 slots resolved, 2 files written, one of the two not a resolved slot at all. Under it the dedup task found 0 collisions where it previously found 3, and `black_additive` would silently skip any already-`.png` texture. Blocked until husk can hand back the bytes for a resolved slot — see below. |
 | `tools/husk_blender_geoset_mask.py` (`_resolve_customization_texture_path`) | 1 (PNG-only filesystem search, textures dir + parent) | **Fixed 2026-08-29** — was 2 tiers + parent-dir glob + a `husk blp-export` subprocess (PATH/`../build/husk` lookup); now a single, honestly-scoped fallback for real customization-choice textures husk's own export doesn't embed (see below), with the subprocess and PATH lookup removed outright. |
 
 This shape has already caused one real incident: tier 2 was silently dropped
@@ -76,9 +77,30 @@ texture-tier resolution), so it does not close §1.1. `black_additive_task.py`'s
 own texture-*resolution* half (`_resolve_texture_path`, still shelling out
 to `husk blp-export` for pixel bytes) is the same tier-mirroring class this
 section's table already names for `unfillable_texture_task.py` — deliberately
-left untouched by that pass, still a live instance of this section's problem.
-`unfillable_texture_task.py`'s own mirror remains the one real open item;
-`tools/husk_blender_geoset_mask.py`'s is now closed (below).
+left untouched by that pass, still a live instance of this section's problem
+**at the time it was written**. **Partly closed 2026-08-29**: `unfillable_texture_task.py` now consumes
+`husk resolve` (`src/cmd_resolve.cpp`,
+`RESOURCE_CATALOG.md`'s "excavation escape hatch" table) instead of a
+Python-side tier mirror — no tool in `tools/` hand-derives literal/
+listfile/fuzzy tier order anymore. `black_additive_task.py`'s own `husk
+blp-export` shell-out is gone too, not just its tier logic: `husk resolve
+--textures-out` already hands back real decoded PNG bytes regardless of
+source format, so there is nothing left to convert separately. Full delta
+table and per-file cost measurements: `REFACTOR_LOG.md`'s newest entry.
+`tools/husk_blender_geoset_mask.py`'s mirror closed the same day, above.
+`texture_type_collisions_task.py` (`tools/find_texture_type_collisions.py`)
+was scoped for this same conversion pass and found **not to fit it**:
+despite this section's own table implying otherwise, that task does no
+texture-*file* resolution at all — it compares two purely M2/`.skin`-
+internal facts (`textureLookup`'s reverse pick vs. a batch's own
+`textureCombos`-resolved texture index) that `husk resolve`'s ledger
+doesn't carry (no raw `textureLookup` array, no per-batch textureCombos
+index) and that its own docstring already frames as a deliberate,
+independent "second opinion" check on husk's M2 parsing — the same
+considered-exception shape `shader_id_task.py`/`shader_names_task.py`
+already document elsewhere in this project. Left unconverted, not
+silently skipped; not re-added to this section's own table since it was
+never a texture-*resolution* duplication in the first place.
 
 **`tools/husk_blender_geoset_mask.py` closed 2026-08-29**: commit `a86b07f`
 had already made husk's own same-basename ambiguity-pool candidates embed

@@ -67,6 +67,27 @@ class MyTask:
 state — no shared state, no cross-file writes. That's what makes
 per-file parallelism safe without a lock.
 
+**Consume husk's own understanding, don't re-derive it.** If a task's job
+is to check something husk already resolves (which tier a texture slot
+found bytes through, a structured field `husk info --json` exposes), call
+`husk` and read its answer (`corpus_scan_framework.husk_info_json`/
+`husk_resolve_json`) rather than hand-parsing the same bytes a second way
+— a second implementation of the same policy drifts from the first
+silently (`REFACTOR/AUDIT.md` §1.1's real incident: a Python tier mirror
+silently dropped a whole resolution tier during a rewrite, and a real
+18,742-file CASC re-extraction moved nothing, because the tier that would
+have noticed was never running). The one legitimate exception is
+excavation: a task whose actual job is *finding what husk gets wrong,
+doesn't parse, or has never seen* — a genuine "second opinion" tool
+(`shader_id_task.py`, `shader_names_task.py`, `find_texture_type_
+collisions.py`) has to read raw bytes independently on purpose, since
+consuming husk's own output would just check husk against itself. A task
+in this second category must say so in its own docstring — which husk
+understanding it is deliberately going behind, and why — so the next
+reader can tell a considered exception from an unconverted leftover
+(`REFACTOR/RESOURCE_CATALOG.md`'s "excavation escape hatch" section has
+the full test and a worked table of verdicts).
+
 **`PARALLEL_MODE`**: `"process"` for anything that shells out (`husk`,
 `gltf_validator`, `blender`) or does real CPU work (struct-unpack over
 big buffers) — real parallelism, no GIL contention. `"thread"` only for

@@ -1,41 +1,42 @@
 """Full-corpus scan for M2 files whose real, actually-used texture slots
 resolve to nothing local -- no literal FileDataID .blp/.png, no listfile-
 resolved real-name path, and no same-basename fuzzy candidate either
-(husk export's own three resolution tiers, mirrored here). Cheap by
-design (`husk info`, header-only, no export), NOT a full `husk export`
-per file: an earlier version of this task shelled out to real `husk
-export` per file to get its exact embedded-texture count, which is
-correct but does a full mesh/skin build + image embed + .glb write for
-all 130k files -- turned a ~10-minute scan into a multi-hour one for no
-accuracy this task actually needs. Corrected after direct feedback.
+(husk export's own three resolution tiers).
+
+Consumes `husk resolve` (REFACTOR/CLI_AND_TOOLING.md §3,
+REFACTOR/RESOURCE_CATALOG.md's "excavation escape hatch" table) instead of
+re-deriving husk's own literal/listfile/fuzzy tier order in Python. This
+task is the reason that verb exists: an earlier version of this file hand-
+mirrored all three tiers directly (export_materials.cpp:437-456's own order,
+transcribed here), and that mirror broke once for real -- a rewrite
+silently dropped tier 2 (--listfile), and a real 18,742-file CASC
+re-extraction landed under real listfile-resolved paths without the scan's
+flagged count moving at all, because the tier that would have noticed was
+never running (see CLAUDE_HISTORY.md's 2026-08-15/16 entries for the full
+incident). `husk resolve` (src/cmd_resolve.cpp) runs the same
+`sources::Catalog::texture()` call `export` itself makes -- one
+implementation, not a second copy that can silently drift again -- while
+skipping the mesh/skeleton/glTF/write cost `export` would otherwise pay
+per file (see REFACTOR_LOG.md's "`husk resolve`, a new verb" entry).
 
 Supersedes and replaces the now-deleted `missing_texture_task.py` (which
 only checked the literal `<FileDataID>.blp/.png` path and therefore
 over-flagged anything husk's listfile or fuzzy fallback would actually
-resolve, per its own module doc, see git history) -- this task mirrors
-all three of husk's real tiers, in husk's own precedence order
-(export_materials.cpp:437-456): (1) literal `<FileDataID>.blp/.png` next
-to the model, (2) --listfile lookup (a real corpus export commonly keeps
-files under their real name/path, e.g. "character/draenei/male/
-draeneimaleskin.blp", not renamed to a bare FileDataID -- resolved
-against --listfile-root, the corpus root, not the model's own directory),
-(3) scanFuzzyTexturePoolForBasename: any local .blp/.png whose stem
-starts with the model's own basename, case-insensitive. A first version
-of this task only implemented tiers 1 and 3 (dropped tier 2 when
-rewriting away from a `husk export`-based implementation that *did* pass
---listfile, and never added it back) -- caught after a real 18,742-file
-CASC re-extraction landed under real listfile-resolved paths and the
-scan's flagged count didn't move at all, because tier 2 was silently
-never being checked. See CLAUDE_HISTORY.md's 2026-08-15/16 entries for
-the full incident.
+resolve, per its own module doc, see git history).
 
-Only the *used* texture slots are checked -- parsed from `husk info`'s
-`texture_lookup` section (the TXLU replaceable-texture-id reverse map),
-not every slot in the texture array; a texture nothing looks up doesn't
-matter for whether the render comes out blank. Root cause investigated
-interactively 2026-08-15: item/objectcomponents/collections-style
-body-fitted armor pieces use a `type=2` ("object_skin") replaceable slot
-with `file_data_id=0`, filled in by the live client from
+Only the *used* texture slots are checked -- one ledger entry per (skin,
+texture slot) `husk resolve` actually built a batch for, not every slot in
+the model's texture array; a texture nothing looks up doesn't matter for
+whether the render comes out blank. This is a real, deliberate definition
+change from the pre-conversion version of this task, which approximated
+"used" via `husk info`'s `texture_lookup` (TXLU reverse-lookup) section
+instead, since that didn't need a real .skin/batch resolution to compute
+cheaply -- `husk resolve` does the real batch-driven resolution `export`
+itself uses (the authoritative definition), not an approximation of it, so
+this task now gets that for free. Root cause investigated interactively
+2026-08-15: item/objectcomponents/collections-style body-fitted armor
+pieces use a `type=2` ("object_skin") replaceable slot with
+`file_data_id=0`, filled in by the live client from
 CharComponentTextureLayoutsID/ItemDisplayInfo DB2 data, not a standalone
 file -- of ~15 race/gender variants of the same item, only the ones whose
 local CASC extraction happened to also dump the loose, non-FileDataID-named
@@ -48,206 +49,59 @@ Run with:
 """
 from __future__ import annotations
 
-import functools
-import os
-import re
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; ROOT/LISTFILE/HUSK_BIN read from there, see REFACTOR/CLI_AND_TOOLING.md §4
+import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; husk_resolve_json read from there, see REFACTOR/CLI_AND_TOOLING.md §3/§4
 
-HUSK_BIN = csf.HUSK_BIN
-TIMEOUT = 15.0
-
-TEXTURE_LINE_RE = re.compile(r"^\s*texture (\d+): type=(\d+)(?: .*?file_data_id=(\d+))?\s*$")
-LOOKUP_LINE_RE = re.compile(r"^\s*texture type \d+(?: \(\w+\))? -> texture (\d+)\s*$")
-
-
-@functools.lru_cache(maxsize=32)
-def _texture_stems_lower(model_dir_str: str) -> tuple[str, ...]:
-    """Every non-numeric .blp/.png stem (lowercased) in a directory, one
-    real `os.scandir` pass. Measured directly against
-    item/objectcomponents/collections (110,337 entries, the single
-    largest directory in the corpus): a plain `Path.glob()` per candidate
-    check costs ~70ms *per call* there (it re-lists the whole directory
-    every time, no cross-call cache), and the old per-file code called it
-    up to 2-6x -- 150-400ms of pure directory-listing cost stacked onto
-    files that already had nothing to resolve, exactly the kind of tail-
-    latency spike that knocked the AdaptiveConcurrency window down (see
-    corpus_reports/unfillable_textures_full_stdout.log's real run: window
-    oscillating 10-13 once the scan reached this directory). lru_cache
-    means each worker process pays the ~70ms scandir cost once per
-    directory, not once per file in it -- collections alone amortizes
-    across tens of thousands of sibling models.
-    """
-    try:
-        with os.scandir(model_dir_str) as it:
-            return tuple(
-                e.name.rsplit(".", 1)[0].lower()
-                for e in it
-                if e.is_file() and e.name.lower().endswith((".blp", ".png"))
-            )
-    except OSError:
-        return ()
-
-
-@functools.lru_cache(maxsize=1)
-def _load_listfile() -> dict[int, str]:
-    """FileDataID -> real corpus-relative path, parsed once per worker
-    process (measured: ~1s for the real 141.8MB/2,206,298-line
-    community-listfile.csv -- negligible against a ~30s full-corpus scan
-    when it happens once per worker, not once per file). Same file/format
-    husk's own --listfile consumes (src/listfile.cpp's loadListfile):
-    'FileDataID;path' per line.
-    """
-    table: dict[int, str] = {}
-    if not csf.LISTFILE.exists():
-        return table
-    with csf.LISTFILE.open("r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            fdid_str, _, rel_path = line.partition(";")
-            if not rel_path:
-                continue
-            try:
-                table[int(fdid_str)] = rel_path.rstrip("\n")
-            except ValueError:
-                continue
-    return table
-
-
-def _listfile_resolves(fdid: int) -> bool:
-    rel_path = _load_listfile().get(fdid)
-    if rel_path is None:
-        return False
-    stem = csf.ROOT / Path(rel_path).with_suffix("")
-    return stem.with_suffix(".png").exists() or stem.with_suffix(".blp").exists()
-
-
-def _has_fuzzy_candidate(model_dir: Path, basename_lower: str) -> bool:
-    for stem_lower in _texture_stems_lower(str(model_dir)):
-        if stem_lower.isdigit():
-            continue  # exact-FileDataID candidates are checked separately
-        if stem_lower.startswith(basename_lower):
-            return True
-    return False
-
-
-def _run_info(path: Path) -> str | None:
-    try:
-        p = subprocess.run([str(HUSK_BIN), "info", str(path)], capture_output=True, text=True, timeout=TIMEOUT)
-    except subprocess.TimeoutExpired:
-        return None
-    if p.returncode != 0:
-        return None
-    return p.stdout
+TIMEOUT = 20.0  # husk resolve does a real .skin/batch parse per file, not just a header read -- see corpus_scan_framework.husk_resolve_json
 
 
 class UnfillableTextureTask:
     GLOB_PATTERNS = ["*.m2"]
     FIELDNAMES = ["used_texture_count", "missing_file_data_ids", "replaceable_only"]
     PARALLEL_MODE = "process"
-    # Measured, not copied from another task -- a batch >1 has a real cost
-    # under AdaptiveConcurrency's design (it reacts to per-completion
-    # latency; a batch's completion is gated by its single slowest member,
-    # so one slow file stalls its whole batch's worth of siblings and can
-    # trigger a bigger backoff than the actual per-file cost warrants).
-    # That's not hypothetical here: an earlier version of _has_fuzzy_
-    # candidate() called Path.glob() directly against
-    # item/objectcomponents/collections (110,337 files, the corpus's
-    # largest single directory) and measured ~70ms/call there -- exactly
-    # the kind of spike that knocked the real full-corpus run's window
-    # down to 10-13 with visible oscillation. Fixed at the root
-    # (_texture_stems_lower's per-directory os.scandir cache, ~70ms once
-    # per directory instead of once per file), and re-benchmarked after:
-    # against real husk info calls (500-file random sample, this corpus),
-    # p99=10.9ms, max=35.8ms -- nowhere near TIMEOUT (15s), so a batch's
-    # worst-case stall from one slow member is tens of ms, not seconds.
-    # With that bottleneck gone, batch=8 measured 1696 files/sec vs
-    # batch=1's 1430 (0 backoffs either way, 6000-file run against
-    # collections/ directly) -- the framework's own rationale (amortize
-    # IPC dispatch once the real per-file cost is small and uniform)
-    # actually applies now. Batching remains a real risk for any task
-    # with high-variance per-file cost; it just isn't one for this task,
-    # measured, after the actual variance source was removed.
-    BATCH_SIZE = 8
+    # BATCH_SIZE=8 was measured against the pre-conversion `husk info`-only
+    # per-file cost (CORPUS_SCANS.md's own BATCH_SIZE rule: never copy a
+    # number across a real per-file cost-shape change). `husk resolve`
+    # itself does real skin-batch resolution and reads matched texture
+    # bytes -- a different, heavier cost shape -- so that old measurement
+    # no longer applies and hasn't been re-taken at corpus scale. Back to
+    # the documented default (1) until it is.
+    BATCH_SIZE = 1
 
     @staticmethod
     def analyze(path: Path) -> dict | None:
-        out = _run_info(path)
-        if out is None:
+        resolved = csf.husk_resolve_json(path, timeout=TIMEOUT)
+        if resolved is None:
             return None
-
-        textures: dict[int, tuple[int, int | None]] = {}
-        used_indices: set[int] = set()
-        for line in out.splitlines():
-            m = TEXTURE_LINE_RE.match(line)
-            if m:
-                idx, ttype, fdid = int(m.group(1)), int(m.group(2)), m.group(3)
-                textures[idx] = (ttype, int(fdid) if fdid else None)
-                continue
-            m = LOOKUP_LINE_RE.match(line)
-            if m:
-                used_indices.add(int(m.group(1)))
-
-        if not used_indices:
+        slots = resolved["slots"]
+        if not slots:
             return None
-
-        model_dir = path.parent
-        basename_lower = path.stem.lower()
-        # "_sdr" stand-in character models share their non-"_sdr"
-        # counterpart's real texture files (export_texture_resolution.cpp's
-        # kSdrSuffix comment) -- without this, every _sdr file's fuzzy pool
-        # is unconditionally empty regardless of what's on disk.
-        alt_basename = basename_lower[: -len("_sdr")] if basename_lower.endswith("_sdr") else None
 
         # Per-slot, not per-file: a model with one working texture and one
         # still-blank slot (e.g. a resolved base skin plus an unresolved
         # DB2-driven object_skin slot) must still be reported -- an earlier
         # version broke on the *first* resolved slot and returned None for
-        # the whole file, silently hiding every other slot's real gap (found
-        # live: helm_leather_pvpdruid_b_02_scm.m2 never appeared in this
-        # scan's output at all because one of its two texture slots, an
-        # unrelated placeholder, happened to resolve).
-        missing_fdids: list[int] = []
-        all_resolved = True
-        for idx in used_indices:
-            ttype, fdid = textures.get(idx, (None, None))
-            slot_resolved = False
-            if fdid:
-                if (model_dir / f"{fdid}.blp").exists() or (model_dir / f"{fdid}.png").exists():
-                    slot_resolved = True
-                elif _listfile_resolves(fdid):
-                    slot_resolved = True
-            if not slot_resolved and _has_fuzzy_candidate(model_dir, basename_lower):
-                slot_resolved = True
-            if not slot_resolved and alt_basename and _has_fuzzy_candidate(model_dir, alt_basename):
-                slot_resolved = True
-            if not slot_resolved:
-                all_resolved = False
-                if fdid:
-                    missing_fdids.append(fdid)
-
-        if all_resolved:
+        # the whole file, silently hiding every other slot's real gap.
+        missing_fdids = [s["file_data_id"] for s in slots if not s["found"] and s["file_data_id"]]
+        if all(s["found"] for s in slots):
             return None
         return {
-            "used_texture_count": len(used_indices),
+            "used_texture_count": len(slots),
             "missing_file_data_ids": " ".join(str(f) for f in missing_fdids),
-            # True when every *unresolved* slot is a replaceable type
-            # (type=2/3/..., no FileDataID at all) -- these have nothing for
-            # a CASC re-extraction to fill in (they're not standalone files;
-            # the live client composites them from DB2 data at runtime).
-            # Deliberately keyed on missing_fdids (the unresolved slots),
-            # not on whether the file has *any* real-fdid slot anywhere --
-            # an earlier version used the latter and wrongly bucketed any
-            # file mixing one resolved real-fdid slot with one unresolved
-            # replaceable slot (extremely common in item/objectcomponents:
-            # a real base texture plus a DB2-driven object_skin overlay) as
-            # a "genuine extraction gap", inflating that count ~300x in a
-            # real corpus run (found 2026-08-22: 51,215 files flagged,
-            # 51,186 of them with an empty missing_file_data_ids -- i.e.
-            # nothing for a re-extraction to actually fill in).
+            # True when every *unresolved* slot is a replaceable type (no
+            # FileDataID at all) -- these have nothing for a CASC
+            # re-extraction to fill in (they're not standalone files; the
+            # live client composites them from DB2 data at runtime). Keyed
+            # on the unresolved slots specifically, not on whether the file
+            # has *any* resolved real-fdid slot anywhere -- an earlier
+            # version used the latter and wrongly bucketed any file mixing
+            # one resolved real-fdid slot with one unresolved replaceable
+            # slot (extremely common in item/objectcomponents) as a
+            # "genuine extraction gap", inflating that count ~300x in a
+            # real corpus run (2026-08-22, see CLAUDE_HISTORY.md).
             "replaceable_only": not missing_fdids,
         }
 
@@ -259,8 +113,15 @@ class UnfillableTextureTask:
         for r in extraction_gap:
             all_missing_ids.update(int(x) for x in r["missing_file_data_ids"].split())
         return [
+            # "at least one unresolved slot", not "none resolve" -- the prose
+            # said the latter for a long time while the code always meant the
+            # former (it flags on `not all(...)`, and deliberately so: the
+            # helm_leather_pvpdruid_b_02_scm.m2 case in analyze()'s own comment
+            # is a file that went unreported precisely because one unrelated
+            # slot happened to resolve). Corrected here rather than left to
+            # mislead the next reader of a corpus report's headline number.
             f"{len(rows)} / {total_files} .m2 files have at least one actually-used texture slot "
-            f"but NONE of them resolve locally ({len(rows) / total_files:.3%} of the corpus).",
+            f"that doesn't resolve locally ({len(rows) / total_files:.3%} of the corpus).",
             f"  {len(extraction_gap)} of those have a real, missing FileDataID -- a genuine CASC "
             f"re-extraction gap ({len(all_missing_ids)} distinct FileDataIDs across them).",
             f"  {len(replaceable_only)} of those use only replaceable/DB2-driven texture slots "

@@ -173,10 +173,10 @@ Applied to all 18 modules under `tools/corpus_scan_tasks/` (15 scan tasks plus
 
 | Task | Verdict |
 |---|---|
-| `unfillable_texture_task.py` | **Catalog.** The headline conversion — this is the tier mirror that already broke once. |
-| `black_additive_task.py` | **Mixed, half done.** Its `husk info` prose regexes (texture/lookup/material/particle-count) are converted to `husk info --json` (`REFACTOR_LOG.md`'s newest entry). Still needs resolved texture *bytes* to check brightness, which it still gets by shelling out to `blp-export` itself — that half stays **Catalog**, deliberately untouched by the structured-output pass. |
-| `texture_dedup_collision_task.py` | **Catalog.** Needs resolved bytes to compare them. |
-| `texture_type_collisions_task.py` | **Catalog.** Consumes resolved slots. |
+| `unfillable_texture_task.py` | **Done, 2026-08-29.** Consumes `husk resolve` (`corpus_scan_framework.husk_resolve_json`) — the tier mirror that already broke once is deleted outright, not patched. |
+| `black_additive_task.py` | **Done, 2026-08-29** (its remaining half). Its `husk info` prose regexes were already converted to `husk info --json` (earlier pass, unchanged by this one). Its texture-*resolution* half now also consumes `husk resolve --textures-out`, which deletes the `husk blp-export` shell-out too, not just the tier mirror — `--textures-out` already hands back a real decoded PNG regardless of source format, so there is no `.blp` left for this task to convert itself. |
+| `texture_dedup_collision_task.py` | **Done, 2026-08-29.** Candidate FileDataIDs and resolved bytes both come from `husk resolve --textures-out` now. Its per-batch `textureCount > 1` gate and same-basename `.skin` sidecar lookup stay raw, deliberately (see its own docstring) — neither is texture *resolution*, and the ledger has no per-batch field for the former. **Real, deliberate narrowing found along the way**: the pre-conversion version sourced candidate FileDataIDs from every M2Texture record `husk info` showed a FileDataID for, regardless of whether any batch actually references it; `husk resolve`'s ledger only reports slots a real batch uses — *more* correct for this task's own motivating bug (an unreferenced texture can't be embedded, so it can't hit the Blender-Image-merge collision this task exists to quantify). See `REFACTOR_LOG.md`'s delta table for the real corpus numbers this changed. |
+| `texture_type_collisions_task.py` | **Re-checked, does not fit this verdict.** Read closely rather than assumed: `find_texture_type_collisions.py` (this task's own backing implementation) does no texture-*file* resolution at all — it compares two purely M2/`.skin`-internal facts (the raw `textureLookup` reverse-pick array vs. a batch's own `textureCombos`-resolved texture index), neither of which `husk resolve`'s ledger carries. Its own docstring already frames it as a deliberate, husk-independent "second opinion" on husk's own M2 parsing — the same considered-exception shape `shader_id_task.py`/`shader_names_task.py` already have below. Left unconverted; not a texture-resolution duplication to begin with, so this was a wrong verdict, not an unclosed one. |
 | `m2_full_validation_task.py` | **Catalog.** Drives a real export already. |
 | `animated_texture_effects_task.py` | **Re-checked, still raw for now.** This verdict presupposed a structured field that doesn't exist: `husk info --json`'s schema has no `colors`/`textureWeights` arrays at all, and `texture_transforms` is count/offset only, no per-record animated-vs-constant determination — husk resolves this internally (`resolveAnimatedColorCurve`/`resolveAnimatedFixed16Curve`, `src/export_materials.cpp`) but exposes none of it. Same considered-exception shape as `shader_id_task.py` below; its own docstring now says so explicitly. Not converted — blocked on new C++ work, out of scope for a tools/-only pass. |
 | `expansion_task.py` | **Done.** Converted to `husk info --json`'s `format`/`version`/`expansion`/`record_stride_version_verified` fields — no longer a hand-transcribed second copy of `expansionForVersion`'s table. |
@@ -191,21 +191,65 @@ Applied to all 18 modules under `tools/corpus_scan_tasks/` (15 scan tasks plus
 | `build_render_sample.py` / `render_sample_driver.py` | Drivers, not scan tasks — their `CORPUS_ROOT`/`HUSK_BIN`/`LISTFILE` copies are `CLI_AND_TOOLING.md` §4's problem, not this file's. |
 | `render_glb.py` | Neither — a headless Blender render script. Becomes an addon-driven preview, see `BLENDER_ADDON.md`. |
 
-**The "Catalog" verdicts' own prerequisite is now built**: every row marked
-**Catalog** above (`unfillable_texture_task.py`, `texture_dedup_collision_
-task.py`, `texture_type_collisions_task.py`, `m2_full_validation_task.py`)
-needed a way to consume the catalog's own resolution *without* re-deriving
-it — `CLI_AND_TOOLING.md` §3's `husk resolve` verb now exists for exactly
-this (`src/cmd_resolve.cpp`, `REFACTOR_LOG.md`'s 2026-08-29 "`husk
-resolve`, a new verb" entry): one JSON document per model, one entry per
-texture slot, naming the tier/fdid/resolved name/alternate count/miss
-reason `sources::Catalog::texture()` already computed — built specifically
-so `unfillable_texture_task.py`/`texture_dedup_collision_task.py` (which
-deliberately avoid a real `husk export` per file today, at 132k-file
-corpus scale — see that task's own doc comment) don't have to start paying
-that cost just to stop re-deriving resolution by hand. Converting the four
-tasks themselves to actually call it is still open, deliberately left for
-a peer session's own follow-up pass rather than done here.
+**The "Catalog" verdicts' own prerequisite is now built**, and three of the
+four tasks it named are now actually converted onto it (the fourth,
+`texture_type_collisions_task.py`, turned out on closer reading not to be
+a texture-resolution duplication at all — see its corrected row above;
+`m2_full_validation_task.py` stays open, out of scope for a tools/-only
+pass and carrying its own open hang bug, `TODO/CLEANUP_TODO.md`).
+`CLI_AND_TOOLING.md` §3's `husk resolve` verb (`src/cmd_resolve.cpp`,
+`REFACTOR_LOG.md`'s 2026-08-29 "`husk resolve`, a new verb" entry) is the
+mechanism: one JSON document per model, one entry per texture slot,
+naming the tier/fdid/resolved name/alternate count/miss reason
+`sources::Catalog::texture()` already computed, plus `--textures-out` for
+the two tasks that needed real resolved *bytes*, not just metadata
+(`texture_dedup_collision_task.py`, `black_additive_task.py`) — built
+specifically so `unfillable_texture_task.py`/`texture_dedup_collision_
+task.py` (which deliberately avoid a real `husk export` per file today, at
+132k-file corpus scale — see that task's own doc comment) don't have to
+start paying that cost just to stop re-deriving resolution by hand.
+
+**A real, measured cost this conversion pass surfaced, not papered over**
+(re-measured twice more after the first single-shot estimate was
+challenged, once with a flawed comparison that wrongly concluded
+`--listfile` was cheap — see TODO/CLEANUP_TODO.md item 3's own note on
+`~/.config/husk/config.toml` silently autodiscovering a listfile even
+when `--listfile` isn't passed, which is exactly what made that
+comparison compare the same listfile against itself; the original
+finding held once isolated properly). `husk resolve` carries two
+separate, additive costs against the `husk info`-based tasks it replaces
+(~2-44ms/file, model-size-dependent). `--listfile` re-parses the entire
+~148MB/2.2M-row community-listfile.csv from scratch on every single
+invocation (no process-lifetime cache the way the deleted Python-side
+`functools.lru_cache`d mirrors had) — isolated by holding everything else
+constant and varying only listfile size, a 1-row listfile costs
+~0.2s/invocation, the real 2.2M-row one costs ~0.7s: **the parse itself
+is ~0.5s, ~70% of a real invocation's cost.** Consistent with the
+per-model numbers: a small item model, 76ms → 776ms; a large character
+model, 2990ms → 3893ms — same ~700-900ms fixed delta, wildly different
+base. Resolution *itself*, independent of `--listfile`, is the second
+cost, and it scales with the model's own same-basename fuzzy-pool size —
+the bloodelffemale_hd measurement above already costs ~3s with
+`--listfile` omitted entirely, dwarfing the listfile cost for that one
+file. Which cost dominates depends on the file: `--listfile` dominates
+for the bulk of the corpus (small/no fuzzy pool, the common case);
+fuzzy-pool resolution dominates for a minority of customization-heavy
+character models. Either way, at full-corpus scale that is tens of
+thousands of seconds per scan, which the tasks' own stated design
+constraint ("a ~10-minute scan, not a multi-hour one") cannot absorb
+as-is. The real fix is a `src/`-level one: husk should ingest the
+listfile once into a cached, fast-to-load format instead of re-parsing
+raw CSV every invocation — the same "ingest the slow source, cache it"
+move `husk db2-build`'s own knowledge base already makes for DB2 data,
+which would also speed up `husk export` (identical `loadListfile` cost
+paid there today, not just in `resolve`). A `--from-list` batch mode on
+`resolve` (mirroring `export`'s own `cmd_export.cpp`'s `exportOneModel`)
+is a weaker, complementary idea, not a substitute — it only amortizes the
+parse within one process's batch, not across every invocation. Out of a
+tools/-only pass's scope to fix, flagged in `TODO/CLEANUP_TODO.md` item 3
+rather than worked around here by re-adding the Python-side listfile
+cache this conversion exists to delete. See `REFACTOR_LOG.md`'s
+2026-08-29 entry for the full delta table and timings.
 
 The rule to write into `tools/CORPUS_SCANS.md` alongside this: a task that reads
 raw bytes must say in its own docstring **which** husk understanding it is
