@@ -747,10 +747,23 @@ Two consequences worth keeping in view:
   one.** Ranking work (step 1) that lets husk stop decoding every
   candidate — or decode lazily, or rank on something cheaper than decoded
   pixel area — pays twice.
-- **This dwarfs the listfile cache.** That cache is a ~4 % win on a simple
-  model and unmeasurable on a character one; the numbers above are the
-  cost that actually matters for corpus-scale runs. Do not reach for
-  further listfile micro-optimisation before this.
+- **This does *not* dwarf the listfile cost — an earlier version of this
+  section said so and was wrong.** Per-invocation is the wrong lens when
+  the invocation count is the whole corpus. Measured on a simple item
+  model: 333 ms with `--listfile none`, 980 ms warm-cached, 1000 ms
+  pre-cache. The listfile still costs **~648 ms of every invocation, 66 %
+  of runtime**, and the cache recovers only ~20 ms of it. Across a
+  130,576-file corpus that is ~23 hours of listfile cost, of which the
+  cache saves ~43 minutes.
+
+  The reason it recovers so little: the 138 MB cache blob reads in **18 ms**
+  page-cached, so I/O is ~3 % of the cost. The other 97 % is CPU building
+  the 2.2M-entry `unordered_map` — string allocations and hash inserts —
+  which the cache did not remove. Moving the cache to tmpfs would target
+  that same 18 ms and is not worth doing. The fix is to stop materialising
+  the map at all: `mmap` the packed blob and binary-search it, which the
+  format already supports and no consumer yet uses
+  (`TODO/CLEANUP_TODO.md`).
 
 Net across the two models is roughly a wash (24.0 s → 22.1 s), so this did
 not regress corpus-wide throughput — it redistributed it, badly for HD
