@@ -92,6 +92,133 @@ recall figure suggests: most of what it drops is art that model genuinely does
 not use. Do not treat the recall cost as pure loss without checking which
 files it actually removes.
 
+## Step 1 findings (2026-08-29): vocabulary + co-occurrence derived, corpus-wide
+
+Script: `tools/derive_texture_tag_vocabulary.py`. Artifact:
+`corpus_reports/texture_tag_vocabulary.json` (1849-word vocabulary, 1213
+tokens reported at the `--report-min-count 200` threshold, 96,705
+co-occurrence pairs; JSON not CSV — the two tables (per-token per-directory
+frequency, per-pair conditional-probability/relation records) are
+structurally different and deeply nested, and the method/thresholds live
+alongside the data they produced in one self-describing file rather than a
+convention linking 2+ separate CSVs).
+
+**The artifact is deliberately not committed** — 19.6 MB, of which the
+co-occurrence table alone is 16.2 MB; regenerable from the script; and
+`/corpus_reports/` is gitignored repo-wide. Regenerate with:
+
+```
+direnv exec . tools/venv/bin/python tools/derive_texture_tag_vocabulary.py
+```
+
+Every number this section relies on is quoted inline below, so the findings
+stand without the file. When step 3 needs a durable token list in the
+binary it should become a real source-level table with its counts in a
+comment — the way `stripRaceGenderSuffix`'s race codes already are — not a
+checked-in blob.
+
+**Method**: two-phase, not a single `split("_")` pass. (1) Seed a
+vocabulary from atoms already standalone somewhere in the 771,548-file
+corpus (real cross-file frequency ≥100, same "hundreds of real
+occurrences" bar `stripRaceGenderSuffix`'s race codes used). (2)
+Iteratively re-segment every filename against the current vocabulary,
+mine the leftover unmatched spans as new-round candidates, and retire a
+coarser already-accepted word once a finer decomposition of it becomes
+available (crediting the finer pieces with the coarser word's own file
+count) — 12 rounds to converge, stable from round 8 on. A first attempt
+(mining arbitrary frequent substrings directly, weighted by file count)
+was tried and **failed** real validation outright — `naked`/`pelvis`/
+`torso`/`scalp+upper` all came back 0 — root-caused and abandoned; the
+full account (two compounding bugs: file-count-weighted windows tying
+against real word boundaries, then even doc-frequency-weighted mining
+being mathematically biased toward the shortest possible fragment) is in
+the script's own `ITERATE_RESIDUAL_MINING` comment, not repeated here.
+
+**Validation against this doc's own hand counts** (`character/bloodelf/
+female/`, 1029 files): 8 of 9 reproduced exactly — `skin+color` 12,
+`skin+pelvis` 40, `skin+torso` 40, `naked` 80, `hair+color` 5,
+`scalp+upper` 14, `scalp+lower` 0, `tattoo` 72. The 9th, `skin` = 154,
+came back 139 — reconciled as **this doc's own hand-tally error**, not a
+tokenizer bug: 139 is an exact partition (47 bare `..skin00_*` + 40
+`nakedpelvisskin` + 40 `nakedtorsoskin` + 12 `skin_color` = 139),
+confirmed three independent ways (shell `grep -c`, Python substring
+count, this script), and 154 has no matching breakdown.
+
+**Corpus-wide counts for this doc's named tokens** (vs. the single-folder
+numbers above): `skin` 6851, `color` 5100, `hair` 7129, `naked` 1950
+(character 1941, creature 8, world 1), `torso` 946, `pelvis` 1060 (100%
+character/), `scalp` 2391, `upper` 12888, `lower` 7282, `tattoo` 702,
+`face` 10803, `eye` 408, `jewelry` 959.
+
+**Structural relations, confirmed at full-corpus scale** (the single-folder
+versions above were bloodelf/female-only):
+
+- `pelvis` ⟹ `naked` 100% of the time (1060/1060); `torso` ⟹ `naked` only
+  93.1% (881/946) — **not** the same relation. The 65-file gap is
+  `torso` used independently by item/armor texture-component naming
+  (`item` 30 + `creature` 25 + `interface` 3 + `world` 6 = 64, matches),
+  which `pelvis` never is. `torso` is a broader term than `pelvis` in
+  this corpus; do not assume symmetric siblings without checking.
+- Within character/: `naked` = `torso` ∪ `pelvis`, exactly — 881 + 1060 =
+  1941 = `naked`'s own character/ count. Confirmed directly (not
+  inferred from absence) that `torso`+`pelvis` never co-occur in the
+  same file, corpus-wide, and neither do `upper`+`lower` — both genuine
+  disjoint-sibling pairs, same shape as `scalp+lower = 0` above.
+- `scalp+upper` 1370, `scalp+lower` 959, sum 2329 vs. `scalp`'s own total
+  2391 — 62 files (2.6%) unaccounted for, not investigated further.
+- `color` is orthogonal, not implied or implying: `skin+color` 723
+  (P(color|skin)=0.14), `hair+color` 567 (P(color|hair)=0.11), lift
+  ~12-16x above independence but nowhere near the ≥0.95 conditional-
+  probability bar used for `a_implies_b`/`b_implies_a` classification —
+  consistent with `color` being a customization-choice axis that applies
+  to a minority of files, crossing multiple base tags, not a subtype of
+  any one of them.
+- `naked` ⟹ `skin` 100% (1950/1950) and, restricted to files that carry
+  both, the relation is symmetric-in-practice for the naked-body
+  convention specifically (every `naked` file is also a `skin` file in
+  this corpus).
+
+**The `object_skin` gap named above is real and confirmed unfixable by
+filename tokens, any method.** `object_skin`/`objectskin` occurs in **zero**
+real filenames anywhere in the 771,548-file corpus (checked directly) —
+it was never a filename convention. `object` alone occurs 39,485 times,
+almost entirely from the `item/objectcomponents/` **directory path**, not
+the file stem this script (by the step's own stated scope) tokenizes.
+`object_skin` is a husk/M2 texture-*type* enum name
+(`m2::textureTypeName`); item textures are named after the equipped piece,
+not the semantic slot. If step 3 still wants this tag, it needs
+directory-path tokens or the M2 texture-type field itself, not more
+filename mining.
+
+**Known limitations, stated plainly**:
+- A word that never appears in a different flanking context anywhere in
+  the corpus — not even after the outer prefix/suffix layers are
+  stripped — is statistically indistinguishable from noise; nothing here
+  recovers it. Not hit among this doc's own named tokens (all recovered),
+  but the limit is real for anything not checked this session.
+- One real mis-segmentation found and left as-is: `bakednpctextures/
+  creaturedisplayextra-<id>[_hd].blp` (81,983 files, ~10.6% of the whole
+  corpus — a single mechanically-generated naming template) segments to
+  `crea`+`ture`+`display`+`extra` instead of `creature`+`display`+`extra`,
+  because two unrelated 4-char fragments happen to exactly tile
+  `creature` with zero leftover, passing the residual-length safety
+  check that catches partial-garbage cases (guards against, e.g.,
+  `female` → `male`+`fe`) but not exact zero-residual tiling. This is in
+  `textures/`, not `character/`; not fixed, since fixing it risks
+  regressing the now-passing character/ validation for a directory
+  unrelated to this doc's actual problem.
+- The co-occurrence table only records pairs with `count_both > 0`
+  (sparse). A genuinely always-disjoint pair (`torso`+`pelvis`,
+  `upper`+`lower`) is represented by *absence*, not an explicit zero row
+  — confirmed directly for both pairs above, not just inferred.
+- Corpus-wide token rank is dominated by non-character directories
+  (`world`/`interface`/`item`/`textures` combined dwarf `character`'s
+  32,754 files) — a consumer deriving character-specific tags must read
+  the `by_dir` breakdown, not the raw corpus-wide count. (This is why
+  `--cooccur-top-k` defaults to 5000, not a smaller number: a first pass
+  at 150 silently dropped every token named in this doc, because they
+  ranked below tens of thousands of cross-domain files.)
+
 ## Step 2 investigation (2026-08-29): the DB2-preferred tier is type-conditional, not universal
 
 Investigation-only pass, no production code touched. Full commands in
