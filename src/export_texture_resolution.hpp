@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -109,9 +110,55 @@ std::optional<uint32_t> fuzzyCandidateFileDataId(const std::filesystem::path& pa
 // back to whatever's left (bare or genuinely unrecognized tokens) only
 // when that set is empty -- prefer real category matches, only fall back
 // to unlabeled files when nothing labeled exists at all.
+//
+// Superseded, for the texture types filterCandidatesByTextureTag has a
+// real tag mapping for, by that function -- see its own doc comment for
+// why (this one's category classification requires a same-basename
+// prefix filterCandidatesByTextureTag doesn't). Still the only filter for
+// every other type -- this function itself is unchanged; it stays the
+// live path for object_skin, the weapon/environment/monster replaceable
+// types, and anything else filterCandidatesByTextureTag returns nullopt
+// for.
 std::vector<std::filesystem::path> filterCandidatesForType(const std::vector<std::filesystem::path>& files,
                                                              uint32_t textureType,
                                                              const std::string& modelBasenameLower);
+
+// Real, corpus-wide texture-filename tokens (kTextureTagVocabulary,
+// export_texture_resolution.cpp) present anywhere in `stemLower` as a
+// substring, not a delimited token -- real ground-truth filenames run
+// tags together with no separator at all (e.g. the real
+// "bloodelffemalenakedtorsoskin00_105_hd.blp", "naked"+"torso"+"skin",
+// zero underscores between them), so a split('_') tokenizer would miss
+// the majority of the corpus this exists to recognize. A file's tag set
+// is a *description*, not a classification -- a candidate can and
+// usually does carry several.
+std::set<std::string> extractTextureTags(const std::string& stemLower);
+
+// True when `stemLower` carries a real, delimited "hd" token (split on
+// '_', exact match -- same idiom as export_texture_resolution.cpp's own
+// isGlowVariantCandidate, deliberately *not* a substring test the way
+// extractTextureTags is, since "hd" as a bare substring collides with
+// real English words far more readily than the longer vocabulary tokens
+// do). Used for both a candidate's own stem and a model's own basename --
+// see filterCandidatesByTextureTag's doc comment for the hard partition
+// this drives.
+bool filenameCarriesHdToken(const std::string& stemLower);
+
+// The real per-slot tag-conjunction query for `textureType`, when one is
+// established -- nullopt for every type this table has no confident
+// real-corpus tag for (the weapon/environment/monster replaceable types,
+// object_skin -- see export_texture_resolution.cpp's own doc comment on
+// textureTypeTagClauses for why object_skin specifically can never get
+// one), in which case the caller should fall back to
+// filterCandidatesForType exactly as before this function existed.
+//
+// `files` is expected to already be `_hd`-partitioned by the caller
+// (scanFuzzyTexturePoolForBasename does this at scan time, per model
+// variant) -- this function itself does no `_hd` filtering, since by the
+// time a candidate reaches here it's already guaranteed to match the
+// model's own `_hd`-ness.
+std::optional<std::vector<std::filesystem::path>> filterCandidatesByTextureTag(
+    const std::vector<std::filesystem::path>& files, uint32_t textureType);
 
 // Reads a PNG's real width/height straight out of its IHDR chunk without
 // decoding any pixel data. `readTextureFileBytes` always hands back PNG

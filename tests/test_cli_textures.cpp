@@ -78,13 +78,16 @@ TEST_CASE("husk export: a hardcoded texture slot embeds the sole basename-matchi
     auto dir = defaultsDir("fuzzytex-sole");
     writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));  // 1 = TEX_COMPONENT_SKIN
     writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
-    writeFile(dir / "fuzzytexfaceupper00_00_hd.png", {1, 2, 3, 4});
+    // No "_hd" suffix -- this model isn't an "_hd" variant, and the fuzzy
+    // pool hard-partitions on `_hd`-ness, so a real (non-"_hd") candidate
+    // is what this fixture needs.
+    writeFile(dir / "fuzzytexfaceupper00_00.png", {1, 2, 3, 4});
 
     auto result = runHusk("export " + (dir / "fuzzytex.m2").string());
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
     CHECK(result.output.find("husk: warning:") != std::string::npos);
-    CHECK(result.output.find("fuzzytexfaceupper00_00_hd.png") != std::string::npos);
+    CHECK(result.output.find("fuzzytexfaceupper00_00.png") != std::string::npos);
     CHECK(result.output.find("non-deterministic basename matching") != std::string::npos);
     CHECK(result.output.find("no FileDataID at all for this hardcoded slot") != std::string::npos);
 
@@ -230,8 +233,12 @@ TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot 
     auto dir = defaultsDir("fuzzytex-ambiguous");
     writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));
     writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
-    writeFile(dir / "fuzzytexfaceupper00_00_hd.png", onePixelPng);
-    writeFile(dir / "fuzzytexhair00_00.png", onePixelPng);
+    // Two real type-1 (skin) tag-conjunction hits ("face" and "skin" both
+    // satisfy textureTypeTagClauses' type-1 OR-of-clauses) -- neither
+    // "_hd" (this model isn't an "_hd" variant, and the fuzzy pool hard-
+    // partitions on that).
+    writeFile(dir / "fuzzytexfaceupper00_00.png", onePixelPng);
+    writeFile(dir / "fuzzytexskin00_00.png", onePixelPng);
 
     auto result = runHusk("export " + (dir / "fuzzytex.m2").string());
     CHECK(result.exitCode == 0);
@@ -241,8 +248,8 @@ TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot 
     CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
     CHECK(result.output.find("2 same-basename texture candidate(s)") != std::string::npos);
     CHECK(result.output.find("alternate_textures") != std::string::npos);
-    CHECK(result.output.find("fuzzytexfaceupper00_00_hd.png") != std::string::npos);
-    CHECK(result.output.find("fuzzytexhair00_00.png") != std::string::npos);
+    CHECK(result.output.find("fuzzytexfaceupper00_00.png") != std::string::npos);
+    CHECK(result.output.find("fuzzytexskin00_00.png") != std::string::npos);
 
     // Real content check: both candidates' actual bytes reached the .glb,
     // not just their names in the warning text.
@@ -381,8 +388,12 @@ TEST_CASE("husk export: an ambiguous slot's default prefers the largest real can
     writeFile(dir / "sizetest_skin_color_1001.png", solidColorPng(8, 8, 200, 150, 100));
     // Same-size overlay -- ties on pixel area with the atlas above, must
     // still lose to it (skin_color is the base layer, this is layered on
-    // top of it, never the right default by itself).
-    writeFile(dir / "sizetest_body_jewelry_2000.png", solidColorPng(8, 8, 220, 190, 60));
+    // top of it, never the right default by itself). Carries the "skin"
+    // tag too (textureTypeTagClauses' type-1 query) so it still enters the
+    // candidate set at all under the tag conjunction -- a real overlay
+    // filename co-occurring with "skin" the way real corpus names like
+    // "nakedtorsoskin..." do, not a synthetic-only shape.
+    writeFile(dir / "sizetest_skin_body_jewelry_2000.png", solidColorPng(8, 8, 220, 190, 60));
 
     auto result = runHusk("export " + (dir / "sizetest.m2").string());
     INFO("output:\n", result.output);
@@ -591,11 +602,14 @@ TEST_CASE("husk export: a fdid-resolvable slot keeps its own FileDataID-named fi
     // texture[1]'s own FileDataID-named file (deterministic match).
     writeFile(dir / "1034713.png", {'F', 'D', 'I', 'D'});
     // A real-named file sharing the model's basename -- the only thing
-    // texture[0]'s hardcoded slot can ever resolve to, and the only real
-    // candidate in the fuzzy pool.
-    writeFile(dir / "mixedtexfaceupper00_00_hd.png", {'N', 'A', 'M', 'E'});
+    // texture[0]'s hardcoded slot (type 6, char_hair) can ever resolve to,
+    // and the only real candidate in the fuzzy pool. Carries the "hair" tag
+    // (textureTypeTagClauses' type-6 query) and no "_hd" suffix (this model
+    // isn't an "_hd" variant, and the fuzzy pool hard-partitions on that).
+    writeFile(dir / "mixedtexhairstyle00_01.png", {'N', 'A', 'M', 'E'});
 
     auto result = runHusk("export " + (dir / "mixedtex.m2").string());
+    INFO("output:\n", result.output);
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("2 with an embedded texture") != std::string::npos);
 
@@ -608,7 +622,7 @@ TEST_CASE("husk export: a fdid-resolvable slot keeps its own FileDataID-named fi
     // The fdid-resolvable slot's own material name still carries its real
     // FileDataID -- it wasn't renamed to the fuzzy-matched file's name.
     CHECK(text.find("_fdid1034713") != std::string::npos);
-    CHECK(text.find("_mixedtexfaceupper00_00_hd") != std::string::npos);
+    CHECK(text.find("_mixedtexhairstyle00_01") != std::string::npos);
 
     fs::remove_all(dir);
 }
@@ -618,7 +632,9 @@ TEST_CASE("husk export: a fdid-resolvable slot with no matching \"<fdid>.png\" f
     auto dir = defaultsDir("fallbacktex");
     writeFile(dir / "fallbacktex.m2", oneTexturedModel(9999999));  // no 9999999.png on disk
     writeFile(dir / "fallbacktex00.skin", oneTexturedModelSkin());
-    writeFile(dir / "fallbacktexfaceupper00_00_hd.png", {'N', 'A', 'M', 'E'});
+    // No "_hd" suffix -- this model isn't an "_hd" variant, and the fuzzy
+    // pool hard-partitions on that.
+    writeFile(dir / "fallbacktexfaceupper00_00.png", {'N', 'A', 'M', 'E'});
 
     auto result = runHusk("export " + (dir / "fallbacktex.m2").string());
     CHECK(result.exitCode == 0);
@@ -736,8 +752,10 @@ TEST_CASE("husk export: --listfile-root is independent of --textures -- co-locat
     writeFile(dir / "splitroottex.m2", twoTexturedModel(1018799));
     writeFile(dir / "splitroottex00.skin", twoBatchSkin());
     // The hardcoded slot's only real candidate: co-located with the model,
-    // found via --textures defaulting to the model's own directory.
-    writeFile(dir / "splitroottexfaceupper00_00_hd.png", {'N', 'A', 'M', 'E'});
+    // found via --textures defaulting to the model's own directory. type 6
+    // (char_hair) needs the "hair" tag; no "_hd" suffix since this model
+    // isn't an "_hd" variant, and the fuzzy pool hard-partitions on that.
+    writeFile(dir / "splitroottexhairstyle00_01.png", {'N', 'A', 'M', 'E'});
     // The fdid-resolvable slot's real file lives under a *separate* corpus
     // root, nowhere near the model's own directory -- reachable only via
     // --listfile-root, never via --textures.

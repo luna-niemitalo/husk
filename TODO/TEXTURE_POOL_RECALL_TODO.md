@@ -381,6 +381,128 @@ sqlite3 out.sqlite "SELECT TextureType, MIN(cnt), MAX(cnt), AVG(cnt) FROM
   GROUP BY TextureType ORDER BY TextureType;"
 ```
 
+## Step 3/5 findings (2026-08-29): tag-conjunction pool + `_hd` hard partition, real deltas
+
+Implemented as two changes, both in `src/export_texture_resolution.{hpp,cpp}`/
+`src/sources/catalog.cpp`, claim-and-remove (step 4, still open above)
+untouched:
+
+- **Pool admission** (`scanFuzzyTexturePoolForBasename`): a candidate is now
+  admitted when it either starts with the model's basename (the original
+  rule, kept — the only real signal for files with no vocabulary tag at all,
+  e.g. creature recolor names like `gnoll2_armor_brown.blp`) **or** carries
+  any real `kTextureTagVocabulary` token anywhere in its stem (substring, not
+  a delimited-token split — real ground-truth names run tags together with
+  no separator, e.g. `nakedtorsoskin`). Every admitted candidate must then
+  also match the model's own real `_hd`-ness (`filenameCarriesHdToken`,
+  delimited-token, not substring) — step 5's hard partition, enforced once at
+  the pool itself so every downstream consumer (the per-type query below,
+  the older category filter, `orderCandidatesForDefault`'s ranking) inherits
+  it for free.
+- **Per-type query** (`filterCandidatesByTextureTag`, new,
+  `textureTypeTagClauses`): an OR-of-AND-clause table for the texture types a
+  confident real-corpus tag exists for — `{1,8}` (skin/skin_extra): OR of
+  `{skin}`/`{face}`/`{tattoo}`/`{naked}` (a real composite slot, confirmed by
+  step 2's own Q2 investigation — several independent options feed it at
+  once); `{6,22}` (char_hair): `{hair}` alone, deliberately not `+color`,
+  since real Hair *Style* files carry no "color" token; `{19}` (char_eyes):
+  `{eye}`; `{20}` (char_jewelry): `{jewelry}` **and** `{color}` together,
+  narrower than a bare `jewelry` tag on purpose — see `candidateCategoryTypes`'
+  own doc comment for why `body_jewelry`/`bracelets` (a skin overlay) must
+  stay excluded from a real jewelry-mesh texture's own candidate set, which a
+  bare `jewelry` substring can't tell apart but `jewelry`+`color` together
+  can (reproduces the pre-existing 2-file `bloodelffemale_hd` answer exactly).
+  Every other type (object_skin(2) most notably — unreachable by any
+  filename tag, see above — plus every weapon/environment/monster
+  replaceable type) returns `nullopt` and falls back to the older,
+  byte-for-byte-unchanged `filterCandidatesForType`.
+
+**Baked vocabulary** (`kTextureTagVocabulary`, 13 tokens): reuses the exact
+corpus-wide counts this doc's own step-1 findings section above already
+quotes (`skin` 6851, `color` 5100, `hair` 7129, `naked` 1950, `torso` 946,
+`pelvis` 1060, `scalp` 2391, `upper` 12888, `lower` 7282, `tattoo` 702,
+`face` 10803, `eye` 408, `jewelry` 959) — no need to regenerate the 19.6 MB
+artifact for numbers already on record. A from-scratch Python replica of the
+admission/query logic above, run against the real
+`character/bloodelf/female/` folder (1029 files) and the model's own real
+ground truth (440 DB2-named FileDataIDs from `bloodelffemale_hd`'s own
+`chr_customization_options` extras, 415 present in the folder — reproduced
+directly from a real exported `.glb`, not re-derived by hand), reproduced
+every number this doc's earlier sections already state exactly (`skin+color`
+12, `skin+pelvis` 40, `skin+torso` 40, `naked` 80, `hair+color` 5,
+`scalp+upper` 14, `scalp+lower` 0, `tattoo` 72, and the 94/66=15.9% baseline)
+before any C++ was written, then cross-checked again after against the real
+compiled binary's own `--explain-textures` alternate-counts (26/421/10/2 for
+the four taggable HD slots) — exact match, confirming the shipped C++ behaves
+identically to the validated design.
+
+**Recall** (HD model, `(tag OR startswith) AND _hd`): pool 477 (was 94),
+recall against the real 415-file ground truth: 379/415 = 91.3% (was
+66/415 = 15.9%). Lower than this doc's own "any tag" figure (98.6%/1016
+pool) because of the `_hd` partition — expected and correct, not a shortfall:
+389 of 415 ground-truth files are themselves `_hd`, so the partition trades
+away the 26 non-`_hd` outliers (plus a handful of naming edge cases) for
+eliminating the non-HD model's poisoned pool. No equivalent ground-truth
+recall figure exists for the non-HD model — confirmed via its own real
+`--explain-textures` output (`--chr-model-id auto: ... no ChrModel row (not
+a real player character model) -- skipping`), `bloodelffemale.m2` has no
+derivable `ChrModelID` and therefore no DB2 customization-menu ground truth
+to measure against at all; its own fix is verified by ledger delta instead
+(below).
+
+**Real ledger deltas**, `husk export --explain-textures`, before (commit
+`a2ad9cb`, `Catalog::resolveFuzzyTier`) vs. after, four models:
+
+- `creature/gnoll2/gnoll2.m2`, `item/objectcomponents/weapon/
+  12be_bloodelf_crafting_brush01.m2`: **byte-for-byte identical.** Neither
+  model's fuzzy-tier slots use a taggable type (gnoll2's own monster_1/
+  monster_2 slots stay on the unchanged `filterCandidatesForType` path with
+  an unchanged admitted pool — none of its 13 real candidates carry any of
+  the 13 baked tokens; the item resolves entirely via tier 1/2, never
+  reaching tier 3 at all). Confirms the common non-character case is
+  untouched.
+- `bloodelffemale_hd.m2`: slot 1 (type 6, hair) 12 → 26 alternates, same
+  default (`hair_color_5196729.blp`). Slot 2 (type 1, skin) 64 → 421
+  alternates, same default (`skin_color_3500122.blp`) — confirms the ranking
+  heuristic stays correct even over a 6.6x larger candidate set. Slot 9
+  (type 19, eyes) 9 → 10, same default. Slot 3 (type 20, jewelry) unchanged
+  at 2/2, same default — the `jewelry`+`color` clause reproduces the old
+  answer exactly. Slot 4 (type 2, object_skin, **not** a taggable type) 3 →
+  386 alternates (the scan-level widening applies regardless of per-type
+  tagging) and its *default changed*: from `bloodelffemale_hd_3255415.blp`
+  to `bloodelffemaleskin00_00_hd.blp` — a real, incidental fix, not a
+  targeted one: FileDataID 3255415 is the exact "tiny mostly-transparent
+  sparkle/glint icon" this file's own `candidateAllowedForType` doc comment
+  already names as a known-wrong historical default; the new, much larger
+  admitted pool lets `orderCandidatesForDefault`'s pixel-area ranking find a
+  real skin-shaped file instead, purely as a side effect of the wider scan
+  gate.
+- `bloodelffemale.m2` (non-HD — the real headline case): before, three
+  distinct hardcoded slots (skin/type 1, object_skin/type 2, char_hair/type
+  6) **all** resolved to the identical wrong file, `bloodelffemale_dh_horns.
+  blp` (a demon-hunter horns texture), each reporting 891 "alternates."
+  After: slot 0 (skin) 497 alternates, new default `bloodelf_female_dh_
+  tattoo_00.blp` — not a perfect answer (confirmed directly: this non-HD
+  folder has zero real `skin`+`color` files at all, so a DH tattoo variant
+  really is the best real signal available locally), but no longer a horns
+  texture, and no longer poisoned by the ~400 `_hd` files the old rule let
+  leak in (a real prefix collision: `"bloodelffemale"` is a string-prefix of
+  every `"bloodelffemale_hd_*"` filename). Slot 6 (char_hair) is the clean
+  fix: no longer ambiguous at all — the `_hd`-partitioned, non-taggable-
+  excluded pool has **exactly one** real hair-tagged candidate,
+  `femhairbits.blp`, claimed deterministically. Slot 1 (object_skin) is
+  **unchanged**, still defaulting to the same wrong `dh_horns.blp` — object_
+  skin has no tag mapping (per this doc's own "unreachable" finding above),
+  so this specific wrong default is a known, accepted, unfixed limitation,
+  not an oversight.
+
+**Verified by running the real compiled binary** against real local data for
+all of the above (not reasoned about) — `husk export --explain-textures`
+against the real `/media/luna/data/wow_export` corpus, before/after ledgers
+diffed line by line, every delta traced to a specific code path. Not
+verified: an actual Blender-side visual check of any of these new defaults
+(same "Luna's own eyes" gate as every other texture-resolution change here).
+
 ## Steps
 
 1. **Derive the tag vocabulary from the corpus, not by hand.** The prototype's
@@ -412,21 +534,15 @@ sqlite3 out.sqlite "SELECT TextureType, MIN(cnt), MAX(cnt), AVG(cnt) FROM
    `chrmodel::Data` + resolved choice map — `Catalog::texture()`'s current
    signature has no DB2 handle at all), not a one-line change inside the
    existing tiers.
-3. **Replace the pool's `startswith` gate with a tag-conjunction query**, keeping the
-   existing per-type filter. Expect pool sizes to *grow* for broad tags (face
-   750, skin 139) and shrink for narrow ones (hair 27, eyes 13, jewelry 8) —
-   size is the wrong metric, recall is the right one.
-4. **Drop claim-and-remove.** With tag gating the "one image can't fill every
+3. **Drop claim-and-remove.** With tag gating the "one image can't fill every
    slot" property comes from type compatibility instead, and the failure mode it
    causes today (permanent deletion from an already-starved pool) is worse than
    the problem it solves.
-5. **Apply `_hd` discipline per model variant**, not globally — see the
-   partition section above: the headline 98.6% → 89.9% recall cost is mostly
-   art the `_hd` model genuinely does not use, and it removes the base model's
-   49.6% false-positive rate.
-6. **Re-run the resolution-ledger diff** (`husk export --explain-textures` /
-   `husk resolve`, `REFACTOR/README.md`'s stage-1 gate). Every delta attributed;
-   deltas here are expected and are the point.
+4. **Re-run the resolution-ledger diff** (`husk export --explain-textures` /
+   `husk resolve`, `REFACTOR/README.md`'s stage-1 gate) once step 3 (above)
+   lands, the same way the "Step 3/5 findings" section above already did for
+   the tag-conjunction/`_hd`-partition pass. Every delta attributed; deltas
+   here are expected and are the point.
 
 ## Gate
 

@@ -126,8 +126,11 @@ TEST_CASE("husk resolve: a genuinely ambiguous tier-3 hit reports its real alter
     auto dir = defaultsDir("resolve-ambiguous");
     writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));
     writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
-    writeFile(dir / "fuzzytexfaceupper00_00_hd.png", onePixelPng);
-    writeFile(dir / "fuzzytexhair00_00.png", onePixelPng);
+    // Two real type-1 (skin) tag-conjunction hits, mirroring
+    // test_cli_textures.cpp's 'fuzzytex-ambiguous' fixture exactly (see
+    // that file's own comment for why neither carries "_hd").
+    writeFile(dir / "fuzzytexfaceupper00_00.png", onePixelPng);
+    writeFile(dir / "fuzzytexskin00_00.png", onePixelPng);
 
     auto result = runHusk("resolve " + (dir / "fuzzytex.m2").string());
     CHECK(result.exitCode == 0);

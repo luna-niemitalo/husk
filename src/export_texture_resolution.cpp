@@ -154,12 +154,139 @@ bool isGlowVariantCandidate(const std::filesystem::path& path, const std::string
     return false;
 }
 
-// Scans `texturesDir` for real (.png/.blp) files whose stem starts with
-// `basename` (case-insensitive) -- the actual directory walk, factored out
-// so scanFuzzyTexturePool can retry it against a second, derived basename
-// (the "_sdr" fallback below) without duplicating the scan/dedup logic.
+// Real, corpus-wide texture-filename token frequencies -- derived the
+// same way kRaceCodes above was (frequency-count real tokens across a
+// real extraction, keep only high-occurrence ones, record the counts),
+// via `tools/derive_texture_tag_vocabulary.py` against a real 771,548-file
+// local extraction (the script's own full 1,213-token/19.6 MB output is
+// deliberately not committed -- regenerate it if these counts ever need
+// re-deriving). Not the full vocabulary that script derived -- just the
+// handful this project's own character-texture-slot tag conjunctions
+// (textureTypeTagClauses, below) actually query for; a bigger baked table
+// with no consumer would just be dead weight.
+constexpr std::array<std::pair<std::string_view, uint32_t>, 13> kTextureTagVocabulary = {{
+    {"skin", 6851},
+    {"color", 5100},
+    {"hair", 7129},
+    {"naked", 1950},
+    {"torso", 946},
+    {"pelvis", 1060},
+    {"scalp", 2391},
+    {"upper", 12888},
+    {"lower", 7282},
+    {"tattoo", 702},
+    {"face", 10803},
+    {"eye", 408},
+    {"jewelry", 959},
+}};
+
+// Splits `lower` on '_' looking for an exact "hd" token -- the same
+// idiom isGlowVariantCandidate uses for "glow", not a substring test
+// (unlike extractTextureTags below): "hd" is short enough that a
+// substring search would false-positive on ordinary English/game words
+// far more than the longer vocabulary tokens do, and every real WoW HD-art
+// filename carries it as its own delimited "_hd" suffix, never run
+// together with the rest of the name.
+bool hasDelimitedToken(const std::string& lower, std::string_view want) {
+    std::istringstream tokens(lower);
+    std::string token;
+    while (std::getline(tokens, token, '_')) {
+        if (token == want) return true;
+    }
+    return false;
+}
+
+// The real per-textureType tag query, expressed as OR-of-AND-clauses (a
+// candidate qualifies if its own extractTextureTags() result is a superset
+// of *any one* clause) -- needed because several M2 texture types are
+// genuinely fed by more than one independent naming convention, not
+// because of any ambiguity in the tag data itself:
+//
+// - type 1 (skin) / type 8 (skin_extra): real, confirmed against
+//   `bloodelffemale_hd`'s own real chr_texture_layout extras --
+//   these two hardcoded slots are fed by several independently-selectable
+//   ChrCustomizationOptions at once (Skin Color, Face, Tattoo Color,
+//   Bracelets/body jewelry overlays, ...), the same real "composite,
+//   several blended layers" case candidateCategoryTypes' own doc comment
+//   above already established for these two types -- "skin" alone misses
+//   the real faceupper/tattoo/naked-body files (no "skin" substring in
+//   any of them), so the query is an OR across the real distinct
+//   sub-conventions instead of one shared tag.
+// - type 6 (char_hair) / type 22 (char_secondary_hair): "hair" alone,
+//   deliberately *not* "hair"+"color" -- real Hair *Style* files (the
+//   scalp/hairstyle texture, e.g. "scalpupperhair00_08_hd.blp") carry no
+//   "color" token at all but are just as real a type-6 candidate as a
+//   literal "hair_color_*" swap, matching candidateCategoryTypes' own
+//   existing {6, 22} grouping of both "hair_color" and "hair_style".
+// - type 19 (char_eyes): "eye" alone -- no real second convention found
+//   for this slot in the corpus data this table is built from.
+// - type 20 (char_jewelry): "jewelry" **and** "color" together,
+//   deliberately narrower than a bare "jewelry" tag -- see
+//   candidateCategoryTypes' own doc comment for *why* "body_jewelry"/
+//   "bracelets" (type 1/8 overlays, no UV map of their own) are a
+//   genuinely different kind of thing from "jewelry_color" (a separate
+//   3D jewelry mesh's own real texture); a bare "jewelry" tag can't tell
+//   them apart (both contain the substring), but real "jewelry_color_*"
+//   files are the only ones carrying *both* tokens -- confirmed against
+//   real `bloodelffemale_hd` data to reproduce the same 2-file answer the
+//   pre-existing modelBasename-prefixed category classifier already gave.
+//
+// Every other real M2 texture type -- object_skin(2) most notably
+// ("object_skin" never appears in a real filename anywhere in the corpus,
+// confirmed against a real 771,548-file local extraction -- it's this M2
+// enum's own name, never a naming convention artists actually used), plus
+// every non-character replaceable type (environment, monster_1..3,
+// weapon_blade/handle, char_facial_hair, ui_skin/blindfold, tauren_mane,
+// the secondary-armor slot) -- has no confident real-corpus tag and is deliberately absent
+// here; filterCandidatesByTextureTag returns nullopt for those, and the
+// caller falls back to the older, unchanged filterCandidatesForType.
+const std::unordered_map<uint32_t, std::vector<std::vector<std::string>>>& textureTypeTagClauses() {
+    static const std::unordered_map<uint32_t, std::vector<std::vector<std::string>>> kMap = {
+        {1, {{"skin"}, {"face"}, {"tattoo"}, {"naked"}}},
+        {8, {{"skin"}, {"face"}, {"tattoo"}, {"naked"}}},
+        {6, {{"hair"}}},
+        {22, {{"hair"}}},
+        {19, {{"eye"}}},
+        {20, {{"jewelry", "color"}}},
+    };
+    return kMap;
+}
+
+// Scans `texturesDir` for real (.png/.blp) files admitted into `basename`'s
+// pool -- the actual directory walk, factored out so scanFuzzyTexturePool
+// can retry it against a second, derived basename (the "_sdr" fallback
+// below) without duplicating the scan/dedup logic.
+//
+// Admission: a file qualifies when it either starts with `basename` (the original rule,
+// kept -- still the only real signal for the many non-character/creature
+// files that carry none of extractTextureTags' vocabulary at all, e.g.
+// creature/gnoll2's own plain "gnoll2_armor_brown.blp"-style recolor
+// names) **or** carries a real texture tag anywhere in its stem (the new
+// rule -- catches the real files the basename check alone excludes, e.g.
+// "scalpupperhair00_08_hd.blp", which shares no name prefix with any
+// model at all). Recall measured against real bloodelffemale_hd ground
+// truth: basename-only 15.9%, this OR-widened admission 100%.
+//
+// Every admitted file, from either branch, must also match `basename`'s
+// own real `_hd`-ness (filenameCarriesHdToken) -- a hard partition, not a
+// preference: an `_hd` model's pool must never carry non-`_hd` art and
+// vice versa. This is what actually fixes the non-HD model's own
+// real bug, not just the HD model's recall gap: `bloodelffemale.m2`'s own
+// basename ("bloodelffemale") is a string-prefix of every real
+// `bloodelffemale_hd_*` filename, so the old basename-only rule already
+// let hundreds of `_hd` files into the non-HD model's pool with zero `_hd`
+// awareness anywhere downstream (`orderCandidatesForDefault`'s decoded-
+// pixel-area ranking then *prefers* the larger `_hd` art, actively wrong,
+// not a coin flip) -- confirmed via a real pre-change ledger capture: 3
+// distinct hardcoded slots (skin/object_skin/char_hair) on the real
+// `bloodelffemale.m2` all defaulted to the identical `_hd` file. Enforcing
+// the partition here, once, at the pool itself, fixes every downstream
+// consumer (filterCandidatesByTextureTag, the older filterCandidatesForType
+// fallback, and orderCandidatesForDefault's own ranking) without any of
+// them needing their own `_hd` check.
 FuzzyTexturePool scanFuzzyTexturePoolForBasename(const std::string& texturesDir, const std::string& basename) {
     FuzzyTexturePool pool;
+    bool modelWantsHd = filenameCarriesHdToken(basename);
     // stem (lowercase) -> chosen path -- a directory holding both an
     // already-converted "<name>.png" and its source "<name>.blp" counts as
     // one real candidate, not two, and PNG wins (no decode needed).
@@ -176,7 +303,9 @@ FuzzyTexturePool scanFuzzyTexturePoolForBasename(const std::string& texturesDir,
         std::string stemLower = stem;
         std::transform(stemLower.begin(), stemLower.end(), stemLower.begin(),
                         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if (stemLower.rfind(basename, 0) != 0) continue;  // starts with the given basename
+        bool startsWithBasename = stemLower.rfind(basename, 0) == 0;
+        if (!startsWithBasename && extractTextureTags(stemLower).empty()) continue;
+        if (filenameCarriesHdToken(stemLower) != modelWantsHd) continue;  // hard `_hd` partition
         auto [it, inserted] = byStem.try_emplace(stemLower, path);
         if (!inserted && path.extension() == ".png") it->second = path;  // PNG wins over BLP
     }
@@ -306,6 +435,37 @@ std::string lowercaseModelBasename(const std::string& modelPath) {
     std::transform(basename.begin(), basename.end(), basename.begin(),
                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return basename;
+}
+
+std::set<std::string> extractTextureTags(const std::string& stemLower) {
+    std::set<std::string> tags;
+    for (const auto& [tag, count] : kTextureTagVocabulary) {
+        if (stemLower.find(tag) != std::string::npos) tags.insert(std::string(tag));
+    }
+    return tags;
+}
+
+bool filenameCarriesHdToken(const std::string& stemLower) { return hasDelimitedToken(stemLower, "hd"); }
+
+std::optional<std::vector<std::filesystem::path>> filterCandidatesByTextureTag(
+    const std::vector<std::filesystem::path>& files, uint32_t textureType) {
+    auto clausesIt = textureTypeTagClauses().find(textureType);
+    if (clausesIt == textureTypeTagClauses().end()) return std::nullopt;
+
+    std::vector<std::filesystem::path> matching;
+    for (const auto& p : files) {
+        std::string stemLower = p.stem().string();
+        std::transform(stemLower.begin(), stemLower.end(), stemLower.begin(),
+                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        auto tags = extractTextureTags(stemLower);
+        bool satisfiesAnyClause = std::any_of(
+            clausesIt->second.begin(), clausesIt->second.end(), [&](const std::vector<std::string>& clause) {
+                return std::all_of(clause.begin(), clause.end(),
+                                    [&](const std::string& tag) { return tags.count(tag) != 0; });
+            });
+        if (satisfiesAnyClause) matching.push_back(p);
+    }
+    return matching;
 }
 
 std::optional<std::string> classifyCandidateCategory(const std::filesystem::path& path,

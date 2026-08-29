@@ -119,7 +119,15 @@ Resolved<EncodedTexture> Catalog::resolveListfileTier(uint32_t fdid) const {
 Resolved<EncodedTexture> Catalog::resolveFuzzyTier(ModelState& state, uint32_t textureType,
                                                     const std::string& modelPath, bool preferGlowVariant) {
     std::string basenameLower = husk::commands::lowercaseModelBasename(modelPath);
-    auto matching = husk::commands::filterCandidatesForType(state.pool.files, textureType, basenameLower);
+    // A real tag-conjunction query when textureType has one
+    // (filterCandidatesByTextureTag doesn't need -- and doesn't use -- the
+    // modelBasename-prefix filterCandidatesForType's own classification
+    // requires), falling back to the older category classifier unchanged
+    // for every type that table has no established tag for.
+    auto tagMatching = husk::commands::filterCandidatesByTextureTag(state.pool.files, textureType);
+    auto matching = tagMatching ? std::move(*tagMatching)
+                                 : husk::commands::filterCandidatesForType(state.pool.files, textureType,
+                                                                            basenameLower);
 
     if (matching.empty()) {
         return Resolved<EncodedTexture>::miss(
