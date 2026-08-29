@@ -2179,15 +2179,14 @@ completes every stage cleanly.
 
 ### `extras` schema version + `EXTRAS_SCHEMA.md` index (2026-08-29)
 
-Closed `REFACTOR/AUDIT.md` §3's "No schema version anywhere" finding.
-Real recount at the time of closing: the root-joint carrier above held 14
-real distinct keys before this session (the audit's own count of 13 missed
-`animation_data_names`, set in `gltf.cpp` rather than `gltf_skeleton.cpp`'s
-`skinExtras` block the audit's own citation pointed at — same carrier
-node, different source file, easy to miss with a single-file grep), now
-15 with `schema_version` added. The audit's separate "34 material and
-primitive extras keys" figure does not cleanly decompose into "material
-keys" and "primitive keys" as stated — the real count, scoped strictly to
+husk's `extras` carry semantics only husk and its Blender script
+understand, and before this there was no way for a consumer to tell which
+producer version wrote a given `.glb`. Counting the keys is itself a trap:
+the root-joint carrier holds **15**, but grepping `gltf_skeleton.cpp`'s
+`skinExtras` block finds only 14, because `animation_data_names` is set in
+`gltf.cpp` — same carrier node, different source file. Material and
+primitive keys do not cleanly decompose into "material keys" and
+"primitive keys" either — the real count, scoped strictly to
 `tinygltf::Material.extras`/`tinygltf::Primitive.extras`/the mesh-node
 `collision` extra, is 12 material top-level keys (`additional_textures`,
 `texture_transform`, `texture_transform_animation`, `texture_type`,

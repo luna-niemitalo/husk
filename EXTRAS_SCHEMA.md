@@ -1,10 +1,9 @@
 # husk's glTF `extras` schema — index
 
 Every `extras` key `husk export` writes into its output `.glb`, where it
-lives, what it carries, and which feature produces it. Written to close
-`REFACTOR/AUDIT.md` §3's "No schema version anywhere" finding: before this
-document, the only way to answer "what extras does husk emit" was reading
-every `.cpp` file that touches `tinygltf::Value`. This file is the answer
+lives, what it carries, and which feature produces it. Without this file the
+only way to answer "what extras does husk emit" is to read every `.cpp` that
+touches `tinygltf::Value`. This file is the answer,
 kept up to date going forward — same "index, not the receipts" role
 `WIKI_FINDINGS.md` plays for wowdev.wiki corrections, except the subject
 here is husk's own output format rather than an upstream spec.
@@ -84,11 +83,10 @@ found real data.
 
 `animation_data_names` is set separately (`gltf.cpp`, not
 `gltf_skeleton.cpp`'s `skinExtras` block) but merges onto the exact same
-root-joint node `extras` object as everything else above — **not** counted
-among the 13 keys `REFACTOR/AUDIT.md` §3 originally listed for this
-carrier; that bullet's count was taken from `gltf_skeleton.cpp` alone and
-missed this one, a real undercount corrected when this document was
-written (13 → 14, now 15 counting `schema_version`).
+root-joint node `extras` object as everything else above. It is easy to
+miss when counting this carrier's keys: grepping `gltf_skeleton.cpp`'s
+`skinExtras` block alone finds 14 (13 plus `schema_version`) and misses
+this one. The real total is 15.
 
 ## Material extras
 
