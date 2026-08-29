@@ -503,17 +503,39 @@ diffed line by line, every delta traced to a specific code path. Not
 verified: an actual Blender-side visual check of any of these new defaults
 (same "Luna's own eyes" gate as every other texture-resolution change here).
 
+### Supervisor re-verification (2026-08-29): two corrections
+
+Both deltas above were reproduced independently from a separate pre-change
+binary (commit `a2ad9cb`) and matched exactly. Two claims did not survive.
+
+**1. "No real skin file exists locally for the non-HD variant" is false.**
+48 real non-HD skin textures are on disk
+(`bloodelffemalenakedpelvisskin00_*.blp`,
+`bloodelffemalenakedtorsoskin00_*.blp`), and **26 of them are in the
+non-HD skin slot's own candidate set after this change** — confirmed in
+the emitted alternates. `orderCandidatesForDefault` ranked
+`bloodelf_female_dh_tattoo_00.blp` above every one of them.
+
+So the accurate statement is: **step 3 fixed the candidate set; the
+ranking is now the binding constraint.** Recall genuinely improved and the
+right answer is now reachable for the first time — it just isn't the one
+picked. That is a strictly better failure than before (the right answer
+was not even a candidate), and it makes ranking worth tuning for the first
+time, which it never was at 15.9% recall.
+
+**2. The HD `object_skin` change is a side effect, not a fix.** Type 2 has
+no tag mapping and falls back to the unchanged category filter — but it
+still inherits the *widened pool scan gate*, so its candidate count went
+3 → 386 and its default changed. Nothing evaluated whether the new pick is
+better; it is an arbitrary choice from a much larger unfiltered set. The
+old default was known-wrong, so this is not obviously a regression, but it
+is not evidence of improvement either. **Every untagged texture type now
+picks arbitrarily from a much wider pool than before** — that is the main
+risk this change introduces and it is not covered by any test.
+
 ## Steps
 
-1. **Derive the tag vocabulary from the corpus, not by hand.** The prototype's
-   tag map was eyeballed off one folder and is known incomplete (`object_skin`
-   returned 0 candidates because those textures live with items). Do it the way
-   `stripRaceGenderSuffix`'s race codes were derived: frequency-count tokens
-   across a real extraction, keep only high-occurrence ones, record the counts.
-   Derive *co-occurrence* too, not just frequency — the parent/child and
-   orthogonal-axis structure above is what makes conjunctions work, and it is
-   not guessable from a token list alone.
-2. **Make `Catalog::texture()` try a new DB2-character tier between tier 2
+1. **Make `Catalog::texture()` try a new DB2-character tier between tier 2
    (listfile) and tier 3 (fuzzy pool), scoped to exactly the case it's proven
    correct for**: given the model's real `CharComponentTextureLayoutsID`
    (already resolved upstream, same as `--char-layout-id`/`--chr-model-id`
@@ -534,15 +556,34 @@ verified: an actual Blender-side visual check of any of these new defaults
    `chrmodel::Data` + resolved choice map — `Catalog::texture()`'s current
    signature has no DB2 handle at all), not a one-line change inside the
    existing tiers.
-3. **Drop claim-and-remove.** With tag gating the "one image can't fill every
-   slot" property comes from type compatibility instead, and the failure mode it
-   causes today (permanent deletion from an already-starved pool) is worse than
-   the problem it solves.
-4. **Re-run the resolution-ledger diff** (`husk export --explain-textures` /
-   `husk resolve`, `REFACTOR/README.md`'s stage-1 gate) once step 3 (above)
-   lands, the same way the "Step 3/5 findings" section above already did for
-   the tag-conjunction/`_hd`-partition pass. Every delta attributed; deltas
-   here are expected and are the point.
+2. **Rank the candidate set — it is now the binding constraint.** The set
+   fix landed; the picker did not. Measured: the non-HD skin slot has 26 real
+   `nakedtorsoskin`/`nakedpelvisskin` files among its candidates and
+   `orderCandidatesForDefault` still ranks `bloodelf_female_dh_tattoo_00.blp`
+   above all of them. Ranking by decoded pixel area plus filename category was
+   built for a 94-candidate starved pool and is now choosing among hundreds.
+   This is the highest-value remaining item: the right answer is reachable for
+   the first time and is not being picked.
+3. **Constrain the widened pool for untagged texture types.** Types with no
+   tag clause (`object_skin` and every non-character replaceable type) fall
+   back to the old category filter but still inherit the *widened scan gate*,
+   so they now pick arbitrarily from a much larger set — HD `object_skin` went
+   from 3 candidates to 386. No test covers this and no evidence says the new
+   picks are better. Either give those types a real clause, or keep the narrow
+   gate for types that have none.
+4. **Decide claim-and-remove on measured behavior, not its stated purpose.**
+   It does **not** currently provide the "one image can't fill every slot"
+   property it is described as providing: `Catalog::resolveFuzzyTier` only
+   erases from the pool in the `matching.size() == 1` branch, so the ambiguous
+   branch — the case that dominates character models — never depletes anything.
+   That is why three distinct slots on the non-HD model all resolved to the
+   same file before this change. Removing it is therefore close to a no-op for
+   the ambiguous path; the real question is whether the sole-candidate branch's
+   depletion is worth keeping on its own.
+5. **Re-run the resolution-ledger diff** (`husk export --explain-textures` /
+   `husk resolve`, `REFACTOR/README.md`'s stage-1 gate) after each of the
+   above, the same way the "Step 3/5 findings" section already did. Every
+   delta attributed; deltas here are expected and are the point.
 
 ## Gate
 
