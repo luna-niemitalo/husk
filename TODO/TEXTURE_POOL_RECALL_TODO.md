@@ -725,6 +725,36 @@ to it. Accepted as fine at this stage; the untagged-type fix above saved
 only ~1 MB, since the type-1 skin slot's 421 candidates dominate, not
 `object_skin`'s.
 
+## Candidate-set size is the dominant runtime cost (measured 2026-08-30)
+
+`husk resolve` on one model, current binary vs. the pre-tag-widening
+binary (commit `a2ad9cb`), n=3, real local corpus:
+
+| model | pool change | before | after |
+|---|---|---|---|
+| `bloodelffemale_hd` | 64 → 421 candidates | 4.23 s | **17.9 s** (4.2× slower) |
+| `bloodelffemale` | 891 → 497 candidates | 19.77 s | **4.15 s** (4.8× faster) |
+
+Runtime tracks candidate count in both directions, because
+`orderCandidatesForDefault` decodes every candidate's BLP to rank by pixel
+area, and every candidate is then embedded as an `alternate_textures`
+extra. The `_hd` partition is therefore a large performance win as well as
+a correctness one; the tag widening costs proportionally.
+
+Two consequences worth keeping in view:
+
+- **Narrowing the pool is now a performance lever, not only a correctness
+  one.** Ranking work (step 1) that lets husk stop decoding every
+  candidate — or decode lazily, or rank on something cheaper than decoded
+  pixel area — pays twice.
+- **This dwarfs the listfile cache.** That cache is a ~4 % win on a simple
+  model and unmeasurable on a character one; the numbers above are the
+  cost that actually matters for corpus-scale runs. Do not reach for
+  further listfile micro-optimisation before this.
+
+Net across the two models is roughly a wash (24.0 s → 22.1 s), so this did
+not regress corpus-wide throughput — it redistributed it, badly for HD
+characters and well for non-HD.
 ## Steps
 
 1. **Rank the candidate set — it is now the binding constraint.** The set
