@@ -29,6 +29,19 @@ now that it's fixed.)
 | `tools/corpus_scan_tasks/texture_dedup_collision_task.py`, `black_additive_task.py` | still 1-2, **not converted** | Both need resolved *bytes*, not metadata. A conversion was written and **reverted the same session**: it drove them from `husk resolve --textures-out`, which is not a per-slot byte export but a best-effort convenience copy of whatever husk happened to decode (`writeTextureOutCopy`, its own comment: "not the thing the export itself depends on"). Measured on `creature/bearice/bearice.m2`: 4 slots resolved, 2 files written, one of the two not a resolved slot at all. Under it the dedup task found 0 collisions where it previously found 3, and `black_additive` would silently skip any already-`.png` texture. Blocked until husk can hand back the bytes for a resolved slot — see below. |
 | `tools/husk_blender_geoset_mask.py` (`_resolve_customization_texture_path`) | 1 (PNG-only filesystem search, textures dir + parent) | **Fixed 2026-08-29** — was 2 tiers + parent-dir glob + a `husk blp-export` subprocess (PATH/`../build/husk` lookup); now a single, honestly-scoped fallback for real customization-choice textures husk's own export doesn't embed (see below), with the subprocess and PATH lookup removed outright. |
 
+**The tier order is not the deepest problem here — the candidate set is.**
+Measured 2026-08-29 against ground truth (the 415 DB2-named textures on disk
+for `bloodelffemale_hd`): the pool's `stem.startswith(model_basename)` gate
+contains **66 of 415 — 15.9%** of the correct answers, so
+`orderCandidatesForDefault` has been ranking a set that mostly excludes the
+right file. Semantic filename tags reach 98.6% on the same ground truth. The
+same rule fails in the opposite direction on the non-HD model (pool of 934, of
+which 463 are `_hd` art that does not apply, and the area-based tiebreak
+prefers it). Full numbers, repro and staged fix:
+`TODO/TEXTURE_POOL_RECALL_TODO.md`. Consolidating the implementations, which
+this section is about, does not touch it — one correct implementation of a
+rule with 15.9% recall is still 15.9% recall.
+
 This shape has already caused one real incident: tier 2 was silently dropped
 from the Python mirror during a rewrite, and a real 18,742-file CASC
 re-extraction moved the scan's flagged count by exactly zero, because the tier
