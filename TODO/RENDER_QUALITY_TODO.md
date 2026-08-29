@@ -244,10 +244,13 @@ of "missing/wrong" complaints without being fresh findings:
   husk exports the data as extras but neither husk nor `render_glb.py`
   blend it into the render. Documented symptom: "flat plastic" armor/
   weapons missing a detail map, tint overlay, or shine layer.
-- **`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`**: character models needing
-  live DB2/CASC-driven layer compositing husk deliberately doesn't do
-  (non-goal, not a bug) — an uncomposited base/overlay skin layer here is
-  a documented wall, not something to re-flag as fixable.
+- **Character base/overlay skin layers**: husk resolves the real
+  DB2-driven texture selection (`chr_texture_layout`/`chr_enabled_materials`
+  skin extras) but deliberately leaves pixel compositing to Blender's own
+  shader nodes rather than doing it in husk (`TODO/
+  CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`) — an uncomposited base/overlay skin
+  layer in a raw glTF preview is a documented wall, not something to
+  re-flag as fixable.
 
 **Genuinely new**: `orderCandidatesForDefault`
 (`src/export_texture_resolution.cpp`, moved from `export_materials.cpp`

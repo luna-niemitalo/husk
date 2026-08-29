@@ -6,8 +6,7 @@ and when, not this file.
 
 ## Background
 
-`CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 6 (done 2026-08-21) made
-`husk appearance-string --db2-dir/--dbd-dir` resolve a `gear=SLOT:id`
+`husk appearance-string --db2-dir/--dbd-dir` resolves a `gear=SLOT:id`
 entry's `ItemModifiedAppearanceID` to real DB2 data: an `ItemDisplayInfoID`,
 the equipped item's own `.m2` FileDataID(s) (`src/modelfiledata_db2.hpp`,
 via `ItemDisplayInfo.ModelResourcesID`), and texture FileDataID(s)
@@ -270,9 +269,9 @@ assuming they're mutually exclusive.
 
 ## Why this is its own file
 
-Stage 6's own DB2 resolution work (`CHAR_TEXTURE_COMPOSITING_TODO.md`) is
-done and fully verified — this is a structurally different, downstream
-kind of task (Blender-side rendering/attachment, not DB2 chain-walking),
+The DB2 resolution work above is done and fully verified — this is a
+structurally different, downstream kind of task (Blender-side
+rendering/attachment, not DB2 chain-walking),
 gated on real design decisions (extras schema, slot->attachment mapping)
 this session didn't settle, same "one punch list per open problem"
 convention `BONE_CORRECTION_APPLICATION_TODO.md`/`DPIV_TODO.md` already

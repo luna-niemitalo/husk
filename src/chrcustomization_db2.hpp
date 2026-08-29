@@ -25,15 +25,12 @@
 //          exactly what --bones-dir already resolves)
 //
 // Scope, deliberately: this is the *data access* layer only, same split
-// chrmodel_db2.hpp already draws. It does NOT enumerate which
-// ChrCustomizationChoiceIDs exist for a given option/race/model -- that
-// needs ChrCustomizationOption/ChrCustomizationChoice, both confirmed
-// 0 bytes in the current local extraction (a real casc-tool gap, not a
-// husk one -- see TODO/CHAR_TEXTURE_COMPOSITING_TODO.md, which documents
-// the same gap for its own adjacent customization-choice chain). The
-// caller supplies real choice IDs directly, same "hand husk a plain local
-// answer, don't make it
-// guess" pattern --char-layout-id already established.
+// chrmodel_db2.hpp already draws. Enumerating which ChrCustomizationChoiceIDs
+// exist for a given option/race/model is a separate concern, covered below
+// by Option/Choice/namedChoicesForModel/defaultChoiceIdsForModel -- a
+// resolveChoice caller can also supply real choice IDs directly, same "hand
+// husk a plain local answer, don't make it guess" pattern --char-layout-id
+// already established.
 namespace husk::chrcustomization {
 
 // One ChrCustomizationElement row's relevant fields -- the table also
@@ -75,12 +72,12 @@ struct BoneSet {
 };
 
 // One ChrCustomizationMaterial row -- real: ChrModelTextureTargetID<32>
-// TODO/CHAR_TEXTURE_COMPOSITING_TODO.md Stage 3's own material chain
-// (ChrCustomizationOption -> _Choice -> _Element.ChrCustomizationMaterialID
-// -> this table -> MaterialResourcesID -> TextureFileData.db2's real
-// FileDataID, resolved by src/texturefiledata_db2.hpp, deliberately kept
-// out of this reader -- same "data access only" split chrmodel_db2.hpp
-// already draws for its own tables).
+// links the real material chain (ChrCustomizationOption -> _Choice ->
+// _Element.ChrCustomizationMaterialID -> this table -> MaterialResourcesID
+// -> TextureFileData.db2's real FileDataID, resolved by
+// src/texturefiledata_db2.hpp, deliberately kept out of this reader -- same
+// "data access only" split chrmodel_db2.hpp already draws for its own
+// tables).
 struct Material {
     uint32_t id = 0;
     uint32_t chrModelTextureTargetId = 0;

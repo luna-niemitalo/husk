@@ -44,8 +44,8 @@ Non-goals, by design, not oversight:
   (`--skin-dir`/`--textures`/`--anim`/`--bones-dir`) is a **local-directory,
   FileDataID-named** convention the user populates themselves — never CASC.
   **This does not extend to DB2 data itself once it's already on disk.**
-  Scope clarified directly by Luna (2026-08-08, `CHAR_TEXTURE_COMPOSITING_
-  TODO.md`'s own Background section has the full exchange): "the only hard
+  Scope clarified directly by Luna (2026-08-08, `CLAUDE_HISTORY.md` has the
+  full exchange): "the only hard
   boundary is not loading casc tool as a dependency... all data in
   wow_export is free for all, to be used." A raw `.db2` file already
   extracted to a local directory (the same `casc-tool`-populated tree as
@@ -71,14 +71,14 @@ Non-goals, by design, not oversight:
   also implemented now (`src/dbd.hpp`/`.cpp`, an independent parser for
   WoWDBDefs' own documented `.dbd` grammar — optional, local-only, never a
   hard dependency, same tier as every other sidecar convention above) and
-  exposed via `husk db2-export`, a real DB2-to-SQLite converter — but that
-  command is an explicitly separate side project for human inspection/
-  correctness-checking, not part of `export`'s own runtime path (`export`
-  still doesn't read DB2 data). Still not a Stage-2+ consumer in the sense
-  that matters for the real pipeline (no real per-table C++ struct feeds
-  `export_materials.cpp` yet) — see `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s
-  Stage 1 for the exact current-vs-target line, and README.md's own
-  `husk db2-info`/`husk db2-export` sections for usage.
+  exposed via `husk db2-export`, a real DB2-to-SQLite converter for human
+  inspection/correctness-checking. On top of the same WDC5 parser, real
+  typed per-table C++ readers (`src/chrmodel_db2.hpp`, `src/
+  chrcustomization_db2.hpp`, `src/itemappearance_db2.hpp`, and others) now
+  feed `husk export`'s own runtime path directly (`--db2-dir`/`--dbd-dir`/
+  `--char-layout-id`/`--customization-choice-ids`/`--chr-model-id`) — see
+  README.md's own `husk export`/`husk db2-info`/`husk db2-export` sections
+  for usage.
 - **This same clarified scope extends to a local listfile too.** A real
   130,576-file corpus render pass (2026-08-09) found that a real extraction
   commonly keeps files under their own real name/path (e.g.
@@ -379,14 +379,15 @@ node; `writeGlb` (single-mesh) is implemented as `writeGlbMulti` with one
 entry, not maintained as separate code.
 
 **Geoset selection and multi-texture-layer rendering are tagged via glTF
-`extras`, never filtered or faked.** Two related gaps husk can't actually
-close itself (not yet implemented, not structurally impossible -- see
-Non-goals above's clarified wording: a locally-extracted `.db2` file is in
-scope, husk just doesn't parse WDC5 or resolve customization chains yet,
-`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`): *which* `M2SkinSection.skinSectionId`
-variant is "correct" for a given character depends on DB2 data
-(`CharacterSections`, geoset groups) husk doesn't currently read; and a
-batch's additional texture
+`extras`, never filtered or faked at the primitive level.** *Which*
+`M2SkinSection.skinSectionId` variant is "correct" for a given character
+can now be resolved from real, locally-extracted DB2 data when the caller
+supplies customization-choice IDs or a creature-display ID
+(`--customization-choice-ids`/`--creature-display-id`, `src/
+chrcustomization_db2.hpp`/`src/creature_geoset_db2.hpp`) -- but husk
+surfaces that resolution as skin `extras` (`enabled_geosets`/
+`creature_enabled_geosets`) rather than filtering primitives out of the
+glTF itself; and a batch's additional texture
 layers (`M2Batch.textureCount > 1`) exist to feed WoW's fixed-function
 combiner math (`Mod2x`/`Add`/env-mapping), which has no core-glTF
 equivalent to translate into. Rather than guessing a default geoset
@@ -466,14 +467,16 @@ is surfaced as `extras`, distinguishing "husk can't resolve this locally"
 from "the `--textures` directory just didn't have the file."** `type == 0`
 ("NONE") is a real, filename/FileDataID-based texture, resolvable the
 ordinary way; any other value means the client substitutes the real image
-at runtime from DB2-driven character-customization/item-tint data husk
-doesn't fully resolve yet (locally-extracted DB2 files are in scope per
-Non-goals above's clarified wording -- `husk export --db2-dir/--dbd-dir/
---char-layout-id` now attaches real placement-geometry `extras`
-(`ChrModelMaterial`/`CharComponentTextureSections`/`ChrModelTextureLayer`,
-`src/chrmodel_db2.hpp`), but *picking* which candidate fills which slot for
-a given character is still unresolved -- see
-`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 3) -- so an empty `baseColorImagePng`
+at runtime from DB2-driven character-customization/item-tint data (locally-
+extracted DB2 files are in scope per Non-goals above's clarified wording --
+`husk export --db2-dir/--dbd-dir/--char-layout-id` attaches real
+placement-geometry `extras` (`ChrModelMaterial`/`CharComponentTextureSections`/
+`ChrModelTextureLayer`, `src/chrmodel_db2.hpp`), and *picking* which
+candidate fills which slot for a given character resolves too, given real
+`--customization-choice-ids` (`chr_enabled_materials` skin extras, `src/
+chrcustomization_db2.hpp`) -- husk still never composites the result into
+pixels itself, that's Blender's job, see `TODO/
+CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`) -- so an empty `baseColorImagePng`
 for one of these means something categorically different than a missing
 PNG for a `type == 0` texture. `gltf::Material::textureType` is set from
 the batch's primary texture's `m2::Texture::type` unconditionally, but only
@@ -513,13 +516,16 @@ naming the extras keys instead of saying the data is dropped).
 
 **`.bone` correction data is surfaced as `extras`, never applied to the bind
 pose.** Same "tag it, don't guess at semantics" family as geoset selection/
-texture-transform above, for the same underlying reason: which of a model's
-several `.bone` files (its `BFID` array) is "correct" for a given character
-is selected by client-side customization-choice data (a DB2-shaped lookup)
-husk doesn't currently resolve (locally-extracted DB2 files are in scope
-per Non-goals above's clarified wording, just not implemented yet -- the
-same real gap `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` is closing for texture
-compositing could, in principle, extend here too). Real
+texture-transform above, but split into two separately-tracked halves:
+*which* of a model's several `.bone` files (its `BFID` array) is "correct"
+for a given character now resolves from real client-side customization-
+choice data (`--customization-choice-ids`, `ChrCustomizationBoneSet` via
+`src/chrcustomization_db2.hpp`), marking the matching `--bones-dir`-resolved
+correction set with `selected_by_choice_ids` extras -- but *applying* the
+resolved correction matrix to the bind pose (multiply order, space) is a
+separate, still-open question (`TODO/BONE_CORRECTION_APPLICATION_TODO.md`),
+gated on a real human ground-truth comparison against the client, not a
+data-acquisition gap. Real
 investigation (`WIKI_FINDINGS/BONE.md`'s follow-up) ruled out the two more
 tractable-looking hypotheses first — LOD/render-distance (the slot count
 doesn't fit the model's real LOD tier count, and slots collapse into far
@@ -842,10 +848,9 @@ bitmask (every observed value decomposes into a small combinable bit set,
 98.4% of files use only bit 0) — individual bit semantics are still
 unconfirmed, needing DB2/client data outside this corpus's real M2 bytes
 rather than more M2-side investigation (see `WIKI_FINDINGS/M2.md`'s PCOL
-section; `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` already tracks real, local
-WDC5 DB2 access as planned, staged work for a different feature — the
-same access path would apply here too, if `PCOL` bit semantics are ever
-worth chasing down).
+section; the real, local WDC5 DB2 access `src/db2.hpp`/`.cpp` already
+provides for other features would apply here too, if `PCOL` bit semantics
+are ever worth chasing down).
 
 **`WFV1`/`WFV2`/`DPIV`/`AFRA` (no wowdev.wiki struct at all) are now
 structurally parsed by `husk dump-chunks`, not left as a raw hex dump** —
@@ -926,12 +931,12 @@ requirement blocking any placement-parsing work.
 (`bloodelffemale_hd.m2`), cross-referenced against `reference/wow.export`'s
 own two independent geoset-group tables — recorded because it's
 generalizable groundwork for the geoset-mask work
-(`tools/husk_blender_geoset_mask.py`), not itself a husk feature or claim.** husk
-doesn't yet parse the real, authoritative per-model geoset-semantics DB2
-tables (`CharacterSections`/geoset-group data — locally-extracted DB2
-files are in scope per Non-goals above's clarified wording, this is a "not
-implemented yet" gap, not a hard non-goal, see
-`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`) — what follows is a human visually
+(`tools/husk_blender_geoset_mask.py`), not itself a husk feature or claim.**
+At the time of this investigation husk did not yet parse any real,
+authoritative per-model geoset-semantics DB2 data (that gap has since
+closed via a different, more direct chain -- `--customization-choice-ids`/
+`--creature-display-id`, see the Non-goals section above) — what follows is
+a human visually
 identifying what each `group_<n>,variant_<n>` vertex group actually
 looks like in Blender on one specific real character export, then checked
 against two tables `reference/wow.export` already carries (checked out for

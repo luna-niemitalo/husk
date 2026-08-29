@@ -492,17 +492,13 @@ not "no DB2 data ever" -- they do
 (`/media/luna/data/wow_export/dbfilesclient/chrmodelmaterial.db2` etc.,
 confirmed `WDC5` format by header, plus the full customization-choice
 chain needed to resolve *which* file goes in a given slot for a specific
-character). This reopens the compositing problem this whole thread has
-been working around rather than solving. Full plan, staged, written up in
-`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` rather than here -- goal (Luna,
-directly): a real compositing pipeline, plus Blender-side tooling that
-lets a human pick from the real, correctly-UV-placed candidate options
-per slot. Stages 1-2 (WDC5 parser, real placement-rect/blend-mode data
-attached as `chr_texture_layout` skin extras via `--char-layout-id`) are
-now implemented (`src/db2.hpp`/`.cpp`, `src/chrmodel_db2.hpp`/`.cpp`) --
-Stage 3 (resolving *which* file a specific character's customization
-choices select) and Stage 4 (actual pixel compositing) are not, see
-`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` for the current per-stage state.
+character). This reopened the compositing problem this whole thread had
+been working around rather than solving, and led to a full DB2-driven
+resolution pipeline being built across several later sessions (WDC5
+parser, real placement-rect/blend-mode data, the real customization-choice
+chain, and Blender-side node-graph tooling for the actual pixel
+compositing) -- all now done, see `CLAUDE_HISTORY.md` for the full
+narrative.
 
 **Genuinely still open, found while investigating, not yet fixed**: several
 of the real, deterministically-resolved slots (`M2Texture::type == 0`,

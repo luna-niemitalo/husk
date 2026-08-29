@@ -20,9 +20,8 @@ int exportGlb(int argc, char** args);
 int dumpChunks(int argc, char** args);
 
 // `db2-info` -- proof-of-concept WDC5 DB2 inspection, the `info` analogue
-// for the new format (see src/db2.hpp, TODO/CHAR_TEXTURE_COMPOSITING_TODO.md
-// Stage 1). Not yet consumed by `export`/`dump-chunks` -- purely an
-// inspection tool for now.
+// for the new format (see src/db2.hpp). Not yet consumed by
+// `export`/`dump-chunks` -- purely an inspection tool for now.
 int db2Info(int argc, char** args);
 
 // `db2-export` -- converts a WDC5 DB2 file (or, with --dir, every *.db2 file
@@ -139,9 +138,8 @@ void addBlpExportOptions(CLI::App& app, BlpExportOptions& opts);
 struct AppearanceStringOptions {
     std::string value;
     // Optional -- when both given, `gear` entries resolve to real equipped-
-    // item DB2 data (TODO/CHAR_TEXTURE_COMPOSITING_TODO.md Stage 6) instead
-    // of staying opaque IDs. Same role/naming as `export`'s own --db2-dir/
-    // --dbd-dir.
+    // item DB2 data instead of staying opaque IDs. Same role/naming as
+    // `export`'s own --db2-dir/--dbd-dir.
     std::string db2DirArg;
     std::string dbdDirArg;
 };

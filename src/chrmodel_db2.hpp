@@ -7,9 +7,8 @@
 #include <vector>
 
 // Real, typed per-table structs for the handful of DB2 tables that drive
-// WoW's character texture compositing -- TODO/CHAR_TEXTURE_COMPOSITING_TODO.md's
-// (deleted once implemented, see CLAUDE_HISTORY.md) "Stage 2: real placement
-// geometry": `ChrModelMaterial` (per-model base atlas dims by TextureType),
+// WoW's character texture compositing placement geometry:
+// `ChrModelMaterial` (per-model base atlas dims by TextureType),
 // `CharComponentTextureSections` (real placement rects by SectionType),
 // `ChrModelTextureLayer` (which section a texture layer targets and how it
 // blends), `CharComponentTextureLayouts` (the atlas size all of the above

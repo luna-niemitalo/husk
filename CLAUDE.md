@@ -541,8 +541,8 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   expected consequence, not a bug) -- same 5-bone/0-skipped result. Full
   suite still green, 680/680. Full narrative: `CLAUDE_HISTORY.md`'s newest
   entries.
-- **Previous state (2026-08-21, `CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 6:
-  equipped-gear appearance resolution)**: `husk appearance-string`'s `gear`
+- **Previous state (2026-08-21, equipped-gear appearance resolution)**:
+  `husk appearance-string`'s `gear`
   entries (opaque `ItemModifiedAppearanceID`s since the format was first
   built) now resolve to real equipped-item data given `--db2-dir`/
   `--dbd-dir`. New `src/itemappearance_db2.hpp`/`.cpp` (the real
@@ -563,8 +563,7 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   turning the resolved FileDataIDs into an actually attached/rendered
   weapon or armor piece is downstream Blender-side work, not started, out
   of this stage's own scope. `README.md` gained a new "`husk
-  appearance-string`" section; `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`/
-  `TODO/README.md` updated (Stages 1-6 all now done). Full suite green,
+  appearance-string`" section; `TODO/README.md` updated. Full suite green,
   674/674 (671 + 3 new). Full narrative: `CLAUDE_HISTORY.md`'s newest
   entry.
 - **Previous state (2026-08-21, human-readable geoset/animation names +
@@ -837,9 +836,9 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   new extras legitimately mention every choice including non-default
   ones. Full suite green, 656/656.
 - **Previous state (2026-08-20, character-texture compositing, reverted +
-  corrected same session)**: `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s
-  Stage 3 (the real `ChrCustomizationMaterial → TextureFileData` FileDataID
-  chain) is done — wired into the existing `--customization-choice-ids`/
+  corrected same session)**: the real `ChrCustomizationMaterial →
+  TextureFileData` FileDataID chain is done — wired into the existing
+  `--customization-choice-ids`/
   `--chr-model-id` flags (no new CLI surface) as `chr_enabled_materials`
   skin extras, joined against `chr_texture_layout`'s `texture_layers`
   (which now also carry `chr_model_texture_target_id`) for placement/blend
@@ -943,8 +942,8 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   `CreatureDisplayInfo`/`CreatureModelData` synthetic fixtures via the
   existing `buildFlatDb2`, plus a `--listfile` CSV fixture matching
   `tests/test_cli.cpp`'s own existing convention). `README.md`/`TODO/
-  TODO_correctness.md`/`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`/`TODO/
-  README.md`/completions all updated (including correcting the previous
+  TODO_correctness.md`/`TODO/README.md`/completions all updated
+  (including correcting the previous
   entry's wrong "dracthyrfemale.m2 -> 89" claim wherever it appeared in
   committed docs). Full suite green, 646/646.
 - **Previous state (2026-08-20, latest)**: `--chr-model-id` now also
@@ -988,9 +987,8 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   20). 3 new CLI-tier tests (exact match, ambiguous match, no match — a
   new `buildChrRacesDb2` synthetic-fixture builder, same
   real-`resolveFieldString`-path convention as the previous entry's
-  `buildOptionOrChoiceDb2`). `README.md`/`TODO/TODO_correctness.md`/`TODO/
-  CHAR_TEXTURE_COMPOSITING_TODO.md`/`TODO/README.md`/completions all
-  updated. Full suite green, 645/645.
+  `buildOptionOrChoiceDb2`). `README.md`/`TODO/TODO_correctness.md`/
+  `TODO/README.md`/completions all updated. Full suite green, 645/645.
 - **Previous state (2026-08-20, later)**: Found and placed the three
   `ChrCustomizationOption`/`_Choice`/`_Category` files tact-fetch fetched
   last session (2026-08-19) but never placed — they were sitting in a
@@ -1004,8 +1002,8 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   Also found `~/dev/tact-fetch`'s own README was stale (still said "CDN
   fetch not implemented" when `CLAUDE.md` showed it fully built and
   live-verified) — fixed there too. Then implemented the two things this
-  data unblocks (`TODO/TODO_correctness.md` #2, `TODO/
-  CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 3's name-mapping half):
+  data unblocks (`TODO/TODO_correctness.md` #2, the character-texture
+  name-mapping half of the compositing chain):
   `chrcustomization_db2.hpp`/`.cpp` now loads `ChrCustomizationOption`/
   `_Choice` (real `Name_lang` strings, needing a new
   `db2table::readNamedStringColumns` — the existing named-column reader
@@ -1027,8 +1025,8 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   `tests/test_cli_chrcustomization.cpp`, including a new synthetic
   string-bearing WDC5 fixture builder (`buildOptionOrChoiceDb2`) that
   exercises the real `db2::resolveFieldString` path rather than mocking
-  it. `README.md`/`TODO/README.md`/`TODO/TODO_correctness.md`/`TODO/
-  CHAR_TEXTURE_COMPOSITING_TODO.md`/completions all updated. Full suite
+  it. `README.md`/`TODO/README.md`/`TODO/TODO_correctness.md`/
+  completions all updated. Full suite
   green, 642/642. Also did an unrelated cleanup while investigating where
   the tact-fetch output had gone: 397 stale Claude session scratchpad
   dirs (~4.6 GB) removed across all projects under `/media/luna/work/
@@ -1109,26 +1107,20 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   investigation -- `strace -f`/`py-spy dump` mid-hang -- not more
   guessing from a killed run's silence). Everything else below predates
   that session and is otherwise still accurate. The earlier
-  human-readable names + Blender Asset Browser and `CHAR_TEXTURE_
-  COMPOSITING_TODO.md` Stage 6 equipped-gear resolution items are all
-  fully closed too, nothing queued from them -- Stage 6's own "not
-  started" mention two paragraphs below is stale, see the relevant
-  previous-state entry instead. Otherwise unchanged:
-  `TODO/TODO_correctness.md` #2's name-mapping/default-
-  choice work, and `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stages 1-5
-  in full (model identity, real placement geometry, the real material
+  human-readable names + Blender Asset Browser and equipped-gear
+  resolution items are all fully closed too, nothing queued from them.
+  Otherwise unchanged: `TODO/TODO_correctness.md` #2's name-mapping/
+  default-choice work, real placement geometry, the real material
   FileDataID chain, and the live Blender-side customization texture
-  switch replacing the reverted pixel compositor) are all now done — see
-  the current-state entry above for Stage 5, `CLAUDE_HISTORY.md` for the
-  full narrative. `TODO/CLEANUP_TODO.md`'s former item 3 (`husk export`
-  batch mode) is also done. What's left of `CHAR_TEXTURE_COMPOSITING_TODO.md`:
-  Stage 5's own real interactive Blender GUI pass with real (not
+  switch replacing the reverted pixel compositor are all now done — see
+  `CLAUDE_HISTORY.md` for the full narrative. `TODO/CLEANUP_TODO.md`'s
+  former item 3 (`husk export` batch mode) is also done. What's left in
+  this problem space: a real interactive Blender GUI pass with real (not
   placeholder) per-choice texture bytes, still Luna's own eyes to do
-  (`TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`'s own "Still open" section),
-  and Stage 6 (equipped-gear appearance resolution via
-  `ItemModifiedAppearanceID`), not started; a model whose FileDataID
-  can't be resolved via --listfile and whose filename doesn't follow the
-  naming convention still needs an explicit `--chr-model-id <id>`. The manual visual pass over the 22
+  (`TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`'s own "Still open" section);
+  a model whose FileDataID can't be resolved via --listfile and whose
+  filename doesn't follow the naming convention still needs an explicit
+  `--chr-model-id <id>`. The manual visual pass over the 22
   successfully-exported HD character `.glb`s (deriving sane per-race/
   gender geoset defaults, hunting further player-character bugs) is still
   Luna's own next action, not queued husk work — if it turns up bugs,
@@ -1180,8 +1172,7 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   locally, a fresh casc-tool re-extraction gap, not something this
   session's earlier `recordsAvailable()` fix touches. Also confirmed (not
   assumed) that the 144 excluded `character/` files are still blocked by
-  `CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 3 0-byte
-  `chrcustomization*.db2` tables, unchanged. Re-audited every DB2
+  0-byte `chrcustomization*.db2` tables at the time, unchanged. Re-audited every DB2
   consumer in `src/` for the same `recordsAvailable()` blast radius as
   the earlier fix — none had the bug, nothing else to re-run.
   **Same-day follow-up**: casc-tool re-extracted `texturefiledata.db2`

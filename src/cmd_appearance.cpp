@@ -16,9 +16,9 @@
 // `husk appearance-string` -- validates/normalizes a husk-appearance/1
 // string (src/appearance_string.hpp's own doc comment covers the grammar
 // and why it isn't an addon export format). `gear` entries resolve to real
-// equipped-item DB2 data when --db2-dir/--dbd-dir are given (TODO/
-// CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 6, src/itemappearance_db2.hpp) --
-// otherwise they stay opaque (slot, ItemModifiedAppearanceID) pairs, same
+// equipped-item DB2 data when --db2-dir/--dbd-dir are given
+// (src/itemappearance_db2.hpp) -- otherwise they stay opaque (slot,
+// ItemModifiedAppearanceID) pairs, same
 // "current vs target" honesty as every other still-partial feature here.
 // Output carries both real gear cases (TODO/EQUIPPED_GEAR_RENDER_TODO.md):
 // `texture(type=N)=<fdid>` is case 1 (the item's own standalone geometry's

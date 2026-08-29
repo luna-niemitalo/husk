@@ -33,8 +33,8 @@ real local data (`README.md`'s `.bone` section has usage).
 
 **Update (2026-08-20): name enumeration and a default-choice heuristic are
 now implemented.** `ChrCustomizationOption`/`ChrCustomizationChoice` were
-0 bytes locally; fetched via `tact-fetch` and placed 2026-08-20 (see
-`CHAR_TEXTURE_COMPOSITING_TODO.md`'s Update note). `chrcustomization_db2.hpp`/
+0 bytes locally; fetched via `tact-fetch` and placed 2026-08-20.
+`chrcustomization_db2.hpp`/
 `.cpp` now loads both tables (real `Name_lang` strings resolved via a new
 `db2table::readNamedStringColumns`, since the existing named-column reader
 was scalar-int-only) and exposes `namedChoicesForModel` (real Option/Choice

@@ -9,8 +9,8 @@
 // A generic, real-column-name-driven row reader built on top of db2.hpp's
 // name-agnostic WDC5 parser and dbd.hpp's WoWDBDefs name resolution --
 // closes the gap `cmd_db2.cpp`'s own per-table logic used to reimplement
-// per command (see TODO/CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 2 note on
-// wanting "real per-table C++ structs", not bespoke decode code per table).
+// per command, giving every DB2 consumer a real per-table C++ struct
+// instead of bespoke decode code per table.
 //
 // Handles all three of WDC5's real column storage shapes transparently, by
 // real column name rather than raw field index:

@@ -94,7 +94,7 @@ wasn't checked — flagged as open, not claimed as a wow.export bug.
 |---|---|---|---|
 | Base material / texture references | native | native | parity |
 | Multi-texture-layer (`textureCount > 1`) | `extras`-only — no core-glTF slot for WoW's fixed-function combiner math | wow.export **composites layers itself** at export time (canvas-based texture baking, per earlier doc research — not independently re-verified this session) rather than exposing them separately | **structural difference, not a gap either way** — husk exposes raw per-layer data for a downstream tool to blend correctly; wow.export bakes its own blend into one texture. Neither is strictly more correct: baking requires wow.export's own blend-mode math to exactly match the client's, husk's approach requires the downstream consumer to do the blending itself |
-| Hardcoded/replaceable texture slot (`type != 0`) — which *real* texture fills it | placement geometry resolvable locally (`--db2-dir/--dbd-dir/--char-layout-id`), but *picking*/compositing the actual texture per slot isn't yet — blocked on `ChrCustomizationOption`/`_Choice` being genuinely 0-byte in the local extraction, not on scope (`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 3), `texture_type` extras marks the gap in the meantime | **resolvable** — `src/js/db/caches/DBCharacterCustomization.js`, `DBComponentTextureFileData.js`, `DBItemCharTextures.js`, backed by `src/js/casc/db2.js`/`WDCReader.js` (real WDC/DB2 reader) | wow.export's live CASC access means it never depends on a local extraction having those specific tables populated, unlike husk's own current real blocker above — a genuine capability gap for this case, though not the DB2-scope wall it was once described as (locally-extracted `.db2` files are in scope for husk, see `DESIGN.md`'s Non-goals) |
+| Hardcoded/replaceable texture slot (`type != 0`) — which *real* texture fills it | placement geometry (`--db2-dir/--dbd-dir/--char-layout-id`) and per-choice texture-material resolution (`--customization-choice-ids`, `chr_enabled_materials` extras, `src/chrcustomization_db2.hpp`) both resolve locally now — husk still leaves pixel compositing itself to a downstream consumer (Blender's own shader nodes) rather than baking it in-tool | **resolvable** — `src/js/db/caches/DBCharacterCustomization.js`, `DBComponentTextureFileData.js`, `DBItemCharTextures.js`, backed by `src/js/casc/db2.js`/`WDCReader.js` (real WDC/DB2 reader) | wow.export's live CASC access still means it never depends on a local extraction having the relevant tables populated, unlike husk's own local-extraction dependency — a genuine capability gap, though not the DB2-scope wall it was once described as (locally-extracted `.db2` files are in scope for husk, see `DESIGN.md`'s Non-goals) |
 | Texture transform (UV scroll/rotate/scale) | `extras`-only (animated), `native-possible, unverified` (constant) | parsed (`parseChunk_MD21_textureTransforms`) but export-side application not confirmed | open |
 
 ### Collision & physics
@@ -155,14 +155,13 @@ By direct absence-of-code-path in wow.export's own loader:
 - **Live CASC access**: real `WDCReader`/DB2 caches
   (`DBCharacterCustomization`, `DBComponentTextureFileData`,
   `DBItemCharTextures`, `DBNpcEquipment`, ...), queried directly against a
-  live game install. husk's own `.bone`-slot-selection gap
-  (`TODO/BONE_CORRECTION_APPLICATION_TODO.md`) and hardcoded-texture-slot
-  compositing gap (`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 3) aren't
-  blocked on DB2 access as such — locally-extracted `.db2` files are in
-  scope and already parsed (`src/db2.hpp`/`chrmodel_db2.hpp`/
-  `chrcustomization_db2.hpp`) — they're blocked on specific customization
-  tables (`ChrCustomizationOption`/`_Choice`) being genuinely 0-byte in the
-  local extraction husk was verified against. wow.export's live CASC
+  live game install. husk's own genuine DB2-access gaps aren't blocked on
+  DB2 access as a category — locally-extracted `.db2` files are in scope
+  and already parsed for plenty of tables (`src/db2.hpp`/`chrmodel_db2.hpp`/
+  `chrcustomization_db2.hpp`) — they're blocked on *specific* tables being
+  genuinely unavailable in the local extraction husk was verified against
+  (e.g. `ENGINE_TODO.md`'s sound-linking item: the general `ModelSound*`
+  table family is 100% TACT-key-encrypted locally). wow.export's live CASC
   connection sidesteps that extraction-completeness problem entirely by
   never depending on a pre-populated local file in the first place — a real
   capability gap, but not the "husk would need a CASC/DB2 dependency it

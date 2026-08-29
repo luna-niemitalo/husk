@@ -9,9 +9,9 @@
 // Real, typed reader for the DB2 chain that resolves a real
 // ItemModifiedAppearanceID (what husk-appearance/1's `gear=SLOT:id` entries
 // carry, src/appearance_string.hpp) to the real equipped-item geometry/
-// texture data needed to render it -- TODO/CHAR_TEXTURE_COMPOSITING_TODO.md
-// Stage 6, TODO/EQUIPPED_GEAR_RENDER_TODO.md step 1. Same db2table.hpp-backed,
-// thin-wrapper, "data access only" pattern as chrcustomization_db2.hpp --
+// texture data needed to render it -- TODO/EQUIPPED_GEAR_RENDER_TODO.md
+// step 1. Same db2table.hpp-backed, thin-wrapper, "data access only"
+// pattern as chrcustomization_db2.hpp --
 // final FileDataID resolution (ModelResourcesID -> .m2 FileDataID,
 // MaterialResourcesID -> texture FileDataID) is left to
 // modelfiledata_db2.hpp/texturefiledata_db2.hpp, same split

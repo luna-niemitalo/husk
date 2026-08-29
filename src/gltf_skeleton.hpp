@@ -118,9 +118,8 @@ struct Skeleton {
 
     // Real texture-material selections resolved from caller-supplied
     // ChrCustomizationChoiceIDs (same source as EnabledGeoset above,
-    // src/chrcustomization_db2.hpp's Resolution::materials) -- the other
-    // half of TODO/CHAR_TEXTURE_COMPOSITING_TODO.md Stage 3, the material
-    // chain rather than the geoset chain. `fileDataId` is 0 when
+    // src/chrcustomization_db2.hpp's Resolution::materials) -- the material
+    // chain alongside EnabledGeoset's geoset chain. `fileDataId` is 0 when
     // TextureFileData.db2 (src/texturefiledata_db2.hpp) didn't resolve this
     // choice's own MaterialResourcesID -- a real, reportable gap (see
     // cmd_export.cpp's attachCustomizationChoices), not fabricated. Same

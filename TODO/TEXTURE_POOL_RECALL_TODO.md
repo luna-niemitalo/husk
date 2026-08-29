@@ -627,9 +627,9 @@ names the type's own real convention directly — `TEX_COMPONENT_OBJECT_SKIN --
 Object Skin -- Item, Capes ("Item\ObjectComponents\Cape\*.blp")` — the real
 texture for this slot lives in a completely different top-level directory
 than the character model itself (equipped-item art, not character art), the
-same chain `CHAR_TEXTURE_COMPOSITING_TODO.md` Stage 6 already resolves via
-`ItemModifiedAppearanceID`, never via a filename guess in the model's own
-directory. No tag, however cleverly derived, admits the right file into a
+same chain `husk appearance-string --db2-dir/--dbd-dir` already resolves via
+`ItemModifiedAppearanceID` (`src/itemappearance_db2.hpp`), never via a
+filename guess in the model's own directory. No tag, however cleverly derived, admits the right file into a
 same-directory scan when the right file isn't in that directory at all —
 this forecloses option 1 (give it a real clause) for `object_skin`
 specifically, confirming the TODO's own step-1 finding rather than just

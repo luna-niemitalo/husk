@@ -20,11 +20,11 @@
 // less exercised -- treat a decode that looks wrong as a reason to go back to
 // the real bytes, not as ground truth on its own.
 //
-// Scope, deliberately: this is Stage 1 of TODO/CHAR_TEXTURE_COMPOSITING_TODO.md
-// ("a new, real file-format parser ... scope the parser generally, even
-// though Stage 2 only consumes a handful of specific tables"), built to let
-// a human poke at real .db2 files (`husk db2-info`) before any table-specific
-// consumer exists. What's NOT here yet, current-vs-target: WDB2..WDC4 (older
+// Scope, deliberately: a general-purpose parser, not scoped to any one
+// table, built to let a human poke at real .db2 files (`husk db2-info`)
+// independent of whichever table-specific consumer needs it (see
+// db2table.hpp for the generic named-column reader built on top). What's
+// NOT here yet, current-vs-target: WDB2..WDC4 (older
 // container versions -- WDC5 only, since every file under
 // /media/luna/data/wow_export/dbfilesclient/ checked so far is WDC5), and the
 // pre-WDC2/legacy string-block layout (unneeded -- WDC5 always carries the

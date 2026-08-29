@@ -17,10 +17,9 @@
 // tfd_row.FileDataID)` guarded by `if (tfd_row.UsageType != 0) continue`):
 // a single MaterialResourcesID can own more than one TextureFileData row,
 // each tagged with a different real UsageType -- only UsageType == 0 is the
-// base-skin texture this reader's callers want (TODO/
-// CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 3 material chain); other
-// UsageType values are real but out of scope here (e.g. specular/other
-// texture kinds the client also derives from the same MaterialResourcesID).
+// base-skin texture this reader's callers want; other UsageType values are
+// real but out of scope here (e.g. specular/other texture kinds the client
+// also derives from the same MaterialResourcesID).
 // Filtered at load time, not left for the caller to filter.
 namespace husk::texturefiledata {
 

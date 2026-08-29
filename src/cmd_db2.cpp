@@ -22,8 +22,8 @@
 #include "husk_config.hpp"
 
 // `husk db2-info`/`husk db2-export` -- the WDC5 proof-of-concept's own
-// `husk info`/`husk export` analogues (TODO/CHAR_TEXTURE_COMPOSITING_TODO.md
-// Stage 1). `db2-info` prints header/section/field structure unconditionally
+// `husk info`/`husk export` analogues. `db2-info` prints header/section/field
+// structure unconditionally
 // (cheap, always useful for "what table is this") and a sample of decoded
 // rows on request, from either a fixed-width or offset-map section (see
 // db2.hpp's module comment for what's out of scope -- older container

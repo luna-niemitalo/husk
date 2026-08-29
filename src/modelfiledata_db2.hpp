@@ -8,10 +8,9 @@
 #include <vector>
 
 // Real, typed reader for ModelFileData.db2 -- resolves a real
-// ModelResourcesID (the shape ItemDisplayInfo.ModelResourcesID_0 carries,
-// TODO/CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 6) to the real .m2
-// FileDataID(s) that share it. Same db2table.hpp-backed thin-wrapper
-// pattern as texturefiledata_db2.hpp.
+// ModelResourcesID (the shape ItemDisplayInfo.ModelResourcesID_0 carries)
+// to the real .m2 FileDataID(s) that share it. Same db2table.hpp-backed
+// thin-wrapper pattern as texturefiledata_db2.hpp.
 //
 // One ModelResourcesID legitimately owns more than one FileDataID -- real
 // LOD variants of the same model, each its own file -- so this keeps every

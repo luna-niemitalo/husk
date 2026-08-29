@@ -1,8 +1,7 @@
 """husk_blender_geoset_mask.py -- companion Blender tooling for `husk
 export`'s geoset-tag joints (Skeleton::GeosetTag, src/gltf_skeleton.hpp)
-and, since this
-session, its `--db2-dir/--dbd-dir/--char-layout-id` character-texture-layout
-extras too (TODO/CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 2/5). Not part of
+and its `--db2-dir/--dbd-dir/--char-layout-id` character-texture-layout
+extras too. Not part of
 husk itself (DESIGN.md scopes husk to "read WoW formats, write correct
 glTF" -- Blender-side concerns are explicitly out of that scope) -- this is
 the deferred "companion Blender-side script that hides extras-tagged-but-

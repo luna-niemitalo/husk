@@ -438,8 +438,8 @@ Deliberately stops here --
 actually compositing the pixels is not husk's job (an earlier attempt at
 doing it in software was reverted; Blender's own shader nodes, which have
 Multiply/Overlay/Screen built in natively, are the right layer for that --
-see `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stage 4/5 notes for the
-planned Blender-side node-graph tooling). Verified end to end
+see `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md` for the Blender-side
+node-graph tooling). Verified end to end
 (`tests/test_cli_chrcustomization.cpp`).
 
 **A heuristic default customization choice per option, from real
@@ -902,10 +902,8 @@ command is where the full record set lives.
 
 ### `husk db2-info <file.db2>` (proof of concept)
 
-WDC5 DB2 parser (`src/db2.hpp`/`.cpp`), Stage 1 of
-`TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s DB2-driven character-texture-compositing
-plan -- built to let a human poke at real `.db2` files before any real
-consumer (`export`, a table-specific struct) exists. Prints the header,
+WDC5 DB2 parser (`src/db2.hpp`/`.cpp`) -- built to let a human poke at
+real `.db2` files independent of any table-specific consumer. Prints the header,
 per-section layout, per-field storage info, and (`--rows N`, default 5, `all`
 for every record) a sample of decoded rows from the first non-encrypted
 section, fixed-width or offset-map/sparse alike: raw values per field plus a
@@ -1012,10 +1010,9 @@ constraint on `ChrModelMaterial.
 CharComponentTextureLayoutsID`, and a real `JOIN` across the two returns the
 same plausible atlas dimensions as above -- the smallest real cross-file
 chain confirmed fully populated locally. The fuller `ChrCustomizationOption`
--> `_Choice` -> `_Material` chain `TODO/CHAR_TEXTURE_COMPOSITING_TODO.md`'s
-Stage 3 actually needs isn't verifiable the same way yet -- several of
-those exact tables are still 0-byte in the current local export (see
-`CLAUDE_HISTORY.md`'s entry for this session).
+-> `_Choice` -> `_Material` chain (`src/chrcustomization_db2.hpp`) is now
+verified too, end to end, against real local data (see `CLAUDE_HISTORY.md`
+for the full narrative).
 
 Offset-map/sparse sections (previously skipped entirely, `LoadedFile::
 skippedOffsetMap`) now export real per-field data through the same

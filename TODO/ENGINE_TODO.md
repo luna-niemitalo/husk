@@ -20,23 +20,22 @@ used elsewhere in this project: `src/db2.hpp`/`.cpp` (WDC5 parser),
 `src/dbd.hpp`/`.cpp` (WoWDBDefs column naming), `src/db2table.hpp`/`.cpp`
 (generic named-column reader), `src/chrmodel_db2.hpp`/`.cpp` (typed
 character-texture-layout structs feeding `husk export
---db2-dir/--dbd-dir/--char-layout-id`) — see `TODO/CHAR_TEXTURE_
-COMPOSITING_TODO.md` for the fullest example of this pattern actually
-landing in `src/`.
+--db2-dir/--dbd-dir/--char-layout-id`).
 
 So most of what follows isn't "a spec for some other engine project" —
 it's real, actionable husk scope that just hasn't been implemented yet,
 gated on the same local-DB2-table-and-join-path investigation
-`CHAR_TEXTURE_COMPOSITING_TODO.md`/`TODO_correctness.md` #2 already do for
-their own items. Items 1-4 and 6 below are all DB2-lookup problems in that
-sense — reframed accordingly. Only items 5 and 7 are genuinely not
-data-acquisition problems at all (client logic / a user setting, not a
-missing table), and those two keep their original framing.
+`TODO_correctness.md` #2 already does for its own items. Most items below
+are DB2-lookup problems in that sense; the LOD-threshold and
+`blendTimeOperation` items are genuinely not data-acquisition problems at
+all (client logic / a user setting, not a missing table), and keep their
+own framing.
 
-**Former items 1 (geoset selection) and 2 (`.bone` correction-set
-selection) are now resolved outright, not just reframed — removed per
-this file's own convention.** Both were genuinely external-data-acquisition
-problems (this file's own scope), and both are now closed: `husk export
+**Former items 1 (geoset selection), 2 (`.bone` correction-set
+selection), and hardcoded/replaceable texture resolution are now resolved
+outright, not just reframed — removed per this file's own convention.**
+All three were genuinely external-data-acquisition problems (this file's
+own scope), and all three are now closed: `husk export
 --db2-dir/--dbd-dir/--customization-choice-ids` (2026-08-14) resolves a
 real `ChrCustomizationChoiceID` to its real geoset selection (attached as
 `enabled_geosets` skin extras) and/or its real `.bone` `BoneFileDataID`
@@ -44,15 +43,18 @@ real `ChrCustomizationChoiceID` to its real geoset selection (attached as
 `TODO_correctness.md` #2 has the bone-correction-set half's own detail.
 `tools/husk_blender_geoset_mask.py` also now consumes `enabled_geosets`
 directly, pre-selecting each geoset group's dropdown from real resolved
-data instead of a human clicking blind. What's left for `.bone`
+data instead of a human clicking blind. Hardcoded/replaceable texture
+resolution (the real `ChrCustomizationOption -> Choice -> Element ->
+Material -> TextureFileData` chain, `chr_enabled_materials`/
+`chr_customization_options` skin extras) landed across several later
+sessions — full narrative in `CLAUDE_HISTORY.md`. What's left for `.bone`
 corrections specifically — whether/how to actually *apply* the resolved
 correction matrix in Blender — is a different kind of question (unverified
 composition math, gated on a real human ground-truth comparison against
 the client, not a data-acquisition gap) and is tracked on its own in
 `TODO/BONE_CORRECTION_APPLICATION_TODO.md`, out of this file's scope.
-Remaining items renumbered accordingly (1-4, was 3-7 minus the two
-removed) — same one-time exception `TODO_correctness.md` already
-establishes precedent for.
+Remaining items renumbered accordingly — same one-time exception
+`TODO_correctness.md` already establishes precedent for.
 
 ## How to read each entry
 
@@ -70,24 +72,7 @@ establishes precedent for.
 
 ---
 
-## 1. Hardcoded / replaceable texture resolution
-
-**Already tracked in far more current detail elsewhere — see
-`CHAR_TEXTURE_COMPOSITING_TODO.md`, not here.** That file is the real,
-staged implementation plan for exactly this gap (Stages 1-2 done: WDC5
-parsing, real placement geometry attached as extras via `--db2-dir/
---dbd-dir/--char-layout-id`; Stages 3-5 open: the customization-choice
-chain, real pixel compositing, Blender-side picker tooling). This entry is
-now just a pointer, not a duplicate description.
-
-- **husk gives you**: `texture_type` material extras, a typed
-  `alternate_textures` candidate pool, and (via `--char-layout-id`) real
-  DB2-derived placement rects — see `CHAR_TEXTURE_COMPOSITING_TODO.md` for
-  the current state in full.
-- **resolution path**: husk's own job, actively staged — see
-  `CHAR_TEXTURE_COMPOSITING_TODO.md`'s Stages 3-5.
-
-## 2. `aliasNext` / animation-id resolution against `AnimationData.db2`
+## 1. `aliasNext` / animation-id resolution against `AnimationData.db2`
 
 - **husk gives you**: `aliasNext` is fully parsed and resolved
   (`m2::Sequence::aliasNext`, chain-walked to its terminal non-alias
@@ -121,7 +106,7 @@ now just a pointer, not a duplicate description.
   (not a data file at all). Purely cosmetic either way (clip naming, not
   visual-correctness) — not worth chasing further.
 
-## 3. `blendTimeOperation`
+## 2. `blendTimeOperation`
 
 - **husk gives you**: `blendTimeIn`/`blendTimeOut` are fully parsed and
   exported as raw `blend_time_in`/`blend_time_out` per-clip extras.
@@ -156,7 +141,7 @@ now just a pointer, not a duplicate description.
   baseline per the check above, so this is a polish item, not a
   correctness gap.
 
-## 4. Sound linking (`M2Event` → actual sound)
+## 3. Sound linking (`M2Event` → actual sound)
 
 - **husk gives you**: real glTF nodes, one per `M2Event`
   (`event_<identifier>`), positioned at the event's bone-relative offset,
@@ -211,7 +196,7 @@ now just a pointer, not a duplicate description.
   and covers only a name-matched subset of event codes, not the general
   case.
 
-## 5. LOD distance thresholds
+## 4. LOD distance thresholds
 
 - **husk gives you**: `lod_count` via `husk info`, and `husk export --lod
   all` exports every `.skin` tier as its own node sharing one skeleton
@@ -232,30 +217,28 @@ Roughly in order of "how much visual/behavioral fidelity you get per unit
 of effort" — now genuinely husk's own priority list for what's left, not
 a hypothetical engine's:
 
-1. **Hardcoded texture resolution** (#1) — the single largest remaining
-   visual-correctness gap on this list: without it, character models are
-   missing skin/hair textures entirely. Has a staged, in-progress
-   implementation plan (`CHAR_TEXTURE_COMPOSITING_TODO.md`) with more code
-   left to write (Stages 3-5). Geoset selection and `.bone` correction-set
-   selection, formerly items 1/2 here, are fully resolved and removed (see
-   the note above) — geoset selection's remaining Blender-side work is
-   done too; `.bone` correction *application* is tracked separately in
-   `TODO/BONE_CORRECTION_APPLICATION_TODO.md`, out of this file's scope.
-2. **`aliasNext`/animation names** (#2) — checked 2026-08-14: genuinely
+1. **`aliasNext`/animation names** (#1) — checked 2026-08-14: genuinely
    closed, not actionable. The local `animationdata.db2`'s real layout
    (`0xbbf66a3c`) dropped the `Name` column entirely somewhere around
    7.3.5 — no local DB2 table can answer this anymore, full stop.
-3. **`blendTimeOperation`** (#3) — no data exists to find, local or
+2. **`blendTimeOperation`** (#2) — no data exists to find, local or
    otherwise; "author a reasonable heuristic," not "go acquire a table."
    Checked 2026-08-21: neither vendored reference implementation blends
    transitions at all (hard cut, confirmed by reading both), so a hard
    cut is already a real, shipping-quality baseline — this is polish, not
    a gap.
-4. **Sound linking** (#4) — checked 2026-08-21: the general `ModelSound*`
+3. **Sound linking** (#3) — checked 2026-08-21: the general `ModelSound*`
    chain is genuinely blocked (100% TACT-encrypted locally, undocumented
    upstream); a narrower creature-only path via `CreatureSoundData`/
    `--creature-display-id` is real and open, confirmed by direct name
    correlation against husk's own `M2Event` table, but low priority and
    partial-coverage regardless.
-5. **LOD thresholds** (#5) — not a missing-data problem at all, just a
+4. **LOD thresholds** (#4) — not a missing-data problem at all, just a
    design decision to make; lowest priority regardless of DB2 scope.
+
+Hardcoded/replaceable texture resolution, geoset selection, and `.bone`
+correction-set selection (formerly items 1-3 here) are all fully resolved
+and removed (see the note above) — geoset selection's remaining
+Blender-side work is done too; `.bone` correction *application* is
+tracked separately in `TODO/BONE_CORRECTION_APPLICATION_TODO.md`, out of
+this file's scope.
