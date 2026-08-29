@@ -317,12 +317,13 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
                         img.name = stem;
                     }
                 } else if (layer.fileDataId != 0) {
-                    // No FileDataID available to make a standalone filename; embed only.
                     img.mimeType = "image/png";
                     img.bufferView = appendBufferView(buffer, views, layer.imagePng, /*target=*/0);
                     img.name = std::to_string(layer.fileDataId);
                 } else {
-                    // No FileDataID at all; embed and leave unnamed.
+                    // No FileDataID, so no stem to name a standalone file
+                    // after -- this one stays embedded even under
+                    // --slim-textures rather than inventing a filename.
                     img.mimeType = "image/png";
                     img.bufferView = appendBufferView(buffer, views, layer.imagePng, /*target=*/0);
                 }
