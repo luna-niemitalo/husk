@@ -132,11 +132,19 @@ TEST_CASE("loadListfileCached: an expired tag file forces a rebuild even though 
     auto cacheBin = listfileCacheDir() / "listfile.bin";
     auto tagPath = listfileCacheDir() / "listfile.tag";
     REQUIRE(fs::exists(cacheBin));
-    auto binMtimeBefore = fs::last_write_time(cacheBin);
 
     // Backdate the tag past the 10-minute freshness window (DESIGN.md) --
     // the source file itself is left completely untouched.
-    fs::last_write_time(tagPath, fs::file_time_type::clock::now() - std::chrono::minutes(11));
+    auto backdated = fs::file_time_type::clock::now() - std::chrono::minutes(11);
+    fs::last_write_time(tagPath, backdated);
+    // Backdate listfile.bin too, so "was it rewritten" is a comparison
+    // against a timestamp 11 minutes in the past rather than against one
+    // written moments ago. Comparing two same-run writes raced the
+    // filesystem's timestamp granularity: when both landed in one tick the
+    // strict `>` below failed even though the rebuild had happened,
+    // failing ~1 run in 3.
+    fs::last_write_time(cacheBin, backdated);
+    auto binMtimeBefore = fs::last_write_time(cacheBin);
 
     auto second = loadListfileCached(path.string());
     CHECK(second.at(200859) == "world/goober/bubble.blp");  // result is still correct either way
