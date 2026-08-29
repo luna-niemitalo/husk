@@ -176,8 +176,7 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
             // prompted this.
             img.name = mat.baseColorImageName;
             if (!slimTexturesOutputDir.empty()) {
-                // --slim-textures: write instead of embed (TODO/
-                // SLIM_GLB_EXTERNAL_TEXTURES_TODO.md). Naming priority: a
+                // --slim-textures: write instead of embed. Naming priority: a
                 // real --listfile content name, then a real
                 // ChrCustomizationOption/Choice
                 // name, then the real FileDataID (same '<FileDataID>.png'
@@ -302,14 +301,31 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
             layerObj["file_data_id"] = tinygltf::Value(static_cast<int>(layer.fileDataId));
             layerObj["tex_coord"] = tinygltf::Value(layer.texCoord);
             if (!layer.imagePng.empty()) {
-                int imgView = appendBufferView(buffer, views, layer.imagePng, /*target=*/0);
                 tinygltf::Image img;
-                img.mimeType = "image/png";
-                img.bufferView = imgView;
-                // No source filename tracked for this layer, only a
-                // FileDataID -- still better than an auto-generated
-                // "Image_<N>" in Blender's importer.
-                if (layer.fileDataId != 0) img.name = std::to_string(layer.fileDataId);
+                if (layer.fileDataId != 0 && !slimTexturesOutputDir.empty()) {
+                    // Externalize with FileDataID as stem, falling back to embed on write failure.
+                    std::string stem = std::to_string(layer.fileDataId);
+                    std::string uri = writeSlimTextureFile(slimTexturesOutputDir, stem, layer.imagePng);
+                    if (!uri.empty()) {
+                        img.uri = uri;
+                        img.name = stem;
+                    } else {
+                        // Write failed -- fall back to embedding rather than
+                        // silently losing the texture entirely.
+                        img.mimeType = "image/png";
+                        img.bufferView = appendBufferView(buffer, views, layer.imagePng, /*target=*/0);
+                        img.name = stem;
+                    }
+                } else if (layer.fileDataId != 0) {
+                    // No FileDataID available to make a standalone filename; embed only.
+                    img.mimeType = "image/png";
+                    img.bufferView = appendBufferView(buffer, views, layer.imagePng, /*target=*/0);
+                    img.name = std::to_string(layer.fileDataId);
+                } else {
+                    // No FileDataID at all; embed and leave unnamed.
+                    img.mimeType = "image/png";
+                    img.bufferView = appendBufferView(buffer, views, layer.imagePng, /*target=*/0);
+                }
                 int imgIdx = static_cast<int>(images.size());
                 images.push_back(img);
 
@@ -457,15 +473,27 @@ tinygltf::Material emitMaterial(const Material& mat, tinygltf::Buffer& buffer,
                 if (cached != alternateTextureCache.end()) {
                     texIdx = cached->second;
                 } else {
-                    int imgView = appendBufferView(buffer, views, cand.imagePng, /*target=*/0);
-                    tinygltf::Image img;
-                    img.mimeType = "image/png";
-                    img.bufferView = imgView;
                     // Real source filename, same reasoning as the primary
                     // baseColorImagePng image above -- these are the exact
                     // candidates Luna asked to be able to tell apart in
                     // Blender, so this one matters most.
-                    img.name = std::filesystem::path(cand.filename).stem().string();
+                    std::string stem = std::filesystem::path(cand.filename).stem().string();
+                    tinygltf::Image img;
+                    img.name = stem;
+                    if (!slimTexturesOutputDir.empty()) {
+                        std::string uri = writeSlimTextureFile(slimTexturesOutputDir, stem, cand.imagePng);
+                        if (!uri.empty()) {
+                            img.uri = uri;
+                        } else {
+                            // Write failed -- fall back to embedding rather than
+                            // silently losing the texture entirely.
+                            img.mimeType = "image/png";
+                            img.bufferView = appendBufferView(buffer, views, cand.imagePng, /*target=*/0);
+                        }
+                    } else {
+                        img.mimeType = "image/png";
+                        img.bufferView = appendBufferView(buffer, views, cand.imagePng, /*target=*/0);
+                    }
                     int imgIdx = static_cast<int>(images.size());
                     images.push_back(img);
 
