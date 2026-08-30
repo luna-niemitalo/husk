@@ -48,20 +48,3 @@ and when, not this file.
    mid-hang) to catch it live instead of guessing from a killed run's
    silence.
 
-3. **The listfile cache's warm path is only marginally faster than the
-   uncached baseline (~4% on a simple model, unmeasurable on a
-   fuzzy-pool-heavy one) -- much smaller than hoped.** Built 2026-08-29
-   (`src/listfile_cache.hpp`/`.cpp`, `DESIGN.md`'s "Listfile cache"
-   section has the full real-vs-expected numbers). Root cause, measured
-   not assumed: building the final `unordered_map<uint32_t, std::string>`
-   (2.2M string allocations + hash insertions) dominates real cost, not
-   the CSV text-scan this cache eliminates -- and every current caller
-   still needs that full map materialized (`export_extras.hpp`,
-   `export_materials.hpp`, `sources::Catalog`/`ListfileCatalog`/
-   `TextureCatalog`, ~20 sites total). The cache's on-disk format is
-   already a sorted `FileDataID` array + string blob, directly
-   binary-searchable -- closing this gap for real means migrating callers
-   to point lookups against that array instead of a fully materialized
-   map, a separate, correctness-neutral but real refactor. Not attempted
-   this session (out of a caching-only pass's scope).
-
