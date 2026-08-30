@@ -11,10 +11,10 @@
 
 namespace husk::sources {
 
-Catalog::Catalog(std::string texturesDir, std::unordered_map<uint32_t, std::string> listfile,
-                  std::string listfileRoot, std::string texturesOutDir)
+Catalog::Catalog(std::string texturesDir, const husk::ListfileIndex& listfile, std::string listfileRoot,
+                  std::string texturesOutDir)
     : texturesDir_(std::move(texturesDir)),
-      listfile_(std::move(listfile)),
+      listfile_(listfile),
       listfileRoot_(listfileRoot.empty() ? texturesDir_ : std::move(listfileRoot)),
       texturesOutDir_(std::move(texturesOutDir)) {}
 

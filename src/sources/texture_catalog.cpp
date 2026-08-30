@@ -22,9 +22,9 @@ Resolved<std::vector<uint8_t>> resolveLiteralTextureBytes(uint32_t fdid, const s
         ResolutionTier::Literal, "neither '" + stem.string() + ".png' nor '" + stem.string() + ".blp' exists");
 }
 
-Resolved<ListfileTextureResult> resolveListfileTextureBytes(
-    uint32_t fdid, const std::unordered_map<uint32_t, std::string>& listfile, const std::string& listfileRoot,
-    const std::string& texturesOutDir) {
+Resolved<ListfileTextureResult> resolveListfileTextureBytes(uint32_t fdid, const husk::ListfileIndex& listfile,
+                                                              const std::string& listfileRoot,
+                                                              const std::string& texturesOutDir) {
     auto found = pathForFileDataId(listfile, listfileRoot, fdid);
     if (!found) {
         return Resolved<ListfileTextureResult>::miss(

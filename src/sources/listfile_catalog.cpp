@@ -7,8 +7,8 @@
 
 namespace husk::sources {
 
-std::optional<uint32_t> fileDataIdForPath(const std::unordered_map<uint32_t, std::string>& listfile,
-                                           const std::string& modelPath, const std::string& listfileRoot) {
+std::optional<uint32_t> fileDataIdForPath(const husk::ListfileIndex& listfile, const std::string& modelPath,
+                                           const std::string& listfileRoot) {
     if (listfile.empty() || listfileRoot.empty()) return std::nullopt;
     std::error_code ec;
     auto rel = std::filesystem::relative(std::filesystem::path(modelPath), listfileRoot, ec);
@@ -16,13 +16,17 @@ std::optional<uint32_t> fileDataIdForPath(const std::unordered_map<uint32_t, std
     std::string relPath = rel.generic_string();
     std::transform(relPath.begin(), relPath.end(), relPath.begin(),
                     [](unsigned char c) { return std::tolower(c); });
-    for (const auto& [fdid, path] : listfile) {
-        if (path == relPath) return fdid;
-    }
-    return std::nullopt;
+
+    std::optional<uint32_t> found;
+    listfile.forEach([&](uint32_t fdid, std::string_view path) {
+        if (path != relPath) return true;  // keep scanning
+        found = fdid;
+        return false;  // match found -- stop
+    });
+    return found;
 }
 
-std::optional<std::filesystem::path> pathForFileDataId(const std::unordered_map<uint32_t, std::string>& listfile,
+std::optional<std::filesystem::path> pathForFileDataId(const husk::ListfileIndex& listfile,
                                                          const std::string& listfileRoot, uint32_t fdid) {
     // Deliberately does NOT early-return on an empty listfileRoot: one of
     // the two original call sites (export_materials.cpp) never checked
@@ -32,17 +36,16 @@ std::optional<std::filesystem::path> pathForFileDataId(const std::unordered_map<
     // --listfile-root. The other call site (exportGearAuxItemModels)
     // already checks listfileRoot itself before ever reaching here.
     if (listfile.empty()) return std::nullopt;
-    auto found = listfile.find(fdid);
-    if (found == listfile.end()) return std::nullopt;
-    return std::filesystem::path(listfileRoot) / found->second;
+    auto found = listfile.lookup(fdid);
+    if (!found) return std::nullopt;
+    return std::filesystem::path(listfileRoot) / std::filesystem::path(*found);
 }
 
-std::optional<std::string> contentNameForFileDataId(const std::unordered_map<uint32_t, std::string>& listfile,
-                                                      uint32_t fdid) {
+std::optional<std::string> contentNameForFileDataId(const husk::ListfileIndex& listfile, uint32_t fdid) {
     if (listfile.empty()) return std::nullopt;
-    auto found = listfile.find(fdid);
-    if (found == listfile.end()) return std::nullopt;
-    return std::filesystem::path(found->second).stem().string();
+    auto found = listfile.lookup(fdid);
+    if (!found) return std::nullopt;
+    return std::filesystem::path(*found).stem().string();
 }
 
 }  // namespace husk::sources

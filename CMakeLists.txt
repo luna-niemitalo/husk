@@ -95,6 +95,7 @@ add_library(husk-lib STATIC
   src/dbd.cpp
   src/listfile.cpp
   src/listfile_cache.cpp
+  src/listfile_mmap_index.cpp
   src/husk_config.cpp
   src/sources/db2_cache.cpp
   src/sources/listfile_catalog.cpp
@@ -168,6 +169,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_dbd.cpp
     tests/test_listfile.cpp
     tests/test_listfile_cache.cpp
+    tests/test_listfile_mmap_real.cpp
     tests/test_db2table.cpp
     tests/test_sources_catalog.cpp
     tests/test_sources_resolved.cpp

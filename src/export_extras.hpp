@@ -7,6 +7,7 @@
 
 #include "appearance_string.hpp"
 #include "gltf.hpp"
+#include "listfile_index.hpp"
 #include "m2.hpp"
 
 // The attachX() helper group -- each attaches one kind of inert glTF
@@ -99,7 +100,7 @@ void attachPhysicsBodies(bool physNone, bool physGiven, const std::string& physP
 void attachCustomizationChoices(const std::string& db2Dir, const std::string& dbdDir,
                                  const std::string& choiceIdsArg, const std::string& chrModelIdArg,
                                  const std::string& modelPath,
-                                 const std::unordered_map<uint32_t, std::string>& listfile,
+                                 const husk::ListfileIndex& listfile,
                                  const std::string& listfileRoot, gltf::Skeleton& skeleton);
 
 // --db2-dir/--dbd-dir/--char-layout-id: attaches real character-texture
@@ -121,7 +122,7 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
 void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDir,
                               const std::string& charLayoutIdArg, const std::string& chrModelIdArg,
                               const std::string& modelPath,
-                              const std::unordered_map<uint32_t, std::string>& listfile,
+                              const husk::ListfileIndex& listfile,
                               const std::string& listfileRoot, gltf::Skeleton& skeleton);
 
 // --db2-dir/--dbd-dir/--creature-display-id: resolves a real

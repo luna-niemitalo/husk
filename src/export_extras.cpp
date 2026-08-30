@@ -318,7 +318,7 @@ namespace {
 // nothing but the wall-clock cost of redoing it).
 std::optional<uint32_t> tryDeriveChrModelId(const std::string& db2Dir, const std::string& dbdDir,
                                              const std::string& modelPath,
-                                             const std::unordered_map<uint32_t, std::string>& listfile,
+                                             const husk::ListfileIndex& listfile,
                                              const std::string& listfileRoot, std::ostream& err,
                                              std::optional<chrrace::Data>* raceDataOut = nullptr) {
     std::optional<chrrace::Data> raceData = chrrace::load(db2Dir, dbdDir, err);
@@ -376,7 +376,7 @@ std::optional<uint32_t> tryDeriveChrModelId(const std::string& db2Dir, const std
 void attachCustomizationChoices(const std::string& db2Dir, const std::string& dbdDir,
                                  const std::string& choiceIdsArg, const std::string& chrModelIdArg,
                                  const std::string& modelPath,
-                                 const std::unordered_map<uint32_t, std::string>& listfile,
+                                 const husk::ListfileIndex& listfile,
                                  const std::string& listfileRoot, gltf::Skeleton& skeleton) {
     if (db2Dir.empty() && dbdDir.empty() && choiceIdsArg.empty() && chrModelIdArg.empty()) {
         return;  // feature simply unused
@@ -642,7 +642,7 @@ void attachCustomizationChoices(const std::string& db2Dir, const std::string& db
 void attachCharTextureLayout(const std::string& db2Dir, const std::string& dbdDir,
                               const std::string& charLayoutIdArg, const std::string& chrModelIdArg,
                               const std::string& modelPath,
-                              const std::unordered_map<uint32_t, std::string>& listfile,
+                              const husk::ListfileIndex& listfile,
                               const std::string& listfileRoot, gltf::Skeleton& skeleton) {
     if (db2Dir.empty() && dbdDir.empty() && charLayoutIdArg.empty() && chrModelIdArg.empty()) {
         return;  // feature simply unused

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "gltf.hpp"
+#include "listfile_index.hpp"
 #include "m2.hpp"
 #include "skin.hpp"
 #include "sources/catalog.hpp"
@@ -208,7 +209,7 @@ BuiltMaterials buildMaterialsAndPrimitives(
     const std::vector<uint32_t>& triangleIndices, const std::vector<skin::Submesh>& submeshes,
     const std::vector<skin::Batch>& batches, const M2MaterialInputs& m2, husk::sources::Catalog& catalog,
     const std::string& texturesDir, const std::string& modelPath, const std::string& texturesOutDir = "",
-    const std::unordered_map<uint32_t, std::string>& listfile = {}, const std::string& listfileRoot = "",
+    const husk::ListfileIndex& listfile = husk::EmptyListfileIndex(), const std::string& listfileRoot = "",
     uint32_t objectSkinTextureFileDataId = 0,
     const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames = {});
 

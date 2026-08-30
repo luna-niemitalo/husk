@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../export_texture_resolution.hpp"  // FuzzyTexturePool
+#include "../listfile_index.hpp"
 #include "resolved.hpp"
 
 // REFACTOR/RESOURCE_CATALOG.md's stage-2 resolution boundary, texture half
@@ -115,7 +116,14 @@ struct CharacterTextureContext {
 // `TextureModelContext::modelPath`, not in the object's own lifetime).
 class Catalog {
 public:
-    Catalog(std::string texturesDir, std::unordered_map<uint32_t, std::string> listfile, std::string listfileRoot,
+    // `listfile` is held by reference, not owned -- see DESIGN.md's
+    // "Listfile index" section: a ListfileIndex may be an mmap-backed
+    // object whose whole point is to avoid a per-process copy, so `Catalog`
+    // never copies it either. The referenced object must outlive this
+    // `Catalog` instance (true for every real caller: one `Catalog` is
+    // constructed and destroyed within the scope that also owns the
+    // ListfileIndex it was built from -- exportOneModel/cmd_resolve.cpp).
+    Catalog(std::string texturesDir, const husk::ListfileIndex& listfile, std::string listfileRoot,
             std::string texturesOutDir);
 
     // Opt-in, best-effort DB2-character tier (see `CharacterTextureContext`'s
@@ -225,7 +233,7 @@ private:
     std::optional<std::filesystem::path> listfileTargetPath(uint32_t fdid) const;
 
     std::string texturesDir_;
-    std::unordered_map<uint32_t, std::string> listfile_;
+    const husk::ListfileIndex& listfile_;
     std::string listfileRoot_;
     std::string texturesOutDir_;
     std::unordered_map<uint32_t, std::string> pathOverrides_;

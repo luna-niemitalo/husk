@@ -14,6 +14,7 @@
 #include "json_writer.hpp"
 #include "listfile.hpp"
 #include "listfile_cache.hpp"
+#include "listfile_index.hpp"
 #include "m2.hpp"
 #include "skin.hpp"
 #include "sources/catalog.hpp"
@@ -229,24 +230,28 @@ int resolve(int argc, char** args) {
     bool skinDirNone = skinDirGiven && opts.skinDirArg == "none";
     std::string skinDir = skinDirNone ? "" : (skinDirGiven ? opts.skinDirArg : modelDirStr);
 
-    std::unordered_map<uint32_t, std::string> listfile;
+    std::unique_ptr<husk::ListfileIndex> ownedListfileIndex;
+    husk::EmptyListfileIndex emptyListfileIndex;
+    const husk::ListfileIndex* listfilePtr = &emptyListfileIndex;
     if (app.count("--listfile") && opts.listfileArg != "none") {
         try {
             // loadListfileCached: identical result to husk::loadListfile,
             // backed by a persistent on-disk cache (listfile_cache.hpp) --
             // this is the hot path `resolve` exists to make cheap, and a
             // real corpus scan calls it once per file.
-            listfile = husk::loadListfileCached(opts.listfileArg);
+            ownedListfileIndex = husk::loadListfileCached(opts.listfileArg);
+            listfilePtr = ownedListfileIndex.get();
         } catch (const std::exception& e) {
             std::cerr << "husk: resolve failed: " << e.what() << "\n";
             return 1;
         }
-        if (listfile.empty()) {
+        if (listfilePtr->empty()) {
             std::cerr << "husk: warning: --listfile '" << opts.listfileArg
                       << "' loaded but produced zero usable entries -- falling back to "
                          "local-only resolution\n";
         }
     }
+    const husk::ListfileIndex& listfile = *listfilePtr;
 
     uint32_t objectSkinTextureFileDataId = 0;
     if (app.count("--object-skin-texture-id")) {

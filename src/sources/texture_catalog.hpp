@@ -3,9 +3,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
+#include "../listfile_index.hpp"
 #include "resolved.hpp"
 
 // First real tier of `AUDIT.md` §1.1's texture-resolution consolidation
@@ -44,9 +44,9 @@ struct ListfileTextureResult {
 // lookup) for the path, then `husk::commands::resolveTextureBytes` for the
 // bytes -- this wrapper adds only the `Resolved<T>` provenance, no new
 // lookup logic.
-Resolved<ListfileTextureResult> resolveListfileTextureBytes(
-    uint32_t fdid, const std::unordered_map<uint32_t, std::string>& listfile, const std::string& listfileRoot,
-    const std::string& texturesOutDir);
+Resolved<ListfileTextureResult> resolveListfileTextureBytes(uint32_t fdid, const husk::ListfileIndex& listfile,
+                                                              const std::string& listfileRoot,
+                                                              const std::string& texturesOutDir);
 
 // Bytes plus the two display names export_materials.cpp's fuzzy-pool call
 // site derives from the claimed candidate's own path.

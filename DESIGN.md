@@ -1655,6 +1655,76 @@ dispatch isn't itself CLI11-driven (see the previous-grammar note above:
 `info`/`dump-chunks` stay hand-rolled by design, so there's no top-level
 `App` whose help output needs suppressing in the first place).
 
+## Listfile index
+
+`--listfile` names a ~148 MB, 2.2M-row community listfile. Every consumer used
+to take a materialised `std::unordered_map<uint32_t, std::string>`, rebuilt from
+scratch on every invocation.
+
+**The cost was construction, not parsing.** Measured on a simple item model
+(`husk resolve`, n=15, real 2.2M-row listfile):
+
+| | per invocation |
+|---|---|
+| `--listfile none` (floor) | 333 ms |
+| CSV parse, no cache | 1000 ms |
+| binary cache of the CSV text | 980 ms |
+
+A binary cache of the *text* recovered only ~20 ms, because the 138 MB blob
+reads in **18 ms** page-cached — I/O was ~3 % of the cost. The other ~97 % was
+allocating 2.2M `std::string`s and hash-inserting them.
+
+**So the fix is to never materialise the map.** `ListfileIndex`
+(`listfile_index.hpp`) is the read interface every consumer goes through:
+`lookup(fdid) -> optional<string_view>` plus `forEach`. The mmap-backed
+implementations (`listfile_mmap_index.hpp`) answer straight out of a prebuilt,
+POD, pointer-free on-disk image — **zero per-process construction**. Offsets,
+never pointers, because a pointer stored by one process is meaningless in
+another's address space; that is also what lets concurrent corpus-scan workers
+share one physical copy through the page cache rather than each building their
+own.
+
+### Sorted vs hash: measured, then chosen on other grounds
+
+Both were implemented and benchmarked (`HUSK_LISTFILE_BACKEND=sorted|hash`,
+n=30 each, same model and machine as above):
+
+| backend | per invocation | on-disk size |
+|---|---|---|
+| sorted (binary search) | ~340 ms | 154 MB |
+| hash (open-addressed) | ~344 ms | 261 MB |
+| floor (`--listfile none`) | ~347 ms | — |
+
+Both are **at the floor** — the listfile now costs nothing measurable, down
+from ~648 ms. The two are within noise of each other, so the choice is not a
+speed win: **sorted is the default because it is 41 % smaller on disk** (open
+addressing needs load-factor slack) and has the simpler failure mode. The hash
+backend is kept behind the env var so the comparison stays reproducible rather
+than becoming folklore.
+
+Extrapolated to a 130,576-file corpus, this removes ~23 hours of listfile cost.
+That figure is arithmetic from the per-invocation median, not a measured
+full-corpus run.
+
+### Staleness and invalidation
+
+Two independent gates, both must pass to reuse a cache:
+
+- a **tag file** whose mtime is refreshed on each use; older than 10 minutes
+  means stale. This is deliberately not `atime` — verified on this machine, the
+  pool has `atime=off` and the mount reports `noatime`, so atime never updates
+  on read and would freeze at creation.
+- the cache header's recorded **source path + size + mtime** must match the
+  current `--listfile`. A mismatch rebuilds, so pointing at a different or
+  edited listfile can never silently serve stale rows.
+
+Writes go to a temp file in the cache directory then `rename()`, so the ~9
+parallel corpus-scan workers never observe a half-written cache.
+
+Cache location is `$HUSK_CACHE_DIR`, else `$XDG_CACHE_HOME/husk/`, else
+`$HOME/.cache/husk/` — the same convention the sibling `tact-fetch` project
+uses.
+
 ## Boundaries (where foreign data enters)
 
 - Model file bytes (`.m2`) — chunk container + fixed-offset header/arrays.

@@ -110,7 +110,7 @@ BuiltMaterials buildMaterialsAndPrimitives(
     const std::vector<uint32_t>& triangleIndices, const std::vector<skin::Submesh>& submeshes,
     const std::vector<skin::Batch>& batches, const M2MaterialInputs& m2, husk::sources::Catalog& catalog,
     const std::string& texturesDir, const std::string& modelPath, const std::string& texturesOutDir,
-    const std::unordered_map<uint32_t, std::string>& listfile, const std::string& listfileRootArg,
+    const husk::ListfileIndex& listfile, const std::string& listfileRootArg,
     uint32_t objectSkinTextureFileDataId,
     const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames) {
     const std::string& listfileRoot = listfileRootArg.empty() ? texturesDir : listfileRootArg;

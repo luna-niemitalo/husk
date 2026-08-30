@@ -1,7 +1,9 @@
 // Tests for src/listfile_cache.hpp/.cpp -- the persistent, on-disk cache
-// layered in front of listfile.hpp's loadListfile. See that header and
-// DESIGN.md's "Listfile cache" section for the full staleness/
-// invalidation/concurrency design this exercises.
+// layered in front of listfile.hpp's loadListfile, exposed as a
+// ListfileIndex (listfile_index.hpp) rather than a materialised map. See
+// that header, listfile_mmap_index.hpp, and DESIGN.md's "Listfile index"
+// section for the full staleness/invalidation/concurrency design this
+// exercises.
 //
 // Every test below points $HUSK_CACHE_DIR at its own throwaway temp
 // directory (never the real $HOME/.cache/husk) so this suite never reads
@@ -85,14 +87,14 @@ TEST_CASE("loadListfileCached: cold cache produces the same result loadListfile 
     auto direct = loadListfile(path.string());
     auto cached = loadListfileCached(path.string());
 
-    REQUIRE(cached.size() == direct.size());
-    CHECK(cached.at(200859) == direct.at(200859));
-    CHECK(cached.at(1018799) == direct.at(1018799));
-    CHECK(cached.at(200859) == "world/goober/bubble.blp");
+    REQUIRE(cached->size() == direct.size());
+    CHECK(*cached->lookup(200859) == direct.at(200859));
+    CHECK(*cached->lookup(1018799) == direct.at(1018799));
+    CHECK(*cached->lookup(200859) == "world/goober/bubble.blp");
 
     // A cold call is expected to leave a real cache artifact behind for
     // next time -- both the packed binary and the freshness tag.
-    CHECK(fs::exists(listfileCacheDir() / "listfile.bin"));
+    CHECK(fs::exists(listfileCacheDir() / "listfile.sorted.bin"));
     CHECK(fs::exists(listfileCacheDir() / "listfile.tag"));
 
     std::remove(path.c_str());
@@ -103,7 +105,7 @@ TEST_CASE("loadListfileCached: a warm hit reads the persisted cache, not the sou
     auto path = writeListfile(fs::temp_directory_path() / "husk_test_lfc_warm.csv", kContentA);
 
     auto first = loadListfileCached(path.string());
-    REQUIRE(first.at(200859) == "world/goober/bubble.blp");
+    REQUIRE(*first->lookup(200859) == "world/goober/bubble.blp");
 
     // Preserve the file's exact size+mtime (so the cache's source-identity
     // check still matches) while swapping its *content* -- if the warm
@@ -116,8 +118,8 @@ TEST_CASE("loadListfileCached: a warm hit reads the persisted cache, not the sou
     REQUIRE(fs::file_size(path) == sizeBefore);  // sanity: the fixture really is the same length
 
     auto second = loadListfileCached(path.string());
-    CHECK(second.at(200859) == "world/goober/bubble.blp");  // still the ORIGINAL value -- proves cache reuse
-    CHECK(second.at(200859) != "world/goober/BUBBLE.blp");
+    CHECK(*second->lookup(200859) == "world/goober/bubble.blp");  // still the ORIGINAL value -- proves cache reuse
+    CHECK(*second->lookup(200859) != "world/goober/BUBBLE.blp");
 
     std::remove(path.c_str());
 }
@@ -127,9 +129,9 @@ TEST_CASE("loadListfileCached: an expired tag file forces a rebuild even though 
     auto path = writeListfile(fs::temp_directory_path() / "husk_test_lfc_expiry.csv", kContentA);
 
     auto first = loadListfileCached(path.string());
-    REQUIRE(first.at(200859) == "world/goober/bubble.blp");
+    REQUIRE(*first->lookup(200859) == "world/goober/bubble.blp");
 
-    auto cacheBin = listfileCacheDir() / "listfile.bin";
+    auto cacheBin = listfileCacheDir() / "listfile.sorted.bin";
     auto tagPath = listfileCacheDir() / "listfile.tag";
     REQUIRE(fs::exists(cacheBin));
 
@@ -137,22 +139,22 @@ TEST_CASE("loadListfileCached: an expired tag file forces a rebuild even though 
     // the source file itself is left completely untouched.
     auto backdated = fs::file_time_type::clock::now() - std::chrono::minutes(11);
     fs::last_write_time(tagPath, backdated);
-    // Backdate listfile.bin too, so "was it rewritten" is a comparison
-    // against a timestamp 11 minutes in the past rather than against one
-    // written moments ago. Comparing two same-run writes raced the
-    // filesystem's timestamp granularity: when both landed in one tick the
-    // strict `>` below failed even though the rebuild had happened,
+    // Backdate listfile.sorted.bin too, so "was it rewritten" is a
+    // comparison against a timestamp 11 minutes in the past rather than
+    // against one written moments ago. Comparing two same-run writes raced
+    // the filesystem's timestamp granularity: when both landed in one tick
+    // the strict `>` below failed even though the rebuild had happened,
     // failing ~1 run in 3.
     fs::last_write_time(cacheBin, backdated);
     auto binMtimeBefore = fs::last_write_time(cacheBin);
 
     auto second = loadListfileCached(path.string());
-    CHECK(second.at(200859) == "world/goober/bubble.blp");  // result is still correct either way
+    CHECK(*second->lookup(200859) == "world/goober/bubble.blp");  // result is still correct either way
 
     // The real signal: an expired tag must force a genuine rebuild, not a
     // silent reuse of the still-technically-valid cache blob -- observable
-    // as listfile.bin being rewritten (a fresh mtime), even though its
-    // *content* would come out identical either way.
+    // as listfile.sorted.bin being rewritten (a fresh mtime), even though
+    // its *content* would come out identical either way.
     auto binMtimeAfter = fs::last_write_time(cacheBin);
     CHECK(binMtimeAfter > binMtimeBefore);
 
@@ -164,7 +166,7 @@ TEST_CASE("loadListfileCached: a changed source file forces a rebuild even thoug
     auto path = writeListfile(fs::temp_directory_path() / "husk_test_lfc_mismatch.csv", kContentA);
 
     auto first = loadListfileCached(path.string());
-    REQUIRE(first.at(200859) == "world/goober/bubble.blp");
+    REQUIRE(*first->lookup(200859) == "world/goober/bubble.blp");
 
     // A genuine edit -- different content, and (unlike the warm-hit test
     // above) a real, unrestored mtime change too. The tag file is left
@@ -173,7 +175,7 @@ TEST_CASE("loadListfileCached: a changed source file forces a rebuild even thoug
                          "1018799;character/human/male/deathknighteyeglow.blp\n");
 
     auto second = loadListfileCached(path.string());
-    CHECK(second.at(200859) == "world/goober/RENAMED.blp");  // NOT the stale cached value
+    CHECK(*second->lookup(200859) == "world/goober/RENAMED.blp");  // NOT the stale cached value
 
     std::remove(path.c_str());
 }
@@ -186,14 +188,14 @@ TEST_CASE("loadListfileCached: a different --listfile path is also a source mism
                       "555;some/other/file.blp\n");
 
     auto fromA = loadListfileCached(pathA.string());
-    REQUIRE(fromA.at(200859) == "world/goober/bubble.blp");
+    REQUIRE(*fromA->lookup(200859) == "world/goober/bubble.blp");
 
     // Same tag freshness window, genuinely different file -- must not
     // silently hand back file A's cached contents for file B's path.
     auto fromB = loadListfileCached(pathB.string());
-    REQUIRE(fromB.size() == 1);
-    CHECK(fromB.at(555) == "some/other/file.blp");
-    CHECK(fromB.find(200859) == fromB.end());
+    REQUIRE(fromB->size() == 1);
+    CHECK(*fromB->lookup(555) == "some/other/file.blp");
+    CHECK_FALSE(fromB->lookup(200859).has_value());
 
     std::remove(pathA.c_str());
     std::remove(pathB.c_str());
@@ -207,4 +209,29 @@ TEST_CASE("loadListfileCached: a bad --listfile path throws, same contract as lo
 TEST_CASE("listfileCacheDir: $HUSK_CACHE_DIR overrides the XDG default") {
     ScopedCacheDir cacheDir("dir-override");
     CHECK(listfileCacheDir() == cacheDir.dir);
+}
+
+TEST_CASE("loadListfileCached: HUSK_LISTFILE_BACKEND=hash builds/loads the mmap hash-table format, "
+          "byte-identical results to the default sorted backend") {
+    ScopedCacheDir cacheDir("hash-backend");
+    auto path = writeListfile(fs::temp_directory_path() / "husk_test_lfc_hash.csv", kContentA);
+
+    const char* oldBackend = std::getenv("HUSK_LISTFILE_BACKEND");
+    std::string oldBackendStr = oldBackend ? oldBackend : "";
+    bool hadOldBackend = oldBackend != nullptr;
+    setenv("HUSK_LISTFILE_BACKEND", "hash", 1);
+
+    auto cached = loadListfileCached(path.string());
+    CHECK(fs::exists(listfileCacheDir() / "listfile.hash.bin"));
+    REQUIRE(cached->size() == 2);
+    CHECK(*cached->lookup(200859) == "world/goober/bubble.blp");
+    CHECK(*cached->lookup(1018799) == "character/human/male/deathknighteyeglow.blp");
+    CHECK_FALSE(cached->lookup(999999).has_value());
+
+    if (hadOldBackend) {
+        setenv("HUSK_LISTFILE_BACKEND", oldBackendStr.c_str(), 1);
+    } else {
+        unsetenv("HUSK_LISTFILE_BACKEND");
+    }
+    std::remove(path.c_str());
 }

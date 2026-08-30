@@ -9,6 +9,7 @@
 #include <fstream>
 #include <unordered_map>
 
+#include "../src/listfile_index.hpp"
 #include "../src/sources/texture_catalog.hpp"
 
 using husk::sources::resolveClaimedFuzzyPoolTextureBytes;
@@ -69,7 +70,8 @@ TEST_CASE("sources::resolveListfileTextureBytes hits when the listfile names a r
     writeFile(root / "world" / "goober" / "bubble.png", pngBytes);
 
     std::unordered_map<uint32_t, std::string> listfile{{555, "world/goober/bubble.blp"}};
-    auto r = resolveListfileTextureBytes(555, listfile, root.string(), "");
+    husk::MapListfileIndex listfileIndex(listfile);
+    auto r = resolveListfileTextureBytes(555, listfileIndex, root.string(), "");
     REQUIRE(r.found());
     CHECK(r.tier == ResolutionTier::Listfile);
     CHECK(r.value->bytes == pngBytes);
@@ -78,7 +80,8 @@ TEST_CASE("sources::resolveListfileTextureBytes hits when the listfile names a r
 
 TEST_CASE("sources::resolveListfileTextureBytes misses (with a reason) when the listfile has no row for the fdid") {
     std::unordered_map<uint32_t, std::string> listfile{{1, "world/some/other/path.blp"}};
-    auto r = resolveListfileTextureBytes(999, listfile, "/tmp/husk-texture-catalog-test-listfile-miss", "");
+    husk::MapListfileIndex listfileIndex(listfile);
+    auto r = resolveListfileTextureBytes(999, listfileIndex, "/tmp/husk-texture-catalog-test-listfile-miss", "");
     CHECK_FALSE(r.found());
     CHECK(r.tier == ResolutionTier::Listfile);
     CHECK(r.reason.find("999") != std::string::npos);
@@ -88,7 +91,8 @@ TEST_CASE("sources::resolveListfileTextureBytes misses (with a reason) when the 
     auto root = fs::temp_directory_path() / "husk-texture-catalog-test-listfile-dangling";
     fs::create_directories(root);
     std::unordered_map<uint32_t, std::string> listfile{{7, "world/nope.blp"}};
-    auto r = resolveListfileTextureBytes(7, listfile, root.string(), "");
+    husk::MapListfileIndex listfileIndex(listfile);
+    auto r = resolveListfileTextureBytes(7, listfileIndex, root.string(), "");
     CHECK_FALSE(r.found());
     CHECK(r.tier == ResolutionTier::Listfile);
     CHECK(r.reason.find("nope") != std::string::npos);

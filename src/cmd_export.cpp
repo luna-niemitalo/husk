@@ -33,6 +33,7 @@
 #include "husk_config.hpp"
 #include "listfile.hpp"
 #include "listfile_cache.hpp"
+#include "listfile_index.hpp"
 #include "m2.hpp"
 #include "skel.hpp"
 #include "skin.hpp"
@@ -327,7 +328,7 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
     const std::vector<m2::Vertex>& vertices, const gltf::Mesh& baseMesh, const M2MaterialInputs& m2Inputs,
     husk::sources::Catalog& catalog, const std::string& texturesDir, const std::string& modelPath,
     const std::string& modelBasename, const std::string& texturesOutDir,
-    const std::unordered_map<uint32_t, std::string>& listfile = {}, const std::string& listfileRoot = "",
+    const husk::ListfileIndex& listfile = husk::EmptyListfileIndex(), const std::string& listfileRoot = "",
     uint32_t objectSkinTextureFileDataId = 0,
     const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames = {}) {
     std::vector<gltf::NamedMesh> namedMeshes;
@@ -744,8 +745,7 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
 // through (the same function --from-list's own batch loop calls per
 // entry), rather than a second, parallel export path.
 int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
-                    const std::string& outputPathIn, bool outputGiven,
-                    std::unordered_map<uint32_t, std::string> listfile);
+                    const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile);
 
 // --appearance's case-1 gear items (skeleton.gearItems, already populated
 // by attachGearAppearance with real model FileDataIDs) each need their own
@@ -765,7 +765,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
 // already follows. A resolution/export failure for one item is reported
 // and leaves that item's auxGlbPath empty -- never fatal to the rest of
 // the export, same policy as every other per-entry DB2 resolution here.
-void exportGearAuxItemModels(gltf::Skeleton& skeleton, const std::unordered_map<uint32_t, std::string>& listfile,
+void exportGearAuxItemModels(gltf::Skeleton& skeleton, const husk::ListfileIndex& listfile,
                               const std::string& listfileRoot, const std::string& mainOutputPath) {
     if (skeleton.gearItems.empty()) return;
     if (listfile.empty() || listfileRoot.empty()) {
@@ -852,13 +852,16 @@ void exportGearAuxItemModels(gltf::Skeleton& skeleton, const std::unordered_map<
 // identically to every file in the batch, same as a real casc-tool
 // `extract-batch` run shares its own storage/listfile handle across every
 // extracted entry.
-// `listfile` is taken by value, not by reference: --knowledge-db (below)
-// adds this one model's own resolved object-skin texture into it, and
-// that addition must not leak into the next model's own export when this
-// runs inside a --from-list batch sharing one loaded listfile.
+// `listfile` is taken by const reference, never copied or mutated:
+// --knowledge-db's (below) per-model object-skin override goes through
+// sources::Catalog::registerPathOverride instead, which keeps its own
+// separate map -- so a --from-list batch sharing one loaded ListfileIndex
+// across every entry never risks one model's override leaking into the
+// next (DESIGN.md's "Listfile index" section has the measured case for why
+// this is a reference now: a ListfileIndex may be an mmap-backed object
+// whose entire point is avoiding a per-process copy).
 int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
-                    const std::string& outputPathIn, bool outputGiven,
-                    std::unordered_map<uint32_t, std::string> listfile) {
+                    const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile) {
     std::string outputPath = outputPathIn;
     bool skinDirGiven = app.count("--skin-dir") > 0;
     bool lodGiven = !opts.lodArg.empty();
@@ -1317,30 +1320,38 @@ int exportGlb(int argc, char** args) {
         return 1;
     }
 
-    // --listfile: optional, unset by default (empty map, same "skip this
-    // tier entirely" behavior as before this flag existed). Loaded once up
-    // front, not per-batch-entry -- a real community-listfile.csv is
-    // millions of lines, and --from-list can drive thousands of exports
-    // from one invocation.
-    std::unordered_map<uint32_t, std::string> listfile;
+    // --listfile: optional, unset by default (a real EmptyListfileIndex,
+    // same "skip this tier entirely" behavior as before this flag
+    // existed). Loaded once up front, not per-batch-entry -- a real
+    // community-listfile.csv is millions of lines, and --from-list can
+    // drive thousands of exports from one invocation. `listfileIndex` owns
+    // whichever backing (an mmap'd cache, or a plain in-memory map on a
+    // cache-write failure) loadListfileCached hands back; every
+    // exportOneModel call below just borrows a reference to it -- see
+    // DESIGN.md's "Listfile index" section for why this is no longer a
+    // std::unordered_map passed (and, in a batch, re-copied) by value.
+    std::unique_ptr<husk::ListfileIndex> ownedListfileIndex;
+    husk::EmptyListfileIndex emptyListfileIndex;
+    const husk::ListfileIndex* listfilePtr = &emptyListfileIndex;
     if (app.count("--listfile") && opts.listfileArg != "none") {
         // loadListfileCached: identical result to husk::loadListfile, just
         // backed by a persistent on-disk cache so repeated invocations
         // against the same --listfile within a session skip re-parsing
         // ~148MB of CSV (see listfile_cache.hpp/DESIGN.md).
-        listfile = husk::loadListfileCached(opts.listfileArg);
+        ownedListfileIndex = husk::loadListfileCached(opts.listfileArg);
+        listfilePtr = ownedListfileIndex.get();
         // A bad --listfile *path* already throws (loadListfile itself, a
         // direct user mistake worth failing loudly on) -- but a listfile
         // that opens fine and parses to zero usable entries (genuinely
         // empty, or every line malformed -- e.g. the wrong file entirely,
         // or corrupted mid-download) previously degraded *silently*: every
-        // consumer already treats an empty map the same as "no --listfile
+        // consumer already treats an empty index the same as "no --listfile
         // given" and falls back to local-only resolution correctly, but
         // that fallback was invisible, which is the wrong failure mode for
         // something the caller explicitly asked for. Recoverable (every
         // downstream feature still has a real local fallback tier), so
         // this warns rather than aborting the export -- never silent.
-        if (listfile.empty()) {
+        if (listfilePtr->empty()) {
             std::cerr << "husk: warning: --listfile '" << opts.listfileArg
                       << "' loaded but contained no usable entries (empty file, or every line "
                          "failed to parse) -- every listfile-dependent feature will fall back to "
@@ -1348,6 +1359,7 @@ int exportGlb(int argc, char** args) {
                          "been given\n";
         }
     }
+    const husk::ListfileIndex& listfile = *listfilePtr;
 
     if (!batchMode) {
         return exportOneModel(opts, app, opts.modelPath, opts.outputPath, app.count("--output") > 0, listfile);

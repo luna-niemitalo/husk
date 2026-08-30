@@ -236,16 +236,18 @@ int db2Build(int argc, char** args) {
                                             -1, &stmt, nullptr),
                         db, std::string("prepare ") + tableName + " insert");
             size_t count = 0;
-            for (const auto& [fid, path] : listfile) {
+            listfile->forEach([&](uint32_t fid, std::string_view path) {
                 std::string ext = std::filesystem::path(path).extension().string();
                 std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
-                if (!extensions.count(ext)) continue;
+                if (!extensions.count(ext)) return true;
+                std::string pathStr(path);
                 sqlite3_bind_int64(stmt, 1, fid);
-                sqlite3_bind_text(stmt, 2, path.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(stmt, 2, pathStr.c_str(), -1, SQLITE_TRANSIENT);
                 sqliteCheck(sqlite3_step(stmt), db, std::string("insert ") + tableName + " row");
                 sqlite3_reset(stmt);
                 ++count;
-            }
+                return true;
+            });
             sqlite3_finalize(stmt);
             std::cout << "husk: db2-build: ingested " << count << " " << tableName << " path(s) from '"
                        << listfilePath << "'\n";
