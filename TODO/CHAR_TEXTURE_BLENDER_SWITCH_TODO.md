@@ -652,3 +652,48 @@ choices legitimately resolve to the same single shared texture.
   (dependent option, driving choice) pair, only the currently-relevant one
   meaningful" -- not attempted here, flagged for whoever picks this up
   next.
+
+  **Follow-up, same day: the real reason Face/Markings toggles did nothing
+  at all, found via a live Blender check.** Luna: "changing the face
+  toggle, or the markings toggle doesn't do anything... the only toggle
+  (besides skin color) that works out of these 4 is the scars," and "the
+  scars toggle changes the face color, so there is something wrong with
+  the mix mode" -- and directly noticed all 4 of the "Skin Color" driving
+  group's own outputs reading back black in the Shader Editor, correctly
+  guessing it was "something to do with the color nodes in the node
+  group." Confirmed with an isolated repro before touching the real code:
+  Blender's `NodeCombineBundle`/`NodeSeparateBundle` pair matches items by
+  real **name**, not position -- a matched-name pair round-trips a real
+  value correctly, a mismatched-name pair silently comes back as a
+  default/zero, no error at all. `_build_driving_with_dependents_group`'s
+  own per-dependent `combine.bundle_items.new(...)` calls used a generic
+  placeholder name ("Dep Color"/"Dep Alpha") for every dependent, while
+  the matching `separate.bundle_items.new(...)` calls (built once, up
+  front) used each dependent's own real name ("Face Color"/"Face Alpha",
+  etc) -- a genuine mismatch, silently zeroing out every real dependent's
+  own Color/Alpha output. Fixed: `combine`'s own item names now come from
+  the same `dep_output_names` map `separate` already uses, so they match
+  exactly. Verified end to end: the real fixture's own toggle-diff render
+  test (a full-UV plane, same material, one render per dropdown value)
+  went from `face_toggled: 0/320000 differ` / `markings_toggled: 0/320000
+  differ` (pre-fix, matching Luna's own report precisely) to `85/320000`
+  / `4/320000` (post-fix, both real, nonzero). `Scars`, a plain
+  independent option that never goes through
+  `_build_driving_with_dependents_group` at all, was unaffected by this
+  specific bug either way (`52-64/320000` both before and after) --
+  consistent with Luna's own observation that Scars was the one thing
+  that already worked.
+
+  The "scars toggle changes the face color" report is very likely a
+  downstream symptom of this SAME bug, not a separate one: with Face
+  permanently contributing zero alpha (silently disabled), Scars' own
+  `OVERLAY`-blended stage was compositing directly onto the raw Skin
+  Color base in that shared section -- exactly where Face was *supposed*
+  to already have painted something -- so what looked like "Scars
+  changing the face" was Scars painting over an emptier canvas than
+  intended, not a bug in Scars' own blend math. Worth Luna re-checking
+  visually now that Face genuinely renders; if the same "too broad an
+  effect" symptom persists once both layers are genuinely live and
+  stacking, that would point at a real, separate blend-mode issue
+  worth a fresh investigation -- not assumed fixed here without her own
+  eyes on it.

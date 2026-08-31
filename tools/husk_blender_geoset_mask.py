@@ -2103,8 +2103,21 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
 
         y = -400.0
         for dep_option, per_driving in dependents:
-            combine.bundle_items.new(socket_type='RGBA', name="Dep Color")
-            combine.bundle_items.new(socket_type='FLOAT', name="Dep Alpha")
+            # Real bug found and fixed 2026-08-31 (Luna caught it live --
+            # changing Face/Markings Color did nothing, all 4 of a driving
+            # group's own outputs read back black): Blender's Bundle
+            # system matches `NodeCombineBundle`/`NodeSeparateBundle`
+            # items by NAME, not position -- confirmed with an isolated
+            # repro (a Combine/Separate pair with matching names
+            # round-trips a real value; mismatched names silently comes
+            # back as a default/zero, not an error). `combine`'s own item
+            # names here MUST match `separate`'s real per-dependent names
+            # (built once, up front, in `dep_output_names`) exactly --
+            # generic placeholder names ("Dep Color"/"Dep Alpha") silently
+            # zeroed out every real dependent's own Color/Alpha.
+            color_name, alpha_name = dep_output_names[dep_option.get('option_id')]
+            combine.bundle_items.new(socket_type='RGBA', name=color_name)
+            combine.bundle_items.new(socket_type='FLOAT', name=alpha_name)
             color_index, alpha_index = next_combine_index, next_combine_index + 1
             next_combine_index += 2
             dep_choice_infos = per_driving.get(driving_id, [])
