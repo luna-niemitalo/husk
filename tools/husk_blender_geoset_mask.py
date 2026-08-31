@@ -1916,7 +1916,7 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
     -- flagged by construction (no socket to accidentally misconfigure),
     not guessed at.
 
-    Returns `(tree, dep_output_names, socket_defaults)`:
+    Returns `(tree, dep_output_names, socket_defaults, vector_rects)`:
     - `dep_output_names`: `{dep_option's own 'option_id': (color_output_name, alpha_output_name)}`
       -- one real `(Color, Alpha)` output pair per dependent, aggregating
       across every driving-choice case (the active case's own resolved
@@ -1937,6 +1937,21 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
       each socket up, and `apply_customization_texture_switch` applies
       the whole chain's accumulated defaults on the outermost, genuinely-
       unlinked material `group_node` instance.
+    - `vector_rects`: `{interface_socket_name: uv_rect}` for every real
+      `Vector`-typed input this tree's own interface defines (its own
+      driving image, plus one per dependent needing placement) -- this
+      function does NOT build any Mapping node itself. Real WoW data
+      shows several genuinely different options (Face/Scars/Markings
+      Color, on the real `nightelffemale_hd` fixture) resolving to the
+      exact same real section rect, and Blender can't share one literal
+      node object across different node trees -- so the caller
+      (`_build_material_customization_group`, the nearest common ancestor
+      tree of every option this whole material touches) is the one that
+      builds each real Mapping exactly once, keyed by rect *value*, and
+      threads its output down into whichever `Vector` sockets need it via
+      an ordinary link (a plain `NodeSocketVector`, none of the
+      `Menu`-type fan-out restriction applies -- confirmed, see this
+      file's `_uv_rect_for_layer`/`_build_placement_mapping` doc comments).
     """
     driving_choice_by_id = {c["choice_id"]: c for c in (driving_choice_infos or [])}
 
@@ -1983,15 +1998,21 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
 
     x = -1100.0
     taken_socket_names = set()
-    # Same shared-per-target placement mapping `_build_customization_option_group`
-    # builds for its own choices -- every driving choice's own image shares
-    # the same real texture_layer/section (Skin Color's own is normally
-    # `None`, a full-atlas base layer needing no crop; kept general rather
-    # than hardcoded so any driving option with a real cropped layer of its
-    # own still gets placed correctly).
+    vector_rects = {}
+
+    # Every driving choice's own image shares the same real texture_layer/
+    # section (Skin Color's own is normally `None`, a full-atlas base
+    # layer needing no crop; kept general rather than hardcoded so any
+    # driving option with a real cropped layer of its own still gets
+    # placed correctly) -- a real `Vector` interface socket, filled in by
+    # the caller (see this function's own doc comment), not a locally
+    # built Mapping.
     driving_uv_rect = next((c["uv_rect"] for c in (driving_choice_infos or []) if c.get("uv_rect")), None)
-    driving_placement_vector = (_build_placement_mapping(nodes, links, driving_uv_rect, -1400.0, -200.0)
-                                 if driving_uv_rect else None)
+    driving_placement_vector = None
+    if driving_uv_rect:
+        tree.interface.new_socket("Driving Vector", in_out='INPUT', socket_type='NodeSocketVector')
+        vector_rects["Driving Vector"] = driving_uv_rect
+        driving_placement_vector = group_input.outputs["Driving Vector"]
 
     # `[(socket_name, default_choice_name), ...]`, one entry per dependent
     # submenu created below, in the exact order those interface sockets
@@ -2003,15 +2024,17 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
     # `default_value` is never read for evaluation/UI -- only the
     # outermost, genuinely-unlinked instance's own default matters).
     socket_defaults = []
-    # One shared placement Mapping per dependent option (option_id ->
-    # Vector output socket, or explicitly-cached `None`), built the first
-    # time that dependent actually resolves something and reused across
-    # every remaining driving choice -- a real dependent gets its own
-    # submenu instanced once PER driving choice (26 times, on the real
-    # `nightelffemale_hd` fixture), and they all share the exact same real
-    # section, so building a fresh Mapping each time would mean 26
-    # redundant, identical node pairs.
-    dependent_placement_vectors = {}
+    # One shared `Vector` interface socket per dependent option (option_id
+    # -> this tree's own `group_input` output socket, or explicitly-cached
+    # `None`), added the first time that dependent actually resolves
+    # something and reused across every remaining driving choice -- a real
+    # dependent gets its own submenu instanced once PER driving choice (26
+    # times, on the real `nightelffemale_hd` fixture), and they all share
+    # the exact same real section, so a fresh socket/Mapping each time
+    # would mean 26 redundant, identical node pairs. The caller supplies
+    # the actual Mapping (see this function's own doc comment on
+    # `vector_rects`).
+    dependent_vector_sockets = {}
     for driving_choice in driving_option.get("choices", []):
         driving_id = driving_choice.get("choice_id")
         driving_name = driving_choice.get("choice_name") or f"choice_{driving_id}"
@@ -2072,13 +2095,19 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
                 y -= 250.0
 
                 dep_id = dep_option.get('option_id')
-                if dep_id not in dependent_placement_vectors:
+                if dep_id not in dependent_vector_sockets:
                     dep_uv_rect = next((c["uv_rect"] for c in dep_choice_infos if c.get("uv_rect")),
                                         None)
-                    dependent_placement_vectors[dep_id] = (
-                        _build_placement_mapping(nodes, links, dep_uv_rect, x - 300.0, y)
-                        if dep_uv_rect else None)
-                dep_placement_vector = dependent_placement_vectors[dep_id]
+                    if dep_uv_rect:
+                        dep_vector_socket_name = _unique_label(f"{dep_label} Vector", taken_socket_names)
+                        taken_socket_names.add(dep_vector_socket_name)
+                        tree.interface.new_socket(dep_vector_socket_name, in_out='INPUT',
+                                                   socket_type='NodeSocketVector')
+                        vector_rects[dep_vector_socket_name] = dep_uv_rect
+                        dependent_vector_sockets[dep_id] = group_input.outputs[dep_vector_socket_name]
+                    else:
+                        dependent_vector_sockets[dep_id] = None
+                dep_placement_vector = dependent_vector_sockets[dep_id]
                 if dep_placement_vector is not None:
                     links.new(dep_placement_vector, sub_node.inputs["Vector"])
 
@@ -2108,7 +2137,7 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
         x += 1400.0
 
     group_output.location = (x + 400.0, 0.0)
-    return tree, dep_output_names, socket_defaults
+    return tree, dep_output_names, socket_defaults, vector_rects
 
 
 def _build_material_customization_group(name, relevant_options, driving_groups=None):
@@ -2173,6 +2202,26 @@ def _build_material_customization_group(name, relevant_options, driving_groups=N
     socket_defaults = {}
     driving_groups = driving_groups or []
 
+    # One real Mapping per DISTINCT real `uv_rect` value across this whole
+    # material -- not per option. Real WoW data shows several genuinely
+    # different options resolving to the exact same real section (on the
+    # real `nightelffemale_hd` fixture, Face/Scars/Markings Color all
+    # share one identical rect), and this tree is the nearest common
+    # ancestor of every option a material touches, so it's the only place
+    # that can actually notice and dedupe that overlap -- a Mapping node
+    # built inside one option's own sub-tree can't be reused by a
+    # completely different sub-tree. `_build_customization_option_group`/
+    # `_build_driving_with_dependents_group` both stay unaware of this:
+    # they only expose a `Vector` interface socket when they need one, and
+    # this function is what supplies its real value, built or reused from
+    # this cache.
+    shared_mappings = {}
+
+    def placement_vector_for(uv_rect):
+        if uv_rect not in shared_mappings:
+            shared_mappings[uv_rect] = _build_placement_mapping(nodes, links, uv_rect, x, -1400.0)
+        return shared_mappings[uv_rect]
+
     stages = []
     for option, choice_infos in relevant_options:
         stages.append({
@@ -2203,7 +2252,7 @@ def _build_material_customization_group(name, relevant_options, driving_groups=N
         group_label = _unique_label(driving_option.get('option_name', 'Option'), taken_menu_names)
         taken_menu_names.add(group_label)
 
-        sub_tree, dep_output_names, dep_socket_defaults = _build_driving_with_dependents_group(
+        sub_tree, dep_output_names, dep_socket_defaults, vector_rects = _build_driving_with_dependents_group(
             f"{name}_{group_label}", driving_option, driving_choice_infos, dependents)
         sub_node = nodes.new("ShaderNodeGroup")
         sub_node.node_tree = sub_tree
@@ -2216,6 +2265,14 @@ def _build_material_customization_group(name, relevant_options, driving_groups=N
         # (Blender 5.1.1), not assumed.
         tree.interface.new_socket(group_label, in_out='INPUT', socket_type='NodeSocketMenu')
         links.new(group_input.outputs[-2], sub_node.inputs["Choice"])
+
+        # Wire every real placement this driving group's own tree asked
+        # for (its own driving image, plus one per dependent needing
+        # cropping) from the SHARED, dedup-by-value cache -- see
+        # `shared_mappings`'s own doc comment above for why this can't
+        # happen inside `_build_driving_with_dependents_group` itself.
+        for socket_name, uv_rect in vector_rects.items():
+            links.new(placement_vector_for(uv_rect), sub_node.inputs[socket_name])
         if driving_choice_infos:
             default_driving = next((c for c in driving_choice_infos if c.get("is_default")),
                                     driving_choice_infos[0])
@@ -2268,8 +2325,7 @@ def _build_material_customization_group(name, relevant_options, driving_groups=N
 
             uv_rect = next((c["uv_rect"] for c in choice_infos if c.get("uv_rect")), None)
             if uv_rect:
-                placement_vector = _build_placement_mapping(nodes, links, uv_rect, x - 300.0, -300.0)
-                links.new(placement_vector, sub_node.inputs["Vector"])
+                links.new(placement_vector_for(uv_rect), sub_node.inputs["Vector"])
 
             blend_mode = choice_infos[0]["blend_mode"]
             color_source, alpha_source = sub_node.outputs["Color"], sub_node.outputs["Alpha"]

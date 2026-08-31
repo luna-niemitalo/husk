@@ -433,11 +433,53 @@ choices legitimately resolve to the same single shared texture.
   (`_build_material_customization_group`'s plain-option path,
   `_build_driving_with_dependents_group`'s dependent-submenu path) build
   ONE shared `_build_placement_mapping` per real section and link it into
-  every consumer that needs it. Verified: the real `nightelffemale_hd`
-  fixture's whole "skin" material combined tree now has 7 total `Mapping`
-  nodes (one per real section actually in play) covering 55+ real
-  choice/submenu instances, all confirmed `vector_type == 'TEXTURE'` with
-  sane Location/Scale values -- not 55+ separate Mapping pairs.
+  every consumer that needs it.
+
+  **Follow-up, same day -- the dedup needed to be by real rect *value*,
+  not by option identity.** Luna: "markings, scars, faces, etc are
+  individually applicable layers to the base texture/UV, so each of them
+  should share the same mapping (unless it's a full overlay) ... markings
+  is not dependent on scars, and scars is not dependent on markings, and
+  neither is dependent on the face, all 3 are additional layers on top of
+  face." Checked against the real fixture's own `chr_texture_layout`
+  before changing anything: `Face` (`texture_section_type_bit_mask`
+  1024/section_type 10), `Scars` (512/section_type 9), and `Markings
+  Color` (2048/section_type 11) all resolve to the *exact same* real
+  section rect (x=1024, y=0, w=1024, h=1024 -- the right half of the
+  atlas), confirming this precisely; `Hair Style`/`Eye Color`'s own base
+  turned out to share it too. The per-option dedup above (7 Mapping
+  nodes, one per option/driving-group scope) missed this because Face's
+  own Mapping lived inside the "Skin Color" driving group's own separate
+  node tree while Scars' lived in the top-level tree directly -- two
+  different real node-group data-blocks, so even an identical value
+  couldn't literally be the same node without a structural change.
+
+  Fixed by moving dedup up to the one tree that's a common ancestor of
+  every option a material touches (`_build_material_customization_group`):
+  neither `_build_customization_option_group` nor
+  `_build_driving_with_dependents_group` builds a Mapping node anymore --
+  each only exposes a `Vector` interface socket (or several, for a
+  driving group with multiple cropped dependents) when placement is
+  needed, returning `{socket_name: uv_rect}` so the caller knows what
+  value each one wants. `_build_material_customization_group` now keeps
+  ONE real Mapping per distinct `uv_rect` *value* (`shared_mappings`,
+  keyed by the exact `(u0, v0, w, h)` tuple -- safe as a dict key here
+  since it's always derived from identical integer section data when two
+  layers genuinely share a section, so the floats come out bit-identical)
+  and links it into every consumer that asked for that value, regardless
+  of which option/driving-group tree that consumer lives in.
+
+  Verified against the real fixture: the whole "skin" material combined
+  tree now has exactly **2** total `Mapping` nodes (one per real distinct
+  section actually in play across the whole material -- the shared
+  Face/Scars/Markings Color/Hair Style/Eye Color rect, and Tattoo Color's
+  own separate one), both built only in the top-level tree; traced every
+  `ShaderNodeGroup` instance's own `Vector`-typed inputs and confirmed all
+  6 real consumers (`Group.Face Vector`, `Group.001.Vector` [Scars],
+  `Group.002.Markings Color Vector`, `Group.004.Hair Style Vector`,
+  `Group.005.Driving Vector` [Eye Color's own image],
+  `Group.005.Eyesight Vector`) link from the same shared `Mapping` node,
+  and `Group.003.Tattoo Color Vector` links from the other one.
   `tools/test_husk_blender_options_panel.py` still passes; the real
   pipeline still runs clean end to end against the real fixture, still
   fully opaque.
