@@ -425,46 +425,76 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
 
         // Every batch that got its texture from the basename-fuzzy pool,
         // not one of the two real deterministic matches -- see
-        // BuiltMaterials::FuzzyMatch's doc comment. Printed per match (not
-        // just a count) precisely so each one is easy to go check by hand.
-        for (const auto& fm : built.fuzzyMatches) {
-            std::cerr << "husk: warning: material '" << fm.materialName << "' linked '" << fm.fileName
-                      << "' via non-deterministic basename matching, not a verified FileDataID "
-                         "or exact-name match -- please confirm this is the correct texture";
-            if (fm.fileDataId != 0) {
-                std::cerr << " (resolved FileDataID " << fm.fileDataId
-                          << ", NOT independently verified against it -- husk has no CASC/"
-                             "listfile access to check a FileDataID's real name)";
-            } else {
-                std::cerr << " (no FileDataID at all for this hardcoded slot to cross-reference)";
+        // BuiltMaterials::FuzzyMatch's doc comment. A real character model
+        // routinely has dozens of batches resolving to the *same* fuzzy
+        // file (e.g. every skin-tone-bearing batch), so these are grouped
+        // by (fileName, fileDataId) and printed once per distinct link,
+        // naming how many materials share it, rather than once per batch.
+        {
+            std::vector<std::pair<std::string, uint32_t>> order;
+            std::map<std::pair<std::string, uint32_t>, std::vector<std::string>> byLink;
+            for (const auto& fm : built.fuzzyMatches) {
+                auto key = std::make_pair(fm.fileName, fm.fileDataId);
+                if (byLink.find(key) == byLink.end()) order.push_back(key);
+                byLink[key].push_back(fm.materialName);
             }
-            std::cerr << "\n";
+            for (const auto& key : order) {
+                const auto& materials = byLink[key];
+                std::cerr << "husk: warning: " << materials.size() << " material(s) (e.g. '"
+                          << materials.front() << "'" << (materials.size() > 1 ? ", ..." : "")
+                          << ") linked '" << key.first
+                          << "' via non-deterministic basename matching, not a verified FileDataID "
+                             "or exact-name match -- please confirm this is the correct texture";
+                if (key.second != 0) {
+                    std::cerr << " (resolved FileDataID " << key.second
+                              << ", NOT independently verified against it -- husk has no CASC/"
+                                 "listfile access to check a FileDataID's real name)";
+                } else {
+                    std::cerr << " (no FileDataID at all for this hardcoded slot to cross-reference)";
+                }
+                std::cerr << "\n";
+            }
         }
 
         // Genuinely ambiguous hardcoded slots (2+ same-basename candidates)
         // -- see BuiltMaterials::AmbiguousMatch's doc comment. Every real
-        // candidate is embedded as an alternate_textures extras entry;
-        // this just names which one husk arbitrarily wired in as the
-        // default baseColorTexture, and every other real option sitting in
-        // the file, so a human can go pick the actually-correct one.
-        for (const auto& am : built.ambiguousMatches) {
-            std::cerr << "husk: warning: material '" << am.materialName << "' had "
-                      << am.allFileNames.size() << " same-basename texture candidate(s) ("
-                      << am.defaultFileName << " picked arbitrarily as the default) -- all "
-                      << am.allFileNames.size()
-                      << " are embedded as 'alternate_textures' extras on this material";
-            if (am.fileDataId != 0) {
-                std::cerr << " (resolved FileDataID " << am.fileDataId
-                          << ", NOT independently verified against it)";
-            } else {
-                std::cerr << " (no FileDataID at all for this hardcoded slot to cross-reference)";
+        // candidate is embedded as an alternate_textures extras entry on
+        // every affected material; the console just names which default
+        // husk arbitrarily wired in and how many candidates/materials share
+        // it, grouped by identical candidate set (same "dozens of batches,
+        // same skin-tone pool" shape fuzzyMatches has above) instead of
+        // dumping the same multi-hundred-filename list once per batch --
+        // the full list is already in the .glb's own extras, not lost.
+        {
+            std::vector<std::string> order;
+            std::map<std::string, std::vector<std::string>> materialsBySig;
+            std::map<std::string, const BuiltMaterials::AmbiguousMatch*> firstBySig;
+            for (const auto& am : built.ambiguousMatches) {
+                std::string sig = am.defaultFileName;
+                for (const auto& f : am.allFileNames) sig += '\n' + f;
+                if (materialsBySig.find(sig) == materialsBySig.end()) {
+                    order.push_back(sig);
+                    firstBySig[sig] = &am;
+                }
+                materialsBySig[sig].push_back(am.materialName);
             }
-            std::cerr << ": ";
-            for (size_t i = 0; i < am.allFileNames.size(); ++i) {
-                if (i) std::cerr << ", ";
-                std::cerr << am.allFileNames[i];
+            for (const auto& sig : order) {
+                const auto& am = *firstBySig[sig];
+                const auto& materials = materialsBySig[sig];
+                std::cerr << "husk: warning: " << materials.size() << " material(s) (e.g. '"
+                          << materials.front() << "'" << (materials.size() > 1 ? ", ..." : "")
+                          << ") each had " << am.allFileNames.size()
+                          << " same-basename texture candidate(s) (" << am.defaultFileName
+                          << " picked arbitrarily as the default) -- all " << am.allFileNames.size()
+                          << " are embedded as 'alternate_textures' extras on each material";
+                if (am.fileDataId != 0) {
+                    std::cerr << " (resolved FileDataID " << am.fileDataId
+                              << ", NOT independently verified against it)";
+                } else {
+                    std::cerr << " (no FileDataID at all for this hardcoded slot to cross-reference)";
+                }
+                std::cerr << "\n";
             }
-            std::cerr << "\n";
         }
 
         if (built.primitives.empty()) {
