@@ -1762,7 +1762,208 @@ def _build_customization_option_group(name, choice_infos):
     return tree
 
 
-def _build_material_customization_group(name, relevant_options):
+def _build_driving_with_dependents_group(name, driving_option, driving_choice_infos, dependents):
+    """One real `ChrCustomizationOption` (`driving_option`, e.g. "Skin
+    Color") whose choices also gate one or more OTHER real options' own
+    texture resolution (`dependents`, e.g. "Face" -- a real choice's own
+    `materials[]` entry carries a nonzero `related_choice_id` naming one
+    of `driving_option`'s own choices; see
+    TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's 2026-08-31 entry for the
+    full real-data derivation, `nightelffemale_hd.m2`'s own Face choice
+    825 carrying 20 real `materials[]` entries, one per real Skin Color
+    choice).
+
+    Confirmed working directly in Blender 5.1.1 (same TODO entry): a
+    single `NodeSocketMenu` value can NOT be fanned out to more than one
+    internal `MenuSwitch` chain (the interface socket ends up with zero
+    valid enum items) -- but N independent, unshared `NodeSocketMenu`
+    inputs, each single-consumer, work with no restriction at all. So
+    instead of trying to reuse driving_option's own Menu value inside each
+    dependent's own switch, this builds ONE fresh, real, independently-
+    named-and-editable submenu PER (driving choice, dependent option)
+    pair -- exactly Luna's own hand-built "Working Menu" reference
+    structure (`SUBMENU 1`/`SUBMENU 1.001` per outer choice), generalized
+    from her 2-choice demo to real per-model choice counts. Blender's own
+    Shader Editor hides every submenu socket except the one belonging to
+    the currently-selected driving case; the Properties tab does not
+    (confirmed directly, same TODO entry) -- acceptable since this graph
+    is meant to be read/edited in the Shader Editor, same as every other
+    customization group this file builds.
+
+    `dependents`: `[(dep_option, {driving_choice_id: dep_choice_infos}), ...]`
+    -- for each dependent option, a map from one of `driving_option`'s own
+    real choice ids to that dependent's own `choice_infos` (same shape
+    `_build_customization_option_group` already takes) SCOPED to just the
+    variants whose own `related_choice_id` equals that specific driving
+    choice. A (driving choice, dependent) pair with no real data at all
+    (the dependent simply has no choice tied to that particular driving
+    choice) gets a transparent-black constant instead of a submenu/socket
+    -- flagged by construction (no socket to accidentally misconfigure),
+    not guessed at.
+
+    Returns `(tree, dep_output_names, socket_defaults)`:
+    - `dep_output_names`: `{dep_option's own 'option_id': (color_output_name, alpha_output_name)}`
+      -- one real `(Color, Alpha)` output pair per dependent, aggregating
+      across every driving-choice case (the active case's own resolved
+      pair always wins, since only one case is ever selected). The
+      driving option's own resolved texture (if this material's
+      texture_type actually has one -- Skin Color's own base tone does,
+      Face's own driving axis wouldn't if Face itself had no
+      unconditional materials entry) is exposed as `"Driving Color"`/
+      `"Driving Alpha"` directly (not in this dict).
+    - `socket_defaults`: `[(interface_socket_name, default_choice_name), ...]`,
+      one entry per dependent submenu socket this tree's own interface
+      defines, in creation order -- every socket here gets `links.new`'d
+      (never left genuinely unlinked) by construction, so its own
+      `default_value` can't carry the real user-facing default; the
+      caller (`_build_material_customization_group`) is the one that
+      knows each socket's own *final*, possibly-disambiguated promoted
+      name one level further out, so it applies these once it promotes
+      each socket up, and `apply_customization_texture_switch` applies
+      the whole chain's accumulated defaults on the outermost, genuinely-
+      unlinked material `group_node` instance.
+    """
+    driving_choice_by_id = {c["choice_id"]: c for c in (driving_choice_infos or [])}
+
+    tree = bpy.data.node_groups.new(name, "ShaderNodeTree")
+    tree.interface.new_socket("Choice", in_out='INPUT', socket_type='NodeSocketMenu')
+    tree.interface.new_socket("Driving Color", in_out='OUTPUT', socket_type='NodeSocketColor')
+    tree.interface.new_socket("Driving Alpha", in_out='OUTPUT', socket_type='NodeSocketFloat')
+    dep_output_names = {}
+    taken_dep_names = set()
+    for dep_option, _ in dependents:
+        dep_label = _unique_label(dep_option.get('option_name', 'Option'), taken_dep_names)
+        taken_dep_names.add(dep_label)
+        color_name, alpha_name = f"{dep_label} Color", f"{dep_label} Alpha"
+        tree.interface.new_socket(color_name, in_out='OUTPUT', socket_type='NodeSocketColor')
+        tree.interface.new_socket(alpha_name, in_out='OUTPUT', socket_type='NodeSocketFloat')
+        dep_output_names[dep_option.get('option_id')] = (color_name, alpha_name)
+
+    nodes, links = tree.nodes, tree.links
+    group_input = nodes.new("NodeGroupInput")
+    group_input.location = (-1500.0, 0.0)
+    group_output = nodes.new("NodeGroupOutput")
+
+    outer_switch = nodes.new("GeometryNodeMenuSwitch")
+    outer_switch.data_type = 'BUNDLE'
+    outer_switch.location = (600.0, 0.0)
+    outer_switch.enum_items.clear()
+    links.new(group_input.outputs["Choice"], outer_switch.inputs["Menu"])
+
+    separate = nodes.new("NodeSeparateBundle")
+    separate.location = (900.0, 0.0)
+    separate.bundle_items.new(socket_type='RGBA', name="Driving Color")
+    separate.bundle_items.new(socket_type='FLOAT', name="Driving Alpha")
+    for dep_option, _ in dependents:
+        color_name, alpha_name = dep_output_names[dep_option.get('option_id')]
+        separate.bundle_items.new(socket_type='RGBA', name=color_name)
+        separate.bundle_items.new(socket_type='FLOAT', name=alpha_name)
+    links.new(outer_switch.outputs["Output"], separate.inputs[0])
+    links.new(separate.outputs[0], group_output.inputs["Driving Color"])
+    links.new(separate.outputs[1], group_output.inputs["Driving Alpha"])
+    for i, (dep_option, _) in enumerate(dependents):
+        color_name, alpha_name = dep_output_names[dep_option.get('option_id')]
+        links.new(separate.outputs[2 + i * 2], group_output.inputs[color_name])
+        links.new(separate.outputs[3 + i * 2], group_output.inputs[alpha_name])
+
+    x = -1100.0
+    taken_socket_names = set()
+    # `[(socket_name, default_choice_name), ...]`, one entry per dependent
+    # submenu created below, in the exact order those interface sockets
+    # were added -- returned so the caller can set the REAL, user-facing
+    # default once it promotes each socket one level further out (setting
+    # `default_value` directly on `sub_node` here would be pointless: this
+    # whole tree gets instanced and its `Choice`-type inputs immediately
+    # linked from the caller's own `group_input`, and a linked socket's
+    # `default_value` is never read for evaluation/UI -- only the
+    # outermost, genuinely-unlinked instance's own default matters).
+    socket_defaults = []
+    for driving_choice in driving_option.get("choices", []):
+        driving_id = driving_choice.get("choice_id")
+        driving_name = driving_choice.get("choice_name") or f"choice_{driving_id}"
+        dci = driving_choice_by_id.get(driving_id)
+        if dci is None and not any(
+                (per_driving.get(driving_id)) for _, per_driving in dependents):
+            continue  # this driving choice resolves nothing at all on this material -- skip it
+
+        if dci is not None:
+            img_node = nodes.new("ShaderNodeTexImage")
+            img_node.image = dci["image"]
+            img_node.label = driving_name
+            img_node.location = (x, 500.0)
+            driving_color, driving_alpha = img_node.outputs["Color"], img_node.outputs["Alpha"]
+        else:
+            const_rgb = nodes.new("ShaderNodeRGB")
+            const_rgb.outputs[0].default_value = (0.0, 0.0, 0.0, 1.0)
+            const_rgb.location = (x, 500.0)
+            const_alpha = nodes.new("ShaderNodeValue")
+            const_alpha.outputs[0].default_value = 0.0
+            const_alpha.location = (x, 350.0)
+            driving_color, driving_alpha = const_rgb.outputs[0], const_alpha.outputs[0]
+
+        # NodeCombineBundle keeps a trailing '__extend__' virtual socket
+        # (confirmed directly, Blender 5.1.1 -- same convention
+        # `enum_items.new`'s own doc comment already established for
+        # MenuSwitch), and this one combine node accumulates items across
+        # every dependent below -- so each new pair's own real position is
+        # tracked with an explicit counter, never negative/`-1`-style
+        # indexing (which would only ever land on the LAST pair added, not
+        # the one just-added at each step once more dependents follow).
+        combine = nodes.new("NodeCombineBundle")
+        combine.bundle_items.new(socket_type='RGBA', name="Driving Color")
+        combine.bundle_items.new(socket_type='FLOAT', name="Driving Alpha")
+        combine.location = (x + 700.0, 0.0)
+        links.new(driving_color, combine.inputs[0])
+        links.new(driving_alpha, combine.inputs[1])
+        next_combine_index = 2
+
+        y = -400.0
+        for dep_option, per_driving in dependents:
+            combine.bundle_items.new(socket_type='RGBA', name="Dep Color")
+            combine.bundle_items.new(socket_type='FLOAT', name="Dep Alpha")
+            color_index, alpha_index = next_combine_index, next_combine_index + 1
+            next_combine_index += 2
+            dep_choice_infos = per_driving.get(driving_id, [])
+            if dep_choice_infos:
+                dep_label = _unique_label(dep_option.get('option_name', 'Option'), set())
+                sub_tree = _build_customization_option_group(
+                    f"{name}_{dep_label}_{driving_name}", dep_choice_infos)
+                sub_node = nodes.new("ShaderNodeGroup")
+                sub_node.node_tree = sub_tree
+                sub_node.label = f"{dep_label} ({driving_name})"
+                sub_node.location = (x, y)
+                y -= 250.0
+
+                socket_name = _unique_label(f"{dep_label} ({driving_name})", taken_socket_names)
+                taken_socket_names.add(socket_name)
+                tree.interface.new_socket(socket_name, in_out='INPUT', socket_type='NodeSocketMenu')
+                links.new(group_input.outputs[-2], sub_node.inputs["Choice"])
+                default_choice = next((c for c in dep_choice_infos if c.get("is_default")),
+                                       dep_choice_infos[0])
+                socket_defaults.append((socket_name, default_choice["choice_name"]))
+
+                links.new(sub_node.outputs["Color"], combine.inputs[color_index])
+                links.new(sub_node.outputs["Alpha"], combine.inputs[alpha_index])
+            else:
+                const_rgb2 = nodes.new("ShaderNodeRGB")
+                const_rgb2.outputs[0].default_value = (0.0, 0.0, 0.0, 1.0)
+                const_rgb2.location = (x, y)
+                const_alpha2 = nodes.new("ShaderNodeValue")
+                const_alpha2.outputs[0].default_value = 0.0
+                const_alpha2.location = (x, y - 100.0)
+                y -= 250.0
+                links.new(const_rgb2.outputs[0], combine.inputs[color_index])
+                links.new(const_alpha2.outputs[0], combine.inputs[alpha_index])
+
+        outer_switch.enum_items.new(driving_name)
+        links.new(combine.outputs[0], outer_switch.inputs[-2])
+        x += 1400.0
+
+    group_output.location = (x + 400.0, 0.0)
+    return tree, dep_output_names, socket_defaults
+
+
+def _build_material_customization_group(name, relevant_options, driving_groups=None):
     """One combined node group per *material*: real Base Color/Alpha in,
     every relevant real `ChrCustomizationOption`'s own choice-switch
     layered on top in real `texture_layers[].layer` order using its real
@@ -1782,8 +1983,28 @@ def _build_material_customization_group(name, relevant_options):
     hand-built prototype (two independent dropdowns, "Pink" and "With
     Tiara", on a single group node).
 
-    `relevant_options` is `[(option, choice_infos), ...]`, already sorted
-    by real layer order (see the caller).
+    `relevant_options` is `[(option, choice_infos), ...]` for every plain,
+    independent option (no real cross-option dependency at all).
+    `driving_groups` is `[(driving_option, driving_choice_infos, dependents), ...]`
+    -- see `_build_driving_with_dependents_group`'s own doc comment for
+    the real shape of `dependents` and the mechanism this builds (real
+    `related_choice_id` cross-dependencies, e.g. Face's own texture
+    varying by Skin Color -- TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's
+    2026-08-31 entry). Every real mix stage -- one per plain option, one
+    per driving option's own base layer (when it resolves a texture here),
+    one per dependent -- is flattened into a single list and sorted by
+    real `chr_texture_layout` layer order before building, so a
+    dependent's own layer mixes in its correct real position relative to
+    every plain option too, not just relative to its own driving group.
+
+    Returns `(tree, socket_defaults)`: `socket_defaults` is
+    `{final_promoted_socket_name: default_choice_name}` for every real
+    Menu socket this tree's own interface ends up defining. The caller
+    sets all of them at once on the outermost, genuinely-unlinked material
+    `group_node` instance -- every socket promoted through this function
+    gets `links.new`'d here and can't carry its own meaningful
+    `default_value` (same reasoning as `_build_driving_with_dependents_group`'s
+    own `socket_defaults`, one level down).
     """
     tree = bpy.data.node_groups.new(name, "ShaderNodeTree")
     tree.interface.new_socket("Base Color", in_out='INPUT', socket_type='NodeSocketColor')
@@ -1793,36 +2014,131 @@ def _build_material_customization_group(name, relevant_options):
 
     nodes, links = tree.nodes, tree.links
     group_input = nodes.new("NodeGroupInput")
-    group_input.location = (-900.0, 0.0)
+    group_input.location = (-1200.0, 0.0)
     group_output = nodes.new("NodeGroupOutput")
 
     current_color = group_input.outputs["Base Color"]
     current_alpha = group_input.outputs["Base Alpha"]
 
-    x = -600.0
+    x = -900.0
     taken_menu_names = set()
-    for option, choice_infos in relevant_options:
-        option_name = _unique_label(option.get('option_name', 'Option'), taken_menu_names)
-        taken_menu_names.add(option_name)
+    socket_defaults = {}
+    driving_groups = driving_groups or []
 
-        sub_tree = _build_customization_option_group(f"{name}_{option_name}", choice_infos)
+    stages = []
+    for option, choice_infos in relevant_options:
+        stages.append({
+            "kind": "simple", "option": option, "choice_infos": choice_infos,
+            "layer": min(c["layer"] for c in choice_infos),
+        })
+    for group_index, (driving_option, driving_choice_infos, dependents) in enumerate(driving_groups):
+        if driving_choice_infos:
+            stages.append({
+                "kind": "driving_base", "group_index": group_index,
+                "layer": min(c["layer"] for c in driving_choice_infos),
+            })
+        for dep_option, per_driving in dependents:
+            any_choice_infos = next((ci for ci in per_driving.values() if ci), None)
+            layer = any_choice_infos[0]["layer"] if any_choice_infos else 0
+            stages.append({
+                "kind": "driving_dep", "group_index": group_index,
+                "dep_option_id": dep_option.get("option_id"), "layer": layer,
+            })
+    stages.sort(key=lambda s: s["layer"])
+
+    driving_nodes = {}  # group_index -> (sub_node, dep_output_names)
+
+    def ensure_driving_node(group_index):
+        if group_index in driving_nodes:
+            return driving_nodes[group_index]
+        driving_option, driving_choice_infos, dependents = driving_groups[group_index]
+        group_label = _unique_label(driving_option.get('option_name', 'Option'), taken_menu_names)
+        taken_menu_names.add(group_label)
+
+        sub_tree, dep_output_names, dep_socket_defaults = _build_driving_with_dependents_group(
+            f"{name}_{group_label}", driving_option, driving_choice_infos, dependents)
         sub_node = nodes.new("ShaderNodeGroup")
         sub_node.node_tree = sub_tree
-        sub_node.label = option_name
-        sub_node.location = (x, 400.0)
+        sub_node.label = group_label
+        sub_node.location = (x, 700.0)
+        sub_node.width = 260.0
 
-        # See `_build_customization_option_group`'s own comment on
-        # `enum_items.new` -- `tree.interface.new_socket` appends the same
-        # way, real (not virtual) sockets always right before the
-        # always-present `__extend__` slot. Confirmed directly (Blender
-        # 5.1.1), not assumed.
-        tree.interface.new_socket(option_name, in_out='INPUT', socket_type='NodeSocketMenu')
+        # Same `enum_items.new`/`tree.interface.new_socket` ordering
+        # guarantee noted throughout this file -- confirmed directly
+        # (Blender 5.1.1), not assumed.
+        tree.interface.new_socket(group_label, in_out='INPUT', socket_type='NodeSocketMenu')
         links.new(group_input.outputs[-2], sub_node.inputs["Choice"])
+        if driving_choice_infos:
+            default_driving = next((c for c in driving_choice_infos if c.get("is_default")),
+                                    driving_choice_infos[0])
+            socket_defaults[group_label] = default_driving["choice_name"]
+        else:
+            # A pure selector -- this driving option resolves no texture
+            # of its own on this material (e.g. "Markings"/"Tattoo"/"Hair
+            # Color" driving their own dependents but not painting
+            # anything directly). Still needs a real default so its
+            # dependents route somewhere sensible on first open, rather
+            # than leaving the outer switch on Blender's own blank ''
+            # state -- first driving choice that actually resolves
+            # SOMETHING (matches _build_driving_with_dependents_group's
+            # own "skip a choice that resolves nothing at all" filter).
+            first_choice = next(
+                (c for c in driving_option.get("choices", [])
+                 if any(per_driving.get(c.get("choice_id")) for _, per_driving in dependents)),
+                None)
+            if first_choice is not None:
+                socket_defaults[group_label] = (
+                    first_choice.get("choice_name") or f"choice_{first_choice.get('choice_id')}")
 
-        blend_mode = choice_infos[0]["blend_mode"]
+        menu_inputs = [s for s in sub_node.inputs if s.name != "Choice" and s.type == 'MENU']
+        for (inner_socket_name, default_choice_name), input_socket in zip(dep_socket_defaults, menu_inputs):
+            promoted_name = _unique_label(inner_socket_name, taken_menu_names)
+            taken_menu_names.add(promoted_name)
+            tree.interface.new_socket(promoted_name, in_out='INPUT', socket_type='NodeSocketMenu')
+            links.new(group_input.outputs[-2], input_socket)
+            socket_defaults[promoted_name] = default_choice_name
+
+        driving_nodes[group_index] = (sub_node, dep_output_names)
+        return sub_node, dep_output_names
+
+    for stage in stages:
+        if stage["kind"] == "simple":
+            option, choice_infos = stage["option"], stage["choice_infos"]
+            option_name = _unique_label(option.get('option_name', 'Option'), taken_menu_names)
+            taken_menu_names.add(option_name)
+
+            sub_tree = _build_customization_option_group(f"{name}_{option_name}", choice_infos)
+            sub_node = nodes.new("ShaderNodeGroup")
+            sub_node.node_tree = sub_tree
+            sub_node.label = option_name
+            sub_node.location = (x, 400.0)
+
+            tree.interface.new_socket(option_name, in_out='INPUT', socket_type='NodeSocketMenu')
+            links.new(group_input.outputs[-2], sub_node.inputs["Choice"])
+            default_choice = next((c for c in choice_infos if c.get("is_default")), choice_infos[0])
+            socket_defaults[option_name] = default_choice["choice_name"]
+
+            blend_mode = choice_infos[0]["blend_mode"]
+            color_source, alpha_source = sub_node.outputs["Color"], sub_node.outputs["Alpha"]
+        else:
+            sub_node, dep_output_names = ensure_driving_node(stage["group_index"])
+            if stage["kind"] == "driving_base":
+                driving_choice_infos = driving_groups[stage["group_index"]][1]
+                blend_mode = driving_choice_infos[0]["blend_mode"]
+                color_source = sub_node.outputs["Driving Color"]
+                alpha_source = sub_node.outputs["Driving Alpha"]
+            else:
+                dependents = driving_groups[stage["group_index"]][2]
+                _, per_driving = next(d for d in dependents if d[0].get("option_id") == stage["dep_option_id"])
+                any_choice_infos = next((ci for ci in per_driving.values() if ci), None)
+                blend_mode = any_choice_infos[0]["blend_mode"] if any_choice_infos else 0
+                color_name, alpha_name = dep_output_names[stage["dep_option_id"]]
+                color_source = sub_node.outputs[color_name]
+                alpha_source = sub_node.outputs[alpha_name]
+
         blend_type = CHR_BLEND_MODE_TO_BLEND_TYPE.get(blend_mode)
         if blend_type is None:
-            print(f"husk_blender_geoset_mask: group {name!r} option {option_name!r} has "
+            print(f"husk_blender_geoset_mask: group {name!r} stage {stage['kind']!r} has "
                   f"unrecognized blend_mode {blend_mode!r} -- falling back to plain Mix")
             blend_type = 'MIX'
 
@@ -1831,24 +2147,24 @@ def _build_material_customization_group(name, relevant_options):
         color_mix.blend_type = blend_type
         color_mix.clamp_result = True
         color_mix.location = (x, 100.0)
-        links.new(sub_node.outputs["Alpha"], _node_socket(color_mix.inputs, "Factor_Float"))
+        links.new(alpha_source, _node_socket(color_mix.inputs, "Factor_Float"))
         links.new(current_color, _node_socket(color_mix.inputs, "A_Color"))
-        links.new(sub_node.outputs["Color"], _node_socket(color_mix.inputs, "B_Color"))
+        links.new(color_source, _node_socket(color_mix.inputs, "B_Color"))
         current_color = _node_socket(color_mix.outputs, "Result_Color")
-        # The topmost (last, highest-layer) option's own alpha defines the
+        # The topmost (last, highest-layer) stage's own alpha defines the
         # material's final coverage -- real WoW data backs this for the
         # hair/tiara case Luna found (a tiara-bearing hair choice's own
         # texture genuinely carries less-covering alpha than a plain one),
-        # but hasn't been visually reconfirmed for every blend_mode/option
+        # but hasn't been visually reconfirmed for every blend_mode/stage
         # combination -- flagged, not asserted as universally correct.
-        current_alpha = sub_node.outputs["Alpha"]
+        current_alpha = alpha_source
 
         x += 400.0
 
     links.new(current_color, group_output.inputs["Color"])
     links.new(current_alpha, group_output.inputs["Alpha"])
     group_output.location = (x + 200.0, 0.0)
-    return tree
+    return tree, socket_defaults
 
 
 def apply_customization_texture_switch(options, layout, enabled_materials, materials, textures_dir):
@@ -1875,6 +2191,19 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
     `'CLIP'` (Blender simply ignores the Alpha input there), so this is
     always wired, not conditioned on texture_type. Returns the count of
     materials touched.
+
+    A choice whose own `materials[]` entries carry a nonzero
+    `related_choice_id` (its real texture depends on which choice is
+    currently active on some OTHER option -- e.g. Face's own texture
+    genuinely varies by Skin Color) is no longer collapsed to its first
+    resolved entry: every real variant is kept and routed through
+    `_build_driving_with_dependents_group` instead of
+    `_build_customization_option_group`, keyed by whichever option owns
+    those related choice ids (its "driving" option). See
+    TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md's 2026-08-31 entry for the
+    full real-data derivation and the real Blender 5.1.1 mechanism this
+    relies on (independent, unshared `NodeSocketMenu` sockets, never one
+    Menu value fanned out to several `MenuSwitch` consumers).
     """
     material_layout_by_type = {m.get("texture_type"): m for m in layout.get("materials", [])}
     concerned_types = set(material_layout_by_type)
@@ -1893,6 +2222,17 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                                     for e in (enabled_materials or [])
                                     if e.get("file_data_id")}
 
+    # Global choice_id -> owning option, across every real option
+    # regardless of which material it ends up mattering for -- a choice's
+    # own `related_choice_id` names a choice belonging to some OTHER
+    # option (Face's own choices naming Skin Color's, in the real data
+    # this was built against), and this is the only way to find which
+    # option that is.
+    choice_owner_option = {}
+    for option in options:
+        for choice in option.get("choices", []):
+            choice_owner_option[choice.get("choice_id")] = option
+
     touched = 0
     for mat in materials:
         mtype = mat.get("texture_type")
@@ -1909,32 +2249,25 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
 
         alpha_input = principled.inputs.get("Alpha")
 
-        # One (option, [choice info]) entry per real ChrCustomizationOption
-        # that resolves at least one real, textured choice onto *this*
-        # material's own texture_type -- see the join-chain derivation in
-        # CHAR_TEXTURE_BLENDER_SWITCH_TODO.md. `default_choice_id_by_target`
-        # is resolved per choice_info below (not carried as a separate
-        # per-option `target_id` anymore -- each choice already knows its
-        # own `target_id`).
-        relevant_options = []
+        # One (option, {choice_id: [variant, ...]}) entry per real
+        # ChrCustomizationOption that resolves at least one real, textured
+        # choice onto *this* material's own texture_type -- see the
+        # join-chain derivation in CHAR_TEXTURE_BLENDER_SWITCH_TODO.md.
+        # Every real materials[] entry is kept now (a choice can carry
+        # several, one per real `related_choice_id` pairing), split into
+        # independent vs. driving-dependent below -- the old version
+        # collapsed to the first resolved entry per choice, silently
+        # dropping every other real skin-color/etc pairing (the root
+        # cause of the 2026-08-31 "only one Skin Color option" finding).
+        option_variants = []
         for option in options:
-            choice_infos = []
+            per_choice = {}
             for choice in option.get("choices", []):
+                variants = []
                 for m_entry in choice.get("materials", []) or []:
                     tl = texture_layer_by_target.get(m_entry.get("chr_model_texture_target_id"))
                     if tl is None or tl.get("texture_type") != mtype:
                         continue
-                    # `related_choice_id` (this material only really applies
-                    # together with some other option's specific choice) is
-                    # deliberately NOT filtered here -- per Luna's direct
-                    # call, every choice should be pickable regardless of
-                    # whether it's "correct" for whatever else is currently
-                    # selected; enforcing which combinations make sense is
-                    # the Blender-side options panel's job
-                    # (husk_blender_options_panel.py), not this switch's.
-                    # The per-choice `break` below still caps this at one
-                    # texture per choice, so this doesn't reintroduce the
-                    # older multi-material-layering bug.
                     fdid = m_entry.get("file_data_id")
                     if not fdid:
                         continue  # unresolved (e.g. a swatch-color-only choice) -- flagged, not guessed
@@ -1955,7 +2288,7 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                         image = _load_customization_texture_image(path)
                         if image is None:
                             continue
-                    choice_infos.append({
+                    variants.append({
                         "choice_id": choice.get("choice_id"),
                         "choice_name": choice.get("choice_name") or f"choice_{choice.get('choice_id')}",
                         # Real --listfile content-path stem (e.g.
@@ -1980,28 +2313,115 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                         "blend_mode": tl.get("blend_mode"),
                         "layer": tl.get("layer", 0),
                         "target_id": m_entry.get("chr_model_texture_target_id"),
+                        "related_choice_id": m_entry.get("related_choice_id") or 0,
                     })
-                    break  # one resolved target is enough for this material's own type
-            if choice_infos:
-                relevant_options.append((option, choice_infos))
+                if variants:
+                    per_choice[choice.get("choice_id")] = variants
+            if per_choice:
+                option_variants.append((option, per_choice))
 
-        if not relevant_options:
+        if not option_variants:
             continue
 
-        relevant_options.sort(key=lambda ov: min(c["layer"] for c in ov[1]))
+        # Split every option into plain/independent (one resolved variant
+        # per choice, the original shape) vs. driving-dependent (at least
+        # one choice has a conditional variant, `related_choice_id != 0`),
+        # grouping every dependent option under whichever option owns the
+        # related choice ids it's conditioned on.
+        independent_options = []  # [(option, choice_infos)]
+        driving_groups_by_id = {}  # driving option_id -> {"driving_option", "dependents": [...]}
+        for option, per_choice in option_variants:
+            conditional = []  # [(choice_id, variant)]
+            unconditional_choice_infos = []  # one per choice, its first unconditional variant
+            for choice_id, variants in per_choice.items():
+                cond = [v for v in variants if v["related_choice_id"]]
+                uncond = [v for v in variants if not v["related_choice_id"]]
+                conditional.extend((choice_id, v) for v in cond)
+                if uncond:
+                    unconditional_choice_infos.append(uncond[0])
 
-        # Real default choice, per option, set directly on that option's
-        # own promoted `Choice` dropdown -- see
-        # `_build_material_customization_group`'s own doc comment for why
-        # every relevant option's dropdown now lives on one combined group
-        # node rather than one small group node each.
-        for option, choice_infos in relevant_options:
+            if not conditional:
+                if unconditional_choice_infos:
+                    independent_options.append((option, unconditional_choice_infos))
+                continue
+
+            # Real data has one consistent driver per dependent option
+            # (e.g. every one of Face's own conditional materials names a
+            # Skin Color choice) -- found from the first conditional
+            # variant; any later one naming a DIFFERENT option's choice is
+            # dropped with a warning rather than guessed at.
+            driving_option = next(
+                (choice_owner_option[v["related_choice_id"]] for _, v in conditional
+                 if v["related_choice_id"] in choice_owner_option), None)
+            if driving_option is None:
+                print(f"husk_blender_geoset_mask: option {option.get('option_name')!r} has "
+                      f"conditional materials but no related_choice_id resolves to a known "
+                      f"option -- skipping its dependency, unresolved")
+                continue
+
+            per_driving_choice = {}
+            for choice_id, v in conditional:
+                if choice_owner_option.get(v["related_choice_id"]) is not driving_option:
+                    print(f"husk_blender_geoset_mask: option {option.get('option_name')!r} "
+                          f"choice {choice_id} has a materials entry whose related_choice_id "
+                          f"{v['related_choice_id']} belongs to a different option than this "
+                          f"option's own driver ({driving_option.get('option_name')!r}) -- "
+                          "skipping that one entry")
+                    continue
+                per_driving_choice.setdefault(v["related_choice_id"], []).append(v)
+            # A choice's own unconditional variant (rare alongside
+            # conditional ones on other choices of the same option)
+            # applies under every real driving choice.
+            if unconditional_choice_infos:
+                for driving_choice in driving_option.get("choices", []):
+                    per_driving_choice.setdefault(driving_choice.get("choice_id"), []).extend(
+                        unconditional_choice_infos)
+
+            group = driving_groups_by_id.setdefault(
+                driving_option.get("option_id"),
+                {"driving_option": driving_option, "dependents": []})
+            group["dependents"].append((option, per_driving_choice))
+
+        if not independent_options and not driving_groups_by_id:
+            continue
+
+        # Real default choice, set directly on each choice_info's own
+        # `is_default` flag -- see `_build_material_customization_group`'s
+        # own doc comment for why the actual promoted-socket defaults get
+        # applied later, on the outermost material `group_node` instance,
+        # not here.
+        for option, choice_infos in independent_options:
             for c in choice_infos:
                 c["is_default"] = default_choice_id_by_target.get(c["target_id"]) == c["choice_id"]
 
+        driving_groups = []
+        for group in driving_groups_by_id.values():
+            driving_option = group["driving_option"]
+            # The driving option's own texture on THIS material, if it
+            # resolves one -- e.g. Skin Color's own base tone. Folded out
+            # of `independent_options` into this driving group instead,
+            # since it now contributes both a mix layer AND the outer
+            # switch driving its dependents.
+            driving_choice_infos = next(
+                (ci for opt, ci in independent_options if opt is driving_option), None)
+            if driving_choice_infos:
+                for c in driving_choice_infos:
+                    c["is_default"] = default_choice_id_by_target.get(c["target_id"]) == c["choice_id"]
+                independent_options = [(opt, ci) for opt, ci in independent_options
+                                        if opt is not driving_option]
+
+            dependents = []
+            for dep_option, per_driving_choice in group["dependents"]:
+                for variants in per_driving_choice.values():
+                    for c in variants:
+                        c["is_default"] = default_choice_id_by_target.get(c["target_id"]) == c["choice_id"]
+                dependents.append((dep_option, per_driving_choice))
+
+            driving_groups.append((driving_option, driving_choice_infos, dependents))
+
         short_type_name = M2_TEXTURE_TYPE_NAME.get(mtype, f"type{mtype}")
-        group_tree = _build_material_customization_group(
-            f"Husk_{short_type_name}_customization", relevant_options)
+        group_tree, socket_defaults = _build_material_customization_group(
+            f"Husk_{short_type_name}_customization", independent_options, driving_groups)
 
         # Anchored below the existing graph's own lowest node, same
         # pitfall/fix `apply_texture_layout_overlay` above already
@@ -2041,10 +2461,14 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
         group_node.color = (0.15, 0.55, 0.15)
         node_tree.links.new(original_color_socket, group_node.inputs["Base Color"])
         node_tree.links.new(original_alpha_socket, group_node.inputs["Base Alpha"])
-        for option, choice_infos in relevant_options:
-            default_choice = next((c for c in choice_infos if c["is_default"]), choice_infos[0])
-            group_node.inputs[option.get('option_name', 'Option')].default_value = \
-                default_choice["choice_name"]
+        for socket_name, default_choice_name in socket_defaults.items():
+            if not default_choice_name:
+                continue
+            try:
+                group_node.inputs[socket_name].default_value = default_choice_name
+            except TypeError as exc:
+                print(f"husk_blender_geoset_mask: material {mat.get('name', '?')!r} socket "
+                      f"{socket_name!r} default {default_choice_name!r} rejected: {exc}")
 
         node_tree.links.new(group_node.outputs["Color"], base_color_input)
         if alpha_input is not None:

@@ -302,3 +302,194 @@ choices legitimately resolve to the same single shared texture.
   interaction pattern (one dropdown's value gating another's available
   data) beyond anything built so far here, and needs Luna's own steer on
   the UX before implementing rather than guessing at one.
+
+- **2026-08-31 investigation: this "tiara case" is the general case, not
+  an edge case, and there's a second, independent bug alongside it.**
+  Luna found, using a real `nightelffemale_hd` export plus a hand-built
+  `references/Nightelf texture blending example.blend` stub, that the
+  material customization switch only ever shows one color option for the
+  face, matching Skin Color choice 801, even though the real filenames on
+  disk (`nightelf_femalefaceupper06_10_hd`, i.e. Face option choice 6
+  paired with Skin Color choice 10) prove many more exist. Investigated
+  and confirmed against real freshly-exported data (`husk export
+  nightelffemale_hd.m2` with local `--db2-dir`/`--dbd-dir`, real
+  `ChrModelID` 8): `chr_customization_options`' Face choice 825 (option
+  50, "Face") carries 20 real `materials[]` entries, not one — each
+  tagged with a distinct `related_choice_id` naming one of Skin Color's
+  own choice IDs (801-809, 815-823, 8294-8296, the last three being the
+  newer skin tones added later, matching Luna's "one of the new ones"
+  description). husk's own DB2 join already resolves every one of them
+  correctly and attaches the real data — this is exactly the same
+  `related_choice_id` cross-dependency the "tiara case" above already
+  root-caused, just showing up on a far more common option pair (every
+  race's Face × Skin Color, not the rarer Hair Style × Hair Color tiara
+  case). The reason only choice 801 ever renders: `apply_customization_
+  texture_switch` (`tools/husk_blender_geoset_mask.py`, the `for m_entry
+  in choice.get("materials", [])` loop) does `break` after the first
+  `materials[]` entry whose `chr_model_texture_target_id` resolves to
+  this material's own `texture_type` — so only the first-listed
+  skin-color pairing (DB2 row order, which happens to be 801) ever gets
+  wired into that choice's image node; the other 19 are silently dropped,
+  not skipped-and-logged. Confirms the "Still open" cross-product-
+  dependency gap immediately above is the real, general fix needed here —
+  not a new, separate bug.
+
+  **Second, independent bug, same investigation**: the node graph never
+  places an overlay texture in its correct spot on the shared UV atlas at
+  all. `_build_customization_option_group`'s `ShaderNodeTexImage` nodes
+  wire straight to `Color`/`Alpha` with no `ShaderNodeMapping` upstream,
+  and every image node's `extension` stays Blender's own default
+  `'REPEAT'` (confirmed directly: every material in the stub `.blend`,
+  e.g. `skin`/`char_hair`/`object_skin`, shows `extension='REPEAT'` on
+  its texture node) — so a small overlay crop (face/hair/tattoo/etc.,
+  only ever meant to cover its own real `CharComponentTextureSections`
+  rect within the shared base atlas) tiles across the entire mesh UV
+  space instead of landing where it belongs, and its own alpha never gets
+  used as a real positional mask either. husk already resolves the exact
+  geometry this needs and already has a working implementation of the
+  same join to prove it: `chr_texture_layout`'s `sections[]` (real pixel
+  `x`/`y`/`width`/`height` rects in the shared atlas, plus each section's
+  own `sectionType`) and `texture_layers[].textureSectionTypeBitMask`
+  (the bitmask join key — a section applies to a texture layer when
+  `(1 << section.sectionType) & layer.textureSectionTypeBitMask` is set),
+  joined against `chrModelTextureTargetId` to find which texture layer(s)
+  apply to a given customization choice's own `chr_model_texture_target_id`.
+  `_build_section_overlay_group` (same file, used only for the separate,
+  debug-only magenta section-boundary toggle) already implements this
+  exact rect math, including the real WoW-atlas-Y-down-vs-Blender-UV-V-up
+  flip — the data and the math are both already proven working,
+  `apply_customization_texture_switch`'s own node-building path just
+  never calls into either.
+
+  **Proposed fix shape for (1), the UV-placement bug (not implemented,
+  no open question left — safe to build)**: give each per-choice
+  `ShaderNodeTexImage` in `_build_customization_option_group` its own
+  `ShaderNodeMapping` (Location/Scale computed from the resolved section
+  rect the same way `_build_section_overlay_group` already does, Vector
+  fed from a shared `ShaderNodeUVMap`) and set `extension = 'CLIP'` so
+  pixels outside the section don't bleed/tile.
+
+  **(2), the cross-dependency bug — SOLVED, real fix found (2026-08-31),
+  not just investigated.** Luna asked whether a live nested `MenuSwitch` —
+  one shared "Skin Color" dropdown driving both its own sibling switch and
+  Face's own internal per-skin-color switch, no addon needed — could
+  replace `husk_blender_options_panel.py` for this. First attempt (raw
+  fan-out: link `NodeGroupInput`'s Menu output straight to two separate
+  `GeometryNodeMenuSwitch` nodes) **confirmed broken in Blender 5.1.1**,
+  isolated minimal repro first: a promoted `NodeSocketMenu` can only
+  validly drive exactly one internal `MenuSwitch` chain — feeding it to
+  two leaves the interface socket with zero valid enum items
+  (`default_value` throws; dropdown empty in the Shader Editor; material
+  renders flat/faceless). Blender's own link-validity warning on this
+  exact wire reads "Use node groups to reuse the same menu multiple
+  times" — Luna pushed to actually test what that means rather than
+  accept the dead end. Tried literally wrapping each consumer in its own
+  node group first: **still fails** unless it's the exact same group
+  *datablock* instanced twice (proven with an isolated repro: identical
+  content in two separately-built-but-structurally-equal groups still
+  fails; the same tree object instanced twice succeeds) — not useful here
+  since Face's per-shape branches need genuinely different images.
+
+  **First working alternative found** (superseded by the real fix below,
+  kept in `example_exports/character_customization/`'s demo file for
+  comparison): Skin Color's own `MenuSwitch` bundling a plain Float
+  `Index` alongside Color/Alpha, fanned out (as an ordinary Float, no
+  Menu-type restriction) to drive Face's own per-shape image pick via an
+  old-style `Math(COMPARE)`-gated `Mix` chain. Verified working
+  (`DemoSkinNestedIndexed_WORKING`, `live_sync_proof.png`), but abandoned
+  once Luna found something better: her own hand-built "Working Menu"
+  reference structure in the same demo file used real per-branch
+  `MenuSwitch` submenus with no Float/Math machinery at all.
+
+  **The real fix, and what's actually implemented now**: Luna's own
+  structure -- one independent, unshared `NodeSocketMenu` **per (driving
+  choice, dependent option) pair**, e.g. a real "Face (choice_801)",
+  "Face (choice_802)", ... submenu per real Skin Color choice, rather than
+  trying to reuse one Menu value. Each submenu has exactly one consumer
+  (its own internal `MenuSwitch`), so none of them hit the fan-out wall.
+  Confirmed directly against the real file Luna built (not assumed from
+  the screenshots she first shared): all three of its promoted `Menu`
+  sockets validate and are independently settable; Blender's Shader Editor
+  hides every submenu except the one belonging to the currently-selected
+  outer choice (**Properties tab does not** -- confirmed via
+  `sock.enabled`/`hide`/`is_unavailable`, all stay `True`/`False`/`False`
+  regardless of the outer value; the hiding is Shader-Editor-only UI
+  behavior, not a data-level property). Acceptable since this graph is
+  meant to be read/edited in the Shader Editor.
+
+  **Implemented for real** (not just demoed) in
+  `tools/husk_blender_geoset_mask.py`:
+  - New `_build_driving_with_dependents_group(name, driving_option,
+    driving_choice_infos, dependents)`: one outer `MenuSwitch` over a
+    driving option's own choices (e.g. Skin Color); each case's bundle
+    carries the driving option's own Color/Alpha (when it resolves a
+    texture here) plus, per dependent option, a fresh submenu instance
+    with its own independent, unshared `Menu` socket -- Luna's structure,
+    generalized from her 2-choice demo to real per-model choice counts
+    (26 real Skin Color choices on `nightelffemale_hd`, not 2).
+  - `_build_material_customization_group` reworked to flatten every real
+    mix stage -- one per plain option, one per driving option's own base
+    layer, one per dependent -- into a single list sorted by real
+    `chr_texture_layout` layer order, so a dependent's own layer mixes in
+    its correct real position relative to plain options too, not just
+    relative to its own driving group. Also now returns
+    `{socket_name: default_choice_name}` for every real socket it
+    creates, since a socket promoted through this function is always
+    `links.new`'d and can't carry its own meaningful `default_value` --
+    the caller applies all of them at once on the outermost, genuinely-
+    unlinked material `group_node` instance instead (this also fixes a
+    latent pre-existing gap: the old code recomputed each promoted
+    socket's name independently at the call site rather than using the
+    name `_unique_label` actually assigned, silently wrong on the rare
+    real name collision).
+  - `apply_customization_texture_switch`'s own per-choice collection loop
+    no longer `break`s after the first resolved `materials[]` entry --
+    every real variant is kept, split into independent options (one
+    resolved choice_info per choice, original behavior) vs.
+    driving-dependent ones (any choice has a variant with a real nonzero
+    `related_choice_id`), grouped by whichever option owns those related
+    choice ids (a new global `choice_id -> owning option` map, built once
+    across every real option). A driving option with no own texture on a
+    given material (a pure selector, e.g. this model's real "Markings"/
+    "Tattoo"/"Hair Color") still gets a real, non-blank default -- the
+    first of its own choices that resolves anything for at least one
+    dependent, not Blender's own blank `''` state.
+
+  **Verified end to end against real data**, not just headless
+  construction: `husk export nightelffemale_hd.m2` (real `--db2-dir`/
+  `--dbd-dir`, `ChrModelID` 8) piped through the real
+  `husk_blender_geoset_mask.py` CLI entrypoint (`blender --python ... --
+  model.glb --textures <dir>`, a handful of real converted skin/face
+  `.blp`→`.png` textures) -- ran clean, no exceptions, "4 material(s) got
+  a real live customization texture switch". The real `skin` material's
+  combined group node ended up with `Skin Color` plus 26 real
+  `Face (choice_NNN)` submenus (one per real Skin Color choice this model
+  actually has), **and** automatically found three more real cross-links
+  this session hadn't set out to fix: `Markings` → 10 `Markings Color
+  (<name>)` submenus, `Tattoo` → 4 `Tattoo Color (<name>)` submenus, and
+  `Hair Color` → 15 `Hair Style (choice_NNN)` submenus -- all previously
+  silently collapsed to one wrong texture each by the same `break` bug.
+  Every real promoted socket validated with a real, non-blank default
+  (`Skin Color` → `choice_801`, `Markings` → `Bear`, `Hair Color` →
+  `choice_858`, ...); changing `Skin Color` and a `Face (choice_804)`
+  submenu both succeeded live; depsgraph evaluation and a real Cycles
+  render both completed with no shader-compile errors.
+  `tools/test_husk_blender_options_panel.py` still passes unchanged (its
+  own fixture is built independently of this code, per its own doc
+  comment).
+
+  **Known gap, not fixed this session**: `husk_blender_options_panel.py`
+  finds a driving-dependent option's own promoted socket by matching the
+  option's real name exactly (`sub_node.inputs[option_name]`-style
+  lookup, per its own doc comment). A dependent option's sockets are now
+  named `f"{option_name} ({driving_choice_name})"`, never the bare option
+  name, so the options panel currently can't find or sync
+  Face/Markings Color/Tattoo Color/Hair Style at all on a real model with
+  these cross-links -- it silently treats them as absent (its own
+  documented behavior for "node graph was never built", not a crash).
+  Plain independent options (Skin Color, Markings, Tattoo, Hair Color, Eye
+  Color, Scars, Eyesight) are unaffected -- their own socket names didn't
+  change. Fixing this needs the panel to also understand "one row per
+  (dependent option, driving choice) pair, only the currently-relevant one
+  meaningful" -- not attempted here, flagged for whoever picks this up
+  next.
