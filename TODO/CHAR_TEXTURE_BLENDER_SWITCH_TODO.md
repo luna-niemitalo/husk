@@ -405,6 +405,43 @@ choices legitimately resolve to the same single shared texture.
   character as a fully transparent silhouette).
   `tools/test_husk_blender_options_panel.py` still passes unchanged.
 
+  **Follow-up, same day: the placement math itself was wrong.** Luna
+  caught it in a live render before this was reported as done: the
+  overlay landed nowhere near its real section. Root cause --
+  `_build_placement_mapping` left `ShaderNodeMapping.vector_type` at
+  Blender's own default, `'POINT'`, which transforms the *lookup
+  coordinate* forward (`out = in*scale + location`) -- the literal
+  inverse of "place this image at `location`, sized `scale`, within UV
+  space." `'TEXTURE'` mode computes that actual inverse
+  (`out = (in - location) / scale`), which is what placing a texture
+  within a UV rect needs; the Location/Scale *values* already being
+  computed (`_uv_rect_for_layer`'s own `(u0, v0, width, height)`) were
+  already correct, only the mode was wrong. Confirmed with a real render
+  before trusting it (not from the name alone): a marker texture placed
+  with these exact Location/Scale values landed entirely outside the
+  visible plane under `'POINT'`, and exactly where expected under
+  `'TEXTURE'`.
+
+  Also restructured per Luna's own ask, not just the mode fix: a Mapping
+  node is no longer built freshly inside every call to
+  `_build_customization_option_group` (a real dependent option gets
+  called once *per driving choice* -- 26 times for Face on the real
+  fixture -- so this meant 26 redundant, identical Mapping/UVMap pairs).
+  That function now exposes a plain `Vector` interface socket (an
+  ordinary `NodeSocketVector`, none of the `Menu`-type fan-out
+  restriction applies) only when a real `uv_rect` exists; callers
+  (`_build_material_customization_group`'s plain-option path,
+  `_build_driving_with_dependents_group`'s dependent-submenu path) build
+  ONE shared `_build_placement_mapping` per real section and link it into
+  every consumer that needs it. Verified: the real `nightelffemale_hd`
+  fixture's whole "skin" material combined tree now has 7 total `Mapping`
+  nodes (one per real section actually in play) covering 55+ real
+  choice/submenu instances, all confirmed `vector_type == 'TEXTURE'` with
+  sane Location/Scale values -- not 55+ separate Mapping pairs.
+  `tools/test_husk_blender_options_panel.py` still passes; the real
+  pipeline still runs clean end to end against the real fixture, still
+  fully opaque.
+
   **(2), the cross-dependency bug — SOLVED, real fix found (2026-08-31),
   not just investigated.** Luna asked whether a live nested `MenuSwitch` —
   one shared "Skin Color" dropdown driving both its own sibling switch and

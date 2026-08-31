@@ -1393,17 +1393,34 @@ def _uv_rect_for_layer(atlas_width, atlas_height, sections, texture_layer):
 
 def _build_placement_mapping(nodes, links, uv_rect, base_x, base_y):
     """Shared `ShaderNodeUVMap` -> `ShaderNodeMapping` pair for one real
-    `uv_rect` (`_uv_rect_for_layer`'s own return shape) -- built once per
-    option/driving-group and reused across every one of its own per-choice
-    image nodes (they all share the same real section, since they're all
-    the same `chr_model_texture_target_id`), matching
-    `_build_section_overlay_group`'s own "one shared placement, many
-    consumers" shape. Returns the `Mapping` node's `Vector` output socket.
+    `uv_rect` (`_uv_rect_for_layer`'s own return shape). Returns the
+    `Mapping` node's `Vector` output socket -- an ordinary
+    `NodeSocketVector`, unlike the `Menu`-typed sockets elsewhere in this
+    file, so it can be linked into as many consumers as needed with none
+    of the fan-out restriction that shaped the cross-dependency fix (see
+    TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md). Callers build this ONCE per
+    real section and wire the same output into every one of that
+    section's own image nodes -- see `_build_customization_option_group`'s
+    own `Vector` interface socket and its callers.
+
+    `vector_type = 'TEXTURE'`, not Blender's own default `'POINT'` --
+    found and fixed 2026-08-31 after Luna caught the real bug in a live
+    render: `POINT` mode transforms the *lookup coordinate* forward
+    (`out = in*scale + location`), the literal inverse of "place this
+    image at `location`, sized `scale`, within UV space" -- which is what
+    `'TEXTURE'` mode actually computes (`out = (in - location) / scale`,
+    Blender's own inverse-mapping mode for exactly this "position a
+    texture" use case). Confirmed directly with a real render (a marker
+    texture landing outside the visible plane entirely under `'POINT'`
+    with these same Location/Scale values, landing exactly where expected
+    under `'TEXTURE'`) before trusting it, not assumed from the name
+    alone.
     """
     u0, v0, uw, vh = uv_rect
     uv_map = nodes.new("ShaderNodeUVMap")
     uv_map.location = (base_x - 200.0, base_y)
     mapping = nodes.new("ShaderNodeMapping")
+    mapping.vector_type = 'TEXTURE'
     mapping.location = (base_x, base_y)
     mapping.inputs["Location"].default_value = (u0, v0, 0.0)
     mapping.inputs["Scale"].default_value = (uw, vh, 1.0)
@@ -1798,14 +1815,20 @@ def _build_customization_option_group(name, choice_infos):
 
     # Every choice in one option shares the same real
     # `chr_model_texture_target_id` (hence the same real texture_layer/
-    # section), so one shared placement mapping -- built once here, not
-    # once per choice -- covers every one of this option's own image
-    # nodes. `None` (the common case for a full-atlas base layer, e.g.
-    # Skin Color's own) means every image node samples the mesh's own
-    # unmapped UV, exactly as before this existed.
-    uv_rect = next((c["uv_rect"] for c in choice_infos if c.get("uv_rect")), None)
-    placement_vector = (_build_placement_mapping(nodes, links, uv_rect, -900.0, -300.0)
-                         if uv_rect else None)
+    # section) -- when one applies, a `Vector` interface socket is added
+    # (an ordinary NodeSocketVector, not `Menu`-typed) so the caller can
+    # feed in ONE shared placement mapping built just once, rather than
+    # this function building its own private copy every time it's called
+    # (a real dependent option, e.g. Face, gets called once PER driving
+    # choice -- 26 times on the real `nightelffemale_hd` fixture -- so a
+    # locally-built Mapping here would mean 26 redundant, identical node
+    # pairs). `None` (the common case for a full-atlas base layer, e.g.
+    # Skin Color's own) means no socket is added at all, and every image
+    # node samples the mesh's own unmapped UV, exactly as before this
+    # existed.
+    needs_placement = any(c.get("uv_rect") for c in choice_infos)
+    if needs_placement:
+        tree.interface.new_socket("Vector", in_out='INPUT', socket_type='NodeSocketVector')
 
     x = -600.0
     for choice in choice_infos:
@@ -1826,13 +1849,13 @@ def _build_customization_option_group(name, choice_infos):
         img_node.image = image
         img_node.label = choice["choice_name"]
         img_node.location = (x, 300.0)
-        if placement_vector is not None:
+        if needs_placement:
             # 'CLIP' (not the default 'REPEAT') so pixels outside this
             # choice's own real section rect come back alpha=0 instead of
             # tiling across the rest of the mesh's UV space -- the real
             # bug `_uv_rect_for_layer`'s own doc comment describes.
             img_node.extension = 'CLIP'
-            links.new(placement_vector, img_node.inputs["Vector"])
+            links.new(group_input.outputs["Vector"], img_node.inputs["Vector"])
 
         combine = nodes.new("NodeCombineBundle")
         combine.location = (x, 0.0)
@@ -1980,6 +2003,15 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
     # `default_value` is never read for evaluation/UI -- only the
     # outermost, genuinely-unlinked instance's own default matters).
     socket_defaults = []
+    # One shared placement Mapping per dependent option (option_id ->
+    # Vector output socket, or explicitly-cached `None`), built the first
+    # time that dependent actually resolves something and reused across
+    # every remaining driving choice -- a real dependent gets its own
+    # submenu instanced once PER driving choice (26 times, on the real
+    # `nightelffemale_hd` fixture), and they all share the exact same real
+    # section, so building a fresh Mapping each time would mean 26
+    # redundant, identical node pairs.
+    dependent_placement_vectors = {}
     for driving_choice in driving_option.get("choices", []):
         driving_id = driving_choice.get("choice_id")
         driving_name = driving_choice.get("choice_name") or f"choice_{driving_id}"
@@ -2038,6 +2070,17 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
                 sub_node.label = f"{dep_label} ({driving_name})"
                 sub_node.location = (x, y)
                 y -= 250.0
+
+                dep_id = dep_option.get('option_id')
+                if dep_id not in dependent_placement_vectors:
+                    dep_uv_rect = next((c["uv_rect"] for c in dep_choice_infos if c.get("uv_rect")),
+                                        None)
+                    dependent_placement_vectors[dep_id] = (
+                        _build_placement_mapping(nodes, links, dep_uv_rect, x - 300.0, y)
+                        if dep_uv_rect else None)
+                dep_placement_vector = dependent_placement_vectors[dep_id]
+                if dep_placement_vector is not None:
+                    links.new(dep_placement_vector, sub_node.inputs["Vector"])
 
                 socket_name = _unique_label(f"{dep_label} ({driving_name})", taken_socket_names)
                 taken_socket_names.add(socket_name)
@@ -2223,9 +2266,14 @@ def _build_material_customization_group(name, relevant_options, driving_groups=N
             default_choice = next((c for c in choice_infos if c.get("is_default")), choice_infos[0])
             socket_defaults[option_name] = default_choice["choice_name"]
 
+            uv_rect = next((c["uv_rect"] for c in choice_infos if c.get("uv_rect")), None)
+            if uv_rect:
+                placement_vector = _build_placement_mapping(nodes, links, uv_rect, x - 300.0, -300.0)
+                links.new(placement_vector, sub_node.inputs["Vector"])
+
             blend_mode = choice_infos[0]["blend_mode"]
             color_source, alpha_source = sub_node.outputs["Color"], sub_node.outputs["Alpha"]
-            cropped = any(c.get("uv_rect") for c in choice_infos)
+            cropped = bool(uv_rect)
         else:
             sub_node, dep_output_names = ensure_driving_node(stage["group_index"])
             if stage["kind"] == "driving_base":
