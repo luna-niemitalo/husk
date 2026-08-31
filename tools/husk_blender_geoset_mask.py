@@ -1337,6 +1337,80 @@ def enabled_geosets_to_default_overrides(enabled_geosets):
     return overrides
 
 
+def _uv_rect_for_layer(atlas_width, atlas_height, sections, texture_layer):
+    """Real placement rect for one `chr_texture_layout` texture_layer, as
+    `(u_offset, v_offset, u_scale, v_scale)` already flipped to Blender's
+    own V-grows-up convention (WoW's own atlas Y grows down -- same
+    correction `_build_section_overlay_group` below already uses for its
+    own, separate debug-overlay purpose). `None` when this layer's own
+    `texture_section_type_bit_mask` matches every real section (a
+    full-atlas base layer, e.g. Skin Color's own -- no cropping needed,
+    full UV coverage is already correct) or there's no real section data
+    to place against at all -- a caller sees `None` as "sample the whole
+    UV space unmapped, exactly like before this function existed."
+
+    Real bug this exists to fix (found 2026-08-31, verified against a
+    real `nightelffemale_hd` export): every per-choice image was sampled
+    straight from the mesh's own full UV space, `extension` left at
+    Blender's default `REPEAT` -- a small overlay (Face/Markings/Tattoo/
+    Eyesight/...), which is only ever meant to cover its own real
+    `CharComponentTextureSections` rect, tiled across the *entire* mesh
+    instead. Combined with the mix chain's own "last-layer alpha wins"
+    rule (see `_build_material_customization_group`'s own fix for that
+    half), this made the whole character render mostly transparent
+    whenever the real highest-layer option (Eyesight, on this real
+    fixture) happened to be a small eye-only sprite.
+
+    A layer matching more than one real section (rare; not confirmed
+    against real data) gets the bounding rect across all of them --
+    exact for the single-section case every real choice checked so far
+    actually has, a safe (never falsely clips real content) approximation
+    otherwise.
+    """
+    if not atlas_width or not atlas_height or not sections:
+        return None
+    bitmask = texture_layer.get("texture_section_type_bit_mask")
+    if bitmask is None:
+        return None
+    # `sections` is one flat list for the whole real CharComponentTextureLayoutsID
+    # (every atlas this character model has, not just this one texture_type's
+    # own) -- `section_type` isn't confirmed unique *across* atlases, so a
+    # section that doesn't even fit this atlas's own real width/height can't
+    # be one of its sections regardless of a coincidental bitmask match.
+    same_atlas = [s for s in sections
+                  if s.get("x", 0) + s.get("width", 0) <= atlas_width
+                  and s.get("y", 0) + s.get("height", 0) <= atlas_height]
+    matching = [s for s in same_atlas if (1 << s.get("section_type", 0)) & bitmask]
+    if not matching or len(matching) == len(same_atlas):
+        return None  # covers everything (or nothing real to crop to) -- full UV coverage is correct
+    x0 = min(s.get("x", 0) for s in matching) / atlas_width
+    y0 = min(s.get("y", 0) for s in matching) / atlas_height
+    x1 = max(s.get("x", 0) + s.get("width", 0) for s in matching) / atlas_width
+    y1 = max(s.get("y", 0) + s.get("height", 0) for s in matching) / atlas_height
+    v0, v1 = 1.0 - y1, 1.0 - y0
+    return (x0, v0, x1 - x0, v1 - v0)
+
+
+def _build_placement_mapping(nodes, links, uv_rect, base_x, base_y):
+    """Shared `ShaderNodeUVMap` -> `ShaderNodeMapping` pair for one real
+    `uv_rect` (`_uv_rect_for_layer`'s own return shape) -- built once per
+    option/driving-group and reused across every one of its own per-choice
+    image nodes (they all share the same real section, since they're all
+    the same `chr_model_texture_target_id`), matching
+    `_build_section_overlay_group`'s own "one shared placement, many
+    consumers" shape. Returns the `Mapping` node's `Vector` output socket.
+    """
+    u0, v0, uw, vh = uv_rect
+    uv_map = nodes.new("ShaderNodeUVMap")
+    uv_map.location = (base_x - 200.0, base_y)
+    mapping = nodes.new("ShaderNodeMapping")
+    mapping.location = (base_x, base_y)
+    mapping.inputs["Location"].default_value = (u0, v0, 0.0)
+    mapping.inputs["Scale"].default_value = (uw, vh, 1.0)
+    links.new(uv_map.outputs["UV"], mapping.inputs["Vector"])
+    return mapping.outputs["Vector"]
+
+
 _OVERLAY_GROUP_NAME = "HuskChrTextureLayoutOverlay"
 
 
@@ -1722,6 +1796,17 @@ def _build_customization_option_group(name, choice_infos):
     links.new(separate.outputs[0], group_output.inputs["Color"])
     links.new(separate.outputs[1], group_output.inputs["Alpha"])
 
+    # Every choice in one option shares the same real
+    # `chr_model_texture_target_id` (hence the same real texture_layer/
+    # section), so one shared placement mapping -- built once here, not
+    # once per choice -- covers every one of this option's own image
+    # nodes. `None` (the common case for a full-atlas base layer, e.g.
+    # Skin Color's own) means every image node samples the mesh's own
+    # unmapped UV, exactly as before this existed.
+    uv_rect = next((c["uv_rect"] for c in choice_infos if c.get("uv_rect")), None)
+    placement_vector = (_build_placement_mapping(nodes, links, uv_rect, -900.0, -300.0)
+                         if uv_rect else None)
+
     x = -600.0
     for choice in choice_infos:
         image = choice["image"]
@@ -1741,6 +1826,13 @@ def _build_customization_option_group(name, choice_infos):
         img_node.image = image
         img_node.label = choice["choice_name"]
         img_node.location = (x, 300.0)
+        if placement_vector is not None:
+            # 'CLIP' (not the default 'REPEAT') so pixels outside this
+            # choice's own real section rect come back alpha=0 instead of
+            # tiling across the rest of the mesh's UV space -- the real
+            # bug `_uv_rect_for_layer`'s own doc comment describes.
+            img_node.extension = 'CLIP'
+            links.new(placement_vector, img_node.inputs["Vector"])
 
         combine = nodes.new("NodeCombineBundle")
         combine.location = (x, 0.0)
@@ -1868,6 +1960,16 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
 
     x = -1100.0
     taken_socket_names = set()
+    # Same shared-per-target placement mapping `_build_customization_option_group`
+    # builds for its own choices -- every driving choice's own image shares
+    # the same real texture_layer/section (Skin Color's own is normally
+    # `None`, a full-atlas base layer needing no crop; kept general rather
+    # than hardcoded so any driving option with a real cropped layer of its
+    # own still gets placed correctly).
+    driving_uv_rect = next((c["uv_rect"] for c in (driving_choice_infos or []) if c.get("uv_rect")), None)
+    driving_placement_vector = (_build_placement_mapping(nodes, links, driving_uv_rect, -1400.0, -200.0)
+                                 if driving_uv_rect else None)
+
     # `[(socket_name, default_choice_name), ...]`, one entry per dependent
     # submenu created below, in the exact order those interface sockets
     # were added -- returned so the caller can set the REAL, user-facing
@@ -1891,6 +1993,9 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
             img_node.image = dci["image"]
             img_node.label = driving_name
             img_node.location = (x, 500.0)
+            if driving_placement_vector is not None:
+                img_node.extension = 'CLIP'
+                links.new(driving_placement_vector, img_node.inputs["Vector"])
             driving_color, driving_alpha = img_node.outputs["Color"], img_node.outputs["Alpha"]
         else:
             const_rgb = nodes.new("ShaderNodeRGB")
@@ -2120,6 +2225,7 @@ def _build_material_customization_group(name, relevant_options, driving_groups=N
 
             blend_mode = choice_infos[0]["blend_mode"]
             color_source, alpha_source = sub_node.outputs["Color"], sub_node.outputs["Alpha"]
+            cropped = any(c.get("uv_rect") for c in choice_infos)
         else:
             sub_node, dep_output_names = ensure_driving_node(stage["group_index"])
             if stage["kind"] == "driving_base":
@@ -2127,6 +2233,7 @@ def _build_material_customization_group(name, relevant_options, driving_groups=N
                 blend_mode = driving_choice_infos[0]["blend_mode"]
                 color_source = sub_node.outputs["Driving Color"]
                 alpha_source = sub_node.outputs["Driving Alpha"]
+                cropped = any(c.get("uv_rect") for c in driving_choice_infos)
             else:
                 dependents = driving_groups[stage["group_index"]][2]
                 _, per_driving = next(d for d in dependents if d[0].get("option_id") == stage["dep_option_id"])
@@ -2135,6 +2242,7 @@ def _build_material_customization_group(name, relevant_options, driving_groups=N
                 color_name, alpha_name = dep_output_names[stage["dep_option_id"]]
                 color_source = sub_node.outputs[color_name]
                 alpha_source = sub_node.outputs[alpha_name]
+                cropped = bool(any_choice_infos) and any(c.get("uv_rect") for c in any_choice_infos)
 
         blend_type = CHR_BLEND_MODE_TO_BLEND_TYPE.get(blend_mode)
         if blend_type is None:
@@ -2151,13 +2259,36 @@ def _build_material_customization_group(name, relevant_options, driving_groups=N
         links.new(current_color, _node_socket(color_mix.inputs, "A_Color"))
         links.new(color_source, _node_socket(color_mix.inputs, "B_Color"))
         current_color = _node_socket(color_mix.outputs, "Result_Color")
-        # The topmost (last, highest-layer) stage's own alpha defines the
-        # material's final coverage -- real WoW data backs this for the
-        # hair/tiara case Luna found (a tiara-bearing hair choice's own
-        # texture genuinely carries less-covering alpha than a plain one),
-        # but hasn't been visually reconfirmed for every blend_mode/stage
-        # combination -- flagged, not asserted as universally correct.
-        current_alpha = alpha_source
+        # A full-domain stage's (no real `uv_rect` -- e.g. a plain hair
+        # choice vs. its own tiara-bearing variant) own alpha REPLACES the
+        # running total outright: real WoW data backs this for the
+        # hair/tiara case Luna found (a tiara variant's own texture
+        # genuinely carries less-covering alpha than a plain one, and that
+        # reduction is the real, intended coverage -- hair strands truly
+        # hidden behind the tiara mesh there).
+        #
+        # A *cropped* stage (a real `uv_rect`, e.g. Face/Markings/Eyesight
+        # -- confined to a small section of a shared atlas, `extension =
+        # 'CLIP'` so it correctly reads alpha=0 everywhere outside that
+        # section) instead unions with the running total (`Math(MAXIMUM)`):
+        # replacing outright was the real 2026-08-31 "everything renders
+        # transparent" bug -- the real highest-layer option on a real
+        # fixture (Eyesight, a small eye-only sprite) was overwriting the
+        # WHOLE mesh's alpha with its own mostly-zero-outside-its-section
+        # value, once every real cross-linked option was actually being
+        # mixed in (the `break` bug this session's earlier fix removed
+        # used to hide this by silently dropping most of these layers
+        # entirely). A cropped overlay is never meant to erase coverage a
+        # base/earlier layer already established outside its own section.
+        if cropped:
+            alpha_union = nodes.new("ShaderNodeMath")
+            alpha_union.operation = 'MAXIMUM'
+            alpha_union.location = (x, -100.0)
+            links.new(current_alpha, alpha_union.inputs[0])
+            links.new(alpha_source, alpha_union.inputs[1])
+            current_alpha = alpha_union.outputs[0]
+        else:
+            current_alpha = alpha_source
 
         x += 400.0
 
@@ -2249,6 +2380,12 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
 
         alpha_input = principled.inputs.get("Alpha")
 
+        # This material's own real atlas size and section rects -- used
+        # below to compute each real texture_layer's own placement (see
+        # `_uv_rect_for_layer`'s own doc comment for why this exists).
+        mat_layout_entry = material_layout_by_type.get(mtype, {})
+        sections = layout.get("sections", [])
+
         # One (option, {choice_id: [variant, ...]}) entry per real
         # ChrCustomizationOption that resolves at least one real, textured
         # choice onto *this* material's own texture_type -- see the
@@ -2314,6 +2451,9 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                         "layer": tl.get("layer", 0),
                         "target_id": m_entry.get("chr_model_texture_target_id"),
                         "related_choice_id": m_entry.get("related_choice_id") or 0,
+                        "uv_rect": _uv_rect_for_layer(
+                            mat_layout_entry.get("width"), mat_layout_entry.get("height"),
+                            sections, tl),
                     })
                 if variants:
                     per_choice[choice.get("choice_id")] = variants

@@ -361,13 +361,49 @@ choices legitimately resolve to the same single shared texture.
   `apply_customization_texture_switch`'s own node-building path just
   never calls into either.
 
-  **Proposed fix shape for (1), the UV-placement bug (not implemented,
-  no open question left — safe to build)**: give each per-choice
-  `ShaderNodeTexImage` in `_build_customization_option_group` its own
-  `ShaderNodeMapping` (Location/Scale computed from the resolved section
-  rect the same way `_build_section_overlay_group` already does, Vector
-  fed from a shared `ShaderNodeUVMap`) and set `extension = 'CLIP'` so
-  pixels outside the section don't bleed/tile.
+  **(1), the UV-placement bug — fixed 2026-08-31**, same session as the
+  cross-dependency fix below. New `_uv_rect_for_layer` (real section
+  bounding rect for a `texture_layer`, same bitmask join
+  `_build_section_overlay_group` already uses, `None` for a full-atlas
+  base layer like Skin Color's own) and `_build_placement_mapping` (one
+  shared `ShaderNodeUVMap`→`ShaderNodeMapping` pair per option/driving
+  group, reused across every one of its own choices since they all share
+  the same real section). `apply_customization_texture_switch` computes
+  each real variant's own `uv_rect` once (this material's real atlas
+  width/height plus the full `sections[]` list, defensively bounds-
+  checked against the atlas since `sections` is one flat list for the
+  *whole* character model, not partitioned per atlas, and `section_type`
+  uniqueness across atlases isn't confirmed); `_build_customization_option_group`
+  and `_build_driving_with_dependents_group` both set `extension = 'CLIP'`
+  and wire the shared mapping whenever a real `uv_rect` exists.
+
+  **Found and fixed a second, related bug while verifying this against
+  real data**: with every real cross-linked option now actually being
+  mixed in (the cross-dependency fix below), the material's final Alpha
+  came out **fully transparent** on a real render — traced to the
+  existing "last-layer's-own-alpha-replaces-the-running-total-outright"
+  rule (kept from before this session, originally correct for the real
+  hair/tiara case: a tiara variant's own reduced alpha is the *intended*
+  coverage, hair strands truly hidden behind the tiara mesh). On this
+  real fixture the highest-layer option turned out to be "Eyesight," a
+  small eye-only sprite -- once no longer silently dropped by the
+  now-fixed `break` bug, its own alpha (correctly near-zero everywhere
+  outside its own tiny cropped section, once (1) above was fixed) was
+  overwriting the *entire* mesh's alpha, wiping out the fully-opaque Skin
+  Color base underneath. Real, deeper fix: a stage without a real
+  `uv_rect` (full-domain, e.g. plain-vs-tiara hair) still *replaces* the
+  running alpha outright, preserving the tiara case; a stage *with* a
+  real `uv_rect` (a genuinely cropped, spatially-confined overlay --
+  Face/Markings Color/Tattoo Color/Eyesight) instead **unions** with it
+  (`Math(MAXIMUM)`), since a small decal is never meant to erase coverage
+  a base/earlier layer already established outside its own section.
+  Verified end to end against the real `nightelffemale_hd` fixture: the
+  final Alpha's own source traces to a real `Math(MAXIMUM)` node (not a
+  bare sub-group output) once Eyesight — the real highest-layer, cropped
+  option — is reached, and a real Cycles render of the mesh is fully
+  opaque again (compare against the pre-fix render, which showed the
+  character as a fully transparent silhouette).
+  `tools/test_husk_blender_options_panel.py` still passes unchanged.
 
   **(2), the cross-dependency bug — SOLVED, real fix found (2026-08-31),
   not just investigated.** Luna asked whether a live nested `MenuSwitch` —
