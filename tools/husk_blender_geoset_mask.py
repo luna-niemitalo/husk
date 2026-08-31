@@ -1833,36 +1833,56 @@ def _build_customization_option_group(name, choice_infos):
     x = -600.0
     for choice in choice_infos:
         image = choice["image"]
-        # Real, human-readable Image datablock name -- clean-name priority
-        # (real listfile content name -> choice_name -> whatever
-        # bpy.data.images.load already picked from the source path's own
-        # basename). Skipped for an already-embedded image: its name is
-        # already husk's own real source stem, and renaming it would break
-        # any other choice/material that later looks up this same shared
-        # datablock by that exact name -- see choice["embedded"]'s own
-        # doc comment above.
-        if not choice["embedded"]:
-            clean_name = choice.get("content_name") or choice.get("choice_name")
-            if clean_name:
-                image.name = clean_name
-        img_node = nodes.new("ShaderNodeTexImage")
-        img_node.image = image
-        img_node.label = choice["choice_name"]
-        img_node.location = (x, 300.0)
-        if needs_placement:
-            # 'CLIP' (not the default 'REPEAT') so pixels outside this
-            # choice's own real section rect come back alpha=0 instead of
-            # tiling across the rest of the mesh's UV space -- the real
-            # bug `_uv_rect_for_layer`'s own doc comment describes.
-            img_node.extension = 'CLIP'
-            links.new(group_input.outputs["Vector"], img_node.inputs["Vector"])
+        if image is None:
+            # A real 'None' choice (Scars/Markings Color/Tattoo Color's
+            # own real DB2 default, genuinely zero materials rows --
+            # `apply_customization_texture_switch`'s own synthesis, not a
+            # resolution failure) -- a real, selectable, transparent
+            # entry so "no scar/marking/tattoo" is a menu item, not a
+            # dropped/unreachable choice.
+            color_source, alpha_source = None, None
+            const_rgb = nodes.new("ShaderNodeRGB")
+            const_rgb.outputs[0].default_value = (0.0, 0.0, 0.0, 1.0)
+            const_rgb.label = choice["choice_name"]
+            const_rgb.location = (x, 300.0)
+            const_alpha = nodes.new("ShaderNodeValue")
+            const_alpha.outputs[0].default_value = 0.0
+            const_alpha.location = (x, 150.0)
+            color_source, alpha_source = const_rgb.outputs[0], const_alpha.outputs[0]
+        else:
+            # Real, human-readable Image datablock name -- clean-name
+            # priority (real listfile content name -> choice_name ->
+            # whatever bpy.data.images.load already picked from the
+            # source path's own basename). Skipped for an already-
+            # embedded image: its name is already husk's own real source
+            # stem, and renaming it would break any other choice/material
+            # that later looks up this same shared datablock by that
+            # exact name -- see choice["embedded"]'s own doc comment
+            # above.
+            if not choice["embedded"]:
+                clean_name = choice.get("content_name") or choice.get("choice_name")
+                if clean_name:
+                    image.name = clean_name
+            img_node = nodes.new("ShaderNodeTexImage")
+            img_node.image = image
+            img_node.label = choice["choice_name"]
+            img_node.location = (x, 300.0)
+            if needs_placement:
+                # 'CLIP' (not the default 'REPEAT') so pixels outside this
+                # choice's own real section rect come back alpha=0 instead
+                # of tiling across the rest of the mesh's UV space -- the
+                # real bug `_uv_rect_for_layer`'s own doc comment
+                # describes.
+                img_node.extension = 'CLIP'
+                links.new(group_input.outputs["Vector"], img_node.inputs["Vector"])
+            color_source, alpha_source = img_node.outputs["Color"], img_node.outputs["Alpha"]
 
         combine = nodes.new("NodeCombineBundle")
         combine.location = (x, 0.0)
         combine.bundle_items.new(socket_type='RGBA', name="Color")
         combine.bundle_items.new(socket_type='FLOAT', name="Alpha")
-        links.new(img_node.outputs["Color"], combine.inputs[0])
-        links.new(img_node.outputs["Alpha"], combine.inputs[1])
+        links.new(color_source, combine.inputs[0])
+        links.new(alpha_source, combine.inputs[1])
 
         # `enum_items.new` appends both the enum item and its matching
         # case-input socket at the end of `inputs`, right before the
@@ -2043,7 +2063,11 @@ def _build_driving_with_dependents_group(name, driving_option, driving_choice_in
                 (per_driving.get(driving_id)) for _, per_driving in dependents):
             continue  # this driving choice resolves nothing at all on this material -- skip it
 
-        if dci is not None:
+        # `dci["image"] is None` -- a real 'None' choice for the driving
+        # option itself (synthesized the same way as any other option's
+        # own, see `apply_customization_texture_switch`) -- treated the
+        # same as "no driving image at all" below, not as a crash.
+        if dci is not None and dci["image"] is not None:
             img_node = nodes.new("ShaderNodeTexImage")
             img_node.image = dci["image"]
             img_node.label = driving_name
@@ -2503,7 +2527,23 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
         option_variants = []
         for option in options:
             per_choice = {}
+            # Choices with genuinely zero real `materials[]` entries at
+            # all (not merely ones that failed to resolve an image) --
+            # real DB2 data, not guessed: every one of Scars/Markings
+            # Color/Tattoo Color's own real choice list includes a real
+            # 'None' choice (order_index 0, the actual real default) with
+            # exactly zero materials rows, meaning "paint nothing here" by
+            # design. Synthesized into a real, selectable, fully-
+            # transparent entry below once the option's own real
+            # placement/blend data is known from a sibling choice --
+            # flagged by construction (materials list is empty, not "we
+            # tried and failed"), never conflated with an actual
+            # resolution failure.
+            no_material_choices = []
             for choice in option.get("choices", []):
+                if not choice.get("materials"):
+                    no_material_choices.append(choice)
+                    continue
                 variants = []
                 for m_entry in choice.get("materials", []) or []:
                     tl = texture_layer_by_target.get(m_entry.get("chr_model_texture_target_id"))
@@ -2561,6 +2601,26 @@ def apply_customization_texture_switch(options, layout, enabled_materials, mater
                     })
                 if variants:
                     per_choice[choice.get("choice_id")] = variants
+            if per_choice and no_material_choices:
+                # Borrow this option's own real placement/blend data (the
+                # same target_id/layer/blend_mode/uv_rect every choice of
+                # one option shares) from any already-resolved sibling
+                # choice -- a real 'None' choice has no materials row of
+                # its own to read that from directly.
+                template = next(iter(next(iter(per_choice.values()))))
+                for choice in no_material_choices:
+                    per_choice[choice.get("choice_id")] = [{
+                        "choice_id": choice.get("choice_id"),
+                        "choice_name": choice.get("choice_name") or f"choice_{choice.get('choice_id')}",
+                        "content_name": None,
+                        "embedded": False,
+                        "image": None,
+                        "blend_mode": template["blend_mode"],
+                        "layer": template["layer"],
+                        "target_id": template["target_id"],
+                        "related_choice_id": 0,
+                        "uv_rect": template["uv_rect"],
+                    }]
             if per_choice:
                 option_variants.append((option, per_choice))
 

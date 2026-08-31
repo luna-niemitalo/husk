@@ -484,6 +484,50 @@ choices legitimately resolve to the same single shared texture.
   pipeline still runs clean end to end against the real fixture, still
   fully opaque.
 
+  **Follow-up, same day: a real 'None' choice per detail layer, and
+  verifying multi-layering actually works.** Luna: "each of the scars,
+  tattoos, markings, etc should have a none option" and reported that
+  before this session's fixes she could only ever see *one* of
+  Scars/Markings at a time, never both. Checked the real fixture's own
+  `chr_customization_options` before changing anything: every one of
+  Scars/Markings Color/Tattoo Color genuinely has a real DB2 choice named
+  `'None'` (`order_index` 0 -- the real client-side default), with
+  exactly zero `materials[]` rows -- a deliberate "paint nothing here" by
+  design, not a resolution gap. `apply_customization_texture_switch`'s
+  per-choice loop only ever kept a choice that resolved at least one real
+  image, so `'None'` was silently absent from every one of these
+  dropdowns -- not selectable at all. Fixed: a choice with a genuinely
+  empty `materials[]` list (never conflated with an actual image-load
+  *failure*, which still gets skipped as before) is now synthesized into
+  a real, selectable menu item once the option's own placement/blend data
+  is known from any already-resolved sibling choice (borrowed, since a
+  real `'None'` row has no materials entry of its own to read `layer`/
+  `blend_mode`/`uv_rect` from) -- a transparent `RGB(0,0,0,1)`+`Value(0)`
+  constant, exactly like the existing "this driving choice resolves
+  nothing" fallback already used elsewhere. Verified: `Husk_skin_
+  customization_Scars`'s own `MenuSwitch` now has 6 real items
+  (`['Teldrassil', 'Rip', 'Claw', 'Scratch', 'Swipe', 'None']`, matching
+  the real DB2 list exactly), and setting the outer `Scars` dropdown to
+  `'None'` validates cleanly.
+
+  The "only ever one of Scars/Markings" report traces to the very same
+  alpha-overwrite bug this session already root-caused and fixed above
+  (a cropped stage's own near-zero-outside-its-section alpha replacing
+  the *entire* running total instead of unioning with it) -- Scars and
+  Markings Color share the same real section, so whichever one mixed
+  *last* would previously wipe out the other's own painted pixels
+  wherever its own alpha was 0, even though the color chain was already
+  correctly compositing both. Verified this is genuinely fixed, not just
+  inferred: traced the real fixture's own final Color/Alpha chains node
+  by node. Color: `Skin Color -> Scars -> Markings -> Tattoo -> Hair
+  Color -> Eye Color`, six *separate* sequential `Mix` stages, each
+  building on the previous (not a single winner-takes-all switch). Alpha:
+  a matching chain of six `Math(MAXIMUM)` nodes, one per stage -- confirms
+  every real layer's own coverage unions into the final result rather
+  than the last one overwriting the rest. Multi-layering (seeing scars
+  *and* markings *and* a tattoo simultaneously, each independently
+  toggleable) is real and working, not just structurally plausible.
+
   **(2), the cross-dependency bug — SOLVED, real fix found (2026-08-31),
   not just investigated.** Luna asked whether a live nested `MenuSwitch` —
   one shared "Skin Color" dropdown driving both its own sibling switch and
