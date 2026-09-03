@@ -8,6 +8,192 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-09-03 — `m2::Model`: the whole-file parsed aggregate (REFACTOR/AUDIT.md §2.1), pure addition
+
+**What**: Introduced `husk::m2::Model` (`src/m2_model.hpp`/`.cpp`, new
+`tests/test_m2_model.cpp`, both added to `src/m2.hpp`'s aggregate
+`#include` and `CMakeLists.txt`'s source lists) -- the whole-file parsed
+aggregate REFACTOR/CANONICAL_MODEL.md's "Stage 1's missing piece" section
+names, closing the *type* half of AUDIT.md §2.1 ("There is no
+`m2::Model`"). Deliberately a **pure addition**: no `cmd_*.cpp` file was
+touched, and no existing command's behavior changed -- migrating
+`cmd_info.cpp`/`cmd_info_json.cpp`/`cmd_export.cpp` onto this type is three
+separate, later tasks (README.md's migration-order step 2's own gate --
+"husk info / dump-chunks output diffed on real fixtures, every difference
+attributed" -- is explicitly not this task's job).
+
+`Model` holds the real union of what the three commands parse today, re-
+derived from the actual code rather than the task brief's own starting
+map (which turned out incomplete -- see below), plus every array with a
+real `parse*` function that no command currently reads at all
+(`globalLoops`/`boneCombos`, via `parseGlobalLoops`/the existing generic
+`parseUint16Array`). Two arrays are deliberately excluded, both reported
+rather than silently dropped: `cameras` (Header's own `Array` descriptor
+is still reachable via `model.header.cameras`, but no `M2Camera` struct or
+`parseCameras` function exists anywhere in this codebase -- CLAUDE.md's
+own Status already says so: "M2Camera is still count-only") and
+`extendedParticles`/EXP2 (real `parseExtendedParticles` exists, but EXP2 is
+a standalone top-level chunk with its own local `M2Array`, discovered via
+`findChunk(chunks, "EXP2")` on the *raw chunk list* -- `cmd_dump.cpp`'s
+`dumpExp2` -- not through any `Header` field the way every other array
+here is; there is no routing path from `Header`/blob to it at all without
+`Model` also holding the raw Legion+ chunk list and re-implementing
+`findChunk`, a real structural expansion beyond "union of `Header`-array-
+derived parses" this task's scope doesn't cover). Re-deriving the union
+from code, not the brief, also surfaced one real omission in the task's
+own starting map: `cmd_export.cpp` parses the collision mesh too
+(`export_extras.cpp`'s `appendCollisionMesh`, called from
+`exportOneModel`) -- included as `Model::collisionMesh` via the existing
+`parseCollisionMesh`.
+
+**The real design content -- the parse-failure contract**: today's three
+commands parse *conditionally and differently* for the same file. Grepped
+every guard directly rather than trusting the task brief's paraphrase:
+`cmd_info.cpp`'s `parseSequences` call really does run only `if
+(h.sequenceLookup.count > 0)` (cmd_info.cpp:162-168) -- gated on a
+*different* array's count than the one it's parsing -- while
+`cmd_export.cpp` calls `parseSequences` unconditionally whenever bones are
+inline, no `sequenceLookup` check at all (cmd_export.cpp:166). Both are
+real, already-shipped, already-divergent behaviors, not a hypothetical.
+Meanwhile `cmd_info.cpp`'s own `bones`/`attachments`/`events`/`lights`/
+`ribbon_emitters` loops are unconditional and sit *outside* its only
+try/catch (cmd_info.cpp:102-116 wraps just `parseHeader`/`extractBlob`) --
+confirmed by reading `main.cpp`: there is no outer catch around
+`husk::commands::info` either, so a malformed `bones` array on a real file
+crashes `husk info` uncaught *today*, this task didn't introduce that.
+
+Given that landscape, an eager `loadModel()` that just propagates the
+first `ParseError` would be *strictly worse* than today for the common
+case (one malformed section in an otherwise-fine file, which a 130k+-file
+corpus makes a real, not hypothetical, occurrence) -- it would newly
+attempt arrays some commands' own guards currently never reach, and one
+throw would blank out a file that's 95% readable. So: **chosen contract is
+per-field failure isolation, not propagate-first-throw.** Each of the 26
+array-derived fields is parsed inside its own `tryParse` (a single, earned
+-- 26th real occurrence -- template helper), catching `m2::ParseError`
+specifically (not `std::exception`, so a genuine bug elsewhere isn't
+silently swallowed) and recording a `FieldParseFailure{field, what}` while
+leaving that one field empty; every other field that parsed cleanly stays
+intact. `parseHeader`/`extractBlob` themselves are *not* wrapped -- there
+is no `Model` at all without a header/blob, matching every existing
+caller's own behavior for a file that broken. This is what makes the
+constraint the task set -- "migrations 2-4 must be able to reproduce
+their own current per-array conditional behavior on top of this type" --
+actually achievable: a future migrated `cmd_info.cpp` can check
+`model.header.sequenceLookup.count > 0` itself and simply not print
+`model.sequences` when it's false, reproducing today's exact "never
+attempted, never noticed" behavior even though `loadModel()` itself always
+attempts it; it isn't forced to inherit a crash-on-first-bad-field
+either way.
+
+One field needed more than a try/catch: `particleEmitters`. Below
+`kMinVerifiedParticleVersion` (Cata, 272), the 492-byte record stride is
+unverified for older files, and a wrong stride isn't guaranteed to
+*throw* -- it can decode adjacent bytes as plausible-looking-but-wrong
+values instead (the "silent misread" class CLAUDE.md's foreign-data
+discipline treats as strictly worse than a loud bounds failure, since a
+try/catch structurally can't see it). `cmd_info.cpp`/`cmd_info_json.cpp`
+already skip the parse entirely below that version rather than risk it;
+`loadModel()` replicates the exact same version check before attempting
+`particleEmitters` at all, leaving it empty and recording **no**
+`FieldParseFailure` (nothing was attempted -- same "count-only" policy,
+not a new fact). `bones`/`sequences`/`ribbon_emitters` are deliberately
+**not** similarly version-gated on `kMinVerifiedRecordStrideVersion`
+(Wrath, 264): today's commands already parse them unconditionally
+regardless of version, only warning to stderr that the stride is
+unverified below Wrath -- that pre-existing silent-misread risk is
+unchanged by this task, not newly introduced or fixed here (printing the
+warning is presentation-layer, out of scope for a struct); the try/catch
+still guards the bounds-failure half of that risk the same as every other
+field.
+
+**Verified**: `tests/test_m2_model.cpp`, 6 new `TEST_CASE`s -- a genuinely
+empty-but-valid M2 parses cleanly with zero `parseFailures` (proves
+"empty" and "failed" aren't conflated in the easy direction); the
+`kMinVerifiedParticleVersion` skip leaves `particleEmitters` empty without
+a `FieldParseFailure` for it; a header-level bad-magic file still throws
+`ParseError` out of `loadModel` (no `Model` without a header);
+`loadModelFile` on a nonexistent path throws `ParseError`; and the
+malformed-array case reuses `test_m2_fixtures.hpp`'s existing
+`buildMd20Blob()` unmodified -- it already declares every array at
+offsets (1000+) past its own ~312-byte buffer, which turned out to be
+exactly the "one bad file, many malformed sections" fixture this task
+needed, with no new fixture to author or keep in sync: `loadModel` on it
+doesn't throw, `model.header`/`model.blob` still come back fully correct
+(`checkSentinelHeader`, reused as-is), and exactly 25 of the 26 attempted
+fields land in `parseFailures` (the 26th, `texture_combiner_combos`,
+genuinely never gets attempted with nonzero bounds, since
+`buildMd20Blob()`'s `globalFlags` doesn't set
+`GlobalFlag::kUseTextureCombinerCombos` -- confirmed by reading
+`m2_primitives.cpp`'s `parseBlob`, which only wire-populates that field
+when the bit is set). The 6th `TEST_CASE`, gated
+`* doctest::skip(husk::test::testM2().empty())`, exercises the real
+`bloodelffemale.m2` fixture: zero `parseFailures`, `vertices.size() ==
+8061` / `particleEmitters.empty()` cross-checked against
+`test_cli_info_json.cpp`'s own existing real-fixture assertions on the
+same file (not new, possibly-wrong magic numbers), plus internal
+count-consistency checks (`model.X.size() == model.header.X.count`) for
+every other dereferenced array. Full suite:
+`direnv exec . env HUSK_TEST_M2=test_data/bloodelffemale.m2
+HUSK_TEST_SKIN=test_data/bloodelffemale00.skin ./build/husk-tests` --
+**794/794 test cases, 0 failed, 1 skipped (unchanged
+`test_listfile_mmap_real.cpp`); 6500/6500 assertions**, up from the
+788/6323 baseline by exactly this task's own 6 new cases (+177
+assertions).
+
+**Cost, measured**: a throwaway in-process benchmark (built against
+`build/libhusk-lib.a` directly, not part of the shipped tree) timed
+`loadModel()` against real files versus a hand-replicated copy of
+`cmd_info.cpp`'s and `cmd_export.cpp`'s own actual parse* call sequences
+(guards included), same read-once bytes, 200-500 iterations for small
+files / 20 for the large one. Three real data points: `bloodelffemale.m2`
+(2.3 MB, this repo's own fixture) -- cmd_info-shaped 0.128 ms,
+cmd_export-shaped 0.380 ms, `loadModel()` 0.380 ms; `sunwell_beamfx.m2`
+(363 KB, close to a 3000-file random sample's real corpus average of
+365 KB) -- cmd_info-shaped 0.018 ms, cmd_export-shaped 0.228 ms,
+`loadModel()` 0.230 ms; `dracthyrmale.m2` (38 MB, the single largest `.m2`
+in the local corpus) -- cmd_info-shaped 22.3 ms, cmd_export-shaped 31.6 ms,
+`loadModel()` 31.5 ms. Zero `parseFailures` on all three (real files
+aren't malformed), so none of this delta is try/catch overhead -- it's
+genuinely more data parsed, an inherent property of a complete model, not
+a flaw in the isolation mechanism. Against `cmd_export.cpp`'s own current
+cost, `loadModel()` is a wash (same or marginally cheaper in all three
+measurements) -- the arrays `Model` parses beyond `cmd_export.cpp`'s own
+set (`attachments`/`events`/`lights`/`ribbon_emitters`/`particle_emitters`/
+`boneLookup`/`textureLookup`/`sequenceLookup`/`globalLoops`/`boneCombos`/
+`textureCombinerCombos`) cost near-nothing next to vertex/texture parsing.
+Against `cmd_info.cpp`'s own current (much narrower) cost, `loadModel()`
+is genuinely more expensive in *relative* terms (3x-13x across the three
+files, since `cmd_info.cpp` skips vertices entirely today), but stays
+trivial in *absolute* terms even at that ratio (sub-millisecond to
+tens-of-milliseconds per file) -- against a 132k-file corpus scan at the
+measured near-average-size cost (0.212 ms delta/file), the aggregate
+added cost is on the order of **28 seconds total**, dwarfed by that same
+scan's own per-file subprocess-spawn overhead. Stated plainly per this
+task's own requirement rather than buried: this *is* a real, non-zero,
+measured cost increase for `cmd_info.cpp`'s eventual migration
+specifically, not free -- just not one that changes the contract decision
+above. Caveat: measured against an unoptimized build
+(`CMAKE_BUILD_TYPE` unset in this tree), so absolute numbers are
+pessimistic versus a real release build; the relative comparison between
+the three parse shapes should hold either way since all three ran through
+the same build. Benchmark source and exact commands are in this session's
+own report, not committed (throwaway, scratchpad-only per this task's
+scope).
+
+**Deliberately not touched**: every `cmd_*.cpp` file (no consumer
+migration -- that's README.md's migration-order steps for `cmd_info.cpp`/
+`cmd_info_json.cpp`/`cmd_export.cpp` separately, later); every existing
+`m2_*.hpp`/`.cpp` parser (no signature or behavior changed, `Model` only
+calls what already exists); `REFACTOR/AUDIT.md` §2.1 itself -- only the
+*type* half is closed, the "three commands still each assemble their own
+partial view" half remains true and unremoved until a later task actually
+migrates a consumer, which this file's own log entry doesn't get to claim
+yet. No design questions surfaced that need a human call beyond the
+failure-contract one this entry documents the resolution of.
+
+---
+
 ## 2026-09-03 — `red-baseline-fuzzy-pool`: the clean-tree failure was a stale test assertion, not a regression
 
 **What**: Closed the loop's first task (`LOOP_STATE.md`'s
