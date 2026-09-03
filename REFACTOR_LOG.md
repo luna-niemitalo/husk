@@ -8,6 +8,187 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-09-04 — `cmd_export.cpp`'s parse block migrated onto `m2::Model`, split 4a of 3 (REFACTOR/AUDIT.md §2.1, REFACTOR/README.md's Migration order step 2)
+
+**What**: `exportOneModel` (`src/cmd_export.cpp`) hand-assembled its own
+partial view of the M2 file from `m2::parseHeader`+`m2::extractBlob`+
+`m2::parseVertices` plus ten more `m2::parse*` calls populating
+`M2MaterialInputs` (materials, textures, textureCombos,
+textureCoordCombos, colors, textureWeights, textureWeightCombos,
+textureTransforms, textureTransformCombos, plus `textureFileDataIds`
+straight off the header). All eleven parses are now one
+`m2::loadModel(modelBytes)` call; `header`/`blob`/`vertices` stay as local
+names in `exportOneModel`, now `const` references bound onto `model`'s own
+storage (`model.header`/`model.blob`/`model.vertices`) rather than
+independent locals, so every other call in the function that still takes
+a raw `blob`/`header` pair (`resolveBones`, `resolveAnimationsForModel`,
+`attachBoneCorrections`, `attachEmitterAnchors`, `attachPlacementNodes`,
+`appendCollisionMesh` -- the other two splits, below) needed zero further
+edits.
+
+**Scope: this is split 4a of 3, by explicit task design.** Two more parse
+sites in `cmd_export.cpp`'s own reach were deliberately left untouched
+this pass:
+
+- **`resolveBones`/`resolveAnimationsForModel`/`buildAnimations` (split
+  4c)** still call `m2::parseBones`/`m2::parseSequences` directly on
+  `model.blob`/`model.header`, not through `model.bones`/`model.sequences`.
+  Deliberate, not an oversight: `resolveBones` derives `bonesAreInline`
+  from `m2::parseBones(...).empty()`, and under `loadModel` a *malformed*
+  inline bones array yields an empty vector plus a recorded
+  `FieldParseFailure` rather than throwing -- reading `model.bones` there
+  would silently misread "bones failed to parse" as "no inline bones, fall
+  back to the external `.skel`," changing which *data source* the export
+  uses, not just leaving a field empty. Left calling `m2::parseBones`
+  directly preserves today's exact throw-on-malformed-bones behavior; split
+  4c owns fixing the underlying ambiguity properly (e.g. giving
+  `resolveBones` its own explicit signal instead of overloading "empty").
+- **`src/export_extras.cpp`'s six parse sites** (`attachEmitterAnchors`,
+  `attachPlacementNodes`, `appendCollisionMesh`, and three more) are split
+  4b, untouched -- they still receive `model.blob`/`model.header` via the
+  same call-site arguments as before, just now sourced from `model`
+  instead of freed-at-scope-exit locals.
+
+**A real regression test caught a wrong first attempt, corrected before
+landing.** The first version of this migration read `model.materials`/
+`model.textures`/`model.vertices`/etc. directly, accepting `loadModel`'s
+per-field failure isolation the same way `cmd_info`/`cmd_dump` did (prior
+two entries below) -- reasoning that `export_materials.cpp` already
+bounds-checks every batch's `materialIndex`/`textureComboIndex`/
+`colorIndex`/`textureWeightComboIndex` against these vectors' real sizes
+and throws a clear `std::runtime_error` on mismatch, so an
+empty-due-to-parse-failure field should still fail loudly once a batch
+references it. Running the full suite immediately falsified that
+reasoning: `tests/test_cli_errors.cpp`'s "husk export: corrupted huge
+vertex count fails with a real message, not std::bad_alloc" test failed
+its `output.find("vertices array claims")` assertion. Root cause: the old
+`m2::parseVertices` call threw immediately, before `--skin
+/nonexistent.skin` was ever opened; with vertices silently empty instead,
+execution ran on into `resolveSkinsToExport`/`buildLodTierMeshes`, which
+tried to open the (deliberately nonexistent) `.skin` path first and threw
+*that* error instead -- still exit 1, still a real message, but not the
+one this test (and, more importantly, a real user debugging a genuinely
+corrupted file) needs to see. A second, narrower case found while
+auditing the fix, never hit by a test: `export_materials.cpp`'s
+`textureTransforms`/`textureTransformCombos` lookups are deliberately
+*best-effort* (an out-of-range index there is skipped, not thrown --
+that block's own comment says so), so a parse failure on just those two
+fields would have silently dropped texture-transform extras with no error
+at all -- the same hazard *class* as `resolveBones`'s own, just for a
+different pair of fields.
+
+**Fix**: `exportOneModel` now explicitly rethrows. A local
+`rethrowIfParseFailed(field)` lambda scans `model.parseFailures` for a
+named field and, if found, `throw`s a `std::runtime_error` carrying
+`FieldParseFailure::what` verbatim (the original `ParseError::what()`,
+per `m2_model.hpp`'s doc comment -- so the message text is byte-identical
+to what the old direct `parse*` call would have thrown). Called once per
+migrated field, in the *same order* the old sequential `parse*` calls ran
+(`vertices` before the version-warning print, then `materials`,
+`textures`, `texture_combos`, `texture_coord_combos`, `colors`,
+`texture_weights`, `texture_weight_combos`, `texture_transforms`,
+`texture_transform_combos` after it) -- order matters here because a real
+file could in principle fail more than one field at once, and the old
+code would only ever have reported the first one it reached. `bones`/
+`sequences` are deliberately not in this list -- split 4c's own hazard,
+above, not this one's to fix. Net effect: `cmd_export.cpp` keeps its
+pre-migration fail-fast contract exactly, while `cmd_info.cpp`/
+`cmd_dump.cpp` keep their own (deliberately different, already-landed)
+graceful-degrade contract -- two real commands, two real answers to "what
+should happen to a malformed field," neither one wrong, both intentional
+and now visible in the code instead of implicit.
+
+**`M2MaterialInputs::blob` lifetime (REFACTOR/AUDIT.md §2.2, not fixed
+here, only re-pointed)**: `m2Inputs.blob = &blob;`, where `blob` is now
+`const std::vector<uint8_t>& blob = model.blob;` -- so this is `&model.blob`,
+the address of the vector object `model` itself owns. `model` is a plain
+local of `exportOneModel`'s own `try` block (`m2::Model model =
+m2::loadModel(modelBytes);`), never moved, copied, or reassigned after
+construction (confirmed: grepped the whole function body for any `model
+=`/`model.blob =` past that point -- none). Every use of `m2Inputs.blob`
+happens synchronously within that same `try` block (through
+`buildLodTierMeshes`, itself called well before the block's closing
+brace) -- `model` outlives every dereference. Same lifetime shape the old
+standalone `blob` local gave (also a `try`-block-scoped local, also only
+referenced synchronously within that block), just relocated onto `model`'s
+storage instead of its own. Sound, but §2.2 (`M2MaterialInputs` still
+carries a raw parse-layer pointer at all) stays open -- out of this task's
+scope, a separate `canon::`-stage cleanup.
+
+**Diff gate (REFACTOR/README.md's "every difference is explained and
+attributed")**: built the pre-migration `husk` binary first (`git stash`
+of this task's own working change, rebuilt, binary copied aside, change
+restored -- not a separate commit checkout, since the change hadn't been
+committed yet) before writing a single line of the migration. Verified
+`.glb` determinism first (a prerequisite the task explicitly asked to
+check): the post-migration binary run twice against
+`test_data/bloodelffemale.m2` with identical flags produced byte-identical
+`.glb` output (sha256 matched) and identical stdout modulo the
+(expected, differing-by-construction) output path string -- `husk
+export`'s output is deterministic run-to-run, byte comparison is a valid
+gate. Sample: 35 files, `HUSK_CONFIG=/dev/null` on both sides --
+
+- 25 files via a seeded pseudo-random sample (seed 42, `awk`'s
+  `srand(42)`/`rand()` assigning one key per line, sorted, `head -25`) over
+  `find /media/luna/data/wow_export -iname "*.m2" | sort` (132,863 files).
+  A smaller general sample than the two prior migrations' 400+ (`husk
+  export` is materially slower than `info`/`dump-chunks` per file, per this
+  task's own explicit "a few dozen is right, don't attempt hundreds").
+- 10 files chosen deliberately to exercise the exact fields this split
+  touches, reusing `tests/test_cli.cpp`'s own real-fixture roster (already
+  known-good, already paired with matching `.skin` files) rather than
+  guessing blind against the general corpus: `bloodelffemale.m2` (skinned
+  character, real materials) and `bloodelffemale_hd.m2` (HD skinned
+  character, `.skel`-sourced), `creature/wolf/wolf.m2` (skinned quadruped),
+  `creature/brewfestmount/brewfestmount.m2` (texture-transform rotation),
+  `creature/bloodknightcharger/bloodknightcharger.m2` (texture-transform
+  scale), `models/spells/unk_exp11_7037014/7037014.m2` (texture-transform
+  translation), `world/replaceabletextureprops/guild/
+  pennant_guild_alliance_a_01.m2` (multi-texture-layer batch),
+  `world/expansion05/doodads/ironhorde/6ih_ironhorde_siegeweapon03.m2`
+  (pre-Cata `textureCoordCombos`), `item/objectcomponents/weapon/
+  sword_2h_ashbringer_a_01.m2` (ribbon emitter), `item/objectcomponents/
+  weapon/mace_1h_warfrontsforsaken_d_01.m2` (weapon w/ `.phys`).
+
+Ran both binaries' `export <model> -o <out>` over all 35 (default flags
+otherwise -- no `--textures`/`--skin-dir` override, matching how a real
+`husk export <file>` invocation actually gets used against a populated
+extraction directory), capturing stdout/stderr/exit code into sibling
+directories, normalizing only the expected before/after output-directory
+path difference out of the captured text before comparing. **Result:
+35/35 byte-identical `.glb` (sha256/`cmp`), 35/35 identical stdout, 35/35
+identical stderr, 35/35 identical exit code (all 0) -- zero differences,
+zero attributed exceptions needed.** Confirmed the sample wasn't inert:
+spot-checked stdout summaries show real material counts (2-17 materials
+per file across the fixture roster) and real geometry (up to 27,619
+vertices), not degenerate 0-material/0-vertex exports. The "corrupted huge
+vertex count" scenario above (a real, deliberate difference before the
+rethrow fix, zero difference after it) was verified via the existing CLI
+regression test, not folded into this gate -- same precedent the prior two
+entries set: a deliberately malformed file belongs in a targeted
+regression test, not a gate meant to prove real-file parity. Reproduction:
+seed/commands recorded in this entry; sample file lists and per-file
+capture directories were scratchpad-only, not committed.
+
+**Verified**: `direnv exec . cmake --build build`, then `direnv exec . env
+HUSK_TEST_M2=test_data/bloodelffemale.m2
+HUSK_TEST_SKIN=test_data/bloodelffemale00.skin ./build/husk-tests` --
+**796 test cases, 0 failed, 1 skipped (unchanged
+`test_listfile_mmap_real.cpp`); 6528 assertions, 0 failed** -- exactly the
+pre-task baseline, no new tests added this pass (no new *observable*
+behavior to pin: the whole point of the rethrow fix above is that nothing
+changed from the caller's point of view). Plus the diff gate above, run
+against the real compiled `husk` binary.
+
+**Deliberately not touched**: `resolveBones`/`resolveAnimationsForModel`/
+`buildAnimations` (split 4c) and `src/export_extras.cpp`'s six parse sites
+(split 4b) -- both named above, both left calling `m2::parse*` directly on
+`model.blob`/`model.header`. `REFACTOR/AUDIT.md` §2.1 stays open until
+both land. No existing `m2_*.hpp`/`.cpp` parser changed. No `src/formats/`,
+`src/canon/`, or `src/writers/` directory created.
+
+---
+
 ## 2026-09-04 — `cmd_dump.cpp`/`dumpEmitters` migrated onto `m2::Model` (REFACTOR/AUDIT.md §2.1, REFACTOR/README.md's Migration order step 2)
 
 **What**: `cmd_dump.cpp` (`husk dump-chunks`) was the one command AUDIT.md

@@ -1089,9 +1089,51 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
 
     try {
         auto modelBytes = readFileBytes(modelPath);
-        auto header = m2::parseHeader(modelBytes);
-        auto blob = m2::extractBlob(modelBytes);
-        auto vertices = m2::parseVertices(blob, header.vertices);
+        // m2::loadModel replaces the old parseHeader+extractBlob+
+        // parseVertices trio and the ten m2Inputs.<field> = parse*(...)
+        // calls below with one whole-file parse (REFACTOR/AUDIT.md §2.1,
+        // README.md Migration order step 2). `header`/`blob`/`vertices`
+        // stay as local names bound onto model's own storage so every
+        // downstream call in this function (resolveBones,
+        // resolveAnimationsForModel, attachBoneCorrections,
+        // attachEmitterAnchors, attachPlacementNodes, appendCollisionMesh
+        // -- split 4b/4c, deliberately not migrated this pass) keeps
+        // reading the exact same bytes, now owned by `model` instead of
+        // freed-at-scope-exit locals of their own. `model` lives for this
+        // whole try block, so m2Inputs.blob (= &blob = &model.blob, below)
+        // stays valid for as long as m2Inputs itself is used (through
+        // buildLodTierMeshes, still inside this same block) -- same
+        // lifetime guarantee the old standalone `blob` local gave, just
+        // relocated onto model's storage instead of its own.
+        m2::Model model = m2::loadModel(modelBytes);
+        const m2::Header& header = model.header;
+        const std::vector<uint8_t>& blob = model.blob;
+        const std::vector<m2::Vertex>& vertices = model.vertices;
+
+        // Unlike the old parse* calls this replaces (each threw ParseError
+        // directly, aborting the whole export on a malformed array),
+        // loadModel isolates a per-array failure into model.parseFailures
+        // and leaves that one field empty instead (m2_model.hpp's doc
+        // comment) -- a real behavior change cmd_info.cpp/cmd_dump.cpp
+        // embraced (parse_failures becomes a diagnostic, export continues),
+        // but wrong here: an empty `vertices`/`materials`/etc. wouldn't
+        // reliably re-surface as a clear error further down (confirmed the
+        // hard way -- tests/test_cli_errors.cpp's "corrupted huge vertex
+        // count" case now hit --skin's missing-file error first instead of
+        // the real "vertices array claims..." message, since a malformed-
+        // vertices export no longer stops before opening the .skin file).
+        // Rethrowing here, in the same order the old parse* calls ran in,
+        // reproduces the exact old fail-fast behavior and message (`what`
+        // is ParseError::what() verbatim, m2_model.hpp) for every field
+        // this function actually reads -- bones/sequences are deliberately
+        // excluded (resolveBones below still calls m2::parseBones directly
+        // on model.blob/model.header, untouched, split 4c's own hazard).
+        auto rethrowIfParseFailed = [&](const char* field) {
+            for (const auto& f : model.parseFailures) {
+                if (f.field == field) throw std::runtime_error(f.what);
+            }
+        };
+        rethrowIfParseFailed("vertices");
 
         if (header.version < m2::kMinVerifiedRecordStrideVersion) {
             std::cerr << "husk: warning: '" << modelPath << "' is version " << header.version
@@ -1101,16 +1143,26 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                          "than failing loudly\n";
         }
 
+        rethrowIfParseFailed("materials");
+        rethrowIfParseFailed("textures");
+        rethrowIfParseFailed("texture_combos");
+        rethrowIfParseFailed("texture_coord_combos");
+        rethrowIfParseFailed("colors");
+        rethrowIfParseFailed("texture_weights");
+        rethrowIfParseFailed("texture_weight_combos");
+        rethrowIfParseFailed("texture_transforms");
+        rethrowIfParseFailed("texture_transform_combos");
+
         M2MaterialInputs m2Inputs;
-        m2Inputs.materials = m2::parseMaterials(blob, header.materials);
-        m2Inputs.textures = m2::parseTextures(blob, header.textures);
-        m2Inputs.textureCombos = m2::parseUint16Array(blob, header.textureCombos);
-        m2Inputs.textureCoordCombos = m2::parseUint16Array(blob, header.textureCoordCombos);
-        m2Inputs.colors = m2::parseColors(blob, header.colors);
-        m2Inputs.textureWeights = m2::parseTextureWeights(blob, header.textureWeights);
-        m2Inputs.textureWeightCombos = m2::parseUint16Array(blob, header.textureWeightCombos);
-        m2Inputs.textureTransforms = m2::parseTextureTransforms(blob, header.textureTransforms);
-        m2Inputs.textureTransformCombos = m2::parseUint16Array(blob, header.textureTransformCombos);
+        m2Inputs.materials = model.materials;
+        m2Inputs.textures = model.textures;
+        m2Inputs.textureCombos = model.textureCombos;
+        m2Inputs.textureCoordCombos = model.textureCoordCombos;
+        m2Inputs.colors = model.colors;
+        m2Inputs.textureWeights = model.textureWeights;
+        m2Inputs.textureWeightCombos = model.textureWeightCombos;
+        m2Inputs.textureTransforms = model.textureTransforms;
+        m2Inputs.textureTransformCombos = model.textureTransformCombos;
         m2Inputs.textureFileDataIds = header.textureFileDataIds;
         m2Inputs.blob = &blob;
         m2Inputs.sequenceCount = header.sequences.count;

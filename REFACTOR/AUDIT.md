@@ -230,6 +230,28 @@ payloads via a synthesized `m2::Array` over a local `payload` buffer, not
 the MD20 blob or a `Header` array field -- `m2::Model` has nothing to offer
 those call sites, so this is not a subset of this section's own gap.
 
+**Update (2026-09-04): `cmd_export.cpp`'s own parse block migrated too, one
+of three splits.** `exportOneModel`'s `parseHeader`+`extractBlob`+
+`parseVertices` trio and the ten `m2Inputs.<field> = parse*(...)` calls
+populating `M2MaterialInputs` are now one `m2::loadModel()` call, with
+`header`/`blob`/`vertices` kept as local names bound onto `model`'s own
+storage. Unlike `cmd_info`/`cmd_dump` above, `exportOneModel` does **not**
+adopt loadModel's graceful per-field isolation for the fields it reads --
+confirmed the hard way, not assumed: leaving a malformed
+`materials`/`textures`/`vertices`/etc. field silently empty broke a real
+regression test (`tests/test_cli_errors.cpp`'s "corrupted huge vertex
+count" case), since the empty field didn't reliably resurface as an
+equivalent error further down the pipeline. `exportOneModel` now rethrows
+the first `model.parseFailures` entry matching a field it reads, in the
+same order the old `parse*` calls ran, reproducing the exact old fail-fast
+behavior and message. Two of `cmd_export.cpp`'s six other `m2::parse*`
+call sites stay deliberately unmigrated: `resolveBones` (bones/sequences,
+a real hazard -- see `REFACTOR_LOG.md`'s newest entry) and
+`resolveAnimationsForModel`/`buildAnimations` (split 4c); `src/
+export_extras.cpp`'s six sites (split 4b). This section stays open until
+both remaining splits land. Full narrative and diff-gate numbers:
+`REFACTOR_LOG.md`'s newest entry.
+
 ### 2.2 `M2MaterialInputs` is a bag with a back-pointer
 
 `src/export_materials.hpp:123-145` gathers ten parsed arrays plus
