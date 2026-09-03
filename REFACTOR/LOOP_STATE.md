@@ -18,7 +18,7 @@ Loop opened 2026-09-03. Running Migration order **stage 2** (`m2::Model`).
 | `m2-model-adopt-info` | AUDIT.md §2.1 | verified | 2026-09-03 | `9f85bc8` | Split 2/4. Gate met: their seeded 402/402 confirmed by my own independent 112/112 on a different sample. |
 | `m2-model-adopt-dump` | AUDIT.md §2.1 | verified | 2026-09-04 | `6367a4a` | Split 3/4. Gate met: their 420/420 confirmed by my own independent 190/190 on a different sample. |
 | `audit-2.1-table-stale` | AUDIT.md §2.1 | verified | 2026-09-03 | `9f85bc8` | §2.1's table now names `cmd_info_json.cpp` as the fourth view; section correctly left open. |
-| `m2-model-adopt-export-a` | AUDIT.md §2.1 | in-progress | 2026-09-04 | - | **Split 4a/4c.** `exportOneModel`'s own 12 parse sites (`cmd_export.cpp:1092-1113`) + `M2MaterialInputs` population. Leave `resolveBones`/`export_extras.cpp` signatures alone this pass — pass them `model.blob`/`model.header` so scope stays inside the main path. |
+| `m2-model-adopt-export-a` | AUDIT.md §2.1 | **verified** | 2026-09-04 | `06a08f8` | Split 4a done. Their 35/35 confirmed by my own independent gate on a different sample: **55/55 `.glb` byte-identical and 55/55 console output identical** (paths normalized — my first script compared its own scratch dirs and reported a false 55 differences; the artifact was mine, not husk's). Suite holds at 796/796, 6528. `.glb` output confirmed deterministic run-to-run, so byte comparison is a valid gate. Checked the rethrow type substitution myself: it throws `std::runtime_error` where the original threw `m2::ParseError`, but `ParseError` derives from it and **no catch site in `src/` or `tests/` discriminates**, so it is behaviourally invisible — a fidelity nit, not a defect. |
 | `m2-model-adopt-export-b` | AUDIT.md §2.1 | ready | - | - | **Split 4b/4c.** `export_extras.cpp`'s 6 sites (`:96` ribbons, `:105` particles, `:174` attachments, `:188` events, `:196` lights, `:898` collision) take the model. Mechanically the same shape as `dumpEmitters` in split 3/4 — reuse that as the template. |
 | `m2-model-adopt-export-c` | AUDIT.md §2.1 | ready | - | - | **Split 4c/4c — the subtle one, do last.** `resolveBones` (`:116`) and `buildAnimationsForModel` (`:166`). **Hazard**: `resolveBones` derives `bonesAreInline` from `parseBones(...).empty()`. Under `loadModel`, a *malformed* inline bones array yields an empty vector plus a recorded `FieldParseFailure` instead of throwing — which would be silently misread as "no inline bones, fall back to the external `.skel`". That is a real silent-misread risk and must be handled explicitly, not inherited. |
 | `audit-8-closed` | AUDIT.md §8 | ready | - | - | Doc-only, small. §8 is "Done" for every real `ScanTask` module with `render_sample_driver.py` a stated deliberate exclusion; per the file's own convention the section should go, exclusion moved to `CLI_AND_TOOLING.md` §4. |
@@ -72,3 +72,19 @@ file, 3,590 sampled): **100% `MD21`, zero `MD20`**. husk's pre-Legion branches
 therefore have **no real-data coverage on this machine**, only synthetic
 fixtures. Not a bug — but it means "verified against the corpus" silently
 excludes that whole branch, on any task, not just this one.
+
+**Two commands, two deliberate parse-failure contracts — worth a design look
+in stage 3.** `cmd_info`/`dump-chunks` degrade gracefully on a malformed field
+(record it, print a `parse_failures` diagnostic, carry on); `cmd_export` fails
+fast (rethrows the first matching failure, in the original parse order). Both
+are right for what they are — a diagnostic command should show as much of a
+broken file as it can, while an exporter must not quietly write a `.glb` with
+a silently-empty vertex array. This was found the hard way, not assumed: the
+first attempt let isolation flow through and a real regression test
+(`test_cli_errors.cpp`'s corrupted-vertex-count case) caught it.
+
+The note for later: right now that policy split lives as a hand-written
+`rethrowIfParseFailed` call per field at one consumer. When `canon::` is built
+(stage 3), the contract should be stated once in the model layer — "this
+consumer tolerates partial data, that one does not" — rather than re-derived
+per command. Not actionable now; recorded so stage 3 doesn't rediscover it.
