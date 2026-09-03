@@ -91,6 +91,42 @@ TEST_CASE("husk info: generic non-M2 garbage fails cleanly, not a crash") {
     fs::remove(path);
 }
 
+// Regression coverage for the REFACTOR/AUDIT.md §2.1 m2::Model migration
+// (REFACTOR_LOG.md's entry for this task): before it, cmd_info.cpp's own
+// bones/attachments/events/lights/ribbon_emitters loops called their
+// m2::parse* function directly, unconditionally, *outside* this command's
+// only try/catch (which wraps just the header/blob read) -- and main.cpp
+// has no outer catch around command dispatch either -- so a malformed
+// array elsewhere in an otherwise-well-formed file crashed the whole
+// process on an uncaught m2::ParseError. m2::loadModel isolates each
+// array's own parse failure instead of propagating it (see m2_model.hpp's
+// doc comment), so this must now exit cleanly, not abort -- and it must
+// say so, not silently print "bones: 1" with zero billboard lines as if
+// the array had simply had none (CLAUDE.md: "on failure, always print
+// expected and actual values").
+TEST_CASE("husk info: a malformed array beyond an otherwise-valid header fails cleanly, not a "
+          "crash -- and reports it in parse_failures instead of silently reading as empty") {
+    auto b = minimalMd20();
+    putArrayAt(b, 0x02C, 1, 999999);  // bones: count=1, offset far past this ~0x130-byte buffer
+
+    auto path = tempPath("malformed-bones.m2");
+    writeFile(path, b);
+
+    auto result = runHusk("info " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("terminate called") == std::string::npos);
+    // The array's own declared count still prints, from the header (real
+    // data, untouched by the parse failure) -- only the per-record detail
+    // loop comes up empty.
+    CHECK(result.output.find("bones: 1 (offset") != std::string::npos);
+    CHECK(result.output.find("bone " ) == std::string::npos);  // no billboard lines
+    // The failure itself is named, not silently absent.
+    CHECK(result.output.find("parse_failures: 1") != std::string::npos);
+    CHECK(result.output.find("\n    bones: ") != std::string::npos);
+
+    fs::remove(path);
+}
+
 TEST_CASE("husk export: corrupted huge vertex count fails with a real message, not "
           "std::bad_alloc") {
     auto m2 = minimalMd20();

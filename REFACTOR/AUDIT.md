@@ -191,17 +191,31 @@ sites remain).
 
 ### 2.1 There is no `m2::Model`
 
-Three commands each hand-assemble a *different* partial view of the same file
+**Correction (2026-09-03):** this section's own table originally listed three
+commands. `cmd_info_json.cpp` is a real fourth hand-assembled view -- ~15
+`m2::parse*` call sites of its own (`husk info --json`'s JSON twin of
+`cmd_info.cpp`'s prose, `src/cmd_info_json.cpp`) -- that the table below had
+simply omitted, not a case that didn't exist yet.
+
+Four commands each hand-assemble a *different* partial view of the same file
 from loose parse calls:
 
 | Command | `m2::parse*` calls | What it omits |
 |---|---|---|
 | `cmd_export.cpp` | 11 kinds | attachments, events, lights, ribbons, particles |
 | `cmd_info.cpp` | 12 kinds | vertices, colors, texture weights/transforms |
+| `cmd_info_json.cpp` | 10 kinds, 15 call sites -- mirrors cmd_info.cpp's own fields, minus parseHeader/extractBlob (reuses the caller's already-parsed header/blob) | same as cmd_info.cpp: vertices, colors, texture weights/transforms |
 | `cmd_dump.cpp` | header + blob only | everything else, re-parsed ad hoc downstream |
 
-So "what does husk think is in this file" has three different answers depending
+So "what does husk think is in this file" has four different answers depending
 on which verb you typed.
+
+**Update (2026-09-03): `cmd_info.cpp`/`cmd_info_json.cpp` migrated onto
+`m2::Model`** -- both now call `m2::loadModel()` once and read fields off the
+result instead of their own loose `parse*` calls (REFACTOR/README.md's
+Migration order step 2; full narrative and the diff-gate numbers:
+`REFACTOR_LOG.md`'s newest entry). `cmd_export.cpp`/`cmd_dump.cpp` are not
+migrated yet -- this section stays open until they are too.
 
 ### 2.2 `M2MaterialInputs` is a bag with a back-pointer
 

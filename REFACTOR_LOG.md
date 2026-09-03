@@ -8,6 +8,125 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-09-03 — `cmd_info.cpp`/`cmd_info_json.cpp` migrated onto `m2::Model` (REFACTOR/AUDIT.md §2.1, REFACTOR/README.md's Migration order step 2)
+
+**What**: Two commits.
+
+*Commit 1* removed `m2::loadModelFile` (`src/m2_model.hpp`/`.cpp`), added in
+the previous entry's own pure-addition pass and never actually called by
+anything -- a third verbatim copy of the same file-read logic already in
+`m2::loadFile` (`src/m2_primitives.cpp`) and `cmd_info.cpp`'s own
+`readFileBytes` (identical `errno` reset, identical `ifstream`, identical
+`istreambuf_iterator` read, identical error strings), violating
+README.md's own invariant I2 inside the commit meant to close this
+section's duplication. Its own dedicated test case went with it; the one
+other test using it as a read-and-parse convenience (the real
+`bloodelffemale.m2` fixture case in `tests/test_m2_model.cpp`) now reads
+the file itself and calls `loadModel(bytes)` directly. Not replaced with a
+shared helper -- nothing needs one yet.
+
+*Commit 2* is the actual migration: `cmd_info.cpp`/`cmd_info_json.cpp` each
+called ~15 loose `m2::parse*` functions (AUDIT.md §2.1's table, now
+corrected to name `cmd_info_json.cpp` as a real fourth hand-assembled view
+the table had simply omitted -- see AUDIT.md's own correction note). Both
+now call `m2::loadModel()` once and read every field off the resulting
+`Model` instead. `printInfoJson`'s signature changed from
+`(out, path, const Header&, const vector<uint8_t>&)` to
+`(out, path, const Model&)` -- `cmd_info_json.cpp` no longer parses
+anything itself, it only reads already-populated struct members.
+
+**The trap, and how it was avoided**: `cmd_info.cpp` parses conditionally
+and inconsistently -- `sequenceLookup > 0` gates a `parseSequences` call on
+a *different* array's count; `textureCombinerCombos`/`boneLookup`/
+`textureLookup`/`attachmentLookup`/`cameraLookup` are each gated on their
+own `count > 0`; `bones`/`textures`/`materials`/`attachments`/`events`/
+`lights`/`ribbon_emitters` are parsed unconditionally, outside any guard.
+`loadModel()` parses all of these unconditionally regardless. Every one of
+cmd_info.cpp's original `if (...count > 0)` guards survives verbatim in
+this migration -- only the data source inside each guard changed, from a
+fresh `m2::parseX(blob, h.X)` call to a `model.X` field read. Nothing new
+prints on a well-formed file; the diff gate below is the proof, not an
+assertion.
+
+**The other half of the trap -- a real, intentional behavior change,
+not hidden**: `bones`/`textures`/`materials`/`attachments`/`events`/
+`lights`/`ribbon_emitters`'s unconditional parse calls sat *outside*
+`cmd_info.cpp`'s only try/catch (which wraps just the header/blob read),
+and `main.cpp` has no outer catch around command dispatch -- so a
+malformed array elsewhere in an otherwise-well-formed file crashed the
+whole process on an uncaught `m2::ParseError` today, before this
+migration. `loadModel()` isolates each array's own parse failure into
+`Model::parseFailures` instead of propagating it (previous entry's own
+design), so this can no longer crash -- but "no longer crashes" must not
+mean "silently reads as an empty array" (CLAUDE.md: "on failure, always
+print expected and actual values"). Chosen fix, applied identically to
+both commands: a generic diagnostic, printed only when
+`model.parseFailures` is non-empty, naming every failed field and its
+real `ParseError::what()` message (already carrying the "expected N
+bytes, blob is M" detail) -- prose gets a `parse_failures: N` block
+printed right after `global_flags`; JSON gets a `parse_failures` array of
+`{field, what}` objects in the same spot, present only when non-empty
+(the same "absent, not null, for a conditional field" convention this
+schema already used everywhere else). Exit code stays 0 either way --
+consistent with the existing "particle_emitters below Cataclysm" case,
+which already warns-and-continues rather than failing the whole command
+over one unavailable detail section. Pinned with two new CLI-tier
+regression tests (`tests/test_cli_errors.cpp`, `tests/test_cli_info_json.cpp`):
+a synthetic file with a valid header but `bones`' own array descriptor
+pointing 999999 bytes past a ~0x130-byte buffer -- both now assert exit 0,
+no `terminate called`, the header's own declared `bones: 1` count still
+printing (untouched, real data) alongside zero billboard-detail lines, and
+`parse_failures`/`"parse_failures"` naming `bones` by name with a
+non-empty reason.
+
+**Diff gate (REFACTOR/README.md's "every difference is explained and
+attributed", this task's own gate)**: built the pre-migration tree first
+(commit 1's own state -- already had `m2::Model`, unused, so its `husk`
+binary is the true pre-migration reference) and copied its `build/husk`
+aside before touching `cmd_info.cpp`/`cmd_info_json.cpp`. Sample: 400
+files drawn from the real local corpus
+(`find /media/luna/data/wow_export -iname "*.m2" -type f | sort`,
+132,863 files) via a seeded Fisher-Yates shuffle (seed 42, `awk`'s own
+`srand`/`rand` -- `perl`/`python3` are both blocked in this environment
+by design, see its own CLAUDE.md; `awk` isn't), taking the first 400 of
+the shuffled order, plus `test_data/bloodelffemale.m2` and
+`/media/luna/data/wow_export/creature/wolf/wolf.m2` appended explicitly
+per this task's own brief -- 402 unique files total (verified via
+`sort -u`). Ran both binaries' `info` and `info --json` over every file
+(`HUSK_CONFIG=/dev/null` for both, avoiding this machine's own real
+`~/.config/husk/config.toml`), diffing stdout, stderr, and exit code per
+file. **Result: 402/402 byte-identical on both stdout and stderr and
+exit code, for both `info` and `info --json` -- zero differences, let
+alone unexplained ones.** Confirmed the sample wasn't trivially empty
+models: 95/402 files have `particle_emitters > 0`, 4/402 have
+`ribbon_emitters > 0`, and (expected, real game files aren't malformed)
+zero files anywhere in the sample hit `parse_failures` in either
+before or after output -- the new diagnostic path is real but inert
+against this sample, exercised instead by the two new synthetic
+regression tests above. Reproduction: seed/commands recorded in this
+entry; the actual before/after capture directory was scratchpad-only,
+not committed (throwaway, matching this project's own "seeded sample,
+not a persistent artifact" convention already established for corpus
+scan work).
+
+**Deliberately not touched**: `cmd_export.cpp`/`cmd_dump.cpp` -- not this
+task's scope, `REFACTOR/AUDIT.md` §2.1 stays open until they migrate too.
+No existing `m2_*.hpp`/`.cpp` parser changed. No `src/formats/`,
+`src/canon/`, or `src/writers/` directory created -- out of scope for this
+step.
+
+**Verified**: `direnv exec . cmake --build build`, then
+`direnv exec . env HUSK_TEST_M2=test_data/bloodelffemale.m2
+HUSK_TEST_SKIN=test_data/bloodelffemale00.skin ./build/husk-tests` --
+**795 test cases, 0 failed, 1 skipped (unchanged
+`test_listfile_mmap_real.cpp`); 6518 assertions, 0 failed**, up from the
+794/6500 baseline by commit 1's net-even test-count-minus-one (loadModelFile's
+own test removed, its replacement gaining one `REQUIRE`) plus commit 2's
+2 new regression tests (+18 assertions). Plus the diff gate above, run
+against the real compiled `husk` binary, not just the test suite.
+
+---
+
 ## 2026-09-03 — `m2::Model`: the whole-file parsed aggregate (REFACTOR/AUDIT.md §2.1), pure addition
 
 **What**: Introduced `husk::m2::Model` (`src/m2_model.hpp`/`.cpp`, new

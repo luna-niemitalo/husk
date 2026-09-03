@@ -163,6 +163,35 @@ TEST_CASE("husk info --json: a malformed file fails cleanly (exit 1, no partial 
     fs::remove(path);
 }
 
+// JSON twin of test_cli_errors.cpp's "husk info: a malformed array beyond
+// an otherwise-valid header fails cleanly, not a crash" -- same fixture,
+// checking the structured `parse_failures` key (present only when
+// non-empty, same convention every other conditional key in this schema
+// already follows -- see cmd_info_json.cpp's own doc comment) rather than
+// prose substrings.
+TEST_CASE("husk info --json: a malformed array beyond an otherwise-valid header exits cleanly and "
+          "reports it via parse_failures, not a null/absent field") {
+    auto b = minimalMd20();
+    putArrayAt(b, 0x02C, 1, 999999);  // bones: count=1, offset far past this ~0x130-byte buffer
+
+    auto path = tempPath("json-malformed-bones.m2");
+    writeFile(path, b);
+
+    auto result = runHusk("info --json " + path.string());
+    CHECK(result.exitCode == 0);
+    auto doc = parseJson(result.output);
+    REQUIRE(doc.has_value());
+    CHECK(doc->at("bones").at("count") == 1);              // header's own declared count, untouched
+    CHECK(doc->at("bones").at("billboard_bones").empty());  // per-record detail: empty, not crashed
+    REQUIRE(doc->contains("parse_failures"));
+    auto failures = doc->at("parse_failures");
+    REQUIRE(failures.size() == 1);
+    CHECK(failures.at(0).at("field") == "bones");
+    CHECK(!failures.at(0).at("what").get<std::string>().empty());
+
+    fs::remove(path);
+}
+
 TEST_CASE("husk info --json: real fixture (bloodelffemale.m2) -- vertices/particle_emitters "
           "counts match husk's own parse" * doctest::skip(husk::test::testM2().empty())) {
     std::string path = husk::test::testM2();

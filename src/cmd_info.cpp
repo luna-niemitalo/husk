@@ -97,26 +97,28 @@ int info(int argc, char** args) {
     }
     const std::string& path = opts.model;
 
-    m2::Header h;
-    std::vector<uint8_t> blob;
+    m2::Model model;
     try {
         auto bytes = readFileBytes(path);
-        h = m2::parseHeader(bytes);
-        blob = m2::extractBlob(bytes);
+        model = m2::loadModel(bytes);
     } catch (const std::exception& e) {
         // Catches m2::ParseError (a malformed-but-readable file) and
-        // anything else that can escape loadFile -- e.g. husk::ChunkError
+        // anything else that can escape loadModel -- e.g. husk::ChunkError
         // from a garbage/malformed chunked file, or std::ios_base::failure
         // from a genuine OS-level read error (a directory path, a special
         // file, ...). A narrower catch here would abort the process on some
-        // of those instead of printing a clean message.
+        // of those instead of printing a clean message. This only covers
+        // header/blob-level failure -- loadModel itself never throws past
+        // that point, isolating each array's own parse failure into
+        // model.parseFailures instead (see m2_model.hpp's doc comment).
         // TODO: Remove: found via FAILURES.md #1.
         std::cerr << "husk: couldn't read '" << path << "': " << e.what() << "\n";
         return 1;
     }
+    const m2::Header& h = model.header;
 
     if (opts.json) {
-        printInfoJson(std::cout, path, h, blob);
+        printInfoJson(std::cout, path, model);
         return 0;
     }
 
@@ -147,11 +149,31 @@ int info(int argc, char** args) {
         }
     }
     std::cout << "\n";
+
+    // loadModel parses every array eagerly and in isolation (m2_model.hpp's
+    // doc comment) -- a malformed section deeper in an otherwise-readable
+    // file no longer aborts `husk info` (it used to: several of the loops
+    // below ran outside this command's only try/catch, so a bad `bones` or
+    // `attachments` array crashed the whole process on an uncaught
+    // m2::ParseError). The corresponding field is simply left empty
+    // instead now, same value a genuinely-empty array also has -- this
+    // block is what keeps that distinguishable, per CLAUDE.md's "on
+    // failure, always print expected and actual values": every failed
+    // field's name and its real ParseError message (already carrying the
+    // "expected N bytes, blob is M" detail) print here, once, rather than
+    // each of the many count/detail sections below silently reading as
+    // "empty".
+    if (!model.parseFailures.empty()) {
+        std::cout << "  parse_failures: " << model.parseFailures.size() << "\n";
+        for (const auto& f : model.parseFailures) {
+            std::cout << "    " << f.field << ": " << f.what << "\n";
+        }
+    }
+
     if (h.textureCombinerCombos.count > 0) {
         printArray("textureCombinerCombos", h.textureCombinerCombos);
-        auto combos = m2::parseUint16Array(blob, h.textureCombinerCombos);
         std::cout << "    values:";
-        for (uint16_t v : combos) {
+        for (uint16_t v : model.textureCombinerCombos) {
             std::cout << " " << v;
         }
         std::cout << "\n";
@@ -164,8 +186,8 @@ int info(int argc, char** args) {
         // count, quadratic probing on collision), not a direct id-indexed
         // array -- printing "bucket -> sequence" rather than pretending the
         // bucket index means anything on its own.
-        auto lookup = m2::parseUint16Array(blob, h.sequenceLookup);
-        auto sequences = m2::parseSequences(blob, h.sequences);
+        const auto& lookup = model.sequenceLookup;
+        const auto& sequences = model.sequences;
         for (size_t i = 0; i < lookup.size(); ++i) {
             if (lookup[i] == 0xFFFF) continue;
             std::cout << "    bucket " << i << " -> sequence[" << lookup[i] << "]";
@@ -182,7 +204,7 @@ int info(int argc, char** args) {
                   << ") -- pass its .skel path to `husk export`'s optional 4th argument\n";
     }
     {
-        auto bones = m2::parseBones(blob, h.bones);
+        const auto& bones = model.bones;
         for (size_t i = 0; i < bones.size(); ++i) {
             if (const char* mode = m2::billboardModeName(bones[i].flags)) {
                 std::cout << "    bone " << i << ": billboard=" << mode << "\n";
@@ -196,7 +218,7 @@ int info(int argc, char** args) {
         // = no bone assigned to that key-bone role in this model. The
         // reverse direction of Bone::keyBoneId (bone -> role), already
         // surfaced per-bone via billboardModeName's neighboring loop above.
-        auto keyBones = m2::parseUint16Array(blob, h.boneLookup);
+        const auto& keyBones = model.boneLookup;
         for (size_t i = 0; i < keyBones.size(); ++i) {
             if (keyBones[i] == 0xFFFF) continue;
             std::cout << "    key bone " << i;
@@ -209,7 +231,7 @@ int info(int argc, char** args) {
     printArray("vertices", h.vertices);
     printArray("textures", h.textures);
     {
-        auto textures = m2::parseTextures(blob, h.textures);
+        const auto& textures = model.textures;
         for (size_t i = 0; i < textures.size(); ++i) {
             const auto& t = textures[i];
             std::cout << "    texture " << i << ": type=" << t.type << " flags=0x" << std::hex
@@ -233,7 +255,7 @@ int info(int argc, char** args) {
         // `textureCombos` (wiki's separately-named "Texture lookup table"),
         // which is batch-order combiner data cmd_export.cpp already
         // consumes for real rendering.
-        auto texLookup = m2::parseUint16Array(blob, h.textureLookup);
+        const auto& texLookup = model.textureLookup;
         for (size_t i = 0; i < texLookup.size(); ++i) {
             if (texLookup[i] == 0xFFFF) continue;
             std::cout << "    texture type " << i;
@@ -245,7 +267,7 @@ int info(int argc, char** args) {
     }
     printArray("materials", h.materials);
     {
-        auto materials = m2::parseMaterials(blob, h.materials);
+        const auto& materials = model.materials;
         for (size_t i = 0; i < materials.size(); ++i) {
             std::cout << "    material " << i << ": flags=0x" << std::hex << materials[i].flags
                        << std::dec << " blend_mode=" << materials[i].blendMode << "\n";
@@ -321,7 +343,7 @@ int info(int argc, char** args) {
     }
 
     printArray("attachments", h.attachments);
-    for (const auto& a : m2::parseAttachments(blob, h.attachments)) {
+    for (const auto& a : model.attachments) {
         std::cout << "    id=" << a.id << " bone=" << a.bone << " position=";
         printVec3(a.position);
         std::cout << "\n";
@@ -331,7 +353,7 @@ int info(int argc, char** args) {
         // wowdev.wiki M2#Attachment_Lookup: index = attachment type id (see
         // m2::attachmentTypeName), value = index into `attachments`, 0xFFFF
         // ("-1") = that type isn't used by this model.
-        auto attLookup = m2::parseUint16Array(blob, h.attachmentLookup);
+        const auto& attLookup = model.attachmentLookup;
         for (size_t i = 0; i < attLookup.size(); ++i) {
             if (attLookup[i] == 0xFFFF) continue;
             std::cout << "    attachment type " << i;
@@ -342,14 +364,14 @@ int info(int argc, char** args) {
         }
     }
     printArray("events", h.events);
-    for (const auto& e : m2::parseEvents(blob, h.events)) {
+    for (const auto& e : model.events) {
         std::cout << "    " << (e.identifier.empty() ? "(empty)" : e.identifier) << " bone=" << e.bone
                    << " data=" << e.data << " position=";
         printVec3(e.position);
         std::cout << "\n";
     }
     printArray("lights", h.lights);
-    for (const auto& l : m2::parseLights(blob, h.lights)) {
+    for (const auto& l : model.lights) {
         std::cout << "    type=" << (l.type == 0 ? "directional" : l.type == 1 ? "point" : "unknown")
                    << " bone=" << l.bone << " position=";
         printVec3(l.position);
@@ -363,14 +385,14 @@ int info(int argc, char** args) {
         // `cameras`, 0xFFFF ("-1") = not referenced. The wiki notes a valid
         // block may be all -1s (an exporter quirk, e.g.
         // ui_mainmenu_warlords.m2) -- that's real data, not a parse bug.
-        auto camLookup = m2::parseUint16Array(blob, h.cameraLookup);
+        const auto& camLookup = model.cameraLookup;
         for (size_t i = 0; i < camLookup.size(); ++i) {
             if (camLookup[i] == 0xFFFF) continue;
             std::cout << "    camera type " << i << " -> camera " << camLookup[i] << "\n";
         }
     }
     printArray("ribbon_emitters", h.ribbonEmitters);
-    for (const auto& r : m2::parseRibbons(blob, h.ribbonEmitters)) {
+    for (const auto& r : model.ribbonEmitters) {
         std::cout << "    ribbonId=" << r.ribbonId << " bone=" << r.boneIndex << " position=";
         printVec3(r.position);
         std::cout << " edgesPerSecond=" << r.edgesPerSecond << " edgeLifetime=" << r.edgeLifetime
@@ -385,7 +407,7 @@ int info(int argc, char** args) {
                      "particle_emitters is count-only for this file rather than risking a "
                      "silent misread at the wrong byte offset\n";
     } else {
-        for (const auto& p : m2::parseParticles(blob, h.particleEmitters)) {
+        for (const auto& p : model.particleEmitters) {
             std::cout << "    particleId=" << p.particleId << " bone=" << p.boneId << " position=";
             printVec3(p.position);
             std::cout << " blendingType=" << static_cast<int>(p.blendingType)

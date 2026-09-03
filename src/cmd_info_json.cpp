@@ -97,8 +97,8 @@ void writeOptionalName(json::Writer& w, const char* key, const char* name) {
 
 }  // namespace
 
-void printInfoJson(std::ostream& out, const std::string& path, const m2::Header& h,
-                    const std::vector<uint8_t>& blob) {
+void printInfoJson(std::ostream& out, const std::string& path, const m2::Model& model) {
+    const m2::Header& h = model.header;
     json::Writer w(out);
     w.beginObject();
 
@@ -127,6 +127,30 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
     w.endArray();
     w.endObject();
 
+    // model.parseFailures: mirrors cmd_info.cpp's own "parse_failures"
+    // prose section -- see that file's doc comment for why this exists
+    // (loadModel parses every array eagerly and in isolation, so one
+    // malformed section no longer aborts `husk info` outright; this is
+    // what keeps a genuinely-failed field distinguishable from a
+    // genuinely-empty one for a script consuming this JSON, matching
+    // CLAUDE.md's "on failure, always print expected and actual values").
+    // Absent (not an empty array) when every field parsed cleanly, same
+    // "present only when non-empty" convention every other conditional key
+    // in this file already follows.
+    if (!model.parseFailures.empty()) {
+        w.key("parse_failures");
+        w.beginArray();
+        for (const auto& f : model.parseFailures) {
+            w.beginObject();
+            w.key("field");
+            w.value(f.field);
+            w.key("what");
+            w.value(f.what);
+            w.endObject();
+        }
+        w.endArray();
+    }
+
     // Only present in the wire header at all when
     // GlobalFlag::kUseTextureCombinerCombos is set -- see Header::
     // textureCombinerCombos's own doc comment. Gated on count > 0, same
@@ -135,7 +159,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
         beginArrayObject(w, "texture_combiner_combos", h.textureCombinerCombos);
         w.key("values");
         w.beginArray();
-        for (uint16_t v : m2::parseUint16Array(blob, h.textureCombinerCombos)) {
+        for (uint16_t v : model.textureCombinerCombos) {
             w.value(static_cast<int64_t>(v));
         }
         w.endArray();
@@ -147,8 +171,8 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
 
     beginArrayObject(w, "sequence_lookup", h.sequenceLookup);
     if (h.sequenceLookup.count > 0) {
-        auto lookup = m2::parseUint16Array(blob, h.sequenceLookup);
-        auto sequences = m2::parseSequences(blob, h.sequences);
+        const auto& lookup = model.sequenceLookup;
+        const auto& sequences = model.sequences;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < lookup.size(); ++i) {
@@ -176,7 +200,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
         w.value(static_cast<int64_t>(*h.skeletonFileId));
     }
     {
-        auto bones = m2::parseBones(blob, h.bones);
+        const auto& bones = model.bones;
         w.key("billboard_bones");
         w.beginArray();
         for (size_t i = 0; i < bones.size(); ++i) {
@@ -195,7 +219,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
 
     beginArrayObject(w, "bone_lookup", h.boneLookup);
     if (h.boneLookup.count > 0) {
-        auto keyBones = m2::parseUint16Array(blob, h.boneLookup);
+        const auto& keyBones = model.boneLookup;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < keyBones.size(); ++i) {
@@ -219,7 +243,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
 
     beginArrayObject(w, "textures", h.textures);
     {
-        auto textures = m2::parseTextures(blob, h.textures);
+        const auto& textures = model.textures;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < textures.size(); ++i) {
@@ -252,7 +276,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
 
     beginArrayObject(w, "texture_lookup", h.textureLookup);
     if (h.textureLookup.count > 0) {
-        auto texLookup = m2::parseUint16Array(blob, h.textureLookup);
+        const auto& texLookup = model.textureLookup;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < texLookup.size(); ++i) {
@@ -273,7 +297,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
     // particle_only_task.py's/black_additive_task.py's MATERIAL_RE.
     beginArrayObject(w, "materials", h.materials);
     {
-        auto materials = m2::parseMaterials(blob, h.materials);
+        const auto& materials = model.materials;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < materials.size(); ++i) {
@@ -360,7 +384,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
 
     beginArrayObject(w, "attachments", h.attachments);
     {
-        auto attachments = m2::parseAttachments(blob, h.attachments);
+        const auto& attachments = model.attachments;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < attachments.size(); ++i) {
@@ -381,7 +405,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
 
     beginArrayObject(w, "attachment_lookup", h.attachmentLookup);
     if (h.attachmentLookup.count > 0) {
-        auto attLookup = m2::parseUint16Array(blob, h.attachmentLookup);
+        const auto& attLookup = model.attachmentLookup;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < attLookup.size(); ++i) {
@@ -400,7 +424,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
 
     beginArrayObject(w, "events", h.events);
     {
-        auto events = m2::parseEvents(blob, h.events);
+        const auto& events = model.events;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < events.size(); ++i) {
@@ -423,7 +447,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
 
     beginArrayObject(w, "lights", h.lights);
     {
-        auto lights = m2::parseLights(blob, h.lights);
+        const auto& lights = model.lights;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < lights.size(); ++i) {
@@ -447,7 +471,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
 
     beginArrayObject(w, "camera_lookup", h.cameraLookup);
     if (h.cameraLookup.count > 0) {
-        auto camLookup = m2::parseUint16Array(blob, h.cameraLookup);
+        const auto& camLookup = model.cameraLookup;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < camLookup.size(); ++i) {
@@ -465,7 +489,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
 
     beginArrayObject(w, "ribbon_emitters", h.ribbonEmitters);
     {
-        auto ribbons = m2::parseRibbons(blob, h.ribbonEmitters);
+        const auto& ribbons = model.ribbonEmitters;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < ribbons.size(); ++i) {
@@ -501,7 +525,7 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Header&
     } else {
         w.key("version_verified");
         w.value(true);
-        auto particles = m2::parseParticles(blob, h.particleEmitters);
+        const auto& particles = model.particleEmitters;
         w.key("entries");
         w.beginArray();
         for (size_t i = 0; i < particles.size(); ++i) {
