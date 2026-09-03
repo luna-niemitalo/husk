@@ -10,7 +10,7 @@ Loop opened 2026-09-03. Running Migration order **stage 2** (`m2::Model`).
 | Task | Source | Status | Assigned | Commit(s) | Notes |
 |---|---|---|---|---|---|
 | `stage1-gate-audit` | README.md Migration order 1 | verified | 2026-09-03 | (no code) | README asks whether stage 1's gate was actually *run*, not just built. It was: `AUDIT.md` §1.1 records a resolution-ledger diff, byte-identical/zero-delta, on `bloodelffemale_hd`, `nightelffemale_hd` (218-candidate ambiguous pool), `wolf.m2` (incl. `--lod all`), `sword_1h_artifactskywall_d_06.m2` (13 fuzzy/ambiguous matches), plus a `--knowledge-db` item exercising `registerPathOverride`. Four real fixtures + the override case. Gate met; stage 1 closed. |
-| `red-baseline-fuzzy-pool` | baseline failure (not AUDIT.md) | in-progress | 2026-09-03 | - | **Blocks every other verify.** `tests/test_cli_textures.cpp:252` fails on a clean tree at `7f7c49a`: the two-basename-matching-candidates case finds `fuzzytexfaceupper00_00.png` in the output but not `fuzzytexskin00_00.png`. Suspects, in order: `feed145` (regrouped the console warning by candidate set), `dfabdd2` (constrained the widened pool for untagged texture types). Must end green **or** with the test corrected against a stated, deliberate behaviour change — never deleted or `doctest::skip`-ed to get green. |
+| `red-baseline-fuzzy-pool` | baseline failure (not AUDIT.md) | **verified** | 2026-09-03 | `9bdd0ed` | Stale test, not a regression. `feed145`'s own commit message states it deliberately stopped dumping the full candidate list to stderr ("already embedded as alternate_textures extras on the .glb"), and it touched only `cmd_export.cpp`'s printing — clearing the other suspect, `dfabdd2`'s pool admission, which never excluded the candidate. Supervisor checks: diff scope is 2 files, no `src/`; the removed stderr grep was replaced by a **stronger** `.glb` assertion (both filenames looked up by content in `alternate_textures`, previously only `ArrayLen() == 2`, plus `images.size() == 3`); `feed145`'s intent confirmed by reading it directly, not from the report; full suite rebuilt and re-run from scratch by me. |
 | `m2-model-aggregate` | AUDIT.md §2.1 | ready | - | - | Split 1/4. Introduce `m2::Model` + `m2::loadModel()` as a **pure addition** — the whole-file aggregate, no consumer migrated. Type + loader + tests only. |
 | `m2-model-adopt-info` | AUDIT.md §2.1 | ready | - | - | Split 2/4. Migrate `cmd_info.cpp` **and** `cmd_info_json.cpp` onto `m2::Model`. Carries stage 2's own gate for `husk info`: before/after output diffed on real fixtures, every difference attributed. |
 | `m2-model-adopt-dump` | AUDIT.md §2.1 | ready | - | - | Split 3/4. Migrate `cmd_dump.cpp`. Carries stage 2's gate for `dump-chunks`. |
@@ -25,10 +25,15 @@ Loop opened 2026-09-03. Running Migration order **stage 2** (`m2::Model`).
 
 **788 test cases — 787 passed, 1 failed, 1 skipped; 6321 assertions.**
 
-The failure is pre-existing (`red-baseline-fuzzy-pool` above), not introduced by
-this loop. The skip is `test_listfile_mmap_real.cpp` wanting
-`HUSK_TEST_REAL_LISTFILE`. A verify iteration must **beat** this baseline, not
-merely match it.
+The failure was pre-existing (`red-baseline-fuzzy-pool` above), not introduced
+by this loop. The skip is `test_listfile_mmap_real.cpp` wanting
+`HUSK_TEST_REAL_LISTFILE`.
+
+**Current green baseline, independently re-run at `9bdd0ed`: 788 cases — 788
+passed, 0 failed, 1 skipped; 6323 assertions.** That is what every later verify
+iteration is measured against. A verify must **beat or hold** it, never merely
+"look green" — and an assertion count that *drops* is a signal to inspect, since
+coverage can be removed without any test failing.
 
 ## Environment notes for briefs (from `SUPERVISOR_LOOP.md`'s NOTES)
 
