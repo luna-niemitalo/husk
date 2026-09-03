@@ -8,11 +8,13 @@
 // TEST_DESIGN.md#Four-tier-architecture for how this tier relates to the
 // others.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <doctest/doctest.h>
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <tiny_gltf.h>
 #include <vector>
 
@@ -248,11 +250,20 @@ TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot 
     CHECK(result.output.find("1 with an embedded texture") != std::string::npos);
     CHECK(result.output.find("2 same-basename texture candidate(s)") != std::string::npos);
     CHECK(result.output.find("alternate_textures") != std::string::npos);
+    // Since feed145 ("Group console warnings by candidate set instead of
+    // spamming per batch"), the console warning names only the arbitrarily-
+    // picked default -- the full candidate list is no longer dumped to
+    // stderr (it was 400+ lines on a real character export) since it's
+    // already embedded as real alternate_textures extras on the .glb.
+    // fuzzytexfaceupper00_00.png (the default) is still named here; the
+    // non-default fuzzytexskin00_00.png deliberately is not -- its presence
+    // is asserted for real below, against the actual .glb content instead.
     CHECK(result.output.find("fuzzytexfaceupper00_00.png") != std::string::npos);
-    CHECK(result.output.find("fuzzytexskin00_00.png") != std::string::npos);
 
     // Real content check: both candidates' actual bytes reached the .glb,
-    // not just their names in the warning text.
+    // not just the default's name in the warning text above -- this is
+    // this test's real assertion that neither candidate is silently
+    // dropped.
     tinygltf::TinyGLTF loader;
     tinygltf::Model model;
     std::string err, warn;
@@ -260,7 +271,19 @@ TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot 
     REQUIRE(model.materials.size() == 1);
     REQUIRE(model.materials[0].extras.Has("alternate_textures"));
     auto alt = model.materials[0].extras.Get("alternate_textures");
-    CHECK(alt.ArrayLen() == 2);
+    REQUIRE(alt.ArrayLen() == 2);
+    std::vector<std::string> altFilenames;
+    for (int i = 0; i < alt.ArrayLen(); ++i) {
+        altFilenames.push_back(alt.Get(i).Get("filename").Get<std::string>());
+    }
+    CHECK(std::find(altFilenames.begin(), altFilenames.end(), "fuzzytexfaceupper00_00.png") !=
+          altFilenames.end());
+    CHECK(std::find(altFilenames.begin(), altFilenames.end(), "fuzzytexskin00_00.png") !=
+          altFilenames.end());
+    // Each candidate is a genuinely separate embedded image (not just a
+    // name reused twice) -- the primary baseColorTexture image plus the
+    // two alternate-candidate images.
+    CHECK(model.images.size() == 3);
 
     fs::remove_all(dir);
 }

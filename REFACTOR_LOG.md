@@ -8,6 +8,61 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-09-03 — `red-baseline-fuzzy-pool`: the clean-tree failure was a stale test assertion, not a regression
+
+**What**: Closed the loop's first task (`LOOP_STATE.md`'s
+`red-baseline-fuzzy-pool`) — `tests/test_cli_textures.cpp:252`'s "two
+basename-matching candidates ... embed BOTH as alternate_textures" case
+failed on a clean `7f7c49a` tree: `result.output.find("fuzzytexskin00_00.png")`
+came back `npos`. Reproduced directly (`husk-tests -tc=...`), then dumped
+the real console text and the real `.glb` content by hand rather than
+guessing between the two suspects `LOOP_STATE.md` named. Console text:
+`husk: warning: 1 material(s) (e.g. 'batch0_mat0_tex0_skin_fuzzytexfaceupper00_00')
+each had 2 same-basename texture candidate(s) (fuzzytexfaceupper00_00.png
+picked arbitrarily as the default) -- all 2 are embedded as
+'alternate_textures' extras on each material (...)` — the non-default
+candidate's filename is genuinely absent from stderr now, by design
+(`feed145`, "Group console warnings by candidate set instead of spamming
+per batch": the full candidate list used to dump 400+ filenames to stderr
+on a real character export; it's dropped in favor of the data already
+living in the `.glb`). The `.glb` itself, loaded via tinygltf and dumped
+field-by-field, has both candidates fully intact:
+`alternate_textures[0].filename == "fuzzytexfaceupper00_00.png"`,
+`alternate_textures[1].filename == "fuzzytexskin00_00.png"`, and 3 real,
+distinct embedded images (the primary baseColorTexture plus one per
+candidate) — not 2 with one name reused. This settles it as suspect (a):
+the *test* was stale, not `src/`; `dfabdd2`'s pool-admission narrowing
+(the other named suspect) never enters into it — both candidates were
+admitted to the pool the whole time.
+
+**Why**: Per the task's own explicit instruction, a behavior-shape change
+gets its test updated to match the real, deliberate new output, leaning
+on the test's existing real-content check (tinygltf-loaded `.glb`
+inspection) as the behavioral assertion rather than grepping console
+prose. Updated `tests/test_cli_textures.cpp`: the stale
+`result.output.find("fuzzytexskin00_00.png")` assertion is gone (with a
+comment explaining why, citing `feed145`), and the real-content section
+below was strengthened to be the test's actual "neither candidate is
+silently dropped" guarantee — it now collects every `alternate_textures[i].filename`
+into a vector and `CHECK`s both real filenames are present by content
+(not just `ArrayLen() == 2`), plus asserts `model.images.size() == 3` to
+confirm three genuinely separate embedded images rather than a reused
+name. No `src/` file touched — `dfabdd2`'s admission logic was correct
+for this case, confirmed empirically, not assumed.
+
+**Verified**: full suite green, 788/788 (0 failed, 1 skipped —
+`test_listfile_mmap_real.cpp` wanting `HUSK_TEST_REAL_LISTFILE`, same as
+baseline), 6323/6323 assertions passed — beats `LOOP_STATE.md`'s recorded
+787/788 baseline. Manual repro command:
+`direnv exec . env HUSK_TEST_M2=test_data/bloodelffemale.m2 HUSK_TEST_SKIN=test_data/bloodelffemale00.skin
+./build/husk-tests -tc="*basename-matching candidates for one hardcoded slot*"`.
+Deliberately not touched: `REFACTOR/LOOP_STATE.md` itself (updating the
+loop's own state table is the supervisor's job, out of this task's stated
+scope) and every other `LOOP_STATE.md` row (`m2-model-aggregate` etc.) —
+this entry closes only the one red-baseline blocker.
+
+---
+
 ## 2026-08-29 — `AUDIT.md` §3's third bullet: `extras` schema version + `EXTRAS_SCHEMA.md`
 
 **What**: Closed "No schema version anywhere." Added `kExtrasSchemaVersion`
