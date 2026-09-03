@@ -205,7 +205,7 @@ from loose parse calls:
 | `cmd_export.cpp` | 11 kinds | attachments, events, lights, ribbons, particles |
 | `cmd_info.cpp` | 12 kinds | vertices, colors, texture weights/transforms |
 | `cmd_info_json.cpp` | 10 kinds, 15 call sites -- mirrors cmd_info.cpp's own fields, minus parseHeader/extractBlob (reuses the caller's already-parsed header/blob) | same as cmd_info.cpp: vertices, colors, texture weights/transforms |
-| `cmd_dump.cpp` | header + blob only | everything else, re-parsed ad hoc downstream |
+| `cmd_dump.cpp` | header + blob only (pre-migration) | everything else, re-parsed ad hoc downstream |
 
 So "what does husk think is in this file" has four different answers depending
 on which verb you typed.
@@ -216,6 +216,19 @@ result instead of their own loose `parse*` calls (REFACTOR/README.md's
 Migration order step 2; full narrative and the diff-gate numbers:
 `REFACTOR_LOG.md`'s newest entry). `cmd_export.cpp`/`cmd_dump.cpp` are not
 migrated yet -- this section stays open until they are too.
+
+**Update (2026-09-04): `cmd_dump.cpp` migrated onto `m2::Model` too** --
+its own `parseHeader`+`extractBlob` pair is now one `m2::loadModel()` call,
+and `dumpEmitters` (where the real ribbon/particle re-parsing lived, `src/
+dump_emitters.cpp`) reads `model.ribbonEmitters`/`particleEmitters` instead
+of calling `m2::parseRibbons`/`parseParticles` itself. Full narrative and
+the diff-gate numbers: `REFACTOR_LOG.md`'s newest entry. `cmd_export.cpp`
+is the only command left unmigrated -- this section stays open until it is
+too. `src/dump_chunks_misc.cpp`'s three `m2::parse*` calls and `src/
+dump_phys.cpp` were deliberately left alone: they parse Legion+ chunk
+payloads via a synthesized `m2::Array` over a local `payload` buffer, not
+the MD20 blob or a `Header` array field -- `m2::Model` has nothing to offer
+those call sites, so this is not a subset of this section's own gap.
 
 ### 2.2 `M2MaterialInputs` is a bag with a back-pointer
 

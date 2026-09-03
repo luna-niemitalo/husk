@@ -20,6 +20,15 @@ namespace husk::commands {
 // still attaches a minimal position/bone anchor to the .glb's skin extras
 // (see gltf::Skeleton::RibbonAnchor/ParticleAnchor) for placement without
 // needing this JSON at all.
-void dumpEmitters(json::Writer& w, const std::vector<uint8_t>& blob, const m2::Header& header);
+//
+// Takes the whole `m2::Model` (REFACTOR/AUDIT.md §2.1's migration --
+// cmd_dump.cpp used to call m2::parseRibbons/parseParticles itself and pass
+// just blob+header) rather than re-parsing: model.ribbonEmitters/
+// particleEmitters are already the same parseRibbons/parseParticles output,
+// resolved once by m2::loadModel. The version-gate check below still reads
+// model.header directly (never model.ribbonEmitters/particleEmitters
+// themselves) -- see cmd_dump.cpp's call site for why that guard has to
+// survive unchanged even though the parse itself moved.
+void dumpEmitters(json::Writer& w, const m2::Model& model);
 
 }  // namespace husk::commands

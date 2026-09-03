@@ -8,6 +8,152 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-09-04 — `cmd_dump.cpp`/`dumpEmitters` migrated onto `m2::Model` (REFACTOR/AUDIT.md §2.1, REFACTOR/README.md's Migration order step 2)
+
+**What**: `cmd_dump.cpp` (`husk dump-chunks`) was the one command AUDIT.md
+§2.1's table listed as "header + blob only" -- it never dereferenced any
+array through `m2::parse*` itself, leaving `dumpEmitters` (`src/
+dump_emitters.cpp`) to call `m2::parseRibbons`/`parseParticles` directly on
+every invocation. `cmd_dump.cpp`'s `m2::parseHeader(fileBytes)` +
+`m2::extractBlob(fileBytes)` pair is now one `m2::loadModel(fileBytes)`
+call; `dumpEmitters`'s signature changed from `(json::Writer&, const
+vector<uint8_t>& blob, const m2::Header& header)` to `(json::Writer&, const
+m2::Model& model)`, reading `model.ribbonEmitters`/`model.particleEmitters`
+off the already-parsed result instead of re-parsing.
+
+**The version-gate trap, named in this task's own brief, and how it was
+avoided**: `dumpEmitters`'s `particle_emitters` key has a real guard --
+`header.particleEmitters.count > 0 && header.version <
+kMinVerifiedParticleVersion` prints a "below Cataclysm, not parsed" note
+instead of records, because M2Particle's record stride isn't verified below
+Cata and a wrong-stride read can silently misdecode adjacent bytes rather
+than throwing. `m2::loadModel` applies the exact same version check
+*before* attempting `parseParticles` at all (`m2_model.hpp`'s doc comment)
+-- so `model.particleEmitters` is empty below the gate for the same reason
+it always was (nothing was attempted), not a new parse failure. The guard
+in `dumpEmitters` still reads `header.version`/`header.particleEmitters.count`
+directly, unchanged -- not `model.particleEmitters.empty()`, which can't
+distinguish "gated" from "genuinely zero records" and would have silently
+dropped the real version number from the note. Verified directly against a
+synthetic pre-Cata fixture (`flat_particle_version_gate.m2` below): both
+binaries print the identical note, byte-for-byte.
+
+**A second, real behavior change, not hidden**: `dumpEmitters`'s old
+unconditional `m2::parseRibbons`/`parseParticles` calls sat inside
+`cmd_dump.cpp`'s single whole-body `try`/`catch` -- so a malformed
+`ribbon_emitters`/`particle_emitters` array previously aborted the entire
+command (`husk: dump-chunks failed: ...`, exit 1, a truncated/incomplete
+JSON document already written to stdout). `loadModel` isolates each
+array's own parse failure into `Model::parseFailures` instead of
+propagating it, so this can no longer happen -- but "no longer crashes"
+must not mean "silently prints an empty array" (CLAUDE.md: "on failure,
+always print expected and actual values"). Chosen fix, matching
+`cmd_info`/`cmd_info_json`'s own precedent exactly: `cmd_dump.cpp` now
+prints a `parse_failures` JSON array (`{field, what}` objects) right after
+`w.beginObject()`, before any array content, present only when
+`model.parseFailures` is non-empty. Exit code stays 0. Verified directly
+against both binaries on a synthetic malformed-ribbons fixture: before --
+`husk: dump-chunks failed: ribbonEmitters array claims 1 records (176
+bytes each) at offset 999999, which needs more room than the blob's 304
+bytes`, exit 1; after -- a complete JSON document, `parse_failures: [{
+"field": "ribbon_emitters", "what": "<same message>" }]`, `ribbon_emitters:
+[]`, `particle_emitters` unaffected, exit 0. Pinned with a new CLI-tier
+regression test in `tests/test_dump.cpp` (this command's own top-level
+dispatch test file, matching its stated scope -- the diagnostic is
+assembled by `cmd_dump.cpp` itself, not `dumpEmitters`).
+
+**Decision: yes, add `parse_failures` to `dump-chunks`, and it covers the
+whole model, not just ribbons/particles.** `m2::loadModel` eagerly parses
+every array in the file regardless of what `dump-chunks` itself displays
+(vertices, materials, textures, ... none of which this command ever
+prints) -- so `model.parseFailures` can in principle name a field this
+command doesn't otherwise surface at all. Kept anyway: `dump-chunks`'s own
+stated purpose (`cmd_dump.cpp`'s top doc comment) is surfacing M2 data
+"rather than leaving it silently unread" -- a parse failure is exactly
+that, and hiding it because the failing field happens to be one this
+command doesn't print elsewhere would contradict the command's own reason
+to exist. Same schema as `husk info --json`'s own `parse_failures` (not
+factored into a shared helper -- two JSON occurrences is below this
+project's own "third occurrence, or a single canonical hub" bar for
+earning an abstraction).
+
+**Diff gate (REFACTOR/README.md's "every difference is explained and
+attributed")**: built the pre-migration `husk` binary first (commit before
+this one) and copied it aside before touching any source file. Sample: 420
+files total, all run with `HUSK_CONFIG=/dev/null` on both sides --
+
+- 400 files via a seeded Fisher-Yates shuffle (seed 42, `awk`'s own
+  `srand`/`rand`, same method as the previous entry) over
+  `find /media/luna/data/wow_export -iname "*.m2" -type f | sort`
+  (132,863 files -- corpus unchanged since the last migration's own run).
+- 8 real ribbon-bearing files and 8 real particle-bearing files, chosen
+  deliberately rather than hoping the random 400 covered them (this task's
+  own instruction) -- ribbon anchors found by scanning
+  `item/objectcomponents/weapon/*.m2` with the pre-migration binary itself
+  for a `"ribbon_id"` hit (31 found across all 4,146 weapon files, 8
+  sampled); particle anchors taken from `corpus_reports/
+  particle_only_candidates.csv`, an existing real-corpus particle-emitter
+  survey, filtered to paths that still exist post-patch.
+- `test_data/bloodelffemale.m2` explicitly.
+- 3 synthetic fixtures for the pre-Legion flat-MD20 path, after confirming
+  the real local corpus has **zero** such files: an 8,858-file magic-byte
+  sample (every 15th file, ~6.7% of the corpus) was 100% `MD21`
+  (chunked) -- a live-patch CASC extraction has apparently fully migrated
+  every asset to the chunked container regardless of original age, so
+  `header.chunked == false` is unreachable from real local data at all.
+  Built with a throwaway scratch-only C++ program mirroring `tests/
+  test_dump_fixtures.hpp`'s own byte layout: a bare flat MD20 with no
+  emitters, a flat MD20 with one real ribbon + one real particle (proving
+  the pre-Legion path and the emitter-bearing path aren't mutually
+  exclusive), and a flat MD20 below `kMinVerifiedParticleVersion` with
+  `particleEmitters.count > 0` (the version-gate note path, on a genuinely
+  unchunked file).
+
+417 unique files from the four buckets above, deduplicated, plus the 3
+synthetic fixtures = 420. Ran both binaries' `dump-chunks` over every file,
+diffing stdout, stderr, and exit code. **Result: 420/420 byte-identical,
+zero differences.** Confirmed the sample wasn't trivially inert: 14/420
+files have real `ribbon_id` entries, 115/420 have real `particle_id`
+entries, 3/420 exercise the pre-Legion `header.chunked == false` cerr path
+(synthetic, since real local data has none), 1/420 exercises the
+below-Cataclysm particle version-gate note (also synthetic, for the same
+reason), and 420/420 exit 0 both before and after. The `parse_failures`
+key never fired anywhere in the sample -- expected, matching the previous
+entry's own finding that real game files aren't malformed; the
+crash-to-clean-exit behavior change above was verified separately, by
+direct before/after comparison on a synthetic malformed file, not folded
+into this gate (same precedent the previous entry set: a deliberately
+malformed file would produce an expected-but-noisy difference in a gate
+meant to prove real-file parity, so that case lives in a CLI regression
+test instead). Reproduction: seed/commands recorded in this entry; the
+capture/fixture directories were scratchpad-only, not committed (same
+"seeded sample, not a persistent artifact" convention as before).
+
+**Deliberately not touched**: `cmd_export.cpp` -- not this task's scope,
+`REFACTOR/AUDIT.md` §2.1 stays open until it migrates too (it is now the
+*only* unmigrated command). `src/dump_chunks_misc.cpp`'s three
+`m2::parse*` calls and `src/dump_phys.cpp` were investigated and
+deliberately left alone, per this task's own explicit instruction: they
+parse a Legion+ *chunk payload* (a local `payload` buffer) through a
+`m2::Array` synthesized from the chunk's own `count`/`offset`, not the
+MD20 blob and not a `Header` array field -- `m2::Model` holds MD20-blob-
+derived arrays only, so it has nothing to offer those call sites. This
+matches the task brief's own framing exactly; no disagreement found after
+reading the real code. No existing `m2_*.hpp`/`.cpp` parser changed. No
+`src/formats/`, `src/canon/`, or `src/writers/` directory created.
+
+**Verified**: `direnv exec . cmake --build build`, then
+`direnv exec . env HUSK_TEST_M2=test_data/bloodelffemale.m2
+HUSK_TEST_SKIN=test_data/bloodelffemale00.skin ./build/husk-tests` --
+**796 test cases, 0 failed, 1 skipped (unchanged
+`test_listfile_mmap_real.cpp`); 6528 assertions, 0 failed**, up from the
+795/6518 baseline by this task's 1 new regression test (+10 assertions).
+Plus the diff gate above, run against the real compiled `husk` binary
+(md5-verified identical to the one the test suite exercises), not just the
+test suite.
+
+---
+
 ## 2026-09-03 — `cmd_info.cpp`/`cmd_info_json.cpp` migrated onto `m2::Model` (REFACTOR/AUDIT.md §2.1, REFACTOR/README.md's Migration order step 2)
 
 **What**: Two commits.

@@ -59,3 +59,43 @@ TEST_CASE("husk dump-chunks: nonexistent path fails cleanly, not a crash") {
     CHECK(result.output.find("husk: dump-chunks failed") != std::string::npos);
     CHECK(result.output.find("terminate called") == std::string::npos);
 }
+
+// Regression coverage for the REFACTOR/AUDIT.md §2.1 m2::Model migration
+// (REFACTOR_LOG.md's entry for this task, cmd_info.cpp's own precedent in
+// tests/test_cli_errors.cpp): before this migration, dumpEmitters called
+// m2::parseRibbons directly and unconditionally, and this command's only
+// try/catch wraps the whole body -- so a malformed ribbon_emitters array
+// aborted the entire dump with exit 1 and a partial JSON document on
+// stdout (verified against the pre-migration binary directly: "husk:
+// dump-chunks failed: ribbonEmitters array claims ... " on stderr, exit
+// 1). m2::loadModel isolates each array's own parse failure instead (see
+// m2_model.hpp's doc comment), so this must now exit cleanly with a
+// complete, valid JSON document -- and the failure itself must still be
+// visible, not silently read as "zero ribbon_emitters" (CLAUDE.md: "on
+// failure, always print expected and actual values").
+TEST_CASE("husk dump-chunks: a malformed ribbon_emitters array beyond an otherwise-valid header "
+          "fails cleanly, not a crash -- and reports it in parse_failures instead of silently "
+          "reading as empty") {
+    auto b = minimalMd20();
+    putU32At(b, /*offset::ribbonEmitters=*/0x120, 1);  // count=1
+    putU32At(b, 0x124, 999999);  // offset far past this ~0x130-byte buffer
+
+    auto path = tempPath("malformed-ribbons.m2");
+    writeFile(path, b);
+
+    auto result = runHusk("dump-chunks " + path.string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("terminate called") == std::string::npos);
+    CHECK(result.output.find("husk: dump-chunks failed") == std::string::npos);
+    // The failure is named, not silently absent.
+    CHECK(result.output.find("\"parse_failures\": [") != std::string::npos);
+    CHECK(result.output.find("\"field\": \"ribbon_emitters\"") != std::string::npos);
+    // ribbon_emitters itself comes up empty (the field's own parse failed),
+    // not a partial/garbage record -- and particle_emitters (an unrelated,
+    // cleanly-parsing field) is completely unaffected.
+    CHECK(result.output.find("\"ribbon_emitters\": [") != std::string::npos);
+    CHECK(result.output.find("\"ribbon_id\"") == std::string::npos);
+    CHECK(result.output.find("\"particle_emitters\": [") != std::string::npos);
+
+    fs::remove(path);
+}

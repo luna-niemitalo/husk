@@ -307,15 +307,26 @@ void writeParticle(json::Writer& w, const std::vector<uint8_t>& blob, const m2::
 
 }  // namespace
 
-void dumpEmitters(json::Writer& w, const std::vector<uint8_t>& blob, const m2::Header& header) {
+void dumpEmitters(json::Writer& w, const m2::Model& model) {
+    const std::vector<uint8_t>& blob = model.blob;
+    const m2::Header& header = model.header;
+
     w.key("ribbon_emitters");
     w.beginArray();
-    for (const auto& r : m2::parseRibbons(blob, header.ribbonEmitters)) {
+    for (const auto& r : model.ribbonEmitters) {
         writeRibbon(w, blob, r, header.sequences.count);
     }
     w.endArray();
 
     w.key("particle_emitters");
+    // header.version/particleEmitters.count, not model.particleEmitters --
+    // m2::loadModel applies this exact same version gate *before*
+    // attempting parseParticles at all (m2_model.hpp's doc comment), so
+    // model.particleEmitters is already empty below the gate for the same
+    // reason it always was: nothing was parsed, not a parse failure. This
+    // check has to stay derivable from the header alone (not "is the
+    // vector empty") so the note below can still name the real version --
+    // an empty vector can't tell "gated" apart from "count is genuinely 0".
     if (header.particleEmitters.count > 0 && header.version < m2::kMinVerifiedParticleVersion) {
         w.beginObject();
         w.key("note");
@@ -328,7 +339,7 @@ void dumpEmitters(json::Writer& w, const std::vector<uint8_t>& blob, const m2::H
         w.endObject();
     } else {
         w.beginArray();
-        for (const auto& p : m2::parseParticles(blob, header.particleEmitters)) {
+        for (const auto& p : model.particleEmitters) {
             writeParticle(w, blob, p, header.sequences.count);
         }
         w.endArray();
