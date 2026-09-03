@@ -1,5 +1,5 @@
-// Tests for husk::m2::Model / loadModel / loadModelFile (src/m2_model.hpp/
-// .cpp) -- the whole-file parsed aggregate, REFACTOR/AUDIT.md §2.1. Pure
+// Tests for husk::m2::Model / loadModel (src/m2_model.hpp/.cpp) -- the
+// whole-file parsed aggregate, REFACTOR/AUDIT.md §2.1. Pure
 // addition: no existing command consumes this type yet (see
 // REFACTOR_LOG.md's entry for this task), so these tests cover the type
 // itself, not any cmd_*.cpp behavior.
@@ -14,6 +14,9 @@
 // below: every array loadModel dereferences is genuinely malformed at
 // once, for free, with no separate "malformed" fixture to author and keep
 // in sync.
+
+#include <fstream>
+#include <iterator>
 
 #include "test_data_paths.hpp"
 #include "test_m2_fixtures.hpp"
@@ -181,14 +184,19 @@ TEST_CASE("loadModel: a header/blob-level failure (bad magic) still throws -- th
     CHECK_THROWS_AS(husk::m2::loadModel(bad), husk::m2::ParseError);
 }
 
-TEST_CASE("loadModelFile: nonexistent path throws ParseError") {
-    CHECK_THROWS_AS(husk::m2::loadModelFile("/nonexistent/path/to/nothing.m2"), husk::m2::ParseError);
-}
-
 TEST_CASE("loadModel: real fixture (bloodelffemale.m2) -- every array's size matches its own "
           "header count, zero parse failures" *
           doctest::skip(husk::test::testM2().empty())) {
-    auto model = husk::m2::loadModelFile(husk::test::testM2());
+    // loadModel takes bytes, not a path (loadModelFile -- a verbatim third
+    // copy of m2::loadFile's/cmd_info.cpp's own file-reading logic, with no
+    // real caller -- was removed; see REFACTOR_LOG.md's entry for this
+    // task). Read the fixture the same way cmd_info.cpp's own
+    // readFileBytes does.
+    std::ifstream f(husk::test::testM2(), std::ios::binary);
+    REQUIRE(f.good());
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+
+    auto model = husk::m2::loadModel(bytes);
 
     CHECK(model.parseFailures.empty());
 

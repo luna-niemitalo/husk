@@ -1,10 +1,5 @@
 #include "m2_model.hpp"
 
-#include <cerrno>
-#include <cstring>
-#include <fstream>
-#include <iterator>
-
 // See m2_model.hpp for the design (why eager parsing needs per-field
 // failure isolation, and why particleEmitters alone is version-gated
 // before being attempted at all).
@@ -95,20 +90,6 @@ Model loadModel(const std::vector<uint8_t>& fileBytes) {
              [&] { model.textureCombinerCombos = parseUint16Array(blob, h.textureCombinerCombos); });
 
     return model;
-}
-
-Model loadModelFile(const std::string& path) {
-    errno = 0;
-    std::ifstream f(path, std::ios::binary);
-    if (!f) {
-        throw ParseError("couldn't open '" + path + "' for reading: " + std::strerror(errno));
-    }
-    errno = 0;
-    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    if (!f.good() && !f.eof()) {
-        throw ParseError("error reading '" + path + "': " + std::strerror(errno));
-    }
-    return loadModel(bytes);
 }
 
 }  // namespace husk::m2

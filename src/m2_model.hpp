@@ -196,9 +196,4 @@ struct Model {
 // per-command partial-parse cost.
 Model loadModel(const std::vector<uint8_t>& fileBytes);
 
-// Reads `path` fully into memory and calls loadModel. Throws ParseError
-// (I/O failure wrapped the same way m2::loadFile already does) or lets
-// loadModel's own header/blob-resolution ParseError propagate.
-Model loadModelFile(const std::string& path);
-
 }  // namespace husk::m2
