@@ -11,7 +11,8 @@ Loop opened 2026-09-03. Running Migration order **stage 2** (`m2::Model`).
 |---|---|---|---|---|---|
 | `stage1-gate-audit` | README.md Migration order 1 | verified | 2026-09-03 | (no code) | README asks whether stage 1's gate was actually *run*, not just built. It was: `AUDIT.md` §1.1 records a resolution-ledger diff, byte-identical/zero-delta, on `bloodelffemale_hd`, `nightelffemale_hd` (218-candidate ambiguous pool), `wolf.m2` (incl. `--lod all`), `sword_1h_artifactskywall_d_06.m2` (13 fuzzy/ambiguous matches), plus a `--knowledge-db` item exercising `registerPathOverride`. Four real fixtures + the override case. Gate met; stage 1 closed. |
 | `red-baseline-fuzzy-pool` | baseline failure (not AUDIT.md) | **verified** | 2026-09-03 | `9bdd0ed` | Stale test, not a regression. `feed145`'s own commit message states it deliberately stopped dumping the full candidate list to stderr ("already embedded as alternate_textures extras on the .glb"), and it touched only `cmd_export.cpp`'s printing — clearing the other suspect, `dfabdd2`'s pool admission, which never excluded the candidate. Supervisor checks: diff scope is 2 files, no `src/`; the removed stderr grep was replaced by a **stronger** `.glb` assertion (both filenames looked up by content in `alternate_textures`, previously only `ArrayLen() == 2`, plus `images.size() == 3`); `feed145`'s intent confirmed by reading it directly, not from the report; full suite rebuilt and re-run from scratch by me. |
-| `m2-model-aggregate` | AUDIT.md §2.1 | in-progress | 2026-09-03 | - | Split 1/4. Introduce `m2::Model` + `m2::loadModel()` as a **pure addition** — the whole-file aggregate, no consumer migrated. Type + loader + tests only. Two supervisor decisions recorded below rather than left to the subagent. |
+| `m2-model-aggregate` | AUDIT.md §2.1 | **verified (with defect)** | 2026-09-03 | `4115f20` | Split 1/4 landed. Supervisor checks: diff is 6 files, all additions, no `cmd_*.cpp` and no existing parser touched; `parseCollisionMesh`'s 4-arg order checked against its real declaration; `kMinVerifiedParticleVersion` confirmed pre-existing (`m2_scene.hpp:237`), and its own doc requires exactly the caller-side gate used. Full rebuild + suite re-run by me: **794/794, 0 failed, 1 skipped, 6500 assertions** (baseline 788/6323). Per-field isolation contract is genuinely tested (a malformed file yields 25 *independent* recorded failures). **Defect found, not reported by the subagent** — see `m2-model-loadfile-dup` below. |
+| `m2-model-loadfile-dup` | supervisor review of `4115f20` | ready | - | - | **Corrective, small.** `m2::loadModelFile` (`m2_model.cpp`) is a verbatim third copy of file-read logic already in `m2::loadFile` (`m2_primitives.cpp:420-433`) and `cmd_info.cpp`'s `readFileBytes` — identical errno reset, ifstream, `istreambuf_iterator`, and both error strings, differing only in the final call. It also has **zero callers** outside its own test. That is an I2 violation ("one implementation per resolution question") introduced by the very commit meant to cure §2.1, plus the speculative generality the brief forbade. Fix: delete it (splits 2-4 add a real read path when a real caller exists), or factor the shared read out. Prefer deletion — nothing needs it yet. |
 | `m2-model-adopt-info` | AUDIT.md §2.1 | ready | - | - | Split 2/4. Migrate `cmd_info.cpp` **and** `cmd_info_json.cpp` onto `m2::Model`. Carries stage 2's own gate for `husk info`: before/after output diffed on real fixtures, every difference attributed. |
 | `m2-model-adopt-dump` | AUDIT.md §2.1 | ready | - | - | Split 3/4. Migrate `cmd_dump.cpp`. Carries stage 2's gate for `dump-chunks`. |
 | `m2-model-adopt-export` | AUDIT.md §2.1 | ready | - | - | Split 4/4. Migrate `cmd_export.cpp` (11 parse kinds + `M2MaterialInputs`). Largest; re-split when reached. |
@@ -67,3 +68,21 @@ regression risk, and it is the reason splits 2-4 are separate: split 1 changes
 no behaviour at all, so the contract can be decided and tested before any
 consumer depends on it.
 
+## Findings for Luna (surfaced by the loop, not scheduled work)
+
+**`husk info` can already abort uncaught on a malformed array, today.**
+Confirmed while reviewing `4115f20`'s contract reasoning, by reading the code
+rather than taking the subagent's word: `cmd_info.cpp` wraps only
+`readFileBytes`/`parseHeader`/`extractBlob` in a try/catch (`:102-116`); its
+`bones`/`attachments`/`events`/`lights`/`ribbons` loops sit outside it, and
+`src/main.cpp` has **no** outer catch around command dispatch (only around
+`tryPrintCompletion`, `:398`). So a file whose header parses but whose `bones`
+array is malformed terminates via an unhandled exception instead of printing
+the clean `husk: couldn't read '<path>'` message the header-level path gives.
+
+Not fixed here — out of this task's scope, and it is pre-existing, not caused
+by the loop. Worth knowing that **split 2/4 fixes it as a side effect**:
+`loadModel()`'s per-field isolation turns that abort into a recorded
+`FieldParseFailure`. That makes split 2/4 more valuable than "the same output,
+refactored", and its gate should check this case explicitly rather than only
+diffing well-formed fixtures.
