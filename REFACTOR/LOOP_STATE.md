@@ -19,8 +19,10 @@ Loop opened 2026-09-03. Running Migration order **stage 2** (`m2::Model`).
 | `m2-model-adopt-dump` | AUDIT.md §2.1 | verified | 2026-09-04 | `6367a4a` | Split 3/4. Gate met: their 420/420 confirmed by my own independent 190/190 on a different sample. |
 | `audit-2.1-table-stale` | AUDIT.md §2.1 | verified | 2026-09-03 | `9f85bc8` | §2.1's table now names `cmd_info_json.cpp` as the fourth view; section correctly left open. |
 | `m2-model-adopt-export-a` | AUDIT.md §2.1 | **verified** | 2026-09-04 | `06a08f8` | Split 4a done. Their 35/35 confirmed by my own independent gate on a different sample: **55/55 `.glb` byte-identical and 55/55 console output identical** (paths normalized — my first script compared its own scratch dirs and reported a false 55 differences; the artifact was mine, not husk's). Suite holds at 796/796, 6528. `.glb` output confirmed deterministic run-to-run, so byte comparison is a valid gate. Checked the rethrow type substitution myself: it throws `std::runtime_error` where the original threw `m2::ParseError`, but `ParseError` derives from it and **no catch site in `src/` or `tests/` discriminates**, so it is behaviourally invisible — a fidelity nit, not a defect. |
-| `m2-model-adopt-export-b` | AUDIT.md §2.1 | in-progress (retry 2) | 2026-09-04 | - | **Subagent hit an account session rate limit mid-task** (resets 03:10 Europe/Helsinki). No commits made. It left a header-only edit to `src/export_extras.hpp` that **did not compile** — reverted by me, tree restored and re-verified green. The partial diff is saved at `scratchpad/partial_4b_export_extras_hpp.patch` and is **worth reading before retrying**: its design work was sound (see the `rethrowIfParseFailed` note below). Retry from scratch. **Split 4b/4c.** `export_extras.cpp`'s 6 sites (`:96` ribbons, `:105` particles, `:174` attachments, `:188` events, `:196` lights, `:898` collision) take the model. Mechanically the same shape as `dumpEmitters` in split 3/4 — reuse that as the template. |
-| `m2-model-adopt-export-c` | AUDIT.md §2.1 | in-progress | 2026-09-04 | - | Was assigned with 4b; the subagent was cut off before reaching it. **Split 4c/4c — the subtle one, do last.** `resolveBones` (`:116`) and `buildAnimationsForModel` (`:166`). **Hazard**: `resolveBones` derives `bonesAreInline` from `parseBones(...).empty()`. Under `loadModel`, a *malformed* inline bones array yields an empty vector plus a recorded `FieldParseFailure` instead of throwing — which would be silently misread as "no inline bones, fall back to the external `.skel`". That is a real silent-misread risk and must be handled explicitly, not inherited. |
+| `m2-model-adopt-export-b` | AUDIT.md §2.1 (now removed) | **verified** | 2026-09-04 | `517c2a8` | Split 4b. `export_extras.cpp`'s 6 sites read the model; `rethrowIfParseFailed` promoted to a shared function (6 call sites clears the third-occurrence bar). Extras path correctly made fail-fast, not degrading. |
+| `m2-model-adopt-export-c` | AUDIT.md §2.1 (now removed) | **verified** | 2026-09-04 | `9d291f1b` | Split 4c, the subtle one. Rethrow fires at the exact position the old parse ran, so a malformed file still reports the same field first; the `haveSkel` branch's own `skel::parseSequences` correctly left untouched. Supervisor checks: their 426/426 confirmed by my own focused gate on the highest-risk path — 42 models incl. the real `.skel`-sourced `bloodtick.m2`, **42/42 `.glb` and console identical**. Suite **801/801, 6559**. Verified no real `m2::parse*` call remains in any of the four commands (only comments). |
+
+| `audit-2.1-dangling-cites` | supervisor review of `9d291f1b` | ready | - | - | **New, small, real.** Removing §2.1 left **12 source-comment citations** pointing at a section that no longer exists: `src/m2_model.hpp` (×3), `src/export_extras.hpp` (×3), `src/cmd_export.cpp` (×3), `src/dump_emitters.hpp`, `src/cmd_dump.cpp`, `src/m2.hpp` — plus `REFACTOR/CANONICAL_MODEL.md:134`. The subagent flagged this itself and correctly left it, being outside its scope. Retarget them at `REFACTOR_LOG.md`/git history (this project's stated record for closed items) rather than a dead §-number. |
 | `audit-8-closed` | AUDIT.md §8 | ready | - | - | Doc-only, small. §8 is "Done" for every real `ScanTask` module with `render_sample_driver.py` a stated deliberate exclusion; per the file's own convention the section should go, exclusion moved to `CLI_AND_TOOLING.md` §4. |
 
 ## Baseline
@@ -106,3 +108,38 @@ otherwise silently attach **fewer placement anchors than the file actually
 has**, with no error — the same silent-misread class as 4c's `bonesAreInline`,
 just quieter. Whoever retries 4b should decide this deliberately rather than
 assuming "extras are diagnostic, so degrading is fine".
+
+## STAGE 2 IS COMPLETE (2026-09-04)
+
+All four commands now consume one `m2::Model`. `AUDIT.md` §2.1 removed per that
+file's own convention. Verified by me: no real `m2::parse*` call remains in
+`cmd_info`/`cmd_info_json`/`cmd_dump`/`dump_emitters`/`cmd_export`/
+`export_extras` — every remaining mention is inside a comment. Suite **801/801,
+6559 assertions** (from 788/6323 with one red at loop start).
+
+**Stage 2's gate (README Migration order, item 2) is met**: `husk info` and
+`dump-chunks` output diffed on real fixtures with every difference attributed —
+splits 2 and 3, each confirmed by an independent supervisor diff on a different
+sample. Export was gated the same way though the README did not require it.
+
+### Escalation for Luna before stage 3
+
+`SUPERVISOR_LOOP.md` puts stage 3 (`canon::`) in scope once stage 2's gate
+passes. It now has. **But `REFACTOR/README.md` says stage 3 "should be driven
+with you steering it live, not delegated wholesale"** — and this loop's whole
+mechanism is delegation to Sonnet subagents. Those two instructions conflict,
+and resolving it is a judgment call with real downstream cost (stage 3 is the
+"expensive stage that must not be shortcut", and this project's own feedback
+pattern is that wide refactors started mid-design get thrown away).
+
+**So the loop is not starting stage 3 on its own.** It continues on the smaller
+independently-biteable items still in scope (`audit-2.1-dangling-cites`,
+`audit-8-closed`, and `AUDIT.md` §2.2/§2.3/§2.4, §4, §5, §6), which do not
+block each other or stage 3. Luna's call on how stage 3 should be driven.
+
+**A convention tension worth naming.** This directory's rule is "closed items
+get removed outright — git history is the record". But code comments cite
+section numbers (`AUDIT.md §2.1`), so every removal strands its citations —
+12 of them this time. Either comments should cite `REFACTOR_LOG.md` entries and
+git history rather than live §-numbers, or removal needs a retargeting sweep as
+part of it. Currently neither is written down.
