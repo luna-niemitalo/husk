@@ -1,9 +1,20 @@
 # REFACTOR/ — target pipeline and cleanup punch list
 
-**This directory describes a target, not the current tree.** Nothing in it is
-implemented. `DESIGN.md` remains the authority on why today's code is shaped the
-way it is; this is where the shape it's moving toward lives, kept separate on
-purpose (`READABILITY.md` §3.10 — current and target never blurred).
+**This directory describes a target, not the current tree.** `DESIGN.md`
+remains the authority on why today's code is shaped the way it is; this is
+where the shape it's moving toward lives, kept separate on purpose
+(`READABILITY.md` §3.10 — current and target never blurred).
+
+**Status (2026-09-03): Stage 1 of Migration order is landed, Stages 2-6 are
+not started.** `src/sources/` is real — `Catalog`/`Resolved<T>`/
+`TextureCatalog`/`ListfileCatalog` (`catalog.{hpp,cpp}` +
+siblings, ~2200 lines) collapse the texture-resolution tiers `AUDIT.md §1.1`
+catalogued, and `husk resolve` (`src/cmd_resolve.cpp`) exposes it as a
+machine-readable ledger that corpus-scan tasks now consume instead of
+re-implementing resolution. `TEXTURE_POOL_RECALL_TODO.md` (steps 1/2/3/5) and
+a listfile-perf detour (`listfile_mmap_index`/`listfile_cache`) landed in the
+same window. `src/formats/`, `src/canon/`, and `src/writers/` (Migration order
+stages 2-6 below) do not exist yet — nothing has moved past the catalog.
 
 Same conventions as `TODO/`: each file is an open punch list, closed items get
 removed outright, git history is the record.
@@ -158,16 +169,46 @@ drifting implementations into one exposes *why* things look wrong today.
 | File | Scope | Gate |
 |---|---|---|
 | `AUDIT.md` | Evidence inventory: every duplicated, divergent, or counter-intuitive path, with file:line | Independent |
-| `RESOURCE_CATALOG.md` | Stage 2 — the one resolution boundary object, and the excavation escape hatch | Independent |
+| `RESOURCE_CATALOG.md` | Stage 2 — the one resolution boundary object, and the excavation escape hatch | Independent; carries a reopened design question (persisted cross-patch reference-integrity index) — needs a decision, see Blockers below |
 | `CANONICAL_MODEL.md` | Stage 3 — the semantic model, built pure | Independent to design; the migration itself is the expensive stage |
-| `BUNDLE_FORMAT.md` | The native husk bundle + manifest schema; glTF's demoted role | Independent |
+| `BUNDLE_FORMAT.md` | The native husk bundle + manifest schema; glTF's demoted role | Independent; carries a reopened design question (physical storage shape at corpus scale) — needs a decision, see Blockers below |
 | `BLENDER_ADDON.md` | Stage 4 consumer — packaging, and deleting every discovery mechanism I3 forbids | Independent to build; final visual pass is Luna's |
 | `CLI_AND_TOOLING.md` | Flag surface, structured output, corpus-tooling cleanup | Independent |
+| `SUPERVISOR_LOOP.md` | How to run this migration as a supervisor-loop + Sonnet-subagent process (task sizing, verify protocol, escalation) | Process document, not a stage |
 
 Out of scope, deliberately: everything in `POTENTIAL_PLAN/` about engines, GPU
 backends, and GFX906. The canonical model is designed so those stay *possible*
 (Canonical Data Model §10's architectural test), not so they happen next. Current
 trajectory is `M2 → canonical → Blender`.
+
+## Blockers, scoped to this refactor
+
+**As of 2026-09-03, nothing design-level blocks starting Stage 2
+(`src/formats/`, `m2::Model`) or Stage 3 (`canon::`, per `CANONICAL_MODEL.md`,
+which reads as essentially fully designed and settled already).** What's left
+is implementation effort, not an open decision — the two design questions this
+directory had open are now resolved or explicitly deferred:
+
+- **`BUNDLE_FORMAT.md`'s physical storage shape — settled.** Loose files, one
+  directory per bundle, unchanged from the original design. ZFS (this
+  project's real filesystem) already dedups shared payload bytes at the block
+  level, which was the concrete cost in question; a content-addressed backing
+  store would buy the same thing at the cost of a real extra layer of
+  indirection, not worth taking on pre-emptively. Revisit only if the
+  file-count/metadata cost (not the byte-dedup cost, which ZFS already
+  handles) is ever actually measured and found to bite.
+- **`RESOURCE_CATALOG.md`'s persisted cross-patch reference-integrity
+  index — still open, but non-blocking.** Whether husk should maintain a
+  patch-versioned edge log (what points at what, first/last seen) separate
+  from `dangling_references_task.py`'s ephemeral scan output and
+  `knowledge.sqlite`'s resolution-answer cache. Doesn't gate Stage 1-4; safe
+  to leave open and revisit later.
+
+The actual next bottleneck is Stage 3 itself: `CANONICAL_MODEL.md`'s own
+words, "the migration itself is the expensive stage" — a large, invasive
+rewrite (`gltf_*.cpp` rebuilt as a writer over `canon::`) that per this
+project's own feedback pattern (wide refactors started mid-design get thrown
+away) should be driven with you steering it live, not delegated wholesale.
 
 ## Migration order
 
@@ -175,15 +216,11 @@ Each stage lands independently. Ordered so the highest-drift-risk duplication
 dies first, and nothing waits on the bundle format.
 
 **1. Catalog** (`src/sources/`) — collapse the four texture-resolution and four
-FileDataID→path implementations onto one object; add `describe()`.
-*Gate*: full suite green, plus a **resolution ledger diff** on real fixtures
-(`bloodelffemale_hd`, `nightelffemale_hd`, a creature, an item): for every
-texture slot, which tier fired and which file it resolved to, before vs. after.
-Deltas are expected — the four implementations disagree today, that *is* the
-finding — so the gate is that every delta is individually attributed
-("implementations disagreed, catalog uses the documented tier order" / "this is
-a fix"), not that the count is zero. I4's `describe()` is what makes this ledger
-cheap enough to actually run.
+FileDataID→path implementations onto one object; add `describe()`. **Landed**
+(Aug 29-30 2026, see Status above) — `husk resolve` is the ledger; whether its
+gate (the attributed before/after diff on the four real fixtures) was actually
+run and recorded is not confirmed by this file and should be checked before
+treating the stage as closed, not just built.
 
 **2. `m2::Model` aggregate** — the three commands stop each assembling their own
 partial view.

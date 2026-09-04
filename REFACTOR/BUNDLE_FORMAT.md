@@ -54,6 +54,79 @@ The existing `GearItem::auxGlbPath` (`cmd_export.cpp:695-705`) already works
 exactly this way and is the precedent being generalized — husk resolves once, at
 write time, and bakes in a relative path.
 
+## Physical storage shape — settled 2026-09-03
+
+**Decision: loose files, one directory per bundle, unchanged.** ZFS (this
+project's actual filesystem, `CLAUDE.md`'s Machines section) already dedups
+shared payload bytes at the block level, which was the concrete cost this
+question raised — a content-addressed backing store would buy the same
+byte-dedup this filesystem already gives for free, at the cost of a real
+extra layer (a store, an indirection from manifest reference to hash, a
+second thing to keep consistent) for no corresponding win today. Revisit if
+the file-count/metadata half (dnode count, snapshot bloat, traversal cost —
+the half ZFS dedup does *not* address) is ever measured and found to actually
+bite; not worth the friction pre-emptively. The investigation below is kept
+as a record of the tradeoff, not as still-open work.
+
+<details>
+<summary>Superseded reasoning (kept for context, not current guidance)</summary>
+
+Design-review pass, 2026-09-03. "Shape" above was marked settled, but the
+settlement was reasoned without measuring the cost it trades away. Recorded
+here as reopened rather than silently overwritten.
+
+**The claim**: one directory per bundle, at this project's actual corpus scale
+(130k+ models, each a manifest + several `.bin`s + N textures + nested `aux/`),
+produces a many-small-files problem this project already treats as real
+elsewhere (`CLAUDE.md`'s own `find /` hazard note; the corpus-scan tooling's
+own directory-shape pathologies). "Shape" asserts explorability/diffability
+without weighing this — unlike every other tradeoff in this file (contrast the
+DDS decision's weighed-constraints table below).
+
+**Where the discussion landed, not yet decided**:
+
+- A single opaque archive-per-bundle (TOC + seek to one member) fixes file
+  count but loses more than it gains: it forecloses dedup of the resources
+  this corpus reuses constantly (shared base meshes/skeletons/textures across
+  race/gender variants and item recolors) — an archive-per-bundle physically
+  duplicates that content once per referencing bundle, worse than today's
+  loose-file shape, which at least lets a content-aware layer dedup it. ZFS
+  (this project's actual filesystem) already dedups bytes at the block level,
+  independently lowering urgency on the *byte-duplication* half, but does
+  nothing for the *file-count/metadata* half (dnode count, snapshot bloat,
+  `find`/traversal cost — the half actually measured in this project's
+  hazards).
+- Stronger direction floated: separate *physical storage* from *logical
+  grouping* — a content-addressed backing store (payloads keyed by hash,
+  deduped, few large files) with per-bundle manifests referencing into it by
+  hash, git/Nix-shaped. Bounds file count by unique-payload count rather than
+  `models × files/model`, keeps per-payload diffability and dedup, and still
+  gives "random access to one member" (fetch by hash) without a bundle-scoped
+  TOC.
+- Any container/index format here is still subject to I8: a bespoke
+  husk-only seekable-archive format recreates the exact "proprietary
+  container, husk-only reader" problem I8 exists to prevent for BLP, one
+  layer up. Prefer something with existing public tooling (sqlite-as-blob-
+  store, or zip with stored/deterministic entries) over inventing one.
+
+**Left to investigate, not solved by the above**:
+
+- An actual measurement — real file count and real duplicate-byte volume, at
+  real corpus scale, for the directory shape as currently sketched. This
+  section is missing the number that would settle it.
+- Whether content-addressing lives at corpus scope (one store shared by every
+  bundle) and how that interacts with "Bundles reference other bundles" /
+  "Left to implementation judgment" above (nesting vs. shared `textures/`) —
+  this may subsume that open question rather than sit beside it.
+- Concrete container/index format, chosen against I8 and against real
+  read/write-pattern needs (sequential export-time writes vs. random
+  Blender-import-time reads).
+- Interaction with "Embed or reference — one rule" below: does
+  content-addressing change what "inline" means, since an inline payload
+  would now also conceptually be a hash-addressed object?
+
+</details>
+
 ## Every reference is a `Ref`, never a bare name
 
 This is the rule that makes the bundle traceable. A resource entry is:

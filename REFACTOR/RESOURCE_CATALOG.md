@@ -150,6 +150,52 @@ rather than inherited:
   (`item/objectcomponents/shoulder/lshoulder_robe_d_01.m2`), byte-identical
   output before and after the mechanism swap.
 
+## Open question: persisted cross-patch reference-integrity index
+
+Design-review pass, 2026-09-03. Not covered by anything above:
+`dangling_references_task.py` (excavation table below) finds broken
+references, but as a one-shot corpus scan with no memory across patches — it
+can tell you a reference doesn't resolve *today*, not that it *used to* and
+now doesn't. `--knowledge-db`/`knowledge.sqlite` (`CLI_AND_TOOLING.md` §5) is
+persisted but is a cache of resolution *answers*, not an edge/provenance log,
+and isn't versioned for cross-patch diffing either.
+
+**The claim**: a separate, husk-maintained, patch-versioned join table
+recording observed references — `(from_kind, from_id, to_kind, to_id,
+first_seen_patch, last_seen_patch)` — indexed on both `from` and `to`, so
+"what does X point at" and "who points at X" are equally cheap. Same shape as
+a bookmarks table: neither endpoint owns the edge, a third table does.
+
+**Why not node-embedded backpointers (considered and rejected)**: storing
+"referenced by" at the target node couples the edge fact's survival to that
+node's own survival — if the target is what gets dropped or corrupted in a
+later patch, its backpointer is lost with it, the same single point of
+failure moved one hop. A third, independent, append-only store survives the
+loss of *either* endpoint, which is the actual property wanted: detecting
+that a middle node in a multi-hop resolution chain (e.g. the real
+`ItemModifiedAppearance → ItemAppearance → ItemDisplayInfo → …` chain,
+`CLAUDE.md`'s Resume history) has silently disappeared between patches, even
+when neither surviving fragment alone would show the hole.
+
+**Why this doesn't fold into `dangling_references_task.py` as-is**: that
+task's output is ephemeral (`corpus_reports/`, overwritten per run). This
+needs to persist and diff against a prior snapshot to detect *drift*, not
+just validate *current* consistency — closer in shape to `knowledge.sqlite`'s
+persisted-store precedent than to a scan task's report.
+
+**Left to investigate, not solved by the above**:
+
+- Storage backend — a new store, or an extension of `knowledge.sqlite`'s
+  existing pattern.
+- What populates it: every `husk resolve`/export run opportunistically, or a
+  dedicated corpus-wide pass (closer to the excavation tasks below)?
+- Retention/growth policy — this is append-only across every patch this
+  project ever scans; unbounded growth needs a stated bound or pruning rule.
+- Relationship to I2 ("one implementation per resolution question") — this is
+  explicitly a derived *observation log* of catalog resolutions, not a second
+  resolver. Worth stating that distinction as sharply in the eventual
+  write-up as it's stated here, so it isn't flagged as an I2 violation later.
+
 ## The excavation escape hatch
 
 Luna's own scoping, recorded because it is easy to over-apply I2:
