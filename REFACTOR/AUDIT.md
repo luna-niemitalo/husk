@@ -233,47 +233,10 @@ because there is no model in which to state the relationship declaratively —
   joint order (242/358 mismatches measured on a real 245-bone character).
 ---
 
-## 4. Blender-side coupling — every item violates I3
+## 4. Blender-side coupling
 
-- **Four discovery mechanisms for one question** ("where is this texture"), in
-  `tools/husk_blender_geoset_mask.py`: a `--textures` CLI argument, the
-  `.glb`'s own directory, the current `.blend` file's directory, a preferred
-  `textures/` subdirectory, and a `*_<fdid>.png` glob in the textures dir
-  *and its parent*. **Reduced from six 2026-08-29**: the `husk` binary found
-  on `PATH` or at `../build/husk`, and the `husk blp-export` subprocess it
-  shelled out to, are both removed outright (`REFACTOR/AUDIT.md` §1.1's
-  "closed 2026-08-29" entry has the measurement and rationale — the
-  remaining filesystem glob fires for a real, narrow, now-documented class
-  of texture husk's own export doesn't embed, a finding for `src/` to
-  eventually close, not a reason to keep the subprocess). The four remaining
-  mechanisms are all real "told where to look," not "went looking" —
-  `--textures`/the `.glb`'s directory/the `.blend`'s directory/the
-  `textures/` subdirectory are all ways of being handed a starting
-  directory, and the same-basename glob inside it is the one piece still
-  worth a future I3 pass if `src/`'s own embedding gap ever closes and makes
-  it moot.
-- **Duplicated helpers, now with a load-bearing reason, not just policy.**
-  `_root_joint_extras` / `_deep_copy_id_property` are copied verbatim into
-  `tools/husk_blender_options_panel.py:99-119`. **Investigated 2026-08-29**
-  whether a shared sibling module could replace both copies: found a real
-  blocker, not just a precaution — `husk_blender_options_panel.py`'s whole
-  reason for existing as a separate file is running as a *registered
-  embedded Text datablock* so a `.blend` self-installs with zero setup, and
-  a headless round-trip confirmed `__file__` in that mode is a synthetic
-  value (`<blend path>/<text name>`), not a real filesystem path, so a
-  `__file__`-relative sibling import would resolve nothing there. Left as a
-  documented copy; the comment at `:87-104` now states this concretely
-  instead of citing sibling-session concurrency. The geoset vertex-group
-  naming convention is still duplicated a third time in the same file, as a
-  regex plus two prefix constants (`:73-84`) — same blocker applies, not
-  revisited separately.
-- **`render_glb.py` renders a pipeline that isn't the pipeline.** It imports
-  `husk_blender_geoset_mask` for billboard alignment only (`:41-42`) and never runs
-  the customization or geoset stages, so previews of any model carrying
-  `chr_customization_options` show whichever candidate husk arbitrarily embedded
-  as each slot's default. This is `TODO/RENDER_PIPELINE_DRIFT_TODO.md` item 1,
-  found when a correct export produced a washed-out preview and the preview was
-  believed over the export.
+**`render_glb.py` renders a pipeline that isn't the pipeline** — tracked in
+full at `TODO/RENDER_PIPELINE_DRIFT_TODO.md` item 1, not duplicated here.
 
 ---
 
@@ -306,45 +269,4 @@ Two consequences:
   `"bone_" + index` fallback at `gltf_skeleton.cpp:136`) yet travel as plain
   strings that read as authoritative — including into `joint_names` and every
   `bone_name` field on physics, emitter, correction and gear entries.
-
----
-
-## 8. Duplicated / drifting constants in corpus tooling
-
-**Done** for every real `ScanTask`-shaped module (`corpus_scan_framework.py`
-now exposes `ROOT`/`LISTFILE`/`HUSK_BIN` as single shared, dynamically-read
-values — see `CLI_AND_TOOLING.md` §4 and `REFACTOR_LOG.md`'s 2026-08-28
-entry closing this item). `black_additive_task.py`, `casc_size_mismatch_task.py`,
-`unfillable_texture_task.py`, `texture_dedup_collision_task.py`,
-`m2_full_validation_task.py`, and `particle_only_task.py` no longer declare
-their own copies. Deliberately **not** touched: `render_sample_driver.py`
-(a driver script with its own argv, not a `ScanTask`, and part of the
-render pipeline this project has repeatedly treated as human-gated —
-see `CLAUDE.md`'s Hazards) still has its own `CORPUS_ROOT`/`HUSK_BIN`/
-`LISTFILE` copies.
-
-Two real bugs found and fixed along the way, neither hypothetical:
-
-- `HUSK_BIN = "husk"` alone (the fix `CLI_AND_TOOLING.md` §4 originally
-  proposed, trusting that doc's own claim the flake dev shell puts `husk`
-  on `PATH`) **fails on the real environment** — verified live,
-  `.direnv/bin` carries no `husk` symlink. Not a dev-shell bug: installing
-  the flake as a package (`nix profile install`/`nix run`) does put `husk`
-  on `PATH`, that just isn't the dev-shell environment this corpus tooling
-  actually runs under. Fixed with the same `shutil.which("husk") or
-  <build path>` fallback `corpus_checks.py` already used for
-  `GLTF_VALIDATOR_BIN`, in one place (`corpus_scan_framework.HUSK_BIN`),
-  read by every consumer.
-- Every task module's own docstring documents running
-  `corpus_scan_framework.py` directly as a script — which loads it as
-  `__main__`, a *separate* module object from the `corpus_scan_framework`
-  a task gets via its own `import corpus_scan_framework`. `_init_worker`
-  was setting `ROOT`/`LISTFILE` on whichever identity actually ran while
-  every task read them off the other, untouched, still-`None` one — caught
-  live via a real smoke-test run (`AttributeError: 'NoneType' object has
-  no attribute 'exists'`), not assumed. Fixed with one `sys.modules.
-  setdefault("corpus_scan_framework", sys.modules[__name__])` so both
-  names resolve to the same object regardless of which one loaded first.
-
-The fix is subtraction, not relocation — see `CLI_AND_TOOLING.md` §4.
 

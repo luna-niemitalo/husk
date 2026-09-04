@@ -8,6 +8,108 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-09-04 — `AUDIT.md` §8 and §4 closed/reduced, doc-accuracy pass, no code changed
+
+**What**: `AUDIT.md` §8 ("Duplicated / drifting constants in corpus tooling")
+removed outright. `AUDIT.md` §4 ("Blender-side coupling — every item violates
+I3") reduced from three bullets to a one-line pointer at
+`TODO/RENDER_PIPELINE_DRIFT_TODO.md` item 1, heading changed to drop the now-
+false "every item violates I3" claim. No source under `src/`/`tools/`/`tests/`
+touched; `git diff --stat` for this pass is `REFACTOR/AUDIT.md` and this file
+only (`CLI_AND_TOOLING.md` needed no edit — see below).
+
+**Why, §8**: re-verified the "Done" claim against the real tree rather than
+trusting the prose. `black_additive_task.py`, `casc_size_mismatch_task.py`,
+`unfillable_texture_task.py`, `texture_dedup_collision_task.py`,
+`m2_full_validation_task.py`, `particle_only_task.py` — grepped each for a
+top-level `ROOT`/`LISTFILE`/`HUSK_BIN`/`CORPUS_ROOT` assignment: zero matches
+in any of the six. Every real reference in those files goes through
+`csf.ROOT`/`csf.LISTFILE`/`csf.HUSK_BIN` (`texture_dedup_collision_task.py`/
+`black_additive_task.py` alias `HUSK_BIN = csf.HUSK_BIN` at module scope, still
+one source, not a copy). `tools/corpus_scan_framework.py` confirmed to expose
+`ROOT`/`LISTFILE` as module-level `None`-until-`_init_worker` values and
+`HUSK_BIN` as a real computed `shutil.which("husk") or <build path>`
+expression, matching the doc's description exactly. `tools/corpus_scan_tasks/
+render_sample_driver.py` (the actual current path — moved into
+`corpus_scan_tasks/` since §8 was last written, not `tools/` directly)
+confirmed to still hardcode all three (`CORPUS_ROOT = Path("/media/luna/
+data/wow_export")`, `HUSK_BIN = Path(".../build/husk")`, `LISTFILE = Path(...
+community-listfile.csv")`) — the claim holds exactly as written, nothing
+drifted. Removed the section per `AUDIT.md`'s own stated convention ("An item
+is removed from this file when it is fixed").
+
+The `render_sample_driver.py` exclusion is not lost: `CLI_AND_TOOLING.md` §4
+already states it, in more detail than §8 did (the same "driver script, not a
+`ScanTask`, part of the human-gated render pipeline" reasoning, plus the two
+real bugs found fixing the other six modules) — checked line by line before
+concluding no edit was needed there. §8 was, on inspection, already a
+compressed re-statement of facts §4 owned in full; deleting §8 is pure
+subtraction, not a move that needed a landing spot written.
+
+**Why, §4**: read each of the three bullets against the real files they cite,
+not the prose.
+
+- **Bullet 1 (four texture-discovery mechanisms in `tools/
+  husk_blender_geoset_mask.py`)**: confirmed in code — `main()`'s
+  `textures_dir` resolution chain is exactly `--textures` → the imported
+  `.glb`'s own directory → the current `.blend`'s directory
+  (`bpy.path.abspath("//")`) → a preferred `textures/` subdirectory next to
+  it, and `grep -n "subprocess\|shutil.which\|blp-export"` across the file
+  turns up zero live call sites (three remaining hits are all doc-comment
+  prose describing the removal, not code). This is the same finding
+  `AUDIT.md` §1.1's own "closed 2026-08-29" entry already carries in full,
+  with the actual measurement (7/559 vs. 0/826 fallback firing rate) this
+  bullet only summarized. Closed, reasoning already recorded at §1.1 —
+  removed rather than left as a second, shorter copy of the same fact.
+- **Bullet 2 (duplicated `_root_joint_extras`/`_deep_copy_id_property` in
+  `tools/husk_blender_options_panel.py`)**: confirmed the load-bearing
+  blocker is real and documented in place — the comment block directly above
+  `_deep_copy_id_property` (now `:86-107`, drifted a few lines from the
+  `:87-104` the doc cited, substance unchanged) states the `__file__`-is-
+  synthetic-for-a-registered-embedded-Text-datablock finding concretely, and
+  the geoset vertex-group prefix/regex constants are still duplicated a
+  third time right above it for the identical reason. A consciously accepted
+  trade-off with its reasoning recorded at the point of duplication, not an
+  open item — removed.
+- **Bullet 3 (`render_glb.py` skips the customization/geoset stages)**:
+  partially drifted, still genuinely open. `tools/corpus_scan_tasks/
+  render_glb.py` (also moved into `corpus_scan_tasks/` since §4 was last
+  written) now calls `billboard_align.apply_geoset_switches(mesh_objs,
+  armature_obj)` before framing/rendering — the geoset stage the old bullet
+  said never ran, now does. It still never calls
+  `apply_customization_texture_switch`/reads `chr_enabled_materials`, so a
+  model's real customization-choice *texture* selection (skin/hair/eye
+  color, ...) still previews as whichever candidate husk happened to embed
+  as each slot's default — the exact live bug `TODO/
+  RENDER_PIPELINE_DRIFT_TODO.md` item 1 already tracks in full, independent
+  of this session. Rather than fix the drifted "billboard alignment only"/
+  "never runs...geoset stages" prose in place, reduced to a one-line pointer
+  at that TODO per the single-source-of-truth rule — the TODO is the
+  authoritative, current description now, this file no longer carries its
+  own copy to go stale again.
+
+All three bullets addressed, so §4's heading no longer holds — "every item
+violates I3" described three items, two of which are closed and the third of
+which (a stale-preview bug from an incomplete pipeline call, not a directory-
+searching/subprocess-shelling violation) was never really an I3 violation in
+the first place. Heading changed to plain `## 4. Blender-side coupling`.
+
+**Verified**: full suite still green after the doc-only edit —
+`801 test cases | 801 passed | 0 failed | 1 skipped`, `6559 assertions`,
+matching the recorded baseline exactly (`direnv exec . cmake --build build`
+then `direnv exec . env HUSK_TEST_M2=test_data/bloodelffemale.m2
+HUSK_TEST_SKIN=test_data/bloodelffemale00.skin ./build/husk-tests`).
+
+**Not touched, found stale in passing, out of this pass's own edit scope**:
+`REFACTOR/BLENDER_ADDON.md:25-29` still describes "six answers" to "where is
+this texture" (including the `PATH`/subprocess mechanisms this same §4 already
+recorded as removed on 2026-08-29) and cites `AUDIT.md` §4 as its source —
+that prose was already stale before this pass touched §4 at all, and is worth
+a follow-up, but `BLENDER_ADDON.md` is outside this pass's edit scope
+(`AUDIT.md`/`CLI_AND_TOOLING.md`/`REFACTOR_LOG.md` only).
+
+---
+
 ## 2026-09-04 — `cmd_export.cpp`'s `resolveBones`/`resolveAnimationsForModel` migrated onto `m2::Model`, split 4c of 3 -- AUDIT.md §2.1 closed and removed (REFACTOR/README.md's Migration order step 2)
 
 **What**: the last two `m2::parse*` call sites in `cmd_export.cpp` --
