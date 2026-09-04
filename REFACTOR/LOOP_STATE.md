@@ -22,7 +22,7 @@ Loop opened 2026-09-03. Running Migration order **stage 2** (`m2::Model`).
 | `m2-model-adopt-export-b` | AUDIT.md §2.1 (now removed) | **verified** | 2026-09-04 | `517c2a8` | Split 4b. `export_extras.cpp`'s 6 sites read the model; `rethrowIfParseFailed` promoted to a shared function (6 call sites clears the third-occurrence bar). Extras path correctly made fail-fast, not degrading. |
 | `m2-model-adopt-export-c` | AUDIT.md §2.1 (now removed) | **verified** | 2026-09-04 | `9d291f1b` | Split 4c, the subtle one. Rethrow fires at the exact position the old parse ran, so a malformed file still reports the same field first; the `haveSkel` branch's own `skel::parseSequences` correctly left untouched. Supervisor checks: their 426/426 confirmed by my own focused gate on the highest-risk path — 42 models incl. the real `.skel`-sourced `bloodtick.m2`, **42/42 `.glb` and console identical**. Suite **801/801, 6559**. Verified no real `m2::parse*` call remains in any of the four commands (only comments). |
 
-| `audit-2.1-dangling-cites` | supervisor review of `9d291f1b` | ready | - | - | **New, small, real.** Removing §2.1 left **12 source-comment citations** pointing at a section that no longer exists: `src/m2_model.hpp` (×3), `src/export_extras.hpp` (×3), `src/cmd_export.cpp` (×3), `src/dump_emitters.hpp`, `src/cmd_dump.cpp`, `src/m2.hpp` — plus `REFACTOR/CANONICAL_MODEL.md:134`. The subagent flagged this itself and correctly left it, being outside its scope. Retarget them at `REFACTOR_LOG.md`/git history (this project's stated record for closed items) rather than a dead §-number. |
+| `comment-discipline-cleanup` | Luna, 2026-09-04 | ready | - | - | **Supersedes the mis-scoped `audit-2.1-dangling-cites`.** The stranded §2.1 citations were a *symptom*; `~/nix/claude-rules/CODE_COMMENTS.md` says the citations shouldn't exist at all. This loop added **354 comment lines against 310 code lines** to `src/` (more comment than code — litmus #5, density), including 21 references to `AUDIT.md`/`TODO/`/`REFACTOR_LOG`/"split 4b" (litmus #4, cross-cutting → belongs in docs; and "historical narrative → belongs in commit message"). Worst case: `rethrowIfParseFailed`'s 16-line doc comment on a ~4-line body, opening "Promoted from cmd_export.cpp's split 4a (git log 06a08f8b), where this started as..." — the named anti-pattern verbatim. **Scope: only what this loop added** (`git diff 7f7c49a..HEAD -- src/`). Strip doc/TODO references and historical narrative; keep local why-facts, invariants, gotchas, boundary contracts; move anything genuinely architectural to `DESIGN.md`. The migration rationale is already in `REFACTOR_LOG.md` and the commit messages — that is where it belongs. |
 | `audit-8-closed` | AUDIT.md §8 | ready | - | - | Doc-only, small. §8 is "Done" for every real `ScanTask` module with `render_sample_driver.py` a stated deliberate exclusion; per the file's own convention the section should go, exclusion moved to `CLI_AND_TOOLING.md` §4. |
 
 ## Baseline
@@ -133,13 +133,35 @@ and resolving it is a judgment call with real downstream cost (stage 3 is the
 pattern is that wide refactors started mid-design get thrown away).
 
 **So the loop is not starting stage 3 on its own.** It continues on the smaller
-independently-biteable items still in scope (`audit-2.1-dangling-cites`,
+independently-biteable items still in scope (`comment-discipline-cleanup`,
 `audit-8-closed`, and `AUDIT.md` §2.2/§2.3/§2.4, §4, §5, §6), which do not
 block each other or stage 3. Luna's call on how stage 3 should be driven.
 
-**A convention tension worth naming.** This directory's rule is "closed items
-get removed outright — git history is the record". But code comments cite
-section numbers (`AUDIT.md §2.1`), so every removal strands its citations —
-12 of them this time. Either comments should cite `REFACTOR_LOG.md` entries and
-git history rather than live §-numbers, or removal needs a retargeting sweep as
-part of it. Currently neither is written down.
+**Comment discipline — a rule this loop broke, corrected by Luna 2026-09-04.**
+I first reported the stranded `AUDIT.md §2.1` citations as a "convention
+tension" between "closed items get removed outright" and comments citing
+section numbers. That framing was wrong. `~/nix/claude-rules/CODE_COMMENTS.md`
+already settles it: code comments should not reference TODO/AUDIT items at all.
+Its litmus #4 predicts this exact failure — *"would updating this comment
+require touching unrelated code elsewhere? → it's cross-cutting, belongs in
+docs"* — and removing one section required touching 12 call sites.
+
+Measured, not asserted: this loop added **354 comment lines against 310 code
+lines** in `src/`, with 21 doc/TODO references and several passages of pure
+historical narrative ("Promoted from ... split 4a, where this started as ...").
+Both are explicitly named as not belonging inline. I reviewed all five commits,
+had this rule in memory, and instead praised the comments as thorough — the
+review checklist below now covers it so it cannot recur silently.
+
+**Wider pattern, Luna's call, not queued:** `src/` carries **77** such doc/TODO
+references across **28 files**, most predating this loop. `comment-discipline-cleanup`
+is deliberately scoped to this loop's own additions only. Whether the
+pre-existing 56 get the same treatment is a separate decision.
+
+## Review checklist for every subagent commit (added after the above)
+
+Beyond build/tests/gate/scope, check the *diff's comments*:
+1. Any reference to `AUDIT.md`/`TODO/`/`REFACTOR_LOG`/a split number? → must go.
+2. Any "we used to do X, then switched to Y"? → commit message, not code.
+3. More comment lines than code lines in the hunk? → density failure, push to a doc.
+4. A doc comment needing a paragraph? → it needs a document, not a `//`.
