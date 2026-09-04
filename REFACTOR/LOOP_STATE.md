@@ -23,7 +23,7 @@ Loop opened 2026-09-03. Running Migration order **stage 2** (`m2::Model`).
 | `m2-model-adopt-export-c` | AUDIT.md §2.1 (now removed) | **verified** | 2026-09-04 | `9d291f1b` | Split 4c, the subtle one. Rethrow fires at the exact position the old parse ran, so a malformed file still reports the same field first; the `haveSkel` branch's own `skel::parseSequences` correctly left untouched. Supervisor checks: their 426/426 confirmed by my own focused gate on the highest-risk path — 42 models incl. the real `.skel`-sourced `bloodtick.m2`, **42/42 `.glb` and console identical**. Suite **801/801, 6559**. Verified no real `m2::parse*` call remains in any of the four commands (only comments). |
 
 | `comment-discipline-cleanup` | Luna, 2026-09-04 | **deferred — END OF RUN** | - | - | **Supersedes the mis-scoped `audit-2.1-dangling-cites`.** The stranded §2.1 citations were a *symptom*; `~/nix/claude-rules/CODE_COMMENTS.md` says the citations shouldn't exist at all. This loop added **354 comment lines against 310 code lines** to `src/` (more comment than code — litmus #5, density), including 21 references to `AUDIT.md`/`TODO/`/`REFACTOR_LOG`/"split 4b" (litmus #4, cross-cutting → belongs in docs; and "historical narrative → belongs in commit message"). Worst case: `rethrowIfParseFailed`'s 16-line doc comment on a ~4-line body, opening "Promoted from cmd_export.cpp's split 4a (git log 06a08f8b), where this started as..." — the named anti-pattern verbatim. **Scope: only what this loop added** (`git diff 7f7c49a..HEAD -- src/`). Strip doc/TODO references and historical narrative; keep local why-facts, invariants, gotchas, boundary contracts; move anything genuinely architectural to `DESIGN.md`. The migration rationale is already in `REFACTOR_LOG.md` and the commit messages — that is where it belongs. |
-| `audit-8-closed` | AUDIT.md §8 | ready | - | - | Doc-only, small. §8 is "Done" for every real `ScanTask` module with `render_sample_driver.py` a stated deliberate exclusion; per the file's own convention the section should go, exclusion moved to `CLI_AND_TOOLING.md` §4. |
+| `audit-8-closed` | AUDIT.md §8 | in-progress | 2026-09-04 | - | Doc-only, small. §8 is "Done" for every real `ScanTask` module with `render_sample_driver.py` a stated deliberate exclusion; per the file's own convention the section should go, exclusion moved to `CLI_AND_TOOLING.md` §4. |
 
 ## Baseline
 
@@ -184,3 +184,27 @@ migration step. It covers, over `git diff <loop-start>..HEAD -- src/`:
 
 Scope stays this loop's own additions. The ~56 pre-existing doc/TODO references
 elsewhere in `src/` are Luna's separate call, not this pass's to sweep.
+
+## Backlog triage after stage 2 (2026-09-04) — most of what's left is canon-gated
+
+Checked each remaining `AUDIT.md` section against `CANONICAL_MODEL.md` rather
+than assuming they were independent. They largely are not:
+
+| Section | Status | Gated on stage 3? |
+|---|---|---|
+| §1.1 texture-resolution mirrors | open (2 Python tasks need *bytes*, not metadata) | **No** — independent, but blocked on husk exposing per-slot resolved bytes |
+| §2.2 `M2MaterialInputs` bag + blob back-pointer | open | **Yes** for the real fix — the blob is held to resolve M2Track curves, which is exactly `CANONICAL_MODEL.md`'s "One curve representation". A shallow "swap ten vectors for a `const m2::Model&`" is possible but would be rewritten by stage 3 anyway |
+| §2.3 `gltf::Skeleton` is canon wearing a consumer's name | open | **Yes** — this *is* stage 3 |
+| §2.4 population order is a hidden contract | open | **Yes** — "Canon states it and the ordering requirement disappears" |
+| §3 glTF impedance | open | **Yes** — geosets-first-class is canon; the rest needs the stage-4 bundle |
+| §4 Blender-side I3 | mostly resolved in place, not removed | **No** — Python/Blender side |
+| §5 slot-as-identity (I7) | open | **Yes** — canon's `Item { slots[]; components[] }` |
+| §6 untraceable naming (I6) | open | **Yes** — canon's `Ref` is named "the I6 carrier" |
+| §8 corpus-tooling constants | done bar one deliberate exclusion | **No** — closing now |
+
+**Consequence for this loop:** after §8 and a §4 audit, the only remaining
+non-canon work is §1.1's two Python tasks, and those are blocked on a husk
+capability (handing back the resolved bytes for a slot) that is itself a design
+question. So the loop runs out of safely-delegable work very soon, and the
+stage-3 escalation above is now the binding constraint rather than a
+forward-looking note.
