@@ -56,7 +56,6 @@ namespace fs = std::filesystem;
 // test case being picked up.
 
 // Export-side version of the two `husk info` cases above.
-// TODO: Remove: regression test for FAILURES2.md #3.
 TEST_CASE("husk export: a version below Wrath (264) prints a loud warning") {
     auto dir = defaultsDir("prewrathexport");
     auto md20 = minimalMd20(/*version=*/256);  // Classic
@@ -314,9 +313,6 @@ TEST_CASE("husk export: a model with 0 vertices and 0 bones (nothing at all to e
     fs::remove_all(dir);
 }
 
-// TODO: Remove: regression test for FAILURES2.md #6 -- a batch with
-// textureCount > 1 used to be silently reduced to a single texture with
-// zero indication anything was dropped.
 TEST_CASE("husk export: a batch with textureCount > 1 prints a note that extra texture layers "
           "are dropped") {
     auto dir = defaultsDir("multitex");
@@ -360,7 +356,6 @@ TEST_CASE("husk export: a batch with textureCount == 1 prints no multi-texture n
 // occupy outer-array position 0. This checks it end to end through the
 // real CLI, not just the underlying parser (see tests/test_m2.cpp for
 // that).
-// TODO: Remove: regression test for FAILURES2.md #7.
 TEST_CASE("husk export: a global-sequence-driven bone track resolves to a real animation clip") {
     auto m2 = tinyValidM2();
     uint32_t boneOff = static_cast<uint32_t>(m2.size());

@@ -230,7 +230,6 @@ TEST_CASE("husk info: prints skin_file_data_ids/lod_count/bone_file_data_ids/ani
 // recognizes and labels Classic (256-257)/TBC (260-263), so a version below
 // Wrath gets a loud warning rather than silently trusting an unverified
 // stride.
-// TODO: Remove: regression tests for FAILURES2.md #3.
 TEST_CASE("husk info: a version below Wrath (264) prints a loud warning") {
     auto path = tempPath("pre-wrath.m2");
     writeFile(path, minimalMd20(/*version=*/260));  // The Burning Crusade
@@ -259,7 +258,6 @@ TEST_CASE("husk info: a Wrath+ version prints no such warning") {
 // get per-record detail; Header::textureFileDataIds (the TXID chunk,
 // already resolved and used internally by `husk export --textures`) is
 // printed too, matching every other sidecar FileDataID list.
-// TODO: Remove: regression test for FAILURES2.md #4.
 TEST_CASE("husk info: prints per-texture type/flags/filename, per-material flags/blend_mode, and "
           "texture_file_data_ids when TXID is present") {
     auto md20 = minimalMd20();

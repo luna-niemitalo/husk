@@ -170,8 +170,7 @@ def husk_resolve_json(path: Path, timeout: float = 20.0, textures_out: str | Pat
     2,206,298-row listfile loaded). A corpus-scan report's numbers must
     depend only on this module's own explicit LISTFILE/ROOT, never silently
     on whatever config the machine running it happens to have -- same
-    reasoning as tests/run_husk.hpp's identical fix for the CLI test suite
-    (CLAUDE_HISTORY.md's 2026-08-21 entry).
+    reasoning as tests/run_husk.hpp's identical fix for the CLI test suite.
 
     --listfile is passed only when LISTFILE resolves to a real, present
     file (mirrors every task's own pre-conversion `_load_listfile()` guard,
@@ -205,9 +204,8 @@ def husk_resolve_json(path: Path, timeout: float = 20.0, textures_out: str | Pat
     byte export is the gap that would unblock the rest; see
     TODO/CLEANUP_TODO.md.
 
-    PERFORMANCE, measured 2026-08-29 (see REFACTOR_LOG.md/TODO/
-    CLEANUP_TODO.md item 3 for the full controlled numbers, n=8 runs
-    each, plus a listfile-size-isolation run): two separate, additive
+    PERFORMANCE (see REFACTOR_LOG.md for the full controlled numbers, n=8
+    runs each, plus a listfile-size-isolation run): two separate, additive
     costs, not one. (1) --listfile: husk re-parses the full ~148MB/2.2M-row
     community-listfile.csv from scratch on *every* invocation (no
     process-lifetime cache the way the removed Python-side

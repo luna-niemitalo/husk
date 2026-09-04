@@ -9,9 +9,8 @@
 // Real, typed reader for the DB2 chain that resolves a real
 // ItemModifiedAppearanceID (what husk-appearance/1's `gear=SLOT:id` entries
 // carry, src/appearance_string.hpp) to the real equipped-item geometry/
-// texture data needed to render it -- TODO/EQUIPPED_GEAR_RENDER_TODO.md
-// step 1. Same db2table.hpp-backed, thin-wrapper, "data access only"
-// pattern as chrcustomization_db2.hpp --
+// texture data needed to render it. Same db2table.hpp-backed,
+// thin-wrapper, "data access only" pattern as chrcustomization_db2.hpp --
 // final FileDataID resolution (ModelResourcesID -> .m2 FileDataID,
 // MaterialResourcesID -> texture FileDataID) is left to
 // modelfiledata_db2.hpp/texturefiledata_db2.hpp, same split
@@ -34,8 +33,8 @@
 //        exact field)
 //
 // From ItemDisplayInfoID, TWO real, structurally different sibling tables
-// branch off -- EQUIPPED_GEAR_RENDER_TODO.md's own "case 1 vs case 2"
-// split, confirmed against reference/wow.export's real, shipping renderer
+// branch off -- a "case 1 vs case 2" split, confirmed against
+// reference/wow.export's real, shipping renderer
 // code (src/js/db/caches/DBItemDisplayInfoModelMatRes.js vs.
 // DBItemCharTextures.js, src/js/modules/tab_characters.js's own equipped-
 // item compositing loop), not guessed from column names alone:
@@ -45,8 +44,8 @@
 //     triple -- this is case 1's texture data (the texture applied to the
 //     item's OWN separate geometry, e.g. a weapon's blade texture or a
 //     shield's own material). `TextureType`'s real distinct local values
-//     ({2,3,4,5,24}) rule out any body-section-enum reading (falsified,
-//     see EQUIPPED_GEAR_RENDER_TODO.md) -- it's a texture-*role* selector
+//     ({2,3,4,5,24}) rule out any body-section-enum reading (falsified
+//     against real per-item data) -- it's a texture-*role* selector
 //     (diffuse/detail/specular-ish channel), matching that
 //     DBItemDisplayInfoModelMatRes.js never filters on it at all, just
 //     collects every FileDataID reachable via MaterialResourcesID. One

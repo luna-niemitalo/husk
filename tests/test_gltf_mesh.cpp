@@ -268,7 +268,6 @@ TEST_CASE("writeGlb: a material's baseColorImagePng is embedded as a real glTF i
 // own selection, the same "tag it, don't guess at semantics" treatment
 // `billboardMode` already gets (see gltf.hpp's Primitive::skinSectionId /
 // Material::AdditionalTextureLayer doc comments).
-// TODO: Remove: FAILURES2.md #1/#6 (the findings these are regression tests for).
 TEST_CASE("writeGlb: a primitive's skinSectionId round-trips as geoset_id/group/variant extras") {
     auto mesh = buildTriangleMesh();
     mesh.primitives[0].skinSectionId = 401;  // group 4, variant 1
@@ -779,7 +778,6 @@ TEST_CASE("writeGlb: textureType/tintAnimation/fade_animation extras coexist wit
 // whole document, not just the one known-affected pair) so this also
 // guards the inverse-bind-matrix/animation-sampler buffer views against
 // the same class of regression.
-// TODO: Remove: FAILURES2.md #2 (the finding this is a regression test for).
 TEST_CASE("writeGlb: every bufferView stays 4-byte aligned even after an odd-length embedded image") {
     auto mesh = buildTriangleMesh();
     mesh.primitives[0].materialIndex = 0;

@@ -24,8 +24,8 @@
 // CharComponentTextureLayoutID column, joined against whichever
 // ChrModelID `--chr-model-id` resolves (`cmd_export.cpp`'s
 // attachCharTextureLayout) -- and this module does NOT attempt any pixel
-// compositing (Stage 4, deliberately reverted, see CLAUDE_HISTORY.md). An
-// explicit `--char-layout-id` still overrides that derivation outright,
+// compositing; that stays Blender's job, not husk's. An explicit
+// `--char-layout-id` still overrides that derivation outright,
 // same "hand husk a plain local answer instead of making it guess" option
 // every other opt-in sidecar in this project has.
 //

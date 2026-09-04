@@ -14,14 +14,12 @@ Or standalone, on JSON fetched some other way:
     python3 tools/blizzard_profile_to_appearance_string.py \\
       --race 52 --sex 0 equipment.json appearance.json
 
-ASSUMED_PATHS below was written against Blizzard's documented API shape
-without a live response to check it against. It's since been confirmed
-correct against a real character's live payload (2026-08-23, via
-blizzard_profile_fetch.py) -- field names below are verified, not guessed.
-If a future API change breaks them, ASSUMED_PATHS is still the ONLY place
-that needs to change -- every other part of this script, and all of husk's
-own appearance_string.hpp/cmd_appearance.cpp, is independent of Blizzard's
-exact schema.
+ASSUMED_PATHS' field names are verified against a real character's live
+payload via blizzard_profile_fetch.py, not guessed from Blizzard's docs
+alone. If a future API change breaks them, ASSUMED_PATHS is still the ONLY
+place that needs to change -- every other part of this script, and all of
+husk's own appearance_string.hpp/cmd_appearance.cpp, is independent of
+Blizzard's exact schema.
 """
 
 import argparse
@@ -38,9 +36,9 @@ ASSUMED_PATHS = {
     "slot_type": ("slot", "type"),
     "transmog_appearance_id": ("transmog", "item_modified_appearance_id"),
     # Fallback when a slot isn't transmogged (no "transmog" object at all):
-    # confirmed against a real live response (2026-08-20) -- the equipped-item
-    # entry itself carries a top-level "modified_appearance_id" (0 for slot
-    # types WoW doesn't support transmog on, e.g. rings/trinkets/neck).
+    # the equipped-item entry itself carries a top-level
+    # "modified_appearance_id" (0 for slot types WoW doesn't support
+    # transmog on, e.g. rings/trinkets/neck).
     "base_appearance_id": ("modified_appearance_id",),
     # One entry per character-appearance response: the post-Shadowlands
     # customization-choice list.

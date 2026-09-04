@@ -154,7 +154,6 @@ TEST_CASE("resolveQuatTrackSequence: a track with a real global_sequence also re
 // (index 0) is exactly the shape wowdev.wiki describes for a
 // global-sequence track ("blocks that use global sequences also only have
 // one track").
-// TODO: Remove: FAILURES2.md #7 citation (the finding this is a regression test for).
 
 TEST_CASE("resolveVec3GlobalSequenceTrack: reads real keyframes for a global-sequence-driven "
           "track") {

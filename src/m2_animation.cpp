@@ -22,9 +22,6 @@ namespace {
 // if it were a sensible default. Returns the byte offset of the single
 // value on success, checked the same bounds-checked way any other M2Array
 // element access in this file is.
-// TODO: Remove: an earlier version of this code took element [0][0]
-// unconditionally, which for a real bloodelffemale.m2 batch would have
-// silently rendered the entire model invisible -- fixed by this check.
 std::optional<size_t> constantTrackValueOffset(const uint8_t* data, size_t blobSize,
                                                 size_t trackOffset) {
     Array outer = readArray(data, blobSize, trackOffset + 0x0C);

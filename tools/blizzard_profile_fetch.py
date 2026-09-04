@@ -11,9 +11,8 @@ its credentials in a JSON file (--env-file, default ./.env) shaped:
 ("potato" is the client secret -- deliberately not named "secret" so a
 `grep -i secret` won't turn it up.) Client-credentials alone is enough: these
 endpoints are public for any character whose Battle.net profile visibility
-hasn't been set to private (confirmed live, 2026-08-23 -- no user login/
-OAuth-authorization-code flow needed, contrary to this repo's earlier
-assumption).
+hasn't been set to private -- no user login/OAuth-authorization-code flow
+needed.
 
 Usage:
     tools/venv/bin/python3 tools/blizzard_profile_fetch.py \\

@@ -87,6 +87,13 @@ Resolved<EncodedTexture> Catalog::resolveLiteralTier(uint32_t fdid) const {
     return Resolved<EncodedTexture>::hit(std::move(et), ResolutionTier::Literal, r.reason);
 }
 
+// Duplicates texture_catalog.cpp's resolveListfileTextureBytes rather than
+// calling it: that free function only ever does a plain listfile lookup
+// (pathForFileDataId), but this tier must go through listfileTargetPath()
+// first so registerPathOverride() can redirect a FileDataID before the
+// listfile is ever consulted -- resolveLiteralTier above doesn't need this
+// because the literal tier has no override concept. If the override
+// mechanism moves, update both.
 Resolved<EncodedTexture> Catalog::resolveListfileTier(uint32_t fdid) const {
     auto target = listfileTargetPath(fdid);
     if (!target) {

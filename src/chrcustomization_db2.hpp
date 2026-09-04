@@ -8,9 +8,8 @@
 
 // Real, typed reader for the DB2 chain that resolves a real
 // ChrCustomizationChoiceID (a specific character-customization pick, e.g.
-// "Hairstyle 7") to the real geoset/bone-correction-set data it enables --
-// TODO/TODO_correctness.md #2. Same db2table.hpp-backed, thin-wrapper
-// pattern as chrmodel_db2.hpp.
+// "Hairstyle 7") to the real geoset/bone-correction-set data it enables.
+// Same db2table.hpp-backed, thin-wrapper pattern as chrmodel_db2.hpp.
 //
 // The real chain, verified against Luna's own local casc-tool extraction,
 // not guessed (see chrcustomization_db2.cpp's resolveChoice/load for the
@@ -209,8 +208,8 @@ std::vector<NamedChoice> namedChoicesForModel(const Data& data, uint32_t chrMode
 // data itself); no DB2 table states an explicit default for a player
 // option, so this is husk's own heuristic, not a client-verified fact.
 // Loudly not a substitute for real player-character customization data
-// when that's available -- see TODO/TODO_correctness.md #2. Requires
-// `data.options`/`data.choices`; returns empty when either is missing.
+// when that's available. Requires `data.options`/`data.choices`; returns
+// empty when either is missing.
 std::vector<uint32_t> defaultChoiceIdsForModel(const Data& data, uint32_t chrModelId);
 
 }  // namespace husk::chrcustomization

@@ -44,14 +44,11 @@ std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::
 
     // Same same-basename-numbered-scan fallback resolveSkin already has for
     // its own (only ever entry-0) case, generalized to any SFID index --
-    // --lod's behavior shouldn't depend on whether it was passed explicitly
-    // (TODO/CLEANUP_TODO.md's former item 4, reproduced 2026-08-19 on a real
-    // 'bloodelffemale_hd.m2': '--lod 0' failed, no '--lod' succeeded, same
-    // directory, same files -- a real local extraction commonly has
-    // '<basename><N>.skin' files but no FileDataID-named ones at all). Also
-    // makes 'auto'/'--lod' finally check the SFID candidate actually exists
-    // before returning it, rather than deferring that discovery to whatever
-    // later stage tries to open the file.
+    // --lod's behavior shouldn't depend on whether it was passed explicitly.
+    // A real local extraction commonly has '<basename><N>.skin' files but no
+    // FileDataID-named ones at all. Also makes 'auto'/'--lod' check the SFID
+    // candidate actually exists before returning it, rather than deferring
+    // that discovery to whatever later stage tries to open the file.
     auto resolveOneIndex = [&](size_t index) -> std::string {
         std::string sfidCandidate = pathFor(index);
         std::error_code ec;

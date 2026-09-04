@@ -375,9 +375,6 @@ TEST_CASE("husk dump-chunks: RPID (a flat FileDataID array sized by chunk byte l
 // TEXL has a real, unambiguous struct (unlike DETL's inconsistent
 // offsets), so it gets real field-level parsing, same shape as DBOC
 // (16-byte records sized by chunk byte length).
-// TODO: Remove: regression test for FAILURES2.md #5 -- TEXL was recognized
-// by cmd_info.cpp's chunk-tag list but absent from this file's own dump
-// tables, so real TEXL data was invisible everywhere.
 TEST_CASE("husk dump-chunks: TEXL (light-cookie texture lookups) reads its four fields per record") {
     std::vector<uint8_t> texl;
     putF32(texl, 1.5f);

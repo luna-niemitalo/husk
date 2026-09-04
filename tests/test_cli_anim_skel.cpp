@@ -334,7 +334,6 @@ TEST_CASE("husk export: --anim defaults to the model's own directory -- an exter
 // normals. Both fixtures below are otherwise identical to tinyAnimatedM2()
 // (see its own doc comment), just with the translation track's second
 // keyframe corrupted one way at a time.
-// TODO: Remove: regression tests for FAILURES2.md #9/FAILURES.md #4.
 TEST_CASE("husk export: a non-finite (NaN) translation keyframe value fails with a real message, "
           "not a silently-invalid .glb") {
     auto b = tinyValidM2();
@@ -532,7 +531,6 @@ TEST_CASE("husk export: a 3-way cascading duplicate keyframe timestamp run repai
 // values -- the normal shape for a real character model bundling multiple
 // selectable hairstyles/gear geosets in one file. husk doesn't filter
 // geosets (that's a separate, bigger feature), but it must say so loudly.
-// TODO: Remove: regression test for FAILURES2.md #1.
 TEST_CASE("husk export: --anim auto (explicit) produces the identical clip count as the "
           "default (omitted) case -- 'auto' is genuinely the default, not merely documented as "
           "one") {

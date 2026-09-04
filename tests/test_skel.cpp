@@ -232,7 +232,6 @@ TEST_CASE("findAnimFileIds: no AFID chunk returns nullopt, not an error (not eve
 // -- a .skel's own AFID chunk with a byte length that isn't a multiple of 8
 // used to silently drop the trailing partial entry instead of failing
 // loudly.
-// TODO: Remove: regression test for FAILURES2.md #8.
 TEST_CASE("findAnimFileIds: AFID chunk with a byte length not a multiple of 8 throws, rather "
           "than silently dropping the trailing partial entry") {
     std::vector<uint8_t> file;

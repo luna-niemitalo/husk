@@ -91,8 +91,8 @@ _GEOSET_GROUP_SOCKET_RE = re.compile(r" \(group (\d+)\)$")
 # independent copies, and can segfault Blender if read again after an
 # unrelated bone deletion -- see that file's own doc comment for the full
 # crash repro). REFACTOR/AUDIT.md §4 named this a real duplication to fix;
-# investigated (2026-08-29) whether a shared sibling module could replace
-# both copies, and found a real, not just precautionary, blocker: this
+# investigated whether a shared sibling module could replace both copies,
+# and found a real, not just precautionary, blocker: this
 # file's whole reason for existing separately is running as a *registered
 # embedded Text datablock* so a `.blend` self-installs with zero setup
 # (see this file's own module docstring) -- confirmed directly via a

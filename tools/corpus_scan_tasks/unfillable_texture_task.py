@@ -33,9 +33,9 @@ change from the pre-conversion version of this task, which approximated
 instead, since that didn't need a real .skin/batch resolution to compute
 cheaply -- `husk resolve` does the real batch-driven resolution `export`
 itself uses (the authoritative definition), not an approximation of it, so
-this task now gets that for free. Root cause investigated interactively
-2026-08-15: item/objectcomponents/collections-style body-fitted armor
-pieces use a `type=2` ("object_skin") replaceable slot with
+this task now gets that for free. Root cause: item/objectcomponents/
+collections-style body-fitted armor pieces use a `type=2`
+("object_skin") replaceable slot with
 `file_data_id=0`, filled in by the live client from
 CharComponentTextureLayoutsID/ItemDisplayInfo DB2 data, not a standalone
 file -- of ~15 race/gender variants of the same item, only the ones whose

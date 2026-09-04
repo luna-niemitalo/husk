@@ -288,9 +288,6 @@ TEST_CASE("parseSubmeshes: Level (offset 0x02) is folded into indexStart's high 
 // skinSectionId (offset 0x00, the "Mesh part ID"/geoset ID -- wowdev.wiki
 // M2/.skin#Submeshes) distinguishes mutually-exclusive character-
 // customization geosets (different hairstyles, etc.) from the base mesh.
-// TODO: Remove: regression test for FAILURES2.md #1 -- this field used to
-// be skipped entirely by the original parser, which started reading at
-// vertexStart (0x04).
 TEST_CASE("parseSubmeshes: reads skinSectionId (the geoset ID) at offset 0x00, distinct per entry") {
     std::vector<uint8_t> file(500, 0);
     size_t off = 200;
