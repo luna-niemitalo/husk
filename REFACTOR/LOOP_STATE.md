@@ -217,3 +217,29 @@ which no longer says that. Predates this loop. Also: `AUDIT.md` cited
 `render_glb.py`/`render_sample_driver.py` at `tools/`, but both now live in
 `tools/corpus_scan_tasks/`. Both are documentation-accuracy items, cheap to fix,
 deliberately left rather than widened into unasked.
+
+## RUN CLOSED (2026-09-04)
+
+Stopped because the backlog triage above shows every remaining `AUDIT.md`
+section is either gated on the stage-3 decision or blocked on a design
+question — not because the work ran out of value.
+
+**Landed and independently verified this run** (9 iterations, 8 subagent
+commits, each rebuilt and re-tested from scratch by the supervisor, with
+diff gates re-run on a *different* sample than the implementer used):
+
+- **Stage 2 complete.** All four commands consume one `m2::Model`; `AUDIT.md`
+  §2.1 removed. Gate met — `husk info` and `dump-chunks` diffed on real
+  fixtures with every difference attributed.
+- Suite **788/6323 with one red → 801/6559 green**.
+- Two real pre-existing bugs fixed as a side effect: `husk info` and
+  `dump-chunks` used to abort *uncaught* on a malformed array.
+- `AUDIT.md` §8 closed, §4 reduced to one accurate pointer.
+- End-of-run comment pass: 354 → 171 comment lines, 21 → 0 plan-item
+  references in the loop's own additions.
+
+**Waiting on Luna:** how stage 3 should be driven. `SUPERVISOR_LOOP.md` puts
+it in scope; `README.md` says it needs live steering rather than wholesale
+delegation. That conflict is the binding constraint, and picking a side
+unilaterally on the "expensive stage that must not be shortcut" is exactly
+the judgment call this loop is supposed to escalate rather than make.
