@@ -23,7 +23,7 @@ Loop opened 2026-09-03. Running Migration order **stage 2** (`m2::Model`).
 | `m2-model-adopt-export-c` | AUDIT.md §2.1 (now removed) | **verified** | 2026-09-04 | `9d291f1b` | Split 4c, the subtle one. Rethrow fires at the exact position the old parse ran, so a malformed file still reports the same field first; the `haveSkel` branch's own `skel::parseSequences` correctly left untouched. Supervisor checks: their 426/426 confirmed by my own focused gate on the highest-risk path — 42 models incl. the real `.skel`-sourced `bloodtick.m2`, **42/42 `.glb` and console identical**. Suite **801/801, 6559**. Verified no real `m2::parse*` call remains in any of the four commands (only comments). |
 
 | `comment-discipline-cleanup` | Luna, 2026-09-04 | **deferred — END OF RUN** | - | - | **Supersedes the mis-scoped `audit-2.1-dangling-cites`.** The stranded §2.1 citations were a *symptom*; `~/nix/claude-rules/CODE_COMMENTS.md` says the citations shouldn't exist at all. This loop added **354 comment lines against 310 code lines** to `src/` (more comment than code — litmus #5, density), including 21 references to `AUDIT.md`/`TODO/`/`REFACTOR_LOG`/"split 4b" (litmus #4, cross-cutting → belongs in docs; and "historical narrative → belongs in commit message"). Worst case: `rethrowIfParseFailed`'s 16-line doc comment on a ~4-line body, opening "Promoted from cmd_export.cpp's split 4a (git log 06a08f8b), where this started as..." — the named anti-pattern verbatim. **Scope: only what this loop added** (`git diff 7f7c49a..HEAD -- src/`). Strip doc/TODO references and historical narrative; keep local why-facts, invariants, gotchas, boundary contracts; move anything genuinely architectural to `DESIGN.md`. The migration rationale is already in `REFACTOR_LOG.md` and the commit messages — that is where it belongs. |
-| `audit-8-closed` | AUDIT.md §8 | in-progress | 2026-09-04 | - | Doc-only, small. §8 is "Done" for every real `ScanTask` module with `render_sample_driver.py` a stated deliberate exclusion; per the file's own convention the section should go, exclusion moved to `CLI_AND_TOOLING.md` §4. |
+| `audit-8-closed` + `audit-4-audit` | AUDIT.md §8, §4 | **verified** | 2026-09-04 | `97bc6630` | §8 removed (claim re-verified by me: the six modules carry no drifting duplicates — two alias `HUSK_BIN = csf.HUSK_BIN`, which is safe *because* only the import-time constant is aliased, never worker-populated `ROOT`/`LISTFILE`, whose aliasing would recreate the exact `None` bug §8 documented; `render_sample_driver.py` genuinely still hardcodes all three). Caveat correctly **not** moved — already in `CLI_AND_TOOLING.md` §4 in more detail, which they checked before concluding. §4 reduced to one pointer and its "every item violates I3" heading dropped as no longer true. Bullet 3 re-verified by me: `render_glb.py:1033` does call `apply_geoset_switches`, and `apply_customization_texture_switch` appears nowhere — so the old text was stale and the new wording is right. Suite unchanged 801/801. |
 
 ## Baseline
 
@@ -208,3 +208,12 @@ capability (handing back the resolved bytes for a slot) that is itself a design
 question. So the loop runs out of safely-delegable work very soon, and the
 stage-3 escalation above is now the binding constraint rather than a
 forward-looking note.
+
+**More doc drift found, not fixed (flagged by the subagent, confirmed by me).**
+`REFACTOR/BLENDER_ADDON.md:25-29` still describes "six answers" to "where is
+this texture", including the `PATH` lookup and `husk blp-export` subprocess that
+`AUDIT.md` §1.1 recorded as removed on 2026-08-29 — and cites §4 as its source,
+which no longer says that. Predates this loop. Also: `AUDIT.md` cited
+`render_glb.py`/`render_sample_driver.py` at `tools/`, but both now live in
+`tools/corpus_scan_tasks/`. Both are documentation-accuracy items, cheap to fix,
+deliberately left rather than widened into unasked.
