@@ -1200,8 +1200,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                                                     skelBytes, bones, skeleton, animDir, modelPath,
                                                     animationNames.empty() ? nullptr : &animationNames);
             attachBoneCorrections(bonesDir, bonesAreInline, haveSkel, header, skelBytes, skeleton);
-            attachEmitterAnchors(blob, header, skeleton);
-            attachPlacementNodes(blob, header, header.sequences.count, skeleton);
+            attachEmitterAnchors(model, skeleton);
+            attachPlacementNodes(model, header.sequences.count, skeleton);
             attachPhysicsBodies(physNone, physGiven, physPath, modelPath, skeleton);
             attachCharTextureLayout(db2Dir, dbdDirForChr, charLayoutIdArg, chrModelIdArg, modelPath,
                                      listfile, listfileRoot, skeleton);
@@ -1262,7 +1262,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         // real render/LOD entries versus the trailing collision entry, so
         // it doesn't mislabel the collision mesh as another LOD tier.
         size_t renderMeshCount = namedMeshes.size();
-        appendCollisionMesh(header, blob, modelPath, opts.collisionRequested, namedMeshes);
+        appendCollisionMesh(model, modelPath, opts.collisionRequested, namedMeshes);
 
         // --slim-textures: the directory the .glb itself is about to be
         // written into (empty string -- not "." -- when unset, matching

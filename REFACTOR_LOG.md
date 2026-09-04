@@ -8,6 +8,100 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-09-04 — `src/export_extras.cpp`'s six parse sites migrated onto `m2::Model`, split 4b of 3, plus `rethrowIfParseFailed` promoted to a shared function (REFACTOR/AUDIT.md §2.1, REFACTOR/README.md's Migration order step 2)
+
+**What**: `src/export_extras.cpp`'s remaining six `m2::parse*` call sites --
+`attachEmitterAnchors` (`m2::parseRibbons`/`parseParticles`),
+`attachPlacementNodes` (`m2::parseAttachments`/`parseEvents`/`parseLights`),
+and `appendCollisionMesh` (`m2::parseCollisionMesh`) -- are now
+`model.ribbonEmitters`/`particleEmitters`/`attachments`/`events`/`lights`/
+`collisionMesh` reads. All three functions' signatures changed from a raw
+`(blob, header, ...)` pair to `(const m2::Model& model, ...)`; their three
+`cmd_export.cpp` call sites updated to pass `model` (already a local of
+`exportOneModel` since split 4a) instead of `blob`/`header`.
+
+**`rethrowIfParseFailed` promoted from a local lambda to a shared function**,
+per this task's own design brief: split 4a (`06a08f8b`) introduced it inside
+`exportOneModel` with one real user. It now has six real call sites across
+two files (`exportOneModel`/`resolveBones`/`resolveAnimationsForModel` in
+`cmd_export.cpp` -- the latter two land in split 4c, tracked below --
+and this split's own three `export_extras.cpp` functions) -- past this
+project's own "third occurrence, or a single canonical hub" bar for earning
+an abstraction (CLAUDE.md). Declared in `export_extras.hpp` next to
+`readFileBytes`, this file's other shared cross-cutting helper; defined in
+`export_extras.cpp`. Kept deliberately tiny, exactly the same body the local
+lambda had: a linear scan over `model.parseFailures` and a throw -- not a
+general error-policy abstraction.
+
+**Design decision, verified against the real code rather than assumed:
+`husk export`'s extras path needed fail-fast too, not graceful
+degradation.** The reasoning (this task's own brief, confirmed correct
+against `m2_model.hpp`'s real contract): a malformed `attachments`/
+`events`/`lights`/`ribbons`/`particles`/`collision_mesh` array under
+`m2::loadModel` yields an empty vector plus a recorded
+`FieldParseFailure`, not a throw. Without `rethrowIfParseFailed`, reading
+that field directly would silently attach *fewer* placement anchors/nodes
+than the file actually has -- no error, no diagnostic, nothing -- the same
+silent-misread class split 4a's own vertices/materials hazard was, just
+quieter (a missing ribbon anchor is easy to miss; a missing whole mesh is
+not). Each of the three functions now calls `rethrowIfParseFailed(model,
+field)` immediately before reading that field, in the same relative order
+the old direct `parse*` call ran (ribbon_emitters before the particle
+version gate; attachments before events before lights; collision_mesh only
+once the pre-existing `collisionRequested`/count-`==`-0 early return
+confirms the field will actually be read) -- so a malformed file still
+reports the same field's error first, matching the old direct-call
+behavior byte-for-byte.
+
+**The version-gate subtlety split 4a's own template (git log 6367a4a5) named,
+checked against the real code, confirmed to still apply**:
+`attachEmitterAnchors`'s particle-emitter block still gates on
+`model.header.particleEmitters.count`/`model.header.version` directly, never
+`model.particleEmitters.empty()` -- `m2::loadModel` applies the identical
+version check *before* attempting `parseParticles` at all (`m2_model.hpp`'s
+doc comment), so an empty `model.particleEmitters` can't be told apart from
+"below `kMinVerifiedParticleVersion`, nothing attempted" versus "genuinely
+zero records." `rethrowIfParseFailed(model, "particle_emitters")` is called
+inside that gate, not outside it -- same shape as `dumpEmitters`'s own gate.
+
+**Verification that fail-fast really survived the migration**: 3 new
+CLI-tier regression tests in `tests/test_cli_errors.cpp` (this file's own
+stated scope: "malformed model-file content must fail cleanly, not crash or
+silently misread") -- one malformed `ribbon_emitters` array (a real inline-
+boned, sequenced, skinned model via `tinyAnimatedM2()`, corrupted
+`ribbonEmitters` header field), one malformed `attachments` array (same
+fixture, corrupted `attachments` header field), and one malformed
+`collision_positions` array under `--collision` (`tinyValidM2WithCollision()`,
+corrupted `collisionPositions` header field). Not exhaustive over all six
+fields -- `events`/`lights` share `attachPlacementNodes`' exact code shape
+as `attachments`, and `particle_emitters` shares `attachEmitterAnchors`'
+shape as `ribbon_emitters`, so one representative case per function was
+judged sufficient (same "one fixture per previously-confirmed-broken
+behavior" convention this test file's own doc comment states). All three:
+exit 1, no `bad_alloc`, the real `ParseError::what()` message
+(`"ribbonEmitters array claims..."`/`"attachments array claims..."`/`"array
+claims ... C3Vector entries..."`) verbatim in the output -- confirming a
+malformed extras field still fails loudly, not silently.
+
+**Verified**: `direnv exec . cmake --build build`, then
+`direnv exec . env HUSK_TEST_M2=test_data/bloodelffemale.m2
+HUSK_TEST_SKIN=test_data/bloodelffemale00.skin ./build/husk-tests` --
+**799 test cases, 0 failed, 1 skipped (unchanged); 6547 assertions, 0
+failed**, up from the 796/6528 baseline by this task's 3 new regression
+tests (+19 assertions). Diff gate (REFACTOR/README.md's "every difference
+is explained and attributed") deferred to run once at the end, covering
+this split together with split 4c below, per this task's own explicit
+instruction -- full sample/method/results recorded in split 4c's own entry
+below, not duplicated here.
+
+**Deliberately not touched**: `cmd_export.cpp`'s `resolveBones`/
+`resolveAnimationsForModel` (split 4c, tracked separately below) --
+`AUDIT.md` §2.1 stays open until that split lands too. No existing
+`m2_*.hpp`/`.cpp` parser changed. No `src/formats/`, `src/canon/`, or
+`src/writers/` directory created.
+
+---
+
 ## 2026-09-04 — `cmd_export.cpp`'s parse block migrated onto `m2::Model`, split 4a of 3 (REFACTOR/AUDIT.md §2.1, REFACTOR/README.md's Migration order step 2)
 
 **What**: `exportOneModel` (`src/cmd_export.cpp`) hand-assembled its own

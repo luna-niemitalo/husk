@@ -172,6 +172,95 @@ TEST_CASE("husk export: corrupted huge bone count fails with a real message, not
     fs::remove(skinPath);
 }
 
+// Regression coverage for the REFACTOR/AUDIT.md §2.1 m2::Model migration's
+// split 4b (REFACTOR_LOG.md's entry for this task): before it,
+// attachEmitterAnchors/attachPlacementNodes/appendCollisionMesh called
+// m2::parseRibbons/parseAttachments/parseEvents/parseLights/
+// parseCollisionMesh directly, so a malformed array threw straight through
+// and aborted the export. Under m2::loadModel, a malformed array yields an
+// empty vector plus a recorded FieldParseFailure instead of throwing (see
+// m2_model.hpp's doc comment) -- reading that field without
+// rethrowIfParseFailed first would silently attach *fewer* placement
+// anchors than the file actually has, no error at all (the same
+// silent-misread class as the bones hazard, just quieter). These three
+// cases (one per migrated function) prove the fail-fast behavior survived
+// the migration -- not exhaustive over all six fields (ribbon_emitters/
+// particle_emitters/attachments/events/lights/collision_mesh), since
+// events/lights share attachPlacementNodes' exact same code shape as
+// attachments and particle_emitters shares attachEmitterAnchors' shape as
+// ribbon_emitters.
+TEST_CASE("husk export: a malformed ribbon_emitters array beyond an otherwise-valid, skinned "
+          "model fails cleanly, not silently attaching fewer placement anchors than the file "
+          "actually has") {
+    auto m2 = tinyAnimatedM2();  // 1 vertex, 1 inline bone, 1 sequence -- bones.empty() is false
+    uint32_t count = 0xFFFFFFF0;
+    uint32_t off = 0;
+    std::memcpy(m2.data() + 0x120, &count, 4);  // offset::ribbonEmitters
+    std::memcpy(m2.data() + 0x124, &off, 4);
+    auto m2Path = tempPath("malformed-ribbons-export.m2");
+    writeFile(m2Path, m2);
+
+    auto skinPath = tempPath("malformed-ribbons-export.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("malformed-ribbons-export.glb").string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("bad_alloc") == std::string::npos);
+    CHECK(result.output.find("ribbonEmitters array claims") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export: a malformed attachments array beyond an otherwise-valid, skinned model "
+          "fails cleanly, not silently attaching fewer placement nodes than the file actually "
+          "has") {
+    auto m2 = tinyAnimatedM2();
+    uint32_t count = 0xFFFFFFF0;
+    uint32_t off = 0;
+    std::memcpy(m2.data() + 0x0F0, &count, 4);  // offset::attachments
+    std::memcpy(m2.data() + 0x0F4, &off, 4);
+    auto m2Path = tempPath("malformed-attachments-export.m2");
+    writeFile(m2Path, m2);
+
+    auto skinPath = tempPath("malformed-attachments-export.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("malformed-attachments-export.glb").string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("bad_alloc") == std::string::npos);
+    CHECK(result.output.find("attachments array claims") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+TEST_CASE("husk export --collision: a malformed collision_positions array fails cleanly, not "
+          "silently exporting an empty/wrong collision mesh") {
+    auto m2 = tinyValidM2WithCollision();  // real 3-position/3-index/1-face-normal triangle
+    uint32_t count = 0xFFFFFFF0;
+    uint32_t off = 0;
+    std::memcpy(m2.data() + 0x0E0, &count, 4);  // offset::collisionPositions
+    std::memcpy(m2.data() + 0x0E4, &off, 4);
+    auto m2Path = tempPath("malformed-collision-export.m2");
+    writeFile(m2Path, m2);
+
+    auto skinPath = tempPath("malformed-collision-export.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("malformed-collision-export.glb").string() + " --collision");
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("bad_alloc") == std::string::npos);
+    CHECK(result.output.find("array claims") != std::string::npos);
+    CHECK(result.output.find("C3Vector entries") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
 TEST_CASE("husk export: .skin file with a corrupted huge indices count fails with a real "
           "message, not std::bad_alloc") {
     auto m2Path = tempPath("for-huge-skin-indices.m2");

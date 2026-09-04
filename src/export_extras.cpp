@@ -49,6 +49,12 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
     return bytes;
 }
 
+void rethrowIfParseFailed(const m2::Model& model, const char* field) {
+    for (const auto& f : model.parseFailures) {
+        if (f.field == field) throw std::runtime_error(f.what);
+    }
+}
+
 void attachBoneCorrections(const std::string& bonesDir, bool bonesAreInline, bool haveSkel,
                             const m2::Header& header, const std::vector<uint8_t>& skelBytes,
                             gltf::Skeleton& skeleton) {
@@ -91,9 +97,15 @@ void attachBoneCorrections(const std::string& bonesDir, bool bonesAreInline, boo
     }
 }
 
-void attachEmitterAnchors(const std::vector<uint8_t>& blob, const m2::Header& header,
-                           gltf::Skeleton& skeleton) {
-    for (const auto& r : m2::parseRibbons(blob, header.ribbonEmitters)) {
+void attachEmitterAnchors(const m2::Model& model, gltf::Skeleton& skeleton) {
+    const m2::Header& header = model.header;
+
+    // rethrowIfParseFailed replaces m2::parseRibbons's own throw-on-
+    // malformed -- see export_extras.hpp's own doc comment for why an
+    // empty model.ribbonEmitters can't otherwise be told apart from
+    // "genuinely zero ribbon emitters."
+    rethrowIfParseFailed(model, "ribbon_emitters");
+    for (const auto& r : model.ribbonEmitters) {
         if (r.boneIndex >= skeleton.joints.size()) {
             throw std::runtime_error("ribbon emitter references bone " +
                                       std::to_string(r.boneIndex) + ", out of range for " +
@@ -101,8 +113,16 @@ void attachEmitterAnchors(const std::vector<uint8_t>& blob, const m2::Header& he
         }
         skeleton.ribbonAnchors.push_back({r.ribbonId, static_cast<int>(r.boneIndex), toGltf(r.position)});
     }
+    // header.particleEmitters.count/header.version, not
+    // model.particleEmitters -- m2::loadModel applies this exact same
+    // version gate *before* attempting parseParticles at all
+    // (m2_model.hpp's doc comment), so model.particleEmitters is already
+    // empty below the gate for the same reason it always was: nothing was
+    // parsed, not a parse failure. Same hazard/precedent as git log
+    // 6367a4a5's dumpEmitters.
     if (header.particleEmitters.count == 0 || header.version >= m2::kMinVerifiedParticleVersion) {
-        for (const auto& p : m2::parseParticles(blob, header.particleEmitters)) {
+        rethrowIfParseFailed(model, "particle_emitters");
+        for (const auto& p : model.particleEmitters) {
             if (p.boneId >= skeleton.joints.size()) {
                 throw std::runtime_error("particle emitter references bone " +
                                           std::to_string(p.boneId) + ", out of range for " +
@@ -169,9 +189,15 @@ std::vector<gltf::Material::AnimatedScalarCurve> resolveRawByteTrackCurve(
 
 }  // namespace
 
-void attachPlacementNodes(const std::vector<uint8_t>& blob, const m2::Header& header,
-                           size_t sequenceCount, gltf::Skeleton& skeleton) {
-    for (const auto& a : m2::parseAttachments(blob, header.attachments)) {
+void attachPlacementNodes(const m2::Model& model, size_t sequenceCount, gltf::Skeleton& skeleton) {
+    const std::vector<uint8_t>& blob = model.blob;
+
+    // rethrowIfParseFailed replaces each field's old direct m2::parse*
+    // call's own throw-on-malformed -- one call per field, in the same
+    // order those fields are read, so a malformed file still reports the
+    // same field's error first (see export_extras.hpp's own doc comment).
+    rethrowIfParseFailed(model, "attachments");
+    for (const auto& a : model.attachments) {
         if (a.bone < 0 || static_cast<size_t>(a.bone) >= skeleton.joints.size()) {
             throw std::runtime_error("attachment " + std::to_string(a.id) + " references bone " +
                                       std::to_string(a.bone) + ", out of range for " +
@@ -185,7 +211,8 @@ void attachPlacementNodes(const std::vector<uint8_t>& blob, const m2::Header& he
             resolveRawByteTrackCurve(blob, a.animateAttachedTrackOffset, sequenceCount);
         skeleton.attachments.push_back(std::move(attachment));
     }
-    for (const auto& e : m2::parseEvents(blob, header.events)) {
+    rethrowIfParseFailed(model, "events");
+    for (const auto& e : model.events) {
         if (e.bone >= skeleton.joints.size()) {
             throw std::runtime_error("event '" + e.identifier + "' references bone " +
                                       std::to_string(e.bone) + ", out of range for " +
@@ -193,7 +220,8 @@ void attachPlacementNodes(const std::vector<uint8_t>& blob, const m2::Header& he
         }
         skeleton.events.push_back({e.identifier, static_cast<int>(e.bone), toGltf(e.position), e.data});
     }
-    for (const auto& l : m2::parseLights(blob, header.lights)) {
+    rethrowIfParseFailed(model, "lights");
+    for (const auto& l : model.lights) {
         if (l.bone < 0 || static_cast<size_t>(l.bone) >= skeleton.joints.size()) {
             throw std::runtime_error("light references bone " + std::to_string(l.bone) +
                                       ", out of range for " + std::to_string(skeleton.joints.size()) +
@@ -887,16 +915,20 @@ void attachGearAppearance(const std::string& db2Dir, const std::string& dbdDir,
     }
 }
 
-void appendCollisionMesh(const m2::Header& header, const std::vector<uint8_t>& blob,
-                          const std::string& modelPath, bool collisionRequested,
+void appendCollisionMesh(const m2::Model& model, const std::string& modelPath, bool collisionRequested,
                           std::vector<gltf::NamedMesh>& namedMeshes) {
+    const m2::Header& header = model.header;
     if (!collisionRequested || header.collisionPositions.count == 0 ||
         header.collisionIndices.count == 0) {
         return;
     }
 
-    auto collisionMesh = m2::parseCollisionMesh(blob, header.collisionPositions, header.collisionIndices,
-                                                 header.collisionFaceNormals);
+    // rethrowIfParseFailed replaces m2::parseCollisionMesh's own throw-on-
+    // malformed (see export_extras.hpp's own doc comment) -- only reached
+    // once the early return above confirms this call will actually read
+    // model.collisionMesh.
+    rethrowIfParseFailed(model, "collision_mesh");
+    auto collisionMesh = model.collisionMesh;
 
     if (collisionMesh.indices.size() % 3 != 0) {
         throw std::runtime_error("'" + modelPath + "'s collision mesh has " +

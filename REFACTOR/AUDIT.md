@@ -252,6 +252,27 @@ export_extras.cpp`'s six sites (split 4b). This section stays open until
 both remaining splits land. Full narrative and diff-gate numbers:
 `REFACTOR_LOG.md`'s newest entry.
 
+**Update (2026-09-04): `src/export_extras.cpp`'s six sites migrated too,
+split 4b.** `attachEmitterAnchors`/`attachPlacementNodes`/
+`appendCollisionMesh` now take the whole `m2::Model` and read
+`model.ribbonEmitters`/`particleEmitters`/`attachments`/`events`/`lights`/
+`collisionMesh` instead of calling `m2::parseRibbons`/`parseParticles`/
+`parseAttachments`/`parseEvents`/`parseLights`/`parseCollisionMesh`
+directly. Same fail-fast contract as split 4a's `exportOneModel`, for the
+same reason: a new shared `rethrowIfParseFailed(model, field)`
+(`export_extras.hpp`/`.cpp`, promoted out of split 4a's local lambda now
+that it has six real call sites) rethrows a recorded parse failure before
+each field is read, so `husk export`'s extras path fails loudly on a
+malformed array instead of silently attaching fewer placement
+anchors/nodes than the file actually has. The particle version gate
+(`header.particleEmitters.count`/`header.version`, not
+`model.particleEmitters.empty()`) is unchanged, same hazard/precedent as
+`dumpEmitters`'s own gate (git log 6367a4a5). `cmd_export.cpp`'s
+`resolveBones`/`resolveAnimationsForModel` (split 4c) are the only
+remaining unmigrated sites -- this section stays open until that split
+lands. Full narrative and diff-gate numbers: `REFACTOR_LOG.md`'s newest
+entry.
+
 ### 2.2 `M2MaterialInputs` is a bag with a back-pointer
 
 `src/export_materials.hpp:123-145` gathers ten parsed arrays plus
