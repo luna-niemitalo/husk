@@ -140,6 +140,60 @@ candidate against local basename-family presence before trusting it, or
 preferring local basename matching outright when both a DB2 candidate
 and a local same-family file exist and disagree.
 
+## Proposed robustness follow-up: cross-validate against `itemappearance_db2` (not started, 2026-09-04)
+
+The disambiguator named as missing above — confirming a real, current item
+actually references a given `ItemDisplayInfoID` before trusting its texture
+— now exists in the tree, just built for a different entry point.
+`src/itemappearance_db2.hpp`/`.cpp` (built for `husk appearance-string`'s
+equipped-gear resolution) walks `ItemModifiedAppearance -> ItemAppearance ->
+ItemDisplayInfo`, so by construction it only ever reaches an
+`ItemDisplayInfoID` that a real `ItemAppearance` row references. That's
+exactly the existence check this join's own "Known-wrong" case above was
+missing — it just hasn't been pointed back at the object-skin problem.
+
+Proposed shape, not implemented:
+
+1. For a model's reverse-derived `ItemDisplayInfoID` candidates (today's
+   `model_object_skin_texture` join, keyed by `ModelResourcesID`), filter to
+   only the ones reachable from some real row in `itemappearance_db2`'s
+   `ItemAppearance` table (a plain existence check against that table's
+   `ItemDisplayInfoID` column — no `ItemModifiedAppearanceID` needed, this
+   doesn't require knowing which specific appearance a caller wants, just
+   that *some* real item uses this display).
+2. Cross-check the filtered, DB2-validated set against the local fuzzy-match
+   pool (`stripRaceGenderSuffix`'s candidates) already computed for the same
+   model:
+   - **Both agree on one candidate** -> high-confidence single answer,
+     usable as the default even without the "please confirm" warning the
+     fuzzy path currently always attaches.
+   - **DB2-validated set is empty, name-match isn't** -> fall back to
+     today's fuzzy-match behavior unchanged (this is the common case right
+     now, since most local `Item`/`ItemAppearance` tables are still
+     unreliable/incomplete per the note above).
+   - **Both non-empty but disagree, or either side is itself ambiguous** ->
+     do not silently pick one. Surface every candidate from both sources as
+     `alternate_textures`, and flag the *disagreement itself* (not just
+     "ambiguous") — a DB2/filename mismatch is a stronger signal something
+     is wrong than either source's own internal ambiguity alone.
+   - **Both empty** -> genuinely unresolved, report as such (no candidate),
+     never fabricate one.
+
+This generalizes past this one join: any place husk has two independently-
+derived candidates for the same fact (one from an authoritative-but-
+sometimes-corrupt DB2 chain, one from a locally-verifiable heuristic) should
+prefer *agreement* as the confidence signal, and treat disagreement as
+stronger evidence of a problem than either signal's own uncertainty — per
+this doc's own "confidently wrong beats visibly unresolved" finding, taken
+one step further: *disagreement* between two fallible sources is itself
+informative, not noise to average away.
+
+Not started. Doesn't need `Item`/`itemmodifiedappearance.db2` re-extraction
+the way full correctness verification did above — `ItemAppearance` alone is
+enough for the existence check. Worth a real measurement first: how much of
+the local `ItemAppearance` table is itself complete/current, since the "Known-
+wrong" case above was partly blocked by truncated data in adjacent tables.
+
 ## Canonical location
 
 `/media/luna/work/cache/husk/knowledge.sqlite` — a husk-built artifact

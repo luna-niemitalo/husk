@@ -71,7 +71,13 @@ husk export --input <file.m2> [OPTIONS]   (see below -- all flags order-independ
 husk dump-chunks <file.m2>
 husk dump-chunks <file.bone>
 husk dump-chunks <file.phys>
+husk resolve --input <file.m2> [OPTIONS]   (texture-resolution ledger as JSON, see below)
 husk db2-info <file.db2>   (proof of concept, see below -- not consumed by export yet)
+husk db2-export <file.db2>|--dir <dir> <out.sqlite> [--dbd-dir DIR]
+husk db2-build --db2-dir <dir> --dbd-dir <dir> --listfile <file> -o <out.sqlite>
+husk blp-export <file.blp> <out.png>   (or --dir <blp-dir> <out-dir>, see below)
+husk appearance-string --validate <string>
+husk --version   (or -V)
 ```
 
 husk never touches CASC storage itself, and it never resolves a FileDataID to
@@ -614,6 +620,7 @@ Flags:
 | `--textures <dir>` &#124; `none` | `-t` | Directory of `.png` or raw `.blp` files (the latter decoded in-memory, no separate step) for real `baseColorTexture` images, or `none` to never embed one -- matched by real filename first (the M2's own embedded name, or the model's own basename-prefixed convention), `<FileDataID>.{png,blp}` only as a fallback, see below | model's own directory |
 | `--textures-out <dir>` | -- | Also write each decoded `.blp`'s `.png` to `<dir>`, mirroring its location under `--textures` -- a convenience copy only, embedding itself always happens in-memory regardless | unset (in-memory only) |
 | `--slim-textures` | -- | Write each resolved base-color texture as a real `<output-dir>/textures/<name>.png` file (clean-named -- see "Material and texture naming" below) and reference it via glTF's own external image `uri`, instead of embedding it in the `.glb`'s binary buffer -- see below | off (embed, the default) |
+| `--explain-textures` | -- | After exporting, print the texture-resolution ledger to stdout: for every texture slot, which tier answered it (literal / listfile / fuzzy same-basename pool / knowledge base), what it resolved to, and the reason on a miss -- the same ledger `husk resolve` prints on its own, without a full export (see below) | off |
 | `--skin-dir <dir>` &#124; `none` | -- | Directory `auto` searches for the SFID-declared `<FileDataID>.skin`, or `none` to skip that stage | model's own directory |
 | `--anim <dir>` &#124; `auto`/`inline`/`none` | `-a` | See the four states above | `auto` |
 | `--skel <path>` &#124; `none` | -- | External `.skel` path (0-inline-bone models only), or `none` to never look for one | same-basename `.skel` next to the model, if any |
@@ -956,6 +963,23 @@ real files (`WIKI_FINDINGS/PHYS.md`). `husk export --phys` separately attaches
 a minimal per-body placement anchor to the `.glb`'s skin `extras`; this
 command is where the full record set lives.
 
+### `husk resolve --input <file.m2> [OPTIONS]`
+
+Prints `sources::Catalog`'s texture-resolution ledger as JSON on stdout: one
+entry per `(skin, texture slot)`, with which tier answered it (literal /
+listfile / fuzzy same-basename pool / knowledge base), what it resolved to,
+whether a fuzzy pool was genuinely ambiguous, and the reason on a miss.
+Takes the same `--skin`/`--skin-dir`/`--lod`/`--textures`/`--textures-out`/
+`--listfile`/`--listfile-root`/`--object-skin-texture-id` flags as `export`,
+with the same grammar and defaults, and runs only as much of `export`'s own
+pipeline as answers that question (header + material/texture arrays +
+`.skin` batches, via the same functions `export` itself calls) -- skipping
+vertex data, skeleton/animation/DB2 character resolution, and the final
+`.glb` write entirely, so a corpus scan can ask "where did this resolve"
+at a fraction of a real export's cost. `husk export --explain-textures`
+prints the same ledger inline after a real export, for comparing behavior
+before vs. after a change without a second tool.
+
 ### `husk db2-info <file.db2>` (proof of concept)
 
 WDC5 DB2 parser (`src/db2.hpp`/`.cpp`) -- built to let a human poke at
@@ -1080,6 +1104,25 @@ contains real `function Scene:WaitTimer(waitTime)` source) and real
 negative/large 32-bit values like `AdditionalDuration = -2500`, correctly
 never misread as text).
 
+### `husk db2-build --db2-dir <dir> --dbd-dir <dir> --listfile <file> -o <out.sqlite>`
+
+Builds husk's own verified knowledge-base SQLite database
+(`TODO/KNOWLEDGE_BASE_DESIGN.md`) -- all four flags required, no off-state.
+Ingests `ModelFileData`/`ItemDisplayInfo`/`TextureFileData`/
+`ItemDisplayInfoModelMatRes`/`Item`/`ItemAppearance`/`ItemModifiedAppearance`
+via the same `db2-export` machinery, plus `--listfile`, into a `models`
+table (every `.m2` FileDataID -> real path) and a `textures` table (every
+`.blp`/`.png` FileDataID -> real path), then a resolved
+`model_object_skin_texture` join (model FileDataID -> texture FileDataID via
+`ModelFileData` -> `ItemDisplayInfo` -> `TextureFileData`), filtered by a
+real `Item.InventoryType`-vs-listfile-path slot check to reject
+cross-category collisions (a weapon texture matched to a helmet model). A
+`_meta` table stamps the source `.db2` files' own size+mtime so
+`husk export --knowledge-db` can tell when the built database is stale.
+Local-only, rebuilt on demand -- never fetched, never committed. Same-slot
+collisions (two items for the same equip slot) aren't filtered by this
+check and remain a known real gap -- see `CLAUDE_HISTORY.md`.
+
 ### `husk appearance-string --validate <string>`
 
 Validates/normalizes a `husk-appearance/1` string (`race=<id> sex=<0|1>
@@ -1120,14 +1163,18 @@ for the matching file on its own (same non-goal as `.skin`/`.skel`
 resolution above). Pass `--textures-out <dir>` too if you also want the
 decoded `.png` written to disk, mirroring `--textures`'s own layout.
 
+### `husk blp-export <file.blp> <out.png>` / `--dir <blp-dir> <out-dir>`
+
 That same in-memory decoder is also exposed standalone, for converting
-`.blp` files without a full `husk export`: `husk blp-export <file.blp>
-<out.png>` (single file), or `husk blp-export --dir <blp-dir> <out-dir>`
+`.blp` files without a full `husk export`: single-file mode
+(`husk blp-export <file.blp> <out.png>`), or `--dir <blp-dir> <out-dir>`
 (every `*.blp` in `blp-dir`, output filenames mirroring each input's own
 basename; a file that fails to parse is skipped with a diagnostic, not
-fatal to the whole batch) -- a thin CLI wrapper (`src/cmd_blp.cpp`) around
-the exact `blp::decode`/`blp::encodePng` pipeline `export_texture_resolution.cpp`
-already uses internally, no new decode logic.
+fatal to the whole batch, and the command's own exit code reflects
+partial failure) -- mip level 0 (full resolution) only, a thin CLI wrapper
+(`src/cmd_blp.cpp`) around the exact `blp::decode`/`blp::encodePng`
+pipeline `export_texture_resolution.cpp` already uses internally, no new
+decode logic.
 
 `blp/` (`husk-blp`, a small uv-managed Python package) still exists, kept
 deliberately as an independent reference implementation:

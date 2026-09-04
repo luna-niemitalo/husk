@@ -109,6 +109,59 @@ produce something a human looks at, not a CSV.
   machine's own download location, gitignored, never fetched by this
   script). Every result (pass/fail/skip) is appended to a live-tailable log
   the instant it's known, not batched to the end.
+- `corpus_scan_tasks/casc_size_mismatch_task.py` — checks every real file's
+  on-disk byte count against CASC's own reported size for that FileDataID
+  (one `casc-tool list` dump loaded into memory, then a cheap per-file dict
+  lookup + `os.stat()` — `PARALLEL_MODE = "thread"` since there's no real
+  per-file CPU cost).
+- `corpus_scan_tasks/dangling_references_task.py` — the completeness
+  counterweight: of the internal cross-references husk already knows how to
+  resolve (bone/sequence/attachment/camera/texture lookups, plus `.skin`-
+  dependent kinds), how many actually point at something real, corpus-wide,
+  per reference kind — not just "is this field present."
+- `corpus_scan_tasks/unfillable_texture_task.py` — real files whose actually-
+  used texture slots resolve to nothing local under any of husk's own three
+  tiers (literal FileDataID, `--listfile`, same-basename fuzzy). Shells out
+  to `husk resolve` rather than re-deriving the tier order in Python — a
+  hand-mirrored copy of this logic silently broke once for real (see
+  `CLAUDE_HISTORY.md`'s 2026-08-15/16 entries). Supersedes the deleted
+  `missing_texture_task.py`.
+- `corpus_scan_tasks/black_additive_task.py` — flags models likely to render
+  as flat background color: every material additive-family blend mode *and*
+  the resolved primary texture is genuinely black pixel content (decoded via
+  `husk blp-export`, cached by FileDataID). The non-particle-driven sibling
+  of `particle_only_task.py` below.
+- `corpus_scan_tasks/particle_only_task.py` — heuristic candidate list for
+  models whose only real visible content is an M2Particle emitter husk can't
+  bake into geometry: every material additive-family blend mode *and* at
+  least one real particle emitter. A structural signal, not a confirmed-blank
+  proof — treat the output as a human-spot-check list.
+- `corpus_scan_tasks/shader_id_task.py` — real-corpus `M2Batch::shader_id`
+  scan for `TODO/MULTI_TEXTURE_LAYER_TODO.md`: how often the 0x8000
+  table-lookup path fires, how often `textureCount > 1`, how often a
+  multi-texture batch has `shader_id == 0` (unresolvable either way).
+- `corpus_scan_tasks/shader_names_task.py` — goes one step past
+  `shader_id_task.py`: resolves each batch's `(shaderId, textureCount)` to
+  its real `{pixel, vertex}` shader name pair (mirroring
+  `m2::resolveShaderNames` in Python), answering which undocumented
+  `Combiners_*` pixel shaders actually get exercised by real files.
+- `corpus_scan_tasks/texture_dedup_collision_task.py` — how often a real
+  multi-texture-layer file has two texture slots whose resolved byte content
+  is identical — the shape that silently broke Blender's fdid->Image lookup
+  in the `ladywaycrest` bug (commit `cd11c85`).
+- `corpus_scan_tasks/animated_texture_effects_task.py` — how many real files
+  have a genuinely-animated (not merely constant) texture-transform/color-
+  tint/alpha-fade/texture-weight track, quantifying the "spinning sigil /
+  pulsing rune" visual gap before investing in playback infrastructure for it.
+- `corpus_scan_tasks/detect_billboards.py` — scans for the `billboard`
+  property on bone records via `husk info --json`, for investigating bone
+  counts and hierarchy position of billboarded bones.
+- `corpus_scan_tasks/m2_full_validation_task.py` — the heaviest per-file
+  check: independent header parse cross-check, a rich `husk export`
+  (textures deliberately off, kept disk/speed-bounded), `dump-chunks`, and
+  fidelity/finite/mesh-completeness glb-content checks. Deliberately skips
+  `gltf_validator` (Dart VM per-invocation cost across 130k+ files) — that
+  runs against the smaller Blender-sample set instead.
 - `corpus_scan_tasks/expansion_task.py` — a `corpus_scan_framework`
   `ScanTask` tagging every `.m2` with its real M2 version, wowdev.wiki
   expansion label, and a coarse support tier (unsupported/sketchy/
@@ -147,6 +200,33 @@ produce something a human looks at, not a CSV.
   `auto_flag_detected_failures.py` read/write that same JSONL log,
   unchanged.
 
+## Shader-formula pattern search: `shader_pattern_search/`
+
+Parses vkd3d-compiler `d3d-asm` text (`references/wow_shaders/asm/*.asm`)
+into a def-use dataflow graph and searches it for known shader-math shapes,
+for the `PIXEL_SHADER_FORMULAS_TODO.md`/`SHADER_SCAN_FINDINGS.md` combiner
+hunt — see its own `README.md` for full detail. Two independent approaches:
+
+- **Textual pattern matching** (`ir.py`/`patterns.py`/`scan.py`) — parses
+  into a dataflow graph, matches registered instruction-shape patterns
+  against it. Fast, but only recognizes the exact instruction encoding each
+  pattern was written against.
+- **Invariant-based matching** (`decompose.py`/`eval_engine.py`/
+  `invariants.py`/`formula_specs.py`/`equivalence.py`/`constant_output.py`)
+  — decomposes every shader into standalone blocks, then concretely
+  *evaluates* each against sampled inputs and tests numeric properties true
+  of the target math regardless of encoding (e.g. "is this affine in
+  alpha"). Built after the textual approach was confirmed to miss real
+  matches; stronger, but only covers formula families with invariants
+  actually written for them. `equivalence.py` does full black-box numeric
+  equivalence testing against `formula_specs.py`'s candidate formulas;
+  `constant_output.py` covers the separate case of a hardcoded-constant
+  output (e.g. `Illum`, always-black) that equivalence testing can't
+  express.
+
+Every match from either approach is structural/numeric, not semantic — a
+survivor still needs a manual read before it counts as a real finding.
+
 ## One-off exploration scripts
 
 Each of these is self-contained and documented in its own top-of-file
@@ -178,3 +258,66 @@ docstring — read the script for the real detail, not this list:
   building the geoset-selection Geometry Nodes graph in Blender itself,
   plus the `chr_texture_layout` overlay (see its own module docstring for
   the full mechanism).
+- `husk_blender_options_panel.py` + `test_husk_blender_options_panel.py` —
+  a live, persistent Blender N-panel (deliberately separate from
+  `husk_blender_geoset_mask.py`, which runs once at import time and is
+  done) for browsing/editing a character's real customization-choice menu
+  after import: one row per `ChrCustomizationOption`, a dropdown of its
+  real `Choice`s, driving the texture-switch node graphs
+  `apply_customization_texture_switch` built. Meant to travel with the
+  `.blend` file itself as a registered embedded `Text` datablock — see
+  `BLENDER_OPTIONS_PANEL.md` for the design writeup and
+  `test_husk_blender_options_panel.py` for its own headless verification
+  (`blender --background --factory-startup --python
+  tools/test_husk_blender_options_panel.py`).
+- `derive_texture_tag_vocabulary.py` — a pure filename walk (no husk
+  subprocess, no `corpus_scan_framework`) deriving a texture-tag vocabulary
+  and its co-occurrence structure off the real `.blp` corpus, for
+  `TODO/TEXTURE_POOL_RECALL_TODO.md` step 1.
+- `full_render.py` — runs the full `husk export` → Blender render pipeline
+  over the whole corpus via fresh directory discovery (not a stale
+  pre-generated file list), honoring a `.renderignore` file (gitignore-style
+  subset) at the repo root. Resume-safe, same convention as
+  `corpus_scan_tasks/render_sample_driver.py`.
+- `export_hd_characters.nu` — batch-exports every real `*_hd.m2` player
+  character model to `.glb` via a loop over `husk export` (husk itself has
+  no batch mode built in yet for this shape).
+- `playwright_mcp_launch.nu` — launch shim registered with `claude mcp add`
+  that resolves `PLAYWRIGHT_BROWSERS_PATH` via `direnv exec` at launch time
+  instead of a hardcoded `/nix/store/<hash>-...` path, so a nixpkgs bump
+  doesn't silently rot the registered MCP server path.
+- `shader_dump_watcher.nu` — watches a vkd3d-proton `VKD3D_SHADER_DUMP_PATH`
+  directory for newly captured shaders and fires a desktop notification per
+  new hash (deduped on `.spv` creation only), to correlate a live capture
+  session against in-game context.
+
+### Battle.net Profile API tools
+
+- `blizzard_profile_fetch.py` — fetches a character's public Battle.net
+  Profile API data (summary, equipment/transmog, appearance, character-media
+  render URLs) via OAuth client-credentials (no user login needed), saving
+  each payload as JSON. `--race`/`--sex` also emits a `husk-appearance/1`
+  string in the same run via the next tool below.
+- `blizzard_profile_to_appearance_string.py` — converts Blizzard Character
+  Equipment/Appearance Summary API JSON into a `husk-appearance/1` string
+  (`src/appearance_string.hpp`'s grammar). Field-path assumptions live in
+  one `ASSUMED_PATHS` table, verified against a real payload rather than
+  guessed from Blizzard's docs.
+- `verify_blizzard_api_schema.py` — live-checks `ASSUMED_PATHS` above
+  against a real Blizzard Profile API response, printing expected-vs-got
+  per field.
+- `verify_appearance_string_pipeline.py` — end-to-end pipeline check
+  (synthetic Blizzard JSON → `blizzard_profile_to_appearance_string.py` →
+  `husk appearance-string --validate`), printing expected-vs-got at each
+  step.
+
+### NOTES
+
+* Do NOT use RM, nor let subagents use it, that will immidiately prompt me and stuck the whole toolchain
+* python via UV in tools/venv
+* listfile in ~/Downloads/community-listfile.csv (did not spell check the name)
+* current casc export /media/luna/data/wow_export
+* current wow /media/luna/games/World of Warcraft
+* casc tool ~/dev/casc-tool
+* if you or subagent needs to chain several commands in bash, write a ephemereal scratch dir tool script
+* NO ROOT FINDS

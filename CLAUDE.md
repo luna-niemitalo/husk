@@ -76,9 +76,13 @@ tool, `blp/`) converts BLP2 textures to PNG.
   boundary object, a native husk bundle format, and a real packaged Blender
   addon; glTF becomes an optional best-effort projection. Written up in
   `REFACTOR/` (index: `REFACTOR/README.md`), including `REFACTOR/AUDIT.md`'s
-  evidence inventory of every duplicated/divergent path found. **No code has
-  changed** — everything under Current/Boundaries below still describes the
-  real tree.
+  evidence inventory of every duplicated/divergent path found. **Stage 1 has
+  since landed and Stage 2 is in progress** (`src/sources/`'s resolution
+  catalog, `m2::Model`'s consolidation across `cmd_info`/`cmd_info_json`/
+  `cmd_dump`/`cmd_export`) — see `REFACTOR/LOOP_STATE.md` for the live task
+  table and `REFACTOR/README.md` for the stage plan. Everything under
+  Current/Boundaries below otherwise still describes the real tree; only the
+  in-progress refactor's own files are ahead of it.
 - **Target**: a real Blender import path for modern (Legion+ chunked) M2 — see
   `DESIGN.md`'s Goal section. All 8 roadmap stages are now done, including stage 7
   (output hardening: real exports now run through the Khronos glTF-Validator *and*

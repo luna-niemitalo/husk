@@ -1164,18 +1164,31 @@ flag regardless of position."
 |---|---|---|
 | `--input` | `-i` | the `.m2` path |
 | `--output` | `-o` | output `.glb` path |
+| `--from-list` | *(none)* | batch mode: a plain text file of `.m2` paths, one per line (blank/`#`-comment lines skipped) — exports every one with the same flags given on this invocation, reusing one `--listfile` load across the whole batch; requires `--output-dir` instead of `--output`, mutually exclusive with `--input`/`--output` |
+| `--output-dir` | *(none)* | directory to write each `--from-list` entry's `.glb` into (`<model-basename>.glb`, or `<parent-dir-name>_<model-basename>.glb` on a basename collision within the batch) — required alongside `--from-list`, meaningless without it |
 | `--skin` | `-s` | `.skin` path, or the literal word `auto` |
-| `--textures` | `-t` | directory of `<FileDataID>.png` |
+| `--textures` | `-t` | directory of `<FileDataID>.png`/`<FileDataID>.blp` files, or `none` to skip embedding images (default: the model's own directory) |
+| `--textures-out` | *(none)* | directory to also write each `--textures` `.blp`'s decoded `.png` to, mirroring its location under `--textures` (default: unset — decoded textures stay in-memory only) |
+| `--explain-textures` | *(none)* | flag; after exporting, prints the texture-resolution ledger (which tier answered each slot, ambiguity, miss reasons) — off by default, diagnostics only |
+| `--slim-textures` | *(none)* | flag; write resolved base-color textures as external `<output-dir>/textures/<name>.png` files and reference them via glTF's own external image URI, instead of embedding them in the `.glb` — off by default (embed); additional-texture-layer/ambiguous-candidate extras images stay embedded regardless |
 | `--anim` | `-a` | directory of `<FileDataID>.anim` (falling back to `<model-basename><animId>-<subId>.anim`), or one of `auto`/`inline`/`none` (see below) |
 | `--skin-dir` | *(none)* | directory `auto` searches for the `SFID`-declared `<FileDataID>.skin` |
 | `--skel` | *(none)* | external `.skel` path (0-inline-bone models only) |
 | `--lod` | *(none)* | `<n>` or `all`, only meaningful with `--skin auto` |
 | `--bones-dir` | *(none)* | directory of `<FileDataID>.bone` files, attached as inert extras |
 | `--phys` | *(none)* | external `.phys` path, or `none` — attached as inert extras (minimal anchor; full records via `dump-chunks`) |
+| `--collision` | *(none)* | flag; include the collision mesh, when present, as real (unskinned) geometry tagged `{"collision": true}` in glTF extras — off by default (Blender's stock importer has no concept of the tag and renders it like any other mesh); full records also always available via `dump-chunks` |
 | `--db2-dir` | *(none)* | directory of real character `.db2` files — texture-layout tables for `--char-layout-id` (`src/chrmodel_db2.hpp`) or `ChrCustomizationElement`/`_Geoset`/`_BoneSet` for `--customization-choice-ids` (`src/chrcustomization_db2.hpp`), same directory serves both |
 | `--dbd-dir` | *(none)* | a local WoWDBDefs checkout, resolves `--db2-dir`'s real column names (same role as `husk db2-export`'s own `--dbd-dir`) |
-| `--char-layout-id` | *(none)* | a real `CharComponentTextureLayoutsID` (see `husk db2-export`) — husk can't derive this on its own, so it must be given directly |
+| `--char-layout-id` | *(none)* | a real `CharComponentTextureLayoutsID` (see `husk db2-export`) — unset (default) auto-derives it from the resolved `--chr-model-id`'s own `ChrModel.CharComponentTextureLayoutID` column; an explicit value always overrides |
 | `--customization-choice-ids` | *(none)* | comma-separated real `ChrCustomizationChoiceID`(s) (`src/chrcustomization_db2.hpp`) — resolves each to a real geoset selection and/or marks a matching `--bones-dir` correction set as inert extras; husk can't enumerate these on its own either |
+| `--appearance` | *(none)* | a husk-appearance/1 string (`src/appearance_string.hpp`) — superset alternative to `--customization-choice-ids`: its `cust` field drives the same customization resolution, its `gear` field resolves each real (slot, `ItemModifiedAppearanceID`) pair to real equipped-item texture/geometry data as inert `gear_section_overlays`/`gear_items` extras; mutually exclusive with `--customization-choice-ids` |
+| `--chr-model-id` | *(none)* | a real `ChrModelID`, the literal `auto` (default whenever `--db2-dir`/`--dbd-dir` are given) to derive one via `--listfile`-resolved FileDataID or a filename-convention fallback, or `none` to disable derivation |
+| `--creature-display-id` | *(none)* | a real `CreatureDisplayInfoID` (see `husk db2-export`) — resolves `--db2-dir`'s `creaturedisplayinfogeosetdata.db2` into that display's real *default* geoset selection as `creature_enabled_geosets` extras; husk can't derive which display ID applies on its own, so it must be given directly |
+| `--object-skin-texture-id` | *(none)* | a real texture FileDataID to fill into any unresolved type=2 (`object_skin`) texture slot — husk can't derive this on its own; unset (default) leaves those slots unresolved |
+| `--knowledge-db` | *(none)* | husk's own pre-built knowledge-base SQLite database (`husk db2-build`) — when given, resolves a model's object-skin texture automatically instead of requiring `--object-skin-texture-id` per invocation; `--object-skin-texture-id` still wins if both are given |
+| `--listfile` | *(none)* | a local `community-listfile.csv`-style snapshot (FileDataID;path per line) — last-resort fallback when a FileDataID-named texture slot isn't found next to `--textures`; unset (default) skips this tier entirely |
+| `--listfile-root` | *(none)* | the corpus root `--listfile`'s paths are relative to; only meaningful alongside `--listfile` (default: `--textures` itself) |
 
 Every flag is order-independent. The only positional-shaped things left are
 the two every CLI on every platform already trains a user to expect
