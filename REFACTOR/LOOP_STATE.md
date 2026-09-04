@@ -19,8 +19,8 @@ Loop opened 2026-09-03. Running Migration order **stage 2** (`m2::Model`).
 | `m2-model-adopt-dump` | AUDIT.md §2.1 | verified | 2026-09-04 | `6367a4a` | Split 3/4. Gate met: their 420/420 confirmed by my own independent 190/190 on a different sample. |
 | `audit-2.1-table-stale` | AUDIT.md §2.1 | verified | 2026-09-03 | `9f85bc8` | §2.1's table now names `cmd_info_json.cpp` as the fourth view; section correctly left open. |
 | `m2-model-adopt-export-a` | AUDIT.md §2.1 | **verified** | 2026-09-04 | `06a08f8` | Split 4a done. Their 35/35 confirmed by my own independent gate on a different sample: **55/55 `.glb` byte-identical and 55/55 console output identical** (paths normalized — my first script compared its own scratch dirs and reported a false 55 differences; the artifact was mine, not husk's). Suite holds at 796/796, 6528. `.glb` output confirmed deterministic run-to-run, so byte comparison is a valid gate. Checked the rethrow type substitution myself: it throws `std::runtime_error` where the original threw `m2::ParseError`, but `ParseError` derives from it and **no catch site in `src/` or `tests/` discriminates**, so it is behaviourally invisible — a fidelity nit, not a defect. |
-| `m2-model-adopt-export-b` | AUDIT.md §2.1 | in-progress | 2026-09-04 | - | **Split 4b/4c.** `export_extras.cpp`'s 6 sites (`:96` ribbons, `:105` particles, `:174` attachments, `:188` events, `:196` lights, `:898` collision) take the model. Mechanically the same shape as `dumpEmitters` in split 3/4 — reuse that as the template. |
-| `m2-model-adopt-export-c` | AUDIT.md §2.1 | in-progress | 2026-09-04 | - | **Split 4c/4c — the subtle one, do last.** `resolveBones` (`:116`) and `buildAnimationsForModel` (`:166`). **Hazard**: `resolveBones` derives `bonesAreInline` from `parseBones(...).empty()`. Under `loadModel`, a *malformed* inline bones array yields an empty vector plus a recorded `FieldParseFailure` instead of throwing — which would be silently misread as "no inline bones, fall back to the external `.skel`". That is a real silent-misread risk and must be handled explicitly, not inherited. |
+| `m2-model-adopt-export-b` | AUDIT.md §2.1 | **stalled** | 2026-09-04 | - | **Subagent hit an account session rate limit mid-task** (resets 03:10 Europe/Helsinki). No commits made. It left a header-only edit to `src/export_extras.hpp` that **did not compile** — reverted by me, tree restored and re-verified green. The partial diff is saved at `scratchpad/partial_4b_export_extras_hpp.patch` and is **worth reading before retrying**: its design work was sound (see the `rethrowIfParseFailed` note below). Retry from scratch. **Split 4b/4c.** `export_extras.cpp`'s 6 sites (`:96` ribbons, `:105` particles, `:174` attachments, `:188` events, `:196` lights, `:898` collision) take the model. Mechanically the same shape as `dumpEmitters` in split 3/4 — reuse that as the template. |
+| `m2-model-adopt-export-c` | AUDIT.md §2.1 | **ready** (never started) | - | - | Was assigned with 4b; the subagent was cut off before reaching it. **Split 4c/4c — the subtle one, do last.** `resolveBones` (`:116`) and `buildAnimationsForModel` (`:166`). **Hazard**: `resolveBones` derives `bonesAreInline` from `parseBones(...).empty()`. Under `loadModel`, a *malformed* inline bones array yields an empty vector plus a recorded `FieldParseFailure` instead of throwing — which would be silently misread as "no inline bones, fall back to the external `.skel`". That is a real silent-misread risk and must be handled explicitly, not inherited. |
 | `audit-8-closed` | AUDIT.md §8 | ready | - | - | Doc-only, small. §8 is "Done" for every real `ScanTask` module with `render_sample_driver.py` a stated deliberate exclusion; per the file's own convention the section should go, exclusion moved to `CLI_AND_TOOLING.md` §4. |
 
 ## Baseline
@@ -88,3 +88,21 @@ The note for later: right now that policy split lives as a hand-written
 (stage 3), the contract should be stated once in the model layer — "this
 consumer tolerates partial data, that one does not" — rather than re-derived
 per command. Not actionable now; recorded so stage 3 doesn't rediscover it.
+
+**Salvage from the stalled 4b attempt: `rethrowIfParseFailed` should be shared,
+not re-derived.** The cut-off subagent's header-only diff (saved at
+`scratchpad/partial_4b_export_extras_hpp.patch`) reached a conclusion worth
+keeping. Split 4a introduced `rethrowIfParseFailed` as a *local lambda* inside
+`exportOneModel`. Once 4b and 4c land, the same need appears at **six real call
+sites across two files** — `exportOneModel`/`resolveBones`/
+`resolveAnimationsForModel` in `cmd_export.cpp`, and `attachEmitterAnchors`/
+`attachPlacementNodes`/`appendCollisionMesh` in `export_extras.cpp`. That is
+past this project's own "third occurrence" bar, so promoting it to a real
+shared function (declared in `export_extras.hpp`) is *earned*, not speculative.
+
+Its other correct observation: the extras path is not exempt from fail-fast.
+A malformed `attachments`/`events`/`lights`/`ribbons`/`collision` array would
+otherwise silently attach **fewer placement anchors than the file actually
+has**, with no error — the same silent-misread class as 4c's `bonesAreInline`,
+just quieter. Whoever retries 4b should decide this deliberately rather than
+assuming "extras are diagnostic, so degrading is fine".
