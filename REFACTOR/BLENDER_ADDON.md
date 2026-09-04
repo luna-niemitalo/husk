@@ -22,21 +22,22 @@ Luna's requirement, and the whole point of I3:
 > nor have input params for "extra data dir" and DEFINITELY not depend on husk
 > in any way.
 
-Today it does all three. One question — *where is this texture* — has six
-answers (`AUDIT.md` §4): a `--textures` argument, the `.glb`'s directory, the
-`.blend`'s directory, a preferred `textures/` subdirectory, a `*_<fdid>.png`
-glob in that directory *and its parent*, and a `husk` binary located on `PATH`
-or at `../build/husk` and invoked as a subprocess to convert BLP.
+Today it does all three. One question — *where is this texture* — has five
+answers (`AUDIT.md` §1.1): a `--textures` argument, the `.glb`'s directory,
+the `.blend`'s directory, a preferred `textures/` subdirectory, and a
+`*_<fdid>.png` glob in that directory *and its parent*. A sixth answer — a
+`husk` binary located on `PATH` or at `../build/husk`, invoked as a
+subprocess to convert BLP — was removed outright on 2026-08-29, not reduced:
+a `.glb` isn't guaranteed to travel with a `husk` binary nearby, so the
+script now reports and skips a `.blp`-only match instead of converting it.
 
-Under the bundle, all six are **deleted, not reduced**:
+Under the bundle, all five remaining answers are **deleted, not reduced**:
 
 | Deleted | Replaced by |
 |---|---|
 | `--textures` argument | the manifest's own relative `uri` |
 | `.glb`-dir / `.blend`-dir / `textures/` subdir fallbacks | nothing — there is one entry point |
 | `*_<fdid>` glob in dir and parent | resolution already happened in husk, at stage 2 |
-| `_find_husk_binary` (`:1486`) | nothing — no husk dependency |
-| `_convert_blp_to_png_cached` (`:1505`) + temp-dir cache | husk writes PNG at bundle-write time, once |
 
 Import becomes: point at a manifest. Nothing else.
 

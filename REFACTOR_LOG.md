@@ -8,6 +8,66 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-09-04 — End-of-run comment-discipline pass + two doc-accuracy fixes
+
+**What**: Trimmed every comment the five m2::Model-migration commits
+(7f7c49a..HEAD) added across the 12 touched `src/` files, per
+`~/nix/claude-rules/CODE_COMMENTS.md` -- removed every citation to
+`AUDIT.md`/`REFACTOR/`/`REFACTOR_LOG.md`/`TODO/`/split numbers, all
+historical narrative ("promoted from ... split 4a"), and restated-the-code
+prose; kept every genuine trap tersely (the particle-emitter version gate
+in `dump_emitters.cpp`/`export_extras.cpp`; `resolveBones`'
+`bonesAreInline` hazard in `cmd_export.cpp`). Promoted the one durable
+cross-cutting fact repeated at half a dozen call sites -- `husk info`/
+`dump-chunks` diagnose-and-continue on a malformed field, `husk export`
+fails fast -- to `DESIGN.md`'s "Key design decisions" as a single bold-
+paragraph entry, replacing it at each call site with a short pointer-free
+note. Everything else removed outright was already recorded either in
+this file's own migration-commit entries or the commit messages
+themselves, so nothing else needed a landing spot.
+
+Also fixed the two doc-drift items `LOOP_STATE.md` flagged ("More doc
+drift found, not fixed") for this pass: `REFACTOR/BLENDER_ADDON.md:25-32`
+described six answers to "where is this texture," including a `PATH`/
+`../build/husk` binary lookup and a `husk blp-export` subprocess --
+confirmed absent from the real `tools/husk_blender_geoset_mask.py`
+(removed 2026-08-29; grepped directly for
+`_find_husk_binary`/`_convert_blp_to_png_cached`/`subprocess`, zero hits)
+-- corrected to the real five answers, citing `AUDIT.md` §1.1 (which
+already documents the removal) instead of the stale §4 citation. The
+paired `render_glb.py`/`render_sample_driver.py`-path claim against
+`AUDIT.md` turned out already fixed: `AUDIT.md` §4 was reduced to a bare
+pointer at `TODO/RENDER_PIPELINE_DRIFT_TODO.md` by an earlier commit
+(`97bc6630`) already landed before this pass started -- confirmed by
+grepping every `REFACTOR/*.md` for a stale `tools/render_glb.py`/
+`tools/render_sample_driver.py` path: zero matches anywhere in the tree,
+so `AUDIT.md` needed no edit this pass.
+
+**Why**: Luna caught the five migration commits' comments violating
+`CODE_COMMENTS.md` on density (354 comment lines vs. 310 code lines --
+more comment than code), duplication risk (21 references to plan
+documents whose own future edits would strand the citation, which is
+exactly what already happened once -- an earlier `AUDIT.md` §4 edit this
+session stranded 12 of them), and historical narrative that belongs in a
+commit message, not inline. The doc-drift items were two already-known
+stale facts left for this pass rather than expanded into unasked-for
+scope mid-migration.
+
+**Verified**: Comment lines in the loop's `src/` diff (7f7c49a..HEAD),
+counted as lines matching `^\+\s*//`: **354 before -> 171 after**.
+Non-comment added lines unchanged at exactly **310** both before and
+after (confirms no code line was touched, only comments). New
+comment:code ratio 0.55 (was 1.14). `git diff -- src/ | grep '^[+-]' |
+grep -v '^[+-][+-]' | grep -v '^[+-]\s*//'` shows only two lines, both a
+floating field comment folded onto the same, otherwise-unchanged
+declaration line (`globalLoops`/`boneCombos` in `m2_model.hpp`) -- no
+code token changed. Rebuilt and reran the full suite after the comment
+pass and again after the doc fixes:
+`801 test cases | 801 passed | 0 failed | 1 skipped`, `6559 assertions`,
+matching the measured baseline exactly both times.
+
+---
+
 ## 2026-09-04 — `AUDIT.md` §8 and §4 closed/reduced, doc-accuracy pass, no code changed
 
 **What**: `AUDIT.md` §8 ("Duplicated / drifting constants in corpus tooling")
