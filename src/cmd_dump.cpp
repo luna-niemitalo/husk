@@ -154,34 +154,15 @@ int dumpChunks(int argc, char** args) {
             return 0;
         }
 
-        // m2::loadModel replaces the old parseHeader+extractBlob pair
-        // (REFACTOR/AUDIT.md §2.1's migration -- cmd_dump.cpp used to be
-        // the one command that parsed *nothing* through m2::Model, leaving
-        // dumpEmitters to re-parse ribbon_emitters/particle_emitters from
-        // the raw blob itself every call). A malformed header/blob still
-        // throws and propagates to this function's own catch below,
-        // matching every pre-migration caller's identical behavior for a
-        // file this broken (see loadModel's own doc comment's contract).
         auto model = m2::loadModel(fileBytes);
         const m2::Header& header = model.header;
 
         json::Writer w(std::cout);
         w.beginObject();
 
-        // loadModel parses every array eagerly and in isolation
-        // (m2_model.hpp's doc comment) -- a malformed ribbon_emitters or
-        // particle_emitters array no longer aborts this whole command the
-        // way an unconditional m2::parseRibbons/parseParticles call used
-        // to (this command's only catch is below, wrapping everything).
-        // Same diagnostic, same "present only when non-empty" convention
-        // as `husk info --json`'s own parse_failures key (see
-        // cmd_info_json.cpp) -- printed first, before any array content,
-        // so a consumer sees it before wondering why a field came up
-        // empty (CLAUDE.md: "on failure, always print expected and actual
-        // values"). Real corpus files aren't malformed (see
-        // REFACTOR_LOG.md's entry for this task): inert against every
-        // sample file in the diff gate, exercised by a new synthetic
-        // regression test instead.
+        // Printed first, before any array content, so a malformed field is
+        // distinguishable from a genuinely-empty one instead of silently
+        // reading as empty further down.
         if (!model.parseFailures.empty()) {
             w.key("parse_failures");
             w.beginArray();

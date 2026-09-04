@@ -319,14 +319,10 @@ void dumpEmitters(json::Writer& w, const m2::Model& model) {
     w.endArray();
 
     w.key("particle_emitters");
-    // header.version/particleEmitters.count, not model.particleEmitters --
-    // m2::loadModel applies this exact same version gate *before*
-    // attempting parseParticles at all (m2_model.hpp's doc comment), so
-    // model.particleEmitters is already empty below the gate for the same
-    // reason it always was: nothing was parsed, not a parse failure. This
-    // check has to stay derivable from the header alone (not "is the
-    // vector empty") so the note below can still name the real version --
-    // an empty vector can't tell "gated" apart from "count is genuinely 0".
+    // Reads header.version/particleEmitters.count directly, not
+    // model.particleEmitters -- an empty vector can't distinguish
+    // "version-gated out" from "genuinely zero records", and the note
+    // below needs the real version either way.
     if (header.particleEmitters.count > 0 && header.version < m2::kMinVerifiedParticleVersion) {
         w.beginObject();
         w.key("note");

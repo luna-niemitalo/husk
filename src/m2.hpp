@@ -26,9 +26,9 @@
 //    curve resolver (bone + material + particle tracks alike).
 //  - m2_scene.hpp: Attachment/Event/Light/Ribbon/ParticleEmitter/
 //    ExtendedParticle.
-//  - m2_model.hpp: Model -- the whole-file parsed aggregate (REFACTOR/
-//    AUDIT.md §2.1), a pure addition on top of the five headers above,
-//    not a further split of them.
+//  - m2_model.hpp: Model -- the whole-file parsed aggregate, a pure
+//    addition on top of the five headers above, not a further split of
+//    them.
 #include "m2_animation.hpp"
 #include "m2_header.hpp"
 #include "m2_model.hpp"

@@ -25,31 +25,13 @@ namespace husk::commands {
 // (resolveBones, buildLodTierMeshes, exportOneModel) need it.
 std::vector<uint8_t> readFileBytes(const std::string& path);
 
-// Promoted from cmd_export.cpp's split 4a (git log 06a08f8b), where this
-// started as exportOneModel's own local lambda over model.parseFailures.
-// After splits 4b (this file's own attachEmitterAnchors/attachPlacementNodes/
-// appendCollisionMesh) and 4c (cmd_export.cpp's resolveBones/
-// resolveAnimationsForModel) it has six real call sites across two files --
-// past this project's own "third occurrence, or a single canonical hub" bar
-// for earning an abstraction (CLAUDE.md), so it's promoted here rather than
-// duplicated per file. Declared where readFileBytes already lives as this
-// file's other shared cross-cutting helper.
-//
 // Rethrows the first model.parseFailures entry whose `field` matches
-// `field` as std::runtime_error, message verbatim (ParseError::what(),
-// m2_model.hpp) -- a no-op when that field parsed cleanly. `husk export`
-// (unlike husk info/dump-chunks's own graceful-degrade contract) must fail
-// fast on a malformed field it actually reads: m2::loadModel isolates a
-// per-array parse failure into an empty vector instead of throwing, and an
-// empty vector can't be told apart from "genuinely zero" -- silently
-// reading a malformed array as empty risks producing a *wrong* export
-// (fewer placement anchors than the file really has; a bones array that
-// silently falls back to an external .skel or an unskinned mesh) rather
-// than a loud, correct failure. Deliberately tiny: a linear scan and a
-// throw, not a general error-policy abstraction -- see each call site for
-// why it fires at that specific point (the exact point the old direct
-// parse* call it replaces used to run, so a malformed file still reports
-// the same field's error first).
+// `field` as std::runtime_error, message verbatim -- a no-op when that
+// field parsed cleanly. `husk export` must fail fast on a malformed field
+// it reads (see DESIGN.md's parse-failure-contract note): m2::loadModel
+// leaves a failed array empty rather than throwing, and an empty vector
+// can't be told apart from "genuinely zero" -- silently treating a
+// malformed array as empty risks a wrong export, not just a missing one.
 void rethrowIfParseFailed(const m2::Model& model, const char* field);
 
 // --bones-dir: resolves each of the model's/.skel's BFID-declared
@@ -67,16 +49,11 @@ void attachBoneCorrections(const std::string& bonesDir, bool bonesAreInline, boo
 // the model's own already-parsed header arrays. Full field/curve data
 // lives in `husk dump-chunks`, not here -- this is placement only.
 //
-// Takes the whole `m2::Model` (REFACTOR/AUDIT.md §2.1's split 4b) rather
-// than a raw blob+header pair: model.ribbonEmitters/particleEmitters are
-// already parsed by m2::loadModel, and rethrowIfParseFailed replaces the
-// old direct m2::parseRibbons/parseParticles calls' own throw-on-malformed
-// behavior (see this file's own rethrowIfParseFailed doc comment). The
-// particle version gate still reads model.header.particleEmitters.count/
-// model.header.version directly, never model.particleEmitters.empty() --
-// an empty vector can't tell "below kMinVerifiedParticleVersion, nothing
-// attempted" apart from "genuinely zero records" (git log 6367a4a5's own
-// precedent for this exact hazard, in dumpEmitters).
+// model.ribbonEmitters/particleEmitters are already parsed; rethrowIfParseFailed
+// replaces the old parse calls' throw-on-malformed. The particle version
+// gate reads model.header.particleEmitters.count/model.header.version
+// directly, never model.particleEmitters.empty() -- see dumpEmitters for
+// why.
 void attachEmitterAnchors(const m2::Model& model, gltf::Skeleton& skeleton);
 
 // Attachment/Event/Light placement nodes (gltf::Skeleton::
@@ -91,11 +68,9 @@ void attachEmitterAnchors(const m2::Model& model, gltf::Skeleton& skeleton);
 // attenuation, visibility) the same way M2MaterialInputs::sequenceCount
 // drives the material tint/fade curves.
 //
-// Takes the whole `m2::Model` (REFACTOR/AUDIT.md §2.1's split 4b), same
-// rationale as attachEmitterAnchors above -- model.attachments/events/lights
-// are already parsed; rethrowIfParseFailed replaces the old direct
-// m2::parseAttachments/parseEvents/parseLights calls' own throw-on-malformed
-// behavior, one call per field, in the same order those fields are read.
+// model.attachments/events/lights are already parsed; rethrowIfParseFailed
+// replaces the old parse calls' throw-on-malformed, one call per field, in
+// the order each is read.
 void attachPlacementNodes(const m2::Model& model, size_t sequenceCount, gltf::Skeleton& skeleton);
 
 // --phys: three-state resolution mirroring --skel (DESIGN.md's Key design
@@ -206,12 +181,8 @@ void attachGearAppearance(const std::string& db2Dir, const std::string& dbdDir,
 // nothing (leaves `namedMeshes` untouched) unless `--collision` was given
 // and the model actually has collision data.
 //
-// Takes the whole `m2::Model` (REFACTOR/AUDIT.md §2.1's split 4b): the
-// collisionRequested/count==0 early return below is an optimization, same
-// as before this migration, so this only calls rethrowIfParseFailed (in
-// place of the old direct m2::parseCollisionMesh call's own
-// throw-on-malformed behavior) once it's known this call will actually
-// read model.collisionMesh.
+// rethrowIfParseFailed only runs once the early return above confirms
+// model.collisionMesh will actually be read.
 void appendCollisionMesh(const m2::Model& model, const std::string& modelPath, bool collisionRequested,
                           std::vector<gltf::NamedMesh>& namedMeshes);
 

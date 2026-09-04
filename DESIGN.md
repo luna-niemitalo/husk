@@ -1118,6 +1118,25 @@ points (the original one-path-per-line CLI, and `full_render.py`'s fresh-
 discovery-plus-ignore-file path) share the exact same tested
 concurrency/resume/logging logic — never two copies of it.
 
+**Two parse-failure contracts: `husk info`/`dump-chunks` diagnose and
+continue, `husk export` fails fast.** `m2::loadModel` (`src/m2_model.hpp`)
+parses the whole file eagerly, isolating a malformed array's own
+`ParseError` into `Model::parseFailures` instead of letting it propagate —
+the field is left empty on failure, indistinguishable from a genuinely-
+empty array without that record. `husk info`/`husk info --json`/`husk
+dump-chunks` embrace this: a broken section further down doesn't abort the
+whole command, it surfaces as a `parse_failures` entry alongside whatever
+else the file has, so a diagnostic command shows as much of a broken file
+as it can. `husk export` cannot take the same approach — an empty
+`vertices`/`materials`/`bones`/etc. wouldn't reliably resurface as a clear
+error further down the pipeline, and could produce a *wrong* export
+(fewer placement anchors than the file really has, or bones silently
+falling back to an external `.skel`) instead of a loud, correct failure.
+`export_extras.hpp`'s `rethrowIfParseFailed(model, field)` re-raises one
+field's isolated failure at the point that field is actually read,
+restoring the old fail-fast behavior for every field `husk export`
+touches.
+
 ## CLI argument grammar for `export` (implemented)
 
 **Previous grammar**, for contrast (replaced, not additive — every existing

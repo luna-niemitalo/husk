@@ -110,22 +110,12 @@ gltf::Mesh buildBaseMesh(const std::vector<m2::Vertex>& vertices) {
 // `bones` carries, and haveSkel/skelBytes are reused by --bones-dir
 // resolution too.
 //
-// Takes the whole `m2::Model` (REFACTOR/AUDIT.md §2.1's split 4c) rather
-// than a raw blob+header pair -- model.bones is already parsed by
-// m2::loadModel. rethrowIfParseFailed(model, "bones") replaces the old
-// direct m2::parseBones(blob, header.bones) call's own throw-on-malformed
-// behavior, called at the exact point that old call used to run (this
-// function's own first line) so a malformed file still reports this error
-// first, not a later field's. This is deliberately NOT just "read
-// model.bones and check .empty()": m2::loadModel isolates a malformed
-// bones array into an empty vector plus a recorded FieldParseFailure
-// instead of throwing (m2_model.hpp's doc comment) -- and bonesAreInline
-// below is derived from exactly that emptiness. Skipping the rethrow would
-// silently misread "bones failed to parse" as "no inline bones," falling
-// back to an external .skel (if one auto-detects or was given) or an
-// unskinned mesh -- a wrong *data source*, not just an empty field, and
-// strictly worse than split 4a's own vertices/materials hazard because the
-// export still succeeds, just silently on the wrong skeleton.
+// model.bones is already parsed; rethrowIfParseFailed(model, "bones") must
+// run first. A malformed bones array parses to an empty vector rather than
+// throwing, and bonesAreInline below is derived from exactly that
+// emptiness -- skipping the rethrow would silently misread "parse failed"
+// as "no inline bones," falling back to an external .skel or an unskinned
+// mesh instead of erroring: a wrong data source, not just an empty field.
 std::vector<m2::Bone> resolveBones(const std::string& modelPath, const m2::Model& model, bool skelGiven,
                                     bool skelNone, std::string skelPath, bool& bonesAreInline,
                                     bool& haveSkel, std::vector<uint8_t>& skelBytes) {
@@ -172,16 +162,12 @@ std::vector<m2::Bone> resolveBones(const std::string& modelPath, const m2::Model
 // gated on that model even having per-sequence M2Sequence data, so they're
 // still resolved whenever a bone/skel source is being used at all.
 //
-// Takes the whole `m2::Model` (REFACTOR/AUDIT.md §2.1's split 4c) in place
-// of the old raw blob+header pair -- model.sequences is already parsed.
-// rethrowIfParseFailed(model, "sequences") replaces the old direct
-// m2::parseSequences(blob, header.sequences) call's own throw-on-malformed
-// behavior, fired only in the `bonesAreInline` branch below (matching
-// exactly where the old call ran -- the `haveSkel` branch parses its own,
-// unrelated, sequences via skel::parseSequences, untouched by this
-// migration). Same hazard shape as resolveBones' own "bones" rethrow
-// above: without it, a malformed inline sequences array would silently
-// read as "no animations" instead of a loud parse error.
+// model.sequences is already parsed; rethrowIfParseFailed(model,
+// "sequences") in the `bonesAreInline` branch below must run before
+// reading it, same hazard as resolveBones' bones check above -- a
+// malformed sequences array would otherwise silently read as "no
+// animations" instead of a loud parse error. The `haveSkel` branch parses
+// its own, unrelated sequences via skel::parseSequences.
 std::vector<gltf::Animation> resolveAnimationsForModel(
     bool animNone, bool bonesAreInline, bool haveSkel, const m2::Model& model,
     const std::vector<uint8_t>& skelBytes, const std::vector<m2::Bone>& bones, const gltf::Skeleton& skeleton,
@@ -1121,46 +1107,20 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
 
     try {
         auto modelBytes = readFileBytes(modelPath);
-        // m2::loadModel replaces the old parseHeader+extractBlob+
-        // parseVertices trio and the ten m2Inputs.<field> = parse*(...)
-        // calls below with one whole-file parse (REFACTOR/AUDIT.md §2.1,
-        // README.md Migration order step 2). `header`/`blob`/`vertices`
-        // stay as local names bound onto model's own storage so every
-        // downstream call in this function keeps reading the exact same
-        // bytes, now owned by `model` instead of freed-at-scope-exit
-        // locals of their own. `model` lives for this whole try block, so
-        // m2Inputs.blob (= &blob = &model.blob, below) stays valid for as
-        // long as m2Inputs itself is used (through buildLodTierMeshes,
-        // still inside this same block) -- same lifetime guarantee the old
-        // standalone `blob` local gave, just relocated onto model's
-        // storage instead of its own.
+        // `header`/`blob`/`vertices` are local names bound onto model's own
+        // storage; `model` lives for this whole try block, so they (and
+        // m2Inputs.blob below) stay valid as long as it does.
         m2::Model model = m2::loadModel(modelBytes);
         const m2::Header& header = model.header;
         const std::vector<uint8_t>& blob = model.blob;
         const std::vector<m2::Vertex>& vertices = model.vertices;
 
-        // Unlike the old parse* calls this replaces (each threw ParseError
-        // directly, aborting the whole export on a malformed array),
-        // loadModel isolates a per-array failure into model.parseFailures
-        // and leaves that one field empty instead (m2_model.hpp's doc
-        // comment) -- a real behavior change cmd_info.cpp/cmd_dump.cpp
-        // embraced (parse_failures becomes a diagnostic, export continues),
-        // but wrong here: an empty `vertices`/`materials`/etc. wouldn't
-        // reliably re-surface as a clear error further down (confirmed the
-        // hard way -- tests/test_cli_errors.cpp's "corrupted huge vertex
-        // count" case now hit --skin's missing-file error first instead of
-        // the real "vertices array claims..." message, since a malformed-
-        // vertices export no longer stops before opening the .skin file).
-        // rethrowIfParseFailed (export_extras.hpp -- promoted out of this
-        // function's own former local lambda once split 4b/4c gave it more
-        // real callers, see REFACTOR_LOG.md), called here in the same order
-        // the old parse* calls ran in, reproduces the exact old fail-fast
-        // behavior and message (`what` is ParseError::what() verbatim,
-        // m2_model.hpp) for every field this function actually reads --
-        // bones/sequences are deliberately excluded here: resolveBones/
-        // resolveAnimationsForModel below call rethrowIfParseFailed
-        // themselves, at the exact point their own old direct parseBones/
-        // parseSequences calls used to run (split 4c's own hazard).
+        // export fails fast on a malformed field it reads (see DESIGN.md's
+        // parse-failure-contract note) -- rethrowIfParseFailed re-raises
+        // loadModel's isolated per-field failures here, in the same order
+        // the fields below are read. bones/sequences are excluded here:
+        // resolveBones/resolveAnimationsForModel rethrow those themselves,
+        // at the point each is actually read.
         rethrowIfParseFailed(model, "vertices");
 
         if (header.version < m2::kMinVerifiedRecordStrideVersion) {

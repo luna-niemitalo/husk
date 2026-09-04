@@ -127,16 +127,10 @@ void printInfoJson(std::ostream& out, const std::string& path, const m2::Model& 
     w.endArray();
     w.endObject();
 
-    // model.parseFailures: mirrors cmd_info.cpp's own "parse_failures"
-    // prose section -- see that file's doc comment for why this exists
-    // (loadModel parses every array eagerly and in isolation, so one
-    // malformed section no longer aborts `husk info` outright; this is
-    // what keeps a genuinely-failed field distinguishable from a
-    // genuinely-empty one for a script consuming this JSON, matching
-    // CLAUDE.md's "on failure, always print expected and actual values").
-    // Absent (not an empty array) when every field parsed cleanly, same
-    // "present only when non-empty" convention every other conditional key
-    // in this file already follows.
+    // Mirrors cmd_info.cpp's own "parse_failures" prose section. Absent
+    // (not an empty array) when every field parsed cleanly, same "present
+    // only when non-empty" convention every other conditional key in this
+    // file already follows.
     if (!model.parseFailures.empty()) {
         w.key("parse_failures");
         w.beginArray();

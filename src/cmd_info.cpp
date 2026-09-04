@@ -109,8 +109,8 @@ int info(int argc, char** args) {
         // file, ...). A narrower catch here would abort the process on some
         // of those instead of printing a clean message. This only covers
         // header/blob-level failure -- loadModel itself never throws past
-        // that point, isolating each array's own parse failure into
-        // model.parseFailures instead (see m2_model.hpp's doc comment).
+        // that point; a malformed array is isolated into
+        // model.parseFailures instead.
         // TODO: Remove: found via FAILURES.md #1.
         std::cerr << "husk: couldn't read '" << path << "': " << e.what() << "\n";
         return 1;
@@ -150,19 +150,11 @@ int info(int argc, char** args) {
     }
     std::cout << "\n";
 
-    // loadModel parses every array eagerly and in isolation (m2_model.hpp's
-    // doc comment) -- a malformed section deeper in an otherwise-readable
-    // file no longer aborts `husk info` (it used to: several of the loops
-    // below ran outside this command's only try/catch, so a bad `bones` or
-    // `attachments` array crashed the whole process on an uncaught
-    // m2::ParseError). The corresponding field is simply left empty
-    // instead now, same value a genuinely-empty array also has -- this
-    // block is what keeps that distinguishable, per CLAUDE.md's "on
-    // failure, always print expected and actual values": every failed
-    // field's name and its real ParseError message (already carrying the
-    // "expected N bytes, blob is M" detail) print here, once, rather than
-    // each of the many count/detail sections below silently reading as
-    // "empty".
+    // `husk info` degrades gracefully (see DESIGN.md's parse-failure-
+    // contract note): a malformed field parses to empty rather than
+    // aborting the command, indistinguishable from a genuinely-empty array
+    // in the sections below unless printed here first, once, with its real
+    // parse error.
     if (!model.parseFailures.empty()) {
         std::cout << "  parse_failures: " << model.parseFailures.size() << "\n";
         for (const auto& f : model.parseFailures) {

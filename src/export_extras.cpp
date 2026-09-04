@@ -100,10 +100,6 @@ void attachBoneCorrections(const std::string& bonesDir, bool bonesAreInline, boo
 void attachEmitterAnchors(const m2::Model& model, gltf::Skeleton& skeleton) {
     const m2::Header& header = model.header;
 
-    // rethrowIfParseFailed replaces m2::parseRibbons's own throw-on-
-    // malformed -- see export_extras.hpp's own doc comment for why an
-    // empty model.ribbonEmitters can't otherwise be told apart from
-    // "genuinely zero ribbon emitters."
     rethrowIfParseFailed(model, "ribbon_emitters");
     for (const auto& r : model.ribbonEmitters) {
         if (r.boneIndex >= skeleton.joints.size()) {
@@ -113,13 +109,10 @@ void attachEmitterAnchors(const m2::Model& model, gltf::Skeleton& skeleton) {
         }
         skeleton.ribbonAnchors.push_back({r.ribbonId, static_cast<int>(r.boneIndex), toGltf(r.position)});
     }
-    // header.particleEmitters.count/header.version, not
-    // model.particleEmitters -- m2::loadModel applies this exact same
-    // version gate *before* attempting parseParticles at all
-    // (m2_model.hpp's doc comment), so model.particleEmitters is already
-    // empty below the gate for the same reason it always was: nothing was
-    // parsed, not a parse failure. Same hazard/precedent as git log
-    // 6367a4a5's dumpEmitters.
+    // Reads header.particleEmitters.count/header.version directly, not
+    // model.particleEmitters -- an empty vector can't distinguish
+    // "version-gated out" from "genuinely zero records" (same as
+    // dumpEmitters's identical check).
     if (header.particleEmitters.count == 0 || header.version >= m2::kMinVerifiedParticleVersion) {
         rethrowIfParseFailed(model, "particle_emitters");
         for (const auto& p : model.particleEmitters) {
@@ -192,10 +185,9 @@ std::vector<gltf::Material::AnimatedScalarCurve> resolveRawByteTrackCurve(
 void attachPlacementNodes(const m2::Model& model, size_t sequenceCount, gltf::Skeleton& skeleton) {
     const std::vector<uint8_t>& blob = model.blob;
 
-    // rethrowIfParseFailed replaces each field's old direct m2::parse*
-    // call's own throw-on-malformed -- one call per field, in the same
-    // order those fields are read, so a malformed file still reports the
-    // same field's error first (see export_extras.hpp's own doc comment).
+    // One rethrowIfParseFailed call per field, in the order each is read,
+    // so a malformed file reports the same field's error a caller would
+    // expect first.
     rethrowIfParseFailed(model, "attachments");
     for (const auto& a : model.attachments) {
         if (a.bone < 0 || static_cast<size_t>(a.bone) >= skeleton.joints.size()) {
@@ -923,10 +915,6 @@ void appendCollisionMesh(const m2::Model& model, const std::string& modelPath, b
         return;
     }
 
-    // rethrowIfParseFailed replaces m2::parseCollisionMesh's own throw-on-
-    // malformed (see export_extras.hpp's own doc comment) -- only reached
-    // once the early return above confirms this call will actually read
-    // model.collisionMesh.
     rethrowIfParseFailed(model, "collision_mesh");
     auto collisionMesh = model.collisionMesh;
 

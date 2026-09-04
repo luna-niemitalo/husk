@@ -13,15 +13,13 @@
 // any printing logic (json::Writer vs. std::cout <<, see json_writer.hpp).
 namespace husk::commands {
 
-// Writes the full structured JSON document for `model` (already parsed
-// from `path` by the caller via m2::loadModel) to `out`, followed by a
-// trailing newline to match every other JSON-emitting command here (`husk
-// dump-chunks`, cmd_dump.cpp). Mirrors every field cmd_info.cpp's prose
-// path prints -- see cmd_info_json.cpp's own doc comment for the
-// field-by-field schema. Never throws: every field read here is a plain
-// struct member already populated (or left empty, with the reason in
-// `model.parseFailures`) by loadModel -- no parsing happens in this
-// function at all.
+// Writes the full structured JSON document for `model` to `out`, followed
+// by a trailing newline to match every other JSON-emitting command here.
+// Mirrors every field cmd_info.cpp's prose path prints -- see
+// cmd_info_json.cpp's own doc comment for the field-by-field schema. Never
+// throws: every field read here is a plain struct member already
+// populated (or left empty, with the reason in `model.parseFailures`) by
+// loadModel -- no parsing happens in this function at all.
 void printInfoJson(std::ostream& out, const std::string& path, const m2::Model& model);
 
 }  // namespace husk::commands
