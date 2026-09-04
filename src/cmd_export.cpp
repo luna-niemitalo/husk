@@ -109,11 +109,28 @@ gltf::Mesh buildBaseMesh(const std::vector<m2::Vertex>& vertices) {
 // since buildAnimations (below) needs to know which source's track offsets
 // `bones` carries, and haveSkel/skelBytes are reused by --bones-dir
 // resolution too.
-std::vector<m2::Bone> resolveBones(const std::string& modelPath, const std::vector<uint8_t>& blob,
-                                    const m2::Header& header, bool skelGiven, bool skelNone,
-                                    std::string skelPath, bool& bonesAreInline, bool& haveSkel,
-                                    std::vector<uint8_t>& skelBytes) {
-    auto bones = m2::parseBones(blob, header.bones);
+//
+// Takes the whole `m2::Model` (REFACTOR/AUDIT.md §2.1's split 4c) rather
+// than a raw blob+header pair -- model.bones is already parsed by
+// m2::loadModel. rethrowIfParseFailed(model, "bones") replaces the old
+// direct m2::parseBones(blob, header.bones) call's own throw-on-malformed
+// behavior, called at the exact point that old call used to run (this
+// function's own first line) so a malformed file still reports this error
+// first, not a later field's. This is deliberately NOT just "read
+// model.bones and check .empty()": m2::loadModel isolates a malformed
+// bones array into an empty vector plus a recorded FieldParseFailure
+// instead of throwing (m2_model.hpp's doc comment) -- and bonesAreInline
+// below is derived from exactly that emptiness. Skipping the rethrow would
+// silently misread "bones failed to parse" as "no inline bones," falling
+// back to an external .skel (if one auto-detects or was given) or an
+// unskinned mesh -- a wrong *data source*, not just an empty field, and
+// strictly worse than split 4a's own vertices/materials hazard because the
+// export still succeeds, just silently on the wrong skeleton.
+std::vector<m2::Bone> resolveBones(const std::string& modelPath, const m2::Model& model, bool skelGiven,
+                                    bool skelNone, std::string skelPath, bool& bonesAreInline,
+                                    bool& haveSkel, std::vector<uint8_t>& skelBytes) {
+    rethrowIfParseFailed(model, "bones");
+    auto bones = model.bones;
     bonesAreInline = !bones.empty();
     haveSkel = false;
 
@@ -154,16 +171,31 @@ std::vector<m2::Bone> resolveBones(const std::string& modelPath, const std::vect
 // none) short-circuits to no clips at all; global-sequence tracks aren't
 // gated on that model even having per-sequence M2Sequence data, so they're
 // still resolved whenever a bone/skel source is being used at all.
+//
+// Takes the whole `m2::Model` (REFACTOR/AUDIT.md §2.1's split 4c) in place
+// of the old raw blob+header pair -- model.sequences is already parsed.
+// rethrowIfParseFailed(model, "sequences") replaces the old direct
+// m2::parseSequences(blob, header.sequences) call's own throw-on-malformed
+// behavior, fired only in the `bonesAreInline` branch below (matching
+// exactly where the old call ran -- the `haveSkel` branch parses its own,
+// unrelated, sequences via skel::parseSequences, untouched by this
+// migration). Same hazard shape as resolveBones' own "bones" rethrow
+// above: without it, a malformed inline sequences array would silently
+// read as "no animations" instead of a loud parse error.
 std::vector<gltf::Animation> resolveAnimationsForModel(
-    bool animNone, bool bonesAreInline, bool haveSkel, const m2::Header& header,
-    const std::vector<uint8_t>& blob, const std::vector<uint8_t>& skelBytes, const std::vector<m2::Bone>& bones,
-    const gltf::Skeleton& skeleton, const std::string& animDir, const std::string& modelPath,
+    bool animNone, bool bonesAreInline, bool haveSkel, const m2::Model& model,
+    const std::vector<uint8_t>& skelBytes, const std::vector<m2::Bone>& bones, const gltf::Skeleton& skeleton,
+    const std::string& animDir, const std::string& modelPath,
     const std::unordered_map<uint32_t, std::string>* animationNames) {
     std::vector<gltf::Animation> animations;
     if (animNone) return animations;
 
+    const m2::Header& header = model.header;
+    const std::vector<uint8_t>& blob = model.blob;
+
     if (bonesAreInline) {
-        auto sequences = m2::parseSequences(blob, header.sequences);
+        rethrowIfParseFailed(model, "sequences");
+        auto sequences = model.sequences;
         M2AnimInputs animInputs;
         animInputs.animFileIds = header.animFileIds;
         animInputs.animChunked = (header.globalFlags & 0x200000) != 0;
@@ -1094,17 +1126,14 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         // calls below with one whole-file parse (REFACTOR/AUDIT.md §2.1,
         // README.md Migration order step 2). `header`/`blob`/`vertices`
         // stay as local names bound onto model's own storage so every
-        // downstream call in this function (resolveBones,
-        // resolveAnimationsForModel, attachBoneCorrections,
-        // attachEmitterAnchors, attachPlacementNodes, appendCollisionMesh
-        // -- split 4b/4c, deliberately not migrated this pass) keeps
-        // reading the exact same bytes, now owned by `model` instead of
-        // freed-at-scope-exit locals of their own. `model` lives for this
-        // whole try block, so m2Inputs.blob (= &blob = &model.blob, below)
-        // stays valid for as long as m2Inputs itself is used (through
-        // buildLodTierMeshes, still inside this same block) -- same
-        // lifetime guarantee the old standalone `blob` local gave, just
-        // relocated onto model's storage instead of its own.
+        // downstream call in this function keeps reading the exact same
+        // bytes, now owned by `model` instead of freed-at-scope-exit
+        // locals of their own. `model` lives for this whole try block, so
+        // m2Inputs.blob (= &blob = &model.blob, below) stays valid for as
+        // long as m2Inputs itself is used (through buildLodTierMeshes,
+        // still inside this same block) -- same lifetime guarantee the old
+        // standalone `blob` local gave, just relocated onto model's
+        // storage instead of its own.
         m2::Model model = m2::loadModel(modelBytes);
         const m2::Header& header = model.header;
         const std::vector<uint8_t>& blob = model.blob;
@@ -1122,18 +1151,17 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         // count" case now hit --skin's missing-file error first instead of
         // the real "vertices array claims..." message, since a malformed-
         // vertices export no longer stops before opening the .skin file).
-        // Rethrowing here, in the same order the old parse* calls ran in,
-        // reproduces the exact old fail-fast behavior and message (`what`
-        // is ParseError::what() verbatim, m2_model.hpp) for every field
-        // this function actually reads -- bones/sequences are deliberately
-        // excluded (resolveBones below still calls m2::parseBones directly
-        // on model.blob/model.header, untouched, split 4c's own hazard).
-        auto rethrowIfParseFailed = [&](const char* field) {
-            for (const auto& f : model.parseFailures) {
-                if (f.field == field) throw std::runtime_error(f.what);
-            }
-        };
-        rethrowIfParseFailed("vertices");
+        // rethrowIfParseFailed (export_extras.hpp -- promoted out of this
+        // function's own former local lambda once split 4b/4c gave it more
+        // real callers, see REFACTOR_LOG.md), called here in the same order
+        // the old parse* calls ran in, reproduces the exact old fail-fast
+        // behavior and message (`what` is ParseError::what() verbatim,
+        // m2_model.hpp) for every field this function actually reads --
+        // bones/sequences are deliberately excluded here: resolveBones/
+        // resolveAnimationsForModel below call rethrowIfParseFailed
+        // themselves, at the exact point their own old direct parseBones/
+        // parseSequences calls used to run (split 4c's own hazard).
+        rethrowIfParseFailed(model, "vertices");
 
         if (header.version < m2::kMinVerifiedRecordStrideVersion) {
             std::cerr << "husk: warning: '" << modelPath << "' is version " << header.version
@@ -1143,15 +1171,15 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                          "than failing loudly\n";
         }
 
-        rethrowIfParseFailed("materials");
-        rethrowIfParseFailed("textures");
-        rethrowIfParseFailed("texture_combos");
-        rethrowIfParseFailed("texture_coord_combos");
-        rethrowIfParseFailed("colors");
-        rethrowIfParseFailed("texture_weights");
-        rethrowIfParseFailed("texture_weight_combos");
-        rethrowIfParseFailed("texture_transforms");
-        rethrowIfParseFailed("texture_transform_combos");
+        rethrowIfParseFailed(model, "materials");
+        rethrowIfParseFailed(model, "textures");
+        rethrowIfParseFailed(model, "texture_combos");
+        rethrowIfParseFailed(model, "texture_coord_combos");
+        rethrowIfParseFailed(model, "colors");
+        rethrowIfParseFailed(model, "texture_weights");
+        rethrowIfParseFailed(model, "texture_weight_combos");
+        rethrowIfParseFailed(model, "texture_transforms");
+        rethrowIfParseFailed(model, "texture_transform_combos");
 
         M2MaterialInputs m2Inputs;
         m2Inputs.materials = model.materials;
@@ -1175,7 +1203,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         bool bonesAreInline = false;
         bool haveSkel = false;
         std::vector<uint8_t> skelBytes;
-        auto bones = resolveBones(modelPath, blob, header, skelGiven, skelNone, skelPath, bonesAreInline,
+        auto bones = resolveBones(modelPath, model, skelGiven, skelNone, skelPath, bonesAreInline,
                                    haveSkel, skelBytes);
 
         // AnimationData.db2's real Name column ("Stand", "Walk", ...) --
@@ -1196,8 +1224,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         if (!bones.empty()) {
             skeleton = buildSkeleton(bones);
             baseMesh.skinning = buildSkinning(vertices, bones.size());
-            animations = resolveAnimationsForModel(animNone, bonesAreInline, haveSkel, header, blob,
-                                                    skelBytes, bones, skeleton, animDir, modelPath,
+            animations = resolveAnimationsForModel(animNone, bonesAreInline, haveSkel, model, skelBytes,
+                                                    bones, skeleton, animDir, modelPath,
                                                     animationNames.empty() ? nullptr : &animationNames);
             attachBoneCorrections(bonesDir, bonesAreInline, haveSkel, header, skelBytes, skeleton);
             attachEmitterAnchors(model, skeleton);

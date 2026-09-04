@@ -173,6 +173,80 @@ TEST_CASE("husk export: corrupted huge bone count fails with a real message, not
 }
 
 // Regression coverage for the REFACTOR/AUDIT.md §2.1 m2::Model migration's
+// split 4c (REFACTOR_LOG.md's entry for this task) -- the hazard the test
+// above (same corrupted-bones-field shape) does NOT actually cover, since
+// it gives no --skel at all. m2::loadModel isolates a malformed bones
+// array into an empty model.bones plus a recorded FieldParseFailure
+// instead of throwing (m2_model.hpp's doc comment); resolveBones derives
+// bonesAreInline from that same emptiness. Without
+// rethrowIfParseFailed(model, "bones") firing first, a malformed-but-
+// present inline bones array alongside a real, valid, unrelated .skel
+// would be silently misread as "no inline bones, fall back to the .skel"
+// -- a wrong *skeleton*, not just an empty field, exported with exit 0 and
+// no error at all. This is the shape the test above can't catch: it must
+// fail with the real M2 parse error, not silently succeed using the
+// .skel's own bone(s) instead.
+TEST_CASE("husk export: a malformed inline bones array is reported even when a real, valid "
+          "external .skel is also available -- not silently read as \"no inline bones, use the "
+          ".skel instead\"") {
+    auto m2 = tinyValidM2();
+    uint32_t count = 0xFFFFFFF0;
+    uint32_t off = 0;
+    std::memcpy(m2.data() + 0x02C, &count, 4);
+    std::memcpy(m2.data() + 0x030, &off, 4);
+    auto m2Path = tempPath("malformed-bones-with-skel.m2");
+    writeFile(m2Path, m2);
+
+    auto skinPath = tempPath("malformed-bones-with-skel.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    // A real, valid, well-formed external skeleton -- if resolveBones
+    // silently fell back to it, this export would succeed (exit 0) using
+    // its one bone instead of reporting the M2's own corrupted array.
+    auto skelPath = tempPath("malformed-bones-with-skel.skel");
+    writeFile(skelPath, buildSkel({{-1, -1}}));
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("malformed-bones-with-skel.glb").string() + " --skel " +
+                           skelPath.string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("bad_alloc") == std::string::npos);
+    CHECK(result.output.find("bones array claims") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+    fs::remove(skelPath);
+}
+
+// Same split 4c hazard as the bones test above, for resolveAnimationsForModel's
+// own "sequences" rethrow: a malformed inline sequences array must not be
+// silently read as "no animations for this model" (model.sequences empty
+// due to a recorded FieldParseFailure, indistinguishable from "genuinely
+// no sequences" without rethrowIfParseFailed firing first).
+TEST_CASE("husk export: a malformed inline sequences array fails cleanly, not silently exported "
+          "with zero animations") {
+    auto m2 = tinyAnimatedM2();  // 1 vertex, 1 inline bone, 1 real sequence
+    uint32_t count = 0xFFFFFFF0;
+    uint32_t off = 0;
+    std::memcpy(m2.data() + 0x01C, &count, 4);  // offset::sequences
+    std::memcpy(m2.data() + 0x020, &off, 4);
+    auto m2Path = tempPath("malformed-sequences-export.m2");
+    writeFile(m2Path, m2);
+
+    auto skinPath = tempPath("malformed-sequences-export.skin");
+    writeFile(skinPath, tinyMatchingSkin());
+
+    auto result = runHusk("export " + m2Path.string() + " --skin " + skinPath.string() + " -o " +
+                           tempPath("malformed-sequences-export.glb").string());
+    CHECK(result.exitCode == 1);
+    CHECK(result.output.find("bad_alloc") == std::string::npos);
+    CHECK(result.output.find("sequences array claims") != std::string::npos);
+
+    fs::remove(m2Path);
+    fs::remove(skinPath);
+}
+
+// Regression coverage for the REFACTOR/AUDIT.md §2.1 m2::Model migration's
 // split 4b (REFACTOR_LOG.md's entry for this task): before it,
 // attachEmitterAnchors/attachPlacementNodes/appendCollisionMesh called
 // m2::parseRibbons/parseAttachments/parseEvents/parseLights/

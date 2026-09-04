@@ -8,6 +8,201 @@ glance, not a duplicate of the plan.
 
 ---
 
+## 2026-09-04 — `cmd_export.cpp`'s `resolveBones`/`resolveAnimationsForModel` migrated onto `m2::Model`, split 4c of 3 -- AUDIT.md §2.1 closed and removed (REFACTOR/README.md's Migration order step 2)
+
+**What**: the last two `m2::parse*` call sites in `cmd_export.cpp` --
+`resolveBones`'s `m2::parseBones(blob, header.bones)` and
+`resolveAnimationsForModel`'s `m2::parseSequences(blob, header.sequences)`
+(only in the `bonesAreInline` branch; the `haveSkel` branch's own
+`skel::parseSequences` call is unrelated and untouched) -- now read
+`model.bones`/`model.sequences` instead. Both functions' signatures
+changed from a raw `(blob, header, ...)` pair to `(const m2::Model& model,
+...)`. `exportOneModel`'s own former local `rethrowIfParseFailed` lambda
+(split 4a) is gone -- every one of its 9 call sites now calls the shared
+free function (`export_extras.hpp`, promoted in split 4b) directly, since
+keeping both a same-named local lambda and the shared function side by
+side in the same scope would have shadowed the free function for no
+reason.
+
+**The hazard, confirmed against the real code before implementing, exactly
+as this task's own brief predicted**: `resolveBones` derives
+`bonesAreInline` from `bones.empty()`. Under the old direct
+`m2::parseBones` call, a malformed inline bones array threw ParseError and
+aborted the export. Under `m2::loadModel`, the same malformed array
+instead yields an empty `model.bones` plus a recorded
+`FieldParseFailure` (`m2_model.hpp`'s doc comment) -- naively switching to
+`model.bones` without a rethrow would make `bonesAreInline` false, and the
+export would silently proceed to either fall back to an external `.skel`
+(if `--skel` was given or one auto-detects next to the model) or export an
+unskinned mesh -- a **wrong data source**, not just an empty field, with
+exit 0 and no error at all. Same shape for `resolveAnimationsForModel`'s
+`sequences`: a malformed inline sequences array would silently read as "no
+animations for this model" instead of a loud parse error. Both are fixed
+by calling the shared `rethrowIfParseFailed(model, field)` (split 4b) at
+the exact point the old direct `parse*` call used to run -- `resolveBones`'s
+own first line (before the `bonesAreInline` branch splits), and
+`resolveAnimationsForModel`'s `bonesAreInline` branch's own first line
+(before the `haveSkel` branch, which parses its own unrelated sequences)
+-- so a malformed file still reports the same field's error first, at the
+same relative position in `exportOneModel`'s overall sequence, not a later
+field's.
+
+**Design decisions from this task's own brief, verified against the real
+code rather than re-litigated**:
+
+- **Promoting `rethrowIfParseFailed` to a shared function was earned, not
+  speculative**: confirmed six real call sites across two files
+  (`exportOneModel`/`resolveBones`/`resolveAnimationsForModel` here, plus
+  `attachEmitterAnchors`/`attachPlacementNodes`/`appendCollisionMesh` in
+  split 4b) -- past this project's own "third occurrence, or a single
+  canonical hub" bar. Already promoted in split 4b; this split just
+  finishes adopting it everywhere in `cmd_export.cpp`, including
+  `exportOneModel`'s own now-redundant local lambda.
+- **`husk export`'s extras path needed fail-fast, not graceful
+  degradation** -- confirmed directly, not assumed: reverting the two new
+  `rethrowIfParseFailed(model, ...)` calls (a throwaway local edit,
+  reverted before committing) and re-running the two new regression tests
+  below reproduced exactly the predicted silent-misread: both tests failed
+  with exit 0 (not 1) and no parse-error message in the output, proving
+  the hazard is real and these tests actually catch it, not vacuous
+  assertions.
+
+**Tests**: 2 new CLI-tier regression tests in `tests/test_cli_errors.cpp`
+(this file's own stated scope, following its existing convention --
+placed as a direct extension of the file's own pre-existing "corrupted
+huge bone count" test, which already covered the *unskinned-mesh* half of
+this hazard but not the *silent-`.skel`-fallback* half):
+
+- **"a malformed inline bones array is reported even when a real, valid
+  external `.skel` is also available"** -- the test the pre-existing "huge
+  bone count" test could NOT catch, since it gives no `--skel` at all.
+  Corrupts `tinyValidM2()`'s `bones` header field to a huge bogus count,
+  pairs it with a real, valid, well-formed external `.skel`
+  (`buildSkel({{-1, -1}})`) passed via `--skel`. Before the fix: exit 0,
+  the `.skel`'s own one bone silently used instead of the M2's own
+  corrupted array being reported. After: exit 1, `"bones array claims"` in
+  the output, `.skel` never silently substituted.
+- **"a malformed inline sequences array fails cleanly, not silently
+  exported with zero animations"** -- `tinyAnimatedM2()` (1 vertex, 1
+  inline bone, 1 real sequence), corrupts the `sequences` header field to
+  a huge bogus count. Before the fix: exit 0, 0 animations, no error.
+  After: exit 1, `"sequences array claims"` in the output.
+
+Both verified to actually fail without the fix (not just pass with it) by
+temporarily commenting out the two new `rethrowIfParseFailed` calls,
+rebuilding, and confirming both tests fail with exactly the predicted
+silent-success shape (`CHECK(result.exitCode == 1)` got `0`), then
+restoring the fix and reconfirming the full suite green again.
+
+**`REFACTOR/AUDIT.md` §2.1 closed and removed.** Checked first, not
+assumed: `grep -n "m2::parse" src/cmd_export.cpp src/export_extras.cpp`
+now matches only comments (no live call), and the previous two entries in
+this log already closed `cmd_info.cpp`/`cmd_info_json.cpp`/`cmd_dump.cpp`
+-- all four commands §2.1's own table named are migrated onto
+`m2::Model`. Removed the whole section outright per `AUDIT.md`'s own
+stated convention ("An item is removed from this file when it is fixed --
+git history is the record"), rather than leaving a stub. Per this task's
+own explicit instruction, `§2.2`/`§2.3`/`§2.4` (`M2MaterialInputs`'s
+back-pointer, `gltf::Skeleton` naming, population-order) were left exactly
+as numbered, unrenumbered -- `## 2. Missing internal representation` now
+goes straight from its own header to `### 2.2`, a deliberate numbering
+gap rather than a renumbering that would have invalidated the several
+existing citations to those exact section numbers elsewhere (this log's
+own `§2.2` citation for `M2MaterialInputs::blob`'s lifetime, split 4a's
+entry above). **One stale cross-reference this leaves, out of this task's
+own edit scope to fix**: `REFACTOR/CANONICAL_MODEL.md:134` cites `AUDIT.md
+§2.1` -- now a removed section. `REFACTOR/LOOP_STATE.md` (the
+supervisor-loop's own process-tracking file, several rows) also cites
+`AUDIT.md §2.1`, but every one of those rows already records a *past,
+already-verified* split, so they read as an accurate historical record
+regardless of the section's current removal -- same "log entries are a
+snapshot, not a live cross-reference" reasoning this file's own historical
+entries below rely on.
+
+**Diff gate (REFACTOR/README.md's "every difference is explained and
+attributed"), covering split 4b (previous entry above) and this split
+together, per this task's own explicit "one gate run at the end covering
+both commits is fine" allowance**: built the pre-migration `husk` binary
+first, from the tree exactly as it stood before *any* of this task's own
+edits (`0a016cb2`, the parent of both this split's and split 4b's commits),
+and copied it aside before touching any source file, per this task's own
+required gate procedure.
+
+Reused a prior session's own already-built, already-verified diff-gate
+sample-selection infrastructure found sitting in this task's scratchpad
+(`final_sample.txt`, `run_gate.sh`, the corpus shuffle/deliberate-pick
+scripts) rather than re-deriving it -- verified it first, not trusted
+blindly: re-ran the recorded "before" gate against a freshly-rebuilt
+`husk-before` binary and confirmed the recorded `before.tsv`/console
+captures reproduce exactly (one real hiccup found and fixed in this
+verification pass itself, not in husk: an accidental `cd` into the
+scratch dir before re-running the gate script made a *relative* sample
+path -- `test_data/bloodelffemale.m2` -- resolve against the wrong `cwd`
+and fail; re-running from the repo root, matching how the original
+capture was taken, reproduced the recorded output byte-for-byte, and the
+one clobbered "before" `.glb` this mistake caused was regenerated and
+sha256-confirmed to match the recorded value before trusting the rest of
+the gate).
+
+- **Sample**: 426 files total -- 400 via a seeded Fisher-Yates shuffle
+  (`awk`'s `srand(42)`/`rand()`, same method every prior split in this
+  migration used) over `find /media/luna/data/wow_export -iname "*.m2"
+  -type f` (132,863 files, corpus unchanged since the last migration's own
+  run), plus 26 deliberately chosen files (zero overlap with the random
+  400, confirmed by set difference) covering every changed code path by
+  design, not left to chance: real `ribbon_id` weapons (found by scanning
+  `item/objectcomponents/weapon/*.m2` with the pre-migration binary's own
+  `dump-chunks` output), real particle-emitter/light/collision-bearing
+  creature and world-doodad files, and `test_data/bloodelffemale.m2`.
+- **Confirmed both required bones cases are real, not synthetic**:
+  `bloodelffemale.m2` has 119 real inline bones (the ordinary case); a
+  real corpus file already in the deliberate set,
+  `creature/bloodtick/bloodtick.m2`, has **0 inline bones and a real,
+  same-basename `bloodtick.skel` sitting right next to it** -- confirmed
+  directly via `husk info` (`bones: 0 ... this model has an external
+  skeleton`) before trusting it -- so `husk export bloodtick.m2` (no
+  `--skel` flag at all) auto-detects and resolves bones from that real
+  `.skel`, exercising split 4c's own `haveSkel` path end to end on real
+  data, not a synthetic fixture.
+- **Coverage across the full 426-file sample**, confirmed by scanning
+  every sample file's own `husk info`/`dump-chunks` output (not assumed
+  from the deliberate picks alone): 45 files with real `attachments`, 71
+  with real `events`, 5 with real `lights`, 13 with real `ribbon_id`
+  entries, 115 with real `particle_emitters`, 115 with
+  `collision_indices` > 0, 425 with inline bones, 1 with 0 inline bones +
+  a real external `.skel` sidecar (`bloodtick.m2`, above).
+- **Result: 426/426 byte-identical.** `.tsv` report (idx, exit code, `.glb`
+  sha256, source path) diffed line-for-line between the pre- and
+  post-migration binary: **0 differences**. Every one of the 426 captured
+  console-output files (stdout+stderr) diffed pairwise: **0 differences**
+  -- no path normalization needed, since `run_gate.sh`'s own design
+  exports both runs to the exact same shared output path
+  (`gate_out/sample_<n>.glb`) rather than separate before/after
+  directories, avoiding the "different dirs make every line differ" trap
+  by construction instead of by post-hoc `sed`. Exit codes: 425/426 exit
+  0, 1/426 exits 1 -- the one failure
+  (`item/objectcomponents/collections/leather_raiddruidulatek_d_01_go_m.m2`)
+  is a real, pre-existing, unrelated `--skin auto` resolution gap (a
+  declared SFID FileDataID's `.skin` genuinely missing from local
+  extraction, `CLAUDE_HISTORY.md`'s own already-documented gap class),
+  confirmed byte-identical in both binaries' stderr message and exit code
+  -- not a regression from this task's own changes.
+
+**Deliberately not touched**: no existing `m2_*.hpp`/`.cpp` parser
+changed. No `src/formats/`, `src/canon/`, or `src/writers/` directory
+created. `src/dump_chunks_misc.cpp`/`src/dump_phys.cpp` untouched (not a
+subset of this gap -- see split 3/4's own entry below for why).
+
+**Verified**: `direnv exec . cmake --build build`, then
+`direnv exec . env HUSK_TEST_M2=test_data/bloodelffemale.m2
+HUSK_TEST_SKIN=test_data/bloodelffemale00.skin ./build/husk-tests` --
+**801 test cases, 0 failed, 1 skipped (unchanged); 6559 assertions, 0
+failed**, up from split 4b's own 799/6547 by this task's 2 new regression
+tests (+12 assertions). Plus the diff gate above, run against the real
+compiled `husk` binary, not just the test suite.
+
+---
+
 ## 2026-09-04 — `src/export_extras.cpp`'s six parse sites migrated onto `m2::Model`, split 4b of 3, plus `rethrowIfParseFailed` promoted to a shared function (REFACTOR/AUDIT.md §2.1, REFACTOR/README.md's Migration order step 2)
 
 **What**: `src/export_extras.cpp`'s remaining six `m2::parse*` call sites --
