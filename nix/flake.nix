@@ -2,7 +2,7 @@
   description = "husk: M2/M3/WMO -> common-format CLI";
 
   inputs = {
-    pins.url = "path:/home/luna/nix/pins";
+    pins.url = "path:/etc/nixos/pins";
     nixpkgs.follows = "pins/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
     casc-tool.url = "github:luna-niemitalo/casc-tool?dir=nix";
@@ -188,8 +188,8 @@
                         echo "husk dev shell ${HUSK_VERSION} for ${system}"
                         echo "  cmake:   $(cmake --version | head -n1)"
                         echo "  ccache:  $CCACHE_DIR"
-            			echo "  blender: $(blender --version | head -n1)"
-            			echo "  gltf-validator: gltf_validator ${gltf-validator.version}"
+                        echo "  blender: $(blender --version | head -n1)"
+                        echo "  gltf-validator: gltf_validator ${gltf-validator.version}"
                         echo "  clang-tidy: $(clang-tidy --version | head -n2 | tail -n1)"
                         echo "  doctest: available via find_package(doctest)"
                         echo "  uv:      $(uv --version) -- cd blp/ && uv sync"
