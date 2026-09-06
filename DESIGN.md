@@ -2837,6 +2837,40 @@ real "no name" shapes this assembler hits (a swatch-only choice, `Name_lang
 == "0"`; an unresolved or dangling `ChrCustomizationCategoryID`) without
 needing a new tier.
 
+### `canon::` selection design (types designed alongside `canon_material`; `CreatureSelection` assembly landed 2026-09-07)
+
+**Status.** `canon::CharacterSelection`/`CreatureSelection` (`src/canon_selection.hpp`),
+CANONICAL_MODEL.md's Selection layer (I5) — "what did this instance choose,"
+scoped to whichever Definition/mechanism it was chosen against — were
+already implemented as pure value types before this pass, alongside
+`canon_material`/`canon_definition`. `canon::assembleCreatureSelection`
+(`src/canon_selection_builder.hpp`/`.cpp`) now assembles a
+`canon::CreatureSelection` from `creaturegeoset::Data`
+(`creature_geoset_db2.hpp`), reusing `creaturegeoset::resolveDisplay`
+directly for the real DB2 lookup and its `(GeosetIndex+1)*100+GeosetValue`
+geosetId formula rather than re-deriving it — this builder's own job is
+purely copying `resolveDisplay`'s flat `ResolvedGeoset` list's `geosetId`
+values into `CreatureSelection::enabledGeosetIds`. No sort/dedupe: the real
+production consumer (`export_extras.cpp`'s `attachCreatureGeosets`) pushes
+every resolved geosetId through unchanged, in `resolveDisplay`'s own order,
+including real duplicate rows — `assembleCreatureSelection` matches that
+exactly, no divergence to document here (unlike `canon::assembleDefinition`'s
+deliberate order-sort above).
+
+Proven via `tests/test_canon_selection_convergence.cpp`, checked against
+facts derived independently from `creaturegeoset::Data` using
+`resolveDisplay`'s own documented formula, not from
+`assembleCreatureSelection`'s own output. No real
+`creaturedisplayinfogeosetdata.db2` fixture exists in this repo's
+`test_data/db2` (unlike `chrcustomization*.db2` for the Definition case
+above), so this convergence test is synthetic-`Data`-only — same fallback
+every other convergence test here takes when its real fixture is absent.
+
+`canon::assembleCharacterSelection` (the `CharacterSelection` half — folding
+in `--customization-choice-ids`/`--chr-model-id`'s real chosen-choice list
+and the equipped-gear chain, `itemappearance_db2.hpp`) is not built yet;
+out of this pass's scope.
+
 ### Shading-function descriptions: a scaffold, not a one-shot transcription
 
 The eventual goal — a material's manifest should be reconstructable by a
