@@ -168,6 +168,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_canon_curve.cpp
     tests/test_canon_item.cpp
     tests/test_canon_physics.cpp
+    tests/test_canon_definition.cpp
     tests/test_skin.cpp
     tests/test_skel.cpp
     tests/test_bone.cpp
