@@ -156,6 +156,7 @@ alongside for exactly that reason.
 
 ```
 schema_version        <- the thing that does not exist today
+exported_at           <- wall-clock timestamp, ISO 8601 -- see below
 producer              <- husk version + build
 model                 <- Ref for the model itself
 definition            <- I5: what exists and is valid
@@ -176,6 +177,14 @@ sources               <- which sources husk could actually ask, per table
 `schema_version` is the load-bearing addition. Today's 13 root-joint extras keys
 and 34 material extras keys have no version at all, so a consumer cannot tell a
 husk that predates a key from one where the key is legitimately absent.
+
+`exported_at` answers the same question for someone with no husk to check
+`schema_version` against at all — a real, offline consumer holding a bundle
+years later, with only a vague memory of "feature X landed sometime early
+2026." A version number alone can't be reasoned about without husk's own
+version history in hand; a calendar date can, on its own, by anyone. Cheap to
+add, and it's exactly the same "make the file explain itself" motive as
+`schema_version` — just aimed at a human instead of a machine.
 
 `sources` is the manifest half of `CANONICAL_MODEL.md`'s "absent vs. unasked"
 answer: a flat record of which DB2 tables / listfile / texture directories were
@@ -224,6 +233,18 @@ reference is an ordinary `Ref` whose `uri` points at another manifest:
   "name_source": "listfile",
   "uri":  "aux/mainhand_370361/manifest.json" }
 ```
+
+**This isn't specific to whole models.** "Embed or reference — one rule" above
+already says any resource is either inline or a `uri`, stated once on purpose
+so it wouldn't need re-deciding per resource kind; `resources.materials` is
+already `Refs + real texture layers`. So a material is independently
+exportable as its own small manifest the exact same way an equipped item is —
+`resources.materials[i]` is a `Ref` that may carry a `uri` to
+`materials/<name>/manifest.json` instead of (or alongside) an inline
+definition, with no new mechanism, just this rule applied at finer
+granularity. This is what makes a single material genuinely distributable on
+its own — see `DESIGN.md`'s material design section for what that manifest
+actually contains.
 
 This keeps the definition layer simple — no shared per-race object to locate,
 version, or keep in sync — at the cost of duplicating a race's customization

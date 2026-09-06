@@ -2746,5 +2746,77 @@ sharing one name, split apart on purpose:**
    been resolve-only, and would reopen the "husk resolves, never
    applies" question this project has settled repeatedly elsewhere.
 
+**Materials are independently exportable.** `REFACTOR/BUNDLE_FORMAT.md`'s
+"embed or reference — one rule" and "bundles reference other bundles"
+already generalize past whole models — a material is a `Ref` the same
+way an equipped item is, so it can carry its own `materials/<name>/
+manifest.json` instead of only living inline inside a model's bundle.
+Not a new mechanism, an application of an already-settled one at finer
+granularity (see that file for the concrete shape).
+
+### Shading-function descriptions: a scaffold, not a one-shot transcription
+
+The eventual goal — a material's manifest should be reconstructable by a
+human or a machine with *no husk binary*, not just inert metadata a
+human has to already know how to interpret — means the resolved formula
+name (`Combiners_X`) isn't enough on its own; what it *means* has to
+travel with the data. That transcription work has to happen regardless
+of this design (`TODO/MULTI_TEXTURE_LAYER_TODO.md`), so the framework
+should be built to receive it incrementally, not require it finished
+before anything can ship.
+
+**Real finding from this project's own shader investigation, worth
+building the scaffold around**: most of the ~20 named `Combiners_*`
+formulas are one of **four base functions** — alpha clip, alpha blend,
+additive overlay, multiplicative overlay — plus artistic-direction
+parameters on top. The multiplicative case is the genuinely messy one:
+its tint source varies per formula (white in one, black in another, "the
+world" — an environment sample — in a third), real, confirmed variation,
+not a simplification glossed over.
+
+So the shape is two-tiered, not a flat list of 20 opaque names:
+
+```
+BaseFunction = AlphaClip | AlphaBlend | Additive | Multiplicative{ tintSource }
+// tintSource's own real parameter shape is exactly the open transcription
+// work above -- not fully specified here, since specifying it without
+// having done the transcription would be guessing at data this design
+// doesn't have yet.
+
+struct ShadingFunction {
+    Ref identity;               // e.g. "Combiners_Mod_Add"
+    BaseFunction base;
+    Confidence confidence;      // see below
+    // Three representations, decreasing readability, increasing precision
+    // -- the function is ground truth, everything else is a view of it:
+    Function function;          // machine-readable, ground truth. Exact
+                                 // representation (small AST vs. a DSL) is
+                                 // an open call, not decided here.
+    std::optional<std::string> math;         // algebraic notation, should
+                                              // be derivable *from* `function`
+                                              // (consistent with it, not an
+                                              // independent second source)
+    std::optional<std::string> description;  // human prose, "how it's
+                                              // applied" -- authored by a
+                                              // human when one has, same
+                                              // "may not exist yet" honesty
+                                              // as everything else here
+                                              // (bone names, bundle refs)
+};
+```
+
+**`Confidence`, not the three-state `TextureRef` shape** — a different
+axis needs a different vocabulary, same way `NameSource` and
+`TextureRef::State` are each shaped for what they actually distinguish:
+`Verified` (confirmed against real shader dumps, `SHADER_SCAN_FINDINGS.md`'s
+own confirmed-match work), `Assumed` (a reasonable pattern-based guess,
+not independently confirmed), `Ambiguous` (more than one plausible
+base-function+parameter mapping, no tiebreak), `GenuinelyUnknown` (no
+mapping attempted yet). A `GenuinelyUnknown` formula still needs to
+render as *something* rather than nothing — falls back to a documented
+default base function (which one is an empirical call for whoever does
+the transcription work, based on real corpus frequency, not decided
+here) rather than leaving a material unrenderable.
+
 **Not started.** This is a design record, not an implementation plan —
 none of the above exists in code yet.
