@@ -2563,6 +2563,24 @@ recreate the same problem one level down. Stems are assigned to
 newly-discovered chains in parse order, so the same model always
 produces the same labels.
 
+**Precedent for every other "real name missing or unreadable" case in
+this codebase, not just bones.** The three-tier layering above (a
+guaranteed-unique identity that's always safe to key on, a deterministic
+consistent label computed unconditionally, and a hand-authored label used
+only when real source data actually supplies one) is the general answer
+to "husk has an index but no trustworthy name for it" — bones just
+happened to be the case with an existing naming scheme (`"bone_<n>"`)
+concrete enough to replace first. `AnimationData.db2`'s `Name` column
+being absent from current client extractions (`README.md`'s Resume
+history) is the next obvious candidate: sequences already have a real
+per-model index and a real trust-tiered name slot
+(`NameSource::M2Embedded` when `AnimationData.db2` resolves one), but
+nothing fills the gap when it doesn't — the same chunk-ranked,
+chain-structured labeling this section designs for bones (adapted to
+whatever a sequence's own "hierarchy" and "symmetry" concepts turn out to
+be, if any) applies directly. Not scoped or started here — recorded so
+it isn't rediscovered as a new problem later.
+
 The template-ordering rule itself (vary shape before filler) is a
 reasoned synthesis of Luna's correction and general chunking theory, not
 a result lifted from a specific paper — general chunking/compression
