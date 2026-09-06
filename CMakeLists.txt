@@ -163,6 +163,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_m2_scene.cpp
     tests/test_m2_model.cpp
     tests/test_canon_policy.cpp
+    tests/test_canon_ref.cpp
     tests/test_skin.cpp
     tests/test_skel.cpp
     tests/test_bone.cpp
