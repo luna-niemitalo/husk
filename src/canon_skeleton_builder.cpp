@@ -3,7 +3,8 @@
 #include <stdexcept>
 #include <string>
 
-#include "m2_header.hpp"  // billboardModeName, keyBoneName
+#include "canon_bone_naming.hpp"  // computeStructuralLabels
+#include "m2_header.hpp"          // billboardModeName, keyBoneName
 
 namespace husk::canon {
 
@@ -80,6 +81,13 @@ Skeleton assembleSkeleton(const std::vector<m2::Bone>& bones) {
         }
     }
     checkNoBoneCycles(skeleton.joints);
+
+    // Structural labeling needs a validated, cycle-free forest -- runs
+    // only after checkNoBoneCycles confirms one.
+    std::vector<std::string> labels = computeStructuralLabels(skeleton);
+    for (size_t i = 0; i < skeleton.joints.size(); ++i) {
+        skeleton.joints[i].structuralLabel = labels[i];
+    }
     return skeleton;
 }
 

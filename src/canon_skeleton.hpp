@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "canon_physics.hpp"  // boneRef
@@ -50,6 +51,12 @@ struct Joint {
     // NameSource::Synthesized ("bone_<index>" fallback) -- the exact
     // distinction NameSource exists to carry (canon_ref.hpp).
     Ref ref;
+
+    // DESIGN.md's "canon:: bone naming" tier 2: a deterministic,
+    // chain/symmetry-derived label, computed unconditionally for every
+    // joint (named or not) -- a genuinely separate fact from ref.name,
+    // which stays hand-authored-or-nothing. See canon_bone_naming.hpp.
+    std::string structuralLabel;
 };
 
 struct Skeleton {
