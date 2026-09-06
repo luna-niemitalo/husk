@@ -96,6 +96,7 @@ add_library(husk-lib STATIC
   src/canon_material_builder.cpp
   src/canon_definition_builder.cpp
   src/canon_selection_builder.cpp
+  src/canon_item_builder.cpp
   src/skin.cpp
   src/skel.cpp
   src/bone.cpp
@@ -187,6 +188,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_canon_definition_convergence.cpp
     tests/test_canon_selection.cpp
     tests/test_canon_selection_convergence.cpp
+    tests/test_canon_item_convergence.cpp
     tests/test_canon_material.cpp
     tests/test_skin.cpp
     tests/test_skel.cpp

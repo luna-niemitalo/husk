@@ -2871,6 +2871,60 @@ in `--customization-choice-ids`/`--chr-model-id`'s real chosen-choice list
 and the equipped-gear chain, `itemappearance_db2.hpp`) is not built yet;
 out of this pass's scope.
 
+### `canon::` item design (types designed alongside I7; `assembleEquippedItems` landed 2026-09-07)
+
+**Status.** `canon::Item`/`GeometryComponent`/`SectionOverlayComponent`
+(`src/canon_item.hpp`), CANONICAL_MODEL.md's I7 invariant ("items by
+identity, not slot"), were already implemented as pure value types before
+this pass. `canon::assembleEquippedItems` (`src/canon_item_builder.hpp`/
+`.cpp`) now assembles a `std::vector<canon::Item>` from
+`itemappearance::Data` (`itemappearance_db2.hpp`) plus the optional
+`modelfiledata::Data`/`texturefiledata::Data` FileDataID lookups, given a
+list of `appearance::GearEntry` (`appearance_string.hpp`'s `gear=SLOT:id`
+entries) — the adjacent twin of `export_extras.cpp`'s own
+`attachGearAppearance` loop, reusing `itemappearance::resolve` directly for
+the real DB2 join chain rather than re-deriving it.
+
+**The real I7 payoff this adds over `attachGearAppearance`'s current
+shape**: that function produces one `GearItem`/`GearSectionOverlay` PER GEAR
+ENTRY, so an item appearing in the caller's `gear` list at two different
+slots (a real, structurally valid `appearance_string.hpp` input —
+`gear=MAINHAND:15,OFFHAND:15`) produces two separate, duplicate-content
+extras entries with no structural link between them. `assembleEquippedItems`
+instead groups by `itemModifiedAppearanceId` first: entries sharing one
+appearance id collapse into ONE `canon::Item` carrying multiple
+`Item::slots`, with `itemappearance::resolve` called and its components
+built exactly once per distinct id — not once per occurrence. This is the
+concrete case I7 exists to make expressible, and the concrete thing this
+assembler adds beyond mirroring the existing production consumer.
+
+Mirrors `attachGearAppearance`'s own per-entry behavior otherwise exactly,
+including its "zero means no standalone geometry, not unresolved" reading
+of a real `ModelResourcesID` (`resolution.modelResourcesId` always carries
+`DisplayInfo::modelResourcesId`'s raw value, zero included, so a
+`GeometryComponent` is only added when that value is genuinely nonzero or
+`resolution.materials` is non-empty), its independent-optional treatment of
+`modelData`/`textureData` (a missing table just leaves that hop's
+FileDataID unresolved, never a hard failure), and its skip-not-fabricate
+handling of an entry whose `resolve()` doesn't produce a real
+`ItemDisplayInfoID`.
+
+Proven via `tests/test_canon_item_convergence.cpp`, checked against facts
+derived independently from synthetic `itemappearance::Data`/
+`modelfiledata::Data`/`texturefiledata::Data`, not from
+`assembleEquippedItems`'s own output — same discipline
+`test_canon_definition_convergence.cpp`/`test_canon_selection_convergence.cpp`
+already establish. No real local `itemmodifiedappearance.db2`/
+`itemappearance.db2`/... fixture set exists in `test_data/db2` (only the
+`chrcustomization*` tables do), so this convergence test is
+synthetic-`Data`-only, with a placeholder `doctest::skip`-gated case ready
+to flip to a real-data check the moment such a fixture set lands.
+
+Migrating `export_extras.cpp`'s own `attachGearAppearance` onto
+`assembleEquippedItems` (so the two stop being separate, only-provably-
+convergent implementations) is separate, later work — this pass only
+proves the new path, it doesn't yet replace the old one.
+
 ### Shading-function descriptions: a scaffold, not a one-shot transcription
 
 The eventual goal — a material's manifest should be reconstructable by a
