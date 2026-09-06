@@ -2587,3 +2587,164 @@ a result lifted from a specific paper — general chunking/compression
 research supports the *shape* of the argument, not this exact ranking
 rule at this level of detail. Recorded here as a design decision made
 with that distinction explicit, not overclaimed as directly sourced.
+
+### `canon::` material design (designed 2026-09-06, not yet implemented)
+
+**Framing.** This is designed for N future consumers and one real, often
+incomplete producer (M2) — not as a rename of today's `gltf::Material`.
+Today's shape is read here only as *evidence of what M2 can actually
+express*, so nothing below invents a capability the format doesn't have.
+
+**Real facts checked before designing anything (not assumptions):**
+
+- M2 (Legion+, husk's scope) has **no PBR map slots**. No normal/
+  roughness/metalness anywhere in the parsed format. There is one real,
+  currently-unresolved "specular-ish" `TextureType` role
+  (`itemappearance_db2.hpp`) and an env-map UV mode
+  (`textureCoordComboIndex == -1`, a runtime-computed reflection vector,
+  not stored per-vertex data) — that's the full extent of non-diffuse
+  texturing WoW's own data asserts.
+- A material's layering is a **per-batch ordered texture-unit stack**
+  (`M2Batch.textureCount`), combined by one of ~20 named fixed-function
+  `Combiners_*` formulas keyed by `shaderId`. husk already resolves the
+  formula *name* (`m2::resolveShaderNames`); nobody has ported what the
+  formulas *do* (`TODO/MULTI_TEXTURE_LAYER_TODO.md`).
+- Tint/fade/UV-transform are **per-batch, unambiguously** —
+  `skin::Batch::colorIndex`/`textureWeightComboIndex`/
+  `textureTransformComboIndex` are direct indices, no join-table
+  ambiguity — real animated curves, already unifiable via
+  `canon::Curve`.
+- **Character-customization compositing is a separate mechanism from
+  batch layering entirely.** `CharComponentTextureLayouts`/`Sections`/
+  `TextureLayer` describe atlas placement rects and blend modes; none of
+  that DB2 chain references a mesh, a vertex, or a UV coordinate. It is
+  already pure image-space data in Blizzard's own model, not a husk
+  simplification.
+- UV *values* are per-vertex mesh data (shared across every batch
+  sampling that vertex range); UV *selection* is a per-batch material
+  fact (`baseColorTexCoord`: which mesh UV set, or none for env-mapping).
+- Producer unreliability is already a real, named category:
+  `AlternateTextureCandidate` exists specifically because a hardcoded/
+  customization-driven slot can have multiple same-basename candidate
+  files with no in-file tiebreak.
+
+**Settled shapes:**
+
+```
+enum class KnownRole { Unknown, Diffuse, Specular, Emission, Alpha, Detail, Env };
+using LayerRole = std::variant<KnownRole, std::string>;  // string: open, not limited to M2's own vocabulary
+
+using UvRef = std::variant<UvSetIndex, EnvironmentMapped>;  // typed selector, no compatibility-matcher
+
+// Three states, not two -- "resolved" isn't the only non-error outcome.
+struct TextureRef {
+    enum class State { Resolved, KnownUnresolved, Ambiguous };
+    State state;
+    // Resolved: real bytes/FileDataID in hand.
+    // KnownUnresolved: M2 asserts a real slot exists (nonzero TextureType,
+    //   or a customization-driven slot) but husk couldn't get bytes for
+    //   it -- carries a reason string, same backtrace pattern
+    //   resolveObjectSkinTextureFromKb's `.reason` already uses elsewhere.
+    // Ambiguous: N real candidates, no in-file tiebreak -- generalizes
+    //   today's AlternateTextureCandidate list, kept as the full
+    //   candidate set (not collapsed to one guess) so a consumer can
+    //   pick or a human can resolve it later.
+};
+
+struct MaterialLayer {
+    Ref identity;          // stable identity a named slot points at -- never a raw vector index,
+                            // same reasoning already applied to bones/geosets: an index breaks
+                            // under reordering/filtering, an identity doesn't.
+    TextureRef texture;
+    UvRef uv;
+    LayerRole role;
+    std::optional<VecCurve> tint;
+    std::optional<ScalarCurve> alphaFade;
+    std::optional<TextureTransformCurves> uvAnimation;  // shape TBD at implementation time
+    BlendOp blendIntoPrevious;  // the real combiner op this layer performs on the stack so far, when resolved
+};
+
+struct Material {
+    std::vector<MaterialLayer> layers;    // full ordered truth, one entry per real M2 texture unit
+    std::optional<Ref> diffuseLayer;       // = some layer's identity, only when role maps cleanly
+    std::optional<Ref> specularLayer;
+    std::optional<Ref> emissionLayer;
+    std::optional<Ref> alphaLayer;
+    // no normalLayer/roughnessLayer yet -- no real producer populates one; add when one
+    // actually exists, not speculatively.
+};
+```
+
+**Why the stack is the source of truth and named slots are just
+references into it, not a parallel named-slot-only model:** WoW's real
+data doesn't assert roles for most layers (a two-diffuse-blend combiner
+formula has no honest PBR-slot mapping at all), so a named-slots-only
+material would force husk to invent facts the M2 doesn't contain — the
+same "tag it, don't guess at semantics" violation this project has
+avoided everywhere else (`billboardMode`, `skinSectionId`, `textureType`,
+...). The ordered stack matches the real producer exactly and stays
+readable by a naive consumer (ignore anything without a role); named
+fields give a PBR-aware consumer a fast, typed path without forcing
+every layer through it.
+
+**Why not a full UV compatibility-matching system:** the real client
+never does compatibility matching — `textureCoordComboIndex` is a
+hardcoded literal resolved once at authoring time. Building a scoring
+system solves a flexibility problem the real producer doesn't have. What
+*is* worth the small cost: replacing the bare `int`/`-1`-sentinel with a
+typed `UvRef`, so "environment-mapped" is a real tagged case instead of
+an integer trick, and a mesh isn't limited to exactly two hardcoded UV
+fields if a future producer ever needs more.
+
+**Atlas compositing is a mesh-independent `Resources`-layer concept,
+deliberately.** `CharComponentTextureLayouts`/`Sections`/`TextureLayer`
+already carry zero mesh/vertex/UV references in Blizzard's own model —
+canon isn't simplifying anything by keeping the compositing recipe
+(which patches go where, blended how, producing one final atlas image)
+computable with no mesh loaded at all. The one real caveat, explicitly
+**deferred, not built now**: the mesh's own UV coordinates still have to
+actually sample the right atlas regions for the composited result to
+look correct once applied — a cross-check that needs both pieces of data
+even though computing either piece alone doesn't. Not attempted here.
+
+**Geoset/submesh filtering is explicitly not a material concern.** Which
+submeshes exist and render at all (`M2SkinSection`/`canon::Geoset`) is a
+mesh/topology fact, orthogonal to which texture layers a material
+stacks — canon's existing Definition/Selection split already keeps these
+apart (geoset selection lives in Selection; texture compositing lives in
+Resources/material), and this design doesn't re-merge them.
+
+**Material preview, with no mesh required — two different capabilities
+sharing one name, split apart on purpose:**
+
+1. *A wireframe view of where each patch/layer sits.* A real UV
+   unwrap wireframe is triangle-edge data and structurally requires a
+   mesh — there's no way around that. What's buildable with zero mesh,
+   from data canon already resolves: `Section`'s placement rectangles,
+   normalized by the atlas's own declared `width`/`height`, drawn as a
+   rectangle grid over the composited atlas image. This is meant to
+   later overlay a real mesh's actual UV unwrap for comparison — which
+   means `Section` rects and real mesh UV coordinates need to share one
+   normalized `[0,1]×[0,1]` coordinate convention. **Flagged, not yet
+   verified**: this is the natural assumption given how texture atlases
+   work, but it hasn't been checked against a real character's actual
+   mesh-UV-bounding-box-vs-atlas-Section alignment yet — the same
+   discipline already applied to the bone-naming mirror axis (checked
+   against two real files before being trusted) should apply here too,
+   before this becomes load-bearing.
+2. *A rendered preview of the composited layer stack* (blend ops, tint,
+   alpha, emission), to judge whether layering/emission genuinely look
+   right — flat, no 3D geometry needed beyond a trivial preview
+   surface. **Canon stays resolve-only for this, same split
+   `render_glb.py`'s Blender-side shading reconstruction already
+   established**: canon's job is making the layer stack + resolved
+   combiner-formula identity + curves complete enough that a *separate*,
+   canon-aware preview renderer (a companion tool, not canon itself, not
+   husk's export path) could exist and produce correct pixels. Canon
+   does not implement `Combiners_*` formula math itself — that would be
+   a real scope change from every prior canon task, all of which have
+   been resolve-only, and would reopen the "husk resolves, never
+   applies" question this project has settled repeatedly elsewhere.
+
+**Not started.** This is a design record, not an implementation plan —
+none of the above exists in code yet.
