@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "appearance_string.hpp"
+#include "canon_policy.hpp"
 #include "gltf.hpp"
 #include "listfile_index.hpp"
 #include "m2.hpp"
@@ -25,15 +26,6 @@ namespace husk::commands {
 // (resolveBones, buildLodTierMeshes, exportOneModel) need it.
 std::vector<uint8_t> readFileBytes(const std::string& path);
 
-// Rethrows the first model.parseFailures entry whose `field` matches
-// `field` as std::runtime_error, message verbatim -- a no-op when that
-// field parsed cleanly. `husk export` must fail fast on a malformed field
-// it reads (see DESIGN.md's parse-failure-contract note): m2::loadModel
-// leaves a failed array empty rather than throwing, and an empty vector
-// can't be told apart from "genuinely zero" -- silently treating a
-// malformed array as empty risks a wrong export, not just a missing one.
-void rethrowIfParseFailed(const m2::Model& model, const char* field);
-
 // --bones-dir: resolves each of the model's/.skel's BFID-declared
 // FileDataIDs to a real '<bonesDir>/<id>.bone' file, if present (silently
 // skipped otherwise, same "optional, resolve what's there" policy
@@ -49,11 +41,11 @@ void attachBoneCorrections(const std::string& bonesDir, bool bonesAreInline, boo
 // the model's own already-parsed header arrays. Full field/curve data
 // lives in `husk dump-chunks`, not here -- this is placement only.
 //
-// model.ribbonEmitters/particleEmitters are already parsed; rethrowIfParseFailed
-// replaces the old parse calls' throw-on-malformed. The particle version
-// gate reads model.header.particleEmitters.count/model.header.version
-// directly, never model.particleEmitters.empty() -- see dumpEmitters for
-// why.
+// model.ribbonEmitters/particleEmitters are already parsed;
+// canon::enforcePartialFailurePolicy enforces the export-strict policy on
+// each before it's read. The particle version gate reads
+// model.header.particleEmitters.count/model.header.version directly, never
+// model.particleEmitters.empty() -- see dumpEmitters for why.
 void attachEmitterAnchors(const m2::Model& model, gltf::Skeleton& skeleton);
 
 // Attachment/Event/Light placement nodes (gltf::Skeleton::
@@ -68,9 +60,9 @@ void attachEmitterAnchors(const m2::Model& model, gltf::Skeleton& skeleton);
 // attenuation, visibility) the same way M2MaterialInputs::sequenceCount
 // drives the material tint/fade curves.
 //
-// model.attachments/events/lights are already parsed; rethrowIfParseFailed
-// replaces the old parse calls' throw-on-malformed, one call per field, in
-// the order each is read.
+// model.attachments/events/lights are already parsed;
+// canon::enforcePartialFailurePolicy enforces the export-strict policy on
+// each before it's read, one call per field, in the order each is read.
 void attachPlacementNodes(const m2::Model& model, size_t sequenceCount, gltf::Skeleton& skeleton);
 
 // --phys: three-state resolution mirroring --skel (DESIGN.md's Key design
@@ -181,8 +173,8 @@ void attachGearAppearance(const std::string& db2Dir, const std::string& dbdDir,
 // nothing (leaves `namedMeshes` untouched) unless `--collision` was given
 // and the model actually has collision data.
 //
-// rethrowIfParseFailed only runs once the early return above confirms
-// model.collisionMesh will actually be read.
+// canon::enforcePartialFailurePolicy only runs once the early return above
+// confirms model.collisionMesh will actually be read.
 void appendCollisionMesh(const m2::Model& model, const std::string& modelPath, bool collisionRequested,
                           std::vector<gltf::NamedMesh>& namedMeshes);
 

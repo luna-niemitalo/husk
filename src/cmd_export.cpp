@@ -110,16 +110,17 @@ gltf::Mesh buildBaseMesh(const std::vector<m2::Vertex>& vertices) {
 // `bones` carries, and haveSkel/skelBytes are reused by --bones-dir
 // resolution too.
 //
-// model.bones is already parsed; rethrowIfParseFailed(model, "bones") must
-// run first. A malformed bones array parses to an empty vector rather than
-// throwing, and bonesAreInline below is derived from exactly that
-// emptiness -- skipping the rethrow would silently misread "parse failed"
-// as "no inline bones," falling back to an external .skel or an unskinned
-// mesh instead of erroring: a wrong data source, not just an empty field.
+// model.bones is already parsed; canon::enforcePartialFailurePolicy(model,
+// "bones", kExportPartialFailurePolicy) must run first. A malformed bones
+// array parses to an empty vector rather than throwing, and bonesAreInline
+// below is derived from exactly that emptiness -- skipping the check would
+// silently misread "parse failed" as "no inline bones," falling back to an
+// external .skel or an unskinned mesh instead of erroring: a wrong data
+// source, not just an empty field.
 std::vector<m2::Bone> resolveBones(const std::string& modelPath, const m2::Model& model, bool skelGiven,
                                     bool skelNone, std::string skelPath, bool& bonesAreInline,
                                     bool& haveSkel, std::vector<uint8_t>& skelBytes) {
-    rethrowIfParseFailed(model, "bones");
+    canon::enforcePartialFailurePolicy(model, "bones", kExportPartialFailurePolicy);
     auto bones = model.bones;
     bonesAreInline = !bones.empty();
     haveSkel = false;
@@ -162,10 +163,11 @@ std::vector<m2::Bone> resolveBones(const std::string& modelPath, const m2::Model
 // gated on that model even having per-sequence M2Sequence data, so they're
 // still resolved whenever a bone/skel source is being used at all.
 //
-// model.sequences is already parsed; rethrowIfParseFailed(model,
-// "sequences") in the `bonesAreInline` branch below must run before
-// reading it, same hazard as resolveBones' bones check above -- a
-// malformed sequences array would otherwise silently read as "no
+// model.sequences is already parsed;
+// canon::enforcePartialFailurePolicy(model, "sequences",
+// kExportPartialFailurePolicy) in the `bonesAreInline` branch below must
+// run before reading it, same hazard as resolveBones' bones check above --
+// a malformed sequences array would otherwise silently read as "no
 // animations" instead of a loud parse error. The `haveSkel` branch parses
 // its own, unrelated sequences via skel::parseSequences.
 std::vector<gltf::Animation> resolveAnimationsForModel(
@@ -180,7 +182,7 @@ std::vector<gltf::Animation> resolveAnimationsForModel(
     const std::vector<uint8_t>& blob = model.blob;
 
     if (bonesAreInline) {
-        rethrowIfParseFailed(model, "sequences");
+        canon::enforcePartialFailurePolicy(model, "sequences", kExportPartialFailurePolicy);
         auto sequences = model.sequences;
         M2AnimInputs animInputs;
         animInputs.animFileIds = header.animFileIds;
@@ -1115,13 +1117,13 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         const std::vector<uint8_t>& blob = model.blob;
         const std::vector<m2::Vertex>& vertices = model.vertices;
 
-        // export fails fast on a malformed field it reads (see DESIGN.md's
-        // parse-failure-contract note) -- rethrowIfParseFailed re-raises
-        // loadModel's isolated per-field failures here, in the same order
-        // the fields below are read. bones/sequences are excluded here:
-        // resolveBones/resolveAnimationsForModel rethrow those themselves,
-        // at the point each is actually read.
-        rethrowIfParseFailed(model, "vertices");
+        // export fails fast on a malformed field it reads (DESIGN.md's
+        // "Two parse-failure contracts" paragraph, Key design decisions) --
+        // canon::enforcePartialFailurePolicy enforces that here, in the
+        // same order the fields below are read. bones/sequences are
+        // excluded here: resolveBones/resolveAnimationsForModel enforce it
+        // themselves, at the point each is actually read.
+        canon::enforcePartialFailurePolicy(model, "vertices", kExportPartialFailurePolicy);
 
         if (header.version < m2::kMinVerifiedRecordStrideVersion) {
             std::cerr << "husk: warning: '" << modelPath << "' is version " << header.version
@@ -1131,15 +1133,15 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                          "than failing loudly\n";
         }
 
-        rethrowIfParseFailed(model, "materials");
-        rethrowIfParseFailed(model, "textures");
-        rethrowIfParseFailed(model, "texture_combos");
-        rethrowIfParseFailed(model, "texture_coord_combos");
-        rethrowIfParseFailed(model, "colors");
-        rethrowIfParseFailed(model, "texture_weights");
-        rethrowIfParseFailed(model, "texture_weight_combos");
-        rethrowIfParseFailed(model, "texture_transforms");
-        rethrowIfParseFailed(model, "texture_transform_combos");
+        canon::enforcePartialFailurePolicy(model, "materials", kExportPartialFailurePolicy);
+        canon::enforcePartialFailurePolicy(model, "textures", kExportPartialFailurePolicy);
+        canon::enforcePartialFailurePolicy(model, "texture_combos", kExportPartialFailurePolicy);
+        canon::enforcePartialFailurePolicy(model, "texture_coord_combos", kExportPartialFailurePolicy);
+        canon::enforcePartialFailurePolicy(model, "colors", kExportPartialFailurePolicy);
+        canon::enforcePartialFailurePolicy(model, "texture_weights", kExportPartialFailurePolicy);
+        canon::enforcePartialFailurePolicy(model, "texture_weight_combos", kExportPartialFailurePolicy);
+        canon::enforcePartialFailurePolicy(model, "texture_transforms", kExportPartialFailurePolicy);
+        canon::enforcePartialFailurePolicy(model, "texture_transform_combos", kExportPartialFailurePolicy);
 
         M2MaterialInputs m2Inputs;
         m2Inputs.materials = model.materials;

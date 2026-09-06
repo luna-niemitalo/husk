@@ -1132,10 +1132,24 @@ as it can. `husk export` cannot take the same approach — an empty
 error further down the pipeline, and could produce a *wrong* export
 (fewer placement anchors than the file really has, or bones silently
 falling back to an external `.skel`) instead of a loud, correct failure.
-`export_extras.hpp`'s `rethrowIfParseFailed(model, field)` re-raises one
-field's isolated failure at the point that field is actually read,
-restoring the old fail-fast behavior for every field `husk export`
-touches.
+
+The two contracts are named once, at the `canon::` layer
+(`src/canon_policy.hpp`) rather than left implicit in which function a
+caller happens to invoke: `canon::PartialFailurePolicy` is `Tolerant` or
+`Strict`, and `canon::enforcePartialFailurePolicy(model, field, policy)`
+is a no-op under `Tolerant`, or re-raises `field`'s isolated failure under
+`Strict`. `husk export` declares `Strict` once
+(`commands::kExportPartialFailurePolicy`) and calls
+`enforcePartialFailurePolicy` at the point each field is actually read —
+one call per field, in read order, not one call for the whole model,
+since export's own consumption order doesn't match `loadModel`'s parse
+order (`vertices` is read before `bones`/`sequences` despite parsing after
+them) and collapsing the calls would change which field's error wins when
+a file has more than one simultaneous failure. `husk info`/`husk info
+--json`/`husk dump-chunks` are `Tolerant` by construction — they read
+`model.parseFailures` directly as diagnostic data and never call
+`enforcePartialFailurePolicy` at all, since a no-op call would be dead
+code.
 
 ## CLI argument grammar for `export` (implemented)
 

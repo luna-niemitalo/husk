@@ -5,10 +5,19 @@
 
 #include <CLI/CLI.hpp>
 
+#include "canon_policy.hpp"
+
 // One function per subcommand, matching casc-tool's layout so the two
 // tools stay easy to jump between. `args` excludes the program name and
 // the subcommand word itself. Returns the process exit code.
 namespace husk::commands {
+
+// husk export's declared canon::PartialFailurePolicy (see canon_policy.hpp):
+// a malformed field it's about to consume must throw, never silently read
+// as empty. Every attachX()/exportOneModel call site in cmd_export.cpp/
+// export_extras.cpp passes this, rather than each implying strictness by
+// calling a strict-only-named function.
+inline constexpr auto kExportPartialFailurePolicy = canon::PartialFailurePolicy::Strict;
 
 int info(int argc, char** args);
 

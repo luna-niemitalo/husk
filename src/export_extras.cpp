@@ -20,6 +20,7 @@
 #include "chrcustomization_db2.hpp"
 #include "chrmodel_db2.hpp"
 #include "chrrace_db2.hpp"
+#include "commands.hpp"
 #include "creature_geoset_db2.hpp"
 #include "export_transform.hpp"
 #include "itemappearance_db2.hpp"
@@ -47,12 +48,6 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
         throw std::runtime_error("error reading '" + path + "': " + std::strerror(errno));
     }
     return bytes;
-}
-
-void rethrowIfParseFailed(const m2::Model& model, const char* field) {
-    for (const auto& f : model.parseFailures) {
-        if (f.field == field) throw std::runtime_error(f.what);
-    }
 }
 
 void attachBoneCorrections(const std::string& bonesDir, bool bonesAreInline, bool haveSkel,
@@ -100,7 +95,7 @@ void attachBoneCorrections(const std::string& bonesDir, bool bonesAreInline, boo
 void attachEmitterAnchors(const m2::Model& model, gltf::Skeleton& skeleton) {
     const m2::Header& header = model.header;
 
-    rethrowIfParseFailed(model, "ribbon_emitters");
+    canon::enforcePartialFailurePolicy(model, "ribbon_emitters", kExportPartialFailurePolicy);
     for (const auto& r : model.ribbonEmitters) {
         if (r.boneIndex >= skeleton.joints.size()) {
             throw std::runtime_error("ribbon emitter references bone " +
@@ -114,7 +109,7 @@ void attachEmitterAnchors(const m2::Model& model, gltf::Skeleton& skeleton) {
     // "version-gated out" from "genuinely zero records" (same as
     // dumpEmitters's identical check).
     if (header.particleEmitters.count == 0 || header.version >= m2::kMinVerifiedParticleVersion) {
-        rethrowIfParseFailed(model, "particle_emitters");
+        canon::enforcePartialFailurePolicy(model, "particle_emitters", kExportPartialFailurePolicy);
         for (const auto& p : model.particleEmitters) {
             if (p.boneId >= skeleton.joints.size()) {
                 throw std::runtime_error("particle emitter references bone " +
@@ -185,10 +180,10 @@ std::vector<gltf::Material::AnimatedScalarCurve> resolveRawByteTrackCurve(
 void attachPlacementNodes(const m2::Model& model, size_t sequenceCount, gltf::Skeleton& skeleton) {
     const std::vector<uint8_t>& blob = model.blob;
 
-    // One rethrowIfParseFailed call per field, in the order each is read,
+    // One enforcePartialFailurePolicy call per field, in the order each is read,
     // so a malformed file reports the same field's error a caller would
     // expect first.
-    rethrowIfParseFailed(model, "attachments");
+    canon::enforcePartialFailurePolicy(model, "attachments", kExportPartialFailurePolicy);
     for (const auto& a : model.attachments) {
         if (a.bone < 0 || static_cast<size_t>(a.bone) >= skeleton.joints.size()) {
             throw std::runtime_error("attachment " + std::to_string(a.id) + " references bone " +
@@ -203,7 +198,7 @@ void attachPlacementNodes(const m2::Model& model, size_t sequenceCount, gltf::Sk
             resolveRawByteTrackCurve(blob, a.animateAttachedTrackOffset, sequenceCount);
         skeleton.attachments.push_back(std::move(attachment));
     }
-    rethrowIfParseFailed(model, "events");
+    canon::enforcePartialFailurePolicy(model, "events", kExportPartialFailurePolicy);
     for (const auto& e : model.events) {
         if (e.bone >= skeleton.joints.size()) {
             throw std::runtime_error("event '" + e.identifier + "' references bone " +
@@ -212,7 +207,7 @@ void attachPlacementNodes(const m2::Model& model, size_t sequenceCount, gltf::Sk
         }
         skeleton.events.push_back({e.identifier, static_cast<int>(e.bone), toGltf(e.position), e.data});
     }
-    rethrowIfParseFailed(model, "lights");
+    canon::enforcePartialFailurePolicy(model, "lights", kExportPartialFailurePolicy);
     for (const auto& l : model.lights) {
         if (l.bone < 0 || static_cast<size_t>(l.bone) >= skeleton.joints.size()) {
             throw std::runtime_error("light references bone " + std::to_string(l.bone) +
@@ -915,7 +910,7 @@ void appendCollisionMesh(const m2::Model& model, const std::string& modelPath, b
         return;
     }
 
-    rethrowIfParseFailed(model, "collision_mesh");
+    canon::enforcePartialFailurePolicy(model, "collision_mesh", kExportPartialFailurePolicy);
     auto collisionMesh = model.collisionMesh;
 
     if (collisionMesh.indices.size() % 3 != 0) {

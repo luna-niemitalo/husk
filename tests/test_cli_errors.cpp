@@ -179,7 +179,7 @@ TEST_CASE("husk export: corrupted huge bone count fails with a real message, not
 // array into an empty model.bones plus a recorded FieldParseFailure
 // instead of throwing (m2_model.hpp's doc comment); resolveBones derives
 // bonesAreInline from that same emptiness. Without
-// rethrowIfParseFailed(model, "bones") firing first, a malformed-but-
+// canon::enforcePartialFailurePolicy(model, "bones", ...) firing first, a malformed-but-
 // present inline bones array alongside a real, valid, unrelated .skel
 // would be silently misread as "no inline bones, fall back to the .skel"
 // -- a wrong *skeleton*, not just an empty field, exported with exit 0 and
@@ -219,10 +219,10 @@ TEST_CASE("husk export: a malformed inline bones array is reported even when a r
 }
 
 // Same split 4c hazard as the bones test above, for resolveAnimationsForModel's
-// own "sequences" rethrow: a malformed inline sequences array must not be
+// own "sequences" check: a malformed inline sequences array must not be
 // silently read as "no animations for this model" (model.sequences empty
 // due to a recorded FieldParseFailure, indistinguishable from "genuinely
-// no sequences" without rethrowIfParseFailed firing first).
+// no sequences" without canon::enforcePartialFailurePolicy firing first).
 TEST_CASE("husk export: a malformed inline sequences array fails cleanly, not silently exported "
           "with zero animations") {
     auto m2 = tinyAnimatedM2();  // 1 vertex, 1 inline bone, 1 real sequence
@@ -254,7 +254,7 @@ TEST_CASE("husk export: a malformed inline sequences array fails cleanly, not si
 // and aborted the export. Under m2::loadModel, a malformed array yields an
 // empty vector plus a recorded FieldParseFailure instead of throwing (see
 // m2_model.hpp's doc comment) -- reading that field without
-// rethrowIfParseFailed first would silently attach *fewer* placement
+// canon::enforcePartialFailurePolicy firing first would silently attach *fewer* placement
 // anchors than the file actually has, no error at all (the same
 // silent-misread class as the bones hazard, just quieter). These three
 // cases (one per migrated function) prove the fail-fast behavior survived

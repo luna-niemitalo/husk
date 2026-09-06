@@ -174,7 +174,6 @@ drifting implementations into one exposes *why* things look wrong today.
 | `BUNDLE_FORMAT.md` | The native husk bundle + manifest schema; glTF's demoted role | Independent; carries a reopened design question (physical storage shape at corpus scale) — needs a decision, see Blockers below |
 | `BLENDER_ADDON.md` | Stage 4 consumer — packaging, and deleting every discovery mechanism I3 forbids | Independent to build; final visual pass is Luna's |
 | `CLI_AND_TOOLING.md` | Flag surface, structured output, corpus-tooling cleanup | Independent |
-| `SUPERVISOR_LOOP.md` | How to run this migration as a supervisor-loop + Sonnet-subagent process (task sizing, verify protocol, escalation) | Process document, not a stage |
 
 Out of scope, deliberately: everything in `POTENTIAL_PLAN/` about engines, GPU
 backends, and GFX906. The canonical model is designed so those stay *possible*
