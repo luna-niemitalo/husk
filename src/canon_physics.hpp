@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
+#include <utility>
 
 #include "canon_ref.hpp"
 #include "phys.hpp"
@@ -33,15 +35,18 @@ using Physics = phys::File;
 // Synthesized distinction NameSource exists to carry. So a bone reference
 // is the case *for* wrapping in Ref, not against it.
 //
-// This helper only fills in the identity half. The name half needs the
-// whole skeleton's own resolution (attachment/event lookups, topology
-// walk) that a single Body has no access to -- a writer attaches
-// name/source once it has actually resolved one, same as Geoset::fromRawId
-// leaving name/source at their None default until a customization choice
-// supplies one.
-inline Ref boneRef(uint16_t boneIndex) {
+// This helper fills the identity half unconditionally; name/source are
+// optional because most call sites (e.g. a bare Body::boneIndex) have no
+// resolution available and want the None default Geoset::fromRawId also
+// leaves until something supplies a real choice. canon_skeleton.hpp's
+// Joint is the case that *does* have a name in hand (keyBoneName's table,
+// or a synthesized "bone_<index>") at construction time, so it passes both
+// rather than building a second identical identity-only helper.
+inline Ref boneRef(uint32_t boneIndex, std::string name = {}, NameSource source = NameSource::None) {
     Ref ref;
     ref.id = RecordIndex{boneIndex};
+    ref.name = std::move(name);
+    ref.source = source;
     return ref;
 }
 
