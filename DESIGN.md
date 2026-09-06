@@ -2588,7 +2588,49 @@ research supports the *shape* of the argument, not this exact ranking
 rule at this level of detail. Recorded here as a design decision made
 with that distinction explicit, not overclaimed as directly sourced.
 
-### `canon::` material design (designed 2026-09-06, not yet implemented)
+### `canon::` material design (designed 2026-09-06; assembly landed 2026-09-06/07)
+
+**Status.** The types below are implemented as designed
+(`src/canon_material.hpp`). `canon::assembleMaterial`
+(`src/canon_material_builder.hpp`/`.cpp`) now assembles a `canon::Material`
+from a real `skin::Batch` plus the M2's own material/texture/color/
+transform tables, mirroring `export_materials.cpp`'s per-batch material
+construction structurally (same bounds checks, same required-vs-best-
+effort throw behavior) — proven via
+`tests/test_canon_material_convergence.cpp` against the real
+`bloodelffemale.m2`/`.skin` fixture plus the existing multi-texture-layer
+and texture-transform fixtures, same "derive expected facts independently,
+don't call the function under test" discipline
+`test_canon_mesh_convergence.cpp` established. Deliberately NOT built by
+this pass, staying real open work: real texture-byte/FileDataID
+resolution (every `TextureRef` this produces is `KnownUnresolved`, reason
+"texture resolution out of scope for canon assembly" — same DB2/listfile/
+catalog boundary `canon_mesh_builder.hpp` already draws around material/
+texture resolution for geosets); `ShadingFunction`/`Function` (decoding a
+resolved `shaderId`'s real `Combiners_*` name into a structured per-stage
+op chain, still exactly the deferred "porting real Combiners_* formula
+math" work named below); atlas compositing and the two material-preview
+capabilities described further down this section.
+
+Two real representational gaps in the types below surfaced while building
+the assembler, neither patched silently: (1) `MaterialLayer` has no field
+for a *constant* (non-animated) tint/alpha/UV-transform value — only the
+animated-curve shape (`tint`/`alphaFade`/`uvAnimation`) exists, so the
+overwhelming common real-data case (a constant `M2Color`/`M2TextureWeight`,
+which `export_materials.cpp` folds into `gltf::Material::baseColorFactor`)
+is currently unrepresentable in canon form at all, not just approximated;
+(2) a single M2 batch can have both a genuinely-animated `M2Color::alpha`
+and a genuinely-animated `M2TextureWeight::weight` at once (documented as
+multiplied together), but `MaterialLayer` has only one `alphaFade` slot to
+hold either, so the assembler picks color's curve when both are present.
+Also newly written, not previously part of this codebase anywhere: a
+`blendMode -> BlendOp` mapping (`canon_material_builder.cpp`'s
+`blendModeToBlendOp`) — no `blendModeToGxTexOp`-shaped conversion existed
+to reuse (confirmed by search), and `M2Material::blendMode` (a framebuffer
+blend) and `BlendOp`'s `EGxTexOp` vocabulary (a texture-combiner stage)
+are two different real GPU concepts being deliberately approximated onto
+one field for lack of a better home. All three are flagged for review, not
+treated as settled by this pass.
 
 **Framing.** This is designed for N future consumers and one real, often
 incomplete producer (M2) — not as a rename of today's `gltf::Material`.
