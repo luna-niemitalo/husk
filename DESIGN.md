@@ -2765,16 +2765,33 @@ of this design (`TODO/MULTI_TEXTURE_LAYER_TODO.md`), so the framework
 should be built to receive it incrementally, not require it finished
 before anything can ship.
 
-**Real finding from this project's own shader investigation, worth
-building the scaffold around**: most of the ~20 named `Combiners_*`
-formulas are one of **four base functions** — alpha clip, alpha blend,
-additive overlay, multiplicative overlay — plus artistic-direction
-parameters on top. The multiplicative case is the genuinely messy one:
-its tint source varies per formula (white in one, black in another, "the
-world" — an environment sample — in a third), real, confirmed variation,
-not a simplification glossed over.
+**The "four base functions" claim below is UNVERIFIED — flagging this
+explicitly rather than let it read as settled.** It's Luna's own recalled
+summary of an earlier, different AI session's attempt to dig the real
+shading math out of `references/wow_shaders`' captured shader dumps, not
+a confirmed result of this project's own investigation — quoted from
+memory, not re-checked. The real excavation sources that exist and
+should be checked before trusting this shape at all: wowdev.wiki's own
+`Pixel_shader_logic_for_mixing_colors.wiki` (this project's own scan
+found real, but only pseudo-verified, `Combiners_*` formulas there —
+`SHADER_SCAN_FINDINGS.md`), further pseudo-verified formulas in
+`reference/wow.export`-adjacent tooling, and this project's own captured
+`references/wow_shaders` dumps (`shader_pattern_search/`'s textual and
+invariant-based matchers already exist for exactly this excavation, per
+`TOOLS.md`). The tentative shape, pending that check: most of the ~20
+named `Combiners_*` formulas *may* reduce to one of **four base
+functions** — alpha clip, alpha blend, additive overlay, multiplicative
+overlay — plus artistic-direction parameters on top, with the
+multiplicative case's tint source varying per formula (white in one,
+black in another, "the world" — an environment sample — in a third).
+Treat this as a hypothesis the framework should be able to hold *if*
+verification confirms it, not a fact to design the base-function enum
+irreversibly around.
 
-So the shape is two-tiered, not a flat list of 20 opaque names:
+If the hypothesis holds, the shape is two-tiered rather than a flat list
+of 20 opaque names — and the framework should hold up even if it
+doesn't, degrading to one `ShadingFunction` per named formula with no
+shared `BaseFunction` at all:
 
 ```
 BaseFunction = AlphaClip | AlphaBlend | Additive | Multiplicative{ tintSource }
