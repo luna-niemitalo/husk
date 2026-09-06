@@ -88,6 +88,7 @@ add_library(husk-lib STATIC
   src/m2_scene.cpp
   src/m2_model.cpp
   src/canon_policy.cpp
+  src/canon_bone_stem.cpp
   src/canon_skeleton_builder.cpp
   src/skin.cpp
   src/skel.cpp
@@ -164,6 +165,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_m2_scene.cpp
     tests/test_m2_model.cpp
     tests/test_canon_policy.cpp
+    tests/test_canon_bone_stem.cpp
     tests/test_canon_ref.cpp
     tests/test_canon_geoset.cpp
     tests/test_canon_curve.cpp
