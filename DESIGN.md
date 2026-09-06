@@ -3064,6 +3064,107 @@ already establishes between its own per-batch material and primitive lists
 `textureCount > 0`, one `gltf::Material`, both pushed in the same
 batch-iteration order) — not a new rule invented for `canon::Model`.
 
+### `husk::writers::writer_common` — shared bind-translation/curve-composition math for both planned leaf writers (designed + landed 2026-09-07)
+
+**Status.** Landed. Both planned leaf writers on top of `canon::Model` (a
+from-scratch native bundle format and a lean/spec-compliant glTF exporter,
+neither built yet) independently need the same two pieces of math that
+didn't exist as reusable functions anywhere: turning `canon::Joint`'s
+absolute bind-pose position into a parent-relative offset, and turning
+`canon::BoneAnimationCurves`' raw delta-from-bind-pose keyframes into final
+local-transform values. New `src/writers/writer_common.hpp`/`.cpp`:
+`writers::localBindTranslation` and `writers::composeJointCurves`. Proven
+via new `tests/test_writers_common.cpp` — synthetic joint chains with
+by-hand-computed expected offsets, a synthetic `AnimationClip` with known
+deltas, the `nullopt`-passthrough case, and a real-fixture convergence case
+(`bloodelffemale.m2`/`.skin`) checked against independently-recomputed
+`localBindTranslation(...) + rawDelta`, never against the OLD glTF
+pipeline's own output. 930/930 tests passing, 12803 assertions (baseline
+before this pass: 922/922, 12751) — 8 new cases, 52 new assertions, 0
+regressions.
+
+**Namespace: `husk::writers`, files still flat under `src/writers/`.**
+REFACTOR/README.md's Migration order names `src/writers/` as stage 4's
+target directory but states plainly that "`src/formats/`, `src/canon/`, and
+`src/writers/`... do not exist yet — nothing has moved past the catalog"
+(stage 2). `husk::canon` already set the precedent for this exact gap: its
+namespace matches the target directory name (`src/canon/`) while its files
+still live flat as `canon_*.cpp` under `src/`. This module follows that same
+precedent rather than inventing a different one — except it's also the
+first file to actually claim its own subdirectory (`src/writers/`, not
+`src/writer_common.cpp`), since there's no flat-file convention yet to stay
+consistent with here and Luna's own brief asked for the directory
+explicitly. No CMake changes were needed beyond adding the two new explicit
+source-list entries (`src/writers/writer_common.cpp` in `add_library`,
+`tests/test_writers_common.cpp` in the test executable) — this project's
+`CMakeLists.txt` lists every source file explicitly, no globbing, so a
+subdirectory path is just another string in the same list.
+
+**Stays entirely in raw M2 space (I1).** No axis conversion, no glTF-shaped
+local-translation convenience baked in — `canon::Skeleton`/`canon::
+AnimationClip` already carry no such thing, and this module doesn't add it
+either. Each writer converts axes and encodes the result its own way
+afterward; this is genuinely shared, writer-agnostic arithmetic, not a
+glTF-specific helper wearing a neutral name.
+
+**`localBindTranslation(skeleton, jointIndex)`**: for a root joint
+(`parent == -1`), returns `globalPosition` unchanged; otherwise, returns the
+joint's `globalPosition` minus its parent's, component-wise — the exact
+value `commands::buildJointAnimation`'s own bind-translation source
+(`gltf::Skeleton::Joint::localTranslation`, built earlier in
+`export_skeleton.cpp`'s pipeline) already represents, just derived here from
+`canon::Skeleton`'s absolute-position representation instead of assuming a
+parent-relative field exists on the type.
+
+**Re-validates bounds despite `assembleSkeleton`'s own acyclic/in-range
+guarantee.** Checked `canon_skeleton_builder.cpp` directly: `assembleSkeleton`
+does validate every parent index and reject cycles before returning. But
+that guarantee belongs to the *builder*, not the `canon::Skeleton` type
+itself — it's a plain struct, and this module's own tests build one by hand
+without going through `assembleSkeleton` at all (the same thing a future
+writer's own unit tests, or a bundle reader reconstructing a `Skeleton` from
+disk, might do). `localBindTranslation` therefore re-checks `jointIndex` and
+the resolved `parent` against `skeleton.joints.size()` at its own boundary
+and throws `std::runtime_error` rather than trusting an invariant it has no
+way to see enforced — same posture every other canon/writer-tier function in
+this codebase already takes at a boundary it doesn't control.
+
+**`composeJointCurves(skeleton, clip, jointIndex)`**: returns `nullopt`
+exactly when `clip.boneCurves[jointIndex]` is `nullopt` (mirrors
+`canon::AnimationClip`'s own meaning, not a new one); otherwise composes:
+- **translation** = `localBindTranslation(...)` plus each keyframe's raw
+  delta, component-wise — M2's bind pose carries a real translation
+  (`canon::Joint`'s own doc comment: "translation is the whole bind-pose
+  fact"), so this is the one channel with real composition work to do.
+- **rotation** = the raw delta keyframes, unchanged — bind pose contributes
+  no rotation to compose against.
+- **scale** = the raw delta keyframes, unchanged — bind pose scale is
+  implicitly `(1,1,1)`; confirmed by reading `toGltfScale`
+  (`src/export_transform.cpp`: `gltf::scaleZUpToYUp({s.x,s.y,s.z})`) — a pure
+  axis swap, no non-trivial composition happening there beyond what an axis
+  conversion (out of scope here) would do anyway.
+
+**Judgment call — hemisphere continuity does NOT apply here, confirmed by
+re-reading the reasoning, not assumed.** The old pipeline
+(`buildJointAnimation`, `export_animation.cpp`) calls
+`gltf::enforceHemisphereContinuity` between consecutive rotation keyframes.
+`canon_animation_builder.hpp`'s own doc comment states why that fix exists:
+raw `M2CompQuat` keyframes are a direct linear int16 decode with no
+per-keyframe sign choice, and the game client interpolates them natively —
+so authored data is already hemisphere-continuous *in M2 space*. The
+discontinuity `enforceHemisphereContinuity` compensates for is an artifact
+of `gltf::rotationZUpToYUp`'s own specific technique (a
+`quatToMat3`→`mat3ToQuat` round-trip, whose sign "isn't normalized against
+any convention" per its own doc comment) — a property of *that* axis
+conversion, not of the underlying rotation data. Since `writer_common` never
+converts axes and stays in raw M2 space throughout, the artifact this fix
+exists to compensate for never arises here, so applying it would be
+solving a problem this module doesn't have. Each writer that does convert
+axes remains responsible for its own continuity fix afterward, same as
+`export_animation.cpp` already is today for glTF specifically. No
+counter-case turned up while re-deriving this; flagged here anyway since
+it's the one place a subtle real bug could hide silently.
+
 ### Shading-function descriptions: a scaffold, not a one-shot transcription
 
 The eventual goal — a material's manifest should be reconstructable by a
