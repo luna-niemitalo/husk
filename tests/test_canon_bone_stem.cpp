@@ -27,16 +27,18 @@ std::string shapeOf(const std::string& stem) {
 
 }  // namespace
 
-TEST_CASE("boneStemAlphabet: excludes i/l/o, includes digits, size 33") {
+TEST_CASE("boneStemAlphabet: excludes i/l/o/z, includes digits, size 32") {
     const std::string& a = boneStemAlphabet();
     CHECK(a.size() == kBoneStemAlphabetSize);
-    // 26 letters - {i, l, o} + 10 digits = 33.
-    CHECK(a.size() == 33);
+    // 26 letters - {i, l, o, z} + 10 digits = 32.
+    CHECK(a.size() == 32);
     CHECK(a.find('i') == std::string::npos);
     CHECK(a.find('l') == std::string::npos);
     CHECK(a.find('o') == std::string::npos);
+    CHECK(a.find('z') == std::string::npos);
     CHECK(a.find('0') != std::string::npos);
     CHECK(a.find('1') != std::string::npos);
+    CHECK(a.find('2') != std::string::npos);
     for (char c : a) {
         bool isLetter = c >= 'a' && c <= 'z';
         bool isDigit = c >= '0' && c <= '9';

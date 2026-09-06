@@ -10,12 +10,20 @@
 // file only produces the deterministic 3-character stem sequence.
 namespace husk::canon {
 
-// Crockford Base32's alphabet drops i/l/o (each reads as a digit: i/l as
-// 1, o as 0) for the same reason -- this scheme reuses that precedent
-// rather than re-deriving it. 26 letters - {i,l,o} + 10 digits = 33.
-inline constexpr size_t kBoneStemAlphabetSize = 33;
+// A Bell Labs symbol-misidentification study (cited via the DTIC
+// legibility report AD0647371 and summarized in Pharmacy Times'
+// "Misidentification of Alphanumeric Symbols in Electronic
+// Communications") found l/1, O/0, Z/2, and 1/7 account for over half of
+// all alphanumeric misreadings. Digits stay canonical (this scheme never
+// excludes a digit), so a letter that reads as one of them is dropped
+// instead: i/l (as 1), o (as 0), z (as 2). 1/7 is digit-vs-digit and
+// stays an unaddressed residual risk -- excluding a digit would break
+// "digits are canonical" for no net legibility gain, since 7 would still
+// need excluding too and the pair would just recur one level down.
+// 26 letters - {i,l,o,z} + 10 digits = 32.
+inline constexpr size_t kBoneStemAlphabetSize = 32;
 
-// One string, ascending: a-z (i/l/o skipped) then 0-9. Arbitrary but
+// One string, ascending: a-z (i/l/o/z skipped) then 0-9. Arbitrary but
 // fixed -- nthStem's ordering only needs *a* total order over the
 // alphabet, not this particular one, so any other fixed order would be
 // equally correct; this one just reads as "the alphabet, then digits".

@@ -2550,10 +2550,18 @@ skeleton, **template shape is varied before the filler character within
 one template** — `a1a`/`1aa`/`aa1` (same characters, different shape)
 read as clearly distinct on sight; `aa1`/`aa2`/`aaq` (same shape,
 different filler) are the genuinely confusable family, since they differ
-in only one position. Visually-confusable characters (`0`/`O`, `1`/`l`/
-`I`) are filtered as a separate legibility pass, unrelated to the
-memorability scoring. Stems are assigned to newly-discovered chains in
-parse order, so the same model always produces the same labels.
+in only one position. Visually-confusable characters are filtered as a
+separate legibility pass, unrelated to the memorability scoring: a Bell
+Labs symbol-misidentification study (cited via DTIC report AD0647371 and
+Pharmacy Times' "Misidentification of Alphanumeric Symbols in Electronic
+Communications") found `l`/`1`, `O`/`0`, `Z`/`2`, and `1`/`7` account for
+over half of all alphanumeric misreadings; digits stay canonical (never
+excluded), so the letter half of each digit-confusable pair is dropped
+instead (`i`/`l`, `o`, `z`). `1`/`7` is digit-vs-digit and stays an
+unaddressed residual risk — excluding a digit to fix it would just
+recreate the same problem one level down. Stems are assigned to
+newly-discovered chains in parse order, so the same model always
+produces the same labels.
 
 The template-ordering rule itself (vary shape before filler) is a
 reasoned synthesis of Luna's correction and general chunking theory, not

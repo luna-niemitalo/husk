@@ -12,7 +12,7 @@ namespace {
 std::string buildAlphabet() {
     std::string s;
     for (char c = 'a'; c <= 'z'; ++c) {
-        if (c == 'i' || c == 'l' || c == 'o') continue;
+        if (c == 'i' || c == 'l' || c == 'o' || c == 'z') continue;
         s.push_back(c);
     }
     for (char c = '0'; c <= '9'; ++c) s.push_back(c);
