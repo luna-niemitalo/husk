@@ -2479,3 +2479,85 @@ already-exported real fixture (the HD character exports, the corpus
 render samples, ...) unreadable by a freshly updated script for no
 functional reason (the underlying data is still perfectly readable; only
 the version marker is absent or behind).
+
+### `canon::` bone naming — three independent tiers, chunk-based structural stems (designed 2026-09-06, not yet implemented)
+
+Today's fallback for a bone with no real `keyBoneName` hit is `"bone_<index>"`
+(`gltf_skeleton.cpp:136`) — positionally unique, but an opaque list with no
+structure a human can read at a glance. `canon::` replaces this with a
+naming scheme designed from how strings are actually remembered, not just
+a rename.
+
+**Three tiers, all stored, none discarded, preference in this order:**
+
+1. **Hand-authored** — a real `m2::keyBoneName(Bone::keyBoneId)` hit
+   (`NameSource::M2Embedded`). Unchanged.
+2. **Consistent** — a structural label computed for *every* bone
+   (named or not), deterministic for a given model's own bone order.
+3. **Guaranteed-unique identity** — `Ref::id` as `RecordIndex{boneIndex}`,
+   already collision-free within one model; a real UUID is available later
+   if positional index ever stops being stable enough.
+
+`canon::Ref` keeps its existing shape (one identity, one preferred
+name/source — hand-authored beats synthesized, same priority it already
+has). `canon::Joint` additionally carries the consistent label in its own
+field, unconditionally, so it survives even when a hand-authored name
+wins the `ref` slot — the two are genuinely different facts (one is
+Blizzard's own data, the other is husk's own deterministic derivation)
+and collapsing them into one slot would lose one every time the other is
+present. A consumer picks the tier that fits: the raw index for internal
+joins, the consistent label for deterministic tooling/debugging, `ref`'s
+preferred name for end-user-facing display.
+
+**Format**: `<stem>_<side>_<index>.<subindex>`, e.g. a left leg's main
+chain: `a1a_L_0.0 -> a1a_L_1.0 -> a1a_L_2.0`. `index` walks position along
+a chain; `subindex` is a separate counter (not a fraction — `1.32` is
+position 1's 32nd auxiliary slot, not "1.32") for short branches (≤2
+bones) hanging off one chain position, e.g. an equipment-attachment bone
+on only one leg: `a1a_L_1.1`. A branch longer than 2 bones is promoted to
+its own chain instead of staying folded into `subindex`, nested under its
+parent's position: `a1a_L_3_sub_qwq_0 -> a1a_L_3_sub_qwq_1`; a second
+long branch at the same position gets its own stem, not a second
+`_sub_qwq`: `a1a_L_3_sub_owo_0`. The rule nests recursively for a
+sub-chain that itself branches again. A mirrored limb's sub-chains reuse
+the same child stem as their opposite-side counterpart (only the `_L`/
+`_R` marker differs, already carried by the parent position) rather than
+allocating a second stem for what is structurally the same substructure.
+
+**Symmetry**: geometric — two bones whose bind-pose pivots mirror across
+the model's sagittal plane, with structurally mirrored parent chains too
+(not position alone), are an `_L`/`_R` pair. Chosen over a names-only
+check (only classifying bones `keyBoneName` already covers, i.e. none of
+the ones this scheme exists to label) or a hybrid — geometry works
+regardless of naming and needs no exception list.
+
+**Stem ranking is chunking theory, not the "avoid repeated characters"
+instinct a plain edit-distance/entropy heuristic would produce.**
+Cognitive chunking research (Miller's magical-number-seven work and later
+chunking/compression studies) shows a repeated or patterned sequence
+collapses into fewer memory chunks than an arbitrary one — "0001" is one
+run-of-three plus a digit, "a1b" is three unrelated symbols. A first pass
+of this design scored candidates by literal repeat-avoidance (the
+opposite direction) before Luna corrected it against real research.
+
+The repeat doesn't need to be contiguous to collapse: `a1a`/`aqa` both
+read as "common bookend character, one distinct middle character" — two
+chunks — the same cost as a contiguous `aa1`. Candidates are scored by
+**position template** (the shape of repeat-vs-distinct positions: `XXX`
+best, then `XYX`/`XXY`/`YXX`, worst `XYZ`/all-distinct), not raw
+repeat-counting. When assigning stems across multiple chains in one
+skeleton, **template shape is varied before the filler character within
+one template** — `a1a`/`1aa`/`aa1` (same characters, different shape)
+read as clearly distinct on sight; `aa1`/`aa2`/`aaq` (same shape,
+different filler) are the genuinely confusable family, since they differ
+in only one position. Visually-confusable characters (`0`/`O`, `1`/`l`/
+`I`) are filtered as a separate legibility pass, unrelated to the
+memorability scoring. Stems are assigned to newly-discovered chains in
+parse order, so the same model always produces the same labels.
+
+The template-ordering rule itself (vary shape before filler) is a
+reasoned synthesis of Luna's correction and general chunking theory, not
+a result lifted from a specific paper — general chunking/compression
+research supports the *shape* of the argument, not this exact ranking
+rule at this level of detail. Recorded here as a design decision made
+with that distinction explicit, not overclaimed as directly sourced.
