@@ -2837,7 +2837,7 @@ real "no name" shapes this assembler hits (a swatch-only choice, `Name_lang
 == "0"`; an unresolved or dangling `ChrCustomizationCategoryID`) without
 needing a new tier.
 
-### `canon::` selection design (types designed alongside `canon_material`; `CreatureSelection` assembly landed 2026-09-07)
+### `canon::` selection design (types designed alongside `canon_material`; `CreatureSelection`/`CharacterSelection` assembly landed 2026-09-07)
 
 **Status.** `canon::CharacterSelection`/`CreatureSelection` (`src/canon_selection.hpp`),
 CANONICAL_MODEL.md's Selection layer (I5) — "what did this instance choose,"
@@ -2866,10 +2866,30 @@ facts derived independently from `creaturegeoset::Data` using
 above), so this convergence test is synthetic-`Data`-only — same fallback
 every other convergence test here takes when its real fixture is absent.
 
-`canon::assembleCharacterSelection` (the `CharacterSelection` half — folding
-in `--customization-choice-ids`/`--chr-model-id`'s real chosen-choice list
-and the equipped-gear chain, `itemappearance_db2.hpp`) is not built yet;
-out of this pass's scope.
+`canon::assembleCharacterSelection` (`src/canon_selection_builder.hpp`/`.cpp`)
+now assembles the `CharacterSelection` half — a `chrModelId`, a chosen
+`ChrCustomizationChoiceID` list, and the `std::vector<canon::Item>`
+`canon::assembleEquippedItems` (below) already produces. Deliberately thin,
+matching this layer's own "purely shape, don't re-derive" convention: it
+wraps each raw choice id as `Ref{Db2Row{"ChrCustomizationChoice", id}}` with
+no name (`NameSource::None` — no name data exists at this layer, same
+situation `canon_item_builder.cpp` already hit for item identities) and no
+sort, confirmed against `export_extras.cpp`'s own `attachCustomizationChoices`
+— it uses its parsed `--customization-choice-ids` list exactly as given, no
+filtering/dedup/sort of its own to mirror. Each `canon::Item` reduces to one
+`CharacterSelection::EquippedItem{identity, slots}`, dropping
+`Item::components` outright — Resources-layer data `EquippedItem` was
+already documented as not carrying (its own doc comment in
+`canon_selection.hpp`); a consumer re-joins `identity` against the real
+`canon::Item`/`canon::Definition` for that. Order preserved in both lists —
+no sort key exists at this call site the way `canon::Definition`'s
+`OrderIndex` did.
+
+Proven via new cases in `tests/test_canon_selection_convergence.cpp`: a
+realistic composition built from `assembleEquippedItems`'s own output
+(not re-derived DB2 data — this function has none of its own to converge
+against), empty-input cases, a components-dropped check, and an
+input-order-preservation check for both lists.
 
 ### `canon::` item design (types designed alongside I7; `assembleEquippedItems` landed 2026-09-07)
 

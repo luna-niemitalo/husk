@@ -22,4 +22,20 @@ namespace husk::canon {
 
 CreatureSelection assembleCreatureSelection(const creaturegeoset::Data& data, uint32_t creatureDisplayId);
 
+// Assembly of one canon::CharacterSelection from the pieces its own two
+// real inputs already resolve elsewhere -- the adjacent twin of
+// export_extras.cpp's own attachCustomizationChoices (chosenChoiceIds) and
+// canon::assembleEquippedItems (equippedItems), composed here rather than
+// re-deriving either.
+//
+// Deliberately thin: attachCustomizationChoices uses its own parsed
+// --customization-choice-ids list as-is, with no filtering/dedup/sort
+// before attaching it, so this function does the same for chosenChoices.
+// equippedItems is reduced from canon::Item to CharacterSelection::
+// EquippedItem by dropping Item::components -- Resources-layer data a
+// consumer re-joins against the real canon::Item list, not Selection's job
+// to carry twice (see CharacterSelection::EquippedItem's own doc comment).
+CharacterSelection assembleCharacterSelection(uint32_t chrModelId, const std::vector<uint32_t>& chosenChoiceIds,
+                                               const std::vector<Item>& equippedItems);
+
 }  // namespace husk::canon
