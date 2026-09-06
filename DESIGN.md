@@ -2796,6 +2796,47 @@ manifest.json` instead of only living inline inside a model's bundle.
 Not a new mechanism, an application of an already-settled one at finer
 granularity (see that file for the concrete shape).
 
+### `canon::` definition design (types designed alongside `canon_material`; assembly landed 2026-09-07)
+
+**Status.** `canon::Definition`/`Option`/`Choice`/`Category`
+(`src/canon_definition.hpp`) are CANONICAL_MODEL.md's Definition layer
+(I5) — "what exists and what is valid," scoped to one real `ChrModelID` —
+already implemented as pure value types before this pass. `canon::assembleDefinition`
+(`src/canon_definition_builder.hpp`/`.cpp`) now assembles a `canon::Definition`
+from `chrcustomization::Data` (`chrcustomization_db2.hpp`), reusing
+`chrcustomization::namedChoicesForModel` directly for the real DB2 join
+(Option -> Category, Option -> its Choices, Choice -> its resolved geoset)
+rather than re-deriving that traversal — this builder's own job is purely
+grouping that flat per-`(option, choice)` list into `Definition`'s nested
+shape. Proven via `tests/test_canon_definition_convergence.cpp`, including
+one real-data case against `test_data/db2/chrcustomization{option,choice,
+category}.db2` plus `reference/WoWDBDefs` (skipped when either is absent),
+checked against facts derived independently from the same `chrcustomization::Data`
+struct, not from `namedChoicesForModel`'s own output — same discipline
+`test_canon_material_convergence.cpp` established.
+
+One intentional, documented divergence from the real production consumer
+(`export_extras.cpp`'s own `customizationOptions`-building loop): that code
+preserves whatever order `namedChoicesForModel` happens to yield (`Data::options`'
+own table load order — not a display order) because it's building inert
+glTF extras where order isn't semantically load-bearing. `canon::Definition`'s
+own doc comment states no such exemption, so `assembleDefinition` sorts
+`Definition::options` by real `optionOrderIndex` (ties broken by `optionId`)
+and each `Option::choices` by real `choiceOrderIndex` (ties broken by
+`choiceId`) — deterministic, and matching the real character-creation UI's
+own display order, the same convention `chrcustomization::defaultChoiceIdsForModel`'s
+own doc comment already states for a related concern.
+
+Deliberately excluded, per `canon_definition.hpp`'s own doc comments (not
+silently added back): `Material`/`fileDataId`/`boneSetId` and every other
+"what realizes this choice if picked" fact — that's Resources-layer, not
+Definition, and I5 names exactly this kind of blending as the problem to
+not reproduce. No gap in the existing `canon_definition.hpp` types was
+found while building this — `Ref`'s `NameSource::None` already covers both
+real "no name" shapes this assembler hits (a swatch-only choice, `Name_lang
+== "0"`; an unresolved or dangling `ChrCustomizationCategoryID`) without
+needing a new tier.
+
 ### Shading-function descriptions: a scaffold, not a one-shot transcription
 
 The eventual goal — a material's manifest should be reconstructable by a

@@ -94,6 +94,7 @@ add_library(husk-lib STATIC
   src/canon_animation_builder.cpp
   src/canon_mesh_builder.cpp
   src/canon_material_builder.cpp
+  src/canon_definition_builder.cpp
   src/skin.cpp
   src/skel.cpp
   src/bone.cpp
@@ -182,6 +183,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_canon_mesh_convergence.cpp
     tests/test_canon_material_convergence.cpp
     tests/test_canon_definition.cpp
+    tests/test_canon_definition_convergence.cpp
     tests/test_canon_selection.cpp
     tests/test_canon_material.cpp
     tests/test_skin.cpp
