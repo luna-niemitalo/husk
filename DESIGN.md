@@ -2945,6 +2945,125 @@ Migrating `export_extras.cpp`'s own `attachGearAppearance` onto
 convergent implementations) is separate, later work — this pass only
 proves the new path, it doesn't yet replace the old one.
 
+### `canon::Mesh`/`canon::Model` — per-vertex geometry and the whole-model composition root (designed + landed 2026-09-07)
+
+**Status.** New this pass, per Luna's explicit direction: the next step
+toward two planned leaf writers (a lean glTF exporter and a from-scratch
+binary bundle format, both future work, not built here) is proving they can
+both be fed from ONE composed `canon::Model` — which didn't exist yet, and
+couldn't, since no `canon::` type carried real per-vertex geometry/skinning
+at all (`canon::PrimitiveGeoset`, landed earlier, only maps geosets to
+triangle-index ranges). This pass adds both missing pieces:
+`canon::Mesh`/`canon::assembleMesh` (`src/canon_mesh_builder.hpp`/`.cpp`,
+alongside the existing `PrimitiveGeoset`) and `canon::Model`/
+`canon::assembleModel` (new `src/canon_model.hpp`/`.cpp`). Proven via
+`tests/test_canon_mesh_convergence.cpp` (new `assembleMesh` cases) and new
+`tests/test_canon_model.cpp`, against the real `bloodelffemale.m2`/`.skin`
+fixture plus synthetic corruption/edge cases, same "derive expected facts
+independently, never by calling the function under test" discipline every
+earlier canon convergence test already established. 922/922 tests passing,
+12751 assertions (baseline before this pass: 914/914, 12430 assertions) —
+8 new test cases, 321 new assertions, 0 regressions.
+
+**`canon::Mesh`** mirrors `gltf::Mesh`'s own shape (`gltf_mesh.hpp`) as
+closely as I1 (no glTF-shaped convenience baked into canon) allows: one flat,
+model-wide `positions`/`normals`/`uv0`/`skinning` array (every real M2
+global vertex, not a per-primitive-local list), with `indices`/`primitives`
+slicing into that same shared space — `primitives` is exactly
+`assemblePrimitiveGeosets`'s already-proven output, reused directly, not
+re-derived. Values are raw, untransformed M2 space: literally `v.pos`,
+`v.normal`, `v.texCoords[0]`/`[1]` — no Z-up-to-Y-up conversion, matching
+every other canon builder's stated policy (`canon_animation_builder.hpp`'s
+own doc comment states the same for bone curves) that axis conversion is a
+*writer's* job, not a fact about the source data.
+
+`assembleMesh`'s skinning mirrors `commands::buildSkinning`
+(`export_skeleton.cpp`) exactly — same per-vertex bone-index bounds check
+(`std::runtime_error`, same message shape), same `uint8_t -> float`
+`/255.0f` weight normalization — with one deliberate, documented divergence:
+`buildSkinning` runs unconditionally whenever the model has *any* bones
+(`cmd_export.cpp` gates the call on `!bones.empty()`, not on the vertex
+data itself), while `assembleMesh` instead scans every vertex's
+`boneWeights` first and leaves `Mesh::skinning` empty when every one is
+zero — a genuinely unskinned/static model has no M2-level header flag to
+check instead (confirmed by reading `m2_header.hpp`/`m2::Model` in full: no
+such bit exists), so a cheap all-zero scan is the only way to tell "no real
+skinning data" apart from "boneCount happens to be nonzero for other
+reasons" without inventing new vocabulary M2 doesn't assert.
+
+**Judgment call — `uv1` presence.** The task brief proposed
+`std::optional<std::vector<Vec2>>` on the assumption a real M2 flag marks
+"this model uses a second UV set." Investigated first, not assumed:
+wowdev.wiki's own `M2.md` (`tex_coords[2]`) says usage is "depending on
+shader used" — a per-batch/per-shader fact, not a header-level one — and
+the real production pipeline (`cmd_export.cpp`'s `buildBaseMesh`) already
+populates `texCoords2` unconditionally for every model regardless of actual
+use, so there is no existing signal to mirror. Rather than invent a new
+per-model flag M2 doesn't have, or copy production's own "fabricate it
+regardless" behavior into canon, this applies the exact technique the task
+brief specifies for the skinning case above: `uv1` is absent (`nullopt`)
+exactly when every vertex's `texCoords[1]` is the literal origin —
+indistinguishable from "never written" — and present (real per-vertex
+values) the moment any vertex's second UV coordinate is genuinely non-zero.
+Flagged for review: this is a real, new canon-level policy, not a mirrored
+production fact, since production has no equivalent absence case at all.
+
+**`canon::Model`** is the composition root: one `Skeleton`, one `Mesh`, one
+`Material` per surviving batch, one `AnimationClip` per real inline
+`M2Sequence`. Purely wiring — every fact it exposes was already derived by
+`assembleSkeleton`/`assembleMesh`/`assembleMaterial`/`assembleBoneAnimation`,
+each independently convergence-proven before this pass; `assembleModel`
+decides only how many times and with what arguments to call each.
+
+**Judgment call — "real inline sequence."** `assembleBoneAnimation`'s own
+scope is already inline-sequence-only; `assembleModel` needed the same
+filter applied at the whole-model level to decide which sequences get an
+`AnimationClip` at all. The real production filter
+(`buildAnimations`/`export_animation.cpp`) checks `M2Sequence::flags &
+kSequenceStoredInlineFlag` (`0x20`) — a constant private to that file's
+anonymous namespace, so `canon_model.cpp` reimplements the same bit test
+directly rather than exporting it. A pure-alias sequence (`flags &
+kSequenceAliasFlag`, `0x40`, without the inline bit) is excluded from
+`Model::animations` entirely, not resolved via its alias target —
+`assembleBoneAnimation`'s own doc comment already states alias resolution
+is separate, later work, so this mirrors that same boundary at the
+whole-model level rather than quietly reaching past it.
+
+**Judgment call — per-sequence material resolution, and a real
+representational gap this surfaced.** `assembleMaterial` takes a fixed
+`sequenceIndex` (an earlier design choice, already documented in
+`canon_material_builder.hpp` as "a real, intentional divergence from
+`export_materials.cpp`": that function resolves *every* sequence's animated
+tint/fade/UV-transform curves into ONE flat list living inside a single
+`gltf::Material`, while `canon::MaterialLayer` holds exactly one
+`canon::Curve` per property — a single sequence's worth, not a list).
+Checked production's real behavior before deciding how `assembleModel`
+should call it: since production's own answer (one material, every
+sequence's curves) doesn't fit `canon::Material`'s already-landed
+single-sequence shape at all, neither "call it once per sequence" nor "a
+fixed index" is a full mirror either way. Given that constraint,
+`assembleModel` calls `assembleMaterial` ONCE per surviving batch (mirroring
+`assemblePrimitiveGeosets`'s own zero-`indexCount` skip, so
+`Model::materials[i]` stays index-aligned with `Model::mesh.primitives[i]`
+by construction), using a single fixed `sequenceIndex` — the model's first
+real inline sequence, or `0` when it has none. **Consequence, flagged for
+review, not silently accepted**: a multi-sequence model's `Model::materials`
+only reflects ONE sequence's worth of animated material curves; the other
+sequences' tint/fade/UV-transform animation isn't represented anywhere in
+`Model` today. Closing this for real needs either a per-sequence curve LIST
+on `canon::MaterialLayer` (the same gap `canon_material_builder.hpp`'s own
+doc comment already names) or a deliberate multi-material-per-primitive
+shape change — neither attempted here, since no writer needs it yet and
+reshaping `canon_material.hpp` isn't this pass's job.
+
+**Batch-to-primitive-to-material correspondence.** `Model::materials[i]`
+describes `Model::mesh.primitives[i]` — stated explicitly as mirroring the
+SAME correspondence `buildMaterialsAndPrimitives` (`export_materials.cpp`)
+already establishes between its own per-batch material and primitive lists
+(one real `M2Batch` produces one `gltf::Primitive` and, when
+`textureCount > 0`, one `gltf::Material`, both pushed in the same
+batch-iteration order) — not a new rule invented for `canon::Model`.
+
 ### Shading-function descriptions: a scaffold, not a one-shot transcription
 
 The eventual goal — a material's manifest should be reconstructable by a

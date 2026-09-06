@@ -15,6 +15,7 @@
 #include <stdexcept>
 
 #include "canon_mesh_builder.hpp"
+#include "m2.hpp"
 #include "skin.hpp"
 #include "test_data_paths.hpp"
 
@@ -162,4 +163,134 @@ TEST_CASE("canon::assemblePrimitiveGeosets skips a zero-indexCount submesh, prod
     CHECK(std::get<canon::RecordIndex>(result[0].geoset.ref.id).value == 100);
     CHECK(result[0].geoset.group == 1);
     CHECK(result[0].geoset.variant == 0);
+}
+
+// ---------------------------------------------------------------------
+// canon::assembleMesh
+// ---------------------------------------------------------------------
+
+TEST_CASE("canon::assembleMesh converges with the real M2 vertex data + buildSkinning-equivalent "
+          "skinning, on a real fixture" *
+          doctest::skip(test::testM2().empty() || test::testSkin().empty())) {
+    m2::Model model = m2::loadModel(readFile(test::testM2()));
+    std::vector<uint8_t> skinFile = readFile(test::testSkin());
+    skin::Header header = skin::parseHeader(skinFile);
+    std::vector<skin::Submesh> submeshes = skin::parseSubmeshes(skinFile, header.submeshes);
+    std::vector<skin::Batch> batches = skin::parseBatches(skinFile, header.batches);
+    std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinFile, header);
+
+    REQUIRE(!model.vertices.empty());
+    REQUIRE(!model.bones.empty());
+
+    canon::Mesh mesh =
+        canon::assembleMesh(model.vertices, model.bones.size(), batches, submeshes, triangleIndices);
+
+    REQUIRE(mesh.positions.size() == model.vertices.size());
+    REQUIRE(mesh.normals.size() == model.vertices.size());
+    REQUIRE(mesh.uv0.size() == model.vertices.size());
+
+    // Spot-check a handful of vertices -- raw M2 fields, no transform.
+    std::vector<size_t> spotChecks = {0, model.vertices.size() / 3, model.vertices.size() / 2,
+                                       model.vertices.size() - 1};
+    for (size_t vi : spotChecks) {
+        INFO("vertex index ", vi);
+        const auto& v = model.vertices[vi];
+        CHECK(mesh.positions[vi].x == v.pos.x);
+        CHECK(mesh.positions[vi].y == v.pos.y);
+        CHECK(mesh.positions[vi].z == v.pos.z);
+        CHECK(mesh.normals[vi].x == v.normal.x);
+        CHECK(mesh.normals[vi].y == v.normal.y);
+        CHECK(mesh.normals[vi].z == v.normal.z);
+        CHECK(mesh.uv0[vi].x == v.texCoords[0].x);
+        CHECK(mesh.uv0[vi].y == v.texCoords[0].y);
+    }
+
+    // Independently re-derive expected skinning -- same bounds-check/
+    // normalization as buildSkinning (export_skeleton.cpp), computed here
+    // rather than by calling canon::assembleMesh's own output back at itself.
+    bool expectSkinned = false;
+    for (const auto& v : model.vertices) {
+        for (int j = 0; j < 4; ++j) {
+            if (v.boneWeights[j] != 0) expectSkinned = true;
+        }
+    }
+    if (expectSkinned) {
+        REQUIRE(mesh.skinning.size() == model.vertices.size());
+        for (size_t vi : spotChecks) {
+            INFO("vertex index ", vi);
+            const auto& v = model.vertices[vi];
+            for (int j = 0; j < 4; ++j) {
+                REQUIRE(static_cast<size_t>(v.boneIndices[j]) < model.bones.size());
+                CHECK(mesh.skinning[vi].joints[static_cast<size_t>(j)] == v.boneIndices[j]);
+                CHECK(mesh.skinning[vi].weights[static_cast<size_t>(j)] ==
+                      doctest::Approx(static_cast<float>(v.boneWeights[j]) / 255.0f));
+            }
+        }
+    } else {
+        CHECK(mesh.skinning.empty());
+    }
+
+    // primitives/indices: already-proven output of assemblePrimitiveGeosets,
+    // reused as a known-good fact rather than re-derived from scratch.
+    std::vector<canon::PrimitiveGeoset> expectedPrimitives =
+        canon::assemblePrimitiveGeosets(batches, submeshes, triangleIndices.size());
+    REQUIRE(mesh.primitives.size() == expectedPrimitives.size());
+    for (size_t i = 0; i < expectedPrimitives.size(); ++i) {
+        CHECK(mesh.primitives[i].indexStart == expectedPrimitives[i].indexStart);
+        CHECK(mesh.primitives[i].indexCount == expectedPrimitives[i].indexCount);
+        CHECK(std::get<canon::RecordIndex>(mesh.primitives[i].geoset.ref.id).value ==
+              std::get<canon::RecordIndex>(expectedPrimitives[i].geoset.ref.id).value);
+    }
+    CHECK(mesh.indices == triangleIndices);
+}
+
+TEST_CASE("canon::assembleMesh throws on an out-of-range bone index, same as buildSkinning") {
+    std::vector<m2::Vertex> vertices(1);
+    vertices[0].boneWeights[0] = 255;  // genuinely skinned -- the check must actually run
+    vertices[0].boneIndices[0] = 5;    // out of range for 2 bones
+
+    std::vector<skin::Submesh> submeshes;
+    std::vector<skin::Batch> batches;
+
+    CHECK_THROWS_AS(canon::assembleMesh(vertices, /*boneCount=*/2, batches, submeshes, {}),
+                    std::runtime_error);
+}
+
+TEST_CASE("canon::assembleMesh leaves skinning empty for an all-zero-weight (unskinned) model, "
+          "rather than filling it with meaningless zero entries") {
+    std::vector<m2::Vertex> vertices(3);  // every boneWeights/boneIndices default to 0
+
+    std::vector<skin::Submesh> submeshes;
+    std::vector<skin::Batch> batches;
+
+    canon::Mesh mesh = canon::assembleMesh(vertices, /*boneCount=*/0, batches, submeshes, {});
+    CHECK(mesh.skinning.empty());
+}
+
+TEST_CASE("canon::assembleMesh leaves uv1 absent when every vertex's second UV coordinate is the "
+          "origin") {
+    std::vector<m2::Vertex> vertices(2);  // texCoords[1] defaults to {0, 0}
+
+    std::vector<skin::Submesh> submeshes;
+    std::vector<skin::Batch> batches;
+
+    canon::Mesh mesh = canon::assembleMesh(vertices, /*boneCount=*/0, batches, submeshes, {});
+    CHECK_FALSE(mesh.uv1.has_value());
+}
+
+TEST_CASE("canon::assembleMesh populates uv1 when at least one vertex's second UV coordinate is "
+          "genuinely non-origin") {
+    std::vector<m2::Vertex> vertices(2);
+    vertices[1].texCoords[1] = {0.25f, 0.75f};
+
+    std::vector<skin::Submesh> submeshes;
+    std::vector<skin::Batch> batches;
+
+    canon::Mesh mesh = canon::assembleMesh(vertices, /*boneCount=*/0, batches, submeshes, {});
+    REQUIRE(mesh.uv1.has_value());
+    REQUIRE(mesh.uv1->size() == 2);
+    CHECK((*mesh.uv1)[0].x == 0.0f);
+    CHECK((*mesh.uv1)[0].y == 0.0f);
+    CHECK((*mesh.uv1)[1].x == 0.25f);
+    CHECK((*mesh.uv1)[1].y == 0.75f);
 }
