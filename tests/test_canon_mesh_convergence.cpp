@@ -11,6 +11,7 @@
 
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <set>
 #include <stdexcept>
 
@@ -62,9 +63,23 @@ TEST_CASE("canon::assemblePrimitiveGeosets converges with export_materials.cpp's
 
     CHECK(result.size() == batches.size() - expectedSkippedZeroIndexCount);
 
+    // One CHECK per kind of fact verified, not one per primitive -- a real
+    // fixture's `.skin` runs to dozens/hundreds of primitives, and
+    // asserting per-primitive-per-field multiplies this test's assertion
+    // count by that corpus size for no added coverage (every primitive is
+    // still examined; only the assertion *count* changes). Same
+    // aggregate-then-diagnose discipline test_canon_skeleton_convergence.cpp's
+    // per-joint loop already establishes. A structural precondition that
+    // would crash on `std::get` if false is guarded with `continue` instead
+    // of `REQUIRE`.
     std::set<uint16_t> actualIds;
-    for (const auto& pg : result) {
-        REQUIRE(std::holds_alternative<canon::RecordIndex>(pg.geoset.ref.id));
+    std::optional<size_t> idKindMismatch, groupVariantMismatch, indexRangeMismatch;
+    for (size_t i = 0; i < result.size(); ++i) {
+        const auto& pg = result[i];
+        if (!std::holds_alternative<canon::RecordIndex>(pg.geoset.ref.id)) {
+            if (!idKindMismatch) idKindMismatch = i;
+            continue;
+        }
         uint32_t rawId = std::get<canon::RecordIndex>(pg.geoset.ref.id).value;
         actualIds.insert(static_cast<uint16_t>(rawId));
 
@@ -75,24 +90,46 @@ TEST_CASE("canon::assemblePrimitiveGeosets converges with export_materials.cpp's
         // sensibly (no negative/nonsensical values -- unsigned types make
         // "negative" impossible by construction, so this is really just a
         // roundtrip check).
-        CHECK(pg.geoset.group * 100 + pg.geoset.variant == rawId);
+        if (pg.geoset.group * 100 + pg.geoset.variant != rawId && !groupVariantMismatch) {
+            groupVariantMismatch = i;
+        }
 
-        CHECK(pg.indexStart + pg.indexCount <= triangleIndices.size());
+        if (pg.indexStart + pg.indexCount > triangleIndices.size() && !indexRangeMismatch) {
+            indexRangeMismatch = i;
+        }
     }
+    INFO("first primitive whose geoset.ref.id isn't a RecordIndex (if any): ", idKindMismatch.value_or(-1));
+    CHECK(!idKindMismatch.has_value());
+    INFO("first primitive whose group*100+variant doesn't reconstruct the raw id (if any): ",
+         groupVariantMismatch.value_or(-1));
+    CHECK(!groupVariantMismatch.has_value());
+    INFO("first primitive whose index range runs past the triangle-index buffer (if any): ",
+         indexRangeMismatch.value_or(-1));
+    CHECK(!indexRangeMismatch.has_value());
     CHECK(actualIds == expectedIds);
 
-    // Spot-check a few real batches' index ranges directly against their
-    // resolved submesh.
+    // Spot-check every real batch's index range directly against its
+    // resolved submesh -- aggregated the same way, not one CHECK pair per
+    // batch.
+    std::optional<size_t> resultIndexOOR, indexStartMismatch, indexCountMismatch;
     size_t resultIdx = 0;
     for (size_t bi = 0; bi < batches.size(); ++bi) {
         const auto& sm = submeshes[batches[bi].skinSectionIndex];
         if (sm.indexCount == 0) continue;
-        INFO("batch index ", bi);
-        REQUIRE(resultIdx < result.size());
-        CHECK(result[resultIdx].indexStart == sm.indexStart);
-        CHECK(result[resultIdx].indexCount == sm.indexCount);
+        if (resultIdx >= result.size()) {
+            if (!resultIndexOOR) resultIndexOOR = bi;
+            break;
+        }
+        if (result[resultIdx].indexStart != sm.indexStart && !indexStartMismatch) indexStartMismatch = bi;
+        if (result[resultIdx].indexCount != sm.indexCount && !indexCountMismatch) indexCountMismatch = bi;
         ++resultIdx;
     }
+    INFO("first batch index where `result` ran out of entries (if any): ", resultIndexOOR.value_or(-1));
+    CHECK(!resultIndexOOR.has_value());
+    INFO("first batch index with a mismatched indexStart (if any): ", indexStartMismatch.value_or(-1));
+    CHECK(!indexStartMismatch.has_value());
+    INFO("first batch index with a mismatched indexCount (if any): ", indexCountMismatch.value_or(-1));
+    CHECK(!indexCountMismatch.has_value());
 }
 
 TEST_CASE("canon::assemblePrimitiveGeosets: the real fixture's zero-indexCount submeshes, if any, "
@@ -116,9 +153,12 @@ TEST_CASE("canon::assemblePrimitiveGeosets: the real fixture's zero-indexCount s
 
     std::vector<canon::PrimitiveGeoset> result =
         canon::assemblePrimitiveGeosets(batches, submeshes, triangleIndices.size());
-    for (const auto& pg : result) {
-        CHECK(pg.indexCount > 0);
+    std::optional<size_t> zeroCountMismatch;
+    for (size_t i = 0; i < result.size(); ++i) {
+        if (result[i].indexCount == 0 && !zeroCountMismatch) zeroCountMismatch = i;
     }
+    INFO("first result primitive with a zero indexCount (if any): ", zeroCountMismatch.value_or(-1));
+    CHECK(!zeroCountMismatch.has_value());
 }
 
 TEST_CASE("canon::assemblePrimitiveGeosets throws on an out-of-range skinSectionIndex, same as "
@@ -235,12 +275,29 @@ TEST_CASE("canon::assembleMesh converges with the real M2 vertex data + buildSki
     std::vector<canon::PrimitiveGeoset> expectedPrimitives =
         canon::assemblePrimitiveGeosets(batches, submeshes, triangleIndices.size());
     REQUIRE(mesh.primitives.size() == expectedPrimitives.size());
+    // Aggregated the same way as assemblePrimitiveGeosets's own convergence
+    // test above -- a real fixture's primitive count scales with the
+    // corpus, not with the number of distinct facts being verified.
+    std::optional<size_t> indexStartMismatch, indexCountMismatch, geosetIdMismatch;
     for (size_t i = 0; i < expectedPrimitives.size(); ++i) {
-        CHECK(mesh.primitives[i].indexStart == expectedPrimitives[i].indexStart);
-        CHECK(mesh.primitives[i].indexCount == expectedPrimitives[i].indexCount);
-        CHECK(std::get<canon::RecordIndex>(mesh.primitives[i].geoset.ref.id).value ==
-              std::get<canon::RecordIndex>(expectedPrimitives[i].geoset.ref.id).value);
+        if (mesh.primitives[i].indexStart != expectedPrimitives[i].indexStart && !indexStartMismatch) {
+            indexStartMismatch = i;
+        }
+        if (mesh.primitives[i].indexCount != expectedPrimitives[i].indexCount && !indexCountMismatch) {
+            indexCountMismatch = i;
+        }
+        if (std::get<canon::RecordIndex>(mesh.primitives[i].geoset.ref.id).value !=
+                std::get<canon::RecordIndex>(expectedPrimitives[i].geoset.ref.id).value &&
+            !geosetIdMismatch) {
+            geosetIdMismatch = i;
+        }
     }
+    INFO("first primitive with a mismatched indexStart (if any): ", indexStartMismatch.value_or(-1));
+    CHECK(!indexStartMismatch.has_value());
+    INFO("first primitive with a mismatched indexCount (if any): ", indexCountMismatch.value_or(-1));
+    CHECK(!indexCountMismatch.has_value());
+    INFO("first primitive with a mismatched geoset id (if any): ", geosetIdMismatch.value_or(-1));
+    CHECK(!geosetIdMismatch.has_value());
     CHECK(mesh.indices == triangleIndices);
 }
 

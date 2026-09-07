@@ -13,6 +13,7 @@
 
 #include <fstream>
 #include <iterator>
+#include <optional>
 
 #include "canon_material_builder.hpp"
 #include "m2_model.hpp"
@@ -75,41 +76,76 @@ TEST_CASE("canon::assembleMaterial converges with export_materials.cpp's per-bat
     canon::M2MaterialInputs m2in = toCanonInputs(model);
     const uint32_t sequenceIndex = 0;
 
+    // One CHECK per kind of fact verified, not one per batch -- a real
+    // fixture's `.skin` runs to hundreds of batches, and asserting
+    // per-batch-per-field multiplies this test's assertion count by that
+    // corpus size for no added coverage (every batch is still examined;
+    // only the assertion *count* changes). Same aggregate-then-diagnose
+    // discipline test_canon_skeleton_convergence.cpp's per-joint loop
+    // already establishes. A structural precondition that would crash on
+    // `std::get`/`.front()` if false is guarded with `continue` instead of
+    // `REQUIRE`, so one bad batch doesn't abort inspection of the rest.
+    std::optional<size_t> emptyLayersMismatch, materialIndexOOR, comboIndexOOR, textureIndexOOR,
+        layer0IdKindMismatch, layer0IdValueMismatch, blendOpMismatch, textureStateMismatch,
+        unresolvedReasonMismatch, uvKindMismatch, uvIndexMismatch, roleKindMismatch, roleValueMismatch,
+        diffuseAbsenceMismatch, diffusePresenceMismatch, diffuseValueMismatch, allLayersBlendMismatch,
+        allLayersStateMismatch, layerCountMismatch;
+
     for (size_t bi = 0; bi < batches.size(); ++bi) {
         const auto& b = batches[bi];
-        INFO("batch index ", bi);
 
         canon::Material result = canon::assembleMaterial(b, bi, m2in, sequenceIndex);
 
         if (b.textureCount == 0) {
-            CHECK(result.layers.empty());
+            if (!result.layers.empty() && !emptyLayersMismatch) emptyLayersMismatch = bi;
             continue;
         }
 
-        REQUIRE(b.materialIndex < model.materials.size());
+        if (b.materialIndex >= model.materials.size()) {
+            if (!materialIndexOOR) materialIndexOOR = bi;
+            continue;
+        }
         canon::BlendOp expectedOp = expectedBlendOp(model.materials[b.materialIndex].blendMode);
 
         // Independently re-derive layer 0's real texture index the same
         // way export_materials.cpp's batch loop does.
-        REQUIRE(b.textureComboIndex < m2in.textureCombos.size());
+        if (b.textureComboIndex >= m2in.textureCombos.size()) {
+            if (!comboIndexOOR) comboIndexOOR = bi;
+            continue;
+        }
         uint16_t textureIndex0 = m2in.textureCombos[b.textureComboIndex];
-        REQUIRE(textureIndex0 < m2in.textures.size());
+        if (textureIndex0 >= m2in.textures.size()) {
+            if (!textureIndexOOR) textureIndexOOR = bi;
+            continue;
+        }
 
-        REQUIRE(!result.layers.empty());
+        if (result.layers.empty()) {
+            if (!emptyLayersMismatch) emptyLayersMismatch = bi;
+            continue;
+        }
         const auto& layer0 = result.layers.front();
 
-        REQUIRE(std::holds_alternative<canon::RecordIndex>(layer0.identity.id));
-        CHECK(std::get<canon::RecordIndex>(layer0.identity.id).value == textureIndex0);
-        CHECK(layer0.blendIntoPrevious == expectedOp);
-        CHECK(layer0.texture.state == canon::TextureRef::State::KnownUnresolved);
-        CHECK_FALSE(layer0.texture.unresolvedReason.empty());
+        if (!std::holds_alternative<canon::RecordIndex>(layer0.identity.id)) {
+            if (!layer0IdKindMismatch) layer0IdKindMismatch = bi;
+        } else if (std::get<canon::RecordIndex>(layer0.identity.id).value != textureIndex0 &&
+                   !layer0IdValueMismatch) {
+            layer0IdValueMismatch = bi;
+        }
+        if (layer0.blendIntoPrevious != expectedOp && !blendOpMismatch) blendOpMismatch = bi;
+        if (layer0.texture.state != canon::TextureRef::State::KnownUnresolved && !textureStateMismatch) {
+            textureStateMismatch = bi;
+        }
+        if (layer0.texture.unresolvedReason.empty() && !unresolvedReasonMismatch) unresolvedReasonMismatch = bi;
 
         // UV: real fixture's textureCoordCombos is expected empty (pre-
         // Cataclysm-only feature, per M2MaterialInputs::textureCoordCombos'
         // own doc comment) -- every layer should be plain UV set 0.
         if (m2in.textureCoordCombos.empty()) {
-            REQUIRE(std::holds_alternative<canon::UvSetIndex>(layer0.uv));
-            CHECK(std::get<canon::UvSetIndex>(layer0.uv).index == 0);
+            if (!std::holds_alternative<canon::UvSetIndex>(layer0.uv)) {
+                if (!uvKindMismatch) uvKindMismatch = bi;
+            } else if (std::get<canon::UvSetIndex>(layer0.uv).index != 0 && !uvIndexMismatch) {
+                uvIndexMismatch = bi;
+            }
         }
 
         // Role: Diffuse when the texture's own type has no wiki name (type
@@ -117,21 +153,33 @@ TEST_CASE("canon::assembleMaterial converges with export_materials.cpp's per-bat
         // real name string.
         uint32_t textureType0 = m2in.textures[textureIndex0].type;
         if (const char* typeName = m2::textureTypeName(textureType0)) {
-            REQUIRE(std::holds_alternative<std::string>(layer0.role));
-            CHECK(std::get<std::string>(layer0.role) == typeName);
-            CHECK_FALSE(result.diffuseLayer.has_value());
+            if (!std::holds_alternative<std::string>(layer0.role)) {
+                if (!roleKindMismatch) roleKindMismatch = bi;
+            } else if (std::get<std::string>(layer0.role) != typeName && !roleValueMismatch) {
+                roleValueMismatch = bi;
+            }
+            if (result.diffuseLayer.has_value() && !diffuseAbsenceMismatch) diffuseAbsenceMismatch = bi;
         } else {
-            REQUIRE(std::holds_alternative<canon::KnownRole>(layer0.role));
-            CHECK(std::get<canon::KnownRole>(layer0.role) == canon::KnownRole::Diffuse);
-            REQUIRE(result.diffuseLayer.has_value());
-            CHECK(std::get<canon::RecordIndex>(result.diffuseLayer->id).value == textureIndex0);
+            if (!std::holds_alternative<canon::KnownRole>(layer0.role)) {
+                if (!roleKindMismatch) roleKindMismatch = bi;
+            } else if (std::get<canon::KnownRole>(layer0.role) != canon::KnownRole::Diffuse && !roleValueMismatch) {
+                roleValueMismatch = bi;
+            }
+            if (!result.diffuseLayer.has_value()) {
+                if (!diffusePresenceMismatch) diffusePresenceMismatch = bi;
+            } else if (std::get<canon::RecordIndex>(result.diffuseLayer->id).value != textureIndex0 &&
+                       !diffuseValueMismatch) {
+                diffuseValueMismatch = bi;
+            }
         }
 
         // Every layer in this batch shares the same blend op (one
         // M2Material per batch, not one per texture unit).
         for (const auto& layer : result.layers) {
-            CHECK(layer.blendIntoPrevious == expectedOp);
-            CHECK(layer.texture.state == canon::TextureRef::State::KnownUnresolved);
+            if (layer.blendIntoPrevious != expectedOp && !allLayersBlendMismatch) allLayersBlendMismatch = bi;
+            if (layer.texture.state != canon::TextureRef::State::KnownUnresolved && !allLayersStateMismatch) {
+                allLayersStateMismatch = bi;
+            }
         }
 
         // Independently reconstruct how many additional layers should have
@@ -145,8 +193,52 @@ TEST_CASE("canon::assembleMaterial converges with export_materials.cpp's per-bat
             if (layerTextureIndex >= m2in.textures.size()) continue;
             ++expectedLayerCount;
         }
-        CHECK(result.layers.size() == expectedLayerCount);
+        if (result.layers.size() != expectedLayerCount && !layerCountMismatch) layerCountMismatch = bi;
     }
+
+    INFO("first batch with a mismatched textureCount==0 layers-empty expectation (if any): ",
+         emptyLayersMismatch.value_or(-1));
+    CHECK(!emptyLayersMismatch.has_value());
+    INFO("first batch with an out-of-range materialIndex (if any): ", materialIndexOOR.value_or(-1));
+    CHECK(!materialIndexOOR.has_value());
+    INFO("first batch with an out-of-range textureComboIndex (if any): ", comboIndexOOR.value_or(-1));
+    CHECK(!comboIndexOOR.has_value());
+    INFO("first batch with an out-of-range primary texture index (if any): ", textureIndexOOR.value_or(-1));
+    CHECK(!textureIndexOOR.has_value());
+    INFO("first batch whose layer 0 identity.id isn't a RecordIndex (if any): ",
+         layer0IdKindMismatch.value_or(-1));
+    CHECK(!layer0IdKindMismatch.has_value());
+    INFO("first batch with a mismatched layer 0 identity value (if any): ", layer0IdValueMismatch.value_or(-1));
+    CHECK(!layer0IdValueMismatch.has_value());
+    INFO("first batch with a mismatched blend op (if any): ", blendOpMismatch.value_or(-1));
+    CHECK(!blendOpMismatch.has_value());
+    INFO("first batch with a mismatched texture state (if any): ", textureStateMismatch.value_or(-1));
+    CHECK(!textureStateMismatch.has_value());
+    INFO("first batch with an empty unresolvedReason (if any): ", unresolvedReasonMismatch.value_or(-1));
+    CHECK(!unresolvedReasonMismatch.has_value());
+    INFO("first batch whose layer 0 uv isn't a UvSetIndex (if any): ", uvKindMismatch.value_or(-1));
+    CHECK(!uvKindMismatch.has_value());
+    INFO("first batch with a non-zero UvSetIndex (if any): ", uvIndexMismatch.value_or(-1));
+    CHECK(!uvIndexMismatch.has_value());
+    INFO("first batch with a mismatched role kind (if any): ", roleKindMismatch.value_or(-1));
+    CHECK(!roleKindMismatch.has_value());
+    INFO("first batch with a mismatched role value (if any): ", roleValueMismatch.value_or(-1));
+    CHECK(!roleValueMismatch.has_value());
+    INFO("first batch with an unexpected diffuseLayer on a typed texture (if any): ",
+         diffuseAbsenceMismatch.value_or(-1));
+    CHECK(!diffuseAbsenceMismatch.has_value());
+    INFO("first batch missing an expected diffuseLayer (if any): ", diffusePresenceMismatch.value_or(-1));
+    CHECK(!diffusePresenceMismatch.has_value());
+    INFO("first batch with a mismatched diffuseLayer value (if any): ", diffuseValueMismatch.value_or(-1));
+    CHECK(!diffuseValueMismatch.has_value());
+    INFO("first batch with a layer breaking the shared-blend-op rule (if any): ",
+         allLayersBlendMismatch.value_or(-1));
+    CHECK(!allLayersBlendMismatch.has_value());
+    INFO("first batch with a layer breaking the shared-texture-state rule (if any): ",
+         allLayersStateMismatch.value_or(-1));
+    CHECK(!allLayersStateMismatch.has_value());
+    INFO("first batch with a mismatched resolved-layer count (if any): ", layerCountMismatch.value_or(-1));
+    CHECK(!layerCountMismatch.has_value());
 }
 
 TEST_CASE("canon::assembleMaterial: a real multi-texture-layer fixture's additional layers "

@@ -150,19 +150,30 @@ AnimationSanityResult checkAnimationKeyframesSane(const tinygltf::Model& model,
     return result;
 }
 
-// Runs checkAnimationKeyframesSane over every clip in `model`, one CHECK
-// per clip: a failure's message names the clip and up to 5 concrete bad
-// keyframes (with a remaining-count if there are more), a direct trace
-// straight to the offending data instead of a wall of individual
-// pass/fail lines. Returns the total keyframe counts so callers can still
-// assert "at least one real clip/keyframe was actually exercised."
+// Runs checkAnimationKeyframesSane over every clip in `model`, aggregated
+// into one CHECK for the whole model rather than one per clip -- a real
+// model runs to hundreds of clips, and a CHECK per clip multiplies this
+// test's assertion count by that corpus size for no added coverage (every
+// clip is still walked and checked here; only the assertion *count*
+// changes). Same aggregate-then-diagnose discipline
+// test_canon_skeleton_convergence.cpp's per-joint loop establishes: on
+// failure, the message names the *first* offending clip and up to 5
+// concrete bad keyframes in it (with a remaining-count if there are more),
+// a direct trace straight to the offending data instead of a wall of
+// individual pass/fail lines. Returns the total keyframe counts so callers
+// can still assert "at least one real clip/keyframe was actually
+// exercised."
 AnimationSanityResult checkAllAnimationsSane(const tinygltf::Model& model) {
     AnimationSanityResult totals;
+    std::optional<std::string> firstFailure;
     for (const auto& anim : model.animations) {
         auto result = checkAnimationKeyframesSane(model, anim);
         totals.rotationKeyframesChecked += result.rotationKeyframesChecked;
         totals.translationKeyframesChecked += result.translationKeyframesChecked;
-        std::string detail;
+        if (result.problems.empty() || firstFailure) continue;
+
+        std::string detail = "clip '" + anim.name + "' had " + std::to_string(result.problems.size()) +
+                              " sanity problem(s)";
         constexpr size_t kMaxShown = 5;
         for (size_t i = 0; i < result.problems.size() && i < kMaxShown; ++i) {
             detail += "\n  " + result.problems[i];
@@ -170,9 +181,10 @@ AnimationSanityResult checkAllAnimationsSane(const tinygltf::Model& model) {
         if (result.problems.size() > kMaxShown) {
             detail += "\n  ... and " + std::to_string(result.problems.size() - kMaxShown) + " more";
         }
-        CHECK_MESSAGE(result.problems.empty(), "clip '", anim.name, "' had ", result.problems.size(),
-                      " sanity problem(s)", detail);
+        firstFailure = detail;
     }
+    INFO("first clip with a sanity problem (if any): ", firstFailure.value_or("none"));
+    CHECK(!firstFailure.has_value());
     return totals;
 }
 
@@ -722,30 +734,53 @@ TEST_CASE("husk export: a real character model's per-material 'texture_type' ext
     INFO("tinygltf error: ", gltfErr);
     REQUIRE(loaded);
 
+    // One CHECK per kind of fact, not one per material -- a real fixture
+    // can carry many materials, and asserting per-material multiplies this
+    // test's assertion count by that corpus size for no added coverage
+    // (every material is still examined; only the assertion *count*
+    // changes). Same aggregate-then-diagnose discipline
+    // test_canon_skeleton_convergence.cpp's per-joint loop already
+    // establishes.
     bool foundNonzero = false;
     bool foundZero = false;
-    for (const auto& mat : model.materials) {
-        REQUIRE(mat.extras.IsObject());
-        REQUIRE(mat.extras.Has("diagnostic_name"));
+    std::optional<size_t> extrasKindMismatch, diagnosticNameMissing, nonzeroTypeMismatch, zeroTypeMismatch;
+    for (size_t mi = 0; mi < model.materials.size(); ++mi) {
+        const auto& mat = model.materials[mi];
+        if (!mat.extras.IsObject()) {
+            if (!extrasKindMismatch) extrasKindMismatch = mi;
+            continue;
+        }
+        if (!mat.extras.Has("diagnostic_name")) {
+            if (!diagnosticNameMissing) diagnosticNameMissing = mi;
+            continue;
+        }
         std::string diagnosticName = mat.extras.Get("diagnostic_name").Get<std::string>();
         auto texIdx = textureIndexFromMaterialName(diagnosticName);
         if (!texIdx || static_cast<size_t>(*texIdx) >= textures.size()) {
             continue;
         }
         uint32_t expectedType = textures[*texIdx].type;
-        INFO("material ", mat.name, " (diagnostic_name ", diagnosticName, ") -> texture ", *texIdx,
-             " expected type ", expectedType);
         if (expectedType != 0) {
             foundNonzero = true;
-            REQUIRE(mat.extras.IsObject());
-            CHECK(mat.extras.Get("texture_type").GetNumberAsInt() == static_cast<int>(expectedType));
+            if (mat.extras.Get("texture_type").GetNumberAsInt() != static_cast<int>(expectedType) &&
+                !nonzeroTypeMismatch) {
+                nonzeroTypeMismatch = mi;
+            }
         } else {
             foundZero = true;
-            if (mat.extras.IsObject()) {
-                CHECK_FALSE(mat.extras.Get("texture_type").IsInt());
-            }
+            if (mat.extras.Get("texture_type").IsInt() && !zeroTypeMismatch) zeroTypeMismatch = mi;
         }
     }
+    INFO("first material whose extras isn't an object (if any): ", extrasKindMismatch.value_or(-1));
+    CHECK(!extrasKindMismatch.has_value());
+    INFO("first material missing diagnostic_name (if any): ", diagnosticNameMissing.value_or(-1));
+    CHECK(!diagnosticNameMissing.has_value());
+    INFO("first material with a mismatched nonzero texture_type (if any): ",
+         nonzeroTypeMismatch.value_or(-1));
+    CHECK(!nonzeroTypeMismatch.has_value());
+    INFO("first material with an unexpectedly-present texture_type for type 0 (if any): ",
+         zeroTypeMismatch.value_or(-1));
+    CHECK(!zeroTypeMismatch.has_value());
     // Both halves of the present-only-when-nonzero convention are actually
     // exercised by this real fixture, not just theoretically possible.
     CHECK(foundNonzero);
@@ -800,7 +835,21 @@ void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::stri
     INFO("tinygltf error: ", gltfErr);
     REQUIRE(loaded);
 
+    // One CHECK per kind of fact verified, not one per batch/layer -- a
+    // real fixture's `.skin` can carry many multi-layer batches, each with
+    // several layers, and asserting per-batch-per-layer multiplies this
+    // function's assertion count by that corpus size for no added coverage
+    // (every batch and every layer is still examined; only the assertion
+    // *count* changes). Same aggregate-then-diagnose discipline
+    // test_canon_skeleton_convergence.cpp's per-joint loop already
+    // establishes. A structural precondition that would crash on indexing/
+    // `.Get()` if false is guarded with `continue` instead of `REQUIRE`, so
+    // one bad batch doesn't abort inspection of the rest.
     bool foundMultiLayerBatch = false;
+    std::optional<size_t> meshesEmptyMismatch, primitiveIndexOOR, materialIndexMismatch, extrasKindMismatch,
+        additionalKindMismatch, additionalCountMismatch, pixelShaderKindMismatch, vertexShaderKindMismatch,
+        pixelShaderValueMismatch, vertexShaderValueMismatch;
+    std::optional<std::pair<size_t, uint16_t>> entryIndexOOR, fdidMismatch, texCoordMismatch;
     for (size_t bi = 0; bi < batches.size(); ++bi) {
         const auto& b = batches[bi];
         if (b.textureCount <= 1) {
@@ -814,17 +863,33 @@ void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::stri
         // reliably indexes `model.materials` directly, since two batches
         // producing content-identical materials now share one entry
         // instead of getting one each.
-        REQUIRE(!model.meshes.empty());
-        REQUIRE(bi < model.meshes[0].primitives.size());
+        if (model.meshes.empty()) {
+            if (!meshesEmptyMismatch) meshesEmptyMismatch = bi;
+            continue;
+        }
+        if (bi >= model.meshes[0].primitives.size()) {
+            if (!primitiveIndexOOR) primitiveIndexOOR = bi;
+            continue;
+        }
         int matIdx = model.meshes[0].primitives[bi].material;
-        REQUIRE(matIdx >= 0);
-        REQUIRE(static_cast<size_t>(matIdx) < model.materials.size());
+        if (matIdx < 0 || static_cast<size_t>(matIdx) >= model.materials.size()) {
+            if (!materialIndexMismatch) materialIndexMismatch = bi;
+            continue;
+        }
         const auto& extras = model.materials[matIdx].extras;
-        REQUIRE(extras.IsObject());
+        if (!extras.IsObject()) {
+            if (!extrasKindMismatch) extrasKindMismatch = bi;
+            continue;
+        }
         const auto& additional = extras.Get("additional_textures");
-        REQUIRE(additional.IsArray());
-        CHECK(static_cast<size_t>(additional.ArrayLen()) ==
-              static_cast<size_t>(b.textureCount - 1));
+        if (!additional.IsArray()) {
+            if (!additionalKindMismatch) additionalKindMismatch = bi;
+            continue;
+        }
+        if (static_cast<size_t>(additional.ArrayLen()) != static_cast<size_t>(b.textureCount - 1) &&
+            !additionalCountMismatch) {
+            additionalCountMismatch = bi;
+        }
 
         for (uint16_t layer = 1; layer < b.textureCount; ++layer) {
             size_t comboIdx = static_cast<size_t>(b.textureComboIndex) + layer;
@@ -842,12 +907,15 @@ void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::stri
                 expectedTexCoord = 1;
             }
 
-            REQUIRE(static_cast<int>(layer - 1) < additional.ArrayLen());
+            if (static_cast<int>(layer - 1) >= additional.ArrayLen()) {
+                if (!entryIndexOOR) entryIndexOOR = {bi, layer};
+                continue;
+            }
             const auto& entry = additional.Get(static_cast<int>(layer - 1));
             auto actualFdid = static_cast<uint32_t>(entry.Get("file_data_id").GetNumberAsInt());
             int actualTexCoord = entry.Get("tex_coord").GetNumberAsInt();
-            CHECK(actualFdid == expectedFdid);
-            CHECK(actualTexCoord == expectedTexCoord);
+            if (actualFdid != expectedFdid && !fdidMismatch) fdidMismatch = {bi, layer};
+            if (actualTexCoord != expectedTexCoord && !texCoordMismatch) texCoordMismatch = {bi, layer};
         }
 
         // Same independent-resolution cross-check as above, for
@@ -860,13 +928,59 @@ void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::stri
         // if the fixture ever changes).
         auto expectedNames = husk::m2::resolveShaderNames(b.shaderId, b.textureCount);
         if (expectedNames.resolved) {
-            REQUIRE(extras.Get("pixel_shader").IsString());
-            REQUIRE(extras.Get("vertex_shader").IsString());
-            CHECK(extras.Get("pixel_shader").Get<std::string>() == expectedNames.pixel);
-            CHECK(extras.Get("vertex_shader").Get<std::string>() == expectedNames.vertex);
+            if (!extras.Get("pixel_shader").IsString()) {
+                if (!pixelShaderKindMismatch) pixelShaderKindMismatch = bi;
+            } else if (extras.Get("pixel_shader").Get<std::string>() != expectedNames.pixel &&
+                       !pixelShaderValueMismatch) {
+                pixelShaderValueMismatch = bi;
+            }
+            if (!extras.Get("vertex_shader").IsString()) {
+                if (!vertexShaderKindMismatch) vertexShaderKindMismatch = bi;
+            } else if (extras.Get("vertex_shader").Get<std::string>() != expectedNames.vertex &&
+                       !vertexShaderValueMismatch) {
+                vertexShaderValueMismatch = bi;
+            }
         }
     }
     REQUIRE(foundMultiLayerBatch);
+
+    auto pairOrNone = [](const std::optional<std::pair<size_t, uint16_t>>& p) {
+        return p.has_value() ? ("(" + std::to_string(p->first) + ", " + std::to_string(p->second) + ")")
+                              : std::string("none");
+    };
+    INFO("first batch with empty model.meshes (if any): ", meshesEmptyMismatch.value_or(-1));
+    CHECK(!meshesEmptyMismatch.has_value());
+    INFO("first batch with an out-of-range primitive index (if any): ", primitiveIndexOOR.value_or(-1));
+    CHECK(!primitiveIndexOOR.has_value());
+    INFO("first batch with an out-of-range/invalid material index (if any): ",
+         materialIndexMismatch.value_or(-1));
+    CHECK(!materialIndexMismatch.has_value());
+    INFO("first batch whose material extras isn't an object (if any): ", extrasKindMismatch.value_or(-1));
+    CHECK(!extrasKindMismatch.has_value());
+    INFO("first batch whose additional_textures isn't an array (if any): ",
+         additionalKindMismatch.value_or(-1));
+    CHECK(!additionalKindMismatch.has_value());
+    INFO("first batch with a mismatched additional_textures count (if any): ",
+         additionalCountMismatch.value_or(-1));
+    CHECK(!additionalCountMismatch.has_value());
+    INFO("first (batch, layer) where additional_textures ran out of entries (if any): ",
+         pairOrNone(entryIndexOOR));
+    CHECK(!entryIndexOOR.has_value());
+    INFO("first (batch, layer) with a mismatched file_data_id (if any): ", pairOrNone(fdidMismatch));
+    CHECK(!fdidMismatch.has_value());
+    INFO("first (batch, layer) with a mismatched tex_coord (if any): ", pairOrNone(texCoordMismatch));
+    CHECK(!texCoordMismatch.has_value());
+    INFO("first batch whose pixel_shader extras isn't a string (if any): ",
+         pixelShaderKindMismatch.value_or(-1));
+    CHECK(!pixelShaderKindMismatch.has_value());
+    INFO("first batch whose vertex_shader extras isn't a string (if any): ",
+         vertexShaderKindMismatch.value_or(-1));
+    CHECK(!vertexShaderKindMismatch.has_value());
+    INFO("first batch with a mismatched pixel_shader name (if any): ", pixelShaderValueMismatch.value_or(-1));
+    CHECK(!pixelShaderValueMismatch.has_value());
+    INFO("first batch with a mismatched vertex_shader name (if any): ",
+         vertexShaderValueMismatch.value_or(-1));
+    CHECK(!vertexShaderValueMismatch.has_value());
 
     std::filesystem::remove(outPath);
 }

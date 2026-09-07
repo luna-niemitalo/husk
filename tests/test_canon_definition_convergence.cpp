@@ -13,8 +13,11 @@
 #include <algorithm>
 #include <doctest/doctest.h>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
+#include <string>
+#include <utility>
 
 #include "canon_definition_builder.hpp"
 #include "test_data_paths.hpp"
@@ -64,36 +67,61 @@ TEST_CASE("canon::assembleDefinition converges with chrcustomization::Data again
     CHECK(result.chrModelId == chrModelId);
     REQUIRE(result.options.size() == expectedOptionsById.size());
 
+    // One CHECK per kind of fact verified, not one per option/choice -- a
+    // real customization menu runs to dozens of options and hundreds of
+    // choices, and asserting per-item-per-field multiplies this test's
+    // assertion count by that corpus size for no added coverage (every
+    // option and every choice is still examined; only the assertion *count*
+    // changes). Same aggregate-then-diagnose discipline
+    // test_canon_skeleton_convergence.cpp's per-joint loop already
+    // establishes. A structural precondition (e.g. "id is a Db2Row") that
+    // would crash on `std::get` if false is guarded with `continue` instead
+    // of `REQUIRE`, so one option's bad shape doesn't abort inspection of
+    // the rest of the corpus.
+
     // Definition::options must be in real optionOrderIndex order (ties
     // broken by id) -- canon_definition_builder.hpp's own deliberate
     // divergence from export_extras.cpp's insertion-order-preserving loop.
+    std::optional<size_t> orderMismatch;
     for (size_t i = 1; i < result.options.size(); ++i) {
         const auto& prev = result.options[i - 1];
         const auto& cur = result.options[i];
         bool ordered = prev.orderIndex < cur.orderIndex ||
                        (prev.orderIndex == cur.orderIndex &&
                         std::get<canon::Db2Row>(prev.ref.id).row < std::get<canon::Db2Row>(cur.ref.id).row);
-        CHECK(ordered);
+        if (!ordered && !orderMismatch) orderMismatch = i;
     }
+    INFO("first option index breaking real orderIndex ordering (if any): ", orderMismatch.value_or(-1));
+    CHECK(!orderMismatch.has_value());
+
+    std::optional<size_t> refIdKindMismatch, tableNameMismatch, unknownOptionRow, orderIndexMismatch,
+        nameFieldMismatch, categoryRefKindMismatch, categoryRowMismatch, categoryOrderMismatch,
+        categoryNameMismatch, choicesSizeMismatch;
+    std::optional<std::pair<size_t, size_t>> choiceRefKindMismatch, choiceRowMismatch, choiceOrderMismatch,
+        choiceNameMismatch;
 
     std::set<uint32_t> seenOptionIds;
-    for (const auto& opt : result.options) {
-        REQUIRE(std::holds_alternative<canon::Db2Row>(opt.ref.id));
+    for (size_t oi = 0; oi < result.options.size(); ++oi) {
+        const auto& opt = result.options[oi];
+        if (!std::holds_alternative<canon::Db2Row>(opt.ref.id)) {
+            if (!refIdKindMismatch) refIdKindMismatch = oi;
+            continue;
+        }
         auto& row = std::get<canon::Db2Row>(opt.ref.id);
-        CHECK(row.table == "ChrCustomizationOption");
+        if (row.table != "ChrCustomizationOption" && !tableNameMismatch) tableNameMismatch = oi;
         auto it = expectedOptionsById.find(row.row);
-        REQUIRE(it != expectedOptionsById.end());
+        if (it == expectedOptionsById.end()) {
+            if (!unknownOptionRow) unknownOptionRow = oi;
+            continue;
+        }
         seenOptionIds.insert(row.row);
         const chrcustomization::Option& expectedOpt = *it->second;
 
-        CHECK(opt.orderIndex == expectedOpt.orderIndex);
-        if (expectedOpt.name.empty()) {
-            CHECK(opt.ref.name.empty());
-            CHECK(opt.ref.source == canon::NameSource::None);
-        } else {
-            CHECK(opt.ref.name == expectedOpt.name);
-            CHECK(opt.ref.source == canon::NameSource::Db2);
-        }
+        if (opt.orderIndex != expectedOpt.orderIndex && !orderIndexMismatch) orderIndexMismatch = oi;
+        bool nameMatches = expectedOpt.name.empty()
+                                ? (opt.ref.name.empty() && opt.ref.source == canon::NameSource::None)
+                                : (opt.ref.name == expectedOpt.name && opt.ref.source == canon::NameSource::Db2);
+        if (!nameMatches && !nameFieldMismatch) nameFieldMismatch = oi;
 
         // Category: resolved independently against data->categories, same
         // join namedChoicesForModel performs internally -- 0/unresolved
@@ -107,21 +135,27 @@ TEST_CASE("canon::assembleDefinition converges with chrcustomization::Data again
                 }
             }
         }
-        REQUIRE(std::holds_alternative<canon::Db2Row>(opt.category.ref.id));
-        if (expectedCategory != nullptr) {
-            CHECK(std::get<canon::Db2Row>(opt.category.ref.id).row == expectedCategory->id);
-            CHECK(opt.category.orderIndex == expectedCategory->orderIndex);
-            if (expectedCategory->name.empty()) {
-                CHECK(opt.category.ref.name.empty());
-                CHECK(opt.category.ref.source == canon::NameSource::None);
-            } else {
-                CHECK(opt.category.ref.name == expectedCategory->name);
-                CHECK(opt.category.ref.source == canon::NameSource::Db2);
+        if (!std::holds_alternative<canon::Db2Row>(opt.category.ref.id)) {
+            if (!categoryRefKindMismatch) categoryRefKindMismatch = oi;
+        } else if (expectedCategory != nullptr) {
+            bool categoryMatches =
+                std::get<canon::Db2Row>(opt.category.ref.id).row == expectedCategory->id &&
+                opt.category.orderIndex == expectedCategory->orderIndex;
+            if (!categoryMatches && !categoryRowMismatch) categoryRowMismatch = oi;
+            if (opt.category.orderIndex != expectedCategory->orderIndex && !categoryOrderMismatch) {
+                categoryOrderMismatch = oi;
             }
+            bool categoryNameMatches = expectedCategory->name.empty()
+                                            ? (opt.category.ref.name.empty() &&
+                                               opt.category.ref.source == canon::NameSource::None)
+                                            : (opt.category.ref.name == expectedCategory->name &&
+                                               opt.category.ref.source == canon::NameSource::Db2);
+            if (!categoryNameMatches && !categoryNameMismatch) categoryNameMismatch = oi;
         } else {
-            CHECK(std::get<canon::Db2Row>(opt.category.ref.id).row == 0);
-            CHECK(opt.category.ref.name.empty());
-            CHECK(opt.category.ref.source == canon::NameSource::None);
+            bool noCategoryMatches = std::get<canon::Db2Row>(opt.category.ref.id).row == 0 &&
+                                       opt.category.ref.name.empty() &&
+                                       opt.category.ref.source == canon::NameSource::None;
+            if (!noCategoryMatches && !categoryRowMismatch) categoryRowMismatch = oi;
         }
 
         // Choices: independently gathered from data->choices, sorted the
@@ -135,22 +169,80 @@ TEST_CASE("canon::assembleDefinition converges with chrcustomization::Data again
                       if (a->orderIndex != b->orderIndex) return a->orderIndex < b->orderIndex;
                       return a->id < b->id;
                   });
-        REQUIRE(opt.choices.size() == expectedChoices.size());
-        for (size_t i = 0; i < opt.choices.size(); ++i) {
-            const auto& choice = opt.choices[i];
-            const auto& expectedChoice = *expectedChoices[i];
-            REQUIRE(std::holds_alternative<canon::Db2Row>(choice.ref.id));
-            CHECK(std::get<canon::Db2Row>(choice.ref.id).row == expectedChoice.id);
-            CHECK(choice.orderIndex == expectedChoice.orderIndex);
-            if (expectedChoice.name.empty()) {
-                CHECK(choice.ref.name.empty());
-                CHECK(choice.ref.source == canon::NameSource::None);
-            } else {
-                CHECK(choice.ref.name == expectedChoice.name);
-                CHECK(choice.ref.source == canon::NameSource::Db2);
+        if (opt.choices.size() != expectedChoices.size()) {
+            if (!choicesSizeMismatch) choicesSizeMismatch = oi;
+            continue;
+        }
+        for (size_t ci = 0; ci < opt.choices.size(); ++ci) {
+            const auto& choice = opt.choices[ci];
+            const auto& expectedChoice = *expectedChoices[ci];
+            if (!std::holds_alternative<canon::Db2Row>(choice.ref.id)) {
+                if (!choiceRefKindMismatch) choiceRefKindMismatch = {oi, ci};
+                continue;
             }
+            if (std::get<canon::Db2Row>(choice.ref.id).row != expectedChoice.id && !choiceRowMismatch) {
+                choiceRowMismatch = {oi, ci};
+            }
+            if (choice.orderIndex != expectedChoice.orderIndex && !choiceOrderMismatch) {
+                choiceOrderMismatch = {oi, ci};
+            }
+            bool choiceNameMatches =
+                expectedChoice.name.empty()
+                    ? (choice.ref.name.empty() && choice.ref.source == canon::NameSource::None)
+                    : (choice.ref.name == expectedChoice.name && choice.ref.source == canon::NameSource::Db2);
+            if (!choiceNameMatches && !choiceNameMismatch) choiceNameMismatch = {oi, ci};
         }
     }
+
+    INFO("first option index with a ref.id that isn't a Db2Row (if any): ", refIdKindMismatch.value_or(-1));
+    CHECK(!refIdKindMismatch.has_value());
+    INFO("first option index with a wrong Db2Row.table (if any): ", tableNameMismatch.value_or(-1));
+    CHECK(!tableNameMismatch.has_value());
+    INFO("first option index whose row doesn't match any expected option (if any): ",
+         unknownOptionRow.value_or(-1));
+    CHECK(!unknownOptionRow.has_value());
+    INFO("first option index with a mismatched orderIndex (if any): ", orderIndexMismatch.value_or(-1));
+    CHECK(!orderIndexMismatch.has_value());
+    INFO("first option index with a mismatched name/source (if any): ", nameFieldMismatch.value_or(-1));
+    CHECK(!nameFieldMismatch.has_value());
+    INFO("first option index whose category.ref.id isn't a Db2Row (if any): ",
+         categoryRefKindMismatch.value_or(-1));
+    CHECK(!categoryRefKindMismatch.has_value());
+    INFO("first option index with a mismatched category row/identity (if any): ",
+         categoryRowMismatch.value_or(-1));
+    CHECK(!categoryRowMismatch.has_value());
+    INFO("first option index with a mismatched category orderIndex (if any): ",
+         categoryOrderMismatch.value_or(-1));
+    CHECK(!categoryOrderMismatch.has_value());
+    INFO("first option index with a mismatched category name/source (if any): ",
+         categoryNameMismatch.value_or(-1));
+    CHECK(!categoryNameMismatch.has_value());
+    INFO("first option index with a mismatched choices count (if any): ", choicesSizeMismatch.value_or(-1));
+    CHECK(!choicesSizeMismatch.has_value());
+    INFO("first (option, choice) index whose ref.id isn't a Db2Row (if any): ",
+         choiceRefKindMismatch.has_value()
+             ? ("(" + std::to_string(choiceRefKindMismatch->first) + ", " +
+                std::to_string(choiceRefKindMismatch->second) + ")")
+             : std::string("none"));
+    CHECK(!choiceRefKindMismatch.has_value());
+    INFO("first (option, choice) index with a mismatched row id (if any): ",
+         choiceRowMismatch.has_value()
+             ? ("(" + std::to_string(choiceRowMismatch->first) + ", " +
+                std::to_string(choiceRowMismatch->second) + ")")
+             : std::string("none"));
+    CHECK(!choiceRowMismatch.has_value());
+    INFO("first (option, choice) index with a mismatched orderIndex (if any): ",
+         choiceOrderMismatch.has_value()
+             ? ("(" + std::to_string(choiceOrderMismatch->first) + ", " +
+                std::to_string(choiceOrderMismatch->second) + ")")
+             : std::string("none"));
+    CHECK(!choiceOrderMismatch.has_value());
+    INFO("first (option, choice) index with a mismatched name/source (if any): ",
+         choiceNameMismatch.has_value()
+             ? ("(" + std::to_string(choiceNameMismatch->first) + ", " +
+                std::to_string(choiceNameMismatch->second) + ")")
+             : std::string("none"));
+    CHECK(!choiceNameMismatch.has_value());
     CHECK(seenOptionIds.size() == expectedOptionsById.size());
 }
 

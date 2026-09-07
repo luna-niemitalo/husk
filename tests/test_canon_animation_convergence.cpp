@@ -12,6 +12,7 @@
 
 #include <fstream>
 #include <iterator>
+#include <optional>
 
 #include "canon_animation_builder.hpp"
 #include "m2.hpp"
@@ -77,19 +78,39 @@ std::optional<Pick> findBestInlinePick(const m2::Model& model, ScoreFn score) {
     return bestScore > 0 ? best : std::nullopt;
 }
 
+// One CHECK per kind of fact verified across the whole curve, not one per
+// keyframe per component -- a real picked curve (findBestInlinePick favors
+// the highest keyframe count) can run to dozens/hundreds of keyframes, and
+// asserting per-keyframe-per-component multiplies this test's assertion
+// count by that curve length for no added coverage (every keyframe is
+// still compared; only the assertion *count* changes). Same
+// aggregate-then-diagnose discipline test_canon_skeleton_convergence.cpp's
+// per-joint loop already establishes; INFO below names the first offending
+// keyframe/component on failure.
 void checkVecCurve(const canon::VecCurve& curve, const std::vector<std::pair<uint32_t, m2::Vec3>>& legacy,
                     uint32_t sequenceIndex, const char* property) {
     INFO("property ", property);
     CHECK(curve.sequence.kind == canon::SequenceRef::Kind::Sequence);
     CHECK(curve.sequence.index == sequenceIndex);
     REQUIRE(curve.keyframes.size() == legacy.size());
+    std::optional<size_t> timeMismatch, xMismatch, yMismatch, zMismatch;
     for (size_t i = 0; i < legacy.size(); ++i) {
-        INFO("keyframe ", i);
-        CHECK(curve.keyframes[i].first == doctest::Approx(static_cast<float>(legacy[i].first) / 1000.0f));
-        CHECK(curve.keyframes[i].second.x == doctest::Approx(legacy[i].second.x));
-        CHECK(curve.keyframes[i].second.y == doctest::Approx(legacy[i].second.y));
-        CHECK(curve.keyframes[i].second.z == doctest::Approx(legacy[i].second.z));
+        if (curve.keyframes[i].first != doctest::Approx(static_cast<float>(legacy[i].first) / 1000.0f) &&
+            !timeMismatch) {
+            timeMismatch = i;
+        }
+        if (curve.keyframes[i].second.x != doctest::Approx(legacy[i].second.x) && !xMismatch) xMismatch = i;
+        if (curve.keyframes[i].second.y != doctest::Approx(legacy[i].second.y) && !yMismatch) yMismatch = i;
+        if (curve.keyframes[i].second.z != doctest::Approx(legacy[i].second.z) && !zMismatch) zMismatch = i;
     }
+    INFO("first keyframe with a mismatched time (if any): ", timeMismatch.value_or(-1));
+    CHECK(!timeMismatch.has_value());
+    INFO("first keyframe with a mismatched x (if any): ", xMismatch.value_or(-1));
+    CHECK(!xMismatch.has_value());
+    INFO("first keyframe with a mismatched y (if any): ", yMismatch.value_or(-1));
+    CHECK(!yMismatch.has_value());
+    INFO("first keyframe with a mismatched z (if any): ", zMismatch.value_or(-1));
+    CHECK(!zMismatch.has_value());
 }
 
 // No hemisphere-continuity fix applied on either side: canon deliberately
@@ -106,14 +127,27 @@ void checkQuatCurve(const canon::QuatCurve& curve, const std::vector<std::pair<u
     CHECK(curve.sequence.kind == canon::SequenceRef::Kind::Sequence);
     CHECK(curve.sequence.index == sequenceIndex);
     REQUIRE(curve.keyframes.size() == legacy.size());
+    std::optional<size_t> timeMismatch, xMismatch, yMismatch, zMismatch, wMismatch;
     for (size_t i = 0; i < legacy.size(); ++i) {
-        INFO("rotation keyframe ", i);
-        CHECK(curve.keyframes[i].first == doctest::Approx(static_cast<float>(legacy[i].first) / 1000.0f));
-        CHECK(curve.keyframes[i].second.x == doctest::Approx(legacy[i].second.x));
-        CHECK(curve.keyframes[i].second.y == doctest::Approx(legacy[i].second.y));
-        CHECK(curve.keyframes[i].second.z == doctest::Approx(legacy[i].second.z));
-        CHECK(curve.keyframes[i].second.w == doctest::Approx(legacy[i].second.w));
+        if (curve.keyframes[i].first != doctest::Approx(static_cast<float>(legacy[i].first) / 1000.0f) &&
+            !timeMismatch) {
+            timeMismatch = i;
+        }
+        if (curve.keyframes[i].second.x != doctest::Approx(legacy[i].second.x) && !xMismatch) xMismatch = i;
+        if (curve.keyframes[i].second.y != doctest::Approx(legacy[i].second.y) && !yMismatch) yMismatch = i;
+        if (curve.keyframes[i].second.z != doctest::Approx(legacy[i].second.z) && !zMismatch) zMismatch = i;
+        if (curve.keyframes[i].second.w != doctest::Approx(legacy[i].second.w) && !wMismatch) wMismatch = i;
     }
+    INFO("first rotation keyframe with a mismatched time (if any): ", timeMismatch.value_or(-1));
+    CHECK(!timeMismatch.has_value());
+    INFO("first rotation keyframe with a mismatched x (if any): ", xMismatch.value_or(-1));
+    CHECK(!xMismatch.has_value());
+    INFO("first rotation keyframe with a mismatched y (if any): ", yMismatch.value_or(-1));
+    CHECK(!yMismatch.has_value());
+    INFO("first rotation keyframe with a mismatched z (if any): ", zMismatch.value_or(-1));
+    CHECK(!zMismatch.has_value());
+    INFO("first rotation keyframe with a mismatched w (if any): ", wMismatch.value_or(-1));
+    CHECK(!wMismatch.has_value());
 }
 
 void checkInterpolation(const m2::Model& model, const m2::Bone& bone, const canon::BoneAnimationCurves& curves) {
