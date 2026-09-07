@@ -1771,6 +1771,58 @@ Cache location is `$HUSK_CACHE_DIR`, else `$XDG_CACHE_HOME/husk/`, else
 `$HOME/.cache/husk/` — the same convention the sibling `tact-fetch` project
 uses.
 
+## The native bundle: glTF-free binary payloads (designed and landed, 2026-09-06)
+
+`REFACTOR/BUNDLE_FORMAT.md` left one question open: what container holds the
+bundle's `mesh.bin`/`skeleton.bin`/`animation.bin` payloads, given I8's rule
+that a stored format must not be a headerless dump only husk can read.
+Luna's direct resolution, superseding that doc's "stage-4 question, not yet
+decided" framing: **no container at all, and zero glTF/tinygltf dependency**
+for reading the bundle — not even reusing glTF's own buffer/accessor JSON
+shape.
+
+The `.bin` files stay exactly what they look like: raw, tightly packed,
+native-endian (little, stated once at the manifest's top level) fixed-width
+arrays, no header. `manifest.json` is the only place that gives those bytes
+meaning, via a small repeated JSON shape, a **BufferSlice** —
+`{file, byte_offset, byte_length, component_type, component_count, count,
+semantic?}` — for large, uniform, GPU-shaped numeric arrays (per-vertex mesh
+attributes, per-keyframe animation values, per-joint bind data). Everything
+smaller or non-uniform (geoset ranges, joint names, billboard modes,
+material layer descriptions, a material's own small tint/alpha-fade/UV-
+animation curves) is plain inline JSON instead — BufferSlice is reserved for
+the cases where direct byte-range loading actually matters, not used as a
+universal wrapper.
+
+This satisfies I8 without adopting a format: a reader is "parse JSON with
+any library, `fread`/`mmap` the named byte range, reinterpret as the stated
+component type" — no husk binary, no glTF library, no spec beyond
+`manifest.json` itself needed in any language. `semantic` borrows glTF's
+well-known attribute names (`POSITION`/`JOINTS_0`/...) purely because
+they're widely recognized, not because anything here depends on glTF's own
+schema.
+
+Implemented in `src/writers/bundle_writer.hpp`/`.cpp`
+(`husk::writers::writeBundle(canon::Model, bundleDir)`), built directly on
+already-landed `canon::` types and `writers::composeJointCurves`/
+`localBindTranslation` (`writers/writer_common.hpp`) rather than
+re-deriving bind-pose composition. The header's own doc comment is the
+canonical, byte-precise manifest schema (every `resources.*` section's
+exact JSON shape, `canon::Ref`'s serialization, the inline-curve shape) —
+kept there rather than duplicated here, since a from-scratch reader
+implementation needs to match it exactly. Deliberately a **subset** of
+`BUNDLE_FORMAT.md`'s full target schema: `definition`/`selection`/`items`/
+`sources`/`references` are not written, since no canon builder feeds them
+into `canon::Model` yet — adding them is separate, later work, not a
+regression of this writer. Covered by `tests/test_writers_bundle.cpp`:
+byte-level round-trip checks against hand-built synthetic models (never
+trusting the writer's own output as its own expected value), every
+BufferSlice's byte range checked against its file's real size, and a real
+`bloodelffemale.m2`/`.skin` fixture proving `resources.mesh.primitives[i]
+.material_index == i` (the 1:1 `Model::materials`/`Model::mesh.primitives`
+correspondence this schema relies on) holds on non-trivial real data, not
+just the synthetic case.
+
 ## Boundaries (where foreign data enters)
 
 - Model file bytes (`.m2`) — chunk container + fixed-offset header/arrays.

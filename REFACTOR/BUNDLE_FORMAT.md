@@ -45,6 +45,25 @@ that holds husk's own payload without transforming it, and prefer one a public
 tool already opens. It is recorded here so the placeholder is not mistaken for a
 decision.
 
+**Resolved 2026-09-06, superseding the paragraph above.** Luna's direct call:
+zero glTF/tinygltf dependency for reading this format, not even reusing
+glTF's own buffer/accessor JSON shape. `mesh.bin`/`skeleton.bin`/
+`animation.bin` stay headerless raw bytes (native little-endian, fixed-width
+arrays), and `manifest.json` alone gives them meaning via a small repeated
+JSON shape — a **BufferSlice** — for large uniform numeric arrays, with
+small per-item structural data (geoset ranges, joint names, billboard
+modes, material layer descriptions) staying plain inline JSON instead. This
+passes I8's second test without adopting any container format at all: the
+"open container" is JSON-describes-byte-range, something `fread`/`mmap`
+plus any JSON library already opens, in any language, with no husk binary
+and no glTF library involved. Implemented in `src/writers/bundle_writer.hpp`
+(`husk::writers::writeBundle`) — that file's own doc comment is now the
+canonical, byte-precise description of the manifest shape (BufferSlice
+fields, `canon::Ref` serialization, per-section layout for
+`resources.mesh`/`skeleton`/`animation`/`materials`); this document only
+records that the question is closed and points there rather than
+duplicating the schema. Covered by `tests/test_writers_bundle.cpp`.
+
 **I3, restated concretely**: a consumer opens `manifest.json` and never looks
 anywhere else. Every path in it is relative to the manifest. There is no
 "textures directory" parameter, no environment variable, no sibling-directory
