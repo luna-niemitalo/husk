@@ -3217,6 +3217,102 @@ axes remains responsible for its own continuity fix afterward, same as
 counter-case turned up while re-deriving this; flagged here anyway since
 it's the one place a subtle real bug could hide silently.
 
+### `husk::writers::gltf_lean` — the lean, extras-free glTF projection (designed + landed 2026-09-07)
+
+**Status.** Landed. The second of the two planned leaf writers over
+`canon::Model`, and the direct proof of Luna's three stated goals for this
+whole line of work: `canon::Model` can feed a genuinely independent
+writer (goal 1), that writer's own Blender-import structure converges with
+the existing pipeline's (goal 2, see below), and it is strictly leaner and
+more spec-compliant than the existing exporter (goal 3). New
+`src/writers/gltf_lean.hpp`/`.cpp`, proven via new
+`tests/test_writers_gltf_lean.cpp`. 942/942 tests passing, 13006 assertions
+(baseline before this pass: 937/937, 12953) — 5 new cases, 53 new
+assertions, 0 regressions.
+
+**Deliberately does not touch or reuse `src/gltf.hpp`/`.cpp`,
+`gltf_mesh.*`, `gltf_skeleton.*`, or `cmd_export.cpp`** — a second,
+independent implementation, not a refactor of the first. It DOES reuse
+three genuinely generic, extras-free pieces, on purpose, as the correct
+single-source-of-truth move rather than a violation of "build something
+new": `gltf_math.hpp`'s `zUpToYUp`/`rotationZUpToYUp`/`scaleZUpToYUp`/
+`enforceHemisphereContinuity` (pure axis-conversion math, zero coupling to
+the old writer's extras-laden types), `gltf_buffer_utils.hpp`'s
+`appendBufferView`/`padTo4` (generic tinygltf buffer bookkeeping), and
+`writers::localBindTranslation`/`writers::composeJointCurves`
+(`writer_common.hpp`, landed the same session) for bind-pose/curve
+composition, staying in raw M2 space until this writer's own axis
+conversion is applied.
+
+**The leanness claim, stated once here rather than per omission site:**
+this writer never emits a glTF `extras` object, for any input, by
+construction — there is no code path in `gltf_lean.cpp` that writes one.
+What doesn't fit a real core glTF field (geoset IDs, texture
+role/blend-op/UV-source metadata past what `alphaMode` can express,
+per-batch tint/fade/UV-animation curves, bone-correction sets, physics,
+customization) is left out, not smuggled back in — that data belongs to
+the sibling native bundle writer's manifest (`bundle_writer.hpp`)
+instead. Measured, not just asserted: exporting the same real
+`bloodelffemale.m2`/`.skin` fixture through the OLD pipeline (`husk
+export`) and counting literal `"extras"` occurrences in its `.glb`'s JSON
+chunk gives **374**; the lean writer's own JSON chunk contains **0**, for
+every input, since no code path can ever add one.
+
+**Spec-compliance, measured against the real Khronos glTF-Validator, not
+assumed:** `tests/test_writers_gltf_lean.cpp`'s validator test (same
+`HUSK_GLTF_VALIDATOR`-gated pattern `test_conformance.cpp` already
+establishes) runs the real validator against the lean writer's output for
+the real fixture — **`Errors: 0`**. Warnings are not asserted at zero:
+`TEXCOORD_0`/`TEXCOORD_1` "may be unused" warnings are real and expected
+here, a direct consequence of this writer's own stated scope
+(`canon::MaterialLayer::texture` is always `KnownUnresolved` today, so no
+material references a UV set via a real `baseColorTexture`) — a genuine,
+documented gap in texture *resolution* upstream, not a defect in this
+writer's own output.
+
+**Convergence with the old pipeline's Blender-import shape (goal 2):** a
+headless Blender import check (`tests/blender_import_check.py`, the same
+shared probe script `test_conformance.cpp` already uses, unmodified) on
+the real fixture's lean output confirms: 1 armature, bone count exactly
+matching `canonModel.skeleton.joints.size()`, 1 mesh object, total vertex
+count exactly matching `canonModel.mesh.positions.size()`. This is a
+structural match against `canon::Model`'s own already-convergence-proven
+facts (`canon::assembleModel`'s own convergence tests), not a byte
+comparison against the old writer's `.glb` — the two writers' outputs are
+not expected to be byte-identical (different node layout, no extras, no
+fake geoset-tag joints), only structurally equivalent on what both
+actually represent.
+
+**Design choices, each a real judgment call:**
+- **`alphaMode` mapping** (`alphaModeFor`, `gltf_lean.cpp`): `canon::
+  BlendOp` (a texture-combiner op) and glTF's `alphaMode` (a framebuffer-
+  blend state) are different axes with no existing production mapping to
+  reuse — M2's own alpha-blend-mode field isn't modeled in
+  `canon::Material` at all yet. This writer maps the material's *last*
+  layer's `blendIntoPrevious` op: `Replace`/`Modulate`/`Modulate2x` →
+  `OPAQUE` (a fully-covering combine); `Decal` → `MASK` (a hard cutout);
+  `Add`/`Fade` → `BLEND` (a translucent contribution). Reasoned, not
+  mirrored from any existing function — flagged for review.
+- **Inverse bind matrices** use `canon::Joint::globalPosition` directly
+  (already absolute/world-space) rather than walking the hierarchy to
+  re-accumulate world position from parent-relative offsets — simpler,
+  and exactly equivalent, since canon already gives the world position
+  for free. The pure-translation IBM formula (identity rotation/scale,
+  `-worldPos` translation) is re-derived here, not called from
+  `gltf_skeleton.cpp` (off-limits per this writer's own scope), but is
+  the same real formula, confirmed by reading that file for reference.
+- **Shared index buffer, sliced per primitive** (one `bufferView` for
+  `mesh.indices`, each primitive's accessor using its own `byteOffset`
+  into it) rather than the old writer's per-primitive copied index
+  arrays — mirrors `canon::Mesh`'s own "one shared buffer, `PrimitiveGeoset`
+  slices a range" shape directly instead of re-copying.
+- **Animation naming**: `canon::SequenceRef` carries no display name
+  anywhere in this codebase, but glTF/Blender's Action-picker UX wants a
+  real `Animation.name` — synthesizes `"sequence_<n>"`/
+  `"global_sequence_<n>"`, mechanically derived from `(kind, index)`, the
+  same spirit as the old pipeline's own `"global_seq_<n>"` naming for the
+  global-sequence half.
+
 ### Shading-function descriptions: a scaffold, not a one-shot transcription
 
 The eventual goal — a material's manifest should be reconstructable by a
