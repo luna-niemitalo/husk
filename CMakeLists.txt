@@ -243,6 +243,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli_info_json.cpp
     tests/test_cli_errors.cpp
     tests/test_cli_argv.cpp
+    tests/test_cli_flag_docs.cpp
     tests/test_cli_skin.cpp
     tests/test_cli_anim.cpp
     tests/test_cli_anim_skel.cpp
@@ -284,6 +285,10 @@ if(HUSK_BUILD_TESTS)
     # per-model WoW extraction fixture, hence its own separate macro rather
     # than routing through test_data_paths.hpp's test_data/-relative resolve().
     HUSK_TEST_DBD_DIR="${CMAKE_CURRENT_SOURCE_DIR}/reference/WoWDBDefs"
+    # tests/test_cli_flag_docs.cpp's drift check: README.md's generated flag
+    # table (between the BEGIN/END GENERATED FLAG TABLE markers) must match
+    # `husk --print-flag-docs=<subcommand>`'s live output byte-for-byte.
+    HUSK_README_PATH="${CMAKE_CURRENT_SOURCE_DIR}/README.md"
   )
   add_dependencies(husk-tests husk)
 

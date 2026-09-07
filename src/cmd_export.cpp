@@ -562,11 +562,15 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
     // mode (below) takes its model paths from a file instead, so requiredness is
     // enforced by hand after parsing (see exportGlb), once it's known which mode
     // this invocation is actually in.
-    app.add_option("-i,--input,input", opts.modelPath, "the .m2 file to export")
+    app.add_option("-i,--input,input", opts.modelPath,
+                    "the .m2 file to export -- required for single-file mode (--from-list "
+                    "supplies model paths instead); also usable as the first bare positional "
+                    "argument")
         ->group("Input / output");
     app.add_option("-o,--output,output", opts.outputPath,
                     "output .glb path (default: '<model-basename>.glb') -- mutually exclusive "
-                    "with --from-list, which always writes into --output-dir instead")
+                    "with --from-list, which always writes into --output-dir instead; also "
+                    "usable as the last bare positional argument")
         ->group("Input / output");
     app.add_option("--from-list", opts.fromListArg,
                     "batch mode: a plain text file of .m2 paths, one per line (blank lines and "
@@ -587,7 +591,8 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
     app.add_option("-s,--skin", opts.skinArg,
                     "a .skin path, or 'auto' to resolve via the model's own SFID chunk, falling "
                     "back to a same-basename numbered scan next to the model if that doesn't "
-                    "resolve")
+                    "resolve -- never 'none': a .skin file is the sole source of triangle/"
+                    "submesh/batch data, not optional enrichment")
         ->capture_default_str()
         ->check(
             [](const std::string& v) -> std::string {

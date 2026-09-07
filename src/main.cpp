@@ -323,17 +323,13 @@ std::string generateZshCompletion(CLI::App& root) {
     return out.str();
 }
 
-// Builds a throwaway CLI11 App tree matching every subcommand's real flag
-// surface -- `root`/every `*Opts` below must stay alive for this whole
-// function body, since CLI11 options bind by reference to the address
-// passed at add_option time; only the finished std::string may outlive it.
-// Never calls `.parse(...)` -- only introspects (see collectFlags/
-// allSubcommands above). Every subcommand here registers via its own
-// shared `addXOptions` (commands.hpp) -- the same flag declarations the
-// real command's own parse uses, so this tree can never drift out of sync
-// with what CLI11 actually parses against.
-std::string generateCompletionScript(const std::string& shell) {
-    CLI::App root{"husk"};
+// Every option struct below must outlive whatever introspects `root` (CLI11
+// binds by reference to the address passed at add_option time) -- bundled
+// into one struct, rather than a pile of function-local variables, so both
+// generateCompletionScript and generateFlagDocsMarkdown below can share one
+// registration function instead of keeping two copies of this subcommand
+// list in sync by hand.
+struct AllSubcommandOpts {
     husk::commands::ExportOptions exportOpts;
     husk::commands::InfoOptions infoOpts;
     husk::commands::DumpChunksOptions dumpOpts;
@@ -343,43 +339,135 @@ std::string generateCompletionScript(const std::string& shell) {
     husk::commands::BlpExportOptions blpExportOpts;
     husk::commands::AppearanceStringOptions appearanceOpts;
     husk::commands::ResolveOptions resolveOpts;
+};
 
+// Builds a throwaway CLI11 App tree matching every subcommand's real flag
+// surface. Never calls `.parse(...)` -- only introspects (see collectFlags/
+// allSubcommands above). Every subcommand here registers via its own
+// shared `addXOptions` (commands.hpp) -- the same flag declarations the
+// real command's own parse uses, so this tree can never drift out of sync
+// with what CLI11 actually parses against.
+void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* exportSub =
         root.add_subcommand("export", "export a mesh (+ skin/animation) to glTF");
-    husk::commands::addExportOptions(*exportSub, exportOpts);
+    husk::commands::addExportOptions(*exportSub, opts.exportOpts);
 
     CLI::App* infoSub = root.add_subcommand("info", "parse and print an M2 header");
-    husk::commands::addInfoOptions(*infoSub, infoOpts);
+    husk::commands::addInfoOptions(*infoSub, opts.infoOpts);
 
     CLI::App* dumpSub = root.add_subcommand("dump-chunks", "extract misc chunks to JSON");
-    husk::commands::addDumpChunksOptions(*dumpSub, dumpOpts);
+    husk::commands::addDumpChunksOptions(*dumpSub, opts.dumpOpts);
 
     CLI::App* db2InfoSub = root.add_subcommand("db2-info", "parse and print a WDC5 DB2 file");
-    husk::commands::addDb2InfoOptions(*db2InfoSub, db2InfoOpts);
+    husk::commands::addDb2InfoOptions(*db2InfoSub, opts.db2InfoOpts);
 
     CLI::App* db2ExportSub =
         root.add_subcommand("db2-export", "convert WDC5 DB2 file(s) to a real SQLite database");
-    husk::commands::addDb2ExportOptions(*db2ExportSub, db2ExportOpts);
+    husk::commands::addDb2ExportOptions(*db2ExportSub, opts.db2ExportOpts);
 
     CLI::App* db2BuildSub =
         root.add_subcommand("db2-build", "build husk's own verified knowledge-base DB");
-    husk::commands::addDb2BuildOptions(*db2BuildSub, db2BuildOpts);
+    husk::commands::addDb2BuildOptions(*db2BuildSub, opts.db2BuildOpts);
 
     CLI::App* blpExportSub = root.add_subcommand("blp-export", "convert BLP2 texture(s) to PNG");
-    husk::commands::addBlpExportOptions(*blpExportSub, blpExportOpts);
+    husk::commands::addBlpExportOptions(*blpExportSub, opts.blpExportOpts);
 
     CLI::App* appearanceSub =
         root.add_subcommand("appearance-string", "validate/normalize a husk-appearance/1 string");
-    husk::commands::addAppearanceStringOptions(*appearanceSub, appearanceOpts);
+    husk::commands::addAppearanceStringOptions(*appearanceSub, opts.appearanceOpts);
 
     CLI::App* resolveSub =
         root.add_subcommand("resolve", "print sources::Catalog's texture-resolution ledger as JSON");
-    husk::commands::addResolveOptions(*resolveSub, resolveOpts);
+    husk::commands::addResolveOptions(*resolveSub, opts.resolveOpts);
+}
+
+std::string generateCompletionScript(const std::string& shell) {
+    CLI::App root{"husk"};
+    AllSubcommandOpts opts;
+    registerAllSubcommands(root, opts);
 
     if (shell == "bash") return generateBashCompletion(root);
     if (shell == "zsh") return generateZshCompletion(root);
     throw std::runtime_error("husk: --print-completion: unsupported shell '" + shell +
                               "' -- supported: bash, zsh");
+}
+
+// `--config`/`--help` are plumbing, not part of a subcommand's own
+// documented flag surface (README.md's flag tables never listed either --
+// --config gets its own "Config file" prose section, --help is implied).
+bool isDocExcludedFlag(const std::string& longName) {
+    return longName == "--config" || longName == "--help";
+}
+
+// Markdown-table cell text can't contain a literal `|` or a bare newline --
+// CLI11 descriptions are hand-written prose (see addExportOptions in
+// cmd_export.cpp) that never uses either, but this guards the generator
+// itself against silently emitting a broken table if that ever changes.
+std::string escapeTableCell(const std::string& text) {
+    std::string out;
+    out.reserve(text.size());
+    for (char c : text) {
+        if (c == '|') {
+            out += "&#124;";
+        } else if (c == '\n') {
+            out += ' ';
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
+// One row per real `add_option`/`add_flag` registration, taken directly
+// from CLI11's own introspection -- `opt->get_description()` is the exact
+// same string `--help` prints, so there is no second, hand-copied
+// explanation of what a flag does left to drift out of sync (see
+// README.md's "Flags" table under `export`, spliced in verbatim between
+// the `<!-- BEGIN/END GENERATED FLAG TABLE -->` markers this emits).
+std::string generateFlagDocsMarkdown(const std::string& subName) {
+    CLI::App root{"husk"};
+    AllSubcommandOpts opts;
+    registerAllSubcommands(root, opts);
+
+    CLI::App* sub = nullptr;
+    for (CLI::App* s : allSubcommands(root)) {
+        if (s->get_name() == subName) sub = s;
+    }
+    if (sub == nullptr) {
+        throw std::runtime_error("husk: --print-flag-docs: unknown subcommand '" + subName + "'");
+    }
+
+    std::ostringstream out;
+    out << "<!-- BEGIN GENERATED FLAG TABLE: " << subName << " -->\n"
+        << "<!-- generated by `husk --print-flag-docs=" << subName
+        << "` -- do not hand-edit; regenerate with that command whenever " << subName
+        << "'s flags change. -->\n"
+        << "\n"
+        << "| Flag | Short | Description | Default |\n"
+        << "|---|---|---|---|\n";
+
+    for (CLI::Option* opt : sub->get_options()) {
+        if (opt->get_lnames().empty() && opt->get_snames().empty()) continue;
+        std::string longName = opt->get_lnames().empty() ? "" : "--" + opt->get_lnames().front();
+        if (isDocExcludedFlag(longName)) continue;
+
+        std::string flagCell = longName.empty() ? "" : "`" + longName + "`";
+        std::string shortCell = opt->get_snames().empty() ? "--" : "`-" + opt->get_snames().front() + "`";
+        std::string descCell = escapeTableCell(opt->get_description());
+        std::string defaultCell;
+        if (opt->get_required()) {
+            defaultCell = "-- (required)";
+        } else {
+            std::string def = opt->get_default_str();
+            defaultCell = def.empty() ? "unset" : "`" + def + "`";
+        }
+
+        out << "| " << flagCell << " | " << shortCell << " | " << descCell << " | " << defaultCell
+            << " |\n";
+    }
+
+    out << "\n<!-- END GENERATED FLAG TABLE: " << subName << " -->\n";
+    return out.str();
 }
 
 // `--print-completion=<shell>` has no human reader (its only consumers are
@@ -407,12 +495,39 @@ bool tryPrintCompletion(int argc, char** argv, int& exitCode) {
     return false;
 }
 
+// `--print-flag-docs=<subcommand>` -- same "hidden, no human ever types
+// this by hand, --print-completion's own doc comment applies verbatim"
+// tier as that flag; the only consumer is README.md's own regeneration
+// step (see generateFlagDocsMarkdown's doc comment) and, transitively,
+// tests/test_cli_flag_docs.cpp's drift check.
+bool tryPrintFlagDocs(int argc, char** argv, int& exitCode) {
+    static const std::string kPrefix = "--print-flag-docs=";
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg.compare(0, kPrefix.size(), kPrefix) != 0) continue;
+        std::string subName = arg.substr(kPrefix.size());
+        try {
+            std::cout << generateFlagDocsMarkdown(subName);
+            exitCode = 0;
+        } catch (const std::exception& e) {
+            std::cerr << e.what() << "\n";
+            exitCode = 1;
+        }
+        return true;
+    }
+    return false;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     int completionExitCode = 0;
     if (tryPrintCompletion(argc, argv, completionExitCode)) {
         return completionExitCode;
+    }
+    int flagDocsExitCode = 0;
+    if (tryPrintFlagDocs(argc, argv, flagDocsExitCode)) {
+        return flagDocsExitCode;
     }
 
     static const char* usage =
