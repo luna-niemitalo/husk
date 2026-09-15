@@ -330,45 +330,52 @@ itself was never extended to check resolved texture identity against
 legacy's `gm.baseColorTextureFileDataId` — a gap in that one diagnostic, not
 in canon:: or its resolution wiring.
 
-**Texture-identity check added to `compareMaterialBlendModes`, found to be
-currently unexercisable against a real fixture**: `compareMaterialBlendModes`
-gained an optional `legacyMaterials` parameter (default empty, `{}` = skip,
-same "predates this parameter" convention every other optional comparator
-input already follows) — when both `canonModel.materials[i]`'s primary
-layer is `TextureRef::State::Resolved` and `legacyMaterials` was supplied,
-it checks the resolved `FileDataId` matches legacy's own
-`baseColorTextureFileDataId`. 4 new unit tests cover match/mismatch/omitted/
-`KnownUnresolved`-is-never-checked. **Running it for real against
-`bloodelffemale.m2` surfaced a genuine, previously-undocumented structural
-fact**: `buildMaterialsAndPrimitives` (legacy) dedupes materials by content
-signature (`materialDedupKey`) — this real fixture's 70 surviving batches
-collapse to 8 distinct `gltf::Material` entries — while
-`canon::assembleModel` pushes exactly one `canon::Material` per surviving
-batch with **no dedup at all** (`Model::materials`' own doc comment already
-states the 1:1 batch correspondence as deliberate, but doesn't flag that
-this diverges from legacy's own list shape). The new check's own
-`legacyMaterials.size() != canonModel.materials.size()` guard caught this
-safely (8 vs 70 → skipped with a note, not a false deviation), but it also
-means the texture-identity check can currently never fire against ANY real
-corpus file — only against hand-built unit fixtures where both lists happen
-to already be the same length. Real follow-up, not done here: either give
-`canon::Model` its own dedup pass (a real behavior change, not just a
-diagnostic fix), or have the comparator walk `gltf::Mesh::primitives[i]
-.materialIndex` on both sides instead of assuming positional 1:1
-correspondence between the two material lists. Left open rather than
-guessed at, since which of those two is "correct" is itself a real Stage 3
-design question (does canon:: want legacy's dedup behavior at all, or is
-"one material per batch" the deliberately simpler canon:: answer?) that
-hasn't been decided yet.
+**Texture-identity check added to `compareMaterialBlendModes`, and the
+material-count mismatch it originally surfaced is now closed too**:
+`compareMaterialBlendModes` gained an optional `legacyMaterials` parameter
+(default empty, `{}` = skip, same "predates this parameter" convention
+every other optional comparator input already follows) — when a
+primitive's own resolved material's primary layer is
+`TextureRef::State::Resolved` and `legacyMaterials`/`legacyPrimitives` were
+supplied, it checks the resolved `FileDataId` matches legacy's own
+`baseColorTextureFileDataId` for that primitive's own resolved legacy
+material. 4 new unit tests cover match/mismatch/omitted/
+`KnownUnresolved`-is-never-checked.
 
-**Still open**: no real fixture in this repo's `test_data/` ships alongside
-a populated `--textures` directory, so this wiring has only been verified
-structurally (clean rebuild, full suite, `--compare-canon` still clean with
-the new parameter threaded through) — not yet against a real corpus file
-where texture slots actually resolve to real bytes. A real end-to-end
-visual check (do the resolved `TextureRef`s actually match what a real
-textured render shows) is still open, same as the rest of this refactor's
-"no gate is output-unchanged" policy.
+The genuine structural gap this check first surfaced (legacy dedupes
+materials by content signature, `canon::assembleModel` originally didn't at
+all — 70 surviving batches vs. 8 distinct legacy materials on this real
+fixture) is now fixed, not just worked around — see §7.3: `canon::Material`
+gained real identity (`Ref ref`), `canon::Model::materials` is genuinely
+DEDUPED by a batch-identity tuple key, and `canon::Model::primitiveMaterials`
++ `canon::resolveMaterialIndex` give both `compareMaterialBlendModes` and
+every real writer the same resolved-index lookup legacy's own
+`gltf::Primitive::materialIndex` already had. The comparator now resolves
+each side through its own real indirection instead of assuming positional
+1:1 correspondence between the two material lists — exactly the follow-up
+this paragraph used to describe as undecided.
+
+**Verified end to end against real, resolved-to-real-bytes texture data,
+closing the "no real fixture with a populated `--textures` directory" gap**
+(2026-09-15, same-day follow-up): `husk export bloodelffemale_hd.m2 --skin
+bloodelffemale_hd00.skin --skel bloodelffemale_hd.skel --textures
+/media/luna/data/wow_export/character/bloodelf/female --listfile
+<community-listfile.csv> --listfile-root /media/luna/data/wow_export
+--compare-canon` — the real local CASC export this whole project's own
+`--listfile`/`--textures` flags have always referred to, not a synthetic
+fixture — resolves 6 of this model's 10 materials to
+`TextureRef::State::Resolved` with a real `FileDataId` (the other 4/10
+`Ambiguous`, same-basename fuzzy matches with no FileDataID to disambiguate
+— an honest, already-documented resolution-tier limitation, not a bug), and
+`compareMaterialBlendModes`'s texture-identity check genuinely exercises
+all 6 `Resolved` cases against legacy's own `baseColorTextureFileDataId` —
+**clean, no deviations found**, across mesh/skeleton/animations/materials
+together. Not a structural-only check anymore: this is real texture bytes,
+resolved through the identical `sources::Catalog` call both pipelines
+share, confirmed to name the same FileDataID on both sides. A real visual
+(rendered) check is still separately open, same as the rest of this
+refactor's "no gate is output-unchanged" policy — this closes the
+*resolution* half, not the *pixel* half.
 
 ### 7.2 canon animation: external `.anim` resolution (global sequences, alias resolution, external-`.anim` API shape + orchestrator wiring: all closed 2026-09-15)
 
