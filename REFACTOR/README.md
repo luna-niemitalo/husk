@@ -151,19 +151,30 @@ project's own established `feedback_dont_start_big_refactors_mid_design`
 discipline.
 
 **What already satisfies the *separation* half, without a registry**: the
-current tree already keeps the three layers structurally independent, just
-wired by direct calls instead of a lookup table — `m2::loadModel`/`skin::`
-parsing plus `sources::Catalog` resolution (today's input-module-shaped
-code) hand fully pre-resolved facts to `canon::assembleModel` (core, I1: no
-paths, no filesystem, no catalog dependency), whose `canon::Model` output is
-consumed by `writers::writeLeanGlb`/`writers::writeBundle` (output-module-
-shaped code) with no knowledge of `m2::`/`skin::`/`sources::` at all. A
-second output module or a second input module can be added today by writing
-a new function with the same shape and wiring it into `cmd_export.cpp`
-directly — the only thing missing is the registry/CLI-selection layer that
-would let that wiring happen by name/extension instead of by editing
-`cmd_export.cpp`'s own call sites. That's the concrete, scoped follow-up
-this section exists to name, not to build yet.
+current tree keeps the three layers structurally independent, just wired by
+direct calls instead of a lookup table. This was NOT true when this
+paragraph was first written the same day (2026-09-15) — `canon::assembleModel`
+still took `m2::Model`/`skin::Batch`/`skin::Submesh` directly at that point,
+a real, found-and-fixed drift (`AUDIT.md` §7.3 has the full account). Now
+genuinely true: `m2::loadModel`/`skin::` parsing plus `sources::Catalog`
+resolution, orchestrated by the new M2 input module (`husk::m2input::
+buildCanonModel`, `m2_canon_input.hpp` — a sibling of canon::, not part of
+it) hand fully pre-resolved, plain canon:: values to `canon::assembleModel`
+(core: `Skeleton`, `Mesh`, a deduped `std::vector<Material>`, and
+`primitiveMaterials` — no m2::/skin:: type anywhere in its signature),
+whose `canon::Model` output is consumed by `writers::writeLeanGlb`/
+`writers::writeBundle` (output-module-shaped code) with no knowledge of
+`m2::`/`skin::`/`sources::` at all. A second output module or a second
+input module can be added today by writing a new function with the same
+shape and wiring it into `cmd_export.cpp` directly — the only thing missing
+is the registry/CLI-selection layer that would let that wiring happen by
+name/extension instead of by editing `cmd_export.cpp`'s own call sites.
+That's the concrete, scoped follow-up this section exists to name, not to
+build yet. Still open, per `AUDIT.md` §7.3: `assembleMesh`/
+`assembleSkeleton`/`assembleMaterial`/`assembleBoneAnimation` are textually
+declared inside `namespace husk::canon` while still taking `m2::`/`skin::`
+types directly — the input-module/core namespace boundary isn't fully
+honest yet, only the composition root (`assembleModel`) itself is.
 
 ## Invariants
 

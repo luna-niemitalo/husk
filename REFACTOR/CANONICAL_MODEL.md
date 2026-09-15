@@ -146,6 +146,49 @@ The architectural test, from Canonical Data Model §10: *could a software render
 Blender, and a GPU backend each consume this unchanged?* If a field only makes
 sense to one of them, it belongs in that writer.
 
+**Extended 2026-09-15, after a real drift found and corrected the same
+day**: the paragraph above constrains canon:: struct *fields* -- what a
+`canon::Skeleton`/`Mesh`/`Material`/`Model` may hold. It says nothing about
+what canon::'s own *assembly function signatures* may accept as input, and
+that gap let `canon::assembleModel` drift into taking `m2::Model`/
+`skin::Batch`/`skin::Submesh` directly and walking them itself -- silently
+making the composition root a second M2-input-module in disguise, never
+caught because every convergence test happened to feed it M2 data too.
+Stated explicitly now so it can't drift back in unnoticed: **canon::'s own
+composition entry point (`canon::assembleModel`) must take ONLY canon::
+values -- no format-specific type (`m2::`, `skin::`, a future `gltf::`- or
+`potato::`-shaped input) anywhere in its signature.** Luna's own framing:
+*"the assemble model... should not care if the source format is a potato
+or m2, and thus should already have the data in canonical format."*
+Deciding *how* to turn one input format's bytes into the Mesh/Skeleton/
+Material list/AnimationClip list `assembleModel` composes is entirely that
+format's own input module's job (for M2: `husk::m2input::buildCanonModel`,
+`m2_canon_input.hpp`) -- a *sibling* of canon::, not part of it, even
+though it currently still calls canon::'s own per-piece translation
+functions (`assembleMesh`/`assembleSkeleton`/`assembleMaterial`/
+`assembleBoneAnimation`), which DO still take m2::/skin:: types directly.
+That's a real, named, NOT-yet-closed gap of its own: those functions are
+textually declared in `namespace husk::canon` (the `canon_*_builder.hpp`
+files) while accepting foreign types, the same shape this section now
+forbids for the composition root specifically. Moving them into
+`husk::m2input` too (or an equivalent rename) is real follow-up work, not
+done in the same pass that fixed `assembleModel` itself -- scoped out
+deliberately given the size of the change already made, not overlooked.
+
+**A related, separate, also-not-fixed finding from the same investigation**:
+`canon::Mesh` (`canon_mesh_builder.hpp`) declares `positions`/`normals`/
+`uv0`/`uv1` as `std::vector<m2::Vec3>`/`std::vector<m2::Vec2>` -- a
+namespaced M2 type used as a canon:: struct FIELD, which the original I1
+wording above *does* already cover in spirit (even though `m2::Vec3` is, in
+practice, just three floats with no M2-specific behavior riding along, so
+the real severity is closer to "wrong namespace on a generic type" than
+"leaked M2 semantics"). Fixing it means canon:: owning its own Vec2/Vec3/
+Quat value types and every producer (mesh/skeleton/animation/material
+builders) converting at their own boundary -- a real, mechanical, but
+repo-wide sweep, out of scope for the pass that added `Model::
+primitiveMaterials`/`Material::ref` identity. Named here so it has a
+record, not fixed here.
+
 ## Cost, measured rather than asserted
 
 "It touches all 680 tests" is the kind of number that gets a correct decision

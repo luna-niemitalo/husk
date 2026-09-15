@@ -157,13 +157,28 @@ TEST_CASE("canon_diff::compareSkeleton: an injected parent mismatch is caught as
     CHECK(foundParentDeviation);
 }
 
-TEST_CASE("canon_diff::compareMaterialBlendModes: a real blend-mode mismatch is caught as a deviation") {
+namespace {
+
+// Every compareMaterialBlendModes test below builds one canon::Model with
+// exactly one material and one primitive -- this sets up the now-required
+// canon::Model::primitiveMaterials indirection (canon_model.hpp's own doc
+// comment) so a test doesn't have to repeat it inline six times.
+canon::Model oneMaterialOnePrimitiveModel(canon::MaterialLayer layer) {
     canon::Model canonModel;
     canon::Material mat;
+    mat.ref.id = canon::RecordIndex{0};
+    mat.layers = {std::move(layer)};
+    canonModel.materials = {mat};
+    canonModel.primitiveMaterials = {canon::Identity{canon::RecordIndex{0}}};
+    return canonModel;
+}
+
+}  // namespace
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a real blend-mode mismatch is caught as a deviation") {
     canon::MaterialLayer layer;
     layer.blendIntoPrevious = canon::BlendOp::Add;  // deliberately wrong for blendMode 0 below (expects Replace)
-    mat.layers = {layer};
-    canonModel.materials = {mat};
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
 
     std::vector<skin::Submesh> submeshes(1);
     submeshes[0].indexCount = 3;
@@ -179,12 +194,9 @@ TEST_CASE("canon_diff::compareMaterialBlendModes: a real blend-mode mismatch is 
 }
 
 TEST_CASE("canon_diff::compareMaterialBlendModes: a matching blend mode reports zero deviations") {
-    canon::Model canonModel;
-    canon::Material mat;
     canon::MaterialLayer layer;
     layer.blendIntoPrevious = canon::BlendOp::Replace;  // matches blendMode 0
-    mat.layers = {layer};
-    canonModel.materials = {mat};
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
 
     std::vector<skin::Submesh> submeshes(1);
     submeshes[0].indexCount = 3;
@@ -199,16 +211,13 @@ TEST_CASE("canon_diff::compareMaterialBlendModes: a matching blend mode reports 
     CHECK(r.ok());
 }
 
-TEST_CASE("canon_diff::compareMaterialBlendModes: legacyMaterials omitted (default) skips the texture-identity "
-          "check entirely, even with a mismatching fdid") {
-    canon::Model canonModel;
-    canon::Material mat;
+TEST_CASE("canon_diff::compareMaterialBlendModes: legacyMaterials/legacyPrimitives omitted (default) skips "
+          "the texture-identity check entirely, even with a mismatching fdid") {
     canon::MaterialLayer layer;
     layer.blendIntoPrevious = canon::BlendOp::Replace;
     layer.texture.state = canon::TextureRef::State::Resolved;
     layer.texture.resolved.id = canon::FileDataId{111};
-    mat.layers = {layer};
-    canonModel.materials = {mat};
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
 
     std::vector<skin::Submesh> submeshes(1);
     submeshes[0].indexCount = 3;
@@ -219,21 +228,18 @@ TEST_CASE("canon_diff::compareMaterialBlendModes: legacyMaterials omitted (defau
     std::vector<m2::Material> materials(1);
     materials[0].blendMode = 0;
 
-    // No legacyMaterials argument at all -- default empty.
+    // No legacyMaterials/legacyPrimitives arguments at all -- default empty.
     canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials);
     CHECK(r.ok());
 }
 
 TEST_CASE("canon_diff::compareMaterialBlendModes: a real resolved-texture FileDataID mismatch against "
-          "legacyMaterials is caught as a deviation") {
-    canon::Model canonModel;
-    canon::Material mat;
+          "legacyMaterials (resolved via legacyPrimitives' own materialIndex) is caught as a deviation") {
     canon::MaterialLayer layer;
     layer.blendIntoPrevious = canon::BlendOp::Replace;
     layer.texture.state = canon::TextureRef::State::Resolved;
     layer.texture.resolved.id = canon::FileDataId{111};
-    mat.layers = {layer};
-    canonModel.materials = {mat};
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
 
     std::vector<skin::Submesh> submeshes(1);
     submeshes[0].indexCount = 3;
@@ -246,22 +252,21 @@ TEST_CASE("canon_diff::compareMaterialBlendModes: a real resolved-texture FileDa
 
     std::vector<gltf::Material> legacyMaterials(1);
     legacyMaterials[0].baseColorTextureFileDataId = 222;  // deliberately different from canon's 111
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
 
-    canon_diff::Report r =
-        canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials, legacyMaterials);
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
     CHECK_FALSE(r.ok());
 }
 
 TEST_CASE("canon_diff::compareMaterialBlendModes: a matching resolved-texture FileDataID against "
-          "legacyMaterials reports zero deviations") {
-    canon::Model canonModel;
-    canon::Material mat;
+          "legacyMaterials (resolved via legacyPrimitives' own materialIndex) reports zero deviations") {
     canon::MaterialLayer layer;
     layer.blendIntoPrevious = canon::BlendOp::Replace;
     layer.texture.state = canon::TextureRef::State::Resolved;
     layer.texture.resolved.id = canon::FileDataId{111};
-    mat.layers = {layer};
-    canonModel.materials = {mat};
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
 
     std::vector<skin::Submesh> submeshes(1);
     submeshes[0].indexCount = 3;
@@ -274,22 +279,21 @@ TEST_CASE("canon_diff::compareMaterialBlendModes: a matching resolved-texture Fi
 
     std::vector<gltf::Material> legacyMaterials(1);
     legacyMaterials[0].baseColorTextureFileDataId = 111;  // matches canon's resolved fdid
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
 
-    canon_diff::Report r =
-        canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials, legacyMaterials);
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
     CHECK(r.ok());
 }
 
 TEST_CASE("canon_diff::compareMaterialBlendModes: a KnownUnresolved canon texture state is never checked "
           "against legacyMaterials, even when legacy itself resolved a real fdid") {
-    canon::Model canonModel;
-    canon::Material mat;
     canon::MaterialLayer layer;
     layer.blendIntoPrevious = canon::BlendOp::Replace;
     // Default TextureRef::State::KnownUnresolved -- e.g. no TextureResolutions
     // was supplied to assembleModel at all.
-    mat.layers = {layer};
-    canonModel.materials = {mat};
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
 
     std::vector<skin::Submesh> submeshes(1);
     submeshes[0].indexCount = 3;
@@ -302,8 +306,10 @@ TEST_CASE("canon_diff::compareMaterialBlendModes: a KnownUnresolved canon textur
 
     std::vector<gltf::Material> legacyMaterials(1);
     legacyMaterials[0].baseColorTextureFileDataId = 999;  // legacy has an opinion; canon doesn't
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
 
-    canon_diff::Report r =
-        canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials, legacyMaterials);
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
     CHECK(r.ok());
 }

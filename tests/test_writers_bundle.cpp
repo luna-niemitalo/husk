@@ -1,9 +1,9 @@
 // Coverage for husk::writers::writeBundle (src/writers/bundle_writer.hpp) --
 // the native glTF-free bundle format. Two tiers: synthetic small models for
 // precise byte-level round-trip checks (built by hand, not via
-// canon::assembleModel, so the expected values are independent of that
+// m2input::buildCanonModel, so the expected values are independent of that
 // pipeline), and a real bloodelffemale.m2/.skin fixture (via
-// canon::assembleModel, same doctest::skip convention as
+// m2input::buildCanonModel, same doctest::skip convention as
 // tests/test_canon_model.cpp) for the structural checks that only make
 // sense against real, non-trivial data.
 //
@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "canon_model.hpp"
+#include "m2_canon_input.hpp"
 #include "m2.hpp"
 #include "skin.hpp"
 #include "test_data_paths.hpp"
@@ -107,6 +108,7 @@ canon::Model buildSyntheticModel() {
     model.mesh.primitives.push_back(prim);
 
     canon::Material material;
+    material.ref.id = canon::RecordIndex{0};
     canon::MaterialLayer layer;
     layer.identity.name = "layer0";
     layer.identity.source = canon::NameSource::Synthesized;
@@ -117,6 +119,7 @@ canon::Model buildSyntheticModel() {
     layer.blendIntoPrevious = canon::BlendOp::Modulate;
     material.layers.push_back(layer);
     model.materials.push_back(material);
+    model.primitiveMaterials.push_back(canon::Identity{canon::RecordIndex{0}});
 
     canon::AnimationClip clip;
     clip.sequence = canon::SequenceRef::sequence(5);
@@ -316,7 +319,8 @@ TEST_CASE("writeBundle: sparse animation -- only joints with real curve data get
 }
 
 TEST_CASE(
-    "writeBundle: real fixture -- primitives[i].material_index == i for every primitive" *
+    "writeBundle: real fixture -- primitives[i].material_index resolves via canon::resolveMaterialIndex, "
+    "not positionally" *
     doctest::skip(test::testM2().empty() || test::testSkin().empty())) {
     m2::Model m2model = m2::loadModel(readFile(test::testM2()));
     std::vector<uint8_t> skinFile = readFile(test::testSkin());
@@ -325,9 +329,14 @@ TEST_CASE(
     std::vector<skin::Batch> batches = skin::parseBatches(skinFile, header.batches);
     std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinFile, header);
 
-    canon::Model model = canon::assembleModel(m2model, batches, submeshes, triangleIndices);
+    canon::Model model = m2input::buildCanonModel(m2model, batches, submeshes, triangleIndices);
     REQUIRE(!model.mesh.primitives.empty());
-    REQUIRE(model.materials.size() == model.mesh.primitives.size());
+    REQUIRE(model.primitiveMaterials.size() == model.mesh.primitives.size());
+    // Real, expected dedup on this real fixture -- a genuinely FEWER
+    // materials than primitives, not the old 1:1 assumption. If this ever
+    // fails, either the fixture changed or dedup itself broke -- either
+    // way worth knowing, not silently tolerated as "well it's <= now".
+    REQUIRE(model.materials.size() < model.mesh.primitives.size());
 
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-real-fixture";
     fs::remove_all(dir);
@@ -336,9 +345,15 @@ TEST_CASE(
 
     const auto& primitives = manifest["resources"]["mesh"]["primitives"];
     REQUIRE(primitives.size() == model.mesh.primitives.size());
+    std::optional<size_t> firstMismatch;
     for (size_t i = 0; i < primitives.size(); ++i) {
-        CHECK(primitives[i]["material_index"] == i);
+        auto expected = canon::resolveMaterialIndex(model, i);
+        REQUIRE(expected.has_value());
+        if (primitives[i]["material_index"] != *expected && !firstMismatch) {
+            firstMismatch = i;
+        }
     }
+    CHECK_FALSE(firstMismatch.has_value());
 
     // Every BufferSlice's byte range must still fit its file on real,
     // non-trivial data (not just the synthetic tiny case above) -- one

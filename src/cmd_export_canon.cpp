@@ -10,6 +10,7 @@
 #include "chunk.hpp"           // readChunks, findChunk (AFSB/AFM2 peek)
 #include "export_extras.hpp"   // readFileBytes
 #include "m2_animation.hpp"    // m2::extractAnimBlob
+#include "m2_canon_input.hpp"  // m2input::buildCanonModel, m2input::ExternalAnimBlobs
 #include "skin.hpp"
 #include "writers/bundle_writer.hpp"
 #include "writers/gltf_lean.hpp"
@@ -229,14 +230,14 @@ std::optional<std::vector<uint8_t>> resolveExternalAnimBlobForCanon(
 // One resolveExternalAnimBlobForCanon call per non-inline, non-alias
 // sequence, keyed the same way ExternalAnimBlobs' own doc comment
 // requires: a pure-alias sequence never gets its own entry here
-// (canon::assembleModel's pass 3 resolves it via its terminal's index
+// (m2input::buildCanonModel's pass 3 resolves it via its terminal's index
 // instead, and a non-alias sequence IS its own terminal, so keying by `si`
 // directly is correct for every entry this function does produce). Empty
 // when `animDir` is empty, same "nothing to resolve" no-op every other
 // opt-in enrichment here uses.
-canon::ExternalAnimBlobs buildExternalAnimBlobs(const m2::Model& model, const std::string& animDir,
-                                                 const std::string& modelPath) {
-    canon::ExternalAnimBlobs blobs;
+m2input::ExternalAnimBlobs buildExternalAnimBlobs(const m2::Model& model, const std::string& animDir,
+                                                   const std::string& modelPath) {
+    m2input::ExternalAnimBlobs blobs;
     if (animDir.empty()) return blobs;
 
     bool animChunked = (model.header.globalFlags & 0x200000) != 0;
@@ -281,14 +282,14 @@ void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, 
             buildTextureResolutions(model, batches, catalog, modelPath, objectSkinTextureFileDataId);
         // See runCanonCompareExport's own doc comment (header): external-anim
         // resolution only makes sense against the inline M2 source
-        // canon::assembleModel actually reads -- a .skel-sourced bones/
+        // m2input::buildCanonModel actually reads -- a .skel-sourced bones/
         // sequences pair would need keys into a different sequence array
         // entirely, which canon::Model has no representation of at all yet.
-        canon::ExternalAnimBlobs externalAnimBlobs =
-            bonesAreInline ? buildExternalAnimBlobs(model, animDir, modelPath) : canon::ExternalAnimBlobs{};
+        m2input::ExternalAnimBlobs externalAnimBlobs =
+            bonesAreInline ? buildExternalAnimBlobs(model, animDir, modelPath) : m2input::ExternalAnimBlobs{};
 
-        canon::Model canonModel =
-            canon::assembleModel(model, batches, submeshes, triangleIndices, externalAnimBlobs, textureResolutions);
+        canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices,
+                                                             externalAnimBlobs, textureResolutions);
 
         std::filesystem::path leanGlbPath(outputPath);
         leanGlbPath.replace_extension(".canon.glb");
@@ -316,7 +317,8 @@ void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, 
         printReport("animations", animReport);
 
         canon_diff::Report materialReport =
-            canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, model.materials, legacyMaterials);
+            canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, model.materials, legacyMaterials,
+                                                   legacyMesh.primitives);
         anyDeviation = anyDeviation || !materialReport.ok();
         printReport("materials", materialReport);
 

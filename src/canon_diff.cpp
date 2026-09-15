@@ -366,7 +366,7 @@ Report compareAnimations(const canon::Model& canonModel, const std::vector<m2::S
     }
 
     r.notes.push_back("external-.anim-resolved clips ARE compared above like any other clip when the "
-                       "caller supplied canon::ExternalAnimBlobs (AUDIT.md §7.2's API shape, closed "
+                       "caller supplied m2input::ExternalAnimBlobs (AUDIT.md §7.2's API shape, closed "
                        "2026-09-15) -- this note only flags that no separate distinction is drawn "
                        "between an inline-sourced and an external-blob-sourced clip's own deviations; a "
                        "caller that passed no external blobs at all simply sees canon emit fewer clips, "
@@ -379,13 +379,15 @@ Report compareAnimations(const canon::Model& canonModel, const std::vector<m2::S
 Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vector<skin::Batch>& batches,
                                  const std::vector<skin::Submesh>& submeshes,
                                  const std::vector<m2::Material>& materials,
-                                 const std::vector<gltf::Material>& legacyMaterials) {
+                                 const std::vector<gltf::Material>& legacyMaterials,
+                                 const std::vector<gltf::Primitive>& legacyPrimitives) {
     Report r;
 
     // Independently walk `batches` applying the exact same zero-indexCount
-    // skip canon::assembleModel/assemblePrimitiveGeosets apply, so
-    // `expected[i]` lines up with `canonModel.materials[i]` by construction,
-    // not by re-trusting canon's own skip logic.
+    // skip m2input::buildCanonModel/assemblePrimitiveGeosets apply, so
+    // `expectedBlendMode[i]` lines up with `canonModel.mesh.primitives[i]`/
+    // `canonModel.primitiveMaterials[i]` by construction, not by
+    // re-trusting canon's own skip logic.
     std::vector<uint16_t> expectedBlendMode;
     for (const auto& b : batches) {
         if (b.skinSectionIndex >= submeshes.size()) continue;
@@ -394,65 +396,82 @@ Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vect
                                                                         : uint16_t{0});
     }
 
-    if (expectedBlendMode.size() != canonModel.materials.size()) {
+    if (expectedBlendMode.size() != canonModel.primitiveMaterials.size()) {
         std::ostringstream os;
-        os << "material count differs from surviving-batch count: expected " << expectedBlendMode.size()
-           << " vs canon " << canonModel.materials.size();
+        os << "primitiveMaterials count differs from surviving-batch count: expected " << expectedBlendMode.size()
+           << " vs canon " << canonModel.primitiveMaterials.size();
         r.deviations.push_back(os.str());
         return r;
     }
 
+    // canon::resolveMaterialIndex is the one shared implementation of this
+    // lookup (I2, canon_model.hpp's own doc comment) -- nullptr here just
+    // adapts its std::optional<size_t> to a pointer for this function's
+    // own loop convenience.
+    auto resolveMaterial = [&](size_t primitiveIndex) -> const canon::Material* {
+        auto idx = canon::resolveMaterialIndex(canonModel, primitiveIndex);
+        return idx ? &canonModel.materials[*idx] : nullptr;
+    };
+
     std::optional<size_t> blendOpMismatch;
-    for (size_t i = 0; i < canonModel.materials.size(); ++i) {
-        const auto& mat = canonModel.materials[i];
-        if (mat.layers.empty()) continue;  // nothing to compare a blend op against
-        if (mat.layers.front().blendIntoPrevious != expectedBlendOp(expectedBlendMode[i]) && !blendOpMismatch) {
+    for (size_t i = 0; i < expectedBlendMode.size(); ++i) {
+        const canon::Material* mat = resolveMaterial(i);
+        if (!mat || mat->layers.empty()) continue;  // nothing to compare a blend op against
+        if (mat->layers.front().blendIntoPrevious != expectedBlendOp(expectedBlendMode[i]) && !blendOpMismatch) {
             blendOpMismatch = i;
         }
     }
     if (blendOpMismatch) {
-        r.deviations.push_back("first-layer blend op mismatch at material " + std::to_string(*blendOpMismatch));
+        r.deviations.push_back("first-layer blend op mismatch at primitive " + std::to_string(*blendOpMismatch));
     }
 
-    // Texture-identity check: only when the caller actually supplied
-    // legacy's own material list (see this function's own doc comment for
-    // why an empty default silently skips this, and why only the
-    // `Resolved` canon state is checked at all).
-    if (!legacyMaterials.empty()) {
-        if (legacyMaterials.size() != canonModel.materials.size()) {
+    // Texture-identity check: only when the caller actually supplied BOTH
+    // legacy's own material list AND its own per-primitive materialIndex
+    // (see this function's own doc comment for why either being empty
+    // silently skips this, and why only the `Resolved` canon state is
+    // checked at all). legacy's `gltf::Primitive::materialIndex` is its own
+    // real indirection into its own deduped `legacyMaterials` -- the exact
+    // counterpart to canon's `primitiveMaterials` -> `materials`, not
+    // assumed to be 1:1 with the primitive/batch count either.
+    if (!legacyMaterials.empty() && !legacyPrimitives.empty()) {
+        if (legacyPrimitives.size() != expectedBlendMode.size()) {
             std::ostringstream os;
-            os << "legacyMaterials count (" << legacyMaterials.size() << ") differs from canon material count ("
-               << canonModel.materials.size() << ") -- skipping texture-identity check";
+            os << "legacyPrimitives count (" << legacyPrimitives.size() << ") differs from surviving-batch count ("
+               << expectedBlendMode.size() << ") -- skipping texture-identity check";
             r.notes.push_back(os.str());
         } else {
             std::optional<size_t> textureMismatch;
-            for (size_t i = 0; i < canonModel.materials.size(); ++i) {
-                const auto& mat = canonModel.materials[i];
-                if (mat.layers.empty()) continue;
-                const canon::TextureRef& ref = mat.layers.front().texture;
+            for (size_t i = 0; i < expectedBlendMode.size(); ++i) {
+                const canon::Material* mat = resolveMaterial(i);
+                if (!mat || mat->layers.empty()) continue;
+                const canon::TextureRef& ref = mat->layers.front().texture;
                 if (ref.state != canon::TextureRef::State::Resolved) continue;  // no opinion to check
                 const auto* fdid = std::get_if<canon::FileDataId>(&ref.resolved.id);
                 if (!fdid) continue;  // Resolved but no real FileDataID identity -- nothing to compare
-                if (fdid->value != legacyMaterials[i].baseColorTextureFileDataId && !textureMismatch) {
+
+                int legacyMatIndex = legacyPrimitives[i].materialIndex;
+                if (legacyMatIndex < 0 || static_cast<size_t>(legacyMatIndex) >= legacyMaterials.size()) continue;
+                if (fdid->value != legacyMaterials[legacyMatIndex].baseColorTextureFileDataId && !textureMismatch) {
                     textureMismatch = i;
                 }
             }
             if (textureMismatch) {
-                const auto& ref = canonModel.materials[*textureMismatch].layers.front().texture;
-                uint32_t canonFdid = std::get<canon::FileDataId>(ref.resolved.id).value;
+                const canon::Material* mat = resolveMaterial(*textureMismatch);
+                uint32_t canonFdid = std::get<canon::FileDataId>(mat->layers.front().texture.resolved.id).value;
+                int legacyMatIndex = legacyPrimitives[*textureMismatch].materialIndex;
                 std::ostringstream os;
-                os << "first-layer resolved texture FileDataID mismatch at material " << *textureMismatch
+                os << "first-layer resolved texture FileDataID mismatch at primitive " << *textureMismatch
                    << ": canon " << canonFdid << " vs legacy "
-                   << legacyMaterials[*textureMismatch].baseColorTextureFileDataId;
+                   << legacyMaterials[legacyMatIndex].baseColorTextureFileDataId;
                 r.deviations.push_back(os.str());
             }
         }
     }
 
-    r.notes.push_back("only each material's own first-layer blendIntoPrevious op and (when legacyMaterials is "
-                       "supplied) resolved texture FileDataID are checked -- tint/alphaFade/uvAnimation curve "
-                       "comparison, and any check at all for a canon KnownUnresolved/Ambiguous state, remain "
-                       "unimplemented in this diagnostic");
+    r.notes.push_back("only each primitive's own resolved material's first-layer blendIntoPrevious op and (when "
+                       "legacyMaterials/legacyPrimitives are supplied) resolved texture FileDataID are checked -- "
+                       "tint/alphaFade/uvAnimation curve comparison, and any check at all for a canon "
+                       "KnownUnresolved/Ambiguous state, remain unimplemented in this diagnostic");
     return r;
 }
 

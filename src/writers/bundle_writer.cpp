@@ -264,8 +264,14 @@ void writeFile(const std::filesystem::path& path, const std::vector<uint8_t>& by
 }
 
 // resources.mesh -- appends every mesh BufferSlice to `meshBin` and writes
-// the section (including the "primitives" inline array) to `w`.
-void writeMeshSection(json::Writer& w, const canon::Mesh& mesh, std::vector<uint8_t>& meshBin) {
+// the section (including the "primitives" inline array) to `w`. Takes the
+// whole `model`, not just `model.mesh`, so each primitive's own
+// "material_index" can be resolved via canon::resolveMaterialIndex (I2) --
+// `model.materials` is deduped and no longer 1:1 with `model.mesh
+// .primitives`, so a primitive's material must be looked up through
+// `model.primitiveMaterials`, not assumed to share its own index.
+void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<uint8_t>& meshBin) {
+    const canon::Mesh& mesh = model.mesh;
     w.beginObject();
 
     w.key("positions");
@@ -315,13 +321,25 @@ void writeMeshSection(json::Writer& w, const canon::Mesh& mesh, std::vector<uint
         w.value(static_cast<int64_t>(prim.indexStart));
         w.key("index_count");
         w.value(static_cast<int64_t>(prim.indexCount));
-        // material_index == i: canon::Model::materials's own doc comment
-        // ("materials[i] describes mesh.primitives[i]"), re-confirmed by
-        // reading that comment before relying on it here -- see
-        // bundle_writer.hpp's own doc comment and
-        // tests/test_writers_bundle.cpp's explicit regression test.
+        // Resolved via canon::resolveMaterialIndex, not assumed to equal
+        // `i` -- model.materials is deduped (canon_model.hpp's own doc
+        // comment); see this function's own doc comment above and
+        // tests/test_writers_bundle.cpp's explicit regression test. A
+        // nullopt here means `model` holds a `primitiveMaterials` entry
+        // this bundle format has no way to represent (a bundle-external
+        // material reference, not implemented anywhere yet) -- an interior
+        // invariant violation for this writer's own current scope, so it
+        // throws rather than silently writing a wrong index (FOREIGN_DATA
+        // policy: the interior trusts an already-validated canon::Model,
+        // it doesn't limp past a shape it can't handle).
+        auto matIdx = canon::resolveMaterialIndex(model, i);
+        if (!matIdx) {
+            throw std::runtime_error("writeBundle: primitive " + std::to_string(i) +
+                                      "'s material reference isn't a local RecordIndex -- bundle writer has no "
+                                      "way to represent a bundle-external material reference yet");
+        }
         w.key("material_index");
-        w.value(static_cast<int64_t>(i));
+        w.value(static_cast<int64_t>(*matIdx));
         w.endObject();
     }
     w.endArray();
@@ -574,7 +592,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     w.beginObject();
 
     w.key("mesh");
-    writeMeshSection(w, model.mesh, meshBin);
+    writeMeshSection(w, model, meshBin);
 
     w.key("skeleton");
     writeSkeletonSection(w, model.skeleton, skeletonBin);

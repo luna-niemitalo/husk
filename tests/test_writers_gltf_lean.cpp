@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "canon_model.hpp"
+#include "m2_canon_input.hpp"
 #include "m2.hpp"
 #include "run_husk.hpp"
 #include "skin.hpp"
@@ -70,8 +71,10 @@ canon::Model buildSyntheticModel() {
     canon::MaterialLayer layer;
     layer.blendIntoPrevious = canon::BlendOp::Modulate;
     canon::Material mat;
+    mat.ref.id = canon::RecordIndex{0};
     mat.layers = {layer};
     model.materials = {mat};
+    model.primitiveMaterials = {canon::Identity{canon::RecordIndex{0}}};
 
     return model;
 }
@@ -202,7 +205,7 @@ TEST_CASE("writeLeanGlb: a real fixture produces a glb the Khronos glTF-Validato
     std::vector<skin::Submesh> submeshes = skin::parseSubmeshes(skinFile, header.submeshes);
     std::vector<skin::Batch> batches = skin::parseBatches(skinFile, header.batches);
     std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinFile, header);
-    canon::Model canonModel = canon::assembleModel(model, batches, submeshes, triangleIndices);
+    canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices);
 
     auto outPath = std::filesystem::temp_directory_path() / "husk-test-lean-validator.glb";
     std::filesystem::remove(outPath);
@@ -242,7 +245,7 @@ TEST_CASE("writeLeanGlb: Blender's own glTF importer reads a real fixture's lean
     std::vector<skin::Submesh> submeshes = skin::parseSubmeshes(skinFile, header.submeshes);
     std::vector<skin::Batch> batches = skin::parseBatches(skinFile, header.batches);
     std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinFile, header);
-    canon::Model canonModel = canon::assembleModel(model, batches, submeshes, triangleIndices);
+    canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices);
 
     auto outPath = std::filesystem::temp_directory_path() / "husk-test-lean-blender.glb";
     std::filesystem::remove(outPath);

@@ -443,3 +443,84 @@ canon's newly-wired external-anim path reproduces the exact clips legacy's
 `buildAnimations` produces from the identical file, not just a structural
 no-op. Full suite still green, 966/966.
 
+### 7.3 `canon::assembleModel` took `m2::`/`skin::` types directly — closed 2026-09-15; sub-assemblers still do (open)
+
+**Found while adding the material-dedup work below**: `canon::assembleModel`
+(the whole-model composition root) took `m2::Model`/`skin::Batch`/
+`skin::Submesh`/`std::vector<uint32_t>` directly and walked them itself —
+silently making it a second M2-input-module in disguise, never caught
+because every convergence test happened to feed it M2 data too.
+`CANONICAL_MODEL.md`'s I1 never technically forbade this (I1 constrains
+canon:: struct *fields*, said nothing about assembly *function signatures*)
+— the gap was real, not a violated rule, and I1 has been extended with an
+explicit clause naming it (`CANONICAL_MODEL.md`'s own updated section has
+the full account, including Luna's own framing: *"the assemble model...
+should not care if the source format is a potato or m2"*).
+
+**Fixed**: `canon::assembleModel`'s old orchestration body (which sequence
+produces a clip, which batch shares a material, the three-pass animation
+walk) moved to a new file, `src/m2_canon_input.hpp`/`.cpp`
+(`husk::m2input::buildCanonModel`) — the M2 input module, a sibling of
+canon::, not part of it. `canon::assembleModel` itself shrank to real
+composition only: `Model assembleModel(Skeleton, Mesh,
+std::vector<Material>, std::vector<Identity> primitiveMaterials,
+std::vector<AnimationClip>)` — no m2/skin type anywhere in it, validating
+only the one structural invariant this composition step owns
+(`primitiveMaterials.size() == mesh.primitives.size()`, and every
+`RecordIndex` in it in range for `materials`).
+
+**Landed together with the material-identity fix this section's own header
+already named as the real motivating question**: `canon::Material` gained
+a `Ref ref` identity field (`RecordIndex{i}` for every real local producer
+today); `canon::Model::materials` is now genuinely DEDUPED (content-
+distinct materials only) instead of one entry per surviving batch;
+`canon::Model::primitiveMaterials` (one `Identity` per `mesh.primitives`
+entry) replaces the old implicit "materials[i] describes primitives[i]"
+positional convention. Dedup key: a batch's own
+`(materialIndex, textureCount, textureComboIndex, textureCoordComboIndex,
+colorIndex, textureWeightComboIndex, textureTransformComboIndex)` tuple —
+this fully determines what `assembleMaterial` would build for it (given
+the model-wide-constant sequenceIndex/textureResolutions), so two batches
+sharing that tuple share one `canon::Material`, found by identity rather
+than by hashing the built material's content after the fact the way
+legacy's own `materialDedupKey` (`export_texture_resolution.cpp`) does —
+cheaper (no redundant `assembleMaterial` calls for what turns out to be a
+duplicate) and without that approach's float-stringification fragility
+risk.
+
+Every real consumer of the old 1:1 assumption was found and fixed, not
+just the type declarations: `writers::writeLeanGlb`/`writers::writeBundle`
+(both threw or silently mis-indexed on the old assumption; both now use a
+new shared `canon::resolveMaterialIndex(model, primitiveIndex)` — the one
+implementation of this lookup, I2, also reused by `canon_diff.cpp`'s
+`compareMaterialBlendModes`, which itself gained the same indirection on
+legacy's side via `gltf::Primitive::materialIndex` — legacy already had its
+own equivalent index-into-deduped-list shape, `compareMaterialBlendModes`
+just wasn't using it).
+
+**Verified against real data, and the strongest kind of verification this
+task got**: exporting `bloodelffemale.m2` through `--compare-canon`, the
+canon bundle's own `materials` count came out to exactly **8**, matching
+legacy's own real deduped count for the same file precisely — not just "no
+crash," a real independent confirmation that the tuple-identity dedup key
+lands on the same equivalence classes legacy's content-hash key does, on
+real, non-trivial data (70 primitives → 8 distinct materials on both
+sides). Full suite green, 975/975 (9 new/rewritten tests:
+`tests/test_canon_model.cpp` — now covering `canon::assembleModel`'s own
+much smaller pure-composition job — plus `tests/test_m2_canon_input.cpp`,
+the renamed home of what used to be `test_canon_model.cpp`'s real-fixture
+orchestration coverage, updated for the new dedup invariant).
+
+**Still open, named explicitly rather than swept in**: `assembleMesh`/
+`assembleSkeleton`/`assembleMaterial`/`assembleBoneAnimation(Global)`
+still live in `namespace husk::canon` (the `canon_*_builder.hpp` files)
+while still taking `m2::`/`skin::` types directly — the same shape I1 now
+forbids for the composition root specifically, not yet extended to them.
+Moving them into `husk::m2input` (or an equivalent rename) is real,
+scoped follow-up work, deliberately not done in this same pass given the
+size of the change already made. Also open: `canon::Mesh::positions`/
+`normals`/`uv0`/`uv1` are declared as `m2::Vec3`/`m2::Vec2` — a namespaced
+M2 type used as a canon:: struct field, a real but lower-severity finding
+from the same investigation (`CANONICAL_MODEL.md`'s own updated section
+has the full account) — not fixed here either.
+

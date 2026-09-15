@@ -100,7 +100,7 @@
 //     { "geoset_id": <uint32, group*100+variant, reconstructible>,
 //       "geoset_group": <uint32>, "geoset_variant": <uint32>,
 //       "index_start": <uint32>, "index_count": <uint32>,
-//       "material_index": <uint32> }   // this primitive's index into resources.materials -- see Model::materials' 1:1 doc comment
+//       "material_index": <uint32> }   // this primitive's index into resources.materials, resolved via canon::resolveMaterialIndex -- materials is deduped, NOT 1:1 with primitives
 //   ]
 // }
 // ```
@@ -174,11 +174,13 @@
 // shape `resources.materials[].layers[].tint`/`alpha_fade`/`uv_animation`
 // above already states.
 //
-// `resources.mesh.primitives[i].material_index == i` is relied on
-// verbatim from `canon::Model::materials`'s own doc comment ("materials[i]
-// describes mesh.primitives[i]") -- confirmed by re-reading that comment
-// before writing this, not assumed; see also
-// `tests/test_writers_bundle.cpp`'s explicit regression test for it.
+// `resources.mesh.primitives[i].material_index` is `canon::
+// resolveMaterialIndex(model, i)` -- `canon::Model::materials` is DEDUPED
+// (`canon::Model`'s own doc comment) and no longer 1:1 with
+// `mesh.primitives`; a real model routinely has many more primitives than
+// distinct materials (see REFACTOR/AUDIT.md §7's material-dedup finding).
+// See also `tests/test_writers_bundle.cpp`'s explicit regression test for
+// this indirection.
 //
 // Throws std::runtime_error when `bundleDir` cannot be created, or when
 // `writers::composeJointCurves`/`writers::localBindTranslation` would

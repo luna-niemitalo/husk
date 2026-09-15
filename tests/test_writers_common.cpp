@@ -12,6 +12,7 @@
 
 #include "canon_model.hpp"
 #include "m2.hpp"
+#include "m2_canon_input.hpp"
 #include "skin.hpp"
 #include "test_data_paths.hpp"
 #include "writers/writer_common.hpp"
@@ -178,7 +179,7 @@ TEST_CASE("writers::composeJointCurves converges against independently-recompute
     std::vector<skin::Batch> batches = skin::parseBatches(skinFile, header.batches);
     std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinFile, header);
 
-    canon::Model canonModel = canon::assembleModel(model, batches, submeshes, triangleIndices);
+    canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices);
     REQUIRE(!canonModel.animations.empty());
 
     // Find some joint with real translation curve data in the first clip --

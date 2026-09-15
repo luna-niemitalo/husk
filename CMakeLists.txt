@@ -95,6 +95,7 @@ add_library(husk-lib STATIC
   src/canon_mesh_builder.cpp
   src/canon_material_builder.cpp
   src/canon_model.cpp
+  src/m2_canon_input.cpp
   src/canon_diff.cpp
   src/canon_definition_builder.cpp
   src/canon_selection_builder.cpp
@@ -191,6 +192,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_canon_mesh_convergence.cpp
     tests/test_canon_material_convergence.cpp
     tests/test_canon_model.cpp
+    tests/test_m2_canon_input.cpp
     tests/test_canon_diff.cpp
     tests/test_canon_definition.cpp
     tests/test_canon_definition_convergence.cpp

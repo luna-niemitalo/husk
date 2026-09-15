@@ -95,10 +95,11 @@ void writeLeanGlb(const canon::Model& model, const std::filesystem::path& output
         throw std::runtime_error("writeLeanGlb: mesh skinning (" + std::to_string(mesh.skinning.size()) +
                                   ") doesn't match position count (" + std::to_string(n) + ")");
     }
-    if (model.materials.size() != mesh.primitives.size()) {
-        throw std::runtime_error("writeLeanGlb: materials (" + std::to_string(model.materials.size()) +
-                                  ") doesn't match primitives (" + std::to_string(mesh.primitives.size()) +
-                                  ") -- canon::Model's own stated 1:1 correspondence is violated");
+    if (model.primitiveMaterials.size() != mesh.primitives.size()) {
+        throw std::runtime_error("writeLeanGlb: primitiveMaterials (" +
+                                  std::to_string(model.primitiveMaterials.size()) + ") doesn't match primitives (" +
+                                  std::to_string(mesh.primitives.size()) +
+                                  ") -- canon::Model's own stated correspondence is violated");
     }
 
     tinygltf::Model out;
@@ -256,8 +257,8 @@ void writeLeanGlb(const canon::Model& model, const std::filesystem::path& output
         tp.indices = idxAccIdx;
         tp.mode = TINYGLTF_MODE_TRIANGLES;
         size_t primIndex = tinyMesh.primitives.size();
-        if (primIndex < model.materials.size()) {
-            tp.material = static_cast<int>(primIndex);
+        if (auto matIdx = canon::resolveMaterialIndex(model, primIndex)) {
+            tp.material = static_cast<int>(*matIdx);
         }
         tinyMesh.primitives.push_back(tp);
     }

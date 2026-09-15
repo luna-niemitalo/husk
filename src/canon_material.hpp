@@ -102,6 +102,17 @@ struct MaterialLayer {
 };
 
 struct Material {
+    // This material's own identity -- what a primitive's entry in
+    // Model::primitiveMaterials points at (canon_model.hpp's own doc
+    // comment). `ref.id` is `RecordIndex{i}` (this material's own position
+    // in whichever Model::materials vector holds it) for every real
+    // producer today -- a purely local model has no other identity to
+    // give a material. Other `Identity` kinds (FileDataId, Db2Row) are
+    // reserved for a future bundle-external, cross-model-shared material
+    // (BUNDLE_FORMAT.md/I3 territory) -- preserving that possibility is
+    // required, implementing it is not (I7's own "preserve, don't
+    // implement" precedent, applied here).
+    Ref ref;
     std::vector<MaterialLayer> layers;  // full ordered truth, one entry per real M2 texture unit
     std::optional<Ref> diffuseLayer;    // = some layer's identity, only when role maps cleanly
     std::optional<Ref> specularLayer;

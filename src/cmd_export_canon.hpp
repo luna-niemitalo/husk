@@ -14,7 +14,7 @@
 // entry point cmd_export.cpp calls.
 namespace husk::commands {
 
-// Runs canon::assembleModel against the SAME already-parsed `model` and
+// Runs m2input::buildCanonModel against the SAME already-parsed `model` and
 // the FIRST resolved skin tier (re-parsed here from `skinPath`,
 // independently of the legacy pipeline's own parse of it -- deliberately:
 // this is meant to be a genuinely separate re-derivation, not a reuse of
@@ -41,15 +41,15 @@ namespace husk::commands {
 // (export_materials.cpp), so canon:: and legacy resolve every real texture
 // slot through the identical catalog answer -- never a second opinion.
 //
-// `animDir`/`bonesAreInline` feed a real `canon::ExternalAnimBlobs` (§7.2's
-// remaining open sub-gap): resolveExternalAnimBlob (export_animation.hpp)
-// is called once per non-inline, non-alias sequence in `model.sequences`,
+// `animDir`/`bonesAreInline` feed a real `m2input::ExternalAnimBlobs` (§7.2's
+// remaining open sub-gap): a file-local resolver in cmd_export_canon.cpp is
+// called once per non-inline, non-alias sequence in `model.sequences`,
 // mirroring buildAnimations's own external-.anim resolution exactly. Left
-// empty when `bonesAreInline` is false -- canon::assembleModel only ever
-// reads `model.bones`/`model.sequences`/`model.blob` (the inline M2 source),
-// never a .skel-sourced one, so external-anim resolution has nothing valid
-// to key against in that case (a separate, pre-existing canon::Model
-// limitation, not this parameter's own scope to fix).
+// empty when `bonesAreInline` is false -- m2input::buildCanonModel only
+// ever reads `model.bones`/`model.sequences`/`model.blob` (the inline M2
+// source), never a .skel-sourced one, so external-anim resolution has
+// nothing valid to key against in that case (a separate, pre-existing
+// canon::Model limitation, not this parameter's own scope to fix).
 // `legacyMaterials`: the SAME LOD tier's own resolved `gltf::Material` list
 // (`NamedMesh::materials`, matching `legacyMesh`) -- forwarded to
 // canon_diff::compareMaterialBlendModes so it can check canon's newly-wired
