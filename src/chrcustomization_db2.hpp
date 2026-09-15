@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <ostream>
@@ -114,6 +115,21 @@ struct Choice {
     uint32_t optionId = 0;
     std::string name;
     uint32_t orderIndex = 0;
+    // Real ChrCustomizationChoice.SwatchColor -- a genuine WDC5 array
+    // field (WoWDBDefs: `SwatchColor<32>[2]`, confirmed against
+    // reference/WoWDBDefs/definitions/ChrCustomizationChoice.dbd across
+    // every real layout that carries it), two raw 32-bit values the client
+    // draws a color-picker swatch from. Real per-element meaning isn't
+    // documented by WoWDBDefs itself and isn't decoded further here (not
+    // confirmed to be e.g. packed RGBA vs. two separate RGBA colors) --
+    // carried through as-is, same "expose the real field, don't guess at
+    // its semantics" split every other reader in this file already draws.
+    // nullopt when this file's real layout doesn't carry the column at
+    // all (older client layouts had no SwatchColor, or it wasn't
+    // resolvable), NOT the same as "this choice has a real display name
+    // instead" -- see this struct's own doc comment above: a choice can
+    // legitimately have neither, either, or both.
+    std::optional<std::array<uint32_t, 2>> swatchColor;
 };
 
 struct Data {

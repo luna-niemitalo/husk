@@ -10,8 +10,10 @@
 #include <filesystem>
 #include <fstream>
 
+#include "../src/chrcustomization_db2.hpp"
 #include "../src/chrmodel_db2.hpp"
 #include "../src/db2table.hpp"
+#include "test_data_paths.hpp"
 
 namespace fs = std::filesystem;
 
@@ -102,6 +104,87 @@ std::vector<uint8_t> buildTestFile(uint32_t tableHash, uint32_t layoutHash) {
     putU32(buf, p, 901); p += 4; putU32(buf, p, 1); p += 4;  // record 1 -> OtherID 901
     REQUIRE(p == total);
 
+    return buf;
+}
+
+// Two inline fields only, no id/relation column at all: "Scalar" (a plain
+// 32-bit scalar, field_size_bits 32 -- arrayLength 1) and "PairField" (a
+// genuine 2-element 32-bit array, field_size_bits 64), the same real
+// "None"-storage array shape ChrCustomizationChoice.SwatchColor<32>[2] has.
+// Exercises readNamedArrayColumns' inline-field path without dragging in
+// the id/relation machinery buildTestFile above already covers.
+std::vector<uint8_t> buildArrayTestFile(uint32_t tableHash, uint32_t layoutHash,
+                                         const std::vector<std::pair<uint32_t, std::pair<uint32_t, uint32_t>>>& rows) {
+    uint32_t fieldCount = 2;
+    size_t recordSize = 4 + 8;  // Scalar (4 bytes) + PairField (2x4 bytes)
+    size_t stringTableSize = 1;
+    size_t sectionFileOffset =
+        kHeaderSize + kSectionHeaderSize + fieldCount * kFieldStructureSize + fieldCount * kFieldStorageInfoSize;
+    size_t total = sectionFileOffset + rows.size() * recordSize + stringTableSize;
+
+    std::vector<uint8_t> buf(total, 0);
+    std::memcpy(buf.data(), "WDC5", 4);
+    putU32(buf, 4, 5);
+
+    size_t p = 8 + 128;
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;
+    putU32(buf, p, fieldCount); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(recordSize)); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, tableHash); p += 4;
+    putU32(buf, p, layoutHash); p += 4;
+    putU32(buf, p, 1); p += 4;  // minId
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;  // maxId
+    putU32(buf, p, 0); p += 4;  // locale
+    putU16(buf, p, 0); p += 2;  // flags: 0 -- no non-inline id in this fixture
+    putU16(buf, p, 0); p += 2;  // idIndex: unused, not requested by these tests
+    putU32(buf, p, fieldCount); p += 4;  // totalFieldCount
+    putU32(buf, p, 0); p += 4;  // bitpackedDataOffset
+    putU32(buf, p, 0); p += 4;  // lookupColumnCount
+    putU32(buf, p, fieldCount * kFieldStorageInfoSize); p += 4;
+    putU32(buf, p, 0); p += 4;  // commonDataSize
+    putU32(buf, p, 0); p += 4;  // palletDataSize
+    putU32(buf, p, 1); p += 4;  // sectionCount
+    REQUIRE(p == kHeaderSize);
+
+    putU64(buf, p, 0); p += 8;  // tactKeyHash
+    putU32(buf, p, static_cast<uint32_t>(sectionFileOffset)); p += 4;  // fileOffset
+    putU32(buf, p, static_cast<uint32_t>(rows.size())); p += 4;
+    putU32(buf, p, static_cast<uint32_t>(stringTableSize)); p += 4;
+    putU32(buf, p, 0); p += 4;  // offsetRecordsEnd
+    putU32(buf, p, 0); p += 4;  // idListSize
+    putU32(buf, p, 0); p += 4;  // relationshipDataSize
+    putU32(buf, p, 0); p += 4;  // offsetMapIdCount
+    putU32(buf, p, 0); p += 4;  // copyTableCount
+    REQUIRE(p == kHeaderSize + kSectionHeaderSize);
+
+    // field_structure: Scalar at byte 0, PairField at byte 4.
+    putU16(buf, p, 0); p += 2; putU16(buf, p, 0); p += 2;
+    putU16(buf, p, 0); p += 2; putU16(buf, p, 4); p += 2;
+
+    // field_storage_info: Scalar -- offset bit 0, size 32 bits (arrayLength 1).
+    putU16(buf, p, 0); p += 2; putU16(buf, p, 32); p += 2;
+    putU32(buf, p, 0); p += 4;  // additionalDataSize
+    putU32(buf, p, 0); p += 4;  // storageType = None
+    putU32(buf, p, 0); p += 4;  // defaultValue
+    putU32(buf, p, 0); p += 4;  // arrayCount (unused for None)
+    putU32(buf, p, 0); p += 4;  // signExtend
+    // PairField -- offset bit 32, size 64 bits (2 elements x 32 bits).
+    putU16(buf, p, 32); p += 2; putU16(buf, p, 64); p += 2;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;  // storageType = None
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    putU32(buf, p, 0); p += 4;
+    REQUIRE(p == sectionFileOffset);
+
+    for (const auto& [scalar, pair] : rows) {
+        putU32(buf, p, scalar); p += 4;
+        putU32(buf, p, pair.first); p += 4;
+        putU32(buf, p, pair.second); p += 4;
+    }
+    p += stringTableSize;
+    REQUIRE(p == total);
     return buf;
 }
 
@@ -214,6 +297,127 @@ TEST_CASE("db2table::readNamedColumns reports an unresolved column, still return
     CHECK(*(*rows)[0][0] == 111);
     CHECK_FALSE((*rows)[0][1].has_value());
     CHECK(err.str().find("NoSuchColumn") != std::string::npos);
+}
+
+TEST_CASE("db2table::readNamedArrayColumns reads a real 2-element array field, "
+          "and still handles a scalar (arrayLength 1) field correctly") {
+    const uint32_t kTableHash = 0xAABBCCDD;
+    const uint32_t kLayoutHash = 0x87654321;
+
+    TestDbdDir dbd("husk-test-db2table-array-dbd");
+    dbd.writeManifest({{"Test", kTableHash}});
+    dbd.writeDbd("Test",
+                 "COLUMNS\n"
+                 "int Scalar\n"
+                 "int PairField\n"
+                 "\n"
+                 "LAYOUT 87654321\n"
+                 "BUILD 1.0.0.1\n"
+                 "Scalar<32>\n"
+                 "PairField<32>[2]\n");
+
+    fs::path db2Path = dbd.dir / "test.db2";
+    writeFile(db2Path, buildArrayTestFile(kTableHash, kLayoutHash, {{42, {100, 200}}, {7, {0, 0}}}));
+
+    std::ostringstream err;
+    auto rows = husk::db2table::readNamedArrayColumns(db2Path.string(), dbd.dir.string(),
+                                                       {"Scalar", "PairField"}, err);
+    REQUIRE(rows.has_value());
+    REQUIRE(rows->size() == 2);
+
+    // Row 0: Scalar comes back as a genuine 1-element vector (not unwrapped
+    // to a bare scalar) even though its own declared arrayLength is 1 --
+    // the exact "still works correctly" case this function's own doc
+    // comment promises.
+    REQUIRE((*rows)[0][0].has_value());
+    REQUIRE((*rows)[0][0]->size() == 1);
+    CHECK((*(*rows)[0][0])[0] == 42);
+
+    REQUIRE((*rows)[0][1].has_value());
+    REQUIRE((*rows)[0][1]->size() == 2);
+    CHECK((*(*rows)[0][1])[0] == 100);
+    CHECK((*(*rows)[0][1])[1] == 200);
+
+    REQUIRE((*rows)[1][0].has_value());
+    CHECK((*(*rows)[1][0])[0] == 7);
+    REQUIRE((*rows)[1][1].has_value());
+    CHECK((*(*rows)[1][1])[0] == 0);
+    CHECK((*(*rows)[1][1])[1] == 0);
+}
+
+TEST_CASE("db2table::readNamedArrayColumns reports an unresolved column as nullopt for every row, "
+          "not a crash") {
+    const uint32_t kTableHash = 0x11223344;
+    const uint32_t kLayoutHash = 0x99887766;
+
+    TestDbdDir dbd("husk-test-db2table-array-unresolved-dbd");
+    dbd.writeManifest({{"Test", kTableHash}});
+    dbd.writeDbd("Test",
+                 "COLUMNS\nint Scalar\nint PairField\n\n"
+                 "LAYOUT 99887766\nBUILD 1.0.0.1\nScalar<32>\nPairField<32>[2]\n");
+
+    fs::path db2Path = dbd.dir / "test.db2";
+    writeFile(db2Path, buildArrayTestFile(kTableHash, kLayoutHash, {{1, {2, 3}}}));
+
+    std::ostringstream err;
+    auto rows = husk::db2table::readNamedArrayColumns(db2Path.string(), dbd.dir.string(),
+                                                       {"PairField", "NoSuchColumn"}, err);
+    REQUIRE(rows.has_value());
+    REQUIRE(rows->size() == 1);
+    REQUIRE((*rows)[0][0].has_value());
+    CHECK((*(*rows)[0][0])[0] == 2);
+    CHECK_FALSE((*rows)[0][1].has_value());
+    CHECK(err.str().find("NoSuchColumn") != std::string::npos);
+}
+
+TEST_CASE("db2table::readNamedArrayColumns returns nullopt when the file itself can't be read") {
+    std::ostringstream err;
+    auto rows = husk::db2table::readNamedArrayColumns("/nonexistent.db2", "/nonexistent-dbd", {"Whatever"}, err);
+    CHECK_FALSE(rows.has_value());
+}
+
+TEST_CASE("db2table::readNamedArrayColumns returns nullopt without --dbd-dir") {
+    std::ostringstream err;
+    auto rows = husk::db2table::readNamedArrayColumns("/nonexistent.db2", "", {"Whatever"}, err);
+    CHECK_FALSE(rows.has_value());
+}
+
+TEST_CASE("chrcustomization::Choice::swatchColor resolves real, plausible values against real local "
+          "ChrCustomizationChoice.db2 data (test_data/db2, reference/WoWDBDefs)" *
+          doctest::skip(husk::test::testDbdDir().empty())) {
+    // Cross-checked independently before trusting this test: `husk
+    // db2-export test_data/db2/chrcustomizationchoice.db2 <out>.sqlite
+    // --dbd-dir reference/WoWDBDefs` (real CLI, real files) already
+    // resolves a real "SwatchColor<32>[2]" array column (db2-export's own
+    // array support, a separate code path from db2table's) into
+    // SwatchColor_0/SwatchColor_1 -- real row ID 1 reads SwatchColor_0 =
+    // 4293312670, SwatchColor_1 = 0 there. This test confirms
+    // chrcustomization::Choice::swatchColor (built on THIS session's new
+    // db2table::readNamedArrayColumns, a genuinely different code path)
+    // agrees with that independently-obtained real value, not just that
+    // it returns *something*.
+    std::ostringstream err;
+    auto data = husk::chrcustomization::load("test_data/db2", husk::test::testDbdDir(), err);
+    REQUIRE(data.has_value());
+    REQUIRE_FALSE(data->choices.empty());
+
+    const husk::chrcustomization::Choice* choice1 = nullptr;
+    for (const auto& c : data->choices) {
+        if (c.id == 1) {
+            choice1 = &c;
+            break;
+        }
+    }
+    REQUIRE(choice1 != nullptr);
+    REQUIRE(choice1->swatchColor.has_value());
+    CHECK((*choice1->swatchColor)[0] == 4293312670u);
+    CHECK((*choice1->swatchColor)[1] == 0u);
+
+    // Real choice 1 has no real display name (this struct's own doc
+    // comment: "the client draws those from SwatchColor instead") --
+    // confirms swatchColor is genuinely populated for exactly the kind of
+    // row that needs it, not just present everywhere by construction.
+    CHECK(choice1->name.empty());
 }
 
 TEST_CASE("chrmodel::load builds real typed structs from four synthetic tables, joined by layout ID") {

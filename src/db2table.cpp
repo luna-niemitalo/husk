@@ -17,23 +17,13 @@ struct ColumnResolution {
     size_t inlineFieldIndex = 0;
 };
 
-}  // namespace
-
-std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& path,
-                                                           const std::string& dbdDir,
-                                                           const std::vector<std::string>& columnNames,
-                                                           std::ostream& err) {
-    if (dbdDir.empty()) {
-        err << "husk: db2table: '" << path << "': --dbd-dir is required to resolve named columns\n";
-        return std::nullopt;
-    }
-
-    const sources::ParsedDb2* parsed = sources::getParsedDb2(path, dbdDir, err);
-    if (!parsed) return std::nullopt;
-    const db2::File& file = parsed->file;
-    const dbd::Layout& layout = *parsed->layout;
-    const std::optional<std::vector<dbd::Column>>& inlineColumns = parsed->inlineColumns;
-
+// Shared by readNamedColumns and readNamedArrayColumns -- both resolve
+// `columnNames` against the exact same three real WDC5 column shapes
+// (inline field / non-inline id / non-inline relation), only what they do
+// with the resolved value differs (first element only vs. every element).
+std::vector<ColumnResolution> resolveColumns(const std::string& path, const dbd::Layout& layout,
+                                              const std::optional<std::vector<dbd::Column>>& inlineColumns,
+                                              const std::vector<std::string>& columnNames, std::ostream& err) {
     std::optional<std::string> idFieldName = dbd::findIdFieldName(layout);
     std::vector<std::string> relationFieldNames = dbd::findNonInlineNonIdFieldNames(layout);
 
@@ -64,6 +54,27 @@ std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& pat
             resolutions.push_back({ColumnKind::Unresolved, 0});
         }
     }
+    return resolutions;
+}
+
+}  // namespace
+
+std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& path,
+                                                           const std::string& dbdDir,
+                                                           const std::vector<std::string>& columnNames,
+                                                           std::ostream& err) {
+    if (dbdDir.empty()) {
+        err << "husk: db2table: '" << path << "': --dbd-dir is required to resolve named columns\n";
+        return std::nullopt;
+    }
+
+    const sources::ParsedDb2* parsed = sources::getParsedDb2(path, dbdDir, err);
+    if (!parsed) return std::nullopt;
+    const db2::File& file = parsed->file;
+    const dbd::Layout& layout = *parsed->layout;
+    const std::optional<std::vector<dbd::Column>>& inlineColumns = parsed->inlineColumns;
+
+    std::vector<ColumnResolution> resolutions = resolveColumns(path, layout, inlineColumns, columnNames, err);
     if (std::all_of(resolutions.begin(), resolutions.end(),
                      [](const ColumnResolution& r) { return r.kind == ColumnKind::Unresolved; })) {
         return std::nullopt;
@@ -174,6 +185,75 @@ std::optional<std::vector<StringColumnValues>> readNamedStringColumns(
                     str = db2::resolveFieldString(fileBytes, static_cast<size_t>(fieldAbsPos), values[0]);
                 }
                 row.push_back(std::move(str));
+            }
+            rows.push_back(std::move(row));
+        }
+    }
+    return rows;
+}
+
+std::optional<std::vector<ArrayColumnValues>> readNamedArrayColumns(const std::string& path,
+                                                                     const std::string& dbdDir,
+                                                                     const std::vector<std::string>& columnNames,
+                                                                     std::ostream& err) {
+    if (dbdDir.empty()) {
+        err << "husk: db2table: '" << path << "': --dbd-dir is required to resolve named columns\n";
+        return std::nullopt;
+    }
+
+    const sources::ParsedDb2* parsed = sources::getParsedDb2(path, dbdDir, err);
+    if (!parsed) return std::nullopt;
+    const db2::File& file = parsed->file;
+    const dbd::Layout& layout = *parsed->layout;
+    const std::optional<std::vector<dbd::Column>>& inlineColumns = parsed->inlineColumns;
+
+    std::vector<ColumnResolution> resolutions = resolveColumns(path, layout, inlineColumns, columnNames, err);
+    if (std::all_of(resolutions.begin(), resolutions.end(),
+                     [](const ColumnResolution& r) { return r.kind == ColumnKind::Unresolved; })) {
+        return std::nullopt;
+    }
+
+    std::vector<ArrayColumnValues> rows;
+    for (const db2::Section& section : file.sections) {
+        if (!section.recordsAvailable()) continue;
+        if (!section.offsetMap.empty()) continue;
+
+        bool needsRelation = std::any_of(resolutions.begin(), resolutions.end(),
+                                          [](const ColumnResolution& r) { return r.kind == ColumnKind::Relation; });
+        std::vector<std::optional<uint32_t>> relationValues =
+            needsRelation ? db2::nonInlineRelationValuesByRecord(file, section)
+                          : std::vector<std::optional<uint32_t>>{};
+
+        for (uint32_t r = 0; r < section.header.recordCount; ++r) {
+            ArrayColumnValues row;
+            row.reserve(resolutions.size());
+            for (const ColumnResolution& res : resolutions) {
+                switch (res.kind) {
+                    case ColumnKind::Id:
+                        row.push_back(std::vector<uint32_t>{db2::recordId(file, section, r)});
+                        break;
+                    case ColumnKind::Relation: {
+                        std::optional<uint32_t> v = r < relationValues.size() ? relationValues[r] : std::nullopt;
+                        row.push_back(v ? std::optional<std::vector<uint32_t>>(std::vector<uint32_t>{*v})
+                                         : std::nullopt);
+                        break;
+                    }
+                    case ColumnKind::Inline: {
+                        std::vector<uint64_t> values = db2::decodeField(file, section, r, res.inlineFieldIndex);
+                        if (values.empty()) {
+                            row.push_back(std::nullopt);
+                            break;
+                        }
+                        std::vector<uint32_t> elements;
+                        elements.reserve(values.size());
+                        for (uint64_t v : values) elements.push_back(static_cast<uint32_t>(v));
+                        row.push_back(std::move(elements));
+                        break;
+                    }
+                    case ColumnKind::Unresolved:
+                        row.emplace_back(std::nullopt);
+                        break;
+                }
             }
             rows.push_back(std::move(row));
         }

@@ -99,10 +99,24 @@ std::vector<Choice> loadChoices(const std::string& db2Dir, const std::string& db
     if (!intRows) return result;
     auto strRows = db2table::readNamedStringColumns(joinPath(db2Dir, "chrcustomizationchoice.db2"), dbdDir,
                                                       {"Name_lang"}, err);
+    // SwatchColor<32>[2] -- a real WDC5 array field, only present under
+    // some real client layouts (older ones split it into separate scalar
+    // SwatchColor1/SwatchColor2 fields instead, not requested here); a
+    // layout without a real 2-element "SwatchColor" column reports to
+    // `err` and comes back nullopt for every row via arrayRows, same
+    // "partial result, not a hard failure" convention every column here
+    // already follows.
+    auto arrayRows = db2table::readNamedArrayColumns(joinPath(db2Dir, "chrcustomizationchoice.db2"), dbdDir,
+                                                      {"SwatchColor"}, err);
     for (size_t i = 0; i < intRows->size(); ++i) {
         const auto& row = (*intRows)[i];
         std::string name = (strRows && i < strRows->size()) ? (*strRows)[i][0].value_or("") : "";
-        result.push_back({orZero(row[0]), orZero(row[1]), std::move(name), orZero(row[2])});
+        std::optional<std::array<uint32_t, 2>> swatchColor;
+        if (arrayRows && i < arrayRows->size()) {
+            const auto& swatch = (*arrayRows)[i][0];
+            if (swatch && swatch->size() == 2) swatchColor = std::array<uint32_t, 2>{(*swatch)[0], (*swatch)[1]};
+        }
+        result.push_back({orZero(row[0]), orZero(row[1]), std::move(name), orZero(row[2]), swatchColor});
     }
     return result;
 }
