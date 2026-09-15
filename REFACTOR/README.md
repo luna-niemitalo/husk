@@ -39,14 +39,24 @@ across the whole real fixture set the way `AUDIT.md §7`'s own preamble
 frames as Stage 3's actual gate — but every concretely-named coverage gap
 found while building `--compare-canon` is closed and verified clean
 (`bloodelffemale.m2` inline-bones and `bloodelffemale_hd.m2` `.skel`-sourced,
-both 0 deviations across mesh/skeleton/animations/materials). What's left is
-either running that broader whole-corpus gate formally, or a real visual
-(rendered) check — `AUDIT.md §7.1`'s own "no gate is output-unchanged" note
-— neither started. Stage 4 has two real, independently tested
-writers (`src/writers/bundle_writer.*`, `src/writers/gltf_lean.*`), but
-nothing in `cmd_export.cpp` calls either of them — `husk export
+both 0 deviations across mesh/skeleton/animations/materials). The broader
+whole-corpus structural gate hasn't formally run yet, but the real visual
+(rendered) check now has automated tooling behind it (2026-09-15,
+`tools/render_lean_glb.py` + `tools/compare_canon_render.py`: renders a
+`--compare-canon` pair's legacy `.glb` and `.canon.glb` through the same
+extras-blind headless-Blender importer at a forced literal rest pose
+— `pose_position = 'REST'`, robust against NLA-track pose leakage, not just
+clearing `.action` — and pixel-diffs the two stills) — see `AUDIT.md §7.4`
+for what it found on first real use. Stage 4 has two real, independently
+tested writers (`src/writers/bundle_writer.*`, `src/writers/gltf_lean.*`),
+but nothing in `cmd_export.cpp` calls either of them — `husk export
 --compare-canon` (opt-in, off by default) runs them as a diagnostic sidecar
 alongside the still-shipping legacy pipeline, not a replacement for it.
+`gltf_lean`'s own material writer doesn't embed any texture pixel data or
+resolved base color yet either (`AUDIT.md §7.4`) — every material writes as
+a bare default (`baseColorFactor` white, no `baseColorTexture`), found via
+the new render-diff tool's first real run, not previously named anywhere in
+this document.
 `src/formats/`, `src/canon/`, and `src/writers/` as their own *subdirectories*
 (as opposed to the flat `canon_*.cpp`/`writers/` files that exist today) never
 materialized — a cosmetic deviation from this document's original sketch, not

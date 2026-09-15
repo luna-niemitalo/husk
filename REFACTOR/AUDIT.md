@@ -607,3 +607,68 @@ a canon::-accepting overload to that legacy file. `CANONICAL_MODEL.md`'s
 own updated section has the full account. Full suite green, 975/975,
 before and after. Nothing named as open in this section remains.
 
+### 7.4 First real use of the automated render-diff tool (`tools/compare_canon_render.py`) — a real methodology bug in the tool itself, and one genuine writer gap found, 2026-09-15
+
+Built per Luna's own framing: "render could be automated in that one
+generates 2 outputs, 1 via new, and 1 via old, and if they match, it's
+likely correct... if they differ then flag for my review" — the automated
+half of the "real visual (pixel) check" this section's own §7.1 named as
+still-open. `tools/render_lean_glb.py` (new, headless Blender, deliberately
+independent of `tools/corpus_scan_tasks/render_glb.py` and every husk-extras
+fixup it applies — see the new file's own doc comment for why running the
+extras-heavy corpus-preview script against an extras-free `.canon.glb`
+would score every content gap that script papers over as a canon:: bug) +
+`tools/compare_canon_render.py` (new, driver: renders a `--compare-canon`
+pair's legacy `.glb` and `.canon.glb` through the identical minimal
+importer, pixel-diffs the two stills, flags a mismatch above a mean-diff
+threshold).
+
+**First real run, against `bloodelffemale_hd.m2`, found a large (18.3
+mean-channel, 12.5% of pixels) diff** — the canon render showed a visibly
+different, crouched/distorted pose from legacy's normal standing one.
+**This was a bug in the comparison tool itself, not in canon::**, caught by
+Luna directly rather than assumed: the render script cleared
+`armature.animation_data.action = None` to force a fixed, comparable rest
+pose, but Blender's glTF importer can push imported clips onto NLA tracks
+that keep influencing pose evaluation independently of whatever `.action`
+is currently assigned — an unmuted NLA strip still evaluates at the current
+frame regardless. Since legacy and canon export different real clip sets
+(canon's external-`.anim`/`.skel` resolution doesn't mirror every legacy
+clip 1:1 — see §7.2), each file's NLA-driven "first frame" pose could
+genuinely differ without either being wrong. Fixed by setting
+`armature.data.pose_position = 'REST'` instead — bypasses pose evaluation
+entirely, showing each bone's literal edit-bone rest transform regardless
+of actions/NLA state. Re-rendered: the two silhouettes now match closely
+(mesh/skeleton geometry confirmed visually consistent, corroborating
+`--compare-canon`'s own clean structural diff for this fixture, not just
+"no crash").
+
+**One real, previously-unnamed gap survived the fix**: canon's render is
+fully white/untextured, legacy's is fully textured. Root-caused (not
+assumed) by reading `src/writers/gltf_lean.cpp` directly: its material loop
+(`writeLeanGlb`, ~line 222) sets only `baseColorFactor = {1,1,1,1}` and
+`alphaMode` — no `images`/`textures` array entries, no
+`baseColorTexture` reference, ever. `gltf_lean.hpp`'s own doc comment
+("no extras of any kind are ever written... that omission IS the leanness
+claim this writer exists to prove") only scopes out *extras*; texture
+embedding is a core glTF concept, and its absence here is a real
+implementation gap, not a documented design cut. Consistent with
+`canon::TextureRef` (`canon_material.hpp`) deliberately holding no pixel
+bytes of its own ("a writer re-fetches through the catalog on demand, not a
+fact canon itself needs to hold") — `writeLeanGlb` takes a pure
+`canon::Model` with no `Catalog&`, so it structurally cannot do that fetch
+today; a real producer would need either a writer-level catalog parameter
+(mirroring how `cmd_export_canon.cpp` already resolves `TextureResolutions`
+*before* handing canon:: the pre-resolved fact, not inside canon:: itself)
+or some other explicit wiring. Not started this session — named here so
+the next `--compare-canon`-adjacent render-diff run isn't re-diagnosed from
+scratch as a canon:: correctness bug.
+
+Net result: the render-diff tool works and earns its keep (caught a real
+tooling bug immediately, on first use, before it could produce a false
+"canon is broken" verdict), and cleanly separated a genuine, still-open
+Stage 4 gap (writer never embeds textures) from Stage 3's own data
+correctness (confirmed fine, once the tool itself was fixed). Threshold
+tuning (`DEFAULT_MEAN_THRESHOLD = 3.0`) is a starting point from this one
+real fixture, not corpus-validated.
+
