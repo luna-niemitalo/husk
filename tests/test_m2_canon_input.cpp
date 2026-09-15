@@ -24,6 +24,7 @@
 #include "m2_animation.hpp"
 #include "m2_animation_input.hpp"  // assembleBoneAnimation
 #include "m2_canon_input.hpp"
+#include "skel.hpp"  // .skel-sourced bones/sequences (ExternalSkeletonSource)
 #include "skin.hpp"
 #include "test_data_paths.hpp"
 #include "test_m2_fixtures.hpp"  // putU16/putU32/putArray/vec3Bytes
@@ -485,4 +486,75 @@ TEST_CASE("m2input::buildCanonModel resolves a pure-alias sequence whose termina
     CHECK(result.animations[1].boneCurves[0]->translation.keyframes[0].second.x == doctest::Approx(7));
     CHECK(result.animations[1].boneCurves[0]->translation.keyframes[0].second.y == doctest::Approx(8));
     CHECK(result.animations[1].boneCurves[0]->translation.keyframes[0].second.z == doctest::Approx(9));
+}
+
+TEST_CASE("m2input::buildCanonModel without an ExternalSkeletonSource throws against a real "
+          ".skel-sourced fixture -- model.bones is empty (0 bones), and the real skin's own vertex "
+          "bone indices reference real, out-of-range-for-0 bone indices" *
+          doctest::skip(test::testSkelM2().empty() || test::testSkelSkin().empty())) {
+    m2::Model model = m2::loadModel(readFile(test::testSkelM2()));
+    std::vector<uint8_t> skinFile = readFile(test::testSkelSkin());
+    skin::Header header = skin::parseHeader(skinFile);
+    std::vector<skin::Submesh> submeshes = skin::parseSubmeshes(skinFile, header.submeshes);
+    std::vector<skin::Batch> batches = skin::parseBatches(skinFile, header.batches);
+    std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinFile, header);
+
+    // Same real-world signal commands::resolveBones (cmd_export.cpp) itself
+    // keys `bonesAreInline` off of -- confirms this really is a
+    // .skel-sourced fixture, not a coincidentally-0-bone prop.
+    REQUIRE(model.bones.empty());
+
+    CHECK_THROWS_AS(m2input::buildCanonModel(model, batches, submeshes, triangleIndices), std::runtime_error);
+}
+
+TEST_CASE("m2input::buildCanonModel with a real ExternalSkeletonSource builds skeleton/mesh-skinning/"
+          "animations from the .skel's own bones/sequences/blob, not the model's own empty inline "
+          "ones -- REFACTOR/AUDIT.md §7.2's '.skel coverage' gap" *
+          doctest::skip(test::testSkelM2().empty() || test::testSkelSkin().empty() ||
+                         test::testSkel().empty())) {
+    m2::Model model = m2::loadModel(readFile(test::testSkelM2()));
+    std::vector<uint8_t> skinFile = readFile(test::testSkelSkin());
+    skin::Header header = skin::parseHeader(skinFile);
+    std::vector<skin::Submesh> submeshes = skin::parseSubmeshes(skinFile, header.submeshes);
+    std::vector<skin::Batch> batches = skin::parseBatches(skinFile, header.batches);
+    std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinFile, header);
+    REQUIRE(model.bones.empty());
+
+    std::vector<uint8_t> skelBytes = readFile(test::testSkel());
+    m2input::ExternalSkeletonSource skel;
+    skel.bones = skel::parseBones(skelBytes);
+    skel.blob = skel::boneTrackBlob(skelBytes);
+    skel.sequences = skel::parseSequences(skelBytes);
+    REQUIRE(!skel.bones.empty());
+    REQUIRE(!skel.sequences.empty());
+
+    canon::Model result =
+        m2input::buildCanonModel(model, batches, submeshes, triangleIndices, {}, {}, &skel);
+
+    // Skeleton built from the .skel's own bone count, not model.bones.size()
+    // (0) -- the whole point of this parameter.
+    CHECK(result.skeleton.joints.size() == skel.bones.size());
+
+    // Mesh skinning's own bone-index bound followed the .skel source too:
+    // a real character model has real nonzero skin weights, so this would
+    // have thrown (same as the no-ExternalSkeletonSource test above) had
+    // assembleMesh still been checking bone indices against 0 bones.
+    CHECK(!result.mesh.skinning.empty());
+
+    // At least one real animation clip, built from the .skel's own
+    // sequences/blob, each joint's curve count matching the .skel skeleton.
+    REQUIRE(!result.animations.empty());
+    const auto& clip = result.animations.front();
+    CHECK(clip.boneCurves.size() == result.skeleton.joints.size());
+
+    // Spot-check bone 0's curves against m2input::assembleBoneAnimation
+    // called directly on the SAME .skel blob/bones/sequence index -- a
+    // fact reused, not re-derived from the function under test.
+    auto expected = m2input::assembleBoneAnimation(skel.blob, skel.bones[0], 0, clip.sequence.index);
+    REQUIRE(clip.boneCurves[0].has_value() == expected.has_value());
+    if (expected.has_value()) {
+        CHECK(clip.boneCurves[0]->translation.keyframes.size() == expected->translation.keyframes.size());
+        CHECK(clip.boneCurves[0]->rotation.keyframes.size() == expected->rotation.keyframes.size());
+        CHECK(clip.boneCurves[0]->scale.keyframes.size() == expected->scale.keyframes.size());
+    }
 }

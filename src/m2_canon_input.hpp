@@ -38,6 +38,29 @@ namespace husk::m2input {
 // canon::Model::animations, exactly today's behavior.
 using ExternalAnimBlobs = std::unordered_map<uint32_t, std::vector<uint8_t>>;
 
+// A .skel-sourced bones/sequences/track-blob triple, replacing the model's
+// own inline `model.bones`/`model.sequences`/`model.blob` for skeleton and
+// bone-animation assembly ONLY -- mesh geometry (`model.vertices`) and
+// every material-related table (colors/textureWeights/textureTransforms,
+// keyed against `model.blob`) are never .skel-sourced, per wowdev.wiki
+// M2/.skel's own scope ("These files replace SOME blocks from the M2 MD20
+// data"), so `buildCanonModel` keeps reading those from `model` unchanged
+// regardless of whether this parameter is supplied.
+//
+// Mirrors `commands::resolveBones`/`resolveAnimationsForModel`'s own
+// `haveSkel` branch (`cmd_export.cpp`) at the type level: `bones`/
+// `sequences`/`blob` are exactly `skel::parseBones(skelBytes)`/
+// `skel::parseSequences(skelBytes)`/`skel::boneTrackBlob(skelBytes)`'s own
+// return shapes. Parsing the .skel file and deciding whether one applies
+// at all (an M2 with 0 inline bones, `--skel` not `none`, a real `.skel`
+// file found) is the caller's job -- this module has no filesystem access
+// (I1) and no opinion on which source an M2 should use.
+struct ExternalSkeletonSource {
+    std::vector<m2::Bone> bones;
+    std::vector<m2::Sequence> sequences;
+    std::vector<uint8_t> blob;
+};
+
 // Builds a canon::Model from one real M2 model + its already-resolved
 // skin tier, mirroring the legacy pipeline's own three real animation
 // shapes (real-inline, global-sequence, alias) and deduping materials by
@@ -59,6 +82,31 @@ using ExternalAnimBlobs = std::unordered_map<uint32_t, std::vector<uint8_t>>;
 // sequence resolves, every texture stays KnownUnresolved) when the caller
 // has nothing to offer -- see each type's own doc comment.
 //
+// `externalSkeleton` defaults to nullptr, meaning "use model.bones/
+// model.sequences/model.blob" -- exactly today's behavior, byte-for-byte
+// unchanged for every existing caller. When supplied, skeleton assembly
+// and every bone-animation pass (real-inline, global-sequence, alias) use
+// `externalSkeleton->bones`/`sequences`/`blob` instead -- mesh skinning's
+// own bone-count bound follows the same source, so a .skel-sourced model's
+// vertex bone indices are checked against the RIGHT bone count, not the
+// model's own (usually empty) inline one.
+//
+// `firstResolvedSequenceIndex` (the index this function threads into
+// `assembleMaterial` as `sequenceIndex`) is always an index into whichever
+// `sequences` array actually produced a clip -- `externalSkeleton->sequences`
+// when supplied. Material animation tracks (M2Color/M2TextureWeight/
+// M2TextureTransform) stay inline-M2-sourced regardless (`model.blob`), so
+// this is a real, narrow scope boundary: a .skel-sourced model's material
+// tint/alpha-fade/UV-animation curves are resolved against a sequence INDEX
+// chosen from the .skel's own sequence count, on the documented assumption
+// (wowdev.wiki, corroborated by `skel.hpp`'s own doc comment on SKB1 bone
+// tracks sharing SKS1's sequence-array position 1:1) that inline material
+// M2Track arrays are sized to match whichever sequence source is actually
+// in effect for the model, not a separate hard-coded assumption of this
+// function's own invention -- not independently verified against real
+// data for the material-track case specifically, named here rather than
+// silently assumed correct.
+//
 // Throws std::runtime_error wherever assembleSkeleton/assembleMesh/
 // assembleMaterial/assembleBoneAnimation/canon::assembleModel already
 // would -- no new corruption checks are added here.
@@ -66,6 +114,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
                               const std::vector<skin::Submesh>& submeshes,
                               const std::vector<uint32_t>& triangleIndices,
                               const ExternalAnimBlobs& externalAnimBlobs = {},
-                              const TextureResolutions& textureResolutions = {});
+                              const TextureResolutions& textureResolutions = {},
+                              const ExternalSkeletonSource* externalSkeleton = nullptr);
 
 }  // namespace husk::m2input

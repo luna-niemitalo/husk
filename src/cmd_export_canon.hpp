@@ -42,14 +42,27 @@ namespace husk::commands {
 // slot through the identical catalog answer -- never a second opinion.
 //
 // `animDir`/`bonesAreInline` feed a real `m2input::ExternalAnimBlobs` (§7.2's
-// remaining open sub-gap): a file-local resolver in cmd_export_canon.cpp is
-// called once per non-inline, non-alias sequence in `model.sequences`,
-// mirroring buildAnimations's own external-.anim resolution exactly. Left
-// empty when `bonesAreInline` is false -- m2input::buildCanonModel only
-// ever reads `model.bones`/`model.sequences`/`model.blob` (the inline M2
-// source), never a .skel-sourced one, so external-anim resolution has
-// nothing valid to key against in that case (a separate, pre-existing
-// canon::Model limitation, not this parameter's own scope to fix).
+// external-.anim resolution): a file-local resolver in cmd_export_canon.cpp
+// is called once per non-inline, non-alias sequence in whichever sequence
+// array is actually in effect (model.sequences, or `skelBytes`' own
+// SKS1-parsed sequences when `haveSkel` and `!bonesAreInline`), mirroring
+// buildAnimations's own external-.anim resolution exactly.
+//
+// `haveSkel`/`skelBytes`: when `!bonesAreInline && haveSkel`, this function
+// independently re-parses `skelBytes` (skel::parseBones/parseSequences/
+// boneTrackBlob/findAnimFileIds -- the same real `.skel` bytes the legacy
+// pipeline already resolved and parsed once via `commands::resolveBones`,
+// re-derived here rather than reused, same "genuinely separate
+// re-derivation" policy this file's own top doc comment states for the
+// skin tier) and builds a real `m2input::ExternalSkeletonSource`, closing
+// AUDIT.md §7.2's "no `.skel`-sourced coverage at all" gap -- previously
+// `runCanonCompareExport` always read `model.bones`/`model.sequences`
+// regardless of `bonesAreInline`, silently comparing against the model's
+// own (usually empty) inline data for every `.skel`-sourced export. When
+// `bonesAreInline` is true, or `haveSkel` is false (a genuinely 0-bone
+// model, or `--skel none`), this parameter has no effect -- exactly
+// today's inline-only behavior.
+//
 // `legacyMaterials`: the SAME LOD tier's own resolved `gltf::Material` list
 // (`NamedMesh::materials`, matching `legacyMesh`) -- forwarded to
 // canon_diff::compareMaterialBlendModes so it can check canon's newly-wired
@@ -62,6 +75,7 @@ void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, 
                            const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
                            husk::sources::Catalog& catalog, const std::string& modelPath,
                            uint32_t objectSkinTextureFileDataId, const std::string& animDir, bool bonesAreInline,
+                           bool haveSkel, const std::vector<uint8_t>& skelBytes,
                            const std::vector<gltf::Material>& legacyMaterials = {});
 
 }  // namespace husk::commands

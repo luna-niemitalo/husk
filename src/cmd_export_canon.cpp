@@ -11,6 +11,7 @@
 #include "export_extras.hpp"   // readFileBytes
 #include "m2_animation.hpp"    // m2::extractAnimBlob
 #include "m2_canon_input.hpp"  // m2input::buildCanonModel, m2input::ExternalAnimBlobs
+#include "skel.hpp"             // .skel-sourced bones/sequences (AUDIT.md §7.2)
 #include "skin.hpp"
 #include "writers/bundle_writer.hpp"
 #include "writers/gltf_lean.hpp"
@@ -235,19 +236,26 @@ std::optional<std::vector<uint8_t>> resolveExternalAnimBlobForCanon(
 // directly is correct for every entry this function does produce). Empty
 // when `animDir` is empty, same "nothing to resolve" no-op every other
 // opt-in enrichment here uses.
-m2input::ExternalAnimBlobs buildExternalAnimBlobs(const m2::Model& model, const std::string& animDir,
-                                                   const std::string& modelPath) {
+//
+// `sequences`/`animFileIds` are whichever source is actually in effect for
+// this model -- the M2's own inline arrays, or a .skel's own SKS1/AFID
+// tables (a .skel's own AFID entries name FileDataIDs distinct from the
+// owning M2's, per skel.hpp's own doc comment) -- `animChunked` always
+// comes from the M2's own header.globalFlags regardless (mirrors
+// resolveAnimationsForModel's own haveSkel branch, cmd_export.cpp, which
+// reuses `header.globalFlags` for both sources identically).
+m2input::ExternalAnimBlobs buildExternalAnimBlobs(
+    const std::vector<m2::Sequence>& sequences,
+    const std::optional<std::vector<m2::Header::AnimFileEntry>>& animFileIds, bool animChunked,
+    const std::string& animDir, const std::string& modelPath) {
     m2input::ExternalAnimBlobs blobs;
     if (animDir.empty()) return blobs;
 
-    bool animChunked = (model.header.globalFlags & 0x200000) != 0;
-
-    for (size_t si = 0; si < model.sequences.size(); ++si) {
-        const m2::Sequence& seq = model.sequences[si];
+    for (size_t si = 0; si < sequences.size(); ++si) {
+        const m2::Sequence& seq = sequences[si];
         if ((seq.flags & kSequenceStoredInlineFlag) != 0) continue;
         if ((seq.flags & kSequenceAliasFlag) != 0) continue;  // pure alias -- resolved via its terminal, not here
-        if (auto blob = resolveExternalAnimBlobForCanon(seq, model.header.animFileIds, animChunked, animDir,
-                                                          modelPath)) {
+        if (auto blob = resolveExternalAnimBlobForCanon(seq, animFileIds, animChunked, animDir, modelPath)) {
             blobs.emplace(static_cast<uint32_t>(si), std::move(*blob));
         }
     }
@@ -270,6 +278,7 @@ void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, 
                            const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
                            sources::Catalog& catalog, const std::string& modelPath,
                            uint32_t objectSkinTextureFileDataId, const std::string& animDir, bool bonesAreInline,
+                           bool haveSkel, const std::vector<uint8_t>& skelBytes,
                            const std::vector<gltf::Material>& legacyMaterials) {
     try {
         auto skinBytes = readFileBytes(skinPath);
@@ -280,16 +289,50 @@ void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, 
 
         m2input::TextureResolutions textureResolutions =
             buildTextureResolutions(model, batches, catalog, modelPath, objectSkinTextureFileDataId);
-        // See runCanonCompareExport's own doc comment (header): external-anim
-        // resolution only makes sense against the inline M2 source
-        // m2input::buildCanonModel actually reads -- a .skel-sourced bones/
-        // sequences pair would need keys into a different sequence array
-        // entirely, which canon::Model has no representation of at all yet.
+
+        bool animChunked = (model.header.globalFlags & 0x200000) != 0;
+
+        // .skel-sourced bones/sequences (AUDIT.md §7.2's "no .skel coverage
+        // at all" gap): independently re-parsed from `skelBytes` here, not
+        // reused from `commands::resolveBones`'s own already-parsed result
+        // -- same "genuinely separate re-derivation" policy this file's own
+        // top doc comment states for the skin tier. `skelSequences` peeks
+        // for a real SKS1 chunk first (a .skel with no sequences at all is
+        // "no animation clips available," not a parse failure -- mirrors
+        // resolveAnimationsForModel's own haveSkel branch).
+        std::optional<m2input::ExternalSkeletonSource> skelSource;
+        std::vector<m2::Sequence> skelSequences;
+        if (!bonesAreInline && haveSkel) {
+            m2input::ExternalSkeletonSource src;
+            src.bones = skel::parseBones(skelBytes);
+            src.blob = skel::boneTrackBlob(skelBytes);
+            if (findChunk(readChunks(skelBytes.data(), skelBytes.size()), "SKS1")) {
+                src.sequences = skel::parseSequences(skelBytes);
+            }
+            skelSequences = src.sequences;
+            skelSource = std::move(src);
+        }
+        const m2input::ExternalSkeletonSource* externalSkeleton = skelSource ? &*skelSource : nullptr;
+
+        // The sequence array actually in effect for this model -- feeds
+        // both external-.anim resolution (below) and compareAnimations'
+        // own clip-name reconstruction (each real-inline/alias clip is
+        // named from ITS sequence array's (id, variationIndex), never the
+        // other source's). A real local variable, not a reference bound
+        // through a ternary, since one branch is a freshly-computed
+        // temporary and the other an existing member -- kept explicit
+        // rather than relying on conditional-operator lifetime extension.
+        std::optional<std::vector<m2::Header::AnimFileEntry>> effectiveAnimFileIds =
+            externalSkeleton ? skel::findAnimFileIds(skelBytes) : model.header.animFileIds;
+        const std::vector<m2::Sequence>& effectiveSequences = externalSkeleton ? skelSequences : model.sequences;
+
         m2input::ExternalAnimBlobs externalAnimBlobs =
-            bonesAreInline ? buildExternalAnimBlobs(model, animDir, modelPath) : m2input::ExternalAnimBlobs{};
+            (bonesAreInline || haveSkel)
+                ? buildExternalAnimBlobs(effectiveSequences, effectiveAnimFileIds, animChunked, animDir, modelPath)
+                : m2input::ExternalAnimBlobs{};
 
         canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices,
-                                                             externalAnimBlobs, textureResolutions);
+                                                             externalAnimBlobs, textureResolutions, externalSkeleton);
 
         std::filesystem::path leanGlbPath(outputPath);
         leanGlbPath.replace_extension(".canon.glb");
@@ -312,7 +355,8 @@ void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, 
         anyDeviation = anyDeviation || !skeletonReport.ok();
         printReport("skeleton", skeletonReport);
 
-        canon_diff::Report animReport = canon_diff::compareAnimations(canonModel, model.sequences, legacyAnimations);
+        canon_diff::Report animReport =
+            canon_diff::compareAnimations(canonModel, effectiveSequences, legacyAnimations);
         anyDeviation = anyDeviation || !animReport.ok();
         printReport("animations", animReport);
 

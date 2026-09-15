@@ -424,16 +424,6 @@ orchestrator (`buildExternalAnimBlobs`) calls the canon-local resolver once
 per non-inline, non-alias sequence in the re-parsed model, building the map
 `assembleModel` now takes.
 
-Deliberately scoped to the `bonesAreInline` case only:
-`canon::assembleModel` reads `model.bones`/`model.sequences`/`model.blob`
-directly (the inline M2 source), never a `.skel`-sourced bone/sequence pair
-— a `.skel`-sourced export (`--skel`, real AFSB-linked models) still runs
-`--compare-canon` against the model's own (usually empty/irrelevant) inline
-data, a pre-existing `canon::Model` limitation this wiring doesn't touch or
-worsen. `runCanonCompareExport` skips building `ExternalAnimBlobs` entirely
-in that case rather than building a map that would key against the wrong
-sequence array.
-
 Verified against real data: exporting `bloodelffemale.m2` (inline bones)
 with `--anim test_data/character/bloodelf/female --compare-canon` resolves
 a real external `.anim` file under the same-basename fallback convention
@@ -442,6 +432,63 @@ a real external `.anim` file under the same-basename fallback convention
 canon's newly-wired external-anim path reproduces the exact clips legacy's
 `buildAnimations` produces from the identical file, not just a structural
 no-op. Full suite still green, 966/966.
+
+**`.skel`-sourced coverage — closed 2026-09-15 (same-day follow-up, Stage 3's
+next-biggest blocker)**: this section originally scoped itself to the
+`bonesAreInline` case only — `m2input::buildCanonModel` read `model.bones`/
+`model.sequences`/`model.blob` directly (the inline M2 source), never a
+`.skel`-sourced bone/sequence pair, so a `.skel`-sourced export (`--skel`,
+real AFSB-linked models — the common player-character case, including this
+repo's own primary `bloodelffemale_hd.m2` fixture) either silently compared
+against the model's own irrelevant, usually-empty inline data or (once the
+material-dedup fix from §7.3 landed and mesh-skinning correctness started
+mattering more) threw inside `runCanonCompareExport`'s own try/catch —
+`--compare-canon` had, in effect, zero real coverage for the majority of
+real character models.
+
+**Fixed**: `m2input::buildCanonModel` gained an `ExternalSkeletonSource*`
+parameter (`m2_canon_input.hpp`, default `nullptr` — every existing caller
+unchanged): `{bones, sequences, blob}`, mirroring `skel::parseBones`/
+`parseSequences`/`boneTrackBlob`'s own return shapes exactly. When supplied,
+skeleton assembly, mesh-skinning's own bone-count bound, and all three
+bone-animation passes (real-inline, global-sequence, alias) read from it
+instead of `model`'s own inline arrays — mesh geometry (`model.vertices`)
+and every material-related table stay `model`-sourced regardless, since
+`.skel` only ever replaces bones/sequences (wowdev.wiki M2/.skel's own
+scope). `runCanonCompareExport` (`cmd_export_canon.cpp`) now takes
+`haveSkel`/`skelBytes` (already resolved once by `commands::resolveBones`
+at the real call site, `cmd_export.cpp`) and, when `!bonesAreInline &&
+haveSkel`, independently re-parses `skelBytes` itself — same "genuinely
+separate re-derivation" policy this file's own top doc comment states for
+the skin tier, not a reuse of legacy's own already-parsed result.
+`buildExternalAnimBlobs`/`compareAnimations` both now take whichever
+sequence array is actually in effect (`effectiveSequences`), not a
+hard-coded `model.sequences` — a `.skel`-sourced clip's name (`anim_<id>_
+<variationIndex>`) is reconstructed from the RIGHT array.
+
+Verified against real data: `husk export bloodelffemale_hd.m2 --skin
+bloodelffemale_hd00.skin --skel bloodelffemale_hd.skel --anim
+character/bloodelf/female --compare-canon` (a real `.skel`-sourced, 245-bone,
+338-animation character) now reports **"clean, no deviations found"** across
+mesh/skeleton/animations/materials — not just "no crash," a genuine
+structural match against legacy's own `.skel`-sourced output. Re-ran the
+inline-bones case (`bloodelffemale.m2`) too, confirming the new parameter's
+default (`nullptr`) is still a true no-op there. 2 new tests
+(`tests/test_m2_canon_input.cpp`): one confirming the pre-existing
+no-`ExternalSkeletonSource` call now throws against this real fixture (0
+bones, real nonzero skin weights — expected, not silently wrong), one
+confirming the real `.skel`-sourced skeleton/skinning/animation-clip output.
+Full suite green, 977/977 (975 + 2 new).
+
+Narrow, named, not independently verified: `assembleMaterial`'s own
+`sequenceIndex` (chosen from whichever sequence source produced the first
+resolved clip) is used as-is for a `.skel`-sourced model's material
+tint/alpha-fade/UV-animation curves too, on the documented assumption
+(`ExternalSkeletonSource`'s own doc comment, corroborated by `skel.hpp`'s
+finding that SKB1 bone tracks share SKS1's sequence-array position 1:1)
+that inline material M2Track arrays are sized to match whichever sequence
+source is in effect — not confirmed against real data for the
+material-track case specifically.
 
 ### 7.3 `canon::assembleModel` took `m2::`/`skin::` types directly — closed 2026-09-15 (sub-assemblers also moved, same day)
 

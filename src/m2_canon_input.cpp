@@ -108,9 +108,18 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
                               const std::vector<skin::Submesh>& submeshes,
                               const std::vector<uint32_t>& triangleIndices,
                               const ExternalAnimBlobs& externalAnimBlobs,
-                              const TextureResolutions& textureResolutions) {
-    canon::Skeleton skeleton = assembleSkeleton(model.bones);
-    canon::Mesh mesh = assembleMesh(model.vertices, model.bones.size(), batches, submeshes, triangleIndices);
+                              const TextureResolutions& textureResolutions,
+                              const ExternalSkeletonSource* externalSkeleton) {
+    // Skeleton + bone-animation source: model's own inline data, or the
+    // caller-supplied .skel triple -- see ExternalSkeletonSource's own doc
+    // comment for why mesh geometry (model.vertices) and material tables
+    // (m2in.blob, below) stay model-sourced regardless.
+    const std::vector<m2::Bone>& bones = externalSkeleton ? externalSkeleton->bones : model.bones;
+    const std::vector<m2::Sequence>& sequences = externalSkeleton ? externalSkeleton->sequences : model.sequences;
+    const std::vector<uint8_t>& blob = externalSkeleton ? externalSkeleton->blob : model.blob;
+
+    canon::Skeleton skeleton = assembleSkeleton(bones);
+    canon::Mesh mesh = assembleMesh(model.vertices, bones.size(), batches, submeshes, triangleIndices);
 
     // Animations, pass 1: one AnimationClip per sequence that is either
     // real inline OR has a caller-supplied external blob (externalAnimBlobs,
@@ -131,8 +140,8 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
     // (export_animation.cpp) exactly.
     std::vector<canon::AnimationClip> animations;
     std::unordered_map<size_t, size_t> resolvedClipIndexBySequence;
-    for (size_t si = 0; si < model.sequences.size(); ++si) {
-        const auto& seq = model.sequences[si];
+    for (size_t si = 0; si < sequences.size(); ++si) {
+        const auto& seq = sequences[si];
         const std::vector<uint8_t>* externalBlob = nullptr;
         if (!isRealInlineSequence(seq)) {
             if (isPureAliasSequence(seq)) continue;  // resolved via its terminal in pass 3
@@ -145,9 +154,8 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
         clip.sequence = canon::SequenceRef::sequence(static_cast<uint32_t>(si));
         clip.boneCurves.reserve(skeleton.joints.size());
         bool anyBoneAnimated = false;
-        for (size_t bi = 0; bi < model.bones.size(); ++bi) {
-            auto curves = assembleBoneAnimation(model.blob, model.bones[bi], bi, static_cast<uint32_t>(si),
-                                                         externalBlob);
+        for (size_t bi = 0; bi < bones.size(); ++bi) {
+            auto curves = assembleBoneAnimation(blob, bones[bi], bi, static_cast<uint32_t>(si), externalBlob);
             anyBoneAnimated |= curves.has_value();
             clip.boneCurves.push_back(std::move(curves));
         }
@@ -167,13 +175,13 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
     // actually referenced by any bone track (globalSequenceIndices above),
     // independent of any M2Sequence -- mirrors
     // buildGlobalSequenceAnimations's own per-bone gating exactly.
-    for (uint16_t gs : globalSequenceIndices(model.blob, model.bones)) {
+    for (uint16_t gs : globalSequenceIndices(blob, bones)) {
         canon::AnimationClip clip;
         clip.sequence = canon::SequenceRef::globalSequence(gs);
         clip.boneCurves.reserve(skeleton.joints.size());
         bool anyBoneAnimated = false;
-        for (size_t bi = 0; bi < model.bones.size(); ++bi) {
-            auto curves = assembleBoneAnimationGlobal(model.blob, model.bones[bi], bi, gs);
+        for (size_t bi = 0; bi < bones.size(); ++bi) {
+            auto curves = assembleBoneAnimationGlobal(blob, bones[bi], bi, gs);
             anyBoneAnimated |= curves.has_value();
             clip.boneCurves.push_back(std::move(curves));
         }
@@ -188,10 +196,10 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
     // already-assembled boneCurves rather than re-deriving them --
     // registered under the ALIAS's own sequence-array index. A terminal
     // with no assembled clip at all produces no clip for the alias either.
-    for (size_t si = 0; si < model.sequences.size(); ++si) {
-        if (!isPureAliasSequence(model.sequences[si])) continue;
+    for (size_t si = 0; si < sequences.size(); ++si) {
+        if (!isPureAliasSequence(sequences[si])) continue;
 
-        size_t terminal = resolveAliasChain(model.sequences, si);
+        size_t terminal = resolveAliasChain(sequences, si);
         auto it = resolvedClipIndexBySequence.find(terminal);
         if (it == resolvedClipIndexBySequence.end()) continue;
 
