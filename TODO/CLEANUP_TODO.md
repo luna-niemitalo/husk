@@ -4,23 +4,7 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
-1. **Three `tests/test_cli_*.cpp` files still cite the now-deleted
-   `CHAR_TEXTURE_COMPOSITING_TODO.md` by name.** Every other citation across
-   the repo (~30 sites in `DESIGN.md`, `README.md`, `TOOL_COMPARISON.md`,
-   `EYES_ON_FINDINGS.md`, `WIKI_FINDINGS/M2.md`, `CLAUDE.md`, several
-   `TODO/*.md` files, `tools/husk_blender_geoset_mask.py`, and doc comments
-   across `src/`) was retargeted or removed and the stub file deleted
-   2026-08-29 — see git history. `tests/test_cli_db2.cpp:619`,
-   `tests/test_cli_appearance.cpp:7,184`, and
-   `tests/test_cli_chrcustomization.cpp:541` were left untouched because
-   `tests/` was off-limits to that session (a sibling session was actively
-   adding tests there); same treatment applies — most are historical-
-   narrative comments that can just be deleted, one at line 184 names the
-   file inside a test's own description string. `CLAUDE_HISTORY.md` and
-   `WIKI_FINDINGS_HISTORY.md` are exempt, same "don't rewrite history"
-   treatment git commits get.
-
-2. **`corpus_scan_tasks/m2_full_validation_task.py` genuinely hangs on a
+1. **`corpus_scan_tasks/m2_full_validation_task.py` genuinely hangs on a
    full-corpus run (not just slow).** Found 2026-08-22 during the
    post-patch corpus-scan re-run (`corpus_reports/corpus_scan_22_08/`):
    against the real 132,863-file corpus it printed `found 132863 files`
@@ -47,18 +31,3 @@ and when, not this file.
    heartbeat/hang-detector (or `strace -f`/`py-spy dump` on a worker
    mid-hang) to catch it live instead of guessing from a killed run's
    silence.
-
-3. **`husk export` has no `--debug`/`--verbose` flag.** The fuzzy/ambiguous
-   texture-match warnings (`cmd_export.cpp`, near `BuiltMaterials::
-   fuzzyMatches`/`ambiguousMatches`) were changed 2026-08-31 to group by
-   identical candidate set and print one summary line per group instead of
-   one line per batch, and to stop dumping every candidate filename to
-   stderr (the full list is already embedded as `alternate_textures` extras
-   on the `.glb`) — a real character export previously produced 87 warning
-   lines, several repeating the same 400+-filename list verbatim. A
-   `--debug`/`--verbose` flag to opt back into the full per-batch,
-   full-filename-list dump (for the rare case of actually needing to see
-   every candidate without opening the `.glb`'s own extras JSON) doesn't
-   exist yet — not built per Luna's own explicit "make a TODO item" call,
-   not "implement it now".
-

@@ -216,6 +216,9 @@ struct ExportOptions {
     bool slimTextures = false;
     // REFACTOR/README.md's I4 -- see the flag's own --help text.
     bool explainTextures = false;
+    // Opts back into the old full per-batch, full-filename-list
+    // fuzzy/ambiguous-texture warning dump -- see the flag's own --help text.
+    bool debugTextureWarnings = false;
     // REFACTOR/README.md stage 3's runtime convergence gate -- see the
     // flag's own --help text and cmd_export_canon.hpp's doc comment.
     bool compareCanon = false;

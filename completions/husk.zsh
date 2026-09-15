@@ -39,6 +39,7 @@ _husk() {
                 '(-t --textures)'{-t,--textures}'[texture directory, or none]:value:_husk_dir_or_none_value' \
                 '--textures-out[directory to also write decoded .png copies to]:value:_husk_dir_value' \
                 '--explain-textures[--explain-textures]' \
+                '--debug[--debug]' \
                 '--compare-canon[--compare-canon]' \
                 '--slim-textures[write textures as external files instead of embedding]' \
                 '--skin-dir[skin-search directory, or none]:value:_husk_dir_or_none_value' \

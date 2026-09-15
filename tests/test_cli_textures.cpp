@@ -288,6 +288,41 @@ TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot 
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export --debug: opts back into the pre-grouping full per-batch, full-filename-list "
+          "ambiguous-match warning dump instead of today's default one-summary-line-per-candidate-"
+          "set grouping") {
+    std::vector<uint8_t> onePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8,
+        0xCF, 0xC0, 0xD0, 0x00, 0x00, 0x04, 0x81, 0x01, 0x80, 0x2C, 0x55, 0xCE, 0xB0, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82};
+
+    auto dir = defaultsDir("fuzzytex-debug");
+    writeFile(dir / "fuzzytex.m2", oneTexturedModelWithType(1));
+    writeFile(dir / "fuzzytex00.skin", oneTexturedModelSkin());
+    writeFile(dir / "fuzzytexfaceupper00_00.png", onePixelPng);
+    writeFile(dir / "fuzzytexskin00_00.png", onePixelPng);
+
+    auto grouped = runHusk("export " + (dir / "fuzzytex.m2").string());
+    CHECK(grouped.exitCode == 0);
+    // Default (no --debug): the non-default candidate's own filename never
+    // appears in the console warning -- it's grouped away, only reachable
+    // via the .glb's own alternate_textures extras (see the test above).
+    CHECK(grouped.output.find("fuzzytexskin00_00.png") == std::string::npos);
+
+    auto debugRun =
+        runHusk("export " + (dir / "fuzzytex.m2").string() + " --debug -o " + (dir / "debug.glb").string());
+    CHECK(debugRun.exitCode == 0);
+    // --debug: the old per-batch shape, every candidate filename listed
+    // inline in the warning itself, not just the arbitrarily-picked default.
+    CHECK(debugRun.output.find("material '") != std::string::npos);
+    CHECK(debugRun.output.find("fuzzytexfaceupper00_00.png") != std::string::npos);
+    CHECK(debugRun.output.find("fuzzytexskin00_00.png") != std::string::npos);
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("husk export: two hardcoded slots of genuinely different M2Texture::types each only see "
           "their own type-compatible candidates from the shared fuzzy pool, not each other's "
           "(EYES_ON_FINDINGS.md #3/#6: a jewelry-color file must never end up offered to a skin "

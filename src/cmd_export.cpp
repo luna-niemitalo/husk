@@ -351,7 +351,8 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
     const std::string& modelBasename, const std::string& texturesOutDir,
     const husk::ListfileIndex& listfile = husk::EmptyListfileIndex(), const std::string& listfileRoot = "",
     uint32_t objectSkinTextureFileDataId = 0,
-    const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames = {}) {
+    const std::unordered_map<uint32_t, CustomizationNameEntry>& customizationNames = {},
+    bool debugTextureWarnings = false) {
     std::vector<gltf::NamedMesh> namedMeshes;
     namedMeshes.reserve(skinsToExport.size());
     for (const auto& [name, path] : skinsToExport) {
@@ -448,10 +449,25 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
         // not one of the two real deterministic matches -- see
         // BuiltMaterials::FuzzyMatch's doc comment. A real character model
         // routinely has dozens of batches resolving to the *same* fuzzy
-        // file (e.g. every skin-tone-bearing batch), so these are grouped
-        // by (fileName, fileDataId) and printed once per distinct link,
-        // naming how many materials share it, rather than once per batch.
-        {
+        // file (e.g. every skin-tone-bearing batch), so by default these
+        // are grouped by (fileName, fileDataId) and printed once per
+        // distinct link, naming how many materials share it, rather than
+        // once per batch -- --debug opts back into one line per batch.
+        if (debugTextureWarnings) {
+            for (const auto& fm : built.fuzzyMatches) {
+                std::cerr << "husk: warning: material '" << fm.materialName << "' linked '" << fm.fileName
+                          << "' via non-deterministic basename matching, not a verified FileDataID "
+                             "or exact-name match -- please confirm this is the correct texture";
+                if (fm.fileDataId != 0) {
+                    std::cerr << " (resolved FileDataID " << fm.fileDataId
+                              << ", NOT independently verified against it -- husk has no CASC/"
+                                 "listfile access to check a FileDataID's real name)";
+                } else {
+                    std::cerr << " (no FileDataID at all for this hardcoded slot to cross-reference)";
+                }
+                std::cerr << "\n";
+            }
+        } else {
             std::vector<std::pair<std::string, uint32_t>> order;
             std::map<std::pair<std::string, uint32_t>, std::vector<std::string>> byLink;
             for (const auto& fm : built.fuzzyMatches) {
@@ -480,13 +496,34 @@ std::vector<gltf::NamedMesh> buildLodTierMeshes(
         // Genuinely ambiguous hardcoded slots (2+ same-basename candidates)
         // -- see BuiltMaterials::AmbiguousMatch's doc comment. Every real
         // candidate is embedded as an alternate_textures extras entry on
-        // every affected material; the console just names which default
-        // husk arbitrarily wired in and how many candidates/materials share
-        // it, grouped by identical candidate set (same "dozens of batches,
-        // same skin-tone pool" shape fuzzyMatches has above) instead of
-        // dumping the same multi-hundred-filename list once per batch --
-        // the full list is already in the .glb's own extras, not lost.
-        {
+        // every affected material; by default the console just names which
+        // default husk arbitrarily wired in and how many candidates/
+        // materials share it, grouped by identical candidate set (same
+        // "dozens of batches, same skin-tone pool" shape fuzzyMatches has
+        // above) instead of dumping the same multi-hundred-filename list
+        // once per batch -- the full list is already in the .glb's own
+        // extras, not lost. --debug opts back into the full per-batch dump.
+        if (debugTextureWarnings) {
+            for (const auto& am : built.ambiguousMatches) {
+                std::cerr << "husk: warning: material '" << am.materialName << "' had "
+                          << am.allFileNames.size() << " same-basename texture candidate(s) ("
+                          << am.defaultFileName << " picked arbitrarily as the default) -- all "
+                          << am.allFileNames.size()
+                          << " are embedded as 'alternate_textures' extras on this material";
+                if (am.fileDataId != 0) {
+                    std::cerr << " (resolved FileDataID " << am.fileDataId
+                              << ", NOT independently verified against it)";
+                } else {
+                    std::cerr << " (no FileDataID at all for this hardcoded slot to cross-reference)";
+                }
+                std::cerr << ": ";
+                for (size_t i = 0; i < am.allFileNames.size(); ++i) {
+                    if (i) std::cerr << ", ";
+                    std::cerr << am.allFileNames[i];
+                }
+                std::cerr << "\n";
+            }
+        } else {
             std::vector<std::string> order;
             std::map<std::string, std::vector<std::string>> materialsBySig;
             std::map<std::string, const BuiltMaterials::AmbiguousMatch*> firstBySig;
@@ -623,6 +660,14 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                  "ambiguous, and on a miss the reason it failed -- off by default. Use this to "
                  "diff resolution behavior before vs. after a change, rather than inferring it "
                  "from the export summary")
+        ->group("Diagnostics");
+    app.add_flag("--debug", opts.debugTextureWarnings,
+                 "print the full fuzzy/ambiguous-texture-match warning dump: one line per batch, "
+                 "every same-basename candidate filename listed -- off by default, since the same "
+                 "candidates are already embedded as 'alternate_textures' extras on the .glb and the "
+                 "default output instead groups by identical candidate set (one summary line per "
+                 "group). Use this only when you need to see every candidate without opening the "
+                 ".glb's own extras JSON")
         ->group("Diagnostics");
     app.add_flag("--compare-canon", opts.compareCanon,
                  "also run the in-progress canon:: pipeline (REFACTOR/README.md stage 3) against this "
@@ -1241,7 +1286,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         auto namedMeshes =
             buildLodTierMeshes(skinsToExport, vertices, baseMesh, m2Inputs, catalog, texturesDir, modelPath,
                                 modelBasename, texturesOutDir, listfile, listfileRoot,
-                                objectSkinTextureFileDataId, customizationNames);
+                                objectSkinTextureFileDataId, customizationNames, opts.debugTextureWarnings);
 
         // --compare-canon: canon::Model has no LOD concept (REFACTOR/README.md
         // stage 3), so this only ever runs against an unambiguous single
