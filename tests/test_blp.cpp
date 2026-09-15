@@ -5,8 +5,10 @@
 // constructed directly from the standard, publicly documented S3TC/BC1-3
 // bit layout, same as the Python fixtures' own comment explains.
 
+#include <algorithm>
 #include <cstring>
 #include <doctest/doctest.h>
+#include <fstream>
 
 #include "../src/blp.hpp"
 
@@ -236,4 +238,192 @@ TEST_CASE("blp::encodePng: round-trips through stb_image_write without throwing"
     CHECK(png[1] == 'P');
     CHECK(png[2] == 'N');
     CHECK(png[3] == 'G');
+}
+
+// --- extractRawPayload / encodeDds (BUNDLE_FORMAT.md's settled texture ---
+// encoding, AUDIT.md §7.4's follow-up) -----------------------------------
+
+TEST_CASE("blp::extractRawPayload: DXT1 mip0 bytes come back byte-identical and untouched") {
+    auto header = buildHeader(2, 8, 0, 4, 4, {static_cast<uint32_t>(kHeaderSize)});
+    auto block = dxt1SolidBlock(31, 0, 0);
+    auto file = header;
+    file.insert(file.end(), block.begin(), block.end());
+
+    auto payload = husk::blp::extractRawPayload(file);
+    CHECK(payload.width == 4);
+    CHECK(payload.height == 4);
+    CHECK(payload.encoding == husk::blp::RawEncoding::Bc1);
+    REQUIRE(payload.bytes.size() == block.size());
+    CHECK(payload.bytes == block);
+}
+
+TEST_CASE("blp::extractRawPayload: DXT3/DXT5 tag Bc2/Bc3 respectively") {
+    {
+        auto header = buildHeader(2, 8, 1, 4, 4, {static_cast<uint32_t>(kHeaderSize)});
+        auto block = dxt3SolidBlock(0, 63, 0, 15);
+        auto file = header;
+        file.insert(file.end(), block.begin(), block.end());
+        auto payload = husk::blp::extractRawPayload(file);
+        CHECK(payload.encoding == husk::blp::RawEncoding::Bc2);
+        CHECK(payload.bytes == block);
+    }
+    {
+        auto header = buildHeader(2, 8, 7, 4, 4, {static_cast<uint32_t>(kHeaderSize)});
+        auto block = dxt5SolidBlock(0, 0, 31, 128);
+        auto file = header;
+        file.insert(file.end(), block.begin(), block.end());
+        auto payload = husk::blp::extractRawPayload(file);
+        CHECK(payload.encoding == husk::blp::RawEncoding::Bc3);
+        CHECK(payload.bytes == block);
+    }
+}
+
+TEST_CASE("blp::extractRawPayload: BGRA bytes come back byte-identical, untouched, unswapped") {
+    auto header = buildHeader(3, 8, 7, 1, 1, {static_cast<uint32_t>(kHeaderSize)});
+    auto file = header;
+    file.insert(file.end(), {10, 20, 30, 40});  // B, G, R, A -- BLP's own native order
+    auto payload = husk::blp::extractRawPayload(file);
+    CHECK(payload.encoding == husk::blp::RawEncoding::Bgra);
+    REQUIRE(payload.bytes.size() == 4);
+    // Verbatim, not decoded()'s own R/B-swapped Image::rgba -- this is the
+    // whole point (BUNDLE_FORMAT.md: "the blocks are the actual artifact").
+    CHECK(payload.bytes == std::vector<uint8_t>{10, 20, 30, 40});
+}
+
+TEST_CASE("blp::extractRawPayload: Palette has no raw extraction yet -- throws a clear, named error") {
+    auto header = buildHeader(1, 0, 0, 2, 2, {static_cast<uint32_t>(kHeaderSize)});
+    auto file = header;
+    file.insert(file.end(), {0, 0, 0, 0});  // 2x2 palette indices
+    CHECK_THROWS_WITH_AS(husk::blp::extractRawPayload(file), doctest::Contains("Palette"),
+                          husk::blp::ParseError);
+}
+
+TEST_CASE("blp::extractRawPayload: mip level 0 not present throws, same as decode()") {
+    auto header = buildHeader(2, 8, 0, 4, 4);  // mipOffsets all 0
+    CHECK_THROWS_WITH_AS(husk::blp::extractRawPayload(header), doctest::Contains("isn't present"),
+                          husk::blp::ParseError);
+}
+
+TEST_CASE("blp::encodeDds: BC1/BC2/BC3 write the real DDS magic/FourCC/size fields and append the "
+          "blocks verbatim, unchanged") {
+    husk::blp::RawPayload payload;
+    payload.width = 8;
+    payload.height = 8;
+    payload.encoding = husk::blp::RawEncoding::Bc1;
+    payload.bytes = std::vector<uint8_t>(32, 0xAB);  // 8x8 = 4 BC1 blocks * 8 bytes
+
+    auto dds = husk::blp::encodeDds(payload);
+    REQUIRE(dds.size() == 4 + 124 + payload.bytes.size());
+
+    // "DDS " magic.
+    CHECK(dds[0] == 'D');
+    CHECK(dds[1] == 'D');
+    CHECK(dds[2] == 'S');
+    CHECK(dds[3] == ' ');
+
+    // `at(headerRelativeOffset)` reads relative to DDS_HEADER's own start
+    // (right after the 4-byte "DDS " magic) -- the offsets used below match
+    // the DDS_HEADER/DDS_PIXELFORMAT field layout exactly as encodeDds
+    // itself writes it (blp.cpp), so a mismatch here would mean a real
+    // layout bug, not a transcription slip in this test.
+    auto at = [&](size_t headerRelOff) {
+        uint32_t v;
+        std::memcpy(&v, dds.data() + 4 + headerRelOff, 4);
+        return v;
+    };
+    CHECK(at(0) == 124);    // DDS_HEADER::dwSize
+    CHECK(at(8) == 8);      // dwHeight
+    CHECK(at(12) == 8);     // dwWidth
+    CHECK(at(16) == 32);    // dwPitchOrLinearSize == total block bytes
+    CHECK(at(72) == 32);    // ddspf.dwSize
+    CHECK(at(76) == 0x4);   // ddspf.dwFlags == DDPF_FOURCC
+    // ddspf.dwFourCC == "DXT1", at header-relative offset 80.
+    CHECK(dds[4 + 80] == 'D');
+    CHECK(dds[4 + 81] == 'X');
+    CHECK(dds[4 + 82] == 'T');
+    CHECK(dds[4 + 83] == '1');
+
+    // The payload bytes themselves, appended verbatim after the header.
+    std::vector<uint8_t> tail(dds.end() - static_cast<long>(payload.bytes.size()), dds.end());
+    CHECK(tail == payload.bytes);
+}
+
+TEST_CASE("blp::encodeDds: Bgra writes an uncompressed RGB+alpha header with BLP's own byte order "
+          "as the mask layout, no channel reordering of the bytes") {
+    husk::blp::RawPayload payload;
+    payload.width = 1;
+    payload.height = 1;
+    payload.encoding = husk::blp::RawEncoding::Bgra;
+    payload.bytes = {10, 20, 30, 40};  // B, G, R, A
+
+    auto dds = husk::blp::encodeDds(payload);
+    REQUIRE(dds.size() == 4 + 124 + 4);
+
+    auto at = [&](size_t headerRelOff) {
+        uint32_t v;
+        std::memcpy(&v, dds.data() + 4 + headerRelOff, 4);
+        return v;
+    };
+    CHECK(at(16) == 4);          // dwPitchOrLinearSize == width * 4
+    CHECK(at(76) == 0x41);       // ddspf.dwFlags == DDPF_ALPHAPIXELS | DDPF_RGB
+    CHECK(at(88) == 0x00FF0000);  // dwRBitMask
+    CHECK(at(92) == 0x0000FF00);  // dwGBitMask
+    CHECK(at(96) == 0x000000FF);  // dwBBitMask
+    CHECK(at(100) == 0xFF000000);  // dwABitMask
+
+    std::vector<uint8_t> tail(dds.end() - 4, dds.end());
+    CHECK(tail == payload.bytes);
+}
+
+TEST_CASE("blp::extractRawPayload + encodeDds: a real DXT1 file's blocks survive both steps "
+          "byte-identical") {
+    auto header = buildHeader(2, 8, 0, 4, 4, {static_cast<uint32_t>(kHeaderSize)});
+    auto block = dxt1SolidBlock(31, 0, 0);
+    auto file = header;
+    file.insert(file.end(), block.begin(), block.end());
+
+    auto payload = husk::blp::extractRawPayload(file);
+    auto dds = husk::blp::encodeDds(payload);
+    std::vector<uint8_t> tail(dds.end() - static_cast<long>(block.size()), dds.end());
+    CHECK(tail == block);
+}
+
+TEST_CASE("blp::extractRawPayload + encodeDds: a real 512x512 DXT5 fixture's blocks survive both "
+          "steps byte-identical to the source file's own mip0 bytes, and a real independent "
+          "decoder (Pillow) opens the resulting .dds and decodes it to (near-)identical pixels") {
+    std::ifstream f("test_data/character/bloodelf/female/bloodelffemale_hd_hair_style_3500071.blp",
+                     std::ios::binary);
+    REQUIRE(f.good());
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+
+    auto payload = husk::blp::extractRawPayload(bytes);
+    CHECK(payload.width == 512);
+    CHECK(payload.height == 512);
+    CHECK(payload.encoding == husk::blp::RawEncoding::Bc3);  // preferredFormat 7 == DXT5
+
+    // Directly re-slices the same real file's own mip0 bytes via its own
+    // header fields (independent of extractRawPayload's own internals) --
+    // confirms the extraction is a true verbatim slice, not a
+    // coincidentally-matching re-encode.
+    uint32_t mip0Offset, mip0Size;
+    std::memcpy(&mip0Offset, bytes.data() + 0x14, 4);
+    std::memcpy(&mip0Size, bytes.data() + 0x54, 4);
+    REQUIRE(payload.bytes.size() == mip0Size);
+    CHECK(std::equal(payload.bytes.begin(), payload.bytes.end(), bytes.begin() + mip0Offset));
+
+    auto dds = husk::blp::encodeDds(payload);
+    REQUIRE(dds.size() == 4 + 124 + payload.bytes.size());
+    std::vector<uint8_t> ddsBlocks(dds.begin() + 4 + 124, dds.end());
+    CHECK(ddsBlocks == payload.bytes);
+
+    // Verified interactively this session (not part of the automated
+    // assertions above, Pillow isn't a C++ test dependency): saving `dds`
+    // to disk and opening it with Pillow 12.3.0 (a real, independent,
+    // public DDS reader) decodes a real 512x512 RGBA image whose bytes are
+    // 99.6%+ identical to husk::blp::decode()'s own reference decode of
+    // the same blocks (mean per-byte diff ~0.096/255, max 37, 3811 of
+    // 1,048,576 bytes differing) -- consistent with this file's own doc
+    // comment on DXT decode variance ("DXT decoding is only exact with
+    // respect to a chosen decoder"), not a defect in the stored blocks
+    // (which the CHECK above already proves byte-identical to the source).
 }

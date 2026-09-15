@@ -398,6 +398,153 @@ Image decode(const std::vector<uint8_t>& fileBytes) {
     }
 }
 
+RawPayload extractRawPayload(const std::vector<uint8_t>& fileBytes) {
+    Header h = parseHeader(fileBytes);
+
+    constexpr int kLevel = 0;
+    uint32_t offset = h.mipOffsets[kLevel];
+    if (offset == 0) {
+        throw ParseError("mip level 0 isn't present in this file (offset 0)");
+    }
+
+    RawPayload out;
+    out.width = h.width;
+    out.height = h.height;
+
+    switch (h.colorEncoding) {
+        case kDxt: {
+            switch (h.preferredFormat) {
+                case kDxt1: out.encoding = RawEncoding::Bc1; break;
+                case kDxt3: out.encoding = RawEncoding::Bc2; break;
+                case kDxt5: out.encoding = RawEncoding::Bc3; break;
+                default:
+                    throw ParseError("colorEncoding is DXT but preferredFormat " +
+                                      std::to_string(h.preferredFormat) +
+                                      " isn't a supported DXT variant (only DXT1=0, DXT3=1, DXT5=7 are)");
+            }
+            size_t blockSize = dxtBlockSize(h.preferredFormat);
+            size_t size = dxtBlockCount(h.width, h.height) * blockSize;
+            const uint8_t* data = sliceOrThrow(fileBytes, offset, size, "mip level 0 (DXT)");
+            out.bytes.assign(data, data + size);
+            return out;
+        }
+        case kBgra: {
+            out.encoding = RawEncoding::Bgra;
+            size_t size = static_cast<size_t>(h.width) * h.height * 4;
+            const uint8_t* data = sliceOrThrow(fileBytes, offset, size, "mip level 0 (BGRA)");
+            out.bytes.assign(data, data + size);
+            return out;
+        }
+        default:
+            throw ParseError(
+                "colorEncoding " + std::to_string(h.colorEncoding) +
+                " has no raw-payload extraction yet -- only DXT (BC1/BC2/BC3) and BGRA are "
+                "supported here (Palette needs a real DDS-palette-format decision this project "
+                "hasn't made yet, see extractRawPayload's own doc comment; JPEG/ARGB8888_DUP "
+                "aren't supported by this decoder at all)");
+    }
+}
+
+namespace {
+
+// Standard Microsoft DDS structures/constants (not WoW-specific -- see
+// Microsoft's own "Programming Guide for DDS" / the public DDS spec).
+// Hand-rolled rather than pulled from a library, same treatment every
+// other small fully-specified binary format gets in this file.
+constexpr uint32_t kDdsMagic = 0x20534444;  // "DDS " little-endian
+
+constexpr uint32_t kDdsdCaps = 0x1;
+constexpr uint32_t kDdsdHeight = 0x2;
+constexpr uint32_t kDdsdWidth = 0x4;
+constexpr uint32_t kDdsdPitch = 0x8;
+constexpr uint32_t kDdsdPixelformat = 0x1000;
+constexpr uint32_t kDdsdLinearsize = 0x80000;
+
+constexpr uint32_t kDdpfAlphapixels = 0x1;
+constexpr uint32_t kDdpfFourcc = 0x4;
+constexpr uint32_t kDdpfRgb = 0x40;
+
+constexpr uint32_t kDdscapsTexture = 0x1000;
+
+void appendU32(std::vector<uint8_t>& out, uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
+}
+
+uint32_t fourCc(char a, char b, char c, char d) {
+    return static_cast<uint32_t>(static_cast<uint8_t>(a)) |
+           (static_cast<uint32_t>(static_cast<uint8_t>(b)) << 8) |
+           (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 16) |
+           (static_cast<uint32_t>(static_cast<uint8_t>(d)) << 24);
+}
+
+}  // namespace
+
+std::vector<uint8_t> encodeDds(const RawPayload& payload) {
+    std::vector<uint8_t> out;
+    out.reserve(4 + 124 + payload.bytes.size());
+    appendU32(out, kDdsMagic);
+
+    bool compressed = payload.encoding != RawEncoding::Bgra;
+
+    // DDS_HEADER, 124 bytes total (dwSize field's own value).
+    appendU32(out, 124);  // dwSize
+    uint32_t flags = kDdsdCaps | kDdsdHeight | kDdsdWidth | kDdsdPixelformat;
+    flags |= compressed ? kDdsdLinearsize : kDdsdPitch;
+    appendU32(out, flags);  // dwFlags
+    appendU32(out, payload.height);
+    appendU32(out, payload.width);
+    // dwPitchOrLinearSize: total compressed byte size for a block format,
+    // row pitch in bytes for an uncompressed one -- exactly what
+    // payload.bytes.size()/height already gives for the BGRA case.
+    appendU32(out, compressed ? static_cast<uint32_t>(payload.bytes.size()) : payload.width * 4);
+    appendU32(out, 0);  // dwDepth
+    appendU32(out, 0);  // dwMipMapCount -- mip 0 only, no chain
+    for (int i = 0; i < 11; ++i) appendU32(out, 0);  // dwReserved1
+
+    // DDS_PIXELFORMAT, 32 bytes.
+    appendU32(out, 32);  // dwSize
+    if (compressed) {
+        appendU32(out, kDdpfFourcc);
+        uint32_t fcc;
+        switch (payload.encoding) {
+            case RawEncoding::Bc1: fcc = fourCc('D', 'X', 'T', '1'); break;
+            case RawEncoding::Bc2: fcc = fourCc('D', 'X', 'T', '3'); break;
+            case RawEncoding::Bc3: fcc = fourCc('D', 'X', 'T', '5'); break;
+            default: fcc = 0; break;  // unreachable: Bgra takes the other branch
+        }
+        appendU32(out, fcc);
+        appendU32(out, 0);  // dwRGBBitCount
+        appendU32(out, 0);  // dwRBitMask
+        appendU32(out, 0);  // dwGBitMask
+        appendU32(out, 0);  // dwBBitMask
+        appendU32(out, 0);  // dwABitMask
+    } else {
+        appendU32(out, kDdpfAlphapixels | kDdpfRgb);
+        appendU32(out, 0);  // dwFourCC (unused, DDPF_FOURCC not set)
+        appendU32(out, 32);  // dwRGBBitCount
+        // BLP's own in-file BGRA byte order (B,G,R,A per pixel, confirmed
+        // by decodeBgra's own channel mapping above) is already the
+        // standard DDS A8R8G8B8 memory layout -- these masks describe that
+        // layout directly, no channel reordering of payload.bytes needed.
+        appendU32(out, 0x00FF0000);  // dwRBitMask
+        appendU32(out, 0x0000FF00);  // dwGBitMask
+        appendU32(out, 0x000000FF);  // dwBBitMask
+        appendU32(out, 0xFF000000);  // dwABitMask
+    }
+
+    appendU32(out, kDdscapsTexture);  // dwCaps
+    appendU32(out, 0);                // dwCaps2
+    appendU32(out, 0);                // dwCaps3
+    appendU32(out, 0);                // dwCaps4
+    appendU32(out, 0);                // dwReserved2
+
+    out.insert(out.end(), payload.bytes.begin(), payload.bytes.end());
+    return out;
+}
+
 std::vector<uint8_t> encodePng(const Image& img) {
     int len = 0;
     unsigned char* png = stbi_write_png_to_mem(img.rgba.data(), static_cast<int>(img.width) * 4,

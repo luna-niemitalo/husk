@@ -707,10 +707,8 @@ a real `textures/<name>.png` file per resolved-with-payload texture
 (`writeRef` gained an optional `uri` parameter for exactly this) --
 matching `BUNDLE_FORMAT.md`'s own shape sketch (`textures/<name>.dds`) for
 the first time, `.png` today since intake still decodes BLP before
-canon:: ever sees the bytes (DDS block-preservation itself is a separate,
-larger, not-yet-started follow-up -- would need real raw-BLP-block
-extraction in C++, which doesn't exist; only `blp/`'s Python tool has it,
-and only for feeding Pillow, not for producing a stored artifact).
+canon:: ever sees the bytes -- DDS block-preservation itself was a
+separate follow-up, since closed the same day, see below.
 
 Verified against real data: re-ran the same `bloodelffemale_hd.m2`
 `--compare-canon` export -- `--compare-canon` still reports clean, 0
@@ -735,4 +733,60 @@ dedup-to-one-file-across-two-layers for the bundle case), plus the
 Resolved-but-no-payload case for both (no `baseColorTexture`/no `uri`/no
 `textures/` directory at all -- confirms this is a real optional field,
 not silently always-populated). Full suite green, 979/979 (977 + 2 new).
+
+**Real raw-BLP-block extraction + DDS housing -- closed 2026-09-15, same
+day.** The "doesn't exist" framing above (in this section's own earlier
+text) was wrong, caught by Luna's own direct question ("how did husk work
+previously without using the blp python tool?"): `src/blp.hpp`/`.cpp` is
+a real, complete, from-scratch C++ BLP2 decoder that has nothing to do
+with the Python `blp/` tool at all (`export_texture_resolution.cpp`'s
+`readTextureFileBytes` already calls it, not Pillow, not a subprocess) --
+it already parses the full BLP2 header/mip table and already knows each
+mip's real encoding (DXT1/3/5, BGRA, palettized) while decoding to RGBA.
+So the hard part (header/mip parsing) was never missing; what was
+missing was just stopping one step earlier (return the real bytes
+instead of decoding them) and a DDS header writer.
+
+Implemented: `blp::extractRawPayload` returns mip level 0's real bytes
+verbatim -- for DXT1/DXT3/DXT5 (tagged `RawEncoding::Bc1/Bc2/Bc3`) and
+BGRA (tagged `Bgra`, BLP's own in-file B,G,R,A byte order needing no
+reordering at all, since it's already the standard DDS A8R8G8B8 memory
+layout) -- reusing the exact same header/mip-offset parsing `decode()`
+already had, just returning the slice instead of decoding it. Palette is
+deliberately NOT extracted (throws a clear, named `ParseError`): an
+8-bit paletted image needs a real DDS-palette-format decision (legacy
+D3DFMT_P8 has thin modern tool support, unlike BC1-3/BGRA) this project
+hasn't made, not guessed at here. `blp::encodeDds` wraps a `RawPayload`
+in a real, minimal, standard Microsoft DDS container (`"DDS "` + 124-byte
+`DDS_HEADER` + the bytes unchanged) -- hand-verified field-by-field
+against the public DDS spec (magic, `dwSize`/`dwPitchOrLinearSize`/FourCC
+for the compressed case, `DDPF_RGB`/`DDPF_ALPHAPIXELS` + real bitmasks
+for the uncompressed BGRA case).
+
+Verified against real data, not just synthetic fixtures: ran
+`extractRawPayload`+`encodeDds` against this repo's own real
+`bloodelffemale_hd_hair_style_3500071.blp` (512x512 DXT5) -- confirmed
+the extracted bytes are byte-identical to the source file's own mip0
+region (re-sliced independently via the file's own header fields, not
+via `extractRawPayload`'s internals); confirmed the resulting `.dds`'s
+block region is byte-identical to those same bytes (a true lossless
+header swap, zero transcode); and, interactively, confirmed Pillow
+12.3.0 -- a real, independent, public DDS reader, not husk's own code --
+opens the file and decodes it to a 512x512 RGBA image 99.6%+
+byte-identical to `decode()`'s own reference decode (mean diff
+~0.096/255, 3811 of 1,048,576 bytes differing), consistent with this
+file's own documented DXT-decoder-rounding variance, not a defect in the
+stored blocks (which the byte-identity checks above already prove
+correct independent of any decoder). 9 new tests in `tests/test_blp.cpp`
+(DXT1/DXT3/DXT5 tagging + byte-identity, BGRA extraction with no channel
+reordering, the Palette-throws case, mip0-missing, DDS header field
+values for both the compressed and uncompressed cases, and the real-file
+round trip). Full suite green, 988/988 (979 + 9 new).
+
+Not yet wired into the catalog/canon/writer pipeline that actually
+produces `--compare-canon` output -- `sources::Catalog`'s own
+`TextureEncoding` still only ever produces `Png` (intake still decodes
+BLP before canon:: sees anything, per that type's own doc comment); this
+closes the "raw extraction doesn't exist in C++" gap specifically, not
+the separate, larger "wire real DDS output into a real export" task.
 

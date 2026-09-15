@@ -62,9 +62,16 @@ pattern here) and both writers now use it: `gltf_lean` embeds a real
 `images`/`textures` entry and sets `baseColorTexture`; `bundle_writer`
 writes a real `textures/<name>.png` file with a real manifest `uri`,
 matching `BUNDLE_FORMAT.md`'s own shape sketch for the first time. Only
-`Png` is reachable today (intake still decodes BLP before canon:: sees
-the bytes) — `BUNDLE_FORMAT.md`'s settled DDS/BC-block-preservation target
-is a separate, larger, not-yet-started follow-up.
+`Png` is reachable through the catalog today (intake still decodes BLP
+before canon:: sees the bytes) — but the real block-preserving decoder
+`BUNDLE_FORMAT.md`'s settled DDS target needs turned out to already exist
+(`src/blp.hpp`/`.cpp`, independent of the separate Python `blp/` tool):
+`blp::extractRawPayload`/`blp::encodeDds` (`AUDIT.md §7.4`, closed the
+same day) return real mip0 bytes verbatim and wrap them in a real,
+standard DDS container, verified against a real 512×512 fixture and a
+real independent public reader (Pillow). Not yet wired into
+`sources::Catalog`/the export pipeline itself — that's the remaining,
+separate step.
 `src/formats/`, `src/canon/`, and `src/writers/` as their own *subdirectories*
 (as opposed to the flat `canon_*.cpp`/`writers/` files that exist today) never
 materialized — a cosmetic deviation from this document's original sketch, not
