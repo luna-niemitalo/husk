@@ -365,8 +365,13 @@ Report compareAnimations(const canon::Model& canonModel, const std::vector<m2::S
         }
     }
 
-    r.notes.push_back("external-.anim-resolved clips aren't compared -- canon::assembleModel doesn't "
-                       "resolve external .anim files yet (canon_animation_builder.hpp, AUDIT.md §7.2)");
+    r.notes.push_back("external-.anim-resolved clips ARE compared above like any other clip when the "
+                       "caller supplied canon::ExternalAnimBlobs (AUDIT.md §7.2's API shape, closed "
+                       "2026-09-15) -- this note only flags that no separate distinction is drawn "
+                       "between an inline-sourced and an external-blob-sourced clip's own deviations; a "
+                       "caller that passed no external blobs at all simply sees canon emit fewer clips, "
+                       "the same 'absent, not approximated' case every unresolvable sequence already "
+                       "gets, not a scope limitation of this comparator");
 
     return r;
 }
@@ -408,9 +413,12 @@ Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vect
         r.deviations.push_back("first-layer blend op mismatch at material " + std::to_string(*blendOpMismatch));
     }
 
-    r.notes.push_back("only each material's own first-layer blendIntoPrevious op is checked -- full "
-                       "texture identity/tint/uv-animation comparison is out of scope until canon's "
-                       "own texture-catalog integration lands (canon_material_builder.hpp)");
+    r.notes.push_back("only each material's own first-layer blendIntoPrevious op is checked -- canon's "
+                       "texture-resolution wiring itself has landed (AUDIT.md §7.1's API shape, closed "
+                       "2026-09-15, orchestrator wiring closed 2026-09-15), but this comparator was "
+                       "never extended to check resolved texture identity/tint/uv-animation against "
+                       "legacy's own gm.baseColorTextureFileDataId -- a real remaining gap in this "
+                       "diagnostic, not in canon:: itself");
     return r;
 }
 

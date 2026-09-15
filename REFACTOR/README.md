@@ -30,12 +30,23 @@ catalog dependency (I1), but the real data both need only exists behind
 **pre-resolved input parameter**: whatever assembles a `canon::Model`
 resolves via the catalog first and hands canon:: the already-decided fact
 (or an explicit unresolved-reason), never a live `Catalog&`. That API shape
-is now implemented and tested for both (`TextureResolutions`/
-`ExternalAnimBlobs`, both defaulted to empty, both no-ops when unused); what
-remains open for both is the actual orchestrator wiring — nothing yet builds
-either map from a real `sources::Catalog` or a real resolved `.anim` file,
-so `canon::Model` still can't drive a real textured or fully-animated render
-on its own, only *accept* one if handed it. Stage 4 has two real, independently tested
+is now implemented, tested, AND orchestrator-wired for both
+(`TextureResolutions`/`ExternalAnimBlobs`, both defaulted to empty, both
+no-ops when unused): `husk export --compare-canon` (`src/cmd_export_canon.cpp`)
+now builds both maps from the same real `sources::Catalog` legacy uses, and
+from a canon-local reimplementation of legacy's own `.anim`-file resolution
+(`resolveExternalAnimBlobForCanon`, deliberately NOT shared code with
+`export_animation.cpp` — see `AUDIT.md` §7.2's full account of why editing
+the legacy pipeline, even losslessly, was rejected outright since it
+undermines `--compare-canon`'s whole premise of comparing against an
+untouched legacy pipeline) — verified against `bloodelffemale.m2` with a
+real external `.anim` file resolved (258 → 260 clips) and still clean (0
+deviations). What remains open (`AUDIT.md` §7.1/§7.2's own "Still open"
+notes): no real fixture here ships with a populated `--textures` directory,
+so texture-resolution wiring is verified structurally but not yet against a
+corpus file where slots resolve to real bytes; and `canon_diff.cpp`'s
+material comparator still only checks blend mode, not resolved texture
+identity. Stage 4 has two real, independently tested
 writers (`src/writers/bundle_writer.*`, `src/writers/gltf_lean.*`), but
 nothing in `cmd_export.cpp` calls either of them — `husk export
 --compare-canon` (opt-in, off by default) runs them as a diagnostic sidecar
@@ -108,6 +119,51 @@ Four stages, in Luna's own words: *input data parsing → adjacent data resoluti
 | 2. adjacent resolution | `src/sources/` | *where* bytes live: the catalog, listfile, sidecar conventions, DB2 table cache | semantic interpretation |
 | 3. internal representation | `src/canon/` | meaning: definition / selection / semantic resources | paths, tinygltf, bpy, GPU types |
 | 4. target conversion | `src/writers/` | bundle (primary), glTF (projection), JSON (info/dump) | re-resolving anything |
+
+## Input/output modules — a real design decision, deliberately deferred
+
+Luna's own framing (2026-09-15): stages 1+2 above (parsing + resolution) are
+an **input module**, stage 3 (`canon::`) is the **core**, stage 4 (`writers::`)
+is a set of **output modules** — and each input/output module should be able
+to be added or removed without the others caring, the same way `m2` isn't
+the only input format canon:: should ever accept (a future `gltf`-as-input
+parser is a different input module's concern, not canon::'s — canon:: is the
+representation, an input module is "the solver who finds the connections
+and/or logs why a connection could not be found"). Concretely, a CLI shape
+like:
+
+```
+husk --input example.m2 --input-module m2 --output example.glb --output-module glb
+husk --input example.m2                   --output example.glb              # both auto-derived from extension
+husk --input example.m2                   --output example/ --output-module bundle  # ambiguous by path alone, needs the flag
+```
+
+**Decided, not yet built: no module registry or dispatch mechanism yet.**
+A real registry (`InputModule`/`OutputModule` structs, a name→module lookup
+table, `--input-module`/`--output-module` CLI flags with extension-based
+auto-detection) is real, scoped work — but building it now would be
+designing an interface against a single real implementation of each side
+(`m2` in, `gltf`/`bundle` out), which is exactly the "interface designed
+before a second real case exists to prove it against" trap. Deferred until
+a second real input format (e.g. glTF-as-input) or a second real output
+target actually exists to validate the interface shape against, per this
+project's own established `feedback_dont_start_big_refactors_mid_design`
+discipline.
+
+**What already satisfies the *separation* half, without a registry**: the
+current tree already keeps the three layers structurally independent, just
+wired by direct calls instead of a lookup table — `m2::loadModel`/`skin::`
+parsing plus `sources::Catalog` resolution (today's input-module-shaped
+code) hand fully pre-resolved facts to `canon::assembleModel` (core, I1: no
+paths, no filesystem, no catalog dependency), whose `canon::Model` output is
+consumed by `writers::writeLeanGlb`/`writers::writeBundle` (output-module-
+shaped code) with no knowledge of `m2::`/`skin::`/`sources::` at all. A
+second output module or a second input module can be added today by writing
+a new function with the same shape and wiring it into `cmd_export.cpp`
+directly — the only thing missing is the registry/CLI-selection layer that
+would let that wiring happen by name/extension instead of by editing
+`cmd_export.cpp`'s own call sites. That's the concrete, scoped follow-up
+this section exists to name, not to build yet.
 
 ## Invariants
 

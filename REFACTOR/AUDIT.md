@@ -285,7 +285,7 @@ own Status summary, which currently reads as though Stage 3's `canon::Model`
 composition root is a completed, like-for-like replacement. It isn't yet;
 these are the concrete reasons why, not a vague caveat.
 
-### 7.1 `canon::Material` never resolves real texture bytes (API shape closed 2026-09-15; catalog wiring still open)
+### 7.1 `canon::Material` never resolves real texture bytes (API shape + orchestrator wiring closed 2026-09-15)
 
 **The design question is resolved**: canon:: is purely the representation of
 already-decided facts. It never performs resolution itself; whatever
@@ -306,14 +306,40 @@ full suite green (966/966), `husk export --compare-canon` still clean
 against `bloodelffemale.m2` (the new parameter is unused there, so this
 confirms the default-empty path is a true no-op, not just untested).
 
-**Still open**: nothing in this codebase actually populates
-`TextureResolutions` from a real `sources::Catalog` yet — `canon::Material`
-still can't drive a real textured render today, only *accept* one if handed
-it. Wiring a real orchestrator (resolving each batch's texture units via the
-catalog and building the map before calling `assembleModel`) is the
-deliberate next step, not yet started.
+**Orchestrator wiring is now done too**: `husk export --compare-canon`
+(`src/cmd_export_canon.cpp`'s `buildTextureResolutions`) resolves every
+distinct M2 texture-array index actually referenced by any real skin batch
+through the SAME `sources::Catalog::texture()` call
+`buildMaterialsAndPrimitives` (the legacy pipeline) already makes for that
+exact `(modelPath, textureSlotIndex)` — one shared catalog answer, never a
+second opinion (I2) — then converts each `Resolved<EncodedTexture>` into a
+`canon::TextureRef` (`toCanonTextureRef`): a clean hit becomes `Resolved`
+(fdid + `NameSource::Listfile`/`Db2`/`Synthesized` per tier), a genuine
+ambiguity (non-empty `alternates`) becomes `Ambiguous` with the full
+candidate set, a miss becomes `KnownUnresolved` with the catalog's own
+`reason`. Deliberately does NOT replicate the legacy pipeline's separate
+embedded-filename tier (pre-Cataclysm inline texture bytes) — a texture
+unit with no real fdid and an embedded filename is left absent from the map,
+falling back to `TextureRef`'s own default `KnownUnresolved`, since
+`canon::TextureRef` has no shape for "these bytes came from inside the M2
+itself" today. Verified: full suite still green (966/966); a real
+`--compare-canon` run against `bloodelffemale.m2` stays clean (0 deviations)
+with this wiring active. `canon_diff.cpp`'s own material-comparison note was
+corrected to say what's actually still missing: `compareMaterialBlendModes`
+itself was never extended to check resolved texture identity against
+legacy's `gm.baseColorTextureFileDataId` — a gap in that one diagnostic, not
+in canon:: or its resolution wiring.
 
-### 7.2 canon animation: no external `.anim` resolution (global sequences, alias resolution: closed 2026-09-15)
+**Still open**: no real fixture in this repo's `test_data/` ships alongside
+a populated `--textures` directory, so this wiring has only been verified
+structurally (clean rebuild, full suite, `--compare-canon` still clean with
+the new parameter threaded through) — not yet against a real corpus file
+where texture slots actually resolve to real bytes. A real end-to-end
+visual check (do the resolved `TextureRef`s actually match what a real
+textured render shows) is still open, same as the rest of this refactor's
+"no gate is output-unchanged" policy.
+
+### 7.2 canon animation: external `.anim` resolution (global sequences, alias resolution, external-`.anim` API shape + orchestrator wiring: all closed 2026-09-15)
 
 **Global sequences and alias resolution are now implemented** (`canon_model.cpp`'s
 three-pass `assembleModel`: pass 1 real-inline, pass 2 global-sequence, pass 3
@@ -336,14 +362,53 @@ produced real keyframe data for that sequence (`if (!anim.joints.empty())`);
 by adding the same `anyBoneAnimated` gate pass 2 (global sequences) already
 had. Re-verified clean (0 deviations) after the fix.
 
-External `.anim` resolution remains open, and remains the one sub-gap with a
-real design question, same shape as §7.1's: `canon::assembleBoneAnimation`
-already accepts an `externalBlob` parameter (`canon_animation_builder.hpp:62`)
-for exactly this case, but *deciding which FileDataID's `.anim` bytes to
-fetch, and fetching them*, is Stage 2/catalog territory —
-`canon::assembleModel`'s own signature has no way to accept "here are this
-model's already-resolved external anim blobs, keyed by sequence" today, and
-inventing that shape is a real API decision, not a mechanical port of
-`buildAnimations`'s external-directory-search logic (which *does* touch the
-filesystem directly, deliberately not something to mirror into `canon::`).
+**External `.anim` resolution is now closed too**, both the API shape and the
+orchestrator wiring. `canon::assembleModel` gained an `ExternalAnimBlobs`
+parameter (`canon_model.hpp`, `std::unordered_map<uint32_t,
+std::vector<uint8_t>>` keyed by `model.sequences` index — the same
+pre-resolved-input-parameter shape §7.1 settled on for textures), consumed
+by pass 1's per-sequence loop exactly like a real-inline sequence's own
+data. The file-search half (*deciding which FileDataID's `.anim` bytes to
+fetch, and fetching them*) is reimplemented independently inside
+`src/cmd_export_canon.cpp` itself (`resolveExternalAnimBlobForCanon`,
+`findAnimFileId`, `findAnimFileByBasename`, `zeroPad` — all file-local),
+mirroring `buildAnimations`'s own logic (`export_animation.cpp`:
+FileDataID-named file first, same-basename fallback second, AFSB-over-AFM2
+priority in a chunked file) rather than sharing code with it. Deliberate,
+not an oversight: `--compare-canon`'s entire premise is comparing canon::
+against an UNTOUCHED, ordinarily-shipping legacy pipeline — an earlier pass
+of this work factored the shared logic directly out of `buildAnimations`
+into a new `export_animation.hpp` function it then called too, verified
+behavior-preserving (full suite green, no test changes needed), but Luna
+correctly flagged that as wrong regardless of correctness: editing the
+legacy file at all, even losslessly, means the "legacy" side of every
+`--compare-canon` run from then on is no longer the real shipping pipeline,
+undermining the comparison's own premise. Reverted, reimplemented
+canon-side-only instead — the same "reimplement small private pieces rather
+than share code with legacy" tradeoff `canon_model.cpp`/
+`canon_animation_builder.cpp` already made for the sequence-flag bit tests,
+applied here to a whole resolution routine. `git diff` against
+`export_animation.cpp`/`.hpp` is empty; `husk export --compare-canon`'s own
+orchestrator (`buildExternalAnimBlobs`) calls the canon-local resolver once
+per non-inline, non-alias sequence in the re-parsed model, building the map
+`assembleModel` now takes.
+
+Deliberately scoped to the `bonesAreInline` case only:
+`canon::assembleModel` reads `model.bones`/`model.sequences`/`model.blob`
+directly (the inline M2 source), never a `.skel`-sourced bone/sequence pair
+— a `.skel`-sourced export (`--skel`, real AFSB-linked models) still runs
+`--compare-canon` against the model's own (usually empty/irrelevant) inline
+data, a pre-existing `canon::Model` limitation this wiring doesn't touch or
+worsen. `runCanonCompareExport` skips building `ExternalAnimBlobs` entirely
+in that case rather than building a map that would key against the wrong
+sequence array.
+
+Verified against real data: exporting `bloodelffemale.m2` (inline bones)
+with `--anim test_data/character/bloodelf/female --compare-canon` resolves
+a real external `.anim` file under the same-basename fallback convention
+(`bloodelffemale0060-00.anim`), legacy's own clip count rises 258 → 260, and
+`--compare-canon` stays clean (0 deviations) against that same run — proof
+canon's newly-wired external-anim path reproduces the exact clips legacy's
+`buildAnimations` produces from the identical file, not just a structural
+no-op. Full suite still green, 966/966.
 

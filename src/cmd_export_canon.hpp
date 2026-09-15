@@ -6,6 +6,7 @@
 #include "gltf_mesh.hpp"
 #include "gltf_skeleton.hpp"
 #include "m2.hpp"
+#include "sources/catalog.hpp"
 
 // husk::commands: `husk export --compare-canon`'s own path -- REFACTOR/
 // README.md stage 3's runtime convergence gate. See cmd_export_canon.cpp's
@@ -30,8 +31,29 @@ namespace husk::commands {
 // other DB2/knowledge-base enrichment in cmd_export.cpp already follows --
 // any failure (a canon:: assembly throw, a write failure) is caught and
 // reported, not propagated.
+//
+// `catalog`/`modelPath`/`objectSkinTextureFileDataId` feed a real
+// `canon::TextureResolutions` (REFACTOR/AUDIT.md §7.1's "deliberate next
+// step, not yet started" -- now started): one `catalog.texture()` call per
+// distinct M2 texture-array index actually referenced by a batch in the
+// re-parsed skin, the exact same per-slot inputs
+// buildMaterialsAndPrimitives's own catalog call already uses
+// (export_materials.cpp), so canon:: and legacy resolve every real texture
+// slot through the identical catalog answer -- never a second opinion.
+//
+// `animDir`/`bonesAreInline` feed a real `canon::ExternalAnimBlobs` (§7.2's
+// remaining open sub-gap): resolveExternalAnimBlob (export_animation.hpp)
+// is called once per non-inline, non-alias sequence in `model.sequences`,
+// mirroring buildAnimations's own external-.anim resolution exactly. Left
+// empty when `bonesAreInline` is false -- canon::assembleModel only ever
+// reads `model.bones`/`model.sequences`/`model.blob` (the inline M2 source),
+// never a .skel-sourced one, so external-anim resolution has nothing valid
+// to key against in that case (a separate, pre-existing canon::Model
+// limitation, not this parameter's own scope to fix).
 void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, const gltf::Mesh& legacyMesh,
                            const gltf::Skeleton& legacySkeleton,
-                           const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath);
+                           const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
+                           husk::sources::Catalog& catalog, const std::string& modelPath,
+                           uint32_t objectSkinTextureFileDataId, const std::string& animDir, bool bonesAreInline);
 
 }  // namespace husk::commands

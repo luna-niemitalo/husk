@@ -1257,7 +1257,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                              "geometry -- nothing to compare\n";
             } else {
                 runCanonCompareExport(model, skinsToExport.front().second, namedMeshes.front().mesh, skeleton,
-                                       animations, outputPath);
+                                       animations, outputPath, catalog, modelPath, objectSkinTextureFileDataId,
+                                       animDir, bonesAreInline);
             }
         }
 
