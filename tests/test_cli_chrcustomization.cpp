@@ -538,8 +538,8 @@ TEST_CASE("husk export: --customization-choice-ids given without --db2-dir/--dbd
 TEST_CASE("husk export --customization-choice-ids + --char-layout-id: the real material chain "
           "(ChrCustomizationMaterial -> TextureFileData) resolves a real FileDataID into "
           "chr_enabled_materials extras, and chr_texture_layout's own texture_layers carry the "
-          "matching chr_model_texture_target_id join key -- TODO/CHAR_TEXTURE_COMPOSITING_TODO.md "
-          "Stage 3. Pixel compositing itself is deliberately NOT husk's job (Blender shader nodes "
+          "matching chr_model_texture_target_id join key. Pixel compositing itself is deliberately "
+          "NOT husk's job (Blender shader nodes "
           "are the right layer for that -- see this file's own module doc comment), so this test "
           "only checks the real data exposure, not any rendered result.") {
     auto dir = defaultsDir("chrcustmaterial");

@@ -615,8 +615,7 @@ TEST_CASE("husk db2-export --dir: a $noninline,relation$ field gets a real colum
     fs::remove_all(dir);
 }
 
-// Real-data-gated: the exact real chain
-// TODO/CHAR_TEXTURE_COMPOSITING_TODO.md's Stage 1 named as unfinished --
+// Real-data-gated: the exact real chain --
 // ChrModelTextureLayer's own CharComponentTextureLayoutsID is a real
 // $noninline,relation$ field under its real layout, verified against real
 // local files rather than only the synthetic fixture above. Skips cleanly

@@ -4,8 +4,8 @@
 // command previously had zero CLI-tier coverage.
 //
 // The `--db2-dir`/`--dbd-dir`-driven `gear` resolution tests below
-// (TODO/CHAR_TEXTURE_COMPOSITING_TODO.md Stage 6, src/itemappearance_db2.hpp/
-// src/modelfiledata_db2.hpp) use a synthetic WoWDBDefs/.db2 fixture set,
+// (src/itemappearance_db2.hpp/src/modelfiledata_db2.hpp) use a synthetic
+// WoWDBDefs/.db2 fixture set,
 // same "own local copy of buildFlatDb2/writeTextFile, not a shared header"
 // convention tests/test_cli_chrmodel_id.cpp's own comment already
 // documents -- every field in these synthetic tables is declared plain
@@ -180,8 +180,7 @@ TEST_CASE("husk appearance-string: gear entries stay opaque without --db2-dir/--
 TEST_CASE("husk appearance-string --db2-dir/--dbd-dir: a real gear ItemModifiedAppearanceID "
           "resolves through the full ItemModifiedAppearance -> ItemAppearance -> ItemDisplayInfo "
           "-> ItemDisplayInfoModelMatRes chain to a real equipped-item model FileDataID (via "
-          "ModelFileData) and texture FileDataID (via TextureFileData) -- "
-          "TODO/CHAR_TEXTURE_COMPOSITING_TODO.md Stage 6.") {
+          "ModelFileData) and texture FileDataID (via TextureFileData).") {
     auto dir = defaultsDir("appearancegear");
     fs::path db2Dir = dir / "db2";
     fs::path dbdDir = dir / "dbd";
