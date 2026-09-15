@@ -21,7 +21,7 @@ bool approxEqual(float a, float b) { return std::fabs(a - b) < kMirrorEpsilon; }
 
 // A joint sitting on the sagittal plane itself (y == 0, e.g. spine/head) is
 // never a mirror candidate -- it has no opposite-sign counterpart to find.
-bool positionsMirror(const m2::Vec3& a, const m2::Vec3& b) {
+bool positionsMirror(const canon::Vec3& a, const canon::Vec3& b) {
     if (std::fabs(a.y) < kMirrorEpsilon) return false;
     return approxEqual(a.x, b.x) && approxEqual(a.z, b.z) && approxEqual(a.y, -b.y);
 }

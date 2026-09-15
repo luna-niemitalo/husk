@@ -535,9 +535,21 @@ gap, left in `husk::canon` unmoved. Every real consumer updated
 (`m2_canon_input.cpp`, `cmd_export_canon.cpp`, `canon_diff.cpp`,
 `writers/writer_common.hpp`'s doc comments, 5 convergence test files, plus
 `tests/test_m2_canon_input.cpp`); full suite green, 975/975, both before
-and after. Still open: `canon::Mesh::positions`/`normals`/`uv0`/`uv1` are
-declared as `m2::Vec3`/`m2::Vec2` — a namespaced M2 type used as a canon::
-struct field, a real but lower-severity finding from the same
-investigation (`CANONICAL_MODEL.md`'s own updated section has the full
-account) — not fixed here either.
+and after.
+
+**Follow-up, same day, now also closed**: `canon::Mesh::positions`/
+`normals`/`uv0`/`uv1`, `canon::Skeleton::Joint::globalPosition`, and
+`canon::VecCurve`/`QuatCurve` (`canon_curve.hpp`) were declared as
+`m2::Vec3`/`m2::Vec2`/`Curve<m2::Vec3>`/`Curve<m2::Quat>` — a namespaced M2
+type used as a canon:: struct field, the same shape I1 forbids. New
+`canon_primitives.hpp` gives canon:: its own `Vec2`/`Vec3`/`Quat`; every
+real producer (`m2_mesh_input.cpp`, `m2_skeleton_input.cpp`,
+`m2_material_input.cpp`, `m2_animation_input.cpp`) converts at its own
+boundary instead. `canon_diff.cpp` and `writers/gltf_lean.cpp` each gained
+(or already had) a small private `toGltf`/`toGltfScale`/`toGltfQuat`
+wrapping the same shared `gltf_math.hpp` axis-conversion functions
+`commands::toGltf` (export_transform.hpp) itself wraps, rather than adding
+a canon::-accepting overload to that legacy file. `CANONICAL_MODEL.md`'s
+own updated section has the full account. Full suite green, 975/975,
+before and after. Nothing named as open in this section remains.
 

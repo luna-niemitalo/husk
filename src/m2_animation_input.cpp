@@ -19,7 +19,7 @@ canon::VecCurve toVecCurve(std::vector<std::pair<uint32_t, m2::Vec3>> raw, canon
     curve.interpolation = interpolation;
     curve.keyframes.reserve(raw.size());
     for (const auto& [ts, v] : raw) {
-        curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, v);
+        curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, canon::Vec3{v.x, v.y, v.z});
     }
     return curve;
 }
@@ -31,7 +31,7 @@ canon::QuatCurve toQuatCurve(std::vector<std::pair<uint32_t, m2::Quat>> raw, can
     curve.interpolation = interpolation;
     curve.keyframes.reserve(raw.size());
     for (const auto& [ts, v] : raw) {
-        curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, v);
+        curve.keyframes.emplace_back(static_cast<float>(ts) / 1000.0f, canon::Quat{v.x, v.y, v.z, v.w});
     }
     return curve;
 }

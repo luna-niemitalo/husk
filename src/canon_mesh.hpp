@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "canon_geoset.hpp"
-#include "m2_primitives.hpp"  // m2::Vec2/Vec3
+#include "canon_primitives.hpp"  // Vec2/Vec3
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
 // CANONICAL_MODEL.md's Resources layer -- pure per-vertex geometry +
@@ -37,9 +37,9 @@ struct PrimitiveGeoset {
 // into that shared space, mirroring gltf::Mesh's own flat-array-plus-index-
 // buffer shape (gltf_mesh.hpp) exactly.
 struct Mesh {
-    std::vector<m2::Vec3> positions;
-    std::vector<m2::Vec3> normals;
-    std::vector<m2::Vec2> uv0;
+    std::vector<Vec3> positions;
+    std::vector<Vec3> normals;
+    std::vector<Vec2> uv0;
 
     // M2's second UV set (m2::Vertex::texCoords[1]). No M2-level flag
     // distinguishes "this model actually samples a second UV set" from
@@ -54,7 +54,7 @@ struct Mesh {
     // exactly when every vertex's texCoords[1] is the literal origin --
     // indistinguishable from "never written," so nothing downstream could
     // read it as a real second coordinate anyway.
-    std::optional<std::vector<m2::Vec2>> uv1;
+    std::optional<std::vector<Vec2>> uv1;
 
     struct Skinning {
         std::array<uint8_t, 4> joints{};

@@ -48,6 +48,9 @@ namespace {
 
 bool isZeroVec2(const m2::Vec2& v) { return v.x == 0.0f && v.y == 0.0f; }
 
+canon::Vec3 toCanon(const m2::Vec3& v) { return {v.x, v.y, v.z}; }
+canon::Vec2 toCanon(const m2::Vec2& v) { return {v.x, v.y}; }
+
 bool allZeroWeights(const uint8_t weights[4]) {
     for (int j = 0; j < 4; ++j) {
         if (weights[j] != 0) return false;
@@ -65,7 +68,7 @@ canon::Mesh assembleMesh(const std::vector<m2::Vertex>& vertices, size_t boneCou
     mesh.normals.reserve(vertices.size());
     mesh.uv0.reserve(vertices.size());
 
-    std::vector<m2::Vec2> uv1;
+    std::vector<canon::Vec2> uv1;
     uv1.reserve(vertices.size());
     bool uv1AllZero = true;
 
@@ -79,10 +82,10 @@ canon::Mesh assembleMesh(const std::vector<m2::Vertex>& vertices, size_t boneCou
 
     for (size_t vi = 0; vi < vertices.size(); ++vi) {
         const auto& v = vertices[vi];
-        mesh.positions.push_back(v.pos);
-        mesh.normals.push_back(v.normal);
-        mesh.uv0.push_back(v.texCoords[0]);
-        uv1.push_back(v.texCoords[1]);
+        mesh.positions.push_back(toCanon(v.pos));
+        mesh.normals.push_back(toCanon(v.normal));
+        mesh.uv0.push_back(toCanon(v.texCoords[0]));
+        uv1.push_back(toCanon(v.texCoords[1]));
         if (!isZeroVec2(v.texCoords[1])) uv1AllZero = false;
 
         if (skinned) {

@@ -3,9 +3,9 @@
 #include <string>
 #include <vector>
 
-#include "canon_physics.hpp"  // boneRef
+#include "canon_physics.hpp"    // boneRef
+#include "canon_primitives.hpp" // Vec3
 #include "canon_ref.hpp"
-#include "m2_primitives.hpp"
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
 // CANONICAL_MODEL.md's Resources layer, the joint hierarchy + bind pose --
@@ -42,7 +42,7 @@ struct Joint {
     // needs a parent-relative offset derives it from the hierarchy, same
     // as any other absolute-coordinate canon field (I1: no glTF-shaped
     // "already relative to parent" convenience baked in here).
-    m2::Vec3 globalPosition;
+    Vec3 globalPosition;
 
     BillboardMode billboard = BillboardMode::None;
 

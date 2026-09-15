@@ -21,7 +21,7 @@ using namespace husk;
 
 namespace {
 
-canon::Joint makeJoint(int parent, m2::Vec3 pos) {
+canon::Joint makeJoint(int parent, canon::Vec3 pos) {
     canon::Joint j;
     j.parent = parent;
     j.globalPosition = pos;
@@ -36,7 +36,7 @@ TEST_CASE("writers::localBindTranslation: root joint returns its own absolute po
     canon::Skeleton skeleton;
     skeleton.joints.push_back(makeJoint(-1, {1.0f, 2.0f, 3.0f}));
 
-    m2::Vec3 result = writers::localBindTranslation(skeleton, 0);
+    canon::Vec3 result = writers::localBindTranslation(skeleton, 0);
     CHECK(result.x == doctest::Approx(1.0f));
     CHECK(result.y == doctest::Approx(2.0f));
     CHECK(result.z == doctest::Approx(3.0f));
@@ -49,19 +49,19 @@ TEST_CASE("writers::localBindTranslation: 3-joint chain, parent-relative offsets
     skeleton.joints.push_back(makeJoint(0, {10.0f, 0.0f, 0.0f}));
     skeleton.joints.push_back(makeJoint(1, {10.0f, 5.0f, -2.0f}));
 
-    m2::Vec3 root = writers::localBindTranslation(skeleton, 0);
+    canon::Vec3 root = writers::localBindTranslation(skeleton, 0);
     CHECK(root.x == doctest::Approx(0.0f));
     CHECK(root.y == doctest::Approx(0.0f));
     CHECK(root.z == doctest::Approx(0.0f));
 
     // child relative to root: (10,0,0) - (0,0,0) = (10,0,0)
-    m2::Vec3 child = writers::localBindTranslation(skeleton, 1);
+    canon::Vec3 child = writers::localBindTranslation(skeleton, 1);
     CHECK(child.x == doctest::Approx(10.0f));
     CHECK(child.y == doctest::Approx(0.0f));
     CHECK(child.z == doctest::Approx(0.0f));
 
     // grandchild relative to child: (10,5,-2) - (10,0,0) = (0,5,-2)
-    m2::Vec3 grandchild = writers::localBindTranslation(skeleton, 2);
+    canon::Vec3 grandchild = writers::localBindTranslation(skeleton, 2);
     CHECK(grandchild.x == doctest::Approx(0.0f));
     CHECK(grandchild.y == doctest::Approx(5.0f));
     CHECK(grandchild.z == doctest::Approx(-2.0f));
@@ -113,16 +113,16 @@ TEST_CASE("writers::composeJointCurves: translation = bind + delta, rotation/sca
     canon::BoneAnimationCurves raw;
     raw.translation.sequence = canon::SequenceRef::sequence(3);
     raw.translation.interpolation = canon::Interpolation::Linear;
-    raw.translation.keyframes = {{0.0f, m2::Vec3{1.0f, 2.0f, 3.0f}}, {1.0f, m2::Vec3{-1.0f, 0.5f, 0.0f}}};
+    raw.translation.keyframes = {{0.0f, canon::Vec3{1.0f, 2.0f, 3.0f}}, {1.0f, canon::Vec3{-1.0f, 0.5f, 0.0f}}};
 
     raw.rotation.sequence = canon::SequenceRef::sequence(3);
     raw.rotation.interpolation = canon::Interpolation::Step;
-    raw.rotation.keyframes = {{0.0f, m2::Quat{0.0f, 0.0f, 0.0f, 1.0f}},
-                               {1.0f, m2::Quat{0.7071f, 0.0f, 0.0f, 0.7071f}}};
+    raw.rotation.keyframes = {{0.0f, canon::Quat{0.0f, 0.0f, 0.0f, 1.0f}},
+                               {1.0f, canon::Quat{0.7071f, 0.0f, 0.0f, 0.7071f}}};
 
     raw.scale.sequence = canon::SequenceRef::sequence(3);
     raw.scale.interpolation = canon::Interpolation::Linear;
-    raw.scale.keyframes = {{0.0f, m2::Vec3{1.0f, 1.0f, 1.0f}}, {1.0f, m2::Vec3{2.0f, 2.0f, 2.0f}}};
+    raw.scale.keyframes = {{0.0f, canon::Vec3{1.0f, 1.0f, 1.0f}}, {1.0f, canon::Vec3{2.0f, 2.0f, 2.0f}}};
 
     canon::AnimationClip clip;
     clip.sequence = canon::SequenceRef::sequence(3);
@@ -195,7 +195,7 @@ TEST_CASE("writers::composeJointCurves converges against independently-recompute
     REQUIRE(pickedJoint.has_value());
     size_t bi = *pickedJoint;
 
-    m2::Vec3 expectedBind = writers::localBindTranslation(canonModel.skeleton, bi);
+    canon::Vec3 expectedBind = writers::localBindTranslation(canonModel.skeleton, bi);
     const auto& rawKeyframes = clip.boneCurves[bi]->translation.keyframes;
     REQUIRE(!rawKeyframes.empty());
     const auto& [t0, delta0] = rawKeyframes[0];

@@ -73,7 +73,7 @@ void collectBufferSlices(const nlohmann::json& node, std::vector<nlohmann::json>
     }
 }
 
-canon::Joint makeJoint(int parent, m2::Vec3 pos, std::string name) {
+canon::Joint makeJoint(int parent, canon::Vec3 pos, std::string name) {
     canon::Joint j;
     j.parent = parent;
     j.globalPosition = pos;
@@ -222,8 +222,8 @@ TEST_CASE("writeBundle: synthetic model round-trips exact byte values via raw fi
     CHECK(positionsSlice["semantic"] == "POSITION");
 
     std::vector<uint8_t> posBytes = readSlice(positionsSlice);
-    REQUIRE(posBytes.size() == model.mesh.positions.size() * sizeof(m2::Vec3));
-    std::vector<m2::Vec3> readBack(model.mesh.positions.size());
+    REQUIRE(posBytes.size() == model.mesh.positions.size() * sizeof(canon::Vec3));
+    std::vector<canon::Vec3> readBack(model.mesh.positions.size());
     std::memcpy(readBack.data(), posBytes.data(), posBytes.size());
     for (size_t i = 0; i < readBack.size(); ++i) {
         CHECK(readBack[i].x == doctest::Approx(model.mesh.positions[i].x));
@@ -243,7 +243,7 @@ TEST_CASE("writeBundle: synthetic model round-trips exact byte values via raw fi
     // not raw globalPosition -- joint 1's expected value is (1,2,3) - (0,0,0).
     const auto& bindSlice = manifest["resources"]["skeleton"]["bind_translation"];
     std::vector<uint8_t> bindBytes = readSlice(bindSlice);
-    std::vector<m2::Vec3> bindTranslations(2);
+    std::vector<canon::Vec3> bindTranslations(2);
     std::memcpy(bindTranslations.data(), bindBytes.data(), bindBytes.size());
     CHECK(bindTranslations[0].x == doctest::Approx(0.0f));
     CHECK(bindTranslations[1].x == doctest::Approx(1.0f));
@@ -275,7 +275,7 @@ TEST_CASE("writeBundle: uv1/joints0/weights0 omitted for an unskinned, single-UV
 
 TEST_CASE("writeBundle: uv1/joints0/weights0 present when the canon::Mesh has them") {
     canon::Model model = buildSyntheticModel();
-    model.mesh.uv1 = std::vector<m2::Vec2>{{0, 1}, {1, 1}, {1, 0}};
+    model.mesh.uv1 = std::vector<canon::Vec2>{{0, 1}, {1, 1}, {1, 0}};
     canon::Mesh::Skinning s;
     s.joints = {0, 1, 0, 0};
     s.weights = {0.5f, 0.5f, 0.0f, 0.0f};

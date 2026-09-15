@@ -2,10 +2,10 @@
 
 #include <optional>
 
-#include "canon_curve.hpp"    // VecCurve, QuatCurve
-#include "canon_model.hpp"    // AnimationClip
-#include "canon_skeleton.hpp" // Skeleton
-#include "m2_primitives.hpp"  // Vec3
+#include "canon_curve.hpp"      // VecCurve, QuatCurve
+#include "canon_model.hpp"      // AnimationClip
+#include "canon_primitives.hpp" // Vec3
+#include "canon_skeleton.hpp"   // Skeleton
 
 // husk::writers: REFACTOR/README.md stage 4's home for target-conversion
 // code (`src/writers/`) -- this is the first file placed there. Namespace
@@ -41,7 +41,7 @@ namespace husk::writers {
 // plain struct nothing stops a caller (this module's own tests included)
 // from building by hand, so this function re-validates at its own boundary
 // rather than trusting an invariant it can't see enforced.
-m2::Vec3 localBindTranslation(const canon::Skeleton& skeleton, size_t jointIndex);
+canon::Vec3 localBindTranslation(const canon::Skeleton& skeleton, size_t jointIndex);
 
 // One joint's fully-composed local-transform curves for one AnimationClip:
 // - translation: localBindTranslation(skeleton, jointIndex) plus each

@@ -5,7 +5,7 @@
 
 namespace husk::writers {
 
-m2::Vec3 localBindTranslation(const canon::Skeleton& skeleton, size_t jointIndex) {
+canon::Vec3 localBindTranslation(const canon::Skeleton& skeleton, size_t jointIndex) {
     if (jointIndex >= skeleton.joints.size()) {
         throw std::runtime_error("joint index " + std::to_string(jointIndex) +
                                   " is out of range for " + std::to_string(skeleton.joints.size()) +
@@ -20,8 +20,8 @@ m2::Vec3 localBindTranslation(const canon::Skeleton& skeleton, size_t jointIndex
                                   std::to_string(joint.parent) + ") is out of range for " +
                                   std::to_string(skeleton.joints.size()) + " joints");
     }
-    const m2::Vec3& parentPos = skeleton.joints[static_cast<size_t>(joint.parent)].globalPosition;
-    const m2::Vec3& childPos = joint.globalPosition;
+    const canon::Vec3& parentPos = skeleton.joints[static_cast<size_t>(joint.parent)].globalPosition;
+    const canon::Vec3& childPos = joint.globalPosition;
     return {childPos.x - parentPos.x, childPos.y - parentPos.y, childPos.z - parentPos.z};
 }
 
@@ -36,7 +36,7 @@ std::optional<ComposedJointCurves> composeJointCurves(const canon::Skeleton& ske
         return std::nullopt;
     }
     const canon::BoneAnimationCurves& raw = *clip.boneCurves[jointIndex];
-    m2::Vec3 bindTranslation = localBindTranslation(skeleton, jointIndex);
+    canon::Vec3 bindTranslation = localBindTranslation(skeleton, jointIndex);
 
     ComposedJointCurves composed;
     composed.translation.sequence = raw.translation.sequence;
@@ -44,7 +44,7 @@ std::optional<ComposedJointCurves> composeJointCurves(const canon::Skeleton& ske
     composed.translation.keyframes.reserve(raw.translation.keyframes.size());
     for (const auto& [t, delta] : raw.translation.keyframes) {
         composed.translation.keyframes.emplace_back(
-            t, m2::Vec3{bindTranslation.x + delta.x, bindTranslation.y + delta.y, bindTranslation.z + delta.z});
+            t, canon::Vec3{bindTranslation.x + delta.x, bindTranslation.y + delta.y, bindTranslation.z + delta.z});
     }
     composed.rotation = raw.rotation;
     composed.scale = raw.scale;

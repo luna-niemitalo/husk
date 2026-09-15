@@ -190,19 +190,41 @@ suite green, 975/975, before and after. `canon_bone_naming.hpp`/`.cpp`
 stays in `husk::canon` unmoved -- confirmed it takes only `canon::Skeleton`
 (no m2::/skin:: types), so it was never part of this gap.
 
-**A related, separate, also-not-fixed finding from the same investigation**:
-`canon::Mesh` (`canon_mesh_builder.hpp`) declares `positions`/`normals`/
-`uv0`/`uv1` as `std::vector<m2::Vec3>`/`std::vector<m2::Vec2>` -- a
-namespaced M2 type used as a canon:: struct FIELD, which the original I1
-wording above *does* already cover in spirit (even though `m2::Vec3` is, in
-practice, just three floats with no M2-specific behavior riding along, so
-the real severity is closer to "wrong namespace on a generic type" than
-"leaked M2 semantics"). Fixing it means canon:: owning its own Vec2/Vec3/
-Quat value types and every producer (mesh/skeleton/animation/material
-builders) converting at their own boundary -- a real, mechanical, but
-repo-wide sweep, out of scope for the pass that added `Model::
-primitiveMaterials`/`Material::ref` identity. Named here so it has a
-record, not fixed here.
+**A related, separate finding from the same investigation, closed
+2026-09-15 (third follow-up pass, same day)**: `canon::Mesh` used to
+declare `positions`/`normals`/`uv0`/`uv1` as `std::vector<m2::Vec3>`/
+`std::vector<m2::Vec2>` -- a namespaced M2 type used as a canon:: struct
+FIELD, which the original I1 wording above *does* already cover in spirit
+(even though `m2::Vec3` is, in practice, just three floats with no
+M2-specific behavior riding along, so the real severity was closer to
+"wrong namespace on a generic type" than "leaked M2 semantics"). Same for
+`canon::Skeleton::Joint::globalPosition` (`m2::Vec3`) and
+`canon::VecCurve`/`QuatCurve` (`Curve<m2::Vec3>`/`Curve<m2::Quat>`,
+`canon_curve.hpp`) -- found while fixing `canon::Mesh`, since
+`writers::composeJointCurves`/`canon_diff.cpp` thread the same m2:: types
+through every curve/position comparison downstream of those three structs.
+
+**Fixed**: new `canon_primitives.hpp` gives canon:: its own `Vec2`/`Vec3`/
+`Quat` (plain float structs, `Quat`'s field order matching `m2::Quat`'s own
+w-last layout so the boundary conversion stays a memberwise copy, not a
+reorder). `canon::Mesh`, `canon::Skeleton::Joint::globalPosition`,
+`canon::VecCurve`/`QuatCurve` all now use these instead of `m2::Vec3`/
+`m2::Vec2`/`m2::Quat`. Every real producer converts at its own
+input-module boundary: `m2_mesh_input.cpp` (a small `toCanon(m2::Vec3)`/
+`toCanon(m2::Vec2)` pair), `m2_skeleton_input.cpp` (inline at the one
+`globalPosition` assignment), `m2_material_input.cpp`/
+`m2_animation_input.cpp` (their shared `toVecCurve`/`toQuatCurve` helpers,
+which already built the curve one field at a time). `canon_bone_naming.cpp`'s
+`positionsMirror` retyped to `canon::Vec3`. `canon_diff.cpp` and
+`writers/{writer_common,gltf_lean,bundle_writer}.cpp` all consume
+canon::'s own types now; `canon_diff.cpp` and `writers/gltf_lean.cpp` each
+already had (or gained) a small private `toGltf`/`toGltfScale`/`toGltfQuat`
+wrapping the same real, already-shared `gltf_math.hpp` axis-conversion
+functions `commands::toGltf` (export_transform.hpp, m2::-typed overloads
+only) itself wraps -- never a new overload added to that legacy file,
+consistent with this project's "never touch the legacy pipeline to share
+code with the canon-comparison path" rule. Full suite green, 975/975,
+before and after.
 
 ## Cost, measured rather than asserted
 

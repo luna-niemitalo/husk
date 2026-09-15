@@ -8,11 +8,16 @@
 #include <doctest/doctest.h>
 
 #include "canon_diff.hpp"
-#include "export_transform.hpp"
 
 using namespace husk;
 
 namespace {
+
+// commands::toGltf only overloads m2::Vec3, not canon::Vec3 (a distinct
+// type, canon_primitives.hpp) -- same reasoning canon_diff.cpp's own local
+// toGltf gives: wraps the same real, shared gltf_math.hpp conversion
+// rather than adding a canon::-accepting overload to the legacy header.
+gltf::Vec3 toGltf(const canon::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z}); }
 
 // A tiny two-vertex, one-primitive canon::Mesh plus its exact legacy
 // (Y-up, toGltf-converted) counterpart -- the smallest fixture that
@@ -34,8 +39,8 @@ canon::Mesh makeCanonMesh() {
 
 gltf::Mesh makeMatchingLegacyMesh(const canon::Mesh& canonMesh) {
     gltf::Mesh legacy;
-    for (const auto& p : canonMesh.positions) legacy.positions.push_back(commands::toGltf(p));
-    for (const auto& n : canonMesh.normals) legacy.normals.push_back(commands::toGltf(n));
+    for (const auto& p : canonMesh.positions) legacy.positions.push_back(toGltf(p));
+    for (const auto& n : canonMesh.normals) legacy.normals.push_back(toGltf(n));
     for (const auto& uv : canonMesh.uv0) legacy.texCoords.push_back({uv.x, uv.y});
     legacy.texCoords2 = {{0, 0}, {0, 0}};  // canon leaves uv1 absent for this all-origin fixture
     for (const auto& sk : canonMesh.skinning) {
@@ -102,8 +107,8 @@ TEST_CASE("canon_diff::compareMesh: canon's own uv1/skinning divergences are not
     // canonMesh.skinning left empty -- unskinned model.
 
     gltf::Mesh legacy;
-    legacy.positions = {commands::toGltf(canonMesh.positions[0])};
-    legacy.normals = {commands::toGltf(canonMesh.normals[0])};
+    legacy.positions = {toGltf(canonMesh.positions[0])};
+    legacy.normals = {toGltf(canonMesh.normals[0])};
     legacy.texCoords = {{0, 0}};
     legacy.texCoords2 = {{0, 0}};
     // legacy.skinning intentionally left empty too (an unskinned model has
@@ -125,7 +130,7 @@ TEST_CASE("canon_diff::compareSkeleton: matching joints report zero deviations")
     gltf::Skeleton legacy;
     gltf::Skeleton::Joint lj;
     lj.parent = -1;
-    lj.globalPosition = commands::toGltf(j.globalPosition);
+    lj.globalPosition = toGltf(j.globalPosition);
     lj.billboardMode = "spherical";
     legacy.joints = {lj};
 

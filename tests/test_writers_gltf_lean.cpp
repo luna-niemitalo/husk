@@ -135,7 +135,7 @@ TEST_CASE("writeLeanGlb: synthetic model -- node/skin/primitive/accessor counts,
     const float* decoded =
         reinterpret_cast<const float*>(buf.data.data() + posView.byteOffset + posAcc.byteOffset);
     for (size_t i = 0; i < model.mesh.positions.size(); ++i) {
-        const m2::Vec3& raw = model.mesh.positions[i];
+        const canon::Vec3& raw = model.mesh.positions[i];
         CHECK(decoded[i * 3 + 0] == doctest::Approx(raw.x));
         CHECK(decoded[i * 3 + 1] == doctest::Approx(raw.z));
         CHECK(decoded[i * 3 + 2] == doctest::Approx(-raw.y));

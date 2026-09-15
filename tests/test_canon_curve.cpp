@@ -24,7 +24,7 @@ TEST_CASE("VecCurve: global-sequence-scoped, step interpolation") {
     VecCurve c;
     c.sequence = SequenceRef::globalSequence(2);
     c.interpolation = Interpolation::Step;
-    c.keyframes.emplace_back(0.0f, husk::m2::Vec3{1.0f, 2.0f, 3.0f});
+    c.keyframes.emplace_back(0.0f, Vec3{1.0f, 2.0f, 3.0f});
 
     CHECK(c.sequence.kind == SequenceRef::Kind::GlobalSequence);
     CHECK(c.sequence.index == 2);
@@ -47,8 +47,8 @@ TEST_CASE("QuatCurve: default is sequence-scoped index 0, linear") {
 TEST_CASE("QuatCurve: multi-keyframe rotation curve, file order preserved") {
     QuatCurve c;
     c.sequence = SequenceRef::sequence(7);
-    c.keyframes.emplace_back(0.0f, husk::m2::Quat{0.0f, 0.0f, 0.0f, 1.0f});
-    c.keyframes.emplace_back(1.5f, husk::m2::Quat{0.0f, 0.7071f, 0.0f, 0.7071f});
+    c.keyframes.emplace_back(0.0f, Quat{0.0f, 0.0f, 0.0f, 1.0f});
+    c.keyframes.emplace_back(1.5f, Quat{0.0f, 0.7071f, 0.0f, 0.7071f});
 
     REQUIRE(c.keyframes.size() == 2);
     CHECK(c.keyframes[0].first == doctest::Approx(0.0f));

@@ -1,9 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <utility>
 #include <vector>
 
-#include "m2_primitives.hpp"
+#include "canon_primitives.hpp"
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
 // CANONICAL_MODEL.md's "One curve representation" -- today gltf::JointAnimation
@@ -45,9 +46,13 @@ enum class Interpolation { Step, Linear };
 // translation/rotation/scale (today's gltf::JointAnimation, one Curve per
 // property instead of three parallel-array fields) or a material's
 // tint/fade/UV-transform track (today's gltf::Material::AnimatedXCurve).
-// T is m2::Vec3 (translation/scale/color), m2::Quat (rotation), or float
-// (scalar weight/alpha) -- the three real value shapes this codebase
-// resolves a track into; see ScalarCurve/VecCurve/QuatCurve below.
+// T is Vec3 (translation/scale/color), Quat (rotation), or float (scalar
+// weight/alpha) -- the three real value shapes this codebase resolves a
+// track into; see ScalarCurve/VecCurve/QuatCurve below. Each producer
+// (m2_material_input.cpp, m2_animation_input.cpp) converts its own
+// source-format value type into these at its own boundary -- see
+// canon_primitives.hpp's own doc comment for why canon:: owns its own
+// Vec3/Quat rather than borrowing m2::Vec3/m2::Quat.
 template <typename T>
 struct Curve {
     SequenceRef sequence;
@@ -56,7 +61,7 @@ struct Curve {
 };
 
 using ScalarCurve = Curve<float>;
-using VecCurve = Curve<m2::Vec3>;
-using QuatCurve = Curve<m2::Quat>;
+using VecCurve = Curve<Vec3>;
+using QuatCurve = Curve<Quat>;
 
 }  // namespace husk::canon

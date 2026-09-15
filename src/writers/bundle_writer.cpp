@@ -198,7 +198,7 @@ void writeUvRef(json::Writer& w, const canon::UvRef& uv) {
         uv);
 }
 
-void writeVec3Value(json::Writer& w, const m2::Vec3& v) {
+void writeVec3Value(json::Writer& w, const canon::Vec3& v) {
     w.beginArray();
     w.value(static_cast<double>(v.x));
     w.value(static_cast<double>(v.y));
@@ -206,7 +206,7 @@ void writeVec3Value(json::Writer& w, const m2::Vec3& v) {
     w.endArray();
 }
 
-void writeQuatValue(json::Writer& w, const m2::Quat& q) {
+void writeQuatValue(json::Writer& w, const canon::Quat& q) {
     w.beginArray();
     w.value(static_cast<double>(q.x));
     w.value(static_cast<double>(q.y));
@@ -354,7 +354,7 @@ void writeSkeletonSection(json::Writer& w, const canon::Skeleton& skeleton, std:
     w.value(static_cast<int64_t>(skeleton.joints.size()));
 
     std::vector<int32_t> parents;
-    std::vector<m2::Vec3> bindTranslations;
+    std::vector<canon::Vec3> bindTranslations;
     parents.reserve(skeleton.joints.size());
     bindTranslations.reserve(skeleton.joints.size());
     for (size_t i = 0; i < skeleton.joints.size(); ++i) {
@@ -397,9 +397,9 @@ void writeAnimChannel(json::Writer& w, const canon::Curve<T>& curve, std::vector
     }
 
     uint32_t componentCount;
-    if constexpr (std::is_same_v<T, m2::Vec3>) {
+    if constexpr (std::is_same_v<T, canon::Vec3>) {
         componentCount = 3;
-    } else if constexpr (std::is_same_v<T, m2::Quat>) {
+    } else if constexpr (std::is_same_v<T, canon::Quat>) {
         componentCount = 4;
     } else {
         componentCount = 1;

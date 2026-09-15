@@ -5,7 +5,6 @@
 #include <sstream>
 #include <unordered_map>
 
-#include "export_transform.hpp"        // commands::toGltf/toGltfScale
 #include "writers/writer_common.hpp"   // writers::composeJointCurves
 
 namespace husk::canon_diff {
@@ -35,11 +34,25 @@ bool near(const gltf::Vec3& a, const gltf::Vec3& b, float epsilon) {
     return near(a.x, b.x, epsilon) && near(a.y, b.y, epsilon) && near(a.z, b.z, epsilon);
 }
 
-// m2::Vec3 -> gltf::Vec3 comparison (raw M2-space, no conversion) --
+// canon::Vec2 -> gltf::Vec2 comparison (raw M2-space, no conversion) --
 // uv0/uv1 stay in the same 2D coordinate system on both sides.
-bool near(const m2::Vec2& a, const gltf::Vec2& b, float epsilon) {
+bool near(const canon::Vec2& a, const gltf::Vec2& b, float epsilon) {
     return near(a.x, b.x, epsilon) && near(a.y, b.y, epsilon);
 }
+
+// canon:: owns its own Vec3/Quat (canon_primitives.hpp), distinct from
+// m2::Vec3/m2::Quat even though the layout is identical -- so
+// commands::toGltf/toGltfScale (export_transform.hpp, m2::-typed
+// overloads only) can't be called on a canon:: value directly. Rather
+// than add a canon::-accepting overload to that legacy file (off-limits,
+// see this project's own "never touch the legacy pipeline to share code
+// with the canon-comparison path" rule), these wrap the same real,
+// already-shared gltf_math.hpp functions legacy's own toGltf wraps --
+// zUpToYUp/rotationZUpToYUp/scaleZUpToYUp aren't legacy-private, they're
+// the one real axis-conversion implementation both sides already use.
+gltf::Vec3 toGltf(const canon::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z}); }
+gltf::Quat toGltf(const canon::Quat& q) { return gltf::rotationZUpToYUp({q.x, q.y, q.z, q.w}); }
+gltf::Vec3 toGltfScale(const canon::Vec3& v) { return gltf::scaleZUpToYUp({v.x, v.y, v.z}); }
 
 std::string billboardModeString(canon::BillboardMode mode) {
     switch (mode) {
@@ -75,10 +88,10 @@ Report compareMesh(const canon::Mesh& canonMesh, const gltf::Mesh& legacyMesh, f
 
     std::optional<size_t> posMismatch, normalMismatch, uvMismatch;
     for (size_t i = 0; i < n; ++i) {
-        if (!posMismatch && !near(commands::toGltf(canonMesh.positions[i]), legacyMesh.positions[i], epsilon)) {
+        if (!posMismatch && !near(toGltf(canonMesh.positions[i]), legacyMesh.positions[i], epsilon)) {
             posMismatch = i;
         }
-        if (!normalMismatch && !near(commands::toGltf(canonMesh.normals[i]), legacyMesh.normals[i], epsilon)) {
+        if (!normalMismatch && !near(toGltf(canonMesh.normals[i]), legacyMesh.normals[i], epsilon)) {
             normalMismatch = i;
         }
         if (!uvMismatch && !near(canonMesh.uv0[i], legacyMesh.texCoords[i], epsilon)) {
@@ -211,7 +224,7 @@ Report compareSkeleton(const canon::Skeleton& canonSkeleton, const gltf::Skeleto
         const auto& lj = legacySkeleton.joints[i];
 
         if (!parentMismatch && cj.parent != lj.parent) parentMismatch = i;
-        if (!posMismatch && !near(commands::toGltf(cj.globalPosition), lj.globalPosition, epsilon)) {
+        if (!posMismatch && !near(toGltf(cj.globalPosition), lj.globalPosition, epsilon)) {
             posMismatch = i;
         }
         if (!billboardMismatch && billboardModeString(cj.billboard) != lj.billboardMode) {
@@ -294,7 +307,7 @@ Report compareAnimations(const canon::Model& canonModel, const std::vector<m2::S
                 if (!translationCountMismatch) translationCountMismatch = bi;
             } else {
                 for (size_t k = 0; k < composed->translation.keyframes.size(); ++k) {
-                    gltf::Vec3 cv = commands::toGltf(composed->translation.keyframes[k].second);
+                    gltf::Vec3 cv = toGltf(composed->translation.keyframes[k].second);
                     if (!near(cv, lj.translationValues[k], translationEpsilon)) {
                         if (!translationValueMismatch) translationValueMismatch = bi;
                         break;
@@ -306,7 +319,7 @@ Report compareAnimations(const canon::Model& canonModel, const std::vector<m2::S
                 if (!rotationCountMismatch) rotationCountMismatch = bi;
             } else {
                 for (size_t k = 0; k < composed->rotation.keyframes.size(); ++k) {
-                    gltf::Quat cq = commands::toGltf(composed->rotation.keyframes[k].second);
+                    gltf::Quat cq = toGltf(composed->rotation.keyframes[k].second);
                     const gltf::Quat& lq = lj.rotationValues[k];
                     // Sign/hemisphere-invariant: a flipped-sign quaternion
                     // represents the identical rotation, and legacy applies
@@ -326,7 +339,7 @@ Report compareAnimations(const canon::Model& canonModel, const std::vector<m2::S
                 if (!scaleCountMismatch) scaleCountMismatch = bi;
             } else {
                 for (size_t k = 0; k < composed->scale.keyframes.size(); ++k) {
-                    gltf::Vec3 cv = commands::toGltfScale(composed->scale.keyframes[k].second);
+                    gltf::Vec3 cv = toGltfScale(composed->scale.keyframes[k].second);
                     if (!near(cv, lj.scaleValues[k], translationEpsilon)) {
                         if (!scaleValueMismatch) scaleValueMismatch = bi;
                         break;

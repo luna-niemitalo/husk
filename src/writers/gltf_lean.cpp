@@ -20,9 +20,9 @@ namespace husk::writers {
 
 namespace {
 
-gltf::Vec3 toGltfPoint(const m2::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z}); }
-gltf::Vec3 toGltfScale(const m2::Vec3& v) { return gltf::scaleZUpToYUp({v.x, v.y, v.z}); }
-gltf::Quat toGltfQuat(const m2::Quat& q) { return gltf::rotationZUpToYUp({q.x, q.y, q.z, q.w}); }
+gltf::Vec3 toGltfPoint(const canon::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z}); }
+gltf::Vec3 toGltfScale(const canon::Vec3& v) { return gltf::scaleZUpToYUp({v.x, v.y, v.z}); }
+gltf::Quat toGltfQuat(const canon::Quat& q) { return gltf::rotationZUpToYUp({q.x, q.y, q.z, q.w}); }
 
 // One joint's world-space bind position, in raw M2 space -- canon::Joint
 // already gives this for free (Joint::globalPosition is absolute, not
