@@ -4,39 +4,30 @@
 #include <optional>
 #include <vector>
 
-#include "canon_curve.hpp"
+#include "canon_animation.hpp"
 #include "m2_skeleton.hpp"  // m2::Bone
 
-// husk::canon: assembly of a bone's raw translation/rotation/scale curves
-// from an inline M2Sequence's own keyframe data -- the adjacent twin of
-// commands::buildJointAnimation (export_animation.hpp), built to prove
-// structural convergence (REFACTOR/README.md stage 3's gate) without
-// touching the existing pipeline. assembleBoneAnimation covers the
-// per-M2Sequence case (SequenceRef::sequence); assembleBoneAnimationGlobal
-// (below) covers the Header::globalLoops-scoped case (SequenceRef::
-// globalSequence), the adjacent twin of commands::buildGlobalSequenceAnimations.
-// Alias-sequence resolution reuses an already-assembled AnimationClip rather
-// than calling either of these a second time (canon_model.cpp's own doc
-// comment). External .anim files are handled by this same
-// assembleBoneAnimation, via its own `externalBlob` parameter below --
-// canon_model.cpp's assembleModel takes already-resolved external blob
-// bytes, keyed by sequence, as an input parameter; deciding WHICH
-// FileDataID to fetch and reading it off disk stays entirely outside
-// canon:: (REFACTOR/AUDIT.md §7.2, invariant I1: "no paths in canon::") --
-// see commands::buildAnimations for that filesystem-touching logic, not
+// husk::m2input: the M2 input module -- see m2_canon_input.hpp's own doc
+// comment for the split this belongs to. Assembles a bone's raw
+// translation/rotation/scale curves from an inline M2Sequence's own
+// keyframe data -- the adjacent twin of commands::buildJointAnimation
+// (export_animation.hpp), built to prove structural convergence
+// (REFACTOR/README.md stage 3's gate) without touching the existing
+// pipeline. assembleBoneAnimation covers the per-M2Sequence case
+// (SequenceRef::sequence); assembleBoneAnimationGlobal (below) covers the
+// Header::globalLoops-scoped case (SequenceRef::globalSequence), the
+// adjacent twin of commands::buildGlobalSequenceAnimations. Alias-sequence
+// resolution reuses an already-assembled AnimationClip rather than calling
+// either of these a second time (m2_canon_input.cpp's own doc comment).
+// External .anim files are handled by this same assembleBoneAnimation, via
+// its own `externalBlob` parameter below -- m2_canon_input.cpp's
+// buildCanonModel takes already-resolved external blob bytes, keyed by
+// sequence, as an input parameter; deciding WHICH FileDataID to fetch and
+// reading it off disk stays entirely outside canon:: and this input module
+// (REFACTOR/AUDIT.md §7.2, invariant I1: "no paths in canon::") -- see
+// commands::buildAnimations for that filesystem-touching logic, not
 // mirrored here.
-namespace husk::canon {
-
-// One bone's worth of assembled curves for one M2Sequence. Any of the
-// three may hold zero keyframes (that property simply has no data for
-// this sequence) -- assembleBoneAnimation only returns nullopt when all
-// three are empty, mirroring buildJointAnimation's own "nothing to
-// animate" early return.
-struct BoneAnimationCurves {
-    VecCurve translation;
-    QuatCurve rotation;
-    VecCurve scale;
-};
+namespace husk::m2input {
 
 // `blob`/`bone`/`sequenceIndex`/`externalBlob` feed straight into
 // m2::resolveVec3TrackSequence/resolveQuatTrackSequence -- the same real
@@ -66,10 +57,10 @@ struct BoneAnimationCurves {
 // data validation, not a writer convention) rather than re-implemented,
 // same one-source-of-truth reasoning as the resolve*TrackSequence calls
 // above.
-std::optional<BoneAnimationCurves> assembleBoneAnimation(const std::vector<uint8_t>& blob,
-                                                            const m2::Bone& bone, size_t boneIndex,
-                                                            uint32_t sequenceIndex,
-                                                            const std::vector<uint8_t>* externalBlob = nullptr);
+std::optional<canon::BoneAnimationCurves> assembleBoneAnimation(const std::vector<uint8_t>& blob,
+                                                                   const m2::Bone& bone, size_t boneIndex,
+                                                                   uint32_t sequenceIndex,
+                                                                   const std::vector<uint8_t>* externalBlob = nullptr);
 
 // Global-sequence counterpart to assembleBoneAnimation -- the adjacent twin
 // of commands::buildGlobalSequenceAnimations's own per-bone resolution
@@ -84,8 +75,8 @@ std::optional<BoneAnimationCurves> assembleBoneAnimation(const std::vector<uint8
 // sequences have no external-.anim mechanism of their own (see
 // buildGlobalSequenceAnimations's own doc comment). Returns nullopt under
 // the same "nothing to animate" condition as assembleBoneAnimation.
-std::optional<BoneAnimationCurves> assembleBoneAnimationGlobal(const std::vector<uint8_t>& blob,
-                                                                  const m2::Bone& bone, size_t boneIndex,
-                                                                  uint16_t globalSequenceIndex);
+std::optional<canon::BoneAnimationCurves> assembleBoneAnimationGlobal(const std::vector<uint8_t>& blob,
+                                                                        const m2::Bone& bone, size_t boneIndex,
+                                                                        uint16_t globalSequenceIndex);
 
-}  // namespace husk::canon
+}  // namespace husk::m2input

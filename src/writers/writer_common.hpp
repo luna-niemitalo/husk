@@ -35,7 +35,7 @@ namespace husk::writers {
 // exists (canon::Joint deliberately has none -- see its own doc comment).
 //
 // Throws std::runtime_error on an out-of-range `jointIndex` or an
-// out-of-range non-root `parent`. canon::assembleSkeleton already
+// out-of-range non-root `parent`. m2input::assembleSkeleton already
 // guarantees every constructed Skeleton is acyclic and in-range, but that
 // guarantee belongs to the builder, not the type -- canon::Skeleton is a
 // plain struct nothing stops a caller (this module's own tests included)
@@ -54,7 +54,7 @@ m2::Vec3 localBindTranslation(const canon::Skeleton& skeleton, size_t jointIndex
 //   implicitly (1,1,1).
 //
 // Deliberately does NOT apply gltf::enforceHemisphereContinuity.
-// canon_animation_builder.hpp's own doc comment establishes why: raw
+// m2_animation_input.hpp's own doc comment establishes why: raw
 // M2CompQuat keyframes are a direct linear int16 decode with no per-
 // keyframe sign choice, so they're already hemisphere-continuous in M2
 // space -- the discontinuity that fix compensates for is an artifact of

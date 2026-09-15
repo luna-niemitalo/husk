@@ -49,7 +49,7 @@ constexpr uint32_t kSequenceAliasFlag = 0x40;
 // One already-resolved sources::Catalog answer, converted to the
 // canon::TextureRef shape REFACTOR/AUDIT.md §7.1 settled on -- the
 // orchestrator-side half of that decision (canon:: itself performs no
-// resolution or conversion of its own, see canon_material_builder.hpp).
+// resolution or conversion of its own, see m2_material_input.hpp).
 // `fdid` is threaded through separately since a Resolved<EncodedTexture>
 // hit doesn't carry the FileDataID it was resolved from back out.
 canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedTexture>& resolved, uint32_t fdid) {
@@ -100,7 +100,7 @@ canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedText
 
 // One catalog.texture() call per distinct M2 texture-array index actually
 // referenced by any of `batches`' real texture units (layer i's combo
-// index is `textureComboIndex + i`, canon_material_builder.hpp's own
+// index is `textureComboIndex + i`, m2_material_input.hpp's own
 // convention) -- mirrors buildMaterialsAndPrimitives's own per-layer
 // resolution (export_materials.cpp) closely enough that both go through the
 // identical catalog answer for the same (modelPath, textureSlotIndex), but
@@ -109,10 +109,10 @@ canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedText
 // a texture unit with no real fdid AND an embedded filename is left absent
 // from the returned map (falls back to canon::TextureRef's own default
 // KnownUnresolved, same as an unresolved caller-omitted slot).
-canon::TextureResolutions buildTextureResolutions(const m2::Model& model, const std::vector<skin::Batch>& batches,
+m2input::TextureResolutions buildTextureResolutions(const m2::Model& model, const std::vector<skin::Batch>& batches,
                                                    sources::Catalog& catalog, const std::string& modelPath,
                                                    uint32_t objectSkinTextureFileDataId) {
-    canon::TextureResolutions result;
+    m2input::TextureResolutions result;
     sources::TextureModelContext modelCtx;
     modelCtx.modelPath = modelPath;
     if (model.header.textureFileDataIds) modelCtx.ownTextureFileDataIds = *model.header.textureFileDataIds;
@@ -191,7 +191,7 @@ std::filesystem::path findAnimFileByBasename(const std::string& modelPath, const
 // comparison this tool ever runs is no longer the real, ordinarily-shipping
 // legacy pipeline but a version modified for canon::'s benefit. A small
 // amount of duplication here is the correct price for that guarantee, the
-// same tradeoff canon_model.cpp/canon_animation_builder.cpp already made
+// same tradeoff canon_model.cpp/m2_animation_input.cpp already made
 // for the sequence-flag bit tests (see their own comments on it) — applied
 // here to a whole resolution routine instead of one bit test, but the same
 // principle.
@@ -278,7 +278,7 @@ void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, 
         std::vector<skin::Submesh> submeshes = skin::parseSubmeshes(skinBytes, skinHeader.submeshes);
         std::vector<skin::Batch> batches = skin::parseBatches(skinBytes, skinHeader.batches);
 
-        canon::TextureResolutions textureResolutions =
+        m2input::TextureResolutions textureResolutions =
             buildTextureResolutions(model, batches, catalog, modelPath, objectSkinTextureFileDataId);
         // See runCanonCompareExport's own doc comment (header): external-anim
         // resolution only makes sense against the inline M2 source

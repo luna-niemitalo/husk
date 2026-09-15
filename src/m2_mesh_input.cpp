@@ -1,14 +1,14 @@
-#include "canon_mesh_builder.hpp"
+#include "m2_mesh_input.hpp"
 
 #include <stdexcept>
 #include <string>
 
-namespace husk::canon {
+namespace husk::m2input {
 
-std::vector<PrimitiveGeoset> assemblePrimitiveGeosets(const std::vector<skin::Batch>& batches,
-                                                       const std::vector<skin::Submesh>& submeshes,
-                                                       size_t triangleIndexCount) {
-    std::vector<PrimitiveGeoset> result;
+std::vector<canon::PrimitiveGeoset> assemblePrimitiveGeosets(const std::vector<skin::Batch>& batches,
+                                                               const std::vector<skin::Submesh>& submeshes,
+                                                               size_t triangleIndexCount) {
+    std::vector<canon::PrimitiveGeoset> result;
     result.reserve(batches.size());
 
     for (size_t bi = 0; bi < batches.size(); ++bi) {
@@ -34,8 +34,8 @@ std::vector<PrimitiveGeoset> assemblePrimitiveGeosets(const std::vector<skin::Ba
             continue;
         }
 
-        PrimitiveGeoset pg;
-        pg.geoset = Geoset::fromRawId(sm.skinSectionId);
+        canon::PrimitiveGeoset pg;
+        pg.geoset = canon::Geoset::fromRawId(sm.skinSectionId);
         pg.indexStart = sm.indexStart;
         pg.indexCount = sm.indexCount;
         result.push_back(pg);
@@ -57,10 +57,10 @@ bool allZeroWeights(const uint8_t weights[4]) {
 
 }  // namespace
 
-Mesh assembleMesh(const std::vector<m2::Vertex>& vertices, size_t boneCount,
-                   const std::vector<skin::Batch>& batches, const std::vector<skin::Submesh>& submeshes,
-                   const std::vector<uint32_t>& triangleIndices) {
-    Mesh mesh;
+canon::Mesh assembleMesh(const std::vector<m2::Vertex>& vertices, size_t boneCount,
+                          const std::vector<skin::Batch>& batches, const std::vector<skin::Submesh>& submeshes,
+                          const std::vector<uint32_t>& triangleIndices) {
+    canon::Mesh mesh;
     mesh.positions.reserve(vertices.size());
     mesh.normals.reserve(vertices.size());
     mesh.uv0.reserve(vertices.size());
@@ -86,7 +86,7 @@ Mesh assembleMesh(const std::vector<m2::Vertex>& vertices, size_t boneCount,
         if (!isZeroVec2(v.texCoords[1])) uv1AllZero = false;
 
         if (skinned) {
-            Mesh::Skinning sk;
+            canon::Mesh::Skinning sk;
             for (int j = 0; j < 4; ++j) {
                 if (v.boneIndices[j] >= boneCount) {
                     throw std::runtime_error("vertex " + std::to_string(vi) + "'s bone_indices[" +
@@ -109,4 +109,4 @@ Mesh assembleMesh(const std::vector<m2::Vertex>& vertices, size_t boneCount,
     return mesh;
 }
 
-}  // namespace husk::canon
+}  // namespace husk::m2input

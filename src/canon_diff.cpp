@@ -12,7 +12,7 @@ namespace husk::canon_diff {
 
 namespace {
 
-// Independent re-derivation of canon_material_builder.cpp's private
+// Independent re-derivation of m2_material_input.cpp's private
 // blendModeToBlendOp -- same reasoning tests/test_canon_material_convergence.cpp's
 // own expectedBlendOp gives: a comparison must check against a fact worked
 // out separately, not by calling the very function under test.
@@ -90,7 +90,7 @@ Report compareMesh(const canon::Mesh& canonMesh, const gltf::Mesh& legacyMesh, f
     if (uvMismatch) r.deviations.push_back("uv0 mismatch at vertex " + std::to_string(*uvMismatch));
 
     // uv1: canon omits it entirely for an all-origin second UV set
-    // (canon_mesh_builder.hpp's own doc comment); legacy always emits
+    // (m2_mesh_input.hpp's own doc comment); legacy always emits
     // texCoords2, fabricated-all-zero in that same case. Only a real
     // comparison when canon actually populated one.
     if (canonMesh.uv1) {
@@ -109,7 +109,7 @@ Report compareMesh(const canon::Mesh& canonMesh, const gltf::Mesh& legacyMesh, f
     } else {
         r.notes.push_back("canon omitted uv1 (every vertex's second UV coordinate is the origin) -- "
                            "legacy still emits a fabricated all-zero texCoords2, a documented, "
-                           "deliberate divergence (canon_mesh_builder.hpp)");
+                           "deliberate divergence (m2_mesh_input.hpp)");
     }
 
     // Skinning.
@@ -124,7 +124,7 @@ Report compareMesh(const canon::Mesh& canonMesh, const gltf::Mesh& legacyMesh, f
             if (legacyAllZero) {
                 r.notes.push_back("canon left skinning empty for this all-zero-weight (unskinned) model; "
                                    "legacy still fills boneCount-many meaningless zero-weight entries -- "
-                                   "documented, deliberate divergence (canon_mesh_builder.hpp)");
+                                   "documented, deliberate divergence (m2_mesh_input.hpp)");
             } else {
                 r.deviations.push_back("canon reports this model as unskinned (empty skinning), but legacy's "
                                         "skinning has real nonzero weights");
@@ -311,7 +311,7 @@ Report compareAnimations(const canon::Model& canonModel, const std::vector<m2::S
                     // Sign/hemisphere-invariant: a flipped-sign quaternion
                     // represents the identical rotation, and legacy applies
                     // gltf::enforceHemisphereContinuity after this same
-                    // conversion (canon_animation_builder.hpp's own doc
+                    // conversion (m2_animation_input.hpp's own doc
                     // comment) -- a per-keyframe sign difference here is
                     // exactly that fix at work, not a real mismatch.
                     float dot = cq.x * lq.x + cq.y * lq.y + cq.z * lq.z + cq.w * lq.w;

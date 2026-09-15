@@ -1,5 +1,5 @@
-// Structural convergence proof for canon::assembleSkeleton
-// (canon_skeleton_builder.hpp) against commands::buildSkeleton
+// Structural convergence proof for m2input::assembleSkeleton
+// (m2_skeleton_input.hpp) against commands::buildSkeleton
 // (export_skeleton.hpp), the real production pipeline -- REFACTOR/README.md
 // stage 3's gate: same joint inventory, every difference attributed, not
 // byte-identity. Both run over the SAME parsed m2::Bone vector from a real
@@ -11,7 +11,7 @@
 #include <fstream>
 #include <iterator>
 
-#include "canon_skeleton_builder.hpp"
+#include "m2_skeleton_input.hpp"
 #include "export_skeleton.hpp"
 #include "gltf_math.hpp"
 #include "m2.hpp"
@@ -33,7 +33,7 @@ canon::BillboardMode gltfBillboardToCanon(const std::string& mode) {
 
 }  // namespace
 
-TEST_CASE("canon::assembleSkeleton converges with commands::buildSkeleton on a real fixture, "
+TEST_CASE("m2input::assembleSkeleton converges with commands::buildSkeleton on a real fixture, "
           "joint by joint" *
           doctest::skip(test::testM2().empty())) {
     std::ifstream mf(test::testM2(), std::ios::binary);
@@ -44,7 +44,7 @@ TEST_CASE("canon::assembleSkeleton converges with commands::buildSkeleton on a r
     REQUIRE(!model.bones.empty());
 
     gltf::Skeleton legacy = commands::buildSkeleton(model.bones);
-    canon::Skeleton canonical = canon::assembleSkeleton(model.bones);
+    canon::Skeleton canonical = m2input::assembleSkeleton(model.bones);
 
     REQUIRE(legacy.joints.size() == model.bones.size());
     REQUIRE(canonical.joints.size() == model.bones.size());
@@ -106,23 +106,23 @@ TEST_CASE("canon::assembleSkeleton converges with commands::buildSkeleton on a r
     CHECK(!idMismatch.has_value());
 }
 
-TEST_CASE("canon::assembleSkeleton throws on an out-of-range parent index, same as "
+TEST_CASE("m2input::assembleSkeleton throws on an out-of-range parent index, same as "
           "commands::buildSkeleton") {
     std::vector<m2::Bone> bones(2);
     bones[0].parentBone = -1;
     bones[1].parentBone = 5;  // out of range for a 2-bone array
 
-    CHECK_THROWS_AS(canon::assembleSkeleton(bones), std::runtime_error);
+    CHECK_THROWS_AS(m2input::assembleSkeleton(bones), std::runtime_error);
     CHECK_THROWS_AS(commands::buildSkeleton(bones), std::runtime_error);
 }
 
-TEST_CASE("canon::assembleSkeleton throws on a cyclic parent chain, same as "
+TEST_CASE("m2input::assembleSkeleton throws on a cyclic parent chain, same as "
           "commands::buildSkeleton") {
     std::vector<m2::Bone> bones(3);
     bones[0].parentBone = 1;
     bones[1].parentBone = 2;
     bones[2].parentBone = 0;  // cycle: 0 -> 1 -> 2 -> 0
 
-    CHECK_THROWS_AS(canon::assembleSkeleton(bones), std::runtime_error);
+    CHECK_THROWS_AS(m2input::assembleSkeleton(bones), std::runtime_error);
     CHECK_THROWS_AS(commands::buildSkeleton(bones), std::runtime_error);
 }

@@ -4,12 +4,12 @@
 #include <optional>
 #include <vector>
 
-#include "canon_animation_builder.hpp"  // BoneAnimationCurves
-#include "canon_curve.hpp"              // SequenceRef
-#include "canon_material.hpp"           // Material
-#include "canon_mesh_builder.hpp"       // Mesh
-#include "canon_ref.hpp"                // Identity
-#include "canon_skeleton.hpp"           // Skeleton
+#include "canon_animation.hpp"  // BoneAnimationCurves
+#include "canon_curve.hpp"      // SequenceRef
+#include "canon_material.hpp"   // Material
+#include "canon_mesh.hpp"       // Mesh
+#include "canon_ref.hpp"        // Identity
+#include "canon_skeleton.hpp"   // Skeleton
 
 // husk::canon: canon::Model, the whole-model composition root -- the first
 // place every already-built, independently-convergence-proven canon::

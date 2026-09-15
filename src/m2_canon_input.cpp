@@ -5,10 +5,11 @@
 #include <stdexcept>
 #include <tuple>
 
-#include "canon_animation_builder.hpp"
-#include "canon_mesh_builder.hpp"
-#include "canon_skeleton_builder.hpp"
-#include "m2_animation.hpp"  // readTrackMeta, TrackMeta::kNoGlobalSequence
+#include "m2_animation.hpp"        // readTrackMeta, TrackMeta::kNoGlobalSequence
+#include "m2_animation_input.hpp"
+#include "m2_material_input.hpp"
+#include "m2_mesh_input.hpp"
+#include "m2_skeleton_input.hpp"
 
 namespace husk::m2input {
 
@@ -70,8 +71,8 @@ std::set<uint16_t> globalSequenceIndices(const std::vector<uint8_t>& blob, const
     return indices;
 }
 
-canon::M2MaterialInputs toMaterialInputs(const m2::Model& model) {
-    canon::M2MaterialInputs m2in;
+M2MaterialInputs toMaterialInputs(const m2::Model& model) {
+    M2MaterialInputs m2in;
     m2in.materials = model.materials;
     m2in.textures = model.textures;
     m2in.textureCombos = model.textureCombos;
@@ -93,7 +94,7 @@ canon::M2MaterialInputs toMaterialInputs(const m2::Model& model) {
 // former only selects which submesh a batch draws (mesh concern, not
 // material content), and the latter isn't read by assembleMaterial at all
 // today (ShadingFunction decoding is separate, later work per
-// canon_material_builder.hpp's own doc comment).
+// m2_material_input.hpp's own doc comment).
 using MaterialKey = std::tuple<uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t>;
 
 MaterialKey materialKeyFor(const skin::Batch& b) {
@@ -107,9 +108,9 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
                               const std::vector<skin::Submesh>& submeshes,
                               const std::vector<uint32_t>& triangleIndices,
                               const ExternalAnimBlobs& externalAnimBlobs,
-                              const canon::TextureResolutions& textureResolutions) {
-    canon::Skeleton skeleton = canon::assembleSkeleton(model.bones);
-    canon::Mesh mesh = canon::assembleMesh(model.vertices, model.bones.size(), batches, submeshes, triangleIndices);
+                              const TextureResolutions& textureResolutions) {
+    canon::Skeleton skeleton = assembleSkeleton(model.bones);
+    canon::Mesh mesh = assembleMesh(model.vertices, model.bones.size(), batches, submeshes, triangleIndices);
 
     // Animations, pass 1: one AnimationClip per sequence that is either
     // real inline OR has a caller-supplied external blob (externalAnimBlobs,
@@ -145,7 +146,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
         clip.boneCurves.reserve(skeleton.joints.size());
         bool anyBoneAnimated = false;
         for (size_t bi = 0; bi < model.bones.size(); ++bi) {
-            auto curves = canon::assembleBoneAnimation(model.blob, model.bones[bi], bi, static_cast<uint32_t>(si),
+            auto curves = assembleBoneAnimation(model.blob, model.bones[bi], bi, static_cast<uint32_t>(si),
                                                          externalBlob);
             anyBoneAnimated |= curves.has_value();
             clip.boneCurves.push_back(std::move(curves));
@@ -172,7 +173,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
         clip.boneCurves.reserve(skeleton.joints.size());
         bool anyBoneAnimated = false;
         for (size_t bi = 0; bi < model.bones.size(); ++bi) {
-            auto curves = canon::assembleBoneAnimationGlobal(model.blob, model.bones[bi], bi, gs);
+            auto curves = assembleBoneAnimationGlobal(model.blob, model.bones[bi], bi, gs);
             anyBoneAnimated |= curves.has_value();
             clip.boneCurves.push_back(std::move(curves));
         }
@@ -202,7 +203,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
 
     // Materials: one per DISTINCT batch identity (materialKeyFor, above),
     // deduped -- see this file's own doc comment for why. All resolved
-    // against a single fixed sequence (canon_material_builder.hpp's own
+    // against a single fixed sequence (m2_material_input.hpp's own
     // doc comment explains why: canon::Material is scoped to one sequence,
     // and multiplying materials by sequence count has no consumer yet).
     //
@@ -212,7 +213,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
     // pre-existing fallback) when there were no real inline/external-
     // resolved sequences at all, same as before this change.
     uint32_t materialSequenceIndex = firstResolvedSequenceIndex.value_or(0);
-    canon::M2MaterialInputs m2in = toMaterialInputs(model);
+    M2MaterialInputs m2in = toMaterialInputs(model);
 
     std::vector<canon::Material> materials;
     std::vector<canon::Identity> primitiveMaterials;
@@ -228,7 +229,7 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
         if (it != materialIndexByKey.end()) {
             materialIndex = it->second;
         } else {
-            canon::Material mat = canon::assembleMaterial(b, bi, m2in, materialSequenceIndex, textureResolutions);
+            canon::Material mat = assembleMaterial(b, bi, m2in, materialSequenceIndex, textureResolutions);
             materialIndex = materials.size();
             mat.ref.id = canon::RecordIndex{static_cast<uint32_t>(materialIndex)};
             materials.push_back(std::move(mat));

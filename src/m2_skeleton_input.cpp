@@ -1,4 +1,4 @@
-#include "canon_skeleton_builder.hpp"
+#include "m2_skeleton_input.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -6,17 +6,17 @@
 #include "canon_bone_naming.hpp"  // computeStructuralLabels
 #include "m2_header.hpp"          // billboardModeName, keyBoneName
 
-namespace husk::canon {
+namespace husk::m2input {
 
 namespace {
 
-BillboardMode toBillboardMode(uint32_t flags) {
+canon::BillboardMode toBillboardMode(uint32_t flags) {
     const char* name = m2::billboardModeName(flags);
-    if (name == nullptr) return BillboardMode::None;
-    if (std::string(name) == "spherical") return BillboardMode::Spherical;
-    if (std::string(name) == "cylindrical_lock_x") return BillboardMode::CylindricalLockX;
-    if (std::string(name) == "cylindrical_lock_y") return BillboardMode::CylindricalLockY;
-    if (std::string(name) == "cylindrical_lock_z") return BillboardMode::CylindricalLockZ;
+    if (name == nullptr) return canon::BillboardMode::None;
+    if (std::string(name) == "spherical") return canon::BillboardMode::Spherical;
+    if (std::string(name) == "cylindrical_lock_x") return canon::BillboardMode::CylindricalLockX;
+    if (std::string(name) == "cylindrical_lock_y") return canon::BillboardMode::CylindricalLockY;
+    if (std::string(name) == "cylindrical_lock_z") return canon::BillboardMode::CylindricalLockZ;
     throw std::runtime_error("m2::billboardModeName returned an unrecognized mode: " +
                               std::string(name));
 }
@@ -24,7 +24,7 @@ BillboardMode toBillboardMode(uint32_t flags) {
 // Mirrors export_skeleton.cpp's checkNoBoneCycles exactly (memoized
 // parent-chain walk, O(joints)) -- that function is private to its own
 // translation unit, so this is a reimplementation, not a shared call.
-void checkNoBoneCycles(const std::vector<Joint>& joints) {
+void checkNoBoneCycles(const std::vector<canon::Joint>& joints) {
     enum class State { kUnvisited, kInProgress, kDone };
     std::vector<State> state(joints.size(), State::kUnvisited);
 
@@ -53,20 +53,20 @@ void checkNoBoneCycles(const std::vector<Joint>& joints) {
 
 }  // namespace
 
-Skeleton assembleSkeleton(const std::vector<m2::Bone>& bones) {
-    Skeleton skeleton;
+canon::Skeleton assembleSkeleton(const std::vector<m2::Bone>& bones) {
+    canon::Skeleton skeleton;
     skeleton.joints.reserve(bones.size());
     for (size_t i = 0; i < bones.size(); ++i) {
         const auto& b = bones[i];
-        Joint j;
+        canon::Joint j;
         j.parent = b.parentBone;
         j.globalPosition = b.pivot;
         j.billboard = toBillboardMode(b.flags);
         if (const char* name = m2::keyBoneName(b.keyBoneId)) {
-            j.ref = boneRef(static_cast<uint32_t>(i), name, NameSource::M2Embedded);
+            j.ref = canon::boneRef(static_cast<uint32_t>(i), name, canon::NameSource::M2Embedded);
         } else {
-            j.ref = boneRef(static_cast<uint32_t>(i), "bone_" + std::to_string(i),
-                             NameSource::Synthesized);
+            j.ref = canon::boneRef(static_cast<uint32_t>(i), "bone_" + std::to_string(i),
+                                    canon::NameSource::Synthesized);
         }
         skeleton.joints.push_back(j);
     }
@@ -84,11 +84,11 @@ Skeleton assembleSkeleton(const std::vector<m2::Bone>& bones) {
 
     // Structural labeling needs a validated, cycle-free forest -- runs
     // only after checkNoBoneCycles confirms one.
-    std::vector<std::string> labels = computeStructuralLabels(skeleton);
+    std::vector<std::string> labels = canon::computeStructuralLabels(skeleton);
     for (size_t i = 0; i < skeleton.joints.size(); ++i) {
         skeleton.joints[i].structuralLabel = labels[i];
     }
     return skeleton;
 }
 
-}  // namespace husk::canon
+}  // namespace husk::m2input

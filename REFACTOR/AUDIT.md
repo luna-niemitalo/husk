@@ -443,7 +443,7 @@ canon's newly-wired external-anim path reproduces the exact clips legacy's
 `buildAnimations` produces from the identical file, not just a structural
 no-op. Full suite still green, 966/966.
 
-### 7.3 `canon::assembleModel` took `m2::`/`skin::` types directly — closed 2026-09-15; sub-assemblers still do (open)
+### 7.3 `canon::assembleModel` took `m2::`/`skin::` types directly — closed 2026-09-15 (sub-assemblers also moved, same day)
 
 **Found while adding the material-dedup work below**: `canon::assembleModel`
 (the whole-model composition root) took `m2::Model`/`skin::Batch`/
@@ -511,16 +511,33 @@ much smaller pure-composition job — plus `tests/test_m2_canon_input.cpp`,
 the renamed home of what used to be `test_canon_model.cpp`'s real-fixture
 orchestration coverage, updated for the new dedup invariant).
 
-**Still open, named explicitly rather than swept in**: `assembleMesh`/
-`assembleSkeleton`/`assembleMaterial`/`assembleBoneAnimation(Global)`
-still live in `namespace husk::canon` (the `canon_*_builder.hpp` files)
-while still taking `m2::`/`skin::` types directly — the same shape I1 now
-forbids for the composition root specifically, not yet extended to them.
-Moving them into `husk::m2input` (or an equivalent rename) is real,
-scoped follow-up work, deliberately not done in this same pass given the
-size of the change already made. Also open: `canon::Mesh::positions`/
-`normals`/`uv0`/`uv1` are declared as `m2::Vec3`/`m2::Vec2` — a namespaced
-M2 type used as a canon:: struct field, a real but lower-severity finding
-from the same investigation (`CANONICAL_MODEL.md`'s own updated section
-has the full account) — not fixed here either.
+**Follow-up, same day, now also closed**: `assembleMesh`/`assembleSkeleton`/
+`assembleMaterial`/`assembleBoneAnimation(Global)` — the sub-assemblers
+flagged above as still living in `namespace husk::canon` while taking
+`m2::`/`skin::` types directly — moved into `namespace husk::m2input`:
+`m2_mesh_input.hpp`/`.cpp`, `m2_skeleton_input.hpp`/`.cpp`,
+`m2_material_input.hpp`/`.cpp`, `m2_animation_input.hpp`/`.cpp` (the old
+`canon_mesh_builder.*`/`canon_skeleton_builder.*`/
+`canon_material_builder.*`/`canon_animation_builder.*` moved to `trash/`).
+The pure canon:: value types those files used to conflate with their
+M2-consuming assembler in one file/namespace — `canon::Mesh`/
+`PrimitiveGeoset`, `canon::BoneAnimationCurves` — were split out into new
+struct-only files that stay in `namespace husk::canon` with zero
+m2::/skin:: types (`canon_mesh.hpp`, `canon_animation.hpp`); canon::
+Material/MaterialLayer already lived in their own `canon_material.hpp`
+this way, so only its M2-consuming neighbor (`M2MaterialInputs`,
+`TextureResolutions`, `assembleMaterial`) needed to move out, not the
+whole file; `canon_skeleton_builder.hpp` had no struct of its own to
+extract at all (Skeleton/Joint already lived in `canon_skeleton.hpp`), so
+it was a straight namespace move. `canon_bone_naming.hpp`/`.cpp` was
+checked and confirmed to take only `canon::Skeleton` — never part of this
+gap, left in `husk::canon` unmoved. Every real consumer updated
+(`m2_canon_input.cpp`, `cmd_export_canon.cpp`, `canon_diff.cpp`,
+`writers/writer_common.hpp`'s doc comments, 5 convergence test files, plus
+`tests/test_m2_canon_input.cpp`); full suite green, 975/975, both before
+and after. Still open: `canon::Mesh::positions`/`normals`/`uv0`/`uv1` are
+declared as `m2::Vec3`/`m2::Vec2` — a namespaced M2 type used as a canon::
+struct field, a real but lower-severity finding from the same
+investigation (`CANONICAL_MODEL.md`'s own updated section has the full
+account) — not fixed here either.
 

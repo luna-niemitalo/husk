@@ -4,9 +4,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "canon_material_builder.hpp"  // TextureResolutions
 #include "canon_model.hpp"
 #include "m2.hpp"
+#include "m2_material_input.hpp"  // TextureResolutions
 #include "skin.hpp"
 
 // husk::m2input: the M2 input module -- everything that decides *how* one
@@ -45,7 +45,7 @@ using ExternalAnimBlobs = std::unordered_map<uint32_t, std::vector<uint8_t>>;
 // batch's own (materialIndex, textureCount, textureComboIndex,
 // textureCoordComboIndex, colorIndex, textureWeightComboIndex,
 // textureTransformComboIndex) tuple fully determines what
-// canon::assembleMaterial would build for it (given the fixed
+// m2input::assembleMaterial would build for it (given the fixed
 // `textureResolutions`/sequence-index this function already threads
 // through uniformly) -- so two batches sharing that tuple share one
 // canon::Material, found by identity rather than by hashing the built
@@ -66,6 +66,6 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
                               const std::vector<skin::Submesh>& submeshes,
                               const std::vector<uint32_t>& triangleIndices,
                               const ExternalAnimBlobs& externalAnimBlobs = {},
-                              const canon::TextureResolutions& textureResolutions = {});
+                              const TextureResolutions& textureResolutions = {});
 
 }  // namespace husk::m2input

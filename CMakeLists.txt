@@ -90,10 +90,10 @@ add_library(husk-lib STATIC
   src/canon_policy.cpp
   src/canon_bone_stem.cpp
   src/canon_bone_naming.cpp
-  src/canon_skeleton_builder.cpp
-  src/canon_animation_builder.cpp
-  src/canon_mesh_builder.cpp
-  src/canon_material_builder.cpp
+  src/m2_skeleton_input.cpp
+  src/m2_animation_input.cpp
+  src/m2_mesh_input.cpp
+  src/m2_material_input.cpp
   src/canon_model.cpp
   src/m2_canon_input.cpp
   src/canon_diff.cpp

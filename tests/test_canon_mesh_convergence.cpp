@@ -1,5 +1,5 @@
-// Structural convergence proof for canon::assemblePrimitiveGeosets
-// (canon_mesh_builder.hpp) against export_materials.cpp's batch loop, the
+// Structural convergence proof for m2input::assemblePrimitiveGeosets
+// (m2_mesh_input.hpp) against export_materials.cpp's batch loop, the
 // real production logic -- REFACTOR/README.md stage 3's gate. That
 // function is too entangled with material/texture resolution (DB2/listfile/
 // catalog dependencies) to call directly for just this slice, so this
@@ -15,7 +15,7 @@
 #include <set>
 #include <stdexcept>
 
-#include "canon_mesh_builder.hpp"
+#include "m2_mesh_input.hpp"
 #include "m2.hpp"
 #include "skin.hpp"
 #include "test_data_paths.hpp"
@@ -32,7 +32,7 @@ std::vector<uint8_t> readFile(const std::string& path) {
 
 }  // namespace
 
-TEST_CASE("canon::assemblePrimitiveGeosets converges with export_materials.cpp's batch loop on a "
+TEST_CASE("m2input::assemblePrimitiveGeosets converges with export_materials.cpp's batch loop on a "
           "real fixture" *
           doctest::skip(test::testSkin().empty())) {
     std::vector<uint8_t> file = readFile(test::testSkin());
@@ -45,10 +45,10 @@ TEST_CASE("canon::assemblePrimitiveGeosets converges with export_materials.cpp's
     REQUIRE(!batches.empty());
 
     std::vector<canon::PrimitiveGeoset> result =
-        canon::assemblePrimitiveGeosets(batches, submeshes, triangleIndices.size());
+        m2input::assemblePrimitiveGeosets(batches, submeshes, triangleIndices.size());
 
     // Independently derived from the same parsed submeshes/batches, not
-    // from canon::assemblePrimitiveGeosets's own output: the real distinct
+    // from m2input::assemblePrimitiveGeosets's own output: the real distinct
     // skinSectionId set among batches whose submesh has real geometry.
     std::set<uint16_t> expectedIds;
     size_t expectedSkippedZeroIndexCount = 0;
@@ -132,7 +132,7 @@ TEST_CASE("canon::assemblePrimitiveGeosets converges with export_materials.cpp's
     CHECK(!indexCountMismatch.has_value());
 }
 
-TEST_CASE("canon::assemblePrimitiveGeosets: the real fixture's zero-indexCount submeshes, if any, "
+TEST_CASE("m2input::assemblePrimitiveGeosets: the real fixture's zero-indexCount submeshes, if any, "
           "are skipped" *
           doctest::skip(test::testSkin().empty())) {
     std::vector<uint8_t> file = readFile(test::testSkin());
@@ -152,7 +152,7 @@ TEST_CASE("canon::assemblePrimitiveGeosets: the real fixture's zero-indexCount s
          hasZeroIndexCountBatch);
 
     std::vector<canon::PrimitiveGeoset> result =
-        canon::assemblePrimitiveGeosets(batches, submeshes, triangleIndices.size());
+        m2input::assemblePrimitiveGeosets(batches, submeshes, triangleIndices.size());
     std::optional<size_t> zeroCountMismatch;
     for (size_t i = 0; i < result.size(); ++i) {
         if (result[i].indexCount == 0 && !zeroCountMismatch) zeroCountMismatch = i;
@@ -161,7 +161,7 @@ TEST_CASE("canon::assemblePrimitiveGeosets: the real fixture's zero-indexCount s
     CHECK(!zeroCountMismatch.has_value());
 }
 
-TEST_CASE("canon::assemblePrimitiveGeosets throws on an out-of-range skinSectionIndex, same as "
+TEST_CASE("m2input::assemblePrimitiveGeosets throws on an out-of-range skinSectionIndex, same as "
           "export_materials.cpp's batch loop") {
     std::vector<skin::Submesh> submeshes(1);
     submeshes[0].indexCount = 3;
@@ -169,10 +169,10 @@ TEST_CASE("canon::assemblePrimitiveGeosets throws on an out-of-range skinSection
     std::vector<skin::Batch> batches(1);
     batches[0].skinSectionIndex = 5;  // out of range for 1 submesh
 
-    CHECK_THROWS_AS(canon::assemblePrimitiveGeosets(batches, submeshes, 100), std::runtime_error);
+    CHECK_THROWS_AS(m2input::assemblePrimitiveGeosets(batches, submeshes, 100), std::runtime_error);
 }
 
-TEST_CASE("canon::assemblePrimitiveGeosets throws when a submesh's index range runs past the "
+TEST_CASE("m2input::assemblePrimitiveGeosets throws when a submesh's index range runs past the "
           "triangle-index buffer, same as export_materials.cpp's batch loop") {
     std::vector<skin::Submesh> submeshes(1);
     submeshes[0].indexStart = 90;
@@ -181,10 +181,10 @@ TEST_CASE("canon::assemblePrimitiveGeosets throws when a submesh's index range r
     std::vector<skin::Batch> batches(1);
     batches[0].skinSectionIndex = 0;
 
-    CHECK_THROWS_AS(canon::assemblePrimitiveGeosets(batches, submeshes, 100), std::runtime_error);
+    CHECK_THROWS_AS(m2input::assemblePrimitiveGeosets(batches, submeshes, 100), std::runtime_error);
 }
 
-TEST_CASE("canon::assemblePrimitiveGeosets skips a zero-indexCount submesh, producing no primitive "
+TEST_CASE("m2input::assemblePrimitiveGeosets skips a zero-indexCount submesh, producing no primitive "
           "for it") {
     std::vector<skin::Submesh> submeshes(2);
     submeshes[0].skinSectionId = 0;
@@ -198,7 +198,7 @@ TEST_CASE("canon::assemblePrimitiveGeosets skips a zero-indexCount submesh, prod
     batches[0].skinSectionIndex = 0;
     batches[1].skinSectionIndex = 1;
 
-    auto result = canon::assemblePrimitiveGeosets(batches, submeshes, 6);
+    auto result = m2input::assemblePrimitiveGeosets(batches, submeshes, 6);
     REQUIRE(result.size() == 1);
     CHECK(std::get<canon::RecordIndex>(result[0].geoset.ref.id).value == 100);
     CHECK(result[0].geoset.group == 1);
@@ -206,10 +206,10 @@ TEST_CASE("canon::assemblePrimitiveGeosets skips a zero-indexCount submesh, prod
 }
 
 // ---------------------------------------------------------------------
-// canon::assembleMesh
+// m2input::assembleMesh
 // ---------------------------------------------------------------------
 
-TEST_CASE("canon::assembleMesh converges with the real M2 vertex data + buildSkinning-equivalent "
+TEST_CASE("m2input::assembleMesh converges with the real M2 vertex data + buildSkinning-equivalent "
           "skinning, on a real fixture" *
           doctest::skip(test::testM2().empty() || test::testSkin().empty())) {
     m2::Model model = m2::loadModel(readFile(test::testM2()));
@@ -223,7 +223,7 @@ TEST_CASE("canon::assembleMesh converges with the real M2 vertex data + buildSki
     REQUIRE(!model.bones.empty());
 
     canon::Mesh mesh =
-        canon::assembleMesh(model.vertices, model.bones.size(), batches, submeshes, triangleIndices);
+        m2input::assembleMesh(model.vertices, model.bones.size(), batches, submeshes, triangleIndices);
 
     REQUIRE(mesh.positions.size() == model.vertices.size());
     REQUIRE(mesh.normals.size() == model.vertices.size());
@@ -247,7 +247,7 @@ TEST_CASE("canon::assembleMesh converges with the real M2 vertex data + buildSki
 
     // Independently re-derive expected skinning -- same bounds-check/
     // normalization as buildSkinning (export_skeleton.cpp), computed here
-    // rather than by calling canon::assembleMesh's own output back at itself.
+    // rather than by calling m2input::assembleMesh's own output back at itself.
     bool expectSkinned = false;
     for (const auto& v : model.vertices) {
         for (int j = 0; j < 4; ++j) {
@@ -273,7 +273,7 @@ TEST_CASE("canon::assembleMesh converges with the real M2 vertex data + buildSki
     // primitives/indices: already-proven output of assemblePrimitiveGeosets,
     // reused as a known-good fact rather than re-derived from scratch.
     std::vector<canon::PrimitiveGeoset> expectedPrimitives =
-        canon::assemblePrimitiveGeosets(batches, submeshes, triangleIndices.size());
+        m2input::assemblePrimitiveGeosets(batches, submeshes, triangleIndices.size());
     REQUIRE(mesh.primitives.size() == expectedPrimitives.size());
     // Aggregated the same way as assemblePrimitiveGeosets's own convergence
     // test above -- a real fixture's primitive count scales with the
@@ -301,7 +301,7 @@ TEST_CASE("canon::assembleMesh converges with the real M2 vertex data + buildSki
     CHECK(mesh.indices == triangleIndices);
 }
 
-TEST_CASE("canon::assembleMesh throws on an out-of-range bone index, same as buildSkinning") {
+TEST_CASE("m2input::assembleMesh throws on an out-of-range bone index, same as buildSkinning") {
     std::vector<m2::Vertex> vertices(1);
     vertices[0].boneWeights[0] = 255;  // genuinely skinned -- the check must actually run
     vertices[0].boneIndices[0] = 5;    // out of range for 2 bones
@@ -309,33 +309,33 @@ TEST_CASE("canon::assembleMesh throws on an out-of-range bone index, same as bui
     std::vector<skin::Submesh> submeshes;
     std::vector<skin::Batch> batches;
 
-    CHECK_THROWS_AS(canon::assembleMesh(vertices, /*boneCount=*/2, batches, submeshes, {}),
+    CHECK_THROWS_AS(m2input::assembleMesh(vertices, /*boneCount=*/2, batches, submeshes, {}),
                     std::runtime_error);
 }
 
-TEST_CASE("canon::assembleMesh leaves skinning empty for an all-zero-weight (unskinned) model, "
+TEST_CASE("m2input::assembleMesh leaves skinning empty for an all-zero-weight (unskinned) model, "
           "rather than filling it with meaningless zero entries") {
     std::vector<m2::Vertex> vertices(3);  // every boneWeights/boneIndices default to 0
 
     std::vector<skin::Submesh> submeshes;
     std::vector<skin::Batch> batches;
 
-    canon::Mesh mesh = canon::assembleMesh(vertices, /*boneCount=*/0, batches, submeshes, {});
+    canon::Mesh mesh = m2input::assembleMesh(vertices, /*boneCount=*/0, batches, submeshes, {});
     CHECK(mesh.skinning.empty());
 }
 
-TEST_CASE("canon::assembleMesh leaves uv1 absent when every vertex's second UV coordinate is the "
+TEST_CASE("m2input::assembleMesh leaves uv1 absent when every vertex's second UV coordinate is the "
           "origin") {
     std::vector<m2::Vertex> vertices(2);  // texCoords[1] defaults to {0, 0}
 
     std::vector<skin::Submesh> submeshes;
     std::vector<skin::Batch> batches;
 
-    canon::Mesh mesh = canon::assembleMesh(vertices, /*boneCount=*/0, batches, submeshes, {});
+    canon::Mesh mesh = m2input::assembleMesh(vertices, /*boneCount=*/0, batches, submeshes, {});
     CHECK_FALSE(mesh.uv1.has_value());
 }
 
-TEST_CASE("canon::assembleMesh populates uv1 when at least one vertex's second UV coordinate is "
+TEST_CASE("m2input::assembleMesh populates uv1 when at least one vertex's second UV coordinate is "
           "genuinely non-origin") {
     std::vector<m2::Vertex> vertices(2);
     vertices[1].texCoords[1] = {0.25f, 0.75f};
@@ -343,7 +343,7 @@ TEST_CASE("canon::assembleMesh populates uv1 when at least one vertex's second U
     std::vector<skin::Submesh> submeshes;
     std::vector<skin::Batch> batches;
 
-    canon::Mesh mesh = canon::assembleMesh(vertices, /*boneCount=*/0, batches, submeshes, {});
+    canon::Mesh mesh = m2input::assembleMesh(vertices, /*boneCount=*/0, batches, submeshes, {});
     REQUIRE(mesh.uv1.has_value());
     REQUIRE(mesh.uv1->size() == 2);
     CHECK((*mesh.uv1)[0].x == 0.0f);

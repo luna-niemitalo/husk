@@ -22,6 +22,7 @@
 #include "canon_model.hpp"
 #include "m2.hpp"
 #include "m2_animation.hpp"
+#include "m2_animation_input.hpp"  // assembleBoneAnimation
 #include "m2_canon_input.hpp"
 #include "skin.hpp"
 #include "test_data_paths.hpp"
@@ -279,7 +280,7 @@ TEST_CASE("m2input::buildCanonModel wires together skeleton/mesh/materials/anima
         // Spot-check bone 0's curves for this clip against
         // assembleBoneAnimation's own already-proven output directly --
         // reusing a proven fact, not deriving from the function under test.
-        auto expected = canon::assembleBoneAnimation(model.blob, model.bones[0], 0, clip.sequence.index);
+        auto expected = m2input::assembleBoneAnimation(model.blob, model.bones[0], 0, clip.sequence.index);
         REQUIRE(clip.boneCurves[0].has_value() == expected.has_value());
         if (expected.has_value()) {
             CHECK(clip.boneCurves[0]->translation.keyframes.size() == expected->translation.keyframes.size());

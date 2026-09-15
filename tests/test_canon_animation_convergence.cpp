@@ -1,5 +1,5 @@
-// Structural convergence proof for canon::assembleBoneAnimation
-// (canon_animation_builder.hpp) against commands::buildJointAnimation +
+// Structural convergence proof for m2input::assembleBoneAnimation
+// (m2_animation_input.hpp) against commands::buildJointAnimation +
 // m2::resolveVec3TrackSequence/resolveQuatTrackSequence (export_animation.cpp),
 // the real production pipeline -- REFACTOR/README.md stage 3's gate, inline-
 // sequence scope only. Compares canon's raw-M2-space curves directly against
@@ -14,7 +14,7 @@
 #include <iterator>
 #include <optional>
 
-#include "canon_animation_builder.hpp"
+#include "m2_animation_input.hpp"
 #include "m2.hpp"
 #include "m2_animation.hpp"
 #include "test_data_paths.hpp"
@@ -37,7 +37,7 @@ constexpr uint32_t kSequenceStoredInlineFlag = 0x20;
 namespace {
 
 // One (sequence, bone) pick plus its resolved raw track data, used to run
-// both the legacy-equivalent resolution and canon::assembleBoneAnimation
+// both the legacy-equivalent resolution and m2input::assembleBoneAnimation
 // over the exact same real inputs.
 struct Pick {
     size_t sequenceIndex = 0;
@@ -115,7 +115,7 @@ void checkVecCurve(const canon::VecCurve& curve, const std::vector<std::pair<uin
 
 // No hemisphere-continuity fix applied on either side: canon deliberately
 // doesn't apply gltf::enforceHemisphereContinuity (see
-// canon_animation_builder.hpp's doc comment -- that fix compensates for a
+// m2_animation_input.hpp's doc comment -- that fix compensates for a
 // discontinuity rotationZUpToYUp's own matrix round-trip introduces, not a
 // property of the raw M2CompQuat data), and `legacy` here is the
 // pre-toGltf resolveQuatTrackSequence output, never run through that fix
@@ -162,7 +162,7 @@ void checkInterpolation(const m2::Model& model, const m2::Bone& bone, const cano
 
 }  // namespace
 
-TEST_CASE("canon::assembleBoneAnimation converges with the real resolve*TrackSequence output "
+TEST_CASE("m2input::assembleBoneAnimation converges with the real resolve*TrackSequence output "
           "for real inline sequence/bone translation+rotation data, raw M2 space" *
           doctest::skip(test::testM2().empty())) {
     std::ifstream mf(test::testM2(), std::ios::binary);
@@ -191,7 +191,7 @@ TEST_CASE("canon::assembleBoneAnimation converges with the real resolve*TrackSeq
 
     const auto& bone = model.bones[pick->boneIndex];
     auto canonCurves =
-        canon::assembleBoneAnimation(model.blob, bone, pick->boneIndex, static_cast<uint32_t>(pick->sequenceIndex));
+        m2input::assembleBoneAnimation(model.blob, bone, pick->boneIndex, static_cast<uint32_t>(pick->sequenceIndex));
     REQUIRE(canonCurves.has_value());
 
     checkVecCurve(canonCurves->translation, pick->translation, static_cast<uint32_t>(pick->sequenceIndex),
@@ -201,7 +201,7 @@ TEST_CASE("canon::assembleBoneAnimation converges with the real resolve*TrackSeq
     checkInterpolation(model, bone, *canonCurves);
 }
 
-TEST_CASE("canon::assembleBoneAnimation converges with the real resolve*TrackSequence output "
+TEST_CASE("m2input::assembleBoneAnimation converges with the real resolve*TrackSequence output "
           "for real inline sequence/bone scale data, raw M2 space" *
           doctest::skip(test::testM2().empty())) {
     std::ifstream mf(test::testM2(), std::ios::binary);
@@ -218,7 +218,7 @@ TEST_CASE("canon::assembleBoneAnimation converges with the real resolve*TrackSeq
 
     const auto& bone = model.bones[pick->boneIndex];
     auto canonCurves =
-        canon::assembleBoneAnimation(model.blob, bone, pick->boneIndex, static_cast<uint32_t>(pick->sequenceIndex));
+        m2input::assembleBoneAnimation(model.blob, bone, pick->boneIndex, static_cast<uint32_t>(pick->sequenceIndex));
     REQUIRE(canonCurves.has_value());
 
     checkVecCurve(canonCurves->translation, pick->translation, static_cast<uint32_t>(pick->sequenceIndex),
@@ -279,7 +279,7 @@ std::optional<GlobalPick> findBestGlobalPick(const m2::Model& model, ScoreFn sco
 
 }  // namespace
 
-TEST_CASE("canon::assembleBoneAnimationGlobal converges with the real resolve*GlobalSequenceTrack "
+TEST_CASE("m2input::assembleBoneAnimationGlobal converges with the real resolve*GlobalSequenceTrack "
           "output for a real global-sequence-driven bone track, raw M2 space" *
           doctest::skip(test::testM2().empty())) {
     std::ifstream mf(test::testM2(), std::ios::binary);
@@ -304,7 +304,7 @@ TEST_CASE("canon::assembleBoneAnimationGlobal converges with the real resolve*Gl
     }
 
     const auto& bone = model.bones[pick->boneIndex];
-    auto canonCurves = canon::assembleBoneAnimationGlobal(model.blob, bone, pick->boneIndex, pick->globalSequenceIndex);
+    auto canonCurves = m2input::assembleBoneAnimationGlobal(model.blob, bone, pick->boneIndex, pick->globalSequenceIndex);
     REQUIRE(canonCurves.has_value());
 
     CHECK(canonCurves->translation.sequence.kind == canon::SequenceRef::Kind::GlobalSequence);
@@ -341,7 +341,7 @@ TEST_CASE("canon::assembleBoneAnimationGlobal converges with the real resolve*Gl
     }
 }
 
-TEST_CASE("canon::assembleBoneAnimationGlobal returns nullopt when a bone has no global-sequence-"
+TEST_CASE("m2input::assembleBoneAnimationGlobal returns nullopt when a bone has no global-sequence-"
           "driven track data, same nothing-to-animate case as assembleBoneAnimation") {
     std::vector<uint8_t> zeroedBlob(64, 0);
     m2::Bone bone;  // default offsets (0) all point at the same zeroed track
@@ -349,11 +349,11 @@ TEST_CASE("canon::assembleBoneAnimationGlobal returns nullopt when a bone has no
     // see assembleBoneAnimation's own "zeroed, not empty" test above), so
     // this picks globalSequenceIndex 0 to exercise the real "referenced but
     // no actual keyframe data" case, not a mismatched-index no-op.
-    auto result = canon::assembleBoneAnimationGlobal(zeroedBlob, bone, 0, 0);
+    auto result = m2input::assembleBoneAnimationGlobal(zeroedBlob, bone, 0, 0);
     CHECK_FALSE(result.has_value());
 }
 
-TEST_CASE("canon::assembleBoneAnimation returns nullopt when all three tracks are empty, same "
+TEST_CASE("m2input::assembleBoneAnimation returns nullopt when all three tracks are empty, same "
           "nothing-to-animate case buildJointAnimation early-returns on") {
     // Zeroed, not empty: readTrackMeta/trackSequenceInnerArrays bounds-check
     // against the blob before deciding a track is empty, so an out-of-range
@@ -364,6 +364,6 @@ TEST_CASE("canon::assembleBoneAnimation returns nullopt when all three tracks ar
     // to {} for all three tracks, all pointing at offset 0.
     std::vector<uint8_t> zeroedBlob(64, 0);
     m2::Bone bone;  // default offsets (0) all point at the same zeroed track above
-    auto result = canon::assembleBoneAnimation(zeroedBlob, bone, 0, 0);
+    auto result = m2input::assembleBoneAnimation(zeroedBlob, bone, 0, 0);
     CHECK_FALSE(result.has_value());
 }

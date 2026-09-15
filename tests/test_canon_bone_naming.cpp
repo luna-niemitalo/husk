@@ -12,7 +12,7 @@
 #include <set>
 
 #include "canon_bone_naming.hpp"
-#include "canon_skeleton_builder.hpp"
+#include "m2_skeleton_input.hpp"
 #include "m2.hpp"
 #include "test_data_paths.hpp"
 
@@ -159,7 +159,7 @@ TEST_CASE("computeStructuralLabels: deterministic across repeated runs on the sa
     CHECK(first == second);
 }
 
-TEST_CASE("canon::assembleSkeleton: every real bloodelffemale.m2 joint gets a unique "
+TEST_CASE("m2input::assembleSkeleton: every real bloodelffemale.m2 joint gets a unique "
           "structural label, and its real mirrored key-bone pair shares a stem" *
           doctest::skip(test::testM2().empty())) {
     std::ifstream mf(test::testM2(), std::ios::binary);
@@ -169,7 +169,7 @@ TEST_CASE("canon::assembleSkeleton: every real bloodelffemale.m2 joint gets a un
     auto model = m2::loadModel(fileBytes);
     REQUIRE(!model.bones.empty());
 
-    Skeleton skeleton = assembleSkeleton(model.bones);
+    Skeleton skeleton = m2input::assembleSkeleton(model.bones);
     REQUIRE(skeleton.joints.size() == model.bones.size());
 
     std::set<std::string> unique;

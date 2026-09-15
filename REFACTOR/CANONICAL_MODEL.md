@@ -163,17 +163,32 @@ or m2, and thus should already have the data in canonical format."*
 Deciding *how* to turn one input format's bytes into the Mesh/Skeleton/
 Material list/AnimationClip list `assembleModel` composes is entirely that
 format's own input module's job (for M2: `husk::m2input::buildCanonModel`,
-`m2_canon_input.hpp`) -- a *sibling* of canon::, not part of it, even
-though it currently still calls canon::'s own per-piece translation
+`m2_canon_input.hpp`).
+
+**Closed 2026-09-15 (same day, follow-up pass)**: the per-piece translation
 functions (`assembleMesh`/`assembleSkeleton`/`assembleMaterial`/
-`assembleBoneAnimation`), which DO still take m2::/skin:: types directly.
-That's a real, named, NOT-yet-closed gap of its own: those functions are
-textually declared in `namespace husk::canon` (the `canon_*_builder.hpp`
-files) while accepting foreign types, the same shape this section now
-forbids for the composition root specifically. Moving them into
-`husk::m2input` too (or an equivalent rename) is real follow-up work, not
-done in the same pass that fixed `assembleModel` itself -- scoped out
-deliberately given the size of the change already made, not overlooked.
+`assembleBoneAnimation`/`assembleBoneAnimationGlobal`) that take m2::/skin::
+types directly have moved into `namespace husk::m2input` too, alongside
+`buildCanonModel` -- `m2_mesh_input.hpp`/`.cpp`, `m2_skeleton_input.hpp`/
+`.cpp`, `m2_material_input.hpp`/`.cpp`, `m2_animation_input.hpp`/`.cpp`
+(replacing the old `canon_mesh_builder.*`/`canon_skeleton_builder.*`/
+`canon_material_builder.*`/`canon_animation_builder.*`, moved to `trash/`).
+The pure canon:: value types those files used to conflate with their
+M2-consuming assemblers (`canon::Mesh`/`PrimitiveGeoset`,
+`canon::BoneAnimationCurves`) were split out into new struct-only files
+(`canon_mesh.hpp`, `canon_animation.hpp`) that stay in `namespace
+husk::canon` with zero m2::/skin:: types anywhere in them --
+`canon::Material`/`MaterialLayer` already lived in their own
+`canon_material.hpp` this way, so that file needed no split, only its
+M2-consuming neighbor (`M2MaterialInputs`, `TextureResolutions`,
+`assembleMaterial`) moving out. `canon_skeleton_builder.hpp` had no struct
+of its own to extract (`canon::Skeleton`/`Joint` already lived in
+`canon_skeleton.hpp`), so it was a straight namespace move. Every
+consumer (`m2_canon_input.cpp`, `cmd_export_canon.cpp`, `canon_diff.cpp`,
+`writers/writer_common.hpp`, 5 convergence test files) updated; full
+suite green, 975/975, before and after. `canon_bone_naming.hpp`/`.cpp`
+stays in `husk::canon` unmoved -- confirmed it takes only `canon::Skeleton`
+(no m2::/skin:: types), so it was never part of this gap.
 
 **A related, separate, also-not-fixed finding from the same investigation**:
 `canon::Mesh` (`canon_mesh_builder.hpp`) declares `positions`/`normals`/

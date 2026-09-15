@@ -1,5 +1,5 @@
-// Structural convergence proof for canon::assembleMaterial
-// (canon_material_builder.hpp) against export_materials.cpp's per-batch
+// Structural convergence proof for m2input::assembleMaterial
+// (m2_material_input.hpp) against export_materials.cpp's per-batch
 // material construction, the real production logic -- REFACTOR/README.md
 // stage 3's gate. That function is too entangled with texture-byte
 // resolution (DB2/listfile/catalog dependencies) to call directly for just
@@ -15,7 +15,7 @@
 #include <iterator>
 #include <optional>
 
-#include "canon_material_builder.hpp"
+#include "m2_material_input.hpp"
 #include "m2_model.hpp"
 #include "skin.hpp"
 #include "test_data_paths.hpp"
@@ -30,8 +30,8 @@ std::vector<uint8_t> readFile(const std::string& path) {
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-canon::M2MaterialInputs toCanonInputs(const m2::Model& model) {
-    canon::M2MaterialInputs m2;
+m2input::M2MaterialInputs toCanonInputs(const m2::Model& model) {
+    m2input::M2MaterialInputs m2;
     m2.materials = model.materials;
     m2.textures = model.textures;
     m2.textureCombos = model.textureCombos;
@@ -46,7 +46,7 @@ canon::M2MaterialInputs toCanonInputs(const m2::Model& model) {
 }
 
 // Independent re-derivation of blendModeToBlendOp
-// (canon_material_builder.cpp, anonymous-namespace, not exported) -- a
+// (m2_material_input.cpp, anonymous-namespace, not exported) -- a
 // convergence test must check against a fact worked out separately, not by
 // calling the very function under test.
 canon::BlendOp expectedBlendOp(uint16_t blendMode) {
@@ -64,7 +64,7 @@ canon::BlendOp expectedBlendOp(uint16_t blendMode) {
 
 }  // namespace
 
-TEST_CASE("canon::assembleMaterial converges with export_materials.cpp's per-batch material "
+TEST_CASE("m2input::assembleMaterial converges with export_materials.cpp's per-batch material "
           "construction on a real fixture" *
           doctest::skip(test::testM2().empty() || test::testSkin().empty())) {
     m2::Model model = m2::loadModel(readFile(test::testM2()));
@@ -73,7 +73,7 @@ TEST_CASE("canon::assembleMaterial converges with export_materials.cpp's per-bat
     std::vector<skin::Batch> batches = skin::parseBatches(skinFile, header.batches);
     REQUIRE(!batches.empty());
 
-    canon::M2MaterialInputs m2in = toCanonInputs(model);
+    m2input::M2MaterialInputs m2in = toCanonInputs(model);
     const uint32_t sequenceIndex = 0;
 
     // One CHECK per kind of fact verified, not one per batch -- a real
@@ -94,7 +94,7 @@ TEST_CASE("canon::assembleMaterial converges with export_materials.cpp's per-bat
     for (size_t bi = 0; bi < batches.size(); ++bi) {
         const auto& b = batches[bi];
 
-        canon::Material result = canon::assembleMaterial(b, bi, m2in, sequenceIndex);
+        canon::Material result = m2input::assembleMaterial(b, bi, m2in, sequenceIndex);
 
         if (b.textureCount == 0) {
             if (!result.layers.empty() && !emptyLayersMismatch) emptyLayersMismatch = bi;
@@ -241,7 +241,7 @@ TEST_CASE("canon::assembleMaterial converges with export_materials.cpp's per-bat
     CHECK(!layerCountMismatch.has_value());
 }
 
-TEST_CASE("canon::assembleMaterial: a real multi-texture-layer fixture's additional layers "
+TEST_CASE("m2input::assembleMaterial: a real multi-texture-layer fixture's additional layers "
           "resolve at the expected offsets" *
           doctest::skip(test::testMultiTextureLayerM2().empty() ||
                         test::testMultiTextureLayerSkin().empty())) {
@@ -251,7 +251,7 @@ TEST_CASE("canon::assembleMaterial: a real multi-texture-layer fixture's additio
     std::vector<skin::Batch> batches = skin::parseBatches(skinFile, header.batches);
     REQUIRE(!batches.empty());
 
-    canon::M2MaterialInputs m2in = toCanonInputs(model);
+    m2input::M2MaterialInputs m2in = toCanonInputs(model);
 
     bool foundMultiTexture = false;
     for (size_t bi = 0; bi < batches.size(); ++bi) {
@@ -259,7 +259,7 @@ TEST_CASE("canon::assembleMaterial: a real multi-texture-layer fixture's additio
         if (b.textureCount <= 1) continue;
         foundMultiTexture = true;
 
-        canon::Material result = canon::assembleMaterial(b, bi, m2in, 0);
+        canon::Material result = m2input::assembleMaterial(b, bi, m2in, 0);
         REQUIRE(result.layers.size() >= 2);
 
         for (uint16_t layerOffset = 1; layerOffset < result.layers.size(); ++layerOffset) {
@@ -275,7 +275,7 @@ TEST_CASE("canon::assembleMaterial: a real multi-texture-layer fixture's additio
     CHECK(foundMultiTexture);
 }
 
-TEST_CASE("canon::assembleMaterial: real texture-transform curves reflect each track's own "
+TEST_CASE("m2input::assembleMaterial: real texture-transform curves reflect each track's own "
           "Animated flag (only the animated, non-empty-for-this-sequence case resolves a curve)" *
           doctest::skip(test::testTextureTransformRotationM2().empty() ||
                         test::testTextureTransformRotationSkin().empty())) {
@@ -285,7 +285,7 @@ TEST_CASE("canon::assembleMaterial: real texture-transform curves reflect each t
     std::vector<skin::Batch> batches = skin::parseBatches(skinFile, header.batches);
     REQUIRE(!batches.empty());
 
-    canon::M2MaterialInputs m2in = toCanonInputs(model);
+    m2input::M2MaterialInputs m2in = toCanonInputs(model);
     const uint32_t sequenceIndex = 0;
 
     bool foundTransformBatch = false;
@@ -301,7 +301,7 @@ TEST_CASE("canon::assembleMaterial: real texture-transform curves reflect each t
         INFO("batch index ", bi, ", transform index ", transformIndex);
 
         const auto& xf = m2in.textureTransforms[transformIndex];
-        canon::Material result = canon::assembleMaterial(b, bi, m2in, sequenceIndex);
+        canon::Material result = m2input::assembleMaterial(b, bi, m2in, sequenceIndex);
         REQUIRE(!result.layers.empty());
         const auto& layer0 = result.layers.front();
 
@@ -326,7 +326,7 @@ TEST_CASE("canon::assembleMaterial: real texture-transform curves reflect each t
         if (!expectTranslation && !expectRotation && !expectScaling) {
             // A real, intentional gap: canon::MaterialLayer has no field
             // for a *constant* UV transform value, only the animated
-            // shape -- see canon_material_builder.hpp's own doc comment on
+            // shape -- see m2_material_input.hpp's own doc comment on
             // the analogous tint/alphaFade gap. A constant-only transform
             // (this file's own real rotationAnimated == false case)
             // correctly surfaces no uvAnimation at all, not a
@@ -343,21 +343,21 @@ TEST_CASE("canon::assembleMaterial: real texture-transform curves reflect each t
     CHECK(foundTransformBatch);
 }
 
-TEST_CASE("canon::assembleMaterial throws on an out-of-range materialIndex, same as "
+TEST_CASE("m2input::assembleMaterial throws on an out-of-range materialIndex, same as "
           "export_materials.cpp's batch loop") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
 
     skin::Batch batch;
     batch.materialIndex = 5;  // out of range for 1 material
     batch.textureCount = 0;
 
-    CHECK_THROWS_AS(canon::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
+    CHECK_THROWS_AS(m2input::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
 }
 
-TEST_CASE("canon::assembleMaterial throws on an out-of-range textureComboIndex, same as "
+TEST_CASE("m2input::assembleMaterial throws on an out-of-range textureComboIndex, same as "
           "export_materials.cpp's batch loop") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos.resize(1);
 
@@ -366,12 +366,12 @@ TEST_CASE("canon::assembleMaterial throws on an out-of-range textureComboIndex, 
     batch.textureCount = 1;
     batch.textureComboIndex = 5;  // out of range for 1 textureCombos entry
 
-    CHECK_THROWS_AS(canon::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
+    CHECK_THROWS_AS(m2input::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
 }
 
-TEST_CASE("canon::assembleMaterial throws when a resolved texture index is out of range for the "
+TEST_CASE("m2input::assembleMaterial throws when a resolved texture index is out of range for the "
           "primary layer, same as export_materials.cpp's batch loop") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {7};  // points at texture index 7
     m2in.textures.resize(1);   // only 1 real texture
@@ -381,12 +381,12 @@ TEST_CASE("canon::assembleMaterial throws when a resolved texture index is out o
     batch.textureCount = 1;
     batch.textureComboIndex = 0;
 
-    CHECK_THROWS_AS(canon::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
+    CHECK_THROWS_AS(m2input::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
 }
 
-TEST_CASE("canon::assembleMaterial throws on an out-of-range textureCoordComboIndex when the "
+TEST_CASE("m2input::assembleMaterial throws on an out-of-range textureCoordComboIndex when the "
           "table is non-empty, same as export_materials.cpp's batch loop") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};
     m2in.textures.resize(1);
@@ -398,12 +398,12 @@ TEST_CASE("canon::assembleMaterial throws on an out-of-range textureCoordComboIn
     batch.textureComboIndex = 0;
     batch.textureCoordComboIndex = 5;  // out of range for 1 entry
 
-    CHECK_THROWS_AS(canon::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
+    CHECK_THROWS_AS(m2input::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
 }
 
-TEST_CASE("canon::assembleMaterial throws on an out-of-range colorIndex, same as "
+TEST_CASE("m2input::assembleMaterial throws on an out-of-range colorIndex, same as "
           "export_materials.cpp's batch loop") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};
     m2in.textures.resize(1);
@@ -414,12 +414,12 @@ TEST_CASE("canon::assembleMaterial throws on an out-of-range colorIndex, same as
     batch.textureComboIndex = 0;
     batch.colorIndex = 3;  // out of range: m2in.colors is empty
 
-    CHECK_THROWS_AS(canon::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
+    CHECK_THROWS_AS(m2input::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
 }
 
-TEST_CASE("canon::assembleMaterial throws on an out-of-range textureWeightComboIndex when the "
+TEST_CASE("m2input::assembleMaterial throws on an out-of-range textureWeightComboIndex when the "
           "table is non-empty, same as export_materials.cpp's batch loop") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};
     m2in.textures.resize(1);
@@ -431,12 +431,12 @@ TEST_CASE("canon::assembleMaterial throws on an out-of-range textureWeightComboI
     batch.textureComboIndex = 0;
     batch.textureWeightComboIndex = 9;  // out of range for 1 entry
 
-    CHECK_THROWS_AS(canon::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
+    CHECK_THROWS_AS(m2input::assembleMaterial(batch, 0, m2in, 0), std::runtime_error);
 }
 
-TEST_CASE("canon::assembleMaterial: an out-of-range additional-layer combo index stops emitting "
+TEST_CASE("m2input::assembleMaterial: an out-of-range additional-layer combo index stops emitting "
           "further layers (break), same as export_materials.cpp's batch loop") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};  // only 1 entry -- layer 1's combo index (0+1=1) is out of range
     m2in.textures.resize(1);
@@ -446,13 +446,13 @@ TEST_CASE("canon::assembleMaterial: an out-of-range additional-layer combo index
     batch.textureCount = 3;  // claims 3 texture units
     batch.textureComboIndex = 0;
 
-    canon::Material result = canon::assembleMaterial(batch, 0, m2in, 0);
+    canon::Material result = m2input::assembleMaterial(batch, 0, m2in, 0);
     REQUIRE(result.layers.size() == 1);  // only the primary layer resolved
 }
 
-TEST_CASE("canon::assembleMaterial: an out-of-range additional-layer texture index skips just "
+TEST_CASE("m2input::assembleMaterial: an out-of-range additional-layer texture index skips just "
           "that layer (continue), same as export_materials.cpp's batch loop") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     // combo[0] -> texture 0 (valid), combo[1] -> texture 9 (invalid), combo[2] -> texture 0 (valid)
     m2in.textureCombos = {0, 9, 0};
@@ -463,29 +463,29 @@ TEST_CASE("canon::assembleMaterial: an out-of-range additional-layer texture ind
     batch.textureCount = 3;
     batch.textureComboIndex = 0;
 
-    canon::Material result = canon::assembleMaterial(batch, 0, m2in, 0);
+    canon::Material result = m2input::assembleMaterial(batch, 0, m2in, 0);
     // Layer offset 1 (texture 9) is skipped; layer offset 2 (texture 0)
     // still resolves -- 2 layers total, not 3, and not stopped at 1.
     REQUIRE(result.layers.size() == 2);
 }
 
-TEST_CASE("canon::assembleMaterial: textureCount == 0 produces zero layers, still validates "
+TEST_CASE("m2input::assembleMaterial: textureCount == 0 produces zero layers, still validates "
           "materialIndex") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
 
     skin::Batch batch;
     batch.materialIndex = 0;
     batch.textureCount = 0;
 
-    canon::Material result = canon::assembleMaterial(batch, 0, m2in, 0);
+    canon::Material result = m2input::assembleMaterial(batch, 0, m2in, 0);
     CHECK(result.layers.empty());
     CHECK_FALSE(result.diffuseLayer.has_value());
 }
 
-TEST_CASE("canon::assembleMaterial: environment-mapped UV maps to KnownRole::Env, not a guessed "
+TEST_CASE("m2input::assembleMaterial: environment-mapped UV maps to KnownRole::Env, not a guessed "
           "diffuse role") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};
     m2in.textures.resize(1);
@@ -497,7 +497,7 @@ TEST_CASE("canon::assembleMaterial: environment-mapped UV maps to KnownRole::Env
     batch.textureComboIndex = 0;
     batch.textureCoordComboIndex = 0;
 
-    canon::Material result = canon::assembleMaterial(batch, 0, m2in, 0);
+    canon::Material result = m2input::assembleMaterial(batch, 0, m2in, 0);
     REQUIRE(result.layers.size() == 1);
     CHECK(std::holds_alternative<canon::EnvironmentMapped>(result.layers[0].uv));
     REQUIRE(std::holds_alternative<canon::KnownRole>(result.layers[0].role));
@@ -505,9 +505,9 @@ TEST_CASE("canon::assembleMaterial: environment-mapped UV maps to KnownRole::Env
     CHECK_FALSE(result.diffuseLayer.has_value());
 }
 
-TEST_CASE("canon::assembleMaterial: every layer's texture is KnownUnresolved -- byte/FileDataID "
+TEST_CASE("m2input::assembleMaterial: every layer's texture is KnownUnresolved -- byte/FileDataID "
           "resolution is out of scope for canon assembly") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};
     m2in.textures.resize(1);
@@ -517,14 +517,14 @@ TEST_CASE("canon::assembleMaterial: every layer's texture is KnownUnresolved -- 
     batch.textureCount = 1;
     batch.textureComboIndex = 0;
 
-    canon::Material result = canon::assembleMaterial(batch, 0, m2in, 0);
+    canon::Material result = m2input::assembleMaterial(batch, 0, m2in, 0);
     REQUIRE(result.layers.size() == 1);
     CHECK(result.layers[0].texture.state == canon::TextureRef::State::KnownUnresolved);
     CHECK(result.layers[0].texture.unresolvedReason == "texture resolution out of scope for canon assembly");
     CHECK(result.layers[0].texture.candidates.empty());
 }
 
-// The four cases below prove TextureResolutions (canon_material_builder.hpp)
+// The four cases below prove TextureResolutions (m2_material_input.hpp)
 // does exactly what its own doc comment states: an empty (default) map
 // changes nothing (regression guard against this task's own parameter
 // addition), and a supplied key's TextureRef is recorded verbatim in
@@ -532,9 +532,9 @@ TEST_CASE("canon::assembleMaterial: every layer's texture is KnownUnresolved -- 
 // itself performs no resolution logic on it either way. REFACTOR/AUDIT.md
 // §7.1's own gap.
 
-TEST_CASE("canon::assembleMaterial: an empty textureResolutions map (the default) is "
+TEST_CASE("m2input::assembleMaterial: an empty textureResolutions map (the default) is "
           "byte-for-byte identical to omitting the parameter entirely") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0, 1};
     m2in.textures.resize(2);
@@ -544,8 +544,8 @@ TEST_CASE("canon::assembleMaterial: an empty textureResolutions map (the default
     batch.textureCount = 2;
     batch.textureComboIndex = 0;
 
-    canon::Material withoutParam = canon::assembleMaterial(batch, 0, m2in, 0);
-    canon::Material withEmptyMap = canon::assembleMaterial(batch, 0, m2in, 0, canon::TextureResolutions{});
+    canon::Material withoutParam = m2input::assembleMaterial(batch, 0, m2in, 0);
+    canon::Material withEmptyMap = m2input::assembleMaterial(batch, 0, m2in, 0, m2input::TextureResolutions{});
 
     REQUIRE(withoutParam.layers.size() == withEmptyMap.layers.size());
     for (size_t i = 0; i < withoutParam.layers.size(); ++i) {
@@ -555,10 +555,10 @@ TEST_CASE("canon::assembleMaterial: an empty textureResolutions map (the default
     }
 }
 
-TEST_CASE("canon::assembleMaterial: a supplied Resolved entry, keyed by M2 texture array index, "
+TEST_CASE("m2input::assembleMaterial: a supplied Resolved entry, keyed by M2 texture array index, "
           "is recorded on the matching layer verbatim; a layer with no entry stays "
           "KnownUnresolved") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0, 1};  // layer 0 -> texture index 0, layer 1 -> texture index 1
     m2in.textures.resize(2);
@@ -574,10 +574,10 @@ TEST_CASE("canon::assembleMaterial: a supplied Resolved entry, keyed by M2 textu
     resolved.resolved.name = "bloodelffemale_hd_skin";
     resolved.resolved.source = canon::NameSource::Listfile;
 
-    canon::TextureResolutions resolutions;
+    m2input::TextureResolutions resolutions;
     resolutions[0] = resolved;  // key: texture array index 0, matching layer 0's identity.id
 
-    canon::Material result = canon::assembleMaterial(batch, 0, m2in, 0, resolutions);
+    canon::Material result = m2input::assembleMaterial(batch, 0, m2in, 0, resolutions);
     REQUIRE(result.layers.size() == 2);
 
     // Layer 0: exact round-trip of the supplied TextureRef, not a
@@ -594,9 +594,9 @@ TEST_CASE("canon::assembleMaterial: a supplied Resolved entry, keyed by M2 textu
     CHECK(result.layers[1].texture.unresolvedReason == "texture resolution out of scope for canon assembly");
 }
 
-TEST_CASE("canon::assembleMaterial: a supplied KnownUnresolved entry with a caller-chosen reason "
+TEST_CASE("m2input::assembleMaterial: a supplied KnownUnresolved entry with a caller-chosen reason "
           "overrides the default reason string verbatim") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};
     m2in.textures.resize(1);
@@ -610,18 +610,18 @@ TEST_CASE("canon::assembleMaterial: a supplied KnownUnresolved entry with a call
     unresolved.state = canon::TextureRef::State::KnownUnresolved;
     unresolved.unresolvedReason = "customization-driven slot, no --db2-dir given";
 
-    canon::TextureResolutions resolutions;
+    m2input::TextureResolutions resolutions;
     resolutions[0] = unresolved;
 
-    canon::Material result = canon::assembleMaterial(batch, 0, m2in, 0, resolutions);
+    canon::Material result = m2input::assembleMaterial(batch, 0, m2in, 0, resolutions);
     REQUIRE(result.layers.size() == 1);
     CHECK(result.layers[0].texture.state == canon::TextureRef::State::KnownUnresolved);
     CHECK(result.layers[0].texture.unresolvedReason == "customization-driven slot, no --db2-dir given");
 }
 
-TEST_CASE("canon::assembleMaterial: a supplied Ambiguous entry keeps its full candidate set, not "
+TEST_CASE("m2input::assembleMaterial: a supplied Ambiguous entry keeps its full candidate set, not "
           "collapsed to a guess") {
-    canon::M2MaterialInputs m2in;
+    m2input::M2MaterialInputs m2in;
     m2in.materials.resize(1);
     m2in.textureCombos = {0};
     m2in.textures.resize(1);
@@ -645,10 +645,10 @@ TEST_CASE("canon::assembleMaterial: a supplied Ambiguous entry keeps its full ca
     b.height = 256;
     ambiguous.candidates = {a, b};
 
-    canon::TextureResolutions resolutions;
+    m2input::TextureResolutions resolutions;
     resolutions[0] = ambiguous;
 
-    canon::Material result = canon::assembleMaterial(batch, 0, m2in, 0, resolutions);
+    canon::Material result = m2input::assembleMaterial(batch, 0, m2in, 0, resolutions);
     REQUIRE(result.layers.size() == 1);
     CHECK(result.layers[0].texture.state == canon::TextureRef::State::Ambiguous);
     REQUIRE(result.layers[0].texture.candidates.size() == 2);

@@ -33,7 +33,7 @@ namespace husk::commands {
 // reported, not propagated.
 //
 // `catalog`/`modelPath`/`objectSkinTextureFileDataId` feed a real
-// `canon::TextureResolutions` (REFACTOR/AUDIT.md §7.1's "deliberate next
+// `m2input::TextureResolutions` (REFACTOR/AUDIT.md §7.1's "deliberate next
 // step, not yet started" -- now started): one `catalog.texture()` call per
 // distinct M2 texture-array index actually referenced by a batch in the
 // re-parsed skin, the exact same per-slot inputs

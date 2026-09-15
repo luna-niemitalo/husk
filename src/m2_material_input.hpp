@@ -10,12 +10,14 @@
 #include "m2_header.hpp"     // m2::Material/Texture
 #include "skin.hpp"          // skin::Batch
 
-// husk::canon: assembly of one canon::Material (and its canon::MaterialLayer
-// stack) from a real .skin Batch plus the M2's own material/texture/color/
-// transform tables -- the adjacent twin of buildMaterialsAndPrimitives's
-// per-batch material construction (export_materials.cpp), built to prove
-// structural convergence (REFACTOR/README.md stage 3's gate) without
-// touching the existing pipeline.
+// husk::m2input: the M2 input module -- see m2_canon_input.hpp's own doc
+// comment for the split this belongs to. Assembles one canon::Material (and
+// its canon::MaterialLayer stack) from a real .skin Batch plus the M2's own
+// material/texture/color/transform tables -- the adjacent twin of
+// buildMaterialsAndPrimitives's per-batch material construction
+// (export_materials.cpp), built to prove structural convergence
+// (REFACTOR/README.md stage 3's gate) without touching the existing
+// pipeline.
 //
 // Does NOT itself PERFORM texture resolution: DB2/listfile/
 // sources::Catalog lookups are entirely the input/parsing-and-solving
@@ -34,27 +36,25 @@
 // into ShadingFunction::function" work canon_material.hpp's own header
 // comment already defers to separate, later work -- guessing at it here
 // would be new invented vocabulary, not a mirrored fact.
-namespace husk::canon {
+namespace husk::m2input {
 
 // One already-resolved (or explicitly failed/ambiguous) texture lookup,
 // resolved entirely outside canon:: by the caller -- see this header's own
 // top comment and REFACTOR/AUDIT.md's §7.1. Keyed by the same M2 texture
 // array index `MaterialLayer::identity` already uses as its own
-// `RecordIndex` (canon_material_builder.cpp's `layerIdentity`/
+// `RecordIndex` (m2_material_input.cpp's `layerIdentity`/
 // `assemblePrimaryLayer`'s `textureIndex` -- i.e. the resolved index into
 // `M2MaterialInputs::textures`, NOT a raw `skin::Batch`/`textureCombos`
 // position) -- reusing that existing identity key instead of inventing a
 // second one for the same texture unit.
-using TextureResolutions = std::unordered_map<uint32_t, TextureRef>;
+using TextureResolutions = std::unordered_map<uint32_t, canon::TextureRef>;
 
 // Everything assembleMaterial needs out of the M2 itself, mirroring
 // commands::M2MaterialInputs (export_texture_resolution.hpp)'s own
 // bundling reasoning (one call site, many arrays, no real abstraction cost)
 // -- kept as a separate type here, not reused directly, since that struct
-// lives in husk::commands and pulls in gltf.hpp; canon:: stays free of any
-// writer dependency, the same boundary every other canon_*_builder.hpp
-// respects (e.g. canon_mesh_builder.hpp takes plain skin:: types, not
-// gltf::Primitive).
+// lives in husk::commands and pulls in gltf.hpp; this input module stays
+// free of any writer dependency, the same boundary canon:: itself respects.
 struct M2MaterialInputs {
     std::vector<m2::Material> materials;
     std::vector<m2::Texture> textures;
@@ -90,8 +90,8 @@ struct M2MaterialInputs {
 // used only in thrown diagnostic messages, matching that function's own
 // "batch " + std::to_string(bi) + ... wording): resolves the batch's
 // `materialIndex` -> m2::Material (blendMode -> BlendOp, shared by every
-// layer of this batch -- see canon_material_builder.cpp's own doc comment
-// on blendModeToBlendOp for why a per-layer Combiners_* decode isn't
+// layer of this batch -- see m2_material_input.cpp's own doc comment on
+// blendModeToBlendOp for why a per-layer Combiners_* decode isn't
 // attempted here), then one canon::MaterialLayer per real M2 texture unit
 // (`batch.textureCount`, 0..4 per wowdev.wiki M2/.skin#Texture_units) --
 // layer i's real combo index is `textureComboIndex + i`, same "base index,
@@ -115,19 +115,19 @@ struct M2MaterialInputs {
 //
 // `sequenceIndex` scopes every *Animated curve this resolves to one
 // specific m2::Sequence array index, mirroring assembleBoneAnimation's own
-// inline-sequence-only scope (canon_animation_builder.hpp) -- alias
-// resolution and global-sequence tracks are the same out-of-scope,
-// separate later work that function's own doc comment already states for
-// bone tracks, applied here identically to material tracks. This is a
-// real, intentional divergence from export_materials.cpp's own
-// resolveAnimatedColorCurve/resolveAnimatedFixed16Curve/
-// resolveAnimatedRawQuatCurve calls, which each resolve *every* sequence
-// (plus a synthetic global-sequence entry) into one flat curve list per
-// batch, not a single sequence's worth -- canon::MaterialLayer::tint/
-// alphaFade/uvAnimation each hold exactly one canon::Curve (a single
-// SequenceRef), not a list, so one call here answers "what does this
-// layer's tint/fade/UV-transform look like during sequence N," the same
-// per-sequence question assembleBoneAnimation already answers for bones.
+// inline-sequence-only scope (m2_animation_input.hpp) -- alias resolution
+// and global-sequence tracks are the same out-of-scope, separate later
+// work that function's own doc comment already states for bone tracks,
+// applied here identically to material tracks. This is a real, intentional
+// divergence from export_materials.cpp's own resolveAnimatedColorCurve/
+// resolveAnimatedFixed16Curve/resolveAnimatedRawQuatCurve calls, which each
+// resolve *every* sequence (plus a synthetic global-sequence entry) into
+// one flat curve list per batch, not a single sequence's worth --
+// canon::MaterialLayer::tint/alphaFade/uvAnimation each hold exactly one
+// canon::Curve (a single SequenceRef), not a list, so one call here
+// answers "what does this layer's tint/fade/UV-transform look like during
+// sequence N," the same per-sequence question assembleBoneAnimation
+// already answers for bones.
 //
 // Note a real gap surfaced while building this: canon::MaterialLayer has
 // no field at all for a *static* (non-animated) tint/alpha value -- only
@@ -152,7 +152,7 @@ struct M2MaterialInputs {
 // `TextureRef::State::KnownUnresolved`, byte-for-byte unchanged from this
 // parameter's absence -- existing callers that don't opt in see no
 // behavior change.
-Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, const M2MaterialInputs& m2,
-                           uint32_t sequenceIndex, const TextureResolutions& textureResolutions = {});
+canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, const M2MaterialInputs& m2,
+                                  uint32_t sequenceIndex, const TextureResolutions& textureResolutions = {});
 
-}  // namespace husk::canon
+}  // namespace husk::m2input
