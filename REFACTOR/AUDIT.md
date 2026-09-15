@@ -863,3 +863,70 @@ BLP before canon:: sees anything, per that type's own doc comment); this
 closes the "raw extraction doesn't exist in C++" gap specifically, not
 the separate, larger "wire real DDS output into a real export" task.
 
+**Wiring real DDS output into a real export -- closed 2026-09-16.** The
+gap named just above is now closed, without touching
+`sources::Catalog::texture()`'s own return contract (`Resolved<EncodedTexture>`)
+or its tier order/policy at all -- the risk this task was scoped to avoid.
+`canon::TextureRef` gained a second, independent field,
+`rawPayload` (same `optional<Payload>` shape `payload` already has,
+`canon_material.hpp`) -- additive on purpose: `payload` stays the PNG
+projection `gltf_lean.cpp` embeds (DDS is not a valid glTF image format,
+full stop, so it could never hold this), `rawPayload` is the lossless
+DDS-housed source payload `bundle_writer.cpp` now writes. Neither is
+computed from the other; a producer may populate one, both, or neither.
+
+The one real question this task's own brief flagged as the fork to watch
+for -- "how does a caller get the real resolved file path back out of
+`Catalog::texture()`'s answer" -- turned out to have a small, additive
+answer, not a contract change: `sources::EncodedTexture` (`catalog.hpp`)
+gained a `sourcePath` field (provenance, not payload, explicitly not part
+of I8's `{bytes, encoding}` pair), populated at the three real
+bytes-producing sites (`resolveLiteralTier`/`resolveListfileTier`'s own
+existence-checked `.png`-then-`.blp` resolution, and `resolveFuzzyTier`'s
+sole-claimed-candidate path; `resolveDb2CharacterTier` inherits it for
+free since it delegates to the first two and returns their `EncodedTexture`
+unchanged). Every existing consumer of `EncodedTexture` ignores the new
+field; nothing about `texture()`'s tier order, caching, or ambiguity
+handling changed. `cmd_export_canon.cpp`'s `toCanonTextureRef` uses
+`sourcePath`'s extension to decide whether a real `.blp` sits behind a
+Resolved hit -- when it does, `blp::extractRawPayload`+`blp::encodeDds`
+(already real, tested, unwired code per the entry above) produce the DDS
+bytes; when it doesn't (already a `.png` on disk, or no real file at all
+behind the hit), or when `extractRawPayload` itself declines (Palette/
+JPEG/ARGB8888_DUP, its own documented restriction), `rawPayload` simply
+stays unset -- non-fatal, the PNG `payload` is untouched either way.
+`bundle_writer.cpp`'s `writeTextureRef` now prefers `rawPayload` over
+`payload` when both are present (writing `textures/<name>.dds`, matching
+`BUNDLE_FORMAT.md`'s own shape sketch for the first time with a real
+compressed encoding, not just the `Png` case `textureFileExtension`
+already special-cased), falling back to `payload`'s `.png` when only that
+is present, so a bundle never silently drops a texture just because DDS
+extraction wasn't available for that particular source.
+
+**`gltf_lean.cpp`, `export_animation.*`, `export_skeleton.cpp`,
+`export_materials.cpp`, and `cmd_export.cpp`'s own orchestration are
+untouched** -- confirmed via `git diff --stat` against each, empty. The
+already-verified lean-writer PNG embedding was re-checked end to end, not
+just left alone on faith: re-ran `husk export --compare-canon` against
+the real `bloodelffemale_hd.m2` fixture (same invocation AUDIT.md's
+texture-embedding entry above used) -- still "clean, no deviations
+found," `.canon.glb` still embeds 4 real `image/png`-mimetype images
+(`\x89PNG` magic confirmed directly), same count as that earlier entry
+documented. The bundle side improved concretely: `.canon.bundle/textures/`
+now holds 4 real `.dds` files (previously would have been 4 `.png`s) with
+correct manifest `uri`s; one (`bloodelffemale_hd_3536810.dds`, resolved
+via the real community listfile) was checked byte-for-byte against its
+real source `character/bloodelf/female/bloodelffemale_hd_3536810.blp` --
+`"DDS "` magic confirmed, and the DDS's block region (bytes 128 onward)
+is byte-identical to the source `.blp`'s own mip0 region (re-sliced
+independently from the BLP2 header's own mip offset/size tables, not via
+husk's own code), the same verification style `tests/test_blp.cpp`'s own
+real-fixture test already uses. New tests in `tests/test_writers_bundle.cpp`
+(rawPayload-over-payload precedence writes a real `.dds` with the right
+bytes/uri and no `.png` alongside it; payload-only still falls back to
+`.png` unchanged; neither present writes neither). Full suite green,
+1008/1008 (1007 -- the concurrent `canon_diff` additional-texture-layer
+session's own +3 over this entry's earlier 1004 baseline, landed and
+committed separately, see `5c8e4b25` -- plus this session's own 1 new
+test case).
+

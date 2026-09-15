@@ -485,6 +485,16 @@ std::string textureFileExtension(canon::TextureEncoding encoding) {
 // filename across the whole bundle (more than one material layer can
 // resolve to the same real texture) so repeated identical bytes are
 // written to disk once, not once per referencing layer.
+//
+// `rawPayload` (the DDS-housed source blocks, BUNDLE_FORMAT.md's "Texture
+// encoding -- settled") wins over `payload` (the PNG projection) when both
+// are present: this bundle is exactly the archival/engine-facing format
+// that section says should carry the lossless source payload, not the
+// glTF-facing PNG. `payload` stays as the fallback so a texture whose
+// source was never a compressed BLP in the first place (already a `.png`
+// on disk, or DDS extraction declined for a Palette-encoded source) still
+// gets a real file in the bundle instead of being silently dropped just
+// because the DDS variant wasn't available for it.
 void writeTextureRef(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
                       std::unordered_set<std::string>& writtenTextures) {
     switch (texture.state) {
@@ -493,7 +503,9 @@ void writeTextureRef(json::Writer& w, const canon::TextureRef& texture, const st
             w.value("resolved");
             w.key("texture");
             std::string uri;
-            if (texture.payload) {
+            const canon::TextureRef::Payload* chosen =
+                texture.rawPayload ? &*texture.rawPayload : (texture.payload ? &*texture.payload : nullptr);
+            if (chosen) {
                 std::string stem = texture.resolved.name;
                 if (stem.empty()) {
                     if (auto fdid = std::get_if<canon::FileDataId>(&texture.resolved.id)) {
@@ -502,7 +514,7 @@ void writeTextureRef(json::Writer& w, const canon::TextureRef& texture, const st
                         stem = "texture";
                     }
                 }
-                std::string filename = stem + "." + textureFileExtension(texture.payload->encoding);
+                std::string filename = stem + "." + textureFileExtension(chosen->encoding);
                 uri = "textures/" + filename;
                 if (writtenTextures.insert(filename).second) {
                     std::filesystem::path texturesDir = bundleDir / "textures";
@@ -512,7 +524,7 @@ void writeTextureRef(json::Writer& w, const canon::TextureRef& texture, const st
                         throw std::runtime_error("bundle writer: could not create directory " +
                                                   texturesDir.string() + ": " + ec.message());
                     }
-                    writeFile(texturesDir / filename, texture.payload->bytes);
+                    writeFile(texturesDir / filename, chosen->bytes);
                 }
             }
             writeRef(w, texture.resolved, uri);

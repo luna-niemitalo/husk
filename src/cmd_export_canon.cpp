@@ -5,6 +5,7 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "blp.hpp"              // extractRawPayload/encodeDds -- BUNDLE_FORMAT.md's DDS-housed source payload
 #include "canon_diff.hpp"
 #include "canon_model.hpp"
 #include "chunk.hpp"           // readChunks, findChunk (AFSB/AFM2 peek)
@@ -109,6 +110,43 @@ canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedText
                 "so this is a real invariant break, not a case this converter has a mapping for yet");
     }
     ref.payload = std::move(payload);
+
+    // AUDIT.md §7.4's DDS follow-up: a second, independent representation
+    // (canon::TextureRef::rawPayload, see its own doc comment for why this
+    // can't just replace `payload` above) -- the real source-format bytes,
+    // rehoused verbatim into DDS, for whichever writer wants the lossless
+    // archival form (bundle_writer.cpp) rather than the PNG projection
+    // (gltf_lean.cpp). Only reachable when the catalog's own answer names a
+    // real `.blp` file on disk (`EncodedTexture::sourcePath`) -- a `.png`
+    // source, or a texture that resolved with no real file behind it at
+    // all, simply leaves this unset rather than fabricating a DDS from
+    // nothing. `blp::extractRawPayload` itself declines (ParseError) for
+    // Palette/JPEG/ARGB8888_DUP sources (its own doc comment) -- caught and
+    // treated the same "not available for this source" way, not a hard
+    // failure of the whole texture resolution: the PNG `payload` above
+    // still stands regardless.
+    if (resolved.value->sourcePath.extension() == ".blp") {
+        try {
+            std::vector<uint8_t> blpFileBytes = readFileBytes(resolved.value->sourcePath.string());
+            blp::RawPayload raw = blp::extractRawPayload(blpFileBytes);
+            canon::TextureRef::Payload rawPayload;
+            rawPayload.bytes = blp::encodeDds(raw);
+            switch (raw.encoding) {
+                case blp::RawEncoding::Bc1: rawPayload.encoding = canon::TextureEncoding::Bc1; break;
+                case blp::RawEncoding::Bc2: rawPayload.encoding = canon::TextureEncoding::Bc2; break;
+                case blp::RawEncoding::Bc3: rawPayload.encoding = canon::TextureEncoding::Bc3; break;
+                case blp::RawEncoding::Bgra: rawPayload.encoding = canon::TextureEncoding::Bgra; break;
+            }
+            ref.rawPayload = std::move(rawPayload);
+        } catch (const blp::ParseError&) {
+            // Palette-encoded (or otherwise unsupported) source -- no raw
+            // payload for this texture, same as a producer that never asked.
+        } catch (const std::exception&) {
+            // sourcePath became unreadable between the catalog's own read
+            // and here (race, permissions) -- non-fatal, same best-effort
+            // policy as this file's other optional enrichment steps.
+        }
+    }
 
     switch (resolved.tier) {
         case sources::ResolutionTier::Listfile:

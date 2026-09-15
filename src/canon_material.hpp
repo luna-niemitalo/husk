@@ -74,6 +74,26 @@ struct TextureRef {
     };
     std::optional<Payload> payload;
 
+    // Meaningful only when state == Resolved, and independent of `payload`
+    // above -- a second, additive representation, not a replacement.
+    // BUNDLE_FORMAT.md's "Texture encoding -- settled" section says a
+    // texture resource entry "may carry more than one variant of the same
+    // texture": `payload` is the PNG projection `gltf_lean.cpp` embeds as a
+    // core-glTF image (PNG/JPEG only, by the glTF spec itself -- DDS is not
+    // a valid glTF image format), while `rawPayload` is the lossless
+    // source-payload variant (compressed GPU blocks, rehoused verbatim into
+    // a DDS container, `blp::extractRawPayload`+`blp::encodeDds`) that
+    // `bundle_writer.cpp` writes as `textures/<name>.dds` per this file's
+    // own settled design. One field can't serve both consumers: gltf_lean
+    // would have to either embed invalid non-PNG bytes as if they were PNG
+    // (rejected by any validator/importer) or transcode DDS blocks back to
+    // pixels at write time, which needs a real DDS/BC-block decoder this
+    // codebase does not have and is not the job of a glTF writer to grow.
+    // Kept genuinely independent (a producer may populate one, both, or
+    // neither) rather than "computed from the other at write time" so a
+    // writer never has to guess a producer's intent from which one is set.
+    std::optional<Payload> rawPayload;
+
     // Meaningful only when state == KnownUnresolved: M2 asserts a real slot
     // exists (nonzero TextureType, or a customization-driven slot) but husk
     // couldn't get bytes for it -- same backtrace pattern

@@ -11,6 +11,28 @@
 
 namespace husk::sources {
 
+namespace {
+
+// Real on-disk path for `stem` under the same "`.png` wins, `.blp` falls
+// back" priority `husk::commands::resolveTextureBytes` already applies when
+// reading bytes -- duplicated here as a pure existence check (no bytes
+// read) rather than changing that function's signature, since only
+// EncodedTexture::sourcePath needs a path back, not a second copy of the
+// actual read. Returns nullopt if neither extension exists (shouldn't
+// happen right after a successful resolveTextureBytes call, but this is a
+// separate stat, not a shared invariant).
+std::optional<std::filesystem::path> existingTexturePath(const std::filesystem::path& stem) {
+    auto png = stem;
+    png += ".png";
+    if (std::filesystem::exists(png)) return png;
+    auto blp = stem;
+    blp += ".blp";
+    if (std::filesystem::exists(blp)) return blp;
+    return std::nullopt;
+}
+
+}  // namespace
+
 Catalog::Catalog(std::string texturesDir, const husk::ListfileIndex& listfile, std::string listfileRoot,
                   std::string texturesOutDir)
     : texturesDir_(std::move(texturesDir)),
@@ -84,6 +106,9 @@ Resolved<EncodedTexture> Catalog::resolveLiteralTier(uint32_t fdid) const {
     EncodedTexture et;
     et.bytes = std::move(*r.value);
     et.imageName = std::to_string(fdid);
+    if (auto p = existingTexturePath(std::filesystem::path(texturesDir_) / std::to_string(fdid))) {
+        et.sourcePath = *p;
+    }
     return Resolved<EncodedTexture>::hit(std::move(et), ResolutionTier::Literal, r.reason);
 }
 
@@ -112,6 +137,7 @@ Resolved<EncodedTexture> Catalog::resolveListfileTier(uint32_t fdid) const {
     EncodedTexture et;
     et.bytes = std::move(*bytes);
     et.imageName = stem.filename().string();
+    if (auto p = existingTexturePath(stem)) et.sourcePath = *p;
     return Resolved<EncodedTexture>::hit(std::move(et), ResolutionTier::Listfile, stem.string() + ".{png,blp}");
 }
 
@@ -232,6 +258,7 @@ Resolved<EncodedTexture> Catalog::resolveFuzzyTier(ModelState& state, uint32_t t
         et.bytes = std::move(*bytes);
         et.imageName = claimed.stem().string();
         et.matchedFilename = claimed.filename().string();
+        et.sourcePath = claimed;
         return Resolved<EncodedTexture>::hit(
             std::move(et), ResolutionTier::FuzzySameBasenamePool,
             "claimed '" + claimed.string() + "' as the pool's sole type-compatible candidate");

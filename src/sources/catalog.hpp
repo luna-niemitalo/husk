@@ -50,6 +50,18 @@ struct EncodedTexture {
     // `AmbiguousMatch`) are themselves tier-3-only.
     std::string imageName;
     std::string matchedFilename;
+
+    // The real on-disk file these bytes were read from (literal/listfile/
+    // fuzzy-pool tiers only -- resolveDb2CharacterTier delegates to
+    // literal/listfile and inherits theirs unchanged). Empty for a miss, or
+    // for any future tier that doesn't read from a real local file at all.
+    // Exists so a caller that needs the *source-format* bytes (not this
+    // struct's own already-decoded PNG `bytes`) -- e.g. DDS block
+    // extraction, BUNDLE_FORMAT.md's "Texture encoding" -- can re-open the
+    // original file rather than the catalog needing a second return shape.
+    // Not part of I8's {bytes, encoding} pair: this is provenance, not
+    // payload.
+    std::filesystem::path sourcePath;
 };
 
 // Everything `texture()` needs to know about the model asking, beyond the

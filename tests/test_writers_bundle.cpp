@@ -230,6 +230,89 @@ TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a r
     CHECK_FALSE(fs::exists(dirNoPayload / "textures"));
 }
 
+TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload (PNG) when both are "
+          "present, and a payload-only TextureRef still falls back to writing PNG (BUNDLE_FORMAT.md's "
+          "'Texture encoding -- settled')") {
+    canon::Model model = buildSyntheticModel();
+    REQUIRE(model.materials.size() == 1);
+    REQUIRE(model.materials[0].layers.size() == 1);
+
+    // Deliberately not a real DDS byte layout -- this writer never parses
+    // rawPayload's bytes, just stores them verbatim under a .dds name, same
+    // "arbitrary bytes" convention the payload-only test above already uses.
+    std::vector<uint8_t> ddsBytes = {0x44, 0x44, 0x53, 0x20, 0xAA, 0xBB};
+    std::vector<uint8_t> pngBytes = {0x01, 0x02, 0x03, 0x04};
+
+    canon::TextureRef bothPayloads;
+    bothPayloads.state = canon::TextureRef::State::Resolved;
+    bothPayloads.resolved.id = canon::FileDataId{101};
+    bothPayloads.resolved.name = "both_variants";
+    canon::TextureRef::Payload png;
+    png.bytes = pngBytes;
+    png.encoding = canon::TextureEncoding::Png;
+    bothPayloads.payload = png;
+    canon::TextureRef::Payload dds;
+    dds.bytes = ddsBytes;
+    dds.encoding = canon::TextureEncoding::Bc3;
+    bothPayloads.rawPayload = dds;
+    model.materials[0].layers[0].texture = bothPayloads;
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-texture-rawpayload";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir);
+
+    // rawPayload wins: a real .dds file with rawPayload's own bytes, not
+    // payload's PNG bytes, and no .png file written at all for this texture.
+    fs::path ddsFile = dir / "textures" / "both_variants.dds";
+    REQUIRE(fs::exists(ddsFile));
+    CHECK(readFile(ddsFile.string()) == ddsBytes);
+    CHECK_FALSE(fs::exists(dir / "textures" / "both_variants.png"));
+
+    nlohmann::json manifest = parseManifest(dir);
+    auto& layer0 = manifest["resources"]["materials"][0]["layers"][0];
+    CHECK(layer0["texture_state"] == "resolved");
+    CHECK(layer0["texture"]["uri"] == "textures/both_variants.dds");
+
+    // payload-only (no rawPayload) -- falls back to writing the .png
+    // variant, same as before rawPayload existed at all (e.g. a source that
+    // was never a compressed BLP, or one where DDS extraction declined).
+    fs::path dirPngOnly = fs::temp_directory_path() / "husk-test-bundle-texture-rawpayload-fallback";
+    fs::remove_all(dirPngOnly);
+    canon::Model modelPngOnly = buildSyntheticModel();
+    canon::TextureRef pngOnly;
+    pngOnly.state = canon::TextureRef::State::Resolved;
+    pngOnly.resolved.id = canon::FileDataId{102};
+    pngOnly.resolved.name = "png_only";
+    pngOnly.payload = png;
+    modelPngOnly.materials[0].layers[0].texture = pngOnly;
+    writers::writeBundle(modelPngOnly, dirPngOnly);
+
+    fs::path pngFile = dirPngOnly / "textures" / "png_only.png";
+    REQUIRE(fs::exists(pngFile));
+    CHECK(readFile(pngFile.string()) == pngBytes);
+    CHECK_FALSE(fs::exists(dirPngOnly / "textures" / "png_only.dds"));
+
+    nlohmann::json manifestPngOnly = parseManifest(dirPngOnly);
+    CHECK(manifestPngOnly["resources"]["materials"][0]["layers"][0]["texture"]["uri"] ==
+          "textures/png_only.png");
+
+    // Neither present -- no uri, no textures/ directory, same as the
+    // existing no-payload case above.
+    fs::path dirNeither = fs::temp_directory_path() / "husk-test-bundle-texture-rawpayload-neither";
+    fs::remove_all(dirNeither);
+    canon::Model modelNeither = buildSyntheticModel();
+    canon::TextureRef neither;
+    neither.state = canon::TextureRef::State::Resolved;
+    neither.resolved.id = canon::FileDataId{103};
+    neither.resolved.name = "neither_variant";
+    modelNeither.materials[0].layers[0].texture = neither;
+    writers::writeBundle(modelNeither, dirNeither);
+
+    nlohmann::json manifestNeither = parseManifest(dirNeither);
+    CHECK_FALSE(manifestNeither["resources"]["materials"][0]["layers"][0]["texture"].contains("uri"));
+    CHECK_FALSE(fs::exists(dirNeither / "textures"));
+}
+
 TEST_CASE("writeBundle: every BufferSlice's byte range fits inside its named file") {
     canon::Model model = buildSyntheticModel();
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-slices";
