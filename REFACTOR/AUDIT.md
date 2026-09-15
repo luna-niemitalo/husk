@@ -270,3 +270,80 @@ Two consequences:
   strings that read as authoritative — including into `joint_names` and every
   `bone_name` field on physics, emitter, correction and gear entries.
 
+---
+
+## 7. Stage 3's own coverage gaps (canon:: not yet at legacy feature parity)
+
+Sections 1-6 above are about the legacy pipeline's problems, the ones Stage 3
+exists to fix. This section is different in kind: real, already-implemented
+gaps in Stage 3 *itself* relative to what legacy already ships today. Found
+2026-09-15 while building `husk export --compare-canon`'s runtime convergence
+checker (`src/canon_diff.*`), and written down here because every one of them
+was previously stated only as an isolated doc-comment in the file it lives
+in — visible to a reader of that one file, invisible to `REFACTOR/README.md`'s
+own Status summary, which currently reads as though Stage 3's `canon::Model`
+composition root is a completed, like-for-like replacement. It isn't yet;
+these are the concrete reasons why, not a vague caveat.
+
+### 7.1 `canon::Material` never resolves real texture bytes (API shape closed 2026-09-15; catalog wiring still open)
+
+**The design question is resolved**: canon:: is purely the representation of
+already-decided facts. It never performs resolution itself; whatever
+assembles a `canon::Model` resolves via `sources::Catalog` first and hands
+canon:: the already-decided fact (or an explicit unresolved-reason) — a
+pre-resolved input parameter, never a live `Catalog&` (matches §7.2's own
+resolution for the same underlying question).
+
+**The API shape is now implemented**: `assembleMaterial`/`assembleModel`
+both take a new `TextureResolutions` parameter (`std::unordered_map<uint32_t,
+TextureRef>`, keyed by the M2 texture array index — the same index
+`MaterialLayer::identity` already exposes for a layer, no second key scheme
+invented), defaulted to empty so every existing caller's behavior is
+byte-for-byte unchanged. When a caller supplies an entry, canon:: records
+that exact `TextureRef` (Resolved/KnownUnresolved/Ambiguous, whichever the
+caller decided) verbatim — no resolution logic of canon:: own. Verified:
+full suite green (966/966), `husk export --compare-canon` still clean
+against `bloodelffemale.m2` (the new parameter is unused there, so this
+confirms the default-empty path is a true no-op, not just untested).
+
+**Still open**: nothing in this codebase actually populates
+`TextureResolutions` from a real `sources::Catalog` yet — `canon::Material`
+still can't drive a real textured render today, only *accept* one if handed
+it. Wiring a real orchestrator (resolving each batch's texture units via the
+catalog and building the map before calling `assembleModel`) is the
+deliberate next step, not yet started.
+
+### 7.2 canon animation: no external `.anim` resolution (global sequences, alias resolution: closed 2026-09-15)
+
+**Global sequences and alias resolution are now implemented** (`canon_model.cpp`'s
+three-pass `assembleModel`: pass 1 real-inline, pass 2 global-sequence, pass 3
+alias-to-terminal reuse) and verified clean against `bloodelffemale.m2` via
+`husk export --compare-canon` (0 deviations, `src/canon_diff.cpp`). Both were
+pure M2-data operations with no filesystem/catalog involvement, as this
+section originally predicted.
+
+**A second, closely-related bug was found and fixed along the way, not
+predicted by the original write-up**: the very first real-fixture
+`--compare-canon` run after landing global-sequence/alias support still
+showed ~25 deviations, all misdiagnosed at first glance as more alias cases.
+They weren't — a direct probe of the real sequence flags
+(`test_data/bloodelffemale.m2`) showed every one of them genuinely has the
+inline bit set, no alias bit at all. The real cause: `buildAnimations`
+(`export_animation.cpp:181-183`) only pushes a clip when at least one bone
+produced real keyframe data for that sequence (`if (!anim.joints.empty())`);
+`canon_model.cpp`'s pass 1 pushed a clip for every real-inline sequence
+*unconditionally*, regardless of whether any bone had real data for it. Fixed
+by adding the same `anyBoneAnimated` gate pass 2 (global sequences) already
+had. Re-verified clean (0 deviations) after the fix.
+
+External `.anim` resolution remains open, and remains the one sub-gap with a
+real design question, same shape as §7.1's: `canon::assembleBoneAnimation`
+already accepts an `externalBlob` parameter (`canon_animation_builder.hpp:62`)
+for exactly this case, but *deciding which FileDataID's `.anim` bytes to
+fetch, and fetching them*, is Stage 2/catalog territory —
+`canon::assembleModel`'s own signature has no way to accept "here are this
+model's already-resolved external anim blobs, keyed by sequence" today, and
+inventing that shape is a real API decision, not a mechanical port of
+`buildAnimations`'s external-directory-search logic (which *does* touch the
+filesystem directly, deliberately not something to mirror into `canon::`).
+

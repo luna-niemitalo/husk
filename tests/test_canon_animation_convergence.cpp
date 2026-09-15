@@ -228,6 +228,131 @@ TEST_CASE("canon::assembleBoneAnimation converges with the real resolve*TrackSeq
     checkInterpolation(model, bone, *canonCurves);
 }
 
+namespace {
+
+// One (globalSequenceIndex, bone) pick plus its resolved raw track data --
+// the global-sequence-scoped twin of Pick/findBestInlinePick above.
+struct GlobalPick {
+    uint16_t globalSequenceIndex = 0;
+    size_t boneIndex = 0;
+    std::vector<std::pair<uint32_t, m2::Vec3>> translation;
+    std::vector<std::pair<uint32_t, m2::Quat>> rotation;
+    std::vector<std::pair<uint32_t, m2::Vec3>> scale;
+};
+
+// Scans every (bone, track-property) with a real global-sequence-driven
+// track, scoring each candidate by `score` -- mirrors findBestInlinePick's
+// own "highest-scoring real, non-trivial data" search, just over the
+// global-sequence-gated resolve*GlobalSequenceTrack family instead of
+// resolve*TrackSequence.
+template <typename ScoreFn>
+std::optional<GlobalPick> findBestGlobalPick(const m2::Model& model, ScoreFn score) {
+    std::optional<GlobalPick> best;
+    long bestScore = -1;
+    for (size_t bi = 0; bi < model.bones.size(); ++bi) {
+        const auto& bone = model.bones[bi];
+        for (uint32_t off : {bone.translationTrackOffset, bone.rotationTrackOffset, bone.scaleTrackOffset}) {
+            uint16_t gs = m2::readTrackMeta(model.blob, off).globalSequence;
+            if (gs == m2::TrackMeta::kNoGlobalSequence) continue;
+
+            GlobalPick candidate;
+            candidate.globalSequenceIndex = gs;
+            candidate.boneIndex = bi;
+            if (m2::readTrackMeta(model.blob, bone.translationTrackOffset).globalSequence == gs) {
+                candidate.translation = m2::resolveVec3GlobalSequenceTrack(model.blob, bone.translationTrackOffset);
+            }
+            if (m2::readTrackMeta(model.blob, bone.rotationTrackOffset).globalSequence == gs) {
+                candidate.rotation = m2::resolveQuatGlobalSequenceTrack(model.blob, bone.rotationTrackOffset);
+            }
+            if (m2::readTrackMeta(model.blob, bone.scaleTrackOffset).globalSequence == gs) {
+                candidate.scale = m2::resolveVec3GlobalSequenceTrack(model.blob, bone.scaleTrackOffset);
+            }
+            long s = score(candidate);
+            if (s > bestScore) {
+                bestScore = s;
+                best = std::move(candidate);
+            }
+        }
+    }
+    return bestScore > 0 ? best : std::nullopt;
+}
+
+}  // namespace
+
+TEST_CASE("canon::assembleBoneAnimationGlobal converges with the real resolve*GlobalSequenceTrack "
+          "output for a real global-sequence-driven bone track, raw M2 space" *
+          doctest::skip(test::testM2().empty())) {
+    std::ifstream mf(test::testM2(), std::ios::binary);
+    REQUIRE(mf.good());
+    std::vector<uint8_t> fileBytes((std::istreambuf_iterator<char>(mf)), std::istreambuf_iterator<char>());
+    auto model = m2::loadModel(fileBytes);
+    REQUIRE(!model.bones.empty());
+
+    auto pick = findBestGlobalPick(model, [](const GlobalPick& c) -> long {
+        return static_cast<long>(c.translation.size()) + static_cast<long>(c.rotation.size()) +
+               static_cast<long>(c.scale.size());
+    });
+    if (!pick) {
+        // Unlike the inline-sequence pick above (bloodelffemale.m2 is known
+        // to have real inline keyframe data -- REQUIRE is warranted),
+        // global-sequence tracks are a genuinely optional feature (eye
+        // glow/torch flicker on some models, absent on others) -- not
+        // finding one in this specific fixture isn't a convergence failure,
+        // just nothing to check here.
+        MESSAGE("no real global-sequence-driven bone track found in this fixture -- skipping");
+        return;
+    }
+
+    const auto& bone = model.bones[pick->boneIndex];
+    auto canonCurves = canon::assembleBoneAnimationGlobal(model.blob, bone, pick->boneIndex, pick->globalSequenceIndex);
+    REQUIRE(canonCurves.has_value());
+
+    CHECK(canonCurves->translation.sequence.kind == canon::SequenceRef::Kind::GlobalSequence);
+    CHECK(canonCurves->translation.sequence.index == pick->globalSequenceIndex);
+    CHECK(canonCurves->rotation.sequence.kind == canon::SequenceRef::Kind::GlobalSequence);
+    CHECK(canonCurves->rotation.sequence.index == pick->globalSequenceIndex);
+    CHECK(canonCurves->scale.sequence.kind == canon::SequenceRef::Kind::GlobalSequence);
+    CHECK(canonCurves->scale.sequence.index == pick->globalSequenceIndex);
+
+    REQUIRE(canonCurves->translation.keyframes.size() == pick->translation.size());
+    for (size_t i = 0; i < pick->translation.size(); ++i) {
+        CHECK(canonCurves->translation.keyframes[i].first ==
+              doctest::Approx(static_cast<float>(pick->translation[i].first) / 1000.0f));
+        CHECK(canonCurves->translation.keyframes[i].second.x == doctest::Approx(pick->translation[i].second.x));
+        CHECK(canonCurves->translation.keyframes[i].second.y == doctest::Approx(pick->translation[i].second.y));
+        CHECK(canonCurves->translation.keyframes[i].second.z == doctest::Approx(pick->translation[i].second.z));
+    }
+    REQUIRE(canonCurves->rotation.keyframes.size() == pick->rotation.size());
+    for (size_t i = 0; i < pick->rotation.size(); ++i) {
+        CHECK(canonCurves->rotation.keyframes[i].first ==
+              doctest::Approx(static_cast<float>(pick->rotation[i].first) / 1000.0f));
+        CHECK(canonCurves->rotation.keyframes[i].second.x == doctest::Approx(pick->rotation[i].second.x));
+        CHECK(canonCurves->rotation.keyframes[i].second.y == doctest::Approx(pick->rotation[i].second.y));
+        CHECK(canonCurves->rotation.keyframes[i].second.z == doctest::Approx(pick->rotation[i].second.z));
+        CHECK(canonCurves->rotation.keyframes[i].second.w == doctest::Approx(pick->rotation[i].second.w));
+    }
+    REQUIRE(canonCurves->scale.keyframes.size() == pick->scale.size());
+    for (size_t i = 0; i < pick->scale.size(); ++i) {
+        CHECK(canonCurves->scale.keyframes[i].first ==
+              doctest::Approx(static_cast<float>(pick->scale[i].first) / 1000.0f));
+        CHECK(canonCurves->scale.keyframes[i].second.x == doctest::Approx(pick->scale[i].second.x));
+        CHECK(canonCurves->scale.keyframes[i].second.y == doctest::Approx(pick->scale[i].second.y));
+        CHECK(canonCurves->scale.keyframes[i].second.z == doctest::Approx(pick->scale[i].second.z));
+    }
+}
+
+TEST_CASE("canon::assembleBoneAnimationGlobal returns nullopt when a bone has no global-sequence-"
+          "driven track data, same nothing-to-animate case as assembleBoneAnimation") {
+    std::vector<uint8_t> zeroedBlob(64, 0);
+    m2::Bone bone;  // default offsets (0) all point at the same zeroed track
+    // Zeroed track's own globalSequence reads as 0 (not kNoGlobalSequence --
+    // see assembleBoneAnimation's own "zeroed, not empty" test above), so
+    // this picks globalSequenceIndex 0 to exercise the real "referenced but
+    // no actual keyframe data" case, not a mismatched-index no-op.
+    auto result = canon::assembleBoneAnimationGlobal(zeroedBlob, bone, 0, 0);
+    CHECK_FALSE(result.has_value());
+}
+
 TEST_CASE("canon::assembleBoneAnimation returns nullopt when all three tracks are empty, same "
           "nothing-to-animate case buildJointAnimation early-returns on") {
     // Zeroed, not empty: readTrackMeta/trackSequenceInnerArrays bounds-check

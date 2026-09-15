@@ -166,13 +166,24 @@ Ref layerIdentity(uint16_t textureIndex, const m2::Texture& tex) {
 }
 
 // Deliberately never resolved here -- see canon_material_builder.hpp's own
-// doc comment for why real texture bytes/FileDataIDs are out of this
-// function's scope.
+// doc comment for why performing texture resolution is out of this
+// function's scope. The honest default when the caller hasn't supplied
+// anything for this layer's key via `textureResolutions`.
 TextureRef unresolvedTextureRef() {
     TextureRef t;
     t.state = TextureRef::State::KnownUnresolved;
     t.unresolvedReason = "texture resolution out of scope for canon assembly";
     return t;
+}
+
+// Looks up `textureIndex` (the same M2 texture array index
+// `layerIdentity` below keys `Ref::id`'s `RecordIndex` on) in the caller's
+// already-resolved map; falls back to `unresolvedTextureRef()` when absent
+// -- see `TextureResolutions`'s own doc comment (canon_material_builder.hpp)
+// for why this is the one place resolution data enters canon:: at all.
+TextureRef resolveTextureRef(uint16_t textureIndex, const TextureResolutions& textureResolutions) {
+    auto it = textureResolutions.find(static_cast<uint32_t>(textureIndex));
+    return it != textureResolutions.end() ? it->second : unresolvedTextureRef();
 }
 
 std::optional<VecCurve> resolveColorTint(const m2::Color& color, const M2MaterialInputs& m2,
@@ -248,7 +259,8 @@ std::optional<MaterialLayer::TextureTransformCurves> resolveUvAnimation(const m2
 // on the same corruption cases export_materials.cpp's own batch loop does
 // for its base texture, tint, and transparency-fade fields.
 MaterialLayer assemblePrimaryLayer(const skin::Batch& batch, size_t batchIndex, const M2MaterialInputs& m2,
-                                    uint32_t sequenceIndex, BlendOp blendOp) {
+                                    uint32_t sequenceIndex, BlendOp blendOp,
+                                    const TextureResolutions& textureResolutions) {
     if (batch.textureComboIndex >= m2.textureCombos.size()) {
         throw std::runtime_error("batch " + std::to_string(batchIndex) + "'s textureComboIndex (" +
                                   std::to_string(batch.textureComboIndex) + ") is out of range for " +
@@ -266,7 +278,7 @@ MaterialLayer assemblePrimaryLayer(const skin::Batch& batch, size_t batchIndex, 
     MaterialLayer layer;
     layer.uv = resolveUvStrict(batch.textureCoordComboIndex, m2, batchIndex);
     layer.identity = layerIdentity(textureIndex, tex);
-    layer.texture = unresolvedTextureRef();
+    layer.texture = resolveTextureRef(textureIndex, textureResolutions);
     layer.role = resolveRole(layer.uv, tex.type, /*isPrimaryLayer=*/true);
     layer.blendIntoPrevious = blendOp;
 
@@ -333,7 +345,7 @@ MaterialLayer assemblePrimaryLayer(const skin::Batch& batch, size_t batchIndex, 
 }  // namespace
 
 Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, const M2MaterialInputs& m2,
-                           uint32_t sequenceIndex) {
+                           uint32_t sequenceIndex, const TextureResolutions& textureResolutions) {
     Material result;
 
     // export_materials.cpp checks materialIndex unconditionally, before its
@@ -361,7 +373,8 @@ Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, const M2M
         return result;
     }
 
-    result.layers.push_back(assemblePrimaryLayer(batch, batchIndex, m2, sequenceIndex, blendOp));
+    result.layers.push_back(
+        assemblePrimaryLayer(batch, batchIndex, m2, sequenceIndex, blendOp, textureResolutions));
 
     // Additional texture layers (textureCount > 1): per wowdev.wiki
     // M2/.skin#Texture_units, layer i's real combo index is
@@ -381,7 +394,7 @@ Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, const M2M
         MaterialLayer layer;
         layer.uv = resolveUvBestEffort(static_cast<size_t>(batch.textureCoordComboIndex) + layerOffset, m2);
         layer.identity = layerIdentity(textureIndex, tex);
-        layer.texture = unresolvedTextureRef();
+        layer.texture = resolveTextureRef(textureIndex, textureResolutions);
         layer.role = resolveRole(layer.uv, tex.type, /*isPrimaryLayer=*/false);
         layer.blendIntoPrevious = blendOp;
         result.layers.push_back(std::move(layer));

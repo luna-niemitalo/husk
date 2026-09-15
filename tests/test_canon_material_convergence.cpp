@@ -523,3 +523,137 @@ TEST_CASE("canon::assembleMaterial: every layer's texture is KnownUnresolved -- 
     CHECK(result.layers[0].texture.unresolvedReason == "texture resolution out of scope for canon assembly");
     CHECK(result.layers[0].texture.candidates.empty());
 }
+
+// The four cases below prove TextureResolutions (canon_material_builder.hpp)
+// does exactly what its own doc comment states: an empty (default) map
+// changes nothing (regression guard against this task's own parameter
+// addition), and a supplied key's TextureRef is recorded verbatim in
+// whichever of its three states the caller already decided -- canon::
+// itself performs no resolution logic on it either way. REFACTOR/AUDIT.md
+// §7.1's own gap.
+
+TEST_CASE("canon::assembleMaterial: an empty textureResolutions map (the default) is "
+          "byte-for-byte identical to omitting the parameter entirely") {
+    canon::M2MaterialInputs m2in;
+    m2in.materials.resize(1);
+    m2in.textureCombos = {0, 1};
+    m2in.textures.resize(2);
+
+    skin::Batch batch;
+    batch.materialIndex = 0;
+    batch.textureCount = 2;
+    batch.textureComboIndex = 0;
+
+    canon::Material withoutParam = canon::assembleMaterial(batch, 0, m2in, 0);
+    canon::Material withEmptyMap = canon::assembleMaterial(batch, 0, m2in, 0, canon::TextureResolutions{});
+
+    REQUIRE(withoutParam.layers.size() == withEmptyMap.layers.size());
+    for (size_t i = 0; i < withoutParam.layers.size(); ++i) {
+        CHECK(withoutParam.layers[i].texture.state == withEmptyMap.layers[i].texture.state);
+        CHECK(withoutParam.layers[i].texture.state == canon::TextureRef::State::KnownUnresolved);
+        CHECK(withoutParam.layers[i].texture.unresolvedReason == withEmptyMap.layers[i].texture.unresolvedReason);
+    }
+}
+
+TEST_CASE("canon::assembleMaterial: a supplied Resolved entry, keyed by M2 texture array index, "
+          "is recorded on the matching layer verbatim; a layer with no entry stays "
+          "KnownUnresolved") {
+    canon::M2MaterialInputs m2in;
+    m2in.materials.resize(1);
+    m2in.textureCombos = {0, 1};  // layer 0 -> texture index 0, layer 1 -> texture index 1
+    m2in.textures.resize(2);
+
+    skin::Batch batch;
+    batch.materialIndex = 0;
+    batch.textureCount = 2;
+    batch.textureComboIndex = 0;
+
+    canon::TextureRef resolved;
+    resolved.state = canon::TextureRef::State::Resolved;
+    resolved.resolved.id = canon::FileDataId{148134};
+    resolved.resolved.name = "bloodelffemale_hd_skin";
+    resolved.resolved.source = canon::NameSource::Listfile;
+
+    canon::TextureResolutions resolutions;
+    resolutions[0] = resolved;  // key: texture array index 0, matching layer 0's identity.id
+
+    canon::Material result = canon::assembleMaterial(batch, 0, m2in, 0, resolutions);
+    REQUIRE(result.layers.size() == 2);
+
+    // Layer 0: exact round-trip of the supplied TextureRef, not a
+    // reinterpreted/rebuilt copy.
+    CHECK(result.layers[0].texture.state == canon::TextureRef::State::Resolved);
+    REQUIRE(std::holds_alternative<canon::FileDataId>(result.layers[0].texture.resolved.id));
+    CHECK(std::get<canon::FileDataId>(result.layers[0].texture.resolved.id).value == 148134);
+    CHECK(result.layers[0].texture.resolved.name == "bloodelffemale_hd_skin");
+    CHECK(result.layers[0].texture.resolved.source == canon::NameSource::Listfile);
+
+    // Layer 1: no entry for texture index 1 in the map -- falls back to the
+    // original unconditional KnownUnresolved, unaffected by layer 0's entry.
+    CHECK(result.layers[1].texture.state == canon::TextureRef::State::KnownUnresolved);
+    CHECK(result.layers[1].texture.unresolvedReason == "texture resolution out of scope for canon assembly");
+}
+
+TEST_CASE("canon::assembleMaterial: a supplied KnownUnresolved entry with a caller-chosen reason "
+          "overrides the default reason string verbatim") {
+    canon::M2MaterialInputs m2in;
+    m2in.materials.resize(1);
+    m2in.textureCombos = {0};
+    m2in.textures.resize(1);
+
+    skin::Batch batch;
+    batch.materialIndex = 0;
+    batch.textureCount = 1;
+    batch.textureComboIndex = 0;
+
+    canon::TextureRef unresolved;
+    unresolved.state = canon::TextureRef::State::KnownUnresolved;
+    unresolved.unresolvedReason = "customization-driven slot, no --db2-dir given";
+
+    canon::TextureResolutions resolutions;
+    resolutions[0] = unresolved;
+
+    canon::Material result = canon::assembleMaterial(batch, 0, m2in, 0, resolutions);
+    REQUIRE(result.layers.size() == 1);
+    CHECK(result.layers[0].texture.state == canon::TextureRef::State::KnownUnresolved);
+    CHECK(result.layers[0].texture.unresolvedReason == "customization-driven slot, no --db2-dir given");
+}
+
+TEST_CASE("canon::assembleMaterial: a supplied Ambiguous entry keeps its full candidate set, not "
+          "collapsed to a guess") {
+    canon::M2MaterialInputs m2in;
+    m2in.materials.resize(1);
+    m2in.textureCombos = {0};
+    m2in.textures.resize(1);
+
+    skin::Batch batch;
+    batch.materialIndex = 0;
+    batch.textureCount = 1;
+    batch.textureComboIndex = 0;
+
+    canon::TextureRef ambiguous;
+    ambiguous.state = canon::TextureRef::State::Ambiguous;
+    canon::TextureRef::Candidate a;
+    a.identity.id = canon::FileDataId{111};
+    a.category = "skin";
+    a.width = 512;
+    a.height = 512;
+    canon::TextureRef::Candidate b;
+    b.identity.id = canon::FileDataId{222};
+    b.category = "skin";
+    b.width = 256;
+    b.height = 256;
+    ambiguous.candidates = {a, b};
+
+    canon::TextureResolutions resolutions;
+    resolutions[0] = ambiguous;
+
+    canon::Material result = canon::assembleMaterial(batch, 0, m2in, 0, resolutions);
+    REQUIRE(result.layers.size() == 1);
+    CHECK(result.layers[0].texture.state == canon::TextureRef::State::Ambiguous);
+    REQUIRE(result.layers[0].texture.candidates.size() == 2);
+    REQUIRE(std::holds_alternative<canon::FileDataId>(result.layers[0].texture.candidates[0].identity.id));
+    CHECK(std::get<canon::FileDataId>(result.layers[0].texture.candidates[0].identity.id).value == 111);
+    REQUIRE(std::holds_alternative<canon::FileDataId>(result.layers[0].texture.candidates[1].identity.id));
+    CHECK(std::get<canon::FileDataId>(result.layers[0].texture.candidates[1].identity.id).value == 222);
+}

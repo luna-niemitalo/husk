@@ -5,16 +5,45 @@ remains the authority on why today's code is shaped the way it is; this is
 where the shape it's moving toward lives, kept separate on purpose
 (`READABILITY.md` §3.10 — current and target never blurred).
 
-**Status (2026-09-03): Stage 1 of Migration order is landed, Stages 2-6 are
-not started.** `src/sources/` is real — `Catalog`/`Resolved<T>`/
-`TextureCatalog`/`ListfileCatalog` (`catalog.{hpp,cpp}` +
-siblings, ~2200 lines) collapse the texture-resolution tiers `AUDIT.md §1.1`
+**Status (2026-09-15): Stages 1-2 are landed, Stage 3 is deep in progress but
+not feature-complete, Stage 4 has two working writers with nothing wired to
+call them yet, Stages 5-6 are not started.** `src/sources/` is real —
+`Catalog`/`Resolved<T>`/`TextureCatalog`/`ListfileCatalog` (`catalog.{hpp,cpp}`
++ siblings, ~2200 lines) collapse the texture-resolution tiers `AUDIT.md §1.1`
 catalogued, and `husk resolve` (`src/cmd_resolve.cpp`) exposes it as a
 machine-readable ledger that corpus-scan tasks now consume instead of
 re-implementing resolution. `TEXTURE_POOL_RECALL_TODO.md` (steps 1/2/3/5) and
 a listfile-perf detour (`listfile_mmap_index`/`listfile_cache`) landed in the
-same window. `src/formats/`, `src/canon/`, and `src/writers/` (Migration order
-stages 2-6 below) do not exist yet — nothing has moved past the catalog.
+same window. `src/m2_model.hpp`'s `m2::Model` is the landed Stage 2
+aggregate. Stage 3's `canon::` types (`Skeleton`, `Mesh`/`Geoset`, `Material`,
+`Curve`, `Physics`, `Definition`, `Selection`, `Item`, and the `Model`
+composition root) are all implemented as pure value types with real assembly
+functions, each convergence-tested against the legacy pipeline on real
+fixtures — but `canon::Model` is not yet a like-for-like replacement:
+**`AUDIT.md` §7** catalogs the remaining gaps, found 2026-09-15. Global
+sequences and alias resolution (canon animation) are closed and verified
+clean against a real 119-bone/258-animation fixture. `canon::Material`'s
+texture resolution and canon animation's external-`.anim` resolution both
+hit the same wall — canon:: is a pure value-type layer with no filesystem/
+catalog dependency (I1), but the real data both need only exists behind
+`sources::Catalog`, a stateful I/O object — resolved 2026-09-15 as a
+**pre-resolved input parameter**: whatever assembles a `canon::Model`
+resolves via the catalog first and hands canon:: the already-decided fact
+(or an explicit unresolved-reason), never a live `Catalog&`. That API shape
+is now implemented and tested for both (`TextureResolutions`/
+`ExternalAnimBlobs`, both defaulted to empty, both no-ops when unused); what
+remains open for both is the actual orchestrator wiring — nothing yet builds
+either map from a real `sources::Catalog` or a real resolved `.anim` file,
+so `canon::Model` still can't drive a real textured or fully-animated render
+on its own, only *accept* one if handed it. Stage 4 has two real, independently tested
+writers (`src/writers/bundle_writer.*`, `src/writers/gltf_lean.*`), but
+nothing in `cmd_export.cpp` calls either of them — `husk export
+--compare-canon` (opt-in, off by default) runs them as a diagnostic sidecar
+alongside the still-shipping legacy pipeline, not a replacement for it.
+`src/formats/`, `src/canon/`, and `src/writers/` as their own *subdirectories*
+(as opposed to the flat `canon_*.cpp`/`writers/` files that exist today) never
+materialized — a cosmetic deviation from this document's original sketch, not
+a blocker.
 
 Same conventions as `TODO/`: each file is an open punch list, closed items get
 removed outright, git history is the record.

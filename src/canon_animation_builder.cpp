@@ -13,9 +13,9 @@ Interpolation toInterpolation(const std::vector<uint8_t>& blob, uint32_t trackOf
 }
 
 VecCurve toVecCurve(std::vector<std::pair<uint32_t, m2::Vec3>> raw, Interpolation interpolation,
-                    uint32_t sequenceIndex) {
+                    SequenceRef sequence) {
     VecCurve curve;
-    curve.sequence = SequenceRef::sequence(sequenceIndex);
+    curve.sequence = sequence;
     curve.interpolation = interpolation;
     curve.keyframes.reserve(raw.size());
     for (const auto& [ts, v] : raw) {
@@ -25,9 +25,9 @@ VecCurve toVecCurve(std::vector<std::pair<uint32_t, m2::Vec3>> raw, Interpolatio
 }
 
 QuatCurve toQuatCurve(std::vector<std::pair<uint32_t, m2::Quat>> raw, Interpolation interpolation,
-                     uint32_t sequenceIndex) {
+                     SequenceRef sequence) {
     QuatCurve curve;
-    curve.sequence = SequenceRef::sequence(sequenceIndex);
+    curve.sequence = sequence;
     curve.interpolation = interpolation;
     curve.keyframes.reserve(raw.size());
     for (const auto& [ts, v] : raw) {
@@ -56,11 +56,46 @@ std::optional<BoneAnimationCurves> assembleBoneAnimation(const std::vector<uint8
     commands::repairDuplicateTimestampsAndValidate(scale, boneIndex, "scale");
 
     BoneAnimationCurves curves;
-    curves.translation =
-        toVecCurve(std::move(translation), toInterpolation(blob, bone.translationTrackOffset), sequenceIndex);
-    curves.rotation =
-        toQuatCurve(std::move(rotation), toInterpolation(blob, bone.rotationTrackOffset), sequenceIndex);
-    curves.scale = toVecCurve(std::move(scale), toInterpolation(blob, bone.scaleTrackOffset), sequenceIndex);
+    curves.translation = toVecCurve(std::move(translation), toInterpolation(blob, bone.translationTrackOffset),
+                                     SequenceRef::sequence(sequenceIndex));
+    curves.rotation = toQuatCurve(std::move(rotation), toInterpolation(blob, bone.rotationTrackOffset),
+                                   SequenceRef::sequence(sequenceIndex));
+    curves.scale = toVecCurve(std::move(scale), toInterpolation(blob, bone.scaleTrackOffset),
+                               SequenceRef::sequence(sequenceIndex));
+    return curves;
+}
+
+std::optional<BoneAnimationCurves> assembleBoneAnimationGlobal(const std::vector<uint8_t>& blob,
+                                                                  const m2::Bone& bone, size_t boneIndex,
+                                                                  uint16_t globalSequenceIndex) {
+    std::vector<std::pair<uint32_t, m2::Vec3>> translation;
+    if (m2::readTrackMeta(blob, bone.translationTrackOffset).globalSequence == globalSequenceIndex) {
+        translation = m2::resolveVec3GlobalSequenceTrack(blob, bone.translationTrackOffset);
+    }
+    std::vector<std::pair<uint32_t, m2::Quat>> rotation;
+    if (m2::readTrackMeta(blob, bone.rotationTrackOffset).globalSequence == globalSequenceIndex) {
+        rotation = m2::resolveQuatGlobalSequenceTrack(blob, bone.rotationTrackOffset);
+    }
+    std::vector<std::pair<uint32_t, m2::Vec3>> scale;
+    if (m2::readTrackMeta(blob, bone.scaleTrackOffset).globalSequence == globalSequenceIndex) {
+        scale = m2::resolveVec3GlobalSequenceTrack(blob, bone.scaleTrackOffset);
+    }
+
+    if (translation.empty() && rotation.empty() && scale.empty()) {
+        return std::nullopt;
+    }
+
+    commands::repairDuplicateTimestampsAndValidate(translation, boneIndex, "translation");
+    commands::repairDuplicateTimestampsAndValidate(rotation, boneIndex, "rotation");
+    commands::repairDuplicateTimestampsAndValidate(scale, boneIndex, "scale");
+
+    BoneAnimationCurves curves;
+    curves.translation = toVecCurve(std::move(translation), toInterpolation(blob, bone.translationTrackOffset),
+                                     SequenceRef::globalSequence(globalSequenceIndex));
+    curves.rotation = toQuatCurve(std::move(rotation), toInterpolation(blob, bone.rotationTrackOffset),
+                                   SequenceRef::globalSequence(globalSequenceIndex));
+    curves.scale = toVecCurve(std::move(scale), toInterpolation(blob, bone.scaleTrackOffset),
+                               SequenceRef::globalSequence(globalSequenceIndex));
     return curves;
 }
 

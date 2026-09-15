@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include "canon_material.hpp"
@@ -16,18 +17,35 @@
 // structural convergence (REFACTOR/README.md stage 3's gate) without
 // touching the existing pipeline.
 //
-// Deliberately does NOT resolve real texture bytes/FileDataIDs: DB2/
-// listfile/sources::Catalog lookups are a separate, much larger canon
-// concern not built yet (same boundary canon_mesh_builder.hpp draws around
-// material/texture resolution for geosets) -- every TextureRef this
-// produces is TextureRef::State::KnownUnresolved. Also does NOT build
-// ShadingFunction/Function: decoding a resolved shaderId's real Combiners_*
-// name into a structured per-stage op chain is exactly the "porting real
-// Combiners_* formula math into ShadingFunction::function" work
-// canon_material.hpp's own header comment already defers to separate,
-// later work -- guessing at it here would be new invented vocabulary, not
-// a mirrored fact.
+// Does NOT itself PERFORM texture resolution: DB2/listfile/
+// sources::Catalog lookups are entirely the input/parsing-and-solving
+// layer's job (REFACTOR/AUDIT.md's "no paths in canon::" invariant, I1) --
+// canon:: never touches a filesystem or a Catalog. It CAN, however, RECORD
+// a resolution a caller already performed and hands in via
+// `assembleMaterial`'s optional `textureResolutions` parameter (see below):
+// when a layer's key is present in that map, its TextureRef is copied
+// through verbatim (Resolved/KnownUnresolved/Ambiguous, whichever the
+// caller already decided); when absent -- including the default, empty map
+// every existing caller still gets -- the layer falls back to the original
+// unconditional TextureRef::State::KnownUnresolved, unchanged from before
+// this parameter existed. Also does NOT build ShadingFunction/Function:
+// decoding a resolved shaderId's real Combiners_* name into a structured
+// per-stage op chain is exactly the "porting real Combiners_* formula math
+// into ShadingFunction::function" work canon_material.hpp's own header
+// comment already defers to separate, later work -- guessing at it here
+// would be new invented vocabulary, not a mirrored fact.
 namespace husk::canon {
+
+// One already-resolved (or explicitly failed/ambiguous) texture lookup,
+// resolved entirely outside canon:: by the caller -- see this header's own
+// top comment and REFACTOR/AUDIT.md's §7.1. Keyed by the same M2 texture
+// array index `MaterialLayer::identity` already uses as its own
+// `RecordIndex` (canon_material_builder.cpp's `layerIdentity`/
+// `assemblePrimaryLayer`'s `textureIndex` -- i.e. the resolved index into
+// `M2MaterialInputs::textures`, NOT a raw `skin::Batch`/`textureCombos`
+// position) -- reusing that existing identity key instead of inventing a
+// second one for the same texture unit.
+using TextureResolutions = std::unordered_map<uint32_t, TextureRef>;
 
 // Everything assembleMaterial needs out of the M2 itself, mirroring
 // commands::M2MaterialInputs (export_texture_resolution.hpp)'s own
@@ -123,7 +141,18 @@ struct M2MaterialInputs {
 // same nullopt) rather than guessing at a new field to add -- see this
 // task's own report for why canon_material.hpp wasn't silently extended to
 // cover it.
+//
+// `textureResolutions` (default empty): a caller-supplied, already-resolved
+// lookup (see `TextureResolutions`'s own doc comment above for the key).
+// A key present in the map wins outright -- that layer's TextureRef becomes
+// the supplied value verbatim, whatever state it carries, and this
+// function performs no resolution logic of its own on it. A missing key
+// (including every case when the map is left at its default empty value)
+// falls back to the original unconditional
+// `TextureRef::State::KnownUnresolved`, byte-for-byte unchanged from this
+// parameter's absence -- existing callers that don't opt in see no
+// behavior change.
 Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, const M2MaterialInputs& m2,
-                           uint32_t sequenceIndex);
+                           uint32_t sequenceIndex, const TextureResolutions& textureResolutions = {});
 
 }  // namespace husk::canon
