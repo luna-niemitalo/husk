@@ -178,6 +178,18 @@ canon::Model oneMaterialOnePrimitiveModel(canon::MaterialLayer layer) {
     return canonModel;
 }
 
+// Same shape, multiple layers -- for the additional-texture-layer
+// (layers[1..]) tests below, which need more than one MaterialLayer.
+canon::Model oneMaterialOnePrimitiveModel(std::vector<canon::MaterialLayer> layers) {
+    canon::Model canonModel;
+    canon::Material mat;
+    mat.ref.id = canon::RecordIndex{0};
+    mat.layers = std::move(layers);
+    canonModel.materials = {mat};
+    canonModel.primitiveMaterials = {canon::Identity{canon::RecordIndex{0}}};
+    return canonModel;
+}
+
 }  // namespace
 
 TEST_CASE("canon_diff::compareMaterialBlendModes: a real blend-mode mismatch is caught as a deviation") {
@@ -645,4 +657,120 @@ TEST_CASE("canon_diff::compareMaterialBlendModes: a matching uvAnimation transla
                                                                   legacyMaterials, legacyPrimitives);
     INFO("first deviation (if any): ", r.deviations.empty() ? "<none>" : r.deviations.front());
     CHECK(r.ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: matching additional (layers[1..]) texture layers against "
+          "legacy's additionalTextureLayers report zero deviations") {
+    canon::MaterialLayer primary;
+    primary.blendIntoPrevious = canon::BlendOp::Replace;
+    primary.texture.state = canon::TextureRef::State::Resolved;
+    primary.texture.resolved.id = canon::FileDataId{111};
+
+    canon::MaterialLayer secondary;
+    secondary.texture.state = canon::TextureRef::State::Resolved;
+    secondary.texture.resolved.id = canon::FileDataId{222};
+
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(std::vector<canon::MaterialLayer>{primary, secondary});
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    legacyMaterials[0].baseColorTextureFileDataId = 111;
+    gltf::Material::AdditionalTextureLayer al;
+    al.fileDataId = 222;
+    legacyMaterials[0].additionalTextureLayers = {al};
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    INFO("first deviation (if any): ", r.deviations.empty() ? "<none>" : r.deviations.front());
+    CHECK(r.ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a genuine additional-layer texture FileDataID mismatch "
+          "against legacy's additionalTextureLayers is caught as a deviation") {
+    canon::MaterialLayer primary;
+    primary.blendIntoPrevious = canon::BlendOp::Replace;
+
+    canon::MaterialLayer secondary;
+    secondary.texture.state = canon::TextureRef::State::Resolved;
+    secondary.texture.resolved.id = canon::FileDataId{222};
+
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(std::vector<canon::MaterialLayer>{primary, secondary});
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    gltf::Material::AdditionalTextureLayer al;
+    al.fileDataId = 333;  // deliberately different from canon's 222
+    legacyMaterials[0].additionalTextureLayers = {al};
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    CHECK_FALSE(r.ok());
+    bool found = false;
+    for (const auto& d : r.deviations) {
+        if (d.find("additional layer") != std::string::npos) found = true;
+    }
+    CHECK(found);
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: an additional-layer count mismatch (canon's layers[1..] vs "
+          "legacy's additionalTextureLayers) is caught as a deviation") {
+    canon::MaterialLayer primary;
+    primary.blendIntoPrevious = canon::BlendOp::Replace;
+
+    canon::MaterialLayer secondary;
+    secondary.texture.state = canon::TextureRef::State::Resolved;
+    secondary.texture.resolved.id = canon::FileDataId{222};
+
+    canon::MaterialLayer tertiary;
+    tertiary.texture.state = canon::TextureRef::State::Resolved;
+    tertiary.texture.resolved.id = canon::FileDataId{333};
+
+    // canon has 2 additional layers (layers[1], layers[2]); legacy only has 1.
+    canon::Model canonModel =
+        oneMaterialOnePrimitiveModel(std::vector<canon::MaterialLayer>{primary, secondary, tertiary});
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    gltf::Material::AdditionalTextureLayer al;
+    al.fileDataId = 222;
+    legacyMaterials[0].additionalTextureLayers = {al};  // only 1, canon expects 2
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    CHECK_FALSE(r.ok());
+    bool found = false;
+    for (const auto& d : r.deviations) {
+        if (d.find("additional layer(s)") != std::string::npos) found = true;
+    }
+    CHECK(found);
 }

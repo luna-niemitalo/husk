@@ -562,7 +562,8 @@ Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vect
             // old `textureMismatch` already use above.
             std::optional<size_t> textureMismatch;
             std::optional<std::string> unresolvedStateMismatch, ambiguousStateMismatch, tintMismatch,
-                alphaFadeMismatch, uvTranslationMismatch, uvRotationMismatch, uvScalingMismatch;
+                alphaFadeMismatch, uvTranslationMismatch, uvRotationMismatch, uvScalingMismatch,
+                secondaryLayerCountMismatch, secondaryTextureMismatch, secondaryUnresolvedStateMismatch;
 
             for (size_t i = 0; i < expectedBlendMode.size(); ++i) {
                 const canon::Material* mat = resolveMaterial(i);
@@ -645,6 +646,58 @@ Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vect
                         }
                     }
                 }
+
+                // Additional texture layers (canon::Material::layers[1..],
+                // textureCount > 1): m2_material_input.cpp's assembleMaterial
+                // builds these with the exact same layerOffset loop
+                // export_materials.cpp's own additionalTextureLayers loop
+                // uses (both walk textureComboIndex + layerOffset in lockstep
+                // and both stop/skip on the identical out-of-range
+                // conditions) -- so layers[j + 1] and
+                // lm.additionalTextureLayers[j] are the same real M2 texture
+                // unit by construction, not an assumed 1:1 mapping. Only
+                // texture identity and the KnownUnresolved state are checked:
+                // gltf::Material::AdditionalTextureLayer (gltf_mesh.hpp) is a
+                // bare {fileDataId, texCoord, imagePng} tuple with no
+                // blend-op or curve fields at all, and canon's own
+                // assembleMaterial never populates tint/alphaFade/uvAnimation
+                // for anything but layers.front() either -- there is nothing
+                // on either side to compare for blend op/curves here, not an
+                // omission. Ambiguous is skipped too: export_materials.cpp's
+                // additional-layer loop only tries the literal/listfile
+                // tiers, never the fuzzy pool that populates
+                // alternateTextureCandidates, so legacy structurally cannot
+                // confirm or deny a canon Ambiguous report for one of these
+                // layers.
+                size_t canonExtraLayers = mat->layers.size() - 1;
+                size_t legacyExtraLayers = lm.additionalTextureLayers.size();
+                if (!secondaryLayerCountMismatch && canonExtraLayers != legacyExtraLayers) {
+                    secondaryLayerCountMismatch = "primitive " + std::to_string(i) + ": canon has " +
+                        std::to_string(canonExtraLayers) + " additional layer(s) (layers.size()-1) vs legacy's " +
+                        std::to_string(legacyExtraLayers) + " additionalTextureLayers entries";
+                }
+                size_t comparableExtraLayers = std::min(canonExtraLayers, legacyExtraLayers);
+                for (size_t j = 0; j < comparableExtraLayers; ++j) {
+                    const canon::MaterialLayer& extraLayer = mat->layers[j + 1];
+                    const gltf::Material::AdditionalTextureLayer& legacyExtraLayer = lm.additionalTextureLayers[j];
+                    const canon::TextureRef& extraRef = extraLayer.texture;
+                    if (extraRef.state == canon::TextureRef::State::Resolved) {
+                        const auto* fdid = std::get_if<canon::FileDataId>(&extraRef.resolved.id);
+                        if (fdid && !secondaryTextureMismatch && fdid->value != legacyExtraLayer.fileDataId) {
+                            secondaryTextureMismatch = "primitive " + std::to_string(i) + " additional layer " +
+                                std::to_string(j) + ": canon resolved FileDataID " + std::to_string(fdid->value) +
+                                " vs legacy " + std::to_string(legacyExtraLayer.fileDataId);
+                        }
+                    } else if (extraRef.state == canon::TextureRef::State::KnownUnresolved) {
+                        if (!secondaryUnresolvedStateMismatch && !legacyExtraLayer.imagePng.empty()) {
+                            secondaryUnresolvedStateMismatch = "primitive " + std::to_string(i) +
+                                " additional layer " + std::to_string(j) +
+                                ": canon reports KnownUnresolved for this layer's texture, but legacy's own "
+                                "imagePng for the corresponding additionalTextureLayers entry is non-empty "
+                                "(legacy resolved real bytes canon couldn't)";
+                        }
+                    }
+                }
             }
             if (textureMismatch) {
                 const canon::Material* mat = resolveMaterial(*textureMismatch);
@@ -663,15 +716,25 @@ Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vect
             if (uvTranslationMismatch) r.deviations.push_back(*uvTranslationMismatch);
             if (uvRotationMismatch) r.deviations.push_back(*uvRotationMismatch);
             if (uvScalingMismatch) r.deviations.push_back(*uvScalingMismatch);
+            if (secondaryLayerCountMismatch) r.deviations.push_back(*secondaryLayerCountMismatch);
+            if (secondaryTextureMismatch) r.deviations.push_back(*secondaryTextureMismatch);
+            if (secondaryUnresolvedStateMismatch) r.deviations.push_back(*secondaryUnresolvedStateMismatch);
         }
     }
 
-    r.notes.push_back("only each primitive's own resolved material's first layer is checked at all (tint/"
-                       "alphaFade/uvAnimation curves, texture identity, and the KnownUnresolved/Ambiguous state "
-                       "check all stop at layers.front()) -- additional texture layers (textureCount > 1) have no "
-                       "comparison here, same scope every other check in this function already has; and the curve/"
-                       "state checks above only run when legacyMaterials/legacyPrimitives are supplied, same as "
-                       "the texture-identity check");
+    r.notes.push_back("every layer is checked now, not just layers.front(): blend op and tint/alphaFade/"
+                       "uvAnimation curves still only apply to the primary layer (canon's own assembleMaterial "
+                       "never populates those fields on layers[1..], and legacy's additionalTextureLayers has no "
+                       "field for any of them either -- nothing real to compare on either side, not a scope gap); "
+                       "additional layers (layers[1..], textureCount > 1) get a layer-count check plus a "
+                       "texture-identity/KnownUnresolved check per layer against legacy's additionalTextureLayers, "
+                       "matched by position (layers[j+1] <-> additionalTextureLayers[j], the same layerOffset "
+                       "loop shape m2_material_input.cpp/export_materials.cpp both already share); Ambiguous is "
+                       "not checked for additional layers since export_materials.cpp's own additional-layer "
+                       "resolution never runs the fuzzy tier that populates alternateTextureCandidates, so legacy "
+                       "has no signal to check a canon Ambiguous report against there; and every curve/state/"
+                       "texture-identity check above (primary or additional) only runs when legacyMaterials/"
+                       "legacyPrimitives are supplied");
     return r;
 }
 

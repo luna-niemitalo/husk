@@ -419,6 +419,37 @@ i.e. `layers[1..]`) having no comparison at all, same "first layer only"
 scope every check in this function has always had, not a gap this task
 closed or was asked to.
 
+**Additional texture layers (`layers[1..]`) closed 2026-09-16.** Legacy's
+own secondary-layer shape (`gltf::Material::additionalTextureLayers`,
+gltf_mesh.hpp) is a bare `{fileDataId, texCoord, imagePng}` tuple, built by
+export_materials.cpp's own `layerOffset` loop — the identical loop shape
+`m2_material_input.cpp`'s `assembleMaterial` independently walks to build
+`layers[1..]`, so `layers[j + 1]` and `additionalTextureLayers[j]` name the
+same real M2 texture unit by construction, confirmed by reading both loops
+side by side rather than assumed. `compareMaterialBlendModes` now checks: a
+layer-*count* mismatch (`layers.size() - 1` vs `additionalTextureLayers.size()`)
+as its own deviation; per matched layer, texture identity
+(`TextureRef::State::Resolved` FileDataID vs `additionalTextureLayers[j].fileDataId`)
+and the `KnownUnresolved` state (legacy's `imagePng` must also be empty),
+the same pattern layer 0 already had. Blend op and tint/alphaFade/
+uvAnimation curves are honestly NOT checked for additional layers: reading
+`assembleMaterial`'s own `layerOffset` loop confirmed canon itself never
+populates those three fields on anything but `layers.front()`, and legacy's
+`AdditionalTextureLayer` has no field for any of them either — nothing real
+to compare on either side, not an oversight. `Ambiguous` isn't checked for
+additional layers either: export_materials.cpp's own additional-layer
+resolution only tries the literal/listfile tiers, never the fuzzy pool that
+populates `alternateTextureCandidates`, so legacy has no signal to confirm
+or deny a canon `Ambiguous` report there — a structural asymmetry, not a
+missed case. 3 new unit tests (`tests/test_canon_diff.cpp`): matching
+secondary layers report zero deviations, a genuine secondary-layer
+FileDataID mismatch is caught, a layer-count mismatch is caught. Verified
+against real data too: the real multi-texture-layer fixture
+(`world/replaceabletextureprops/guild/pennant_guild_alliance_a_01.m2`,
+1 real `textureCount > 1` batch) stays **clean, no deviations found**
+through `husk export --compare-canon`. Full suite green, 1007/1007
+(1004 + 3 new).
+
 ### 7.2 canon animation: external `.anim` resolution (global sequences, alias resolution, external-`.anim` API shape + orchestrator wiring: all closed 2026-09-15)
 
 **Global sequences and alias resolution are now implemented** (`canon_model.cpp`'s

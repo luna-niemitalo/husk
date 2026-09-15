@@ -114,6 +114,30 @@ Report compareAnimations(const canon::Model& canonModel, const std::vector<m2::S
 // sequence that canon's own optional field is empty for) isn't checked,
 // same one-directional "verify what canon asserts" scope every other check
 // in this function already has (blend op, texture identity above).
+//
+// Additional texture layers (closed 2026-09-16): `canon::Material::
+// layers[1..]` (M2Batch::textureCount > 1, ~79% of the real .skin corpus
+// per WIKI_FINDINGS/M2/skin.md) are no longer unchecked. Legacy's own
+// secondary-layer shape (`gltf::Material::additionalTextureLayers`,
+// gltf_mesh.hpp) is a bare {fileDataId, texCoord, imagePng} tuple built by
+// export_materials.cpp's own `layerOffset` loop -- the same loop shape
+// m2_material_input.cpp's assembleMaterial independently walks to build
+// `layers[1..]`, so `layers[j + 1]` and `additionalTextureLayers[j]` name
+// the same real M2 texture unit by construction. A layer-*count* mismatch
+// (`layers.size() - 1` vs `additionalTextureLayers.size()`) is a real
+// deviation on its own; for each layer both sides have, only texture
+// identity (Resolved FileDataID match) and the KnownUnresolved state
+// (legacy's `imagePng` must also be empty) are checked -- the same
+// "compare what's real on both sides" discipline as everywhere else in
+// this file. Blend op and tint/alphaFade/uvAnimation curves are NOT
+// checked for additional layers: canon's own assembleMaterial never
+// populates those fields on anything but `layers.front()`, and legacy's
+// `AdditionalTextureLayer` has no field for any of them either -- there is
+// nothing real on either side to compare, not an omission. Ambiguous is
+// also not checked for additional layers: export_materials.cpp's own
+// additional-layer resolution only tries the literal/listfile tiers,
+// never the fuzzy pool that populates `alternateTextureCandidates`, so
+// legacy has no signal to confirm or deny a canon Ambiguous report there.
 Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vector<skin::Batch>& batches,
                                  const std::vector<skin::Submesh>& submeshes,
                                  const std::vector<m2::Material>& materials,
