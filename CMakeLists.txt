@@ -95,6 +95,7 @@ add_library(husk-lib STATIC
   src/canon_mesh_builder.cpp
   src/canon_material_builder.cpp
   src/canon_model.cpp
+  src/canon_diff.cpp
   src/canon_definition_builder.cpp
   src/canon_selection_builder.cpp
   src/canon_item_builder.cpp
@@ -144,6 +145,7 @@ add_library(husk-lib STATIC
   src/export_skin_resolution.cpp
   src/export_extras.cpp
   src/cmd_export.cpp
+  src/cmd_export_canon.cpp
   src/cmd_resolve.cpp
   src/dump_writer_utils.cpp
   src/dump_emitters.cpp
@@ -189,6 +191,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_canon_mesh_convergence.cpp
     tests/test_canon_material_convergence.cpp
     tests/test_canon_model.cpp
+    tests/test_canon_diff.cpp
     tests/test_canon_definition.cpp
     tests/test_canon_definition_convergence.cpp
     tests/test_canon_selection.cpp
@@ -233,6 +236,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli.cpp
     tests/test_cli_textures.cpp
     tests/test_cli_slim_textures.cpp
+    tests/test_cli_compare_canon.cpp
     tests/test_cli_resolve.cpp
     tests/test_cli_batch.cpp
     tests/test_cli_config.cpp

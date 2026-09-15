@@ -22,6 +22,7 @@
 #include "animationdata_db2.hpp"
 #include "appearance_string.hpp"
 #include "chunk.hpp"
+#include "cmd_export_canon.hpp"
 #include "commands.hpp"
 #include "export_animation.hpp"
 #include "export_extras.hpp"
@@ -622,6 +623,16 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                  "ambiguous, and on a miss the reason it failed -- off by default. Use this to "
                  "diff resolution behavior before vs. after a change, rather than inferring it "
                  "from the export summary")
+        ->group("Diagnostics");
+    app.add_flag("--compare-canon", opts.compareCanon,
+                 "also run the in-progress canon:: pipeline (REFACTOR/README.md stage 3) against this "
+                 "same model/skin tier, write its own '<output-basename>.canon.glb' (lean glTF "
+                 "projection) and '<output-basename>.canon.bundle/' (native bundle) alongside the real "
+                 "output, and print a structural deviation report to stderr -- off by default, never "
+                 "affects the real export's own output or exit code on failure. Only covers the "
+                 "resolved --skin tier used when --skin is 'auto' with a single (non-'--lod all') "
+                 "entry -- canon::Model has no LOD concept yet, so an ambiguous multi-tier case is "
+                 "skipped with a note rather than guessed at")
         ->group("Diagnostics");
     app.add_flag("--slim-textures", opts.slimTextures,
                  "write resolved base-color textures as real '<output-dir>/textures/<name>.png' "
@@ -1231,6 +1242,24 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             buildLodTierMeshes(skinsToExport, vertices, baseMesh, m2Inputs, catalog, texturesDir, modelPath,
                                 modelBasename, texturesOutDir, listfile, listfileRoot,
                                 objectSkinTextureFileDataId, customizationNames);
+
+        // --compare-canon: canon::Model has no LOD concept (REFACTOR/README.md
+        // stage 3), so this only ever runs against an unambiguous single
+        // resolved tier -- skipped with a note, not guessed at, for --lod all
+        // or an explicit multi-entry resolution.
+        if (opts.compareCanon) {
+            if (skinsToExport.size() != 1) {
+                std::cerr << "husk: canon-compare: note: " << skinsToExport.size()
+                          << " skin tier(s) resolved -- canon::Model has no LOD concept, skipping "
+                             "(only a single resolved tier can be compared unambiguously)\n";
+            } else if (namedMeshes.empty()) {
+                std::cerr << "husk: canon-compare: note: the resolved skin tier has no renderable "
+                             "geometry -- nothing to compare\n";
+            } else {
+                runCanonCompareExport(model, skinsToExport.front().second, namedMeshes.front().mesh, skeleton,
+                                       animations, outputPath);
+            }
+        }
 
         // One geoset tag joint per distinct skinSectionId across every LOD
         // tier's primitives -- lets tools/husk_blender_geoset_mask.py

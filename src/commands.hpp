@@ -216,6 +216,9 @@ struct ExportOptions {
     bool slimTextures = false;
     // REFACTOR/README.md's I4 -- see the flag's own --help text.
     bool explainTextures = false;
+    // REFACTOR/README.md stage 3's runtime convergence gate -- see the
+    // flag's own --help text and cmd_export_canon.hpp's doc comment.
+    bool compareCanon = false;
 };
 
 // Declares every export flag (names, defaults, descriptions, the `--skin
