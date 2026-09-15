@@ -672,3 +672,67 @@ correctness (confirmed fine, once the tool itself was fixed). Threshold
 tuning (`DEFAULT_MEAN_THRESHOLD = 3.0`) is a starting point from this one
 real fixture, not corpus-validated.
 
+**Texture embedding -- closed 2026-09-15, same day.** Luna pushed on the
+"writer re-fetches through the catalog" framing above directly: that
+description didn't match `BUNDLE_FORMAT.md`'s own settled design (the
+canonical payload is the source-format compressed blocks, rehoused
+verbatim into DDS -- not something re-fetched live at write time), and
+asked how the other binary chunks (mesh/skeleton/animation) actually
+handle this, since canon:: should follow the same pattern rather than
+invent a new one. Checked directly: every other chunk holds its real
+payload data inline in the value type (`canon::Mesh::positions`,
+`canon::Curve::keyframes`, ...) -- no parallel resource map anywhere.
+`BUNDLE_FORMAT.md`'s "Embed or reference -- one rule" section (already
+settled, just not yet connected to this gap) answers the modularity
+question this raised: embed-vs-reference is a manifest/writer-time choice
+per resource (a `Ref` either carries a `uri` or doesn't), not something
+baked into the in-memory shape -- so the payload belongs directly on
+`canon::TextureRef`, as an `optional<Payload>` (present only when a
+producer chose to fetch bytes), not a mandatory field and not a separate
+map.
+
+Implemented: `canon::TextureRef::payload` (`canon_material.hpp`,
+`std::optional<Payload>{bytes, TextureEncoding}` -- the settled
+`Bc1/Bc2/Bc3/Bgra/Palettized/Png` vocabulary, though only `Png` is
+reachable today, same "type doesn't need a second breaking change later"
+reasoning `sources::Catalog`'s own `TextureEncoding` doc comment already
+uses). `cmd_export_canon.cpp`'s `toCanonTextureRef` now populates it from
+the real `sources::Catalog` answer it already had in hand (always
+fetch-and-embed, today's only real policy). Both writers wired: `gltf_lean.cpp`
+embeds a real `images`/`textures` entry and sets `baseColorTexture` from
+each material's first layer, deduped by resolved name (mirrors
+`gltf_mesh.cpp`'s own `alternateTextureCache`); `bundle_writer.cpp` writes
+a real `textures/<name>.png` file per resolved-with-payload texture
+(deduped the same way) and records a real `uri` on the manifest `Ref`
+(`writeRef` gained an optional `uri` parameter for exactly this) --
+matching `BUNDLE_FORMAT.md`'s own shape sketch (`textures/<name>.dds`) for
+the first time, `.png` today since intake still decodes BLP before
+canon:: ever sees the bytes (DDS block-preservation itself is a separate,
+larger, not-yet-started follow-up -- would need real raw-BLP-block
+extraction in C++, which doesn't exist; only `blp/`'s Python tool has it,
+and only for feeding Pillow, not for producing a stored artifact).
+
+Verified against real data: re-ran the same `bloodelffemale_hd.m2`
+`--compare-canon` export -- `--compare-canon` still reports clean, 0
+deviations (the new `payload` field isn't compared, by design, same
+"structural facts only" scope `compareMaterialBlendModes` already has);
+the bundle wrote 4 real `textures/*.png` files (matching the 4 of 10
+materials whose primary layer actually resolves, not Ambiguous) with real
+`uri`s in the manifest. Re-ran the render-diff tool: the canon render now
+visibly shows real texture on those 4 materials (previously all-white).
+The remaining diff is now fully attributable to the pre-existing,
+already-documented `Ambiguous` resolution-tier gap (same-basename fuzzy
+candidates, no FileDataID to disambiguate -- canon correctly declines to
+embed a guess where legacy picks an arbitrary default) -- confirmed by
+inspecting the diff image directly, not assumed: a flat, uniform
+color-shift across the untextured-on-canon-side clothing region, exactly
+the signature of "default white vs. legacy's real fallback color," not a
+new defect. 2 new tests (`test_writers_gltf_lean.cpp`,
+`test_writers_bundle.cpp`) exercise a real payload-bearing `TextureRef`
+directly (a real 1x1 PNG that round-trips through tinygltf's own decoder
+for the lean-writer case; a real written file + exact byte round-trip +
+dedup-to-one-file-across-two-layers for the bundle case), plus the
+Resolved-but-no-payload case for both (no `baseColorTexture`/no `uri`/no
+`textures/` directory at all -- confirms this is a real optional field,
+not silently always-populated). Full suite green, 979/979 (977 + 2 new).
+

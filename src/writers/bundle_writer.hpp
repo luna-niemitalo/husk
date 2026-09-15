@@ -147,8 +147,8 @@
 //       { "identity": <Ref>,
 //         "role": <KnownRole enum name, lowercase, or the raw open string alternative -- canon::LayerRole visited>,
 //         "uv": "uv_set_0"|"uv_set_1"|...|"environment_mapped",   // canon::UvRef visited; "uv_set_<N>" for UvSetIndex{N}
-//         "texture_state": "resolved"|"known_unresolved"|"ambiguous",  // canon::TextureRef::state, faithful even though every real producer today yields known_unresolved
-//         "texture": <Ref>,                 // present only when texture_state == "resolved"
+//         "texture_state": "resolved"|"known_unresolved"|"ambiguous",  // canon::TextureRef::state
+//         "texture": <Ref>,                 // present only when texture_state == "resolved"; carries a real "uri" (textures/<name>.<ext>, AUDIT.md §7.4) only when the producer that resolved it also fetched real bytes (canon::TextureRef::payload) -- a Resolved identity with no fetched payload omits "uri", the documented "husk knows what this is, didn't fetch it" case (BUNDLE_FORMAT.md's "a reference may be unresolved")
 //         "unresolved_reason": <string>,    // present only when texture_state == "known_unresolved"
 //         "candidates": [ { "identity": <Ref>, "category": <string>, "width": <uint32>, "height": <uint32> } ],  // present only when texture_state == "ambiguous"
 //         "blend": <BlendOp enum name, lowercase>,

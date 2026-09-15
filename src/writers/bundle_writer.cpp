@@ -9,6 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <type_traits>
+#include <unordered_set>
 #include <variant>
 
 #include "json_writer.hpp"
@@ -90,7 +91,11 @@ std::string nameSourceName(canon::NameSource source) {
 // One shared serializer for canon::Ref's Identity variant -- every call
 // site below (bone/geoset/material-layer/texture identities) shares this
 // rather than re-visiting the variant per site (this file's own brief).
-void writeRef(json::Writer& w, const canon::Ref& ref) {
+// `uri`, when non-empty, adds BUNDLE_FORMAT.md's "Embed or reference"
+// field -- only the texture case populates it today (writeTextureRef
+// below); every other Ref user passes the default (identity only, no
+// payload location to name yet).
+void writeRef(json::Writer& w, const canon::Ref& ref, const std::string& uri = "") {
     w.beginObject();
     w.key("id");
     w.beginObject();
@@ -125,6 +130,10 @@ void writeRef(json::Writer& w, const canon::Ref& ref) {
     w.value(ref.name);
     w.key("name_source");
     w.value(nameSourceName(ref.source));
+    if (!uri.empty()) {
+        w.key("uri");
+        w.value(uri);
+    }
     w.endObject();
 }
 
@@ -449,14 +458,66 @@ void writeAnimationSection(json::Writer& w, const canon::Skeleton& skeleton,
     w.endArray();
 }
 
-void writeTextureRef(json::Writer& w, const canon::TextureRef& texture) {
+// BUNDLE_FORMAT.md's settled texture-encoding vocabulary, extension half --
+// only Png is reachable today (canon::TextureEncoding's own doc comment:
+// every real producer still decodes BLP -> PNG before canon:: ever sees
+// the bytes), the rest exist so this switch doesn't need revisiting once
+// that changes.
+std::string textureFileExtension(canon::TextureEncoding encoding) {
+    switch (encoding) {
+        case canon::TextureEncoding::Png: return "png";
+        case canon::TextureEncoding::Bc1:
+        case canon::TextureEncoding::Bc2:
+        case canon::TextureEncoding::Bc3:
+        case canon::TextureEncoding::Bgra:
+        case canon::TextureEncoding::Palettized:
+            return "dds";  // BUNDLE_FORMAT.md's "Texture encoding -- settled": DDS houses the compressed blocks verbatim
+    }
+    return "png";
+}
+
+// Writes `texture`'s resolved payload (when it carries one, AUDIT.md §7.4)
+// to `bundleDir/textures/<name>.<ext>` and records a real `uri` alongside
+// its identity -- BUNDLE_FORMAT.md's "Embed or reference" shape. A
+// Resolved identity with no payload (a future reference-only producer)
+// writes `id`/`name`/`name_source` with no `uri`, the documented "husk
+// knows what this is" case, not an error. `writtenTextures` dedupes by
+// filename across the whole bundle (more than one material layer can
+// resolve to the same real texture) so repeated identical bytes are
+// written to disk once, not once per referencing layer.
+void writeTextureRef(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
+                      std::unordered_set<std::string>& writtenTextures) {
     switch (texture.state) {
-        case canon::TextureRef::State::Resolved:
+        case canon::TextureRef::State::Resolved: {
             w.key("texture_state");
             w.value("resolved");
             w.key("texture");
-            writeRef(w, texture.resolved);
+            std::string uri;
+            if (texture.payload) {
+                std::string stem = texture.resolved.name;
+                if (stem.empty()) {
+                    if (auto fdid = std::get_if<canon::FileDataId>(&texture.resolved.id)) {
+                        stem = std::to_string(fdid->value);
+                    } else {
+                        stem = "texture";
+                    }
+                }
+                std::string filename = stem + "." + textureFileExtension(texture.payload->encoding);
+                uri = "textures/" + filename;
+                if (writtenTextures.insert(filename).second) {
+                    std::filesystem::path texturesDir = bundleDir / "textures";
+                    std::error_code ec;
+                    std::filesystem::create_directories(texturesDir, ec);
+                    if (ec) {
+                        throw std::runtime_error("bundle writer: could not create directory " +
+                                                  texturesDir.string() + ": " + ec.message());
+                    }
+                    writeFile(texturesDir / filename, texture.payload->bytes);
+                }
+            }
+            writeRef(w, texture.resolved, uri);
             break;
+        }
         case canon::TextureRef::State::KnownUnresolved:
             w.key("texture_state");
             w.value("known_unresolved");
@@ -485,7 +546,8 @@ void writeTextureRef(json::Writer& w, const canon::TextureRef& texture) {
     }
 }
 
-void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer) {
+void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, const std::filesystem::path& bundleDir,
+                         std::unordered_set<std::string>& writtenTextures) {
     w.beginObject();
     w.key("identity");
     writeRef(w, layer.identity);
@@ -493,7 +555,7 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer) {
     writeLayerRole(w, layer.role);
     w.key("uv");
     writeUvRef(w, layer.uv);
-    writeTextureRef(w, layer.texture);
+    writeTextureRef(w, layer.texture, bundleDir, writtenTextures);
     w.key("blend");
     w.value(blendOpName(layer.blendIntoPrevious));
 
@@ -526,7 +588,9 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer) {
     w.endObject();
 }
 
-void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& materials) {
+void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& materials,
+                            const std::filesystem::path& bundleDir,
+                            std::unordered_set<std::string>& writtenTextures) {
     w.beginArray();
     for (const canon::Material& material : materials) {
         w.beginObject();
@@ -534,7 +598,7 @@ void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& 
         w.key("layers");
         w.beginArray();
         for (const canon::MaterialLayer& layer : material.layers) {
-            writeMaterialLayer(w, layer);
+            writeMaterialLayer(w, layer, bundleDir, writtenTextures);
         }
         w.endArray();
 
@@ -601,7 +665,8 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeAnimationSection(w, model.skeleton, model.animations, animBin);
 
     w.key("materials");
-    writeMaterialsSection(w, model.materials);
+    std::unordered_set<std::string> writtenTextures;
+    writeMaterialsSection(w, model.materials, bundleDir, writtenTextures);
 
     w.endObject();  // resources
     w.endObject();  // root

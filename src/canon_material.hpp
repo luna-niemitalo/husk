@@ -33,6 +33,19 @@ struct UvSetIndex {
 struct EnvironmentMapped {};  // textureCoordComboIndex == -1: a runtime-computed reflection vector, no stored per-vertex UV
 using UvRef = std::variant<UvSetIndex, EnvironmentMapped>;
 
+// BUNDLE_FORMAT.md's "Texture encoding -- settled": canonical storage is the
+// source *payload* (compressed GPU blocks, rehoused verbatim into an open
+// container -- DDS), never a proprietary re-encode and never raw decoded
+// pixels. Png exists for the projection a writer generates on request (e.g.
+// glTF, which has no DDS/BC slot). Every real producer today still only
+// ever populates Png (`sources::Catalog`'s own intake still decodes BLP ->
+// PNG before bytes reach anything canon:: touches -- see catalog.hpp's own
+// doc comment) -- the Bc1/Bc2/Bc3/Bgra/Palettized tags exist so this type
+// doesn't need a second breaking change once that decode moves to a writer
+// (I8: "convert on output, never on intake"), not because a producer emits
+// them yet.
+enum class TextureEncoding { Png, Bc1, Bc2, Bc3, Bgra, Palettized };
+
 // Three states, not two -- "resolved" isn't the only non-error outcome, same
 // three-state resolution DESIGN.md's §2.11 already establishes for texture
 // lookups elsewhere in this project.
@@ -40,8 +53,26 @@ struct TextureRef {
     enum class State { Resolved, KnownUnresolved, Ambiguous };
     State state = State::KnownUnresolved;
 
-    // Meaningful only when state == Resolved: real bytes/FileDataID in hand.
+    // Meaningful only when state == Resolved: real FileDataID/name in hand.
     Ref resolved;
+
+    // Meaningful only when state == Resolved. Absent even then: BUNDLE_FORMAT.md's
+    // "Embed or reference -- one rule" -- a resolved identity does not imply
+    // a producer chose to fetch and carry real bytes. Present means "embed
+    // this payload"; absent (with `resolved` still populated) means "this
+    // resource lives in a reference target" -- a writer that finds `resolved`
+    // but no `payload` emits a `uri`-only entry (or, if it has none to give
+    // either, an id-only "husk knows what this is, couldn't produce it"
+    // entry -- BUNDLE_FORMAT.md's "a reference may be unresolved"), never
+    // silently drops the material layer. Whether to fetch bytes at all is a
+    // producer-time decision (same place `TextureResolutions` itself gets
+    // built, `cmd_export_canon.cpp`), not something canon:: decides for
+    // itself.
+    struct Payload {
+        std::vector<uint8_t> bytes;
+        TextureEncoding encoding = TextureEncoding::Png;
+    };
+    std::optional<Payload> payload;
 
     // Meaningful only when state == KnownUnresolved: M2 asserts a real slot
     // exists (nonzero TextureType, or a customization-driven slot) but husk
@@ -55,8 +86,9 @@ struct TextureRef {
     // collapsed to one guess) so a consumer can pick, or a human can
     // resolve it later. Deliberately excludes AlternateTextureCandidate's
     // own filename/imagePng fields: a path-shaped string has no place in
-    // canon:: (I1), and decoded pixel bytes are payload a writer re-fetches
-    // through the catalog on demand, not a fact canon itself needs to hold.
+    // canon:: (I1), and an ambiguous slot has no single payload to carry --
+    // resolving the ambiguity (or not) is what turns this into a real
+    // Resolved payload, not a fact this diagnostic state should guess at.
     struct Candidate {
         Ref identity;          // FileDataId + whatever name source resolved it (I6)
         std::string category;  // export_materials.cpp's classifyCandidateCategory vocabulary; empty if unclassified

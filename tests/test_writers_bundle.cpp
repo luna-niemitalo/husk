@@ -158,6 +158,78 @@ TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files ex
     CHECK(manifest.contains("producer"));
 }
 
+TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a real "
+          "textures/<name>.<ext> file and records a real uri (AUDIT.md §7.4); a Resolved "
+          "TextureRef with no payload writes no uri and no file, and two layers sharing the "
+          "same resolved name dedupe to one written file") {
+    canon::Model model = buildSyntheticModel();
+    REQUIRE(model.materials.size() == 1);
+    REQUIRE(model.materials[0].layers.size() == 1);
+
+    std::vector<uint8_t> pngBytes = {0x01, 0x02, 0x03, 0x04};  // arbitrary bytes -- this writer never decodes them, just stores them verbatim
+
+    canon::TextureRef resolvedWithPayload;
+    resolvedWithPayload.state = canon::TextureRef::State::Resolved;
+    resolvedWithPayload.resolved.id = canon::FileDataId{99};
+    resolvedWithPayload.resolved.name = "shared_texture";
+    canon::TextureRef::Payload payload;
+    payload.bytes = pngBytes;
+    payload.encoding = canon::TextureEncoding::Png;
+    resolvedWithPayload.payload = payload;
+    model.materials[0].layers[0].texture = resolvedWithPayload;
+
+    // A second layer on a second material, same resolved name -- exercises
+    // the writtenTextures dedup (one file written, not two).
+    canon::Material material2 = model.materials[0];
+    material2.ref.id = canon::RecordIndex{1};
+    model.materials.push_back(material2);
+    model.primitiveMaterials.push_back(canon::Identity{canon::RecordIndex{1}});
+    model.mesh.primitives.push_back(model.mesh.primitives[0]);
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-texture-payload";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir);
+
+    fs::path textureFile = dir / "textures" / "shared_texture.png";
+    REQUIRE(fs::exists(textureFile));
+    std::vector<uint8_t> writtenBytes = readFile(textureFile.string());
+    CHECK(writtenBytes == pngBytes);
+
+    nlohmann::json manifest = parseManifest(dir);
+    auto& materials = manifest["resources"]["materials"];
+    REQUIRE(materials.size() == 2);
+    for (auto& mat : materials) {
+        auto& layer0 = mat["layers"][0];
+        CHECK(layer0["texture_state"] == "resolved");
+        CHECK(layer0["texture"]["uri"] == "textures/shared_texture.png");
+    }
+
+    // Only one real file on disk despite two referencing layers.
+    size_t textureFileCount = 0;
+    for (const auto& entry : fs::directory_iterator(dir / "textures")) {
+        (void)entry;
+        ++textureFileCount;
+    }
+    CHECK(textureFileCount == 1);
+
+    // Resolved but no payload -- no uri, no textures/ directory created at all.
+    fs::path dirNoPayload = fs::temp_directory_path() / "husk-test-bundle-texture-no-payload";
+    fs::remove_all(dirNoPayload);
+    canon::Model modelNoPayload = buildSyntheticModel();
+    canon::TextureRef resolvedNoPayload;
+    resolvedNoPayload.state = canon::TextureRef::State::Resolved;
+    resolvedNoPayload.resolved.id = canon::FileDataId{99};
+    resolvedNoPayload.resolved.name = "unfetched_texture";
+    modelNoPayload.materials[0].layers[0].texture = resolvedNoPayload;
+    writers::writeBundle(modelNoPayload, dirNoPayload);
+
+    nlohmann::json manifestNoPayload = parseManifest(dirNoPayload);
+    auto& layer0NoPayload = manifestNoPayload["resources"]["materials"][0]["layers"][0];
+    CHECK(layer0NoPayload["texture_state"] == "resolved");
+    CHECK_FALSE(layer0NoPayload["texture"].contains("uri"));
+    CHECK_FALSE(fs::exists(dirNoPayload / "textures"));
+}
+
 TEST_CASE("writeBundle: every BufferSlice's byte range fits inside its named file") {
     canon::Model model = buildSyntheticModel();
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-slices";

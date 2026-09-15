@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <tiny_gltf.h>
+#include <unordered_map>
 #include <vector>
 
 #include "gltf_buffer_utils.hpp"
@@ -219,10 +220,65 @@ void writeLeanGlb(const canon::Model& model, const std::filesystem::path& output
     int idxView = gltf::appendBufferView(buffer, views, mesh.indices, TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER);
 
     // --- Materials --------------------------------------------------------
+    // Dedup cache, same pattern gltf_mesh.cpp's alternateTextureCache
+    // already establishes for the production writer -- more than one
+    // canon::Material can carry the same real resolved texture on its own
+    // primary layer (e.g. two batches differing only in a later combine
+    // layer canon::Material::layers[1+] doesn't drive baseColorTexture
+    // from), and re-embedding identical bytes per material would bloat the
+    // file for no reason. Keyed by the resolved Ref's own name -- the same
+    // field the production cache keys on -- empty names simply never hit.
+    std::unordered_map<std::string, int> textureCache;
     for (const auto& mat : model.materials) {
         tinygltf::Material tm;
         tm.pbrMetallicRoughness.baseColorFactor = {1.0, 1.0, 1.0, 1.0};
         tm.alphaMode = alphaModeFor(mat);
+
+        // Base color comes from this material's own first layer -- the
+        // same "first texture unit is the base color" convention the
+        // production writer's own primary-layer selection follows
+        // (export_materials.cpp), simplified here since canon::Material
+        // doesn't yet model per-layer combine formulas this writer could
+        // pick a "better" layer from (canon_material.hpp's own Function/
+        // ShadingFunction doc comments -- not transcribed yet). Embeds only
+        // when a producer actually chose to fetch bytes (`payload` set,
+        // AUDIT.md §7.4) -- a Resolved identity with no payload (a future
+        // reference-only/slim producer) correctly stays untextured here,
+        // same as KnownUnresolved/Ambiguous.
+        if (!mat.layers.empty()) {
+            const canon::TextureRef& texRef = mat.layers.front().texture;
+            if (texRef.state == canon::TextureRef::State::Resolved && texRef.payload) {
+                const std::string& cacheKey = texRef.resolved.name;
+                auto cached = cacheKey.empty() ? textureCache.end() : textureCache.find(cacheKey);
+                int texIdx;
+                if (cached != textureCache.end()) {
+                    texIdx = cached->second;
+                } else {
+                    tinygltf::Image img;
+                    img.name = texRef.resolved.name;
+                    // Every real producer today only ever populates Png
+                    // (canon::TextureEncoding's own doc comment) -- the
+                    // other tags have no real bytes to embed yet, so this
+                    // writer only knows how to place this one container.
+                    if (texRef.payload->encoding == canon::TextureEncoding::Png) {
+                        img.mimeType = "image/png";
+                    }
+                    img.bufferView = gltf::appendBufferView(buffer, views, texRef.payload->bytes, /*target=*/0);
+                    int imgIdx = static_cast<int>(out.images.size());
+                    out.images.push_back(img);
+
+                    tinygltf::Texture tex;
+                    tex.source = imgIdx;
+                    tex.name = texRef.resolved.name;
+                    texIdx = static_cast<int>(out.textures.size());
+                    out.textures.push_back(tex);
+
+                    if (!cacheKey.empty()) textureCache.emplace(cacheKey, texIdx);
+                }
+                tm.pbrMetallicRoughness.baseColorTexture.index = texIdx;
+            }
+        }
+
         out.materials.push_back(tm);
     }
 

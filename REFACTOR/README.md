@@ -52,11 +52,19 @@ tested writers (`src/writers/bundle_writer.*`, `src/writers/gltf_lean.*`),
 but nothing in `cmd_export.cpp` calls either of them — `husk export
 --compare-canon` (opt-in, off by default) runs them as a diagnostic sidecar
 alongside the still-shipping legacy pipeline, not a replacement for it.
-`gltf_lean`'s own material writer doesn't embed any texture pixel data or
-resolved base color yet either (`AUDIT.md §7.4`) — every material writes as
-a bare default (`baseColorFactor` white, no `baseColorTexture`), found via
-the new render-diff tool's first real run, not previously named anywhere in
-this document.
+Texture payload embedding — found missing by the render-diff tool's first
+real run, then closed the same day (`AUDIT.md §7.4`): `canon::TextureRef`
+gained an optional `payload` field (bytes + encoding, populated only when
+a producer chooses to fetch and embed rather than merely identify a
+resolved texture — `BUNDLE_FORMAT.md`'s "Embed or reference" decision,
+made at resolution time, same place as every other pre-resolved-input
+pattern here) and both writers now use it: `gltf_lean` embeds a real
+`images`/`textures` entry and sets `baseColorTexture`; `bundle_writer`
+writes a real `textures/<name>.png` file with a real manifest `uri`,
+matching `BUNDLE_FORMAT.md`'s own shape sketch for the first time. Only
+`Png` is reachable today (intake still decodes BLP before canon:: sees
+the bytes) — `BUNDLE_FORMAT.md`'s settled DDS/BC-block-preservation target
+is a separate, larger, not-yet-started follow-up.
 `src/formats/`, `src/canon/`, and `src/writers/` as their own *subdirectories*
 (as opposed to the flat `canon_*.cpp`/`writers/` files that exist today) never
 materialized — a cosmetic deviation from this document's original sketch, not

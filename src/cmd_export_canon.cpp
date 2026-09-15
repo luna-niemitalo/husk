@@ -50,7 +50,12 @@ constexpr uint32_t kSequenceAliasFlag = 0x40;
 // One already-resolved sources::Catalog answer, converted to the
 // canon::TextureRef shape REFACTOR/AUDIT.md §7.1 settled on -- the
 // orchestrator-side half of that decision (canon:: itself performs no
-// resolution or conversion of its own, see m2_material_input.hpp).
+// resolution or conversion of its own, see m2_material_input.hpp). Also
+// carries the real resolved bytes onto `TextureRef::payload` (AUDIT.md
+// §7.4's texture-embedding follow-up) -- this function is where the
+// "fetch and embed vs. reference only" choice actually gets made today
+// (always embed, for every Resolved hit); a future producer wanting a
+// slim/external-textures bundle would leave `payload` unset here instead.
 // `fdid` is threaded through separately since a Resolved<EncodedTexture>
 // hit doesn't carry the FileDataID it was resolved from back out.
 canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedTexture>& resolved, uint32_t fdid) {
@@ -82,6 +87,29 @@ canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedText
     ref.state = canon::TextureRef::State::Resolved;
     if (fdid != 0) ref.resolved.id = canon::FileDataId{fdid};
     ref.resolved.name = resolved.value->imageName;
+
+    // Fetch-and-embed, not reference-only -- this orchestrator's own choice
+    // (BUNDLE_FORMAT.md's "Embed or reference" is decided here, not inside
+    // canon:: itself, see canon::TextureRef::payload's own doc comment).
+    // `sources::TextureEncoding` only ever produces `Png` today (its own
+    // doc comment: intake still decodes BLP -> PNG before bytes reach this
+    // catalog answer at all) -- `Blp` is unreachable in practice, so this
+    // is a real invariant check, not defensive noise, should that change
+    // out from under this file.
+    canon::TextureRef::Payload payload;
+    payload.bytes = resolved.value->bytes;
+    switch (resolved.value->encoding) {
+        case sources::TextureEncoding::Png:
+            payload.encoding = canon::TextureEncoding::Png;
+            break;
+        case sources::TextureEncoding::Blp:
+            throw std::runtime_error(
+                "toCanonTextureRef: sources::Catalog returned an un-decoded Blp payload -- "
+                "every intake tier is documented to decode to Png before this point (catalog.hpp), "
+                "so this is a real invariant break, not a case this converter has a mapping for yet");
+    }
+    ref.payload = std::move(payload);
+
     switch (resolved.tier) {
         case sources::ResolutionTier::Listfile:
             ref.resolved.source = canon::NameSource::Listfile;

@@ -195,6 +195,80 @@ TEST_CASE("writeLeanGlb: synthetic model -- joint hierarchy, bind translations, 
     CHECK(gm.materials[0].alphaMode == "OPAQUE");
 }
 
+TEST_CASE("writeLeanGlb: a Resolved TextureRef carrying a real payload embeds a real image/texture "
+          "and sets baseColorTexture; a Resolved TextureRef with no payload stays untextured "
+          "(AUDIT.md §7.4)") {
+    canon::Model model = buildSyntheticModel();
+    REQUIRE(model.materials.size() == 1);
+
+    // A tiny but real 1x1 PNG (not a hand-rolled fake byte string) -- this
+    // test checks the bytes actually round-trip into a real, loadable
+    // image, not just that some bytes landed in a bufferView.
+    static const std::vector<uint8_t> kOnePixelPng = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+        0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
+        0x00, 0x00, 0x03, 0x00, 0x01, 0x18, 0xDD, 0x8D, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
+        0x44, 0xAE, 0x42, 0x60, 0x82};
+
+    canon::TextureRef ref;
+    ref.state = canon::TextureRef::State::Resolved;
+    ref.resolved.id = canon::FileDataId{42};
+    ref.resolved.name = "test_texture";
+    canon::TextureRef::Payload payload;
+    payload.bytes = kOnePixelPng;
+    payload.encoding = canon::TextureEncoding::Png;
+    ref.payload = payload;
+    model.materials[0].layers[0].texture = ref;
+
+    auto outPath = std::filesystem::temp_directory_path() / "husk-test-lean-texture-payload.glb";
+    std::filesystem::remove(outPath);
+    writers::writeLeanGlb(model, outPath);
+
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model gm;
+    std::string err, warn;
+    REQUIRE(loader.LoadBinaryFromFile(&gm, &err, &warn, outPath.string()));
+
+    REQUIRE(gm.materials.size() == 1);
+    REQUIRE(gm.materials[0].pbrMetallicRoughness.baseColorTexture.index >= 0);
+    int texIdx = gm.materials[0].pbrMetallicRoughness.baseColorTexture.index;
+    REQUIRE(texIdx < static_cast<int>(gm.textures.size()));
+    int imgIdx = gm.textures[texIdx].source;
+    REQUIRE(imgIdx >= 0);
+    REQUIRE(imgIdx < static_cast<int>(gm.images.size()));
+    const tinygltf::Image& img = gm.images[imgIdx];
+    CHECK(img.name == "test_texture");
+    // tinygltf decodes the embedded PNG on load -- a real 1x1 image round
+    // trip, not just "some bytes exist somewhere".
+    CHECK(img.width == 1);
+    CHECK(img.height == 1);
+
+    std::filesystem::remove(outPath);
+
+    // Resolved but no payload (a future reference-only producer, or a
+    // resolution that simply didn't fetch bytes) -- must NOT synthesize a
+    // baseColorTexture out of nothing.
+    canon::Model modelNoPayload = buildSyntheticModel();
+    canon::TextureRef refNoPayload;
+    refNoPayload.state = canon::TextureRef::State::Resolved;
+    refNoPayload.resolved.id = canon::FileDataId{42};
+    refNoPayload.resolved.name = "test_texture";
+    modelNoPayload.materials[0].layers[0].texture = refNoPayload;
+
+    auto outPath2 = std::filesystem::temp_directory_path() / "husk-test-lean-texture-no-payload.glb";
+    std::filesystem::remove(outPath2);
+    writers::writeLeanGlb(modelNoPayload, outPath2);
+
+    tinygltf::Model gm2;
+    REQUIRE(loader.LoadBinaryFromFile(&gm2, &err, &warn, outPath2.string()));
+    REQUIRE(gm2.materials.size() == 1);
+    CHECK(gm2.materials[0].pbrMetallicRoughness.baseColorTexture.index == -1);
+    CHECK(gm2.images.empty());
+
+    std::filesystem::remove(outPath2);
+}
+
 #ifdef HUSK_GLTF_VALIDATOR
 TEST_CASE("writeLeanGlb: a real fixture produces a glb the Khronos glTF-Validator accepts with "
           "zero errors" *
