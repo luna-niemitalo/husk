@@ -378,7 +378,8 @@ Report compareAnimations(const canon::Model& canonModel, const std::vector<m2::S
 
 Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vector<skin::Batch>& batches,
                                  const std::vector<skin::Submesh>& submeshes,
-                                 const std::vector<m2::Material>& materials) {
+                                 const std::vector<m2::Material>& materials,
+                                 const std::vector<gltf::Material>& legacyMaterials) {
     Report r;
 
     // Independently walk `batches` applying the exact same zero-indexCount
@@ -413,12 +414,45 @@ Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vect
         r.deviations.push_back("first-layer blend op mismatch at material " + std::to_string(*blendOpMismatch));
     }
 
-    r.notes.push_back("only each material's own first-layer blendIntoPrevious op is checked -- canon's "
-                       "texture-resolution wiring itself has landed (AUDIT.md §7.1's API shape, closed "
-                       "2026-09-15, orchestrator wiring closed 2026-09-15), but this comparator was "
-                       "never extended to check resolved texture identity/tint/uv-animation against "
-                       "legacy's own gm.baseColorTextureFileDataId -- a real remaining gap in this "
-                       "diagnostic, not in canon:: itself");
+    // Texture-identity check: only when the caller actually supplied
+    // legacy's own material list (see this function's own doc comment for
+    // why an empty default silently skips this, and why only the
+    // `Resolved` canon state is checked at all).
+    if (!legacyMaterials.empty()) {
+        if (legacyMaterials.size() != canonModel.materials.size()) {
+            std::ostringstream os;
+            os << "legacyMaterials count (" << legacyMaterials.size() << ") differs from canon material count ("
+               << canonModel.materials.size() << ") -- skipping texture-identity check";
+            r.notes.push_back(os.str());
+        } else {
+            std::optional<size_t> textureMismatch;
+            for (size_t i = 0; i < canonModel.materials.size(); ++i) {
+                const auto& mat = canonModel.materials[i];
+                if (mat.layers.empty()) continue;
+                const canon::TextureRef& ref = mat.layers.front().texture;
+                if (ref.state != canon::TextureRef::State::Resolved) continue;  // no opinion to check
+                const auto* fdid = std::get_if<canon::FileDataId>(&ref.resolved.id);
+                if (!fdid) continue;  // Resolved but no real FileDataID identity -- nothing to compare
+                if (fdid->value != legacyMaterials[i].baseColorTextureFileDataId && !textureMismatch) {
+                    textureMismatch = i;
+                }
+            }
+            if (textureMismatch) {
+                const auto& ref = canonModel.materials[*textureMismatch].layers.front().texture;
+                uint32_t canonFdid = std::get<canon::FileDataId>(ref.resolved.id).value;
+                std::ostringstream os;
+                os << "first-layer resolved texture FileDataID mismatch at material " << *textureMismatch
+                   << ": canon " << canonFdid << " vs legacy "
+                   << legacyMaterials[*textureMismatch].baseColorTextureFileDataId;
+                r.deviations.push_back(os.str());
+            }
+        }
+    }
+
+    r.notes.push_back("only each material's own first-layer blendIntoPrevious op and (when legacyMaterials is "
+                       "supplied) resolved texture FileDataID are checked -- tint/alphaFade/uvAnimation curve "
+                       "comparison, and any check at all for a canon KnownUnresolved/Ambiguous state, remain "
+                       "unimplemented in this diagnostic");
     return r;
 }
 

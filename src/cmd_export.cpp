@@ -1258,7 +1258,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             } else {
                 runCanonCompareExport(model, skinsToExport.front().second, namedMeshes.front().mesh, skeleton,
                                        animations, outputPath, catalog, modelPath, objectSkinTextureFileDataId,
-                                       animDir, bonesAreInline);
+                                       animDir, bonesAreInline, namedMeshes.front().materials);
             }
         }
 

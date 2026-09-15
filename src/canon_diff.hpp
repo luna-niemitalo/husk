@@ -53,14 +53,27 @@ Report compareAnimations(const canon::Model& canonModel, const std::vector<m2::S
                          const std::vector<gltf::Animation>& legacyAnimations,
                          float translationEpsilon = 1e-3f);
 
-// Blend-mode-only structural check (canon::Model::materials[i] <->
-// canon::Model::mesh.primitives[i], mirroring the same alignment
-// gltf::Mesh's own primitives/materials pair already has). Full
-// texture-identity comparison is out of scope: canon::assembleMaterial
-// never resolves real texture bytes (canon_material_builder.hpp's own doc
-// comment) -- that half of Stage 3 isn't built yet.
+// Blend-mode check (canon::Model::materials[i] <-> canon::Model::
+// mesh.primitives[i], mirroring the same alignment gltf::Mesh's own
+// primitives/materials pair already has), plus a texture-identity check
+// where both sides actually have an opinion: when canon's primary layer
+// (layers[0]) is `TextureRef::State::Resolved` with a real `FileDataId`
+// (AUDIT.md §7.1's orchestrator wiring, closed 2026-09-15 -- meaning the
+// caller supplied `TextureResolutions`, not the empty default), it must
+// name the same FileDataID legacy's own
+// `gltf::Material::baseColorTextureFileDataId` does for that material.
+// `legacyMaterials` is optional (`{}` default): when empty -- including
+// every existing call site that predates this parameter -- the
+// texture-identity check is silently skipped entirely, same "no data, no
+// opinion" convention every other optional comparator input in this file
+// follows. Deliberately does NOT check `KnownUnresolved`/`Ambiguous` canon
+// states against legacy at all: those states are indistinguishable from
+// "the caller supplied no TextureResolutions for this slot," so flagging
+// them would produce false deviations on the (currently: every) real run
+// with no `--textures` corpus available to resolve against.
 Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vector<skin::Batch>& batches,
                                  const std::vector<skin::Submesh>& submeshes,
-                                 const std::vector<m2::Material>& materials);
+                                 const std::vector<m2::Material>& materials,
+                                 const std::vector<gltf::Material>& legacyMaterials = {});
 
 }  // namespace husk::canon_diff

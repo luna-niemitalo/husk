@@ -330,6 +330,37 @@ itself was never extended to check resolved texture identity against
 legacy's `gm.baseColorTextureFileDataId` — a gap in that one diagnostic, not
 in canon:: or its resolution wiring.
 
+**Texture-identity check added to `compareMaterialBlendModes`, found to be
+currently unexercisable against a real fixture**: `compareMaterialBlendModes`
+gained an optional `legacyMaterials` parameter (default empty, `{}` = skip,
+same "predates this parameter" convention every other optional comparator
+input already follows) — when both `canonModel.materials[i]`'s primary
+layer is `TextureRef::State::Resolved` and `legacyMaterials` was supplied,
+it checks the resolved `FileDataId` matches legacy's own
+`baseColorTextureFileDataId`. 4 new unit tests cover match/mismatch/omitted/
+`KnownUnresolved`-is-never-checked. **Running it for real against
+`bloodelffemale.m2` surfaced a genuine, previously-undocumented structural
+fact**: `buildMaterialsAndPrimitives` (legacy) dedupes materials by content
+signature (`materialDedupKey`) — this real fixture's 70 surviving batches
+collapse to 8 distinct `gltf::Material` entries — while
+`canon::assembleModel` pushes exactly one `canon::Material` per surviving
+batch with **no dedup at all** (`Model::materials`' own doc comment already
+states the 1:1 batch correspondence as deliberate, but doesn't flag that
+this diverges from legacy's own list shape). The new check's own
+`legacyMaterials.size() != canonModel.materials.size()` guard caught this
+safely (8 vs 70 → skipped with a note, not a false deviation), but it also
+means the texture-identity check can currently never fire against ANY real
+corpus file — only against hand-built unit fixtures where both lists happen
+to already be the same length. Real follow-up, not done here: either give
+`canon::Model` its own dedup pass (a real behavior change, not just a
+diagnostic fix), or have the comparator walk `gltf::Mesh::primitives[i]
+.materialIndex` on both sides instead of assuming positional 1:1
+correspondence between the two material lists. Left open rather than
+guessed at, since which of those two is "correct" is itself a real Stage 3
+design question (does canon:: want legacy's dedup behavior at all, or is
+"one material per batch" the deliberately simpler canon:: answer?) that
+hasn't been decided yet.
+
 **Still open**: no real fixture in this repo's `test_data/` ships alongside
 a populated `--textures` directory, so this wiring has only been verified
 structurally (clean rebuild, full suite, `--compare-canon` still clean with

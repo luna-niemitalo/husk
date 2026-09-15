@@ -50,10 +50,18 @@ namespace husk::commands {
 // never a .skel-sourced one, so external-anim resolution has nothing valid
 // to key against in that case (a separate, pre-existing canon::Model
 // limitation, not this parameter's own scope to fix).
+// `legacyMaterials`: the SAME LOD tier's own resolved `gltf::Material` list
+// (`NamedMesh::materials`, matching `legacyMesh`) -- forwarded to
+// canon_diff::compareMaterialBlendModes so it can check canon's newly-wired
+// texture-resolution answers against legacy's own
+// `baseColorTextureFileDataId` (AUDIT.md §7.1). Default empty for the same
+// "predates this parameter, no behavior change" reason every other optional
+// parameter in this codebase defaults empty.
 void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, const gltf::Mesh& legacyMesh,
                            const gltf::Skeleton& legacySkeleton,
                            const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
                            husk::sources::Catalog& catalog, const std::string& modelPath,
-                           uint32_t objectSkinTextureFileDataId, const std::string& animDir, bool bonesAreInline);
+                           uint32_t objectSkinTextureFileDataId, const std::string& animDir, bool bonesAreInline,
+                           const std::vector<gltf::Material>& legacyMaterials = {});
 
 }  // namespace husk::commands

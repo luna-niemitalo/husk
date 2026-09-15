@@ -198,3 +198,112 @@ TEST_CASE("canon_diff::compareMaterialBlendModes: a matching blend mode reports 
     canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials);
     CHECK(r.ok());
 }
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: legacyMaterials omitted (default) skips the texture-identity "
+          "check entirely, even with a mismatching fdid") {
+    canon::Model canonModel;
+    canon::Material mat;
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    layer.texture.state = canon::TextureRef::State::Resolved;
+    layer.texture.resolved.id = canon::FileDataId{111};
+    mat.layers = {layer};
+    canonModel.materials = {mat};
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    // No legacyMaterials argument at all -- default empty.
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials);
+    CHECK(r.ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a real resolved-texture FileDataID mismatch against "
+          "legacyMaterials is caught as a deviation") {
+    canon::Model canonModel;
+    canon::Material mat;
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    layer.texture.state = canon::TextureRef::State::Resolved;
+    layer.texture.resolved.id = canon::FileDataId{111};
+    mat.layers = {layer};
+    canonModel.materials = {mat};
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    legacyMaterials[0].baseColorTextureFileDataId = 222;  // deliberately different from canon's 111
+
+    canon_diff::Report r =
+        canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials, legacyMaterials);
+    CHECK_FALSE(r.ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a matching resolved-texture FileDataID against "
+          "legacyMaterials reports zero deviations") {
+    canon::Model canonModel;
+    canon::Material mat;
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    layer.texture.state = canon::TextureRef::State::Resolved;
+    layer.texture.resolved.id = canon::FileDataId{111};
+    mat.layers = {layer};
+    canonModel.materials = {mat};
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    legacyMaterials[0].baseColorTextureFileDataId = 111;  // matches canon's resolved fdid
+
+    canon_diff::Report r =
+        canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials, legacyMaterials);
+    CHECK(r.ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a KnownUnresolved canon texture state is never checked "
+          "against legacyMaterials, even when legacy itself resolved a real fdid") {
+    canon::Model canonModel;
+    canon::Material mat;
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    // Default TextureRef::State::KnownUnresolved -- e.g. no TextureResolutions
+    // was supplied to assembleModel at all.
+    mat.layers = {layer};
+    canonModel.materials = {mat};
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    legacyMaterials[0].baseColorTextureFileDataId = 999;  // legacy has an opinion; canon doesn't
+
+    canon_diff::Report r =
+        canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials, legacyMaterials);
+    CHECK(r.ok());
+}

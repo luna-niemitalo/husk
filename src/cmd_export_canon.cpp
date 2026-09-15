@@ -268,7 +268,8 @@ void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, 
                            const gltf::Skeleton& legacySkeleton,
                            const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
                            sources::Catalog& catalog, const std::string& modelPath,
-                           uint32_t objectSkinTextureFileDataId, const std::string& animDir, bool bonesAreInline) {
+                           uint32_t objectSkinTextureFileDataId, const std::string& animDir, bool bonesAreInline,
+                           const std::vector<gltf::Material>& legacyMaterials) {
     try {
         auto skinBytes = readFileBytes(skinPath);
         skin::Header skinHeader = skin::parseHeader(skinBytes);
@@ -315,7 +316,7 @@ void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, 
         printReport("animations", animReport);
 
         canon_diff::Report materialReport =
-            canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, model.materials);
+            canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, model.materials, legacyMaterials);
         anyDeviation = anyDeviation || !materialReport.ok();
         printReport("materials", materialReport);
 
