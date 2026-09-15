@@ -72,18 +72,53 @@ Report compareAnimations(const canon::Model& canonModel, const std::vector<m2::S
 // `gltf::Material::baseColorTextureFileDataId` does for that primitive's
 // own resolved legacy material. `legacyMaterials`/`legacyPrimitives` are
 // both optional (`{}` default): when either is empty -- including every
-// existing call site that predates these parameters -- the texture-identity
-// check is silently skipped entirely, same "no data, no opinion" convention
-// every other optional comparator input in this file follows. Deliberately
-// does NOT check `KnownUnresolved`/`Ambiguous` canon states against legacy
-// at all: those states are indistinguishable from "the caller supplied no
-// TextureResolutions for this slot," so flagging them would produce false
-// deviations on the (currently: every) real run with no `--textures`
-// corpus available to resolve against.
+// existing call site that predates these parameters -- every check below
+// that needs legacy's own material data (texture identity, the
+// KnownUnresolved/Ambiguous state check, and the curve comparison) is
+// silently skipped entirely, same "no data, no opinion" convention every
+// other optional comparator input in this file follows.
+//
+// KnownUnresolved/Ambiguous (closed 2026-09-15): checked against the one
+// legacy field each state actually has a real counterpart for --
+// `TextureRef::State::KnownUnresolved` (husk asserts a real texture slot
+// exists but couldn't get bytes for it) against `gltf::Material::
+// baseColorImagePng` being empty (legacy's own "couldn't get bytes"
+// signal, per that field's own doc comment); `TextureRef::State::Ambiguous`
+// (multiple real candidate files, no in-file tiebreak) against
+// `gltf::Material::alternateTextureCandidates` being non-empty (legacy's
+// own "genuine ambiguity found" signal, per that field's own doc comment
+// -- populated only when export_materials.cpp itself found 2+ same-
+// basename candidates, never for a sole match). A mismatch either
+// direction (canon says unresolved/ambiguous, legacy nonetheless got real
+// bytes or found no candidates) is a real deviation, not a false positive
+// from an absent `--textures` corpus -- both sides ran against the same
+// corpus, so both should reach the same conclusion about it.
+//
+// Curve comparison (closed 2026-09-15): canon's primary layer's `tint`/
+// `alphaFade`/`uvAnimation` (canon_material.hpp) are each resolved against
+// exactly one sequence (`m2_canon_input.cpp`'s `materialSequenceIndex`),
+// recoverable from the curve's own `SequenceRef`. Matched against legacy's
+// corresponding `AnimatedXCurve` vector entry whose own `sequenceIndex`
+// names that same sequence (or `-1` for a global-sequence-driven curve,
+// `export_transform.hpp`'s `resolveAnimatedCurveGeneric` convention), then
+// compared keyframe-for-keyframe (raw M2-space values -- these are colors/
+// UV-space transforms, not spatial positions, so no zUpToYUp conversion
+// applies, unlike `compareMesh`/`compareSkeleton`/`compareAnimations`
+// above). `alphaFade` alone can legitimately match either of legacy's two
+// separate `alphaFadeAnimation`/`weightFadeAnimation` vectors (canon has
+// only one `alphaFade` slot per layer and prefers color-driven data when
+// both are animated -- `m2_material_input.hpp`'s own doc comment); a match
+// against either one is accepted, only a match against neither is a
+// deviation. Only checks when canon actually populated the optional field
+// -- the reverse direction (legacy carries curve data for the chosen
+// sequence that canon's own optional field is empty for) isn't checked,
+// same one-directional "verify what canon asserts" scope every other check
+// in this function already has (blend op, texture identity above).
 Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vector<skin::Batch>& batches,
                                  const std::vector<skin::Submesh>& submeshes,
                                  const std::vector<m2::Material>& materials,
                                  const std::vector<gltf::Material>& legacyMaterials = {},
-                                 const std::vector<gltf::Primitive>& legacyPrimitives = {});
+                                 const std::vector<gltf::Primitive>& legacyPrimitives = {},
+                                 float curveEpsilon = 1e-4f);
 
 }  // namespace husk::canon_diff

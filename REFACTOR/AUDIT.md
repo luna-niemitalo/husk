@@ -377,6 +377,48 @@ share, confirmed to name the same FileDataID on both sides. A real visual
 refactor's "no gate is output-unchanged" policy — this closes the
 *resolution* half, not the *pixel* half.
 
+**Tint/alphaFade/uvAnimation curve comparison + KnownUnresolved/Ambiguous
+state check — closed 2026-09-15, same day.** The remaining gap this
+section's own diagnostic note used to name explicitly
+(`compareMaterialBlendModes` only checked blend op + resolved texture
+identity) is now closed. Curves: canon's primary layer's `tint`/
+`alphaFade`/`uvAnimation` are each resolved against exactly one sequence
+(`m2_canon_input.cpp`'s `materialSequenceIndex`); matched against legacy's
+own `AnimatedXCurve` vector entry whose `sequenceIndex` names that same
+sequence (or `-1` for global-sequence, `export_transform.hpp`'s
+`resolveAnimatedCurveGeneric` convention) and compared keyframe-for-
+keyframe as raw M2-space values (colors/texture-space transforms, not
+spatial positions — no zUpToYUp conversion, unlike every other comparator
+in this file). `alphaFade` alone accepts a match against either of
+legacy's two separate `alphaFadeAnimation`/`weightFadeAnimation` vectors,
+since canon collapses both sources into one slot
+(`m2_material_input.hpp`'s own doc comment). State check: `KnownUnresolved`
+is checked against `gltf::Material::baseColorImagePng` being empty
+(legacy's own "couldn't get bytes" signal); `Ambiguous` against
+`alternateTextureCandidates` being non-empty (legacy's own "genuine
+ambiguity found" signal, populated only for a real 2+-candidate pool) —
+both are real legacy fields with directly matching documented meanings, not
+invented vocabulary. Both checks only run when `legacyMaterials`/
+`legacyPrimitives` are supplied, same scope the texture-identity check
+already had. 10 new unit tests (`tests/test_canon_diff.cpp`): tint
+match/mismatch/no-matching-sequence, alphaFade matching via
+`weightFadeAnimation` alone/matching neither vector, uv-translation
+match/mismatch, `KnownUnresolved` match (legacy's own unrelated fdid
+doesn't trigger a false positive)/mismatch, `Ambiguous` match/mismatch.
+Verified against real data too: `bloodelffemale_hd.m2` (with `--skel`, no
+`--textures`) and three real texture-transform-animated fixtures
+(`brewfestmount.m2` — animated tint/fade + UV rotation, 18 animated-tint/
+fade batches, 10 UV-transform batches; `bloodknightcharger.m2` — UV scale;
+`7037014.m2` — UV translation) all stay **clean, no deviations found**
+through `husk export --compare-canon`, exercising the new curve
+comparisons against real animated M2 data, not just synthetic fixtures.
+Full suite green, 998/998 (988 + 10 new). Nothing further queued in this
+diagnostic's own scope — `compareMaterialBlendModes`'s remaining
+documented limitation is additional texture layers (`textureCount > 1`,
+i.e. `layers[1..]`) having no comparison at all, same "first layer only"
+scope every check in this function has always had, not a gap this task
+closed or was asked to.
+
 ### 7.2 canon animation: external `.anim` resolution (global sequences, alias resolution, external-`.anim` API shape + orchestrator wiring: all closed 2026-09-15)
 
 **Global sequences and alias resolution are now implemented** (`canon_model.cpp`'s

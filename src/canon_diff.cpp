@@ -1,5 +1,6 @@
 #include "canon_diff.hpp"
 
+#include <array>
 #include <cmath>
 #include <optional>
 #include <sstream>
@@ -53,6 +54,108 @@ bool near(const canon::Vec2& a, const gltf::Vec2& b, float epsilon) {
 gltf::Vec3 toGltf(const canon::Vec3& v) { return gltf::zUpToYUp({v.x, v.y, v.z}); }
 gltf::Quat toGltf(const canon::Quat& q) { return gltf::rotationZUpToYUp({q.x, q.y, q.z, q.w}); }
 gltf::Vec3 toGltfScale(const canon::Vec3& v) { return gltf::scaleZUpToYUp({v.x, v.y, v.z}); }
+
+// Finds the legacy AnimatedXCurve entry whose own `sequenceIndex` names the
+// same sequence `seq` does -- a real M2Sequence array index for
+// `SequenceRef::Kind::Sequence`, or the synthetic `-1` a global-sequence-
+// driven curve gets (`export_transform.hpp`'s `resolveAnimatedCurveGeneric`,
+// the one real producer of every legacy AnimatedXCurve vector). Legacy
+// carries one entry per real M2Sequence with non-empty data (plus at most
+// one global-sequence entry); canon's curve is resolved against exactly one
+// sequence (m2_canon_input.cpp's materialSequenceIndex) -- this is the
+// lookup that turns "one of legacy's many" into "the one canon actually
+// has an opinion about."
+template <typename LegacyCurve>
+const LegacyCurve* findLegacyCurve(const std::vector<LegacyCurve>& curves, const canon::SequenceRef& seq) {
+    int want = seq.kind == canon::SequenceRef::Kind::Sequence ? static_cast<int>(seq.index) : -1;
+    for (const auto& c : curves) {
+        if (c.sequenceIndex == want) return &c;
+    }
+    return nullptr;
+}
+
+// Raw (non-spatial) value comparisons -- tint is a color, UV-transform
+// translation/scaling live in texture space, and UV-transform rotation is a
+// planar texture-space quaternion (m2_material_input.cpp's own
+// resolveUvAnimation doc comment: TextureTransform's rotation is a raw
+// C4Quaternion, never decompressed/composed the way a bone's own rotation
+// track is). None of these are model-space positions/orientations, so
+// unlike compareMesh/compareSkeleton/compareAnimations above, no
+// toGltf/zUpToYUp conversion applies to any of them -- both sides already
+// store the same raw M2 values, compared component-for-component.
+bool near(const canon::Vec3& a, const gltf::Vec3& b, float epsilon) {
+    return near(a.x, b.x, epsilon) && near(a.y, b.y, epsilon) && near(a.z, b.z, epsilon);
+}
+bool near(const canon::Quat& a, const std::array<float, 4>& b, float epsilon) {
+    return near(a.x, b[0], epsilon) && near(a.y, b[1], epsilon) && near(a.z, b[2], epsilon) &&
+           near(a.w, b[3], epsilon);
+}
+
+bool vecCurveMatches(const canon::VecCurve& c, const gltf::Material::AnimatedColorCurve& l, float epsilon) {
+    if (c.keyframes.size() != l.keyframes.size()) return false;
+    for (size_t k = 0; k < c.keyframes.size(); ++k) {
+        if (!near(c.keyframes[k].first, l.keyframes[k].first, epsilon)) return false;
+        if (!near(c.keyframes[k].second, l.keyframes[k].second, epsilon)) return false;
+    }
+    return true;
+}
+
+bool scalarCurveMatches(const canon::ScalarCurve& c, const gltf::Material::AnimatedScalarCurve& l, float epsilon) {
+    if (c.keyframes.size() != l.keyframes.size()) return false;
+    for (size_t k = 0; k < c.keyframes.size(); ++k) {
+        if (!near(c.keyframes[k].first, l.keyframes[k].first, epsilon)) return false;
+        if (!near(c.keyframes[k].second, l.keyframes[k].second, epsilon)) return false;
+    }
+    return true;
+}
+
+bool quatCurveMatches(const canon::QuatCurve& c, const gltf::Material::AnimatedQuatCurve& l, float epsilon) {
+    if (c.keyframes.size() != l.keyframes.size()) return false;
+    for (size_t k = 0; k < c.keyframes.size(); ++k) {
+        if (!near(c.keyframes[k].first, l.keyframes[k].first, epsilon)) return false;
+        if (!near(c.keyframes[k].second, l.keyframes[k].second, epsilon)) return false;
+    }
+    return true;
+}
+
+// Single-source curve comparison: `label` names the track (used only in the
+// returned message), `matches` is one of the *CurveMatches functions above.
+// Returns nullopt when canon has nothing to check (the common case for any
+// track that simply isn't animated on this layer) -- see this function's
+// own doc comment in canon_diff.hpp for why the reverse direction (legacy
+// has data canon's optional field lacks) isn't checked.
+template <typename CanonCurve, typename LegacyCurve, typename MatchFn>
+std::optional<std::string> compareSingleCurve(const std::optional<CanonCurve>& canonCurve,
+                                               const std::vector<LegacyCurve>& legacyCurves, const char* label,
+                                               MatchFn matches) {
+    if (!canonCurve) return std::nullopt;
+    const LegacyCurve* legacy = findLegacyCurve(legacyCurves, canonCurve->sequence);
+    if (!legacy) {
+        return std::string(label) + " curve present in canon but no matching legacy entry found for the same sequence";
+    }
+    if (!matches(*canonCurve, *legacy)) {
+        return std::string(label) + " curve keyframe count/value mismatch against the matching legacy entry";
+    }
+    return std::nullopt;
+}
+
+// alphaFade is the one track canon collapses two legacy sources into (see
+// this function's own doc comment in canon_diff.hpp) -- a match against
+// EITHER legacy vector confirms canon's value is real, not fabricated.
+std::optional<std::string> compareAlphaFadeCurve(const std::optional<canon::ScalarCurve>& canonCurve,
+                                                  const gltf::Material& lm, float epsilon) {
+    if (!canonCurve) return std::nullopt;
+    const gltf::Material::AnimatedScalarCurve* fromColor = findLegacyCurve(lm.alphaFadeAnimation, canonCurve->sequence);
+    const gltf::Material::AnimatedScalarCurve* fromWeight = findLegacyCurve(lm.weightFadeAnimation, canonCurve->sequence);
+    if (fromColor && scalarCurveMatches(*canonCurve, *fromColor, epsilon)) return std::nullopt;
+    if (fromWeight && scalarCurveMatches(*canonCurve, *fromWeight, epsilon)) return std::nullopt;
+    if (!fromColor && !fromWeight) {
+        return std::string("alphaFade curve present in canon but neither legacy's alphaFadeAnimation nor "
+                            "weightFadeAnimation has a matching-sequence entry");
+    }
+    return std::string("alphaFade curve keyframe count/value mismatch against both legacy alphaFadeAnimation and "
+                        "weightFadeAnimation candidates for the same sequence");
+}
 
 std::string billboardModeString(canon::BillboardMode mode) {
     switch (mode) {
@@ -393,7 +496,7 @@ Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vect
                                  const std::vector<skin::Submesh>& submeshes,
                                  const std::vector<m2::Material>& materials,
                                  const std::vector<gltf::Material>& legacyMaterials,
-                                 const std::vector<gltf::Primitive>& legacyPrimitives) {
+                                 const std::vector<gltf::Primitive>& legacyPrimitives, float curveEpsilon) {
     Report r;
 
     // Independently walk `batches` applying the exact same zero-indexCount
@@ -438,34 +541,109 @@ Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vect
         r.deviations.push_back("first-layer blend op mismatch at primitive " + std::to_string(*blendOpMismatch));
     }
 
-    // Texture-identity check: only when the caller actually supplied BOTH
-    // legacy's own material list AND its own per-primitive materialIndex
-    // (see this function's own doc comment for why either being empty
-    // silently skips this, and why only the `Resolved` canon state is
-    // checked at all). legacy's `gltf::Primitive::materialIndex` is its own
-    // real indirection into its own deduped `legacyMaterials` -- the exact
-    // counterpart to canon's `primitiveMaterials` -> `materials`, not
-    // assumed to be 1:1 with the primitive/batch count either.
+    // Texture identity, KnownUnresolved/Ambiguous state, and tint/
+    // alphaFade/uvAnimation curve checks: only when the caller actually
+    // supplied BOTH legacy's own material list AND its own per-primitive
+    // materialIndex (see this function's own doc comment in canon_diff.hpp
+    // for why either being empty silently skips all of the below).
+    // legacy's `gltf::Primitive::materialIndex` is its own real indirection
+    // into its own deduped `legacyMaterials` -- the exact counterpart to
+    // canon's `primitiveMaterials` -> `materials`, not assumed to be 1:1
+    // with the primitive/batch count either.
     if (!legacyMaterials.empty() && !legacyPrimitives.empty()) {
         if (legacyPrimitives.size() != expectedBlendMode.size()) {
             std::ostringstream os;
             os << "legacyPrimitives count (" << legacyPrimitives.size() << ") differs from surviving-batch count ("
-               << expectedBlendMode.size() << ") -- skipping texture-identity check";
+               << expectedBlendMode.size() << ") -- skipping texture-identity/state/curve checks";
             r.notes.push_back(os.str());
         } else {
+            // Each category tracks only its own first mismatch, same
+            // one-deviation-per-category convention `blendOpMismatch`/the
+            // old `textureMismatch` already use above.
             std::optional<size_t> textureMismatch;
+            std::optional<std::string> unresolvedStateMismatch, ambiguousStateMismatch, tintMismatch,
+                alphaFadeMismatch, uvTranslationMismatch, uvRotationMismatch, uvScalingMismatch;
+
             for (size_t i = 0; i < expectedBlendMode.size(); ++i) {
                 const canon::Material* mat = resolveMaterial(i);
                 if (!mat || mat->layers.empty()) continue;
-                const canon::TextureRef& ref = mat->layers.front().texture;
-                if (ref.state != canon::TextureRef::State::Resolved) continue;  // no opinion to check
-                const auto* fdid = std::get_if<canon::FileDataId>(&ref.resolved.id);
-                if (!fdid) continue;  // Resolved but no real FileDataID identity -- nothing to compare
+                const canon::MaterialLayer& layer = mat->layers.front();
 
                 int legacyMatIndex = legacyPrimitives[i].materialIndex;
                 if (legacyMatIndex < 0 || static_cast<size_t>(legacyMatIndex) >= legacyMaterials.size()) continue;
-                if (fdid->value != legacyMaterials[legacyMatIndex].baseColorTextureFileDataId && !textureMismatch) {
-                    textureMismatch = i;
+                const gltf::Material& lm = legacyMaterials[static_cast<size_t>(legacyMatIndex)];
+
+                const canon::TextureRef& ref = layer.texture;
+                if (ref.state == canon::TextureRef::State::Resolved) {
+                    const auto* fdid = std::get_if<canon::FileDataId>(&ref.resolved.id);
+                    if (fdid && !textureMismatch && fdid->value != lm.baseColorTextureFileDataId) {
+                        textureMismatch = i;
+                    }
+                } else if (ref.state == canon::TextureRef::State::KnownUnresolved) {
+                    // Legacy's own "couldn't get bytes for this slot"
+                    // signal (gltf::Material::baseColorImagePng's own doc
+                    // comment) -- both sides ran against the same
+                    // --textures corpus, so both should have failed to
+                    // embed real bytes here.
+                    if (!unresolvedStateMismatch && !lm.baseColorImagePng.empty()) {
+                        unresolvedStateMismatch = "primitive " + std::to_string(i) +
+                            ": canon reports KnownUnresolved for the first-layer texture, but legacy's own "
+                            "baseColorImagePng for the resolved legacy material is non-empty (legacy resolved "
+                            "real bytes canon couldn't)";
+                    }
+                } else if (ref.state == canon::TextureRef::State::Ambiguous) {
+                    // Legacy's own "genuine ambiguity found" signal
+                    // (gltf::Material::alternateTextureCandidates' own doc
+                    // comment -- populated only for a real 2+-candidate
+                    // pool, never a sole match).
+                    if (!ambiguousStateMismatch && lm.alternateTextureCandidates.empty()) {
+                        ambiguousStateMismatch = "primitive " + std::to_string(i) +
+                            ": canon reports Ambiguous for the first-layer texture, but legacy's own "
+                            "alternateTextureCandidates for the resolved legacy material is empty (legacy found "
+                            "no ambiguity to report)";
+                    }
+                }
+
+                if (!tintMismatch) {
+                    if (auto d = compareSingleCurve(layer.tint, lm.tintAnimation, "tint", [&](const auto& c, const auto& l) {
+                            return vecCurveMatches(c, l, curveEpsilon);
+                        })) {
+                        tintMismatch = "primitive " + std::to_string(i) + ": " + *d;
+                    }
+                }
+                if (!alphaFadeMismatch) {
+                    if (auto d = compareAlphaFadeCurve(layer.alphaFade, lm, curveEpsilon)) {
+                        alphaFadeMismatch = "primitive " + std::to_string(i) + ": " + *d;
+                    }
+                }
+                if (layer.uvAnimation) {
+                    if (!uvTranslationMismatch) {
+                        if (auto d = compareSingleCurve(layer.uvAnimation->translation,
+                                                         lm.textureTransformTranslationAnimation, "uv translation",
+                                                         [&](const auto& c, const auto& l) {
+                                                             return vecCurveMatches(c, l, curveEpsilon);
+                                                         })) {
+                            uvTranslationMismatch = "primitive " + std::to_string(i) + ": " + *d;
+                        }
+                    }
+                    if (!uvRotationMismatch) {
+                        if (auto d = compareSingleCurve(layer.uvAnimation->rotation,
+                                                         lm.textureTransformRotationAnimation, "uv rotation",
+                                                         [&](const auto& c, const auto& l) {
+                                                             return quatCurveMatches(c, l, curveEpsilon);
+                                                         })) {
+                            uvRotationMismatch = "primitive " + std::to_string(i) + ": " + *d;
+                        }
+                    }
+                    if (!uvScalingMismatch) {
+                        if (auto d = compareSingleCurve(layer.uvAnimation->scaling,
+                                                         lm.textureTransformScalingAnimation, "uv scaling",
+                                                         [&](const auto& c, const auto& l) {
+                                                             return vecCurveMatches(c, l, curveEpsilon);
+                                                         })) {
+                            uvScalingMismatch = "primitive " + std::to_string(i) + ": " + *d;
+                        }
+                    }
                 }
             }
             if (textureMismatch) {
@@ -478,13 +656,22 @@ Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vect
                    << legacyMaterials[legacyMatIndex].baseColorTextureFileDataId;
                 r.deviations.push_back(os.str());
             }
+            if (unresolvedStateMismatch) r.deviations.push_back(*unresolvedStateMismatch);
+            if (ambiguousStateMismatch) r.deviations.push_back(*ambiguousStateMismatch);
+            if (tintMismatch) r.deviations.push_back(*tintMismatch);
+            if (alphaFadeMismatch) r.deviations.push_back(*alphaFadeMismatch);
+            if (uvTranslationMismatch) r.deviations.push_back(*uvTranslationMismatch);
+            if (uvRotationMismatch) r.deviations.push_back(*uvRotationMismatch);
+            if (uvScalingMismatch) r.deviations.push_back(*uvScalingMismatch);
         }
     }
 
-    r.notes.push_back("only each primitive's own resolved material's first-layer blendIntoPrevious op and (when "
-                       "legacyMaterials/legacyPrimitives are supplied) resolved texture FileDataID are checked -- "
-                       "tint/alphaFade/uvAnimation curve comparison, and any check at all for a canon "
-                       "KnownUnresolved/Ambiguous state, remain unimplemented in this diagnostic");
+    r.notes.push_back("only each primitive's own resolved material's first layer is checked at all (tint/"
+                       "alphaFade/uvAnimation curves, texture identity, and the KnownUnresolved/Ambiguous state "
+                       "check all stop at layers.front()) -- additional texture layers (textureCount > 1) have no "
+                       "comparison here, same scope every other check in this function already has; and the curve/"
+                       "state checks above only run when legacyMaterials/legacyPrimitives are supplied, same as "
+                       "the texture-identity check");
     return r;
 }
 

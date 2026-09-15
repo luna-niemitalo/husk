@@ -292,8 +292,8 @@ TEST_CASE("canon_diff::compareMaterialBlendModes: a matching resolved-texture Fi
     CHECK(r.ok());
 }
 
-TEST_CASE("canon_diff::compareMaterialBlendModes: a KnownUnresolved canon texture state is never checked "
-          "against legacyMaterials, even when legacy itself resolved a real fdid") {
+TEST_CASE("canon_diff::compareMaterialBlendModes: a KnownUnresolved canon texture state matches legacy when "
+          "legacy's own baseColorImagePng is also empty, even if legacy resolved an unrelated fdid") {
     canon::MaterialLayer layer;
     layer.blendIntoPrevious = canon::BlendOp::Replace;
     // Default TextureRef::State::KnownUnresolved -- e.g. no TextureResolutions
@@ -310,11 +310,339 @@ TEST_CASE("canon_diff::compareMaterialBlendModes: a KnownUnresolved canon textur
     materials[0].blendMode = 0;
 
     std::vector<gltf::Material> legacyMaterials(1);
-    legacyMaterials[0].baseColorTextureFileDataId = 999;  // legacy has an opinion; canon doesn't
+    // A resolved fdid with no embedded bytes is still "couldn't get bytes"
+    // (baseColorImagePng's own doc comment) -- this field alone isn't what
+    // the KnownUnresolved check looks at.
+    legacyMaterials[0].baseColorTextureFileDataId = 999;
     std::vector<gltf::Primitive> legacyPrimitives(1);
     legacyPrimitives[0].materialIndex = 0;
 
     canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
                                                                   legacyMaterials, legacyPrimitives);
+    CHECK(r.ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a KnownUnresolved canon texture state is caught as a "
+          "deviation when legacy actually embedded real bytes for the same slot") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    // Default TextureRef::State::KnownUnresolved.
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    legacyMaterials[0].baseColorImagePng = {1, 2, 3, 4};  // legacy resolved real bytes canon couldn't
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    CHECK_FALSE(r.ok());
+    bool found = false;
+    for (const auto& d : r.deviations) {
+        if (d.find("KnownUnresolved") != std::string::npos) found = true;
+    }
+    CHECK(found);
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: an Ambiguous canon texture state matches legacy when "
+          "legacy also reports real alternateTextureCandidates") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    layer.texture.state = canon::TextureRef::State::Ambiguous;
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    legacyMaterials[0].alternateTextureCandidates.resize(2);  // legacy found the same real ambiguity
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    CHECK(r.ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: an Ambiguous canon texture state is caught as a deviation "
+          "when legacy found no candidates at all") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    layer.texture.state = canon::TextureRef::State::Ambiguous;
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);  // alternateTextureCandidates left empty
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    CHECK_FALSE(r.ok());
+    bool found = false;
+    for (const auto& d : r.deviations) {
+        if (d.find("Ambiguous") != std::string::npos) found = true;
+    }
+    CHECK(found);
+}
+
+namespace {
+
+// A one-keyframe canon::VecCurve plus its exact legacy AnimatedColorCurve
+// counterpart -- raw (non-axis-converted) values, matching this project's
+// own finding that tint/UV-transform curves are colors/texture-space
+// values, not spatial positions (canon_diff.cpp's own doc comment).
+canon::VecCurve makeVecCurve(uint32_t sequenceIndex, float t, float x, float y, float z) {
+    canon::VecCurve c;
+    c.sequence = canon::SequenceRef::sequence(sequenceIndex);
+    c.keyframes = {{t, canon::Vec3{x, y, z}}};
+    return c;
+}
+
+gltf::Material::AnimatedColorCurve makeLegacyColorCurve(int sequenceIndex, float t, float x, float y, float z) {
+    gltf::Material::AnimatedColorCurve c;
+    c.sequenceIndex = sequenceIndex;
+    c.keyframes = {{t, gltf::Vec3{x, y, z}}};
+    return c;
+}
+
+}  // namespace
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a matching tint curve against legacy's own tintAnimation "
+          "entry for the same sequence reports zero deviations") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    layer.tint = makeVecCurve(0, 1.0f, 0.5f, 0.25f, 0.1f);
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    legacyMaterials[0].tintAnimation = {makeLegacyColorCurve(0, 1.0f, 0.5f, 0.25f, 0.1f)};
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    INFO("first deviation (if any): ", r.deviations.empty() ? "<none>" : r.deviations.front());
+    CHECK(r.ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a genuine tint curve value mismatch against legacy's "
+          "tintAnimation is caught as a deviation") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    layer.tint = makeVecCurve(0, 1.0f, 0.5f, 0.25f, 0.1f);
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    // Deliberately wrong red channel (0.9 vs canon's 0.5).
+    legacyMaterials[0].tintAnimation = {makeLegacyColorCurve(0, 1.0f, 0.9f, 0.25f, 0.1f)};
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    CHECK_FALSE(r.ok());
+    bool found = false;
+    for (const auto& d : r.deviations) {
+        if (d.find("tint") != std::string::npos) found = true;
+    }
+    CHECK(found);
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a tint curve with no matching-sequence legacy "
+          "tintAnimation entry at all is caught as a deviation") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    layer.tint = makeVecCurve(0, 1.0f, 0.5f, 0.25f, 0.1f);
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);  // tintAnimation left empty
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    CHECK_FALSE(r.ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: canon's single alphaFade curve matches legacy's separate "
+          "weightFadeAnimation vector when it wasn't sourced from color at all") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    canon::ScalarCurve fade;
+    fade.sequence = canon::SequenceRef::sequence(0);
+    fade.keyframes = {{2.0f, 0.75f}};
+    layer.alphaFade = fade;
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    // alphaFadeAnimation left empty; only weightFadeAnimation has the
+    // matching-sequence entry -- m2_material_input.hpp's own doc comment
+    // for why canon's one alphaFade slot can come from either source.
+    gltf::Material::AnimatedScalarCurve weightCurve;
+    weightCurve.sequenceIndex = 0;
+    weightCurve.keyframes = {{2.0f, 0.75f}};
+    legacyMaterials[0].weightFadeAnimation = {weightCurve};
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    INFO("first deviation (if any): ", r.deviations.empty() ? "<none>" : r.deviations.front());
+    CHECK(r.ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: an alphaFade curve matching neither legacy "
+          "alphaFadeAnimation nor weightFadeAnimation is caught as a deviation") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    canon::ScalarCurve fade;
+    fade.sequence = canon::SequenceRef::sequence(0);
+    fade.keyframes = {{2.0f, 0.75f}};
+    layer.alphaFade = fade;
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);  // both curve vectors left empty
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    CHECK_FALSE(r.ok());
+    bool found = false;
+    for (const auto& d : r.deviations) {
+        if (d.find("alphaFade") != std::string::npos) found = true;
+    }
+    CHECK(found);
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a uvAnimation translation curve mismatch against legacy's "
+          "textureTransformTranslationAnimation is caught as a deviation") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    canon::MaterialLayer::TextureTransformCurves xf;
+    xf.translation = makeVecCurve(0, 0.5f, 1.0f, 0.0f, 0.0f);
+    layer.uvAnimation = xf;
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    // Deliberately wrong x translation (2.0 vs canon's 1.0).
+    legacyMaterials[0].textureTransformTranslationAnimation = {makeLegacyColorCurve(0, 0.5f, 2.0f, 0.0f, 0.0f)};
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    CHECK_FALSE(r.ok());
+    bool found = false;
+    for (const auto& d : r.deviations) {
+        if (d.find("uv translation") != std::string::npos) found = true;
+    }
+    CHECK(found);
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a matching uvAnimation translation curve against legacy's "
+          "textureTransformTranslationAnimation reports zero deviations") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;
+    canon::MaterialLayer::TextureTransformCurves xf;
+    xf.translation = makeVecCurve(0, 0.5f, 1.0f, 0.0f, 0.0f);
+    layer.uvAnimation = xf;
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    batches[0].skinSectionIndex = 0;
+    batches[0].materialIndex = 0;
+
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 0;
+
+    std::vector<gltf::Material> legacyMaterials(1);
+    legacyMaterials[0].textureTransformTranslationAnimation = {makeLegacyColorCurve(0, 0.5f, 1.0f, 0.0f, 0.0f)};
+    std::vector<gltf::Primitive> legacyPrimitives(1);
+    legacyPrimitives[0].materialIndex = 0;
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials,
+                                                                  legacyMaterials, legacyPrimitives);
+    INFO("first deviation (if any): ", r.deviations.empty() ? "<none>" : r.deviations.front());
     CHECK(r.ok());
 }
