@@ -19,34 +19,30 @@ aggregate. Stage 3's `canon::` types (`Skeleton`, `Mesh`/`Geoset`, `Material`,
 `Curve`, `Physics`, `Definition`, `Selection`, `Item`, and the `Model`
 composition root) are all implemented as pure value types with real assembly
 functions, each convergence-tested against the legacy pipeline on real
-fixtures — but `canon::Model` is not yet a like-for-like replacement:
-**`AUDIT.md` §7** catalogs the remaining gaps, found 2026-09-15. Global
-sequences and alias resolution (canon animation) are closed and verified
-clean against a real 119-bone/258-animation fixture. `canon::Material`'s
-texture resolution and canon animation's external-`.anim` resolution both
-hit the same wall — canon:: is a pure value-type layer with no filesystem/
-catalog dependency (I1), but the real data both need only exists behind
-`sources::Catalog`, a stateful I/O object — resolved 2026-09-15 as a
-**pre-resolved input parameter**: whatever assembles a `canon::Model`
-resolves via the catalog first and hands canon:: the already-decided fact
-(or an explicit unresolved-reason), never a live `Catalog&`. That API shape
-is now implemented, tested, AND orchestrator-wired for both
-(`TextureResolutions`/`ExternalAnimBlobs`, both defaulted to empty, both
-no-ops when unused): `husk export --compare-canon` (`src/cmd_export_canon.cpp`)
-now builds both maps from the same real `sources::Catalog` legacy uses, and
-from a canon-local reimplementation of legacy's own `.anim`-file resolution
-(`resolveExternalAnimBlobForCanon`, deliberately NOT shared code with
-`export_animation.cpp` — see `AUDIT.md` §7.2's full account of why editing
-the legacy pipeline, even losslessly, was rejected outright since it
-undermines `--compare-canon`'s whole premise of comparing against an
-untouched legacy pipeline) — verified against `bloodelffemale.m2` with a
-real external `.anim` file resolved (258 → 260 clips) and still clean (0
-deviations). What remains open (`AUDIT.md` §7.1/§7.2's own "Still open"
-notes): no real fixture here ships with a populated `--textures` directory,
-so texture-resolution wiring is verified structurally but not yet against a
-corpus file where slots resolve to real bytes; and `canon_diff.cpp`'s
-material comparator still only checks blend mode, not resolved texture
-identity. Stage 4 has two real, independently tested
+fixtures — `canon::` itself is now format-agnostic top to bottom (I1: no
+`m2::`/`skin::` type anywhere in `namespace husk::canon`, including its own
+`Vec2`/`Vec3`/`Quat` — the M2-consuming assembly logic lives in the sibling
+`husk::m2input` module instead), and **every named gap in `AUDIT.md` §7 is
+now closed**: material identity + dedup (`canon::Model::materials` matches
+legacy's own deduped count exactly, 8/8 on the real `bloodelffemale.m2`
+fixture), global-sequence/alias animation resolution, external-`.anim`
+resolution (both inline-bones and `.skel`-sourced), and — the last and
+biggest blocker — real `.skel`-sourced coverage (`m2input::
+ExternalSkeletonSource`, closing what had been zero real `--compare-canon`
+coverage for the majority-case player-character models). Texture resolution
+is verified end to end against real, resolved-to-real-bytes CASC data (not
+just structurally): `compareMaterialBlendModes` now checks resolved texture
+identity against legacy's own `baseColorTextureFileDataId` too, not just
+blend mode, and comes back clean. `canon::Model` is not yet formally declared
+a like-for-like replacement — no full structural pre/post diff has been run
+across the whole real fixture set the way `AUDIT.md §7`'s own preamble
+frames as Stage 3's actual gate — but every concretely-named coverage gap
+found while building `--compare-canon` is closed and verified clean
+(`bloodelffemale.m2` inline-bones and `bloodelffemale_hd.m2` `.skel`-sourced,
+both 0 deviations across mesh/skeleton/animations/materials). What's left is
+either running that broader whole-corpus gate formally, or a real visual
+(rendered) check — `AUDIT.md §7.1`'s own "no gate is output-unchanged" note
+— neither started. Stage 4 has two real, independently tested
 writers (`src/writers/bundle_writer.*`, `src/writers/gltf_lean.*`), but
 nothing in `cmd_export.cpp` calls either of them — `husk export
 --compare-canon` (opt-in, off by default) runs them as a diagnostic sidecar
