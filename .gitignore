@@ -34,6 +34,8 @@ __pycache__/
 *.csv
 *.log
 *.env
+*.blend
+*.blend1
 
 # Blender's own autosave-on-crash backup, one per .blend -- never the file
 # actually referenced by anything, regenerated locally on every crash.
