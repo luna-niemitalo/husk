@@ -1,5 +1,5 @@
 // CLI tier: `husk export --from-list`/`--output-dir` batch mode
-// (TODO/CLEANUP_TODO.md's former item 3) -- exercises husk::commands::
+// (the since-deleted TODO/CLEANUP_TODO.md's former item 3) -- exercises husk::commands::
 // exportGlb's batch dispatch by spawning the real compiled binary (see
 // run_husk.hpp) against small, synthetic, on-disk fixtures. See
 // TEST_DESIGN.md#Four-tier-architecture for how this tier relates to the

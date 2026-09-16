@@ -586,9 +586,8 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
     // TOML config file for defaults -- CLI11's own set_config() maps config keys onto
     // these exact add_option() registrations (below), so every flag's own ->check()
     // validator and CLI-flag > config > default precedence come for free, with no
-    // second parser and no hand-written key->flag table to keep in sync (see
-    // TODO/CLEANUP_TODO.md for the other commands still needing this migration
-    // before they can get the same treatment). Path resolution: --config, else
+    // second parser and no hand-written key->flag table to keep in sync (every
+    // other command has since migrated to CLI11 the same way). Path resolution: --config, else
     // $HUSK_CONFIG, else husk::defaultConfigPath() (XDG default), else no config --
     // a missing file at any of those isn't an error (config_required=false).
     app.set_config("--config", husk::defaultConfigPath(),

@@ -1,7 +1,7 @@
 # TODO: WMO/ADT fog & atmospheric/particulate volumes
 
 **Status: an open punch list, not a historical record.** Fixed items get
-removed outright once closed (see `../CLEANUP_TODO.md`'s own convention) —
+removed outright once closed (see `../INVESTIGATIONS_TODO.md`'s own convention) —
 git history is the record of what was fixed and when, not this file. One of
 three sibling documents from the same investigation pass (see
 `LIQUID_TODO.md`'s opening for the full framing; `LIGHTING_TODO.md` covers

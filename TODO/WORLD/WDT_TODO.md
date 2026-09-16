@@ -3,7 +3,7 @@
 **Status: an open punch list, not a historical record.** Nothing here is
 implemented yet — every item below is a from-scratch implementation plan,
 not a progress report. Once implementation starts, this file gets worked
-like `RO_COMPLETENESS_TODO.md`/`../CLEANUP_TODO.md` already are: fixed
+like `RO_COMPLETENESS_TODO.md`/`../INVESTIGATIONS_TODO.md` already are: fixed
 items get removed outright once closed, git history is the record of what
 was fixed and when, not this file.
 

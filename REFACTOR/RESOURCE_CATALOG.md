@@ -242,7 +242,8 @@ four tasks it named are now actually converted onto it (the fourth,
 `texture_type_collisions_task.py`, turned out on closer reading not to be
 a texture-resolution duplication at all — see its corrected row above;
 `m2_full_validation_task.py` stays open, out of scope for a tools/-only
-pass and carrying its own open hang bug, `TODO/CLEANUP_TODO.md`).
+pass and carrying its own open hang bug, `TODO/INVESTIGATIONS_TODO.md`
+item 14).
 `CLI_AND_TOOLING.md` §3's `husk resolve` verb (`src/cmd_resolve.cpp`,
 `REFACTOR_LOG.md`'s 2026-08-29 "`husk resolve`, a new verb" entry) is the
 mechanism: one JSON document per model, one entry per texture slot,
@@ -258,8 +259,9 @@ start paying that cost just to stop re-deriving resolution by hand.
 **A real, measured cost this conversion pass surfaced, not papered over**
 (re-measured twice more after the first single-shot estimate was
 challenged, once with a flawed comparison that wrongly concluded
-`--listfile` was cheap — see TODO/CLEANUP_TODO.md item 3's own note on
-`~/.config/husk/config.toml` silently autodiscovering a listfile even
+`--listfile` was cheap — see the since-deleted `TODO/CLEANUP_TODO.md`'s
+own note on `~/.config/husk/config.toml` silently autodiscovering a
+listfile even
 when `--listfile` isn't passed, which is exactly what made that
 comparison compare the same listfile against itself; the original
 finding held once isolated properly). `husk resolve` carries two
@@ -292,9 +294,11 @@ paid there today, not just in `resolve`). A `--from-list` batch mode on
 `resolve` (mirroring `export`'s own `cmd_export.cpp`'s `exportOneModel`)
 is a weaker, complementary idea, not a substitute — it only amortizes the
 parse within one process's batch, not across every invocation. Out of a
-tools/-only pass's scope to fix, flagged in `TODO/CLEANUP_TODO.md` item 3
-rather than worked around here by re-adding the Python-side listfile
-cache this conversion exists to delete. See `REFACTOR_LOG.md`'s
+tools/-only pass's scope to fix; a `src/`-level listfile-caching format
+for `husk` itself remains a real, unimplemented idea (previously flagged
+in the since-deleted `TODO/CLEANUP_TODO.md`) rather than worked around
+here by re-adding the Python-side listfile cache this conversion exists
+to delete. See `REFACTOR_LOG.md`'s
 2026-08-29 entry for the full delta table and timings.
 
 The rule to write into `tools/CORPUS_SCANS.md` alongside this: a task that reads

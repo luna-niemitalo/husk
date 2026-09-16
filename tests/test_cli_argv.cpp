@@ -171,7 +171,8 @@ TEST_CASE("husk with an unknown command fails cleanly, not a crash") {
 // CLI11 machinery (RequiredError/ExtrasError, CLI11's own named exit codes --
 // see CLI::ExitCodes in /nix/store/*-cli11-*/include/CLI/Error.hpp), not a
 // hand-written usage-text fallback -- info/dump-chunks migrated to a real
-// CLI::App alongside export's own earlier migration (TODO/CLEANUP_TODO.md #3).
+// CLI::App alongside export's own earlier migration (the since-deleted
+// TODO/CLEANUP_TODO.md's former #3).
 // TODO: Remove: FINDINGS.md §4.3.
 
 TEST_CASE("husk export with no arguments at all fails via CLI11's RequiredError (--input is "

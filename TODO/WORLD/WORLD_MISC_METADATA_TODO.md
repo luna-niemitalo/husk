@@ -1,7 +1,7 @@
 # TODO: WMO/ADT gameplay & misc metadata — final dispositions
 
 **Status: an open punch list, not a historical record.** Fixed items get
-removed outright once closed (see `../CLEANUP_TODO.md`'s own convention) —
+removed outright once closed (see `../INVESTIGATIONS_TODO.md`'s own convention) —
 git history is the record of what was fixed and when, not this file.
 
 Scope: `../../WORLD_COMPLETENESS.md`'s "Gameplay & misc metadata (not

@@ -14,7 +14,7 @@
 // basename-pool/listfile matching, category classification, default-pick
 // ordering) and the M2Track-to-glTF-curve resolvers for genuinely-animated
 // tint/fade/texture-transform data -- split out of export_materials.cpp
-// per TODO/CLEANUP_TODO.md's Item 1 (that file was the largest in `src/`,
+// per the since-deleted TODO/CLEANUP_TODO.md's former Item 1 (that file was the largest in `src/`,
 // two genuinely separate concerns bundled into one translation unit: this
 // one answers "which real bytes does a texture slot resolve to," the
 // remaining buildMaterialsAndPrimitives in export_materials.cpp answers

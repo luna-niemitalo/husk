@@ -4,8 +4,9 @@ Open punch list from a style/compliance audit against `~/nix/claude-rules`.
 Fixed items get removed outright — git history is the record, not this
 file. Renamed from `CLEANUP.md` 2026-09-16 — the old name collided with
 the unrelated `TODO/CLEANUP_TODO.md` (a project-specific code-hygiene/
-follow-up list), causing real confusion about which file a "cleanup" ask
-meant. No content relationship between the two.
+follow-up list, since deleted and merged into `TODO/INVESTIGATIONS_TODO.md`
+once it was down to one item), causing real confusion about which file a
+"cleanup" ask meant. No content relationship between the two.
 
 1. **A much larger `TODO: Remove: FAILURES(2).md #N` comment cluster exists
    in older `src/`/`tests/` files, predating this pass's scope.** The

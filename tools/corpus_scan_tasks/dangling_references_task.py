@@ -1,5 +1,6 @@
-"""corpus_scan_framework.ScanTask for TODO/CLEANUP_TODO.md's "dangling
-internal reference" scan -- the deliberate counterweight to every
+"""corpus_scan_framework.ScanTask for the "dangling internal reference"
+scan (originally proposed in the since-deleted TODO/CLEANUP_TODO.md) --
+the deliberate counterweight to every
 presence-only completeness metric this project tracks (M2_COMPLETENESS.md,
 the corpus scans in this directory). Presence answers "does this file have
 an animated transform/light/particle/whatever"; this answers the narrower,
@@ -7,14 +8,14 @@ harder question: of the internal cross-references husk already knows how to
 resolve, how many actually resolve to something real, corpus-wide, per
 reference kind?
 
-Motivating example (TODO/CLEANUP_TODO.md's own): a real file can have a
+Motivating example: a real file can have a
 genuinely-animated M2TextureTransform record that no batch's own
 textureTransformComboIndex ever actually points at -- the data exists and
 parses cleanly, but nothing in the file reaches it. A presence check counts
 that file as a hit; this scan counts it as a dangling reference instead.
 
-Two tiers, matching the real cost split TODO/CLEANUP_TODO.md itself called
-out (some kinds need only the .m2, others need a matched .skin sibling
+Two tiers, matching a real cost split (some kinds need only the .m2,
+others need a matched .skin sibling
 resolved first):
 
   M2-only (cheap, one file read):
@@ -39,8 +40,8 @@ Deliberately excluded, not just forgotten:
     Treating it as a must-resolve reference would manufacture false
     "dangling" hits out of an already-documented quirk, not surface real
     signal.
-  - TXID `textureFileDataIds` vs. local file / --listfile presence: the
-    open question TODO/CLEANUP_TODO.md itself flagged as unresolved --
+  - TXID `textureFileDataIds` vs. local file / --listfile presence: an
+    open question, unresolved --
     README.md's own prior scan found 99.9% of "missing" FileDataIDs were
     actually present under their real listfile name, not truly absent, so
     a naive "no local file" check would mostly measure listfile coverage,
@@ -298,7 +299,7 @@ def _check_one_batch(data: bytes, b_off: int, counts: dict, tallies: dict, examp
             # just on the batch's own textureTransformComboIndex field above. Confirmed
             # empirically: an unfiltered first pass of this scan found a 64% "dangling"
             # rate here, which collapsed to real, low signal once this sentinel was
-            # excluded -- see TODO/CLEANUP_TODO.md's own entry for this scan.
+            # excluded.
             if transform_idx != _SENTINEL and transform_idx >= counts["texture_transforms"]:
                 tallies["texture_transform_combo"][1] += 1
                 if len(examples) < _MAX_EXAMPLES_PER_FILE:

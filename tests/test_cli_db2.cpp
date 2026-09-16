@@ -362,7 +362,7 @@ TEST_CASE("husk db2-export: synthetic WDC5 file, no --dbd-dir, writes real SQLit
 
 TEST_CASE("husk db2-export --dir: a 3rd stray positional after the output path is rejected, "
           "not silently ignored") {
-    // Regression: the CLI11 migration (TODO/CLEANUP_TODO.md #3) initially only checked that
+    // Regression: the CLI11 migration (the since-deleted TODO/CLEANUP_TODO.md's former #3) initially only checked that
     // exactly one positional followed --dir, forgetting to also check that no *second* stray
     // positional had been accepted -- "db2-export --dir <dir> <out> <extra>" silently exported
     // anyway, dropping "extra" instead of erroring.
@@ -803,7 +803,7 @@ TEST_CASE("husk db2-export --dbd-dir none: overrides a config-supplied value") {
     fs::remove_all(dir);
 }
 
-// `db2-info`/`db2-build`'s own CLI11 migration (TODO/CLEANUP_TODO.md #3) --
+// `db2-info`/`db2-build`'s own CLI11 migration (the since-deleted TODO/CLEANUP_TODO.md's former #3) --
 // written alongside it, since neither command had any CLI-tier coverage
 // before. db2-build's real functional behavior needs a 7-file --db2-dir
 // fixture (kKbSourceTables, cmd_db2.cpp) out of scope here; these only cover

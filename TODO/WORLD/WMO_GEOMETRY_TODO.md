@@ -1,7 +1,7 @@
 # TODO: WMO static mesh/material identity (root+group split, geometry, materials)
 
 **Status: an open punch list, not a historical record.** Fixed items get
-removed outright once closed (see `../CLEANUP_TODO.md`'s own convention) --
+removed outright once closed (see `../INVESTIGATIONS_TODO.md`'s own convention) --
 git history is the record of what was fixed and when, not this file. Nothing
 in `src/` reads a WMO byte yet; this file is the implementation-ready plan
 for the "WMO static geometry & materials" and "root+group file split,

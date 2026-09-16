@@ -201,8 +201,8 @@ def husk_resolve_json(path: Path, timeout: float = 20.0, textures_out: str | Pat
     (found/tier/file_data_id/byte_count) and nothing else -- which is
     enough for "did this slot resolve, and via which tier", the question
     unfillable_texture_task.py actually asks. Giving husk a real per-slot
-    byte export is the gap that would unblock the rest; see
-    TODO/CLEANUP_TODO.md.
+    byte export is the gap that would unblock the rest -- unimplemented,
+    previously flagged in the since-deleted TODO/CLEANUP_TODO.md.
 
     PERFORMANCE (see REFACTOR_LOG.md for the full controlled numbers, n=8
     runs each, plus a listfile-size-isolation run): two separate, additive
@@ -233,7 +233,8 @@ def husk_resolve_json(path: Path, timeout: float = 20.0, textures_out: str | Pat
     (~130k files) this is tens of thousands of seconds per scan -- the
     real fix is a `src/`-level one (husk should ingest the listfile once
     into a cached, fast-to-load format, the same move `husk db2-build`
-    already makes for DB2 data -- see TODO/CLEANUP_TODO.md item 3; a
+    already makes for DB2 data -- unimplemented, previously flagged in
+    the since-deleted TODO/CLEANUP_TODO.md; a
     `--from-list` batch mode is a weaker complementary idea, not a
     substitute), out of this pass's scope to fix (tools/-only) rather
     than worked around here by re-adding a Python-side listfile cache

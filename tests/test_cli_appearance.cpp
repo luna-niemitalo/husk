@@ -1,6 +1,6 @@
 // CLI tier: `husk appearance-string` -- exercises the real compiled binary
 // (see run_husk.hpp). Written alongside the command's migration from
-// hand-rolled argv parsing to CLI11 (TODO/CLEANUP_TODO.md #3) -- this
+// hand-rolled argv parsing to CLI11 (the since-deleted TODO/CLEANUP_TODO.md's former #3) -- this
 // command previously had zero CLI-tier coverage.
 //
 // The `--db2-dir`/`--dbd-dir`-driven `gear` resolution tests below

@@ -1040,7 +1040,7 @@ pass") never got revisited as the project's ambitions grew well past
 "first pass," and nothing forced a re-read of that specific sentence to
 notice. First pass at consolidating this (not exhaustive — the rest of
 the codebase still has the same pattern scattered in header comments,
-flagged as ongoing cleanup in `TODO/CLEANUP_TODO.md`):
+flagged as ongoing cleanup in the since-deleted `TODO/CLEANUP_TODO.md`):
 
 - `M2SkinSection` (`skin.hpp`): `centerPosition`/`sortCenterPosition`/
   `sortRadius`/`boneCount`/`boneComboIndex`/`boneInfluences`/
@@ -1265,9 +1265,9 @@ husk/config.toml`, falling back to `~/.config/husk/config.toml`. A missing
 file at the resolved path is not an error (`set_config`'s own
 `config_required=false`) — same "unset is the no-flag state" convention
 every other opt-in sidecar in this project already follows. The path
-helper is a standalone shared function, not export-specific, so the other
-commands `TODO/CLEANUP_TODO.md` #3 tracks migrating to CLI11 can reuse it
-verbatim rather than re-deriving the same XDG logic.
+helper is a standalone shared function, not export-specific, so every
+other command's own since-completed CLI11 migration reused it verbatim
+rather than re-deriving the same XDG logic.
 
 **Deliberately not filtered to a "safe" subset of flags.** CLI11's config
 support has no notion of "these flags are config-settable, those aren't" —
@@ -1287,8 +1287,9 @@ unadvertised) choice, not a bug to guard against.
 `--listfile` CSV from scratch on every invocation — no persistent process
 to cache a parsed listfile across calls, and a real
 `community-listfile.csv` is ~148MB/2.2M rows. Measured cost: ~0.5s of a
-~0.7s `husk resolve` call on a simple model (`TODO/CLEANUP_TODO.md`'s own
-listfile-caching item, before it closed). A corpus scan invokes `husk`
+~0.7s `husk resolve` call on a simple model (the since-deleted
+`TODO/CLEANUP_TODO.md`'s own listfile-caching item, before it closed). A
+corpus scan invokes `husk`
 once per file across 130k+ files, so this cost is paid, in full, that many
 times.
 

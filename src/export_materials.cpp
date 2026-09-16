@@ -14,7 +14,7 @@
 // multi-texture-layer metadata, UV transform). Texture-candidate
 // resolution and the animated-curve resolvers this leans on live in
 // export_texture_resolution.hpp/.cpp instead -- split out per
-// TODO/CLEANUP_TODO.md's Item 1 (this file was 1,344 lines, two genuinely
+// the since-deleted TODO/CLEANUP_TODO.md's former Item 1 (this file was 1,344 lines, two genuinely
 // separate concerns bundled into one translation unit: "which real bytes
 // does a texture slot resolve to" vs. "how does one batch become a glTF
 // material/primitive"). scanDirOrWarn stays here (declared in

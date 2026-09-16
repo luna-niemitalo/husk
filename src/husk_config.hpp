@@ -12,8 +12,8 @@ namespace husk {
 //
 // Existence is deliberately not checked here -- CLI11 itself treats a missing file at
 // this path as "no config", not an error (config_required=false at the set_config
-// call site). Shared (not duplicated per-command) so every command CLI11 migrates to
-// config support later (TODO/CLEANUP_TODO.md) resolves the same path the same way.
+// call site). Shared (not duplicated per-command) so every command that needs
+// config support resolves the same path the same way.
 std::string defaultConfigPath();
 
 }  // namespace husk

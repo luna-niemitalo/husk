@@ -257,7 +257,8 @@ it into the render, so that symptom no longer applies to a current export):
 
 **Genuinely new**: `orderCandidatesForDefault`
 (`src/export_texture_resolution.cpp`, moved from `export_materials.cpp`
-2026-08-14, see `TODO/CLEANUP_TODO.md`) only has real tiebreak logic
+2026-08-14, the since-deleted `TODO/CLEANUP_TODO.md`'s former Item 1) only
+has real tiebreak logic
 (pixel-area, then `skin_color`-category preference) for the specific
 skin/skin_extra/char_jewelry cases prior sessions had real evidence for.
 Outside those, ties fall through to `scanFuzzyTexturePoolForBasename`'s

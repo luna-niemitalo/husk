@@ -216,7 +216,7 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   that file for the current concrete list) and the documentation
   consolidation pass in progress as of 2026-09-16 (see `REFACTOR_LOG.md`'s
   newest entries and this file's own git history for that pass's scope).
-  Outside of `REFACTOR/`: `TODO/CLEANUP_TODO.md` item 2
+  Outside of `REFACTOR/`: `TODO/INVESTIGATIONS_TODO.md` item 14
   (`m2_full_validation_task.py`'s real full-corpus-scale hang, clean on
   every bounded reproduction — needs a live-attach investigation, not more
   guessing from a killed run) is the one open legacy-pipeline item with no

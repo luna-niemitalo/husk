@@ -1,7 +1,7 @@
 # TODO: world placement -- what actually populates a rendered world
 
 **Status: an open punch list, not a historical record.** Fixed items get
-removed outright once closed (see `../CLEANUP_TODO.md`'s own convention) --
+removed outright once closed (see `../INVESTIGATIONS_TODO.md`'s own convention) --
 git history is the record of what was fixed and when, not this file. Nothing
 in `src/` reads an ADT/WMO placement record yet; this file is the
 implementation-ready plan for `../../WORLD_COMPLETENESS.md`'s own framing of this
