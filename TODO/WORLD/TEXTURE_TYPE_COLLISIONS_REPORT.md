@@ -1,5 +1,11 @@
 # texture_type_collisions: what happened and what it found
 
+**A finished report, not a punch list** — kept under `TODO/WORLD/` (rather
+than moved to `corpus_reports/`) only because that directory is
+gitignored and this write-up is real, committed content. No open items
+here; it's cited by `TOOLS.md` and `NOTE_ABOUT_WORLD_HANDLING.md` as the
+full-corpus evidence behind a finding both use.
+
 ## Why the original single-threaded run was interrupted
 
 `tools/find_texture_type_collisions.py` was started single-threaded against

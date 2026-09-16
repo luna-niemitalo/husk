@@ -76,13 +76,15 @@ tool, `blp/`) converts BLP2 textures to PNG.
   boundary object, a native husk bundle format, and a real packaged Blender
   addon; glTF becomes an optional best-effort projection. Written up in
   `REFACTOR/` (index: `REFACTOR/README.md`), including `REFACTOR/AUDIT.md`'s
-  evidence inventory of every duplicated/divergent path found. **Stage 1 has
-  since landed and Stage 2 is in progress** (`src/sources/`'s resolution
-  catalog, `m2::Model`'s consolidation across `cmd_info`/`cmd_info_json`/
-  `cmd_dump`/`cmd_export`) — see `REFACTOR/LOOP_STATE.md` for the live task
-  table and `REFACTOR/README.md` for the stage plan. Everything under
-  Current/Boundaries below otherwise still describes the real tree; only the
-  in-progress refactor's own files are ahead of it.
+  evidence inventory of every duplicated/divergent path found. **Stages 1-2
+  have since landed and Stage 3 is deep in progress** (`src/sources/`'s
+  resolution catalog, `m2::Model`'s consolidation, and `canon::`'s own
+  value types/assembly functions/`--compare-canon` convergence checker) —
+  see `REFACTOR/README.md` for the live stage plan and status (the file
+  this session's own `LOOP_STATE.md` reference used to point at no longer
+  exists; `REFACTOR/README.md` is the current single source for this).
+  Everything under Current/Boundaries below otherwise still describes the
+  real tree; only the in-progress refactor's own files are ahead of it.
 - **Target**: a real Blender import path for modern (Legion+ chunked) M2 — see
   `DESIGN.md`'s Goal section. All 8 roadmap stages are now done, including stage 7
   (output hardening: real exports now run through the Khronos glTF-Validator *and*
