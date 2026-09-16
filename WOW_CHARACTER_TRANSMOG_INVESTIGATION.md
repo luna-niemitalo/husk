@@ -2,6 +2,8 @@
 
 Research-only task, read-only against local files, GET-only against the web. Nothing
 was written except this report. No secrets were found or stored anywhere in this repo.
+See also `CHARACTER_PIPELINE_TEST_FINDINGS.md` — the same week's follow-up that ran
+the actual name → export → render pipeline this research unblocked.
 
 ## 1. Local data: character names — yes, levels/transmog — no
 

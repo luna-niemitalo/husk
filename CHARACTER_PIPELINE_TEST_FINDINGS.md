@@ -11,7 +11,9 @@ gaps still open. Every wrong-geometry claim below was independently confirmed vi
 reverse lookup (item's real icon -> real internal codename -> `--listfile` -> real
 FileDataID/`ModelResourcesID`), not just eyeballed. This doc is the investigation
 record; nothing below is speculative -- every claim was checked against real command
-output, raw DB2 bytes, or DBD schema before being written down.
+output, raw DB2 bytes, or DBD schema before being written down. See also
+`WOW_CHARACTER_TRANSMOG_INVESTIGATION.md` — the same week's earlier research pass
+(character/account data availability, API access) that this pipeline test builds on.
 
 ## What worked, unmodified
 
