@@ -4,6 +4,10 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
+**Scope: dual-use/infrastructure.** These are external-data-acquisition
+and client-logic questions (DB2 tables, animation-blend heuristics), not
+legacy-writer-specific — whichever pipeline ships needs the same answers.
+
 **Correction (2026-08-14): this file's entire original framing was stale
 and wrong, not just individual items.** Every item below used to be
 introduced as "genuinely external, husk will never touch this, per

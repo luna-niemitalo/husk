@@ -4,6 +4,11 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
+**Scope: investigative/no pipeline dependency.** Documenting wowdev.wiki's
+undocumented shader-combiner formulas is corpus/shader-data analysis,
+independent of whether the legacy or `canon::` pipeline ships — any
+future renderer needs the same formulas.
+
 ## Background
 
 The multi-texture-layer combiner rendering work (since fully implemented

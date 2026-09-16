@@ -1,6 +1,12 @@
 # TEXTURE_POOL_RECALL_TODO.md — fuzzy texture pool recall/ranking, and adjacent resolution-code bugs
 
 Open punch list. Fixed items get removed outright; git history is the record.
+
+**Scope: dual-use/infrastructure.** The fuzzy-candidate-pool/ranking
+problem is a semantic disambiguation question, not a legacy-writer quirk —
+`canon::`'s own texture resolution will hit the same "which candidate is
+actually correct" question and can reuse the ranking/tag work here.
+
 Full narrative for everything below (the original 84%-excluded-candidates
 finding, the tag-vocabulary derivation, the DB2-character tier, the `_hd`
 partition, every real ledger delta measured along the way): `CLAUDE_HISTORY.md`'s

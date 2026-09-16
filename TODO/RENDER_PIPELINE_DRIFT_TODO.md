@@ -4,6 +4,11 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
+**Scope: legacy-only.** This is drift between two legacy-pipeline tools
+(`render_glb.py`'s preview and `husk_blender_geoset_mask.py`'s switch
+logic); already flagged for absorption into `REFACTOR/BLENDER_ADDON.md`
+once the canon:: Blender addon replaces both.
+
 1. **`tools/corpus_scan_tasks/render_glb.py` never runs
    `tools/husk_blender_geoset_mask.py`'s customization/geoset logic, so its
    previews are not representative of the real two-step Blender pipeline

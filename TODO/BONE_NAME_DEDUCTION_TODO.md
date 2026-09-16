@@ -4,6 +4,10 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
+**Scope: investigative/no pipeline dependency.** Cosmetic bone naming via
+reference-skeleton matching — a data/naming problem independent of which
+pipeline ships.
+
 ## Background
 
 `husk export`'s glTF joint names come from a priority chain

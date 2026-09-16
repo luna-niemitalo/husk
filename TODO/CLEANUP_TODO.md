@@ -4,6 +4,11 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
+**Scope: mixed, tagged per item.** Item 1 (dangling test citations):
+legacy-only cleanup. Item 2 (corpus-scan tooling hang): investigative/no
+pipeline dependency. Item 3 (`--debug` flag): dual-use/infrastructure
+(applies to whichever export command ships).
+
 1. **`corpus_scan_tasks/m2_full_validation_task.py` genuinely hangs on a
    full-corpus run (not just slow).** Found 2026-08-22 during the
    post-patch corpus-scan re-run (`corpus_reports/corpus_scan_22_08/`):

@@ -4,6 +4,11 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
+**Scope: legacy-only.** Findings are grounded in the legacy `gltf_*`
+writer's own rendering/compositing behavior; the underlying visual
+findings (blend modes, billboard alignment) may inform `canon::`'s own
+writers later, but this file's own open items are legacy-pipeline work.
+
 ## Background
 
 Sourced from a corpus-triage review pass over `corpus_reports/renders_full`'s

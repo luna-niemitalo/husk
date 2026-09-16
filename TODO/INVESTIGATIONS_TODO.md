@@ -4,6 +4,10 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
+**Scope: investigative/no pipeline dependency** (this file's whole point —
+it's a meta-list of investigation-shaped items; each linked item carries
+its own classification in its own file).
+
 ## Purpose
 
 A meta-list, not a duplicate. Every item below already has a home file with

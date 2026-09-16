@@ -6,6 +6,12 @@ removed outright once closed — git history (and `CLAUDE_HISTORY.md`'s
 it, fixed it, verified it" narration) is the record of what was fixed and
 when, not this file.
 
+**Scope: legacy-only.** This Blender tooling consumes the legacy
+pipeline's own skin extras (`chr_customization_options`, etc.); `canon::`'s
+bundle format will carry the same customization data differently, so this
+node-graph machinery will need redoing once the Blender addon (
+`REFACTOR/BLENDER_ADDON.md`) replaces it.
+
 ## Background
 
 husk resolves real DB2-driven character-customization data (which

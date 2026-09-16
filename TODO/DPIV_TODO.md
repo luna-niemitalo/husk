@@ -6,6 +6,10 @@ and when, not this file. See `../WIKI_FINDINGS_HISTORY.md` §10 and
 `../WIKI_FINDINGS/M2.md`'s Legion+ misc-chunk section for what's already
 confirmed; this file only tracks the open semantic gap.
 
+**Scope: investigative/no pipeline dependency.** Cracking an undocumented
+chunk's field semantics via corpus statistics — independent of which
+pipeline ships; `DPIV` is diagnostic-only regardless.
+
 ## Background
 
 `DPIV` (>= War Within 11.1.7.60520) has no wowdev.wiki struct at all — the

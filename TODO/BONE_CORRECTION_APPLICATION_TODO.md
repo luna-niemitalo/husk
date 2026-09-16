@@ -4,6 +4,11 @@
 removed outright once closed — git history is the record of what was fixed
 and when, not this file.
 
+**Scope: dual-use/infrastructure.** Whether/how a `.bone` correction
+matrix should actually compose (multiply order, space) is a semantic
+question `canon::Skeleton` corrections will face too, not a legacy-writer
+quirk — the human-gated verification work here carries over.
+
 ## Background
 
 A now-closed, deleted TODO (the geoset-selection work, see git history and

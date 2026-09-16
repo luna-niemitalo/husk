@@ -5,6 +5,11 @@ removed outright once closed — git history is the record of what was fixed
 and when, not this file. Full narrative for the now-closed steps 1/2:
 `CLAUDE_HISTORY.md`'s 2026-08-21/2026-08-22 archival entry.
 
+**Scope: legacy-only.** Blender-side rendering of the legacy pipeline's
+`gear_items`/`gear_section_overlays` extras; will need redoing once
+`canon::Item`'s equip/component model (see `CANONICAL_FORMAT.md`) and its
+own Blender addon replace this.
+
 ## Background
 
 `husk appearance-string --db2-dir/--dbd-dir` resolves a `gear=SLOT:id`
