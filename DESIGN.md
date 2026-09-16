@@ -1858,71 +1858,12 @@ to check against.
 
 ## Testing architecture
 
-Four tiers, the first three the same shape used by `casc-tool`:
-
-1. **Pure-logic** (`test_chunk`/`test_m2`/`test_skin`/`test_skel`/
-   `test_gltf`) — synthetic buffers built field-by-field from the wiki
-   spec (or, for `gltf`, round-tripped through tinygltf's own loader), no
-   real files, always run.
-2. **Command-layer** (`test_cli`/`test_dump`) — spawns the real compiled
-   binary against small synthetic fixtures; exercises argv parsing and
-   `cmd_*.cpp` exception handling without needing real game files.
-3. **Integration** (`test_integration`) — the compiled binary against real,
-   game-extracted files. Asserts on shape ("found some vertices," "plausible
-   `.glb`"), never on one specific model's exact field values — those
-   belong in tier 1. Each real-file fixture resolves via
-   `tests/test_data_paths.hpp`: an explicit `HUSK_TEST_*` env var always
-   overrides; otherwise it falls back to a matching file already in this
-   repo's own gitignored `test_data/` (two fixtures are *constructed* on
-   the fly rather than resolved directly: `--skin-dir`'s, by reading the
-   real SFID entry 0 out of the resolved M2's header; `--bones-dir`'s, by
-   reading the real `.skel`'s own `BFID` chunk and copying a few of this
-   repo's already-present `.bone` fixtures under those FileDataIDs — the
-   same shape a hand-populated directory would need either way). A fixture that doesn't resolve
-   marks its `TEST_CASE` with `* doctest::skip(...)`, not a runtime
-   `MESSAGE` + early `return` — doctest's own summary then reports a
-   distinct, non-zero "skipped" count instead of silently folding a
-   0-assertion test into "passed" (a real gap this project's own audit
-   found: `./build/husk-tests` used to report "0 skipped" even when 12 of
-   260 cases never exercised anything). `tests/test_main.cpp`'s startup
-   banner prints every fixture's resolution (or lack of one) up front, so
-   "why did N tests just skip" is a read, not a rerun with env vars
-   guessed at.
-
-4. **Conformance** (`test_conformance`) — real downstream *consumers* of an
-   exported `.glb` (Khronos `gltf_validator`, Blender's own importer run
-   headlessly), plus a third comparison leg the other tiers don't reach:
-   the M2 source file's own header counts, cross-checked against what
-   Blender/tinygltf actually read back (vertex/bone counts exactly,
-   bind-pose bounds via containment, collision-mesh count/topology
-   exactly — see `WIKI_FINDINGS/M2.md` for the bounding-box finding. See
-   `README.md`'s Testing section for the full per-check writeup, including
-   two real Blender-importer-side contamination sources found while making
-   these checks exact.
-
-Known gap: the ad hoc real-`.anim`-directory verification described in the
-README's roadmap stage 6 (50/50 and 54/54 real files, parsed back apart in
-Python) has no `HUSK_TEST_ANIM_DIR`-gated repeatable test yet — it doesn't
-re-run automatically. Tracked as a testing debt, not a correctness bug.
-
-**A second, more fundamental known gap, named honestly by Luna 2026-08-01**:
-every Blender-side check this tier ever runs is against **headless**
-Blender (`tests/blender_import_check.py`, invoked with no display) — count/
-topology/validator-style assertions, never an actual human looking at the
-rendered result in Blender's own GUI. This has been true since
-`test_conformance` was introduced and applies to every feature husk has
-ever shipped (collision meshes, ribbons/particles, multi-root skeletons,
-`.bone` corrections, `.phys` bodies, geoset/texture-transform `extras`),
-not just anything new — no session so far has had real eyes on whether any
-of this actually *looks* right once imported, only whether it's
-structurally present and countable. Headless checks are real and valuable
-(they catch the contamination/regression bugs `WIKI_FINDINGS/M2.md` and
-earlier sessions found) but they cannot catch a visually-wrong-but-
-structurally-valid export — wrong-looking UVs, a flipped normal, a
-correctly-counted but misplaced vertex. Worth a real interactive-Blender
-pass at some point on a representative fixture or two, entirely separate
-from (and not a replacement for) the automated headless tier — not done as
-part of any session so far, tracked here so it isn't silently forgotten.
+See `TEST_DESIGN.md` for the canonical description of the test suite's
+architecture — four tiers (pure-logic, command-layer, integration against
+real game-extracted fixtures, and conformance against external consumers
+like `gltf_validator` and headless Blender), plus the fixture-resolution,
+mutation-testing, and exact-vs-shape-only-check conventions that apply
+across all of them.
 
 ## Open work
 

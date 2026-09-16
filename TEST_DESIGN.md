@@ -23,10 +23,20 @@ Tests are organized into four tiers, each answering a different question:
    `.skin`/`.skel`/`.anim`/`.phys`/`.bone` fixtures (`test_data/`, gitignored, never
    committed) produce a plausible, internally-consistent `.glb` when read back with
    tinygltf. See "Shape-only vs. exact checks" below for what "plausible" means here.
+   Includes a `HUSK_TEST_QUADRUPED_M2`/`_SKIN`-gated fixture (real `wolf.m2`) so this
+   tier isn't only exercised against one humanoid body plan, and a
+   `HUSK_TEST_ANIM_DIR`-gated case that decodes an entire real `.anim` corpus
+   (`bloodelffemale_hd_*.anim`, 336 clips) and checks every rotation/translation
+   keyframe, not just that the file parses.
 4. **Conformance** (`test_conformance.cpp`) — does a real export pass validation by
    tools outside husk's own control: the Khronos `gltf_validator` and a real
    headless Blender import. This is the tier that catches "husk thinks the glTF is
-   fine but nothing else agrees."
+   fine but nothing else agrees." Also includes an asset-agnostic orientation-
+   correctness probe: a synthetic (not real-file) skeleton whose local X/Y/Z bone
+   offsets must survive a husk-export -> Blender-import round trip as the identical
+   coordinate — the property a real transform bug once violated undetected, since
+   every other check here is either purely structural or compares two values that
+   both went through the same conversion.
 
 A change to core export logic should usually be covered at tier 1 (the unit fact),
 optionally tier 2 (the CLI wiring), and — if it touches real-world fixtures or
