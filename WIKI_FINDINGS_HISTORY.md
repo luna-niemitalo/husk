@@ -407,7 +407,8 @@ fixtures.
 **Confidence: verified** (LOD is not the selector) for the negative claim;
 **inferred, plausible** for the positive one (character customization).
 
-`TODO/TODO_correctness.md` #6 asked "which `.bone` file (of a model's several)
+The project's correctness punch list (since resolved and the tracking file
+deleted; see `TODO/BONE_CORRECTION_APPLICATION_TODO.md`) asked "which `.bone` file (of a model's several)
 applies to which LOD/context." All 20 real `bloodelffemale_hd_00.bone`
 through `_19.bone` files (plus their 20 `_sdr_00`–`_sdr_19` siblings — same
 count, same container shape) were decoded and compared directly against
@@ -622,7 +623,7 @@ discipline this file's other findings were built on.
 ## 7. `M2/.skin` — multi-texture-layer arithmetic confirmed exact against real data; `textureCoordCombos` found real but not matching its documented value range
 
 `cmd_export.cpp`'s handling of a `.skin` batch's `textureCount > 1` case
-(`TODO/TODO_correctness.md`'s former #3) was implemented straight from wowdev.wiki
+(formerly tracked in the since-deleted `TODO_correctness.md`, now closed) was implemented straight from wowdev.wiki
 prose — "if the textureCount is e.g. 3 and the texunit's uv anim lookup is
 2, then the 3 uv animation lookups are 2, 3, and 4" — but had never been
 cross-checked against a real multi-layer file. Luna's full extraction of
@@ -1135,7 +1136,7 @@ across 4 real files from one character-model family (`character/bloodelf/
 female/bloodelffemale.m2`, `.../female/bloodelffemale_hd.skel`, `.../male/
 bloodelfmale.m2`, `.../male/bloodelfmale_hd.skel` — `tools/
 check_alias_next.py`). Directly resolves `M2_UNKNOWNS_EXPLORATION.md`
-target 6 / `TODO/TODO_correctness.md` former item 4's open question — see "What
+target 6 / the correctness punch list's (since deleted) `aliasNext` question — see "What
 went wrong the first time" below for why an earlier pass on this exact
 question concluded the opposite.
 
@@ -1206,8 +1207,8 @@ found:
 
 ### What went wrong the first time
 
-The 7/396-alias pre-existing finding (`TODO/TODO_correctness.md`'s former item
-4, `bloodelffemale_hd.skel`) reported `aliasNext` values in the
+The 7/396-alias pre-existing finding (formerly tracked in the since-deleted
+`TODO_correctness.md`, `bloodelffemale_hd.skel`) reported `aliasNext` values in the
 48,861–48,983 range and concluded they resolve neither as a local index nor
 a same-file `id` match. That check read `aliasNext` at the wiki's literal,
 uncorrected `/*0x22*/` offset — which, at the real 64-byte stride established

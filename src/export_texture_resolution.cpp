@@ -336,8 +336,8 @@ constexpr std::string_view kSdrSuffix = "_sdr";
 // any wowdev.wiki table -- derived by frequency-counting every real
 // "..._<code>[_]<m|f>.m2" filename across item/objectcomponents/ in a
 // real 130k-file local extraction; only codes with hundreds of real
-// occurrences kept, see TODO/KNOWLEDGE_BASE_DESIGN.md's "local fallback"
-// section for the exact counts). Both the compact ("_bem") and
+// occurrences kept -- full derivation in `CLAUDE_HISTORY.md`'s 2026-08-16
+// entry). Both the compact ("_bem") and
 // underscore-separated ("_be_m") forms are real and both appear widely
 // across different eras of content, so both are tried for every code
 // rather than special-casing which convention a given code uses.
@@ -350,7 +350,7 @@ constexpr std::array<std::string_view, 20> kRaceCodes = {
 // e.g. "helm_leather_pvpdruid_b_02_scm" -> "helm_leather_pvpdruid_b_02"
 // -- the real naming convention behind husk's own item/objectcomponents/
 // race-variant `.m2` files (22+ real files sharing one base shape,
-// confirmed directly: TODO/KNOWLEDGE_BASE_DESIGN.md). Returns nullopt
+// confirmed directly -- see `CLAUDE_HISTORY.md`'s 2026-08-16 entry). Returns nullopt
 // when no known suffix matches -- never a partial/ambiguous strip.
 std::optional<std::string> stripRaceGenderSuffix(const std::string& basenameLower) {
     for (std::string_view code : kRaceCodes) {

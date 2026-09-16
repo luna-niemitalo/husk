@@ -320,7 +320,7 @@ TEST_CASE("husk info: prints per-texture type/flags/filename, per-material flags
 
 // The five uint16 lookup arrays (sequence/bone/texture/attachment/camera)
 // used to be parsed into Array descriptors and never dereferenced anywhere
-// (TODO/TODO_correctness.md's former item 2). Builds a real header with all five
+// (a since-closed, since-deleted TODO_correctness.md item). Builds a real header with all five
 // populated -- each with one resolvable entry and one 0xFFFF ("-1", "not
 // used") sentinel -- past minimalMd20()'s 0x130-byte end, and points each
 // Array descriptor at its own two-entry payload.

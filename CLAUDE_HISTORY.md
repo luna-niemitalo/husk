@@ -14,6 +14,89 @@ deletions handled their own back-references).
 
 ---
 
+**(archival, 2026-08-29 through 2026-08-30) — `TODO/TEXTURE_POOL_RECALL_TODO.md`'s
+full investigation/fix narrative, condensed out of that file 2026-09-16
+(docs consolidation pass) to keep it a true open punch list, not a log.**
+The fuzzy same-basename texture pool (`scanFuzzyTexturePool`,
+`stem.startswith(model_basename)`) was measured against real ground truth
+for `bloodelffemale_hd` (415 DB2-named textures on disk) and found to
+exclude 84% of the correct files (66/415 = 15.9% recall) — root-caused to
+`character/bloodelf/female/` using at least four distinct naming
+conventions, only one of which the prefix rule matched, and to the rule
+splitting badly across the HD/non-HD divide in opposite directions
+(starved for `_hd` models, poisoned by ~50% inapplicable `_hd` files for
+non-HD models, with `orderCandidatesForDefault`'s pixel-area ranking
+actively preferring the wrong higher-resolution file).
+
+Fixed across several real, measured steps, all independently verified
+against the compiled binary (not reasoned about):
+
+- **Tag vocabulary derivation** (`tools/derive_texture_tag_vocabulary.py`):
+  a two-phase, corpus-wide (771,548-file) method — seed a vocabulary from
+  atoms already standalone somewhere in the corpus (frequency ≥100), then
+  iteratively re-segment every filename and mine leftover spans as new
+  candidates, 12 rounds to converge. Validated against this investigation's
+  own hand counts (8/9 reproduced exactly; the 9th was the hand-tally's own
+  error, confirmed three independent ways). Found real structural relations
+  (`pelvis`⟹`naked` 100%, `torso`⟹`naked` only 93.1%; `scalp+upper`/
+  `scalp+lower` disjoint; `color` an orthogonal customization axis, not a
+  subtype) and one confirmed-unfixable gap: `object_skin` never appears in
+  any real filename anywhere in the corpus — it's an M2 texture-type enum
+  name, not a naming convention, so no filename-tag fix can ever reach it.
+- **DB2-driven `db2-character` tier** (`sources::CharacterTextureContext`,
+  `Catalog::resolveDb2CharacterTier`): fires ahead of the fuzzy pool only
+  when a (model layout, texture type) pair has exactly one live
+  `ChrModelTextureLayer` target *and* a resolved customization choice with a
+  real material row — confirmed type-conditional, not universal, by real
+  per-model and corpus-wide measurement (type 1/skin ranges 1-14 targets per
+  layout, types 6/9/20 are usually-but-not-always single-target). On
+  `bloodelffemale_hd` this changed exactly one slot (char_jewelry) from an
+  arbitrary 2-candidate pool pick to an authoritative DB2 hit — same
+  FileDataID, now for a real reason instead of luck.
+- **Tag-conjunction pool admission + hard `_hd` partition**
+  (`filterCandidatesByTextureTag`, `filenameCarriesHdToken`): a candidate is
+  admitted by real tag conjunction (not just prefix) but must also match the
+  model's own `_hd`-ness exactly. Recall on the HD model went 15.9% -> 91.3%
+  (not the full 98.6% "any tag" figure, because 389/415 ground-truth files
+  are themselves `_hd` — the partition trades away real non-`_hd` outliers
+  for eliminating the poisoned non-HD pool, confirmed correct not lossy).
+- **Constrained-pool follow-up**: the tag-conjunction widening was
+  correctly scoped to types with a real tag clause; untagged types
+  (`object_skin` confirmed unreachable by any filename tag — its real
+  texture lives in a different top-level directory entirely, same chain
+  `husk appearance-string` already resolves) were restored to the original
+  narrow prefix-only admission via a `narrowAdmitted` set populated during
+  the same scan, avoiding a second directory pass.
+
+**Supervisor re-verification found two claims didn't survive independent
+re-check**: (1) "no real skin file exists locally for the non-HD variant"
+was false — 26 real matches exist in the fixed candidate set, but
+`orderCandidatesForDefault` still ranks a demon-hunter tattoo texture above
+all of them, meaning the *set* fix landed but the *ranking* is now the
+binding constraint (not fixed at the time, carried forward as this file's
+own Steps 1). (2) The HD model's `object_skin` default changing was a side
+effect of the widened scan gate, not a targeted fix — no evidence it's
+actually better, just no longer a known-wrong sparkle-icon default.
+
+**Performance**: candidate-set size is the dominant per-invocation runtime
+cost (`orderCandidatesForDefault` BLP-decodes every candidate to rank by
+pixel area) — measured 4.2x slower on the HD model's widened skin slot,
+4.8x faster on the non-HD model's `_hd`-partitioned slot, roughly a wash
+corpus-wide. Output size also moves hard both ways (HD +84% to 201MB, non-HD
+-81% to 24MB) purely from `alternate_textures` diagnostic payload — accepted
+as fine by Luna's explicit call, not to be traded away by capping the
+diagnostic set. `--slim-textures` (which externalizes exactly this payload)
+was confirmed to already cover both `alternate_textures` and additional
+texture layers by the time this was checked.
+
+Full byte-level ledger deltas, per-model per-slot tables, and the exact
+`husk resolve`/`husk export --explain-textures` commands used to reproduce
+every number above lived in the file's own now-removed "Step 1-5 findings"
+sections — available via `git log -p -- TODO/TEXTURE_POOL_RECALL_TODO.md`
+if needed again.
+
+---
+
 **(archival, 2026-08-21 through 2026-08-22) — `TODO/EQUIPPED_GEAR_RENDER_TODO.md`
 steps 1-2's fixed/verified narrative, condensed out of that file 2026-09-16
 (docs consolidation pass) to keep it a punch list, not a log.** Step 1

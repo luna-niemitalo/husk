@@ -1,7 +1,7 @@
 # TODO: PM4/PD4 (server-side navigation/pathing mesh) support
 
 **Status: an open punch list, not a historical record.** Fixed/resolved
-items get removed outright once closed (see `../TODO_correctness.md`'s own
+items get removed outright once closed (see `../CLEANUP_TODO.md`'s own
 convention) — git history is the record of what was fixed and when, not
 this file.
 

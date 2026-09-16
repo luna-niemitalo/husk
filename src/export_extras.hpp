@@ -79,10 +79,10 @@ void attachPhysicsBodies(bool physNone, bool physGiven, const std::string& physP
 
 // --db2-dir/--dbd-dir/--customization-choice-ids: resolves each real
 // ChrCustomizationChoiceID against src/chrcustomization_db2.hpp's DB2
-// chain (TODO/TODO_correctness.md #2), attaching real geoset selections
-// as skeleton.enabledGeosets extras and marking any already-resolved
-// --bones-dir CorrectionSet a choice's ChrCustomizationBoneSetID points at
-// (TODO_correctness.md #2). Must run after attachBoneCorrections, since it
+// chain (see TODO/BONE_CORRECTION_APPLICATION_TODO.md's background),
+// attaching real geoset selections as skeleton.enabledGeosets extras and
+// marking any already-resolved --bones-dir CorrectionSet a choice's
+// ChrCustomizationBoneSetID points at. Must run after attachBoneCorrections, since it
 // only marks existing entries in skeleton.correctionSets rather than
 // attaching new '.bone' data itself -- a choice resolving to a
 // BoneFileDataID that was never in --bones-dir's own BFID-array scan (a

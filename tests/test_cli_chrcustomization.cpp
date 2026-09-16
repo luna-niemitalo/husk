@@ -3,7 +3,7 @@
 // synthetic, on-disk M2/.skin/.skel fixtures plus a small synthetic
 // WoWDBDefs/.db2 fixture set, verifying the real `enabled_geosets`/
 // `selected_by_choice_ids` glTF extras land in the actual output .glb.
-// TODO/TODO_correctness.md #2, src/chrcustomization_db2.hpp. The
+// TODO/BONE_CORRECTION_APPLICATION_TODO.md, src/chrcustomization_db2.hpp. The
 // `--chr-model-id auto` derivation tests (lowest-OrderIndex default-choice
 // selection, the filename race+sex fallback, the primary --listfile
 // FileDataID chain, and the `none` opt-out) moved to

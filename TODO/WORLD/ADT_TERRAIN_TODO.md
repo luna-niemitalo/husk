@@ -3,7 +3,7 @@
 **Status: an open punch list, not a historical record.** Nothing here is
 implemented yet. Once implementation starts, fixed items get removed
 outright — git history is the record, not this file (same convention
-`RO_COMPLETENESS_TODO.md`/`../TODO_correctness.md` already use).
+`RO_COMPLETENESS_TODO.md`/`../CLEANUP_TODO.md` already use).
 
 **Scope**: one of three sibling docs expanding `../../WORLD_COMPLETENESS.md`'s
 "Terrain geometry (ADT)" section — per that file's own words, the heightmap

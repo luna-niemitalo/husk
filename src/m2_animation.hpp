@@ -172,7 +172,7 @@ struct TextureTransform {
 // same track shape on a material's M2Color/M2TextureWeight has no glTF
 // property to animate at all, see Color::colorAnimated/alphaAnimated's doc
 // comment.
-// TODO: Remove: WIKI_FINDINGS.md/TODO_correctness.md, FAILURES2.md #7.
+// TODO: Remove: WIKI_FINDINGS.md, FAILURES2.md #7.
 struct TrackMeta {
     uint16_t interpolationType = 1;
     // 0xFFFF ("none"), the same -1-as-unsigned sentinel convention this

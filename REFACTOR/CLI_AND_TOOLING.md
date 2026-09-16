@@ -218,15 +218,16 @@ structured-output work below, not started).
 ## 5. `--knowledge-db`
 
 **Decided and done** (`REFACTOR_LOG.md`'s 2026-08-28 entry): keep, not
-retire — `TODO/KNOWLEDGE_BASE_DESIGN.md` already made this call explicitly
-("kept as diagnostic/future-work infrastructure, not load-bearing";
-disabled by default in `render_sample_driver.py`), so retiring the flag
-here would have reopened a decision already made rather than executing
-it. What was actually missing was the I4 half: `cmd_export.cpp` now
-prints a real warning at the exact point a `--knowledge-db` answer is
-about to be used (naming the resolved FileDataID and pointing at
-`TODO/KNOWLEDGE_BASE_DESIGN.md`), instead of the known-wrongness living
-only in a hazards note a caller of this flag might never read. First
+retire — the now-deleted `TODO/KNOWLEDGE_BASE_DESIGN.md` already made this
+call explicitly ("kept as diagnostic/future-work infrastructure, not
+load-bearing"; disabled by default in `render_sample_driver.py`), so
+retiring the flag here would have reopened a decision already made rather
+than executing it. What was actually missing was the I4 half:
+`cmd_export.cpp` now prints a real warning at the exact point a
+`--knowledge-db` answer is about to be used (naming the resolved
+FileDataID and pointing at `TODO/TEXTURE_POOL_RECALL_TODO.md`), instead of
+the known-wrongness living only in a hazards note a caller of this flag
+might never read. First
 CLI-tier coverage this flag has ever had
 (`tests/test_cli_knowledge_db.cpp`: a real resolution prints the warning,
 a miss prints nothing).

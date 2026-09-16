@@ -8,8 +8,9 @@ Architecture and design rationale. Status/progress lives in the README's
 roadmap and format matrix, not here — this file explains *why* the code is
 shaped the way it is, so a structural change can be checked against the
 reasoning instead of just the current state. Real-file reverse-engineering
-findings live in `WIKI_FINDINGS.md`; open correctness gaps live in
-`TODO/TODO_correctness.md`; a granular per-M2-feature completion breakdown
+findings live in `WIKI_FINDINGS.md`; open correctness gaps live across the
+individual `TODO/*.md` files (see `TODO/README.md`'s index); a granular
+per-M2-feature completion breakdown
 (parse depth vs. consumption depth vs. glTF ceiling) lives in
 `M2_COMPLETENESS.md`, with the same breakdown for WMO + ADT (combined, not
 yet implemented — a target-setting scaffold, not a progress report) in
@@ -60,7 +61,7 @@ Non-goals, by design, not oversight:
   file; the up-to-date framing is this bullet.) An out-of-band tool
   scraping *live* CASC/DB2 at build time to learn something husk itself
   structurally can't (e.g. which `.bone` slot a customization choice
-  selects, `TODO/TODO_correctness.md` #6) is likewise fine — it would just hand
+  selects, `TODO/BONE_CORRECTION_APPLICATION_TODO.md`) is likewise fine — it would just hand
   husk a plain local file/flag to read, same as every other sidecar. What
   husk itself never does, at runtime, under any circumstance, is talk to
   *live* CASC/DB2 directly, or depend on the CASC tool itself. A real WDC5
@@ -879,9 +880,9 @@ gate `kMinVerifiedParticleVersion` needs to also check.
 the wiki's own "use this instead of index+1 for multitexture blending"
 cross-reference into `cmd_export.cpp`'s material resolution was
 deliberately *not* wired up (no indexing key documented at all, and no
-real file to verify a guess against) — surfaced via `husk info` only, same
-awareness-only treatment `TODO/TODO_correctness.md`'s five-lookup-tables item
-already established for this struct.
+real file to verify a guess against) — surfaced via `husk info` only, the
+same awareness-only treatment already established elsewhere in this project
+for lookup-table structs with no verified consumer yet.
 
 **`resolveSkin`'s "not found" failure message now names the specific
 candidate path it checked**, not just the directory searched — a direct
@@ -1867,12 +1868,13 @@ across all of them.
 
 ## Open work
 
-See `TODO/TODO_correctness.md` for the current punch list (`M2Camera`, `.bone`
-slot selection, and two awareness-only footnotes) and `WIKI_FINDINGS.md`
-for every real-data-driven spec correction found so far, `AFSB`'s
-included. `TODO/TODO_correctness.md`/`WIKI_FINDINGS.md` are living documents;
-this file describes the shape of the system they operate within, not
-their current item-by-item status.
+See `TODO/README.md`'s index for the current per-topic punch lists
+(`M2Camera` is closed/deprioritized by design; `.bone` correction
+*application* semantics are the one open item, `TODO/
+BONE_CORRECTION_APPLICATION_TODO.md`) and `WIKI_FINDINGS.md` for every
+real-data-driven spec correction found so far, `AFSB`'s included. Both are
+living documents; this file describes the shape of the system they operate
+within, not their current item-by-item status.
 
 `M2_GAPS_TODO.md` (documented-but-unbuilt M2 coverage items with no
 external-data blocker: `M2Sequence`'s remaining fields including
@@ -1955,8 +1957,9 @@ real side-by-side run is deferred as future work, tracked in that file's
 own closing section). Headline finding: husk and wow.export solve
 adjacent but different problems — wow.export has live CASC+DB2 access
 (real character-customization-driven texture/geoset resolution, exactly
-the external data source `TODO/TODO_correctness.md`'s `.bone`-slot-selection
-gap and this file's `Texture.type` handling both point at -- husk's own
+the external data source `TODO/BONE_CORRECTION_APPLICATION_TODO.md`'s
+`.bone`-slot-selection background and this file's `Texture.type` handling
+both point at -- husk's own
 path to the same data is locally-extracted DB2 files, not live CASC, per
 Non-goals above's clarified wording) and broader
 format scope (WMO/ADT/M3), but its own M2 loader has zero code path at

@@ -101,9 +101,10 @@ tool, `blp/`) converts BLP2 textures to PNG.
   now fully parsed, every field and every resolved animation curve, split
   between a minimal glTF placement anchor and `husk dump-chunks`'s full JSON
   output — see CLAUDE_HISTORY.md. Remaining work is either scope expansion
-  (WMO/M3, not started, by design) or the structural gaps `TODO/TODO_correctness.md`
-  already tracks (`M2Camera`, low-priority by design; `.bone` correction
-  *selection* — the extras-export half is done, see CLAUDE_HISTORY.md; picking which
+  (WMO/M3, not started, by design) or the structural gaps this project
+  already tracks (`M2Camera`, low-priority by design, see `M2_COMPLETENESS.md`;
+  `.bone` correction *selection* — the extras-export half is done, see
+  `TODO/BONE_CORRECTION_APPLICATION_TODO.md` and CLAUDE_HISTORY.md; picking which
   slot applies is blocked on client-side DB2 data husk doesn't have, not on
   more investigation), or the corpus-hardening follow-ups a real 130k-file
   corpus sweep turned up this session --
@@ -244,7 +245,7 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
     output) contains real but incomplete object-skin data — same-slot
     cross-item collisions are common. Don't pass `--knowledge-db` to `husk
     export` for real output; see `STYLE_CLEANUP.md` item 2 and
-    `TODO/KNOWLEDGE_BASE_DESIGN.md` for the disabled subsystem's own
+    `TODO/TEXTURE_POOL_RECALL_TODO.md` for the disabled subsystem's own
     status and the disambiguation design that would need to land first.
   - `tools/full_render.py`'s `.renderignore` is the real render-exclusion
     mechanism; older scan-result-subtraction file lists are superseded.

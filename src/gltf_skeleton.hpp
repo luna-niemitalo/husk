@@ -92,9 +92,9 @@ struct Skeleton {
         // correction to the bind pose/animation, same inert-extras
         // treatment as the rest of this struct -- just marks which of
         // several resolved sets a real customization choice actually
-        // picks, closing the "which BFID slot applies" half of
-        // TODO_correctness.md #2 that plain --bones-dir resolution alone
-        // can't answer.
+        // picks, closing the "which BFID slot applies" half that plain
+        // --bones-dir resolution alone can't answer (see
+        // TODO/BONE_CORRECTION_APPLICATION_TODO.md).
         std::vector<uint32_t> selectedByChoiceIds;
     };
     std::vector<CorrectionSet> correctionSets;

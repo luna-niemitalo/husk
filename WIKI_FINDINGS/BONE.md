@@ -70,5 +70,5 @@ customization-choice lookup" prediction. `ChrCustomizationOption`/
 `ChrCustomizationChoice` (needed to enumerate real choices without the
 caller supplying an ID directly) are still 0 bytes in the current local
 extraction — a real extraction gap, not a design wall. See
-`TODO/TODO_correctness.md` #2 for the current state, including the
-still-open question of the correction matrix's own application semantics.
+`TODO/BONE_CORRECTION_APPLICATION_TODO.md` for the current state, including
+the still-open question of the correction matrix's own application semantics.

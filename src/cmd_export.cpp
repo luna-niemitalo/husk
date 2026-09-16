@@ -224,7 +224,8 @@ std::vector<gltf::Animation> resolveAnimationsForModel(
 }
 
 // --knowledge-db: queries husk's own pre-built knowledge base
-// (TODO/KNOWLEDGE_BASE_DESIGN.md, `husk db2-build`) for this model's
+// (`husk db2-build`; design history in git, see
+// TODO/TEXTURE_POOL_RECALL_TODO.md's cross-validation open item) for this model's
 // resolved object-skin texture, via its own FileDataID (looked up in the
 // same database's `models` table by relative path against
 // `--listfile-root`), and that texture's own real path (via the
@@ -242,7 +243,7 @@ struct KbObjectSkinResolution {
 };
 
 // Tier 5 ("knowledge base") of RESOURCE_CATALOG.md's tier order --
-// documented-known-wrong (TODO/KNOWLEDGE_BASE_DESIGN.md: same-slot
+// documented-known-wrong (TODO/TEXTURE_POOL_RECALL_TODO.md: same-slot
 // cross-item collisions), so its `Resolved<T>::reason` on a hit carries
 // that caveat as real provenance rather than a separate ad-hoc warning at
 // the call site (REFACTOR/CLI_AND_TOOLING.md §5's original fix, now folded
@@ -333,7 +334,7 @@ husk::sources::Resolved<KbObjectSkinResolution> resolveObjectSkinTextureFromKb(c
     std::string reason = "--knowledge-db resolved texture FileDataID " + std::to_string(result.textureFileDataId) +
                           " for this model's object-skin slot -- this resolution is known to produce wrong "
                           "same-slot matches often enough not to trust as primary (see "
-                          "TODO/KNOWLEDGE_BASE_DESIGN.md); verify before relying on it";
+                          "TODO/TEXTURE_POOL_RECALL_TODO.md's cross-validation open item); verify before relying on it";
     return Resolved<KbObjectSkinResolution>::hit(result, ResolutionTier::KnowledgeBase, std::move(reason));
 }
 
@@ -801,8 +802,8 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                     "with the lowest real OrderIndex under each ChrCustomizationOption belonging to "
                     "this model, mirroring the character-creation UI's own first-shown option; NOT a "
                     "client-verified default the way --creature-display-id's geoset selection is "
-                    "(no DB2 table states an explicit player default), husk's own heuristic instead "
-                    "-- see TODO/TODO_correctness.md #2. Ignored when --customization-choice-ids is "
+                    "(no DB2 table states an explicit player default), husk's own heuristic instead. "
+                    "Ignored when --customization-choice-ids is "
                     "also given (an explicit pick always wins); requires --db2-dir/--dbd-dir too")
         ->group("Character");
     app.add_option("--creature-display-id", opts.creatureDisplayIdArg,
@@ -822,7 +823,7 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
         ->group("Appearance / gear");
     app.add_option("--knowledge-db", opts.knowledgeDbArg,
                     "husk's own pre-built knowledge-base SQLite database (`husk db2-build`, "
-                    "TODO/KNOWLEDGE_BASE_DESIGN.md) -- when given, resolves this model's own "
+                    "TODO/TEXTURE_POOL_RECALL_TODO.md) -- when given, resolves this model's own "
                     "object-skin texture automatically (via the database's own model->texture "
                     "mapping, keyed by the model's FileDataID under --listfile-root), instead of "
                     "requiring --object-skin-texture-id per invocation; --object-skin-texture-id "

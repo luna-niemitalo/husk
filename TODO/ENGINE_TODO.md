@@ -25,7 +25,8 @@ character-texture-layout structs feeding `husk export
 So most of what follows isn't "a spec for some other engine project" —
 it's real, actionable husk scope that just hasn't been implemented yet,
 gated on the same local-DB2-table-and-join-path investigation
-`TODO_correctness.md` #2 already does for its own items. Most items below
+`TODO/BONE_CORRECTION_APPLICATION_TODO.md`'s own background section already
+did for its own items. Most items below
 are DB2-lookup problems in that sense; the LOD-threshold and
 `blendTimeOperation` items are genuinely not data-acquisition problems at
 all (client logic / a user setting, not a missing table), and keep their
@@ -40,7 +41,8 @@ own scope), and all three are now closed: `husk export
 real `ChrCustomizationChoiceID` to its real geoset selection (attached as
 `enabled_geosets` skin extras) and/or its real `.bone` `BoneFileDataID`
 (marking the matching `--bones-dir`-resolved correction set) —
-`TODO_correctness.md` #2 has the bone-correction-set half's own detail.
+`TODO/BONE_CORRECTION_APPLICATION_TODO.md` has the bone-correction-set
+half's own detail.
 `tools/husk_blender_geoset_mask.py` also now consumes `enabled_geosets`
 directly, pre-selecting each geoset group's dropdown from real resolved
 data instead of a human clicking blind. Hardcoded/replaceable texture
@@ -54,13 +56,13 @@ composition math, gated on a real human ground-truth comparison against
 the client, not a data-acquisition gap) and is tracked on its own in
 `TODO/BONE_CORRECTION_APPLICATION_TODO.md`, out of this file's scope.
 Remaining items renumbered accordingly — same one-time exception
-`TODO_correctness.md` already establishes precedent for.
+`TODO/BONE_CORRECTION_APPLICATION_TODO.md` already establishes precedent for.
 
 ## How to read each entry
 
 - **husk gives you** — the exact glTF/`dump-chunks` field to read, as of
-  husk's current state (cross-check `../M2_COMPLETENESS.md`/
-  `TODO_correctness.md` if this drifts).
+  husk's current state (cross-check `../M2_COMPLETENESS.md` if this
+  drifts).
 - **missing** — what full reproduction still needs.
 - **local DB2 status** — whether the relevant table has actually been
   confirmed present in a real local extraction, and how confident the

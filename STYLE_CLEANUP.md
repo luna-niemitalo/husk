@@ -29,18 +29,19 @@ meant. No content relationship between the two.
    sites already done — delete the `TODO: Remove: FAILURES(2).md ...`
    citation, keep any independently-standing why-comment around it.
 
-2. **`TODO/KNOWLEDGE_BASE_DESIGN.md` / `husk db2-build` / `knowledge.sqlite`
-   — open design decision, not yet actionable.** A SQLite store ingesting 7
-   DB2 tables was built to consolidate scattered DB2 lookups, but the
-   triggering problem (object-skin texture resolution) was fixed by a
-   20-line local fallback tier before the database was finished. It sits
-   disabled today (no real export path passes `--knowledge-db`) and is
-   documented as producing known-wrong same-slot collisions. Not a clean
-   delete-candidate: the disambiguator it was missing (`ItemAppearance`
-   existence-checking a candidate `ItemDisplayInfoID`) now exists in the
-   tree via the unrelated `itemappearance_db2.cpp` (built later for
-   equipped-gear resolution). See `TODO/KNOWLEDGE_BASE_DESIGN.md`'s
-   "Proposed robustness follow-up" section for the cross-validation design
+2. **`husk db2-build` / `knowledge.sqlite` — open design decision, not yet
+   actionable.** A SQLite store ingesting 7 DB2 tables was built to
+   consolidate scattered DB2 lookups, but the triggering problem
+   (object-skin texture resolution) was fixed by a 20-line local fallback
+   tier before the database was finished. It sits disabled today (no real
+   export path passes `--knowledge-db`) and is documented as producing
+   known-wrong same-slot collisions. Not a clean delete-candidate: the
+   disambiguator it was missing (`ItemAppearance` existence-checking a
+   candidate `ItemDisplayInfoID`) now exists in the tree via the unrelated
+   `itemappearance_db2.cpp` (built later for equipped-gear resolution). See
+   `TODO/TEXTURE_POOL_RECALL_TODO.md`'s "cross-validate DB2 object-skin
+   candidates against the fuzzy pool" open item (merged in from the
+   now-deleted `KNOWLEDGE_BASE_DESIGN.md`) for the cross-validation design
    that could make this join trustworthy instead of discarding it. Until
    that's built (or the idea is rejected), the subsystem stays exactly as
    disabled/non-default as it is now — don't wire `--knowledge-db` into any

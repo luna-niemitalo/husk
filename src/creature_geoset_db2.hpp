@@ -8,7 +8,8 @@
 
 // Real, typed reader for CreatureDisplayInfoGeosetData.db2 -- the
 // authoritative default-geoset selection for a given CreatureDisplayInfoID
-// (TODO/TODO_correctness.md's geoset-selection gap, creature half). Unlike
+// (the creature half of husk's geoset-selection work; see TODO/ENGINE_TODO.md's
+// closed-item note for the player-character half). Unlike
 // player characters (chrcustomization_db2.hpp), this *is* a true default:
 // no per-choice caller input is needed, the table itself names which
 // geosets a given creature display shows.

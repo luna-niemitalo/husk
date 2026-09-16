@@ -405,7 +405,7 @@ migration is not the place that discovers it has to decide:
    match must never lose to a less specific one. A real corpus fact today living
    as one consumer's private extension (`husk_blender_geoset_mask.py`).
 5. **Knowledge base** — last, and only when `--knowledge-db` is given. It is
-   documented known-wrong (`TODO/KNOWLEDGE_BASE_DESIGN.md`), so nothing able to
+   documented known-wrong (`TODO/TEXTURE_POOL_RECALL_TODO.md`), so nothing able to
    answer from real data should ever lose to it.
 
 Both orderings change real resolution outcomes for real files — which is exactly

@@ -19,7 +19,9 @@
 #include "listfile_cache.hpp"
 
 // `husk db2-build` -- builds husk's own verified knowledge-base SQLite
-// database (TODO/KNOWLEDGE_BASE_DESIGN.md), split out of cmd_db2.cpp per
+// database (design history: git log -p TODO/KNOWLEDGE_BASE_DESIGN.md,
+// deleted 2026-09-16 once resolved; live follow-up in
+// TODO/TEXTURE_POOL_RECALL_TODO.md), split out of cmd_db2.cpp per
 // FILE_SPLIT_TODO.md's Item 2: a distinct sub-feature (the knowledge-base
 // builder) sharing only loadOneFile/writeFileTable/sqliteCheck with
 // cmd_db2.cpp's own db2-export/db2-info (see cmd_db2_shared.hpp).
@@ -28,7 +30,7 @@ namespace husk::commands {
 namespace {
 
 // One entry per resolved table this knowledge base knows how to build --
-// TODO/KNOWLEDGE_BASE_DESIGN.md's "general mechanism" decision: adding the
+// this project's own "general mechanism" decision: adding the
 // next resolved table (animations, skins, materials, ...) means adding one
 // entry here plus one CREATE+INSERT SELECT below, not a new script.
 struct KbSourceTable {
@@ -66,7 +68,8 @@ constexpr int kRobe = 20;
 // reject an object-skin candidate whose real item is for a completely
 // different slot (e.g. a two-handed staff for a model under
 // objectcomponents/head/, the real case that exposed this whole
-// correctness bug -- TODO/KNOWLEDGE_BASE_DESIGN.md). Returns nullopt for
+// correctness bug -- see TODO/TEXTURE_POOL_RECALL_TODO.md's cross-validation
+// open item). Returns nullopt for
 // any path this table doesn't have a confident rule for (most of
 // objectcomponents/weapon/'s many subtypes, anything outside
 // objectcomponents/ entirely) -- deliberately conservative: an unknown
@@ -153,7 +156,7 @@ int db2Build(int argc, char** args) {
     Db2BuildOptions opts;
     CLI::App app{
         "Builds husk's own verified knowledge-base SQLite database from a real, local --db2-dir "
-        "plus a --listfile snapshot -- TODO/KNOWLEDGE_BASE_DESIGN.md. Ingests the DB2 tables "
+        "plus a --listfile snapshot. Ingests the DB2 tables "
         "today's resolved joins need (ModelFileData/ItemDisplayInfo/TextureFileData) via the "
         "same db2-export machinery, a 'models' table (every .m2 FileDataID -> real path from "
         "--listfile), a 'textures' table (every .blp/.png FileDataID -> real path, same source), "
@@ -220,10 +223,9 @@ int db2Build(int argc, char** args) {
 
         // Shared by 'models'/'textures' below -- both are the same
         // "listfile row -> one extension-filtered flat table" shape, just a
-        // different extension set. TODO/KNOWLEDGE_BASE_DESIGN.md's "textures
-        // table" step: this is the one place a texture FileDataID -> real
-        // path lookup lives now, replacing every consumer's own in-memory
-        // --listfile re-parse.
+        // different extension set. This is the one place a texture
+        // FileDataID -> real path lookup lives now, replacing every
+        // consumer's own in-memory --listfile re-parse.
         auto ingestListfileTable = [&](const char* tableName, const std::set<std::string>& extensions) {
             sqliteCheck(sqlite3_exec(db,
                                       (std::string("CREATE TABLE ") + tableName +
@@ -258,8 +260,8 @@ int db2Build(int argc, char** args) {
         // The join algorithm matches reference/wow.export's own working
         // source (DBItemDisplays.js/DBItemDisplayInfoModelMatRes.js) --
         // that's "matches trusted reference code," not yet "confirmed
-        // correct against a real rendered/visually-checked file," see
-        // TODO/KNOWLEDGE_BASE_DESIGN.md for the open verification status.
+        // correct against a real rendered/visually-checked file" -- see
+        // TODO/TEXTURE_POOL_RECALL_TODO.md for the open verification status.
         // NOT ItemDisplayInfo.ModelMaterialResourcesID_0/1 directly (an
         // earlier version of this used that column as the texture source
         // and shipped real wrong-texture data: checked live against two
@@ -325,8 +327,8 @@ int db2Build(int argc, char** args) {
         }
 
         // Real ItemDisplayInfoID -> real equip slot(s), via the actual
-        // item(s) that reference it -- the disambiguator
-        // TODO/KNOWLEDGE_BASE_DESIGN.md's correctness bug needed:
+        // item(s) that reference it -- the disambiguator this project's
+        // known-wrong-join finding needed (see TODO/TEXTURE_POOL_RECALL_TODO.md):
         // ItemDisplayInfoID 113510 (the real case that exposed the bug)
         // turned out to be *real*, current data for an actual two-handed
         // staff, not orphaned junk -- ModelResourcesID really can be

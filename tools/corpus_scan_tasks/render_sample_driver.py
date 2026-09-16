@@ -101,18 +101,19 @@ GPU_PCI_BUS_IDS = ["pci-0000_10_00_0", "pci-0000_0d_00_0"]
 # no pruning risk and no meaningful cost.
 LISTFILE = Path("/media/luna/userdata/Downloads/community-listfile.csv")
 
-# TODO/KNOWLEDGE_BASE_DESIGN.md: husk's own pre-built knowledge-base
-# database (`husk db2-build --db2-dir ... --dbd-dir ... --listfile ... -o
-# KNOWLEDGE_DB`) -- husk export --knowledge-db does its own model ->
-# object-skin-texture lookup against this, so this driver just passes the
-# flag unconditionally; no per-file Python-side lookup/resolution here
+# husk's own pre-built knowledge-base database (`husk db2-build --db2-dir
+# ... --dbd-dir ... --listfile ... -o KNOWLEDGE_DB`; design history: git
+# log -p TODO/KNOWLEDGE_BASE_DESIGN.md, deleted 2026-09-16) -- husk export
+# --knowledge-db does its own model -> object-skin-texture lookup against
+# this, so this driver just passes the flag unconditionally (note:
+# currently NOT passed below, see the disabled-since-2026-08-16 comment
+# further down); no per-file Python-side lookup/resolution here
 # anymore (that was resolve_object_skin_textures.py, now deleted -- its
 # join is done once, in husk, at db2-build time instead). $XDG_CACHE_HOME
 # (falling back to ~/.cache, the XDG default), not a hardcoded username's
 # path -- this is a rebuildable husk artifact, not user-supplied data, so
-# it belongs under the cache dir either way (TODO/KNOWLEDGE_BASE_DESIGN.md's
-# "Canonical location"), but the cache dir itself shouldn't assume Luna's
-# own machine layout.
+# it belongs under the cache dir either way, but the cache dir itself
+# shouldn't assume Luna's own machine layout.
 CACHE_HOME = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
 KNOWLEDGE_DB = CACHE_HOME / "husk" / "knowledge.sqlite"
 
@@ -265,8 +266,9 @@ def process_one(m2_path_str: str, render_dir_str: str, live_log_str: str) -> dic
         # confidently return a *wrong*, unrelated item's texture (not just
         # fail to resolve) even in cases where the real, correct texture is
         # sitting right next to the model under an obvious name (see
-        # TODO/KNOWLEDGE_BASE_DESIGN.md's "Known-wrong, not just
-        # unverified" status). Re-enable only once that's fixed.
+        # TODO/TEXTURE_POOL_RECALL_TODO.md's cross-validation open item for
+        # the "Known-wrong, not just unverified" status). Re-enable only
+        # once that's fixed.
         p = subprocess.run(
             cmd,
             capture_output=True, text=True, timeout=EXPORT_TIMEOUT,

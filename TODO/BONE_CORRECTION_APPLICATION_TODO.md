@@ -7,7 +7,7 @@ and when, not this file.
 ## Background
 
 A now-closed, deleted TODO (the geoset-selection work, see git history and
-`TODO_correctness.md` #2's own detail) closed the *selection* half of
+`TODO/ENGINE_TODO.md`'s own detail) closed the *selection* half of
 `.bone` corrections: `husk export --db2-dir/--dbd-dir/
 --customization-choice-ids` (`src/chrcustomization_db2.hpp`) now resolves
 a real `ChrCustomizationChoiceID` all the way to a real `.bone`

@@ -397,7 +397,7 @@ void writeChrCustomizationDbd(const fs::path& dbdDir, uint32_t elementLayoutHash
 
 TEST_CASE("husk export --chr-model-id: auto-selects the lowest-OrderIndex choice per real "
           "ChrCustomizationOption, resolves each to its real geoset, and names both in the note "
-          "output -- TODO_correctness.md #2's 'sensible default' derivation") {
+          "output -- husk's own 'sensible default' derivation, no client-verified default exists") {
     auto dir = defaultsDir("chrmodelidauto");
     writeFile(dir / "chrmodelidauto.m2", tinyValidM2());
     writeFile(dir / "chrmodelidauto00.skin", tinyMatchingSkin());

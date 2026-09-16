@@ -8,7 +8,7 @@
 // answering the same three SELECTs is indistinguishable to it).
 //
 // Written alongside REFACTOR/CLI_AND_TOOLING.md §5's fix: --knowledge-db
-// is documented-known-wrong (TODO/KNOWLEDGE_BASE_DESIGN.md: same-slot
+// is documented-known-wrong (TODO/TEXTURE_POOL_RECALL_TODO.md: same-slot
 // cross-item collisions, kept deliberately as diagnostic/future-work
 // infrastructure rather than removed) but, before this fix, that
 // known-wrongness only ever appeared in a hazards note a caller of this
@@ -80,7 +80,7 @@ TEST_CASE("husk export --knowledge-db: a real resolution prints the documented-k
     CHECK(result.exitCode == 0);
     CHECK(result.output.find("--knowledge-db resolved texture FileDataID 222") != std::string::npos);
     CHECK(result.output.find("known to produce wrong same-slot matches") != std::string::npos);
-    CHECK(result.output.find("TODO/KNOWLEDGE_BASE_DESIGN.md") != std::string::npos);
+    CHECK(result.output.find("TODO/TEXTURE_POOL_RECALL_TODO.md") != std::string::npos);
 
     fs::remove_all(dir);
 }
