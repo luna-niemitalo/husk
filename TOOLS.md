@@ -137,9 +137,11 @@ produce something a human looks at, not a CSV.
   least one real particle emitter. A structural signal, not a confirmed-blank
   proof — treat the output as a human-spot-check list.
 - `corpus_scan_tasks/shader_id_task.py` — real-corpus `M2Batch::shader_id`
-  scan for `TODO/MULTI_TEXTURE_LAYER_TODO.md`: how often the 0x8000
-  table-lookup path fires, how often `textureCount > 1`, how often a
-  multi-texture batch has `shader_id == 0` (unresolvable either way).
+  scan: how often the 0x8000 table-lookup path fires, how often
+  `textureCount > 1`, how often a multi-texture batch has `shader_id == 0`
+  (unresolvable either way). Its findings drove `shader_id` parsing/
+  resolution (`skin::Batch::shaderId`, `m2::resolveShaderNames`), since
+  landed and verified.
 - `corpus_scan_tasks/shader_names_task.py` — goes one step past
   `shader_id_task.py`: resolves each batch's `(shaderId, textureCount)` to
   its real `{pixel, vertex}` shader name pair (mirroring

@@ -236,14 +236,12 @@ category-assignment, and material-dedup fixes). If today's sample repeats
 one of those *exact* symptoms, check the render predates the fix rather
 than assuming a regression.
 
-**Two real gaps are already tracked, not new** — likely explain a chunk
-of "missing/wrong" complaints without being fresh findings:
-- **`TODO/MULTI_TEXTURE_LAYER_TODO.md`** (open, actively worked — most
-  recently touched in today's own commit history): ~79% of real `.skin`
-  files have `textureCount > 1` (a second/third combined texture layer);
-  husk exports the data as extras but neither husk nor `render_glb.py`
-  blend it into the render. Documented symptom: "flat plastic" armor/
-  weapons missing a detail map, tint overlay, or shine layer.
+**One real gap is already tracked, not new** — likely explains a chunk
+of "missing/wrong" complaints without being a fresh finding (multi-texture-
+layer combiner rendering itself, ~79% of real `.skin` files having
+`textureCount > 1`, is since fully implemented and verified — husk exports
+the data as extras and `render_glb.py`'s `fix_multi_texture_layers` blends
+it into the render, so that symptom no longer applies to a current export):
 - **Character base/overlay skin layers**: husk resolves the real
   DB2-driven texture selection (`chr_texture_layout`/`chr_enabled_materials`
   skin extras) but deliberately leaves pixel compositing to Blender's own
@@ -277,8 +275,8 @@ principled tiebreak) is still real, but turns out self-consistent in
 practice — every ambiguous slot on one model shares the same candidate
 pool and the same deterministic tiebreak, so they agree with each other.
 Whatever produced the original report was either a stale pre-fix render
-or the already-tracked `MULTI_TEXTURE_LAYER_TODO.md` gap, not a fresh
-resolution-inconsistency bug — nothing to fix here without a fresher
+or the (since closed) multi-texture-layer combiner-rendering gap, not a
+fresh resolution-inconsistency bug — nothing to fix here without a fresher
 repro.
 
 **Closed, already resolved**: `bloodelffemale_hd.m2`'s three

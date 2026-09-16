@@ -1,4 +1,4 @@
-"""Real M2Batch::shader_id corpus scan, for TODO/MULTI_TEXTURE_LAYER_TODO.md.
+"""Real M2Batch::shader_id corpus scan.
 
 husk does parse M2Batch's on-disk shader_id (offset 0x02, `m2::Batch::shaderId`,
 src/skin.hpp/.cpp) and resolve it to real shader names

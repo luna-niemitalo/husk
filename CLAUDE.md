@@ -1131,7 +1131,8 @@ in place each session; append the full story to `CLAUDE_HISTORY.md` instead.
   gender geoset defaults, hunting further player-character bugs) is still
   Luna's own next action, not queued husk work — if it turns up bugs,
   they'll be new entries here. Otherwise unchanged from before:
-  `MULTI_TEXTURE_LAYER_TODO.md`'s step 5, `RENDER_QUALITY_TODO.md`'s
+  multi-texture-layer combiner rendering (Blender-side, since fully
+  implemented and verified), `RENDER_QUALITY_TODO.md`'s
   ambiguous-pool tiebreak/blank-render follow-ups, the dangling-internal-
   reference corpus scan (`CLEANUP_TODO.md`, now item 2), `CLEANUP_TODO.md`
   item 1's comment-hygiene sweep, and `BONE_NAME_DEDUCTION_TODO.md`'s

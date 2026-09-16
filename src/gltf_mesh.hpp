@@ -56,9 +56,9 @@ struct Material {
     // The real Combiners_*/Diffuse_* pixel/vertex shader names the Cata+
     // client would pick for this batch (M2Batch::shaderId + textureCount,
     // husk::m2::resolveShaderNames -- see src/m2_shader_names.hpp's doc
-    // comment for the wowdev.wiki source and TODO/MULTI_TEXTURE_LAYER_TODO.md
-    // for why this -- not a WotLK-era heuristic -- is the mechanism that
-    // applies here). Extras-only (`shader_names`/`pixel_shader`/
+    // comment for the wowdev.wiki source and why this -- not a WotLK-era
+    // heuristic -- is the mechanism that applies here). Extras-only
+    // (`shader_names`/`pixel_shader`/
     // `vertex_shader`), same "tag it, don't guess at rendering" treatment
     // blendMode above gets; empty when shaderId didn't resolve (an
     // out-of-range 0x8000 table index -- rare, see resolveShaderNames).
@@ -145,14 +145,16 @@ struct Material {
     // second env-mapped "shine" pass on armor, or a genuine two-texture
     // blend -- wowdev.wiki M2/.skin#Texture_units, real combiner formulas
     // transcribed in documentation/wowdev-wiki/wikitext/
-    // Pixel_shader_logic_for_mixing_colors.wiki -- see
-    // TODO/MULTI_TEXTURE_LAYER_TODO.md for the real rendering plan).
-    // husk doesn't fake WoW's fixed-function combiner math (Mod2x/Add/...)
-    // by wiring this into pbrMetallicRoughness; it's exposed as inert
-    // metadata instead (glTF extras + an unused auxiliary image/texture, if
-    // one was embeddable), the same "tag it, don't guess at semantics"
-    // treatment `billboardMode` already gets, for a custom renderer or a
-    // Blender script (material node setup, geometry nodes, ...) to act on.
+    // Pixel_shader_logic_for_mixing_colors.wiki).
+    // husk itself doesn't fake WoW's fixed-function combiner math (Mod2x/
+    // Add/...) by wiring this into pbrMetallicRoughness; it's exposed as
+    // inert metadata instead (glTF extras + an unused auxiliary image/
+    // texture, if one was embeddable), the same "tag it, don't guess at
+    // semantics" treatment `billboardMode` already gets, for a custom
+    // renderer or a Blender script to act on -- see
+    // `tools/corpus_scan_tasks/render_glb.py`'s `fix_multi_texture_layers`
+    // for the real, already-implemented combiner-formula rendering this
+    // metadata drives.
     struct AdditionalTextureLayer {
         uint32_t fileDataId = 0;  // 0 if this texture isn't file-based (see m2::Texture)
         int texCoord = 0;         // which UV set this layer samples, same convention as baseColorTexCoord

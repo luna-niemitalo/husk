@@ -1,6 +1,6 @@
-"""Full-corpus scan for TODO/MULTI_TEXTURE_LAYER_TODO.md's open follow-up:
-how often does a real .m2 file contain two texture slots whose *resolved
-byte content* is identical, in a file that also has at least one
+"""Full-corpus scan quantifying an image-dedup-collision bug's real trigger
+frequency: how often does a real .m2 file contain two texture slots whose
+*resolved byte content* is identical, in a file that also has at least one
 `textureCount > 1` batch (the shape that actually matters -- see below)?
 
 Motivating bug (commit cd11c85, `creature/ladywaycrest/ladywaycrest.m2`):

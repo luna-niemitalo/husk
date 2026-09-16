@@ -9,12 +9,12 @@ namespace husk::m2 {
 // {pixel, vertex} shader names the Cata+ client would pick -- transcribed
 // directly from wowdev.wiki M2/.skin.wiki's decompiled M2GetPixelShaderID/
 // M2GetVertexShaderID (Wow.exe build 12340) and its accompanying
-// s_modelShaderEffect table, not derived or guessed. See
-// TODO/MULTI_TEXTURE_LAYER_TODO.md for why this table -- not the WotLK-era
-// blend-mode/op-count heuristic wowser's BatchManager implements -- is the
-// one that applies to husk's own Legion+ scope ("this entire section only
-// applies to selecting appropriate shaders for WotLK... it definitely stops
-// applying from Cata and on").
+// s_modelShaderEffect table, not derived or guessed. This table -- not the
+// WotLK-era blend-mode/op-count heuristic wowser's BatchManager implements --
+// is the one that applies to husk's own Legion+ scope: wowdev.wiki's own
+// M2/.skin.wiki says the WotLK mechanism "only applies to selecting
+// appropriate shaders for WotLK... it definitely stops applying from Cata
+// and on".
 struct ShaderNames {
     bool resolved = false;
     std::string pixel;

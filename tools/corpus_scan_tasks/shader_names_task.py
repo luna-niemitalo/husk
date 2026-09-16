@@ -1,5 +1,6 @@
-"""Real M2Batch shader-*name* corpus scan, for TODO/MULTI_TEXTURE_LAYER_TODO.md
-step 0 and TODO/PIXEL_SHADER_FORMULAS_TODO.md step 1.
+"""Real M2Batch shader-*name* corpus scan, for TODO/PIXEL_SHADER_FORMULAS_TODO.md
+step 1 (and the now-closed multi-texture-layer combiner rendering work's own
+step 0).
 
 shader_id_task.py already answered the raw-bits question (how often the
 0x8000 table-lookup path fires, how often textureCount > 1). This task goes
@@ -12,9 +13,10 @@ call `shader_id_task.py` already made for the raw-bits scan).
 
 Answers two open questions with real numbers instead of guesses:
 
-  - MULTI_TEXTURE_LAYER_TODO.md step 0: how many real batches resolve to an
-    `_Env`-bearing vertex shader (an env-mapped "shiny metal" pass), out of
-    the stale 3/130,576 figure that motivated re-running this at full scale.
+  - Multi-texture-layer combiner rendering's own step 0 (since closed): how
+    many real batches resolve to an `_Env`-bearing vertex shader (an
+    env-mapped "shiny metal" pass), out of the stale 3/130,576 figure that
+    motivated re-running this at full scale.
   - PIXEL_SHADER_FORMULAS_TODO.md step 1: which of the 17 wowdev.wiki-
     undocumented `Combiners_*` pixel shaders actually get exercised by real
     corpus files, and a few example file paths for each one found.

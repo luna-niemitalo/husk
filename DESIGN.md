@@ -1029,9 +1029,10 @@ claims.** Per `~/nix/claude-rules/CODE_COMMENTS.md`: "out of scope"/"not
 implemented"/"stays unread" is a *decision*, not a fact-at-this-line, and
 belongs here (reread at onboarding, tolerant of slight staleness), not
 buried in a header's doc comment (silently rots — nobody re-reads it on
-every edit). This is the reason `TODO/MULTI_TEXTURE_LAYER_TODO.md`'s
-`shader_id` investigation found a field husk had "never parsed at all"
-despite this project's own completeness docs reading as near-complete: a
+every edit). This is the reason a real-corpus `shader_id` investigation
+(now landed as `skin::Batch::shaderId`/`m2::resolveShaderNames`) found a
+field husk had "never parsed at all" despite this project's own
+completeness docs reading as near-complete: a
 real, honest scope cut from early in the project (`skin.hpp`'s own doc
 comment, "out of scope for a first metallic-roughness-with-one-texture
 pass") never got revisited as the project's ambitions grew well past
@@ -2700,9 +2701,10 @@ express*, so nothing below invents a capability the format doesn't have.
   texturing WoW's own data asserts.
 - A material's layering is a **per-batch ordered texture-unit stack**
   (`M2Batch.textureCount`), combined by one of ~20 named fixed-function
-  `Combiners_*` formulas keyed by `shaderId`. husk already resolves the
-  formula *name* (`m2::resolveShaderNames`); nobody has ported what the
-  formulas *do* (`TODO/MULTI_TEXTURE_LAYER_TODO.md`).
+  `Combiners_*` formulas keyed by `shaderId`. husk itself resolves the
+  formula *name* (`m2::resolveShaderNames`); what the formulas *do* is
+  ported Blender-side (`tools/corpus_scan_tasks/render_glb.py`'s
+  `fix_multi_texture_layers`), not in husk's own glTF output.
 - Tint/fade/UV-transform are **per-batch, unambiguously** —
   `skin::Batch::colorIndex`/`textureWeightComboIndex`/
   `textureTransformComboIndex` are direct indices, no join-table
@@ -3319,10 +3321,11 @@ The eventual goal — a material's manifest should be reconstructable by a
 human or a machine with *no husk binary*, not just inert metadata a
 human has to already know how to interpret — means the resolved formula
 name (`Combiners_X`) isn't enough on its own; what it *means* has to
-travel with the data. That transcription work has to happen regardless
-of this design (`TODO/MULTI_TEXTURE_LAYER_TODO.md`), so the framework
-should be built to receive it incrementally, not require it finished
-before anything can ship.
+travel with the data. That transcription work happened separately
+(`tools/corpus_scan_tasks/render_glb.py`'s `fix_multi_texture_layers`
+formula table), independent of this design, so the framework is built to
+receive it incrementally rather than require it finished before anything
+can ship.
 
 **The "four base functions" claim below is UNVERIFIED — flagging this
 explicitly rather than let it read as settled.** It's Luna's own recalled

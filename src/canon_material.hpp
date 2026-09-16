@@ -201,8 +201,10 @@ enum class Confidence { Verified, Assumed, Ambiguous, GenuinelyUnknown };
 // unit into the running result," which a flat chain expresses directly with
 // no recursion. Deliberately minimal too (color-combine op only, no
 // separate alpha-op/scale/arg2) since no real formula has been transcribed
-// into this yet (TODO/MULTI_TEXTURE_LAYER_TODO.md) -- extend when a real
-// transcribed formula actually needs more, not speculatively. An empty
+// into canon:: itself yet (the Blender-side rendering in
+// `tools/corpus_scan_tasks/render_glb.py`'s `fix_multi_texture_layers` covers
+// this for the glTF export path, but canon:: has no equivalent) -- extend
+// when a real transcribed formula actually needs more, not speculatively. An empty
 // `stages` means "not transcribed" (GenuinelyUnknown territory), the same
 // meaning an empty vector already carries elsewhere in this codebase (e.g.
 // Curve::keyframes).

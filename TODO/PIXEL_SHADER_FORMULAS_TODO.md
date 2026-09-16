@@ -6,7 +6,8 @@ and when, not this file.
 
 ## Background
 
-`TODO/MULTI_TEXTURE_LAYER_TODO.md` found that `documentation/wowdev-wiki/
+The multi-texture-layer combiner rendering work (since fully implemented
+and verified) found that `documentation/wowdev-wiki/
 wikitext/Pixel_shader_logic_for_mixing_colors.wiki` — the page giving the
 real GLSL-equivalent formula for every named `Combiners_*` fragment
 shader — has **17 of the 36 real `s_modelPixelShaders[36]` table entries
@@ -38,9 +39,9 @@ equivalence-tester bugs found and fixed along the way, and the wiki's own
 formulas cross-checked as a second data point): `references/wow_shaders/
 combiner_hunt/SUMMARY.md`.
 
-`husk`'s own `src/m2_shader_names.cpp` (`TODO/MULTI_TEXTURE_LAYER_TODO.md`'s
-implementation) can already resolve real corpus batches to these exact
-names via `M2Batch::shaderId` — so which real files exercise which of
+`husk`'s own `src/m2_shader_names.cpp` can already resolve real corpus
+batches to these exact names via `M2Batch::shaderId` — so which real files
+exercise which of
 these formulas is now a directly answerable question, not a guess (see
 Concrete next steps).
 
@@ -49,7 +50,8 @@ Concrete next steps).
 `reference/wow.export/src/shaders/m2.fragment.shader` (354 lines, real
 GLSL ES 3.0, actively used by that project's own WebGL renderer — not a
 stub, not the older/simpler `wowser` shader this project already found
-and correctly distrusted for `TODO/MULTI_TEXTURE_LAYER_TODO.md`) has a
+and correctly distrusted during the multi-texture-layer combiner
+rendering work) has a
 `switch (u_pixel_shader)` with **a real case for every single one of the
 36 table entries, all 17 undocumented ones included** — cases 15, 19–34
 below map exactly onto the wiki's own empty-section list above:
@@ -242,8 +244,8 @@ already gives every `reference/` source in this project (`wow.export`,
    wowdev.wiki (a real, external, generous option — not required for
    husk's own use, but a nice thing to do given how much this project
    already leans on that wiki).
-4. **Once trusted**, this directly feeds `TODO/MULTI_TEXTURE_LAYER_TODO.md`'s
-   own step 4 (Blender-side node recipes) — 17 more real formulas means
-   17 more `Combiners_*` cases `render_glb.py`'s post-import material
-   rebuild can actually reconstruct, instead of falling back to whatever
-   default Blender's stock glTF import gives an unhandled combiner.
+4. **Once trusted**, this directly feeds `render_glb.py`'s own
+   `fix_multi_texture_layers` Blender-side node-recipe table — 17 more real
+   formulas means 17 more `Combiners_*` cases that table can actually
+   reconstruct, instead of falling back to whatever default Blender's stock
+   glTF import gives an unhandled combiner.

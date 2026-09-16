@@ -557,8 +557,7 @@ def _pixel_shader_formula_table(nodes, links):
 def _env_map_uv(nodes, links):
     """Reflection-vector UV recipe for a `_Env`-suffixed vertex shader (real
     client formula, `M2/.skin.wiki`'s own `===Environment mapping===`
-    section, not reconstructed by inference -- see
-    `TODO/MULTI_TEXTURE_LAYER_TODO.md`'s own module comment for the derivation).
+    section, not reconstructed by inference).
     Standard matcap-style technique: camera-space incoming vector, reflected
     off the shading normal, remapped from [-1,1] to [0,1] -- returns the
     Vector socket to feed into an Image Texture node's own Vector input in
@@ -684,8 +683,9 @@ def fix_multi_texture_layers(fdid_to_image: dict[int, "bpy.types.Image"]) -> tup
     """WoW's real fixed-function multi-texture-layer combiner math
     (`M2Batch::textureCount > 1`, ~79% of the real corpus per
     `WIKI_FINDINGS/M2/skin.md`) and env-mapped ("shiny metal") vertex
-    shaders -- both real gaps `TODO/MULTI_TEXTURE_LAYER_TODO.md` tracked as
-    "husk resolves the real formula name, nothing plays it back yet".
+    shaders -- husk resolves the real formula name but doesn't play it
+    back itself (no core-glTF slot for arbitrary combiner math), so this
+    function is what actually renders it.
     husk already resolves and exports `pixel_shader`/`vertex_shader` names
     (`src/m2_shader_names.cpp`) plus each additional texture layer's own
     embedded image (`additional_textures` extras, `AdditionalTextureLayer`)
