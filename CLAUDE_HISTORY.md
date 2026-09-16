@@ -14,6 +14,67 @@ deletions handled their own back-references).
 
 ---
 
+**(archival, 2026-08-08 through several later sessions) — `EYES_ON_FINDINGS.md`'s
+full correction trail, condensed out of that file 2026-09-16 (docs
+consolidation pass) to keep it a true current-state doc, not a log.**
+Two findings from the first real interactive Blender inspection of a
+`husk export` output:
+
+- **Finding 1** (`husk info`/`export` given a non-M2 file, e.g. a `.skin`
+  directly, fails with a confusing byte-garbage error instead of a clean
+  "wrong file type"): root-caused to `resolveBlob` (`src/m2_primitives.cpp`)
+  unconditionally treating any non-`MD20` file as a Legion+ chunked M2 and
+  running `readChunks` over it — a `.skin` file's real `SKIN` header +
+  next 4 bytes happen to parse as a syntactically valid chunk tag+size to
+  that code, so it "successfully" consumes a fake chunk before hitting
+  real vertex/index data and throwing a nonsensical size. Confirmed a real
+  usability gap, not data corruption. **Left unfixed** (still open, see
+  `EYES_ON_FINDINGS.md` for the exact remaining action).
+
+- **Finding 2** (`alternate_textures` caused a real 1.9GB/5m39s export,
+  plus every ambiguous material sharing one identical default texture):
+  root cause was two-fold — (a) 19 ambiguous materials all embedding
+  independent copies of the same 94-candidate pool (fixed via
+  `ambiguousCandidateCache` + a shared `alternateTextureCache`, 1.9GB→104MB,
+  5m39s→5.4s); (b) every ambiguous slot picking the same alphabetically-
+  first candidate as its default, regardless of fitness. This second half
+  went through several real corrections across sessions, each prompted by
+  Luna's own direct Blender inspection catching the previous fix wrong:
+  category-based filtering (`classifyCandidateCategory`/
+  `candidateCategoryTypes`, transcribed from `reference/wow.export`'s
+  customization code) → material dedup (`materialDedupKey`, 114→10
+  materials) → discovering "prefer bare/skin_color" was itself wrong
+  (a tiny sparkle-icon file kept winning alphabetically) → discovering
+  `body_jewelry`/`bracelets` are flat skin-overlay textures, not real
+  `char_jewelry`-slot candidates (LUNA_FINDINGS.md) → discovering even
+  `skin_color`-category files split into two unrelated size classes (real
+  1024×512 atlases vs. tiny 256×128 decal patches), fixed by ranking on
+  real decoded pixel area (`pngPixelArea`) with category only as a
+  tiebreak → final discovery that the "small decal" files aren't junk at
+  all but real DB2-driven composited patches (`ChrModelMaterial`/
+  `CharComponentTextureSections`/`ChrModelTextureLayer`, confirmed against
+  `reference/wow.export`'s real client code) placed at exact sub-rectangles
+  of the base atlas — a mechanism husk structurally can't reach without
+  real DB2 access. That last discovery reopened DB2 access as in-scope
+  (Luna's own local `casc-tool` export has these tables, unlike the
+  third-party `reference/wow.export` JS reference) and directly led to the
+  entire later DB2-driven character-texture pipeline (placement rects,
+  blend info, customization-choice resolution, the live Blender node-graph
+  switch) — all long since built and closed, see this file's own many
+  later entries for that full build-out.
+
+  Two genuinely still-open threads survived to the end of that
+  investigation, both named explicitly and still open as of 2026-09-16:
+  three deterministic (`textureType == 0`) slots in `bloodelffemale_hd.m2`
+  turned out to be eye-glow effect textures with FileDataIDs genuinely
+  absent from the local CASC export (confirmed: zero matches anywhere in
+  the local tree, a real upstream extraction gap, not a husk bug); and
+  whether to surface `blendMode`/`unlit` flags as glTF material extras so
+  a Blender script could apply its own emissive/additive shader for cases
+  like this — proposed, never scoped or implemented.
+
+---
+
 **2026-08-22, WoW patch diff: new-`.m2` scan + render pass (investigation
 only, no husk code changed)**: Luna flagged a WoW client patch had landed
 and asked for a filtered list of new `.m2` files, comparing the freshly

@@ -325,7 +325,7 @@ TEST_CASE("husk export --debug: opts back into the pre-grouping full per-batch, 
 
 TEST_CASE("husk export: two hardcoded slots of genuinely different M2Texture::types each only see "
           "their own type-compatible candidates from the shared fuzzy pool, not each other's "
-          "(EYES_ON_FINDINGS.md #3/#6: a jewelry-color file must never end up offered to a skin "
+          "(EYES_ON_FINDINGS.md: a jewelry-color file must never end up offered to a skin "
           "slot's alternate_textures just because both slots are independently ambiguous)") {
     std::vector<uint8_t> onePixelPng = {
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,

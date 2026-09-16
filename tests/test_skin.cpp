@@ -256,7 +256,7 @@ TEST_CASE("parseSubmeshes: reads vertexStart/vertexCount/indexStart/indexCount f
 // entries (`indexStart`/`triangleStart` on disk is only 16 bits) -- real,
 // not rare: confirmed on `bloodelffemale_hd.m2`'s own 136,254-entry buffer,
 // where 77 of 114 submeshes need this correction.
-// TODO: Remove: EYES_ON_FINDINGS.md #5 -- this field being silently
+// TODO: Remove: EYES_ON_FINDINGS.md -- this field being silently
 // discarded (no correction applied) meant husk sliced the *wrong* region
 // of the triangle-index buffer for any submesh needing it, aliased into
 // the first 65,536 entries, with no error or crash -- discovered via a
