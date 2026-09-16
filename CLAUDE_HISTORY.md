@@ -14,6 +14,188 @@ deletions handled their own back-references).
 
 ---
 
+**(archival, 2026-08-21 through 2026-08-22) — `TODO/EQUIPPED_GEAR_RENDER_TODO.md`
+steps 1-2's fixed/verified narrative, condensed out of that file 2026-09-16
+(docs consolidation pass) to keep it a punch list, not a log.** Step 1
+(finding the real DB2 section key for case-2 object-skin overlays) went
+through two falsified hypotheses before landing on the real answer.
+`TextureType` (`ItemDisplayInfoModelMatRes`, 2026-08-21) was checked
+against real local data and falsified: its distinct values are `{2, 3, 4,
+5, 24}`, not the old wiki's 0-8 body-section range, and `reference/
+wow.export`'s own shipping code never reads it for section selection at
+all — it's a texture-role enum (diffuse/detail/specular-ish), not a body
+region. `ChrModelTextureTargetID` (2026-08-22) was checked next and also
+falsified — absent from `ItemDisplayInfo`/`ItemDisplayInfoModelMatRes`
+entirely, and a namespace join against `ChrCustomizationMaterial` returned
+2 matches out of 35,706 values (noise). The real answer, found by reading
+`reference/wow.export`'s `tab_characters.js`/`DBItemCharTextures.js`
+directly rather than guessing from column names: case 2 goes through a
+separate sibling table, `ItemDisplayInfoMaterialRes`, whose
+`ComponentSection` column carries exactly the real `{0..8}` enum
+(`ARM_UPPER`=0..`ACCESSORY`=8) — confirmed against a real multi-section
+item (`ItemDisplayInfoID` 233, LEG_LOWER + FOOT sections) traced end to
+end from a real `ItemModifiedAppearanceID` via `husk db2-export`/sqlite.
+Wired in: `src/itemappearance_db2.hpp`/`.cpp` gained a `MaterialRes`
+struct/`Data::materialRes`/`Resolution::sectionMaterials`, and `husk
+appearance-string`'s `gear` output prints `section(N)=<fdid>` per
+resolved overlay. 2 new CLI-tier tests, full suite green.
+
+Step 2 (case 1, standalone-geometry attachment) was implemented and
+verified this same window, with priority flipped to case-1-first per
+Luna's direct call (structurally simple vs. case 2's genuinely hard
+compositing). `husk export --appearance` (new flag, `AppearanceString` in,
+mutually exclusive with `--customization-choice-ids`) resolves each
+`gear=SLOT:id` entry's case-1 data into `gear_items` skin extras
+(`gltf::Skeleton::GearItem`). Critically, husk itself resolves the item's
+FileDataID to a real local `.m2` (via `--listfile`/`--listfile-root`) and
+recursively exports that item's own `.glb` (`exportGearAuxItemModels`,
+reusing the same `exportOneModel` `--from-list` batch mode already
+factored out) to `<output-dir>/aux_models/<slot>_<fdid>.glb`, with the
+relative path baked into `GearItem::auxGlbPath` — a deliberate
+mid-session design correction (Luna's own call) after an earlier draft
+had the Blender script itself resolve `--listfile` and shell out to `husk
+export` at import time, rejected as breaking the "self-contained `.glb`,
+zero external file-path knowledge" discipline. Blender-side
+(`tools/husk_blender_geoset_mask.py`): `read_gear_items`/`apply_gear_items`
+join `aux_glb_path` against the main `.glb`'s directory, import it, and
+parent the result to the real `attachment_<id>` object via
+`GEAR_SLOT_TO_ATTACHMENT_IDS` (a script-local slot->attachment convention,
+not husk-validated). Confirmed via headless Blender round-trip that
+`attachment_<id>` Empties already carry `M2Attachment::position`'s offset
+baked into `.location` via bone-parenting, so parenting the imported item
+at local-space origin reproduces correct placement with no second manual
+offset. Verified end to end against real data: `ItemModifiedAppearanceID`
+15 (`creature/pygmy/pygmyshaman.m2`) exported against `bloodelffemale.m2`
+(`gear=MAINHAND:15`) produced a real `aux_models/mainhand_370361.glb`, and
+the Blender script placed a real `gear_mainhand_att1` Empty parented to
+`attachment_1`, moving together with the armature on inspection. 7 new
+CLI-tier tests (`tests/test_cli_gear_export.cpp`), full suite green.
+
+---
+
+**(archival, 2026-08-20 through 2026-08-31) — `TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`'s
+full correction trail, condensed out of that file 2026-09-16 (docs
+consolidation pass) to keep it a true open punch list, not a log.** Stage 5
+(a live, Blender-side node-graph switch for character-customization
+textures — skin color, hair color, tattoos, markings, etc. — replacing an
+earlier reverted husk-side pixel compositor) went through many rounds of
+real interactive use with Luna, each round catching a genuine bug:
+
+- **Findability and node count**: a naive per-option build produced up to
+  364 raw nodes on one material (Blender's Shader Editor has no
+  auto-surfacing panel for promoted material-tree inputs the way Geometry
+  Nodes modifiers do). Fixed by collapsing each option into one closed,
+  labelled `ShaderNodeGroup`, then further into exactly one combined group
+  per material (`_build_material_customization_group`), dropping the same
+  material to 2-10 top-level nodes.
+- **Real dropdowns, not float indices**: `ShaderNodeMenuSwitch` doesn't
+  exist in Blender 5.1.1, but `GeometryNodeMenuSwitch`/`NodeCombineBundle`/
+  `NodeSeparateBundle` work fine inside a `ShaderNodeTree` despite the
+  `GeometryNode` idname (confirmed via a headless probe) — real named-enum
+  dropdowns, no index legend needed.
+- **Canonical short group names**: replaced the full verbose exporter
+  material name (`mat0_tex1_char_hair_..._5196729`) with
+  `Husk_<m2_texture_type>_customization`, reusing husk's own
+  `m2::textureTypeName`/M2 Texture Type table.
+- **Per-choice texture resolution**: real per-choice `.blp` files live at
+  a `*_<file_data_id>.blp` suffix-named convention one directory level up
+  from the model's own folder (e.g. `character/bloodelf/eyes00_00_
+  3492879.blp`), not the bare `<file_data_id>.png` first assumed — fixed
+  via a suffix-glob match tried in `--textures` and its parent dir, plus
+  `husk blp-export --dir` batch conversion.
+- **The "related choice" cross-dependency (the tiara/Face-Skin-Color
+  case)**: `ChrCustomizationChoice`'s real `RelatedChrCustomizationChoiceID`
+  column means many options aren't independent axes — one choice (e.g.
+  "Tiara", or every race's "Face") owns several `ChrCustomizationMaterial`
+  rows, each conditional on a *different* choice of a second option (Hair
+  Color, Skin Color). husk's own `resolveChoice` originally ignored this
+  column and attached every conditional material unconditionally. Fixed at
+  the data layer (`relatedChoiceId` threaded through `Element`/
+  `MaterialResolution`, `chr_enabled_materials`'s explicit-selection path
+  filters by it) and, after Blender's own Menu-socket fan-out restriction
+  ruled out sharing one dropdown across two consumers (confirmed via
+  isolated repro — a promoted `NodeSocketMenu` can only validly drive one
+  internal `MenuSwitch` chain), solved for real with Luna's own hand-built
+  structure: one independent submenu per (driving choice, dependent
+  option) pair (`_build_driving_with_dependents_group`), each with exactly
+  one consumer. Verified against `nightelffemale_hd`: Skin Color's own 26
+  choices each got a working "Face (choice_NNN)" submenu, plus three more
+  real cross-links (Markings, Tattoo, Hair Color) the session hadn't set
+  out to fix, all previously silently collapsed to one wrong texture by a
+  `break`-after-first-match bug in the choice-collection loop.
+- **UV placement**: overlay textures (face paint, tattoos, markings — a
+  crop of a shared atlas) had no `ShaderNodeMapping` upstream and tiled
+  across the whole mesh instead of landing in their real
+  `CharComponentTextureSections` rect. Fixed with a shared
+  `ShaderNodeUVMap`→`ShaderNodeMapping` pair per distinct real rect
+  *value* (not per option — several unrelated options, e.g. Face/Scars/
+  Markings, turned out to share one real section), `vector_type='TEXTURE'`
+  (not Blender's default `'POINT'`, which is the literal inverse
+  transform — caught by Luna in a live render before this was reported
+  done).
+- **Alpha compositing**: a cropped overlay's own near-zero-outside-its-
+  section alpha was *replacing* the running total instead of *unioning*
+  with it (`Math(MAXIMUM)`), which both wiped the whole mesh transparent
+  once previously-dropped layers (Eyesight) started being included, and
+  made Scars/Markings — which share a section — mutually overwrite each
+  other. Fixed by making only a full-domain stage (no real `uv_rect`, e.g.
+  plain-vs-tiara hair) replace outright, while a spatially-cropped stage
+  unions.
+- **A real 'None' choice per detail layer**: Scars/Markings Color/Tattoo
+  Color each have a genuine DB2 `'None'` choice with zero `materials[]`
+  rows (a real "paint nothing" default) that was silently absent from the
+  dropdown; synthesized in as a real transparent choice once a sibling
+  choice's placement/blend data is known.
+- **A `NodeCombineBundle`/`NodeSeparateBundle` name-mismatch bug**: every
+  dependent option's Color/Alpha silently read back black because the
+  combine side used a generic placeholder item name ("Dep Color") while
+  the separate side used the real per-dependent name ("Face Color") —
+  Blender matches bundle items by name, not position, so a mismatch
+  silently zeroes rather than erroring. Fixed by sharing one name map
+  between both sides; verified via a toggle-diff render (0/320000 pixels
+  differing pre-fix, 85/320000 and 4/320000 post-fix for Face/Markings
+  respectively).
+- **`SwatchColor`** (a choice with a flat RGB swatch instead of a real
+  texture) was investigated and scoped this window, then fully closed the
+  same day (2026-09-16) as a small, separate DB2-array-column addition —
+  see `TODO/INVESTIGATIONS_TODO.md` item 12.
+
+Two items survived this whole trail genuinely open, both still tracked in
+`TODO/CHAR_TEXTURE_BLENDER_SWITCH_TODO.md`: the real interactive Blender
+GUI visual pass (never done with real, non-placeholder per-choice texture
+bytes — Luna's own eyes, not automatable), and a `husk_blender_options_
+panel.py` gap where its `node.inputs.get(row.option_name)`-style socket
+lookup can't find a dependent option's socket anymore, since those are now
+named `f"{option_name} ({driving_choice_name})"` rather than the bare
+option name.
+
+---
+
+**(archival, 2026-08-14/2026-08-21) — `TODO/ENGINE_TODO.md` items #1/#4,
+condensed out of that file 2026-09-16 (docs consolidation pass) since both
+are settled dead-ends, not open work.**
+
+- **#1, `aliasNext`/animation names** (checked 2026-08-14): `aliasNext` is
+  fully parsed/resolved with no external data needed. The remaining ask —
+  human-readable animation names via `AnimationData.db2` — is genuinely
+  unreachable: the local table (`husk db2-info`: 1,858 rows,
+  `layout_hash: 0xbbf66a3c`) matches WoWDBDefs' `LAYOUT BBF66A3C` for
+  `AnimationData.dbd`, which has no `Name` field at all (four fields
+  total: `ID`/`Fallback`/`BehaviorTier`/`BehaviorID`/`Flags`). Cross-
+  checked against wowdev.wiki's own schema history: `Name` (a `stringref`)
+  existed through Warlords (6.x) but is absent from every WoWDBDefs layout
+  from `LAYOUT 03182786` (7.3.5+) onward — a real client-side schema
+  change, not a local extraction gap. Confirmed structurally too: the
+  file's own `string_table_size` is 2 bytes, too small to hold any real
+  name data even if a field pointed at it. Not recoverable from any modern
+  client extraction; purely cosmetic (clip naming) regardless.
+- **#4, LOD distance thresholds**: the actual switch distance is a client
+  CVar (`entityLodDist`/`doodadLodDist`) — a user setting, not asset data.
+  There's no DB2 table to recover it from even in principle; whoever
+  renders picks their own threshold.
+
+---
+
 **(archival, 2026-08-08 through several later sessions) — `EYES_ON_FINDINGS.md`'s
 full correction trail, condensed out of that file 2026-09-16 (docs
 consolidation pass) to keep it a true current-state doc, not a log.**
