@@ -11,290 +11,14 @@ confirmed; this file only tracks the open semantic gap.
 `DPIV` (>= War Within 11.1.7.60520) has no wowdev.wiki struct at all — the
 wiki's own text is just "Unknown, seemingly always 32 bytes, mostly empty."
 `dumpDpiv` (`src/cmd_dump.cpp`) already parses it structurally and
-correctly (verified against all 2,632 real corpus hits,
-`dpiv_files_for_exploration.txt`): a real record array, `chunk.size / 32`
-records, each record 8×float32, fields 4–7 always zero in every real
-record seen. That part is done. **What the first four fields actually
-represent is not** — `dumpDpiv`'s own doc comment still says "not yet
-field-mapped," correctly.
+correctly (verified against all 2,632 real corpus hits): a real record
+array, `chunk.size / 32` records, each record 8×float32, fields 4–7 always
+zero in every real record seen. `DPIV` is diagnostic-only (`husk
+dump-chunks`), never consumed by `husk export` — this is a real but
+low-priority open question, not a stalled dependency.
 
-Size distribution across the 2,632 files (from `m2_unknown_chunks_report.json`):
-32 bytes/1 record (2,372 files), 64/2 records (209), 96/3 records (43),
-128/4 records (8) — so this is overwhelmingly a 1–4-record array, not
-unbounded.
-
-## What this session's investigation found (real corpus data, not guesses)
-
-Decoded every field across all 2,632 files / 2,943 records directly from
-`m2_unknown_chunks_report.json`'s stored hex:
-
-- **Fields 0–2 read as plausible 3D points**, not junk: real magnitudes
-  (roughly ±40 units), not denormals or obviously-wrong bit patterns.
-- **Field 3 is not a real float** — every one of 2,943 records has a raw
-  uint32 value in `{0, 1, 2, 3}` (bit patterns 0/1/2/3, which decode as
-  float denormals near zero — `dumpDpiv`'s doc comment already flagged this
-  suspicion; confirmed here). This reads as a small integer tag/type field
-  mistyped as float in whatever tool generated the wiki's stub entry, not a
-  genuine float.
-- **Field 3 is *not* a clean sequential per-record index**, though — tested
-  directly: only 56/260 multi-record files have `field_3 == [0, 1, 2, ...]`
-  in record order; 204/260 don't (e.g. `[1, 0, 1]`, `[0, 2, 1]`, `[2, 0,
-  3]`). So it's closer to a small category/type enum (0–3) than an ordinal
-  index — the earlier "maybe it's an index" read from inspection alone
-  doesn't survive a full-corpus check.
-- **Partial pattern**: in 183/260 multi-record files (~70%), field 1 (`y`)
-  is identical across every record in that file while fields 0/2 (`x`/`z`)
-  vary — consistent with a set of points on one ground-plane/height per
-  file, but not universal (77/260 break it), so this is a lead, not a
-  confirmed shape.
-- Fields 4–7 are `0.0` in all 2,943 records without exception — real,
-  reserved-looking padding, not silently-corrupted data.
-- Filenames skew toward `models/unknown/unk_exp11_*` (`exp11` = Midnight,
-  WoW's current/11th expansion — shipped content, not unreleased) and
-  decorative doodad/spell-FX models (a chandelier, a crystal-tuning-fork
-  spell effect, an undead campfire). The skew just means these are recent
-  enough that wowdev.wiki hasn't documented `DPIV` yet — not a parsing gap
-  on husk's side, and not a reason the field semantics are unknowable:
-  cracking them from real corpus data (as the rest of this file does) is
-  how the wiki gap actually gets closed, not something to wait out.
-- `reference/wow.export` doesn't parse `DPIV` at all (zero references) —
-  no independent corroboration available from that source either; this
-  file's own findings rest entirely on real corpus data.
-
-## This session's follow-up: a first real geometry cross-reference (step 1), plus a new elevation lead
-
-Picked up "Concrete next steps" item 1 directly. Exported `pa_kite_lamp_
-creature.m2` (single DPIV record, `field0=-0.0, field1=2.798,
-field2=22.038`) to `.glb` via `husk export` and cross-referenced the DPIV
-point against real vertex/bone positions (scratchpad-only Python, not
-committed — parses the `.glb`'s own binary chunk directly, applies the
-same `kWowToGltf` (x, z, -y) change-of-basis husk itself uses so the
-comparison is apples-to-apples).
-
-**Result: the point sits ~2.5-2.8 units outside the mesh's own bounding
-box** — specifically 2.54 units below the lowest real vertex along one
-axis (mesh Y range in glTF-space, i.e. WoW's own Z/height axis, is
-24.58–32.28; the DPIV point's corresponding coordinate is 22.04) — not on
-the mesh surface, not coincident with any vertex. Nearest bones
-(`HandRight`/`HandLeft`/`SpellLeftHand`/`SpellRightHand`, all ~2.89 units
-away) are *farther* than the nearest raw vertices (~2.77 units), so this
-one file gives no evidence of a specific-bone attachment either — a real,
-if narrow, negative result for the "pinned to a named bone" hypothesis.
-
-**New, better lead, found by accident while picking a second file to
-cross-check**: comparing `field1` (the coordinate this file's own doc
-comment calls "y", the middle of the three point fields) across four
-real files —
-
-| file | real-world description | field1 |
-|---|---|---|
-| `pa_kite_lamp_creature.m2` | a lamp (elevated fixture) | **2.798** |
-| `fx_breakscrollseal_precast.m2` | a ground-cast spell effect | 0.000 |
-| `ao_banner02.m2` | a standing ground banner | 0.000 |
-| `dr_bench_01_nosound.m2` | a ground-sitting bench | 0.000 |
-
-— exactly `0.0` for every one of the three ground-level/ground-cast props,
-and a real, non-zero, positive value for the one elevated fixture. Small
-sample (4 files, picked by hand, not a corpus scan) but a clean,
-falsifiable pattern: **`field1` may be a height/elevation value relative
-to the object's own ground contact point**, consistent with (though not
-identical in axis-labeling to) this file's own already-documented
-"field 1 constant within a file, plausible ground-plane" observation
-above — this adds *why* it might vary file-to-file (elevated vs. grounded
-prop), which the original observation didn't have.
-
-**Follow-up, same session: ran that test, and it corrected the hypothesis
-rather than confirming it.** `husk info` already reports each M2's own
-header-level `bounding_box` (`M2Bounds.extent`, no per-vertex export
-needed) — pulled it for all four files above and checked each DPIV field
-against its own axis's bbox range, not just whether `field1 == 0`:
-
-| file | field vs. bbox-center offset (x / y / z) |
-|---|---|
-| `pa_kite_lamp_creature.m2` | 11.1% / **4.1%** / 83.0% |
-| `fx_breakscrollseal_precast.m2` | 19.6% / **0.0%** / 23.0% |
-| `ao_banner02.m2` | 36.5% / **0.0%** / 3.4% |
-| `dr_bench_01_nosound.m2` | 2.9% / **0.3%** / 49.3% |
-
-(percentage of that axis's own bbox width the field sits from the exact
-midpoint.) **`field1` lands within 0–4.1% of the model's own Y-axis
-bounding-box center in all four files** — including `pa_kite_lamp`, whose
-`field1 = 2.798` is not "elevation off the ground" (its own Z bbox min is
-24.58, nowhere near 2.798) but *is* almost exactly its Y-bbox midpoint
-(2.958, 4.1% off). `field0`/`field2` show no comparable pattern — some
-land near their axis's center, some near the min, most just "somewhere
-within range," inconsistent file to file (see the two-Z-outlier cases,
-`pa_kite_lamp` 83% and `dr_bench_01` 49%).
-
-**Corrected reading**: the earlier "`field1` is a ground-relative
-elevation value, `0` for grounded props" framing was a coincidence of
-this specific 4-file sample (three ground props whose own Y-bbox happens
-to straddle zero) — the real, better-supported pattern is **`field1` is
-close to the model's own Y-axis bounding-box center**, which for a
-symmetric ground prop *is* usually near zero anyway, without needing an
-"elevation" mechanism at all. This is a more mechanically plausible
-reading too: a per-model "center-ish anchor point," roughly inside the
-model's own volume, fits a tool-authored placement/attachment point far
-better than a hand-tuned elevation value would. `field0`/`field2`'s own
-weaker, inconsistent bbox-relationship (sometimes center, sometimes near
-an extreme) is still unexplained and worth investigating on its own,
-possibly by axis-pair (are field0/field2 jointly closer to some other
-real, non-center landmark, e.g. a specific bone's own local position?).
-
-**Follow-up, same session: ran the real corpus-scale test this section's
-own "next step" called for** (all 2,632 DPIV files, all 2,943 records —
-`husk info`'s already-verified `bounding_box` field, offset `0x0A0` in the
-MD20 blob, parsed directly rather than shelling out per file; zero
-unreadable/unparseable files). The 4-file hand sample generalizes, and
-sharpens into a real, coherent shape:
-
-- **X and Y are both tightly centered on the model's own footprint**: Y
-  (field1) has a median offset of just 0.2% from its own bbox center,
-  91.4% of records within 10%; X (field0) median 2.0%, 77.0% within 10%.
-  Both far stronger at corpus scale than the 4-file sample suggested for
-  X specifically.
-- **Z (field2) is not centered at all** — median 45.4% off-center, only
-  13.3% within 10%. Confirms the earlier geometric cross-reference's
-  `pa_kite_lamp` result (a real outlier on the *center* test) was the
-  corpus-wide norm, not a fluke.
-- **Z instead sits consistently near the model's own base**: re-measured
-  as offset from Z-*min* (not center) — median **6.1%** of the model's
-  own Z-range above its own lowest point, 65.9% of records within ±20% of
-  the base, and **10.1% sit fully below the model's own bounding box
-  entirely** (negative offset) — the exact shape `pa_kite_lamp`'s own
-  single-record cross-reference found by hand (2.5 units below its own
-  mesh).
-
-**Real, corpus-validated shape, not just a lead anymore**: DPIV's point
-is `(X-center, Y-center, near-or-below-base-Z)` — i.e. a point roughly
-below the object's own horizontal (footprint) center, at or near ground
-level. That's exactly the profile a **ground-contact / shadow-projection
-anchor point** would have (raised as a hypothesis earlier in this file,
-now with real corpus-wide support, not just plausibility). Field-semantic
-question for `field0`/`field1` themselves is now close to settled (bbox-
-center coordinates, not independently meaningful positions); `field2`
-remains the interesting one — a real placement value, not a coordinate
-that reduces to bbox geometry alone.
-
-**Caveat, stated honestly**: the geometric cross-reference above assumes
-DPIV's three point fields are in the *same* per-axis order/convention as
-M2's own vertex positions (and thus subject to the same `kWowToGltf`
-transform) — genuinely unconfirmed, since DPIV has no wowdev.wiki struct
-to check this against. If that assumption is wrong, the "2.54 units below
-the mesh" distance is still real (the raw-space math doesn't depend on
-which axis is "up"), but which axis it's offset along could be
-mislabeled.
-
-**Follow-up, same session: the same-file-point-sets-close-into-a-polygon
-question run at corpus scale, plus a real structural finding it depended
-on.** Sampled 6 real multi-record files by
-hand first and immediately noticed something the "polygon footprint"
-framing hadn't accounted for: several files have one record that's
-*exactly* `(0.0, 0.0, 0.0)` while a sibling record in the same file is a
-real, distinct point — not two real geometric points at all, one of them
-a placeholder. Checked at full corpus scale (all 260 multi-record files):
-
-- **41/260 have *every* record exactly `(0,0,0)`** — fully degenerate,
-  no real point data at all (same "genuinely empty, not corrupted" shape
-  `fields 4–7` already showed).
-- **83/260 (32%) have *some but not all* records exactly zero** — a real
-  placeholder pattern, skewed toward record 0 being the zero one (64/83)
-  but not exclusively (position 1: 18/83, position 2: 4/83) — so "record
-  0 is always the placeholder" isn't quite right either, just the most
-  common shape.
-- **136/260 (52%) have no zero records at all** — genuinely all-real
-  multi-point data, the population item 3's own polygon question is
-  actually about (mixing in the placeholder-bearing files would have
-  corrupted any inter-point-distance measurement).
-
-Ran the polygon-footprint check on exactly those 136 real-multi-point
-files: for each, `max(inter-point distance) / model's-own-bbox-diagonal`.
-**Median 30.3% of the model's own diagonal; 0% ever exceed 100%** (points
-never scatter wider than the model itself) but only 19.9% land under 10%
-(a genuinely tight cluster) and 43.4% under 25%. **Real finding, but it
-doesn't cleanly support the tight "3–4 points form a footprint quad"
-picture** — points stay bounded within the model's own volume (consistent
-with the ground-anchor reading above) but are moderately, not tightly,
-spread — more consistent with "several independent placement points
-scattered around the object" (e.g. one per torch/light/attachment on a
-multi-part prop) than one small decal/trigger footprint polygon.
-
-## Concrete next steps (in rough order of expected payoff)
-
-**Items 1-3 below done this session (2026-08-21), against the existing
-cached artifacts (no re-scan needed) — scratch analysis only, not
-committed, same tier as the earlier `pa_kite_lamp` cross-reference.**
-Corpus-wide over all 2,632 files / 2,943 records, decoding the report's
-own captured hex directly (only 8 real 4-record files are truncated to 3
-records — the report only ever captured each hit's first 96 bytes, its
-own stated scope, not a new gap).
-
-1. **Histogrammed `field2`'s offset-from-Z-min directly, excluding the
-   83-file placeholder-record set (item 2's own finding) from the
-   population.** Real median **9.4%** above Z-min (not the earlier 6.1% —
-   that stat's population still included `(0,0,0)` placeholder records,
-   which weren't yet known to be placeholders when it was computed;
-   excluding them is the real correction here), **55.4%** within ±20% of
-   the base (down from 65.9%, same population-correction reason), 15.9%
-   fully below the model's own bbox, and a small but real 1.2% (14
-   records) sitting *above* 100% of the Z-range — i.e. above the model's
-   own bbox top, not just off the base. **No clean bimodal split found**
-   — the distribution is fairly continuous across buckets (28.2% sit in
-   the tightest 0-5% band, but another 24.2% sit in 50-100%), not two
-   cleanly separable "pinned" vs. "outlier" populations. Cross-referencing
-   outliers against filename/content type (this item's own original
-   ask) wasn't done — no directory-level pattern jumped out in the item-3b
-   pass below, so it doesn't look like a quick further win without a
-   longer per-file audit.
-2. **Real correlation found between the zero-placeholder-record pattern
-   and `field3`.** Not the clean binary rule guessed at ("`field3 == 0`
-   means unused slot") — both values appear on both sides — but a real,
-   non-trivial skew: placeholder (zero-point) records are `field3 == 0`
-   73.1% of the time (125/171) vs. only 42.3% (169/400) for real
-   (non-zero-point) records; `field3 == 1` is the strongest "this is a
-   real point" signal, 34.5% of real-point records vs. just 7.6% of
-   placeholders. Useful as a weak secondary signal, not a standalone
-   placeholder detector — the explicit `(0,0,0)` check from the earlier
-   session's own finding is still the reliable one.
-3. **Field 3 vs. record position**: `field3 == 3` **never appears at
-   record position 0** across the full corpus (0 of 145 position-0
-   records) — it only ever shows up at position 1 (9 records) or position
-   2 (6 records). Real, if thin (15 records total), evidence that field 3
-   depends on a record's *role* (first point vs. a later one) rather than
-   being a per-point-independent category tag. **Field 3 vs. top-level
-   directory** (item 3b, single-record files only): no comparable split
-   found — `world`/`models`/`spells` all skew towards `field3 == 0` in
-   roughly the same proportions (90%/95%/81%), not the clean bimodal
-   split `DETL`'s `flags` bit had. Doesn't rule out a subdirectory-level
-   split (only checked top-level), just found nothing at this grain.
-4. **Full-name audit — done 2026-08-21, real negative result.** Ran the
-   systematic per-subdirectory pass this item asked for (a real second
-   directory level, e.g. `world/expansion11`, not just top-level
-   `world`/`models`/`spells`), against the existing cached
-   `m2_unknown_chunks_report.json` hex — no re-scan needed. Two checks,
-   both came back flat:
-   - **Zero-point (placeholder) record rate by subdirectory**: uniformly
-     high everywhere — 32.3% (`world/expansion02`) to 100%
-     (`models/creature`, 6/6 files), no directory sitting meaningfully
-     apart from the pack. Corpus-wide, **61.6% of all 2,943 records are
-     exactly `(0,0,0)`** — a real, new, more complete number than the
-     file's earlier "41/260 fully-zero multi-record files" stat, since
-     this one covers every record including single-record files, not
-     just the multi-record subset that stat was scoped to.
-   - **`field3`'s distribution by subdirectory**: also flat — every real
-     subdirectory shows the same `0`-dominant shape (`field3 == 0` at
-     roughly 75-90% everywhere), and the 15 real `field3 == 3` records
-     (item 3's own "never at position 0" finding) are thinly scattered
-     across 6 different subdirectories (`world/expansion11`: 8,
-     `world/expansion06`: 2, others: 1 each) — no concentration in any
-     one real content category.
-
-   **Real conclusion**: neither the zero-point placeholder pattern nor
-   `field3`'s distribution correlates with asset category at the
-   subdirectory level — both are pervasive, corpus-wide shapes, not
-   something tied to a specific kind of prop/doodad/spell-effect. This
-   closes the "is there a directory-level lever" question with a real,
-   checked negative, not an unexplored gap.
+Full field-cracking investigation (how fields 0-3 were narrowed down,
+every hypothesis tried and falsified along the way): `CLAUDE_HISTORY.md`.
 
 ## Current resolution: what's settled, what's still genuinely open
 
@@ -320,46 +44,36 @@ own stated scope, not a new gap).
   placeholder pattern and with record position (never `3` at position
   0), but no clean rule found for what it actually encodes.
 
-**Why there was no further corpus-*statistics* next step queued**: every
-lever this session had — per-file, per-record, per-directory, per-position
-statistical correlation against `m2_unknown_chunks_report.json`'s cached
-hex — had been pulled, and the remaining unknowns (`field2`'s exact
-role, `field3`'s tag semantics) didn't yield to any of them. Closing this
-further needs a different evidence source than corpus statistics alone
-can supply. Item 5 below is exactly that different source: not another
-statistic, but a real visual side-by-side, letting Luna's own eyes catch
-a pattern a number can't surface. Not blocking anything either way:
-`DPIV` is diagnostic-only (`husk dump-chunks`), never consumed
-by `husk export`, so this stays a real but low-priority open question,
-not a stalled dependency.
+**Why there's no further corpus-*statistics* next step queued**: every
+lever available — per-file, per-record, per-directory, per-position
+statistical correlation — has been pulled, and the remaining unknowns
+(`field2`'s exact role, `field3`'s tag semantics) didn't yield to any of
+them. Closing this further needs a different evidence source than corpus
+statistics alone can supply — item 1 below is exactly that.
 
-5. **New, not yet done: a visual grid render, categorized by `field2` and
-   by `field3`, for Luna's own side-by-side eyeballing.** Corpus
-   statistics found real distributions for both fields but no rule that
-   explains them — the next real evidence source is a human looking at
-   what these files actually *are*, grouped by category, rather than
-   another number. Two separate grids (same method, different split):
+1. **A visual grid render, categorized by `field2` and by `field3`, for
+   Luna's own side-by-side eyeballing.** Corpus statistics found real
+   distributions for both fields but no rule that explains them — the
+   next real evidence source is a human looking at what these files
+   actually *are*, grouped by category, rather than another number. Two
+   separate grids (same method, different split):
 
    - **By `field2`** (the ground-contact-anchor lead): split into two
      screen segments — left: files where `field2` sits **fully below the
-     model's own bounding box** (the 15.9% negative-offset group, item
-     1's own real finding); right: files where it sits **at or above the
-     base** (the remaining 84.1%, spanning the near-base cluster out
-     through the long tail). Pick a representative sample per side (e.g.
-     12-20 files each, not the full 2,632 — enough to spot a visual
-     pattern, not a full render sweep), render each via the existing
-     `husk export` + Blender render pipeline
-     (`tools/corpus_scan_tasks/render_glb.py` + its `render_glb.blend`
-     template — same tool this project already uses for corpus-review
-     renders in `RENDER_QUALITY_TODO.md`), with the real `DPIV` point(s)
+     model's own bounding box** (the 15.9% negative-offset group); right:
+     files where it sits **at or above the base** (the remaining 84.1%,
+     spanning the near-base cluster out through the long tail). Pick a
+     representative sample per side (e.g. 12-20 files each, not the full
+     2,632) and render each via the existing `husk export` + Blender
+     render pipeline (`tools/corpus_scan_tasks/render_glb.py` + its
+     `render_glb.blend` template), with the real `DPIV` point(s)
      themselves visualized as an overlay marker (an empty/gizmo at the
-     point's own world-space position, same change-of-basis this file's
-     own earlier geometric cross-reference already used) so the point's
-     placement relative to the mesh is visible in the same shot —
-     overlay-marker support doesn't exist in the render script today and
-     would need adding. Arrange each side's sample into one grid image
-     (thumbnail montage, not individually paged) so the two categories
-     are directly comparable at a glance.
+     point's own world-space position, same change-of-basis as husk's
+     own `kWowToGltf`) so the point's placement relative to the mesh is
+     visible in the same shot — overlay-marker support doesn't exist in
+     the render script today and would need adding. Arrange each side's
+     sample into one grid image (thumbnail montage) so the two
+     categories are directly comparable at a glance.
    - **By `field3`** (the small integer tag, 0-3): same method, but one
      grid segment per real value seen (`0`/`1`/`2`/`3`) instead of a
      two-way split — four columns/quadrants, a representative sample per

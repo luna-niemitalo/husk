@@ -196,6 +196,68 @@ are settled dead-ends, not open work.**
 
 ---
 
+**(archival, 2026-08-14 through 2026-08-21) — `TODO/DPIV_TODO.md`'s full
+field-cracking investigation, condensed out of that file 2026-09-16 (docs
+consolidation pass) to keep it a punch list, not a log.** `DPIV`
+(>= War Within 11.1.7.60520) has no wowdev.wiki struct at all; the wiki's
+own text is just "Unknown, seemingly always 32 bytes, mostly empty."
+`dumpDpiv` already parses it structurally (a real record array, 8×float32
+per record, fields 4-7 always zero) against all 2,632 real corpus hits —
+what wasn't known was what the first four fields mean.
+
+Investigation, in order: field 3 reads as a small integer tag (`{0,1,2,3}`)
+mistyped as float by whatever tool wrote the wiki stub, not a sequential
+per-record index (only 56/260 multi-record files have it in ascending
+order). A single-file geometric cross-reference (`pa_kite_lamp_creature.m2`)
+found the DPIV point sitting outside the mesh's own bounding box, ruling
+out "pinned to a named bone." A 4-file hand sample suggested `field1`
+might be a ground-relative elevation value (0 for grounded props,
+positive for an elevated lamp) — corrected once checked against each
+file's own bbox center: `field1` is actually the model's own Y-axis
+bbox-center coordinate, and the "elevation" reading was a coincidence of
+the small sample. Run at full corpus scale (2,632 files, 2,943 records):
+**X and Y (fields 0/1) are tightly centered on the model's own footprint**
+(median offset 2.0%/0.2% from bbox center); **Z (field 2) is not
+centered** (median 45.4% off-center) but **sits near-or-below the model's
+own base** (median 6.1%, later corrected to 9.4% once placeholder records
+were excluded — see below; 15.9% fully below the bbox) — the profile of a
+ground-contact/shadow-projection anchor point, not an independently
+meaningful coordinate for fields 0/1.
+
+A separate structural finding, found while checking whether multi-record
+files' points form a footprint polygon: many records are exactly
+`(0,0,0)` — a placeholder, not real point data. Corpus-wide: 61.6% of all
+2,943 records are exactly zero; of the 260 multi-record files specifically,
+41 are fully degenerate (all-zero), 83 (32%) mix real and placeholder
+records (skewed toward record 0 being the placeholder, 64/83, but not
+exclusively), and 136 (52%) are genuinely all-real multi-point data.
+Running the polygon-footprint check on just those 136 real files found
+points bounded within the model's own volume (consistent with the
+ground-anchor reading) but only moderately clustered (median 30.3% of the
+model's own bbox diagonal), more consistent with "several independent
+placement points" than one tight footprint quad.
+
+Follow-up correlation checks: `field3 == 0` is weakly more common on
+placeholder records (73.1%) than real ones (42.3%); `field3 == 3` never
+appears at record position 0 across the full corpus (0/145), only at
+position 1 or 2 — real but thin evidence field 3 depends on a record's
+role, not a per-point-independent tag. A full per-subdirectory audit of
+both the placeholder rate and field3's distribution came back flat —
+both are pervasive corpus-wide shapes with no directory-level
+correlation, closing that particular lever as a real, checked negative.
+
+**Where it landed**: field0/field1 reduce to geometry husk already has
+(bbox-center X/Y) and aren't independently meaningful; field2 is a real
+placement value (ground-contact anchor) whose exact governing rule is
+still unknown; field3 is a small integer tag weakly tied to record
+role/placeholder status, with no clean decoding rule found. Every
+corpus-statistics lever available had been pulled by this point with no
+further signal — closing this further needs a different evidence source
+(a human visual read, not another number), which is `DPIV_TODO.md`'s own
+still-open item 5.
+
+---
+
 **(archival, 2026-08-08 through several later sessions) — `EYES_ON_FINDINGS.md`'s
 full correction trail, condensed out of that file 2026-09-16 (docs
 consolidation pass) to keep it a true current-state doc, not a log.**
