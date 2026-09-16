@@ -1,7 +1,13 @@
 # BUNDLE_FORMAT.md — the native husk bundle
 
 **Target, not current state.** See `REFACTOR/README.md` for the pipeline and the
-invariants referenced by number below.
+invariants referenced by number below. **`CANONICAL_FORMAT.md`** (repo root) is
+now the canonical conceptual explainer of `canon::`/the bundle format,
+including the general shape/BufferSlice/Ref schema; this file stays the
+migration-specific engineering record — the invariant-by-invariant
+rationale, the decisions made and rejected along the way, and the parts
+still open. Where this file's own schema sketches would just repeat
+`CANONICAL_FORMAT.md`'s, they've been trimmed to a pointer instead.
 
 ## Why a native format at all
 
@@ -18,17 +24,8 @@ as an optional exporter that may omit what it cannot express.
 ## Shape
 
 A bundle is a **directory**. No archive variant, no single-file mode — settled,
-not an open question.
-
-```
-model.husk/
-  manifest.json          <- the only entry point
-  mesh.bin
-  skeleton.bin
-  animation.bin
-  textures/<name>.dds    <- blocks verbatim in an open container; see below
-  aux/<item>/…           <- nested bundles, same shape
-```
+not an open question. See `CANONICAL_FORMAT.md` §5 for the directory sketch
+and the `BufferSlice`/`Ref` JSON shapes — not repeated here.
 
 Binary payloads are separate files rather than a packed blob so that a human can
 open one on its own and a diff can show which payload changed. Every one of them
@@ -148,15 +145,9 @@ DDS decision's weighed-constraints table below).
 
 ## Every reference is a `Ref`, never a bare name
 
-This is the rule that makes the bundle traceable. A resource entry is:
-
-```json
-{ "role": "base_color",
-  "id":   { "kind": "file_data_id", "value": 3492879 },
-  "name": "scalpupperhair00_08",
-  "name_source": "listfile",
-  "uri":  "textures/scalpupperhair00_08.png" }
-```
+This is the rule that makes the bundle traceable — see `CANONICAL_FORMAT.md`
+§5 for the JSON shape of a resource entry (`id`/`name`/`name_source`, plus
+`uri` when the payload is external rather than inline).
 
 `name_source` is one of `m2_embedded` / `listfile` / `db2` / `synthesized` /
 `none` (I6). It exists because most naming in this project comes from the

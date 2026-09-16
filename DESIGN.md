@@ -1774,6 +1774,10 @@ uses.
 
 ## The native bundle: glTF-free binary payloads (designed and landed, 2026-09-06)
 
+See `CANONICAL_FORMAT.md` (repo root) for the conceptual explainer of the
+bundle format and why it exists; this section is the specific implementation
+decision and status.
+
 `REFACTOR/BUNDLE_FORMAT.md` left one question open: what container holds the
 bundle's `mesh.bin`/`skeleton.bin`/`animation.bin` payloads, given I8's rule
 that a stored format must not be a headerless dump only husk can read.

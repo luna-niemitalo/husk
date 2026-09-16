@@ -1,7 +1,13 @@
 # CANONICAL_MODEL.md — stage 3, the semantic model
 
 **Target, not current state.** See `REFACTOR/README.md` for the pipeline and the
-invariants referenced by number below.
+invariants referenced by number below. **`CANONICAL_FORMAT.md`** (repo root) is
+the canonical conceptual explainer of `canon::` generally (the three-layer
+split, `Ref`/`Identity`/`NameSource`, why the model must not leak downstream
+storage) — read that first. This file is the migration-specific record: how
+those ideas map onto husk's real WoW data, the invariants (I1/I5/I6/I7...)
+they're checked against, and the concrete engineering decisions made along
+the way.
 
 ## Built pure, not promoted
 

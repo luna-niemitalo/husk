@@ -285,6 +285,7 @@ drifting implementations into one exposes *why* things look wrong today.
 
 | File | Scope | Gate |
 |---|---|---|
+| `../CANONICAL_FORMAT.md` (repo root) | The canonical conceptual explainer of `canon::`/the bundle format, written for a reader outside this project | Reference doc, not a stage |
 | `AUDIT.md` | Evidence inventory: every duplicated, divergent, or counter-intuitive path, with file:line | Independent |
 | `RESOURCE_CATALOG.md` | Stage 2 — the one resolution boundary object, and the excavation escape hatch | Independent; carries a reopened design question (persisted cross-patch reference-integrity index) — needs a decision, see Blockers below |
 | `CANONICAL_MODEL.md` | Stage 3 — the semantic model, built pure | Independent to design; the migration itself is the expensive stage |
