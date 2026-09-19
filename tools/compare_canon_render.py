@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Renders a `husk export --compare-canon` pair (the legacy `.glb` and its
+"""Renders a `husk export --export-canon` pair (the legacy `.glb` and its
 sibling `.canon.glb`) through the same minimal, extras-blind renderer
 (`render_lean_glb.py`) and diffs the two resulting images pixel-by-pixel.
 
 This is the automated half of REFACTOR/AUDIT.md §7's "real visual (pixel)
-check" gap: `--compare-canon`'s own structural diff (`canon_diff.cpp`)
+check" gap: `--export-canon`'s own structural diff (`canon_diff.cpp`)
 already confirms mesh/skeleton/animation/material *data* matches, but never
 confirms the two files actually render the same. Luna's own framing: render
 both, and if they match, that's as much confidence as rendering already
@@ -15,7 +15,7 @@ call on a real mismatch.
 Usage:
     direnv exec . tools/venv/bin/python tools/compare_canon_render.py <model.glb> [--out-dir DIR] [--threshold N]
 
-<model.glb> is the LEGACY output path `husk export --compare-canon` wrote
+<model.glb> is the LEGACY output path `husk export --export-canon` wrote
 (e.g. `bloodelffemale_hd.glb`) -- the canon sibling
 (`bloodelffemale_hd.canon.glb`) is derived automatically, the same
 `<name>.canon.glb` convention `cmd_export_canon.cpp` itself uses. Exits 0 on
@@ -75,7 +75,7 @@ def main() -> int:
         print(f"ERROR: {legacy_glb} does not exist", file=sys.stderr)
         return 2
     if not canon_glb.exists():
-        print(f"ERROR: {canon_glb} does not exist (expected --compare-canon sibling of {legacy_glb})",
+        print(f"ERROR: {canon_glb} does not exist (expected --export-canon sibling of {legacy_glb})",
               file=sys.stderr)
         return 2
 

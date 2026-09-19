@@ -3,6 +3,38 @@
 **Target, not current state.** See `REFACTOR/README.md` for the pipeline and the
 invariants referenced by number below.
 
+**First real step landed (2026-09-16), diagnostic only, not the addon
+below**: `tests/bundle_import_check.py` reads a real `--export-canon`
+bundle's `manifest.json` + `mesh.bin`/`skeleton.bin`/`resources.materials`
+directly — no `bpy.ops.import_scene.gltf`, no glTF anywhere in the loop —
+and builds a real Blender mesh + armature + base-color-textured materials
+from it, gated into `tests/test_conformance.cpp` alongside the existing
+legacy-`.glb` Blender tests. Verified against `bloodelffemale.m2`/`.skin`
+for mesh/skeleton (bone/vertex counts read back from the bundle match the
+M2 header's own raw counts exactly) and a new real, simple, non-character
+fixture (`test_data/creature/fox/fox.m2` — user-populated/gitignored like
+every other `test_data/` fixture, added this session specifically because
+it has real local-basename-resolvable textures and neither existing
+non-character quadruped fixture did) for materials — deliberately not a
+real character model: canon::Material's base-color resolution has no
+character-specific shape, and a real character fixture also carries the
+customization/geoset-selection surface named below as NOT YET WIRED into
+canon::Model/bundle_writer.cpp at all, so testing materials against one
+risks implying that whole unbuilt subsystem is covered when it isn't.
+Material/loaded-image counts match the legacy `.glb`'s own tinygltf-parsed
+counts exactly, and `--export-canon`'s own structural diff reports "clean,
+no deviations found" against this fixture. This is the "import a real
+bundle with zero arguments" half of the Gate section below, proven for mesh
++ skeleton + base-color materials — no blend-op/tint/UV-animation shading,
+animation, geosets, customization, or physics yet, and not
+`manifest.py`/`importer.py` as real addon modules. The real packaged addon
+described in the rest of this file is still not started, and neither is any
+canon-side representation of character customization at all (`canon::
+Definition`/`Selection`/`Item` types exist but nothing assembles them from
+real input yet, and `bundle_writer.cpp` doesn't write them even if they
+existed — see this file's own "What the bundle buys the addon" section,
+which still describes only geosets/naming, not customization choices).
+
 ## Current state, stated plainly
 
 `DESIGN.md:142-143` lists as a non-goal: *"No Blender addon. A `.glb` file

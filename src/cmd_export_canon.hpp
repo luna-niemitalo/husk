@@ -8,7 +8,7 @@
 #include "m2.hpp"
 #include "sources/catalog.hpp"
 
-// husk::commands: `husk export --compare-canon`'s own path -- REFACTOR/
+// husk::commands: `husk export --export-canon`'s own path -- REFACTOR/
 // README.md stage 3's runtime convergence gate. See cmd_export_canon.cpp's
 // doc comment for the full rationale; this header only declares the one
 // entry point cmd_export.cpp calls.
@@ -26,7 +26,7 @@ namespace husk::commands {
 // canon_diff.hpp, printing a report to stderr.
 //
 // Never throws and never affects the legacy export's own exit code: this
-// is a diagnostic sidecar (`--compare-canon`, opt-in, off by default), same
+// is a diagnostic sidecar (`--export-canon`, opt-in, off by default), same
 // "opt-in enrichment failure never aborts the primary output" policy every
 // other DB2/knowledge-base enrichment in cmd_export.cpp already follows --
 // any failure (a canon:: assembly throw, a write failure) is caught and
@@ -56,7 +56,7 @@ namespace husk::commands {
 // re-derivation" policy this file's own top doc comment states for the
 // skin tier) and builds a real `m2input::ExternalSkeletonSource`, closing
 // AUDIT.md §7.2's "no `.skel`-sourced coverage at all" gap -- previously
-// `runCanonCompareExport` always read `model.bones`/`model.sequences`
+// `runCanonExport` always read `model.bones`/`model.sequences`
 // regardless of `bonesAreInline`, silently comparing against the model's
 // own (usually empty) inline data for every `.skel`-sourced export. When
 // `bonesAreInline` is true, or `haveSkel` is false (a genuinely 0-bone
@@ -70,7 +70,7 @@ namespace husk::commands {
 // `baseColorTextureFileDataId` (AUDIT.md §7.1). Default empty for the same
 // "predates this parameter, no behavior change" reason every other optional
 // parameter in this codebase defaults empty.
-void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, const gltf::Mesh& legacyMesh,
+void runCanonExport(const m2::Model& model, const std::string& skinPath, const gltf::Mesh& legacyMesh,
                            const gltf::Skeleton& legacySkeleton,
                            const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
                            husk::sources::Catalog& catalog, const std::string& modelPath,

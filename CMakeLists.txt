@@ -238,7 +238,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_cli.cpp
     tests/test_cli_textures.cpp
     tests/test_cli_slim_textures.cpp
-    tests/test_cli_compare_canon.cpp
+    tests/test_cli_export_canon.cpp
     tests/test_cli_resolve.cpp
     tests/test_cli_batch.cpp
     tests/test_cli_config.cpp
@@ -313,6 +313,10 @@ if(HUSK_BUILD_TESTS)
     target_compile_definitions(husk-tests PRIVATE
       HUSK_BLENDER="${HUSK_BLENDER_PROGRAM}"
       HUSK_BLENDER_IMPORT_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/tests/blender_import_check.py"
+      # Reads a husk bundle's manifest.json + .bin slices directly, no
+      # glTF involved (tests/bundle_import_check.py's own doc comment) --
+      # the canon-vs-legacy comparison counterpart to the .glb script above.
+      HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/tests/bundle_import_check.py"
     )
   endif()
 

@@ -289,6 +289,21 @@ constexpr const char* kTextureTransformTranslationM2 =
     "models/spells/unk_exp11_7037014/7037014.m2";
 constexpr const char* kTextureTransformTranslationSkin =
     "models/spells/unk_exp11_7037014/703701400.skin";
+// A real, simple, non-character creature WITH real local-basename-resolvable
+// textures (fox_orange.blp/armorreflect_rainbow.blp, same directory) -- the
+// gap kQuadrupedM2/kQuadrupedSkin (creature/wolf/) doesn't fill, since that
+// fixture carries no local texture at all. Deliberately not a character
+// model for tests/test_conformance.cpp's canon-bundle materials/textures
+// Blender-import check: canon::Material's base-color resolution has no
+// character-specific shape, and a real character .m2 also carries the
+// customization/geoset-selection surface REFACTOR/BLENDER_ADDON.md documents
+// as not yet wired into canon::Model/bundle_writer.cpp at all -- testing
+// materials against one would risk implying that whole unbuilt subsystem is
+// covered when it isn't. Real numbers: 1706 vertices, 79 bones, 18
+// animations, 1 material with 1 embedded texture, `--export-canon` reports
+// "clean, no deviations found" against this exact committed pair.
+constexpr const char* kFoxM2 = "creature/fox/fox.m2";
+constexpr const char* kFoxSkin = "creature/fox/fox00.skin";
 }  // namespace fixtures
 
 // reference/WoWDBDefs (gitignored, dev-only checkout, see dbd.hpp's module
@@ -392,5 +407,7 @@ inline std::string testTextureTransformTranslationSkin() {
     return resolve("HUSK_TEST_TEXTURE_TRANSFORM_TRANSLATION_SKIN",
                     fixtures::kTextureTransformTranslationSkin);
 }
+inline std::string testFoxM2() { return resolve("HUSK_TEST_FOX_M2", fixtures::kFoxM2); }
+inline std::string testFoxSkin() { return resolve("HUSK_TEST_FOX_SKIN", fixtures::kFoxSkin); }
 
 }  // namespace husk::test

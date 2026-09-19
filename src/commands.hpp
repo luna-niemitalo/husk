@@ -223,7 +223,7 @@ struct ExportOptions {
     bool debugTextureWarnings = false;
     // REFACTOR/README.md stage 3's runtime convergence gate -- see the
     // flag's own --help text and cmd_export_canon.hpp's doc comment.
-    bool compareCanon = false;
+    bool exportCanon = false;
 };
 
 // Declares every export flag (names, defaults, descriptions, the `--skin

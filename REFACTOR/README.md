@@ -28,7 +28,7 @@ legacy's own deduped count exactly, 8/8 on the real `bloodelffemale.m2`
 fixture), global-sequence/alias animation resolution, external-`.anim`
 resolution (both inline-bones and `.skel`-sourced), and — the last and
 biggest blocker — real `.skel`-sourced coverage (`m2input::
-ExternalSkeletonSource`, closing what had been zero real `--compare-canon`
+ExternalSkeletonSource`, closing what had been zero real `--export-canon`
 coverage for the majority-case player-character models). Texture resolution
 is verified end to end against real, resolved-to-real-bytes CASC data (not
 just structurally): `compareMaterialBlendModes` now checks resolved texture
@@ -37,20 +37,20 @@ blend mode, and comes back clean. `canon::Model` is not yet formally declared
 a like-for-like replacement — no full structural pre/post diff has been run
 across the whole real fixture set the way `AUDIT.md §7`'s own preamble
 frames as Stage 3's actual gate — but every concretely-named coverage gap
-found while building `--compare-canon` is closed and verified clean
+found while building `--export-canon` is closed and verified clean
 (`bloodelffemale.m2` inline-bones and `bloodelffemale_hd.m2` `.skel`-sourced,
 both 0 deviations across mesh/skeleton/animations/materials). The broader
 whole-corpus structural gate hasn't formally run yet, but the real visual
 (rendered) check now has automated tooling behind it (2026-09-15,
 `tools/render_lean_glb.py` + `tools/compare_canon_render.py`: renders a
-`--compare-canon` pair's legacy `.glb` and `.canon.glb` through the same
+`--export-canon` pair's legacy `.glb` and `.canon.glb` through the same
 extras-blind headless-Blender importer at a forced literal rest pose
 — `pose_position = 'REST'`, robust against NLA-track pose leakage, not just
 clearing `.action` — and pixel-diffs the two stills) — see `AUDIT.md §7.4`
 for what it found on first real use. Stage 4 has two real, independently
 tested writers (`src/writers/bundle_writer.*`, `src/writers/gltf_lean.*`),
 but nothing in `cmd_export.cpp` calls either of them — `husk export
---compare-canon` (opt-in, off by default) runs them as a diagnostic sidecar
+--export-canon` (opt-in, off by default) runs them as a diagnostic sidecar
 alongside the still-shipping legacy pipeline, not a replacement for it.
 Texture payload embedding — found missing by the render-diff tool's first
 real run, then closed the same day (`AUDIT.md §7.4`): `canon::TextureRef`

@@ -13,12 +13,12 @@ smuggled in via extras) -- running the extras-heavy script against a
 different-looking render than the same file's legacy `.glb` sibling, for
 reasons that have nothing to do with whether canon:: itself is correct.
 
-Rendering BOTH sides of a `--compare-canon` pair through this same
+Rendering BOTH sides of a `--export-canon` pair through this same
 minimal, extras-blind script instead means both get the exact same
 treatment -- whatever a bare glTF importer does with core mesh/skin/
 material/animation data, nothing more. A real difference here reflects a
 real difference in the two files' own core glTF content (the thing
-`husk export --compare-canon` is meant to catch), not a missing Blender-side
+`husk export --export-canon` is meant to catch), not a missing Blender-side
 enrichment pass that was never in scope for canon:: today.
 
 Usage:

@@ -37,6 +37,8 @@ namespace {
 
 using husk::test::runCommand;
 using husk::test::runHusk;
+using husk::test::testFoxM2;
+using husk::test::testFoxSkin;
 using husk::test::testM2;
 using husk::test::testQuadrupedM2;
 using husk::test::testQuadrupedSkin;
@@ -802,6 +804,142 @@ TEST_CASE("husk export --slim-textures: Blender's own importer resolves and deco
 TEST_CASE("husk export --slim-textures: Blender's own importer resolves and decodes the real "
           "pixels of every externally-referenced texture from the adjacent 'textures/' "
           "directory, not just imports without erroring" *
+          doctest::skip(true)) {
+}
+#endif
+
+// The canon::/writers::writeBundle counterpart to the very first test in
+// this file, and the concrete point of REFACTOR/BLENDER_ADDON.md's "point
+// at a manifest, nothing else": bundle_import_check.py reads
+// out.canon.bundle/manifest.json + its .bin slices *directly*, with no
+// glTF anywhere in the loop on the canon side, and this test checks the
+// result against the M2 header's own raw counts -- the same ground truth
+// the legacy-pipeline Blender test above cross-checks against, not against
+// the legacy .glb's own inflated joint count (canon::Skeleton has no
+// Skeleton::GeosetTag synthetic joints -- REFACTOR/README.md's "canon::
+// itself is now format-agnostic top to bottom" -- and canon::Mesh carries
+// no collision mesh yet, AUDIT.md's Stage 3 scope), so the two expected
+// counts are deliberately simpler than countDistinctGeosetTagJoints's own
+// legacy-side accounting.
+#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT)
+TEST_CASE("husk export --export-canon: the native bundle's mesh/skeleton import into Blender "
+          "-- with no glTF involved on the canon side at all -- matching the M2 header's own "
+          "vertex/bone counts" *
+          doctest::skip(testM2().empty() || testSkin().empty())) {
+    std::string m2Path = testM2();
+    std::string skinPath = testSkin();
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-blender-bundle.glb").string();
+    auto bundleDir = std::filesystem::temp_directory_path() / "husk-test-blender-bundle.canon.bundle";
+    std::filesystem::remove(outPath);
+    std::filesystem::remove_all(bundleDir);
+
+    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
+                                 "\" --export-canon");
+    INFO("husk export output:\n", exportResult.output);
+    REQUIRE(exportResult.exitCode == 0);
+    REQUIRE(std::filesystem::is_directory(bundleDir));
+    REQUIRE(std::filesystem::exists(bundleDir / "manifest.json"));
+
+    auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
+                                     " --background --factory-startup --python-exit-code 1 --python \"" +
+                                     std::string(HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT) + "\" -- \"" +
+                                     bundleDir.string() + "\"");
+    INFO("blender output:\n", blenderResult.output);
+    REQUIRE(blenderResult.exitCode == 0);
+
+    husk::m2::Header header = readM2Header(m2Path);
+
+    CHECK(parseProbeInt(blenderResult.output, "armature_count") == 1);
+    CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "bone_count")) == header.bones.count);
+    CHECK(parseProbeInt(blenderResult.output, "mesh_object_count") == 1);
+    CHECK(static_cast<uint32_t>(parseProbeInt(blenderResult.output, "total_vertex_count")) ==
+          header.vertices.count);
+
+    std::filesystem::remove(outPath);
+    std::filesystem::remove_all(bundleDir);
+}
+#else
+TEST_CASE("husk export --export-canon: the native bundle's mesh/skeleton import into Blender "
+          "-- with no glTF involved on the canon side at all -- matching the M2 header's own "
+          "vertex/bone counts" *
+          doctest::skip(true)) {
+}
+#endif
+
+// Same idea, materials this time: bundle_import_check.py's build_materials
+// reads resources.materials[].layers[].texture's "uri" straight off disk
+// (bundle_writer.cpp's writeTextureRef -- a real 'textures/<name>.<ext>'
+// file, written once per distinct resolved texture) and loads it into a
+// real Blender Image, again with no glTF anywhere in the loop on the canon
+// side.
+//
+// testFoxM2()/testFoxSkin() (test_data/creature/fox/, added for this test):
+// a real, simple, non-character creature with real local-basename-
+// resolvable textures -- kQuadrupedM2/kQuadrupedSkin (creature/wolf/)
+// carries no local texture at all, and testSkelM2()/testSkelSkin()
+// (bloodelffemale_hd.m2) is a real character, which also carries the
+// customization/geoset-selection surface REFACTOR/BLENDER_ADDON.md
+// documents as NOT YET WIRED into canon::Model/bundle_writer.cpp at all (no
+// Definition/Selection/Item resources in the bundle today) -- testing
+// materials against a character fixture would risk implying that whole
+// unbuilt subsystem is covered by this test, when it isn't. See
+// test_data_paths.hpp's kFoxM2/kFoxSkin doc comment for the real numbers.
+#if defined(HUSK_BLENDER) && defined(HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT)
+TEST_CASE("husk export --export-canon: the native bundle's materials/textures import into "
+          "Blender -- with no glTF involved on the canon side at all -- matching the legacy "
+          ".glb's own resolved material/image counts" *
+          doctest::skip(testFoxM2().empty() || testFoxSkin().empty())) {
+    std::string m2Path = testFoxM2();
+    std::string skinPath = testFoxSkin();
+
+    auto outPath = (std::filesystem::temp_directory_path() / "husk-test-blender-bundle-mat.glb").string();
+    auto bundleDir = std::filesystem::temp_directory_path() / "husk-test-blender-bundle-mat.canon.bundle";
+    std::filesystem::remove(outPath);
+    std::filesystem::remove_all(bundleDir);
+
+    auto exportResult = runHusk("export \"" + m2Path + "\" -o \"" + outPath + "\" --skin \"" + skinPath +
+                                 "\" --export-canon");
+    INFO("husk export output:\n", exportResult.output);
+    REQUIRE(exportResult.exitCode == 0);
+    REQUIRE(std::filesystem::is_directory(bundleDir));
+
+    // Ground truth: the legacy .glb's own tinygltf-parsed material/image
+    // counts -- REFACTOR/README.md's own claim that canon::Model::materials
+    // is deduped and matches legacy's own count exactly is what this test
+    // actually checks, on the Blender-readback side rather than the
+    // canon_diff.cpp structural side test_cli_export_canon.cpp already
+    // covers.
+    tinygltf::TinyGLTF loader;
+    tinygltf::Model legacyModel;
+    std::string gltfErr, gltfWarn;
+    bool loaded = loader.LoadBinaryFromFile(&legacyModel, &gltfErr, &gltfWarn, outPath);
+    INFO("tinygltf error: ", gltfErr);
+    REQUIRE(loaded);
+    REQUIRE(!legacyModel.materials.empty());
+    REQUIRE(!legacyModel.images.empty());
+
+    auto blenderResult = runCommand(std::string(HUSK_BLENDER) +
+                                     " --background --factory-startup --python-exit-code 1 --python \"" +
+                                     std::string(HUSK_BLENDER_BUNDLE_IMPORT_SCRIPT) + "\" -- \"" +
+                                     bundleDir.string() + "\"");
+    INFO("blender output:\n", blenderResult.output);
+    REQUIRE(blenderResult.exitCode == 0);
+
+    CHECK(parseProbeInt(blenderResult.output, "material_count") ==
+          static_cast<int>(legacyModel.materials.size()));
+    CHECK(parseProbeInt(blenderResult.output, "loaded_image_count") ==
+          static_cast<int>(legacyModel.images.size()));
+    CHECK(parseProbeInt(blenderResult.output, "min_image_width") > 0);
+    CHECK(parseProbeInt(blenderResult.output, "min_image_height") > 0);
+
+    std::filesystem::remove(outPath);
+    std::filesystem::remove_all(bundleDir);
+}
+#else
+TEST_CASE("husk export --export-canon: the native bundle's materials/textures import into "
+          "Blender -- with no glTF involved on the canon side at all -- matching the legacy "
+          ".glb's own resolved material/image counts" *
           doctest::skip(true)) {
 }
 #endif

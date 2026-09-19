@@ -21,17 +21,17 @@
 // Migration order, stage 3), run entirely alongside the real, still-shipping
 // legacy gltf_*.cpp pipeline rather than in place of it -- the legacy path
 // is untouched by this file, and this file's own failure can never affect
-// it (see runCanonCompareExport's own doc comment). Its purpose is the
+// it (see runCanonExport's own doc comment). Its purpose is the
 // runtime counterpart to tests/test_canon_*_convergence.cpp's fixture-only
 // convergence proofs: those check canon:: against one committed real file;
-// `--compare-canon` lets the exact same kind of structural check run
+// `--export-canon` lets the exact same kind of structural check run
 // against ANY real corpus file, in the same invocation, with the same
 // flags, that already produces the legacy .glb -- so the two outputs are
 // always compared on identical inputs, never a separately-reconstructed
 // invocation that could silently drift (different --skin resolution,
 // different --textures directory, ...).
 //
-// Deliberately re-parses the skin file itself (see runCanonCompareExport's
+// Deliberately re-parses the skin file itself (see runCanonExport's
 // own doc comment) rather than taking already-parsed batches/submeshes/
 // triangleIndices from the caller: a genuinely independent re-derivation
 // is a stronger convergence signal than reusing the legacy pipeline's own
@@ -251,7 +251,7 @@ std::filesystem::path findAnimFileByBasename(const std::string& modelPath, const
 // fallback second, AFSB-over-AFM2 priority in a chunked file) exactly --
 // reimplemented independently in THIS file rather than calling into or
 // factoring shared code out of export_animation.cpp/.hpp. Deliberate:
-// `--compare-canon`'s whole point is comparing canon:: against an
+// `--export-canon`'s whole point is comparing canon:: against an
 // UNTOUCHED legacy pipeline (this file's own top doc comment already says
 // so) -- editing a legacy source file to share code with this one, even a
 // behavior-preserving pure refactor, means the "legacy" side of every
@@ -330,16 +330,16 @@ m2input::ExternalAnimBlobs buildExternalAnimBlobs(
 
 void printReport(const std::string& label, const canon_diff::Report& r) {
     for (const auto& d : r.deviations) {
-        std::cerr << "husk: canon-compare: DEVIATION (" << label << "): " << d << "\n";
+        std::cerr << "husk: canon-export: DEVIATION (" << label << "): " << d << "\n";
     }
     for (const auto& n : r.notes) {
-        std::cerr << "husk: canon-compare: note (" << label << "): " << n << "\n";
+        std::cerr << "husk: canon-export: note (" << label << "): " << n << "\n";
     }
 }
 
 }  // namespace
 
-void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, const gltf::Mesh& legacyMesh,
+void runCanonExport(const m2::Model& model, const std::string& skinPath, const gltf::Mesh& legacyMesh,
                            const gltf::Skeleton& legacySkeleton,
                            const std::vector<gltf::Animation>& legacyAnimations, const std::string& outputPath,
                            sources::Catalog& catalog, const std::string& modelPath,
@@ -408,7 +408,7 @@ void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, 
 
         writers::writeLeanGlb(canonModel, leanGlbPath);
         writers::writeBundle(canonModel, bundleDir);
-        std::cerr << "husk: canon-compare: wrote '" << leanGlbPath.string() << "' and '" << bundleDir.string()
+        std::cerr << "husk: canon-export: wrote '" << leanGlbPath.string() << "' and '" << bundleDir.string()
                   << "/' alongside '" << outputPath << "'\n";
 
         bool anyDeviation = false;
@@ -432,10 +432,10 @@ void runCanonCompareExport(const m2::Model& model, const std::string& skinPath, 
         anyDeviation = anyDeviation || !materialReport.ok();
         printReport("materials", materialReport);
 
-        std::cerr << "husk: canon-compare: "
+        std::cerr << "husk: canon-export: "
                   << (anyDeviation ? "DEVIATIONS FOUND -- see above" : "clean, no deviations found") << "\n";
     } catch (const std::exception& e) {
-        std::cerr << "husk: canon-compare: failed: " << e.what() << "\n";
+        std::cerr << "husk: canon-export: failed: " << e.what() << "\n";
     }
 }
 

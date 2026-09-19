@@ -1,5 +1,5 @@
-// CLI tier: `husk export --compare-canon` -- exercises
-// husk::commands::runCanonCompareExport (cmd_export_canon.cpp) by spawning
+// CLI tier: `husk export --export-canon` -- exercises
+// husk::commands::runCanonExport (cmd_export_canon.cpp) by spawning
 // the real compiled binary against a small, synthetic, on-disk fixture,
 // same convention as tests/test_cli_slim_textures.cpp. The real-fixture
 // pipeline (bloodelffemale.m2/.skin, test_data/) was exercised manually
@@ -21,7 +21,7 @@
 using husk::test::runHusk;
 namespace fs = std::filesystem;
 
-TEST_CASE("husk export --compare-canon: off by default -- no '.canon.glb'/'.canon.bundle' sidecar, "
+TEST_CASE("husk export --export-canon: off by default -- no '.canon.glb'/'.canon.bundle' sidecar, "
           "and the flag itself doesn't change the real export's exit code") {
     auto dir = defaultsDir("comparecanon_off");
     writeFile(dir / "textured.m2", oneTexturedModel(555));
@@ -35,7 +35,7 @@ TEST_CASE("husk export --compare-canon: off by default -- no '.canon.glb'/'.cano
     CHECK_FALSE(fs::exists(dir / "out.canon.bundle"));
 }
 
-TEST_CASE("husk export --compare-canon: writes '.canon.glb' and '.canon.bundle/' sidecars alongside "
+TEST_CASE("husk export --export-canon: writes '.canon.glb' and '.canon.bundle/' sidecars alongside "
           "the real output, and never fails the real export even if a deviation is found") {
     auto dir = defaultsDir("comparecanon_on");
     writeFile(dir / "textured.m2", oneTexturedModel(555));
@@ -43,12 +43,12 @@ TEST_CASE("husk export --compare-canon: writes '.canon.glb' and '.canon.bundle/'
 
     auto outPath = dir / "out.glb";
     auto result =
-        runHusk("export " + (dir / "textured.m2").string() + " -o " + outPath.string() + " --compare-canon");
+        runHusk("export " + (dir / "textured.m2").string() + " -o " + outPath.string() + " --export-canon");
     CHECK(result.exitCode == 0);
     REQUIRE(fs::exists(outPath));
     CHECK(fs::exists(dir / "out.canon.glb"));
     CHECK(fs::file_size(dir / "out.canon.glb") > 0);
     CHECK(fs::is_directory(dir / "out.canon.bundle"));
     CHECK(fs::exists(dir / "out.canon.bundle" / "manifest.json"));
-    CHECK(result.output.find("husk: canon-compare:") != std::string::npos);
+    CHECK(result.output.find("husk: canon-export:") != std::string::npos);
 }

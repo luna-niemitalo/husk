@@ -79,7 +79,7 @@ tool, `blp/`) converts BLP2 textures to PNG.
   evidence inventory of every duplicated/divergent path found. **Stages 1-2
   have since landed and Stage 3 is deep in progress** (`src/sources/`'s
   resolution catalog, `m2::Model`'s consolidation, and `canon::`'s own
-  value types/assembly functions/`--compare-canon` convergence checker) —
+  value types/assembly functions/`--export-canon` convergence checker) —
   see `REFACTOR/README.md` for the live stage plan and status (the file
   this session's own `LOOP_STATE.md` reference used to point at no longer
   exists; `REFACTOR/README.md` is the current single source for this).
@@ -212,11 +212,32 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   now happens only when it's genuinely dual-use (benefits canon:: too,
   e.g. DB2 parsing completeness) — new legacy-only feature work is not
   the current priority.
-- **Next step**: continue closing `REFACTOR/AUDIT.md`'s Stage 3 gaps (see
-  that file for the current concrete list) and the documentation
-  consolidation pass in progress as of 2026-09-16 (see `REFACTOR_LOG.md`'s
-  newest entries and this file's own git history for that pass's scope).
-  Outside of `REFACTOR/`: `TODO/INVESTIGATIONS_TODO.md` item 14
+- **Next step**: `tests/bundle_import_check.py` (2026-09-16) is the first
+  real code that reads a husk bundle's `manifest.json` straight into
+  Blender with zero glTF involved — mesh + skeleton (verified against
+  `bloodelffemale.m2`) + base-color materials (verified against
+  `test_data/creature/fox/fox.m2`, a real, simple, non-character fixture
+  added this session — deliberately not a real character model, see
+  `REFACTOR/BLENDER_ADDON.md`'s new note for why) — matching the legacy
+  `.glb`'s own counts exactly, and `--export-canon` reports clean against
+  it. The texture overlay/switch/
+  picker pipeline (customization choices, geoset selection, multi-layer
+  blending) is NOT covered at all and is a much larger, separate slice:
+  `canon::Definition`/`Selection`/`Item` exist but nothing assembles them
+  from real input, and `bundle_writer.cpp` doesn't write them yet either —
+  that's most of `BLENDER_ADDON.md`'s `customization.py`/`geosets.py`/
+  `materials.py` (blend modes, tint, UV animation), needing real canon-side
+  wiring before any Blender-side reading of it is possible. Natural next
+  *bundle_import_check.py* slice within current scope: animation (Actions
+  from `resources.animation`) or geosets, so a canon-vs-legacy visual
+  comparison can eventually run without
+  `tools/compare_canon_render.py`'s current gltf-on-both-sides detour.
+  Otherwise continue closing
+  `REFACTOR/AUDIT.md`'s Stage 3 gaps (see that file for the current
+  concrete list) and the documentation consolidation pass in progress as of
+  2026-09-16 (see `REFACTOR_LOG.md`'s newest entries and this file's own
+  git history for that pass's scope). Outside of `REFACTOR/`:
+  `TODO/INVESTIGATIONS_TODO.md` item 14
   (`m2_full_validation_task.py`'s real full-corpus-scale hang, clean on
   every bounded reproduction — needs a live-attach investigation, not more
   guessing from a killed run) is the one open legacy-pipeline item with no

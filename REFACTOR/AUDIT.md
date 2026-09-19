@@ -278,7 +278,7 @@ Two consequences:
 Sections 1-6 above are about the legacy pipeline's problems, the ones Stage 3
 exists to fix. This section is different in kind: real gaps in Stage 3
 *itself* relative to what legacy already ships today, found 2026-09-15/16
-while building `husk export --compare-canon`'s runtime convergence checker
+while building `husk export --export-canon`'s runtime convergence checker
 (`src/canon_diff.*`).
 
 **All concretely-named gaps found are now closed** — full narrative,

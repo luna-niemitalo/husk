@@ -1,6 +1,6 @@
 // canon_diff.hpp's own comparators, exercised with small hand-built
 // canon::/gltf:: structs -- the CLI-tier smoke test
-// (tests/test_cli_compare_canon.cpp) covers the real-fixture end-to-end
+// (tests/test_cli_export_canon.cpp) covers the real-fixture end-to-end
 // path; this file covers the comparison logic itself in isolation, both
 // the matching case (no false positives on genuinely converged data) and
 // the deviation case (a real, injected mismatch is actually caught).

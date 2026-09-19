@@ -669,7 +669,7 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                  "group). Use this only when you need to see every candidate without opening the "
                  ".glb's own extras JSON")
         ->group("Diagnostics");
-    app.add_flag("--compare-canon", opts.compareCanon,
+    app.add_flag("--export-canon", opts.exportCanon,
                  "also run the in-progress canon:: pipeline (REFACTOR/README.md stage 3) against this "
                  "same model/skin tier, write its own '<output-basename>.canon.glb' (lean glTF "
                  "projection) and '<output-basename>.canon.bundle/' (native bundle) alongside the real "
@@ -1288,23 +1288,22 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                                 modelBasename, texturesOutDir, listfile, listfileRoot,
                                 objectSkinTextureFileDataId, customizationNames, opts.debugTextureWarnings);
 
-        // --compare-canon: canon::Model has no LOD concept (REFACTOR/README.md
+        // --export-canon: canon::Model has no LOD concept (REFACTOR/README.md
         // stage 3), so this only ever runs against an unambiguous single
         // resolved tier -- skipped with a note, not guessed at, for --lod all
         // or an explicit multi-entry resolution.
-        if (opts.compareCanon) {
+        if (opts.exportCanon) {
             if (skinsToExport.size() != 1) {
-                std::cerr << "husk: canon-compare: note: " << skinsToExport.size()
+                std::cerr << "husk: canon-export: note: " << skinsToExport.size()
                           << " skin tier(s) resolved -- canon::Model has no LOD concept, skipping "
                              "(only a single resolved tier can be compared unambiguously)\n";
             } else if (namedMeshes.empty()) {
-                std::cerr << "husk: canon-compare: note: the resolved skin tier has no renderable "
+                std::cerr << "husk: canon-export: note: the resolved skin tier has no renderable "
                              "geometry -- nothing to compare\n";
             } else {
-                runCanonCompareExport(model, skinsToExport.front().second, namedMeshes.front().mesh, skeleton,
-                                       animations, outputPath, catalog, modelPath, objectSkinTextureFileDataId,
-                                       animDir, bonesAreInline, haveSkel, skelBytes,
-                                       namedMeshes.front().materials);
+                runCanonExport(model, skinsToExport.front().second, namedMeshes.front().mesh, skeleton,
+                                animations, outputPath, catalog, modelPath, objectSkinTextureFileDataId, animDir,
+                                bonesAreInline, haveSkel, skelBytes, namedMeshes.front().materials);
             }
         }
 
