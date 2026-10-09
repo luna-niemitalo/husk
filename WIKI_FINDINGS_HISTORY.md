@@ -1983,6 +1983,73 @@ colour (before lighting), where the client adds it after lighting.
 
 ---
 
+## 20. Client shaders — fog model, lighting, `Illum`, liquids, `_lgt.wdt` lights, and the HLSL type names kept in the DX12 DXIL (2026-10-09)
+
+**Source.** The continuation of §19's pass, written up in
+`SHADER_FINDINGS/notes/` (synced in this change): new `fog.md`,
+`m2_draw_constants.md`, `lighting_model.md`, `dxil_names.md`; updates to
+`liquids.md`, `particles.md`, `wmo.md`, `world_misc.md`, `lighting.md`,
+`model_effects.md`, `compute.md`, `reconciliation.md`. The new part of the
+method is reading the `dx_6_0` DXIL listings, which keep HLSL type names
+and struct layouts (`SHADER_FINDINGS/scripts/dxil_types.py` collects
+them). Promoted, same rule as §19 (verified rows, inferred halves tagged):
+
+- `M2/rendering.md`: `Illum` (34) specular; the lighting equation and
+  the light flash; particle blend paths; the GPU particle kernel's
+  relation to `M2Particle` (inferred).
+- `RENDERING.md`: the 12.1 fog model (disagrees with the wiki's MoP
+  formula); scene-constant names; liquid families and their render-option
+  digits; third-party passes.
+- `WORLD.md`: WMO vertex UV modes 0–8; `WMOVertex`; `_lgt.wdt` lights
+  against the 192-byte `ShaderLight` record, and `MPL3`'s ray-traced
+  shadow flag (both links inferred).
+- `BLS.md`: DXIL keeps type, groupshared and ray-tracing resource names.
+- `M2.md`: `M2Vertex` confirmed by the client's own struct.
+
+Kept in the notes: the LightData ↔ fog-field and LiquidType ↔
+parameter-register mappings, the particle `blendingType` 5–7 hypothesis
+and its data test (`reconciliation.md` §5), decal and shadow-map vertex
+shader internals, `procedural`'s effect layer and `valar` (no wiki
+counterpart).
+
+**Correction.** The notes had called `cb7` a "secondary directional
+light", a sun back-light for thin geometry (hypothesis). Its DXIL type is
+`cb_light_flash` (`PSLightFlashData`), bound at register 7 in 6,186 DX60
+listings. The math is unchanged; the name is now "light flash",
+with lightning as the inferred source.
+
+**Independent re-checks before promotion** (against a copy of
+`tools/export_shaders.py`'s export; `example_exports/shaders/` itself was
+not on the machine):
+
+- Fog list: `combiners_mod` slot 0 clamps the count with
+  `umin r1.w, r3.x, l(4)`, strides records by `imul …, l(14)`, branches
+  on the record type `cb5[r + 1].x`, and accumulates
+  `mad r4, r10, cb5[r + 12].w, r4` (per-record weight).
+- `SceneData`: `%struct.SceneData = type { [12 x %struct.PSFog], <4 x
+  float> ×5 }` in `pixel/dx_6_0/combiners_mod`, bound at register 5.
+- Light flash: `!16 = !{i32 2, %cb_light_flash* undef, !"", i32 0, i32 7,
+  …, i32 32, null}` in the same listing.
+- `Illum`: `pixel/dx_5_0/illum` slot 0 samples `t1.yxwz` into `r1.yz`
+  (gloss `.x`, F0 `.y`), then `mul r0.z, r1.z, l(64)`,
+  `mad r1.z, r1.z, l(64), l(2)`, `mul r1.z, r1.z, l(0.125)` before the
+  `log`/`exp` power and the `(1 − L·H)⁵` term.
+- `M2Vertex`/`WMOVertex`: `compute/dx_6_0/texcoordexplode` programs 0 and
+  1 declare `{ <3 x float>, i32, i32, <3 x float>, [2 x <2 x float>] }`
+  and `{ <3 x float>, <3 x float>, [2 x i32], [4 x <2 x float>], i32 }`.
+- `ShaderLight`: `{ [4 x <4 x float>], <4 x float> ×7, i32 ×4 }`
+  (192 bytes) in `pixel/dx_6_0/combiners_mod`'s listings;
+  `dxil_types.py` finds it bound at `t21` in 34 containers.
+- WMO UV modes: `vertex/dx_5_0/uber` tests `ieq …, cb2[1].x, l(1)`,
+  `l(2)`, `l(3)`, then `l(4, 5, 6, 7)` and `l(8)`.
+
+**Not re-checked** (taken from the notes as verified): the fog record's
+inner terms (height cubic, distance curves, colours), the lighting
+equation's ambient/wrap constants, the liquid permutation digits,
+the `ShaderLight` per-offset roles, the ray-traced shadow algorithm.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -2006,3 +2073,4 @@ colour (before lighting), where the client adds it after lighting.
 | §17 `DETL`'s `flags` is the one live field (inferred: shadow-casting toggle); `scale`/`diffuseColorMultiplier`/`unk0`/`unk1` are dead constants in every real file, not externally-sourced data | `src/dump_chunks_misc.hpp` (`dumpDetl` doc comment updated — no behavior change, already correct) | no new tests needed (existing `tests/test_dump.cpp` `DETL` cases already cover the parser); investigation was a real-corpus recompute, not a code change |
 | §18 `PCOL` `flags` bit-semantics gap reframed as a real (not permanent) DB2 dependency; `housedecor.db2` and 5 other housing tables confirmed 0 bytes in the local export | none — pure documentation, `WIKI_FINDINGS/M2.md` wording corrected | no new tests needed; investigation was a real-filesystem check against the local `casc-tool` export, not a code change |
 | §19 client-shader formulas (combiners, WMO `uber`, terrain, sky/screen effects); `.bls` block header, slot hash, `RDEF` absence | `tools/export_shaders.py` (the export they're read from); `tools/corpus_scan_tasks/render_glb.py` (`_pixel_shader_formula_table`, partial consumer — two alpha mismatches noted in §19) | none — read from shader bytecode; `tools/export_shaders.py`'s own container-layout checks cover only `BLS.md`'s layout facts |
+| §20 fog model, lighting equation, `Illum`, liquid families, `_lgt.wdt` light record, DXIL type names | `tools/export_shaders.py` (the export, including the `dx_6_0` `.ll` listings); `SHADER_FINDINGS/scripts/dxil_types.py` | none — read from shader bytecode and DXIL listings |

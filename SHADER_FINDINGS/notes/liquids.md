@@ -44,12 +44,72 @@ in `cb1`. `procswamp` and `procmercury` are the exceptions; they read `cb8[0..5]
    and multiplied by fresnel.
 6. **Shore foam.** `t7` is sampled at `v4.xy` and `v4.zw` and fades in where the water is
    shallow (smoothstep on the depth difference), scaled by `cb1[24].y`.
-7. **Secondary light** `cb1[6..7]` and fog through `cb1[8..10]` → `cb5` (the fog-selection
+7. **Light flash** `cb1[6..7]` and fog through `cb1[8..10]` → `cb5` (the fog-selection
    fields that the combiners hold in `cb0[0..2]`), then the froxel volume `t16`.
+
+### Parameter block
+
+Pixel `cb1` (37–40 registers):
+
+| Register | Role | Candidate source (inferred) |
+|---|---|---|
+| `[0]` | Direct light direction | scene light |
+| `[1]`, `[2]` | Point-light position; falloff start, scale, enable | scene light |
+| `[3]`, `[4]` | Ambient; direct colour (lighting `= ([3] + [4]·saturate([0].z)·att) · v8`, `att` from `[1..2]`) | scene light |
+| `[5]` | Specular colour `.rgb`, exponent `.w` | LightData sun colour |
+| `[6]`, `[7]` | Light flash (same as `cb7`) | |
+| `[8].x`, `[9].y`, `[9].w`, `[10]` | Fog selection, unfogged, froxel enable, fog list (as `cb0[0..2]` in `fog.md`) | |
+| `[11]` | Coefficients of the colour-gradient parameter (`a` digit) | |
+| `[16..19]` | Reflection projection matrix (into `t3`) | |
+| `[20]`, `[21]` | Absorption colour, near → far; `.w` = blend over refraction | LightData ocean/river close/far colours; LightParams shallow/deep alpha |
+| `[22]` | World-XY box for the `t13` map: `.xy` origin, `.zw` inverse size | |
+| `[23]` | World-XY transform into `t13` | |
+| `[24].y`, `[24].w` | Shore-foam strength; weight of the gradient parameter | |
+| `[31]` | Reflection fallback colour | sky colour |
+| `[32].y`, `[32].w`, `[32].z` | Normal strength (detail, base); height-map edge mask | |
+| `[35]` | Screen-UV transform for `t0`/`t3`/`t6` | |
+| `[36].z`, `[36].w` | Sun-lit body strength; specular strength | |
+| `[37]`, `[38]`, `[39]` | Height-map tap offsets and blend (`c` digit) | |
+
+Vertex shader `vertex/dx_5_0/procwater` (3 programs) and its `cb1[30]`:
+
+| Output | Computation | Candidate source (inferred) |
+|---|---|---|
+| `o0`, `o7` | Clip position (`cb1[4..7]` world, `cb1[8..11]` view-projection) | |
+| `o1` | World position | |
+| `o9.x` | Clip distance against `cb1[12]` | |
+| `o2`, `o3` | Normal-map UVs: the vertex grid coordinate `v2/32`, tiled through `cb1[13..20]`, rotated by the 2×2 matrix `cb1[25..26]`, scrolled by `cb1[28]`, offset by `cb1[29].yz`; the second layer is scaled by `cb1[29].w · 32` | LiquidType `float[]`: "TextureTilesPerBlock", "Rotation" |
+| `o4` | Foam UVs: grid coordinate × 228 plus a time wobble `0.05 · (sin, cos)(cb1[29].x · (4, 2) + pos.xy)` | `cb1[29].x` = time |
+| `o5.xy` | Vertex attribute `v3` transformed by `cb1[21..22]` + `cb1[24]`: the colour-gradient parameter | MH2O depth |
+| `o5.zw` | `v3` unchanged (UV of `t14`/`t15`) | |
+| `o6` | Position through `cb1[0..3]` | |
+| `o8` | Vertex attribute `v1` (lighting tint) | |
+
+### Keys of the other `proc*` liquids
+
+The digit names refer to `procwaterabove`'s key. `d` = discard plus depth, always the top
+binary digit.
+
+| Container | Slots | Digits |
+|---|---|---|
+| `procwaterbelow` | 18 | `a` (3: `t14`/`t15`, then `t13`) × `c` (3: `t4`, then `t8`) × `d`; no reflection digit |
+| `procmercury` | 72 | `t15` (binary) × depth/refraction `t6` with screen UV (binary) × reflection `b` (3: `t1`+`t3`, `t1` only, `t3` only) × detail `c` (3: `t4`, then `t8`) × `d` |
+| `procleylineabove` | 24 | `t14`/`t15` (binary) × `t7` (binary) × `c` (3: `t8`+`t10`, then `t9`) × `d` |
+| `procmagma` | 4 | `t15` (binary) × `d` |
+| `procleylinebelow` | 12 | `t14`/`t15` (binary) × `c` (3: none, `t8`+`t10`, then `t9`) × `d` |
+| `water`, `mediumwater`, `mediumwaterbelow` | 6 | `a` (3: none, `t14`/`t15`, then `t13`) × `d` |
+| `magma`, `mercury`, `mediummercury` | 4 | `t15` (binary) × `d` |
+| `leyline`, `mediumleyline`, `mediumleylinebelow` | 4 | `t14`/`t15` (binary) × `d` |
+| `liquidfog` | 8 | `t15` (binary) × depth `t6` (binary; `cb1` grows from 19 to 22 registers) × `d` |
+| `procwaterabovefog` | 3 | `a` (3: none, `t15`, then `t13`) |
+| `procleylineabovefog` | 2 | `t15` (binary) |
+| `procswampabovefog` | 18 / 12 | `t14`/`t15` (3 values, 2 identical) × a digit with no declaration change × `t7` (binary) |
+| `procswamp` | 108 / 48 | Three tiers of 18 × `d`. Tier 0: swamp textures `t9`–`t11`, lit by `cb8`. Tier 1: adds `t2`, `t3` and depth `t6`. Tier 2: a water-style path (refraction `t0`, normals `t5`, depth `t6`, optional `t1`, `t4`, `t8`; no `cb8`). Inside a tier: `t14`/`t15` (3 values, 2 of them identical), a digit that changes only the code length, and a digit with no effect |
 
 ## The other liquid containers
 
-Not decoded beyond their declarations. "Instr." is the base program's instruction count.
+Keys are in the table above; the programs themselves are not decoded beyond their
+declarations. "Instr." is the base program's instruction count.
 
 | Container | Slots / programs | Instr. | Textures | Parameters |
 |---|---|---|---|---|
@@ -82,5 +142,5 @@ The `*abovefog` containers are short passes that read only the scene colour/dept
 The `*below` containers are the views from under the surface. Both readings come from the
 names and declarations.
 
-The vertex side (`vertex/dx_5_0/procwater`, `procswamp`, `procmercury`, `procleyline`,
-`water`, `waterfall`, …) is not decoded.
+The vertex side: `vertex/dx_5_0/procwater` is decoded above (Parameter block). The others
+(`procswamp`, `procmercury`, `procleyline`, `water`, `waterfall`, …) are not decoded.

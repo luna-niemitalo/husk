@@ -59,9 +59,35 @@ Resolves the screen-space shadow mask:
 | Container | Programs | Content |
 |---|---|---|
 | `pixel/shadowmapsl` | 4 | 0: empty (depth only). 1: alpha test on `t0.a`. 2: screen-door dither discard (same hash as combiner bit 6; normal from screen derivatives). 3: both |
-| `vertex/shadowmap` | 24 slots, 16 programs | Not decoded |
-| `vertex/shadowmapterrain` | 2 | Not decoded |
-| `raytracing/shadowrt` | DXIL only (no slot table) | Not decoded |
+| `vertex/shadowmap` | 24 slots, 16 programs | Decoded below |
+| `vertex/shadowmapterrain` | 2 | Decoded below |
+| `raytracing/shadowrt` | DXIL only (no slot table) | Ray-traced sun shadows; decoded in `dxil_names.md` |
+
+### Shadow-map vertex shaders
+
+`vertex/shadowmap`: `slot = uv + 2·inst + 4·mode`.
+
+| Digit | Values | Effect |
+|---|---|---|
+| `uv` | 2 | Passes UV `o2.xy` (for the alpha-tested `shadowmapsl` variants) |
+| `inst` | 2 | Instancing by `SV_InstanceID`: instance `i` owns `cb1[10].x` consecutive 3×4 matrices from `cb1[11 + 3·i·cb1[10].x]`; the first is its model matrix |
+| `mode` | 6 | 0 and 3: static (model matrix `cb1[0..2]`, or the instance matrix). 1: one bone per vertex (`v2.x`). 2: four bones with weights `v1` and indices `v2`. 4 and 5: sinusoidal vertex sway |
+
+The bone palette starts at `cb1[11]`: bone `b` is at `cb1[11 + 3·b]` without instancing
+and at `cb1[11 + 3·(i·cb1[10].x + b + 1)]` for instance `i`. `cb1` has 779 registers, the same size as the M2
+vertex `cb0`.
+
+Sway (modes 4, 5): the vertex's slot `v2.y` holds parameters in place of a matrix. The
+offset on each axis is `sin` or `cos(pos.axis + phase) · amplitude · v1.y`, with the
+phases in the `.w` components and the amplitudes in `.y`/`.z`. `v1.y` is the per-vertex
+weight. Wind on foliage is the likely use (**hypothesis**).
+
+All programs then apply `cb1[3..5]` (world → light view) and `cb1[6..9]` (projection).
+`o1 = lightViewPos · (1, 1, 1/4000)`.
+
+`vertex/shadowmapterrain` program 0 applies the terrain geomorph before the transforms:
+`k = saturate((|v0.xy − cb1[0].xy| − cb1[0].z) · cb1[0].w)`, `z = lerp(v0.z, v2.x, k)`.
+Program 1 has no geomorph. The light view is `cb1[5..8]` and the projection `cb1[9..12]`.
 
 ## Depth/normal prepass
 

@@ -5,7 +5,7 @@ files in the 12.1.0 corpus (`/media/luna/data/wow_export/shaders/`).
 `tools/export_shaders.py` relies on each container-layout fact and fails a
 file loudly, with expected and actual values, if one stops holding. The
 block-header, hash and `RDEF` facts come from its output manifests
-(`../WIKI_FINDINGS_HISTORY.md` §19). What the shaders themselves compute
+(`../WIKI_FINDINGS_HISTORY.md` §19, §20). What the shaders themselves compute
 is in `M2/rendering.md`, `ADT.md`, `WORLD.md` and `RENDERING.md`.
 
 ## Inventory (12.1.0)
@@ -42,8 +42,17 @@ The wiki's struct is right as far as it goes. What it leaves open:
 - The DXBC is standard once the stream is inflated, but reflection is
   stripped: no blob in either API has an `RDEF` part. DX50 parts are
   `ISGN`/`OSGN`/`SHEX` (9,701 of 9,742), sometimes plus `SFI0` or as
-  `ISG1`/`OSG1`. So constant buffers and textures have register numbers
-  only, never names.
+  `ISG1`/`OSG1`. So DX50 constant buffers and textures have register
+  numbers only, never names.
+- DX60 DXIL keeps more. Variable names are stripped (`!""`), but every
+  constant and structured buffer keeps its HLSL type name and full
+  struct layout (`cb_scene_data` → `SceneData { PSFog[12], … }`,
+  `StructuredBuffer<ShaderLight>`, `M2Vertex`, `WMOVertex`, …), and so do
+  groupshared variables (`gs_FFX_PARALLELSORT_Histogram`). The ray-tracing
+  library `shadowrt` also keeps resource and entry-point names
+  (`SceneBVH`, `LinearDepth`, `RayGen`, `AlphaTestShadowCasterHit`).
+  `dxc -dumpbin` prints all of it; the full table is
+  `../SHADER_FINDINGS/notes/dxil_names.md`.
 - The slot hash names the compiled **program**, not the permutation:
   every slot sharing a blob has the same hash (9,742/9,742 DX50 blobs),
   and no two blobs in a file share one. It differs between the DX50 and

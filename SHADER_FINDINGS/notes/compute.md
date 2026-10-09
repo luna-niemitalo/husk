@@ -54,21 +54,26 @@ Programs 1 and 2 were not read; they probably cover the other skinning modes.
 
 | Container | Programs | Resources / threads | Role |
 |---|---|---|---|
-| `cacao_*` (10 containers) | 2–16 each | 2D-array textures, 8×8 threads | *name* — compute ambient occlusion: prepare depths, mips and normals, generate, importance map, edge-sensitive blur, bilateral upscale, apply |
-| `cmaa2_*` (5 containers) | 1–16 each | UAV edge buffers, raw dispatch arguments | *name* — CMAA2 anti-aliasing |
-| `fsr` | 2 | `t1` → `u0`, 64 threads | *name* — 822 instructions |
+| `cacao_*` (10 containers) | 2–16 each | 2D-array textures, 8×8 threads | AMD FidelityFX CACAO (groupshared names, `dxil_names.md`) — compute ambient occlusion: prepare depths, mips and normals, generate, importance map, edge-sensitive blur, bilateral upscale, apply |
+| `cmaa2_*` (5 containers) | 1–16 each | UAV edge buffers, raw dispatch arguments | Intel CMAA2 anti-aliasing (groupshared names) |
+| `fsr` | 2 | `t1` → `u0`, 64 threads | AMD FSR 1 (*name*, `min16float` resources) — 822 instructions |
 | `guidedfilter`, `guidedfilterh`, `guidedfilterv` | 8 each | DXIL only in `dx_5_0` | *name* |
 | `fogdepth` | 1 | `t1` → 3D `u0`, 16×16 threads | *name* |
 | `generatemips` | 1 | `t0` → `u1` | *name*, 7 instructions |
 | `particulatecompute` | 2 | `t0` → `u1`, 128 threads | *name* |
-| `texcoordexplode` | 3 | `t2`, 48-byte `t3` → 24-byte `u0` | *name* |
-| `animacompute` | 1 | 64-byte `u0` | *name* |
+| `texcoordexplode` | 3 | `t2`, 48-byte `t3` → 24-byte `u0` | *name*. Its three programs read `StructuredBuffer<M2Vertex>`, `<WMOVertex>` and `<M3Vertex>` and write `TriangleOut` (three UVs per triangle) |
+| `animacompute` | 1 | 64-byte `u0` | *name*; `u0` is `RWStructuredBuffer<AnimaCurveNode>` |
 | `simplecompute` | 1 | `u0` | 5 instructions |
 
 ## Only in `dx_6_0`
 
-`fps_count_uint`, `fps_reducecount`, `fps_scanadd`, `fps_scanprefix`, `fps_scatter_uint`,
-`fps_setupindirectparameters` (a prefix-sum and scatter set), `lightbufferomnishadow`,
-`lightbufferspotshadow`, `shadowrt`, `terrainlightmapomni`, `terrainlightmapspot`, `valar`,
-`valar_lp`. These need SM6 features and have only DXIL listings, so they have no GLSL.
-None were read.
+These need SM6 features and have only DXIL listings (`asm/*.ll`), so they have no GLSL.
+Details are in `dxil_names.md`.
+
+| Container | Identification |
+|---|---|
+| `fps_count_uint`, `fps_reducecount`, `fps_scanprefix`, `fps_scanadd`, `fps_scatter_uint`, `fps_setupindirectparameters` | AMD FidelityFX Parallel Sort (4-bit radix sort; type and groupshared names) |
+| `valar`, `valar_lp` | Variable-rate-shading image from luminance contrast (Intel VALAR) |
+| `shadowrt` (compute, pixel, ray-tracing library) | Ray-traced sun shadows: 8 blue-noise-rotated rays per pixel, interior and exterior instance masks blended by `Normal_Exteriorness`, alpha-tested and stippled shadow casters |
+| `lightbufferomnishadow`, `lightbufferspotshadow` | Light-buffer passes with a `RayQuery` shadow test per light |
+| `terrainlightmapomni`, `terrainlightmapspot` | Terrain light map with an acceleration structure at `t10` and `ShaderLight` records |

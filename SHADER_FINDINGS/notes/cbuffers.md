@@ -8,15 +8,20 @@ A register slot is a binding point, not a buffer identity. A slot that has one s
 nearly every container that declares it, and is read at the same offsets, is treated here
 as one shared buffer. Those are the rows marked shared.
 
+Full per-register roles: `cb5` fog records in `fog.md`; `cb0`/`cb8` in
+`m2_draw_constants.md`. The HLSL type name of each buffer, from the `dx_6_0` DXIL, is in
+`dxil_names.md` (for example `cb5` = `cb_scene_data`, `cb8` = `cb_global_light`,
+`cb9` = `cb_shadow_data`).
+
 ## Pixel
 
 | Slot | Size | Containers | Role | Evidence |
 |---|---|---|---|---|
 | `cb5` | 173 | 81 | Shared, per-frame: fog records and screen transforms | Dynamic reads at bases 0–13 in 79 containers: records of 14 `vec4`s, with room for 12 before `[168]`. `[168]` maps `v0` to the light-buffer UV (29 containers), `[169]` to the shadow-mask UV (29), `[172]` is the up vector (78) |
 | `cb6` | 2 | 65 | Shared: screen position → froxel-volume UV | `[1]` read in all 65, as `v0*cb6[1].xy + cb6[1].zw` |
-| `cb7` | 2 | 41 | Shared: secondary directional light | `[0]` direction (`.w` signed intensity), `[1]` colour |
+| `cb7` | 2 | 41 | Shared: light flash (`cb_light_flash`) | `[0]` direction (`.w` signed intensity), `[1]` colour |
 | `cb8` | 11 | 38 | Shared: scene lighting | `[0..2]` ambient sky/horizon/ground, `[3]` sun direction, `[4..5]` point light and falloff, `[6]` sun colour, `[8].z` light-buffer scale, `[9]` additive colour (simple-lighting path), `[10]` up vector |
-| `cb9` | 47 | 28 | Shared: shadow cascades | 6 `vec4`s per cascade: 4 rows of matrix and split data at `[k*6 + 5]`. PCF offsets at `[30..31]`, cascade count and flags at `[46]` |
+| `cb9` | 47 | 28 | Shared: shadow cascades | 5 cascades of 6 `vec4`s: 4 rows of matrix and split data at `[k*6 + 5]`. PCF offsets at `[30..31]`, cascade count and flags at `[46]` |
 | `cb4` | 3 | 32 | Shared: clustered-light grid | `[0].x` near, `[0].z` log base, `[1].xyz` grid dimensions, `[2].x` enable |
 | `cb3` | 3 | 19 | Per-draw fog selection for terrain, `default_*`, `detaildoodad`, `anima`, `footprint`, liquid debug | `[0].x` fog index, `[2]` fog list (count in `.w`), `[1].y` flag; same fields the combiners read from `cb0[0..2]` |
 | `cb0` | varies | 70 | Per-draw material | 25 in the combiner family (2072 with per-instance lights) |

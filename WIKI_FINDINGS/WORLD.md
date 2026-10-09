@@ -121,6 +121,38 @@ Against `WMO.md` / `WMO/Rendering.md`:
   clustered lights, shadows), with `MOCV` as a diffuse multiplier and,
   in lighting mode 2, an added ambient term — not the classic "mostly
   baked vertex colour" path.
+- The vertex shader generates each UV set by a per-draw mode (`cb2[1]`,
+  an integer): 0 UV0 through the first texture transform, 1 UV1 through
+  the second, 2 sphere map, 3 `reflect(V, N).xy`, 4 zero, 5 a planar
+  projection of the position, 6 UV2 as-is, 7 UV0 as-is, 8 UV2 through the
+  first transform. Material 23 skips generation and passes four raw UVs.
+- The DX12 build's vertex struct `WMOVertex` is `{ float3 position,
+  float3 normal, uint colours[2], float2 uv[4], uint }`: two vertex
+  colours (`MOCV` and the second `MOCV` of `CVERTS2`), four UV sets
+  where the wiki's client array holds three `MOTV`, and one more `uint`.
+  The layout is verified; that the last `uint` is `MOC2` is **inferred**.
+
+## WDT `_lgt.wdt` lights in the client shaders (12.1.0)
+
+Clustered lighting reads a 192-byte `ShaderLight` record per light (the
+DX12 type: `float4x4`, seven `float4`, four `int`). Offsets used by the
+shaders: 64 position, 80 spot direction, 96/112 two colours with a
+distance gradient between them, 128 attenuation start and culling range,
+136 falloff scale and spot exponent, 160 inner/outer cone cosines and
+scale, 176 type (0 point, 1 spot). Layout and offsets are verified.
+Mapping to `MPL2`/`MPL3`/`MSLT` fields (`position`, `attenuationStart`,
+`attenuationEnd`, `color`·`intensity`, spot `rotation`, `innerAngle`/
+`outerAngle`) is **inferred**. The `float4x4` at offset 0 is read by no
+shader in this build.
+
+`MPL3`'s flag 1, "cast (raytraced?) shadows (on D3D12 + min shadowrt
+level 2)", matches DX12-only shaders: light-buffer passes with a
+per-light `RayQuery` shadow test (`lightbufferomnishadow`,
+`lightbufferspotshadow`) and a ray-traced sun-shadow library `shadowrt`
+(**inferred** link; the shaders are verified). `MPL3`'s cookie fields
+match the light-buffer passes' cookie variants (cube cookie for point
+lights, 2D for spots; **inferred**). `MLTA` animation is not in any
+shader, so the client animates intensity.
 
 ## Liquid/lighting/fog — verified
 

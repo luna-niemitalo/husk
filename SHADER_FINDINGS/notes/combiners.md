@@ -3,6 +3,9 @@
 Slot indices, blob numbers and line numbers refer to `example_exports/shaders/pixel/dx_5_0/combiners_mod`
 unless stated otherwise. Per-bit statistics come from `scripts/slot_bits.py <container dir>`.
 
+Combiner formulas per ID, the ID → container map, and the `cb1[0].x` runtime dispatch in the
+`combiners_uber_*` containers are in `reconciliation.md` §1.
+
 ## Containers that share one permutation key
 
 These twelve containers have an identical slot→blob partition: 2048 slots, 1024 compiled,
@@ -63,7 +66,7 @@ Stages, in order:
 3. Diffuse lighting. Scene light in `cb8`: sun direction `cb8[3]`, point light
    `cb8[4..5]`, ambient colours `cb8[0..2]` and `cb8[6]` lerped toward `cb0[18..21]` by
    `v3.w`. The light buffer `t11` is read at `v0*cb5[168]`.
-4. A second directional term from `cb7` (direction and sign in `cb7[0]`, colour in `cb7[1]`).
+4. The light flash from `cb7` (direction and sign in `cb7[0]`, colour in `cb7[1]`).
    A negative `cb7[0].w` takes a back-facing branch.
 5. A spherical highlight around `cb0[15].xyz` (radius `cb0[15].w`, colour `cb0[16]`), then
    desaturation toward `cb0[17].xyz` by `cb0[17].w`.
@@ -95,4 +98,5 @@ single fog list. `v3` is `xyz` only, so no `v3.w` blend. The alpha factor `v2.x 
 ## Open
 
 - Bit 9 (evidence above). The client's slot-selection code or a frame capture would settle it.
-- What the client sets `cb0[1].x` (vertex), and therefore `v3.w`, to.
+- What the client sets `cb0[1].x` (vertex), and therefore `v3.w`, to. Likely the doodad's
+  interior/exterior lighting blend from WMO `QueryLighting` (`reconciliation.md` §3, inferred).
