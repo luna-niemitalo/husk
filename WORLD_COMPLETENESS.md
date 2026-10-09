@@ -34,6 +34,13 @@ re-deriving it chunk-by-chunk from wowdev.wiki.
 
 ## Current state: nothing here is implemented yet
 
+**Exception, 2026-10-08:** a WIP, throwaway-shaped ADT terrain exporter
+exists (`husk export-terrain`, canon bundle output): heightmap, normals,
+holes, texture layers + alpha maps, `MH2O` liquid, `MDDF` doodad
+placements, ground-effect rules. The rows below were not updated for it,
+because it will be redone properly. See `TODO/WORLD/ADT_EXPORT_FINDINGS.md`
+for what it covers and what it verified.
+
 Every row below reads `none` / `none` for Parse/Consumption. That's not a
 placeholder — `DESIGN.md`'s Non-goals section is explicit: WMO and ADT are
 both "tracked, not started," and no code in `src/` reads a WMO or ADT byte

@@ -339,6 +339,8 @@ struct AllSubcommandOpts {
     husk::commands::BlpExportOptions blpExportOpts;
     husk::commands::AppearanceStringOptions appearanceOpts;
     husk::commands::ResolveOptions resolveOpts;
+    husk::commands::ExportTerrainOptions exportTerrainOpts;
+    husk::commands::ExportWorldOptions exportWorldOpts;
 };
 
 // Builds a throwaway CLI11 App tree matching every subcommand's real flag
@@ -379,6 +381,14 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* resolveSub =
         root.add_subcommand("resolve", "print sources::Catalog's texture-resolution ledger as JSON");
     husk::commands::addResolveOptions(*resolveSub, opts.resolveOpts);
+
+    CLI::App* exportTerrainSub =
+        root.add_subcommand("export-terrain", "WIP: export one ADT tile to a canonical terrain bundle");
+    husk::commands::addExportTerrainOptions(*exportTerrainSub, opts.exportTerrainOpts);
+
+    CLI::App* exportWorldSub =
+        root.add_subcommand("export-world", "WIP: export every ADT tile of every map to a canonical scene");
+    husk::commands::addExportWorldOptions(*exportWorldSub, opts.exportWorldOpts);
 }
 
 std::string generateCompletionScript(const std::string& shell) {
@@ -548,6 +558,10 @@ int main(int argc, char** argv) {
         "  appearance-string --validate <string>\n"
         "                               validate/normalize a husk-appearance/1 string (see --help)\n"
         "  resolve <file.m2> [args...]  print texture-resolution ledger as JSON (see --help)\n"
+        "  export-terrain <tile.adt> <out-dir>\n"
+        "                               WIP: export one ADT tile to a canonical terrain bundle\n"
+        "  export-world <maps-root> <out-dir> --listfile F --listfile-root D [--map NAME]...\n"
+        "                               WIP: every tile of every map, parallel, resumable\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";
@@ -587,6 +601,12 @@ int main(int argc, char** argv) {
     }
     if (command == "resolve") {
         return husk::commands::resolve(restArgc, rest);
+    }
+    if (command == "export-terrain") {
+        return husk::commands::exportTerrain(restArgc, rest);
+    }
+    if (command == "export-world") {
+        return husk::commands::exportWorld(restArgc, rest);
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;

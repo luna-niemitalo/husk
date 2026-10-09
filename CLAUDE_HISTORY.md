@@ -14,6 +14,39 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-08 — WIP ADT terrain → canonical bundle export.** Testing ground
+for a consumer of canonical world data; to be redone properly later.
+Added `husk export-terrain` (`src/adt.*`, `src/canon_terrain.hpp`,
+`src/adt_canon_input.*`, `src/writers/terrain_bundle_writer.*`). It covers
+heightfield, normals, holes, `_tex0` layers and alpha maps, DDS terrain
+textures, `MH2O` liquid, world-frame `MDDF` placements, and ground-effect
+rules from `GroundEffectTexture`/`GroundEffectDoodad`.
+
+Also added:
+- `husk export --bundle-only`: canon bundle only, no glTF work, byte-identical
+  to `--export-canon`'s bundle.
+- `tools/export_terrain_scene.nu`: multi-tile scene with a shared `models/`.
+- `tests/terrain_bundle_import_check.py`: Blender/EEVEE reader and probes.
+
+`BufferSlice`/`writeRef`/`writeTextureRef` moved verbatim from
+`bundle_writer.cpp` into `writers/bundle_common.*`; writer tests pass.
+
+Real-data findings (`TODO/WORLD/ADT_EXPORT_FINDINGS.md`,
+`WIKI_FINDINGS/WORLD.md`):
+- `MCNR` is X,Y,Z, not the wiki's X,Z,Y.
+- `high_res_holes` (`0x10000`) is universal in the current corpus.
+- The wiki `MDDF` rotation chain is right for tilt.
+- Alpha-map orientation was checked by chunk-edge continuity.
+- Empty-`MTEX` `_tex0` files exist.
+- Ground-effect DB2 weights decode implausibly.
+
+Output: `example_exports/elwynn_terrain/` (Elwynn 3×3, renders, a
+consumer-facing README). Left open: ground-cover scatter places nothing in
+grassy areas (time-boxed at 3 tries), M2 render blend mode missing from
+model bundles, placement yaw sign unverified.
+
+---
+
 **(archival, 2026-08-29 through 2026-08-30) — `TODO/TEXTURE_POOL_RECALL_TODO.md`'s
 full investigation/fix narrative, condensed out of that file 2026-09-16
 (docs consolidation pass) to keep it a true open punch list, not a log.**

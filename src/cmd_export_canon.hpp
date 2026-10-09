@@ -78,4 +78,12 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
                            bool haveSkel, const std::vector<uint8_t>& skelBytes,
                            const std::vector<gltf::Material>& legacyMaterials = {});
 
+// `export --bundle-only`: the same canon:: build runCanonExport does, written
+// straight to `bundleDir` -- no lean glTF, no legacy comparison. Throws on
+// failure (unlike runCanonExport, the bundle is this mode's only output).
+void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, husk::sources::Catalog& catalog,
+                          const std::string& modelPath, uint32_t objectSkinTextureFileDataId,
+                          const std::string& animDir, bool bonesAreInline, bool haveSkel,
+                          const std::vector<uint8_t>& skelBytes, const std::string& bundleDir);
+
 }  // namespace husk::commands

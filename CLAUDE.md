@@ -85,6 +85,13 @@ tool, `blp/`) converts BLP2 textures to PNG.
   exists; `REFACTOR/README.md` is the current single source for this).
   Everything under Current/Boundaries below otherwise still describes the
   real tree; only the in-progress refactor's own files are ahead of it.
+- **WIP world export (2026-10-08, throwaway-shaped, to be redone)**:
+  `husk export-terrain` (ADT tile → canonical terrain bundle: heightfield,
+  texture layers, liquid, doodad placements, ground-effect rules),
+  `husk export --bundle-only`, `husk export-world` (parallel, resumable
+  whole-map/whole-world batch), `tools/export_terrain_scene.nu`. Scope,
+  verified facts and open items: `TODO/WORLD/ADT_EXPORT_FINDINGS.md`.
+  Structures (WMO geometry) are out of scope.
 - **Target**: a real Blender import path for modern (Legion+ chunked) M2 — see
   `DESIGN.md`'s Goal section. All 8 roadmap stages are now done, including stage 7
   (output hardening: real exports now run through the Khronos glTF-Validator *and*
@@ -242,6 +249,12 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   every bounded reproduction — needs a live-attach investigation, not more
   guessing from a killed run) is the one open legacy-pipeline item with no
   current owner.
+- **WIP terrain export (2026-10-08)**: working end to end on a 9-tile
+  Elwynn block (`example_exports/elwynn_terrain/`). If it's picked up
+  again, start from `TODO/WORLD/ADT_EXPORT_FINDINGS.md`'s open-questions
+  list. The top items are the ground-cover scatter placing nothing in
+  grassy areas, and model bundles lacking the M2 render blend mode.
+  Uncommitted as of this entry.
 - **Hazards** (standing facts, not narrative — see `CLAUDE_HISTORY.md` for
   the sessions that established each one):
   - `tools/corpus_scan_tasks/unfillable_texture_task.py` is the one true

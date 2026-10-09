@@ -679,6 +679,10 @@ void addExportOptions(CLI::App& app, ExportOptions& opts) {
                  "entry -- canon::Model has no LOD concept yet, so an ambiguous multi-tier case is "
                  "skipped with a note rather than guessed at")
         ->group("Diagnostics");
+    app.add_flag("--bundle-only", opts.bundleOnly,
+                 "write only the canon:: native bundle, with the output path as the bundle directory: "
+                 "no legacy .glb, no lean .canon.glb, no deviation report, no legacy animation build. "
+                 "Same single-tier restriction as --export-canon; exits 1 when no bundle could be written");
     app.add_flag("--slim-textures", opts.slimTextures,
                  "write resolved base-color textures as real '<output-dir>/textures/<name>.png' "
                  "files (named by real FileDataID when known, else the resolved source filename) "
@@ -1247,9 +1251,12 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         if (!bones.empty()) {
             skeleton = buildSkeleton(bones);
             baseMesh.skinning = buildSkinning(vertices, bones.size());
-            animations = resolveAnimationsForModel(animNone, bonesAreInline, haveSkel, model, skelBytes,
-                                                    bones, skeleton, animDir, modelPath,
-                                                    animationNames.empty() ? nullptr : &animationNames);
+            // canon:: builds its own clips; legacy ones only feed the .glb and the deviation report.
+            if (!opts.bundleOnly) {
+                animations = resolveAnimationsForModel(animNone, bonesAreInline, haveSkel, model, skelBytes,
+                                                        bones, skeleton, animDir, modelPath,
+                                                        animationNames.empty() ? nullptr : &animationNames);
+            }
             attachBoneCorrections(bonesDir, bonesAreInline, haveSkel, header, skelBytes, skeleton);
             attachEmitterAnchors(model, skeleton);
             attachPlacementNodes(model, header.sequences.count, skeleton);
@@ -1287,6 +1294,20 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             buildLodTierMeshes(skinsToExport, vertices, baseMesh, m2Inputs, catalog, texturesDir, modelPath,
                                 modelBasename, texturesOutDir, listfile, listfileRoot,
                                 objectSkinTextureFileDataId, customizationNames, opts.debugTextureWarnings);
+
+        if (opts.bundleOnly) {
+            if (skinsToExport.size() != 1) {
+                throw std::runtime_error("--bundle-only: expected exactly 1 resolved skin tier, got " +
+                                         std::to_string(skinsToExport.size()));
+            }
+            if (namedMeshes.empty()) {
+                throw std::runtime_error("--bundle-only: the resolved skin tier has no renderable geometry");
+            }
+            writeCanonBundleOnly(model, skinsToExport.front().second, catalog, modelPath, objectSkinTextureFileDataId,
+                                 animDir, bonesAreInline, haveSkel, skelBytes, outputPath);
+            std::cerr << "husk: wrote bundle '" << outputPath << "/'\n";
+            return 0;
+        }
 
         // --export-canon: canon::Model has no LOD concept (REFACTOR/README.md
         // stage 3), so this only ever runs against an unambiguous single

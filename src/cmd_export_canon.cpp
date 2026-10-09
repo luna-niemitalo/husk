@@ -337,6 +337,75 @@ void printReport(const std::string& label, const canon_diff::Report& r) {
     }
 }
 
+// Everything canon:: needs, built from the same resolved inputs the legacy
+// pipeline used. Shared by runCanonExport (which then diffs it against
+// legacy) and writeCanonBundleOnly (which only writes it).
+struct CanonBuild {
+    canon::Model model;
+    std::vector<m2::Sequence> effectiveSequences;
+    std::vector<skin::Batch> batches;
+    std::vector<skin::Submesh> submeshes;
+};
+
+CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPath, sources::Catalog& catalog,
+                               const std::string& modelPath, uint32_t objectSkinTextureFileDataId,
+                               const std::string& animDir, bool bonesAreInline, bool haveSkel,
+                               const std::vector<uint8_t>& skelBytes) {
+    auto skinBytes = readFileBytes(skinPath);
+    skin::Header skinHeader = skin::parseHeader(skinBytes);
+    std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinBytes, skinHeader);
+    std::vector<skin::Submesh> submeshes = skin::parseSubmeshes(skinBytes, skinHeader.submeshes);
+    std::vector<skin::Batch> batches = skin::parseBatches(skinBytes, skinHeader.batches);
+
+    m2input::TextureResolutions textureResolutions =
+        buildTextureResolutions(model, batches, catalog, modelPath, objectSkinTextureFileDataId);
+
+    bool animChunked = (model.header.globalFlags & 0x200000) != 0;
+
+    // .skel-sourced bones/sequences (AUDIT.md §7.2's "no .skel coverage
+    // at all" gap): independently re-parsed from `skelBytes` here, not
+    // reused from `commands::resolveBones`'s own already-parsed result
+    // -- same "genuinely separate re-derivation" policy this file's own
+    // top doc comment states for the skin tier. `skelSequences` peeks
+    // for a real SKS1 chunk first (a .skel with no sequences at all is
+    // "no animation clips available," not a parse failure -- mirrors
+    // resolveAnimationsForModel's own haveSkel branch).
+    std::optional<m2input::ExternalSkeletonSource> skelSource;
+    std::vector<m2::Sequence> skelSequences;
+    if (!bonesAreInline && haveSkel) {
+        m2input::ExternalSkeletonSource src;
+        src.bones = skel::parseBones(skelBytes);
+        src.blob = skel::boneTrackBlob(skelBytes);
+        if (findChunk(readChunks(skelBytes.data(), skelBytes.size()), "SKS1")) {
+            src.sequences = skel::parseSequences(skelBytes);
+        }
+        skelSequences = src.sequences;
+        skelSource = std::move(src);
+    }
+    const m2input::ExternalSkeletonSource* externalSkeleton = skelSource ? &*skelSource : nullptr;
+
+    // The sequence array actually in effect for this model -- feeds
+    // both external-.anim resolution (below) and compareAnimations'
+    // own clip-name reconstruction (each real-inline/alias clip is
+    // named from ITS sequence array's (id, variationIndex), never the
+    // other source's). A real local variable, not a reference bound
+    // through a ternary, since one branch is a freshly-computed
+    // temporary and the other an existing member -- kept explicit
+    // rather than relying on conditional-operator lifetime extension.
+    std::optional<std::vector<m2::Header::AnimFileEntry>> effectiveAnimFileIds =
+        externalSkeleton ? skel::findAnimFileIds(skelBytes) : model.header.animFileIds;
+    const std::vector<m2::Sequence>& effectiveSequences = externalSkeleton ? skelSequences : model.sequences;
+
+    m2input::ExternalAnimBlobs externalAnimBlobs =
+        (bonesAreInline || haveSkel)
+            ? buildExternalAnimBlobs(effectiveSequences, effectiveAnimFileIds, animChunked, animDir, modelPath)
+            : m2input::ExternalAnimBlobs{};
+
+    canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices,
+                                                         externalAnimBlobs, textureResolutions, externalSkeleton);
+    return CanonBuild{std::move(canonModel), effectiveSequences, std::move(batches), std::move(submeshes)};
+}
+
 }  // namespace
 
 void runCanonExport(const m2::Model& model, const std::string& skinPath, const gltf::Mesh& legacyMesh,
@@ -347,58 +416,12 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
                            bool haveSkel, const std::vector<uint8_t>& skelBytes,
                            const std::vector<gltf::Material>& legacyMaterials) {
     try {
-        auto skinBytes = readFileBytes(skinPath);
-        skin::Header skinHeader = skin::parseHeader(skinBytes);
-        std::vector<uint32_t> triangleIndices = skin::resolveTriangleIndices(skinBytes, skinHeader);
-        std::vector<skin::Submesh> submeshes = skin::parseSubmeshes(skinBytes, skinHeader.submeshes);
-        std::vector<skin::Batch> batches = skin::parseBatches(skinBytes, skinHeader.batches);
-
-        m2input::TextureResolutions textureResolutions =
-            buildTextureResolutions(model, batches, catalog, modelPath, objectSkinTextureFileDataId);
-
-        bool animChunked = (model.header.globalFlags & 0x200000) != 0;
-
-        // .skel-sourced bones/sequences (AUDIT.md §7.2's "no .skel coverage
-        // at all" gap): independently re-parsed from `skelBytes` here, not
-        // reused from `commands::resolveBones`'s own already-parsed result
-        // -- same "genuinely separate re-derivation" policy this file's own
-        // top doc comment states for the skin tier. `skelSequences` peeks
-        // for a real SKS1 chunk first (a .skel with no sequences at all is
-        // "no animation clips available," not a parse failure -- mirrors
-        // resolveAnimationsForModel's own haveSkel branch).
-        std::optional<m2input::ExternalSkeletonSource> skelSource;
-        std::vector<m2::Sequence> skelSequences;
-        if (!bonesAreInline && haveSkel) {
-            m2input::ExternalSkeletonSource src;
-            src.bones = skel::parseBones(skelBytes);
-            src.blob = skel::boneTrackBlob(skelBytes);
-            if (findChunk(readChunks(skelBytes.data(), skelBytes.size()), "SKS1")) {
-                src.sequences = skel::parseSequences(skelBytes);
-            }
-            skelSequences = src.sequences;
-            skelSource = std::move(src);
-        }
-        const m2input::ExternalSkeletonSource* externalSkeleton = skelSource ? &*skelSource : nullptr;
-
-        // The sequence array actually in effect for this model -- feeds
-        // both external-.anim resolution (below) and compareAnimations'
-        // own clip-name reconstruction (each real-inline/alias clip is
-        // named from ITS sequence array's (id, variationIndex), never the
-        // other source's). A real local variable, not a reference bound
-        // through a ternary, since one branch is a freshly-computed
-        // temporary and the other an existing member -- kept explicit
-        // rather than relying on conditional-operator lifetime extension.
-        std::optional<std::vector<m2::Header::AnimFileEntry>> effectiveAnimFileIds =
-            externalSkeleton ? skel::findAnimFileIds(skelBytes) : model.header.animFileIds;
-        const std::vector<m2::Sequence>& effectiveSequences = externalSkeleton ? skelSequences : model.sequences;
-
-        m2input::ExternalAnimBlobs externalAnimBlobs =
-            (bonesAreInline || haveSkel)
-                ? buildExternalAnimBlobs(effectiveSequences, effectiveAnimFileIds, animChunked, animDir, modelPath)
-                : m2input::ExternalAnimBlobs{};
-
-        canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices,
-                                                             externalAnimBlobs, textureResolutions, externalSkeleton);
+        CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, objectSkinTextureFileDataId,
+                                               animDir, bonesAreInline, haveSkel, skelBytes);
+        const canon::Model& canonModel = build.model;
+        const std::vector<skin::Batch>& batches = build.batches;
+        const std::vector<skin::Submesh>& submeshes = build.submeshes;
+        const std::vector<m2::Sequence>& effectiveSequences = build.effectiveSequences;
 
         std::filesystem::path leanGlbPath(outputPath);
         leanGlbPath.replace_extension(".canon.glb");
@@ -437,6 +460,15 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
     } catch (const std::exception& e) {
         std::cerr << "husk: canon-export: failed: " << e.what() << "\n";
     }
+}
+
+void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, sources::Catalog& catalog,
+                          const std::string& modelPath, uint32_t objectSkinTextureFileDataId,
+                          const std::string& animDir, bool bonesAreInline, bool haveSkel,
+                          const std::vector<uint8_t>& skelBytes, const std::string& bundleDir) {
+    CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, objectSkinTextureFileDataId, animDir,
+                                           bonesAreInline, haveSkel, skelBytes);
+    writers::writeBundle(build.model, bundleDir);
 }
 
 }  // namespace husk::commands

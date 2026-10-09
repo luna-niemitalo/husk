@@ -102,7 +102,12 @@ add_library(husk-lib STATIC
   src/canon_item_builder.cpp
   src/writers/writer_common.cpp
   src/writers/gltf_lean.cpp
+  src/writers/bundle_common.cpp
   src/writers/bundle_writer.cpp
+  src/writers/terrain_bundle_writer.cpp
+  src/adt.cpp
+  src/adt_canon_input.cpp
+  src/cmd_export_terrain.cpp
   src/skin.cpp
   src/skel.cpp
   src/bone.cpp

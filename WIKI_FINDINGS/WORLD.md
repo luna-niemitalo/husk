@@ -41,6 +41,30 @@ Cata+ split-file structure, never move to a split file — confirmed on 2,500
 sampled files. Legion+ terrain LOD's `MLLL` real band set is `{4, 8, 16,
 32}`, not `2.0` (a documentation-prose misreading, not a real band value).
 
+From the WIP terrain export (2026-10-08; evidence in
+`../TODO/WORLD/ADT_EXPORT_FINDINGS.md`):
+
+- `MCNR` entries are **X, Y, Z** on disk, not the wiki's "X, Z, Y" (mean cos
+  0.9995 vs 0.21 against finite-difference heightfield normals).
+- `MCNK.flags` `0x10000` (`high_res_holes`) is set on every sampled MCNK in
+  the current corpus and `holes_low_res` is always 0. This contradicts
+  `ADT_TERRAIN_TODO.md` §4's "never set" (which checked bit 9). The cause is
+  unresolved: wrong bit, or data changed by the 2026-08-22 re-extraction or
+  later terrain patches.
+- `MDDF` placement rotation: the wiki's `createPlacementMatrix` chain is
+  correct for tilt. Its `Rx(90)·Ry(90)` prefix maps exactly onto world
+  (+X north, +Y west, +Z up). It beat every sign- or axis-flipped variant
+  against terrain slope on 752 tilted placements. Yaw sign is unchecked.
+- `MDDF.flags` `0x200` occurs (~18% of Elwynn placements) and is not in the
+  wiki enum.
+- `_tex0` without `MDID` exists: untextured tiles carry an `MTEX` holding
+  only an empty string (23/400 sampled, e.g. `kultiras_33_45`).
+- `MH2O` instances with no vertex data are always `LiquidType` 2 at
+  `min_height_level` 0 (12,909/12,909). The wiki's two conflicting rules
+  ("flat at min height" vs "LVF 2, height 0") agree on all real data.
+- `MH2O` instance rects are always the full 8×8 (38,236/38,236), including
+  `liquid_object_or_lvf` < 42.
+
 ## WMO — verified
 
 - `GFID` (LOD-tier group-file resolution) is **row-major**:

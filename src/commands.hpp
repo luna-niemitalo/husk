@@ -7,6 +7,10 @@
 
 #include "canon_policy.hpp"
 
+namespace husk {
+class ListfileIndex;
+}
+
 // One function per subcommand, matching casc-tool's layout so the two
 // tools stay easy to jump between. `args` excludes the program name and
 // the subcommand word itself. Returns the process exit code.
@@ -71,6 +75,15 @@ int appearanceString(int argc, char** args);
 // resolution ledger (see cmd_resolve.cpp's own doc comment, and
 // `ResolveOptions` below).
 int resolve(int argc, char** args);
+
+// `export-terrain` -- WIP: one ADT tile to a canonical terrain bundle (see
+// cmd_export_terrain.cpp, TODO/WORLD/ADT_EXPORT_FINDINGS.md).
+int exportTerrain(int argc, char** args);
+
+// `export-world` -- WIP: every tile of every (or the selected) map, plus one
+// shared set of model bundles and terrain textures; parallel, resumable,
+// failures logged and skipped (cmd_export_terrain.cpp).
+int exportWorld(int argc, char** args);
 
 // Every struct/addXOptions pair below is the same single-source-of-truth
 // split `ExportOptions`/`addExportOptions` established: the flag surface is
@@ -183,6 +196,34 @@ struct ResolveOptions {
 };
 void addResolveOptions(CLI::App& app, ResolveOptions& opts);
 
+struct ExportTerrainOptions {
+    std::string input;
+    std::string output;
+    std::string objArg = "auto";
+    std::string texArg = "auto";
+    std::string wdtArg = "auto";
+    std::string listfile;
+    std::string listfileRoot;
+    std::string db2Dir;
+    std::string dbdDir;
+    std::string modelsDir;
+    bool listModels = false;
+};
+void addExportTerrainOptions(CLI::App& app, ExportTerrainOptions& opts);
+
+struct ExportWorldOptions {
+    std::string mapsRoot;
+    std::string output;
+    std::vector<std::string> maps;
+    std::string listfile;
+    std::string listfileRoot;
+    std::string db2Dir;
+    std::string dbdDir;
+    unsigned jobs = 0;
+    bool skipModels = false;
+};
+void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts);
+
 // `export`'s real flag surface (see DESIGN.md's "CLI argument grammar for
 // export"), captured here (rather than as a local in cmd_export.cpp) so
 // main.cpp's `--print-completion` can register the exact same options onto
@@ -224,6 +265,9 @@ struct ExportOptions {
     // REFACTOR/README.md stage 3's runtime convergence gate -- see the
     // flag's own --help text and cmd_export_canon.hpp's doc comment.
     bool exportCanon = false;
+    // Canon bundle as the only output (WIP terrain export's model path) --
+    // see the flag's own --help text.
+    bool bundleOnly = false;
 };
 
 // Declares every export flag (names, defaults, descriptions, the `--skin
@@ -232,5 +276,12 @@ struct ExportOptions {
 // never calls `app.parse(...)` on its copy -- only introspects
 // `get_options()`.
 void addExportOptions(CLI::App& app, ExportOptions& opts);
+
+// One model through the full `export` pipeline (cmd_export.cpp), with an
+// already-parsed `opts`/`app` and an already-loaded listfile -- what
+// --from-list's loop and export-world's model pass call per model. Only
+// reads `app` (count()), so concurrent calls may share it.
+int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
+                    const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile);
 
 }  // namespace husk::commands
