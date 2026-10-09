@@ -11,14 +11,16 @@ struct ShaderEffectRow {
     const char* vertex;
 };
 
-// s_modelShaderEffect, transcribed verbatim (pixel/vertex columns only --
-// hull/domain/ff_colorOp/ff_alphaOp aren't needed for husk's glTF export)
-// from documentation/wowdev-wiki/wikitext/M2/.skin.wiki's "Shader table"
-// section (the pre-8.0.1 listing, NUM_M2SHADERS == 30 -- the 8.0.1 variant
-// adds 4 more rows but that section of the wiki page doesn't give a full
-// string array for its own vertex-shader table, so extending this isn't
-// possible without guessing; see this file's own header doc comment).
-constexpr std::array<ShaderEffectRow, 30> kShaderEffectTable = {{
+// s_modelShaderEffect, pixel/vertex columns only (hull/domain aren't needed
+// for export). Rows 0-33: documentation/wowdev-wiki/wikitext/M2/.skin.wiki's
+// "Shader table (8.0.1)"; its VS_* enum names are used as-is, and each one
+// matches a real client vertex shader file (shaders/vertex/dx_6_0/
+// diffuse_edgefade_t1_t2.bls, color_t1_t2_t3.bls, ...). Rows 34-35 exist only
+// in reference/wow.export/src/js/3D/ShaderMapper.js; the client ships
+// combiners_mod_mod_depth.bls (FDID 3551580) for row 35. Not the same page's
+// pre-8.0.1 listing: it differs from row 18 on, and real batches use rows up
+// to 35.
+constexpr std::array<ShaderEffectRow, 36> kShaderEffectTable = {{
     {"Combiners_Opaque_Mod2xNA_Alpha", "Diffuse_T1_Env"},
     {"Combiners_Opaque_AddAlpha", "Diffuse_T1_Env"},
     {"Combiners_Opaque_AddAlpha_Alpha", "Diffuse_T1_Env"},
@@ -37,11 +39,11 @@ constexpr std::array<ShaderEffectRow, 30> kShaderEffectTable = {{
     {"Combiners_Opaque_AddAlpha_Wgt", "Diffuse_T1_T2"},
     {"Combiners_Opaque_Mod_Add_Wgt", "Diffuse_T1_Env"},
     {"Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha", "Diffuse_T1_Env_T1"},
-    {"Combiners_Mod_Dual_Crossfade", "Diffuse_T1_T1_T1"},
+    {"Combiners_Mod_Dual_Crossfade", "Diffuse_T1"},
     {"Combiners_Mod_Depth", "Diffuse_EdgeFade_T1"},
-    {"Combiners_Mod_AddAlpha_Alpha", "Diffuse_T1_Env_T2"},
+    {"Combiners_Opaque_Mod2xNA_Alpha_Alpha", "Diffuse_T1_Env_T2"},
     {"Combiners_Mod_Mod", "Diffuse_EdgeFade_T1_T2"},
-    {"Combiners_Mod_Masked_Dual_Crossfade", "Diffuse_T1_T1_T1_T2"},
+    {"Combiners_Mod_Masked_Dual_Crossfade", "Diffuse_T1_T2"},
     {"Combiners_Opaque_Alpha", "Diffuse_T1_T1"},
     {"Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha", "Diffuse_T1_Env_T2"},
     {"Combiners_Mod_Depth", "Diffuse_EdgeFade_Env"},
@@ -49,6 +51,12 @@ constexpr std::array<ShaderEffectRow, 30> kShaderEffectTable = {{
     {"Guild_NoBorder", "Diffuse_T1_T2"},
     {"Guild_Opaque", "Diffuse_T1_T2_T1"},
     {"Illum", "Diffuse_T1_T1"},
+    {"Combiners_Mod_Mod_Mod_Const", "Diffuse_T1_T2_T3"},
+    {"Combiners_Mod_Mod_Mod_Const", "Color_T1_T2_T3"},
+    {"Combiners_Opaque", "Diffuse_T1"},
+    {"Combiners_Mod_Mod2x", "Diffuse_EdgeFade_T1_T2"},
+    {"Combiners_Mod", "Diffuse_EdgeFade_T1"},
+    {"Combiners_Mod_Mod_Depth", "Diffuse_EdgeFade_T1_T2"},
 }};
 
 // M2GetPixelShaderID's low-15-bits formula (shaderId & 0x8000 clear),

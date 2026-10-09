@@ -72,14 +72,59 @@ TEST_CASE("resolveShaderNames: 0x8000 table lookup, index 0 -> row 0 of the tran
     CHECK(names.vertex == "Diffuse_T1_Env");
 }
 
-TEST_CASE("resolveShaderNames: 0x8000 table lookup, index 29 (last real row) -> Illum / T1_T1") {
+TEST_CASE("resolveShaderNames: 0x8000 table lookup, index 29 -> Illum / T1_T1") {
     auto names = resolveShaderNames(0x8000 | 29, 1);
     CHECK(names.resolved);
     CHECK(names.pixel == "Illum");
     CHECK(names.vertex == "Diffuse_T1_T1");
 }
 
+// Rows 18/20/22 are where the wiki's 8.0.1 table differs from its pre-8.0.1
+// one; real corpus batches use all three.
+TEST_CASE("resolveShaderNames: 0x8000 index 18 -> Mod_Dual_Crossfade / Diffuse_T1 (8.0.1 table)") {
+    auto names = resolveShaderNames(0x8000 | 18, 3);
+    CHECK(names.resolved);
+    CHECK(names.pixel == "Combiners_Mod_Dual_Crossfade");
+    CHECK(names.vertex == "Diffuse_T1");
+}
+
+TEST_CASE("resolveShaderNames: 0x8000 index 20 -> Opaque_Mod2xNA_Alpha_Alpha / T1_Env_T2 (8.0.1 table)") {
+    auto names = resolveShaderNames(0x8000 | 20, 3);
+    CHECK(names.resolved);
+    CHECK(names.pixel == "Combiners_Opaque_Mod2xNA_Alpha_Alpha");
+    CHECK(names.vertex == "Diffuse_T1_Env_T2");
+}
+
+TEST_CASE("resolveShaderNames: 0x8000 index 22 -> Mod_Masked_Dual_Crossfade / T1_T2 (8.0.1 table)") {
+    auto names = resolveShaderNames(0x8000 | 22, 4);
+    CHECK(names.resolved);
+    CHECK(names.pixel == "Combiners_Mod_Masked_Dual_Crossfade");
+    CHECK(names.vertex == "Diffuse_T1_T2");
+}
+
+TEST_CASE("resolveShaderNames: 0x8000 index 33 -> Mod_Mod2x / EdgeFade_T1_T2 (last 8.0.1 row)") {
+    auto names = resolveShaderNames(0x8000 | 33, 2);
+    CHECK(names.resolved);
+    CHECK(names.pixel == "Combiners_Mod_Mod2x");
+    CHECK(names.vertex == "Diffuse_EdgeFade_T1_T2");
+}
+
+// Rows 34-35: reference/wow.export/src/js/3D/ShaderMapper.js SHADER_ARRAY.
+TEST_CASE("resolveShaderNames: 0x8000 index 34 -> Mod / EdgeFade_T1 (wow.export row)") {
+    auto names = resolveShaderNames(0x8000 | 34, 1);
+    CHECK(names.resolved);
+    CHECK(names.pixel == "Combiners_Mod");
+    CHECK(names.vertex == "Diffuse_EdgeFade_T1");
+}
+
+TEST_CASE("resolveShaderNames: 0x8000 index 35 -> Mod_Mod_Depth / EdgeFade_T1_T2 (last real row)") {
+    auto names = resolveShaderNames(0x8000 | 35, 2);
+    CHECK(names.resolved);
+    CHECK(names.pixel == "Combiners_Mod_Mod_Depth");
+    CHECK(names.vertex == "Diffuse_EdgeFade_T1_T2");
+}
+
 TEST_CASE("resolveShaderNames: 0x8000 table lookup, out-of-range index -> unresolved, not a guess") {
-    auto names = resolveShaderNames(0x8000 | 30, 1);
+    auto names = resolveShaderNames(0x8000 | 36, 1);
     CHECK_FALSE(names.resolved);
 }

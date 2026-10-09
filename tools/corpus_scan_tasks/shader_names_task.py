@@ -36,9 +36,8 @@ _SHADER_ID_OFFSET = 0x02
 _TEXTURE_COUNT_OFFSET = 0x0E
 
 # s_modelShaderEffect, transcribed verbatim from src/m2_shader_names.cpp
-# (which itself transcribes documentation/wowdev-wiki/wikitext/M2/.skin.wiki's
-# "Shader table" section) -- kept in exact sync with that file; if it ever
-# changes there, mirror the change here too.
+# (see its comment for sources) -- kept in exact sync with that file; if it
+# ever changes there, mirror the change here and in shader_inventory_task.py.
 _SHADER_EFFECT_TABLE = [
     ("Combiners_Opaque_Mod2xNA_Alpha", "Diffuse_T1_Env"),
     ("Combiners_Opaque_AddAlpha", "Diffuse_T1_Env"),
@@ -58,11 +57,11 @@ _SHADER_EFFECT_TABLE = [
     ("Combiners_Opaque_AddAlpha_Wgt", "Diffuse_T1_T2"),
     ("Combiners_Opaque_Mod_Add_Wgt", "Diffuse_T1_Env"),
     ("Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha", "Diffuse_T1_Env_T1"),
-    ("Combiners_Mod_Dual_Crossfade", "Diffuse_T1_T1_T1"),
+    ("Combiners_Mod_Dual_Crossfade", "Diffuse_T1"),
     ("Combiners_Mod_Depth", "Diffuse_EdgeFade_T1"),
-    ("Combiners_Mod_AddAlpha_Alpha", "Diffuse_T1_Env_T2"),
+    ("Combiners_Opaque_Mod2xNA_Alpha_Alpha", "Diffuse_T1_Env_T2"),
     ("Combiners_Mod_Mod", "Diffuse_EdgeFade_T1_T2"),
-    ("Combiners_Mod_Masked_Dual_Crossfade", "Diffuse_T1_T1_T1_T2"),
+    ("Combiners_Mod_Masked_Dual_Crossfade", "Diffuse_T1_T2"),
     ("Combiners_Opaque_Alpha", "Diffuse_T1_T1"),
     ("Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha", "Diffuse_T1_Env_T2"),
     ("Combiners_Mod_Depth", "Diffuse_EdgeFade_Env"),
@@ -70,6 +69,12 @@ _SHADER_EFFECT_TABLE = [
     ("Guild_NoBorder", "Diffuse_T1_T2"),
     ("Guild_Opaque", "Diffuse_T1_T2_T1"),
     ("Illum", "Diffuse_T1_T1"),
+    ("Combiners_Mod_Mod_Mod_Const", "Diffuse_T1_T2_T3"),
+    ("Combiners_Mod_Mod_Mod_Const", "Color_T1_T2_T3"),
+    ("Combiners_Opaque", "Diffuse_T1"),
+    ("Combiners_Mod_Mod2x", "Diffuse_EdgeFade_T1_T2"),
+    ("Combiners_Mod", "Diffuse_EdgeFade_T1"),
+    ("Combiners_Mod_Mod_Depth", "Diffuse_EdgeFade_T1_T2"),
 ]
 
 # wowdev.wiki's Pixel_shader_logic_for_mixing_colors.wiki has no formula

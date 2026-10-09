@@ -295,3 +295,7 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
     mechanism; older scan-result-subtraction file lists are superseded.
   - The full-corpus render step is human-gated by policy — never run it
     without Luna's explicit go-ahead, never foreground/blocking.
+  - `/media/luna/data/wow_export/buildinfo.json` (`clientBuild: 61621`, an
+    11.x build) is stale: the corpus is game version 12.1.0 (Midnight),
+    proven by its DB2 layout hashes against WoWDBDefs. Date the corpus by
+    DB2 layouts, never by that file.

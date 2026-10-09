@@ -6,9 +6,9 @@ containers. Output feeds SHADER_FINDINGS/README.md.
 Excavation task (tools/CORPUS_SCANS.md): reads raw bytes on purpose. husk
 exposes none of this as structured output -- skin shaderId/batch fields and
 the material/blend join are consumed only inside export_materials.cpp, WMO
-materials and .bls containers are not parsed by husk at all -- and part of
-this scan's job is to check husk's own pre-8.0.1 shader table against the
-36-row table wow.export uses, which consuming husk's output would hide.
+materials and .bls containers are not parsed by husk at all. The batch shader
+table mirrors src/m2_shader_names.cpp, so out-of-range indices here mean that
+table is stale for the scanned build.
 Offsets transcribe src/m2_primitives.cpp, src/m2_scene.cpp, src/skin.cpp and
 src/adt.cpp; WMO/WDT/BLS layouts come from documentation/wowdev-wiki.
 
@@ -39,8 +39,9 @@ import corpus_scan_framework as csf  # noqa: E402 -- see sys.path.insert above; 
 
 AGGREGATE_PATH = csf.REPO_ROOT / "SHADER_FINDINGS" / "scan" / "shader_inventory_aggregate.json"
 
-# husk's table: src/m2_shader_names.cpp (wiki's pre-8.0.1 listing, 30 rows).
-HUSK_EFFECTS = [
+# s_modelShaderEffect, kept in exact sync with src/m2_shader_names.cpp (see its
+# comment for sources) and shader_names_task.py.
+EFFECTS = [
     ("Combiners_Opaque_Mod2xNA_Alpha", "Diffuse_T1_Env"), ("Combiners_Opaque_AddAlpha", "Diffuse_T1_Env"),
     ("Combiners_Opaque_AddAlpha_Alpha", "Diffuse_T1_Env"), ("Combiners_Opaque_Mod2xNA_Alpha_Add", "Diffuse_T1_Env_T1"),
     ("Combiners_Mod_AddAlpha", "Diffuse_T1_Env"), ("Combiners_Opaque_AddAlpha", "Diffuse_T1_T1"),
@@ -50,17 +51,6 @@ HUSK_EFFECTS = [
     ("Combiners_Opaque_ModNA_Alpha", "Diffuse_T1_Env"), ("Combiners_Mod_AddAlpha_Wgt", "Diffuse_T1_Env"),
     ("Combiners_Mod_AddAlpha_Wgt", "Diffuse_T1_T1"), ("Combiners_Opaque_AddAlpha_Wgt", "Diffuse_T1_T2"),
     ("Combiners_Opaque_Mod_Add_Wgt", "Diffuse_T1_Env"), ("Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha", "Diffuse_T1_Env_T1"),
-    ("Combiners_Mod_Dual_Crossfade", "Diffuse_T1_T1_T1"), ("Combiners_Mod_Depth", "Diffuse_EdgeFade_T1"),
-    ("Combiners_Mod_AddAlpha_Alpha", "Diffuse_T1_Env_T2"), ("Combiners_Mod_Mod", "Diffuse_EdgeFade_T1_T2"),
-    ("Combiners_Mod_Masked_Dual_Crossfade", "Diffuse_T1_T1_T1_T2"), ("Combiners_Opaque_Alpha", "Diffuse_T1_T1"),
-    ("Combiners_Opaque_Mod2xNA_Alpha_UnshAlpha", "Diffuse_T1_Env_T2"), ("Combiners_Mod_Depth", "Diffuse_EdgeFade_Env"),
-    ("Guild", "Diffuse_T1_T2_T1"), ("Guild_NoBorder", "Diffuse_T1_T2"), ("Guild_Opaque", "Diffuse_T1_T2_T1"),
-    ("Illum", "Diffuse_T1_T1"),
-]
-
-# wow.export's table: reference/wow.export/src/js/3D/ShaderMapper.js SHADER_ARRAY
-# (wiki's 8.0.1 listing, 34 rows, plus 2 rows only wow.export has).
-WOWEXPORT_EFFECTS = HUSK_EFFECTS[:18] + [
     ("Combiners_Mod_Dual_Crossfade", "Diffuse_T1"), ("Combiners_Mod_Depth", "Diffuse_EdgeFade_T1"),
     ("Combiners_Opaque_Mod2xNA_Alpha_Alpha", "Diffuse_T1_Env_T2"), ("Combiners_Mod_Mod", "Diffuse_EdgeFade_T1_T2"),
     ("Combiners_Mod_Masked_Dual_Crossfade", "Diffuse_T1_T2"), ("Combiners_Opaque_Alpha", "Diffuse_T1_T1"),
@@ -256,19 +246,16 @@ def _analyze_m2(path: Path, facts: Counter, roles: dict[str, set[int]]) -> None:
          combo_index, coord_index, weight_index, transform_index) = struct.unpack_from(
             "<BbHHHhHHHHHHH", skin, batch_ofs + i * _BATCH_STRIDE)
         blend = blend_of(mat_index)
-        wx_pixel, wx_vertex = _resolve(WOWEXPORT_EFFECTS, shader_id, tex_count)
-        husk_pixel, husk_vertex = _resolve(HUSK_EFFECTS, shader_id, tex_count)
+        pixel, vertex = _resolve(EFFECTS, shader_id, tex_count)
         facts["batch.total"] += 1
-        facts[f"batch.ps:{wx_pixel}"] += 1
-        facts[f"batch.vs:{wx_vertex}"] += 1
-        facts[f"batch.ps_blend:{wx_pixel}|{blend}"] += 1
+        facts[f"batch.ps:{pixel}"] += 1
+        facts[f"batch.vs:{vertex}"] += 1
+        facts[f"batch.ps_blend:{pixel}|{blend}"] += 1
         facts[f"batch.texture_count:{tex_count}"] += 1
         if shader_id & 0x8000:
             facts[f"batch.effect_index:{shader_id & 0x7FFF}"] += 1
         else:
             facts[f"batch.runtime_shader_id:0x{shader_id:04x}|tc:{tex_count}"] += 1
-        if (wx_pixel, wx_vertex) != (husk_pixel, husk_vertex):
-            facts[f"batch.husk_vs_wowexport:{shader_id & 0x7FFF}:{husk_pixel}/{husk_vertex}->{wx_pixel}/{wx_vertex}"] += 1
         if global_flags & 0x8:
             in_range = shader_id < len(combiner_combos)
             facts[f"batch.combiner_flag_set|shader_id_indexes_combos:{int(in_range)}"] += 1
@@ -296,7 +283,7 @@ def _analyze_m2(path: Path, facts: Counter, roles: dict[str, set[int]]) -> None:
             facts[f"batch.layer{layer}.coord:{coord}"] += 1
             facts[f"batch.layer{layer}.texture_type:{tex_type}"] += 1
             if tex_index is not None and fdid(tex_index):
-                roles[f"m2.{wx_pixel}.layer{layer}.coord{coord}"].add(fdid(tex_index))
+                roles[f"m2.{pixel}.layer{layer}.coord{coord}"].add(fdid(tex_index))
 
 
 # WMO shader names: documentation/wowdev-wiki/wikitext/WMO.wiki "Shader types (26522)" + DF row 23.

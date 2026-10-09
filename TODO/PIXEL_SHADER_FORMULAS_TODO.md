@@ -225,7 +225,7 @@ already gives every `reference/` source in this project (`wow.export`,
    came from husk's pre-8.0.1 30-row shader table, which misnames index 20
    and can't resolve 33–35. `Combiners_Opaque_Mod2xNA_Alpha_Alpha` is real
    (365 batches); `Guild_NoBorder` and `Illum` are genuinely unreferenced in
-   11.2 content. Use `SHADER_FINDINGS/` counts, not this table.
+   12.1.0 content. Use `SHADER_FINDINGS/` counts, not this table.
    ~~**3 of the 17 never resolved in this corpus**: `Combiners_Opaque_
    Mod2xNA_Alpha_Alpha`, `Guild_NoBorder`, `Illum`~~ — either genuinely rare/
    version-gated content not present in this local extraction, or (for

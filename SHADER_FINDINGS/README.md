@@ -3,9 +3,18 @@
 What the corpus asks the client to render, which client shaders that
 needs, and how much of each formula we actually know. Scan date 2026-10-09.
 
-- Corpus: `/media/luna/data/wow_export`, **build 61621 (11.2.x)**.
-- Target: 12.1. Installed client: 12.1.0.69933. See "Is 8.0.1 stale for
-  12.1?" below.
+- Corpus: `/media/luna/data/wow_export`, extracted 2026-08-22, **game
+  version 12.1.0 (Midnight)**. That's the target version, so every count
+  below is 12.1 data.
+  - Evidence: 883 of 887 DB2 layout hashes match only 12.1.0 builds
+    (68569 and later) in WoWDBDefs. No 11.x build matches more than 711.
+  - **`buildinfo.json`'s `clientBuild: 61621` is stale.** That's an 11.x
+    build number. Don't use it to date the corpus.
+  - Installed client: 12.1.0.69933.
+- Version numbers here are game versions. The wiki's `expansionlevel`
+  template field follows the game's major version (`expansionlevel=10`
+  is Dragonflight, 11 is TWW), not the zero-based expansion index (where
+  11 is Midnight).
 - Scan: `tools/corpus_scan_tasks/shader_inventory_task.py`. It reads
   496,027 files, of which 336,700 produce a row, with zero per-file
   errors. Regenerate with the command in the task's docstring (add
@@ -45,10 +54,10 @@ crossfades or `Guild_NoBorder`.
 **The modern build no longer ships one BLS per combiner.** Comparing the
 listfile against the extracted dx_6_0 set:
 
-| Kept as standalone BLS (11.2) | Dropped from the build (BfA-era FDIDs 2990730–2990761, not CASC-missing) |
+| Kept as standalone BLS (12.1) | Dropped from the build (BfA-era FDIDs 2990730–2990761, not CASC-missing) |
 |---|---|
 | `combiners_opaque`, `combiners_mod`, `combiners_mod_depth`, `combiners_mod_mod_depth`, `combiners_mod_dual_crossfade`, `combiners_mod_masked_dual_crossfade`, `guild`, `guild_noborder`, `guild_opaque`, `illum`, `guildemblem` | every other `combiners_*` (27 names) and every `mapobj*` pixel/vertex shader |
-| **New:** `combiners_uber_2_2`, `combiners_uber_2_2_no_mod_fog_alpha`, `combiners_uber_3_3` (FDIDs 5221415–7, TWW) | |
+| **New:** `combiners_uber_2_2`, `combiners_uber_2_2_no_mod_fog_alpha`, `combiners_uber_3_3` (FDIDs 5221415–7, a TWW-era range) | |
 
 So the 27 two- and three-texture combiners that dropped out now live as
 permutations of `combiners_uber_*`. WMO materials have lost their own
@@ -60,38 +69,40 @@ Verification therefore needs:
 |---|---|---|
 | The 11 standalone combiner BLS | corpus `shaders/pixel/dx_5_0`, `dx_6_0` | **on disk**, extraction proven |
 | `combiners_uber_2_2` / `_3_3` permutations | same | on disk; **mapping from combiner name to permutation index is unknown** |
-| WMO pixel shaders | not a standalone BLS in 11.2; candidates `uber.bls`, `material3_wmo_ps.bls` (GFAT) | **unknown** which one renders MOMT materials |
+| WMO pixel shaders | not a standalone BLS in 12.1; candidates `uber.bls`, `material3_wmo_ps.bls` (GFAT) | **unknown** which one renders MOMT materials |
 | Particle / ribbon | `particle_mod`, `particle_3colortex_3alphatex`, `ribbon`, `gpuribbon`, compute `particle*` | on disk |
 | Terrain / liquid | `terrain*`, `prepassterrain*`, `water`, `procwater*`, `magma`, `procmagma`, `procswamp`, `procmercury`, `procfel`, `procleyline*`, `waterfall` | on disk |
 | Vertex shaders | `vertex/dx_*/diffuse_*`, `diffuse_edgefade_*`, `color_t*`, `cdiffuse_*`, `particle_*` | on disk (`bw_diffuse_*` and `diffuse_t1_t1_t1` were dropped from the build) |
 | Original wowdev.wiki | `documentation/wowdev-wiki/wikitext/` | local snapshot |
-| 12.1 shaders | the installed client's CASC | **not extracted**. The corpus is 11.2. |
 
 ### Is 8.0.1 stale for 12.1?
 
-- **For the 11.2 data we have: the 8.0.1 table alone is too short, and
-  wow.export's 36-row table is exactly sufficient.** The highest
-  `shader_id & 0x7FFF` seen across all 390,322 batches is **35**.
-  - Rows 33–35 (`Mod_Mod2x`/`EdgeFade_T1_T2`, `Mod`/`EdgeFade_T1`,
-    `Mod_Mod_Depth`/`EdgeFade_T1_T2`) are past the end of the wiki's
-    8.0.1 table (34 rows), and real content uses them: 7,169 batches.
-  - No index above 35 appears, so nothing in 11.2 is beyond wow.export.
-- **For 12.1: undetermined.**
-  - The 12.1 `Wow.exe` no longer carries the `s_modelPixelShaders` name
-    strings (only a `Diffuse_T1`/`Combiners_Opaque` fallback pair
-    survives), so the table can't be read from it.
-  - Answering it means extracting 12.1 `.skin` and `.bls` files and
-    rerunning this scan. A max index above 35, or new `combiners_*` /
-    `combiners_uber_*` BLS names, would mean the table is stale again.
+**Yes, by 2 rows. wow.export's 36-row table is exactly sufficient for
+12.1.0.**
+- The highest `shader_id & 0x7FFF` seen across all 390,322 batches is
+  **35**.
+- Rows 33–35 (`Mod_Mod2x`/`EdgeFade_T1_T2`, `Mod`/`EdgeFade_T1`,
+  `Mod_Mod_Depth`/`EdgeFade_T1_T2`) are past the end of the wiki's 8.0.1
+  table (34 rows), and real content uses them: 7,169 batches.
+- No index above 35 appears.
+- The 12.1 `Wow.exe` no longer carries the `s_modelPixelShaders` name
+  strings (only a `Diffuse_T1`/`Combiners_Opaque` fallback pair
+  survives), so the table can't be read from the client directly.
+- Rerun the scan after each patch: a max index above 35, or new
+  `combiners_*` / `combiners_uber_*` BLS names, would mean it's stale
+  again.
 
 ---
 
-## 2. Bugs this scan found in husk's own pipeline
+## 2. Bug this scan found in husk's own pipeline (fixed)
 
-`src/m2_shader_names.cpp` uses the wiki's **pre-8.0.1, 30-row** table.
-Against real corpus batches:
+`src/m2_shader_names.cpp` used the wiki's **pre-8.0.1, 30-row** table. It
+now uses the 36-row table: rows 0–33 from the wiki's 8.0.1 listing, rows
+34–35 from wow.export. `shader_names_task.py` and
+`shader_inventory_task.py` mirror it. What the old table did to real
+corpus batches:
 
-| Index | husk | Correct per the 8.0.1 table / wow.export | Batches | Files |
+| Index | Old husk | Correct per the 8.0.1 table / wow.export | Batches | Files |
 |---|---|---|---|---|
 | 33 | unresolved | `Combiners_Mod_Mod2x` / `Diffuse_EdgeFade_T1_T2` | 5,584 | 2,217 |
 | 34 | unresolved | `Combiners_Mod` / `Diffuse_EdgeFade_T1` | 1,018 | 746 |
@@ -100,12 +111,11 @@ Against real corpus batches:
 | 18 | VS `Diffuse_T1_T1_T1` | VS `Diffuse_T1` | 478 | 85 |
 | 22 | VS `Diffuse_T1_T1_T1_T2` | VS `Diffuse_T1_T2` | 278 | 54 |
 
-That's 8,290 batches (2.1%) unresolved or misnamed. It's also why
+That was 8,290 batches (2.1%) unresolved or misnamed. It's also why
 `TODO/PIXEL_SHADER_FORMULAS_TODO.md` step 1 reported
 `Combiners_Opaque_Mod2xNA_Alpha_Alpha` as "never resolved in this
-corpus": it's real, in 365 batches, but sits under the wrong index in
-the old table. `tools/corpus_scan_tasks/shader_names_task.py` mirrors the
-same table and has the same problem.
+corpus": it's real, in 365 batches, but sat under the wrong index in the
+old table.
 
 ---
 
@@ -151,7 +161,7 @@ batches in 128,640 models).
 | `Combiners_Opaque_Mod2xNA_Alpha_3s` | 27 | **Validated** | 9 exact captured matches |
 | `Guild` | 16 | Validated by hand | Same tint gap as `Guild_Opaque` |
 | `Combiners_Opaque_Mod_Add_Wgt` | 1 | Known, unvalidated | wow.export case 24 |
-| `Guild_NoBorder`, `Illum`, `Combiners_Mod_Mod_Mod_Const` | **0** | n/a | Never referenced by 11.2 content. Table rows 27, 29, 30, 31, 32 are unused; row 32 is `Combiners_Opaque`/`Diffuse_T1`, which is still reached through the runtime formula path. |
+| `Guild_NoBorder`, `Illum`, `Combiners_Mod_Mod_Mod_Const` | **0** | n/a | Never referenced by 12.1 content. Table rows 27, 29, 30, 31, 32 are unused; row 32 is `Combiners_Opaque`/`Diffuse_T1`, which is still reached through the runtime formula path. |
 
 ### 3.2 Vertex shaders and UV routing (Validated structurally)
 
@@ -159,7 +169,7 @@ batches in 128,640 models).
   T1/T2/Env choice comes only from the vertex-shader name (`shader_id`).
 - The global combiner-combo flag (`0x08`) is set in **0 files**, so the
   wiki's "shader_id indexes textureCombinerCombos" path never fires on
-  11.2 content.
+  12.1 content.
 - The `_Env` layers carry `armorreflect*` / `envmap*` / `orbreflect*`
   textures, which is consistent with sphere-map reflections.
 - Usage: `Diffuse_T1` 148k, `Diffuse_T1_Env` 132k, `Diffuse_T1_T2` 71k,
@@ -223,13 +233,13 @@ batches in 128,640 models).
 | 9, 6, 12, 15, 1, 16, 3, 18, 2, 22, 19, 11, 10, 8, 20, 17, 14 | 2,945 down to 9 | Known, unvalidated (all present in wow.export) |
 
 - Every root WMO uses FileDataID textures (no `MOTX`), and **none carries
-  `MOM3`**, so the `material3` path is unused by 11.2 content.
+  `MOM3`**, so the `material3` path is unused by 12.1 content.
 - `MOUV` (per-material UV animation) appears in 142 WMOs.
 - Group headers: two vertex-colour sets (`0x1000000`) in 21,639 groups,
   two UV sets (`0x2000000`) in 21,516, three UV sets (`0x40000000`) in 584.
 - Group liquids are LiquidType IDs, e.g. 15 Green Lava 2,997, 5 Slow
   Water 566, plus about 40 expansion-specific types.
-- **Unknown:** which 11.2 BLS actually renders MOMT materials, since
+- **Unknown:** which 12.1 BLS actually renders MOMT materials, since
   `mapobj*` is gone from the build.
 
 ### 4.2 Terrain (56,191 `_tex0` + 56,192 root ADT)
@@ -288,16 +298,12 @@ All of them are **Unknown** at formula level.
 
 ## 6. Next steps, by payoff
 
-1. Replace husk's 30-row table with the 36-row one (section 2). It's a
-   real bug affecting 8,290 batches.
-2. Extract and disassemble the 11 standalone combiner BLS (section 1).
+1. Extract and disassemble the 11 standalone combiner BLS (section 1).
    This directly validates or refutes the wow.export formulas for
    `Mod_Depth`, `Mod_Mod_Depth`, both dual crossfades, `Illum` and the
    `Guild*` shaders, with no new capture needed.
-3. Work out the `combiners_uber_*` permutation indexing, for example by
+2. Work out the `combiners_uber_*` permutation indexing, for example by
    diffing permutation bytecode against the known combiners. That unlocks
    validation of the remaining 27 two- and three-texture combiners.
-4. Extract the 12.1 `.skin`/`.bls` files and rerun this scan to settle
-   the 12.1 staleness question.
-5. Particle blend 5–7, the multitex combine, and the ribbon formula, via
+3. Particle blend 5–7, the multitex combine, and the ribbon formula, via
    `particle_*.bls` and `ribbon.bls`.

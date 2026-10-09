@@ -22,8 +22,8 @@ struct ShaderNames {
 };
 
 // shaderId & 0x8000 set -> table lookup (s_modelShaderEffect); an
-// out-of-range table index (>= NUM_M2SHADERS, 30 real rows transcribed
-// below) resolves with `.resolved == false`, same "don't guess" policy as
+// out-of-range table index (>= 36, the rows transcribed in
+// m2_shader_names.cpp) resolves with `.resolved == false`, same "don't guess" policy as
 // every other real-file-driven check in this project. shaderId & 0x8000
 // clear -> the direct low-bits formula (always resolves; every input value
 // is handled by the switch in the wiki's own decompiled function).
