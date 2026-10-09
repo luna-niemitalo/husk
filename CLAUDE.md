@@ -263,11 +263,14 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   fog & particle volumes → liquids → culling domains/LODs; model detail
   (overlays, UV animation) alongside. See `WORLD_COMPLETENESS.md`.
   Done: M2 attachments/events/lights/emitters in `canon::Model::scene` and
-  the bundle (incl. `.skel` `SKA1`). **Next**: WMO -- a canon type design
-  pass first (`TODO/WORLD/WMO_GEOMETRY_TODO.md`, `WORLD_PLACEMENT_TODO.md`'s
-  doodad sets), then root/group parsing and a WMO bundle so terrain
-  `map_object` placements get a `uri`. Client shaders are unpacked under
-  `example_exports/shaders/` (`tools/export_shaders.py`).
+  the bundle (incl. `.skel` `SKA1`). WMO root/group parsing done
+  (`src/wmo.cpp`); placement-set design agreed (`REFACTOR/PLACEMENT_SETS.md`:
+  sets are generic, never baked, runtime-movable). **Next**: canon
+  `PlacementSet` + WMO canon type, a WMO bundle writer, an export command
+  (group files: GFID via listfile, `<root>_NNN.wmo` fallback -- undecided),
+  then terrain onto sets in the same change (MantleCore adapts once).
+  Client shaders are unpacked under `example_exports/shaders/`
+  (`tools/export_shaders.py`).
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,
   documented feature. Open items, in order: ground-cover scatter placing
   nothing on grassy quads (`TODO/WORLD/ADT_TERRAIN_TODO.md` §1), confirming
