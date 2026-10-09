@@ -19,6 +19,8 @@ _husk() {
         'blp-export:convert BLP2 texture(s) to PNG'
         'appearance-string:validate/normalize a husk-appearance/1 string'
         'resolve:print sources::Catalog's texture-resolution ledger as JSON'
+        'export-terrain:export one ADT tile to a canonical terrain bundle'
+        'export-world:export every ADT tile of every map to a canonical scene'
     )
 
     if (( CURRENT == 2 )); then
@@ -40,7 +42,8 @@ _husk() {
                 '--textures-out[directory to also write decoded .png copies to]:value:_husk_dir_value' \
                 '--explain-textures[--explain-textures]' \
                 '--debug[--debug]' \
-                '--compare-canon[--compare-canon]' \
+                '--export-canon[--export-canon]' \
+                '--bundle-only[--bundle-only]' \
                 '--slim-textures[write textures as external files instead of embedding]' \
                 '--skin-dir[skin-search directory, or none]:value:_husk_dir_or_none_value' \
                 '(-a --anim)'{-a,--anim}'[auto, inline, none, or a directory]:value:_husk_anim_value' \
@@ -125,6 +128,34 @@ _husk() {
                 '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_husk_file_or_none_value' \
                 '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_or_none_value' \
                 '--object-skin-texture-id[--object-skin-texture-id]:value:_files' \
+                '1:model:_files'
+            ;;
+        export-terrain)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--obj[--obj]:value:_files' \
+                '--tex[--tex]:value:_files' \
+                '--wdt[--wdt]:value:_files' \
+                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_husk_file_or_none_value' \
+                '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_or_none_value' \
+                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_or_none_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_or_none_value' \
+                '--models-dir[--models-dir]:value:_files' \
+                '--list-models[--list-models]' \
+                '1:model:_files'
+            ;;
+        export-world)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--map[--map]:value:_files' \
+                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
+                '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_value' \
+                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_or_none_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_or_none_value' \
+                '--jobs[--jobs]:value:_files' \
+                '--skip-models[--skip-models]' \
                 '1:model:_files'
             ;;
     esac

@@ -71,3 +71,17 @@ TEST_CASE("husk --print-flag-docs rejects an unknown subcommand") {
     CHECK(result.exitCode == 1);
     CHECK(result.output.find("unknown subcommand") != std::string::npos);
 }
+
+TEST_CASE("README.md's generated export-terrain and export-world flag tables match --print-flag-docs") {
+    std::string readme = readFile(HUSK_README_PATH);
+    auto trim = [](std::string s) {
+        while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+        return s;
+    };
+    for (const std::string sub : {"export-terrain", "export-world"}) {
+        CAPTURE(sub);
+        auto result = runHusk("--print-flag-docs=" + sub);
+        REQUIRE(result.exitCode == 0);
+        CHECK(trim(extractGeneratedBlock(readme, sub)) == trim(result.output));
+    }
+}

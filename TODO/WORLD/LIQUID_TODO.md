@@ -39,7 +39,7 @@ is external DB2 data husk has no access to and never will, per this
 project's standing CASC/DBC non-goal. The target here is a real, simplified
 **renderable water-plane mesh** — positions, a flat/interpolated height
 surface, an "this is liquid, treat accordingly" tag, and (where cheaply
-derivable, see MH2O Case 2/3 below) a depth value — not shader-accurate
+derivable, as `MH2O`'s depth-carrying layouts already are) a depth value — not shader-accurate
 water. A future consumer wanting real WoW water shading needs its own
 DBC-driven material layer on top; husk's job stops at correct geometry.
 
@@ -212,172 +212,17 @@ node-extras object shape.
 
 ---
 
-## 2. ADT modern liquid (`MH2O`, WotLK+)
+## 2. ADT modern liquid (`MH2O`, WotLK+) — implemented
 
-**Current state**: `none`/`none`. No ADT parsing of any kind yet.
+Read by `src/adt.cpp` (`parseMh2o`, all four vertex layouts, inferred from
+block gaps without DB2s) and exported as `liquids` by `husk export-terrain`;
+verified facts in `../../WIKI_FINDINGS/ADT.md`. 67.1% of root tiles carry
+it (2,683/4,000 sampled). Open:
 
-**Wiki citation**: `documentation/wowdev-wiki/md/ADT/v18.md`, `## MH2O
-chunk (WotLK+)` (lines 512–685) — includes a full worked example (the
-"river crossing a chunk" case) already read closely per this investigation's
-brief.
-
-### Struct, as documented
-
-Three logically separate regions inside one `MH2O` chunk, connected by
-byte offsets relative to the chunk's own data start (not sequential
-sub-chunks — no chunk tags inside `MH2O` at all, just raw offset-addressed
-structs):
-
-```
-struct SMLiquidChunk {          // fixed 256-entry (16x16 MCNK grid) header
-    uint32_t offset_instances;   // -> SMLiquidInstance[layer_count]
-    uint32_t layer_count;         // 0 = no liquid in this MCNK
-    uint32_t offset_attributes;    // -> mh2o_chunk_attributes (optional)
-} chunks[256];                      // 12 bytes each, 3072 bytes total, always first
-
-struct mh2o_chunk_attributes {
-    uint64_t fishable;   // 8x8 bitmask
-    uint64_t deep;       // 8x8 bitmask
-};
-
-struct SMLiquidInstance {           // 24 bytes
-    uint16_t liquid_type;            // <=WotLK: LiquidType.dbc id directly
-    uint16_t liquid_object_or_lvf;    // >=Cata: LiquidObject.dbc id if >=42, else direct LVF
-    float min_height_level, max_height_level;
-    uint8_t x_offset, y_offset, width, height;  // liquid rectangle within the 8x8 MCNK quad grid
-    uint32_t offset_exists_bitmap;    // (width*height+7)/8 bytes, 0 = all-exist
-    uint32_t offset_vertex_data;       // format depends on resolved LVF, see cases below
-};
-
-// vertex data, (width+1)*(height+1) entries, shape depends on LVF:
-//   case 0 (LVF unresolved/<=MoP typical): { float heightmap[]; char depthmap[]; }
-//   case 1: { float heightmap[]; uv_map_entry uvmap[]; }       // uv_map_entry = 2x uint16
-//   case 2: { char depthmap[]; }                                // height always 0.0
-//   case 3: { float heightmap[]; uv_map_entry uvmap[]; char depthmap[]; }
-```
-
-**LVF (LiquidVertexFormat) resolution without DBC access** — this is the
-one place `MH2O` genuinely needs client-side data (`LiquidObject.dbc` →
-`LiquidType.dbc` → `LiquidMaterial.dbc`) to resolve *correctly* when
-`liquid_object_or_lvf >= 42`, per the wiki's own text. The wiki documents a
-DBC-free fallback (**"Alternate case determination"**, `v18.md` lines
-584–617): walk every `SMLiquidInstance` across the whole `MH2O` chunk in
-address order, sort all real `SMLiquidData` offsets encountered
-(`offset_attributes`/`offset_exists_bitmap`/`offset_vertex_data`), and for
-each instance's `offset_vertex_data`, the byte distance to the *next*
-sorted offset divided by `(width+1)*(height+1)` gives a multiplier that
-maps directly to a case (5→case 0, 8→case 1, 1→case 2, 9→case 3) — no DBC
-needed. **This is the resolution strategy husk should use**, consistent
-with the project's hard CASC/DBC non-goal; it was not re-derived from
-scratch this session (time budget went to confirming the struct against
-real bytes instead, see below) but is a real, wiki-documented, mechanical
-algorithm, not a guess — flagged as the first concrete implementation step.
-
-### Real-data verification (this session)
-
-Scanned 4,000 real ADT **root** tiles (`/media/luna/data/wow_export/world/maps/**/​<map>_<x>_<y>.adt`,
-explicitly excluding Cata+ split-file variants — `_obj0`/`_obj1`/`_tex0`/
-`_tex1`/`_lod` — which don't carry `MH2O` at all, it's root-file-only).
-**2,683/4,000 (67.1%) carry a real `MH2O` chunk.** This is overwhelmingly
-the common case, not a rare feature — most terrain tiles in this corpus
-have at least one liquid-bearing `MCNK` entry.
-
-Full worked-example decode against a real file
-(`world/maps/ruinsoftheramore/ruinsoftheramore_40_38.adt`, `MH2O` chunk,
-28,576 bytes): 208 of 256 `SMLiquidChunk` header entries have
-`layer_count > 0`. Every decoded `SMLiquidInstance` in this file has
-`liquid_type=2` (real `LiquidType.dbc` id — plausible, a real value, not
-sanity-checked against the DBC itself since that's out of scope),
-`liquid_object_or_lvf=42` (the documented "ocean, always case-2-ish"
-sentinel), `width=height=8` (whole-`MCNK`-tile liquid, no partial
-rectangle in this sample), `min_height_level=max_height_level=0.0` (a real,
-plausible ocean/flat-water case), and a real, non-zero
-`offset_vertex_data` in every instance — `vertex_count_expected =
-(8+1)*(8+1) = 81`, matching the formula exactly. 42 of the 208 instances
-also carry a real `offset_exists_bitmap` (the rest are all-exist, offset
-0) — both shapes the wiki describes are present in this one file, a good
-single-file cross-section of the format's real variability.
-
-**Not yet verified this session**: the actual vertex-data bytes at
-`offset_vertex_data` were not decoded down to individual
-height/depth/uv values (time budget went to the header/instance structure
-and the presence/prevalence numbers) — this is the concrete next step
-before implementation, using the "Alternate case determination" algorithm
-above on this same real file (all `liquid_object_or_lvf=42` here, so real
-LVF resolution needs a file with mixed/lower values — worth widening the
-sample to find one, see Test plan). No discrepancy found in anything that
-*was* checked — the header/instance struct as documented matches this real
-file exactly, byte-for-byte, same "expected total == actual chunk size"
-accounting style as `MLIQ` above (the instance count derived from the
-formula is self-consistent within the file, though a full offset-sort
-cross-check wasn't performed this session).
-
-### C++ data-model sketch
-
-```cpp
-// src/adt.hpp (new)
-namespace husk::adt {
-
-struct Vec3 { float x = 0, y = 0, z = 0; };
-
-struct LiquidChunkAttributes {
-    uint64_t fishable = 0;  // 8x8 bitmask
-    uint64_t deep = 0;
-};
-
-// One SMLiquidInstance, fully resolved (vertex data decoded per its own
-// determined case -- see MH2O_LVF_CASE_ALGORITHM in adt.cpp, the
-// wiki's own "Alternate case determination", not a DBC lookup).
-struct LiquidInstance {
-    uint16_t liquidType = 0;
-    uint16_t liquidObjectOrLvf = 0;
-    float minHeightLevel = 0, maxHeightLevel = 0;
-    uint8_t xOffset = 0, yOffset = 0, width = 1, height = 1;
-    std::optional<LiquidChunkAttributes> attributes;  // per-MCNK, shared by every layer at that index
-    std::vector<bool> existsBitmap;  // width*height, empty == all-exist
-    // Exactly one of these is populated, per the resolved case (0/1/2/3):
-    std::vector<float> heightmap;    // (width+1)*(height+1), cases 0/1/3
-    std::vector<uint8_t> depthmap;   // (width+1)*(height+1), cases 0/2/3
-    std::vector<std::pair<uint16_t, uint16_t>> uvmap;  // cases 1/3
-};
-
-// One MCNK's worth of liquid layers (usually 0 or 1, occasionally more).
-struct LiquidChunkEntry {
-    int mcnkIndex = 0;  // 0..255, row-major (matches MCNK's own row-major layout)
-    std::vector<LiquidInstance> layers;
-};
-
-struct LiquidData {
-    std::vector<LiquidChunkEntry> chunks;  // only entries with layer_count > 0
-};
-
-}  // namespace husk::adt
-```
-
-### Consumption plan
-
-Same "plain unskinned `NamedMesh`, tagged in `extras`" shape as `MLIQ`
-above — one mesh per contiguous liquid region (or, simpler and matching
-`MCNK`'s own grid: one small mesh per `MCNK` entry that has liquid,
-positioned via the tile's own world-space offset the way `MDDF`/`MODF`
-placement will need to compute anyway once ADT terrain exists). Each
-quad's height comes from the resolved heightmap (or `min/max_height_level`
-uniformly, when no heightmap is present — the wiki's own documented
-fallback); `depthmap`, when present, is exposed as `extras` (a per-vertex
-depth array) rather than folded into vertex color, since there's no
-established "this is depth, not color" glTF convention to lean on and this
-project's own "tag it, don't guess at semantics" precedent applies
-directly. `extras`: `{"liquid": true, "liquid_type": <int>, "mcnk_index":
-<int>}`.
-
-- **Parse**: `full` once the LVF-resolution algorithm and vertex-data
-  decode are implemented (the two concrete remaining steps).
-- **Consumption**: `native` (mesh) + `extras` (depth/type metadata).
-- **glTF ceiling**: `native — 100%` for geometry — this is the single
-  highest-value, most-tractable row in all of `../../WORLD_COMPLETENESS.md`'s
-  currently-`none` table.
-
----
+- `LiquidType`/`LiquidObject` rows are bare `Db2Row` identities; resolving
+  them (material, flow, whether `liquid_object_or_lvf` < 42 instances need a
+  `LiquidMaterial` lookup to confirm their layout) needs the liquid DB2s.
+- `MH2O.offset_attributes` (per-chunk fishable/deep masks) is not read.
 
 ## 3. ADT legacy liquid (`MCLQ`, pre-Cata)
 
@@ -426,19 +271,12 @@ not worth the implementation/test cost against zero real evidence today.
 
 ## Priority order
 
-1. **`MH2O`** (item 2) — highest value: 67% real-file prevalence, the
-   single most load-bearing liquid format in the game, a clean glTF
-   translation target, and the struct is already almost fully verified
-   (only the vertex-data case-resolution algorithm and per-vertex decode
-   remain as concrete next steps, not open questions).
-2. **`MLIQ`** (item 1) — second: real, byte-perfect verified struct,
-   direct reuse of the collision-mesh `NamedMesh`/`extras` pattern, but
-   blocked on WMO root+group parsing existing at all first (`MOMT` for
-   material resolution, `MOGP` header for the implicit-liquid fallback
-   case) — a smaller piece of a larger WMO-parsing effort, not
-   standalone.
-3. **`MCLQ`** (item 3) — do not implement; watch only, per the corpus's
-   real 0/4,000 finding above.
+1. **`MLIQ`** (item 1): real, byte-perfect verified struct, direct reuse of
+   the collision-mesh `NamedMesh`/`extras` pattern, but blocked on WMO
+   root+group parsing existing at all first (`MOMT` for material
+   resolution, `MOGP` header for the implicit-liquid fallback case).
+2. **`MCLQ`** (item 3): do not implement; watch only, per the corpus's real
+   0/4,000 finding above.
 
 ---
 
@@ -457,24 +295,15 @@ before use, same as every other real fixture in this repo):
   largest found in-sample) for a size-range spread. Needs the matching
   *root* file too (`ruinedkeep_crypt2.wmo` etc.) for `MOMT`/`MOGP` context
   once WMO root parsing exists.
-- `MH2O`: `world/maps/ruinsoftheramore/ruinsoftheramore_40_38.adt` (the
-  worked-example file above, 208/256 populated `MCNK` entries, both
-  exists-bitmap shapes present) plus
-  `world/maps/ruinsoftheramore/ruinsoftheramore_40_39.adt`/`_39_39.adt`/
-  `_39_38.adt` (adjacent tiles, same map, for a same-body-of-water
-  multi-tile sanity check) and `world/maps/2972/2972_22_37.adt` (a
-  different map, cross-check the struct isn't ruinsoftheramore-specific).
-  **Still needed**: a file with `liquid_object_or_lvf < 42` (this
-  session's one worked example was uniformly 42/ocean) to exercise the
-  DBC-free LVF-resolution algorithm on a real non-trivial case — not yet
-  found, a real next-session task (widen the scan specifically filtering
-  for `0 < liquid_object_or_lvf < 42` before picking a fixture).
+- `MH2O`: covered by `tests/test_integration_terrain.cpp` (real-data,
+  `test_data/`-gated). **Still wanted**: a real tile with
+  `0 < liquid_object_or_lvf < 42` to pin the layout inference on a
+  non-ocean case.
 - `MCLQ`: none — real 0/4,000, don't build a synthetic fixture for a
   format with zero real corpus evidence in this project's own data.
 
 **Synthetic-vs-real split**: struct-level unit tests (`MLIQ` header
-field decode, `MH2O` header/instance-array offset walking, the LVF
-case-multiplier algorithm) should use small hand-built synthetic fixtures
+field decode) should use small hand-built synthetic fixtures
 first (matching `tests/test_phys.cpp`'s own precedent — deliberately
 non-contiguous offsets, to prove the parser follows real offsets rather
 than assuming sequential layout, the same lesson `.phys`'s `PLYT` chunk

@@ -40,17 +40,23 @@ std::array<float, 16> inverseBindMatrix(const gltf::Vec3& worldBindPos) {
     return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -worldBindPos.x, -worldBindPos.y, -worldBindPos.z, 1};
 }
 
-// A real, un-collapsed M2 texture-combine op (canon::BlendOp) is a
-// different axis from glTF's own alphaMode (a framebuffer-blend state,
-// M2's separate BLEND_MODE field -- not modeled in canon::Material at all
-// yet, see canon_material.hpp's own doc comment on BlendOp). Since there's
-// no source M2 alpha-blend-mode field to reuse export_texture_resolution.cpp's
-// alphaModeForBlend against, this is a deliberately reasoned mapping of the
-// material's own *last* layer's combine op (the one that determines what
-// finally reaches the framebuffer): Replace/Modulate/Modulate2x describe a
-// fully-covering combine (Opaque); Decal's whole point is a hard cutout
-// (Mask); Add/Fade both describe a translucent contribution (Blend).
+// glTF's alphaMode is a framebuffer-blend state: canon::Material::
+// framebufferBlend when the source carried one, mapped exactly as legacy's
+// export_texture_resolution.cpp alphaModeForBlend does (Opaque -> OPAQUE,
+// AlphaKey -> MASK, everything else -> BLEND). Without it, a reasoned
+// fallback from the material's *last* layer's combine op (the one that
+// determines what finally reaches the framebuffer): Replace/Modulate/
+// Modulate2x describe a fully-covering combine (Opaque); Decal's whole
+// point is a hard cutout (Mask); Add/Fade both describe a translucent
+// contribution (Blend).
 std::string alphaModeFor(const canon::Material& mat) {
+    if (mat.framebufferBlend) {
+        switch (*mat.framebufferBlend) {
+            case canon::FramebufferBlend::Opaque: return "OPAQUE";
+            case canon::FramebufferBlend::AlphaKey: return "MASK";
+            default: return "BLEND";
+        }
+    }
     if (mat.layers.empty()) return "OPAQUE";
     switch (mat.layers.back().blendIntoPrevious) {
         case canon::BlendOp::Replace:

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 
 namespace husk::adtinput {
 
@@ -170,15 +171,26 @@ canon::Quat placementRotation(const std::array<float, 3>& r) {
     return toQuat(m);
 }
 
-canon::Placement buildDoodad(const adt::DoodadPlacement& d) {
-    if (!(d.flags & adt::kMddfNameIsFileDataId)) {
-        throw std::runtime_error("MDDF uniqueId " + std::to_string(d.uniqueId) +
-                                 ": MMDX/MMID name-table placements are not implemented (flags " +
-                                 std::to_string(d.flags) + ", expected bit 0x40 set)");
-    }
+// A name-table path the listfile resolved becomes a FileDataID (named later,
+// from the listfile, like every FileDataID-flagged placement); one it did
+// not keeps the raw path as its only name.
+canon::Ref pathRef(const std::string& path, const Resolutions& resolutions) {
+    auto it = resolutions.gamePaths.find(path);
+    if (it != resolutions.gamePaths.end()) return canon::Ref{canon::FileDataId{it->second}, "", canon::NameSource::None};
+    return canon::Ref{canon::None{}, path, canon::NameSource::AdtEmbedded};
+}
+
+// The parser already checked a name-table nameId against its table.
+canon::Ref assetRef(uint32_t nameId, bool isFileDataId, const std::vector<std::string>& names,
+                    const Resolutions& resolutions) {
+    if (isFileDataId) return canon::Ref{canon::FileDataId{nameId}, "", canon::NameSource::None};
+    return pathRef(names.at(nameId), resolutions);
+}
+
+canon::Placement buildDoodad(const adt::DoodadPlacement& d, const adt::ObjFile& obj, const Resolutions& resolutions) {
     canon::Placement out;
     out.kind = canon::Placement::Kind::Model;
-    out.asset = canon::Ref{canon::FileDataId{d.nameId}, "", canon::NameSource::None};
+    out.asset = assetRef(d.nameId, d.flags & adt::kMddfNameIsFileDataId, obj.doodadNames, resolutions);
     out.uniqueId = d.uniqueId;
     out.position = placementPosition(d.position);
     out.rotation = placementRotation(d.rotation);
@@ -189,15 +201,11 @@ canon::Placement buildDoodad(const adt::DoodadPlacement& d) {
 
 constexpr uint16_t kModfHasScale = 0x4;
 
-canon::Placement buildMapObject(const adt::MapObjectPlacement& m) {
-    if (!(m.flags & adt::kModfNameIsFileDataId)) {
-        throw std::runtime_error("MODF uniqueId " + std::to_string(m.uniqueId) +
-                                 ": MWMO/MWID name-table placements are not implemented (flags " +
-                                 std::to_string(m.flags) + ", expected bit 0x8 set)");
-    }
+canon::Placement buildMapObject(const adt::MapObjectPlacement& m, const adt::ObjFile& obj,
+                                const Resolutions& resolutions) {
     canon::Placement out;
     out.kind = canon::Placement::Kind::MapObject;
-    out.asset = canon::Ref{canon::FileDataId{m.nameId}, "", canon::NameSource::None};
+    out.asset = assetRef(m.nameId, m.flags & adt::kModfNameIsFileDataId, obj.mapObjectNames, resolutions);
     out.uniqueId = m.uniqueId;
     out.position = placementPosition(m.position);
     out.rotation = placementRotation(m.rotation);
@@ -218,31 +226,42 @@ void checkTileCoordinates(const adt::MapChunk& first, uint32_t tileX, uint32_t t
     }
 }
 
-canon::TextureRef textureFor(uint32_t fdid, const TextureResolutions& textures) {
-    auto it = textures.find(fdid);
-    if (it != textures.end()) return it->second;
+canon::TextureRef textureFor(uint32_t fdid, const Resolutions& resolutions) {
+    auto it = resolutions.textures.find(fdid);
+    if (it != resolutions.textures.end()) return it->second;
     canon::TextureRef ref;
     ref.state = canon::TextureRef::State::KnownUnresolved;
     ref.unresolvedReason = "FileDataID " + std::to_string(fdid) + " not resolved by the exporter";
     return ref;
 }
 
-// Without MTXP, a layer repeats 8x per chunk (1 << texture_scale = 1); see
-// ADT_EXPORT_FINDINGS.md for where the 8 comes from.
+canon::TextureRef textureForPath(const std::string& path, const Resolutions& resolutions) {
+    auto it = resolutions.gamePaths.find(path);
+    if (it != resolutions.gamePaths.end()) return textureFor(it->second, resolutions);
+    canon::TextureRef ref;
+    ref.state = canon::TextureRef::State::KnownUnresolved;
+    ref.unresolvedReason = "MTEX path not in listfile: " + path;
+    return ref;
+}
+
+// A ground texture tiles 8x across a chunk. That base is a renderer
+// convention with no field on disk; MTXP's texture_scale (flags bits 4..7)
+// divides it by 1 << texture_scale, and a tile without MTXP uses the base.
 constexpr float kBaseRepeatsPerChunk = 8.0f;
 constexpr uint32_t kTextureScaleShift = 4;
 constexpr uint32_t kTextureScaleMask = 0xF;
 
-std::vector<canon::TerrainTexture> buildTextures(const adt::TexFile& tex, const TextureResolutions& textures) {
+std::vector<canon::TerrainTexture> buildTextures(const adt::TexFile& tex, const Resolutions& resolutions) {
     std::vector<canon::TerrainTexture> out;
-    for (size_t i = 0; i < tex.diffuseIds.size(); ++i) {
+    for (size_t i = 0; i < tex.textureCount(); ++i) {
         canon::TerrainTexture t;
-        t.diffuse = textureFor(tex.diffuseIds[i], textures);
-        if (!tex.heightIds.empty() && tex.heightIds[i] != 0) t.height = textureFor(tex.heightIds[i], textures);
+        t.diffuse = tex.diffuseIds.empty() ? textureForPath(tex.diffuseNames[i], resolutions)
+                                           : textureFor(tex.diffuseIds[i], resolutions);
+        if (!tex.heightIds.empty() && tex.heightIds[i] != 0) t.height = textureFor(tex.heightIds[i], resolutions);
         if (tex.params) {
-            if (tex.params->size() != tex.diffuseIds.size()) {
-                throw std::runtime_error("MTXP: expected " + std::to_string(tex.diffuseIds.size()) +
-                                         " entries (one per MDID), got " + std::to_string(tex.params->size()));
+            if (tex.params->size() != tex.textureCount()) {
+                throw std::runtime_error("MTXP: expected " + std::to_string(tex.textureCount()) +
+                                         " entries (one per texture), got " + std::to_string(tex.params->size()));
             }
             const adt::TextureParams& p = (*tex.params)[i];
             uint32_t scale = 1u << ((p.flags >> kTextureScaleShift) & kTextureScaleMask);
@@ -266,14 +285,14 @@ struct LayerContext {
     bool eightBitAlpha = false;
     std::vector<canon::GroundEffect>& groundEffects;
     std::unordered_map<uint32_t, uint32_t>& groundEffectSlot;
-    const GroundEffectDefinitions& definitions;
+    const Resolutions& resolutions;
 };
 
 uint32_t groundEffectIndex(uint32_t effectId, LayerContext& ctx) {
     auto [it, inserted] = ctx.groundEffectSlot.emplace(effectId, static_cast<uint32_t>(ctx.groundEffects.size()));
     if (!inserted) return it->second;
-    auto def = ctx.definitions.find(effectId);
-    if (def != ctx.definitions.end()) {
+    auto def = ctx.resolutions.groundEffects.find(effectId);
+    if (def != ctx.resolutions.groundEffects.end()) {
         ctx.groundEffects.push_back(def->second);
     } else {
         ctx.groundEffects.push_back({canon::Ref{canon::Db2Row{"GroundEffectTexture", effectId}, "", canon::NameSource::None}});
@@ -311,8 +330,7 @@ std::vector<canon::TerrainLayer> buildLayers(const adt::TexChunk& tc, const adt:
 
 }  // namespace
 
-canon::Terrain buildCanonTerrain(const TileSources& sources, const TextureResolutions& textures,
-                                  const GroundEffectDefinitions& groundEffects) {
+canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& resolutions) {
     const adt::RootFile& root = sources.root;
     checkTileCoordinates(root.chunks.front(), sources.tileX, sources.tileY);
     canon::Terrain out;
@@ -325,10 +343,10 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const TextureResolu
         if (!sources.wdtFlags) {
             throw std::runtime_error("texture layers need the map's WDT MPHD flags to pick the alpha-map format");
         }
-        out.textures = buildTextures(*sources.tex, textures);
+        out.textures = buildTextures(*sources.tex, resolutions);
         std::unordered_map<uint32_t, uint32_t> slots;
         LayerContext ctx{(*sources.wdtFlags & (adt::kMphdBigAlpha | adt::kMphdHeightTexturing)) != 0,
-                         out.groundEffects, slots, groundEffects};
+                         out.groundEffects, slots, resolutions};
         for (size_t ci = 0; ci < out.chunks.size(); ++ci) {
             out.chunks[ci].layers = buildLayers(sources.tex->chunks[ci], root.chunks[ci], ctx);
             out.chunks[ci].dominantLayer = unpackDominantLayer(root.chunks[ci].predominantTexture);
@@ -342,9 +360,60 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const TextureResolu
         }
     }
     if (sources.obj) {
-        for (const adt::DoodadPlacement& d : sources.obj->doodads) out.placements.push_back(buildDoodad(d));
-        for (const adt::MapObjectPlacement& m : sources.obj->mapObjects) out.placements.push_back(buildMapObject(m));
+        for (const adt::DoodadPlacement& d : sources.obj->doodads) {
+            out.placements.push_back(buildDoodad(d, *sources.obj, resolutions));
+        }
+        for (const adt::MapObjectPlacement& m : sources.obj->mapObjects) {
+            out.placements.push_back(buildMapObject(m, *sources.obj, resolutions));
+        }
     }
+    return out;
+}
+
+std::vector<uint32_t> textureFileDataIds(const adt::TexFile& tex, const GamePathResolutions& gamePaths) {
+    std::vector<uint32_t> out;
+    std::unordered_set<uint32_t> seen;
+    auto add = [&](uint32_t fdid) {
+        if (fdid != 0 && seen.insert(fdid).second) out.push_back(fdid);
+    };
+    for (uint32_t fdid : tex.diffuseIds) add(fdid);
+    for (const std::string& name : tex.diffuseNames) {
+        auto it = gamePaths.find(name);
+        if (it != gamePaths.end()) add(it->second);
+    }
+    for (uint32_t fdid : tex.heightIds) add(fdid);
+    return out;
+}
+
+GroundEffectDefinitions groundEffectDefinitions(const groundeffect::Data& data) {
+    GroundEffectDefinitions out;
+    for (const groundeffect::TextureRow& row : data.textures) {
+        canon::GroundEffect effect;
+        effect.ref = canon::Ref{canon::Db2Row{"GroundEffectTexture", row.id}, "", canon::NameSource::None};
+        effect.density = row.density;
+        for (const groundeffect::DoodadSlot& slot : row.doodads) {
+            canon::GroundEffectDoodad d;
+            d.doodad = canon::Ref{canon::Db2Row{"GroundEffectDoodad", slot.doodadId}, "", canon::NameSource::None};
+            d.weight = slot.weight;
+            auto found = data.doodads.find(slot.doodadId);
+            if (found != data.doodads.end()) {
+                d.model = canon::Ref{canon::FileDataId{found->second.modelFileId}, "", canon::NameSource::None};
+                d.flags = found->second.flags;
+            }
+            effect.doodads.push_back(std::move(d));
+        }
+        out.emplace(row.id, std::move(effect));
+    }
+    return out;
+}
+
+std::vector<std::string> gamePaths(const std::optional<adt::ObjFile>& obj, const std::optional<adt::TexFile>& tex) {
+    std::vector<std::string> out;
+    if (obj) {
+        out.insert(out.end(), obj->doodadNames.begin(), obj->doodadNames.end());
+        out.insert(out.end(), obj->mapObjectNames.begin(), obj->mapObjectNames.end());
+    }
+    if (tex) out.insert(out.end(), tex->diffuseNames.begin(), tex->diffuseNames.end());
     return out;
 }
 

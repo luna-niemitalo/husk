@@ -1,19 +1,12 @@
-# wowdev.wiki findings — WMO/ADT/WDT/WDL/PM4/PD4 (world-format expansion)
+# wowdev.wiki findings — WMO/WDT/WDL/PM4/PD4 (world-format expansion)
 
 Current, correct facts only. Full evidence trail: `../WIKI_FINDINGS_HISTORY.md`
-§15. **Not split further per-format** (unlike `M2.md`/`BONE.md`/`PHYS.md`)
-because this is explicitly a first, planning-stage investigation pass, not
-implemented code yet — no `src/` parser exists for any of these six formats.
-The full struct listings, C++ data-model sketches, and test plans live in
-the eleven companion `*_TODO.md` files this investigation produced
-(`TODO/WORLD/WDT_TODO.md`, `TODO/WORLD/ADT_TERRAIN_TODO.md`, `TODO/WORLD/ADT_LOD_TODO.md`,
-`TODO/WORLD/WMO_GEOMETRY_TODO.md`, `TODO/WORLD/WORLD_PLACEMENT_TODO.md`, `TODO/WORLD/LIQUID_TODO.md`,
-`TODO/WORLD/LIGHTING_TODO.md`, `TODO/WORLD/FOG_VOLUMES_TODO.md`, `TODO/WORLD/COLLISION_CULLING_TODO.md`,
-`TODO/WORLD/WORLD_MISC_METADATA_TODO.md`, `TODO/WORLD/PM4_PD4_TODO.md`) — this page only records
-what would otherwise be lost once those get implemented and deleted (this
-project's usual TODO lifecycle). Once real parsers land, split this file the
-same way `M2.md`/`BONE.md`/`PHYS.md` are split, into `WMO.md`/`ADT.md`/
-`WDT.md`/`WDL.md`/`PM4.md`/`PD4.md`.
+§15. The full struct listings, C++ data-model sketches, and test plans live in
+the eleven companion `*_TODO.md` files under `TODO/WORLD/`. This page records
+what would otherwise be lost once those are implemented and deleted. Formats
+split out into their own file as their parsers land: ADT is in `ADT.md`
+(`src/adt.cpp`); WMO, WDT, WDL, PM4 and PD4 are still planning-stage and stay
+here.
 
 ---
 
@@ -34,36 +27,10 @@ omit `MWMO` entirely when `flags & 0x8` is set (35/228 real global-WMO
 files), with `nameId` then holding a real FileDataID directly. `MAI2`
 (wiki: "unshipped") is real in 2 files.
 
-## ADT — verified
+## ADT — see `ADT.md`
 
-`MCVT`/`MCNR` (heightmap + normals) stay root-resident always across the
-Cata+ split-file structure, never move to a split file — confirmed on 2,500
-sampled files. Legion+ terrain LOD's `MLLL` real band set is `{4, 8, 16,
-32}`, not `2.0` (a documentation-prose misreading, not a real band value).
-
-From the WIP terrain export (2026-10-08; evidence in
-`../TODO/WORLD/ADT_EXPORT_FINDINGS.md`):
-
-- `MCNR` entries are **X, Y, Z** on disk, not the wiki's "X, Z, Y" (mean cos
-  0.9995 vs 0.21 against finite-difference heightfield normals).
-- `MCNK.flags` `0x10000` (`high_res_holes`) is set on every sampled MCNK in
-  the current corpus and `holes_low_res` is always 0. This contradicts
-  `ADT_TERRAIN_TODO.md` §4's "never set" (which checked bit 9). The cause is
-  unresolved: wrong bit, or data changed by the 2026-08-22 re-extraction or
-  later terrain patches.
-- `MDDF` placement rotation: the wiki's `createPlacementMatrix` chain is
-  correct for tilt. Its `Rx(90)·Ry(90)` prefix maps exactly onto world
-  (+X north, +Y west, +Z up). It beat every sign- or axis-flipped variant
-  against terrain slope on 752 tilted placements. Yaw sign is unchecked.
-- `MDDF.flags` `0x200` occurs (~18% of Elwynn placements) and is not in the
-  wiki enum.
-- `_tex0` without `MDID` exists: untextured tiles carry an `MTEX` holding
-  only an empty string (23/400 sampled, e.g. `kultiras_33_45`).
-- `MH2O` instances with no vertex data are always `LiquidType` 2 at
-  `min_height_level` 0 (12,909/12,909). The wiki's two conflicting rules
-  ("flat at min height" vs "LVF 2, height 0") agree on all real data.
-- `MH2O` instance rects are always the full 8×8 (38,236/38,236), including
-  `liquid_object_or_lvf` < 42.
+Split out once `src/adt.cpp` landed: `ADT.md` holds every verified ADT fact,
+including the planning-pass ones that used to live here.
 
 ## WMO — verified
 

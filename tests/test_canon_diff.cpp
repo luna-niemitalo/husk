@@ -173,6 +173,7 @@ canon::Model oneMaterialOnePrimitiveModel(canon::MaterialLayer layer) {
     canon::Material mat;
     mat.ref.id = canon::RecordIndex{0};
     mat.layers = {std::move(layer)};
+    mat.framebufferBlend = canon::FramebufferBlend::Opaque;  // every test below uses M2 blend mode 0
     canonModel.materials = {mat};
     canonModel.primitiveMaterials = {canon::Identity{canon::RecordIndex{0}}};
     return canonModel;
@@ -185,6 +186,7 @@ canon::Model oneMaterialOnePrimitiveModel(std::vector<canon::MaterialLayer> laye
     canon::Material mat;
     mat.ref.id = canon::RecordIndex{0};
     mat.layers = std::move(layers);
+    mat.framebufferBlend = canon::FramebufferBlend::Opaque;
     canonModel.materials = {mat};
     canonModel.primitiveMaterials = {canon::Identity{canon::RecordIndex{0}}};
     return canonModel;
@@ -226,6 +228,44 @@ TEST_CASE("canon_diff::compareMaterialBlendModes: a matching blend mode reports 
 
     canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials);
     CHECK(r.ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: a framebuffer blend that disagrees with the M2 blend mode "
+          "is a deviation") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Replace;  // ALPHA_KEY's combine op too, so only the new field differs
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+    canonModel.materials[0].framebufferBlend = canon::FramebufferBlend::Opaque;
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 1;  // ALPHA_KEY
+
+    canon_diff::Report r = canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials);
+    REQUIRE(r.deviations.size() == 1);
+    CHECK(r.deviations[0] == "framebuffer blend mismatch at primitive 0: expected M2 blend mode 1");
+
+    canonModel.materials[0].framebufferBlend = canon::FramebufferBlend::AlphaKey;
+    CHECK(canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials).ok());
+}
+
+TEST_CASE("canon_diff::compareMaterialBlendModes: an undocumented M2 blend mode must leave framebufferBlend unset") {
+    canon::MaterialLayer layer;
+    layer.blendIntoPrevious = canon::BlendOp::Fade;  // the unknown-mode combine fallback
+    canon::Model canonModel = oneMaterialOnePrimitiveModel(layer);
+    canonModel.materials[0].framebufferBlend.reset();
+
+    std::vector<skin::Submesh> submeshes(1);
+    submeshes[0].indexCount = 3;
+    std::vector<skin::Batch> batches(1);
+    std::vector<m2::Material> materials(1);
+    materials[0].blendMode = 9;
+
+    CHECK(canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials).ok());
+    canonModel.materials[0].framebufferBlend = canon::FramebufferBlend::Alpha;
+    CHECK_FALSE(canon_diff::compareMaterialBlendModes(canonModel, batches, submeshes, materials).ok());
 }
 
 TEST_CASE("canon_diff::compareMaterialBlendModes: legacyMaterials/legacyPrimitives omitted (default) skips "

@@ -48,4 +48,36 @@ std::optional<std::string> contentNameForFileDataId(const husk::ListfileIndex& l
     return std::filesystem::path(*found).stem().string();
 }
 
+std::string listfileSpelling(const std::string& gamePath) {
+    std::string out = gamePath;
+    std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
+        return c == '\\' ? '/' : static_cast<char>(std::tolower(c));
+    });
+    for (const char* legacy : {".mdx", ".mdl"}) {
+        if (out.size() >= 4 && out.compare(out.size() - 4, 4, legacy) == 0) {
+            out.replace(out.size() - 4, 4, ".m2");
+            break;
+        }
+    }
+    return out;
+}
+
+std::unordered_map<std::string, uint32_t> fileDataIdsForGamePaths(const husk::ListfileIndex& listfile,
+                                                                  const std::vector<std::string>& gamePaths) {
+    std::unordered_map<std::string, std::vector<const std::string*>> wanted;
+    for (const std::string& p : gamePaths) wanted[listfileSpelling(p)].push_back(&p);
+
+    std::unordered_map<std::string, uint32_t> out;
+    if (wanted.empty()) return out;
+    size_t remaining = wanted.size();
+    listfile.forEach([&](uint32_t fdid, std::string_view path) {
+        auto it = wanted.find(std::string(path));
+        if (it == wanted.end() || it->second.empty()) return true;
+        for (const std::string* original : it->second) out.emplace(*original, fdid);
+        it->second.clear();  // first listfile row wins, like fileDataIdForPath
+        return --remaining > 0;
+    });
+    return out;
+}
+
 }  // namespace husk::sources

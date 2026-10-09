@@ -5,7 +5,7 @@
 #include <iostream>
 #include <stdexcept>
 
-#include "blp.hpp"              // extractRawPayload/encodeDds -- BUNDLE_FORMAT.md's DDS-housed source payload
+#include "blp.hpp"              // blp::ParseError
 #include "canon_diff.hpp"
 #include "canon_model.hpp"
 #include "chunk.hpp"           // readChunks, findChunk (AFSB/AFM2 peek)
@@ -14,6 +14,7 @@
 #include "m2_canon_input.hpp"  // m2input::buildCanonModel, m2input::ExternalAnimBlobs
 #include "skel.hpp"             // .skel-sourced bones/sequences (AUDIT.md §7.2)
 #include "skin.hpp"
+#include "sources/texture_payload.hpp"  // BUNDLE_FORMAT.md's DDS-housed source payload
 #include "writers/bundle_writer.hpp"
 #include "writers/gltf_lean.hpp"
 
@@ -127,17 +128,7 @@ canon::TextureRef toCanonTextureRef(const sources::Resolved<sources::EncodedText
     // still stands regardless.
     if (resolved.value->sourcePath.extension() == ".blp") {
         try {
-            std::vector<uint8_t> blpFileBytes = readFileBytes(resolved.value->sourcePath.string());
-            blp::RawPayload raw = blp::extractRawPayload(blpFileBytes);
-            canon::TextureRef::Payload rawPayload;
-            rawPayload.bytes = blp::encodeDds(raw);
-            switch (raw.encoding) {
-                case blp::RawEncoding::Bc1: rawPayload.encoding = canon::TextureEncoding::Bc1; break;
-                case blp::RawEncoding::Bc2: rawPayload.encoding = canon::TextureEncoding::Bc2; break;
-                case blp::RawEncoding::Bc3: rawPayload.encoding = canon::TextureEncoding::Bc3; break;
-                case blp::RawEncoding::Bgra: rawPayload.encoding = canon::TextureEncoding::Bgra; break;
-            }
-            ref.rawPayload = std::move(rawPayload);
+            ref.rawPayload = sources::ddsPayloadFromBlp(readFileBytes(resolved.value->sourcePath.string()));
         } catch (const blp::ParseError&) {
             // Palette-encoded (or otherwise unsupported) source -- no raw
             // payload for this texture, same as a producer that never asked.

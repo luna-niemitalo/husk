@@ -39,6 +39,20 @@ std::string interpolationName(canon::Interpolation interp) {
     return interp == canon::Interpolation::Step ? "step" : "linear";
 }
 
+std::string framebufferBlendName(canon::FramebufferBlend blend) {
+    switch (blend) {
+        case canon::FramebufferBlend::Opaque: return "opaque";
+        case canon::FramebufferBlend::AlphaKey: return "alpha_key";
+        case canon::FramebufferBlend::Alpha: return "alpha";
+        case canon::FramebufferBlend::NoAlphaAdd: return "no_alpha_add";
+        case canon::FramebufferBlend::Add: return "add";
+        case canon::FramebufferBlend::Mod: return "mod";
+        case canon::FramebufferBlend::Mod2x: return "mod2x";
+        case canon::FramebufferBlend::BlendAdd: return "blend_add";
+    }
+    return "opaque";
+}
+
 std::string blendOpName(canon::BlendOp op) {
     switch (op) {
         case canon::BlendOp::Modulate: return "modulate";
@@ -377,6 +391,10 @@ void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& 
         }
         w.endArray();
 
+        if (material.framebufferBlend) {
+            w.key("framebuffer_blend");
+            w.value(framebufferBlendName(*material.framebufferBlend));
+        }
         if (material.diffuseLayer) {
             w.key("diffuse_layer");
             writeRef(w, *material.diffuseLayer);

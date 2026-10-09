@@ -1,8 +1,12 @@
 # TODO: `.wdt`/`.wdl` map-root and map-level sidecar formats
 
-**Status: an open punch list, not a historical record.** Nothing here is
-implemented yet — every item below is a from-scratch implementation plan,
-not a progress report. Once implementation starts, this file gets worked
+**Status: an open punch list, not a historical record.** Only one byte of
+this is implemented: `MPHD.flags`, read by `adt::parseWdtFlags`
+(`src/adt.cpp`) because the terrain export needs it to pick the alpha-map
+format. Everything else below is a from-scratch plan. Two consequences of
+that for the terrain export: `export-world` finds a map's tiles by listing
+its directory, not from `MAIN`/`MAID`, and a single-WMO map (global
+`MODF`, no tiles) exports nothing at all. Once implementation starts, this file gets worked
 like `RO_COMPLETENESS_TODO.md`/`../INVESTIGATIONS_TODO.md` already are: fixed
 items get removed outright once closed, git history is the record of what
 was fixed and when, not this file.

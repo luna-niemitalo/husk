@@ -149,7 +149,7 @@ This is the rule that makes the bundle traceable — see `CANONICAL_FORMAT.md`
 §5 for the JSON shape of a resource entry (`id`/`name`/`name_source`, plus
 `uri` when the payload is external rather than inline).
 
-`name_source` is one of `m2_embedded` / `listfile` / `db2` / `synthesized` /
+`name_source` is one of `m2_embedded` / `adt_embedded` / `listfile` / `db2` / `synthesized` /
 `none` (I6). It exists because most naming in this project comes from the
 community listfile — unreliable at best — or is invented by husk. A consumer
 reading `"scalpupperhair00_08"` must be able to tell whether that came from the
@@ -409,3 +409,108 @@ discards the source payload, never stores it in a proprietary container, and
 never holds PNG as the only form.** Which variants a given bundle ships is a
 writer decision that can change later without
 a schema bump.
+
+## Terrain tile bundles
+
+**Current, not target**: written today by `husk export-terrain` (one tile)
+and `husk export-world` (every tile of a map or world). The exact manifest
+schema is the doc comment in `src/writers/terrain_bundle_writer.hpp`; this
+section is what a consumer needs on top of it. `kind` is `"terrain_tile"`,
+`schema_version` `"0.1.0"`, slices and `Ref`s as everywhere else.
+
+### Layout
+
+```
+<tile>.bundle/manifest.json
+<tile>.bundle/terrain.bin            chunk heightfields, normals, masks, alpha maps
+<tile>.bundle/liquid.bin             liquid surfaces
+<tile>.bundle/textures/<fdid>.dds    export-terrain only: the tile's own ground textures
+```
+
+`export-world` writes no per-tile `textures/`. Ground textures are written
+once to `<out>/textures/` and every tile references them by relative `uri`
+(`../../../textures/<fdid>.dds`). Placed and ground-cover models live in
+`<out>/models/<fdid>.canon.bundle/`, referenced the same way. A texture or
+model with no `uri` was not produced (unresolved, not extracted, or failed
+— see `errors.log`); its `Ref` still carries the identity.
+
+### Frame and heightfield
+
+WoW world space, yards: +X north, +Y west, +Z up. Every position in the
+manifest is already in it; nothing is chunk- or file-relative.
+
+A tile is 16×16 chunks (`index = grid_y * 16 + grid_x`, `grid_x` stepping
+−Y, `grid_y` stepping −X). A chunk holds 145 absolute heights, interleaved
+as 9 corners then 8 centres per row pair. Corner (r, c) sits at
+`origin − (r, c) · quad_size` along (X, Y); centre (r, c) at
+`origin − (r + 0.5, c + 0.5) · quad_size`. Each quad is four triangles
+fanned around its centre, counter-clockwise seen from +Z; a quad whose
+`hole_rows` bit is set (bit c of byte r) has none.
+
+### Splat layers
+
+A chunk has **0 to 8** layers, not 1 to 4. Measured on all 341,760
+`azeroth` chunks (MantleCore, 2026-10-09): 9% have none, 82% have 1–4, 4%
+have 5–8. A splat shader must take up to 8 layers, i.e. 7 alpha maps.
+
+- A chunk with **no layers is untextured**: in practice open ocean, under
+  water. Its heights there are placeholders (see Seams).
+- Layer 0 has no alpha map; it covers whatever the later layers don't.
+- Each later layer has a 64×64 8-bit alpha map, row-major, rows stepping −X
+  like the vertex rows. The weights partition exactly: base layer weight =
+  1 − Σ alpha (verified to 1.000 over a whole tile).
+- A texture repeats `repeats_per_chunk` times across a chunk (8 unless the
+  tile's `MTXP` scales it).
+
+`dominant_layer` (per quad, the layer whose ground effect applies) and
+`ground_effect_suppressed_rows` are carried as read. Their bit order is
+unverified: ground-cover scatter built on them placed nothing on plainly
+grassy quads in testing (`TODO/WORLD/ADT_TERRAIN_TODO.md`).
+
+### Ground cover
+
+`ground_effects` are rules, not instances: a density and a weighted set of
+doodad models per effect, which the client scatters at runtime. Use the
+weights only as ratios; their absolute scale is an open question
+(`WIKI_FINDINGS/WORLD.md`).
+
+### Liquid
+
+One entry per `MH2O` instance: the chunk, a quad rectangle inside its 8×8
+grid, a per-quad `quad_exists` mask, and `(width + 1) · (height + 1)`
+absolute vertex heights. `height_source` says where they came from:
+`heightmap` (stored), `min_height_level` (none stored: flat at the
+instance's minimum, the open-ocean case) or `zero` (a depth-only layout).
+
+### Placements
+
+`model` placements are M2s, `map_object` placements are WMO buildings.
+`position` is world-frame, `rotation` is a world-from-model quaternion
+(x, y, z, w), the model in its own native M2/WMO space. **WMO geometry is
+not exported**: `map_object` placements are identity and transform only,
+with no `uri`. A placement whose tile names it by path and whose path the
+listfile doesn't know has no identity, only its raw path as
+`name` (`name_source: "adt_embedded"`).
+
+### Seams between tiles
+
+Each tile stores its own copy of its edge vertices; husk does not weld
+them. Each height is the tile's own `MCNK` base height plus its `MCVT`
+offset, so two tiles' copies of one edge vertex agree only to float
+precision — about 1–2e-4 yd at typical heights. A seam check needs a
+tolerance relative to the height's magnitude, not a fixed 1e-4.
+
+Larger mismatches seen across `azeroth` (MantleCore's
+`world_loading_check`, 2026-10-09), all still open:
+
+- untextured ocean chunks hold placeholder heights (0 next to a −515.56 yd
+  floor), up to 515.6 yd apart;
+- a 13.68 yd step where two flat ocean-floor tiles meet, ~500 yd under
+  water (23_36/24_36, south edges);
+- six cracks of 0.03–0.70 yd on south tile edges: 40_53, 41_52, 42_45,
+  43_34, 44_34 (0.70), 45_34.
+
+husk applies no transform to heights beyond that one addition, so these are
+expected to be in the source tiles themselves; confirming it byte-for-byte is
+`TODO/WORLD/ADT_TERRAIN_TODO.md`'s open item. Until then a consumer should
+weld tile edges to one side's heights rather than rely on them matching.

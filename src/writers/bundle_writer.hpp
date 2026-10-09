@@ -63,7 +63,7 @@
 // `"record_index"` (`{"kind":"record_index","value":<uint32>}`) -- the
 // exact four `canon::Identity` alternatives (`canon_ref.hpp`), one JSON
 // shape per alternative, never collapsed to a single ambiguous `"value"`
-// field. `name_source` is one of `"m2_embedded"|"listfile"|"db2"|
+// field. `name_source` is one of `"m2_embedded"|"adt_embedded"|"listfile"|"db2"|
 // "synthesized"|"none"` (`canon::NameSource`, verbatim).
 //
 // Top-level manifest shape (a deliberate **subset** of BUNDLE_FORMAT.md's
@@ -157,6 +157,7 @@
 //         "uv_animation": { "translation": <inline curve, VecCurve>, "rotation": <inline curve, QuatCurve, values as [x,y,z,w]>, "scaling": <inline curve, VecCurve> }  // object omitted when nullopt; each of its 3 members omitted independently when that sub-curve is nullopt
 //       }
 //     ],
+//     "framebuffer_blend": "opaque"|"alpha_key"|"alpha"|"no_alpha_add"|"add"|"mod"|"mod2x"|"blend_add",  // M2BLEND, canon::FramebufferBlend; omitted when the source mode is undocumented
 //     "diffuse_layer": <Ref>, "specular_layer": <Ref>, "emission_layer": <Ref>, "alpha_layer": <Ref>   // each omitted when nullopt
 //   }
 // ]

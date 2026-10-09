@@ -19,11 +19,11 @@ namespace {
 // *combiner* stage (how one texture unit folds into the running stack
 // within a single draw), while M2Material::blendMode is that draw's final
 // *framebuffer* blend against whatever's already on screen -- a different
-// real GPU stage. MaterialLayer::blendIntoPrevious has no separate
-// framebuffer-blend field to hold blendMode's actual meaning, so this maps
-// one onto the other because BlendOp's six named modes happen to name-match
-// MOD/MOD2X/ADD closely enough to be more useful than leaving every layer
-// at the struct's bare default. This is genuinely new code, not a mirrored
+// real GPU stage. blendMode's actual meaning is carried separately, as
+// canon::Material::framebufferBlend (framebufferBlendFor, below); this maps
+// it onto the combiner vocabulary too because BlendOp's six named modes
+// happen to name-match MOD/MOD2X/ADD closely enough to be more useful than
+// leaving every layer at the struct's bare default. This is genuinely new code, not a mirrored
 // fact from elsewhere in the pipeline -- flagged in this task's own report
 // for review, not treated as settled.
 canon::BlendOp blendModeToBlendOp(uint16_t blendMode) {
@@ -37,6 +37,13 @@ canon::BlendOp blendModeToBlendOp(uint16_t blendMode) {
         case 6: return canon::BlendOp::Modulate2x; // MOD2X
         default: return canon::BlendOp::Fade;      // unknown mode: same "closest BLEND approximation" fallback alphaModeForBlend uses
     }
+}
+
+// M2BLEND_* 0..7 map 1:1 onto FramebufferBlend; anything else is a value
+// the wiki doesn't document, left unset rather than guessed.
+std::optional<canon::FramebufferBlend> framebufferBlendFor(uint16_t blendMode) {
+    if (blendMode > static_cast<uint16_t>(canon::FramebufferBlend::BlendAdd)) return std::nullopt;
+    return static_cast<canon::FramebufferBlend>(blendMode);
 }
 
 // Same decode export_texture_resolution.cpp's own decodeFixed16 uses
@@ -370,6 +377,7 @@ canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, co
     // is only one M2Material per batch, not one per texture unit, so every
     // layer in this stack blends the same way.
     canon::BlendOp blendOp = blendModeToBlendOp(m2.materials[batch.materialIndex].blendMode);
+    result.framebufferBlend = framebufferBlendFor(m2.materials[batch.materialIndex].blendMode);
 
     // M2Batch::textureCount == 0: no real M2 texture unit for this batch at
     // all -- Material::layers documents "one entry per real M2 texture

@@ -76,11 +76,12 @@ int appearanceString(int argc, char** args);
 // `ResolveOptions` below).
 int resolve(int argc, char** args);
 
-// `export-terrain` -- WIP: one ADT tile to a canonical terrain bundle (see
-// cmd_export_terrain.cpp, TODO/WORLD/ADT_EXPORT_FINDINGS.md).
+// `export-terrain` -- one ADT tile to a canonical terrain bundle
+// (cmd_export_terrain.cpp; bundle schema: REFACTOR/BUNDLE_FORMAT.md's
+// "Terrain tile bundles").
 int exportTerrain(int argc, char** args);
 
-// `export-world` -- WIP: every tile of every (or the selected) map, plus one
+// `export-world` -- every tile of every (or the selected) map, plus one
 // shared set of model bundles and terrain textures; parallel, resumable,
 // failures logged and skipped (cmd_export_terrain.cpp).
 int exportWorld(int argc, char** args);
@@ -265,8 +266,9 @@ struct ExportOptions {
     // REFACTOR/README.md stage 3's runtime convergence gate -- see the
     // flag's own --help text and cmd_export_canon.hpp's doc comment.
     bool exportCanon = false;
-    // Canon bundle as the only output (WIP terrain export's model path) --
-    // see the flag's own --help text.
+    // Canon bundle as the only output (export-world's model pass, and any
+    // caller that wants a bundle without the legacy .glb) -- see the flag's
+    // own --help text.
     bool bundleOnly = false;
 };
 

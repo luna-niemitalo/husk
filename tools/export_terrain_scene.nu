@@ -1,8 +1,9 @@
 #!/usr/bin/env nu
-# WIP: ADT tiles -> one terrain bundle per tile plus a shared directory of
-# canon model bundles for every M2 they reference (placed doodads and
-# ground-effect detail doodads), linked by relative uri. See
-# TODO/WORLD/ADT_EXPORT_FINDINGS.md.
+# Hand-picked ADT tiles -> one terrain bundle per tile plus a shared
+# directory of canon model bundles for every M2 they reference (placed
+# doodads and ground-effect detail doodads), linked by relative uri. For a
+# whole map, `husk export-world --map <name>` does the same in-process and in
+# parallel; this script is for a few tiles from different places.
 #
 #   <out>/tiles/<tile>.bundle/manifest.json
 #   <out>/models/<fdid>.canon.bundle/manifest.json

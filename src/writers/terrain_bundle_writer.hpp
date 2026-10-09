@@ -7,13 +7,14 @@
 
 #include "canon_terrain.hpp"
 
-// husk::writers: canon::Terrain -> bundle directory. WIP sibling of
+// husk::writers: canon::Terrain -> bundle directory. Sibling of
 // bundle_writer.hpp; same BufferSlice/Ref/texture shapes (bundle_common.hpp),
-// its own top-level section. Findings: TODO/WORLD/ADT_EXPORT_FINDINGS.md.
+// its own top-level section. REFACTOR/BUNDLE_FORMAT.md's "Terrain tile
+// bundles" is the consumer-facing description of this schema.
 //
 // ```json
 // {
-//   "schema_version": "0.1.0", "kind": "terrain_tile", "status": "wip",
+//   "schema_version": "0.1.0", "kind": "terrain_tile",
 //   "exported_at": ..., "producer": ..., "endianness": "little",
 //   "terrain": {
 //     "map": <Ref>, "tile_x": <u32>, "tile_y": <u32>,

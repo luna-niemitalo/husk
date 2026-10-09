@@ -95,3 +95,28 @@ TEST_CASE("sources::contentNameForFileDataId returns nullopt when the FileDataID
     MapListfileIndex idx(listfile);
     CHECK_FALSE(contentNameForFileDataId(idx, 999).has_value());
 }
+
+TEST_CASE("listfileSpelling: lowercase, forward slashes, and the pre-M2 .mdx/.mdl model extensions as .m2") {
+    using husk::sources::listfileSpelling;
+    CHECK(listfileSpelling("World\\Azeroth\\Elwynn\\Tree01.MDX") == "world/azeroth/elwynn/tree01.m2");
+    CHECK(listfileSpelling("World\\Generic\\Rock.mdl") == "world/generic/rock.m2");
+    CHECK(listfileSpelling("World\\wmo\\Inn.wmo") == "world/wmo/inn.wmo");
+    CHECK(listfileSpelling("tileset/elwynn/grass.blp") == "tileset/elwynn/grass.blp");
+    // Only a trailing extension is rewritten.
+    CHECK(listfileSpelling("a.mdx/b.blp") == "a.mdx/b.blp");
+}
+
+TEST_CASE("fileDataIdsForGamePaths: one pass resolves every game path, keyed by the caller's spelling") {
+    std::unordered_map<uint32_t, std::string> rows{
+        {10, "world/azeroth/elwynn/tree01.m2"}, {20, "world/wmo/inn.wmo"}, {30, "tileset/elwynn/grass.blp"}};
+    MapListfileIndex listfile(rows);
+    auto found = husk::sources::fileDataIdsForGamePaths(
+        listfile, {"World\\Azeroth\\Elwynn\\Tree01.mdx", "world/azeroth/elwynn/tree01.m2", "World\\wmo\\Inn.wmo",
+                   "World\\Missing.mdx"});
+    CHECK(found.size() == 3);
+    CHECK(found.at("World\\Azeroth\\Elwynn\\Tree01.mdx") == 10);
+    CHECK(found.at("world/azeroth/elwynn/tree01.m2") == 10);
+    CHECK(found.at("World\\wmo\\Inn.wmo") == 20);
+    CHECK(found.count("World\\Missing.mdx") == 0);
+    CHECK(husk::sources::fileDataIdsForGamePaths(listfile, {}).empty());
+}

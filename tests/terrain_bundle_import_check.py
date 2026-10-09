@@ -1,5 +1,5 @@
-# WIP consumer probe for `husk export-terrain` bundles
-# (TODO/WORLD/ADT_EXPORT_FINDINGS.md): reads
+# Consumer probe for `husk export-terrain` bundles
+# (REFACTOR/BUNDLE_FORMAT.md's "Terrain tile bundles"): reads
 # manifest.json + .bin slices directly -- and, for placements/ground effects
 # with a `uri`, the referenced model bundles -- builds the scene in Blender,
 # and prints "HUSK_PROBE key=value" consistency checks (same convention as
@@ -319,14 +319,20 @@ def load_model(bundle_dir, uri):
             node = mat.node_tree.nodes.new("ShaderNodeTexImage")
             node.image = bpy.data.images.load(os.path.join(path, tex["uri"]), check_existing=True)
             mat.node_tree.links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
-            # The model bundle carries no M2 render blend mode yet (findings
-            # doc), so every material is alpha-clipped: right for foliage,
-            # harmless for opaque textures with a full alpha channel.
-            clip = mat.node_tree.nodes.new("ShaderNodeMath")
-            clip.operation = "GREATER_THAN"
-            clip.inputs[1].default_value = 0.5
-            mat.node_tree.links.new(node.outputs["Alpha"], clip.inputs[0])
-            mat.node_tree.links.new(clip.outputs["Value"], bsdf.inputs["Alpha"])
+            # framebuffer_blend is the M2 render blend mode. Opaque ignores
+            # texture alpha; alpha_key (foliage) clips it at 0.5; every other
+            # mode blends it. A bundle without the field (older exports)
+            # falls back to clipping, right for foliage and harmless for
+            # opaque textures with a full alpha channel.
+            blend = mat_json.get("framebuffer_blend", "alpha_key")
+            if blend == "alpha_key":
+                clip = mat.node_tree.nodes.new("ShaderNodeMath")
+                clip.operation = "GREATER_THAN"
+                clip.inputs[1].default_value = 0.5
+                mat.node_tree.links.new(node.outputs["Alpha"], clip.inputs[0])
+                mat.node_tree.links.new(clip.outputs["Value"], bsdf.inputs["Alpha"])
+            elif blend != "opaque":
+                mat.node_tree.links.new(node.outputs["Alpha"], bsdf.inputs["Alpha"])
             break
         mesh.materials.append(mat)
     for prim in mj["primitives"]:

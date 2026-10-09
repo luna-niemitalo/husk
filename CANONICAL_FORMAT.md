@@ -240,7 +240,9 @@ values) without yet being wired in as the thing that pipeline actually uses:
   source format asserts no fixed PBR vocabulary) rather than by output-format
   texture-slot index; a three-state texture reference (resolved / known to be
   unresolved / genuinely ambiguous) instead of collapsing "couldn't find it"
-  and "found two plausible candidates" into one failure case.
+  and "found two plausible candidates" into one failure case. A material
+  also carries its framebuffer blend (opaque / alpha-key / blended / ...),
+  a separate fact from how its texture layers combine with each other.
 - **`canon::Curve` / `canon::SequenceRef`** — one keyframe-curve
   representation shared by skeletal animation and by material-parameter
   animation (tint, alpha fade, UV scroll), which the current production
@@ -274,6 +276,13 @@ values) without yet being wired in as the thing that pipeline actually uses:
   tested by the pieces above; `assembleModel` is purely a wiring function
   that decides how many times and with what arguments to call each builder
   — it does not re-derive any of their logic.
+- **`canon::Terrain`** — one terrain tile in a single world frame: a
+  heightfield per chunk (topology named, not stored), texture layers with
+  their alpha maps, ground-cover *rules* rather than scattered instances,
+  liquid surfaces that record where their heights came from, and
+  placements of other assets as `Ref`s with a world-frame transform.
+  Built from ADT tiles (`src/adt_canon_input.*`), written by its own bundle
+  writer (`src/writers/terrain_bundle_writer.*`), never by `canon::Model`'s.
 
 ### 4.2 What consumes it today
 

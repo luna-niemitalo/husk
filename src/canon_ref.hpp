@@ -14,6 +14,10 @@ namespace husk::canon {
 // arrive downstream as identical std::strings with no way to tell apart.
 enum class NameSource {
     M2Embedded,
+    // A file path stored verbatim in an ADT name table (MMDX/MWMO/MTEX) --
+    // the pre-FileDataID way a tile names what it places. Only ever carried
+    // by a Ref whose path the listfile could not turn into a FileDataID.
+    AdtEmbedded,
     Listfile,
     Db2,
     Synthesized,

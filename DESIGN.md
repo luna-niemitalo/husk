@@ -108,21 +108,18 @@ Non-goals, by design, not oversight:
   68887, 1,891,552 files) found 8 real `.m3` files exist in this corpus
   (unresolved listfile names, `models\unknown\unk_exp*\<fdid>.m3`) — noted
   for the record, still out of scope.
-- No ADT (terrain) support yet either (tracked, not started, `README.md`'s
-  format matrix gained an ADT column 2026-07-31) — genuinely missed when
-  this project was first scoped, not a deliberate exclusion: crucial for
-  any actual rendered world, not just props/buildings. `.wdt`/`.wdl` (which
-  ADT tiles exist per map; coarse whole-continent distant heightmap) are
-  ADT's own real dependencies, not yet scoped either. **WMO and ADT are
-  scoped together, not separately** — `WORLD_COMPLETENESS.md` (2026-07-31,
-  a pre-implementation scaffold; expanded into eleven implementation-ready
-  `*_TODO.md` companion documents 2026-08-01 after a real corpus
-  investigation pass, see Open work below — still no code yet either
-  format) covers both plus `.wdt`/`.wdl`, since ADT's whole relevance to husk is
-  placing M2/WMO instances into world space (`MDDF`/`MODF`) and WMO has
-  the identical concern turned inward (its own internal doodad set,
-  `MODS`/`MODN`/`MODI`/`MODD`) — the two will get implemented as one
-  effort, not two.
+- ADT terrain is implemented; WMO is not. `husk export-terrain`/
+  `export-world` read a tile's root/`_obj0`/`_tex0` and the map WDT's
+  `MPHD` flags into `canon::Terrain` and write it as a terrain bundle, never
+  glTF (`REFACTOR/BUNDLE_FORMAT.md`'s "Terrain tile bundles"). Terrain was
+  missed when this project was first scoped, not deliberately excluded:
+  it's crucial for any rendered world. **WMO and ADT are still scoped
+  together** in `WORLD_COMPLETENESS.md`, since ADT's whole relevance beyond
+  terrain is placing M2/WMO instances into world space (`MDDF`/`MODF`), and
+  WMO has the same concern turned inward (`MODS`/`MODN`/`MODI`/`MODD`).
+  Until WMO geometry exists, `MODF` placements are identity-and-transform
+  references with nothing to point at. `.wdt` is read only for its `MPHD`
+  flags; `.wdl` is not read.
 - **PM4/PD4 (server-side navigation/pathing mesh) declared in scope**,
   2026-07-31, explicitly for pathing use cases ("we want pathing").
   Genuinely different in kind from every other format above: never

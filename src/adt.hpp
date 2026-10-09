@@ -5,12 +5,14 @@
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
-// ADT v18 (Cata+ split-file) parsing -- WIP, terrain-export testing ground
-// (TODO/WORLD/ADT_EXPORT_FINDINGS.md). Raw on-disk shapes only; meaning
-// (world coordinates, decoded normals, unified hole masks) is assigned in
-// adt_canon_input.cpp.
+// ADT v18 (Cata+ split-file) parsing: the root tile, `_obj0` and `_tex0`,
+// plus the map WDT's MPHD flags. Raw on-disk shapes only; meaning (world
+// coordinates, decoded normals, unified hole masks) is assigned in
+// adt_canon_input.cpp. Real-data corrections to the wiki layouts:
+// WIKI_FINDINGS/WORLD.md.
 //
 // Chunk tags are byte-reversed on disk, like .phys (WIKI_FINDINGS/WORLD.md).
 namespace husk::adt {
@@ -90,12 +92,16 @@ struct MapObjectPlacement {
     uint16_t scale = 0;
 };
 
+// With the flag set, nameId is a FileDataID; without it, an index into the
+// matching name table (MMID -> MMDX, MWID -> MWMO).
 inline constexpr uint16_t kMddfNameIsFileDataId = 0x40;
 inline constexpr uint16_t kModfNameIsFileDataId = 0x8;
 
 struct ObjFile {
     std::vector<DoodadPlacement> doodads;
     std::vector<MapObjectPlacement> mapObjects;
+    std::vector<std::string> doodadNames;     // MMDX via MMID, raw file paths as stored
+    std::vector<std::string> mapObjectNames;  // MWMO via MWID
 };
 
 // MCLY, 16 bytes.
@@ -127,11 +133,17 @@ struct TextureParams {
     float heightOffset = 1.0f;
 };
 
+// A tile names its textures either by FileDataID (MDID, every modern tile)
+// or by file path (MTEX, older tiles); exactly one of the two lists is
+// populated. MCLY.textureId indexes whichever it is.
 struct TexFile {
-    std::vector<uint32_t> diffuseIds;  // MDID
+    std::vector<uint32_t> diffuseIds;      // MDID
+    std::vector<std::string> diffuseNames;  // MTEX, raw file paths as stored
     std::vector<uint32_t> heightIds;   // MHID, 0 = none
     std::optional<std::vector<TextureParams>> params;  // MTXP, nullopt when absent
     std::array<TexChunk, kChunkCount> chunks;
+
+    size_t textureCount() const { return diffuseIds.empty() ? diffuseNames.size() : diffuseIds.size(); }
 };
 
 // WDT MPHD flags this exporter reads.

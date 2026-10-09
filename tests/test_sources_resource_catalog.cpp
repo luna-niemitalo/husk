@@ -21,6 +21,10 @@ using husk::sources::TextureModelContext;
 
 namespace {
 
+// Catalog holds its listfile by reference (catalog.hpp), so it must outlive
+// every Catalog below -- a temporary passed inline would dangle.
+const husk::EmptyListfileIndex kNoListfile;
+
 namespace fs = std::filesystem;
 
 void writeFile(const fs::path& path, const std::vector<uint8_t>& bytes) {
@@ -45,7 +49,7 @@ TEST_CASE("Catalog::texture hits tier 1 (literal) when <texturesDir>/<fdid>.png 
     fs::create_directories(dir);
     writeFile(dir / "424242.png", kPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     auto r = cat.texture(424242, /*textureType=*/1, ctxFor((dir / "somemodel.m2").string()));
     REQUIRE(r.found());
     CHECK(r.tier == ResolutionTier::Literal);
@@ -74,7 +78,7 @@ TEST_CASE("Catalog::texture hits tier 3 (fuzzy pool) claiming the sole type-comp
     fs::create_directories(dir);
     writeFile(dir / "mymodel_9999.png", kPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     // fdid == 0 -- a genuinely hardcoded slot, nothing for tiers 1/2 to try.
     // textureType 999 is deliberately not a real M2 texture type -- this
     // test is about generic tier-3 plumbing (claim-and-remove), not the
@@ -94,7 +98,7 @@ TEST_CASE("Catalog::texture misses (with a reason) when no tier can answer at al
     auto dir = fs::temp_directory_path() / "husk-catalog-total-miss";
     fs::create_directories(dir);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     auto r = cat.texture(0, /*textureType=*/1, ctxFor((dir / "nothingnamedthis.m2").string()));
     CHECK_FALSE(r.found());
     CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);
@@ -112,7 +116,7 @@ TEST_CASE("Catalog::texture reports genuine ambiguity via Resolved<T>::alternate
     std::vector<uint8_t> otherPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
     writeFile(dir / "mymodel_2222.png", otherPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     auto r = cat.texture(0, /*textureType=*/999, ctxFor((dir / "mymodel.m2").string()));
     REQUIRE(r.found());
     CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);
@@ -135,7 +139,7 @@ TEST_CASE("Catalog::texture depletes the pool across slots -- a claimed candidat
     fs::create_directories(dir);
     writeFile(dir / "mymodel_5555.png", kPng);  // the pool's only real candidate
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     std::string modelPath = (dir / "mymodel.m2").string();
 
     // textureType 999 -- not a real M2 type; this test is about pool
@@ -157,7 +161,7 @@ TEST_CASE("Catalog::texture memoizes per (model, textureSlotIndex) -- two batche
     fs::create_directories(dir);
     writeFile(dir / "mymodel_7777.png", kPng);  // sole candidate
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     std::string modelPath = (dir / "mymodel.m2").string();
 
     // textureType 999 -- not a real M2 type; this test is about slot
@@ -179,7 +183,7 @@ TEST_CASE("Catalog excludes a pool candidate whose own trailing FileDataID is al
     fs::create_directories(dir);
     writeFile(dir / "mymodel_3333.png", kPng);  // this model's own particle-sprite texture, fdid 3333
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     TextureModelContext ctx = ctxFor((dir / "mymodel.m2").string());
     ctx.ownTextureFileDataIds = {3333};
     auto r = cat.texture(0, /*textureType=*/1, ctx);
@@ -212,7 +216,7 @@ TEST_CASE("Catalog::describe() names every resolved slot -- I4's ledger, a read 
     fs::create_directories(dir);
     writeFile(dir / "111.png", kPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     cat.texture(111, /*textureType=*/1, ctxFor((dir / "mymodel.m2").string(), /*slot=*/0));
     cat.texture(0, /*textureType=*/1, ctxFor((dir / "mymodel.m2").string(), /*slot=*/1));
 
@@ -280,7 +284,7 @@ TEST_CASE("Catalog::texture: a tag-carrying candidate with no name relation to t
     // startswith(basename) gate could never have admitted this file.
     writeFile(dir / "scalpupperhair00_08_hd.png", kPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     TextureModelContext ctx = ctxFor((dir / "elfmale_hd.m2").string());
     auto r = cat.texture(0, /*textureType=*/6, ctx);  // 6 = char_hair
     REQUIRE(r.found());
@@ -299,7 +303,7 @@ TEST_CASE("Catalog::texture: a non-'_hd' model never draws '_hd' art, even when 
     std::vector<uint8_t> otherPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
     writeFile(dir / "elfmale_skin_color_1001.png", otherPng);    // real non-"_hd" art
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     // "elfmale" itself carries no "_hd" token -- a non-"_hd" model.
     auto r = cat.texture(0, /*textureType=*/1, ctxFor((dir / "elfmale.m2").string()));  // 1 = skin
     REQUIRE(r.found());
@@ -319,7 +323,7 @@ TEST_CASE("Catalog::texture: an '_hd' model never draws non-'_hd' art either -- 
     // token anywhere, so it's non-"_hd" art and must not apply here.
     writeFile(dir / "othermodel_skin_color_1001.png", otherPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     auto r = cat.texture(0, /*textureType=*/1, ctxFor((dir / "elfmale_hd.m2").string()));  // 1 = skin
     REQUIRE(r.found());
     CHECK(r.alternates.empty());
@@ -344,7 +348,7 @@ TEST_CASE("Catalog::texture: an untagged texture type (no textureTypeTagClauses 
     std::vector<uint8_t> otherPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
     writeFile(dir / "somethingelse_skin_2000.png", otherPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     // textureType 2 = object_skin, real M2 type with no textureTypeTagClauses
     // entry (confirmed unreachable by any filename tag, see
     // export_texture_resolution.cpp's own textureTypeTagClauses doc comment).
@@ -366,7 +370,7 @@ TEST_CASE("Catalog::texture: a *taggable* texture type still draws a tag-only-ad
     std::vector<uint8_t> otherPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
     writeFile(dir / "somethingelse_skin_2000.png", otherPng);  // wide-only, real "skin" tag
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     // textureType 1 = skin, has a real textureTypeTagClauses entry -- only
     // the "skin"-tagged file satisfies the query; "mymodel_1000" carries no
     // vocabulary tag at all and is correctly excluded by the tag query
@@ -392,7 +396,7 @@ TEST_CASE("Catalog::texture: setCharacterTextureContext never called is a clean 
     fs::create_directories(dir);
     writeFile(dir / "mymodel_9999.png", kPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     auto r = cat.texture(0, /*textureType=*/999, ctxFor((dir / "mymodel.m2").string()));
     REQUIRE(r.found());
     CHECK(r.tier == ResolutionTier::FuzzySameBasenamePool);
@@ -405,7 +409,7 @@ TEST_CASE("Catalog::texture: an explicitly-set but empty CharacterTextureContext
     fs::create_directories(dir);
     writeFile(dir / "mymodel_9999.png", kPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     cat.setCharacterTextureContext(CharacterTextureContext{});
     auto r = cat.texture(0, /*textureType=*/999, ctxFor((dir / "mymodel.m2").string()));
     REQUIRE(r.found());
@@ -423,7 +427,7 @@ TEST_CASE("Catalog::texture: the DB2-character tier fires when all three conditi
     std::vector<uint8_t> poolPng = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0xCD};
     writeFile(dir / "elfmale_jewelry_color_9999999.png", poolPng);  // a real, distinct fuzzy-pool candidate
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     CharacterTextureContext ctx;
     ctx.singleLayerTargetByTextureType[20] = 38;  // type 20 = char_jewelry, real target from Q1
     ctx.fileDataIdByTarget[38] = 3613861;
@@ -447,7 +451,7 @@ TEST_CASE("Catalog::texture: DB2-character tier misses (falls through to the fuz
     fs::create_directories(dir);
     writeFile(dir / "mymodel_1111.png", kPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     CharacterTextureContext ctx;
     ctx.fileDataIdByTarget[38] = 3613861;  // a resolved material exists, but for a different target
     cat.setCharacterTextureContext(ctx);
@@ -464,7 +468,7 @@ TEST_CASE("Catalog::texture: DB2-character tier misses when the single-layer tar
     fs::create_directories(dir);
     writeFile(dir / "mymodel_1111.png", kPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     CharacterTextureContext ctx;
     // textureType 999 -- not a real M2 type, no tag-conjunction clause, so
     // the fuzzy-pool fallback below matches via the plain basename-prefix
@@ -485,7 +489,7 @@ TEST_CASE("Catalog::texture: DB2-character tier misses when the resolved materia
     fs::create_directories(dir);
     writeFile(dir / "mymodel_1111.png", kPng);
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     CharacterTextureContext ctx;  // textureType 999 -- see the previous test's own comment
     ctx.singleLayerTargetByTextureType[999] = 10;
     ctx.fileDataIdByTarget[10] = 0;  // resolved element, unresolved FileDataID
@@ -503,7 +507,7 @@ TEST_CASE("Catalog::texture: the DB2-character tier is never consulted when the 
     fs::create_directories(dir);
     writeFile(dir / "424242.png", kPng);  // the slot's own real fdid, resolves via tier 1
 
-    Catalog cat(dir.string(), husk::EmptyListfileIndex(), "", "");
+    Catalog cat(dir.string(), kNoListfile, "", "");
     CharacterTextureContext ctx;
     ctx.singleLayerTargetByTextureType[1] = 5;
     ctx.fileDataIdByTarget[5] = 999999;  // would resolve to a different file if consulted at all

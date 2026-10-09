@@ -19,47 +19,97 @@
 #include "adt_canon_input.hpp"
 #include "blp.hpp"
 #include "commands.hpp"
-#include "db2table.hpp"
+#include "husk_config.hpp"
+#include "groundeffect_db2.hpp"
 #include "listfile_cache.hpp"
 #include "listfile_index.hpp"
+#include "sources/listfile_catalog.hpp"
+#include "sources/texture_payload.hpp"
 #include "writers/bundle_common.hpp"
 #include "writers/terrain_bundle_writer.hpp"
 
-// `export-terrain` / `export-world` -- WIP: ADT tiles (root + _obj0 + _tex0 +
-// the map's WDT) to canonical terrain bundles. All file and DB2 access
-// happens here; adtinput::buildCanonTerrain stays pure. See
-// TODO/WORLD/ADT_EXPORT_FINDINGS.md.
+// `export-terrain` / `export-world`: ADT tiles (root + _obj0 + _tex0 + the
+// map's WDT) to canonical terrain bundles (REFACTOR/BUNDLE_FORMAT.md's
+// "Terrain tile bundles"). Every file, listfile and DB2 access happens here,
+// assembled into one adtinput::Resolutions per tile; adtinput::
+// buildCanonTerrain stays pure.
 namespace husk::commands {
 
+namespace {
+
+// Same --config wiring as `export`/`resolve`: --listfile/--listfile-root/
+// --db2-dir/--dbd-dir are per-machine facts (CLI.md §2.5), so a config file
+// supplies them and 'none' opts one back out (README.md's "Config file").
+void addConfigOption(CLI::App& app) {
+    app.set_config("--config", husk::defaultConfigPath(),
+                   "TOML file of default flag values (see README.md's config-file section) -- explicit CLI "
+                   "flags always override a config value")
+        ->envname("HUSK_CONFIG")
+        ->group("Diagnostics");
+}
+
+}  // namespace
+
 void addExportTerrainOptions(CLI::App& app, ExportTerrainOptions& opts) {
+    addConfigOption(app);
     app.add_option("input", opts.input, "root .adt tile (<map>_<x>_<y>.adt)")->required();
     app.add_option("output", opts.output, "bundle directory to write")->required();
-    app.add_option("--obj", opts.objArg, "placements: 'auto' (sibling <stem>_obj0.adt), 'none', or a path")
-        ->default_val("auto");
-    app.add_option("--tex", opts.texArg, "texture layers: 'auto' (sibling <stem>_tex0.adt), 'none', or a path")
-        ->default_val("auto");
-    app.add_option("--wdt", opts.wdtArg, "map WDT: 'auto' (<map>.wdt beside the tile) or a path")->default_val("auto");
-    app.add_option("--listfile", opts.listfile, "community listfile CSV, to resolve texture/model FileDataIDs");
-    app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to");
-    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory, for GroundEffectTexture/GroundEffectDoodad");
-    app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory");
+    app.add_option("--obj", opts.objArg,
+                   "placements file: 'auto' (the tile's sibling <stem>_obj0.adt), 'none', or a path")
+        ->default_val("auto")
+        ->group("Tile sidecars");
+    app.add_option("--tex", opts.texArg,
+                   "texture-layer file: 'auto' (the tile's sibling <stem>_tex0.adt), 'none', or a path")
+        ->default_val("auto")
+        ->group("Tile sidecars");
+    app.add_option("--wdt", opts.wdtArg,
+                   "map WDT, whose MPHD flags pick the alpha-map format: 'auto' (<map>.wdt beside the tile) "
+                   "or a path. No 'none': without a WDT, texture layers can't be read -- use --tex none")
+        ->default_val("auto")
+        ->group("Tile sidecars");
+    app.add_option("--listfile", opts.listfile,
+                   "community listfile CSV, or 'none': finds texture files by FileDataID, resolves "
+                   "name-table (MMDX/MWMO/MTEX) paths to FileDataIDs, and names placed models")
+        ->group("Resolution");
+    app.add_option("--listfile-root", opts.listfileRoot,
+                   "directory the listfile's paths are relative to, or 'none'")
+        ->group("Resolution");
+    app.add_option("--db2-dir", opts.db2Dir,
+                   "DB2 directory for GroundEffectTexture/GroundEffectDoodad (ground cover), or 'none'")
+        ->group("Resolution");
+    app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
     app.add_option("--models-dir", opts.modelsDir,
-                   "set placement/ground-effect uris to <dir>/<fdid>.canon.bundle where that bundle exists");
+                   "set placement/ground-effect uris to <dir>/<fdid>.canon.bundle where that bundle exists")
+        ->group("Output");
     app.add_flag("--list-models", opts.listModels,
-                 "print '<fdid>\\t<listfile path>' for every model the tile references, then exit");
+                 "print '<fdid>\\t<listfile path>' for every model the tile references, then exit")
+        ->group("Output");
 }
 
 void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts) {
+    addConfigOption(app);
     app.add_option("maps-root", opts.mapsRoot, "directory holding one subdirectory per map (world/maps)")->required();
     app.add_option("output", opts.output, "scene directory to write (maps/, models/, textures/, errors.log)")
         ->required();
-    app.add_option("--map", opts.maps, "only these map directories (repeatable); default every map");
-    app.add_option("--listfile", opts.listfile, "community listfile CSV")->required();
-    app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to")->required();
-    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory, for GroundEffectTexture/GroundEffectDoodad");
-    app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory");
-    app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)");
-    app.add_flag("--skip-models", opts.skipModels, "don't export model bundles; placements stay identity-only");
+    app.add_option("--map", opts.maps, "only these map directories (repeatable); default every map")
+        ->group("Selection");
+    app.add_option("--listfile", opts.listfile,
+                   "community listfile CSV: finds texture and model files by FileDataID, resolves "
+                   "name-table (MMDX/MWMO/MTEX) paths to FileDataIDs")
+        ->required()
+        ->group("Resolution");
+    app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to")
+        ->required()
+        ->group("Resolution");
+    app.add_option("--db2-dir", opts.db2Dir,
+                   "DB2 directory for GroundEffectTexture/GroundEffectDoodad (ground cover), or 'none'")
+        ->group("Resolution");
+    app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
+    app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)")->group("Run");
+    app.add_flag("--skip-models", opts.skipModels,
+                 "don't export model bundles (pass 2); placements link only to bundles already under "
+                 "<output>/models/")
+        ->group("Run");
 }
 
 namespace {
@@ -92,114 +142,97 @@ TileName parseTileName(const std::filesystem::path& path) {
     return out;
 }
 
-std::optional<std::filesystem::path> resolveSibling(const std::filesystem::path& root, const std::string& arg,
-                                                    const std::string& suffix, bool quiet = false) {
-    if (arg == "none") return std::nullopt;
-    if (arg != "auto") return std::filesystem::path(arg);
+// 'none' on a per-machine flag means "as if never set", beating a config value.
+std::string unlessNone(const std::string& value) { return value == "none" ? std::string() : value; }
+
+// One tile sidecar (_obj0/_tex0), resolved by CLI.md §2.11's three states,
+// with what happened written out for the caller to print or log.
+template <typename Parsed>
+struct Sidecar {
+    std::optional<Parsed> value;
+    std::string note;     // what was resolved, always set
+    std::string warning;  // set when an auto-found file was unreadable and skipped
+};
+
+// IN, non-critical when auto-found: the sibling is the tile's own implied
+// reference, so a broken one is warned about (expected vs. actual) and
+// skipped, and the rest of the tile still exports (FOREIGN_DATA.md §4).
+// IN, critical when explicit: a path the user named that doesn't parse
+// fails the export, since they asked for exactly that file.
+template <typename Parsed>
+Sidecar<Parsed> loadSidecar(const std::filesystem::path& root, const std::string& arg, const std::string& suffix,
+                            const char* flag, Parsed (*parse)(const std::vector<uint8_t>&)) {
+    Sidecar<Parsed> out;
+    if (arg == "none") {
+        out.note = std::string(flag) + ": skipped (" + flag + " none)";
+        return out;
+    }
+    if (arg != "auto") {
+        out.value = parse(adt::readFile(arg));
+        out.note = std::string(flag) + ": " + arg + " (explicit)";
+        return out;
+    }
     std::filesystem::path sibling = root.parent_path() / (root.stem().string() + suffix);
-    if (std::filesystem::exists(sibling)) return sibling;
-    if (!quiet) std::cerr << "note: no " << sibling.filename().string() << " beside the tile; skipping it\n";
-    return std::nullopt;
-}
-
-// FDID -> real BLP on disk -> DDS-housed source blocks, PNG when the BLP's
-// encoding can't be rehoused (blp::extractRawPayload declines palettized).
-canon::TextureRef resolveTexture(uint32_t fdid, const ListfileIndex& listfile, const std::filesystem::path& root) {
-    canon::TextureRef ref;
-    std::optional<std::string_view> listed = listfile.lookup(fdid);
-    if (!listed) {
-        ref.state = canon::TextureRef::State::KnownUnresolved;
-        ref.unresolvedReason = "FileDataID " + std::to_string(fdid) + " not in listfile";
-        return ref;
+    if (!std::filesystem::exists(sibling)) {
+        out.note = std::string(flag) + ": none (no " + sibling.filename().string() + " beside the tile)";
+        return out;
     }
-    std::string relative(*listed);
-    std::filesystem::path path = root / relative;
-    if (!std::filesystem::exists(path)) {
-        ref.state = canon::TextureRef::State::KnownUnresolved;
-        ref.unresolvedReason = "listfile path not extracted locally: " + relative;
-        return ref;
-    }
-    std::vector<uint8_t> bytes = adt::readFile(path);
-    ref.state = canon::TextureRef::State::Resolved;
-    ref.resolved = canon::Ref{canon::FileDataId{fdid}, std::filesystem::path(relative).stem().string(),
-                              canon::NameSource::Listfile};
     try {
-        blp::RawPayload raw = blp::extractRawPayload(bytes);
-        canon::TextureRef::Payload payload;
-        payload.bytes = blp::encodeDds(raw);
-        switch (raw.encoding) {
-            case blp::RawEncoding::Bc1: payload.encoding = canon::TextureEncoding::Bc1; break;
-            case blp::RawEncoding::Bc2: payload.encoding = canon::TextureEncoding::Bc2; break;
-            case blp::RawEncoding::Bc3: payload.encoding = canon::TextureEncoding::Bc3; break;
-            case blp::RawEncoding::Bgra: payload.encoding = canon::TextureEncoding::Bgra; break;
-        }
-        ref.rawPayload = std::move(payload);
-    } catch (const blp::ParseError&) {
-        ref.payload = canon::TextureRef::Payload{blp::encodePng(blp::decode(bytes)), canon::TextureEncoding::Png};
-    }
-    return ref;
-}
-
-std::vector<uint32_t> textureIds(const adt::TexFile& tex) {
-    std::vector<uint32_t> out = tex.diffuseIds;
-    for (uint32_t fdid : tex.heightIds) {
-        if (fdid != 0) out.push_back(fdid);
+        out.value = parse(adt::readFile(sibling));
+        out.note = std::string(flag) + ": " + sibling.filename().string() + " (beside the tile)";
+    } catch (const std::exception& e) {
+        out.note = std::string(flag) + ": skipped (unreadable)";
+        out.warning = "expected a readable " + sibling.filename().string() + ", got: " + e.what() +
+                      " -- exporting the tile without it (" + flag + " none silences this)";
     }
     return out;
 }
 
-uint32_t valueOr(const std::optional<uint32_t>& v, const char* what, uint32_t row) {
-    if (!v) throw std::runtime_error(std::string(what) + ": expected a value in row " + std::to_string(row) + ", got none");
-    return *v;
+// FileDataID -> listfile path -> the BLP on disk -> its DDS-housed source
+// blocks, or decoded PNG when the encoding can't be rehoused (palettized).
+// Terrain has no model directory to search, so of RESOURCE_CATALOG.md's
+// texture tiers only the listfile one applies.
+canon::TextureRef resolveTexture(uint32_t fdid, const ListfileIndex& listfile, const std::string& listfileRoot) {
+    canon::TextureRef ref;
+    std::optional<std::filesystem::path> path = sources::pathForFileDataId(listfile, listfileRoot, fdid);
+    if (!path) {
+        ref.state = canon::TextureRef::State::KnownUnresolved;
+        ref.unresolvedReason = "FileDataID " + std::to_string(fdid) + " not in listfile";
+        return ref;
+    }
+    if (!std::filesystem::exists(*path)) {
+        ref.state = canon::TextureRef::State::KnownUnresolved;
+        ref.unresolvedReason = "listfile path not extracted locally: " + path->string();
+        return ref;
+    }
+    std::vector<uint8_t> bytes = adt::readFile(*path);
+    ref.state = canon::TextureRef::State::Resolved;
+    ref.resolved = canon::Ref{canon::FileDataId{fdid}, path->stem().string(), canon::NameSource::Listfile};
+    try {
+        ref.rawPayload = sources::ddsPayloadFromBlp(bytes);
+    } catch (const blp::ParseError&) {
+        ref.payload = sources::pngPayloadFromBlp(bytes);
+    }
+    return ref;
 }
 
-// Every GroundEffectTexture row (density + 4 weighted doodad slots) joined
-// to GroundEffectDoodad (model FileDataID). The table is small; the tile's
-// layers decide which rows reach the manifest.
-adtinput::GroundEffectDefinitions loadGroundEffects(const std::string& db2Dir, const std::string& dbdDir) {
+// Every ground-effect rule the DB2s define, or none when they aren't
+// given or can't be read -- ground cover is optional enrichment (CLI.md
+// §2.10: fall back, and say so in `note`), never a reason to fail a tile.
+adtinput::GroundEffectDefinitions loadGroundEffects(const std::string& db2Dir, const std::string& dbdDir,
+                                                    std::string& note) {
+    if (db2Dir.empty() || dbdDir.empty()) {
+        note = "ground effects: none (needs --db2-dir and --dbd-dir)";
+        return {};
+    }
     std::ostringstream err;
-    std::string texturePath = (std::filesystem::path(db2Dir) / "groundeffecttexture.db2").string();
-    std::string doodadPath = (std::filesystem::path(db2Dir) / "groundeffectdoodad.db2").string();
-    auto textures = db2table::readNamedColumns(texturePath, dbdDir, {"ID", "Density"}, err);
-    auto textureArrays = db2table::readNamedArrayColumns(texturePath, dbdDir, {"DoodadID", "DoodadWeight"}, err);
-    auto doodads = db2table::readNamedColumns(doodadPath, dbdDir, {"ID", "ModelFileID", "Flags"}, err);
-    if (!textures || !textureArrays || !doodads || textures->size() != textureArrays->size()) {
-        throw std::runtime_error("ground effect DB2s unreadable: " + err.str());
+    std::optional<groundeffect::Data> data = groundeffect::load(db2Dir, dbdDir, err);
+    if (!data) {
+        note = "ground effects: none (GroundEffect DB2s unreadable: " + err.str() + ")";
+        return {};
     }
-    std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> doodadById;
-    for (uint32_t r = 0; r < doodads->size(); ++r) {
-        const auto& row = (*doodads)[r];
-        doodadById[valueOr(row[0], "GroundEffectDoodad.ID", r)] = {row[1].value_or(0), row[2].value_or(0)};
-    }
-
-    adtinput::GroundEffectDefinitions out;
-    for (uint32_t r = 0; r < textures->size(); ++r) {
-        uint32_t id = valueOr((*textures)[r][0], "GroundEffectTexture.ID", r);
-        canon::GroundEffect effect;
-        effect.ref = canon::Ref{canon::Db2Row{"GroundEffectTexture", id}, "", canon::NameSource::None};
-        effect.density = (*textures)[r][1];
-        const auto& ids = (*textureArrays)[r][0];
-        const auto& weights = (*textureArrays)[r][1];
-        if (!ids || !weights || ids->size() != weights->size()) {
-            throw std::runtime_error("GroundEffectTexture row " + std::to_string(id) +
-                                     ": expected DoodadID and DoodadWeight arrays of equal length");
-        }
-        for (size_t k = 0; k < ids->size(); ++k) {
-            uint32_t doodadId = (*ids)[k];
-            if (doodadId == 0) continue;
-            canon::GroundEffectDoodad d;
-            d.doodad = canon::Ref{canon::Db2Row{"GroundEffectDoodad", doodadId}, "", canon::NameSource::None};
-            d.weight = (*weights)[k];
-            auto found = doodadById.find(doodadId);
-            if (found != doodadById.end()) {
-                d.model = canon::Ref{canon::FileDataId{found->second.first}, "", canon::NameSource::None};
-                d.flags = found->second.second;
-            }
-            effect.doodads.push_back(std::move(d));
-        }
-        out.emplace(id, std::move(effect));
-    }
-    if (!err.str().empty()) std::cerr << err.str();
+    adtinput::GroundEffectDefinitions out = adtinput::groundEffectDefinitions(*data);
+    note = "ground effects: " + std::to_string(out.size()) + " rules from " + db2Dir;
     return out;
 }
 
@@ -207,7 +240,7 @@ std::set<uint32_t> referencedModels(const canon::Terrain& terrain) {
     std::set<uint32_t> out;
     for (const canon::Placement& p : terrain.placements) {
         if (p.kind != canon::Placement::Kind::Model) continue;
-        out.insert(std::get<canon::FileDataId>(p.asset.id).value);
+        if (auto fdid = std::get_if<canon::FileDataId>(&p.asset.id)) out.insert(fdid->value);
     }
     for (const canon::GroundEffect& e : terrain.groundEffects) {
         for (const canon::GroundEffectDoodad& d : e.doodads) {
@@ -378,7 +411,7 @@ private:
 }  // namespace
 
 int exportTerrain(int argc, char** args) {
-    CLI::App app{"husk export-terrain -- WIP: one ADT tile to a canonical terrain bundle", "husk export-terrain"};
+    CLI::App app{"husk export-terrain -- one ADT tile to a canonical terrain bundle", "husk export-terrain"};
     ExportTerrainOptions opts;
     addExportTerrainOptions(app, opts);
     int exitCode = 0;
@@ -388,31 +421,76 @@ int exportTerrain(int argc, char** args) {
         std::filesystem::path rootPath(opts.input);
         TileName tile = parseTileName(rootPath);
         adt::RootFile root = adt::parseRoot(adt::readFile(rootPath));
-        std::optional<adt::ObjFile> obj;
-        if (auto p = resolveSibling(rootPath, opts.objArg, "_obj0.adt")) obj = adt::parseObj(adt::readFile(*p));
-        std::optional<adt::TexFile> tex;
-        if (auto p = resolveSibling(rootPath, opts.texArg, "_tex0.adt")) tex = adt::parseTex(adt::readFile(*p));
+        auto announce = [](const std::string& note) { std::cerr << "husk: note: " << note << "\n"; };
+        auto warn = [](const std::string& warning) { std::cerr << "husk: warning: " << warning << "\n"; };
+
+        Sidecar<adt::ObjFile> objSidecar = loadSidecar(rootPath, opts.objArg, "_obj0.adt", "--obj", &adt::parseObj);
+        Sidecar<adt::TexFile> texSidecar = loadSidecar(rootPath, opts.texArg, "_tex0.adt", "--tex", &adt::parseTex);
+        announce(objSidecar.note);
+        announce(texSidecar.note);
+        if (!objSidecar.warning.empty()) warn(objSidecar.warning);
+        if (!texSidecar.warning.empty()) warn(texSidecar.warning);
+        std::optional<adt::ObjFile>& obj = objSidecar.value;
+        std::optional<adt::TexFile>& tex = texSidecar.value;
+
+        // The WDT is only needed to read texture layers. An auto-located one
+        // that's missing drops the layers with a warning; an explicit --wdt
+        // that doesn't parse fails, like any other explicit path.
         std::optional<uint32_t> wdtFlags;
         if (tex) {
+            bool explicitWdt = opts.wdtArg != "auto";
             std::filesystem::path wdtPath =
-                opts.wdtArg == "auto" ? rootPath.parent_path() / (tile.map + ".wdt") : std::filesystem::path(opts.wdtArg);
-            wdtFlags = adt::parseWdtFlags(adt::readFile(wdtPath));
+                explicitWdt ? std::filesystem::path(opts.wdtArg) : rootPath.parent_path() / (tile.map + ".wdt");
+            if (explicitWdt) {
+                wdtFlags = adt::parseWdtFlags(adt::readFile(wdtPath));
+                announce("--wdt: " + wdtPath.string() + " (explicit)");
+            } else {
+                std::string problem = "not found";
+                if (std::filesystem::exists(wdtPath)) {
+                    try {
+                        wdtFlags = adt::parseWdtFlags(adt::readFile(wdtPath));
+                    } catch (const std::exception& e) {
+                        problem = std::string("unreadable: ") + e.what();
+                    }
+                }
+                if (wdtFlags) {
+                    announce("--wdt: " + wdtPath.string() + " (beside the tile)");
+                } else {
+                    warn("expected the map WDT at " + wdtPath.string() +
+                         " (its MPHD flags pick the alpha-map format), " + problem +
+                         " -- exporting without texture layers (pass --wdt <path>, or --tex none to silence this)");
+                    tex.reset();
+                }
+            }
         }
 
         std::unique_ptr<ListfileIndex> listfile;
-        if (!opts.listfile.empty()) listfile = loadListfileCached(opts.listfile);
+        std::string listfilePath = unlessNone(opts.listfile);
+        std::string listfileRoot = unlessNone(opts.listfileRoot);
+        if (!listfilePath.empty()) {
+            listfile = loadListfileCached(listfilePath);
+            announce("listfile: " + std::to_string(listfile->size()) + " rows from " + listfilePath);
+        } else {
+            announce("listfile: none (textures stay unresolved, name-table paths stay names)");
+        }
 
+        adtinput::GamePathResolutions gamePaths;
+        if (listfile) gamePaths = sources::fileDataIdsForGamePaths(*listfile, adtinput::gamePaths(obj, tex));
         adtinput::TextureResolutions textures;
         adtinput::GroundEffectDefinitions groundEffects;
         if (tex) {
             if (listfile) {
-                for (uint32_t fdid : textureIds(*tex)) textures.emplace(fdid, resolveTexture(fdid, *listfile, opts.listfileRoot));
+                for (uint32_t fdid : adtinput::textureFileDataIds(*tex, gamePaths)) {
+                    textures.emplace(fdid, resolveTexture(fdid, *listfile, listfileRoot));
+                }
             }
-            if (!opts.db2Dir.empty() && !opts.dbdDir.empty()) groundEffects = loadGroundEffects(opts.db2Dir, opts.dbdDir);
+            std::string note;
+            groundEffects = loadGroundEffects(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), note);
+            announce(note);
         }
 
         adtinput::TileSources sources{root, obj, tex, wdtFlags, tile.map, tile.x, tile.y};
-        canon::Terrain terrain = adtinput::buildCanonTerrain(sources, textures, groundEffects);
+        canon::Terrain terrain = adtinput::buildCanonTerrain(sources, {textures, groundEffects, gamePaths});
         if (listfile) nameModelRefs(terrain, *listfile);
 
         if (opts.listModels) {
@@ -447,15 +525,16 @@ int exportTerrain(int argc, char** args) {
 
 // Three passes over the world, each parallel, each resumable (an output
 // whose manifest.json exists is skipped -- every writer writes it last):
-//   1. collect model FileDataIDs (every tile's _obj0 MDDF + every
-//      GroundEffectDoodad model),
+//   1. read every tile's _obj0/_tex0 once for what it references: model
+//      FileDataIDs and name-table paths (resolved against the listfile in
+//      one pass for the whole world), plus every GroundEffectDoodad model,
 //   2. export each model once to models/<fdid>.canon.bundle via
 //      exportOneModel --bundle-only (one shared listfile, no DB2 enrichment),
 //   3. export each tile to maps/<map>/<tile>.bundle, terrain textures shared
 //      under textures/, uris only to outputs that exist.
 // Failures are logged to errors.log and never stop the run.
 int exportWorld(int argc, char** args) {
-    CLI::App app{"husk export-world -- WIP: every ADT tile of every map to a canonical scene", "husk export-world"};
+    CLI::App app{"husk export-world -- every ADT tile of every map to a canonical scene", "husk export-world"};
     ExportWorldOptions opts;
     addExportWorldOptions(app, opts);
     int exitCode = 0;
@@ -474,26 +553,39 @@ int exportWorld(int argc, char** args) {
         std::cout << tiles.size() << " tiles, " << jobs << " threads" << std::endl;
 
         std::unique_ptr<ListfileIndex> listfile = loadListfileCached(opts.listfile);
-        adtinput::GroundEffectDefinitions groundEffects;
-        if (!opts.db2Dir.empty() && !opts.dbdDir.empty()) groundEffects = loadGroundEffects(opts.db2Dir, opts.dbdDir);
+        std::string groundEffectNote;
+        const adtinput::GroundEffectDefinitions groundEffects =
+            loadGroundEffects(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), groundEffectNote);
+        std::cout << groundEffectNote << std::endl;
 
-        // Pass 1: model references.
+        // Pass 1: references.
         std::set<uint32_t> modelIds;
         for (const auto& [id, effect] : groundEffects) {
             for (const canon::GroundEffectDoodad& d : effect.doodads) {
                 if (auto fdid = std::get_if<canon::FileDataId>(&d.model.id)) modelIds.insert(fdid->value);
             }
         }
-        std::mutex modelIdsMutex;
-        if (!opts.skipModels) {
+        std::set<std::string> namedPaths;
+        std::set<std::string> namedModelPaths;
+        std::mutex referencesMutex;
+        {
             Progress progress("collect", tiles.size());
             parallelFor(tiles.size(), jobs, [&](size_t i) {
                 try {
-                    if (auto p = resolveSibling(tiles[i].root, "auto", "_obj0.adt", true)) {
-                        adt::ObjFile obj = adt::parseObj(adt::readFile(*p));
-                        std::lock_guard<std::mutex> lock(modelIdsMutex);
-                        for (const adt::DoodadPlacement& d : obj.doodads) {
-                            if (d.flags & adt::kMddfNameIsFileDataId) modelIds.insert(d.nameId);
+                    // Unreadable sidecars are logged once, by pass 3, when the tile itself exports.
+                    std::optional<adt::ObjFile> obj =
+                        loadSidecar(tiles[i].root, "auto", "_obj0.adt", "--obj", &adt::parseObj).value;
+                    std::optional<adt::TexFile> tex =
+                        loadSidecar(tiles[i].root, "auto", "_tex0.adt", "--tex", &adt::parseTex).value;
+                    std::lock_guard<std::mutex> lock(referencesMutex);
+                    for (const std::string& path : adtinput::gamePaths(obj, tex)) namedPaths.insert(path);
+                    if (obj) {
+                        for (const adt::DoodadPlacement& d : obj->doodads) {
+                            if (d.flags & adt::kMddfNameIsFileDataId) {
+                                modelIds.insert(d.nameId);
+                            } else {
+                                namedModelPaths.insert(obj->doodadNames.at(d.nameId));
+                            }
                         }
                     }
                 } catch (...) {
@@ -502,6 +594,14 @@ int exportWorld(int argc, char** args) {
                 progress.tick();
             });
         }
+        const adtinput::GamePathResolutions gamePaths =
+            sources::fileDataIdsForGamePaths(*listfile, {namedPaths.begin(), namedPaths.end()});
+        for (const std::string& path : namedModelPaths) {
+            auto it = gamePaths.find(path);
+            if (it != gamePaths.end()) modelIds.insert(it->second);
+        }
+        std::cout << "resolved " << gamePaths.size() << "/" << namedPaths.size()
+                  << " name-table paths against the listfile" << std::endl;
 
         // Pass 2: models, in-process, one shared listfile. --db2-dir/--dbd-dir
         // none and an empty config keep per-model DB2 enrichment (legacy glTF
@@ -546,9 +646,11 @@ int exportWorld(int argc, char** args) {
 
         std::unordered_set<uint32_t> exportedModels;
         for (const auto& entry : std::filesystem::directory_iterator(modelsDir)) {
-            if (!std::filesystem::exists(entry.path() / "manifest.json")) continue;
             std::string name = entry.path().filename().string();
-            exportedModels.insert(static_cast<uint32_t>(std::stoul(name.substr(0, name.find('.')))));
+            size_t digits = name.find_first_not_of("0123456789");
+            if (digits == 0 || name.compare(digits, std::string::npos, ".canon.bundle") != 0) continue;
+            if (!std::filesystem::exists(entry.path() / "manifest.json")) continue;
+            exportedModels.insert(static_cast<uint32_t>(std::stoul(name.substr(0, digits))));
         }
 
         // Pass 3: tiles.
@@ -560,7 +662,7 @@ int exportWorld(int argc, char** args) {
                 wdtFlags[t.map] = adt::parseWdtFlags(adt::readFile(wdt));
             } catch (...) {
                 wdtFlags[t.map] = std::nullopt;
-                errors.add("wdt", wdt.string(), exceptionMessage(std::current_exception()));
+                errors.add("wdt", wdt.string(), exceptionMessage(std::current_exception()) + " (tiles export untextured)");
             }
         }
         SharedTextures sharedTextures(texturesDir, *listfile, opts.listfileRoot);
@@ -572,26 +674,30 @@ int exportWorld(int argc, char** args) {
                 if (!std::filesystem::exists(bundle / "manifest.json")) {
                     TileName name = parseTileName(t.root);
                     adt::RootFile root = adt::parseRoot(adt::readFile(t.root));
-                    std::optional<adt::ObjFile> obj;
-                    if (auto p = resolveSibling(t.root, "auto", "_obj0.adt", true)) obj = adt::parseObj(adt::readFile(*p));
+                    Sidecar<adt::ObjFile> objSidecar = loadSidecar(t.root, "auto", "_obj0.adt", "--obj", &adt::parseObj);
+                    if (!objSidecar.warning.empty()) errors.add("obj", t.root.string(), objSidecar.warning);
+                    std::optional<adt::ObjFile>& obj = objSidecar.value;
                     std::optional<adt::TexFile> tex;
                     const std::optional<uint32_t>& flags = wdtFlags.at(t.map);
                     if (flags) {
-                        if (auto p = resolveSibling(t.root, "auto", "_tex0.adt", true)) tex = adt::parseTex(adt::readFile(*p));
+                        Sidecar<adt::TexFile> texSidecar =
+                            loadSidecar(t.root, "auto", "_tex0.adt", "--tex", &adt::parseTex);
+                        if (!texSidecar.warning.empty()) errors.add("tex", t.root.string(), texSidecar.warning);
+                        tex = std::move(texSidecar.value);
                     }
 
                     std::filesystem::path relToOut = std::filesystem::relative(out, bundle);
                     adtinput::TextureResolutions textures;
                     writers::AssetUris textureUris;
                     if (tex) {
-                        for (uint32_t fdid : textureIds(*tex)) {
+                        for (uint32_t fdid : adtinput::textureFileDataIds(*tex, gamePaths)) {
                             auto [ref, filename] = sharedTextures.get(fdid);
                             textures.emplace(fdid, ref);
                             if (!filename.empty()) textureUris.emplace(fdid, (relToOut / "textures" / filename).generic_string());
                         }
                     }
                     adtinput::TileSources sources{root, obj, tex, flags, name.map, name.x, name.y};
-                    canon::Terrain terrain = adtinput::buildCanonTerrain(sources, textures, groundEffects);
+                    canon::Terrain terrain = adtinput::buildCanonTerrain(sources, {textures, groundEffects, gamePaths});
                     nameModelRefs(terrain, *listfile);
 
                     writers::AssetUris modelUris;

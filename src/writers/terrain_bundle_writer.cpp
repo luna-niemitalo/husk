@@ -282,8 +282,6 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     w.value("0.1.0");
     w.key("kind");
     w.value("terrain_tile");
-    w.key("status");
-    w.value("wip");
     w.key("exported_at");
     w.value(isoTimestampUtc());
     w.key("producer");

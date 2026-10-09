@@ -90,6 +90,12 @@ bool noneOptOutSupported(const std::string& subName, const std::string& longName
     if (subName == "resolve") return longName == "--listfile" || longName == "--listfile-root";
     if (subName == "db2-export") return longName == "--dbd-dir";
     if (subName == "appearance-string") return longName == "--db2-dir" || longName == "--dbd-dir";
+    if (subName == "export-terrain") {
+        return longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile" ||
+               longName == "--listfile-root";
+    }
+    // export-world's --listfile/--listfile-root are required: no off-state.
+    if (subName == "export-world") return longName == "--db2-dir" || longName == "--dbd-dir";
     return false;
 }
 
@@ -383,11 +389,11 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     husk::commands::addResolveOptions(*resolveSub, opts.resolveOpts);
 
     CLI::App* exportTerrainSub =
-        root.add_subcommand("export-terrain", "WIP: export one ADT tile to a canonical terrain bundle");
+        root.add_subcommand("export-terrain", "export one ADT tile to a canonical terrain bundle");
     husk::commands::addExportTerrainOptions(*exportTerrainSub, opts.exportTerrainOpts);
 
     CLI::App* exportWorldSub =
-        root.add_subcommand("export-world", "WIP: export every ADT tile of every map to a canonical scene");
+        root.add_subcommand("export-world", "export every ADT tile of every map to a canonical scene");
     husk::commands::addExportWorldOptions(*exportWorldSub, opts.exportWorldOpts);
 }
 
@@ -559,9 +565,9 @@ int main(int argc, char** argv) {
         "                               validate/normalize a husk-appearance/1 string (see --help)\n"
         "  resolve <file.m2> [args...]  print texture-resolution ledger as JSON (see --help)\n"
         "  export-terrain <tile.adt> <out-dir>\n"
-        "                               WIP: export one ADT tile to a canonical terrain bundle\n"
+        "                               export one ADT tile to a canonical terrain bundle\n"
         "  export-world <maps-root> <out-dir> --listfile F --listfile-root D [--map NAME]...\n"
-        "                               WIP: every tile of every map, parallel, resumable\n"
+        "                               every tile of every map, parallel, resumable\n"
         "  --version, -V                print the build version and exit\n"
         "\n"
         "run `husk <command> --help` for a command's full usage and defaults.\n";

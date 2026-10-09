@@ -205,9 +205,76 @@ RootFile parseRoot(const std::vector<uint8_t>& bytes) {
     return out;
 }
 
+namespace {
+
+std::vector<uint32_t> readU32Array(const Chunk& c, const char* what) {
+    if (c.size % 4 != 0) {
+        throw ParseError(std::string(what) + ": expected size multiple of 4, got " + std::to_string(c.size));
+    }
+    std::vector<uint32_t> out(c.size / 4);
+    std::memcpy(out.data(), c.data, c.size);
+    return out;
+}
+
+// The NUL-terminated string starting at `offset` inside a string-block chunk.
+std::string readCString(const Chunk& block, uint32_t offset, const char* what) {
+    if (offset >= block.size) {
+        throw ParseError(std::string(what) + ": expected string offset < " + std::to_string(block.size) + ", got " +
+                         std::to_string(offset));
+    }
+    const uint8_t* begin = block.data + offset;
+    const uint8_t* end = std::find(begin, block.data + block.size, uint8_t{0});
+    if (end == block.data + block.size) {
+        throw ParseError(std::string(what) + ": string at offset " + std::to_string(offset) + " is not NUL-terminated");
+    }
+    return std::string(begin, end);
+}
+
+// Every NUL-terminated string in a string block, in order (MTEX has no
+// offset table of its own). Trailing padding NULs produce no entries.
+std::vector<std::string> readStringBlock(const Chunk& block) {
+    std::vector<std::string> out;
+    uint32_t offset = 0;
+    while (offset < block.size) {
+        if (block.data[offset] == 0) {
+            ++offset;
+            continue;
+        }
+        out.push_back(readCString(block, offset, block.tag.c_str()));
+        offset += static_cast<uint32_t>(out.back().size()) + 1;
+    }
+    return out;
+}
+
+// MMDX+MMID / MWMO+MWID: the id table holds one byte offset into the string
+// block per name. Either chunk alone is malformed; neither means "no names".
+std::vector<std::string> readNameTable(const std::vector<Chunk>& chunks, const char* blockTag, const char* idTag) {
+    std::optional<Chunk> block = findChunk(chunks, blockTag);
+    std::optional<Chunk> ids = findChunk(chunks, idTag);
+    if (!block && !ids) return {};
+    if (!block || !ids) {
+        throw ParseError(std::string(blockTag) + "/" + idTag + ": expected both chunks or neither, got only " +
+                         (block ? blockTag : idTag));
+    }
+    std::vector<std::string> out;
+    for (uint32_t offset : readU32Array(*ids, idTag)) out.push_back(readCString(*block, offset, blockTag));
+    return out;
+}
+
+void requireNameIndex(uint32_t nameId, const std::vector<std::string>& names, const char* what, const char* idTag) {
+    if (nameId >= names.size()) {
+        throw ParseError(std::string(what) + ": name-table placement expected nameId < " + std::to_string(names.size()) +
+                         " (" + idTag + " entries), got " + std::to_string(nameId));
+    }
+}
+
+}  // namespace
+
 ObjFile parseObj(const std::vector<uint8_t>& bytes) {
     std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
     ObjFile out;
+    out.doodadNames = readNameTable(chunks, "MMDX", "MMID");
+    out.mapObjectNames = readNameTable(chunks, "MWMO", "MWID");
     if (std::optional<Chunk> mddf = findChunk(chunks, "MDDF")) {
         if (mddf->size % kMddfSize != 0) {
             throw ParseError("MDDF: expected size multiple of 36, got " + std::to_string(mddf->size));
@@ -222,6 +289,7 @@ ObjFile parseObj(const std::vector<uint8_t>& bytes) {
             p.rotation = readVec3(d, n, b + 20, "MDDF.rotation");
             p.scale = read<uint16_t>(d, n, b + 32, "MDDF.scale");
             p.flags = read<uint16_t>(d, n, b + 34, "MDDF.flags");
+            if (!(p.flags & kMddfNameIsFileDataId)) requireNameIndex(p.nameId, out.doodadNames, "MDDF", "MMID");
             out.doodads.push_back(p);
         }
     }
@@ -243,41 +311,30 @@ ObjFile parseObj(const std::vector<uint8_t>& bytes) {
             p.doodadSet = read<uint16_t>(d, n, b + 58, "MODF.doodadSet");
             p.nameSet = read<uint16_t>(d, n, b + 60, "MODF.nameSet");
             p.scale = read<uint16_t>(d, n, b + 62, "MODF.scale");
+            if (!(p.flags & kModfNameIsFileDataId)) requireNameIndex(p.nameId, out.mapObjectNames, "MODF", "MWID");
             out.mapObjects.push_back(p);
         }
     }
     return out;
 }
 
-namespace {
-
-std::vector<uint32_t> readU32Array(const Chunk& c, const char* what) {
-    if (c.size % 4 != 0) {
-        throw ParseError(std::string(what) + ": expected size multiple of 4, got " + std::to_string(c.size));
-    }
-    std::vector<uint32_t> out(c.size / 4);
-    std::memcpy(out.data(), c.data, c.size);
-    return out;
-}
-
-}  // namespace
-
 TexFile parseTex(const std::vector<uint8_t>& bytes) {
     std::vector<Chunk> chunks = readChunksReversed(bytes.data(), bytes.size());
     TexFile out;
     std::optional<Chunk> mdid = findChunk(chunks, "MDID");
     std::optional<Chunk> mtex = findChunk(chunks, "MTEX");
-    // Untextured tiles still ship an MTEX holding only an empty string (findings doc).
-    bool emptyMtex = mtex && std::all_of(mtex->data, mtex->data + mtex->size, [](uint8_t b) { return b == 0; });
-    if (!mdid && !emptyMtex) {
-        throw ParseError("_tex0: expected an MDID chunk (FileDataID texture list) or an empty MTEX; "
-                         "MTEX filename tables are not implemented");
+    if (!mdid && !mtex) throw ParseError("_tex0: expected an MDID or MTEX chunk (the tile's texture list), got neither");
+    // MDID wins when both exist. An MTEX holding only an empty string is an
+    // untextured tile (WIKI_FINDINGS/WORLD.md), and reads as zero names.
+    if (mdid) {
+        out.diffuseIds = readU32Array(*mdid, "MDID");
+    } else {
+        out.diffuseNames = readStringBlock(*mtex);
     }
-    if (mdid) out.diffuseIds = readU32Array(*mdid, "MDID");
     if (std::optional<Chunk> mhid = findChunk(chunks, "MHID")) {
         out.heightIds = readU32Array(*mhid, "MHID");
-        if (out.heightIds.size() != out.diffuseIds.size()) {
-            throw ParseError("MHID: expected " + std::to_string(out.diffuseIds.size()) + " entries (one per MDID), got " +
+        if (out.heightIds.size() != out.textureCount()) {
+            throw ParseError("MHID: expected " + std::to_string(out.textureCount()) + " entries (one per texture), got " +
                              std::to_string(out.heightIds.size()));
         }
     }
@@ -309,9 +366,9 @@ TexFile parseTex(const std::vector<uint8_t>& bytes) {
                                    read<uint32_t>(mcly->data, mcly->size, b + 4, "MCLY.flags"),
                                    read<uint32_t>(mcly->data, mcly->size, b + 8, "MCLY.offsetInMCAL"),
                                    read<uint32_t>(mcly->data, mcly->size, b + 12, "MCLY.effectId")};
-                if (layer.textureId >= out.diffuseIds.size()) {
+                if (layer.textureId >= out.textureCount()) {
                     throw ParseError("MCLY in MCNK #" + std::to_string(ci - 1) + ": expected textureId < " +
-                                     std::to_string(out.diffuseIds.size()) + ", got " + std::to_string(layer.textureId));
+                                     std::to_string(out.textureCount()) + ", got " + std::to_string(layer.textureId));
                 }
                 tc.layers.push_back(layer);
             }

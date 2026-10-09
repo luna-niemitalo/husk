@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "../listfile_index.hpp"
 
@@ -64,5 +66,18 @@ std::optional<std::filesystem::path> pathForFileDataId(const husk::ListfileIndex
 // `fdid` has no row -- same "primary path unavailable" convention as the
 // other two functions here.
 std::optional<std::string> contentNameForFileDataId(const husk::ListfileIndex& listfile, uint32_t fdid);
+
+// A path as an in-game file reference stores it (ADT MMDX/MWMO/MTEX name
+// tables: backslashes, mixed case, and the pre-M2 `.mdx`/`.mdl` model
+// extensions the client itself rewrites to `.m2`), in the listfile's own
+// spelling: lowercase, forward slashes, `.m2`.
+std::string listfileSpelling(const std::string& gamePath);
+
+// Batch reverse lookup for game-file paths (see `listfileSpelling`): one
+// ListfileIndex::forEach pass for all of `gamePaths`, rather than one
+// linear scan each like `fileDataIdForPath`. Keyed by the caller's original
+// spelling; a path with no listfile row is simply absent from the result.
+std::unordered_map<std::string, uint32_t> fileDataIdsForGamePaths(const husk::ListfileIndex& listfile,
+                                                                  const std::vector<std::string>& gamePaths);
 
 }  // namespace husk::sources

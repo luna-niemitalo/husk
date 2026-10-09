@@ -62,6 +62,7 @@ int main(int argc, char** argv) {
                  husk::test::testTextureTransformTranslationSkin());
     printFixture("HUSK_TEST_FOX_M2", husk::test::testFoxM2());
     printFixture("HUSK_TEST_FOX_SKIN", husk::test::testFoxSkin());
+    printFixture("HUSK_TEST_ADT_TILE", husk::test::testAdtTile());
     printFixture("HUSK_TEST_DBD_DIR", husk::test::testDbdDir());
 #ifdef HUSK_GLTF_VALIDATOR
     std::cerr << "husk-tests:   HUSK_GLTF_VALIDATOR: " << HUSK_GLTF_VALIDATOR << "\n";

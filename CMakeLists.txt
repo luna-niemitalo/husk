@@ -122,6 +122,7 @@ add_library(husk-lib STATIC
   src/sources/db2_cache.cpp
   src/sources/listfile_catalog.cpp
   src/sources/texture_catalog.cpp
+  src/sources/texture_payload.cpp
   src/sources/catalog.cpp
   src/db2table.cpp
   src/chrmodel_db2.cpp
@@ -130,6 +131,7 @@ add_library(husk-lib STATIC
   src/modelfiledata_db2.cpp
   src/itemappearance_db2.cpp
   src/creature_geoset_db2.cpp
+  src/groundeffect_db2.cpp
   src/chrrace_db2.cpp
   src/animationdata_db2.cpp
   src/cmd_db2.cpp
@@ -208,10 +210,13 @@ if(HUSK_BUILD_TESTS)
     tests/test_writers_common.cpp
     tests/test_writers_gltf_lean.cpp
     tests/test_writers_bundle.cpp
+    tests/test_writers_terrain_bundle.cpp
     tests/test_skin.cpp
     tests/test_skel.cpp
     tests/test_bone.cpp
     tests/test_phys.cpp
+    tests/test_adt.cpp
+    tests/test_adt_canon_input.cpp
     tests/test_blp.cpp
     tests/test_db2.cpp
     tests/test_db2_offsetmap.cpp
@@ -240,10 +245,12 @@ if(HUSK_BUILD_TESTS)
     tests/test_integration_weapons.cpp
     tests/test_integration_texture_transform.cpp
     tests/test_integration_lights.cpp
+    tests/test_integration_terrain.cpp
     tests/test_cli.cpp
     tests/test_cli_textures.cpp
     tests/test_cli_slim_textures.cpp
     tests/test_cli_export_canon.cpp
+    tests/test_cli_export_terrain.cpp
     tests/test_cli_resolve.cpp
     tests/test_cli_batch.cpp
     tests/test_cli_config.cpp

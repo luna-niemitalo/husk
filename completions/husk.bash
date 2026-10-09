@@ -4,7 +4,7 @@ _husk_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve"
+    local subcommands="export info dump-chunks db2-info db2-export db2-build blp-export appearance-string resolve export-terrain export-world"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "$subcommands" -- "$cur"))
@@ -116,7 +116,7 @@ _husk_completions() {
                     ;;
             esac
             if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--help -h --config --input -i --output -o --from-list --output-dir --skin -s --textures -t --textures-out --explain-textures --debug --compare-canon --slim-textures --skin-dir --anim -a --skel --lod --bones-dir --phys --collision --db2-dir --dbd-dir --char-layout-id --customization-choice-ids --appearance --chr-model-id --creature-display-id --object-skin-texture-id --knowledge-db --listfile --listfile-root" -- "$cur"))
+                COMPREPLY=($(compgen -W "--help -h --config --input -i --output -o --from-list --output-dir --skin -s --textures -t --textures-out --explain-textures --debug --export-canon --bundle-only --slim-textures --skin-dir --anim -a --skel --lod --bones-dir --phys --collision --db2-dir --dbd-dir --char-layout-id --customization-choice-ids --appearance --chr-model-id --creature-display-id --object-skin-texture-id --knowledge-db --listfile --listfile-root" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))
@@ -281,6 +281,88 @@ _husk_completions() {
             esac
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--help -h --config --input -i --skin -s --skin-dir --lod --textures -t --textures-out --listfile --listfile-root --object-skin-texture-id" -- "$cur"))
+                return
+            fi
+            COMPREPLY=($(compgen -f -- "$cur"))
+            ;;
+        export-terrain)
+            case "$prev" in
+                --config)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --obj)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --tex)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --wdt)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --listfile)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --listfile-root)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --db2-dir)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --dbd-dir)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --models-dir)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+            esac
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--help -h --config --obj --tex --wdt --listfile --listfile-root --db2-dir --dbd-dir --models-dir --list-models" -- "$cur"))
+                return
+            fi
+            COMPREPLY=($(compgen -f -- "$cur"))
+            ;;
+        export-world)
+            case "$prev" in
+                --config)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --map)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --listfile)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+                --listfile-root)
+                    compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --db2-dir)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --dbd-dir)
+                    COMPREPLY=($(compgen -W "none" -- "$cur")); compopt -o filenames 2>/dev/null; COMPREPLY+=($(compgen -d -- "$cur"))
+                    return
+                    ;;
+                --jobs)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+            esac
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--help -h --config --map --listfile --listfile-root --db2-dir --dbd-dir --jobs --skip-models" -- "$cur"))
                 return
             fi
             COMPREPLY=($(compgen -f -- "$cur"))

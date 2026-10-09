@@ -85,13 +85,16 @@ tool, `blp/`) converts BLP2 textures to PNG.
   exists; `REFACTOR/README.md` is the current single source for this).
   Everything under Current/Boundaries below otherwise still describes the
   real tree; only the in-progress refactor's own files are ahead of it.
-- **WIP world export (2026-10-08, throwaway-shaped, to be redone)**:
-  `husk export-terrain` (ADT tile → canonical terrain bundle: heightfield,
-  texture layers, liquid, doodad placements, ground-effect rules),
-  `husk export --bundle-only`, `husk export-world` (parallel, resumable
-  whole-map/whole-world batch), `tools/export_terrain_scene.nu`. Scope,
-  verified facts and open items: `TODO/WORLD/ADT_EXPORT_FINDINGS.md`.
-  Structures (WMO geometry) are out of scope.
+- **World export (ADT terrain)**: `husk export-terrain` (one ADT tile →
+  terrain bundle: heightfield, 0–8 splat layers + alpha, ground-cover
+  rules, `MH2O` liquid, world-frame `MDDF`/`MODF` placements, both
+  FileDataID- and name-table-named) and `husk export-world` (every tile of
+  a map or world, parallel, resumable, models exported once via `husk
+  export --bundle-only`, ground textures shared). Verified facts:
+  `WIKI_FINDINGS/ADT.md`; consumer schema: `REFACTOR/BUNDLE_FORMAT.md`'s
+  "Terrain tile bundles"; open items: `TODO/WORLD/ADT_TERRAIN_TODO.md`,
+  `WORLD_PLACEMENT_TODO.md`. WMO geometry is not implemented, so `MODF`
+  placements are identity-only. MantleCore is the bundle's real consumer.
 - **Target**: a real Blender import path for modern (Legion+ chunked) M2 — see
   `DESIGN.md`'s Goal section. All 8 roadmap stages are now done, including stage 7
   (output hardening: real exports now run through the Khronos glTF-Validator *and*
@@ -186,6 +189,11 @@ tool, `blp/`) converts BLP2 textures to PNG.
   — locally-extracted files only, same "user-populated, never CASC" tier as
   every other sidecar above (see `DESIGN.md`'s Non-goals' clarified
   wording).
+- ADT terrain tiles (`src/adt.cpp`): root `<map>_<x>_<y>.adt`, its `_obj0`/
+  `_tex0` siblings, and the map `.wdt`'s `MPHD` flags -- same local,
+  user-extracted tier as every sidecar above. Name-table paths
+  (`MMDX`/`MWMO`/`MTEX`) are resolved through `--listfile` only
+  (`sources::fileDataIdsForGamePaths`).
 - `.blp` texture files (separate `blp/` Python tool) — container hand-rolled, block
   decode delegated to Pillow via a synthetic DDS wrapper.
 - No network access anywhere in this tool. No user input beyond CLI argv (parsed in
@@ -249,12 +257,14 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   every bounded reproduction — needs a live-attach investigation, not more
   guessing from a killed run) is the one open legacy-pipeline item with no
   current owner.
-- **WIP terrain export (2026-10-08)**: working end to end on a 9-tile
-  Elwynn block (`example_exports/elwynn_terrain/`). If it's picked up
-  again, start from `TODO/WORLD/ADT_EXPORT_FINDINGS.md`'s open-questions
-  list. The top items are the ground-cover scatter placing nothing in
-  grassy areas, and model bundles lacking the M2 render blend mode.
-  Uncommitted as of this entry.
+- **Terrain export (2026-10-09)**: promoted from WIP to a tested,
+  documented feature. Open items, in order: ground-cover scatter placing
+  nothing on grassy quads (`TODO/WORLD/ADT_TERRAIN_TODO.md` §1), confirming
+  MantleCore's south-edge seam cracks are in the source bytes (§2),
+  placement yaw sign (`WORLD_PLACEMENT_TODO.md`). `tests/
+  test_integration_terrain.cpp` is written against a real tile
+  (`test_data/world/maps/azeroth/azeroth_32_49.adt` + siblings + WDT) but
+  has never run: copy that tile in and run it once.
 - **Hazards** (standing facts, not narrative — see `CLAUDE_HISTORY.md` for
   the sessions that established each one):
   - `tools/corpus_scan_tasks/unfillable_texture_task.py` is the one true

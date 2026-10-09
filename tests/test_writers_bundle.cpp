@@ -534,3 +534,23 @@ TEST_CASE(
     INFO("first offending slice (if any): ", firstFailure.value_or("none"));
     CHECK(!firstFailure.has_value());
 }
+
+TEST_CASE("writeBundle: a material's framebuffer blend is written by name, and omitted when unknown") {
+    canon::Model model = buildSyntheticModel();
+    REQUIRE(model.materials.size() == 1);
+    model.materials[0].framebufferBlend = canon::FramebufferBlend::AlphaKey;
+    canon::Material unknown = model.materials[0];
+    unknown.ref.id = canon::RecordIndex{1};
+    unknown.framebufferBlend.reset();
+    model.materials.push_back(unknown);
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-framebuffer-blend";
+    fs::remove_all(dir);
+
+    writers::writeBundle(model, dir);
+
+    nlohmann::json manifest = parseManifest(dir);
+    const nlohmann::json& materials = manifest["resources"]["materials"];
+    REQUIRE(materials.size() == 2);
+    CHECK(materials[0]["framebuffer_blend"] == "alpha_key");
+    CHECK_FALSE(materials[1].contains("framebuffer_blend"));
+}

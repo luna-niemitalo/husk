@@ -9,8 +9,9 @@
 #include "canon_primitives.hpp"
 #include "canon_ref.hpp"
 
-// husk::canon: terrain tile -- WIP (TODO/WORLD/ADT_EXPORT_FINDINGS.md), not
-// yet reviewed the way canon::Model's pieces were. Pure value types.
+// husk::canon: terrain tile -- one ADT tile's heightfield, texture layers,
+// ground-cover rules, liquid and placements. Pure value types; built by
+// adt_canon_input.hpp, written by writers/terrain_bundle_writer.hpp.
 //
 // Frame: WoW world space, yards. +X north, +Y west, +Z up -- the frame
 // MCNK.position is already in. Every on-disk frame variant (MDDF/MODF's

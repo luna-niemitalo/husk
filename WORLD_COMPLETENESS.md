@@ -32,14 +32,19 @@ target once husk *does* touch it, so a future implementation session
 starts with the shape of the problem already scoped instead of
 re-deriving it chunk-by-chunk from wowdev.wiki.
 
-## Current state: nothing here is implemented yet
+## Current state: ADT terrain implemented, WMO not started
 
-**Exception, 2026-10-08:** a WIP, throwaway-shaped ADT terrain exporter
-exists (`husk export-terrain`, canon bundle output): heightmap, normals,
-holes, texture layers + alpha maps, `MH2O` liquid, `MDDF` doodad
-placements, ground-effect rules. The rows below were not updated for it,
-because it will be redone properly. See `TODO/WORLD/ADT_EXPORT_FINDINGS.md`
-for what it covers and what it verified.
+**ADT terrain is implemented**: `husk export-terrain`/`export-world` read a
+tile's root/`_obj0`/`_tex0` files and the map WDT's `MPHD` flags and write
+a terrain bundle (`README.md`, `REFACTOR/BUNDLE_FORMAT.md`'s "Terrain tile
+bundles"). The rows that implementation covers read `full` / `bundle`
+below; verified facts are in `WIKI_FINDINGS/ADT.md`, open items in
+`TODO/WORLD/ADT_TERRAIN_TODO.md`. **Everything WMO-shaped is still
+unimplemented**: WMO placements are carried as identity-only references,
+and no WMO geometry exports.
+
+The paragraph below is the original framing from before any of this
+existed, kept because it still describes every row marked `none`.
 
 Every row below reads `none` / `none` for Parse/Consumption. That's not a
 placeholder — `DESIGN.md`'s Non-goals section is explicit: WMO and ADT are
@@ -124,6 +129,7 @@ multi-format, not-yet-started scope:
 | `diagnostic` | Visible via `husk info`/`dump-chunks`-equivalent; never reaches the exported `.glb` |
 | `extras` | Written into the `.glb` as glTF `extras` — present in the file, inert to any renderer that doesn't specifically look for it |
 | `native` | A real core-glTF construct (accessor, node, mesh, material field) — renders in Blender with zero extra tooling |
+| `bundle` | Written into husk's native bundle (`REFACTOR/BUNDLE_FORMAT.md`) as first-class data, with no glTF projection yet — the terrain path's output |
 
 **glTF ceiling** — the honest answer to "what's the best this concept can
 become, and why":
@@ -152,13 +158,13 @@ world space, at every level that concept appears.
 
 | Feature | Format(s) & chunks | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|---|
-| Map root / tile existence | `.wdt`: `MPHD`, `MAIN`, `MAID`/`MAI2` (FileDataID variants) | none | none | n/a, infrastructure | which of a map's up to 64×64 ADT tiles actually exist; drives which files to even look for, not a renderable concept itself |
+| Map root / tile existence | `.wdt`: `MPHD`, `MAIN`, `MAID`/`MAI2` (FileDataID variants) | descriptor (`MPHD` flags only) | none | n/a, infrastructure | `MPHD`'s flags pick the alpha-map format; `export-world` finds tiles by directory listing rather than `MAIN`/`MAID` (`TODO/WORLD/WDT_TODO.md`). Which of a map's up to 64×64 ADT tiles actually exist; drives which files to even look for, not a renderable concept itself |
 | Global single-WMO map placement | `.wdt`: `MWMO` + `MODF` | none | none | native-possible, not done | the "this whole map is one WMO" case (an instance/dungeon) — same `MODF` record shape as ADT's own WMO placement below, just at map scope instead of per-tile; real-data-verified: `MODF.flags & 0x8` can omit `MWMO` entirely (35/228 real global-WMO `.wdt` files), `nameId` then holding a real FileDataID directly — undocumented on `WDT.md` itself — see `TODO/WORLD/WDT_TODO.md` |
-| Doodad (M2) placement onto a tile | ADT: `MDDF` + `MMDX`/`MMID` name tables | none | none | native-possible, not done | position/rotation/scale/FileDataID per instance — the single most important row in this whole file: this is what actually populates a rendered world with M2s. Maps directly to a glTF node with a mesh reference + TRS, once the referenced M2 itself exports |
-| WMO placement onto a tile | ADT: `MODF` + `MWMO`/`MWID` name tables | none | none | native-possible, not done | same shape as the doodad case, one level up — places a whole WMO instance (building) into the tile |
+| Doodad (M2) placement onto a tile | ADT: `MDDF` + `MMDX`/`MMID` name tables | full | bundle | native-possible, not done | **implemented**: world-frame position/rotation/scale, both naming modes, linked to exported model bundles by `uri`; yaw sign still wiki-only (`TODO/WORLD/WORLD_PLACEMENT_TODO.md`). Position/rotation/scale/FileDataID per instance — the single most important row in this whole file: this is what actually populates a rendered world with M2s. Maps directly to a glTF node with a mesh reference + TRS, once the referenced M2 itself exports |
+| WMO placement onto a tile | ADT: `MODF` + `MWMO`/`MWID` name tables | full | bundle (identity + transform only) | native-possible, not done | **parsed and carried**, but no WMO geometry exists for it to point at yet. Same shape as the doodad case, one level up — places a whole WMO instance (building) into the tile |
 | WMO's own internal doodad set | WMO root: `MODS` (doodad sets) + `MODN`/`MODI` (name/FileDataID) + `MODD` (per-instance placement) + `MDDI`/`MWDR`/`MWDS` (Shadowlands+ additional-set activation) | none | none | native-possible, not done | the same placement concept as ADT's `MDDF`, just scoped inside one WMO (furniture inside a building) rather than across a terrain tile; a WMO can have multiple mutually-exclusive doodad sets — **decided, 2026-08-01: export every set as separate, individually-toggleable nodes**, same answer as M2's own geoset selection (see `M2_COMPLETENESS.md`), not a baked-in single choice; real-data-verified: `MODI`'s entry count can exceed `MOHD.nDoodadNames` (14.5% of 5,000 real roots sampled, always ≥ never <, size off the chunk not the header), and `MWDR`/`MWDS`'s two-level "activate additional sets" indirection is verified end-to-end against two real placements of the same WMO — see `TODO/WORLD/WORLD_PLACEMENT_TODO.md` |
 | Root+group file split, group resolution | WMO: `MOGN` (names)/`MOGI` (info)/`MOGP` (per-group header, in the group file)/`MOGX`/`GFID` (FileDataID → group file) | none | none | n/a, infrastructure | a WMO root file describes N groups, each a separate file (`GFID`-resolved, same "local-directory FileDataID convention, never CASC" policy husk already uses for M2 sidecars — see `DESIGN.md`'s Non-goals); real-data-verified: `GFID` is row-major (`index = lodTier*nGroups + groupIndex`, zero = no file for that cell), undocumented on the wiki as a formula — see `TODO/WORLD/WMO_GEOMETRY_TODO.md` |
-| Cata+ split-file structure | ADT: root + `_obj0`/`_obj1`/`_tex0`/`_tex1`/`_lod` sidecar files; `MHID`/`MDID`/`MWDR`/`MWDS` cross-file FileDataID refs (Legion+); `MCIN` (pre-Cata, in-file chunk index instead) | none | none | n/a, infrastructure | one logical ADT tile is up to 6 files since Cataclysm; real-data-verified: `MCVT`/`MCNR` (heightmap+normals) always stay root-resident even after the split, confirmed on 2,500 sampled files — see `TODO/WORLD/ADT_TERRAIN_TODO.md` |
+| Cata+ split-file structure | ADT: root + `_obj0`/`_obj1`/`_tex0`/`_tex1`/`_lod` sidecar files; `MHID`/`MDID`/`MWDR`/`MWDS` cross-file FileDataID refs (Legion+); `MCIN` (pre-Cata, in-file chunk index instead) | full (root/`_obj0`/`_tex0`, `MDID`/`MHID`) | n/a | n/a, infrastructure | one logical ADT tile is up to 6 files since Cataclysm; real-data-verified: `MCVT`/`MCNR` (heightmap+normals) always stay root-resident even after the split, confirmed on 2,500 sampled files — see `TODO/WORLD/ADT_TERRAIN_TODO.md` |
 | Skybox | WMO root: `MOSB` (skybox model name) + `MOSI` (FileDataID variant) | none | none | native-possible, not done | just another M2 reference + scope flag, structurally trivial once M2 placement exists |
 | Chunk container / magic / header | WMO: `MVER`, `MOHD`, `MOGP` (group header); ADT: `MVER`, `MHDR` | none | none | n/a, infrastructure | same role as M2's own `MD20`/header row — drives parsing, no renderable shape of its own |
 
@@ -166,9 +172,11 @@ world space, at every level that concept appears.
 
 | Feature | Chunks | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|---|
-| Heightmap grid | `MCVT` (9×9 outer + 8×8 inner vertices per `MCNK`, 256 `MCNK`s per tile) | none | none | native-possible, not done | indices are implicit from the fixed grid topology (not stored) — the actual terrain triangle mesh; the single biggest ADT geometry item |
-| Normals | `MCNR` (per `MCNK`) | none | none | native-possible, not done | paired 1:1 with `MCVT` |
-| Terrain holes | per-`MCNK` flags/hole bitmask (`v18.md`'s Terrain Holes section) | none | none | native-possible, not done | which of the 8×8 inner quads are actually absent — has to be applied at mesh-generation time, not a separate glTF concept |
+| Heightmap grid | `MCVT` (9×9 outer + 8×8 inner vertices per `MCNK`, 256 `MCNK`s per tile) | full | bundle | native-possible, not done | indices are implicit from the fixed grid topology (not stored) — the actual terrain triangle mesh; the single biggest ADT geometry item |
+| Normals | `MCNR` (per `MCNK`) | full | bundle | native-possible, not done | paired 1:1 with `MCVT`; X, Y, Z on disk, not the wiki's X, Z, Y (`WIKI_FINDINGS/ADT.md`) |
+| Terrain holes | per-`MCNK` flags/hole bitmask (`v18.md`'s Terrain Holes section) | full | bundle | native-possible, not done | which of the 8×8 inner quads are actually absent — has to be applied at mesh-generation time, not a separate glTF concept |
+| Texture layers (splat) | `_tex0`: `MDID`/`MHID` or `MTEX`, `MTXP`; per-`MCNK` `MCLY` + `MCAL` | full | bundle | native-possible, not done | 0–8 layers per chunk, 64×64 alpha maps from all three on-disk forms, textures as DDS-housed BLP blocks; `MTXF` not read |
+| Ground-cover rules | `MCLY.effectId` + `MCNK` `predominantTexture`/`noEffectDoodad` + `GroundEffectTexture`/`GroundEffectDoodad` DB2s | full | bundle | n/a, runtime-generated | rules (density + weighted doodads), not instances; the per-quad layer/suppression bit order is unverified (`TODO/WORLD/ADT_TERRAIN_TODO.md` §1) |
 | Per-tile chunk index (pre-Cata) | `MCIN` | none | none | n/a, infrastructure | superseded structurally by the Cata+ split-file layout above |
 | Detail-doodad density/placement hints | `MPTX` (`MCNK` sub-chunk); `MCDD` (Cata?+) | none | none | n/a, unclaimed | ground-clutter (grass/rocks) density, not individually placed M2 instances — a different mechanism from `MDDF` |
 
@@ -203,7 +211,7 @@ breakdown would mean anything:
 | Feature | Format & chunks | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|---|
 | WMO liquid surfaces | group file: `MLIQ` | none | none | native-possible, not done | a real, renderable (if simplified) water-plane mesh — `LiquidType.dbc`/`LiquidMaterial.dbc` lookup for material/shader identity is not read yet (geometry-first target; DB2 access itself is in scope for locally-extracted files, same tier as the `ChrModel*` chain `M2_COMPLETENESS.md` already consumes, so this is unread, not unreachable); real-data-verified: 2.1% of 2,000 real WMO group files (`TODO/WORLD/LIQUID_TODO.md`) |
-| ADT liquid (modern) | `MH2O` (WotLK+: header/attributes/instances/4 vertex-data cases) | none | none | native-possible, not done | the current, non-legacy liquid representation — `v18.md`'s worked example already covers all 4 cases; real-data-verified: header/instances byte-match the wiki exactly, present in **67.1%** of 4,000 real ADT root tiles — the clear implementation-priority item across all of Liquid/Lighting/Fog, see `TODO/WORLD/LIQUID_TODO.md` |
+| ADT liquid (modern) | `MH2O` (WotLK+: header/attributes/instances/4 vertex-data cases) | full (attributes not read) | bundle | native-possible, not done | the current, non-legacy liquid representation — `v18.md`'s worked example already covers all 4 cases; real-data-verified: header/instances byte-match the wiki exactly, present in **67.1%** of 4,000 real ADT root tiles — the clear implementation-priority item across all of Liquid/Lighting/Fog, see `TODO/WORLD/LIQUID_TODO.md` |
 | ADT liquid (legacy) | `MCLQ` (`MCNK` sub-chunk, pre-Cata) | none | none | n/a, superseded | kept only for reading pre-Cata files; `MH2O` is the real target once support exists at all; real-data-verified: confirmed genuinely absent, 0/4,000 real files — don't implement, see `TODO/WORLD/LIQUID_TODO.md` |
 
 ## Lighting

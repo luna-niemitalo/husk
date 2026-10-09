@@ -304,6 +304,11 @@ constexpr const char* kTextureTransformTranslationSkin =
 // "clean, no deviations found" against this exact committed pair.
 constexpr const char* kFoxM2 = "creature/fox/fox.m2";
 constexpr const char* kFoxSkin = "creature/fox/fox00.skin";
+// ADT terrain: Crystal Lake, Elwynn (azeroth_32_49) -- the tile the terrain
+// export's conventions were verified on (WIKI_FINDINGS/ADT.md): liquid,
+// tilted doodads, 8-bit RLE alpha. Its _obj0/_tex0 siblings and the map's
+// azeroth.wdt are expected beside it.
+constexpr const char* kAdtTile = "world/maps/azeroth/azeroth_32_49.adt";
 }  // namespace fixtures
 
 // reference/WoWDBDefs (gitignored, dev-only checkout, see dbd.hpp's module
@@ -409,5 +414,6 @@ inline std::string testTextureTransformTranslationSkin() {
 }
 inline std::string testFoxM2() { return resolve("HUSK_TEST_FOX_M2", fixtures::kFoxM2); }
 inline std::string testFoxSkin() { return resolve("HUSK_TEST_FOX_SKIN", fixtures::kFoxSkin); }
+inline std::string testAdtTile() { return resolve("HUSK_TEST_ADT_TILE", fixtures::kAdtTile); }
 
 }  // namespace husk::test

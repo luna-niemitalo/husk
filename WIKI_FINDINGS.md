@@ -36,7 +36,8 @@ touched and why. The files below remain the tracked, canonical record.
 | [`WIKI_FINDINGS/M2/skin.md`](WIKI_FINDINGS/M2/skin.md) | `.skin` multi-texture-layer arithmetic, `textureCoordCombos` | `documentation/wowdev-wiki/md/M2/.skin.md` |
 | [`WIKI_FINDINGS/BONE.md`](WIKI_FINDINGS/BONE.md) | `.bone` file format, correction-matrix semantics, slot-selection follow-ups | `documentation/wowdev-wiki/md/BONE.md` |
 | [`WIKI_FINDINGS/PHYS.md`](WIKI_FINDINGS/PHYS.md) | `.phys` full struct verification | `documentation/wowdev-wiki/md/PHYS.md` |
-| [`WIKI_FINDINGS/WORLD.md`](WIKI_FINDINGS/WORLD.md) | WMO/ADT/WDT/WDL/PM4/PD4 — first investigation pass, planning-stage, not yet implemented | `documentation/wowdev-wiki/md/{WMO,ADT,WDT,WDL,PM4,PD4}.md` |
+| [`WIKI_FINDINGS/ADT.md`](WIKI_FINDINGS/ADT.md) | ADT terrain tiles — verified against real tiles, implemented (`src/adt.cpp`, `husk export-terrain`) | `documentation/wowdev-wiki/md/ADT/v18.md` |
+| [`WIKI_FINDINGS/WORLD.md`](WIKI_FINDINGS/WORLD.md) | WMO/WDT/WDL/PM4/PD4 — first investigation pass, planning-stage, not yet implemented | `documentation/wowdev-wiki/md/{WMO,WDT,WDL,PM4,PD4}.md` |
 
 ## Where these live in husk
 
@@ -56,4 +57,5 @@ touched and why. The files below remain the tracked, canonical record.
 | `aliasNext` chain resolution | `src/m2.hpp`/`m2.cpp` (`Sequence`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`SequenceMetadata`) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
 | `EXP2`/`PFDC`/`BLP2` | `src/m2.hpp` (`ExtendedParticle`), `src/cmd_dump.cpp`, `DESIGN.md` Non-goals | `tests/test_dump.cpp`, `tests/test_integration.cpp` |
 | `global_flags`/`textureCombinerCombos`/`resolveSkin` | `src/m2.hpp`/`m2.cpp` (`GlobalFlag`, `globalFlagNames`, `Header::textureCombinerCombos`), `src/cmd_info.cpp`, `src/cmd_export.cpp` (`resolveSkin`) | `tests/test_cli.cpp`, `blp/tests/test_decode.py` |
-| WMO/ADT/WDT/WDL/PM4/PD4 investigation | none yet — planning-stage only | none yet — see the eleven `*_TODO.md` files named in `WIKI_FINDINGS/WORLD.md` |
+| ADT layout corrections and conventions (`MCNR` order, hole maps, `MDDF` transform, `MH2O` layouts, alpha maps, `MTEX`/name tables) | `src/adt.hpp`/`adt.cpp`, `src/adt_canon_input.cpp` | `tests/test_adt.cpp`, `tests/test_adt_canon_input.cpp`, `tests/test_cli_export_terrain.cpp` |
+| WMO/WDT/WDL/PM4/PD4 investigation | none yet — planning-stage only | none yet — see the `*_TODO.md` files named in `WIKI_FINDINGS/WORLD.md` |

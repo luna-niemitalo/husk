@@ -350,3 +350,22 @@ TEST_CASE("writeLeanGlb: Blender's own glTF importer reads a real fixture's lean
     // see TEST_DESIGN.md#Conformance-gating
 }
 #endif
+
+TEST_CASE("writeLeanGlb: a material's framebuffer blend sets alphaMode the way legacy's alphaModeForBlend does") {
+    auto alphaModeWith = [](canon::FramebufferBlend blend) {
+        canon::Model model = buildSyntheticModel();
+        model.materials[0].framebufferBlend = blend;
+        auto outPath = std::filesystem::temp_directory_path() / "husk-test-lean-framebuffer-blend.glb";
+        std::filesystem::remove(outPath);
+        writers::writeLeanGlb(model, outPath);
+        tinygltf::TinyGLTF loader;
+        tinygltf::Model gm;
+        std::string err, warn;
+        REQUIRE(loader.LoadBinaryFromFile(&gm, &err, &warn, outPath.string()));
+        return gm.materials.at(0).alphaMode;
+    };
+    CHECK(alphaModeWith(canon::FramebufferBlend::Opaque) == "OPAQUE");
+    CHECK(alphaModeWith(canon::FramebufferBlend::AlphaKey) == "MASK");
+    CHECK(alphaModeWith(canon::FramebufferBlend::Alpha) == "BLEND");
+    CHECK(alphaModeWith(canon::FramebufferBlend::Add) == "BLEND");
+}

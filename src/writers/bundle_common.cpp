@@ -14,6 +14,7 @@ namespace {
 std::string nameSourceName(canon::NameSource source) {
     switch (source) {
         case canon::NameSource::M2Embedded: return "m2_embedded";
+        case canon::NameSource::AdtEmbedded: return "adt_embedded";
         case canon::NameSource::Listfile: return "listfile";
         case canon::NameSource::Db2: return "db2";
         case canon::NameSource::Synthesized: return "synthesized";

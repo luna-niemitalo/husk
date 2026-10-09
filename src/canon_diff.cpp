@@ -529,6 +529,22 @@ Report compareMaterialBlendModes(const canon::Model& canonModel, const std::vect
         return idx ? &canonModel.materials[*idx] : nullptr;
     };
 
+    // framebufferBlend is the raw M2BLEND value, 0..7 in enum order, unset beyond.
+    std::optional<size_t> framebufferMismatch;
+    for (size_t i = 0; i < expectedBlendMode.size() && !framebufferMismatch; ++i) {
+        const canon::Material* mat = resolveMaterial(i);
+        if (!mat) continue;
+        bool documented = expectedBlendMode[i] <= static_cast<uint16_t>(canon::FramebufferBlend::BlendAdd);
+        bool matches = documented ? mat->framebufferBlend &&
+                                        static_cast<uint16_t>(*mat->framebufferBlend) == expectedBlendMode[i]
+                                  : !mat->framebufferBlend;
+        if (!matches) framebufferMismatch = i;
+    }
+    if (framebufferMismatch) {
+        r.deviations.push_back("framebuffer blend mismatch at primitive " + std::to_string(*framebufferMismatch) +
+                               ": expected M2 blend mode " + std::to_string(expectedBlendMode[*framebufferMismatch]));
+    }
+
     std::optional<size_t> blendOpMismatch;
     for (size_t i = 0; i < expectedBlendMode.size(); ++i) {
         const canon::Material* mat = resolveMaterial(i);

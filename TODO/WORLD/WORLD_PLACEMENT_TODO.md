@@ -2,8 +2,11 @@
 
 **Status: an open punch list, not a historical record.** Fixed items get
 removed outright once closed (see `../INVESTIGATIONS_TODO.md`'s own convention) --
-git history is the record of what was fixed and when, not this file. Nothing
-in `src/` reads an ADT/WMO placement record yet; this file is the
+git history is the record of what was fixed and when, not this file. ADT
+placement (`MDDF`/`MODF`, FileDataID and name-table modes) is implemented
+(`src/adt.cpp`, `src/adt_canon_input.cpp`, exported by `husk
+export-terrain`/`export-world`; verified facts in
+`../../WIKI_FINDINGS/ADT.md`); what remains here is the
 implementation-ready plan for `../../WORLD_COMPLETENESS.md`'s own framing of this
 as **the single most important row in that whole file**: "what actually
 populates a rendered world with M2s/WMOs."
@@ -82,191 +85,29 @@ wire coordinate conventions are genuinely different and this document's own
 "one code path" framing above refers to the *placement-resolution*
 concept (ID → real file → instantiate), not literally one matrix formula.
 
-## ADT doodad (M2) placement (`MDDF` + `MMDX`/`MMID`)
+**Update, 2026-10**: the `MDDF` chain has since been re-derived and checked
+against terrain slope on 752 tilted placements; it is what
+`adtinput::placementRotation` implements (`../../WIKI_FINDINGS/ADT.md`).
 
-**Current state**: `none`.
+## ADT placement (`MDDF`/`MODF`) — implemented; open items
 
-**Wiki citation**: `documentation/wowdev-wiki/md/ADT/v18.md`, `## MMDX
-chunk` (line 207), `## MMID chunk` (line 216), `## MDDF chunk` (line 243).
-Split-file location: `obj` (Cata+, i.e. `_obj0.adt`/`_obj1.adt`).
+Both record types, both naming modes (FileDataID flag, or `MMDX`/`MMID` and
+`MWMO`/`MWID` name tables resolved through the listfile with
+`sources::listfileSpelling`'s case/slash/`.mdx` normalization), converted to
+world-frame position, world-from-model quaternion and scale. Placed M2s
+export as linked model bundles (`export-world`); WMOs stay identity-only.
 
-**Verified struct** (`MDDF`, 36 bytes/entry, `count = size/36`):
-
-```
-offset  field      type     note
-0x00    nameId     uint32   MMID index, OR a direct FileDataID if
-                            mddf_entry_is_filedata_id (flag 0x40) is set
-0x04    uniqueId   uint32   should be globally unique across all loaded ADTs
-0x08    position   3xfloat  see the coordinate-system section above
-0x14    rotation   3xfloat  degrees, own convention (not the ADT terrain's own axes)
-0x20    scale      uint16   1024 == 1.0 (unconditional, unlike MODF's scale below)
-0x22    flags      uint16   MDDFFlags bitfield
-```
-
-**Real-data verification**:
-- `world/maps/ruinsoftheramore/ruinsoftheramore_40_39_obj0.adt`: 739 real
-  `MDDF` entries, **every single one** with `mddf_entry_is_filedata_id`
-  (`0x40`) set -- `nameId` is a real, direct FileDataID in 100% of this
-  file's entries (`nameId=190719` cross-checked against the community
-  listfile -> `world/critter/birds/bird01.m2`, confirmed present in the
-  local corpus at that exact path). `MMDX`/`MMID` are both empty (0 bytes)
-  in this file -- consistent with a fully-FileDataID-mode file having no
-  name table at all.
-- **Corpus-scale sample** (500 real `_obj0.adt` files, randomly sampled out
-  of 55,278 total in the local corpus, seed 42, independent Python decoder,
-  not husk code): **110,995 total `MDDF` placements**. 110,082 (99.2%) use
-  `mddf_entry_is_filedata_id` -- **100% of those** resolve through the
-  community listfile to a path that exists in the local corpus. The
-  remaining 913 (0.8%) use the legacy `MMID`/`MMDX` name-table path.
-- **The 913 name-table entries are concentrated in exactly 3 of the 500
-  sampled files** (`world/maps/kalimdor 2/...`, `world/maps/argus 1/...`,
-  `world/maps/nightmareraid/...`) -- all three are internal QA/test-map
-  duplicates (note the literal space in the directory name, e.g.
-  `"kalimdor 2"` sitting alongside the real `"kalimdor"` map), not ordinary
-  shipped content. Every name-table `MMDX` string in these files is a
-  legacy, pre-FileDataID-era path, several in **ALL CAPS**
-  (`WORLD\EXPANSION03\DOODADS\SKYWALL\BIGWIND\SKYWALL_BIGWIND_01.M2`) -- a
-  naive case-sensitive path match against the local corpus's own
-  lowercase-normalized paths fails (this session's own first-pass script
-  found "0/913 resolve," which looked like a real absence until direct
-  inspection of one file confirmed the referenced file **does** exist,
-  case-insensitively: `world/expansion03/doodads/skywall/bigwind/
-  skywall_bigwind_01.m2`). **This is a real, worth-documenting gotcha**: WoW
-  paths are canonically case-insensitive (matching CASC's own semantics),
-  and any local-directory-based resolution husk builds for name-table-mode
-  placements must match case-insensitively, not assume the extraction tool
-  already lowercased every reference consistently with its own directory
-  layout.
-
-**C++ data-model sketch** (mirrors `src/phys.hpp`'s idiom):
-
-```cpp
-// src/adt_placement.hpp -- shared by MDDF (below) and MODF (next section),
-// since both are "resolve an ID to a real model, then place it" records
-// differing mainly in stride/field meaning, not in shape.
-namespace husk::world {
-
-struct Vec3 { float x = 0, y = 0, z = 0; };
-
-struct DoodadPlacement {
-    uint32_t nameId = 0;      // MMID index, or a direct FileDataID (see isFileDataId)
-    uint32_t uniqueId = 0;
-    Vec3 position;            // raw on-disk MDDF coordinate convention, see doc comment above
-    Vec3 rotationDegrees;
-    float scale = 1.0f;       // already divided by 1024
-    uint16_t flags = 0;
-    bool isFileDataId = false;  // mddf_entry_is_filedata_id (0x40)
-};
-
-struct ParseError : std::runtime_error {
-    using std::runtime_error::runtime_error;
-};
-
-// Parses MMDX/MMID/MDDF from an already-chunk-split _obj0.adt buffer (ADT
-// chunk tags are byte-reversed on disk, same WMO/.phys convention -- see
-// WMO_GEOMETRY_TODO.md's own confirmation of this for ADT specifically, and
-// src/chunk.hpp's existing doc comment). Throws ParseError if MDDF's size
-// isn't a multiple of 36, or a non-FileDataID entry's MMID index is out of
-// range for the name table.
-std::vector<DoodadPlacement> parseDoodadPlacements(
-    const std::vector<Chunk>& objChunks);
-
-// Resolves a non-FileDataID DoodadPlacement's `nameId` (an MMID index) to
-// its MMDX filename string. Callers needing a real file must then match
-// case-insensitively against whatever local directory they're given (see
-// this document's own real-data verification above for why -- legacy
-// name-table paths are frequently ALL CAPS on disk in-game, but a local
-// extraction's own directory layout is very likely lowercase-normalized).
-std::string resolveDoodadName(const std::vector<DoodadPlacement>& placements,
-                                size_t index, std::string_view mmdxBlob);
-
-}  // namespace husk::world
-```
-
-**Recommendation**: `full` / `native` (once instanced, see the Scene
-composition section below) / `native-possible, not done` -- a direct glTF
-node (mesh reference + TRS) per placement, exactly `../../WORLD_COMPLETENESS.md`'s
-own framing. The FileDataID-mode path (99.2% of real placements) is the one
-to build first; the name-table path needs the case-insensitive-resolution
-gotcha above handled explicitly, not an afterthought.
-
-## ADT WMO placement (`MODF` + `MWMO`/`MWID`)
-
-**Current state**: `none`.
-
-**Wiki citation**: `ADT/v18.md`, `## MWMO chunk` (line 225), `## MWID
-chunk` (line 234), `## MODF chunk` (line 428). Split-file location: `obj`.
-
-**Verified struct** (`MODF`, 64 bytes/entry, `count = size/64`):
-
-```
-offset  field      type     note
-0x00    nameId     uint32   MWID index, OR a direct FileDataID if
-                            modf_entry_is_filedata_id (flag 0x8) is set
-0x04    uniqueId   uint32
-0x08    position   3xfloat  same coordinate convention as MDDF's own
-0x14    rotation   3xfloat  degrees
-0x20    extents    2xC3Vec  position-transformed AABB (lower+upper), 24 bytes
-0x38    flags      uint16   MODFFlags bitfield
-0x3A    doodadSet  uint16   which WMO doodad set to activate -- see the
-                            internal-doodad-set section below for both the
-                            plain-MODS-index case and the MWDR/MWDS
-                            (Shadowlands+) indirection case
-0x3C    nameSet    uint16   which WMO *name* set to use (renaming without
-                            re-modeling, e.g. Goldshire Inn / Northshire Inn)
-0x3E    scale      uint16   Legion+: real if modf_unk_has_scale (0x4) is set,
-                            otherwise the field is meaningless and scale is
-                            fixed at 1.0 -- unlike MDDF's own scale, which
-                            is unconditional
-```
-
-**Real-data verification**:
-- Same `ruinsoftheramore_40_39_obj0.adt` file: 29 real `MODF` entries, every
-  one with `modf_entry_is_filedata_id` (`0x8`) **and** `modf_unk_has_scale`
-  (`0x4`) both set (`flags=0x000c` uniformly) -- `scale=1024` on every entry,
-  confirming the "real if the flag is set" case decodes to exactly 1.0x on
-  real data (no entry in this file actually scales a WMO instance up/down).
-  Every `nameId` (FileDataID) cross-checked against the community listfile
-  and confirmed present in the local corpus (e.g. `113271` ->
-  `world/wmo/kalimdor/collidabledoodads/dustwallowmarsh/theramoredocks/
-  theramoredocks.wmo`).
-- **Corpus-scale sample** (same 500-file random sample as `MDDF` above):
-  6,702 total `MODF` placements, 6,676 (99.6%) FileDataID-mode, **100% of
-  those** resolve to a real local file via the listfile. 26 (0.4%)
-  name-table-mode, same 3 test-map files as `MDDF`'s own name-table
-  entries, same case-sensitivity resolution gotcha applies identically.
-- **A real `MODF.doodadSet` cross-references a real `MODS` table** --
-  `ruinsoftheramore_40_39_obj0.adt`'s entry `[8]` (FileDataID `106872`,
-  `world/wmo/azeroth/buildings/guardtower/guardtower_damaged.wmo`) has
-  `doodadSet=1`; that real WMO's own root file has exactly 4 `MODS` entries
-  (`Set_$DefaultGlobal`/`Set_Damaged_pieces`/`Set_Damaged_ambient`/
-  `Set_Damaged_hit`), so `doodadSet=1` selects the real `Set_Damaged_pieces`
-  set -- a genuine, in-range, semantically plausible cross-reference (a
-  guard tower placed in-world using its "damaged" doodad variant), not just
-  a structurally-valid-looking index.
-
-**C++ data-model sketch**:
-
-```cpp
-struct WmoPlacement {
-    uint32_t nameId = 0;
-    uint32_t uniqueId = 0;
-    Vec3 position;
-    Vec3 rotationDegrees;
-    Vec3 extentsMin, extentsMax;  // pre-transformed AABB, diagnostic/collision use
-    uint16_t flags = 0;
-    uint16_t doodadSet = 0;   // see the internal-doodad-set section for how this resolves
-    uint16_t nameSet = 0;
-    float scale = 1.0f;       // 1.0 unless modf_unk_has_scale is set, then real/1024
-    bool isFileDataId = false;
-    bool usesMwdsIndirection = false;  // modf_use_sets_from_mwds (0x80), Shadowlands+
-};
-
-std::vector<WmoPlacement> parseWmoPlacements(const std::vector<Chunk>& objChunks);
-```
-
-**Recommendation**: `full` / `native` / `native-possible, not done` -- same
-shape as `MDDF` above, one level up in scope (places a whole WMO instance).
+1. **Yaw sign** is the wiki's, unchecked. Needs a landmark: an asymmetric
+   doodad with a known in-game facing.
+2. **`MODF` transform** shares the `MDDF` code per the wiki, but nothing
+   renders a WMO yet, so it is unverified.
+3. **`MDDF.flags` `0x200`** (~18% of Elwynn placements) is not in the wiki
+   enum; carried through as `flags`, meaning unknown.
+4. **WMO geometry** (`WMO_GEOMETRY_TODO.md`): until it exists, `map_object`
+   placements have no `uri` and the buildings are missing from every scene.
+5. **`MWDR`/`MWDS`** (Shadowlands+ per-`MODF` doodad-set selection) is not
+   read; it only matters once WMOs and their internal doodads export (next
+   section).
 
 ## WMO's own internal doodad set (`MODS`/`MODN`/`MODI`/`MODD`/`MDDI`, `MWDR`/`MWDS`)
 
@@ -482,6 +323,14 @@ ceiling as ADT's own `MODF`, structurally identical once parsed.
 
 ## Scene-composition CLI surface -- needs a real design pass, not a snap decision
 
+**Update, 2026-10**: the first composing layer exists, in the shape the
+speculative direction below describes. `husk export-world` writes one
+terrain bundle per tile that references shared model bundles and textures
+by relative `uri`, rather than one baked scene (README.md,
+`../../REFACTOR/BUNDLE_FORMAT.md`'s "Terrain tile bundles"). MantleCore
+loads it as a streamed world. What is still open is everything WMO-shaped:
+WMO bundles, their internal doodad sets, and global single-WMO maps.
+
 **Direction confirmed by Luna, 2026-08-01 (still not a full CLI-shape
 decision -- see below for what remains genuinely open):** explicitly
 **not** "cascade-export the whole game" as a goal -- that's too big a
@@ -584,18 +433,12 @@ block on this CLI question being settled.
 ## Test plan
 
 **Synthetic fixtures**:
-- `MDDF`/`MODF` happy-path parse (both FileDataID-mode and name-table-mode,
-  each field individually asserted), truncated-chunk throws, out-of-range
-  `MMID`/`MWID` index throws.
 - `MODS`/`MODD`/`MODI` round-trip, including a deliberate `MODI`-count-vs-
   `nDoodadNames` mismatch (real-data-motivated, see the verification above)
   to prove sizing comes from chunk bytes, not the header field.
 - `resolveActiveDoodadSets`: plain-index case, `MWDR`/`MWDS`-indirection
   case (multi-set activation, mirroring the real `{2,8}`/`{5,6}` example),
   and the "index 0 is always additionally active" rule.
-- Case-insensitive name-table resolution helper: an ALL-CAPS synthetic path
-  against a lowercase synthetic directory listing, proving the match
-  succeeds where a naive `==` comparison wouldn't.
 
 **Real-data fixtures** (candidate paths, all confirmed to exist and decode
 cleanly this session):
@@ -655,33 +498,18 @@ cleanly this session):
 
 ## Priority order
 
-1. **`MDDF`/`MODF` FileDataID-mode parsing** -- 99%+ of real placements,
-   fully verified, no open data questions. The highest-value item in this
-   entire WMO/ADT expansion per `../../WORLD_COMPLETENESS.md`'s own framing.
-2. **`MODS`/`MODN`/`MODI`/`MODD`/`MDDI` (WMO-internal placement)** -- needed
+1. **`MODS`/`MODN`/`MODI`/`MODD`/`MDDI` (WMO-internal placement)** -- needed
    before a placed WMO looks structurally complete (buildings need their
    own furniture); the `MODI`-count and coordinate-convention gotchas are
-   real, must-handle correctness issues, not edge cases to defer.
-3. **`MWDR`/`MWDS` indirection** -- real (1.2% of sampled `MODF` entries),
+   real, must-handle correctness issues, not edge cases to defer. Blocked on
+   WMO geometry.
+2. **`MWDR`/`MWDS` indirection** -- real (1.2% of sampled `MODF` entries),
    fully verified end-to-end against a real cross-file example, but a
-   genuinely separate code path from plain `MODS`-index resolution; lower
-   priority than the base case but not optional once WMO placement exists,
-   since skipping it silently mis-renders every Shadowlands+ multi-set
-   instance.
-4. **Global single-WMO map placement** (`.wdt`'s `MWMO`/`MODF`) -- trivial
-   once ADT `MODF` parsing exists (same struct, one entry, `nameId` ignored);
-   low implementation cost, low priority only because it's a narrow case
-   (5 real files found this session, all garrison/scenario instances).
-5. **Name-table-mode (`MMDX`/`MMID`/`MWMO`/`MWID`) fallback path** -- real
-   but rare (0.8% of sampled placements, concentrated in internal test-map
-   duplicates rather than shipped content); worth implementing for
-   completeness and because the case-insensitive-resolution lesson
-   generalizes to any other name-table husk might encounter, but genuinely
-   lower priority than the FileDataID path given how lopsided the real
-   corpus distribution is.
-6. **Scene-composition CLI surface** -- explicit direction confirmed
-   (build individually-testable primitives first, thin helper-chaining on
-   top, no monolithic whole-game-cascade export -- see its own section
-   above), but the actual subcommand/flag shape for the composing layer is
-   still deferred, same as before; the real prerequisite work is items
-   1-5, this is the follow-up design pass once they exist.
+   genuinely separate code path from plain `MODS`-index resolution; not
+   optional once WMO placement exists, since skipping it silently
+   mis-renders every Shadowlands+ multi-set instance.
+3. **Global single-WMO map placement** (`.wdt`'s `MWMO`/`MODF`) -- trivial
+   given ADT `MODF` parsing (same struct, one entry); a narrow case (5 real
+   files found, all garrison/scenario instances), and pointless before WMOs
+   export.
+4. **The open items in the ADT placement section above**, yaw sign first.

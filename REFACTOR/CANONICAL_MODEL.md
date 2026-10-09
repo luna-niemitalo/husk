@@ -55,7 +55,7 @@ Each item below is something the current tree structurally cannot express.
 struct Ref {
     Identity   id;      // FileDataId | Db2Row{table,row} | RecordIndex | None
     string     name;    // decoration
-    NameSource source;  // m2_embedded | listfile | db2 | synthesized | none
+    NameSource source;  // m2_embedded | adt_embedded | listfile | db2 | synthesized | none
 };
 ```
 

@@ -48,3 +48,5 @@ __pycache__/
 # playwright-mcp's own per-call snapshot/screenshot dump (page-*.yml,
 # console-*.log), written next to wherever a session invokes it from.
 /.playwright-mcp/
+# nix flake update backups
+nix/flake.lock.bak

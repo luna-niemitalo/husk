@@ -14,6 +14,47 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-09 — Terrain export promoted from WIP to a real feature.**
+Took the 2026-10-08 `world_WIP` commit to the same standard as the M2 side.
+
+- **Tests (none existed)**: `tests/test_adt_fixtures.hpp` builds synthetic
+  root/`_obj0`/`_tex0`/WDT files from the wiki layouts. On top of it:
+  `test_adt.cpp` (parser, every `ParseError` path),
+  `test_adt_canon_input.cpp` (frame, normals, holes, liquid provenance,
+  placement transforms as properties), `test_writers_terrain_bundle.cpp`,
+  `test_cli_export_terrain.cpp` (both commands, resume, `errors.log`,
+  config), and the `test_data/`-gated `test_integration_terrain.cpp`.
+- **Older tiles**: non-empty `MTEX` and `MMDX`/`MWMO` name-table placements
+  now resolve through the listfile in one batch pass
+  (`sources::fileDataIdsForGamePaths`, `.mdx`/backslash/case
+  normalization), instead of failing the tile. These were most of
+  MantleCore's 1,385 tile errors outside `azeroth`. An unresolved path keeps
+  its raw string under the new `NameSource::AdtEmbedded`.
+- **Structure**: typed `groundeffect_db2` reader; `adtinput::Resolutions`
+  (reference-based, so `export-world` shares one path/ground-effect table
+  across every tile); BLP → DDS/PNG payloads shared with the model path
+  (`sources/texture_payload`); WIP labels and the manifest's `status`
+  field removed; `nix/flake.lock.bak` dropped.
+- **CLI rules (CLI.md/FOREIGN_DATA.md)**: every auto-resolution is
+  announced; a broken auto-found sidecar or missing WDT warns and degrades,
+  while an explicit path fails; `--config` plus `none` opt-outs; option
+  groups; generated README flag tables with drift tests; completions.
+- **Canon model**: `Material::framebufferBlend` (M2BLEND, written as
+  `framebuffer_blend`, checked by `compareMaterialBlendModes`). It was
+  missing because OPAQUE and ALPHA_KEY both map to `BlendOp::Replace`, so
+  foliage couldn't be told apart.
+- **Docs**: ADT findings split into `WIKI_FINDINGS/ADT.md` (per `WORLD.md`'s
+  own rule); `ADT_EXPORT_FINDINGS.md` folded into it plus the WORLD TODOs
+  and deleted; implemented items removed from `ADT_TERRAIN_TODO.md`/
+  `LIQUID_TODO.md`/`WORLD_PLACEMENT_TODO.md`; `BUNDLE_FORMAT.md` gained the
+  consumer-facing terrain section, with MantleCore's 2026-10-09 feedback
+  (shared textures, 0–8 layers, untextured chunks, seams).
+- Also fixed: `test_sources_resource_catalog.cpp` passed a temporary
+  `EmptyListfileIndex` that `Catalog` holds by reference (the
+  `describe()` crash).
+
+---
+
 **2026-10-08 — WIP ADT terrain → canonical bundle export.** Testing ground
 for a consumer of canonical world data; to be redone properly later.
 Added `husk export-terrain` (`src/adt.*`, `src/canon_terrain.hpp`,

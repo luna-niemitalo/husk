@@ -153,6 +153,14 @@ struct MaterialLayer {
     BlendOp blendIntoPrevious = BlendOp::Modulate;
 };
 
+// How a finished draw combines with what's already on screen -- M2Material::
+// blendMode, wowdev.wiki M2/Rendering#M2BLEND, values 0..7 in this order. A
+// different GPU stage from MaterialLayer::blendIntoPrevious's texture-combiner
+// op: this is what tells a renderer opaque from alpha-tested (foliage) from
+// blended, which the combiner op can't (OPAQUE and ALPHA_KEY both combine as
+// Replace).
+enum class FramebufferBlend { Opaque, AlphaKey, Alpha, NoAlphaAdd, Add, Mod, Mod2x, BlendAdd };
+
 struct Material {
     // This material's own identity -- what a primitive's entry in
     // Model::primitiveMaterials points at (canon_model.hpp's own doc
@@ -170,6 +178,8 @@ struct Material {
     std::optional<Ref> specularLayer;
     std::optional<Ref> emissionLayer;
     std::optional<Ref> alphaLayer;
+    // nullopt when the source carries no blend mode, or one outside M2BLEND's 0..7.
+    std::optional<FramebufferBlend> framebufferBlend;
     // no normalLayer/roughnessLayer yet -- no real producer populates one; add when one actually exists, not speculatively.
 };
 
