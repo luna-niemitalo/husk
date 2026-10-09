@@ -202,6 +202,17 @@ produce something a human looks at, not a CSV.
   `auto_flag_detected_failures.py` read/write that same JSONL log,
   unchanged.
 
+## Client shader export: `export_shaders.py`
+
+Unpacks every `.bls` under `<corpus>/shaders/` (GXSH and GFAT) into
+`example_exports/shaders/`. Each distinct compiled program becomes a DXBC
+file with D3D (vkd3d-compiler / `dxc -dumpbin`) and Vulkan (SPIR-V,
+`spirv-dis`, `spirv-cross` GLSL) listings, plus a slot → program table
+per container and a `mapping.csv` from output back to source `.bls` and
+FileDataID. Parallel and resumable; takes a few minutes for the full set.
+The output's layout is in `export_shaders_README.md` (copied into the
+output), the container format in `WIKI_FINDINGS/BLS.md`.
+
 ## Shader-formula pattern search: `shader_pattern_search/`
 
 Parses vkd3d-compiler `d3d-asm` text (`references/wow_shaders/asm/*.asm`)

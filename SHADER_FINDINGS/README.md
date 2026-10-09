@@ -38,16 +38,12 @@ Evidence tiers used throughout:
 877 `.bls` files: 420 DX50 + 442 DX60 GXSH v0x1000E, 10 GFAT wrappers
 (`material3_*`, `model3skinshader_debug`) and 5 stale v0x1000C files.
 
-Pulling one out takes three steps:
-1. zlib-inflate the chunks (`documentation/wowdev-wiki/wikitext/BLS.wiki`,
-   "BLS v1.14+").
-2. Slice at each `DXBC` magic.
-3. Disassemble with `vkd3d-compiler -x dxbc-tpf -b d3d-asm`, already in
-   the flake.
-
-This was proven on `pixel/dx_5_0/illum.bls`: 2048 slots, 1024 compiled
-permutations, and permutation 512 disassembles to 739 lines of `ps_5_0`.
-That makes it a full replacement for the session-scoped vkd3d capture in
+All of them are already unpacked: `tools/export_shaders.py` writes every
+distinct compiled program, with D3D, SPIR-V and GLSL listings and a
+slot → program table, to `example_exports/shaders/`. Its `README.md`
+covers the layout; `WIKI_FINDINGS/BLS.md` covers the container format.
+`pixel/dx_5_0/illum.bls`, for example, has 2048 slots, 1024 compiled
+permutations and 386 distinct programs. That makes it a full replacement for the session-scoped vkd3d capture in
 `references/wow_shaders/`, which never caught `Illum`, the dual
 crossfades or `Guild_NoBorder`.
 

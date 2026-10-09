@@ -110,6 +110,13 @@
           # blobs in references/wow_shaders/ (PIXEL_SHADER_FORMULAS_TODO.md's
           # matching pass) -- dev-shell only, not part of the husk binary.
           vkd3d
+          # dxc -dumpbin: tools/export_shaders.py's fallback for the DX60
+          # (DXIL) blobs vkd3d-compiler rejects -- dev-shell only.
+          directx-shader-compiler
+          # spirv-dis/spirv-cross: tools/export_shaders.py's Vulkan-side
+          # listings (SPIR-V text, decompiled GLSL) of vkd3d's SPIR-V output.
+          spirv-tools
+          spirv-cross
           # inotifywait/notify-send: tools/shader_dump_watcher.nu, live-
           # correlates new wow_shader_dump captures with in-game location.
           inotify-tools
