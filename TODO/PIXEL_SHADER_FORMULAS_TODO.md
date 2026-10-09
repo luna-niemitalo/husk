@@ -221,8 +221,13 @@ already gives every `reference/` source in this project (`wow.export`,
    | `Guild` | 23 | `item/objectcomponents/weapon/misc_1h_guildflag_alliance_a_0100.skin` |
    | `Combiners_Opaque_Mod_Add_Wgt` | 1 | `world/expansion03/doodads/uldum/mirrors/uldum_mirror_sun_0100.skin` |
 
-   **3 of the 17 never resolved in this corpus**: `Combiners_Opaque_
-   Mod2xNA_Alpha_Alpha`, `Guild_NoBorder`, `Illum` — either genuinely rare/
+   **Correction (2026-10-09, `SHADER_FINDINGS/README.md` §2):** this table
+   came from husk's pre-8.0.1 30-row shader table, which misnames index 20
+   and can't resolve 33–35. `Combiners_Opaque_Mod2xNA_Alpha_Alpha` is real
+   (365 batches); `Guild_NoBorder` and `Illum` are genuinely unreferenced in
+   11.2 content. Use `SHADER_FINDINGS/` counts, not this table.
+   ~~**3 of the 17 never resolved in this corpus**: `Combiners_Opaque_
+   Mod2xNA_Alpha_Alpha`, `Guild_NoBorder`, `Illum`~~ — either genuinely rare/
    version-gated content not present in this local extraction, or (for
    `Guild`/`Guild_NoBorder`/`Guild_Opaque` specifically) plausibly gated on
    a live guild-tabard customization the base corpus export wouldn't
