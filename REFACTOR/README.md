@@ -290,6 +290,7 @@ drifting implementations into one exposes *why* things look wrong today.
 | `RESOURCE_CATALOG.md` | Stage 2 — the one resolution boundary object, and the excavation escape hatch | Independent; carries a reopened design question (persisted cross-patch reference-integrity index) — needs a decision, see Blockers below |
 | `CANONICAL_MODEL.md` | Stage 3 — the semantic model, built pure | Independent to design; the migration itself is the expensive stage |
 | `BUNDLE_FORMAT.md` | The native husk bundle + manifest schema; glTF's demoted role | Independent; carries a reopened design question (physical storage shape at corpus scale) — needs a decision, see Blockers below |
+| `PLACEMENT_SETS.md` | Generic placement sets (WMO furniture, terrain placements, housing layouts) and the WMO bundle as their first user; invariants that keep runtime-movable objects possible | Agreed 2026-10-09, not implemented |
 | `BLENDER_ADDON.md` | Stage 4 consumer — packaging, and deleting every discovery mechanism I3 forbids | Independent to build; final visual pass is Luna's |
 | `CLI_AND_TOOLING.md` | Flag surface, structured output, corpus-tooling cleanup | Independent |
 

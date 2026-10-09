@@ -5,8 +5,8 @@ Current, correct facts only. Full evidence trail: `../WIKI_FINDINGS_HISTORY.md`
 the eleven companion `*_TODO.md` files under `TODO/WORLD/`. This page records
 what would otherwise be lost once those are implemented and deleted. Formats
 split out into their own file as their parsers land: ADT is in `ADT.md`
-(`src/adt.cpp`); WMO, WDT, WDL, PM4 and PD4 are still planning-stage and stay
-here.
+(`src/adt.cpp`); WMO, WDT, WDL, PM4 and PD4 stay here. WMO root/group parsing
+exists (`src/wmo.cpp`, `tests/test_wmo.cpp`); nothing exports it yet.
 
 ---
 
@@ -53,6 +53,20 @@ including the planning-pass ones that used to live here.
   combinations into the same `MODS` table.
 - `MPBV`/`MPBP`/`MPBI`/`MPBG` confirmed genuinely absent corpus-wide (0 of
   71,929 real group files) — the wiki's rarity claim holds at full scale.
+- `MOVT`/`MONR` are plain **(X, Y, Z), Z up**, the same frame as M2, despite
+  the wiki's "(X,Z,-Y) order" note. `guardtower_001.wmo` spans ~28 × 28 on
+  the first two components and 34 on the third; `MODD` rotations of the
+  same building turn about the third axis. Group vertex ranges match the
+  `MOHD`/`MOGP` bounding boxes component for component.
+- `MOHD.nDoodadDefs` can disagree with `MODD`'s real length too
+  (`guardtower.wmo`: header 173, `MODD` 170 records). Size every record array
+  off its chunk.
+- Multiple `MOTV` and `MOCV` chunks are common, not edge cases: 36% and 26%
+  of 3,487 sampled group files (seeded 4,000-file sample of `world/wmo/`).
+  All 4,000 parse cleanly with `src/wmo.cpp`, and per-triangle `MOPY`
+  counts always equal `MOVI / 3`.
+- `MOBA`'s `material_id_large` flag (0x02 at 0x16) must decide which field
+  is the batch's material: flagged batches leave `material_id` at 0.
 
 ## Liquid/lighting/fog — verified
 

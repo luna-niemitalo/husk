@@ -309,6 +309,13 @@ constexpr const char* kFoxSkin = "creature/fox/fox00.skin";
 // tilted doodads, 8-bit RLE alpha. Its _obj0/_tex0 siblings and the map's
 // azeroth.wdt are expected beside it.
 constexpr const char* kAdtTile = "world/maps/azeroth/azeroth_32_49.adt";
+// WMO: cameron is the smallest real root+group pair (1 group, 1 material);
+// guardtower has 3 doodad sets and 2 groups; torghast chambercap01 has a
+// 4-tier GFID LOD table and material_id_large batches. Group files sit beside
+// their root as <root>_NNN[_lodN].wmo.
+constexpr const char* kWmoCameron = "world/wmo/cameron.wmo";
+constexpr const char* kWmoGuardTower = "world/wmo/azeroth/buildings/guardtower/guardtower.wmo";
+constexpr const char* kWmoChamberCap = "world/wmo/dungeon/torghast/9du_torghast_modular_chambercap01.wmo";
 }  // namespace fixtures
 
 // reference/WoWDBDefs (gitignored, dev-only checkout, see dbd.hpp's module
@@ -415,5 +422,8 @@ inline std::string testTextureTransformTranslationSkin() {
 inline std::string testFoxM2() { return resolve("HUSK_TEST_FOX_M2", fixtures::kFoxM2); }
 inline std::string testFoxSkin() { return resolve("HUSK_TEST_FOX_SKIN", fixtures::kFoxSkin); }
 inline std::string testAdtTile() { return resolve("HUSK_TEST_ADT_TILE", fixtures::kAdtTile); }
+inline std::string testWmoCameron() { return resolve("HUSK_TEST_WMO_CAMERON", fixtures::kWmoCameron); }
+inline std::string testWmoGuardTower() { return resolve("HUSK_TEST_WMO_GUARDTOWER", fixtures::kWmoGuardTower); }
+inline std::string testWmoChamberCap() { return resolve("HUSK_TEST_WMO_CHAMBERCAP", fixtures::kWmoChamberCap); }
 
 }  // namespace husk::test

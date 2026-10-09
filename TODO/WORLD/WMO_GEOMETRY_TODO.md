@@ -2,8 +2,20 @@
 
 **Status: an open punch list, not a historical record.** Fixed items get
 removed outright once closed (see `../INVESTIGATIONS_TODO.md`'s own convention) --
-git history is the record of what was fixed and when, not this file. Nothing
-in `src/` reads a WMO byte yet; this file is the implementation-ready plan
+git history is the record of what was fixed and when, not this file.
+
+**Update 2026-10-09**: `src/wmo.cpp` now parses root (`MOHD`/`MOMT`/`MOTX`/
+`MOGN`/`MOGI`/`GFID`/`MODS`/`MODI`/`MODN`/`MODD`/`MDDI`/`MOUV`/`MOSB`/
+`MOSI`) and group files (`MOGP` header, `MOPY`/`MPY2`, `MOVI`/`MOVX`,
+`MOVT`, `MONR`, every `MOTV`, every `MOCV`, `MOBA`), tested in
+`tests/test_wmo.cpp`; a seeded 4,000-file sample parses cleanly. The
+sections below still hold for what isn't built: the canon type and bundle
+(`../../REFACTOR/PLACEMENT_SETS.md`), `MOC2`, `MOM3`, the
+`FixColorVertexAlpha` decision, and how group files are located on disk.
+**The "Coordinate system note" section below is wrong**: positions are
+plain (X, Y, Z) Z up, like M2 (`../../WIKI_FINDINGS/WORLD.md`).
+
+Originally the implementation-ready plan
 for the "WMO static geometry & materials" and "root+group file split,
 skybox, chunk container" rows of `../../WORLD_COMPLETENESS.md` (see that file's
 own "World structure & scene composition" and "WMO static geometry &
