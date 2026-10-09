@@ -149,7 +149,7 @@ This is the rule that makes the bundle traceable — see `CANONICAL_FORMAT.md`
 §5 for the JSON shape of a resource entry (`id`/`name`/`name_source`, plus
 `uri` when the payload is external rather than inline).
 
-`name_source` is one of `m2_embedded` / `adt_embedded` / `listfile` / `db2` / `synthesized` /
+`name_source` is one of `m2_embedded` / `adt_embedded` / `wmo_embedded` / `listfile` / `db2` / `synthesized` /
 `none` (I6). It exists because most naming in this project comes from the
 community listfile — unreliable at best — or is invented by husk. A consumer
 reading `"scalpupperhair00_08"` must be able to tell whether that came from the

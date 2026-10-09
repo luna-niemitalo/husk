@@ -81,6 +81,11 @@ int resolve(int argc, char** args);
 // "Terrain tile bundles").
 int exportTerrain(int argc, char** args);
 
+// `export-wmo` -- one WMO (root + its group files) to a canonical object
+// bundle with its doodad sets as placement sets (cmd_export_terrain.cpp;
+// REFACTOR/PLACEMENT_SETS.md).
+int exportWmo(int argc, char** args);
+
 // `export-world` -- every tile of every (or the selected) map, plus one
 // shared set of model bundles and terrain textures; parallel, resumable,
 // failures logged and skipped (cmd_export_terrain.cpp).
@@ -211,6 +216,15 @@ struct ExportTerrainOptions {
     bool listModels = false;
 };
 void addExportTerrainOptions(CLI::App& app, ExportTerrainOptions& opts);
+
+struct ExportWmoOptions {
+    std::string input;
+    std::string output;
+    std::string listfile;
+    std::string listfileRoot;
+    std::string modelsDir;
+};
+void addExportWmoOptions(CLI::App& app, ExportWmoOptions& opts);
 
 struct ExportWorldOptions {
     std::string mapsRoot;

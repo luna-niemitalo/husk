@@ -8,6 +8,7 @@
 #include "canon_curve.hpp"      // SequenceRef
 #include "canon_material.hpp"   // Material
 #include "canon_mesh.hpp"       // Mesh
+#include "canon_placement.hpp"  // PlacementSet
 #include "canon_ref.hpp"        // Identity
 #include "canon_scene.hpp"      // Scene
 #include "canon_skeleton.hpp"   // Skeleton
@@ -82,6 +83,15 @@ struct Model {
     std::vector<Identity> primitiveMaterials;  // one per mesh.primitives entry, see above
     std::vector<AnimationClip> animations;
     Scene scene;  // attachments, events, lights, emitters
+
+    // Placement sets this model owns (a WMO's doodad sets). An always-on set
+    // is shown wherever the model is placed; the rest are turned on per
+    // placement (PlacedInstance::activeSets).
+    struct OwnedSet {
+        PlacementSet set;
+        bool alwaysOn = false;
+    };
+    std::vector<OwnedSet> placementSets;
 };
 
 // Packs already-built canon:: pieces into a Model, validating the
@@ -93,14 +103,15 @@ struct Model {
 // against a local `materials` vector at all, so it's accepted unchecked;
 // validating THAT reference is the consumer's job once cross-bundle
 // loading exists). Every bone reference in `scene` must be a `RecordIndex`
-// in range for `skeleton.joints`.
+// in range for `skeleton.joints`, every primitive's `part` must be in range
+// for `mesh.parts`, and instance ids must be unique within each placement set.
 //
 // Every argument is taken by value and moved from -- this function's own
 // job is assembly, not borrowing; a caller done building these pieces has
 // no further use for them.
 Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> materials,
                      std::vector<Identity> primitiveMaterials, std::vector<AnimationClip> animations,
-                     Scene scene = {});
+                     Scene scene = {}, std::vector<Model::OwnedSet> placementSets = {});
 
 // Resolves `model.primitiveMaterials[primitiveIndex]` to an index into
 // `model.materials` -- the one shared implementation of this lookup (I2):

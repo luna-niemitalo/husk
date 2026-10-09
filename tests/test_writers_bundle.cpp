@@ -519,6 +519,53 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
     CHECK_FALSE(p.contains("particle_model"));
 }
 
+TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set files") {
+    canon::Model model = buildSyntheticModel();
+    model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0x8, {}, {}});
+    model.mesh.primitives[0].part = 0;
+    model.mesh.colorSets = {{{1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}}};
+    model.materials[0].twoSided = true;
+    model.materials[0].shader = canon::Ref{canon::RecordIndex{6}, "TwoLayerDiffuse", canon::NameSource::Synthesized};
+    model.materials[0].layers[0].uvScroll = canon::Vec2{0.5f, 0.0f};
+    canon::Model::OwnedSet owned;
+    owned.alwaysOn = true;
+    owned.set.ref = canon::Ref{canon::RecordIndex{0}, "Set_$DefaultGlobal", canon::NameSource::WmoEmbedded};
+    canon::PlacedInstance instance;
+    instance.id = 7;
+    instance.asset = canon::Ref{canon::FileDataId{7001}, "barrel01", canon::NameSource::Listfile};
+    instance.translation = {1, 2, 3};
+    instance.scale = 2.0f;
+    owned.set.instances.push_back(instance);
+    model.placementSets.push_back(owned);
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-wmo";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, "husk test", {{7001, "models/7001.canon.bundle/manifest.json"}});
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& resources = manifest["resources"];
+
+    CHECK(resources["mesh"]["parts"][0]["ref"]["name"] == "hall");
+    CHECK(resources["mesh"]["parts"][0]["ref"]["name_source"] == "wmo_embedded");
+    CHECK(resources["mesh"]["primitives"][0]["part"] == 0);
+    CHECK(resources["mesh"]["colors"][0]["component_type"] == "u8");
+    CHECK(resources["mesh"]["colors"][0]["semantic"] == "COLOR_0");
+    const auto& material = resources["materials"][0];
+    CHECK(material["two_sided"] == true);
+    CHECK(material["shader"]["name"] == "TwoLayerDiffuse");
+    CHECK(material["layers"][0]["uv_scroll"] == nlohmann::json::array({0.5, 0.0}));
+
+    const auto& set = resources["placement_sets"][0];
+    CHECK(set["always_on"] == true);
+    CHECK(set["ref"]["uri"] == "sets/0.json");
+    nlohmann::json setFile = nlohmann::json::parse(readTextFile(dir / "sets" / "0.json"));
+    CHECK(setFile["kind"] == "placement_set");
+    const auto& written = setFile["instances"][0];
+    CHECK(written["id"] == 7);
+    CHECK(written["asset"]["uri"] == "../models/7001.canon.bundle/manifest.json");
+    CHECK(written["scale"] == 2.0);
+    CHECK_FALSE(written.contains("tint"));
+}
+
 TEST_CASE(
     "writeBundle: real fixture -- primitives[i].material_index resolves via canon::resolveMaterialIndex, "
     "not positionally" *

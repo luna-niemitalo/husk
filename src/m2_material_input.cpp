@@ -378,6 +378,11 @@ canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, co
     // layer in this stack blends the same way.
     canon::BlendOp blendOp = blendModeToBlendOp(m2.materials[batch.materialIndex].blendMode);
     result.framebufferBlend = framebufferBlendFor(m2.materials[batch.materialIndex].blendMode);
+    uint16_t renderFlags = m2.materials[batch.materialIndex].flags;
+    result.sourceFlags = renderFlags;
+    result.unlit = (renderFlags & 0x1) != 0;
+    result.unfogged = (renderFlags & 0x2) != 0;
+    result.twoSided = (renderFlags & 0x4) != 0;
 
     // M2Batch::textureCount == 0: no real M2 texture unit for this batch at
     // all -- Material::layers documents "one entry per real M2 texture

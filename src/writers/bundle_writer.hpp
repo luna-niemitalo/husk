@@ -4,6 +4,7 @@
 #include <string>
 
 #include "canon_model.hpp"
+#include "writers/bundle_common.hpp"  // AssetUris
 
 // husk::writers: the native husk bundle (REFACTOR/BUNDLE_FORMAT.md) --
 // glTF-free by design (Luna's 2026-09-06 resolution, superseding that doc's
@@ -64,7 +65,7 @@
 // `"record_index"` (`{"kind":"record_index","value":<uint32>}`) -- the
 // exact four `canon::Identity` alternatives (`canon_ref.hpp`), one JSON
 // shape per alternative, never collapsed to a single ambiguous `"value"`
-// field. `name_source` is one of `"m2_embedded"|"adt_embedded"|"listfile"|"db2"|
+// field. `name_source` is one of `"m2_embedded"|"adt_embedded"|"wmo_embedded"|"listfile"|"db2"|
 // "synthesized"|"none"` (`canon::NameSource`, verbatim).
 //
 // Top-level manifest shape (a deliberate **subset** of BUNDLE_FORMAT.md's
@@ -86,8 +87,31 @@
 //     "attachments": [ ... ],
 //     "events": [ ... ],
 //     "lights": [ ... ],
-//     "emitters": { "ribbons": [ ... ], "particles": [ ... ] }
+//     "emitters": { "ribbons": [ ... ], "particles": [ ... ] },
+//     "placement_sets": [ ... ]
 //   }
+// }
+// ```
+//
+// ### resources.placement_sets (REFACTOR/PLACEMENT_SETS.md)
+// Sets this model owns (a WMO's doodad sets), each its own file:
+// ```json
+// [ { "ref": <Ref, with "uri": "sets/<index>.json">, "always_on": <bool>, "instance_count": <uint32> } ]
+// ```
+// An always-on set is shown wherever the model is placed; the others are
+// turned on per placement (an instance's `active_sets`). A set file is a
+// complete standalone document -- anything may author or reference one:
+// ```json
+// { "schema_version": "0.1.0", "producer": "...", "kind": "placement_set",
+//   "ref": <Ref>,
+//   "instances": [
+//     { "id": <uint32, unique within the set, stable>,
+//       "asset": <Ref, + "uri" relative to THIS file when the asset's bundle was exported>,
+//       "translation": [x,y,z], "rotation": [x,y,z,w], "scale": <f>,   // local to the set's parent frame
+//       "tint": { "rgba": [r,g,b,a], "multiplier": <f> },   // omitted when none; light sampled at the authored spot,
+//                                                           // stale once moved; WMO alpha 1..254 = index into the building's lights
+//       "flags": <uint32, source placement flags raw>,
+//       "active_sets": [ <Ref> ] } ]   // omitted = the placed asset's always-on sets only
 // }
 // ```
 //
@@ -103,6 +127,10 @@
 //   "normals":   <BufferSlice, semantic "NORMAL",   f32x3>,
 //   "uv0":       <BufferSlice, semantic "TEXCOORD_0", f32x2>,
 //   "uv1":       <BufferSlice, semantic "TEXCOORD_1", f32x2>,   // OMITTED entirely when canon::Mesh::uv1 is nullopt
+//   "uv2":       <BufferSlice, semantic "TEXCOORD_2", f32x2>,   // OMITTED when nullopt (WMO groups with a third UV set)
+//   "colors":    [ <BufferSlice, semantic "COLOR_<k>", u8x4, RGBA 0..255 as stored> ],  // OMITTED when the mesh has none.
+//                // WMO: baked vertex lighting (MOCV), FixColorVertexAlpha NOT applied; zero for vertices of a part
+//                // whose group lacks that set (the part's own flags say which sets it has)
 //   "joints0":   <BufferSlice, semantic "JOINTS_0",  u8x4>,     // OMITTED (with weights0) when canon::Mesh::skinning is empty
 //   "weights0":  <BufferSlice, semantic "WEIGHTS_0", f32x4>,
 //   "indices":   <BufferSlice, semantic "INDICES",   u32x1>,
@@ -110,7 +138,13 @@
 //     { "geoset_id": <uint32, group*100+variant, reconstructible>,
 //       "geoset_group": <uint32>, "geoset_variant": <uint32>,
 //       "index_start": <uint32>, "index_count": <uint32>,
-//       "material_index": <uint32> }   // this primitive's index into resources.materials, resolved via canon::resolveMaterialIndex -- materials is deduped, NOT 1:1 with primitives
+//       "material_index": <uint32>,   // this primitive's index into resources.materials, resolved via canon::resolveMaterialIndex -- materials is deduped, NOT 1:1 with primitives
+//       "part": <uint32> }            // index into "parts"; OMITTED for a model without parts (every M2)
+//   ],
+//   "parts": [   // named, separately addressable pieces (WMO groups); [] for an M2
+//     { "ref": <Ref, record_index = part index, name from the source when it has one>,
+//       "flags": <uint32, source group flags raw (WMO MOGP flags)>,
+//       "bounds_min": [x,y,z], "bounds_max": [x,y,z] }
 //   ]
 // }
 // ```
@@ -164,9 +198,13 @@
 //         "blend": <BlendOp enum name, lowercase>,
 //         "tint":       <inline curve, VecCurve, values as [r,g,b]>,   // omitted when nullopt
 //         "alpha_fade": <inline curve, ScalarCurve, values as plain numbers>,  // omitted when nullopt
-//         "uv_animation": { "translation": <inline curve, VecCurve>, "rotation": <inline curve, QuatCurve, values as [x,y,z,w]>, "scaling": <inline curve, VecCurve> }  // object omitted when nullopt; each of its 3 members omitted independently when that sub-curve is nullopt
+//         "uv_animation": { "translation": <inline curve, VecCurve>, "rotation": <inline curve, QuatCurve, values as [x,y,z,w]>, "scaling": <inline curve, VecCurve> },  // object omitted when nullopt; each of its 3 members omitted independently when that sub-curve is nullopt
+//         "uv_scroll": [u, v]   // constant UV units per second, not tied to any sequence (WMO MOUV); omitted when none
 //       }
 //     ],
+//     "unlit": <bool>, "unfogged": <bool>, "two_sided": <bool>,   // material flag bits 0x1/0x2/0x4, shared by M2 and WMO
+//     "source_flags": <uint32, the source material's whole flags word>,
+//     "shader": <Ref, id record_index = source shader index, name = its wiki name>,   // omitted when unresolved (M2 today)
 //     "framebuffer_blend": "opaque"|"alpha_key"|"alpha"|"no_alpha_add"|"add"|"mod"|"mod2x"|"blend_add",  // M2BLEND, canon::FramebufferBlend; omitted when the source mode is undocumented
 //     "diffuse_layer": <Ref>, "specular_layer": <Ref>, "emission_layer": <Ref>, "alpha_layer": <Ref>   // each omitted when nullopt
 //   }
@@ -280,7 +318,9 @@
 // assembleModel is the only way to hit this).
 namespace husk::writers {
 
+// `assetUris` links placement-set instances to bundles the caller exported
+// (FileDataID -> uri relative to `bundleDir`).
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir,
-                  const std::string& producer = "husk dev");
+                  const std::string& producer = "husk dev", const AssetUris& assetUris = {});
 
 }  // namespace husk::writers

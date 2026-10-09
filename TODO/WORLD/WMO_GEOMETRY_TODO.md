@@ -8,10 +8,18 @@ git history is the record of what was fixed and when, not this file.
 `MOGN`/`MOGI`/`GFID`/`MODS`/`MODI`/`MODN`/`MODD`/`MDDI`/`MOUV`/`MOSB`/
 `MOSI`) and group files (`MOGP` header, `MOPY`/`MPY2`, `MOVI`/`MOVX`,
 `MOVT`, `MONR`, every `MOTV`, every `MOCV`, `MOBA`), tested in
-`tests/test_wmo.cpp`; a seeded 4,000-file sample parses cleanly. The
-sections below still hold for what isn't built: the canon type and bundle
-(`../../REFACTOR/PLACEMENT_SETS.md`), `MOC2`, `MOM3`, the
-`FixColorVertexAlpha` decision, and how group files are located on disk.
+`tests/test_wmo.cpp`; a seeded 4,000-file sample parses cleanly. `husk
+export-wmo` writes a WMO as an ordinary object bundle with its doodad sets
+as placement sets (`../../REFACTOR/PLACEMENT_SETS.md`); group files are found
+by GFID through the listfile, else `<root>_NNN.wmo`. Open, in order:
+1. **Which UV set each texture samples** is assumed (texture k → UV set k);
+   the shader decides (`### Shader types` below). Verify per shader.
+2. **LOD tiers**: only GFID row 0 (base) is exported.
+3. **Skybox** (`MOSB`/`MOSI`) is parsed, not written.
+4. `MOC2`, `MOM3`; vertex colours are exported raw (no
+   `FixColorVertexAlpha`).
+5. Collision, portals, liquid, lights and fog inside a WMO -- the sibling
+   TODO files.
 **The "Coordinate system note" section below is wrong**: positions are
 plain (X, Y, Z) Z up, like M2 (`../../WIKI_FINDINGS/WORLD.md`).
 

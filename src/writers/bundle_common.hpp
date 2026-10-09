@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -61,6 +62,15 @@ void writeBufferSlice(json::Writer& w, const BufferSlice& slice, const char* sem
 // `uri`, when non-empty, adds BUNDLE_FORMAT.md's "Embed or reference"
 // field.
 void writeRef(json::Writer& w, const canon::Ref& ref, const std::string& uri = "");
+
+// FileDataID -> uri of a file the caller produced outside this bundle (a
+// model bundle, or a texture shared across tiles), relative to the file that
+// will reference it.
+using AssetUris = std::unordered_map<uint32_t, std::string>;
+
+// A Ref whose payload may live in another bundle: `uri` when the exporter
+// produced that bundle, identity only otherwise.
+void writeAssetRef(json::Writer& w, const canon::Ref& ref, const AssetUris& uris);
 
 std::string textureFileExtension(canon::TextureEncoding encoding);
 

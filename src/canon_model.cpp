@@ -1,5 +1,6 @@
 #include "canon_model.hpp"
 
+#include <set>
 #include <stdexcept>
 
 namespace husk::canon {
@@ -35,11 +36,33 @@ void requireJoints(const Scene& scene, size_t jointCount) {
     }
 }
 
+void requireParts(const Mesh& mesh) {
+    for (size_t i = 0; i < mesh.primitives.size(); ++i) {
+        const auto& part = mesh.primitives[i].part;
+        if (part && *part >= mesh.parts.size()) {
+            throw std::runtime_error("primitive " + std::to_string(i) + "'s part: expected an index < " +
+                                      std::to_string(mesh.parts.size()) + " parts, got " + std::to_string(*part));
+        }
+    }
+}
+
+void requireUniqueInstanceIds(const std::vector<Model::OwnedSet>& sets) {
+    for (const Model::OwnedSet& owned : sets) {
+        std::set<uint32_t> seen;
+        for (const PlacedInstance& instance : owned.set.instances) {
+            if (!seen.insert(instance.id).second) {
+                throw std::runtime_error("placement set '" + owned.set.ref.name + "': instance id " +
+                                          std::to_string(instance.id) + " appears more than once");
+            }
+        }
+    }
+}
+
 }  // namespace
 
 Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> materials,
                      std::vector<Identity> primitiveMaterials, std::vector<AnimationClip> animations,
-                     Scene scene) {
+                     Scene scene, std::vector<Model::OwnedSet> placementSets) {
     if (primitiveMaterials.size() != mesh.primitives.size()) {
         throw std::runtime_error("primitiveMaterials size (" + std::to_string(primitiveMaterials.size()) +
                                   ") must match mesh.primitives size (" + std::to_string(mesh.primitives.size()) +
@@ -59,6 +82,8 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
         }
     }
     requireJoints(scene, skeleton.joints.size());
+    requireParts(mesh);
+    requireUniqueInstanceIds(placementSets);
 
     Model result;
     result.skeleton = std::move(skeleton);
@@ -67,6 +92,7 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
     result.primitiveMaterials = std::move(primitiveMaterials);
     result.animations = std::move(animations);
     result.scene = std::move(scene);
+    result.placementSets = std::move(placementSets);
     return result;
 }
 

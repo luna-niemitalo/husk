@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include "canon_terrain.hpp"
+#include "writers/bundle_common.hpp"  // AssetUris
 
 // husk::writers: canon::Terrain -> bundle directory. Sibling of
 // bundle_writer.hpp; same BufferSlice/Ref/texture shapes (bundle_common.hpp),
@@ -47,10 +48,6 @@
 // }
 // ```
 namespace husk::writers {
-
-// FileDataID -> manifest-relative uri of a file the caller produced outside
-// this bundle (a model bundle, or a texture shared across tiles).
-using AssetUris = std::unordered_map<uint32_t, std::string>;
 
 // A resolved terrain texture with no payload of its own is written as a
 // reference to `textureUris[fdid]` when present (the shared-texture case).

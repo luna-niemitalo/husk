@@ -18,6 +18,7 @@ enum class NameSource {
     // the pre-FileDataID way a tile names what it places. Only ever carried
     // by a Ref whose path the listfile could not turn into a FileDataID.
     AdtEmbedded,
+    WmoEmbedded,
     Listfile,
     Db2,
     Synthesized,

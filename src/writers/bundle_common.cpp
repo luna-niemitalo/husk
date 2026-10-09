@@ -15,6 +15,7 @@ std::string nameSourceName(canon::NameSource source) {
     switch (source) {
         case canon::NameSource::M2Embedded: return "m2_embedded";
         case canon::NameSource::AdtEmbedded: return "adt_embedded";
+        case canon::NameSource::WmoEmbedded: return "wmo_embedded";
         case canon::NameSource::Listfile: return "listfile";
         case canon::NameSource::Db2: return "db2";
         case canon::NameSource::Synthesized: return "synthesized";
@@ -86,6 +87,15 @@ void writeRef(json::Writer& w, const canon::Ref& ref, const std::string& uri) {
         w.value(uri);
     }
     w.endObject();
+}
+
+void writeAssetRef(json::Writer& w, const canon::Ref& ref, const AssetUris& uris) {
+    std::string uri;
+    if (auto fdid = std::get_if<canon::FileDataId>(&ref.id)) {
+        auto it = uris.find(fdid->value);
+        if (it != uris.end()) uri = it->second;
+    }
+    writeRef(w, ref, uri);
 }
 
 std::string isoTimestampUtc() {

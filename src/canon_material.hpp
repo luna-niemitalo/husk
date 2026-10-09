@@ -147,6 +147,10 @@ struct MaterialLayer {
     };
     std::optional<TextureTransformCurves> uvAnimation;
 
+    // Constant UV scroll, UV units per second, running continuously rather
+    // than against any sequence (WMO MOUV).
+    std::optional<Vec2> uvScroll;
+
     // GxTexBlend_Opaque's own ColorOp (GL_MODULATE) is the client's real
     // fallback when nothing overrides it, so it's the honest default here
     // too -- not an arbitrary placeholder value.
@@ -180,6 +184,17 @@ struct Material {
     std::optional<Ref> alphaLayer;
     // nullopt when the source carries no blend mode, or one outside M2BLEND's 0..7.
     std::optional<FramebufferBlend> framebufferBlend;
+
+    // The render-state bits M2 and WMO materials share (both store them as
+    // bits 0x1/0x2/0x4 of their material flags).
+    bool unlit = false;
+    bool unfogged = false;
+    bool twoSided = false;
+    uint32_t sourceFlags = 0;  // the source material's whole flags word, raw
+
+    // The client shader this material is drawn with: id = the source's shader
+    // index, name = its wiki name (Synthesized). nullopt when not resolved.
+    std::optional<Ref> shader;
     // no normalLayer/roughnessLayer yet -- no real producer populates one; add when one actually exists, not speculatively.
 };
 

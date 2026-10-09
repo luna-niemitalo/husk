@@ -2,6 +2,7 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <mutex>
 #include <optional>
@@ -25,7 +26,10 @@
 #include "listfile_index.hpp"
 #include "sources/listfile_catalog.hpp"
 #include "sources/texture_payload.hpp"
+#include "wmo.hpp"
+#include "wmo_canon_input.hpp"
 #include "writers/bundle_common.hpp"
+#include "writers/bundle_writer.hpp"
 #include "writers/terrain_bundle_writer.hpp"
 
 // `export-terrain` / `export-world`: ADT tiles (root + _obj0 + _tex0 + the
@@ -110,6 +114,21 @@ void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts) {
                  "don't export model bundles (pass 2); placements link only to bundles already under "
                  "<output>/models/")
         ->group("Run");
+}
+
+void addExportWmoOptions(CLI::App& app, ExportWmoOptions& opts) {
+    addConfigOption(app);
+    app.add_option("input", opts.input, "root .wmo file (not a _NNN group file)")->required();
+    app.add_option("output", opts.output, "bundle directory to write")->required();
+    app.add_option("--listfile", opts.listfile,
+                   "community listfile CSV, or 'none': finds group files and textures by FileDataID, "
+                   "names doodad models")
+        ->group("Resolution");
+    app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to, or 'none'")
+        ->group("Resolution");
+    app.add_option("--models-dir", opts.modelsDir,
+                   "set doodad uris to <dir>/<fdid>.canon.bundle where that bundle exists")
+        ->group("Output");
 }
 
 namespace {
@@ -268,6 +287,72 @@ void nameModelRefs(canon::Terrain& terrain, const ListfileIndex& listfile) {
 }
 
 std::string modelBundleName(uint32_t fdid) { return std::to_string(fdid) + ".canon.bundle"; }
+
+// IN, critical when found: a WMO group file, by its GFID FileDataID through
+// the listfile, else by the <root stem>_NNN.wmo name beside the root (the
+// local extraction's naming). nullopt when neither exists.
+std::optional<std::filesystem::path> findWmoGroupFile(const std::filesystem::path& rootPath, const wmo::RootFile& root,
+                                                      uint32_t group, const ListfileIndex* listfile,
+                                                      const std::string& listfileRoot) {
+    uint32_t fdid = wmo::groupFileDataId(root, 0, group);
+    if (listfile && fdid != 0) {
+        std::optional<std::filesystem::path> listed = sources::pathForFileDataId(*listfile, listfileRoot, fdid);
+        if (listed && std::filesystem::exists(*listed)) return listed;
+    }
+    std::string suffix = std::to_string(group);
+    suffix.insert(0, suffix.size() < 3 ? 3 - suffix.size() : 0, '0');
+    std::filesystem::path sibling = rootPath.parent_path() / (rootPath.stem().string() + "_" + suffix + ".wmo");
+    if (std::filesystem::exists(sibling)) return sibling;
+    return std::nullopt;
+}
+
+// A WMO root and its base-LOD group files as a canon::Model. Missing group
+// files are reported through `warn` and leave that part empty; a group file
+// that exists but doesn't parse fails the export.
+canon::Model loadWmoModel(const std::filesystem::path& rootPath, const ListfileIndex* listfile,
+                          const std::string& listfileRoot, const std::function<void(const std::string&)>& warn) {
+    wmo::RootFile root = wmo::parseRoot(adt::readFile(rootPath));
+    wmoinput::WmoInputs inputs;
+    inputs.root = &root;
+    for (uint32_t g = 0; g < root.groups.size(); ++g) {
+        std::optional<std::filesystem::path> path = findWmoGroupFile(rootPath, root, g, listfile, listfileRoot);
+        if (!path) {
+            warn("expected group " + std::to_string(g) + " of " + rootPath.filename().string() + " (FileDataID " +
+                 std::to_string(wmo::groupFileDataId(root, 0, g)) + "), found no file -- its part has no geometry");
+            inputs.groups.emplace_back();
+            continue;
+        }
+        try {
+            inputs.groups.emplace_back(wmo::parseGroup(adt::readFile(*path)));
+        } catch (const std::exception& e) {
+            throw std::runtime_error(path->string() + ": " + e.what());
+        }
+    }
+    if (listfile) {
+        for (const wmo::Material& m : root.materials) {
+            for (uint32_t fdid : m.textures) {
+                if (fdid != 0 && root.textureNames.empty() && !inputs.textures.count(fdid)) {
+                    inputs.textures.emplace(fdid, resolveTexture(fdid, *listfile, listfileRoot));
+                }
+            }
+        }
+        for (uint32_t fdid : root.doodadFileDataIds) {
+            std::optional<std::string_view> listed = fdid != 0 ? listfile->lookup(fdid) : std::nullopt;
+            if (listed) inputs.assetNames.emplace(fdid, std::filesystem::path(std::string(*listed)).stem().string());
+        }
+    }
+    return wmoinput::buildCanonWmo(inputs);
+}
+
+std::set<uint32_t> placedAssets(const canon::Model& model) {
+    std::set<uint32_t> out;
+    for (const canon::Model::OwnedSet& owned : model.placementSets) {
+        for (const canon::PlacedInstance& instance : owned.set.instances) {
+            if (auto fdid = std::get_if<canon::FileDataId>(&instance.asset.id)) out.insert(fdid->value);
+        }
+    }
+    return out;
+}
 
 // Reversed for the same reason as resolve()'s identical call (cmd_resolve.cpp).
 bool parseArgs(CLI::App& app, int argc, char** args, int& exitCode) {
@@ -518,6 +603,53 @@ int exportTerrain(int argc, char** args) {
                   << " linked models\n";
     } catch (const std::exception& e) {
         std::cerr << "husk: export-terrain: " << e.what() << "\n";
+        return 1;
+    }
+    return 0;
+}
+
+int exportWmo(int argc, char** args) {
+    CLI::App app{"husk export-wmo -- one WMO building to a canonical object bundle", "husk export-wmo"};
+    ExportWmoOptions opts;
+    addExportWmoOptions(app, opts);
+    int exitCode = 0;
+    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+
+    try {
+        auto announce = [](const std::string& note) { std::cerr << "husk: note: " << note << "\n"; };
+        auto warn = [](const std::string& warning) { std::cerr << "husk: warning: " << warning << "\n"; };
+        std::unique_ptr<ListfileIndex> listfile;
+        std::string listfilePath = unlessNone(opts.listfile);
+        std::string listfileRoot = unlessNone(opts.listfileRoot);
+        if (!listfilePath.empty()) {
+            listfile = loadListfileCached(listfilePath);
+            announce("listfile: " + std::to_string(listfile->size()) + " rows from " + listfilePath);
+        } else {
+            announce("listfile: none (group files found by name only, textures stay unresolved)");
+        }
+
+        canon::Model model = loadWmoModel(opts.input, listfile.get(), listfileRoot, warn);
+
+        writers::AssetUris modelUris;
+        if (!opts.modelsDir.empty()) {
+            std::filesystem::path bundleDir = std::filesystem::absolute(opts.output);
+            for (uint32_t fdid : placedAssets(model)) {
+                std::filesystem::path manifest =
+                    std::filesystem::absolute(opts.modelsDir) / modelBundleName(fdid) / "manifest.json";
+                if (std::filesystem::exists(manifest)) {
+                    modelUris.emplace(fdid, std::filesystem::relative(manifest, bundleDir).generic_string());
+                }
+            }
+        }
+        writers::writeBundle(model, opts.output, "husk dev", modelUris);
+        size_t instances = 0;
+        for (const auto& owned : model.placementSets) instances += owned.set.instances.size();
+        std::cout << "wrote " << opts.output << ": " << model.mesh.parts.size() << " parts, "
+                  << model.mesh.primitives.size() << " primitives, " << model.materials.size() << " materials, "
+                  << model.placementSets.size() << " placement sets (" << instances << " instances), "
+                  << modelUris.size() << " linked models\n";
+    } catch (const std::exception& e) {
+        std::cerr << "husk: export-wmo: " << e.what() << "\n";
         return 1;
     }
     return 0;

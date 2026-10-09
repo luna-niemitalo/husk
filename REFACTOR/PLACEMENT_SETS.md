@@ -1,8 +1,11 @@
 # PLACEMENT_SETS.md — placement sets, and the WMO bundle as their first user
 
-**Target, not current state.** Nothing here is implemented yet. Agreed
-with Luna 2026-10-09; the export target is the canonical bundle
-(`BUNDLE_FORMAT.md`), consumed by MantleCore.
+Agreed with Luna 2026-10-09; the export target is the canonical bundle
+(`BUNDLE_FORMAT.md`), consumed by MantleCore. **Built**: `canon::
+PlacementSet` (`src/canon_placement.hpp`), WMOs as ordinary object bundles
+that own their doodad sets (`husk export-wmo`, `src/wmo_canon_input.cpp`).
+The byte-level schema is in `src/writers/bundle_writer.hpp`. **Not yet**:
+terrain onto sets, WMOs in `export-world`, liquids/lights/fog inside WMOs.
 
 ## The concept
 
@@ -61,7 +64,7 @@ authored spot; after a move, a runtime may recompute it or ignore it.
 
 Same "embed or reference — one rule" as every other resource
 (`BUNDLE_FORMAT.md`): a set is written as its own small JSON file
-(`sets/<name>.json`: `schema_version`, `ref`, `instances`), and an owner
+(`sets/<index>.json`: `schema_version`, `ref`, `instances`), and an owner
 references it by relative `uri`. Asset references inside a set are `Ref`s
 with a `uri` to the asset's own bundle when one was exported. A
 standalone set file is a complete document. A consumer can load one with
@@ -69,16 +72,19 @@ no owner at all, which is the housing and hand-made-scene case.
 
 ## First user: the WMO bundle
 
-One bundle per WMO:
+A WMO is an ordinary object bundle, the same shape as a doodad's (Luna,
+2026-10-09), plus references to the placement sets it owns:
 
-- `resources.groups[]`: per group, the mesh (`MOVT`/`MONR`/`MOTV`/`MOVI`),
-  per-vertex colours (`MOCV`/`MOC2`), batches → materials, flags. Group
-  identity and LOD tier come from `GFID`/`MOGI`.
-- `resources.materials[]`: `MOMT`, using the same `canon::Material`/layer
-  shape as M2, with UV animation from `MOUV`.
-- `sets[]`: one placement set per `MODS` entry, each a `sets/<name>.json`,
-  instances from `MODD` (+ `MODI`/`MDDI`), assets pointing at the shared
-  model bundles. Set 0 is marked always-on.
+- the mesh: no skeleton; each WMO group is a mesh **part**
+  (`resources.mesh.parts`), its batches primitives tagged with that part;
+  every group's vertices in one shared buffer, with `MOCV` as colour sets
+  and up to three UV sets. Base LOD only so far.
+- `resources.materials`: `MOMT`, the same `canon::Material`/layer shape as
+  M2, plus the shader name, the shared unlit/unfogged/two-sided bits and a
+  constant UV scroll from `MOUV`.
+- `resources.placement_sets`: one set per `MODS` entry, each a
+  `sets/<index>.json`, instances from `MODD` (+ `MODI`/`MDDI`), assets
+  pointing at the shared model bundles. Set 0 is always on.
 - Later, in the agreed order: liquid (`MLIQ`), lights (`MOLT`, lightsets,
   `MNLD`), fog and particulate volumes, then collision, portals and LOD.
 

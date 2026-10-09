@@ -26,6 +26,17 @@ struct PrimitiveGeoset {
     Geoset geoset;
     uint32_t indexStart = 0;
     uint32_t indexCount = 0;
+    std::optional<uint32_t> part;  // index into Mesh::parts; nullopt for a model with no parts (every M2)
+};
+
+// A named, separately addressable piece of a model -- a WMO group (a room,
+// a wing, an outside shell). Its primitives point back at it through
+// PrimitiveGeoset::part.
+struct MeshPart {
+    Ref ref;             // id = RecordIndex{part index}; name from the source when it has one
+    uint32_t flags = 0;  // source-format group flags, raw (WMO MOGP flags)
+    Vec3 boundsMin;
+    Vec3 boundsMax;
 };
 
 // One model's worth of real per-vertex geometry + skinning, raw M2 space
@@ -55,6 +66,11 @@ struct Mesh {
     // indistinguishable from "never written," so nothing downstream could
     // read it as a real second coordinate anyway.
     std::optional<std::vector<Vec2>> uv1;
+    std::optional<std::vector<Vec2>> uv2;  // a third UV set (WMO groups with three MOTV chunks)
+
+    // Per-vertex colour sets, RGBA bytes as stored (WMO MOCV: baked vertex
+    // lighting; the client's FixColorVertexAlpha adjustment is not applied).
+    std::vector<std::vector<std::array<uint8_t, 4>>> colorSets;
 
     struct Skinning {
         std::array<uint8_t, 4> joints{};
@@ -70,6 +86,7 @@ struct Mesh {
 
     std::vector<uint32_t> indices;  // shared triangle-index buffer; PrimitiveGeoset::indexStart/indexCount slice into this
     std::vector<PrimitiveGeoset> primitives;
+    std::vector<MeshPart> parts;
 };
 
 }  // namespace husk::canon

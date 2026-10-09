@@ -94,6 +94,7 @@ bool noneOptOutSupported(const std::string& subName, const std::string& longName
         return longName == "--db2-dir" || longName == "--dbd-dir" || longName == "--listfile" ||
                longName == "--listfile-root";
     }
+    if (subName == "export-wmo") return longName == "--listfile" || longName == "--listfile-root";
     // export-world's --listfile/--listfile-root are required: no off-state.
     if (subName == "export-world") return longName == "--db2-dir" || longName == "--dbd-dir";
     return false;
@@ -347,6 +348,7 @@ struct AllSubcommandOpts {
     husk::commands::ResolveOptions resolveOpts;
     husk::commands::ExportTerrainOptions exportTerrainOpts;
     husk::commands::ExportWorldOptions exportWorldOpts;
+    husk::commands::ExportWmoOptions exportWmoOpts;
 };
 
 // Builds a throwaway CLI11 App tree matching every subcommand's real flag
@@ -391,6 +393,9 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* exportTerrainSub =
         root.add_subcommand("export-terrain", "export one ADT tile to a canonical terrain bundle");
     husk::commands::addExportTerrainOptions(*exportTerrainSub, opts.exportTerrainOpts);
+
+    CLI::App* exportWmoSub = root.add_subcommand("export-wmo", "export one WMO building to a canonical object bundle");
+    husk::commands::addExportWmoOptions(*exportWmoSub, opts.exportWmoOpts);
 
     CLI::App* exportWorldSub =
         root.add_subcommand("export-world", "export every ADT tile of every map to a canonical scene");
@@ -566,6 +571,8 @@ int main(int argc, char** argv) {
         "  resolve <file.m2> [args...]  print texture-resolution ledger as JSON (see --help)\n"
         "  export-terrain <tile.adt> <out-dir>\n"
         "                               export one ADT tile to a canonical terrain bundle\n"
+        "  export-wmo <root.wmo> <out-dir>\n"
+        "                               export one WMO building to a canonical object bundle\n"
         "  export-world <maps-root> <out-dir> --listfile F --listfile-root D [--map NAME]...\n"
         "                               every tile of every map, parallel, resumable\n"
         "  --version, -V                print the build version and exit\n"
@@ -613,6 +620,9 @@ int main(int argc, char** argv) {
     }
     if (command == "export-world") {
         return husk::commands::exportWorld(restArgc, rest);
+    }
+    if (command == "export-wmo") {
+        return husk::commands::exportWmo(restArgc, rest);
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;

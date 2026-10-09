@@ -33,17 +33,6 @@ std::string heightSourceName(canon::LiquidHeightSource source) {
     return "heightmap";
 }
 
-// A Ref whose payload may live in another bundle: `uri` when the exporter
-// produced that bundle, identity only otherwise.
-void writeAssetRef(json::Writer& w, const canon::Ref& ref, const AssetUris& modelUris) {
-    std::string uri;
-    if (auto fdid = std::get_if<canon::FileDataId>(&ref.id)) {
-        auto it = modelUris.find(fdid->value);
-        if (it != modelUris.end()) uri = it->second;
-    }
-    writeRef(w, ref, uri);
-}
-
 void writeTerrainTexture(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
                          std::unordered_set<std::string>& written, const AssetUris& textureUris) {
     w.beginObject();
