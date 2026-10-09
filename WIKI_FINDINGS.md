@@ -30,17 +30,17 @@ touched and why. The files below remain the tracked, canonical record.
 
 | Page | Covers | Wiki page mirror |
 |---|---|---|
-| [`WIKI_FINDINGS/M2.md`](WIKI_FINDINGS/M2.md) | `M2Sequence` size, `bounding_box`, `M2Particle`/`FBlock`, `WFV3`, `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL`, `DETL`, `aliasNext`, `EXP2`/`PFDC`/`BLP2`, `global_flags`/`textureCombinerCombos` | `documentation/wowdev-wiki/md/M2.md` |
+| [`WIKI_FINDINGS/M2.md`](WIKI_FINDINGS/M2.md) | `M2Sequence` size, `bounding_box`, `M2Particle`/`FBlock`, `WFV3`, `WFV1`/`WFV2`/`DPIV`/`AFRA`/`PCOL`, `DETL`, `aliasNext`, `EXP2`/`PFDC`/`BLP2`, `global_flags`/`textureCombinerCombos`, `M2Vertex` (client struct) | `documentation/wowdev-wiki/md/M2.md` |
 | [`WIKI_FINDINGS/M2/anim.md`](WIKI_FINDINGS/M2/anim.md) | Chunked `.anim`'s `AFM2`/`AFSB` shape | `documentation/wowdev-wiki/md/M2/.anim.md` |
 | [`WIKI_FINDINGS/M2/skel.md`](WIKI_FINDINGS/M2/skel.md) | `.skel`'s `SKS1`/`SKB1` cross-chunk indexing, per-file `AFID` | `documentation/wowdev-wiki/md/M2/.skel.md` |
 | [`WIKI_FINDINGS/M2/skin.md`](WIKI_FINDINGS/M2/skin.md) | `.skin` multi-texture-layer arithmetic, `textureCoordCombos` | `documentation/wowdev-wiki/md/M2/.skin.md` |
-| [`WIKI_FINDINGS/M2/rendering.md`](WIKI_FINDINGS/M2/rendering.md) | Client-shader combiner formulas (IDs 0–35, five wiki corrections), alpha test/blend class/lighting modes, multi-texture particles, ribbons | `documentation/wowdev-wiki/md/{Pixel_shader_logic_for_mixing_colors,M2/Rendering,M2/.skin}.md` |
+| [`WIKI_FINDINGS/M2/rendering.md`](WIKI_FINDINGS/M2/rendering.md) | Client-shader combiner formulas (IDs 0–35, five wiki corrections), `Illum` specular, the lighting equation and light flash, alpha test/blend class/lighting modes, multi-texture particles, ribbons, GPU particles | `documentation/wowdev-wiki/md/{Pixel_shader_logic_for_mixing_colors,M2/Rendering,M2/.skin}.md` |
 | [`WIKI_FINDINGS/BONE.md`](WIKI_FINDINGS/BONE.md) | `.bone` file format, correction-matrix semantics, slot-selection follow-ups | `documentation/wowdev-wiki/md/BONE.md` |
 | [`WIKI_FINDINGS/PHYS.md`](WIKI_FINDINGS/PHYS.md) | `.phys` full struct verification | `documentation/wowdev-wiki/md/PHYS.md` |
 | [`WIKI_FINDINGS/ADT.md`](WIKI_FINDINGS/ADT.md) | ADT terrain tiles — verified against real tiles, implemented (`src/adt.cpp`, `husk export-terrain`); client terrain-shader blend | `documentation/wowdev-wiki/md/ADT/v18.md` |
-| [`WIKI_FINDINGS/BLS.md`](WIKI_FINDINGS/BLS.md) | `.bls` GXSH `0x1000E`/`0x1000C` and GFAT container layout, slot table semantics, block header, slot hash, disassembler coverage | `documentation/wowdev-wiki/md/{BLS,GFAT}.md` |
-| [`WIKI_FINDINGS/WORLD.md`](WIKI_FINDINGS/WORLD.md) | WMO/WDT/WDL/PM4/PD4 — first investigation pass, planning-stage, not yet implemented; WMO material shader behaviour (IDs 0–24) | `documentation/wowdev-wiki/md/{WMO,WMO/Rendering,WDT,WDL,PM4,PD4}.md` |
-| [`WIKI_FINDINGS/RENDERING.md`](WIKI_FINDINGS/RENDERING.md) | Sky cone, LightData colour-grading LUT, FFXGlow, confirmed from client shaders | `documentation/wowdev-wiki/md/{Day_night_cycle,DB/LightData,Rendering/ScreenEffects}.md` |
+| [`WIKI_FINDINGS/BLS.md`](WIKI_FINDINGS/BLS.md) | `.bls` GXSH `0x1000E`/`0x1000C` and GFAT container layout, slot table semantics, block header, slot hash, DXIL type names, disassembler coverage | `documentation/wowdev-wiki/md/{BLS,GFAT}.md` |
+| [`WIKI_FINDINGS/WORLD.md`](WIKI_FINDINGS/WORLD.md) | WMO/WDT/WDL/PM4/PD4 — first investigation pass, planning-stage, not yet implemented; WMO material shader behaviour (IDs 0–24), WMO vertex UV modes and `WMOVertex`, `_lgt.wdt` lights in the client shaders | `documentation/wowdev-wiki/md/{WMO,WMO/Rendering,WDT,WDL,PM4,PD4}.md` |
+| [`WIKI_FINDINGS/RENDERING.md`](WIKI_FINDINGS/RENDERING.md) | Sky cone, LightData colour-grading LUT, FFXGlow, the 12.1 fog model, scene-constant names, liquid shader families, third-party passes, from client shaders | `documentation/wowdev-wiki/md/{Day_night_cycle,DB/LightData,DB/LiquidMaterial,Rendering/ScreenEffects,Rendering/Lighting}.md` |
 
 ## Where these live in husk
 
@@ -59,7 +59,7 @@ touched and why. The files below remain the tracked, canonical record.
 | `DETL` stride + padding; `flags` is the one live field, rest are dead constants | `src/cmd_dump.cpp` (`dumpDetl`, `readHalfFloat`, doc comment only for the `flags` finding) | `tools/check_detl_stride.py`, `tests/test_dump.cpp` |
 | `aliasNext` chain resolution | `src/m2.hpp`/`m2.cpp` (`Sequence`), `src/cmd_export.cpp` (`resolveAliasChain`, `buildAnimations`), `src/gltf.hpp`/`gltf.cpp` (`SequenceMetadata`) | `tests/test_m2.cpp`, `tests/test_gltf.cpp`, `tests/test_cli.cpp`, `tests/test_integration.cpp`, `tools/check_alias_next.py` |
 | `EXP2`/`PFDC`/`BLP2` | `src/m2.hpp` (`ExtendedParticle`), `src/cmd_dump.cpp`, `DESIGN.md` Non-goals | `tests/test_dump.cpp`, `tests/test_integration.cpp` |
-| Client-shader formulas (combiners, WMO, terrain, screen effects) | read from `tools/export_shaders.py`'s export; partial consumer `tools/corpus_scan_tasks/render_glb.py` (`_pixel_shader_formula_table`) | none (bytecode-read; history §19) |
+| Client-shader formulas (combiners, WMO, terrain, screen effects) | read from `tools/export_shaders.py`'s export; partial consumer `tools/corpus_scan_tasks/render_glb.py` (`_pixel_shader_formula_table`) | none (bytecode-read; history §19, §20) |
 | `global_flags`/`textureCombinerCombos`/`resolveSkin` | `src/m2.hpp`/`m2.cpp` (`GlobalFlag`, `globalFlagNames`, `Header::textureCombinerCombos`), `src/cmd_info.cpp`, `src/cmd_export.cpp` (`resolveSkin`) | `tests/test_cli.cpp`, `blp/tests/test_decode.py` |
 | BLS/GFAT container layout | `tools/export_shaders.py` (not husk itself) | the tool's own boundary checks, run over the full corpus |
 | ADT layout corrections and conventions (`MCNR` order, hole maps, `MDDF` transform, `MH2O` layouts, alpha maps, `MTEX`/name tables) | `src/adt.hpp`/`adt.cpp`, `src/adt_canon_input.cpp` | `tests/test_adt.cpp`, `tests/test_adt_canon_input.cpp`, `tests/test_cli_export_terrain.cpp` |

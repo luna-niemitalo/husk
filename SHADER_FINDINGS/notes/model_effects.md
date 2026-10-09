@@ -106,10 +106,49 @@ coverage loop apply the same factor.
 | bit 0 | Clustered-light slot bit; on its own it changes nothing, because the shader is unlit |
 | bit 3 | With bit 0: discard plus view depth to `o1.x` (as combiner bit 8 requires bit 2) |
 
-The full `cb2[5]` layer combines `t4` and `t17` (times `cb2[1]`), picks channels through
-one-hot rows of an immediate table indexed by `cb2[2]`, selects a UV mode by `cb2[0].z`,
-and adds a fresnel term with power `cb2[0].y`, coloured `cb2[3] * cb2[4].z`. It is only
-partly decoded.
+Effect layer, read from blobs 80 (small form) and 24 (full form). `d` is the unsaturated
+dissolve value from above, `d = t3·cb0[6].y + 1 − cb0[6].x·(1 + cb0[6].y)`.
+
+**Small form** (bit 8 alone, `cb2[1]`):
+
+```
+layer = 4 · t4.rgb · t17.rgb            // t4 at v6·cb0[8].zw + cb0[8].xy, t17 through cb0[9]
+if cb2[0].x > 0: layer *= t0.a          // masked by the base alpha
+d < 1:        rgb = layer · d
+1 ≤ d < 1.5:  rgb = layer · (1 − 2·(d − 1))
+d ≥ 1.5:      discard
+```
+
+The layer brightens toward the dissolve edge, fades out over the next half unit and is not
+drawn beyond it.
+
+**Full form** (bit 5, `cb2[5]`):
+
+```
+if cb2[0].w > 0:
+    uvN   = cb2[0].z == 0 ? ((v6.x + cb0[7].x)·cb0[7].z, 1 − (v6.y + cb0[7].y)·cb0[7].w)
+          : cb2[0].z == 1 ? v6·cb0[7].zw + cb0[7].xy
+          :                 base UV (UV0 or the sphere map, cb0[5].y)
+    L     = 2 · t3(uvN).r · t4 · t17 · cb0[6].x · cb2[1]          // rgba
+    a'    = t4.a · t17.a
+    L.rgb = (dot(icb[cb2[2].x], L), dot(icb[cb2[2].y], L), dot(icb[cb2[2].z], L)) · a'
+    L.a   = dot(icb[cb2[2].w], L)
+N    = (cb2[4].y > 0 and v4.z > 0) ? −v4 : v4
+fres = (1 − sat(−v3·N))² + (1 − sat(V·N·(0.05, 0.05, 1)))²
+if cb2[4].x > 0:                                    // rim mode
+    rim   = pow(fres, cb2[0].y)
+    rgb   = L.rgb + cb2[3].rgb · cb2[4].z · rim
+    alpha = |t0.rgb · t0.a|² < 0.1 ? 0 : max(L.a, rim · t0.a · cb2[3].a · cb2[4].z)
+elif cb2[0].y > 0:                                  // fresnel-masked layer
+    rgb = L.rgb · sat(fres · cb2[0].y);  alpha = L.a · fres
+else:
+    rgb = L.rgb;  alpha = L.a
+```
+
+`icb` is the 4×4 identity, so `cb2[2]` routes texture channels into rgb and alpha. In rim
+mode, base texels whose premultiplied colour is near black are cut out. The `0.05`
+factor flattens the normal's view-plane components for the second fresnel term. The
+coefficients come from the code; the names are descriptive.
 
 ## Vertex side
 

@@ -4,7 +4,7 @@ Current, correct facts only, read from the 12.1.0 client's own compiled
 shaders (`tools/export_shaders.py`'s `dx_5_0` assembly; container format in
 `../BLS.md`). Nothing here was checked against the running client, and
 everything below is **verified** against shader code unless tagged
-otherwise. Full evidence trail: `../../WIKI_FINDINGS_HISTORY.md` §19.
+otherwise. Full evidence trail: `../../WIKI_FINDINGS_HISTORY.md` §19, §20.
 
 Wiki pages: `Pixel_shader_logic_for_mixing_colors.md` (**P** below),
 `M2/Rendering.md` (**R**), `M2/.skin.md` (shader enums), `M2.md`
@@ -84,6 +84,7 @@ page has no formula.
 | 30 | Guild | `t0·lerp(cb0[10], t1·cb0[11], t1.a)`, then lerp toward `t2·cb0[12]` by `t2.a` | — | `t0.a` | — | — |
 | 31 | Guild_NoBorder | as 30 without the `t2` step | — | `t0.a` | — | — |
 | 32 | Guild_Opaque | as 30 | — | 1 | — | — |
+| 34 | Illum | `t0` | specular from `t1`, below | `t0.a` | — | — |
 | 35 | Mod_Mod_Mod_Const | `t0·t1·t2·cb0[6]`, rgba | — | from the product | — | — |
 
 Corrections:
@@ -119,6 +120,41 @@ Notes:
   formula matches `M2/.skin.md`'s "Environment mapping". That the client
   derives `cb0[5].y` from the shader ID's env bits is **inferred**.
 
+## Illum (34)
+
+**P** has an empty `Illum` section. The client's `illum` is the only
+combiner with a specular term. `t0` is the diffuse texture; `t1`, at the
+same UV, holds gloss in `.x` and specular reflectance `F0` in `.y`:
+
+```
+n    = 64 · t1.x
+spec = pow(sat(N·H), n) · (n + 2) / 8                   // normalised Blinn-Phong
+F    = t1.y + (1 − t1.y) · (1 − sat(L·H))⁵              // Schlick
+rgb += spec · F · specColour · sat(N·L) · 0.8 · distanceFalloff   // after the light combine
+```
+
+Its diffuse lighting also differs from the other combiners: lighting
+mode 1 uses half-Lambert `sat(0.5·N·L + 0.5) · 0.8`, and mode 2 has
+ambient only. No 12.1 content references ID 34
+(`../../SHADER_FINDINGS/README.md` §3.1).
+
+## Lighting (all M2 forward shaders)
+
+- Ambient is hemispheric: sky, horizon and ground colours, interpolated
+  by `N·up`, times the wrap term `0.7 + 0.4 · (0.5·N·L + 0.5)`.
+- The sun is `sat(N·L)` times the sun colour, the shadow mask and an
+  optional distance falloff.
+- Local lights (light buffer or clustered) are accumulated as
+  `(attenuation · colour)² · N·L` and combined as
+  `sqrt(lit² + local · albedo²)`. The math is verified; reading it as a
+  gamma-2.0 approximation of linear-space accumulation is **inferred**.
+- After that, a **light flash** is added: a directional light whose
+  constant buffer the DX12 build names `cb_light_flash`
+  (`../RENDERING.md`). A negative intensity lights back faces and lowers
+  alpha. That it is lightning is **inferred**.
+- Doodads inside WMOs blend the whole light set toward a per-draw
+  interior set by the interior/exterior factor (`../WORLD.md`).
+
 ## Alpha test, blend, fog, lighting (`M2/Rendering.md`)
 
 | Wiki | Client shader | |
@@ -143,6 +179,14 @@ shaders.
   alpha. That those bits are the wiki's `MultitexUseModx4` and
   three-colour flags is **inferred**.
 - **Ribbons** (`ribbon`): `t0 × colour`, plus a soft-depth variant.
-- Particle `blendingType` 5–7 stays open: particle shaders take the same
-  internal blend class as the combiners, and nothing in them maps raw
-  `blendingType` values.
+- Particle `blendingType` 5–7 stays open. Particle shaders take the same
+  internal blend class as the combiners, and they implement only two
+  particle-specific paths: class 1 (alpha forced to 1) and class 4
+  (premultiplied, fog and froxel fade to zero), the path a `ONE`-source
+  blend needs. Nothing in them maps raw `blendingType` values.
+- The GPU particle kernel `particleupdate` is a different model from
+  `M2Particle`: arbitrary-length Bézier curves, drag, an attractor and
+  PCG randomness, with state in a `ComputeParticle` buffer. Its output
+  feeds `computeparticlevs`/`material3_particle_vs`, so M2 particles
+  appear to stay on the CPU path (**inferred**). It cannot confirm
+  `M2Particle`'s offsets.

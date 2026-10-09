@@ -33,11 +33,64 @@ per-draw fog selection `cb3[3]` (`cbuffers.md`).
 
 | Container | Slots / programs | Declarations | Bits |
 |---|---|---|---|
-| `decal` | 32 / 32 | `t0`–`t2`, light buffer `t11`, view normals `t13`, `t10`, `t16`; `cb1[39]`; full lighting cbuffers; 1087 instructions in program 0 | 0: −48 instructions. 1: adds `t3`–`t5` (+235 to +719). 2: adds the shadow mask `t12`. 3: −91. 4: +506 to +990 with no new declarations |
-| `edgedecal` | 48 / 32 | `t0`–`t2`, `t11`, `t16`; `cb1[40]` | 0: adds `cb7`, `t10`, `t13`, `v4.xyz` (+163). 1: adds `t8`. 2: adds `t3`, `t4`, `t7`. 3: adds the shadow mask `t12`. 4, 5: about −90 each |
+| `decal` | 32 / 32 | `t0`–`t2`, depth `t10`, light buffer `t11`, view normals `t13`, `t16`; `cb1[39]`; full lighting cbuffers | Decoded below |
+| `edgedecal` | 48 / 32 | `t0`–`t2`, `t11`, `t16`; `cb1[40]` | Key decoded below |
 | `flipbookimpostor` | 32 / 10 | `t0`, `t1`, `t11`, `t16`; UVs `v5`, `v6`; `v7.x` | Combiner layout: 0 clustered lights, 1 shadows, 2 prepass, 3 dither (`cb0`), 4 always set |
 | `proj_single/two/three_texture`, `proj_add_single_texture`, `proj_opaque_single_texture` | 8 / 4 each | 1–3 textures, clustered lights always, `t16` | `proj_two_texture`: bit 0 +3, bit 2 −51 instructions; bit 1 never toggles |
 | `projtex2d` | 8 / 7 | `t0`, `t4`; UVs `v3.xy`, `v3.zw` | Not analysed |
+
+### `decal` (32 slots, 5 binary bits)
+
+| Bit | Effect |
+|---|---|
+| 0 | Simple lighting: no hemisphere ambient and no `0.7 + 0.4·wrap` term (`cb8[10]` dropped; combiner bit 10 equivalent) |
+| 1 | A second texture set `t3`–`t5` |
+| 2 | Shadow mask `t12` (combiner bit 3 equivalent) |
+| 3 | Reduced fog colour: the height-fog colour (`[6]`, `[13]`) and the sun-fog term (`[5]`, `[7]`) are not read; the fog colour is the cubic near/far gradient only |
+| 4 | Each texture is sampled three times, with three UV and gradient sets (`sample_d` 3 → 9). Triplanar projection is the likely reading (**hypothesis**) |
+
+Program 0 (1,086 instructions), `cb1[39]`:
+
+1. **Position.** With `cb1[9].w > 0` the view position is rebuilt from depth (`t10` at
+   the screen UV): `P = depth · (v3.xy / v3.z, 1)`. Otherwise `P = v3.xyz`, which makes it a
+   mesh decal.
+2. **Decal space.** `D = cb1[0..2] · P` and a world position `W = cb1[24..26] · P`.
+   `cb1[7].yzw` scales `D`.
+3. **Shape** (`cb1[28].y`), with clipping by `discard`:
+   - 0, 2, 4: cylinder. Radius `|D.xy|` and height `|D.z|` against 0.5;
+     `cb1[28].z == 1` switches the radial test from `D` to the world distance from
+     `cb1[4]`.
+   - 1: box, `|D| ≤ 0.5` on all three axes.
+   - 3: up to four planes `cb1[29..32]` (signed distances, `|.w|` as offset). The nearest
+     plane gives the edge distance.
+4. **UVs.** `t0`, `t1`, `t2` use the 2×3 transforms `cb1[10..11]`, `[12..13]` and
+   `[14..15]`. The source is decal-space `D.xy`, world `W.xy · 0.1` (`cb1[28].x`), or a
+   polar mapping built from `atan2` and `acos` of the decal-space direction (`cb1[38].x`,
+   `cb1[28].z`). Gradients come from the screen UV and `D`, which avoids seams at depth
+   edges.
+5. **Colour.** `t0 · t1 · t2 · cb1[8]`. The rgb channels are then re-selected through the
+   identity `icb` rows indexed by `cb1[5].xyz` (channel swizzle).
+6. **Fades.**
+   - Edge fade: the distance to the shape edge, shaped by the cubic `cb1[36]`.
+   - Height fade: shaped by the cubic `cb1[37]`, start `cb1[9].z`.
+   - Angle fade: with view normals (`t13`, `cb1[35].w > 0`),
+     `saturate((dot(cb1[35].xyz, N) − 0.7) · 3.33)`.
+   - Opacity `cb1[6].w`.
+   - Blend class from `cb0[24].x` as in the combiners (alpha test at 128/255).
+7. **Lighting and fog.** The combiner forward path follows (`lighting_model.md`, `fog.md`):
+   `cb0[18..24]`, the light buffer `t11`, `cb7`, the fog records and the froxel volume
+   `t16`.
+
+### `edgedecal` (48 slots)
+
+`slot = lit + 2·e + 4·layer + 8·shadow + 16·fog`, with blob sharing:
+
+| Digit | Values | Effect |
+|---|---|---|
+| `lit` | 2 | View normals `t13`, depth `t10`, `cb7` and `v4.xyz` |
+| `layer`, `e` | 2 × 2 | `layer`: second texture set `t3`, `t4`, `t7`. `e`: adds `t8`, only with `layer` (without it, `e` changes nothing) |
+| `shadow` | 2 | Shadow mask `t12` |
+| `fog` | 3 | 0: full fog colour. 1, 2: the reduced fog colour of `decal` bit 3. 2 differs from 1 only with `layer` |
 
 ## Zone and spell surfaces
 

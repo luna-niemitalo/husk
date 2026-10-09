@@ -181,15 +181,19 @@ material ID, `cb2[1]` UV-generation modes, `cb2[1].w == 1` enables vertex colour
 | `o5.xyz` | `v5.xyz` | View-space position |
 | `o5.w` | `v5.w` | `1 - vertex alpha`; blends scene ambient/fog with the draw's own, the role `v3.w` has in the combiners |
 | `o6.xyz` | `v6` | View-space normal |
-| `o7`, `o8`, `o9` | `v7`–`v9` | Up to six UV sets. Each set's source is chosen by a mode in `cb2[1]`: 0 UV0 through `cb1[0..1]`, 1 UV1 through `cb1[2..3]`, 2 sphere map, 3 reflection, 4–8 further modes (not decoded). For material 23 the raw UVs `v4`–`v7` pass through and `o9` carries the layer weights from `v8` |
+| `o7`, `o8`, `o9` | `v7`–`v9` | Up to six UV sets. Each set's source is chosen by a mode in `cb2[1]`: 0 UV0 through `cb1[0..1]`; 1 UV1 through `cb1[2..3]`; 2 sphere map; 3 `reflect(V, N).xy`; 4 zero; 5 planar projection of the position (`−0.24 ·` the rows of `cb1[1]` and `cb1[0]` used as 4-vectors); 6 UV2 as-is; 7 UV0 as-is; 8 UV2 through `cb1[0..1]`. For material 23 the raw UVs `v4`–`v7` pass through and `o9` carries the layer weights from `v8` |
 
 ## Related
 
 - `prepassmapobj` (pixel 2 slots, vertex 8 slots): not decoded.
 - The other `material3_*` containers: see `material3.md`.
 
+## Cross-check with the wiki
+
+MOCV alpha → interior/exterior blend, MOCV ×2 baked light, MOC2 → material 23, lighting
+modes, MOM3 → `material3_wmo_*`: `reconciliation.md` §3.
+
 ## Open
 
 - What `material3_wmo_ps` is used for when `uber` covers the WMO materials.
-- UV-generation modes 4–8.
 - The sentinel 34583 (0x8717).

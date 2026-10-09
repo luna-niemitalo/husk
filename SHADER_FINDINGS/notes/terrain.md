@@ -35,8 +35,8 @@ cubemap presence. All 672 match.
 |---|---|---|
 | Lerp chain | `colour = lerp(lerp(lerp(L0, L1, a.r), L2, a.g), L3, a.b)` with alpha map `t17` | blob 0 |
 | Normalized | `w0 = 1 - sum(a.rgb)`. Each weight is sharpened by `1 - saturate(max(w) - w)` and the weights are renormalized. Layers with zero weight skip their fetch | blob 8 |
-| Height | Normalized, plus per-layer heights `t22`–`t25` scaled by `cb1[5]` and offset by `cb1[9]`. Weights are multiplied by height before sharpening | blob 22 |
-| Height+LUT | Height, plus a per-layer 32³ colour LUT `t26`–`t29`. The LUT result is blended in by a distance curve from `t30`–`t33`, sampled at `log2(distance) * cb1[32+i].x + cb1[32+i].y`. Each layer is enabled by a bit in `cb1[29].w` | blob 36 |
+| Height | Normalized, plus per-layer heights `t22`–`t25` scaled by `cb1[5]` (MTXP `heightScale`) and offset by `cb1[9]` (MTXP `heightOffset`). Weights are multiplied by height before sharpening | blob 22 |
+| Height+LUT | Height, plus a per-layer 32³ colour LUT `t26`–`t29` (likely ADT MTCG `colorGradingFdid`; the curve below its `colorGradingRampFdid`). The LUT result is blended in by a distance curve from `t30`–`t33`, sampled at `log2(distance) * cb1[32+i].x + cb1[32+i].y`. Each layer is enabled by a bit in `cb1[29].w` | blob 36 |
 | `x` | Simple lighting: flat ambient, saturated specular, no squared/`sqrt` combine. Same as combiner bit 10 | blob 0 → 2 |
 | `flags` | Per-layer flags `cb1[0].xyzw` move each layer between the lerp chain and a weighted-sum chain. The specular mask is the alpha from both chains. Only partly decoded | blob 0 → 4 |
 | `y`, `z` | Reflection. With full lighting, either bit adds a cubemap `t5` sampled at the reflection vector `v4.xyz`. The chunk UV moves to `v5.xy`. Layer 0's alpha becomes the reflection mask instead of contributing to specular. `y` + `z` also removes layer 1's alpha from specular, and `z` tints the reflection by the blended colour and scales specular by 8. With `x` set there is no cubemap, and `y` and `z` only remove layer alpha from specular (one bit alone gives the same program as the other alone) | blobs 12, 16, 18; 10, 14, 20 |
@@ -52,7 +52,7 @@ cubemap presence. All 672 match.
 5. Point light `cb8[4..5]`, sun `cb8[3]`/`cb8[6]`, Blinn specular with exponent 20 and
    colour `cb8[7]`, masked by the blended layer alpha and scaled by `cb8[8].y`.
 6. Hemispheric ambient `cb8[0..2]` with the 0.7/0.4 wrap term, as in the combiners.
-7. Secondary light `cb7`.
+7. Light flash `cb7`.
 8. Fog: `cb3` selects records in `cb5`, as `cb0[0..2]` does for the combiners.
 
 ## Vertex shader (`vertex/dx_5_0/terrain`, 8 slots)
@@ -83,5 +83,7 @@ The smaller containers' keys are not decoded.
 
 ## Open
 
-- The exact meaning of the `flags` option and of the `y`/`z` asymmetry under full lighting.
+- The exact meaning of the `flags` option (hypothesis in `reconciliation.md` §4).
+- `y`/`z`: with both set, reflection mask = layers 0+1 alpha, specular = layers 2+3, which is the wiki's
+  `metalBlend`/`specBlend` (`reconciliation.md` §4). `z` alone still needs a name.
 - Keys of the smaller terrain containers.

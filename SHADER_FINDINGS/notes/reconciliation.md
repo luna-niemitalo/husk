@@ -11,7 +11,7 @@ This file compares three sources against each other (paths relative to the repo 
 3. **The wiki mirror** in `documentation/wowdev-wiki/md/`.
 
 Proposed additions to her files are in the last section. The verified ones have since been
-promoted into `WIKI_FINDINGS/` (`WIKI_FINDINGS_HISTORY.md` §19).
+promoted into `WIKI_FINDINGS/` (`WIKI_FINDINGS_HISTORY.md` §19, §20).
 
 Confidence tags follow her convention:
 - **verified**: checked against the shader code, with the evidence named.
@@ -39,7 +39,7 @@ exactly the indices of the wiki's pixel-shader enum (`md/M2/.skin.md:409-486`):
 | `combiners_mod_masked_dual_crossfade` | 28 |
 | `guild`, `guild_noborder`, `guild_opaque` | 30, 31, 32 |
 | `combiners_mod_depth` | 33 |
-| `illum` | 34 |
+| `illum` | 34 (the wiki's `Illum` section is empty; the decode is in `lighting_model.md`, Specular) |
 | `combiners_mod_mod_depth` | not in the wiki enum (`kek.md`: "Mod_Mod_Depth, which is missing from the wiki's list") |
 | `litsphere_additive_opaque` | not in the wiki enum |
 
@@ -183,15 +183,39 @@ Notes on the ✗ marks:
 | LiquidMaterial classes Water (1, 3), Magma (2, 4), Mercury (5), Fog (10), Debug (8) (`md/DB/LiquidMaterial.md:23-41`) | Containers `water`/`procwater*`, `magma`/`procmagma`, `mercury`/`procmercury`, `liquidfog`, `liquiddebug` | **inferred** (names). `procswamp`, `procleyline*` and the `medium*` tier have no wiki counterpart |
 | `Liquid::s_waterDetail`: 0 old water, 1 screen-space reflection, 2 dynamic reflection | `procwaterabove` digit `b`: 1 = sky texture only, 0 = projected reflection with sky fallback, 2 = projected reflection only | **hypothesis**: `b` 1/0/2 ↔ detail 0/1/2 |
 | LightData ocean/river close and far colours, shallow/deep alphas | `procwaterabove` lerps `cb1[20]` → `cb1[21]` and uses `.w` as the blend over refraction | **hypothesis** |
+| LiquidType `float[]` parameters "TextureTilesPerBlock", "Rotation" | The `procwater` vertex shader scales the second normal-map layer by `cb1[29].w · 32` and rotates the UVs by the 2×2 matrix `cb1[25..26]` (`liquids.md`) | **hypothesis** |
 | The sky cone is a mesh with vertex colours from LightData (`md/Day_night_cycle.md:285-320`) | `dnsky` colours come from `v1`, plus a sun glow and dither | **verified** |
 | LightData 23 "Horizon Ambient Color", 24 "Ground Ambient Color" | Hemispheric ambient in `cb8[0..2]` (lerp across the up vector `cb8[10]`) | **inferred**: `cb8[0]` sky, `cb8[1]` horizon, `cb8[2]` ground |
 | Colour-grading LUT shader (`md/DB/LightData.md:104-134`) | Same 1024×32 strip and slice lerp in `ffxcolorgrading` and combiner bit 1 | **verified** |
+| MoP fog: linear from `fogEnd · fogScalar` to `fogEnd` via `s_fogParams` (`md/Day_night_cycle.md:259-283`) | Replaced. Each record combines exponential, height and curve fog with a linear cutoff at the fog end; up to 4 records are blended by weight (`fog.md`) | **disagrees** for this client (the wiki notes Legion moved fog to the fragment shader and added a height plane) |
+| Doodads pick one of two fog sets by flag 0x8000 (`md/Rendering/Lighting.md:145-165`) | The shader's two-set mode blends set 1 and set 2 by the interior/exterior factor `v3.w` | **verified** (blend in shader); the flag's role in choosing the mode is client-side |
+| LightData 26 "Sun Fog Color", 27 "Fog Height Color", 25 "Fog End Color" | Fog records hold a sun-fog colour with direction and threshold, a height-fog colour gradient and a far fog colour (`fog.md`) | **inferred** |
 | FFXGlow `mix(screen, blur, blurAmount.z) + blur²·blurAmount.w` (`md/Rendering/ScreenEffects.md:185-225`) | `ffxglow` is this exactly (`cb1[0].z`, `cb1[0].w`) | **verified** |
 | ScreenEffect swirling fog: PassFogSeed tint, PassPropagateFog `_2/255·0.9`, PassFogCombine `_3/100` | `ffxfogseed` = texture × colour; `ffxpropagatefog` subtracts `cb1[0].x` from alpha; `ffxfogcombine` uses `cb1[0].x`/`.y` | **inferred** |
 | Unconscious → PassGlowFade | `ffxglowfade` = glow, then a lerp toward `cb1[0].rgb` by `cb1[1].x` | **inferred** |
 | Multi-texture particles (`kek.md`, no known solution): "MultitexUseModx4 … instead of Modx2", "3 colors instead of 2" (`md/M2.md:1964-1997`) | `particle_3colortex_3alphatex`: `t0·t1` (and `·t2` in three-colour mode) × 2, or × 4 when the flag in `cb0[6].x` is set. The third texture's alpha always enters alpha | **verified** (formula); flag-to-bit mapping **inferred** |
 | Ribbon shader (`kek.md`, no known solution) | `ribbon` = `t0 × colour`, with a soft-depth variant. `gpuribbon` is described in `particles.md` | **verified** |
-| Particle `blendingType` 5–7 (`kek.md`) | Particle shaders take the same internal blend class as the combiners; nothing maps raw `blendingType` values | still open |
+| Particle `blendingType` 5–7 (`kek.md`) | Particle shaders handle only blend classes 1 (alpha forced to 1) and 4 (source pre-multiplied by transparency; fog and froxel fade to zero), the path a `ONE`-source blend (`NoAlphaAdd`, `BlendAdd`) needs (`particles.md`) | **hypothesis**: 7 = `BlendAdd` (M2BLEND-style table) rather than `InvSrcAlphaAdd` (1:1 `EGxBlend`); the data test below can decide |
+
+### Data test for particle `blendingType` (to run on the corpus with `tools/corpus_scan_tasks/`)
+
+The two candidate tables predict different texture content:
+
+1. **Texture content.** For emitters with `blendingType` 7, gather the particle textures (`textureId` bitfield →
+   the M2's texture list) and measure, per BLP, the share of texels with
+   `max(r,g,b) ≤ a + ε`. Premultiplied art (`BlendAdd`) scores near 100%. `InvSrcAlphaAdd`
+   art would have bright colour where alpha is low.
+2. **Cross-tabulation with model materials.** Tabulate `blendingType` against `M2Material.blending_mode` of
+   the same model's effect batches. If particles follow the M2BLEND numbering, 7 should
+   co-occur with material blend 7.
+3. **Distribution.** Count 3 and 4 alongside 7. Under 1:1 `EGxBlend`, 3 = `Add` and 4 = `Mod`. Under
+   M2BLEND numbering, 3 = `NoAlphaAdd` and 4 = `Add`, and additive VFX should cluster on 4.
+
+### Map lights (`_lgt.wdt`)
+
+MPL3/MSLT point and spot lights match the 192-byte clustered light record. The cookie
+fields map to the light-buffer cookie variants, and the MPL3 ray-traced-shadow flag maps to
+the `dx_6_0`-only shadowed light passes (`lighting_model.md`). **inferred**
 
 ## 6. Shader containers (her `WIKI_FINDINGS/BLS.md`)
 
@@ -201,6 +225,17 @@ Notes on the ✗ marks:
 | `header.nPermutations` is 40 for illum, meaning unknown | 40 in all 430 `0x1000E` DX50 files, 28 in the other five. A format constant | **verified** |
 | Slot hash input unknown; not the DXBC checksum or MD5 of blob/DXBC | One hash per distinct program within a file, and different between DX50 and DX60 for every one of 27,743 compiled slots. So it identifies the compiled program, not the permutation. Also not MD5/SHA-1/SHA-256/BLAKE2/SHA3 of the DXBC, its shader code, or the whole block | **extended**; input still unknown |
 | The 96-byte block header is opaque | Decoded fields below | **new** |
+| No reflection names are recoverable (`wow-material-rendering.md` §3.3) | True for the `dx_5_0` DXBC. The `dx_6_0` DXIL keeps HLSL type names and layouts of every constant and structured buffer (`cb_scene_data`, `GenericPre`, `ShaderLight`, `M2Vertex`, …), groupshared names, and the resource names of the ray-tracing library (`dxil_names.md`) | **extended** |
+
+### Formats confirmed by DXIL type layouts
+
+| Format claim | DXIL type | Status |
+|---|---|---|
+| `M2Vertex`: pos, `uint8 bone_weights[4]`, `uint8 bone_indices[4]`, normal, `tex_coords[2]` (`md/M2.md:1555`) | `struct M2Vertex { float3, uint, uint, float3, float2[2] }` | **verified** |
+| WMO group vertex streams: MOVT, MONR, MOCV (two with `CVERTS2`), up to 3 MOTV (`md/WMO.md:1151-1157, 1346`) | `struct WMOVertex { float3 pos, float3 normal, uint[2] colours, float2[4] uv, uint }`. The client vertex has room for four UV sets; the last `uint` is likely MOC2 | **verified** (layout); field links **inferred** |
+| `_lgt.wdt` lights (§5) | `ShaderLight` = `float4x4` + 7 × `float4` + 4 × `int` (192 bytes) | **verified** (size and types) |
+| 12 fog records per frame (`fog.md`) | `SceneData { PSFog[12], float4 × 5 }` | **verified** |
+| `cb7` as a sun back-light (earlier hypothesis in `lighting_model.md`) | `cb_light_flash` / `PSLightFlashData` | **disagrees**: a light flash, probably lightning |
 
 ### Block header (96 bytes), as 24 little-endian `u32`
 
@@ -238,18 +273,19 @@ Notes on the ✗ marks:
 | WMO shader 23 | From code (`wmo.md`), including MOC2 weights and 9 textures |
 | Terrain cube-map reflection; TerrainMaterial Shader field | Shader side verified (§4); field meaning hypothesis |
 | MPTX chunk | Not visible in shaders. The terrain shader supports 16 layers, so MPTX's extra predominant-texture factors serve the >4-layer case on the CPU side |
-| How a liquid type picks its shader | Material class → container family by name (§5); exact per-type choice is client data |
+| How a liquid type picks its shader | Material class → container family by name (§5). Inside a family, the key digits are render options (reflection mode, height-map detail, depth texture, discard plus depth; `liquids.md`), not per-type data. The per-type values are the parameter blocks `cb1` (pixel) and `cb1[30]` (vertex) |
 | Eight M2 material flags, texture types 19–26 | Not visible in shaders |
 | Guild tint colour source | Per-draw constants `cb0[10..12]`; mapping to types 15–17 inferred (§1) |
 | UI, post-processing and sky shaders | Sky and post decoded (`sky.md`, `postprocess.md`); UI not |
 
 ## 8. Proposed additions to her files
 
-These were suggestions. The `WIKI_FINDINGS/` ones are done (§19 there); the
+These were suggestions. The `WIKI_FINDINGS/` ones are done (§19, §20 there); the
 `documentation/` and wiki-mirror ones are not.
 
 - **`WIKI_FINDINGS/BLS.md`:** §6 here: DXBC present but `RDEF` stripped; `nPermutations`
-  is a constant; slot hashes are per program and per API; the block-header table.
+  is a constant; slot hashes are per program and per API; the block-header table; DXIL
+  type names (`dxil_names.md`).
 - **`documentation/wow-material-rendering.md` §3.3:** the "no DXBC magic" statement came
   from searching compressed bytes. §2's "WMO surfaces are mostly lit by baked vertex
   colours" describes the classic path, not 12.1 (§3 here).
@@ -259,4 +295,6 @@ These were suggestions. The `WIKI_FINDINGS/` ones are done (§19 there); the
   - the terrain excerpt comment;
   - the `metalBlend`/cubemap explanation;
   - FFXGlow confirmed;
-  - the 12.1 combiner-ID dispatch through `cb1[0].x`.
+  - the 12.1 combiner-ID dispatch through `cb1[0].x`;
+  - the empty `Illum` section of `Pixel_shader_logic_for_mixing_colors` (`lighting_model.md`, Specular);
+  - `WMOVertex` with four UV sets and two colours.

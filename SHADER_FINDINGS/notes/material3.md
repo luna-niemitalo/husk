@@ -1,8 +1,9 @@
 # `material3_*` shaders
 
 Eight containers share the `material3` prefix. `material3_wmo_ps` and `material3_wmo_vs`
-are covered in `wmo.md`. What the client uses this family for, next to the combiners and
-`uber`, is not established.
+are covered in `wmo.md`. Next to the combiners and `uber`, this family is most likely the M3 material system: M3
+models (`material3_mesh_*`) and MOM3 WMO materials (`material3_wmo_*`). Her notes found a
+`.mtl3lib` that references `material3_mesh_vs.bls` (`reconciliation.md` §3; inferred).
 
 ## `material3_mesh_ps` (64 slots, 32 compiled, 20 programs)
 
