@@ -1,12 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
 #include "canon_model.hpp"
 #include "m2.hpp"
 #include "m2_material_input.hpp"  // TextureResolutions
+#include "skel.hpp"
 #include "skin.hpp"
 
 // husk::m2input: the M2 input module -- everything that decides *how* one
@@ -59,6 +61,7 @@ struct ExternalSkeletonSource {
     std::vector<m2::Bone> bones;
     std::vector<m2::Sequence> sequences;
     std::vector<uint8_t> blob;
+    std::optional<skel::Attachments> attachments;  // skel::findAttachments; replaces model.attachments when set
 };
 
 // Builds a canon::Model from one real M2 model + its already-resolved
@@ -107,9 +110,14 @@ struct ExternalSkeletonSource {
 // data for the material-track case specifically, named here rather than
 // silently assumed correct.
 //
+// The model's scene (attachments, events, lights, emitters) comes from
+// assembleScene (m2_scene_input.hpp). Its external-.anim keyframes are used
+// only for a model's own sequences: a .skel-sourced model's external blobs
+// hold skeleton data, so its scene tracks resolve inline only.
+//
 // Throws std::runtime_error wherever assembleSkeleton/assembleMesh/
-// assembleMaterial/assembleBoneAnimation/canon::assembleModel already
-// would -- no new corruption checks are added here.
+// assembleMaterial/assembleBoneAnimation/assembleScene/canon::assembleModel
+// already would -- no new corruption checks are added here.
 canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Batch>& batches,
                               const std::vector<skin::Submesh>& submeshes,
                               const std::vector<uint32_t>& triangleIndices,

@@ -47,9 +47,10 @@
 //     client-side customization-choice data husk doesn't have -- just the
 //     raw FileDataID list.
 //     TODO: Remove: see `WIKI_FINDINGS/BONE.md`.
-// `SKB1`'s `key_bone_lookup` field, and every other .skel chunk (`SKL1`,
-// `SKA1`, `SKPD`), are unparsed -- see DESIGN.md's "Deliberately unparsed
-// fields" ledger.
+//   - `SKA1` (attachments): see findAttachments below.
+// `SKB1`'s `key_bone_lookup` field, SKA1's `attachment_lookup`, and every
+// other .skel chunk (`SKL1`, `SKPD`), are unparsed -- see DESIGN.md's
+// "Deliberately unparsed fields" ledger.
 namespace husk::skel {
 
 struct BoneHeader {
@@ -108,5 +109,21 @@ std::optional<std::vector<m2::Header::AnimFileEntry>> findAnimFileIds(
 // the last partial entry for (same invariant findAnimFileIds above
 // checks).
 std::optional<std::vector<uint32_t>> findBoneFileDataIds(const std::vector<uint8_t>& fileBytes);
+
+// SKA1's attachment points, with the chunk payload their
+// animateAttachedTrackOffset values are relative to (same relocation as SKB1's
+// bones and boneTrackBlob). A .skel-sourced model keeps its attachments here
+// rather than in the M2: bloodelffemale_hd.m2 has 0, its .skel 43.
+struct Attachments {
+    std::vector<m2::Attachment> attachments;
+    std::vector<uint8_t> blob;
+};
+
+// Reads the .skel's SKA1 chunk, if present (wowdev.wiki M2/.skel#SKA1:
+// M2Array<M2Attachment> attachments, M2Array<uint16_t> attachment_lookup;
+// the lookup table is not read). Returns nullopt if there's no SKA1 chunk.
+// Throws ParseError if the chunk is shorter than its 16-byte header, or
+// m2::ParseError if the attachments array runs past the chunk's payload.
+std::optional<Attachments> findAttachments(const std::vector<uint8_t>& fileBytes);
 
 }  // namespace husk::skel

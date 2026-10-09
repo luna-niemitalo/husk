@@ -170,4 +170,22 @@ std::optional<std::vector<uint32_t>> findBoneFileDataIds(const std::vector<uint8
     return ids;
 }
 
+std::optional<Attachments> findAttachments(const std::vector<uint8_t>& fileBytes) {
+    auto chunks = readChunks(fileBytes.data(), fileBytes.size());
+    auto ska1 = findChunk(chunks, "SKA1");
+    if (!ska1) {
+        return std::nullopt;
+    }
+    // SKA1 payload: M2Array attachments (0x00), M2Array attachment_lookup (0x08).
+    constexpr size_t kSka1HeaderSize = 0x10;
+    if (ska1->size < kSka1HeaderSize) {
+        throw ParseError("SKA1 chunk is " + std::to_string(ska1->size) + " bytes, need at least " +
+                          std::to_string(kSka1HeaderSize) + " for its header");
+    }
+    Attachments result;
+    result.blob.assign(ska1->data, ska1->data + ska1->size);
+    result.attachments = m2::parseAttachments(result.blob, readArray(ska1->data, ska1->size, 0x00));
+    return result;
+}
+
 }  // namespace husk::skel

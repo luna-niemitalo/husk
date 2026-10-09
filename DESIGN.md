@@ -1051,10 +1051,11 @@ flagged as ongoing cleanup in the since-deleted `TODO/CLEANUP_TODO.md`):
   role in husk's own one-primitive-per-batch model). `shaderId` was the
   one field in this struct that *should* have been revisited earlier and
   wasn't — now parsed and resolved (`src/m2_shader_names.hpp`).
-- `.skel` (`skel.hpp`): `SKB1`'s `key_bone_lookup`, and the `SKL1`/`SKA1`/
-  `SKPD` chunks entirely, plus `SKS1`'s `global_loops`/`sequence_lookups`
-  fields, are unparsed — "extend as later commands need more" policy, no
-  concrete consumer identified yet.
+- `.skel` (`skel.hpp`): `SKB1`'s `key_bone_lookup`, `SKA1`'s
+  `attachment_lookup`, and the `SKL1`/`SKPD` chunks entirely, plus `SKS1`'s
+  `global_loops`/`sequence_lookups` fields, are unparsed — "extend as later
+  commands need more" policy, no concrete consumer identified yet. (`SKA1`'s
+  attachments are read, for the canon bundle.)
 - `M2Event` (`m2_scene.hpp`): the `enabled` field (an `M2TrackBase`-only
   timestamp block, "when during playback does this event fire") is
   unparsed — resolving animation-relative timing is a real-clip-playback

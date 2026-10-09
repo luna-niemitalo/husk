@@ -411,6 +411,16 @@ listed here so they aren't lost:
   explain white instead of the usual off-white/gray fallback look. Not
   confirmed; two already-understood mechanisms combining is a hypothesis,
   not a verified explanation.
+- **Legacy `.glb` attachment/event/light nodes likely sit at twice their
+  real offset** (found 2026-10-09 while building the canon scene, not seen
+  in a render). M2 stores these positions in model space: every fox
+  attachment, every `bloodelffemale_hd.skel` attachment and every
+  `sword_1h_artifactskywall_d_06` emitter equals its bone's pivot exactly.
+  `gltf_skeleton.cpp`'s `appendAnchorNode` writes that position as the
+  translation of a child of the joint node, which already sits at the
+  pivot. Check: export the fox, read `attachment_*` world positions in
+  Blender against the bone heads. Fix: subtract the joint's global
+  position. The canon bundle is unaffected.
 
 ## 7. Real known false-positive risk for missing-texture classification: "Sundered Zerethsteed" mount
 

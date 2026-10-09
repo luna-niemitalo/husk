@@ -473,6 +473,52 @@ TEST_CASE("writeBundle: sparse animation -- only joints with real curve data get
     CHECK(joints[0]["translation"]["values"]["count"] == 2);
 }
 
+TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with inline and lifetime curves") {
+    canon::Model model = buildSyntheticModel();
+    canon::Attachment attachment;
+    attachment.pointId = 11;
+    attachment.bone = canon::boneRef(1);
+    attachment.position = {1.0f, 2.0f, 3.0f};
+    canon::ScalarCurve animate;
+    animate.sequence = canon::SequenceRef::globalSequence(2);
+    animate.interpolation = canon::Interpolation::Step;
+    animate.keyframes = {{0.0f, 1.0f}};
+    attachment.animateAttached.push_back(animate);
+    model.scene.attachments.push_back(attachment);
+    model.scene.events.push_back({"$DTH", 7, canon::boneRef(0), {}});
+    model.scene.lights.push_back(canon::Light{});
+    canon::ParticleEmitter particle;
+    particle.bone = canon::boneRef(0);
+    particle.textures.push_back(canon::TextureRef{});
+    particle.headCell.keyframes = {{0, 4}, {32767, 9}};
+    model.scene.particles.push_back(particle);
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-scene";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir);
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& resources = manifest["resources"];
+
+    REQUIRE(resources["attachments"].size() == 1);
+    const auto& a = resources["attachments"][0];
+    CHECK(a["point_id"] == 11);
+    CHECK(a["bone"]["id"]["value"] == 1);
+    CHECK(a["position"] == nlohmann::json::array({1.0, 2.0, 3.0}));
+    REQUIRE(a["animate_attached"].size() == 1);
+    CHECK(a["animate_attached"][0]["sequence_kind"] == "global_sequence");
+    CHECK(a["animate_attached"][0]["sequence_index"] == 2);
+    CHECK(a["animate_attached"][0]["interpolation"] == "step");
+
+    CHECK(resources["events"][0]["identifier"] == "$DTH");
+    CHECK_FALSE(resources["lights"][0].contains("bone"));
+    CHECK(resources["emitters"]["ribbons"].empty());
+    const auto& p = resources["emitters"]["particles"][0];
+    CHECK(p["textures"][0]["texture_state"] == "known_unresolved");
+    CHECK(p["head_cell"] == nlohmann::json::array({{0, 4}, {32767, 9}}));
+    CHECK(p["emission_rate"].empty());
+    CHECK_FALSE(p.contains("particle_model"));
+}
+
 TEST_CASE(
     "writeBundle: real fixture -- primitives[i].material_index resolves via canon::resolveMaterialIndex, "
     "not positionally" *

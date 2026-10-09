@@ -304,6 +304,21 @@ raw-BLP-block extraction + DDS housing (`blp::extractRawPayload`/
 `encodeDds`) and its wiring into a real export (`canon::TextureRef::
 rawPayload`, `bundle_writer.cpp` now writes real `.dds` files).
 
+**Scene records (2026-10-09)**: attachments, events, lights and ribbon/
+particle emitters are now in `canon::Model::scene` and the bundle, with
+every field and curve (legacy only ever carried anchors). Open within it:
+
+- `.skel` attachment tracks resolve inline only: their per-sequence
+  external data lives in `.anim` `AFSA` chunks, which husk does not read.
+- A ribbon's `texture_transform_lookup_index` is carried raw, not resolved
+  into UV-animation curves.
+- Event firing times (`M2Event`'s timestamp track) are unparsed, so events
+  are placement only.
+- `EXP2` extended particle data is not in `m2::Model`; the local corpus has
+  no EXP2 files to test against.
+- `canon_diff` (`--export-canon`) does not compare the scene against
+  legacy's anchors yet.
+
 **Two things remain genuinely open, not closed by any of the above:**
 
 - `assembleMaterial`'s `sequenceIndex` for a `.skel`-sourced model's

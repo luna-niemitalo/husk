@@ -95,7 +95,19 @@ document alone:
 | `TODO/WORLD/WORLD_MISC_METADATA_TODO.md` | gameplay/misc metadata final dispositions |
 | `TODO/WORLD/PM4_PD4_TODO.md` | server-side pathing mesh (see the "Related, explicitly out of scope" section below — this is no longer fully out of scope) |
 
-**Recommended implementation order**, reasoned from real-data prevalence
+**Target and priority, set by Luna 2026-10-09 (supersedes the order
+below)**: the target is the canonical bundle (`canon::` →
+`REFACTOR/BUNDLE_FORMAT.md`), so MantleCore can implement against it. glTF
+and Blender come third, so this file's "glTF ceiling" column no longer
+limits anything: a concept glTF can only carry in extras is still a
+first-class canon/bundle target. Order: (1) WMO, plus every animation world
+assets carry (UV, light, ...); (2) attachments, lights, emitters, fog and
+particle volumes; (3) liquids; (4) culling domains and LODs. Model-level
+detail (texture overlays, UV animation) runs alongside. Done so far: M2
+attachments/events/lights/emitters in the bundle (2026-10-09, see
+`REFACTOR/AUDIT.md` §7).
+
+**Earlier recommended implementation order**, reasoned from real-data prevalence
 and value, not just document order: (1) `TODO/WORLD/WDT_TODO.md` — nothing else can
 locate a real file without it; (2) `TODO/WORLD/ADT_TERRAIN_TODO.md` — the core
 terrain mesh; (3) `TODO/WORLD/WORLD_PLACEMENT_TODO.md` — actually populates a world

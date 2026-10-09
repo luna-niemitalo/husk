@@ -417,6 +417,243 @@ void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& 
     w.endArray();
 }
 
+void writeVec2Value(json::Writer& w, const canon::Vec2& v) {
+    w.beginArray();
+    w.value(static_cast<double>(v.x));
+    w.value(static_cast<double>(v.y));
+    w.endArray();
+}
+
+template <typename T, typename ValueWriter>
+void writeAnimated(json::Writer& w, const char* key, const canon::Animated<T>& curves, ValueWriter writeValue) {
+    w.key(key);
+    w.beginArray();
+    for (const canon::Curve<T>& curve : curves) writeInlineCurve(w, curve, writeValue);
+    w.endArray();
+}
+
+template <typename T, typename ValueWriter>
+void writeLifetimeCurve(json::Writer& w, const char* key, const canon::LifetimeCurve<T>& curve,
+                        ValueWriter writeValue) {
+    w.key(key);
+    w.beginArray();
+    for (const auto& [timestamp, value] : curve.keyframes) {
+        w.beginArray();
+        w.value(static_cast<int64_t>(timestamp));
+        writeValue(w, value);
+        w.endArray();
+    }
+    w.endArray();
+}
+
+void writeFloatField(json::Writer& w, const char* key, float v) {
+    w.key(key);
+    w.value(static_cast<double>(v));
+}
+
+void writeIntField(json::Writer& w, const char* key, int64_t v) {
+    w.key(key);
+    w.value(v);
+}
+
+void writeVec3Field(json::Writer& w, const char* key, const canon::Vec3& v) {
+    w.key(key);
+    writeVec3Value(w, v);
+}
+
+void writeFloatArrayField(json::Writer& w, const char* key, const float* values, size_t count) {
+    w.key(key);
+    w.beginArray();
+    for (size_t i = 0; i < count; ++i) w.value(static_cast<double>(values[i]));
+    w.endArray();
+}
+
+void writeTextureList(json::Writer& w, const std::vector<canon::TextureRef>& textures,
+                      const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures) {
+    w.key("textures");
+    w.beginArray();
+    for (const canon::TextureRef& texture : textures) {
+        w.beginObject();
+        writeTextureRef(w, texture, bundleDir, writtenTextures);
+        w.endObject();
+    }
+    w.endArray();
+}
+
+void writeAttachments(json::Writer& w, const std::vector<canon::Attachment>& attachments) {
+    w.beginArray();
+    for (const canon::Attachment& a : attachments) {
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, a.ref);
+        writeIntField(w, "point_id", a.pointId);
+        w.key("bone");
+        writeRef(w, a.bone);
+        writeVec3Field(w, "position", a.position);
+        writeAnimated(w, "animate_attached", a.animateAttached, writeScalarValue);
+        w.endObject();
+    }
+    w.endArray();
+}
+
+void writeEvents(json::Writer& w, const std::vector<canon::Event>& events) {
+    w.beginArray();
+    for (const canon::Event& e : events) {
+        w.beginObject();
+        w.key("identifier");
+        w.value(e.identifier);
+        writeIntField(w, "data", e.data);
+        w.key("bone");
+        writeRef(w, e.bone);
+        writeVec3Field(w, "position", e.position);
+        w.endObject();
+    }
+    w.endArray();
+}
+
+void writeLights(json::Writer& w, const std::vector<canon::Light>& lights) {
+    w.beginArray();
+    for (const canon::Light& l : lights) {
+        w.beginObject();
+        writeIntField(w, "type", l.type);
+        if (l.bone) {
+            w.key("bone");
+            writeRef(w, *l.bone);
+        }
+        writeVec3Field(w, "position", l.position);
+        writeAnimated(w, "ambient_color", l.ambientColor, writeVec3Value);
+        writeAnimated(w, "ambient_intensity", l.ambientIntensity, writeScalarValue);
+        writeAnimated(w, "diffuse_color", l.diffuseColor, writeVec3Value);
+        writeAnimated(w, "diffuse_intensity", l.diffuseIntensity, writeScalarValue);
+        writeAnimated(w, "attenuation_start", l.attenuationStart, writeScalarValue);
+        writeAnimated(w, "attenuation_end", l.attenuationEnd, writeScalarValue);
+        writeAnimated(w, "visibility", l.visibility, writeScalarValue);
+        w.endObject();
+    }
+    w.endArray();
+}
+
+void writeRibbons(json::Writer& w, const std::vector<canon::RibbonEmitter>& ribbons,
+                  const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures) {
+    w.beginArray();
+    for (const canon::RibbonEmitter& r : ribbons) {
+        w.beginObject();
+        writeIntField(w, "ribbon_id", r.ribbonId);
+        w.key("bone");
+        writeRef(w, r.bone);
+        writeVec3Field(w, "position", r.position);
+        writeTextureList(w, r.textures, bundleDir, writtenTextures);
+        w.key("materials");
+        w.beginArray();
+        for (const canon::RenderState& state : r.materials) {
+            w.beginObject();
+            writeIntField(w, "flags", state.flags);
+            if (state.blend) {
+                w.key("framebuffer_blend");
+                w.value(framebufferBlendName(*state.blend));
+            }
+            w.endObject();
+        }
+        w.endArray();
+        writeAnimated(w, "color", r.color, writeVec3Value);
+        writeAnimated(w, "alpha", r.alpha, writeScalarValue);
+        writeAnimated(w, "height_above", r.heightAbove, writeScalarValue);
+        writeAnimated(w, "height_below", r.heightBelow, writeScalarValue);
+        writeAnimated(w, "texture_slot", r.textureSlot, writeScalarValue);
+        writeAnimated(w, "visibility", r.visibility, writeScalarValue);
+        writeFloatField(w, "edges_per_second", r.edgesPerSecond);
+        writeFloatField(w, "edge_lifetime", r.edgeLifetime);
+        writeFloatField(w, "gravity", r.gravity);
+        writeIntField(w, "texture_rows", r.textureRows);
+        writeIntField(w, "texture_columns", r.textureColumns);
+        writeIntField(w, "priority_plane", r.priorityPlane);
+        writeIntField(w, "ribbon_color_index", r.ribbonColorIndex);
+        writeIntField(w, "texture_transform_lookup_index", r.textureTransformLookupIndex);
+        w.endObject();
+    }
+    w.endArray();
+}
+
+void writeParticles(json::Writer& w, const std::vector<canon::ParticleEmitter>& particles,
+                    const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures) {
+    auto writeUint16 = [](json::Writer& w2, uint16_t v) { w2.value(static_cast<int64_t>(v)); };
+    w.beginArray();
+    for (const canon::ParticleEmitter& p : particles) {
+        w.beginObject();
+        writeIntField(w, "particle_id", p.particleId);
+        writeIntField(w, "flags", p.flags);
+        w.key("bone");
+        writeRef(w, p.bone);
+        writeVec3Field(w, "position", p.position);
+        writeTextureList(w, p.textures, bundleDir, writtenTextures);
+        if (p.particleModel) {
+            w.key("particle_model");
+            writeRef(w, *p.particleModel);
+        }
+        if (p.childEmittersModel) {
+            w.key("child_emitters_model");
+            writeRef(w, *p.childEmittersModel);
+        }
+        writeIntField(w, "blending_type", p.blendingType);
+        writeIntField(w, "emitter_type", p.emitterType);
+        writeIntField(w, "particle_color_index", p.particleColorIndex);
+        writeFloatArrayField(w, "multi_texture_scale", p.multiTextureScale, 2);
+        writeIntField(w, "priority_plane", p.priorityPlane);
+        writeIntField(w, "texture_rows", p.textureRows);
+        writeIntField(w, "texture_columns", p.textureColumns);
+
+        writeAnimated(w, "emission_speed", p.emissionSpeed, writeScalarValue);
+        writeAnimated(w, "speed_variation", p.speedVariation, writeScalarValue);
+        writeAnimated(w, "vertical_range", p.verticalRange, writeScalarValue);
+        writeAnimated(w, "horizontal_range", p.horizontalRange, writeScalarValue);
+        writeAnimated(w, "gravity", p.gravity, writeScalarValue);
+        writeAnimated(w, "lifespan", p.lifespan, writeScalarValue);
+        writeAnimated(w, "emission_rate", p.emissionRate, writeScalarValue);
+        writeAnimated(w, "emission_area_length", p.emissionAreaLength, writeScalarValue);
+        writeAnimated(w, "emission_area_width", p.emissionAreaWidth, writeScalarValue);
+        writeAnimated(w, "z_source", p.zSource, writeScalarValue);
+        writeAnimated(w, "enabled_in", p.enabledIn, writeScalarValue);
+        writeFloatField(w, "lifespan_variation", p.lifespanVariation);
+        writeFloatField(w, "emission_rate_variation", p.emissionRateVariation);
+
+        writeLifetimeCurve(w, "color", p.color, writeVec3Value);
+        writeLifetimeCurve(w, "alpha", p.alpha, writeScalarValue);
+        writeLifetimeCurve(w, "scale", p.scale, writeVec2Value);
+        writeLifetimeCurve(w, "head_cell", p.headCell, writeUint16);
+        writeLifetimeCurve(w, "tail_cell", p.tailCell, writeUint16);
+        w.key("scale_variation");
+        writeVec2Value(w, p.scaleVariation);
+
+        writeFloatField(w, "tail_length", p.tailLength);
+        writeFloatField(w, "twinkle_speed", p.twinkleSpeed);
+        writeFloatField(w, "twinkle_percent", p.twinklePercent);
+        writeFloatField(w, "twinkle_scale_min", p.twinkleScaleMin);
+        writeFloatField(w, "twinkle_scale_max", p.twinkleScaleMax);
+        writeFloatField(w, "inherit_velocity_scale", p.inheritVelocityScale);
+        writeFloatField(w, "drag", p.drag);
+        writeFloatField(w, "base_spin", p.baseSpin);
+        writeFloatField(w, "base_spin_variation", p.baseSpinVariation);
+        writeFloatField(w, "spin_speed", p.spinSpeed);
+        writeFloatField(w, "spin_speed_variation", p.spinSpeedVariation);
+        writeVec3Field(w, "tumble_min", p.tumbleMin);
+        writeVec3Field(w, "tumble_max", p.tumbleMax);
+        writeVec3Field(w, "wind_vector", p.windVector);
+        writeFloatField(w, "wind_time", p.windTime);
+        writeFloatField(w, "follow_speed1", p.followSpeed1);
+        writeFloatField(w, "follow_scale1", p.followScale1);
+        writeFloatField(w, "follow_speed2", p.followSpeed2);
+        writeFloatField(w, "follow_scale2", p.followScale2);
+        w.key("spline_points");
+        w.beginArray();
+        for (const canon::Vec3& point : p.splinePoints) writeVec3Value(w, point);
+        w.endArray();
+        writeFloatArrayField(w, "multi_texture_scroll_mid", p.multiTextureScrollMid, 4);
+        writeFloatArrayField(w, "multi_texture_scroll_range", p.multiTextureScrollRange, 4);
+        w.endObject();
+    }
+    w.endArray();
+}
+
 }  // namespace
 
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir,
@@ -460,6 +697,20 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     w.key("materials");
     std::unordered_set<std::string> writtenTextures;
     writeMaterialsSection(w, model.materials, bundleDir, writtenTextures);
+
+    w.key("attachments");
+    writeAttachments(w, model.scene.attachments);
+    w.key("events");
+    writeEvents(w, model.scene.events);
+    w.key("lights");
+    writeLights(w, model.scene.lights);
+    w.key("emitters");
+    w.beginObject();
+    w.key("ribbons");
+    writeRibbons(w, model.scene.ribbons, bundleDir, writtenTextures);
+    w.key("particles");
+    writeParticles(w, model.scene.particles, bundleDir, writtenTextures);
+    w.endObject();
 
     w.endObject();  // resources
     w.endObject();  // root

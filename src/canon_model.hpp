@@ -9,6 +9,7 @@
 #include "canon_material.hpp"   // Material
 #include "canon_mesh.hpp"       // Mesh
 #include "canon_ref.hpp"        // Identity
+#include "canon_scene.hpp"      // Scene
 #include "canon_skeleton.hpp"   // Skeleton
 
 // husk::canon: canon::Model, the whole-model composition root -- the first
@@ -80,23 +81,26 @@ struct Model {
     std::vector<Material> materials;
     std::vector<Identity> primitiveMaterials;  // one per mesh.primitives entry, see above
     std::vector<AnimationClip> animations;
+    Scene scene;  // attachments, events, lights, emitters
 };
 
-// Packs already-built canon:: pieces into a Model, validating the one
-// structural invariant this composition step owns: `primitiveMaterials`
+// Packs already-built canon:: pieces into a Model, validating the
+// structural invariants this composition step owns: `primitiveMaterials`
 // must have exactly one entry per `mesh.primitives` entry, and any
 // `RecordIndex` identity in it must be in range for `materials` (the only
 // `Identity` kind this function can locally validate -- a `FileDataId`/
 // `Db2Row` identity, naming a bundle-external material, isn't resolvable
 // against a local `materials` vector at all, so it's accepted unchecked;
 // validating THAT reference is the consumer's job once cross-bundle
-// loading exists).
+// loading exists). Every bone reference in `scene` must be a `RecordIndex`
+// in range for `skeleton.joints`.
 //
 // Every argument is taken by value and moved from -- this function's own
 // job is assembly, not borrowing; a caller done building these pieces has
 // no further use for them.
 Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> materials,
-                     std::vector<Identity> primitiveMaterials, std::vector<AnimationClip> animations);
+                     std::vector<Identity> primitiveMaterials, std::vector<AnimationClip> animations,
+                     Scene scene = {});
 
 // Resolves `model.primitiveMaterials[primitiveIndex]` to an index into
 // `model.materials` -- the one shared implementation of this lookup (I2):

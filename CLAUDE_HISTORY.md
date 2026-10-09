@@ -14,6 +14,32 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-09 — Shader export; canon scene records (attachments, lights, emitters).**
+Luna set the target: canonical bundle first (MantleCore consumes it), glTF
+and Blender third. Priority order recorded in `WORLD_COMPLETENESS.md`.
+
+- **Shaders**: `tools/export_shaders.py` unpacks all 877 `.bls` (GXSH
+  `0x1000E`/`0x1000C`, GFAT) into `example_exports/shaders/`: 19,989
+  distinct programs, each with a D3D listing (vkd3d for SM5, `dxc -dumpbin`
+  for DXIL) and, for 12,483, SPIR-V + GLSL. Flake gained
+  `directx-shader-compiler`, `spirv-tools`, `spirv-cross` (Luna approved).
+  Format facts: `WIKI_FINDINGS/BLS.md`. dxil-spirv for the rest of the
+  DXIL GLSL was offered and deferred.
+- **Canon scene**: `canon::Scene` (`canon_scene.hpp`) on `canon::Model`,
+  built by `m2input::assembleScene` (`m2_scene_input.cpp`) with every field
+  and every track; `assembleModel` validates scene bone references. `.skel`
+  `SKA1` attachments now parsed (`skel::findAttachments`) -- the HD
+  characters keep all 43 attachment points there. Emitter textures go
+  through the same catalog resolution as materials. Bundle writes
+  `resources.attachments/events/lights/emitters` (schema in
+  `bundle_writer.hpp`). Open items: `REFACTOR/AUDIT.md` §7.
+- **Finding**: these positions are model-space points equal to the bone
+  pivot (fox, HD blood elf `.skel`, sword emitters), not bone offsets. The
+  legacy `.glb` likely double-offsets its attachment nodes;
+  logged in `TODO/RENDER_QUALITY_TODO.md` §6, not fixed.
+
+---
+
 **2026-10-09 — Terrain export promoted from WIP to a real feature.**
 Took the 2026-10-08 `world_WIP` commit to the same standard as the M2 side.
 

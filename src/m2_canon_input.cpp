@@ -9,6 +9,7 @@
 #include "m2_animation_input.hpp"
 #include "m2_material_input.hpp"
 #include "m2_mesh_input.hpp"
+#include "m2_scene_input.hpp"
 #include "m2_skeleton_input.hpp"
 
 namespace husk::m2input {
@@ -246,8 +247,15 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
         primitiveMaterials.push_back(canon::Identity{canon::RecordIndex{static_cast<uint32_t>(materialIndex)}});
     }
 
+    const ExternalAnimBlobs noExternalBlobs;
+    canon::Scene scene = assembleScene(model, static_cast<uint32_t>(sequences.size()),
+                                       externalSkeleton ? noExternalBlobs : externalAnimBlobs, textureResolutions,
+                                       externalSkeleton && externalSkeleton->attachments
+                                           ? &*externalSkeleton->attachments
+                                           : nullptr);
+
     return canon::assembleModel(std::move(skeleton), std::move(mesh), std::move(materials),
-                                 std::move(primitiveMaterials), std::move(animations));
+                                 std::move(primitiveMaterials), std::move(animations), std::move(scene));
 }
 
 }  // namespace husk::m2input

@@ -12,6 +12,7 @@
 #include "export_extras.hpp"   // readFileBytes
 #include "m2_animation.hpp"    // m2::extractAnimBlob
 #include "m2_canon_input.hpp"  // m2input::buildCanonModel, m2input::ExternalAnimBlobs
+#include "m2_scene_input.hpp"  // m2input::particleTextureIndices
 #include "skel.hpp"             // .skel-sourced bones/sequences (AUDIT.md §7.2)
 #include "skin.hpp"
 #include "sources/texture_payload.hpp"  // BUNDLE_FORMAT.md's DDS-housed source payload
@@ -175,31 +176,41 @@ m2input::TextureResolutions buildTextureResolutions(const m2::Model& model, cons
     modelCtx.modelPath = modelPath;
     if (model.header.textureFileDataIds) modelCtx.ownTextureFileDataIds = *model.header.textureFileDataIds;
 
+    auto resolveSlot = [&](uint16_t textureIndex, bool preferGlowVariant) {
+        if (textureIndex >= model.textures.size()) return;
+        if (result.count(textureIndex)) return;  // catalog memoizes per slot anyway; avoid redundant work
+
+        const m2::Texture& tex = model.textures[textureIndex];
+        uint32_t fdid = (model.header.textureFileDataIds && textureIndex < model.header.textureFileDataIds->size())
+                             ? (*model.header.textureFileDataIds)[textureIndex]
+                             : 0;
+        if (fdid == 0 && tex.type == 2 && objectSkinTextureFileDataId != 0) {
+            fdid = objectSkinTextureFileDataId;
+        }
+        if (fdid == 0 && !tex.filename.empty()) return;  // embedded-filename tier, out of scope here
+
+        modelCtx.textureSlotIndex = textureIndex;
+        auto resolved = catalog.texture(fdid, tex.type, modelCtx, preferGlowVariant);
+        result.emplace(textureIndex, toCanonTextureRef(resolved, fdid));
+    };
+
     for (const auto& b : batches) {
+        bool preferGlowVariant = b.materialIndex < model.materials.size() && model.materials[b.materialIndex].blendMode > 2;
         for (uint32_t layer = 0; layer < b.textureCount; ++layer) {
             size_t comboIdx = static_cast<size_t>(b.textureComboIndex) + layer;
             if (comboIdx >= model.textureCombos.size()) break;  // best-effort beyond layer 0, same as legacy
             uint16_t textureIndex = model.textureCombos[comboIdx];
             if (textureIndex >= model.textures.size()) break;
-            if (result.count(textureIndex)) continue;  // catalog memoizes per slot anyway; avoid redundant work
-
-            const m2::Texture& tex = model.textures[textureIndex];
-            uint32_t fdid = (model.header.textureFileDataIds && textureIndex < model.header.textureFileDataIds->size())
-                                 ? (*model.header.textureFileDataIds)[textureIndex]
-                                 : 0;
-            if (fdid == 0 && tex.type == 2 && objectSkinTextureFileDataId != 0) {
-                fdid = objectSkinTextureFileDataId;
-            }
-            if (fdid == 0 && !tex.filename.empty()) continue;  // embedded-filename tier, out of scope here
-
-            bool preferGlowVariant = false;
-            if (b.materialIndex < model.materials.size()) {
-                preferGlowVariant = model.materials[b.materialIndex].blendMode > 2;
-            }
-            modelCtx.textureSlotIndex = textureIndex;
-            auto resolved = catalog.texture(fdid, tex.type, modelCtx, preferGlowVariant);
-            result.emplace(textureIndex, toCanonTextureRef(resolved, fdid));
+            resolveSlot(textureIndex, preferGlowVariant);
         }
+    }
+    // Emitters draw blended effects, so their textures prefer the glow variant
+    // the same way an additive batch's do.
+    for (const auto& r : model.ribbonEmitters) {
+        for (uint16_t textureIndex : r.textureIndices) resolveSlot(textureIndex, true);
+    }
+    for (const auto& p : model.particleEmitters) {
+        for (uint16_t textureIndex : m2input::particleTextureIndices(p)) resolveSlot(textureIndex, true);
     }
     return result;
 }
@@ -370,6 +381,7 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
         if (findChunk(readChunks(skelBytes.data(), skelBytes.size()), "SKS1")) {
             src.sequences = skel::parseSequences(skelBytes);
         }
+        src.attachments = skel::findAttachments(skelBytes);
         skelSequences = src.sequences;
         skelSource = std::move(src);
     }

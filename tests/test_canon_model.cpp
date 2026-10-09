@@ -98,3 +98,29 @@ TEST_CASE("canon::assembleModel: an empty model (no primitives, no materials) co
     CHECK(result.primitiveMaterials.empty());
     CHECK(result.animations.empty());
 }
+
+TEST_CASE("canon::assembleModel keeps a scene whose bone references are all in range") {
+    canon::Skeleton skeleton;
+    skeleton.joints.resize(2);
+    canon::Scene scene;
+    canon::Attachment attachment;
+    attachment.bone = canon::boneRef(1);
+    scene.attachments.push_back(attachment);
+    scene.lights.push_back(canon::Light{});  // no bone: not attached
+
+    canon::Model result = canon::assembleModel(skeleton, canon::Mesh{}, {}, {}, {}, scene);
+    CHECK(result.scene.attachments.size() == 1);
+    CHECK(result.scene.lights.size() == 1);
+}
+
+TEST_CASE("canon::assembleModel throws when a scene bone reference is out of range for the skeleton") {
+    canon::Skeleton skeleton;
+    skeleton.joints.resize(2);
+    canon::Scene scene;
+    canon::ParticleEmitter particle;
+    particle.bone = canon::boneRef(2);
+    scene.particles.push_back(particle);
+
+    CHECK_THROWS_WITH_AS(canon::assembleModel(skeleton, canon::Mesh{}, {}, {}, {}, scene),
+                         "particle emitter 0's bone: expected an index < 2 joints, got 2", std::runtime_error);
+}

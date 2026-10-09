@@ -275,3 +275,43 @@ TEST_CASE("findBoneFileDataIds: BFID chunk with a byte length not a multiple of 
     appendChunk(file, "BFID", {1, 2, 3, 4, 5, 6});
     CHECK_THROWS_AS(husk::skel::findBoneFileDataIds(file), husk::skel::ParseError);
 }
+
+TEST_CASE("findAttachments: reads SKA1's attachments, track offsets relative to the chunk payload") {
+    // SKA1 payload: attachments array (0x00), attachment_lookup (0x08), then
+    // one 40-byte M2Attachment at 0x10.
+    std::vector<uint8_t> payload(0x10 + 0x28, 0);
+    putArray(payload, 0x00, 1, 0x10);
+    putU32(payload, 0x10, 11);  // id
+    uint16_t bone = 7;
+    std::memcpy(payload.data() + 0x14, &bone, 2);
+    putF32(payload, 0x18, 1.5f);
+    putF32(payload, 0x1C, -2.0f);
+    putF32(payload, 0x20, 3.25f);
+    std::vector<uint8_t> file;
+    appendChunk(file, "SKB1", std::vector<uint8_t>(0x10, 0));
+    appendChunk(file, "SKA1", payload);
+
+    auto result = husk::skel::findAttachments(file);
+    REQUIRE(result.has_value());
+    REQUIRE(result->attachments.size() == 1);
+    const auto& a = result->attachments[0];
+    CHECK(a.id == 11);
+    CHECK(a.bone == 7);
+    CHECK(a.position.x == 1.5f);
+    CHECK(a.position.y == -2.0f);
+    CHECK(a.position.z == 3.25f);
+    CHECK(a.animateAttachedTrackOffset == 0x10 + 0x14);
+    CHECK(result->blob == payload);
+}
+
+TEST_CASE("findAttachments: no SKA1 chunk returns nullopt") {
+    std::vector<uint8_t> file;
+    appendChunk(file, "SKB1", std::vector<uint8_t>(0x10, 0));
+    CHECK_FALSE(husk::skel::findAttachments(file).has_value());
+}
+
+TEST_CASE("findAttachments: SKA1 shorter than its 16-byte header throws") {
+    std::vector<uint8_t> file;
+    appendChunk(file, "SKA1", std::vector<uint8_t>(8, 0));
+    CHECK_THROWS_AS(husk::skel::findAttachments(file), husk::skel::ParseError);
+}

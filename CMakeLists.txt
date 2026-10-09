@@ -94,6 +94,7 @@ add_library(husk-lib STATIC
   src/m2_animation_input.cpp
   src/m2_mesh_input.cpp
   src/m2_material_input.cpp
+  src/m2_scene_input.cpp
   src/canon_model.cpp
   src/m2_canon_input.cpp
   src/canon_diff.cpp
@@ -200,6 +201,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_canon_material_convergence.cpp
     tests/test_canon_model.cpp
     tests/test_m2_canon_input.cpp
+    tests/test_m2_scene_input.cpp
     tests/test_canon_diff.cpp
     tests/test_canon_definition.cpp
     tests/test_canon_definition_convergence.cpp

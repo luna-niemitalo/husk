@@ -45,7 +45,8 @@
 //
 // Small, non-uniform, or per-item structural/semantic data (geoset ranges,
 // joint names, billboard modes, material layer descriptions, the small
-// per-keyframe curves a material's tint/alpha-fade/UV-animation carries) is
+// per-keyframe curves a material's tint/alpha-fade/UV-animation, a light or
+// an emitter carries) is
 // plain inline JSON, never a BufferSlice -- BufferSlice is reserved for
 // large uniform numeric arrays where direct byte-range loading actually
 // matters (per-vertex mesh attributes, per-keyframe animation values,
@@ -53,7 +54,7 @@
 //
 // A `canon::Ref` is always serialized the same way, everywhere it appears
 // (bone identities, geoset identities, material layer identities, texture
-// identities):
+// identities, scene bone references):
 // ```json
 // { "id": { "kind": "none" }, "name": "...", "name_source": "..." }
 // ```
@@ -81,10 +82,19 @@
 //     "mesh": { ... },
 //     "skeleton": { ... },
 //     "animation": [ ... ],
-//     "materials": [ ... ]
+//     "materials": [ ... ],
+//     "attachments": [ ... ],
+//     "events": [ ... ],
+//     "lights": [ ... ],
+//     "emitters": { "ribbons": [ ... ], "particles": [ ... ] }
 //   }
 // }
 // ```
+//
+// Every `position` in attachments/events/lights/emitters is a point in the
+// model's own space, the same frame as `resources.mesh.positions` -- NOT an
+// offset from its bone. The bone's animation carries it (transform the point
+// by the bone's skinning matrix, as for a vertex weighted 1.0 to that bone).
 //
 // ### resources.mesh (backed by mesh.bin)
 // ```json
@@ -174,6 +184,87 @@
 // `VecCurve`, `[x,y,z,w]` for a `QuatCurve` -- the same per-type value
 // shape `resources.materials[].layers[].tint`/`alpha_fade`/`uv_animation`
 // above already states.
+//
+// An **animated property** (canon::Animated) is an array of inline curves,
+// one per sequence or global sequence that has keyframes for it; `[]` means
+// the property is never animated and has no value at all (M2 stores no
+// separate static default).
+//
+// A **lifetime curve** (canon::LifetimeCurve, particle-only) is keyed by the
+// particle's own age, not by any sequence:
+// ```json
+// [ [<timestamp_raw_u16>, <value>], ... ]
+// ```
+// The timestamp is the raw on-disk u16. Real data runs 0..32767 and reads as
+// a lifetime fraction (timestamp / 32767), but no source confirms the scale.
+//
+// A **texture entry** is an object holding the same `texture_state`/
+// `texture`/`unresolved_reason`/`candidates` keys a material layer uses.
+//
+// ### resources.attachments
+// ```json
+// [ { "ref": <Ref, id record_index = position in this array, name = attachment-point kind, synthesized>,
+//     "point_id": <uint32, M2Attachment::id, wowdev.wiki M2#Attachments>,
+//     "bone": <Ref, record_index into skeleton joints>,
+//     "position": [x,y,z],
+//     "animate_attached": <animated property, 0/1> } ]
+// ```
+//
+// ### resources.events
+// ```json
+// [ { "identifier": "$DTH", "data": <uint32>, "bone": <Ref>, "position": [x,y,z] } ]
+// ```
+// Placement only: an event's firing times are not parsed.
+//
+// ### resources.lights
+// ```json
+// [ { "type": <uint16, 0 directional, 1 point>,
+//     "bone": <Ref>,   // omitted when the light is not attached to a bone
+//     "position": [x,y,z],
+//     "ambient_color": <animated, [r,g,b] 0..1>, "ambient_intensity": <animated>,
+//     "diffuse_color": <animated, [r,g,b] 0..1>, "diffuse_intensity": <animated>,
+//     "attenuation_start": <animated>, "attenuation_end": <animated>,
+//     "visibility": <animated, 0/1> } ]
+// ```
+//
+// ### resources.emitters.ribbons
+// ```json
+// [ { "ribbon_id": <uint32>, "bone": <Ref>, "position": [x,y,z],
+//     "textures": [ <texture entry>, ... ],
+//     "materials": [ { "flags": <uint16, M2Material render flags>, "framebuffer_blend": <as materials; omitted when undocumented> } ],
+//     "color": <animated, [r,g,b] 0..1>, "alpha": <animated, 0..1>,
+//     "height_above": <animated>, "height_below": <animated>,
+//     "texture_slot": <animated, cell index>, "visibility": <animated, 0/1>,
+//     "edges_per_second": <f>, "edge_lifetime": <f, seconds>, "gravity": <f>,
+//     "texture_rows": <u>, "texture_columns": <u>, "priority_plane": <i>,
+//     "ribbon_color_index": <i>,
+//     "texture_transform_lookup_index": <i, unresolved index into the source model's texture-transform lookup> } ]
+// ```
+//
+// ### resources.emitters.particles
+// ```json
+// [ { "particle_id": <uint32>, "flags": <uint32, wowdev.wiki M2#Particle_Flags>,
+//     "bone": <Ref>, "position": [x,y,z],
+//     "textures": [ <texture entry>, ... ],   // 1, or up to 3 for MultiTexture (flags 0x10000000), layer order
+//     "particle_model": <Ref, M2-embedded game path>,          // omitted when none
+//     "child_emitters_model": <Ref, M2-embedded game path>,    // omitted when none
+//     "blending_type": <u8, wowdev.wiki M2#Particle_Blendings>, "emitter_type": <u8, 1 plane 2 sphere 3 spline 4 bone>,
+//     "particle_color_index": <u16>, "multi_texture_scale": [f, f], "priority_plane": <i>,
+//     "texture_rows": <u>, "texture_columns": <u>,
+//     "emission_speed", "speed_variation", "vertical_range", "horizontal_range", "gravity", "lifespan",
+//     "emission_rate", "emission_area_length", "emission_area_width", "z_source": <animated>,
+//     "enabled_in": <animated, 0/1>,
+//     "lifespan_variation": <f>, "emission_rate_variation": <f>,
+//     "color": <lifetime curve, [r,g,b] on-disk scale (observed 0..255)>, "alpha": <lifetime curve, 0..1>,
+//     "scale": <lifetime curve, [x,y]>, "head_cell": <lifetime curve, cell index>, "tail_cell": <lifetime curve, cell index>,
+//     "scale_variation": [x,y],
+//     "tail_length", "twinkle_speed", "twinkle_percent", "twinkle_scale_min", "twinkle_scale_max",
+//     "inherit_velocity_scale", "drag", "base_spin", "base_spin_variation", "spin_speed",
+//     "spin_speed_variation", "wind_time", "follow_speed1", "follow_scale1", "follow_speed2", "follow_scale2": <f>,
+//     "tumble_min", "tumble_max", "wind_vector": [x,y,z],
+//     "spline_points": [ [x,y,z], ... ],
+//     "multi_texture_scroll_mid": [x0,y0,x1,y1], "multi_texture_scroll_range": [x0,y0,x1,y1] } ]
+// ```
 //
 // `resources.mesh.primitives[i].material_index` is `canon::
 // resolveMaterialIndex(model, i)` -- `canon::Model::materials` is DEDUPED

@@ -177,7 +177,8 @@ resources
   animation           <- clips; one curve representation
   materials           <- Refs + real texture layers
   physics             <- full joint graph, no transport-driven reduction
-  emitters            <- ribbon/particle
+  attachments         <- attachment points, events, lights (written)
+  emitters            <- ribbon/particle, every field and curve (written)
   collision
 items                 <- I7: identity → slots[] → components[]
 references            <- other bundles this one points at (see below)

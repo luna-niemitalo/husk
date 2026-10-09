@@ -257,6 +257,17 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   every bounded reproduction — needs a live-attach investigation, not more
   guessing from a killed run) is the one open legacy-pipeline item with no
   current owner.
+- **Target and priority (2026-10-09, Luna)**: the canonical bundle is the
+  export target (MantleCore consumes it); glTF/Blender are tertiary.
+  World order: WMO + all world animations → attachments/lights/emitters/
+  fog & particle volumes → liquids → culling domains/LODs; model detail
+  (overlays, UV animation) alongside. See `WORLD_COMPLETENESS.md`.
+  Done: M2 attachments/events/lights/emitters in `canon::Model::scene` and
+  the bundle (incl. `.skel` `SKA1`). **Next**: WMO -- a canon type design
+  pass first (`TODO/WORLD/WMO_GEOMETRY_TODO.md`, `WORLD_PLACEMENT_TODO.md`'s
+  doodad sets), then root/group parsing and a WMO bundle so terrain
+  `map_object` placements get a `uri`. Client shaders are unpacked under
+  `example_exports/shaders/` (`tools/export_shaders.py`).
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,
   documented feature. Open items, in order: ground-cover scatter placing
   nothing on grassy quads (`TODO/WORLD/ADT_TERRAIN_TODO.md` §1), confirming
