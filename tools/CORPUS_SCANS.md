@@ -35,6 +35,14 @@ Output, written to `--output-dir` (default: repo root — pass
   `analyze()` raised (a scan never aborts on one bad file)
 - `<stem>_scan.log` — the task's own `summarize()` output
 
+- `<stem>.journal.jsonl` — every finished file, appended as it completes
+
+**Long runs: pass `--resume`.** A Claude Code session teardown kills the
+scan process (even `setsid nohup`'d), and the CSV is only written at the
+end. With `--resume`, rerunning the identical command replays the journal
+and scans only what it doesn't cover; errored files are never journaled,
+so they're retried. Without `--resume` the journal is started fresh.
+
 **Never pass `--max-workers` or `--initial-workers` to force a
 concurrency number.** `AdaptiveConcurrency` finds the real ceiling
 itself (TCP-AIMD-style: grow while throughput improves, back off on the

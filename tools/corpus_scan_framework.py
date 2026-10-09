@@ -611,6 +611,7 @@ def run_corpus_scan(
     min_samples_per_tick: int = 15,
     batch_size: int | None = None,
     listfile: Path | None = None,
+    resume: bool = False,
 ) -> int:
     """Runs `task` over every file under `root` matching task.GLOB_PATTERNS,
     with a live-adjusted concurrency budget (see AdaptiveConcurrency), and
@@ -618,6 +619,12 @@ def run_corpus_scan(
     (only if any errors occurred) to output_dir (default: repo root,
     matching every existing find_*.py convention). Returns the process
     exit code (0 on success).
+
+    Every finished file (row or None) is appended to <output_stem>.journal.jsonl
+    as it completes, because a session teardown kills even setsid'd scans and
+    the CSV is only written at the very end. `resume=True` replays that
+    journal and scans only what it doesn't cover; without it the journal is
+    started fresh. Errored files are never journaled, so a resume retries them.
     """
     output_dir = output_dir or REPO_ROOT
     fieldnames = ["path", *task.FIELDNAMES]
@@ -632,6 +639,23 @@ def run_corpus_scan(
     if total_files == 0:
         return 0
 
+    rows: list[dict] = []
+    journal_path = output_dir / f"{output_stem}.journal.jsonl"
+    journaled: set[str] = set()
+    if resume and journal_path.exists():
+        with journal_path.open() as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # torn final line from a killed run
+                journaled.add(entry["path"])
+                if entry["result"] is not None:
+                    rows.append({"path": entry["path"], **entry["result"]})
+        files = [p for p in files if str(p) not in journaled]
+        print(f"resume: {len(journaled)} files already journaled, {len(files)} left")
+    journal = journal_path.open("a" if resume else "w")
+
     if max_workers is None:
         max_workers = os.cpu_count() or 4
     if initial_workers is None:
@@ -644,17 +668,17 @@ def run_corpus_scan(
     disk_before = _read_diskstats(leaf_devices) if leaf_devices else {}
     arc_before = _read_arcstats()
 
-    rows: list[dict] = []
     errors: list[tuple[str, str]] = []
     start = time.monotonic()
     scanned = 0
 
     executor_cls = ThreadPoolExecutor if parallel_mode == "thread" else ProcessPoolExecutor
     executor_kwargs = {} if parallel_mode == "thread" else {"initializer": _init_worker, "initargs": (task_spec, root, listfile)}
-    if parallel_mode == "thread":
-        _init_worker(task_spec, root, listfile)  # populate _worker_task/ROOT/LISTFILE in-process; threads share it
+    # In-process too, not just in pool workers: threads share it, and a
+    # task's summarize() always runs here and may read ROOT/LISTFILE.
+    _init_worker(task_spec, root, listfile)
 
-    progress = tqdm(total=total_files, desc=f"scanning ({parallel_mode}, window={controller.window}, batch={batch_size})", unit="file") if tqdm else None
+    progress = tqdm(total=len(files), desc=f"scanning ({parallel_mode}, window={controller.window}, batch={batch_size})", unit="file") if tqdm else None
     with executor_cls(max_workers=max_workers, **executor_kwargs) as pool:
         pending = iter(files)
         in_flight: set[Future] = set()
@@ -679,8 +703,11 @@ def run_corpus_scan(
                     tick_completed += 1
                     if error is not None:
                         errors.append((path_str, error))
-                    elif result is not None:
+                        continue
+                    journal.write(json.dumps({"path": path_str, "result": result}) + "\n")
+                    if result is not None:
                         rows.append({"path": path_str, **result})
+                journal.flush()
                 if progress:
                     progress.update(len(batch_results))
 
@@ -695,13 +722,14 @@ def run_corpus_scan(
                 tick_start = now
                 tick_completed = 0
             top_up()
+    journal.close()
     if progress:
         progress.close()
 
     elapsed = time.monotonic() - start
     disk_after = _read_diskstats(leaf_devices) if leaf_devices else {}
     arc_after = _read_arcstats()
-    print(f"\nscanned {total_files} files in {elapsed:.1f}s ({total_files / elapsed:.0f} files/sec avg, "
+    print(f"\nscanned {scanned} files in {elapsed:.1f}s ({scanned / elapsed:.0f} files/sec avg, "
           f"{parallel_mode} pool, max {max_workers} workers)")
     print(f"  concurrency window trace: {controller.trace_str()} ({controller.backoff_count} backoff(s), "
           f"converged at {controller.window})")
@@ -761,13 +789,15 @@ def main() -> int:
     parser.add_argument("--listfile", type=Path, default=Path("/media/luna/userdata/Downloads/community-listfile.csv"),
                          help="community-listfile.csv path, exposed to tasks as corpus_scan_framework.LISTFILE "
                               "(the single copy every task-module LISTFILE constant used to duplicate)")
+    parser.add_argument("--resume", action="store_true",
+                         help="skip files already in <output-stem>.journal.jsonl from an interrupted run")
     args = parser.parse_args()
 
     sys.path.insert(0, str(REPO_ROOT / "tools"))
     task = _import_task(args.task)
     return run_corpus_scan(task, root=args.root, output_stem=args.output_stem, max_workers=args.max_workers,
                             initial_workers=args.initial_workers, limit=args.limit, output_dir=args.output_dir,
-                            batch_size=args.batch_size, listfile=args.listfile)
+                            batch_size=args.batch_size, listfile=args.listfile, resume=args.resume)
 
 
 if __name__ == "__main__":

@@ -90,6 +90,7 @@
         cpp = with pkgs; [
           cmake
           ninja
+		  mold
           pkg-config
           gcc
           gdb
