@@ -2,8 +2,11 @@
 
 Current, correct facts only. Every fact is checked against all 877 `.bls`
 files in the 12.1.0 corpus (`/media/luna/data/wow_export/shaders/`).
-`tools/export_shaders.py` relies on each one and fails a file loudly, with
-expected and actual values, if a fact stops holding.
+`tools/export_shaders.py` relies on each container-layout fact and fails a
+file loudly, with expected and actual values, if one stops holding. The
+block-header, hash and `RDEF` facts come from its output manifests
+(`../WIKI_FINDINGS_HISTORY.md` §19). What the shaders themselves compute
+is in `M2/rendering.md`, `ADT.md`, `WORLD.md` and `RENDERING.md`.
 
 ## Inventory (12.1.0)
 
@@ -36,10 +39,43 @@ The wiki's struct is right as far as it goes. What it leaves open:
   trailing bytes. The block header is 96 bytes on every `0x1000E` blob;
   its length isn't stored, so the exporter finds the DXBC magic.
 - `0x1000E` DX50 blobs carry `SHEX` (DXBC-TPF); DX60 blobs carry `DXIL`.
-- The slot hash is **not** the DXBC checksum, an MD5 of the blob, or an
-  MD5 of its DXBC. Its input is unknown.
-- `header.nPermutations` is 40 for illum, not the slot count. Meaning
-  unknown.
+- The DXBC is standard once the stream is inflated, but reflection is
+  stripped: no blob in either API has an `RDEF` part. DX50 parts are
+  `ISGN`/`OSGN`/`SHEX` (9,701 of 9,742), sometimes plus `SFI0` or as
+  `ISG1`/`OSG1`. So constant buffers and textures have register numbers
+  only, never names.
+- The slot hash names the compiled **program**, not the permutation:
+  every slot sharing a blob has the same hash (9,742/9,742 DX50 blobs),
+  and no two blobs in a file share one. It differs between the DX50 and
+  DX60 compile of every slot (27,743 slots). Its input is still unknown:
+  not the DXBC checksum, nor MD5/SHA-1/SHA-256/BLAKE2/SHA3 of the blob,
+  its DXBC, or its shader code.
+- `header.nPermutations` is a format constant, not the slot count: 40 in
+  all 430 `0x1000E` DX50 files, 28 in all five `0x1000C` files.
+
+### Block header (96 bytes, 24 little-endian `u32`)
+
+Checked over all 9,742 `0x1000E` DX50 blocks.
+
+| Index | Content | Holds on |
+|---|---|---|
+| 0 | 3 | all |
+| 1 | DXBC size + 56 | all |
+| 2 | 40 | all |
+| 5 | output register count | 9,693 |
+| 6 | instruction count | 7,657 exact |
+| 7, 8, 9 | unknown small counts | — |
+| 10 | 3 | all |
+| 12 | UAV count (0 outside compute) | 9,688 |
+| 14–15 | texture binding mask (`u64`) | 9,364 |
+| 16 | 0 except in compute; possibly a UAV mask | unverified |
+| 18–19 | sampler binding mask (`u64`) | all |
+| 20–21 | constant-buffer binding mask (`u64`) | all |
+| 22 | DXBC size | all |
+| 23 | 4 | all |
+| 3, 4, 11, 13, 17 | 0 | all |
+
+None of these fields encode which features a slot index selects.
 
 ## GXSH `0x1000C`
 

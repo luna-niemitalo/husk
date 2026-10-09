@@ -36,6 +36,30 @@ real tiles from the local corpus. The code that relies on each one is
   ~16. Either the WoWDBDefs layout for this build or husk's WDC5 array
   decode is off. Weights are only used as ratios; not chased further.
 
+## Terrain shader (client `terrain` pixel shader, 12.1.0)
+
+Read from the client's compiled shaders, not from tiles
+(`../WIKI_FINDINGS_HISTORY.md` §19). husk exports the inputs, not this
+blend.
+
+- The wiki's height-blend pseudocode (`ADT/v18.md`, "MTXP") is exactly the
+  client's height mode: layer 0 weight `1 − Σ`,
+  `pct = w·(h·heightScale + heightOffset)`, `pct·(1 − clamp(max − pct))`,
+  normalised. `heightScale`/`heightOffset` arrive as `cb1[5]`/`cb1[9]`.
+- The same excerpt's comment "pt_layerX: MCAL data" is wrong: the shader
+  samples `pt_layerX` as the diffuse layer textures.
+- Its `metalBlend = w0.a + w1.a; specBlend = w2.a + w3.a` is one of two
+  client modes: with both reflection and specular options on, the cubemap
+  reflection is masked by `w0·a0 + w1·a1` and specular by `w2·a2 + w3·a3`.
+  With reflection only, layer 0 alone masks the reflection and layers 1–3
+  feed specular.
+- `MCLY` `0x400` cube-map reflection is masked by layer 0's weight and
+  alpha, as the wiki says ("always affect the ground layer").
+- `MCCV` is applied as `rgb × 2`, as the wiki says.
+- The shader is compiled for 1, 2 or 4 groups of 4 layers, so up to 16
+  layers per chunk. The wiki's 8-layer cap may still hold client-side;
+  the shader doesn't impose it.
+
 ## Verified conventions
 
 | Fact | Evidence |

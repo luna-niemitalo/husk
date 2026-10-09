@@ -21,6 +21,9 @@ needs, and how much of each formula we actually know. Scan date 2026-10-09.
   `--resume`).
 - Raw output goes to `scan/` (gitignored). `scan/shader_inventory_aggregate.json`
   holds every count below plus an example path for each.
+- What the client shaders compute, read from their bytecode, is in
+  `notes/` (index: `notes/README.md`; helper scripts in `scripts/`).
+  Its verified findings are promoted into `WIKI_FINDINGS/`.
 
 Evidence tiers used throughout:
 

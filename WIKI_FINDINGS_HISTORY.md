@@ -1923,6 +1923,66 @@ changed; pure documentation and a real-filesystem check.
 
 ---
 
+## 19. Client shaders — combiner, WMO, terrain and screen-effect formulas read from the 12.1.0 shader bytecode; `.bls` block header decoded (2026-10-09)
+
+**Source.** A separate shader reverse-engineering pass over
+`tools/export_shaders.py`'s export of all 877 `.bls` files (vkd3d `dx_5_0`
+assembly), written up in `SHADER_FINDINGS/notes/` — one file
+per shader family, plus `reconciliation.md`, which compares the shader
+code against this project's docs and the wiki mirror and tags each claim
+verified / inferred / hypothesis. Only its **verified** rows (and
+verified-code rows whose inferred half is tagged as such) were promoted
+into the topic files: `M2/rendering.md` (new), `ADT.md` "Terrain
+shader", `WORLD.md` "WMO materials in the client shaders", `RENDERING.md`
+(new), `BLS.md`. Its hypotheses (liquid detail levels, terrain blend-mode
+↔ Map flags, `TerrainMaterial` fields, LightData ↔ `cb8` mapping, the
+swirling-fog passes) stay in the notes.
+
+**Independent re-checks before promotion** (this session, against the
+same export):
+
+- Combiner dispatch: `combiners_uber_2_2`, `_no_mod_fog_alpha` and
+  `uber_3_3` each `switch cb1[0].x` over exactly the case labels in
+  `M2/rendering.md`'s container table.
+- Correction (a): `combiners_uber_2_2` case 8 computes alpha as
+  `add r4.w, r3.w, r6.w` (`t0.a + t1.a`), with `t0` diffuse and `t1`
+  emissive.
+- Correction (c): `combiners_uber_2_2_no_mod_fog_alpha` case 12 is
+  `mad r5.xyz, t0.a, t0 − 2·t0·t1, 2·t0·t1` = `lerp(2·t0·t1, t0, t0.a)`.
+- WMO: `pixel/dx_5_0/uber` switches `cb2[4].x` over 0–24 (plus sentinel
+  34583) and `cb2[4].y` over 25. `vertex/dx_5_0/uber` writes
+  `o3.xyz = 2·v2.xyz`, `o3.w = v3.w`, `o5.w = 1 − v2.w`.
+- Terrain: every height-mode program has
+  `mad h, h, cb1[5], cb1[9]`.
+- FFXGlow: `ffxglow`'s whole program is
+  `lerp(t0, t1, cb1[0].z) + t1²·cb1[0].w`.
+- Multi-texture particles: `particle_3colortex_3alphatex` selects
+  ×4 vs ×2 from `cb0[6].x`'s bits and multiplies `t0·t1·t2`.
+- `.bls` block header, over all 9,742 `0x1000E` DX50 blocks via each
+  container's `manifest.json`: words 0/2/10/23 are 3/40/3/4 and words
+  3/4/11/13/17 are 0 in every block; word 22 = DXBC size and word 1 =
+  DXBC size + 56 in every block; every blob's slots share exactly one
+  hash; `header.permutations` is 40 in all 430 `0x1000E` DX50 files and
+  28 in all five `0x1000C` files; no manifest in either API lists an
+  `RDEF` part. One refinement to the notes: not every DX50 blob is
+  `ISGN`/`OSGN`/`SHEX` only — 39 also carry `SFI0` (29 of them with
+  `ISG1`/`OSG1`).
+
+**Not re-checked** (taken from the notes as verified): the remaining
+combiner case bodies, blend-class and lighting-mode behaviour, the WMO
+per-material bodies other than the dispatch, terrain reflection/specular
+masking, sky and colour-grading. Block-header words 5, 6, 12, 14–15 match
+counts are the notes' own.
+
+**husk code cross-check.** `tools/corpus_scan_tasks/render_glb.py`'s
+`_pixel_shader_formula_table` agrees with the client on every combiner it
+implements except two: `Combiners_Mod_Mod2xNA` (9) and
+`Combiners_Mod_AddNA` (10) are rendered opaque there, but the client's
+alpha is `t0.a` for both. It also folds every emissive term into base
+colour (before lighting), where the client adds it after lighting.
+
+---
+
 ## Where these live in husk
 
 | Finding | Code | Tests |
@@ -1945,3 +2005,4 @@ changed; pure documentation and a real-filesystem check.
 | §16 `PCOL` `flags` is a real per-triangle bitmask (structural, bit semantics unconfirmed); `flagsCount != faceNormCount` exception found; complete format documented | `src/dump_chunks_misc.hpp`/`.cpp` (`dumpPcol`, doc comment updated — no behavior change, already correct) | no new tests needed (existing `tests/test_dump.cpp` `PCOL` cases already cover the parser); investigation was a real-corpus scan, not a code change |
 | §17 `DETL`'s `flags` is the one live field (inferred: shadow-casting toggle); `scale`/`diffuseColorMultiplier`/`unk0`/`unk1` are dead constants in every real file, not externally-sourced data | `src/dump_chunks_misc.hpp` (`dumpDetl` doc comment updated — no behavior change, already correct) | no new tests needed (existing `tests/test_dump.cpp` `DETL` cases already cover the parser); investigation was a real-corpus recompute, not a code change |
 | §18 `PCOL` `flags` bit-semantics gap reframed as a real (not permanent) DB2 dependency; `housedecor.db2` and 5 other housing tables confirmed 0 bytes in the local export | none — pure documentation, `WIKI_FINDINGS/M2.md` wording corrected | no new tests needed; investigation was a real-filesystem check against the local `casc-tool` export, not a code change |
+| §19 client-shader formulas (combiners, WMO `uber`, terrain, sky/screen effects); `.bls` block header, slot hash, `RDEF` absence | `tools/export_shaders.py` (the export they're read from); `tools/corpus_scan_tasks/render_glb.py` (`_pixel_shader_formula_table`, partial consumer — two alpha mismatches noted in §19) | none — read from shader bytecode; `tools/export_shaders.py`'s own container-layout checks cover only `BLS.md`'s layout facts |
