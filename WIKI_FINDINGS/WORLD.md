@@ -189,6 +189,62 @@ root-level candidates from the wiki's own page layout. The wholly
 undocumented `_fogs.wdt` chunk **`VFE2`** and `MPVD`'s record layout are
 both now reverse-engineered — see the dedicated sections below.
 
+## WMO lightset lights: `MOLS` resolved, `MOLP` corrected, `MOP2` verified (2026-10-11)
+
+From a full-corpus chunk scan (**86,134 `.wmo` files**, roots + `MOGP`-nested
+group chunks, `tools/corpus_scan_tasks/rare_wmo_chunk_task.py`):
+
+**`MOLS`** (wiki: `char _1[0x38]`, all fields unknown) — resolved from all
+**378 real records in 218 files**. It is a complete spotlight record:
+
+```
+/*0x00*/ uint32_t  lightIndex;      // small ints, 30 distinct
+/*0x04*/ CImVector color;           // BGRA, alpha always 0xFF in corpus
+/*0x08*/ C3Vector  position;
+/*0x14*/ float     attenStart;      // 4.8..~; < attenEnd throughout
+/*0x18*/ float     attenEnd;        // 10.5..38+
+/*0x1C*/ float     intensity;       // 0.1..~
+/*0x20*/ C3Vector  rotation;        // Euler radians, values reach ±π
+/*0x2C*/ float     unk;             // exactly 1.0 in all 378 records
+/*0x30*/ float     innerConeAngle;  // radians, 0.06..0.57
+/*0x34*/ float     outerConeAngle;  // radians, 0.63..0.785 (≈ π/4 cap)
+```
+
+Field names inferred from value classes (byte-quantized color, ±π Euler
+range, inner < outer angle pairing, start < end attenuation pairing); the
+layout itself (offsets/types) is corpus-verified.
+
+**`MOLP`** — two wiki corrections at scale (57,584 records in 2,736 files):
+the `attenStart`(+0x18)/`attenEnd`(+0x1C) labels are **swapped** (start >
+end in 97.4% of records under the wiki's reading; swap them and the
+corpus is consistent), and `unk5`/`unk6` are **floats, not uint32** —
+defaults `-0.0` (+0x24) and `-1.0` (+0x28), with the nondefault values all
+plausible floats. (Promotes `LIGHTING_TODO.md`'s 4-record lead to
+corpus-confirmed.)
+
+**`MOP2`** — the wiki's "currently only in file 2143042" is stale: **5
+real files carry 10 records** (`8nzj_nazjatar_cave01/04*.wmo` + LODs), and
+every field decodes plausibly under the wiki's struct (BGRA colors, sane
+attenuations, live flicker fields, `lightUnkRecord` all-zero) — its first
+real-data verification.
+
+**`MOS2`**: **0/86,134** — the wiki's "in binary, not in files" claim is
+now confirmed at full-corpus strength, as is **`MFOB`: 0/86,134** despite
+this being a Midnight (12.1.0) corpus (see `TODO/WORLD/MFOB_CASC_REPORT.md`
+for the CASC-side follow-up).
+
+## `_fogs.wdt` `VFEX` — fields characterized (2026-10-11)
+
+All 1,542 real records (strictly 1:1 with `VFOG`, like `VFE2`): `Unk0` is
+an enable flag (1 in 1,539, 0 in 3). The 16 unknown floats group as **five
+float-triples plus one scalar**: +0x04 an extent/radius-like triple
+(10..hundreds; the wiki's "first 3 floats" hedge), +0x10 a lone scalar
+{0.01, 0.4, 1.0}, +0x14 a *negative-valued* triple (−65..−10,
+offset-like), +0x20 a 0.1..1.0 triple, +0x2C a period/speed-like triple
+({1, 5, 6, 10, 25, 100}), +0x38 a {0.2, 1, 3, 10} triple. `VFOG_ID` at
++0x44 cross-checks 1,542/1,542. `Unk3..Unk8` (+0x48..+0x5C) are **zero in
+every real record** — "default 0" is actually "always 0".
+
 ## `_fogs.wdt` `VFE2` — reverse-engineered (2026-10-11)
 
 Absent from `WDT.md` entirely (found in real files by two independent husk
@@ -274,11 +330,11 @@ Emitter entry (offsets entry-relative; entry 0 at record +0x2D0):
 
 | Offset | Type | Meaning | Evidence |
 |---|---|---|---|
-| +0x00..+0x7F | float×32 | emission parameters, semantics unresolved per-field; characterized values: velocity/wind-like signed floats at +0x10..+0x1C, cone-angle-like radians (0.0873 = 5°, 0.1745 = 10°) at +0x54/+0x58, lifetime/speed-scale floats elsewhere | dense, 191/193 |
+| +0x00..+0x7F | float×32 | emission parameters, semantics unresolved per-field; characterized values: velocity/wind-like signed floats at +0x10..+0x1C, cone-angle-like radians (0.0873 = 5°, 0.1745 = 10°) at +0x54/+0x58, lifetime/speed-scale floats elsewhere. The renderer's parameter set (spawn box, wind, size min/max, wrap domain, clip planes, heightmap collision) is now decoded from the shader code — `SHADER_FINDINGS/notes/particulate_volumes.md` — so naming these means tracing the CPU's record→CB fill, not more corpus statistics | dense, 191/193 |
 | +0x80 | float×4 | RGBA color, byte-quantized (all values n/255) | 185–193/193 |
 | +0x90 | float | mostly 0 | sparse |
 | +0x94 | uint32 | **particle texture FileDataID** — every listfile-resolvable value is a VFX texture (`particles/dust1.blp`, `snow1.blp`, `raindrop.blp`, `flare.blp`, `ash01.blp`, `pollen.blp`, …) | 193/193, 39 distinct, confirmed |
-| +0x98 | uint32×4 | (blend mode {2,3} — alpha/additive; flipbook tilesX; tilesY; frame count *or* frame rate — tilesX·tilesY == ints[3] in 142/193, and every mismatch (2·2 vs 1, 4·4 vs 10, 4·8 vs 25) stays plausible as an fps) | 193/193 |
+| +0x98 | uint32×4 | (blend mode {2,3} — alpha/additive; flipbook tilesX; tilesY; **frame count** — settled by the shader code: the vertex shader computes `frameIndex % cb[15].z` and divides UVs by `cb[15].xy` (tilesX/Y), so "mismatches" like (4,4,10) just animate 10 frames of a 16-tile atlas) | 193/193 + shader |
 | +0xA8 | float | 1..35 | 181/193 |
 | +0xAC.. | — | extended fields, near-always zero (one record sets a handful) | 1/193 |
 

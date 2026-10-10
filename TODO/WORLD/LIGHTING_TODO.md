@@ -202,18 +202,23 @@ above.
 ### Struct, as documented
 
 ```
-struct { char _1[0x38]; } map_object_spot_lights[];     // MOLS, 56 bytes, unknown fields
+// MOLS: wiki gives char _1[0x38] (all unknown); RESOLVED 2026-10-11 from
+// all 378 real records -- full spotlight struct (lightIndex, BGRA color,
+// pos, attenStart/End, intensity, Euler rotation, const 1.0, inner/outer
+// cone angles in radians). See ../../WIKI_FINDINGS/WORLD.md, "WMO
+// lightset lights".
+struct { char _1[0x38]; } map_object_spot_lights[];     // MOLS, 56 bytes
 
 struct {                                                  // MOLP, 44 bytes
     uint32_t unk;
     CImVector color;
     C3Vector pos;
     float intensity;
-    float attenStart;
-    float attenEnd;
+    float attenStart;  // CORPUS CORRECTION (57,584 records): wiki's start/
+    float attenEnd;    // end labels are swapped -- +0x18 is END, +0x1C START
     float unk4;    // "only seen zeros"
-    uint32_t unk5;
-    uint32_t unk6; // "CArgb?"
+    uint32_t unk5; // really a float, default -0.0 (corpus-confirmed)
+    uint32_t unk6; // really a float, default -1.0 (corpus-confirmed)
 } map_object_point_lights[];
 
 struct { uint32_t offset; uint32_t count; } map_object_lightset_spotlights[];   // MLSS, indexes MOLS
@@ -260,20 +265,14 @@ varied (`(255,219,111)` warm white, `(253,161,0)` orange, `(2,203,255)`
 cyan) — a real, colorful multi-light rig, unlike `MOLT`'s dim samples
 above.
 
-**One real, unresolved oddity, flagged rather than guessed past**: in
-3 of 4 decoded `MOLP` records, `attenStart > attenEnd` (e.g.
-`attenStart=10.16, attenEnd=1.0`) — the *opposite* of `MOLT`/`MNLD`'s own
-clean start<end convention seen elsewhere in this same investigation.
-Either the wiki's field order for `MOLP` is subtly wrong (start/end
-swapped) or "attenuation end" means something different for lightset
-point lights than it does for `MOLT`/`MNLD` — genuinely unresolved, flag
-for whoever implements this rather than silently assuming either
-direction. Separately, `unk5`/`unk6` decoded suspiciously as constant,
-recognizable IEEE-754 bit patterns across most records (`unk5` = exactly
-`0x80000000`, i.e. `-0.0` as a float; `unk6` = exactly `0xbf800000`,
-i.e. `-1.0` as a float) — a real lead that these two `uint32_t` "unk"
-fields might actually be floats with default/sentinel values, not
-integers, worth a follow-up decode pass before implementation.
+**Both former oddities resolved at full corpus scale (2026-10-11,
+57,584 `MOLP` records in 2,736 files)**: the wiki's `attenStart`/
+`attenEnd` field order is simply **swapped** (start > end in 97.4% of
+records under the wiki's labels; swapping them makes the corpus
+consistent with `MOLT`/`MNLD`'s start<end convention), and `unk5`/`unk6`
+are confirmed **floats** with defaults `-0.0`/`-1.0` (the nondefault
+values all decode as plausible floats). See
+`../../WIKI_FINDINGS/WORLD.md`'s "WMO lightset lights" section.
 
 ### Consumption plan
 
@@ -294,9 +293,9 @@ leaving "which one is currently active" as `extras` metadata a
 Blender script would act on, the same "surface everything, let the
 consumer choose" precedent `.bone` correction sets already established.
 
-- **Parse**: `full` for `MOLP`/`MLSS`/`MLSP` (confirmed); `descriptor`
-  only for `MOLS` (struct genuinely unknown); `n/a` for `MLSO`/`MLSK`
-  (never present in real files).
+- **Parse**: `full` for `MOLP`/`MLSS`/`MLSP` (confirmed) and now `MOLS`
+  too (struct resolved 2026-10-11, see `../../WIKI_FINDINGS/WORLD.md`);
+  `n/a` for `MLSO`/`MLSK` (never present in real files).
 - **Consumption**: `native` (`MOLP` via `KHR_lights_punctual`, same
   confirmed decision as item 1) + `extras` (`MOLS`, lightset
   selection metadata).
@@ -421,19 +420,13 @@ confirmed negative, not an unchecked assumption. **Do not implement or
 guess at this struct** — no real bytes exist anywhere in this corpus to
 verify against, and the wiki itself has never resolved it.
 
-**`MOP2`**: a real, fully documented struct (`lightIndex`/`color`/`pos`/
-`attenuationStart`/`attenuationEnd`/`intensity`/`rotation` +
-`lightTextureAnimation` (flicker fields, same shape as `MNLD`'s) +
-`lightUnkRecord` (mostly unused except `lightTextureFileDataId`)) — but
-the wiki itself notes it as observed in **exactly one known file**
-(`world/wmo/zuldazar/orc/8or_pvp_warsongbg_main01.wmo`, FileDataID
-2143042, client 8.1.5.28938). **0/2,570 in this session's own sample**
-(consistent — a single-known-file rarity wouldn't be expected to turn up
-in a 2,570-file random sample; the specific named file wasn't in this
-session's sample set and wasn't separately pulled, since `MOS2`'s
-"genuinely unknown, don't guess" disposition already made this whole
-item low-priority enough not to spend a targeted `casc-tool` pull on it
-this session).
+**`MOP2`**: a real, fully documented struct — and now **verified against
+real data for the first time (2026-10-11)**: a full-corpus scan found
+**5 real files / 10 records** (`8nzj_nazjatar_cave01/04*.wmo` + LODs),
+every field decoding plausibly (BGRA colors, sane attenuations, live
+flicker fields, `lightUnkRecord` all-zero). The wiki's "currently only
+in file 2143042" is stale. `MOS2` stays a confirmed negative at full
+corpus strength (0/86,134). See `../../WIKI_FINDINGS/WORLD.md`.
 
 - **Parse**: `n/a` (`MOS2`, genuinely unknown struct, no real bytes to
   check); `descriptor`-eligible but unverified (`MOP2`, struct is real

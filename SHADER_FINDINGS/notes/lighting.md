@@ -113,7 +113,7 @@ The froxel volume `t16` is built in compute and applied in the forward shaders (
 | `compute/volumefogcomputeold` | 1 | `cb0[886]` | Older single-pass version |
 | `pixel/volumefogcomposite` | 1 | Depth `t0`, volume `t16` | Applies the volume to the screen. Depth → slice is `sqrt(saturate(depth / cb1[8].x))`, as in the forward shaders |
 | `pixel/volumefoggauss9color` | 2 | `t0`, `t1`, `cb2[1]` | 9-tap Gaussian blur |
-| `pixel/particulatevolume` | 2 | `t1`, `t2`, `cb1[2]` | Not decoded |
+| `pixel/particulatevolume` | 2 | `t1`, `t2`, `cb1[2]` | Decoded with the whole family — see `particulate_volumes.md` |
 
 ## Other
 

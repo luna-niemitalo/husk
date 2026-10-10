@@ -93,15 +93,14 @@ struct confirmation and the higher-value map-level sidecars below); a
 quick follow-up decode (just `doodadSetId` + the 14 unknown trailing
 bytes) is a cheap next step, not a blocker.
 
-**`MFOB`: 0/4,000.** The wiki's own version gate for this chunk
-(`≥ Midnight (12.1.0.68209)`) names a build materially newer than
-anything this session's corpus (a modern retail extraction, but not
-necessarily tracking an unreleased future-expansion build) would be
-expected to carry — **the wiki gives no struct at all for this chunk
-either**, just the version-gate box, then jumps straight to the "WMO
-group file" heading. A real, clean, expected-and-explained zero, not a
-scanner problem — same disposition as `LIQUID_TODO.md`'s `MCLQ` finding.
-Do not implement; watch only.
+**`MFOB`: 0 at full corpus strength (2026-10-11): 0/86,134 `.wmo` files**
+(roots + `MOGP`-nested group chunks; the same scan found 2,736
+`MOLP`-bearing files, so the walker reaches rare chunks). Notable because
+this corpus *is* Midnight (12.1.0, proven by DB2 layouts), yet the wiki's
+version gate (12.1.0.68209) claims the chunk exists there — either it
+landed in a later 12.1.0 build than this extraction, or it's unshipped.
+**The wiki gives no struct at all either.** Handed to the CASC side:
+`MFOB_CASC_REPORT.md`. Do not implement; watch only.
 
 ### C++ data-model sketch
 
@@ -254,7 +253,9 @@ All from the same 4,000-root-file scan as item 1:
   FileDataID), per-field semantics of the entry's first 32 floats
   (reading the `particulatevolume`/`particulatecompute` shader *code*
   against the computed 944-byte CB offsets is the obvious route), and
-  frame-count-vs-frame-rate on the flipbook int.
+  (frame-count-vs-frame-rate settled 2026-10-11: the vertex shader does
+  `frameIndex % cb[15].z` — it's a frame **count**; renderer semantics
+  in `SHADER_FINDINGS/notes/particulate_volumes.md`).
 - **`MPVR`/`MAVR`/`MBVR`/`MFVR`** (group-scoped reference lists,
   confirmed via the same nested-in-`MOGP` scan `LIGHTING_TODO.md`'s
   `MNLR`/`MOLR` check used): **`MPVR` 51/2,570 (2.0%), `MAVR` 86/2,570
@@ -382,7 +383,10 @@ sibling `VFOG` entries' own `id` field (1659, 1660, 1891, ... — a clean,
 verifiable foreign-key relationship, not just plausible-looking).
 `Unk1[:3]` decodes as plausible extent-like floats (`(600,600,200)`,
 `(70,70,25)`, `(225,225,225)`) — consistent with the wiki's own "first 3
-floats always seem to have proper values" hedge.
+floats always seem to have proper values" hedge. **All 16 floats
+characterized corpus-wide 2026-10-11** (five triples + a scalar; `Unk0`
+is an enable flag; `Unk3..8` are zero in every real record) — see
+`../../WIKI_FINDINGS/WORLD.md`'s `VFEX` section.
 
 **`VFE2`: reverse-engineered (2026-10-11)** — the undocumented third
 chunk (176 bytes, no `WDT.md` entry at all) is now decoded corpus-wide:

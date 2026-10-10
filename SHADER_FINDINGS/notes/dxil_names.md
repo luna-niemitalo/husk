@@ -40,7 +40,7 @@ name, register, containers) and every struct body. Everything in this file is
 | `particleupdate` `cb0` | `cb_0` | `ParticleUpdateCB` | `float4`, 2 × `float4x4`, 16 × `float4`, `float4[128]` = 153 registers | `particles.md`: curve table from 25 |
 | `texturecompositing` | `cb_texture_compositiong` (sic) | `CS_TextureCompositing` | 3 × `int4` | `compute.md` |
 | `waterfall` | `cb_waterfall` | `PS_Waterfall`, `VS_Waterfall` | | |
-| `particulatecompute`, `particulatevolume` | `cb_particulate_volume` | `VS_ParticulateVolume` (mixed scalars) | | |
+| `particulatecompute`, `particulatevolume` | `cb_particulate_volume` | `VS_ParticulateVolume` (mixed scalars) | | `particulate_volumes.md` (944-byte CB, slot roles from code) |
 | `shadowrt` | `cb_RayGen`, `ShadowRT_InstanceConstants` | `ShadowRT_RayGenDeferredData`, `ShadowRT_InstanceData` | | below |
 
 Other struct names, without a binding we decoded: `LightBuffer` (`PointLight`),

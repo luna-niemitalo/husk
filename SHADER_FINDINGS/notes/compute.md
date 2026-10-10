@@ -60,7 +60,7 @@ Programs 1 and 2 were not read; they probably cover the other skinning modes.
 | `guidedfilter`, `guidedfilterh`, `guidedfilterv` | 8 each | DXIL only in `dx_5_0` | *name* |
 | `fogdepth` | 1 | `t1` → 3D `u0`, 16×16 threads | *name* |
 | `generatemips` | 1 | `t0` → `u1` | *name*, 7 instructions |
-| `particulatecompute` | 2 | `t0` → `u1`, 128 threads | *name* |
+| `particulatecompute` | 2 | `t0` → `u1`, 128 threads | *name*; full decode in `particulate_volumes.md` (`t0` = terrain heightmap, `u1` = packed particle state) |
 | `texcoordexplode` | 3 | `t2`, 48-byte `t3` → 24-byte `u0` | *name*. Its three programs read `StructuredBuffer<M2Vertex>`, `<WMOVertex>` and `<M3Vertex>` and write `TriangleOut` (three UVs per triangle) |
 | `animacompute` | 1 | 64-byte `u0` | *name*; `u0` is `RWStructuredBuffer<AnimaCurveNode>` |
 | `simplecompute` | 1 | `u0` | 5 instructions |
