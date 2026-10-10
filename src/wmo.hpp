@@ -82,6 +82,31 @@ struct Doodad {
     uint32_t color = 0;  // CImVector (BGRA), raw
 };
 
+// MAVG (global) and MAVD (local), 48 bytes each: ambient-colour overrides
+// (8.3+). MAVG's position/start/end are always zero (1,702 real records).
+// Which colours flag 0x1 selects is contradictory on the wiki, so all three
+// stay raw.
+struct AmbientVolume {
+    Vec3 position{};
+    float start = 0;
+    float end = 0;  // >= start in every real record
+    std::array<uint32_t, 3> colors{};  // CImVector (BGRA), raw
+    uint32_t flags = 0;
+    uint16_t doodadSet = 0;  // MODS index
+};
+
+// MBVD, 128 bytes: a box-shaped ambient override. The six planes come in
+// opposite pairs (0,1) (2,3) (4,5) with unit normals; the inside is where
+// dot(normal, p) <= d for all six (54/54 real boxes non-empty that way,
+// none the other way).
+struct AmbientBox {
+    std::array<std::array<float, 4>, 6> planes{};  // normal x, y, z, d
+    float end = 0;  // <= the box's smallest half-size in 52/54: a fade distance in from the faces?
+    std::array<uint32_t, 3> colors{};  // CImVector (BGRA), raw
+    uint32_t flags = 0;
+    uint16_t doodadSet = 0;  // MODS index
+};
+
 // MPVD emitter entry, 844 bytes; four per record (WIKI_FINDINGS/WORLD.md
 // "WMO MPVD"). Names below are value-characterized from the corpus, not
 // from any symbol.
@@ -176,6 +201,9 @@ struct RootFile {
     std::vector<LegacyLight> legacyLights;  // MOLT
     std::vector<NewLight> newLights;        // MNLD
     std::vector<ParticulateVolume> particulateVolumes;  // MPVD
+    std::vector<AmbientVolume> globalAmbientVolumes;  // MAVG
+    std::vector<AmbientVolume> ambientVolumes;        // MAVD
+    std::vector<AmbientBox> ambientBoxes;             // MBVD
     uint32_t skyboxFileDataId = 0;  // MOSI; 0 = none
     std::string skyboxName;         // MOSB; empty = none
 };

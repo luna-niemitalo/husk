@@ -149,6 +149,11 @@ canon::Vec3 colorOf(uint32_t bgra) {
     return {rgba[0] / 255.0f, rgba[1] / 255.0f, rgba[2] / 255.0f};
 }
 
+// parseRoot already checked doodadSet against MODS.
+canon::Ref ownedSetRef(const WmoInputs& in, uint32_t set) {
+    return canon::Ref{canon::RecordIndex{set}, in.root->doodadSets[set].name, canon::NameSource::WmoEmbedded};
+}
+
 canon::LocalLight buildNewLight(const WmoInputs& in, uint32_t index) {
     const wmo::NewLight& l = in.root->newLights[index];
     canon::LocalLight out;
@@ -179,9 +184,7 @@ canon::LocalLight buildNewLight(const WmoInputs& in, uint32_t index) {
     out.castsShadows = (l.flags & kNewLightCastsShadows) != 0;
     out.shadowScale = l.scale;
     if (l.cookieFileDataId != 0) out.cookie = fileRef(in, l.cookieFileDataId);
-    // parseRoot already checked doodadSet against MODS.
-    auto set = static_cast<uint32_t>(l.doodadSet);
-    out.placementSet = canon::Ref{canon::RecordIndex{set}, in.root->doodadSets[set].name, canon::NameSource::WmoEmbedded};
+    out.placementSet = ownedSetRef(in, static_cast<uint32_t>(l.doodadSet));
     out.sourceFlags = static_cast<uint32_t>(l.flags);
     return out;
 }
@@ -241,8 +244,51 @@ canon::ParticulateVolume buildParticulateVolume(const WmoInputs& in, uint32_t in
     return out;
 }
 
+std::array<float, 4> rgbaOf(uint32_t bgra) {
+    std::array<uint8_t, 4> rgba = bgraToRgba(bgra);
+    return {rgba[0] / 255.0f, rgba[1] / 255.0f, rgba[2] / 255.0f, rgba[3] / 255.0f};
+}
+
+canon::AmbientVolume buildAmbientVolume(const WmoInputs& in, const wmo::AmbientVolume& v, const char* table,
+                                        uint32_t index, canon::AmbientVolume::Shape shape) {
+    canon::AmbientVolume out;
+    out.ref = canon::Ref{canon::RecordIndex{index}, std::string(table) + "_" + std::to_string(index),
+                         canon::NameSource::Synthesized};
+    out.shape = shape;
+    out.position = toCanon(v.position);
+    out.start = v.start;
+    out.end = v.end;
+    for (size_t k = 0; k < 3; ++k) out.colors[k] = rgbaOf(v.colors[k]);
+    out.sourceFlags = v.flags;
+    out.placementSet = ownedSetRef(in, v.doodadSet);
+    return out;
+}
+
+canon::AmbientVolume buildAmbientBox(const WmoInputs& in, uint32_t index) {
+    const wmo::AmbientBox& b = in.root->ambientBoxes[index];
+    canon::AmbientVolume out;
+    out.ref = canon::Ref{canon::RecordIndex{index}, "mbvd_" + std::to_string(index), canon::NameSource::Synthesized};
+    out.shape = canon::AmbientVolume::Shape::Box;
+    out.end = b.end;
+    for (const auto& [x, y, z, d] : b.planes) out.planes.push_back({canon::Vec3{x, y, z}, d});
+    for (size_t k = 0; k < 3; ++k) out.colors[k] = rgbaOf(b.colors[k]);
+    out.sourceFlags = b.flags;
+    out.placementSet = ownedSetRef(in, b.doodadSet);
+    return out;
+}
+
 canon::Scene buildScene(const WmoInputs& in) {
     canon::Scene scene;
+    const wmo::RootFile& root = *in.root;
+    for (uint32_t i = 0; i < root.globalAmbientVolumes.size(); ++i) {
+        scene.ambientVolumes.push_back(buildAmbientVolume(in, root.globalAmbientVolumes[i], "mavg", i,
+                                                          canon::AmbientVolume::Shape::Global));
+    }
+    for (uint32_t i = 0; i < root.ambientVolumes.size(); ++i) {
+        scene.ambientVolumes.push_back(
+            buildAmbientVolume(in, root.ambientVolumes[i], "mavd", i, canon::AmbientVolume::Shape::Point));
+    }
+    for (uint32_t i = 0; i < root.ambientBoxes.size(); ++i) scene.ambientVolumes.push_back(buildAmbientBox(in, i));
     for (uint32_t i = 0; i < in.root->particulateVolumes.size(); ++i) {
         scene.particulateVolumes.push_back(buildParticulateVolume(in, i));
     }

@@ -58,15 +58,21 @@ void requireUniqueInstanceIds(const std::vector<Model::OwnedSet>& sets) {
     }
 }
 
-void requireLightSets(const std::vector<LocalLight>& lights, size_t setCount) {
-    for (size_t i = 0; i < lights.size(); ++i) {
-        if (!lights[i].placementSet) continue;
-        const auto* ri = std::get_if<RecordIndex>(&lights[i].placementSet->id);
-        if (!ri || ri->value >= setCount) {
-            throw std::runtime_error("local light " + std::to_string(i) +
-                                      "'s placement set: expected a RecordIndex < " + std::to_string(setCount) +
-                                      " owned sets, got " + (ri ? std::to_string(ri->value) : "another Identity kind"));
-        }
+void requireOwnedSet(const std::optional<Ref>& set, size_t setCount, const std::string& what) {
+    if (!set) return;
+    const auto* ri = std::get_if<RecordIndex>(&set->id);
+    if (!ri || ri->value >= setCount) {
+        throw std::runtime_error(what + "'s placement set: expected a RecordIndex < " + std::to_string(setCount) +
+                                  " owned sets, got " + (ri ? std::to_string(ri->value) : "another Identity kind"));
+    }
+}
+
+void requireSceneSets(const Scene& scene, size_t setCount) {
+    for (size_t i = 0; i < scene.localLights.size(); ++i) {
+        requireOwnedSet(scene.localLights[i].placementSet, setCount, "local light " + std::to_string(i));
+    }
+    for (size_t i = 0; i < scene.ambientVolumes.size(); ++i) {
+        requireOwnedSet(scene.ambientVolumes[i].placementSet, setCount, "ambient volume " + std::to_string(i));
     }
 }
 
@@ -122,7 +128,7 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
     requireJoints(scene, skeleton.joints.size());
     requireParts(mesh);
     requireUniqueInstanceIds(placementSets);
-    requireLightSets(scene.localLights, placementSets.size());
+    requireSceneSets(scene, placementSets.size());
     requireLiquids(liquids, mesh.parts.size(), materials.size());
 
     Model result;

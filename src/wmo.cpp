@@ -20,6 +20,8 @@ constexpr size_t kMobaSize = 24;
 constexpr size_t kMoltSize = 48;
 constexpr size_t kMnldSize = 184;
 constexpr size_t kMpvdSize = 4272;
+constexpr size_t kMavdSize = 48;
+constexpr size_t kMbvdSize = 128;
 constexpr size_t kMpvdEmitterOffset = 0x2D0;
 constexpr size_t kMpvdEmitterSize = 844;
 constexpr size_t kMpvdEmitterSlots = 4;
@@ -295,6 +297,36 @@ std::vector<ParticulateVolume> parseParticulateVolumes(const Chunk& c) {
     return out;
 }
 
+std::vector<AmbientVolume> parseAmbientVolumes(const Chunk& c) {
+    std::vector<AmbientVolume> out(recordCount(c, kMavdSize));
+    const char* tag = c.tag.c_str();
+    for (size_t i = 0; i < out.size(); ++i) {
+        size_t o = i * kMavdSize;
+        AmbientVolume& v = out[i];
+        v.position = readVec3(c.data, c.size, o + 0x00, tag);
+        v.start = read<float>(c.data, c.size, o + 0x0C, tag);
+        v.end = read<float>(c.data, c.size, o + 0x10, tag);
+        for (size_t k = 0; k < 3; ++k) v.colors[k] = read<uint32_t>(c.data, c.size, o + 0x14 + 4 * k, tag);
+        v.flags = read<uint32_t>(c.data, c.size, o + 0x20, tag);
+        v.doodadSet = read<uint16_t>(c.data, c.size, o + 0x24, tag);
+    }
+    return out;
+}
+
+std::vector<AmbientBox> parseAmbientBoxes(const Chunk& c) {
+    std::vector<AmbientBox> out(recordCount(c, kMbvdSize));
+    for (size_t i = 0; i < out.size(); ++i) {
+        size_t o = i * kMbvdSize;
+        AmbientBox& b = out[i];
+        for (size_t k = 0; k < 6; ++k) b.planes[k] = read<std::array<float, 4>>(c.data, c.size, o + 16 * k, "MBVD");
+        b.end = read<float>(c.data, c.size, o + 0x60, "MBVD");
+        for (size_t k = 0; k < 3; ++k) b.colors[k] = read<uint32_t>(c.data, c.size, o + 0x64 + 4 * k, "MBVD");
+        b.flags = read<uint32_t>(c.data, c.size, o + 0x70, "MBVD");
+        b.doodadSet = read<uint16_t>(c.data, c.size, o + 0x74, "MBVD");
+    }
+    return out;
+}
+
 std::vector<Batch> parseBatches(const Chunk& c) {
     std::vector<Batch> out(recordCount(c, kMobaSize));
     for (size_t i = 0; i < out.size(); ++i) {
@@ -343,6 +375,9 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
         else if (c.tag == "MOLT") root.legacyLights = parseLegacyLights(c);
         else if (c.tag == "MNLD") root.newLights = parseNewLights(c);
         else if (c.tag == "MPVD") root.particulateVolumes = parseParticulateVolumes(c);
+        else if (c.tag == "MAVG") root.globalAmbientVolumes = parseAmbientVolumes(c);
+        else if (c.tag == "MAVD") root.ambientVolumes = parseAmbientVolumes(c);
+        else if (c.tag == "MBVD") root.ambientBoxes = parseAmbientBoxes(c);
         else if (c.tag == "MOSI") root.skyboxFileDataId = read<uint32_t>(c.data, c.size, 0, "MOSI");
         else if (c.tag == "MOSB" && c.size > 0) {
             root.skyboxName = stringAt(std::string(reinterpret_cast<const char*>(c.data), c.size), 0);
@@ -357,6 +392,15 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
         throw ParseError("MDDI: expected one entry per MODD doodad (" + std::to_string(root.doodads.size()) +
                          "), got " + std::to_string(root.doodadColorMultipliers.size()));
     }
+    auto requireSet = [&](const char* tag, size_t i, uint32_t set) {
+        if (set >= root.doodadSets.size()) {
+            throw ParseError(std::string(tag) + "[" + std::to_string(i) + "].doodadSet: expected a MODS index < " +
+                             std::to_string(root.doodadSets.size()) + ", got " + std::to_string(set));
+        }
+    };
+    for (size_t i = 0; i < root.globalAmbientVolumes.size(); ++i) requireSet("MAVG", i, root.globalAmbientVolumes[i].doodadSet);
+    for (size_t i = 0; i < root.ambientVolumes.size(); ++i) requireSet("MAVD", i, root.ambientVolumes[i].doodadSet);
+    for (size_t i = 0; i < root.ambientBoxes.size(); ++i) requireSet("MBVD", i, root.ambientBoxes[i].doodadSet);
     for (size_t i = 0; i < root.newLights.size(); ++i) {
         int32_t set = root.newLights[i].doodadSet;
         if (set < 0 || static_cast<size_t>(set) >= root.doodadSets.size()) {

@@ -162,9 +162,14 @@ and exported as the WMO bundle's `resources.particulate_volumes`
 characterized fields typed, emitter textures resolved like material
 textures, and each raw 4,272-byte record in `particulate.bin` for the
 fields still uncharacterized. 25 sampled `MPVD` WMOs export cleanly (69
-volumes, 51/70 emitter textures resolved, the rest unlisted). Open:
-`MPVR` group refs; `MAVG`/`MAVD`/`MBVD` (struct-confirmed below, not
-parsed); the `MPVD` semantics listed below.
+volumes, 51/70 emitter textures resolved, the rest unlisted).
+`MAVG`/`MAVD`/`MBVD` are parsed and exported as
+`resources.ambient_volumes` (`canon::AmbientVolume`: global/point/box,
+three raw colours, raw flags, the doodad set each applies with); 139
+sampled roots clean, covering every `MAVD`/`MBVD` in the sample. Open:
+`MPVR`/`MAVR`/`MBVR` group refs; the client's ambient selection rule and
+flag 0x1's colour choice (wiki unverified and self-contradictory, so not
+encoded); the `MPVD` semantics listed below.
 
 **Wiki citation**: `documentation/wowdev-wiki/md/WMO.md`, `## MPVD`
 (737–747), `## MAVG` (749–780), `## MAVD` (781–800), `## MBVD` (801–821)
@@ -223,7 +228,7 @@ between chunk types, not independent data.
 
 All from the same 4,000-root-file scan as item 1:
 
-- **`MAVG`: 232/4,000 (5.8%)**, every real size found exactly **48
+- **`MAVG`: 232/4,000 (5.8%)** (2026-10-10 rescan of a seeded 4,000: 1,702, one record each), every real size found exactly **48
   bytes** (1 record) — confirms the struct exactly, consistent with the
   "global ambient, pos/start/end always 0" framing (a single default
   record, matching `MFOG`'s own "mostly the default entry" pattern

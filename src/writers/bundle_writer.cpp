@@ -703,6 +703,52 @@ void writeParticulateVolumes(json::Writer& w, const std::vector<canon::Particula
     w.endArray();
 }
 
+void writeAmbientVolumes(json::Writer& w, const std::vector<canon::AmbientVolume>& volumes) {
+    w.beginArray();
+    for (const canon::AmbientVolume& v : volumes) {
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, v.ref);
+        w.key("shape");
+        switch (v.shape) {
+            case canon::AmbientVolume::Shape::Global: w.value("global"); break;
+            case canon::AmbientVolume::Shape::Point: w.value("point"); break;
+            case canon::AmbientVolume::Shape::Box: w.value("box"); break;
+        }
+        if (v.shape == canon::AmbientVolume::Shape::Point) {
+            writeVec3Field(w, "position", v.position);
+            writeFloatField(w, "start", v.start);
+        }
+        if (v.shape != canon::AmbientVolume::Shape::Global) writeFloatField(w, "end", v.end);
+        if (v.shape == canon::AmbientVolume::Shape::Box) {
+            w.key("planes");
+            w.beginArray();
+            for (const canon::AmbientVolume::Plane& plane : v.planes) {
+                w.beginObject();
+                writeVec3Field(w, "normal", plane.normal);
+                writeFloatField(w, "distance", plane.distance);
+                w.endObject();
+            }
+            w.endArray();
+        }
+        w.key("colors");
+        w.beginArray();
+        for (const auto& color : v.colors) {
+            w.beginArray();
+            for (float c : color) w.value(static_cast<double>(c));
+            w.endArray();
+        }
+        w.endArray();
+        writeIntField(w, "source_flags", v.sourceFlags);
+        if (v.placementSet) {
+            w.key("placement_set");
+            writeRef(w, *v.placementSet);
+        }
+        w.endObject();
+    }
+    w.endArray();
+}
+
 void writeRibbons(json::Writer& w, const std::vector<canon::RibbonEmitter>& ribbons,
                   const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures) {
     w.beginArray();
@@ -906,6 +952,8 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeLights(w, model.scene.lights);
     w.key("local_lights");
     writeLocalLights(w, model.scene.localLights);
+    w.key("ambient_volumes");
+    writeAmbientVolumes(w, model.scene.ambientVolumes);
     w.key("emitters");
     w.beginObject();
     w.key("ribbons");

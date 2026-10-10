@@ -88,6 +88,7 @@
 //     "events": [ ... ],
 //     "lights": [ ... ],
 //     "local_lights": [ ... ],
+//     "ambient_volumes": [ ... ],
 //     "emitters": { "ribbons": [ ... ], "particles": [ ... ] },
 //     "particulate_volumes": [ ... ],
 //     "placement_sets": [ ... ],
@@ -149,6 +150,21 @@
 //                     "parameters": [32 floats, semantics unresolved] } ],
 //     "source_flags": <uint32>,
 //     "source_record": <BufferSlice u8x1, the raw 4,272-byte record, for uncharacterized fields> } ]
+// ```
+//
+// ### resources.ambient_volumes
+// Regions overriding the model's ambient colour (WMO MAVG, MAVD, MBVD), model
+// space. The client's selection rule and flag 0x1's colour choice are
+// unverified (WMO.md, contradictory for the flag), so colours stay raw:
+// ```json
+// [ { "ref": <Ref, name "mavg_<i>" | "mavd_<i>" | "mbvd_<i>">,
+//     "shape": "global"|"point"|"box",
+//     "position": [x,y,z], "start": <f>,            // point only; start <= end
+//     "end": <f>,                                    // point: distance; box: fade distance in from the faces (inferred)
+//     "planes": [ { "normal": [x,y,z], "distance": <f> } x6 ],  // box only: inside where dot(normal,p) <= distance
+//     "colors": [ [r,g,b,a] x3 ],                    // color1..color3, 0..1 as stored
+//     "source_flags": <uint32>,
+//     "placement_set": <Ref> } ]                     // the owned set it applies with (doodadSetId)
 // ```
 //
 // ### resources.local_lights

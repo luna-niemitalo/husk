@@ -95,8 +95,10 @@ A WMO is an ordinary object bundle, the same shape as a doodad's (Luna,
 - `resources.liquids`: each group's `MLIQ` height grid, on that group's
   part.
 - `resources.particulate_volumes`: `MPVD` boxes of ambient particles.
-- Later, in the agreed order: lightsets, ambient volumes and fog, then
-  collision, portals and LOD.
+- `resources.ambient_volumes`: `MAVG`/`MAVD`/`MBVD` ambient-colour
+  overrides, each naming the owned set it applies with.
+- Later, in the agreed order: lightsets and fog, then collision, portals
+  and LOD.
 
 Terrain bundles use the same format: a tile's `MDDF` and `MODF`
 placements are two world-frame sets (`doodads`, `map_objects`; two because

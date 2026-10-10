@@ -156,6 +156,20 @@ shader, so the client animates intensity.
 
 ## Liquid/lighting/fog — verified
 
+**WMO `MAVG`/`MAVD`/`MBVD`** (seeded 4,000 roots, 2026-10-10): the wiki's
+48/48/128-byte layouts hold, every reserved tail is zero, and every
+`doodadSetId` is a valid `MODS` index (11 `MAVD` records use a non-zero
+set; `MAVG`/`MBVD` never do).
+
+| Claim | Evidence |
+|---|---|
+| `MAVG` is common and single: one record per file, position/start/end all zero | 1,702 files (not the earlier 5.8%) |
+| `MAVG` color1 usually equals `MOHD.ambColor` | 1,464/1,702 |
+| `MAVD` start <= end; 100/151 records have zero position/start/end | 151 records |
+| `MBVD`'s six planes are unit normals in opposite pairs (0,1) (2,3) (4,5), not (0,3) (1,4) (2,5) | 54/54 |
+| Inside an `MBVD` box is dot(normal, p) <= d for all six planes (outward planes, d = distance) | 54/54 non-empty that way; the opposite sign makes all 54 empty |
+| `MBVD.end` is at most the box's smallest half-size, reading as a fade distance in from the faces | 52/54 (**inferred**) |
+
 **WMO `MLIQ`** (154 of 4,000 sampled group files, 2026-10-10):
 
 | Claim | Evidence |

@@ -652,6 +652,49 @@ TEST_CASE("writeBundle: particulate volumes, their raw records sliced into parti
     CHECK(bin.at(at + 0x10AC) == 2);
 }
 
+TEST_CASE("writeBundle: ambient volumes write only their shape's geometry keys") {
+    canon::Model model = buildSyntheticModel();
+    canon::AmbientVolume global;
+    global.ref = canon::Ref{canon::RecordIndex{0}, "mavg_0", canon::NameSource::Synthesized};
+    global.colors[0] = {0.2f, 0.4f, 0.6f, 1.0f};
+    canon::AmbientVolume point;
+    point.ref = canon::Ref{canon::RecordIndex{0}, "mavd_0", canon::NameSource::Synthesized};
+    point.shape = canon::AmbientVolume::Shape::Point;
+    point.position = {1, 2, 3};
+    point.start = 4;
+    point.end = 8;
+    canon::AmbientVolume box;
+    box.ref = canon::Ref{canon::RecordIndex{0}, "mbvd_0", canon::NameSource::Synthesized};
+    box.shape = canon::AmbientVolume::Shape::Box;
+    box.end = 1.5f;
+    for (int k = 0; k < 6; ++k) box.planes.push_back({canon::Vec3{0, 0, k % 2 ? 1.0f : -1.0f}, 2.0f});
+    model.scene.ambientVolumes = {global, point, box};
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-ambient";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, "husk test");
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& volumes = manifest["resources"]["ambient_volumes"];
+
+    REQUIRE(volumes.size() == 3);
+    CHECK(volumes[0]["shape"] == "global");
+    CHECK(volumes[0]["colors"][0][1].get<double>() == doctest::Approx(0.4));
+    CHECK(volumes[0]["colors"][0][3] == 1.0);
+    for (const char* key : {"position", "start", "end", "planes", "placement_set"}) {
+        CAPTURE(key);
+        CHECK_FALSE(volumes[0].contains(key));
+    }
+    CHECK(volumes[1]["shape"] == "point");
+    CHECK(volumes[1]["position"] == nlohmann::json::array({1.0, 2.0, 3.0}));
+    CHECK(volumes[1]["start"] == 4.0);
+    CHECK(volumes[1]["end"] == 8.0);
+    CHECK_FALSE(volumes[1].contains("planes"));
+    CHECK(volumes[2]["shape"] == "box");
+    CHECK(volumes[2]["planes"].size() == 6);
+    CHECK(volumes[2]["planes"][1]["distance"] == 2.0);
+    CHECK(volumes[2]["end"] == 1.5);
+    CHECK_FALSE(volumes[2].contains("position"));
+}
+
 TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set files") {
     canon::Model model = buildSyntheticModel();
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0x8, {}, {}});

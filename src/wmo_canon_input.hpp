@@ -14,8 +14,8 @@
 // whose parts are the WMO's groups, materials from MOMT, one owned placement
 // set per doodad set (MODS), set 0 always on, and MNLD/MOLT lights as
 // scene.localLights (an MNLD light switches with its doodad set), and each
-// group's MLIQ as a LiquidGrid, and MPVD particulate volumes in
-// scene.particulateVolumes.
+// group's MLIQ as a LiquidGrid, MPVD particulate volumes in
+// scene.particulateVolumes, and MAVG/MAVD/MBVD in scene.ambientVolumes.
 namespace husk::wmoinput {
 
 struct WmoInputs {

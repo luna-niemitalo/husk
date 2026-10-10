@@ -14,7 +14,7 @@ deletions handled their own back-references).
 
 ---
 
-**2026-10-10 — WMO doodads into the world, WMO lights, liquids and particulate volumes.**
+**2026-10-10 — WMO doodads into the world, WMO lights, liquids, particulate and ambient volumes.**
 
 - **Terrain onto placement sets**: a tile's `MDDF`/`MODF` placements are
   two world-frame sets (`doodads`, `map_objects`), replacing the terrain
@@ -40,6 +40,10 @@ deletions handled their own back-references).
   emitter textures, and each raw record in `particulate.bin`. 25 sampled
   `MPVD` WMOs clean. Doodads' own M2 emitters already ship in their
   model bundles.
+- **Ambient volumes**: `MAVG`/`MAVD`/`MBVD` as `scene.ambientVolumes`
+  (global/point/box, raw colours and flags, doodad-set scoped). `MBVD`'s
+  plane convention settled on real data (outward planes, inside where
+  dot(n, p) <= d); `MAVG` turned out to be in 43% of roots, not 5.8%.
 
 ---
 

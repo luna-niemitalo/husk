@@ -306,6 +306,54 @@ TEST_CASE("wmo::parseRoot: MPVD with more than 40 keyframes or a partial record 
                          "MPVD: expected a multiple of 4272 bytes, got 4000", wmo::ParseError);
 }
 
+TEST_CASE("wmo::parseRoot: MAVG/MAVD read 48-byte records, MBVD 128-byte boxes, each naming a doodad set") {
+    std::vector<uint8_t> mavd(48, 0);
+    put(mavd, 0x00, 5.0f);
+    put(mavd, 0x0C, 10.0f);
+    put(mavd, 0x10, 20.0f);
+    put<uint32_t>(mavd, 0x14, 0xFF102030);
+    put<uint32_t>(mavd, 0x18, 0xFF405060);
+    put<uint32_t>(mavd, 0x1C, 0xFF708090);
+    put<uint32_t>(mavd, 0x20, 1);
+    put<uint16_t>(mavd, 0x24, 1);
+    std::vector<uint8_t> mbvd(128, 0);
+    float planes[6][4] = {{-1, 0, 0, 2}, {1, 0, 0, 3}, {0, -1, 0, 4}, {0, 1, 0, 5}, {0, 0, -1, 6}, {0, 0, 1, 7}};
+    for (size_t k = 0; k < 6; ++k) {
+        for (size_t c = 0; c < 4; ++c) put(mbvd, 16 * k + 4 * c, planes[k][c]);
+    }
+    put(mbvd, 0x60, 1.5f);
+    put<uint32_t>(mbvd, 0x64, 0xFF000001);
+    put<uint32_t>(mbvd, 0x70, 1);
+    std::vector<uint8_t> mods(64, 0);
+    wmo::RootFile root = wmo::parseRoot(
+        minimalRoot(0, {{"MODS", mods}, {"MAVG", std::vector<uint8_t>(48, 0)}, {"MAVD", mavd}, {"MBVD", mbvd}}));
+
+    REQUIRE(root.globalAmbientVolumes.size() == 1);
+    REQUIRE(root.ambientVolumes.size() == 1);
+    const wmo::AmbientVolume& v = root.ambientVolumes[0];
+    CHECK(v.position == wmo::Vec3{5, 0, 0});
+    CHECK(v.start == 10.0f);
+    CHECK(v.end == 20.0f);
+    CHECK(v.colors == std::array<uint32_t, 3>{0xFF102030, 0xFF405060, 0xFF708090});
+    CHECK(v.flags == 1);
+    CHECK(v.doodadSet == 1);
+    REQUIRE(root.ambientBoxes.size() == 1);
+    const wmo::AmbientBox& b = root.ambientBoxes[0];
+    CHECK(b.planes[3] == std::array<float, 4>{0, 1, 0, 5});
+    CHECK(b.end == 1.5f);
+    CHECK(b.colors[0] == 0xFF000001);
+    CHECK(b.flags == 1);
+}
+
+TEST_CASE("wmo::parseRoot: an ambient volume naming a doodad set past MODS throws with both values") {
+    std::vector<uint8_t> mavd(48, 0);
+    put<uint16_t>(mavd, 0x24, 3);
+    CHECK_THROWS_WITH_AS(wmo::parseRoot(minimalRoot(0, {{"MODS", std::vector<uint8_t>(32, 0)}, {"MAVD", mavd}})),
+                         "MAVD[0].doodadSet: expected a MODS index < 1, got 3", wmo::ParseError);
+    CHECK_THROWS_WITH_AS(wmo::parseRoot(minimalRoot(0, {{"MBVD", std::vector<uint8_t>(100, 0)}})),
+                         "MBVD: expected a multiple of 128 bytes, got 100", wmo::ParseError);
+}
+
 TEST_CASE("wmo::groupFileDataId: GFID is row-major [lodTier][group], 0 for holes and out of range") {
     std::vector<uint8_t> gfid;
     for (uint32_t id : {10u, 11u, 20u, 0u}) put(gfid, gfid.size(), id);
