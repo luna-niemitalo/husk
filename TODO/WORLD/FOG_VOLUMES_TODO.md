@@ -225,41 +225,22 @@ All from the same 4,000-root-file scan as item 1:
   **128** exactly (1/2/32 records) — confirms the struct exactly as
   documented (the 6×`C4Plane` + trailing fields sum to precisely 128
   bytes, no discrepancy).
-- **`MPVD`: 10/4,000 (0.25%)**, real sizes 25,632 / 21,360 / 4,272 bytes.
-  **Tested the hypothesis that `MPVD` shares `MAVD`'s own 48-byte record
-  shape** (plausible on its face: `../../WORLD_COMPLETENESS.md` groups it
-  alongside `MAVG`/`MAVD`/`MBVD` as one conceptual family, and all three
-  real sizes divide evenly by 48 — `25632/48=534`, `21360/48=445`,
-  `4272/48=89`, all exact). **Decoded at that stride and found the result
-  inconclusive, not confirmed**: the first record's leading `pos.x`
-  decodes as a subnormal float (`~4.06e-44`) — a strong sign the assumed
-  field layout is wrong (a real authored position value landing on a
-  subnormal is implausible), and only 1 of 5 decoded records had any
-  non-zero fields at all (the rest were entirely zero, which could mean
-  "mostly padding/unused entries" or "wrong stride entirely"). **`MPVD`'s
-  real struct remains genuinely unresolved** — the wiki's own "Unknown"
-  is still accurate. This is flagged honestly as an open item, not
-  patched over with an unconfirmed guess (same "don't guess at
-  semantics, expose raw until confirmed" discipline `.bone`'s own
-  reverse-engineering used before its shape was actually nailed down).
-  **Recommended next step**: a from-scratch reverse-engineering pass
-  (same shape as the original `.bone` investigation) — try alternate
-  strides (a divisor search across all 10 real files' sizes, the same
-  "which stride does every real file agree on" method `.phys`'s `SHOJ`
-  ambiguity and `DETL`'s stride correction both used), decode candidate
-  fields as both floats and ints, and look for a plausible `doodadSetId`-
-  shaped uint16 field (small integers, matching the pattern
-  `MAVG`/`MAVD`/`MBVD` all share) before committing to any layout.
-  **Lead (2026-10-10)**: all three real sizes are multiples of **4,272**
-  (6/5/1), and `11du_etherealraid_darkheart01.wmo`'s single 4,272-byte
-  record reads as one volume: `+0x00` u32 29 (the "subnormal" above is
-  this int), `+0x08` a world-plausible position (2424.8, -243.8, 1244.9),
-  `+0x14` a 4000³ extent, then mostly zero to `+0x2D0`, where a block of
-  particle-like floats starts (0.1, 0.2, 100, 0.7, angles 0.14/0.61 rad),
-  and `+0x364` u32 3595346 (FileDataID-shaped, not in the listfile).
-  Unconfirmed against the other 9 files. Cross-check against the
-  `cb_particulate_volume` field names DXIL keeps
-  (`SHADER_FINDINGS/notes/dxil_names.md`).
+- **`MPVD`: reverse-engineered (2026-10-10)** — full layout in
+  `../../WIKI_FINDINGS/WORLD.md`'s "WMO `MPVD`" section, verified against
+  every record in the corpus (62 root WMOs, 193 records, all chunk sizes
+  exact multiples of the 4,272-byte record stride). Record = 720-byte
+  header (flags, position, extent, rotation, a 40-slot
+  (value, value2, time) keyframe envelope) + 4 × 844-byte emitter entries
+  (RGBA color, **particle texture FileDataID** — listfile-confirmed VFX
+  textures — blend mode, flipbook tiling) + trailer. The shader
+  cross-check dead-ended for *names* (DXIL keeps only
+  `VS_ParticulateVolume`'s type sequence, DXBC blobs are stripped), so
+  semantics came from corpus value analysis. Still open within `MPVD`:
+  the +0x30 preset-like id (shared across unrelated files, not a
+  FileDataID), per-field semantics of the entry's first 32 floats
+  (reading the `particulatevolume`/`particulatecompute` shader *code*
+  against the computed 944-byte CB offsets is the obvious route), and
+  frame-count-vs-frame-rate on the flipbook int.
 - **`MPVR`/`MAVR`/`MBVR`/`MFVR`** (group-scoped reference lists,
   confirmed via the same nested-in-`MOGP` scan `LIGHTING_TODO.md`'s
   `MNLR`/`MOLR` check used): **`MPVR` 51/2,570 (2.0%), `MAVR` 86/2,570
@@ -292,12 +273,11 @@ struct BoxAmbientVolume {      // MBVD
     Color3 colors; uint32_t flags = 0; uint16_t doodadSetId = 0;
 };
 
-// MPVD -- struct genuinely unresolved, exposed as raw bytes only until a
-// real layout is confirmed (see this document's own "Real-data
-// verification" section for why the 48-byte-stride guess was rejected).
-struct ParticulateVolumeRaw {
-    std::vector<uint8_t> rawBytes;
-};
+// MPVD -- layout resolved 2026-10-10 (../../WIKI_FINDINGS/WORLD.md, "WMO
+// MPVD"): 4,272-byte records = 720-byte header + 4x844-byte emitter
+// entries + trailer. Sketch the typed struct from that table when
+// implementing; fields still value-characterized-only stay raw-annotated.
+struct ParticulateVolume { /* see WIKI_FINDINGS/WORLD.md's field tables */ };
 
 }  // namespace husk::wmo
 ```
@@ -311,8 +291,8 @@ at which root-level volume — useful in the JSON output as a per-group
 but still metadata, not geometry.
 
 - **Parse**: `full` for `MAVG`/`MAVD`/`MBVD` (confirmed) and the four
-  group-ref arrays (confirmed); `descriptor` for `MPVD` (struct
-  unresolved, raw bytes only).
+  group-ref arrays (confirmed); `deref` for `MPVD` (layout resolved,
+  several fields semantics-open — expose those raw/annotated).
 - **Consumption**: `diagnostic` (`dump-chunks` JSON).
 - **glTF ceiling**: `node-possible, unclaimed` — matches
   `../../WORLD_COMPLETENESS.md`'s existing call.
@@ -624,11 +604,9 @@ structure exists.
    plus a real, concrete new-chunk lead (`VFE2`) worth chasing, but
    rarer (10.9% of an already-thin 753-file universe) than item 4.
 4. **WMO particulate/ambient/box volumes (item 2)** — fourth:
-   `MAVG`/`MAVD`/`MBVD` are fully confirmed and cheap, but `MPVD` (the
-   header row's own namesake chunk) is a genuine open reverse-engineering
-   problem, not a quick win — don't let the easy 75% of this item block
-   on the hard 25%; ship `MAVG`/`MAVD`/`MBVD`/the four ref-lists first,
-   track `MPVD` as its own explicit sub-item.
+   `MAVG`/`MAVD`/`MBVD` are fully confirmed and cheap, and `MPVD`'s
+   layout is now resolved too (2026-10-10) — the whole item is
+   implementable; only some `MPVD` field *semantics* stay annotated-raw.
 
 ---
 
@@ -646,7 +624,8 @@ structure exists.
   candidates for one shared multi-purpose fixture pair covering both
   sibling documents) plus `world/wmo/dungeon/etherealraid/
   11du_etherealraid_darkheart01.wmo` (the specific `MPVD` fixture
-  decoded above, needed for the still-open struct investigation).
+  decoded during the original lead; layout since resolved, see
+  `../../WIKI_FINDINGS/WORLD.md`).
 - `_fogs.wdt`: `world/maps/2656/2656_fogs.wdt` (6 real `VFOG`/`VFEX`/
   `VFE2` groups, fully decoded above — the canonical fixture for this
   whole item) plus `world/maps/2694/2694_fogs.wdt` (the largest real
@@ -664,8 +643,10 @@ regression tests should assert exact record counts and spot-check the
 specific decoded values this document already reports (the `MFOG`
 default-value match, the `PVPD` `-0.0`/`[-1,1]` match, the `VFOG`/`VFEX`
 id cross-reference) as concrete, reproducible pass/fail conditions —
-**not** `MPVD` or `PVMI`, which have no confirmed struct to assert
-against yet.
+**not** `PVMI`, which has no confirmed struct to assert against yet.
+`MPVD` regression tests can now assert real decoded values too
+(`12xp_arcantina01.wmo`'s two records, or `10xt_exterior_tunnel01.wmo`'s
+unique two-emitter record — see `../../WIKI_FINDINGS/WORLD.md`).
 
 ---
 

@@ -174,7 +174,62 @@ implementation priority. Legacy `MCLQ` confirmed genuinely absent (0/4,000).
 root-level candidates from the wiki's own page layout. A wholly undocumented
 chunk, **`VFE2`** (176 bytes), was found in real `_fogs.wdt` files by two
 independent investigations — real, present, absent from `WDT.md` entirely,
-not yet reverse-engineered. `MPVD`'s struct remains unresolved.
+not yet reverse-engineered. `MPVD`'s record layout is now reverse-engineered —
+see the dedicated section below.
+
+## WMO `MPVD` (particulate volumes) — reverse-engineered (2026-10-10)
+
+The wiki gives no fields at all ("Unknown"). Reverse-engineered from every
+`MPVD` in the corpus: **62 root WMOs, 193 records, every chunk size an exact
+multiple of 4,272 bytes** — the record stride is settled. A cross-check
+against the client shaders' `cb_particulate_volume` was attempted first: the
+DXIL keeps only the type sequence of `VS_ParticulateVolume` (944 bytes,
+offsets computed and verified against the binding size), no member names —
+the dx_5_0 DXBC blobs are stripped of reflection too, so field *names* came
+from value analysis, not the shaders.
+
+**Record shape** (4,272 = 0x10B0 bytes): a 720-byte header, then an array of
+**four 844-byte (0x34C) emitter entries** at +0x2D0, then a 176-byte trailer.
+720 + 4·844 + 176 = 4,272 exactly. Corpus usage: every record uses entry 0,
+exactly one record (`10xt_exterior_tunnel01.wmo`) uses entry 1, none use 2/3 —
+the 844 stride is confirmed by that one two-entry record (its entry-1 color,
+texture FileDataID, int quad and trailing float all land on the same relative
+offsets as entry 0), the four-slot capacity is arithmetic fit, not observed.
+
+Header (offsets record-relative; "n/193" = records with the field nonzero):
+
+| Offset | Type | Meaning | Evidence |
+|---|---|---|---|
+| +0x00 | uint32 | flags — values {1, 17, 21, 29}: bit 0 always set, bits 2–4 vary | 193/193 |
+| +0x04 | uint32 | unknown, {0, 2} | 2/193 |
+| +0x08 | float×3 | position (WMO-local) | plausible local coords, 192/193 |
+| +0x14 | float×3 | extent (box size; 7..4000 per axis) | 193/193 |
+| +0x20 | float×3 | rotation, radians (mostly 0; ±π seen at +0x28) | sparse |
+| +0x2C | float | unknown, {0.5..10}, often 1 | 193/193 |
+| +0x30 | uint32 | unknown id — **not** a FileDataID (listfile hits are nonsense: minimaps, emblems), not per-file-constant (15/62 files have several), but *shared across unrelated files* (16386 very common) — reads as a preset/template reference | 193/193, 39 distinct |
+| +0x34 | uint32 | particle count/density-like int, 25..14,000 | 193/193 |
+| +0x38 | uint32 | bool-ish {0,1} | 17/193 |
+| +0x3C | float | 0.09..1 (density/opacity-like) | 193/193 |
+| +0x40 | float[40][3] | keyframe array, **12-byte (value, value2, time-seconds) triplets** — times strictly ascending (0 → 16.0 in the 9-key record), values pulse 0.01↔1.0: an intensity/emission envelope | 13/193; count at +0x298 matches exactly |
+| +0x220 | float[20] | unknown array; 10 records set the first 5 slots, all 1.0 | 10/193 |
+| +0x298 | uint32 | keyframe count {3,5,6,9} | 13/193 |
+| +0x29C | float | 0.1..18.8, usually 1 | 182/193 |
+| +0x2A0 | 12 dwords | unknown block, used by exactly one record | 1/193 |
+
+Emitter entry (offsets entry-relative; entry 0 at record +0x2D0):
+
+| Offset | Type | Meaning | Evidence |
+|---|---|---|---|
+| +0x00..+0x7F | float×32 | emission parameters, semantics unresolved per-field; characterized values: velocity/wind-like signed floats at +0x10..+0x1C, cone-angle-like radians (0.0873 = 5°, 0.1745 = 10°) at +0x54/+0x58, lifetime/speed-scale floats elsewhere | dense, 191/193 |
+| +0x80 | float×4 | RGBA color, byte-quantized (all values n/255) | 185–193/193 |
+| +0x90 | float | mostly 0 | sparse |
+| +0x94 | uint32 | **particle texture FileDataID** — every listfile-resolvable value is a VFX texture (`particles/dust1.blp`, `snow1.blp`, `raindrop.blp`, `flare.blp`, `ash01.blp`, `pollen.blp`, …) | 193/193, 39 distinct, confirmed |
+| +0x98 | uint32×4 | (blend mode {2,3} — alpha/additive; flipbook tilesX; tilesY; frame count *or* frame rate — tilesX·tilesY == ints[3] in 142/193, and every mismatch (2·2 vs 1, 4·4 vs 10, 4·8 vs 25) stays plausible as an fps) | 193/193 |
+| +0xA8 | float | 1..35 | 181/193 |
+| +0xAC.. | — | extended fields, near-always zero (one record sets a handful) | 1/193 |
+
+Trailer: zero except the final dword at record +0x10AC, uint32 {1, 2} in all
+193 records (version or shape-type).
 
 ## Collision & culling — verified
 
