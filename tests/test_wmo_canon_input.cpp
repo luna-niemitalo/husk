@@ -65,6 +65,7 @@ wmo::GroupFile group(uint32_t vertexCount, uint32_t uvSets, uint32_t material, u
     for (uint32_t s = 0; s < uvSets; ++s) g.uvSets.emplace_back(vertexCount, wmo::Vec2{float(s + 1), 0});
     g.colorSets.emplace_back(vertexCount, 0xFF000000u);
     for (uint32_t t = 0; t < triangles * 3; ++t) g.indices.push_back(t % vertexCount);
+    g.triangles.assign(triangles, wmo::TriangleInfo{0x20, static_cast<uint16_t>(material)});
     wmo::Batch b;
     b.indexCount = triangles * 3;
     b.material = material;
@@ -467,28 +468,31 @@ TEST_CASE("buildCanonWmo: inconsistent inputs throw with expected and actual") {
                          std::runtime_error);
 }
 
-TEST_CASE("buildCanonWmo: collision keeps WMO.md's collidable faces, with only the vertices they use") {
+TEST_CASE("buildCanonWmo: every face's MOPY/MPY2 flags and material are face channels, groups in order") {
     wmo::RootFile root = syntheticRoot();
-    wmo::GroupFile g = group(6, 1, 0, 4);
-    g.indices = {0, 1, 2, 3, 4, 5, 1, 2, 3, 5, 4, 0};
-    // Render face; detail face (no collision); collision-only face;
-    // detail face also flagged collision.
-    g.triangles = {{0x20, 0}, {0x24, 0}, {0x08, 0xFF}, {0x0C, 0}};
+    wmo::GroupFile first = group(3, 1, 0, 2);
+    first.triangles = {{0x20, 0}, {0x24, 1}};
+    wmo::GroupFile second = group(3, 1, 0, 1);
+    second.triangles = {{0x08, 0xFF}};
     wmoinput::WmoInputs in;
     in.root = &root;
-    in.groups = {std::nullopt, g};
+    in.groups = {first, second};
 
     canon::Model model = wmoinput::buildCanonWmo(in);
 
-    const canon::CollisionMesh& c = model.collision;
-    CHECK(c.triangleSourceFlags == std::vector<uint32_t>{0x20, 0x08, 0x0C});
-    CHECK(c.triangleParts == std::vector<uint32_t>{1, 1, 1});
-    // Group vertices 0,1,2 then 3 and 5 then 4: first use order.
-    CHECK(c.indices == std::vector<uint32_t>{0, 1, 2, 1, 2, 3, 4, 5, 0});
-    REQUIRE(c.positions.size() == 6);
-    CHECK(c.positions[3].x == 3.0f);
-    CHECK(c.positions[4].x == 5.0f);
-    CHECK(c.triangleNormals.empty());
+    CHECK(model.collision.indices.empty());
+    REQUIRE(model.mesh.attributes.size() == 2);
+    const canon::AttributeChannel& flags = model.mesh.attributes[0];
+    CHECK(flags.name == "wmo.poly_flags");
+    CHECK(flags.domain == canon::AttributeDomain::Face);
+    CHECK(std::get<std::vector<uint16_t>>(flags.values) == std::vector<uint16_t>{0x20, 0x24, 0x08});
+    CHECK(model.mesh.attributes[1].name == "wmo.poly_material");
+    CHECK(std::get<std::vector<uint16_t>>(model.mesh.attributes[1].values) == std::vector<uint16_t>{0, 1, 0xFF});
+
+    second.triangles.clear();
+    in.groups = {first, second};
+    CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "WMO group 1: expected one MOPY/MPY2 entry per triangle (1), got 0",
+                         std::runtime_error);
 }
 
 TEST_CASE("buildCanonWmo: MOPT portals go on the mesh, each group's MOPR range on its part") {

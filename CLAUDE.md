@@ -277,9 +277,11 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   `map_scene` bundle (`canon::MapScene`, `husk export-map-scene`,
   `export-world` pass 4) -- MantleCore doesn't read it yet. WMO `MFOG`
   fogs are `resources.fogs` (`MFED` set per fog), and each part lists
-  its `MOGP.fogIds`; map fogs carry `VFEX`'s typed part. Collision is
-  `resources.collision` (`canon::CollisionMesh`, `collision.bin`) for WMO
-  (collidable faces by flag) and M2. Portals are `mesh.portals` with
+  its `MOGP.fogIds`; map fogs carry `VFEX`'s typed part. Per-element data
+  goes in generic mesh attribute channels (`canon::AttributeChannel`,
+  `mesh.attributes`; REFACTOR/BUNDLE_FORMAT.md): WMO face flags/material
+  are the first, and select collision; M2 collision is
+  `resources.collision`. Portals are `mesh.portals` with
   per-part links. **Next**: LOD (`MFOB` waits on the CASC side); open
   items per feature in `TODO/WORLD/LIGHTING_TODO.md`, `LIQUID_TODO.md` §1
   and `FOG_VOLUMES_TODO.md` §2.

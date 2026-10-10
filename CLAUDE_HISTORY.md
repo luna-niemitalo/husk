@@ -61,6 +61,10 @@ deletions handled their own back-references).
   `resources.collision`. Real data showed `MOBR` indexes every face of its
   group, so the wiki's two "sometimes disagreeing" collision
   representations reduce to one rule: the face flags (`isCollidable`).
+- **Attribute channels**: per Luna, generic named per-vertex/face/part
+  channels on the canon mesh (`mesh.attributes`). WMO `MOPY`/`MPY2` flags
+  and material became face channels, and the WMO collision mesh was
+  removed (unused so far); `resources.collision` is M2-only.
 - **Portals**: `MOPV`/`MOPT`/`MOPR` as `mesh.portals` and per-part links,
   `MOPE` raw. First real run failed on 31 roots: portal-less groups store
   portalStart 0xFFFF with count 0.

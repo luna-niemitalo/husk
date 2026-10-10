@@ -204,6 +204,22 @@ can be read as *"the model has none"* rather than *"nobody asked"*. Per table,
 not per run — a single 0-byte table beside a directory of good ones is this
 project's documented real failure mode, not a hypothetical.
 
+## Attribute channels — per-element data without a dedicated key
+
+**Current** (2026-10-10, Luna's call): `resources.mesh.attributes` is a
+list of named channels, each over one element domain (`vertex`, `face` =
+one per triangle of `indices`, `part`), stored as an ordinary
+`BufferSlice` in `mesh.bin`. A source puts per-element facts here raw,
+named `"<source>.<field>"`, instead of growing a typed key for each
+format detail; a consumer reads every channel the same way, and a
+Blender importer maps them onto mesh attributes directly. In-memory twin:
+`canon::AttributeChannel` (`src/canon_attribute.hpp`); the channels
+written today are listed in `src/writers/bundle_writer.hpp`'s mesh schema.
+First use: a WMO's `MOPY`/`MPY2` per-face flags and material, which
+replaced a separate WMO collision mesh (a consumer selects collidable
+faces by flag). `resources.collision` remains for M2, whose collision
+vertices are separate data.
+
 ## Embed or reference — one rule
 
 A payload is either external (`uri`, a relative path) or inline. Either way the

@@ -189,13 +189,14 @@ relationship with core geometry makes it adjacent to that milestone.
 
 ## 1. WMO collision mesh (`MOBN`/`MOBR`) and 2. per-face collision flags (`MOPY`/`MPY2`)
 
-**Current state (2026-10-10)**: a canon `CollisionMesh` (`canon_collision.hpp`)
-on every model, written as `resources.collision` + `collision.bin`
-(schema in `src/writers/bundle_writer.hpp`). WMO: every group's faces
-passing WMO.md's `isCollidable` (0x08, or 0x20 without 0x04), each with
-its part and raw `MOPY`/`MPY2` flags; M2: its collision mesh with face
-normals. 253 sampled WMO roots (5.7M collision triangles) and 293 sampled
-M2s (86 with collision) export cleanly.
+**Current state (2026-10-10)**: every WMO face's `MOPY`/`MPY2` flags and
+material are mesh attribute channels (`wmo.poly_flags`, `wmo.poly_material`;
+schema in `src/writers/bundle_writer.hpp`), so a consumer selects collidable
+faces by flag (WMO.md `isCollidable`: 0x08, or 0x20 without 0x04).
+Collision-only faces are in the mesh's `indices`, outside every primitive.
+M2 collision is `resources.collision` (`canon::CollisionMesh`, with face
+normals). 374 sampled WMO roots (41.3M faces, 8.0M collidable by the rule)
+and 293 sampled M2s export cleanly.
 
 The wiki's "two representations that sometimes disagree" doesn't apply
 to real data: in all 2,628 sampled BSP groups, `MOBR` indexes every
@@ -210,7 +211,7 @@ Open:
   `isCollidable` leaves them out. If the client collides with them, the
   rule needs a bit for it.
 - **No glTF projection**: the legacy `.glb` path still exports only M2
-  collision.
+  collision, and drops the face channels.
 
 ---
 

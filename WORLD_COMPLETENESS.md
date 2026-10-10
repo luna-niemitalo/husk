@@ -214,7 +214,7 @@ breakdown would mean anything:
 | UVs | group file: `MOTV` | none | none | native-possible, not done | |
 | Auto-generated tangents | group file: `MOTA` | none | none | n/a | wiki: often client-generated for certain shaders, not authored data — same "runtime-computed, not stored" situation as M2's own tangents |
 | Vertex colors (baked lighting) | group file: `MOCV`/`MOC2` | none | none | native-possible, not done | genuinely per-vertex here (unlike M2's per-batch tint) — real baked-lighting data, `CMapObjGroup::FixColorVertexAlpha`'s decompiled logic already documented on the wiki page directly |
-| Per-face material/collision flags | group file: `MOPY`/`MPY2` | full | bundle (`collision.triangle_source_flags`, collidable faces only) | n/a, mixed | dual-purpose: material index per face plus the collision flags; `MPY2`'s collision-only sentinel is 0xFFFF |
+| Per-face material/collision flags | group file: `MOPY`/`MPY2` | full | bundle (`mesh.attributes` `wmo.poly_flags`/`wmo.poly_material`, every face) | n/a, mixed | dual-purpose: material index per face plus the collision flags; `MPY2`'s collision-only sentinel is 0xFFFF |
 | Materials | root: `MOMT` (material table) + `MOM3` (v3 override) + `MOTX` (texture filenames) | none | none | native-possible, not done | mirrors M2's own materials row — blend mode/texture references translate the same way `alphaMode`/`doubleSided` already do for M2; real-data-verified: `MOTX`/`MOM3` are zero real hits across 12,867 real root files (a fully FileDataID-mode corpus) — see `TODO/WORLD/WMO_GEOMETRY_TODO.md` |
 | Texture UV animation | root: `MOUV` | none | none | extras-capped, permanent | same "no animation-channel target" wall M2's own animated texture-transform row already hit (see `M2_COMPLETENESS.md`) |
 
@@ -250,7 +250,7 @@ breakdown would mean anything:
 
 | Feature | Format & chunks | Parse | Consumption | glTF ceiling | Note |
 |---|---|---|---|---|---|
-| WMO collision mesh (BSP) | group file: `MOBN`/`MOBR` + `MOPY`/`MPY2` flags | collidable faces full (by flag); BSP tree not read | bundle (`collision`) | native-possible, not done | the BSP indexes every face of its group, so the face flags select collision (WMO.md `isCollidable`) — see `TODO/WORLD/COLLISION_CULLING_TODO.md` §1 |
+| WMO collision mesh (BSP) | group file: `MOBN`/`MOBR` + `MOPY`/`MPY2` flags | faces' flags full; BSP tree not read | bundle (`mesh.attributes` `wmo.poly_flags`) | native-possible, not done | the BSP indexes every face of its group, so the face flags select collision (WMO.md `isCollidable`) — see `TODO/WORLD/COLLISION_CULLING_TODO.md` §1 |
 | WMO convex collision volumes | group file: `MCVP` (optional) | none | none | native-possible, not done | |
 | WMO terrain-cutting planes | group file: `MOPL` | none | none | node-possible, unclaimed | describes how the WMO cuts into ADT terrain (basements, etc.) — no direct mesh-geometry equivalent |
 | WMO portals / visibility culling | root: `MOPV`/`MOPT`/`MOPR`/`MOPE`; group file: `MOVV`/`MOVB` (visible-block lists) | `MOPV`/`MOPT`/`MOPR` full, `MOPE` raw; `MOVV`/`MOVB` none (absent from the corpus) | bundle (`mesh.portals`, `parts[].portals`) | node-possible, unclaimed | the cell/portal graph MantleCore can cull with; `side` semantics open — see `TODO/WORLD/COLLISION_CULLING_TODO.md` §5 |

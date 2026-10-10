@@ -138,15 +138,12 @@
 // touches are not meaningful.
 //
 // ### resources.collision (backed by collision.bin; key and file OMITTED when the model has none)
-// The triangles the model collides with, model space, self-contained (its
-// own vertices). WMO: every group's faces passing WMO.md's isCollidable
-// (flag 0x08, or 0x20 without 0x04); M2: its collision mesh.
+// An M2's collision triangles, model space, with their own vertices. A WMO
+// has none: its faces carry the "wmo.poly_flags" mesh attribute instead.
 // ```json
 // { "positions": <BufferSlice f32x3>,
 //   "indices": <BufferSlice u32x1, three per triangle>,
-//   "triangle_parts": <BufferSlice u32x1, per triangle, into mesh.parts>,    // OMITTED without parts (M2)
-//   "triangle_source_flags": <BufferSlice u32x1, per triangle, MOPY/MPY2 flags raw>,  // OMITTED for M2
-//   "triangle_normals": <BufferSlice f32x3, per triangle> }                  // OMITTED for WMO
+//   "triangle_normals": <BufferSlice f32x3, per triangle> }   // OMITTED when the source has none
 // ```
 //
 // ### resources.particulate_volumes (backed by particulate.bin, written only when non-empty)
@@ -256,8 +253,20 @@
 //   "portals": [   // polygons parts see each other through (WMO MOPT/MOPV); [] for an M2
 //     { "vertices": [[x,y,z], ...],          // source order
 //       "normal": [x,y,z], "distance": <f>,  // dot(normal, p) + distance == 0 on the polygon
-//       "source_extra": [16 bytes] } ]       // WMO MOPE record raw; OMITTED when absent
+//       "source_extra": [16 bytes] } ],      // WMO MOPE record raw; OMITTED when absent
+//   "attributes": [   // per-element data with no dedicated key; [] when none
+//     { "name": <string, "<source>.<field>", unique>,
+//       "domain": "vertex"|"face"|"part",    // face = one per triangle of "indices", in order
+//       "data": <BufferSlice in mesh.bin; count = element count, component_count values each> } ]
 // }
+//
+// Attribute channels written today:
+// - "wmo.poly_flags" (face, u16x1): MOPY/MPY2 flags raw. WMO.md's
+//   isCollidable is 0x08, or 0x20 without 0x04; 0x04 detail faces
+//   (about 70% of real faces) don't collide. 0x100 on MPY2 collision-only
+//   faces is undocumented.
+// - "wmo.poly_material" (face, u16x1): MOMT index raw; 0xFF (MOPY) or
+//   0xFFFF (MPY2) marks a collision-only face no primitive draws.
 // ```
 //
 // ### resources.skeleton (backed by skeleton.bin)

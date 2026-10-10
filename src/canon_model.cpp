@@ -1,6 +1,7 @@
 #include "canon_model.hpp"
 
 #include <set>
+#include <variant>
 #include <stdexcept>
 
 namespace husk::canon {
@@ -89,7 +90,7 @@ void requireSceneSets(const Scene& scene, size_t setCount) {
     }
 }
 
-void requireCollision(const CollisionMesh& c, size_t partCount) {
+void requireCollision(const CollisionMesh& c) {
     if (c.indices.size() % 3 != 0) {
         throw std::runtime_error("collision indices: expected a multiple of 3, got " + std::to_string(c.indices.size()));
     }
@@ -100,19 +101,27 @@ void requireCollision(const CollisionMesh& c, size_t partCount) {
         }
     }
     size_t triangles = c.indices.size() / 3;
-    auto requirePerTriangle = [&](const char* what, size_t size) {
-        if (size != 0 && size != triangles) {
-            throw std::runtime_error(std::string("collision ") + what + ": expected none or one per triangle (" +
-                                      std::to_string(triangles) + "), got " + std::to_string(size));
+    if (!c.triangleNormals.empty() && c.triangleNormals.size() != triangles) {
+        throw std::runtime_error("collision triangleNormals: expected none or one per triangle (" +
+                                  std::to_string(triangles) + "), got " + std::to_string(c.triangleNormals.size()));
+    }
+}
+
+void requireAttributes(const Mesh& mesh) {
+    std::set<std::string> names;
+    for (const AttributeChannel& a : mesh.attributes) {
+        if (!names.insert(a.name).second) throw std::runtime_error("attribute '" + a.name + "': expected a unique name");
+        size_t elements = 0;
+        switch (a.domain) {
+            case AttributeDomain::Vertex: elements = mesh.positions.size(); break;
+            case AttributeDomain::Face: elements = mesh.indices.size() / 3; break;
+            case AttributeDomain::Part: elements = mesh.parts.size(); break;
         }
-    };
-    requirePerTriangle("triangleParts", c.triangleParts.size());
-    requirePerTriangle("triangleSourceFlags", c.triangleSourceFlags.size());
-    requirePerTriangle("triangleNormals", c.triangleNormals.size());
-    for (uint32_t part : c.triangleParts) {
-        if (part >= partCount) {
-            throw std::runtime_error("collision triangleParts: expected < " + std::to_string(partCount) +
-                                      " parts, got " + std::to_string(part));
+        size_t values = std::visit([](const auto& v) { return v.size(); }, a.values);
+        if (a.components == 0 || values != elements * a.components) {
+            throw std::runtime_error("attribute '" + a.name + "': expected " + std::to_string(elements) + " elements x " +
+                                      std::to_string(a.components) + " components, got " + std::to_string(values) +
+                                      " values");
         }
     }
 }
@@ -183,7 +192,8 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
     requireSceneSets(scene, placementSets.size());
     requirePartFogs(mesh.parts, scene.fogs.size());
     requireLiquids(liquids, mesh.parts.size(), materials.size());
-    requireCollision(collision, mesh.parts.size());
+    requireCollision(collision);
+    requireAttributes(mesh);
 
     Model result;
     result.skeleton = std::move(skeleton);

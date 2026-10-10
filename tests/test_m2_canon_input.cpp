@@ -206,7 +206,6 @@ TEST_CASE("m2input::buildCanonModel wires together skeleton/mesh/materials/anima
     CHECK(result.collision.positions.size() == model.collisionMesh.positions.size());
     CHECK(result.collision.indices.size() == model.collisionMesh.indices.size());
     CHECK(result.collision.triangleNormals.size() == model.collisionMesh.faceNormals.size());
-    CHECK(result.collision.triangleParts.empty());
 
     // primitiveMaterials.size() == mesh.primitives.size(): the real
     // correspondence buildCanonModel maintains (canon_model.hpp's own

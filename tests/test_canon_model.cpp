@@ -99,32 +99,46 @@ TEST_CASE("canon::assembleModel: an empty model (no primitives, no materials) co
     CHECK(result.animations.empty());
 }
 
-TEST_CASE("canon::assembleModel checks collision indices, per-triangle arrays and parts") {
-    canon::Mesh mesh;
-    mesh.parts.resize(1);
+TEST_CASE("canon::assembleModel checks collision indices and per-triangle normals") {
     canon::CollisionMesh c;
     c.positions.resize(3);
     c.indices = {0, 1, 2};
-    c.triangleParts = {0};
-    CHECK(canon::assembleModel({}, mesh, {}, {}, {}, {}, {}, {}, c).collision.indices.size() == 3);
+    CHECK(canon::assembleModel({}, {}, {}, {}, {}, {}, {}, {}, c).collision.indices.size() == 3);
 
     canon::CollisionMesh badIndex = c;
     badIndex.indices[2] = 3;
-    CHECK_THROWS_WITH_AS(canon::assembleModel({}, mesh, {}, {}, {}, {}, {}, {}, badIndex),
+    CHECK_THROWS_WITH_AS(canon::assembleModel({}, {}, {}, {}, {}, {}, {}, {}, badIndex),
                          "collision indices: expected < 3 positions, got 3", std::runtime_error);
     canon::CollisionMesh partial = c;
     partial.indices.pop_back();
-    CHECK_THROWS_WITH_AS(canon::assembleModel({}, mesh, {}, {}, {}, {}, {}, {}, partial),
+    CHECK_THROWS_WITH_AS(canon::assembleModel({}, {}, {}, {}, {}, {}, {}, {}, partial),
                          "collision indices: expected a multiple of 3, got 2", std::runtime_error);
-    canon::CollisionMesh badFlags = c;
-    badFlags.triangleSourceFlags = {1, 2};
-    CHECK_THROWS_WITH_AS(canon::assembleModel({}, mesh, {}, {}, {}, {}, {}, {}, badFlags),
-                         "collision triangleSourceFlags: expected none or one per triangle (1), got 2",
+    canon::CollisionMesh badNormals = c;
+    badNormals.triangleNormals.resize(2);
+    CHECK_THROWS_WITH_AS(canon::assembleModel({}, {}, {}, {}, {}, {}, {}, {}, badNormals),
+                         "collision triangleNormals: expected none or one per triangle (1), got 2",
                          std::runtime_error);
-    canon::CollisionMesh badPart = c;
-    badPart.triangleParts = {1};
-    CHECK_THROWS_WITH_AS(canon::assembleModel({}, mesh, {}, {}, {}, {}, {}, {}, badPart),
-                         "collision triangleParts: expected < 1 parts, got 1", std::runtime_error);
+}
+
+TEST_CASE("canon::assembleModel sizes each attribute channel to its domain and wants unique names") {
+    canon::Mesh mesh;
+    mesh.positions.resize(4);
+    mesh.indices = {0, 1, 2, 1, 2, 3};
+    mesh.parts.resize(1);
+    mesh.attributes = {{"test.vertex_rgb", canon::AttributeDomain::Vertex, 3, std::vector<float>(12)},
+                       {"test.face_flags", canon::AttributeDomain::Face, 1, std::vector<uint16_t>(2)},
+                       {"test.part_id", canon::AttributeDomain::Part, 1, std::vector<int32_t>(1)}};
+    CHECK(canon::assembleModel({}, mesh, {}, {}, {}).mesh.attributes.size() == 3);
+
+    canon::Mesh shortFace = mesh;
+    shortFace.attributes[1].values = std::vector<uint16_t>(1);
+    CHECK_THROWS_WITH_AS(canon::assembleModel({}, shortFace, {}, {}, {}),
+                         "attribute 'test.face_flags': expected 2 elements x 1 components, got 1 values",
+                         std::runtime_error);
+    canon::Mesh twice = mesh;
+    twice.attributes.push_back(twice.attributes[2]);
+    CHECK_THROWS_WITH_AS(canon::assembleModel({}, twice, {}, {}, {}), "attribute 'test.part_id': expected a unique name",
+                         std::runtime_error);
 }
 
 TEST_CASE("canon::assembleModel checks every portal link's portal and part") {

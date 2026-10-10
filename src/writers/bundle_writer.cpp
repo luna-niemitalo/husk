@@ -156,6 +156,46 @@ void writeInlineCurve(json::Writer& w, const canon::Curve<T>& curve, ValueWriter
 // `model.materials` is deduped and no longer 1:1 with `model.mesh
 // .primitives`, so a primitive's material must be looked up through
 // `model.primitiveMaterials`, not assumed to share its own index.
+template <typename T>
+const char* componentTypeName() {
+    if constexpr (std::is_same_v<T, uint8_t>) return "u8";
+    if constexpr (std::is_same_v<T, uint16_t>) return "u16";
+    if constexpr (std::is_same_v<T, uint32_t>) return "u32";
+    if constexpr (std::is_same_v<T, int32_t>) return "i32";
+    if constexpr (std::is_same_v<T, float>) return "f32";
+}
+
+const char* domainName(canon::AttributeDomain domain) {
+    switch (domain) {
+        case canon::AttributeDomain::Vertex: return "vertex";
+        case canon::AttributeDomain::Face: return "face";
+        case canon::AttributeDomain::Part: return "part";
+    }
+    throw std::logic_error("unreachable AttributeDomain");
+}
+
+void writeAttributes(json::Writer& w, const std::vector<canon::AttributeChannel>& attributes,
+                     std::vector<uint8_t>& meshBin) {
+    w.beginArray();
+    for (const canon::AttributeChannel& a : attributes) {
+        w.beginObject();
+        w.key("name");
+        w.value(a.name);
+        w.key("domain");
+        w.value(domainName(a.domain));
+        w.key("data");
+        writeBufferSlice(w, std::visit(
+                                [&](const auto& values) {
+                                    using T = typename std::decay_t<decltype(values)>::value_type;
+                                    return appendComponents(meshBin, "mesh.bin", values, a.components,
+                                                            componentTypeName<T>());
+                                },
+                                a.values));
+        w.endObject();
+    }
+    w.endArray();
+}
+
 void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<uint8_t>& meshBin) {
     const canon::Mesh& mesh = model.mesh;
     w.beginObject();
@@ -305,6 +345,9 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
         w.endObject();
     }
     w.endArray();
+
+    w.key("attributes");
+    writeAttributes(w, mesh.attributes, meshBin);
 
     w.endObject();
 }
@@ -989,14 +1032,6 @@ void writeCollision(json::Writer& w, const canon::CollisionMesh& c, std::vector<
     writeBufferSlice(w, appendArray(collisionBin, kBin, c.positions, 3, "f32"));
     w.key("indices");
     writeBufferSlice(w, appendArray(collisionBin, kBin, c.indices, 1, "u32"));
-    if (!c.triangleParts.empty()) {
-        w.key("triangle_parts");
-        writeBufferSlice(w, appendArray(collisionBin, kBin, c.triangleParts, 1, "u32"));
-    }
-    if (!c.triangleSourceFlags.empty()) {
-        w.key("triangle_source_flags");
-        writeBufferSlice(w, appendArray(collisionBin, kBin, c.triangleSourceFlags, 1, "u32"));
-    }
     if (!c.triangleNormals.empty()) {
         w.key("triangle_normals");
         writeBufferSlice(w, appendArray(collisionBin, kBin, c.triangleNormals, 3, "f32"));

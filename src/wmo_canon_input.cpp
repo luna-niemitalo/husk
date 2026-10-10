@@ -339,39 +339,26 @@ canon::LiquidGrid buildLiquid(const WmoInputs& in, uint32_t part, const wmo::Gro
     return out;
 }
 
-constexpr uint16_t kPolyDetail = 0x04;
-constexpr uint16_t kPolyCollision = 0x08;
-constexpr uint16_t kPolyRender = 0x20;
-
-// WMO.md SMOPoly::isCollidable. The BSP (MOBN/MOBR) can't select instead:
-// in all 2,628 sampled real BSP groups it indexes every triangle.
-bool isCollidable(uint16_t flags) {
-    return (flags & kPolyCollision) || ((flags & kPolyRender) && !(flags & kPolyDetail));
-}
-
-// Every group's collidable triangles, with only the vertices they use.
-canon::CollisionMesh buildCollision(const WmoInputs& in) {
-    canon::CollisionMesh out;
-    constexpr uint32_t kUnmapped = UINT32_MAX;
+// Every group's MOPY/MPY2 entries as two face channels, in the order
+// appendGroup appended the groups' triangles.
+std::vector<canon::AttributeChannel> buildFaceAttributes(const WmoInputs& in) {
+    std::vector<uint16_t> flags;
+    std::vector<uint16_t> materials;
     for (uint32_t part = 0; part < in.groups.size(); ++part) {
         if (!in.groups[part]) continue;
         const wmo::GroupFile& g = *in.groups[part];
-        std::vector<uint32_t> remap(g.positions.size(), kUnmapped);
-        for (size_t t = 0; t < g.triangles.size(); ++t) {
-            if (!isCollidable(g.triangles[t].flags)) continue;
-            for (size_t k = 0; k < 3; ++k) {
-                uint32_t v = g.indices[3 * t + k];
-                if (remap[v] == kUnmapped) {
-                    remap[v] = static_cast<uint32_t>(out.positions.size());
-                    out.positions.push_back(toCanon(g.positions[v]));
-                }
-                out.indices.push_back(remap[v]);
-            }
-            out.triangleParts.push_back(part);
-            out.triangleSourceFlags.push_back(g.triangles[t].flags);
+        if (g.triangles.size() != g.indices.size() / 3) {
+            throw std::runtime_error("WMO group " + std::to_string(part) + ": expected one MOPY/MPY2 entry per triangle (" +
+                                      std::to_string(g.indices.size() / 3) + "), got " +
+                                      std::to_string(g.triangles.size()));
+        }
+        for (const wmo::TriangleInfo& t : g.triangles) {
+            flags.push_back(t.flags);
+            materials.push_back(t.material);
         }
     }
-    return out;
+    return {{"wmo.poly_flags", canon::AttributeDomain::Face, 1, std::move(flags)},
+            {"wmo.poly_material", canon::AttributeDomain::Face, 1, std::move(materials)}};
 }
 
 // Appends one group's vertices and batches to `mesh`. UV and colour sets a
@@ -521,6 +508,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         if (!root.portalExtras.empty()) portal.sourceExtra.assign(root.portalExtras[i].begin(), root.portalExtras[i].end());
         mesh.portals.push_back(std::move(portal));
     }
+    mesh.attributes = buildFaceAttributes(in);
     std::vector<canon::LiquidGrid> liquids;
     for (uint32_t part = 0; part < in.groups.size(); ++part) {
         if (in.groups[part] && in.groups[part]->liquid) liquids.push_back(buildLiquid(in, part, *in.groups[part]));
@@ -530,8 +518,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
     for (uint32_t i = 0; i < root.materials.size(); ++i) materials.push_back(buildMaterial(in, i));
 
     return canon::assembleModel(canon::Skeleton{}, std::move(mesh), std::move(materials), std::move(primitiveMaterials),
-                                {}, buildScene(in), buildPlacementSets(in), std::move(liquids),
-                                buildCollision(in));
+                                {}, buildScene(in), buildPlacementSets(in), std::move(liquids));
 }
 
 }  // namespace husk::wmoinput

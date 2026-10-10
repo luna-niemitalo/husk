@@ -705,7 +705,7 @@ TEST_CASE("writeBundle: collision slices into collision.bin, and both are omitte
 
     model.collision.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
     model.collision.indices = {0, 1, 2};
-    model.collision.triangleSourceFlags = {0x48};
+    model.collision.triangleNormals = {{0, 0, 1}};
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-collision";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, "husk test");
@@ -715,12 +715,32 @@ TEST_CASE("writeBundle: collision slices into collision.bin, and both are omitte
     CHECK(c["positions"]["file"] == "collision.bin");
     CHECK(c["positions"]["count"] == 3);
     CHECK(c["indices"]["count"] == 3);
-    CHECK(c["triangle_source_flags"]["count"] == 1);
-    CHECK_FALSE(c.contains("triangle_parts"));
-    CHECK_FALSE(c.contains("triangle_normals"));
-    std::vector<uint8_t> bin = readFile((dir / "collision.bin").string());
-    size_t at = c["triangle_source_flags"]["byte_offset"];
-    CHECK(bin.at(at) == 0x48);
+    CHECK(c["triangle_normals"]["count"] == 1);
+}
+
+TEST_CASE("writeBundle: attribute channels slice into mesh.bin with their domain and element count") {
+    canon::Model model = buildSyntheticModel();
+    model.mesh.attributes = {{"wmo.poly_flags", canon::AttributeDomain::Face, 1, std::vector<uint16_t>{0x20, 0x48}},
+                             {"test.rgb", canon::AttributeDomain::Vertex, 3, std::vector<float>{1, 2, 3, 4, 5, 6}}};
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-attributes";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, "husk test");
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& attributes = manifest["resources"]["mesh"]["attributes"];
+
+    REQUIRE(attributes.size() == 2);
+    CHECK(attributes[0]["name"] == "wmo.poly_flags");
+    CHECK(attributes[0]["domain"] == "face");
+    CHECK(attributes[0]["data"]["file"] == "mesh.bin");
+    CHECK(attributes[0]["data"]["component_type"] == "u16");
+    CHECK(attributes[0]["data"]["count"] == 2);
+    CHECK(attributes[1]["domain"] == "vertex");
+    CHECK(attributes[1]["data"]["component_type"] == "f32");
+    CHECK(attributes[1]["data"]["component_count"] == 3);
+    CHECK(attributes[1]["data"]["count"] == 2);
+    std::vector<uint8_t> bin = readFile((dir / "mesh.bin").string());
+    size_t at = attributes[0]["data"]["byte_offset"];
+    CHECK(bin.at(at + 2) == 0x48);
 }
 
 TEST_CASE("writeBundle: portals on the mesh, links on their parts") {

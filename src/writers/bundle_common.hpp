@@ -55,6 +55,15 @@ BufferSlice appendArray(std::vector<uint8_t>& buf, std::string filename, const s
                         std::move(componentType));
 }
 
+// A flat array holding `componentCount` values per element.
+template <typename T>
+BufferSlice appendComponents(std::vector<uint8_t>& buf, std::string filename, const std::vector<T>& values,
+                             uint32_t componentCount, std::string componentType) {
+    BufferSlice slice = appendArray(buf, std::move(filename), values, componentCount, std::move(componentType));
+    slice.count = values.size() / componentCount;
+    return slice;
+}
+
 void writeBufferSlice(json::Writer& w, const BufferSlice& slice, const char* semantic = nullptr);
 
 // One shared serializer for canon::Ref's Identity variant -- every call

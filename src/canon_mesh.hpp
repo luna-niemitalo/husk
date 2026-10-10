@@ -5,6 +5,7 @@
 #include <optional>
 #include <vector>
 
+#include "canon_attribute.hpp"
 #include "canon_geoset.hpp"
 #include "canon_primitives.hpp"  // Vec2/Vec3
 
@@ -109,6 +110,7 @@ struct Mesh {
     std::vector<PrimitiveGeoset> primitives;
     std::vector<MeshPart> parts;
     std::vector<Portal> portals;
+    std::vector<AttributeChannel> attributes;
 };
 
 }  // namespace husk::canon

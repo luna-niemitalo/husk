@@ -95,7 +95,7 @@ struct Model {
     };
     std::vector<OwnedSet> placementSets;
     std::vector<LiquidGrid> liquids;
-    CollisionMesh collision;  // empty = the model has none
+    CollisionMesh collision;  // empty = the model has none (M2 only)
 };
 
 // Packs already-built canon:: pieces into a Model, validating the
@@ -113,8 +113,8 @@ struct Model {
 // for `placementSets`.
 // Each liquid's part and RecordIndex material must be in range, and its
 // arrays sized to its grid. Collision indices must be in range for its
-// positions, three per triangle, and each per-triangle array empty or one
-// per triangle, its parts in range for `mesh.parts`.
+// positions, three per triangle, with none or one normal per triangle.
+// Mesh attribute names must be unique, each channel sized to its domain.
 //
 // Every argument is taken by value and moved from -- this function's own
 // job is assembly, not borrowing; a caller done building these pieces has
