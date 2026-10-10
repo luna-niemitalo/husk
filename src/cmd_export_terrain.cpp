@@ -347,7 +347,9 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, const ListfileI
                 }
             }
         }
-        for (uint32_t fdid : root.doodadFileDataIds) {
+        std::vector<uint32_t> named = root.doodadFileDataIds;
+        for (const wmo::NewLight& light : root.newLights) named.push_back(light.cookieFileDataId);
+        for (uint32_t fdid : named) {
             std::optional<std::string_view> listed = fdid != 0 ? listfile->lookup(fdid) : std::nullopt;
             if (listed) inputs.assetNames.emplace(fdid, std::filesystem::path(std::string(*listed)).stem().string());
         }

@@ -519,6 +519,53 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
     CHECK_FALSE(p.contains("particle_model"));
 }
 
+TEST_CASE("writeBundle: local lights write their optional blocks only when present") {
+    canon::Model model = buildSyntheticModel();
+    canon::LocalLight spot;
+    spot.ref = canon::Ref{canon::RecordIndex{0}, "mnld_0", canon::NameSource::Synthesized};
+    spot.kind = canon::LocalLight::Kind::Spot;
+    spot.position = {1, 2, 3};
+    spot.eulerRotation = canon::Vec3{-3, 0, 0};
+    spot.color = {1, 0.5f, 0};
+    spot.intensity = 2;
+    spot.attenuationEnd = 9;
+    spot.cone = canon::LocalLight::Cone{5, 0.5f, 1.5f};
+    spot.flicker = canon::LocalLight::Flicker{2, 0.25f, 3};
+    spot.castsShadows = true;
+    spot.cookie = canon::Ref{canon::FileDataId{9001}, "cookie_window", canon::NameSource::Listfile};
+    spot.placementSet = canon::Ref{canon::RecordIndex{1}, "Set_B", canon::NameSource::WmoEmbedded};
+    spot.sourceFlags = 0x3;
+    canon::LocalLight omni;
+    omni.ref = canon::Ref{canon::RecordIndex{0}, "molt_0", canon::NameSource::Synthesized};
+    model.scene.localLights = {spot, omni};
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-local-lights";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, "husk test");
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& lights = manifest["resources"]["local_lights"];
+
+    REQUIRE(lights.size() == 2);
+    const auto& s = lights[0];
+    CHECK(s["ref"]["name"] == "mnld_0");
+    CHECK(s["kind"] == "spot");
+    CHECK(s["euler_rotation"] == nlohmann::json::array({-3.0, 0.0, 0.0}));
+    CHECK_FALSE(s.contains("rotation"));
+    CHECK(s["color"] == nlohmann::json::array({1.0, 0.5, 0.0}));
+    CHECK(s["cone"]["outer_angle"] == 1.5);
+    CHECK(s["flicker"]["mode"] == 2);
+    CHECK(s["casts_shadows"] == true);
+    CHECK(s["cookie"]["id"]["value"] == 9001);
+    CHECK(s["placement_set"]["name"] == "Set_B");
+    CHECK(s["source_flags"] == 3);
+    const auto& o = lights[1];
+    CHECK(o["kind"] == "point");
+    for (const char* key : {"rotation", "euler_rotation", "gradient", "cone", "flicker", "cookie", "placement_set"}) {
+        CAPTURE(key);
+        CHECK_FALSE(o.contains(key));
+    }
+}
+
 TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set files") {
     canon::Model model = buildSyntheticModel();
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0x8, {}, {}});

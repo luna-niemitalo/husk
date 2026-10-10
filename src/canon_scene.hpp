@@ -162,10 +162,62 @@ struct ParticleEmitter {
     float multiTextureScrollRange[4] = {0, 0, 0, 0};
 };
 
+// A static light the model places (WMO MNLD and MOLT): no bone, no
+// keyframes. Flicker is a procedural runtime effect the source describes by
+// parameters only.
+struct LocalLight {
+    enum class Kind { Point, Spot, Directional, Ambient };
+    Ref ref;  // id = RecordIndex in the source table; name = "<table>_<index>", Synthesized
+    Kind kind = Kind::Point;
+    Vec3 position;
+    // At most one is set. MOLT stores a quaternion (spot/directional only);
+    // MNLD stores Euler radians in an undocumented axis order, carried raw.
+    std::optional<Quat> rotation;
+    std::optional<Vec3> eulerRotation;
+    Vec3 color;  // RGB 0..1 as stored, no gamma decode; MNLD's inner colour
+    float intensity = 0;
+    float intensityMultiplier = 1;  // MNLD; a stored 0 already reads as 1
+    bool attenuated = true;         // MOLT useAtten
+    float attenuationStart = 0;
+    float attenuationEnd = 0;
+
+    // MNLD flag 0x1: colour blends from `color` at blendStart to this at
+    // blendEnd (distances from the light).
+    struct Gradient {
+        Vec3 outerColor;
+        float blendStart = 0;
+        float blendEnd = 0;
+    };
+    std::optional<Gradient> gradient;
+
+    struct Cone {
+        float falloffExponent = 0;
+        float innerAngle = 0;  // radians; whole-cone or half-angle is unverified (real values reach 2.2)
+        float outerAngle = 0;
+    };
+    std::optional<Cone> cone;  // Kind::Spot from MNLD
+
+    struct Flicker {
+        uint32_t mode = 0;  // 1 sine, 2 noise, 3 noise step
+        float intensity = 0;
+        float speed = 0;
+    };
+    std::optional<Flicker> flicker;  // nullopt = steady
+
+    bool castsShadows = false;
+    float shadowScale = 0;  // MNLD scale, meaningful with castsShadows
+    std::optional<Ref> cookie;  // projected texture (FileDataID); a cube map for point lights
+    // The owned placement set this light switches with (MNLD doodadSet);
+    // nullopt = always on with the model.
+    std::optional<Ref> placementSet;
+    uint32_t sourceFlags = 0;  // MNLD flags or MOLT's two unknown bytes, raw
+};
+
 struct Scene {
     std::vector<Attachment> attachments;
     std::vector<Event> events;
     std::vector<Light> lights;
+    std::vector<LocalLight> localLights;
     std::vector<RibbonEmitter> ribbons;
     std::vector<ParticleEmitter> particles;
 };

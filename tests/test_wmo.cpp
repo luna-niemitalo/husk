@@ -148,6 +148,93 @@ TEST_CASE("wmo::parseRoot: MOUV must have one entry per material") {
         "MOUV: expected one entry per MOMT material (1), got 2", wmo::ParseError);
 }
 
+TEST_CASE("wmo::parseRoot: MNLD reads every field at its wiki offset, scale and multiplier as half floats") {
+    std::vector<uint8_t> mnld(184, 0);
+    put<int32_t>(mnld, 0x00, 1);
+    put<int32_t>(mnld, 0x04, 0);
+    put<int32_t>(mnld, 0x08, 0x3);
+    put<int32_t>(mnld, 0x0C, 1);
+    put<uint32_t>(mnld, 0x10, 0xFF102030);
+    put(mnld, 0x14, 1.0f);
+    put(mnld, 0x18, 2.0f);
+    put(mnld, 0x1C, 3.0f);
+    put(mnld, 0x20, -3.0f);
+    put(mnld, 0x2C, 4.0f);
+    put(mnld, 0x30, 9.0f);
+    put(mnld, 0x34, 1.5f);
+    put<uint32_t>(mnld, 0x38, 0xFF405060);
+    put(mnld, 0x3C, 0.5f);
+    put(mnld, 0x40, 6.0f);
+    put(mnld, 0x48, 0.25f);
+    put(mnld, 0x4C, 2.0f);
+    put<int32_t>(mnld, 0x50, 2);
+    put<uint32_t>(mnld, 0x64, 3618219);
+    put(mnld, 0x7C, 5.0f);
+    put(mnld, 0x80, 0.5f);
+    put(mnld, 0x84, 1.75f);
+    put<uint16_t>(mnld, 0x88, 0x3800);  // 0.5
+    put<uint16_t>(mnld, 0x8A, 0x3E00);  // 1.5
+    std::vector<uint8_t> mods(64, 0);
+    wmo::RootFile root = wmo::parseRoot(minimalRoot(0, {{"MODS", mods}, {"MNLD", mnld}}));
+    REQUIRE(root.newLights.size() == 1);
+    const wmo::NewLight& l = root.newLights[0];
+    CHECK(l.type == 1);
+    CHECK(l.flags == 0x3);
+    CHECK(l.doodadSet == 1);
+    CHECK(l.innerColor == 0xFF102030);
+    CHECK(l.position == wmo::Vec3{1, 2, 3});
+    CHECK(l.rotation == wmo::Vec3{-3, 0, 0});
+    CHECK(l.attenuationStart == 4.0f);
+    CHECK(l.attenuationEnd == 9.0f);
+    CHECK(l.intensity == 1.5f);
+    CHECK(l.outerColor == 0xFF405060);
+    CHECK(l.blendStart == 0.5f);
+    CHECK(l.blendEnd == 6.0f);
+    CHECK(l.flickerIntensity == 0.25f);
+    CHECK(l.flickerSpeed == 2.0f);
+    CHECK(l.flickerMode == 2);
+    CHECK(l.cookieFileDataId == 3618219);
+    CHECK(l.falloff == 5.0f);
+    CHECK(l.innerAngle == 0.5f);
+    CHECK(l.outerAngle == 1.75f);
+    CHECK(l.scale == 0.5f);
+    CHECK(l.intensityMultiplier == 1.5f);
+}
+
+TEST_CASE("wmo::parseRoot: an MNLD light naming a doodad set past MODS throws with both values") {
+    std::vector<uint8_t> mnld(184, 0);
+    put<int32_t>(mnld, 0x0C, 2);
+    CHECK_THROWS_WITH_AS(wmo::parseRoot(minimalRoot(0, {{"MODS", std::vector<uint8_t>(64, 0)}, {"MNLD", mnld}})),
+                         "MNLD[0].doodadSet: expected a MODS index < 2, got 2", wmo::ParseError);
+    CHECK_THROWS_WITH_AS(wmo::parseRoot(minimalRoot(0, {{"MNLD", std::vector<uint8_t>(183, 0)}})),
+                         "MNLD: expected a multiple of 184 bytes, got 183", wmo::ParseError);
+}
+
+TEST_CASE("wmo::parseRoot: MOLT reads type, attenuation flag, colour, position, rotation and range") {
+    std::vector<uint8_t> molt(48, 0);
+    put<uint8_t>(molt, 0x00, 2);
+    put<uint8_t>(molt, 0x01, 1);
+    put<uint8_t>(molt, 0x02, 1);
+    put<uint32_t>(molt, 0x04, 0xFF052C25);
+    put(molt, 0x08, 7.0f);
+    put(molt, 0x14, 1.0f);
+    put(molt, 0x24, 1.0f);
+    put(molt, 0x28, 2.0f);
+    put(molt, 0x2C, 4.0f);
+    wmo::RootFile root = wmo::parseRoot(minimalRoot(0, {{"MOLT", molt}}));
+    REQUIRE(root.legacyLights.size() == 1);
+    const wmo::LegacyLight& l = root.legacyLights[0];
+    CHECK(l.type == 2);
+    CHECK(l.useAttenuation == 1);
+    CHECK(l.unknown == std::array<uint8_t, 2>{1, 0});
+    CHECK(l.color == 0xFF052C25);
+    CHECK(l.position == wmo::Vec3{7, 0, 0});
+    CHECK(l.intensity == 1.0f);
+    CHECK(l.rotation == std::array<float, 4>{0, 0, 0, 1});
+    CHECK(l.attenuationStart == 2.0f);
+    CHECK(l.attenuationEnd == 4.0f);
+}
+
 TEST_CASE("wmo::groupFileDataId: GFID is row-major [lodTier][group], 0 for holes and out of range") {
     std::vector<uint8_t> gfid;
     for (uint32_t id : {10u, 11u, 20u, 0u}) put(gfid, gfid.size(), id);

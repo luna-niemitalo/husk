@@ -18,8 +18,8 @@ by GFID through the listfile, else `<root>_NNN.wmo`. Open, in order:
 3. **Skybox** (`MOSB`/`MOSI`) is parsed, not written.
 4. `MOC2`, `MOM3`; vertex colours are exported raw (no
    `FixColorVertexAlpha`).
-5. Collision, portals, liquid, lights and fog inside a WMO -- the sibling
-   TODO files.
+5. Collision, portals, liquid and fog inside a WMO -- the sibling TODO
+   files. `MNLD`/`MOLT` lights export (`LIGHTING_TODO.md`).
 **The "Coordinate system note" section below is wrong**: positions are
 plain (X, Y, Z) Z up, like M2 (`../../WIKI_FINDINGS/WORLD.md`).
 

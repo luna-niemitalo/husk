@@ -6,8 +6,9 @@ PlacementSet` (`src/canon_placement.hpp`), WMOs as ordinary object bundles
 that own their doodad sets (`husk export-wmo`, `src/wmo_canon_input.cpp`).
 Terrain tiles place their doodads and WMOs as two sets, and `export-world`
 exports every placed WMO as a bundle beside the models. The byte-level
-schema is in `src/writers/bundle_writer.hpp`. **Not yet**: liquids/lights/
-fog inside WMOs.
+schema is in `src/writers/bundle_writer.hpp`. WMO `MNLD`/`MOLT` lights are
+`resources.local_lights`; an `MNLD` light names the owned set it switches
+with. **Not yet**: liquids and fog inside WMOs.
 
 ## The concept
 
@@ -87,8 +88,12 @@ A WMO is an ordinary object bundle, the same shape as a doodad's (Luna,
 - `resources.placement_sets`: one set per `MODS` entry, each a
   `sets/<index>.json`, instances from `MODD` (+ `MODI`/`MDDI`), assets
   pointing at the shared model bundles. Set 0 is always on.
-- Later, in the agreed order: liquid (`MLIQ`), lights (`MOLT`, lightsets,
-  `MNLD`), fog and particulate volumes, then collision, portals and LOD.
+- `resources.local_lights`: `MNLD` and `MOLT` lights in WMO space. A light
+  is part of the WMO, not a placed asset, so it stays out of the set files
+  (invariant 6 keeps those plain asset lists); an `MNLD` light instead
+  names the owned set it belongs to and is on while that set is.
+- Later, in the agreed order: liquid (`MLIQ`), lightsets, fog and
+  particulate volumes, then collision, portals and LOD.
 
 Terrain bundles use the same format: a tile's `MDDF` and `MODF`
 placements are two world-frame sets (`doodads`, `map_objects`; two because

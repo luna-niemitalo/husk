@@ -585,6 +585,73 @@ void writeLights(json::Writer& w, const std::vector<canon::Light>& lights) {
     w.endArray();
 }
 
+void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lights) {
+    w.beginArray();
+    for (const canon::LocalLight& l : lights) {
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, l.ref);
+        w.key("kind");
+        switch (l.kind) {
+            case canon::LocalLight::Kind::Point: w.value("point"); break;
+            case canon::LocalLight::Kind::Spot: w.value("spot"); break;
+            case canon::LocalLight::Kind::Directional: w.value("directional"); break;
+            case canon::LocalLight::Kind::Ambient: w.value("ambient"); break;
+        }
+        writeVec3Field(w, "position", l.position);
+        if (l.rotation) {
+            w.key("rotation");
+            writeQuatValue(w, *l.rotation);
+        }
+        if (l.eulerRotation) writeVec3Field(w, "euler_rotation", *l.eulerRotation);
+        writeVec3Field(w, "color", l.color);
+        writeFloatField(w, "intensity", l.intensity);
+        writeFloatField(w, "intensity_multiplier", l.intensityMultiplier);
+        w.key("attenuated");
+        w.value(l.attenuated);
+        writeFloatField(w, "attenuation_start", l.attenuationStart);
+        writeFloatField(w, "attenuation_end", l.attenuationEnd);
+        if (l.gradient) {
+            w.key("gradient");
+            w.beginObject();
+            writeVec3Field(w, "outer_color", l.gradient->outerColor);
+            writeFloatField(w, "blend_start", l.gradient->blendStart);
+            writeFloatField(w, "blend_end", l.gradient->blendEnd);
+            w.endObject();
+        }
+        if (l.cone) {
+            w.key("cone");
+            w.beginObject();
+            writeFloatField(w, "falloff_exponent", l.cone->falloffExponent);
+            writeFloatField(w, "inner_angle", l.cone->innerAngle);
+            writeFloatField(w, "outer_angle", l.cone->outerAngle);
+            w.endObject();
+        }
+        if (l.flicker) {
+            w.key("flicker");
+            w.beginObject();
+            writeIntField(w, "mode", l.flicker->mode);
+            writeFloatField(w, "intensity", l.flicker->intensity);
+            writeFloatField(w, "speed", l.flicker->speed);
+            w.endObject();
+        }
+        w.key("casts_shadows");
+        w.value(l.castsShadows);
+        writeFloatField(w, "shadow_scale", l.shadowScale);
+        if (l.cookie) {
+            w.key("cookie");
+            writeRef(w, *l.cookie);
+        }
+        if (l.placementSet) {
+            w.key("placement_set");
+            writeRef(w, *l.placementSet);
+        }
+        writeIntField(w, "source_flags", l.sourceFlags);
+        w.endObject();
+    }
+    w.endArray();
+}
+
 void writeRibbons(json::Writer& w, const std::vector<canon::RibbonEmitter>& ribbons,
                   const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures) {
     w.beginArray();
@@ -756,6 +823,8 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeEvents(w, model.scene.events);
     w.key("lights");
     writeLights(w, model.scene.lights);
+    w.key("local_lights");
+    writeLocalLights(w, model.scene.localLights);
     w.key("emitters");
     w.beginObject();
     w.key("ribbons");

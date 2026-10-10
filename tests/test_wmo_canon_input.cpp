@@ -156,6 +156,102 @@ TEST_CASE("buildCanonWmo: doodad sets become owned placement sets, set 0 always 
     CHECK(std::holds_alternative<canon::None>(instances[1].asset.id));  // MODI slot 1 is empty
 }
 
+TEST_CASE("buildCanonWmo: MNLD lights become local lights that switch with their doodad set") {
+    wmo::RootFile root = syntheticRoot();
+    wmo::NewLight spot;
+    spot.type = 1;
+    spot.flags = 0x1 | 0x2;
+    spot.doodadSet = 1;
+    spot.innerColor = 0xFFFF8000u;  // BGRA bytes 00 80 FF FF -> RGB 255 128 0
+    spot.outerColor = 0xFF0000FFu;
+    spot.position = {1, 2, 3};
+    spot.rotation = {-3.0f, 0, 0};
+    spot.blendStart = 1;
+    spot.blendEnd = 5;
+    spot.flickerMode = 2;
+    spot.flickerSpeed = 3;
+    spot.cookieFileDataId = 9001;
+    spot.innerAngle = 0.5f;
+    spot.outerAngle = 1.5f;
+    spot.scale = 0.5f;
+    spot.intensityMultiplier = 0;
+    wmo::NewLight point;
+    point.innerColor = 0xFFFFFFFFu;
+    point.intensityMultiplier = 2;
+    root.newLights = {spot, point};
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {std::nullopt, std::nullopt};
+    in.assetNames.emplace(9001, "cookie_window");
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    REQUIRE(model.scene.localLights.size() == 2);
+    const canon::LocalLight& s0 = model.scene.localLights[0];
+    CHECK(s0.ref.name == "mnld_0");
+    CHECK(s0.kind == canon::LocalLight::Kind::Spot);
+    CHECK(s0.position.z == 3.0f);
+    CHECK_FALSE(s0.rotation.has_value());
+    CHECK(s0.eulerRotation->x == -3.0f);
+    CHECK(s0.color.x == 1.0f);
+    CHECK(s0.color.y == doctest::Approx(128 / 255.0));
+    CHECK(s0.color.z == 0.0f);
+    CHECK(s0.intensityMultiplier == 1.0f);  // a stored 0 reads as 1
+    REQUIRE(s0.gradient.has_value());
+    CHECK(s0.gradient->outerColor.z == 1.0f);
+    CHECK(s0.gradient->blendEnd == 5.0f);
+    REQUIRE(s0.cone.has_value());
+    CHECK(s0.cone->outerAngle == 1.5f);
+    REQUIRE(s0.flicker.has_value());
+    CHECK(s0.flicker->mode == 2);
+    CHECK(s0.castsShadows);
+    CHECK(s0.shadowScale == 0.5f);
+    CHECK(s0.cookie->name == "cookie_window");
+    CHECK(std::get<canon::RecordIndex>(s0.placementSet->id).value == 1);
+    CHECK(s0.placementSet->name == "Set_B");
+
+    const canon::LocalLight& p1 = model.scene.localLights[1];
+    CHECK(p1.kind == canon::LocalLight::Kind::Point);
+    CHECK(p1.intensityMultiplier == 2.0f);
+    CHECK_FALSE(p1.gradient.has_value());
+    CHECK_FALSE(p1.cone.has_value());
+    CHECK_FALSE(p1.flicker.has_value());
+    CHECK_FALSE(p1.castsShadows);
+    CHECK_FALSE(p1.cookie.has_value());
+    CHECK(std::get<canon::RecordIndex>(p1.placementSet->id).value == 0);
+}
+
+TEST_CASE("buildCanonWmo: MOLT lights follow MNLD, always on, rotation only for spot and directional") {
+    wmo::RootFile root = syntheticRoot();
+    root.newLights.resize(1);
+    wmo::LegacyLight omni;
+    omni.useAttenuation = 1;
+    omni.rotation = {0, 0, 0, 1};
+    wmo::LegacyLight direct;
+    direct.type = 2;
+    direct.unknown = {1, 1};
+    direct.rotation = {0, 0, 1, 0};
+    root.legacyLights = {omni, direct};
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {std::nullopt, std::nullopt};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    REQUIRE(model.scene.localLights.size() == 3);
+    const canon::LocalLight& a = model.scene.localLights[1];
+    CHECK(a.ref.name == "molt_0");
+    CHECK(a.kind == canon::LocalLight::Kind::Point);
+    CHECK(a.attenuated);
+    CHECK_FALSE(a.rotation.has_value());
+    CHECK_FALSE(a.placementSet.has_value());
+    const canon::LocalLight& b = model.scene.localLights[2];
+    CHECK(b.kind == canon::LocalLight::Kind::Directional);
+    CHECK_FALSE(b.attenuated);
+    CHECK(b.rotation->z == 1.0f);
+    CHECK(b.sourceFlags == 0x0101);
+}
+
 TEST_CASE("buildCanonWmo: inconsistent inputs throw with expected and actual") {
     wmo::RootFile root = syntheticRoot();
     wmoinput::WmoInputs in;
@@ -172,6 +268,16 @@ TEST_CASE("buildCanonWmo: inconsistent inputs throw with expected and actual") {
     in.groups = {std::nullopt, std::nullopt};
     CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "MODD doodad 0: expected a MODI index < 2, got 9",
                          std::runtime_error);
+
+    root.doodads[0].nameIndex = 0;
+    root.newLights.resize(1);
+    root.newLights[0].type = 4;
+    CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "MNLD[0].type: expected 0 (point) or 1 (spot), got 4",
+                         std::runtime_error);
+    root.newLights.clear();
+    root.legacyLights.resize(1);
+    root.legacyLights[0].type = 7;
+    CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "MOLT[0].type: expected 0..3, got 7", std::runtime_error);
 }
 
 TEST_CASE("buildCanonWmo: real guardtower -- every batch in range, every set and doodad carried" *

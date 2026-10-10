@@ -82,6 +82,48 @@ struct Doodad {
     uint32_t color = 0;  // CImVector (BGRA), raw
 };
 
+// MOLT, 48 bytes. The wiki suspects these only ever fed offline MOCV
+// baking; every populated MOLT in a 4,000-root sample is type 0 (omni).
+struct LegacyLight {
+    uint8_t type = 0;  // 0 omni, 1 spot, 2 direct, 3 ambient
+    uint8_t useAttenuation = 0;
+    std::array<uint8_t, 2> unknown{};  // wiki "pad", "not padding as of v16"; real values 01 00 / 01 01
+    uint32_t color = 0;  // CImVector (BGRA), raw
+    Vec3 position{};
+    float intensity = 0;
+    std::array<float, 4> rotation{};  // quaternion x, y, z, w; spot/direct only
+    float attenuationStart = 0;
+    float attenuationEnd = 0;
+};
+
+// MNLD, 184 bytes (Shadowlands+ dynamic lights). Offsets checked on 30,044
+// real records: every gap and unused field is zero, lightIndex is the
+// record's own index, and attenuation start <= end throughout.
+struct NewLight {
+    int32_t type = 0;  // 0 point, 1 spot
+    int32_t lightIndex = 0;
+    int32_t flags = 0;      // 0x1 blend innerColor -> outerColor, 0x2 casts shadows
+    int32_t doodadSet = 0;  // MODS index this light belongs to
+    uint32_t innerColor = 0;  // CImVector (BGRA), raw
+    Vec3 position{};
+    Vec3 rotation{};  // Euler radians, axis order undocumented
+    float attenuationStart = 0;
+    float attenuationEnd = 0;
+    float intensity = 0;
+    uint32_t outerColor = 0;  // CImVector (BGRA), raw; used with flag 0x1
+    float blendStart = 0;
+    float blendEnd = 0;
+    float flickerIntensity = 0;
+    float flickerSpeed = 0;
+    int32_t flickerMode = 0;  // 0 off, 1 sine, 2 noise, 3 noise step
+    uint32_t cookieFileDataId = 0;  // 0 = none; a cube map for point lights
+    float falloff = 0;     // spot: falloff exponent
+    float innerAngle = 0;  // spot, radians
+    float outerAngle = 0;  // spot, radians
+    float scale = 0;                // stored as a half float; used with flag 0x2
+    float intensityMultiplier = 0;  // stored as a half float; the client treats 0 as 1
+};
+
 struct RootFile {
     uint32_t version = 0;
     RootHeader header;
@@ -99,6 +141,8 @@ struct RootFile {
     std::vector<float> doodadColorMultipliers;  // MDDI, parallel to doodads; empty when absent
     // MOUV: per material, two layers' UV scroll speed. Empty when absent (all zero).
     std::vector<std::array<Vec2, 2>> uvScrollSpeeds;
+    std::vector<LegacyLight> legacyLights;  // MOLT
+    std::vector<NewLight> newLights;        // MNLD
     uint32_t skyboxFileDataId = 0;  // MOSI; 0 = none
     std::string skyboxName;         // MOSB; empty = none
 };

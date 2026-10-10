@@ -250,6 +250,16 @@ All from the same 4,000-root-file scan as item 1:
   fields as both floats and ints, and look for a plausible `doodadSetId`-
   shaped uint16 field (small integers, matching the pattern
   `MAVG`/`MAVD`/`MBVD` all share) before committing to any layout.
+  **Lead (2026-10-10)**: all three real sizes are multiples of **4,272**
+  (6/5/1), and `11du_etherealraid_darkheart01.wmo`'s single 4,272-byte
+  record reads as one volume: `+0x00` u32 29 (the "subnormal" above is
+  this int), `+0x08` a world-plausible position (2424.8, -243.8, 1244.9),
+  `+0x14` a 4000³ extent, then mostly zero to `+0x2D0`, where a block of
+  particle-like floats starts (0.1, 0.2, 100, 0.7, angles 0.14/0.61 rad),
+  and `+0x364` u32 3595346 (FileDataID-shaped, not in the listfile).
+  Unconfirmed against the other 9 files. Cross-check against the
+  `cb_particulate_volume` field names DXIL keeps
+  (`SHADER_FINDINGS/notes/dxil_names.md`).
 - **`MPVR`/`MAVR`/`MBVR`/`MFVR`** (group-scoped reference lists,
   confirmed via the same nested-in-`MOGP` scan `LIGHTING_TODO.md`'s
   `MNLR`/`MOLR` check used): **`MPVR` 51/2,570 (2.0%), `MAVR` 86/2,570

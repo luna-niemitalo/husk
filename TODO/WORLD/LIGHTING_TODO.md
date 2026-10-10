@@ -7,6 +7,22 @@ three sibling documents from the same investigation pass (see
 `LIQUID_TODO.md`'s opening for the full framing; `FOG_VOLUMES_TODO.md`
 covers the rest).
 
+**Update 2026-10-10**: `MNLD` and `MOLT` (items 3 and 1) are parsed
+(`wmo::NewLight`/`LegacyLight`) and exported to the canonical bundle as
+`resources.local_lights` (`canon::LocalLight`; schema in
+`src/writers/bundle_writer.hpp`). An `MNLD` light carries its doodad set as
+`placement_set` and switches with it. Checked on 30,044 real `MNLD` records:
+every gap/unused field zero, `lightIndex` = own index, attenuation start <=
+end, `doodadSet` always a valid `MODS` index (13% non-zero). Open, in order:
+1. Group refs `MNLR`/`MOLR` (which groups a light reaches) are not read.
+2. `MNLD.rotation`'s Euler axis order, and whether cone angles are whole
+   or half angles (real outer angles reach 2.2 rad), are unverified; both
+   are carried raw.
+3. Cookie textures are identity only (listfile-named), not resolved or
+   written; point-light cookies are cube maps.
+4. The lightset system (item 2) and the glTF `KHR_lights_punctual`
+   projection are not started.
+
 Scope: `../../WORLD_COMPLETENESS.md`'s **Lighting** section — WMO point lights
 (`MOLT` + group-level `MOLR` refs), the BfA+ lightset system
 (`MOLS`/`MOLP`/`MLSS`/`MLSP`/`MLSO`/`MLSK`), WMO dynamic lights (`MNLD` +

@@ -1,6 +1,7 @@
 #include "wmo.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include "chunk.hpp"
@@ -16,6 +17,8 @@ constexpr size_t kModsSize = 32;
 constexpr size_t kModdSize = 40;
 constexpr size_t kMouvSize = 16;
 constexpr size_t kMobaSize = 24;
+constexpr size_t kMoltSize = 48;
+constexpr size_t kMnldSize = 184;
 constexpr size_t kMogpHeaderSize = 0x44;
 constexpr uint8_t kBatchUsesLargeMaterialId = 0x02;
 
@@ -33,6 +36,17 @@ T read(const uint8_t* data, size_t size, size_t off, const char* what) {
 Vec3 readVec3(const uint8_t* data, size_t size, size_t off, const char* what) {
     return {read<float>(data, size, off, what), read<float>(data, size, off + 4, what),
             read<float>(data, size, off + 8, what)};
+}
+
+// IEEE 754 binary16.
+float readHalf(const uint8_t* data, size_t size, size_t off, const char* what) {
+    auto bits = read<uint16_t>(data, size, off, what);
+    int exponent = (bits >> 10) & 0x1F;
+    int mantissa = bits & 0x3FF;
+    float sign = (bits & 0x8000) ? -1.0f : 1.0f;
+    if (exponent == 0) return sign * std::ldexp(static_cast<float>(mantissa), -24);
+    if (exponent == 31) return mantissa ? std::nanf("") : sign * INFINITY;
+    return sign * std::ldexp(static_cast<float>(mantissa | 0x400), exponent - 25);
 }
 
 Box readBox(const uint8_t* data, size_t size, size_t off, const char* what) {
@@ -152,6 +166,55 @@ std::vector<Doodad> parseDoodads(const Chunk& c) {
     return out;
 }
 
+std::vector<LegacyLight> parseLegacyLights(const Chunk& c) {
+    std::vector<LegacyLight> out(recordCount(c, kMoltSize));
+    for (size_t i = 0; i < out.size(); ++i) {
+        size_t o = i * kMoltSize;
+        LegacyLight& l = out[i];
+        l.type = read<uint8_t>(c.data, c.size, o + 0x00, "MOLT");
+        l.useAttenuation = read<uint8_t>(c.data, c.size, o + 0x01, "MOLT");
+        l.unknown = {read<uint8_t>(c.data, c.size, o + 0x02, "MOLT"), read<uint8_t>(c.data, c.size, o + 0x03, "MOLT")};
+        l.color = read<uint32_t>(c.data, c.size, o + 0x04, "MOLT");
+        l.position = readVec3(c.data, c.size, o + 0x08, "MOLT");
+        l.intensity = read<float>(c.data, c.size, o + 0x14, "MOLT");
+        for (size_t k = 0; k < 4; ++k) l.rotation[k] = read<float>(c.data, c.size, o + 0x18 + 4 * k, "MOLT");
+        l.attenuationStart = read<float>(c.data, c.size, o + 0x28, "MOLT");
+        l.attenuationEnd = read<float>(c.data, c.size, o + 0x2C, "MOLT");
+    }
+    return out;
+}
+
+std::vector<NewLight> parseNewLights(const Chunk& c) {
+    std::vector<NewLight> out(recordCount(c, kMnldSize));
+    for (size_t i = 0; i < out.size(); ++i) {
+        size_t o = i * kMnldSize;
+        NewLight& l = out[i];
+        l.type = read<int32_t>(c.data, c.size, o + 0x00, "MNLD");
+        l.lightIndex = read<int32_t>(c.data, c.size, o + 0x04, "MNLD");
+        l.flags = read<int32_t>(c.data, c.size, o + 0x08, "MNLD");
+        l.doodadSet = read<int32_t>(c.data, c.size, o + 0x0C, "MNLD");
+        l.innerColor = read<uint32_t>(c.data, c.size, o + 0x10, "MNLD");
+        l.position = readVec3(c.data, c.size, o + 0x14, "MNLD");
+        l.rotation = readVec3(c.data, c.size, o + 0x20, "MNLD");
+        l.attenuationStart = read<float>(c.data, c.size, o + 0x2C, "MNLD");
+        l.attenuationEnd = read<float>(c.data, c.size, o + 0x30, "MNLD");
+        l.intensity = read<float>(c.data, c.size, o + 0x34, "MNLD");
+        l.outerColor = read<uint32_t>(c.data, c.size, o + 0x38, "MNLD");
+        l.blendStart = read<float>(c.data, c.size, o + 0x3C, "MNLD");
+        l.blendEnd = read<float>(c.data, c.size, o + 0x40, "MNLD");
+        l.flickerIntensity = read<float>(c.data, c.size, o + 0x48, "MNLD");
+        l.flickerSpeed = read<float>(c.data, c.size, o + 0x4C, "MNLD");
+        l.flickerMode = read<int32_t>(c.data, c.size, o + 0x50, "MNLD");
+        l.cookieFileDataId = read<uint32_t>(c.data, c.size, o + 0x64, "MNLD");
+        l.falloff = read<float>(c.data, c.size, o + 0x7C, "MNLD");
+        l.innerAngle = read<float>(c.data, c.size, o + 0x80, "MNLD");
+        l.outerAngle = read<float>(c.data, c.size, o + 0x84, "MNLD");
+        l.scale = readHalf(c.data, c.size, o + 0x88, "MNLD");
+        l.intensityMultiplier = readHalf(c.data, c.size, o + 0x8A, "MNLD");
+    }
+    return out;
+}
+
 std::vector<Batch> parseBatches(const Chunk& c) {
     std::vector<Batch> out(recordCount(c, kMobaSize));
     for (size_t i = 0; i < out.size(); ++i) {
@@ -197,6 +260,8 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
         else if (c.tag == "MODD") root.doodads = parseDoodads(c);
         else if (c.tag == "MDDI") root.doodadColorMultipliers = readArray<float>(c);
         else if (c.tag == "MOUV") root.uvScrollSpeeds = readArray<std::array<Vec2, 2>>(c);
+        else if (c.tag == "MOLT") root.legacyLights = parseLegacyLights(c);
+        else if (c.tag == "MNLD") root.newLights = parseNewLights(c);
         else if (c.tag == "MOSI") root.skyboxFileDataId = read<uint32_t>(c.data, c.size, 0, "MOSI");
         else if (c.tag == "MOSB" && c.size > 0) {
             root.skyboxName = stringAt(std::string(reinterpret_cast<const char*>(c.data), c.size), 0);
@@ -210,6 +275,13 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
     if (!root.doodadColorMultipliers.empty() && root.doodadColorMultipliers.size() != root.doodads.size()) {
         throw ParseError("MDDI: expected one entry per MODD doodad (" + std::to_string(root.doodads.size()) +
                          "), got " + std::to_string(root.doodadColorMultipliers.size()));
+    }
+    for (size_t i = 0; i < root.newLights.size(); ++i) {
+        int32_t set = root.newLights[i].doodadSet;
+        if (set < 0 || static_cast<size_t>(set) >= root.doodadSets.size()) {
+            throw ParseError("MNLD[" + std::to_string(i) + "].doodadSet: expected a MODS index < " +
+                             std::to_string(root.doodadSets.size()) + ", got " + std::to_string(set));
+        }
     }
     for (const DoodadSet& set : root.doodadSets) {
         if (set.startIndex > root.doodads.size() || set.count > root.doodads.size() - set.startIndex) {

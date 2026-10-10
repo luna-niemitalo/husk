@@ -86,6 +86,12 @@ canon::Material buildMaterial(const WmoInputs& in, uint32_t index) {
     return material;
 }
 
+canon::Ref fileRef(const WmoInputs& in, uint32_t fdid) {
+    auto name = in.assetNames.find(fdid);
+    if (name == in.assetNames.end()) return canon::Ref{canon::FileDataId{fdid}, "", canon::NameSource::None};
+    return canon::Ref{canon::FileDataId{fdid}, name->second, canon::NameSource::Listfile};
+}
+
 canon::Ref doodadAsset(const WmoInputs& in, const wmo::Doodad& d, size_t index) {
     const wmo::RootFile& root = *in.root;
     if (root.doodadFileDataIds.empty() && !root.doodadNames.empty()) {
@@ -98,9 +104,7 @@ canon::Ref doodadAsset(const WmoInputs& in, const wmo::Doodad& d, size_t index) 
     }
     uint32_t fdid = root.doodadFileDataIds[d.nameIndex];
     if (fdid == 0) return canon::Ref{};  // an empty MODI slot: the doodad names no model
-    auto name = in.assetNames.find(fdid);
-    if (name == in.assetNames.end()) return canon::Ref{canon::FileDataId{fdid}, "", canon::NameSource::None};
-    return canon::Ref{canon::FileDataId{fdid}, name->second, canon::NameSource::Listfile};
+    return fileRef(in, fdid);
 }
 
 std::vector<canon::Model::OwnedSet> buildPlacementSets(const WmoInputs& in) {
@@ -130,6 +134,84 @@ std::vector<canon::Model::OwnedSet> buildPlacementSets(const WmoInputs& in) {
         sets.push_back(std::move(owned));
     }
     return sets;
+}
+
+constexpr int32_t kNewLightBlendsColors = 0x1;
+constexpr int32_t kNewLightCastsShadows = 0x2;
+
+canon::Vec3 colorOf(uint32_t bgra) {
+    std::array<uint8_t, 4> rgba = bgraToRgba(bgra);
+    return {rgba[0] / 255.0f, rgba[1] / 255.0f, rgba[2] / 255.0f};
+}
+
+canon::LocalLight buildNewLight(const WmoInputs& in, uint32_t index) {
+    const wmo::NewLight& l = in.root->newLights[index];
+    canon::LocalLight out;
+    out.ref = canon::Ref{canon::RecordIndex{index}, "mnld_" + std::to_string(index), canon::NameSource::Synthesized};
+    switch (l.type) {
+        case 0: out.kind = canon::LocalLight::Kind::Point; break;
+        case 1: out.kind = canon::LocalLight::Kind::Spot; break;
+        default:
+            throw std::runtime_error("MNLD[" + std::to_string(index) + "].type: expected 0 (point) or 1 (spot), got " +
+                                      std::to_string(l.type));
+    }
+    out.position = toCanon(l.position);
+    out.eulerRotation = toCanon(l.rotation);
+    out.color = colorOf(l.innerColor);
+    out.intensity = l.intensity;
+    out.intensityMultiplier = l.intensityMultiplier == 0.0f ? 1.0f : l.intensityMultiplier;
+    out.attenuationStart = l.attenuationStart;
+    out.attenuationEnd = l.attenuationEnd;
+    if (l.flags & kNewLightBlendsColors) {
+        out.gradient = canon::LocalLight::Gradient{colorOf(l.outerColor), l.blendStart, l.blendEnd};
+    }
+    if (out.kind == canon::LocalLight::Kind::Spot) {
+        out.cone = canon::LocalLight::Cone{l.falloff, l.innerAngle, l.outerAngle};
+    }
+    if (l.flickerMode != 0) {
+        out.flicker = canon::LocalLight::Flicker{static_cast<uint32_t>(l.flickerMode), l.flickerIntensity, l.flickerSpeed};
+    }
+    out.castsShadows = (l.flags & kNewLightCastsShadows) != 0;
+    out.shadowScale = l.scale;
+    if (l.cookieFileDataId != 0) out.cookie = fileRef(in, l.cookieFileDataId);
+    // parseRoot already checked doodadSet against MODS.
+    auto set = static_cast<uint32_t>(l.doodadSet);
+    out.placementSet = canon::Ref{canon::RecordIndex{set}, in.root->doodadSets[set].name, canon::NameSource::WmoEmbedded};
+    out.sourceFlags = static_cast<uint32_t>(l.flags);
+    return out;
+}
+
+canon::LocalLight buildLegacyLight(const WmoInputs& in, uint32_t index) {
+    const wmo::LegacyLight& l = in.root->legacyLights[index];
+    canon::LocalLight out;
+    out.ref = canon::Ref{canon::RecordIndex{index}, "molt_" + std::to_string(index), canon::NameSource::Synthesized};
+    switch (l.type) {
+        case 0: out.kind = canon::LocalLight::Kind::Point; break;
+        case 1: out.kind = canon::LocalLight::Kind::Spot; break;
+        case 2: out.kind = canon::LocalLight::Kind::Directional; break;
+        case 3: out.kind = canon::LocalLight::Kind::Ambient; break;
+        default:
+            throw std::runtime_error("MOLT[" + std::to_string(index) + "].type: expected 0..3, got " +
+                                      std::to_string(l.type));
+    }
+    out.position = toCanon(l.position);
+    if (out.kind == canon::LocalLight::Kind::Spot || out.kind == canon::LocalLight::Kind::Directional) {
+        out.rotation = canon::Quat{l.rotation[0], l.rotation[1], l.rotation[2], l.rotation[3]};
+    }
+    out.color = colorOf(l.color);
+    out.intensity = l.intensity;
+    out.attenuated = l.useAttenuation != 0;
+    out.attenuationStart = l.attenuationStart;
+    out.attenuationEnd = l.attenuationEnd;
+    out.sourceFlags = static_cast<uint32_t>(l.unknown[0]) | static_cast<uint32_t>(l.unknown[1]) << 8;
+    return out;
+}
+
+canon::Scene buildScene(const WmoInputs& in) {
+    canon::Scene scene;
+    for (uint32_t i = 0; i < in.root->newLights.size(); ++i) scene.localLights.push_back(buildNewLight(in, i));
+    for (uint32_t i = 0; i < in.root->legacyLights.size(); ++i) scene.localLights.push_back(buildLegacyLight(in, i));
+    return scene;
 }
 
 // Appends one group's vertices and batches to `mesh`. UV and colour sets a
@@ -231,7 +313,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
     for (uint32_t i = 0; i < root.materials.size(); ++i) materials.push_back(buildMaterial(in, i));
 
     return canon::assembleModel(canon::Skeleton{}, std::move(mesh), std::move(materials), std::move(primitiveMaterials),
-                                {}, {}, buildPlacementSets(in));
+                                {}, buildScene(in), buildPlacementSets(in));
 }
 
 }  // namespace husk::wmoinput

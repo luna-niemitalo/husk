@@ -263,12 +263,17 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   fog & particle volumes → liquids → culling domains/LODs; model detail
   (overlays, UV animation) alongside. See `WORLD_COMPLETENESS.md`.
   Done: M2 attachments/events/lights/emitters in `canon::Model::scene` and
-  the bundle (incl. `.skel` `SKA1`). WMO root/group parsing done
-  (`src/wmo.cpp`); placement-set design agreed (`REFACTOR/PLACEMENT_SETS.md`:
-  sets are generic, never baked, runtime-movable). **Next**: canon
-  `PlacementSet` + WMO canon type, a WMO bundle writer, an export command
-  (group files: GFID via listfile, `<root>_NNN.wmo` fallback -- undecided),
-  then terrain onto sets in the same change (MantleCore adapts once).
+  the bundle (incl. `.skel` `SKA1`). WMOs export as object bundles with
+  their doodad sets as placement sets (`husk export-wmo`,
+  `REFACTOR/PLACEMENT_SETS.md`); terrain tiles place doodads and WMOs as
+  two sets (MWDR/MWDS resolved), and `export-world` exports every placed
+  WMO -- **MantleCore must switch from the old `placements` array to
+  `placement_sets`**. WMO `MNLD`/`MOLT` lights are
+  `resources.local_lights`, each `MNLD` light switching with its doodad
+  set. **Next**: WMO particulate volumes (`MPVD`, struct unresolved, a
+  4,272-byte-record lead in `TODO/WORLD/FOG_VOLUMES_TODO.md` §2), the
+  light group refs/cookies (`TODO/WORLD/LIGHTING_TODO.md`'s update
+  block), then liquids (`MLIQ`).
   Client shaders are unpacked under `example_exports/shaders/`
   (`tools/export_shaders.py`).
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,

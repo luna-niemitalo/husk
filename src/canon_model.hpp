@@ -104,7 +104,8 @@ struct Model {
 // validating THAT reference is the consumer's job once cross-bundle
 // loading exists). Every bone reference in `scene` must be a `RecordIndex`
 // in range for `skeleton.joints`, every primitive's `part` must be in range
-// for `mesh.parts`, and instance ids must be unique within each placement set.
+// for `mesh.parts`, instance ids must be unique within each placement set, and a
+// local light's placement set must be a RecordIndex in range for `placementSets`.
 //
 // Every argument is taken by value and moved from -- this function's own
 // job is assembly, not borrowing; a caller done building these pieces has

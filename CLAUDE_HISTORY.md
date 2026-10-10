@@ -14,6 +14,27 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-10 — WMO doodads into the world, WMO lights.**
+
+- **Terrain onto placement sets**: a tile's `MDDF`/`MODF` placements are
+  two world-frame sets (`doodads`, `map_objects`), replacing the terrain
+  bundle's `placements` array (a MantleCore schema change, as agreed);
+  `MWDR`/`MWDS` resolved into `active_sets`. `export-world` exports every
+  placed WMO as an object bundle linked to its doodads. 300 seeded real
+  tiles clean; `2694_33_33`'s two `12xp_cave13` placements turn on sets
+  [2, 8] and [5, 6].
+- **WMO lights**: `MNLD` and `MOLT` parsed and written as
+  `resources.local_lights` (`canon::LocalLight`); an `MNLD` light names
+  the doodad set it switches with (13% of real lights use a non-default
+  set). 80 seeded light-bearing WMOs export cleanly (7,432 lights, all 692
+  cookies listfile-named).
+- **Particles**: a WMO's only particle data is `MPVD` particulate
+  volumes; a 4,272-byte-record lead is logged in
+  `TODO/WORLD/FOG_VOLUMES_TODO.md`, nothing exported yet. Doodads'
+  own M2 emitters already ship in their model bundles.
+
+---
+
 **2026-10-09 — Shader export; canon scene records (attachments, lights, emitters).**
 Luna set the target: canonical bundle first (MantleCore consumes it), glTF
 and Blender third. Priority order recorded in `WORLD_COMPLETENESS.md`.

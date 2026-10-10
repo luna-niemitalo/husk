@@ -87,6 +87,7 @@
 //     "attachments": [ ... ],
 //     "events": [ ... ],
 //     "lights": [ ... ],
+//     "local_lights": [ ... ],
 //     "emitters": { "ribbons": [ ... ], "particles": [ ... ] },
 //     "placement_sets": [ ... ]
 //   }
@@ -113,6 +114,26 @@
 //       "flags": <uint32, source placement flags raw>,
 //       "active_sets": [ <Ref> ] } ]   // omitted = the placed asset's always-on sets only
 // }
+// ```
+//
+// ### resources.local_lights
+// Static lights the model places (WMO MNLD, then MOLT), model space, no bone:
+// ```json
+// [ { "ref": <Ref, name "mnld_<i>" | "molt_<i>">,
+//     "kind": "point"|"spot"|"directional"|"ambient",
+//     "position": [x,y,z],
+//     "rotation": [x,y,z,w],            // OMITTED unless stored as a quaternion (MOLT spot/directional)
+//     "euler_rotation": [x,y,z],        // OMITTED unless stored as Euler radians (MNLD; axis order undocumented)
+//     "color": [r,g,b],                 // 0..1 as stored, no gamma decode
+//     "intensity": <f>, "intensity_multiplier": <f>,
+//     "attenuated": <bool>, "attenuation_start": <f>, "attenuation_end": <f>,
+//     "gradient": { "outer_color": [r,g,b], "blend_start": <f>, "blend_end": <f> },  // OMITTED when one colour
+//     "cone": { "falloff_exponent": <f>, "inner_angle": <f>, "outer_angle": <f> },   // spot only; radians
+//     "flicker": { "mode": 1 sine | 2 noise | 3 noise step, "intensity": <f>, "speed": <f> },  // OMITTED when steady
+//     "casts_shadows": <bool>, "shadow_scale": <f>,
+//     "cookie": <Ref>,                  // OMITTED when none; projected texture identity (cube map for points)
+//     "placement_set": <Ref>,           // OMITTED = always on; else on only while that owned set is
+//     "source_flags": <uint32> } ]
 // ```
 //
 // Every `position` in attachments/events/lights/emitters is a point in the
