@@ -296,9 +296,9 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   **Terrain tile and map-scene bundles do not conform yet.** Next, in
   order: (3) terrain tile becomes a `model` in its own frame; (4) `world` document
   (grid + off-grid placements + map scene, replacing `map_scene`);
-  MantleCore must follow each stage. `/media/luna/data/wow_export` was
-  renamed (`wow_export_old`/`_superseded`, `wow_storage`) on 2026-10-10;
-  corpus runs and 3 DB2 tests need the new path. After the format work:
+  MantleCore must follow each stage. **Stage 3 waits on the corpus**
+  (see the corpus hazard below): real tiles are needed to verify the new
+  tile frame. After the format work:
   LOD (`MFOB` waits on the CASC side); open
   items per feature in `TODO/WORLD/LIGHTING_TODO.md`, `LIQUID_TODO.md` §1
   and `FOG_VOLUMES_TODO.md` §2.
@@ -314,6 +314,17 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   has never run: copy that tile in and run it once.
 - **Hazards** (standing facts, not narrative — see `CLAUDE_HISTORY.md` for
   the sessions that established each one):
+  - **Corpus location (2026-10-10, Luna)**: the extracted corpus moves
+    from `/media/luna/data/wow_export` (gone; `wow_export_old`/
+    `wow_export_superseded` beside it are not the current one) to
+    `/media/luna/wow_export`, a FUSE mount from the CASC work that
+    makes source-data updates declarative and deduplicated. It may be
+    absent: when it is, ask Luna, who gives the command to mount it.
+    Never mount it, and never edit anything outside this repo for it
+    (the old path in `~/.config/husk/config.toml` is Luna's to change).
+    The old path is still hardcoded in `src/db2.hpp`, three tests
+    (`test_dbd.cpp`, `test_cli_db2.cpp`) and about 20 `tools/` scripts;
+    repoint them when work resumes.
   - `tools/corpus_scan_tasks/unfillable_texture_task.py` is the one true
     source for "does this file's texture actually resolve" —
     `missing_texture_task.py` is an older, simpler check that over-flags;
