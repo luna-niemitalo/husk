@@ -18,8 +18,25 @@ real tiles from the local corpus. The code that relies on each one is
   Unresolved whether that was a wrong-bit read or the data changed (the
   corpus was re-extracted 2026-08-22). The low-res expansion path is
   wiki-only and unexercised by real data.
-- `MDDF.flags` `0x200` occurs (~18% of Elwynn placements) and is not in the
-  wiki enum.
+- `MDDF.flags` `0x200` occurs and is not in the wiki enum (its
+  `MDDFFlags` jumps 0x100 → 0x1000). Characterized 2026-10-11 over a
+  seeded 4,000-file `_obj0.adt` sample (of 55,495; 767,816 placements):
+  set on **29.4%** of all placements, almost always together with `0x40`
+  (`entry_is_filedata_id` — combos 0x240/0x244 dominate). It is
+  **per-placement, not per-model**: 1,726 models occur both ways (one
+  11× with vs 2,065× without), vs 2,891 always-flagged / 16,716
+  never-flagged. The flagged population is overwhelmingly decorative
+  ground clutter/foliage from BfA (8.x) onward — rocks, bushes, ivy,
+  river/underwater plants — while the same *kinds* of models from older
+  expansions (classic starfish/seaweed, Legion watergrass) go unflagged;
+  correlation with placement recency via `uniqueId` is positive but weak
+  (flagged median 36.4M vs 20.6M, heavy overlap), and scale distribution
+  is indistinguishable. Reading: a per-placement rendering/culling
+  behavior toggle the modern editor sets on scatter-type clutter (a
+  detail-doodad-style fade/cull class is the natural candidate — the
+  client has a dedicated `detaildoodad` shader family); the exact client
+  behavior isn't derivable from map bytes or the shader dump alone.
+  `wow.export` doesn't know the bit either.
 - A `_tex0` without `MDID` exists: untextured (ocean) tiles carry an `MTEX`
   holding only an empty string (23/400 sampled, e.g. `kultiras_33_45`). So
   `ADT_TERRAIN_TODO.md`'s "MDID in 1,500/1,500" does not hold for the

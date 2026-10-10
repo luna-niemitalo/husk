@@ -171,42 +171,82 @@ shader, so the client animates intensity.
 implementation priority. Legacy `MCLQ` confirmed genuinely absent (0/4,000).
 `MOLS`/`MOLP`/`MLSS`/`MLSP`/`MPVR`/`MAVR`/`MBVR`/`MFVR`/`MNLR` are all
 **group**-file chunks (nested in `MOGP`), not root-level, despite reading as
-root-level candidates from the wiki's own page layout. A wholly undocumented
-chunk, **`VFE2`** (176 bytes), was found in real `_fogs.wdt` files by two
-independent investigations — real, present, absent from `WDT.md` entirely,
-not yet reverse-engineered. `MPVD`'s record layout is now reverse-engineered —
-see the dedicated section below.
+root-level candidates from the wiki's own page layout. The wholly
+undocumented `_fogs.wdt` chunk **`VFE2`** and `MPVD`'s record layout are
+both now reverse-engineered — see the dedicated sections below.
 
-## WMO `MPVD` (particulate volumes) — reverse-engineered (2026-10-10)
+## `_fogs.wdt` `VFE2` — reverse-engineered (2026-10-11)
 
-The wiki gives no fields at all ("Unknown"). Reverse-engineered from every
-`MPVD` in the corpus: **62 root WMOs, 193 records, every chunk size an exact
-multiple of 4,272 bytes** — the record stride is settled. A cross-check
-against the client shaders' `cb_particulate_volume` was attempted first: the
-DXIL keeps only the type sequence of `VS_ParticulateVolume` (944 bytes,
-offsets computed and verified against the binding size), no member names —
-the dx_5_0 DXBC blobs are stripped of reflection too, so field *names* came
-from value analysis, not the shaders.
+Absent from `WDT.md` entirely (found in real files by two independent husk
+investigations). Decoded from **all 1,542 real records across the 90
+`_fogs.wdt` files with content** (all `MVER=2`): 176 bytes (0xB0), strictly
+**one per `VFOG` record — 1,542 : 1,542 : 1,542 with `VFOG` and `VFEX`** —
+paired positionally *and* carrying its `VFOG.id` at +0x4C (both checks
+1,542/1,542, same dual pairing `VFEX` uses).
+
+| Offset | Type | Values | Meaning |
+|---|---|---|---|
+| +0x00 | float×3 | byte-quantized RGB (n/255 in 1,542/1,542) | color A (nonzero in ~1,539) |
+| +0x0C | float | 0.04..0.2 | density-like scalar |
+| +0x10 | float | 0.5..1.1 | scalar |
+| +0x14, +0x18 | float | 0.1..0.55, often 0 | scalars |
+| +0x1C | float | 0.25..1.1 | scalar |
+| +0x20 | float×3 | byte-quantized RGB | color B (dimmer than A) |
+| +0x2C | float×3 | byte-quantized RGB | color C (dimmer than A) |
+| +0x38 | float | 0.3..0.7 | scalar |
+| +0x3C | float | exactly 1.0 or 2.0 | mode/type |
+| +0x40..+0x48 | float×3 | 0.01..3 | scalars (exponent/curve-like) |
+| +0x4C | uint32 | 460..1934 | **`VFOG.id` cross-reference** (1,542/1,542) |
+| +0x50, +0x54 | float | 10..35, rare (122/1,542) | distance/angle-like pair |
+| +0x58, +0x5C | float | rare | scalars |
+| +0x68 | float | 0 or 1 (285/1,542) | bool |
+| +0x70.. | — | zero in all 1,542 records | reserved |
+
+The three-color + density/curve-scalar palette matches the client fog
+model's per-record color roles (fog near/far color, height-fog color,
+sun-fog color — `SHADER_FINDINGS/notes/fog.md`'s field-role table), so the
+likely reading is `VFE2` = the volumetric fog's own color/curve override
+set; **candidate roles only, not confirmed mappings** — confirming them
+means tracing how the client fills `cb5` fog records from `VFOG`/`VFE2`
+data, which the shader dump alone can't show.
+
+## Particulate volumes: WMO `MPVD` and `_mpv.wdt` `PVMI` — reverse-engineered (2026-10-10/11)
+
+The wiki gives no fields at all for `MPVD` ("Unknown") and hedges `PVMI` as
+"a huge blob... might not actually be pure binary WWFParticulateGroups".
+**Both are the same 4,272-byte particulate-volume record**; `PVMI` appends a
+40-byte map-placement trailer (4,312 = 4,272 + 40). Reverse-engineered from
+every instance in the corpus: **62 root WMOs / 193 `MPVD` records** (every
+chunk size an exact multiple of 4,272 — stride settled) and **619 `PVMI`
+blobs across 48 `_mpv.wdt` maps** (617/619 pass the color+texture-FileDataID
+signature; the two misses have zero/odd fields, not a different layout). A
+cross-check against the client shaders' `cb_particulate_volume` was
+attempted first: the DXIL keeps only the type sequence of
+`VS_ParticulateVolume` (944 bytes, offsets computed and verified against the
+binding size), no member names — the dx_5_0 DXBC blobs are stripped of
+reflection too, so field *names* came from value analysis, not the shaders.
+One map-side texture path is the semantic smoking gun:
+`environments/particulatevolumes/textures/8xp_ash_tumbling_02.blp`.
 
 **Record shape** (4,272 = 0x10B0 bytes): a 720-byte header, then an array of
-**four 844-byte (0x34C) emitter entries** at +0x2D0, then a 176-byte trailer.
-720 + 4·844 + 176 = 4,272 exactly. Corpus usage: every record uses entry 0,
-exactly one record (`10xt_exterior_tunnel01.wmo`) uses entry 1, none use 2/3 —
-the 844 stride is confirmed by that one two-entry record (its entry-1 color,
-texture FileDataID, int quad and trailing float all land on the same relative
-offsets as entry 0), the four-slot capacity is arithmetic fit, not observed.
+**four 844-byte (0x34C) emitter entries** at +0x2D0, then a 176-byte tail
+whose final dword (+0x10AC) is the **emitter-entry count** — it equals the
+number of nonzero entry slots in **all 193 + all 619 records** (map-side
+usage: 619/194/31/2 for entries 0–3, so the four-slot capacity and the 844
+stride are both directly observed at scale, including two real 4-emitter
+volumes).
 
 Header (offsets record-relative; "n/193" = records with the field nonzero):
 
 | Offset | Type | Meaning | Evidence |
 |---|---|---|---|
-| +0x00 | uint32 | flags — values {1, 17, 21, 29}: bit 0 always set, bits 2–4 vary | 193/193 |
+| +0x00 | uint32 | flags — WMO values {1, 17, 21, 29} (bit 0 always set, bits 2–4 vary); map-side (`PVMI`) uses far more bits, values 3..415 | 193/193, 619/619 |
 | +0x04 | uint32 | unknown, {0, 2} | 2/193 |
-| +0x08 | float×3 | position (WMO-local) | plausible local coords, 192/193 |
+| +0x08 | float×3 | position (WMO-local in `MPVD`; world-space in `PVMI`) | plausible coords, 192/193 |
 | +0x14 | float×3 | extent (box size; 7..4000 per axis) | 193/193 |
 | +0x20 | float×3 | rotation, radians (mostly 0; ±π seen at +0x28) | sparse |
 | +0x2C | float | unknown, {0.5..10}, often 1 | 193/193 |
-| +0x30 | uint32 | unknown id — **not** a FileDataID (listfile hits are nonsense: minimaps, emblems), not per-file-constant (15/62 files have several), but *shared across unrelated files* (16386 very common) — reads as a preset/template reference | 193/193, 39 distinct |
+| +0x30 | uint32 | unknown id — **not** a FileDataID (listfile hits are nonsense: minimaps, emblems), not per-file-constant (15/62 WMOs have several), but *shared across unrelated files* (16386 very common; 66 distinct map-side) — reads as a preset/template reference | 193/193, 39 distinct |
 | +0x34 | uint32 | particle count/density-like int, 25..14,000 | 193/193 |
 | +0x38 | uint32 | bool-ish {0,1} | 17/193 |
 | +0x3C | float | 0.09..1 (density/opacity-like) | 193/193 |
@@ -228,8 +268,25 @@ Emitter entry (offsets entry-relative; entry 0 at record +0x2D0):
 | +0xA8 | float | 1..35 | 181/193 |
 | +0xAC.. | — | extended fields, near-always zero (one record sets a handful) | 1/193 |
 
-Trailer: zero except the final dword at record +0x10AC, uint32 {1, 2} in all
-193 records (version or shape-type).
+Record tail (+0x1000..+0x10AF): zero except the final dword at +0x10AC —
+the **emitter-entry count** (1..4), confirmed against the nonzero entry
+slots in all 193 `MPVD` + all 619 `PVMI` records.
+
+`PVMI`'s extra 40-byte map-placement trailer (offsets record-relative,
+verified in all 619 blobs):
+
+| Offset | Type | Meaning | Evidence |
+|---|---|---|---|
+| +0x10B0 | float×3 | world AABB min | min ≤ max componentwise, 619/619 |
+| +0x10BC | float×3 | world AABB max | ditto |
+| +0x10C8 | uint32 | **globally unique volume id** (185..1934; same convention as `VFOG.id`) | 619 distinct in 619 blobs |
+| +0x10CC | uint32 | **count of the sibling `PVPD` chunk's records** | equal in 619/619 groups (and never equals the `PVBD` count) |
+| +0x10D0 | float | AABB max.z again | byte-identical to +0x10C4, 619/619 |
+| +0x10D4 | float | AABB min.z again | byte-identical to +0x10B8, 619/619 |
+
+So a `(PVMI, PVPD, PVBD)` group is one particulate volume: `PVMI` holds the
+emitter definition (shared with WMO `MPVD`) plus its world box and id, and
+its trailer's count field ties the `PVPD` records to it explicitly.
 
 ## Collision & culling — verified
 

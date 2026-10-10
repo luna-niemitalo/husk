@@ -101,8 +101,13 @@ export as linked model bundles (`export-world`); WMOs stay identity-only.
    doodad with a known in-game facing.
 2. **`MODF` transform** shares the `MDDF` code per the wiki; unverified
    until a consumer renders WMO bundles in place.
-3. **`MDDF.flags` `0x200`** (~18% of Elwynn placements) is not in the wiki
-   enum; carried through as `flags`, meaning unknown.
+3. **`MDDF.flags` `0x200`**: characterized corpus-wide 2026-10-11 (see
+   `../../WIKI_FINDINGS/ADT.md`) — a per-placement bit on 29.4% of all
+   placements, set by the modern editor on BfA+ ground clutter/foliage;
+   exact client behavior unknown (detail-doodad-style fade/cull is the
+   candidate). Still carried through as `flags`; nothing for a consumer
+   to act on until the behavior is pinned, so this item is now
+   watch-only.
 
 ## WMO's own internal doodad set (`MODS`/`MODN`/`MODI`/`MODD`/`MDDI`, `MWDR`/`MWDS`)
 

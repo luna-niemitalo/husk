@@ -177,7 +177,8 @@ group-scoped (nested in `MOGP`, per the Scoping correction in
 ### Struct, as documented
 
 ```
-struct MPVD { /* Unknown -- wiki gives no fields at all */ } particulateVolumes[];
+struct MPVD { /* wiki: "Unknown". Layout since reverse-engineered here --
+                 see ../../WIKI_FINDINGS/WORLD.md "WMO MPVD" */ } particulateVolumes[];
 
 struct MAVG {                        // 48 bytes -- global ambient (pos/start/end always 0)
     C3Vector pos; float start, end;
@@ -372,22 +373,16 @@ verifiable foreign-key relationship, not just plausible-looking).
 `(70,70,25)`, `(225,225,225)`) — consistent with the wiki's own "first 3
 floats always seem to have proper values" hedge.
 
-**A real, previously-undocumented finding**: immediately following the
-6 `VFOG`/`VFEX` pairs in this same real file, this session's scan found
-**6 more chunks tagged `VFE2`, 176 bytes each, one per `VFOG` entry** —
-a tag **not mentioned anywhere in `WDT.md`'s `_fogs` section at all**.
-Not decoded further this session (a genuinely new discovery made late in
-the investigation, flagged rather than guessed at blind) — worth a
-dedicated follow-up pass (the same "check plausible field values, find
-the record stride, cross-reference against `VFOG_ID` if one exists"
-method this whole document already uses). Given the naming pattern
-(`VFOG`→`VFEX`→`VFE2`), this is plausibly a *third* extension chunk
-(War Within added `VFEX` as "version 2 of the format"; `VFE2` could be a
-still-newer, even-more-recent addition the currently-mirrored wiki
-snapshot simply predates) — a real, concrete lead for
-`documentation/wowdev-wiki/HUSK_AMENDMENTS.md`-style follow-up once a
-later pass folds this document's findings back into `../../WIKI_FINDINGS.md`,
-per this investigation's own instructions.
+**`VFE2`: reverse-engineered (2026-10-11)** — the undocumented third
+chunk (176 bytes, no `WDT.md` entry at all) is now decoded corpus-wide:
+**1,542 records across 90 files, strictly 1:1:1 with `VFOG` and `VFEX`**
+(1,542 each), paired positionally *and* carrying its `VFOG.id` at +0x4C
+(1,542/1,542 both ways). Full field table in
+`../../WIKI_FINDINGS/WORLD.md`'s `_fogs.wdt` section: three
+byte-quantized RGB colors + ~10 scalars + a {1,2} mode float — a palette
+matching the client fog model's color roles (fog near/far, height-fog,
+sun-fog colors; `SHADER_FINDINGS/notes/fog.md`), noted there as
+candidate roles, not confirmed mappings.
 
 ### C++ data-model sketch
 
@@ -425,12 +420,19 @@ struct VolumetricFogExtra {
     std::array<uint32_t, 6> unk3through8{};
 };
 
-// VFE2 -- undocumented on wowdev.wiki as of this session's mirror
-// (wiki_revision unknown), found this session via real corpus bytes.
-// 176 bytes, one per VFOG entry in the one real file checked. Exposed
-// raw until decoded.
-struct VolumetricFogExtra2Raw {
-    std::array<uint8_t, 176> rawBytes{};
+// VFE2 -- undocumented on wowdev.wiki; decoded 2026-10-11 from all
+// 1,542 real records (../../WIKI_FINDINGS/WORLD.md, "_fogs.wdt VFE2").
+// Strictly one per VFOG, positional AND id-matched.
+struct VolumetricFogExtra2 {
+    Vec3 colorA;                        // byte-quantized RGB
+    float unk0C = 0, unk10 = 0, unk14 = 0, unk18 = 0, unk1C = 0;
+    Vec3 colorB, colorC;                // byte-quantized RGB
+    float unk38 = 0, mode = 0;          // mode: 1.0 or 2.0
+    float unk40 = 0, unk44 = 0, unk48 = 0;
+    uint32_t vfogId = 0;                // +0x4C -> VFOG.id
+    float unk50 = 0, unk54 = 0, unk58 = 0, unk5C = 0;
+    float pad60 = 0, pad64 = 0, unk68 = 0;  // unk68: 0 or 1
+    std::array<uint8_t, 0x40> zeroTail{};   // +0x70..0xAF, zero in corpus
 };
 
 }  // namespace husk::wdt
@@ -447,8 +449,8 @@ treating this the same as WMO fog (item 1): a real anchor becomes
 possible once map-level scene structure exists, `node-possible,
 unclaimed` until then.
 
-- **Parse**: `full` for `VFOG`/`VFEX` (confirmed); `descriptor` for
-  `VFE2` (undocumented, raw bytes only).
+- **Parse**: `full` for `VFOG`/`VFEX` (confirmed); `deref` for `VFE2`
+  (structure + pairing resolved; scalar semantics candidate-only).
 - **Consumption**: `diagnostic` (`dump-chunks` JSON, once `.wdt`
   sidecar-of-a-sidecar support exists at all).
 - **glTF ceiling**: `node-possible, unclaimed`.
@@ -506,13 +508,13 @@ not 48. Flagged prominently here since it's the one place this whole
 document's real data required a mid-session correction to the scanning
 methodology itself, not just a struct detail.
 
-**`PVMI` size confirms the version enum directly**: `4312` bytes exactly
-= `0x10D8` = `mpv_version_3`'s documented size, matching the file's own
-`MVER=3` — a clean, self-consistent cross-check (not decoded field-by-
-field, since the wiki itself only calls this "a huge blob... might not
-actually be pure binary `WWFParticulateGroups`" — genuinely opaque, not
-worth reverse-engineering without more specific evidence of its internal
-shape).
+**`PVMI`: resolved (2026-10-11)** — it is the same 4,272-byte
+particulate-volume record as WMO `MPVD` plus a 40-byte map trailer
+(world AABB + globally unique volume id + sibling-`PVPD` record count,
+all verified in 619/619 blobs); full layout in
+`../../WIKI_FINDINGS/WORLD.md`'s "Particulate volumes" section. Size
+`4312 = 0x10D8` also confirms the wiki's `mpv_version_3` enum against
+the files' own `MVER=3`.
 
 **`PVPD` fully confirmed, 16 bytes exactly** (`96/16=6`, `160/16=10`,
 etc., all exact across every real hit). Decoded 5 real records: `_unk00`
@@ -551,11 +553,13 @@ struct ParticulateVolumePd {   // PVPD
     float unk0c = 0;             // plausible world-space coordinate
 };
 
-// PVMI -- opaque per the wiki's own hedge ("might not actually be pure
-// binary WWFParticulateGroups"), exposed raw, sized per mpv_version.
-struct ParticulateVolumeMiRaw {
-    std::vector<uint8_t> rawBytes;  // 0xF5C/0xFE8/0x10D8 per version, confirmed 0x10D8 for v3 this session
-};
+// PVMI -- resolved 2026-10-11: the same 4,272-byte particulate-volume
+// record as WMO MPVD (../../WIKI_FINDINGS/WORLD.md, "Particulate
+// volumes"), plus a 40-byte map trailer (world AABB, globally unique
+// volume id, sibling-PVPD record count). v0-2 sizes (0xF5C/0xFE8)
+// presumably older record revisions -- no real bytes in this corpus,
+// all 619 real blobs are v3 (0x10D8).
+struct ParticulateVolumeMi { /* share the MPVD struct + trailer */ };
 
 struct Box { float min[3]{}, max[3]{}; };  // CAaBox
 
@@ -590,8 +594,9 @@ single position the way M2 ribbon/particle anchors are. Recommend the
 same `node-possible, unclaimed` ceiling, deferred until map-level scene
 structure exists.
 
-- **Parse**: `full` for `PVPD`/`PVBD` (confirmed); `descriptor` for
-  `PVMI` (opaque blob, no internal structure resolved or attempted).
+- **Parse**: `full` for `PVPD`/`PVBD` (confirmed); `deref` for `PVMI`
+  (layout resolved, shared with `MPVD`; semantics-open fields stay
+  raw-annotated, same as `MPVD`'s own).
 - **Consumption**: `diagnostic` (`dump-chunks` JSON, once `.wdt`
   sidecar-of-a-sidecar support exists at all).
 - **glTF ceiling**: `node-possible, unclaimed`.
@@ -609,7 +614,7 @@ structure exists.
    highest per-file prevalence (19.4%) of anything in this document,
    even though most real instances are just the placeholder default.
 3. **Map-level fog volumes (item 3)** — third: fully confirmed struct
-   plus a real, concrete new-chunk lead (`VFE2`) worth chasing, but
+   plus `VFE2` now decoded too (2026-10-11), but
    rarer (10.9% of an already-thin 753-file universe) than item 4.
 4. **WMO particulate/ambient/box volumes (item 2)** — fourth:
    `MAVG`/`MAVD`/`MBVD` are fully confirmed and cheap, and `MPVD`'s
@@ -651,7 +656,8 @@ regression tests should assert exact record counts and spot-check the
 specific decoded values this document already reports (the `MFOG`
 default-value match, the `PVPD` `-0.0`/`[-1,1]` match, the `VFOG`/`VFEX`
 id cross-reference) as concrete, reproducible pass/fail conditions —
-**not** `PVMI`, which has no confirmed struct to assert against yet.
+`PVMI` regression tests can assert the trailer invariants (AABB min≤max,
+unique id, `PVPD`-count equality) plus the shared-`MPVD` record fields.
 `MPVD` regression tests can now assert real decoded values too
 (`12xp_arcantina01.wmo`'s two records, or `10xt_exterior_tunnel01.wmo`'s
 unique two-emitter record — see `../../WIKI_FINDINGS/WORLD.md`).
