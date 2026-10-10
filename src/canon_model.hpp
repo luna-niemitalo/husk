@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "canon_animation.hpp"  // BoneAnimationCurves
+#include "canon_collision.hpp"  // CollisionMesh
 #include "canon_curve.hpp"      // SequenceRef
 #include "canon_liquid.hpp"     // LiquidGrid
 #include "canon_material.hpp"   // Material
@@ -94,6 +95,7 @@ struct Model {
     };
     std::vector<OwnedSet> placementSets;
     std::vector<LiquidGrid> liquids;
+    CollisionMesh collision;  // empty = the model has none
 };
 
 // Packs already-built canon:: pieces into a Model, validating the
@@ -110,7 +112,9 @@ struct Model {
 // local light's or ambient volume's placement set must be a RecordIndex in range
 // for `placementSets`.
 // Each liquid's part and RecordIndex material must be in range, and its
-// arrays sized to its grid.
+// arrays sized to its grid. Collision indices must be in range for its
+// positions, three per triangle, and each per-triangle array empty or one
+// per triangle, its parts in range for `mesh.parts`.
 //
 // Every argument is taken by value and moved from -- this function's own
 // job is assembly, not borrowing; a caller done building these pieces has
@@ -118,7 +122,7 @@ struct Model {
 Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> materials,
                      std::vector<Identity> primitiveMaterials, std::vector<AnimationClip> animations,
                      Scene scene = {}, std::vector<Model::OwnedSet> placementSets = {},
-                     std::vector<LiquidGrid> liquids = {});
+                     std::vector<LiquidGrid> liquids = {}, CollisionMesh collision = {});
 
 // Resolves `model.primitiveMaterials[primitiveIndex]` to an index into
 // `model.materials` -- the one shared implementation of this lookup (I2):

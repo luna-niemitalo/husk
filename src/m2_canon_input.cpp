@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <tuple>
 
+#include "canon_policy.hpp"
 #include "m2_animation.hpp"        // readTrackMeta, TrackMeta::kNoGlobalSequence
 #include "m2_animation_input.hpp"
 #include "m2_material_input.hpp"
@@ -101,6 +102,16 @@ using MaterialKey = std::tuple<uint16_t, uint16_t, uint16_t, uint16_t, uint16_t,
 MaterialKey materialKeyFor(const skin::Batch& b) {
     return {b.materialIndex,          b.textureCount,           b.textureComboIndex, b.textureCoordComboIndex,
             b.colorIndex,             b.textureWeightComboIndex, b.textureTransformComboIndex};
+}
+
+canon::CollisionMesh buildCollision(const m2::Model& model) {
+    canon::enforcePartialFailurePolicy(model, "collision_mesh", canon::PartialFailurePolicy::Strict);
+    const m2::CollisionMesh& c = model.collisionMesh;
+    canon::CollisionMesh out;
+    for (const m2::Vec3& p : c.positions) out.positions.push_back({p.x, p.y, p.z});
+    out.indices.assign(c.indices.begin(), c.indices.end());
+    for (const m2::Vec3& n : c.faceNormals) out.triangleNormals.push_back({n.x, n.y, n.z});
+    return out;
 }
 
 }  // namespace
@@ -255,7 +266,8 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
                                            : nullptr);
 
     return canon::assembleModel(std::move(skeleton), std::move(mesh), std::move(materials),
-                                 std::move(primitiveMaterials), std::move(animations), std::move(scene));
+                                 std::move(primitiveMaterials), std::move(animations), std::move(scene), {}, {},
+                                 buildCollision(model));
 }
 
 }  // namespace husk::m2input

@@ -339,6 +339,41 @@ canon::LiquidGrid buildLiquid(const WmoInputs& in, uint32_t part, const wmo::Gro
     return out;
 }
 
+constexpr uint16_t kPolyDetail = 0x04;
+constexpr uint16_t kPolyCollision = 0x08;
+constexpr uint16_t kPolyRender = 0x20;
+
+// WMO.md SMOPoly::isCollidable. The BSP (MOBN/MOBR) can't select instead:
+// in all 2,628 sampled real BSP groups it indexes every triangle.
+bool isCollidable(uint16_t flags) {
+    return (flags & kPolyCollision) || ((flags & kPolyRender) && !(flags & kPolyDetail));
+}
+
+// Every group's collidable triangles, with only the vertices they use.
+canon::CollisionMesh buildCollision(const WmoInputs& in) {
+    canon::CollisionMesh out;
+    constexpr uint32_t kUnmapped = UINT32_MAX;
+    for (uint32_t part = 0; part < in.groups.size(); ++part) {
+        if (!in.groups[part]) continue;
+        const wmo::GroupFile& g = *in.groups[part];
+        std::vector<uint32_t> remap(g.positions.size(), kUnmapped);
+        for (size_t t = 0; t < g.triangles.size(); ++t) {
+            if (!isCollidable(g.triangles[t].flags)) continue;
+            for (size_t k = 0; k < 3; ++k) {
+                uint32_t v = g.indices[3 * t + k];
+                if (remap[v] == kUnmapped) {
+                    remap[v] = static_cast<uint32_t>(out.positions.size());
+                    out.positions.push_back(toCanon(g.positions[v]));
+                }
+                out.indices.push_back(remap[v]);
+            }
+            out.triangleParts.push_back(part);
+            out.triangleSourceFlags.push_back(g.triangles[t].flags);
+        }
+    }
+    return out;
+}
+
 // Appends one group's vertices and batches to `mesh`. UV and colour sets a
 // group lacks are zero-filled so every vertex has every set; the part's own
 // flags say which sets the group really has.
@@ -470,7 +505,8 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
     for (uint32_t i = 0; i < root.materials.size(); ++i) materials.push_back(buildMaterial(in, i));
 
     return canon::assembleModel(canon::Skeleton{}, std::move(mesh), std::move(materials), std::move(primitiveMaterials),
-                                {}, buildScene(in), buildPlacementSets(in), std::move(liquids));
+                                {}, buildScene(in), buildPlacementSets(in), std::move(liquids),
+                                buildCollision(in));
 }
 
 }  // namespace husk::wmoinput

@@ -467,6 +467,30 @@ TEST_CASE("buildCanonWmo: inconsistent inputs throw with expected and actual") {
                          std::runtime_error);
 }
 
+TEST_CASE("buildCanonWmo: collision keeps WMO.md's collidable faces, with only the vertices they use") {
+    wmo::RootFile root = syntheticRoot();
+    wmo::GroupFile g = group(6, 1, 0, 4);
+    g.indices = {0, 1, 2, 3, 4, 5, 1, 2, 3, 5, 4, 0};
+    // Render face; detail face (no collision); collision-only face;
+    // detail face also flagged collision.
+    g.triangles = {{0x20, 0}, {0x24, 0}, {0x08, 0xFF}, {0x0C, 0}};
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {std::nullopt, g};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    const canon::CollisionMesh& c = model.collision;
+    CHECK(c.triangleSourceFlags == std::vector<uint32_t>{0x20, 0x08, 0x0C});
+    CHECK(c.triangleParts == std::vector<uint32_t>{1, 1, 1});
+    // Group vertices 0,1,2 then 3 and 5 then 4: first use order.
+    CHECK(c.indices == std::vector<uint32_t>{0, 1, 2, 1, 2, 3, 4, 5, 0});
+    REQUIRE(c.positions.size() == 6);
+    CHECK(c.positions[3].x == 3.0f);
+    CHECK(c.positions[4].x == 5.0f);
+    CHECK(c.triangleNormals.empty());
+}
+
 TEST_CASE("buildCanonWmo: MFOG fogs become local fogs; parts name theirs, MFED picks the doodad set") {
     wmo::RootFile root = syntheticRoot();
     wmo::Fog exitFog;

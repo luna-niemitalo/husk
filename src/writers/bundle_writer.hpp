@@ -94,7 +94,8 @@
 //     "emitters": { "ribbons": [ ... ], "particles": [ ... ] },
 //     "particulate_volumes": [ ... ],
 //     "placement_sets": [ ... ],
-//     "liquids": [ ... ]
+//     "liquids": [ ... ],
+//     "collision": { ... }   // OMITTED when the model has none
 //   }
 // }
 // ```
@@ -135,6 +136,18 @@
 // ```
 // Every array is row-major, x fastest. Heights of vertices no existing tile
 // touches are not meaningful.
+//
+// ### resources.collision (backed by collision.bin; key and file OMITTED when the model has none)
+// The triangles the model collides with, model space, self-contained (its
+// own vertices). WMO: every group's faces passing WMO.md's isCollidable
+// (flag 0x08, or 0x20 without 0x04); M2: its collision mesh.
+// ```json
+// { "positions": <BufferSlice f32x3>,
+//   "indices": <BufferSlice u32x1, three per triangle>,
+//   "triangle_parts": <BufferSlice u32x1, per triangle, into mesh.parts>,    // OMITTED without parts (M2)
+//   "triangle_source_flags": <BufferSlice u32x1, per triangle, MOPY/MPY2 flags raw>,  // OMITTED for M2
+//   "triangle_normals": <BufferSlice f32x3, per triangle> }                  // OMITTED for WMO
+// ```
 //
 // ### resources.particulate_volumes (backed by particulate.bin, written only when non-empty)
 // Boxes the client fills with ambient particles (WMO MPVD), model space.

@@ -532,6 +532,10 @@ GroupFile parseGroup(const std::vector<uint8_t>& fileBytes) {
     if (g.indices.size() % 3 != 0) {
         throw ParseError("MOVI: expected a multiple of 3 indices, got " + std::to_string(g.indices.size()));
     }
+    if (!g.triangles.empty() && g.triangles.size() != g.indices.size() / 3) {
+        throw ParseError("MOPY/MPY2: expected one entry per MOVI triangle (" + std::to_string(g.indices.size() / 3) +
+                         "), got " + std::to_string(g.triangles.size()));
+    }
     size_t vertexCount = g.positions.size();
     if (!g.normals.empty()) requireVertexCount("MONR", g.normals.size(), vertexCount);
     for (const auto& uv : g.uvSets) requireVertexCount("MOTV", uv.size(), vertexCount);

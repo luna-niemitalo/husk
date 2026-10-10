@@ -57,6 +57,10 @@ deletions handled their own back-references).
   per-offset scan corrected the triple grouping in Luna's characterization
   (+0x14 defaults to 1.0, not negative), so the other 13 floats stay an
   array. `MFOB` is absent from the corpus and waits on the CASC side.
+- **Collision**: `canon::CollisionMesh` for WMO and M2, written as
+  `resources.collision`. Real data showed `MOBR` indexes every face of its
+  group, so the wiki's two "sometimes disagreeing" collision
+  representations reduce to one rule: the face flags (`isCollidable`).
 
 ---
 

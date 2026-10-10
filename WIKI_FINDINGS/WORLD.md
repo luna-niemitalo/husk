@@ -409,6 +409,22 @@ both ruled out for specific documented reasons). `wow.export` itself has
 zero code path for `MOBN`/`MOBR` — husk implementing this would be new
 ground, not catching up to existing tooling.
 
+**The BSP doesn't select collision faces (2026-10-10, seeded 1,000-root
+sample, 2,759 groups, 20.9M triangles).** In every one of the 2,628
+groups with `MOBN`/`MOBR` (group flag 0x1 matches `MOBN` presence in
+2,752/2,759), `MOBR` references every triangle of the group, many
+several times. So the wiki's "two representations, sometimes
+disagreeing" doesn't show up as different face sets: the BSP is a spatial
+index over all faces, and the `MOPY`/`MPY2` flags decide which collide.
+The flag histogram fits `SMOPoly::isCollidable` (0x08, or 0x20 without
+0x04):
+- rendered detail faces (0x04 set: 0x44, 0x64, 0x04, 0x24, ...) are about
+  70% of all triangles and don't collide;
+- collision-only faces (material 0xFF in `MOPY`, **0xFFFF in `MPY2`**,
+  1.7M) carry 0x08 (0x48, 0x08, 0x4A, ...);
+- the exception: 146,103 collision-only `MPY2` faces carry only 0x100,
+  which is undocumented, so the rule excludes them.
+
 ## Gameplay/misc metadata — verified
 
 Four items promoted from a blanket "n/a" to real `extras` candidates after

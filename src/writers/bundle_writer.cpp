@@ -945,6 +945,28 @@ void writeLiquids(json::Writer& w, const canon::Model& model, std::vector<uint8_
     w.endArray();
 }
 
+void writeCollision(json::Writer& w, const canon::CollisionMesh& c, std::vector<uint8_t>& collisionBin) {
+    constexpr const char* kBin = "collision.bin";
+    w.beginObject();
+    w.key("positions");
+    writeBufferSlice(w, appendArray(collisionBin, kBin, c.positions, 3, "f32"));
+    w.key("indices");
+    writeBufferSlice(w, appendArray(collisionBin, kBin, c.indices, 1, "u32"));
+    if (!c.triangleParts.empty()) {
+        w.key("triangle_parts");
+        writeBufferSlice(w, appendArray(collisionBin, kBin, c.triangleParts, 1, "u32"));
+    }
+    if (!c.triangleSourceFlags.empty()) {
+        w.key("triangle_source_flags");
+        writeBufferSlice(w, appendArray(collisionBin, kBin, c.triangleSourceFlags, 1, "u32"));
+    }
+    if (!c.triangleNormals.empty()) {
+        w.key("triangle_normals");
+        writeBufferSlice(w, appendArray(collisionBin, kBin, c.triangleNormals, 3, "f32"));
+    }
+    w.endObject();
+}
+
 }  // namespace
 
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir, const std::string& producer,
@@ -960,6 +982,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     std::vector<uint8_t> skeletonBin;
     std::vector<uint8_t> animBin;
     std::vector<uint8_t> liquidBin;
+    std::vector<uint8_t> collisionBin;
     std::vector<uint8_t> particulateBin;
 
     std::ostringstream manifestStream;
@@ -1018,6 +1041,11 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writePlacementSets(w, sets, bundleDir, assetUris, producer);
     w.key("liquids");
     writeLiquids(w, model, liquidBin);
+    bool hasCollision = !model.collision.indices.empty();
+    if (hasCollision) {
+        w.key("collision");
+        writeCollision(w, model.collision, collisionBin);
+    }
 
     w.endObject();  // resources
     w.endObject();  // root
@@ -1026,6 +1054,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeFile(bundleDir / "skeleton.bin", skeletonBin);
     writeFile(bundleDir / "animation.bin", animBin);
     if (!model.liquids.empty()) writeFile(bundleDir / "liquid.bin", liquidBin);
+    if (hasCollision) writeFile(bundleDir / "collision.bin", collisionBin);
     if (!model.scene.particulateVolumes.empty()) writeFile(bundleDir / "particulate.bin", particulateBin);
 
     std::ofstream manifestFile(bundleDir / "manifest.json", std::ios::binary);

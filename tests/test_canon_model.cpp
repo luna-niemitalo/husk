@@ -99,6 +99,34 @@ TEST_CASE("canon::assembleModel: an empty model (no primitives, no materials) co
     CHECK(result.animations.empty());
 }
 
+TEST_CASE("canon::assembleModel checks collision indices, per-triangle arrays and parts") {
+    canon::Mesh mesh;
+    mesh.parts.resize(1);
+    canon::CollisionMesh c;
+    c.positions.resize(3);
+    c.indices = {0, 1, 2};
+    c.triangleParts = {0};
+    CHECK(canon::assembleModel({}, mesh, {}, {}, {}, {}, {}, {}, c).collision.indices.size() == 3);
+
+    canon::CollisionMesh badIndex = c;
+    badIndex.indices[2] = 3;
+    CHECK_THROWS_WITH_AS(canon::assembleModel({}, mesh, {}, {}, {}, {}, {}, {}, badIndex),
+                         "collision indices: expected < 3 positions, got 3", std::runtime_error);
+    canon::CollisionMesh partial = c;
+    partial.indices.pop_back();
+    CHECK_THROWS_WITH_AS(canon::assembleModel({}, mesh, {}, {}, {}, {}, {}, {}, partial),
+                         "collision indices: expected a multiple of 3, got 2", std::runtime_error);
+    canon::CollisionMesh badFlags = c;
+    badFlags.triangleSourceFlags = {1, 2};
+    CHECK_THROWS_WITH_AS(canon::assembleModel({}, mesh, {}, {}, {}, {}, {}, {}, badFlags),
+                         "collision triangleSourceFlags: expected none or one per triangle (1), got 2",
+                         std::runtime_error);
+    canon::CollisionMesh badPart = c;
+    badPart.triangleParts = {1};
+    CHECK_THROWS_WITH_AS(canon::assembleModel({}, mesh, {}, {}, {}, {}, {}, {}, badPart),
+                         "collision triangleParts: expected < 1 parts, got 1", std::runtime_error);
+}
+
 TEST_CASE("canon::assembleModel keeps a scene whose bone references are all in range") {
     canon::Skeleton skeleton;
     skeleton.joints.resize(2);

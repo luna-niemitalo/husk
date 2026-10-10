@@ -79,6 +79,34 @@ void requireSceneSets(const Scene& scene, size_t setCount) {
     }
 }
 
+void requireCollision(const CollisionMesh& c, size_t partCount) {
+    if (c.indices.size() % 3 != 0) {
+        throw std::runtime_error("collision indices: expected a multiple of 3, got " + std::to_string(c.indices.size()));
+    }
+    for (uint32_t i : c.indices) {
+        if (i >= c.positions.size()) {
+            throw std::runtime_error("collision indices: expected < " + std::to_string(c.positions.size()) +
+                                      " positions, got " + std::to_string(i));
+        }
+    }
+    size_t triangles = c.indices.size() / 3;
+    auto requirePerTriangle = [&](const char* what, size_t size) {
+        if (size != 0 && size != triangles) {
+            throw std::runtime_error(std::string("collision ") + what + ": expected none or one per triangle (" +
+                                      std::to_string(triangles) + "), got " + std::to_string(size));
+        }
+    };
+    requirePerTriangle("triangleParts", c.triangleParts.size());
+    requirePerTriangle("triangleSourceFlags", c.triangleSourceFlags.size());
+    requirePerTriangle("triangleNormals", c.triangleNormals.size());
+    for (uint32_t part : c.triangleParts) {
+        if (part >= partCount) {
+            throw std::runtime_error("collision triangleParts: expected < " + std::to_string(partCount) +
+                                      " parts, got " + std::to_string(part));
+        }
+    }
+}
+
 void requirePartFogs(const std::vector<MeshPart>& parts, size_t fogCount) {
     for (size_t p = 0; p < parts.size(); ++p) {
         for (uint32_t fog : parts[p].fogs) {
@@ -120,7 +148,7 @@ void requireLiquids(const std::vector<LiquidGrid>& liquids, size_t partCount, si
 Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> materials,
                      std::vector<Identity> primitiveMaterials, std::vector<AnimationClip> animations,
                      Scene scene, std::vector<Model::OwnedSet> placementSets,
-                     std::vector<LiquidGrid> liquids) {
+                     std::vector<LiquidGrid> liquids, CollisionMesh collision) {
     if (primitiveMaterials.size() != mesh.primitives.size()) {
         throw std::runtime_error("primitiveMaterials size (" + std::to_string(primitiveMaterials.size()) +
                                   ") must match mesh.primitives size (" + std::to_string(mesh.primitives.size()) +
@@ -145,6 +173,7 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
     requireSceneSets(scene, placementSets.size());
     requirePartFogs(mesh.parts, scene.fogs.size());
     requireLiquids(liquids, mesh.parts.size(), materials.size());
+    requireCollision(collision, mesh.parts.size());
 
     Model result;
     result.skeleton = std::move(skeleton);
@@ -155,6 +184,7 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
     result.scene = std::move(scene);
     result.placementSets = std::move(placementSets);
     result.liquids = std::move(liquids);
+    result.collision = std::move(collision);
     return result;
 }
 

@@ -695,6 +695,34 @@ TEST_CASE("writeBundle: ambient volumes write only their shape's geometry keys")
     CHECK_FALSE(volumes[2].contains("position"));
 }
 
+TEST_CASE("writeBundle: collision slices into collision.bin, and both are omitted without collision") {
+    canon::Model model = buildSyntheticModel();
+    fs::path bare = fs::temp_directory_path() / "husk-test-bundle-no-collision";
+    fs::remove_all(bare);
+    writers::writeBundle(model, bare, "husk test");
+    CHECK_FALSE(parseManifest(bare)["resources"].contains("collision"));
+    CHECK_FALSE(fs::exists(bare / "collision.bin"));
+
+    model.collision.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+    model.collision.indices = {0, 1, 2};
+    model.collision.triangleSourceFlags = {0x48};
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-collision";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, "husk test");
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& c = manifest["resources"]["collision"];
+
+    CHECK(c["positions"]["file"] == "collision.bin");
+    CHECK(c["positions"]["count"] == 3);
+    CHECK(c["indices"]["count"] == 3);
+    CHECK(c["triangle_source_flags"]["count"] == 1);
+    CHECK_FALSE(c.contains("triangle_parts"));
+    CHECK_FALSE(c.contains("triangle_normals"));
+    std::vector<uint8_t> bin = readFile((dir / "collision.bin").string());
+    size_t at = c["triangle_source_flags"]["byte_offset"];
+    CHECK(bin.at(at) == 0x48);
+}
+
 TEST_CASE("writeBundle: local fogs, and the parts that name them") {
     canon::Model model = buildSyntheticModel();
     canon::LocalFog placeholder;

@@ -518,6 +518,10 @@ TEST_CASE("wmo::parseGroup: per-vertex chunks, indices and batches are checked a
     CHECK_THROWS_WITH_AS(
         wmo::parseGroup(groupFile({{"MOVT", oneVertex}, {"MOVI", u16s({0, 0, 0})}, {"MOBA", batch(3, 3, 0, 0, 0)}})),
         "MOBA batch 0: expected indices [3, 6) within 3 MOVI indices", wmo::ParseError);
+    CHECK_THROWS_WITH_AS(wmo::parseGroup(groupFile({{"MOPY", {0x20, 0, 0x20, 0}},
+                                                    {"MOVI", u16s({0, 0, 0})},
+                                                    {"MOVT", oneVertex}})),
+                         "MOPY/MPY2: expected one entry per MOVI triangle (1), got 2", wmo::ParseError);
     std::vector<uint8_t> shortMogp;
     appendChunk(shortMogp, "MVER", version17());
     appendChunk(shortMogp, "MOGP", std::vector<uint8_t>(0x40, 0));
