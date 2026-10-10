@@ -723,6 +723,34 @@ TEST_CASE("writeBundle: collision slices into collision.bin, and both are omitte
     CHECK(bin.at(at) == 0x48);
 }
 
+TEST_CASE("writeBundle: portals on the mesh, links on their parts") {
+    canon::Model model = buildSyntheticModel();
+    canon::Portal portal;
+    portal.vertices = {{0, 0, 0}, {0, 1, 0}, {0, 1, 1}};
+    portal.normal = {1, 0, 0};
+    portal.distance = -2.5f;
+    model.mesh.portals = {portal, portal};
+    model.mesh.portals[1].sourceExtra.assign(16, 7);
+    model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0, {}, {},
+                                {}, {{1, 1, -1}}});
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-portals";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, "husk test");
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& mesh = manifest["resources"]["mesh"];
+
+    REQUIRE(mesh["portals"].size() == 2);
+    CHECK(mesh["portals"][0]["vertices"][2] == nlohmann::json::array({0.0, 1.0, 1.0}));
+    CHECK(mesh["portals"][0]["normal"] == nlohmann::json::array({1.0, 0.0, 0.0}));
+    CHECK(mesh["portals"][0]["distance"] == -2.5);
+    CHECK_FALSE(mesh["portals"][0].contains("source_extra"));
+    CHECK(mesh["portals"][1]["source_extra"].size() == 16);
+    const auto& link = mesh["parts"][0]["portals"][0];
+    CHECK(link["portal"] == 1);
+    CHECK(link["to_part"] == 1);
+    CHECK(link["side"] == -1);
+}
+
 TEST_CASE("writeBundle: local fogs, and the parts that name them") {
     canon::Model model = buildSyntheticModel();
     canon::LocalFog placeholder;

@@ -29,6 +29,25 @@ struct PrimitiveGeoset {
     std::optional<uint32_t> part;  // index into Mesh::parts; nullopt for a model with no parts (every M2)
 };
 
+// A part's opening onto another part through a Mesh::portals polygon
+// (WMO MOPR): the cell/portal graph a renderer culls with.
+struct PortalLink {
+    uint32_t portal = 0;  // index into Mesh::portals
+    uint32_t toPart = 0;  // the part on the other side
+    // Source sign, raw (+1/-1). In 8,685/10,103 real links it is the sign
+    // of dot(normal, c) + distance for this part's vertex centroid c.
+    int32_t side = 0;
+};
+
+// A polygon two parts see each other through (WMO MOPT/MOPV).
+struct Portal {
+    std::vector<Vec3> vertices;  // in source order, on the plane
+    // dot(normal, p) + distance == 0 for its vertices (5,069/5,069 real portals).
+    Vec3 normal;
+    float distance = 0;
+    std::vector<uint8_t> sourceExtra;  // WMO MOPE record, raw; empty when absent
+};
+
 // A named, separately addressable piece of a model -- a WMO group (a room,
 // a wing, an outside shell). Its primitives point back at it through
 // PrimitiveGeoset::part.
@@ -38,6 +57,7 @@ struct MeshPart {
     Vec3 boundsMin;
     Vec3 boundsMax;
     std::vector<uint32_t> fogs;  // indices into Scene::fogs (WMO MOGP fogIds, all four slots raw)
+    std::vector<PortalLink> portals;
 };
 
 // One model's worth of real per-vertex geometry + skinning, raw M2 space
@@ -88,6 +108,7 @@ struct Mesh {
     std::vector<uint32_t> indices;  // shared triangle-index buffer; PrimitiveGeoset::indexStart/indexCount slice into this
     std::vector<PrimitiveGeoset> primitives;
     std::vector<MeshPart> parts;
+    std::vector<Portal> portals;
 };
 
 }  // namespace husk::canon

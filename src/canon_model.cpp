@@ -44,6 +44,16 @@ void requireParts(const Mesh& mesh) {
                                       std::to_string(mesh.parts.size()) + " parts, got " + std::to_string(*part));
         }
     }
+    for (size_t p = 0; p < mesh.parts.size(); ++p) {
+        for (const PortalLink& link : mesh.parts[p].portals) {
+            if (link.portal >= mesh.portals.size() || link.toPart >= mesh.parts.size()) {
+                throw std::runtime_error("part " + std::to_string(p) + "'s portal link: expected portal < " +
+                                          std::to_string(mesh.portals.size()) + " and part < " +
+                                          std::to_string(mesh.parts.size()) + ", got portal " +
+                                          std::to_string(link.portal) + " to part " + std::to_string(link.toPart));
+            }
+        }
+    }
 }
 
 void requireUniqueInstanceIds(const std::vector<Model::OwnedSet>& sets) {

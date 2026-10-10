@@ -491,6 +491,52 @@ TEST_CASE("buildCanonWmo: collision keeps WMO.md's collidable faces, with only t
     CHECK(c.triangleNormals.empty());
 }
 
+TEST_CASE("buildCanonWmo: MOPT portals go on the mesh, each group's MOPR range on its part") {
+    wmo::RootFile root = syntheticRoot();
+    root.portalVertices = {{9, 9, 9}, {0, 0, 0}, {0, 1, 0}, {0, 1, 1}, {0, 0, 1}};
+    root.portals = {{1, 4, {1, 0, 0}, -2.5f}};
+    root.portalRefs = {{0, 1, 1}, {0, 0, -1}};
+    root.portalExtras = {{}};
+    root.portalExtras[0][0] = 0x41;
+    wmo::GroupFile hall = group(3, 1, 0, 1);
+    hall.portalStart = 0;
+    hall.portalCount = 1;
+    wmo::GroupFile room = group(3, 1, 0, 1);
+    room.portalStart = 1;
+    room.portalCount = 1;
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {hall, room};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    REQUIRE(model.mesh.portals.size() == 1);
+    const canon::Portal& p = model.mesh.portals[0];
+    REQUIRE(p.vertices.size() == 4);
+    CHECK(p.vertices[0].x == 0.0f);
+    CHECK(p.vertices[2].z == 1.0f);
+    CHECK(p.normal.x == 1.0f);
+    CHECK(p.distance == -2.5f);
+    REQUIRE(p.sourceExtra.size() == 16);
+    CHECK(p.sourceExtra[0] == 0x41);
+    REQUIRE(model.mesh.parts[0].portals.size() == 1);
+    CHECK(model.mesh.parts[0].portals[0].toPart == 1);
+    CHECK(model.mesh.parts[0].portals[0].side == 1);
+    REQUIRE(model.mesh.parts[1].portals.size() == 1);
+    CHECK(model.mesh.parts[1].portals[0].toPart == 0);
+    CHECK(model.mesh.parts[1].portals[0].side == -1);
+
+    room.portalStart = 0xFFFF;
+    room.portalCount = 0;
+    in.groups = {hall, room};
+    CHECK(wmoinput::buildCanonWmo(in).mesh.parts[1].portals.empty());
+    room.portalStart = 1;
+    room.portalCount = 2;
+    in.groups = {hall, room};
+    CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "WMO group 1: expected MOPR refs [1, 3) within 2",
+                         std::runtime_error);
+}
+
 TEST_CASE("buildCanonWmo: MFOG fogs become local fogs; parts name theirs, MFED picks the doodad set") {
     wmo::RootFile root = syntheticRoot();
     wmo::Fog exitFog;

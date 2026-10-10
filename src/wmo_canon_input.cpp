@@ -492,9 +492,34 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         meshPart.flags = info.flags;
         meshPart.boundsMin = toCanon(info.bounds.min);
         meshPart.boundsMax = toCanon(info.bounds.max);
-        if (in.groups[part]) meshPart.fogs.assign(in.groups[part]->fogIds.begin(), in.groups[part]->fogIds.end());
+        if (in.groups[part]) {
+            const wmo::GroupFile& g = *in.groups[part];
+            meshPart.fogs.assign(g.fogIds.begin(), g.fogIds.end());
+            // A group without portals may store start 0xFFFF with count 0.
+            if (g.portalCount != 0 && g.portalStart + g.portalCount > root.portalRefs.size()) {
+                throw std::runtime_error("WMO group " + std::to_string(part) + ": expected MOPR refs [" +
+                                          std::to_string(g.portalStart) + ", " +
+                                          std::to_string(g.portalStart + g.portalCount) + ") within " +
+                                          std::to_string(root.portalRefs.size()));
+            }
+            for (size_t r = g.portalStart; r < size_t{g.portalStart} + g.portalCount; ++r) {
+                const wmo::PortalRef& ref = root.portalRefs[r];
+                meshPart.portals.push_back({ref.portal, ref.group, ref.side});
+            }
+        }
         mesh.parts.push_back(meshPart);
         if (in.groups[part]) appendGroup(in, part, *in.groups[part], mesh, primitiveMaterials, uvSetCount, colorSetCount);
+    }
+    for (size_t i = 0; i < root.portals.size(); ++i) {
+        const wmo::Portal& p = root.portals[i];
+        canon::Portal portal;
+        for (size_t v = p.startVertex; v < p.startVertex + p.count; ++v) {
+            portal.vertices.push_back(toCanon(root.portalVertices[v]));
+        }
+        portal.normal = toCanon(p.normal);
+        portal.distance = p.distance;
+        if (!root.portalExtras.empty()) portal.sourceExtra.assign(root.portalExtras[i].begin(), root.portalExtras[i].end());
+        mesh.portals.push_back(std::move(portal));
     }
     std::vector<canon::LiquidGrid> liquids;
     for (uint32_t part = 0; part < in.groups.size(); ++part) {

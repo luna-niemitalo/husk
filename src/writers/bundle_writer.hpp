@@ -248,8 +248,15 @@
 //     { "ref": <Ref, record_index = part index, name from the source when it has one>,
 //       "flags": <uint32, source group flags raw (WMO MOGP flags)>,
 //       "bounds_min": [x,y,z], "bounds_max": [x,y,z],
-//       "fogs": [ <uint32, index into resources.fogs> x4 ] }   // OMITTED when none; WMO MOGP fogIds, all slots raw
-//   ]
+//       "fogs": [ <uint32, index into resources.fogs> x4 ],   // OMITTED when none; WMO MOGP fogIds, all slots raw
+//       "portals": [ { "portal": <uint32, into mesh.portals>, "to_part": <uint32>,   // OMITTED when none (WMO MOPR)
+//                      "side": <int, source sign raw; in 86% of real links the sign of
+//                               dot(normal, c) + distance for this part's vertex centroid c> } ] }
+//   ],
+//   "portals": [   // polygons parts see each other through (WMO MOPT/MOPV); [] for an M2
+//     { "vertices": [[x,y,z], ...],          // source order
+//       "normal": [x,y,z], "distance": <f>,  // dot(normal, p) + distance == 0 on the polygon
+//       "source_extra": [16 bytes] } ]       // WMO MOPE record raw; OMITTED when absent
 // }
 // ```
 //

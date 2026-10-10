@@ -61,6 +61,9 @@ deletions handled their own back-references).
   `resources.collision`. Real data showed `MOBR` indexes every face of its
   group, so the wiki's two "sometimes disagreeing" collision
   representations reduce to one rule: the face flags (`isCollidable`).
+- **Portals**: `MOPV`/`MOPT`/`MOPR` as `mesh.portals` and per-part links,
+  `MOPE` raw. First real run failed on 31 roots: portal-less groups store
+  portalStart 0xFFFF with count 0.
 
 ---
 

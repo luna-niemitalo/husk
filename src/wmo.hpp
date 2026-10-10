@@ -129,6 +129,23 @@ struct Fog {
     std::optional<uint16_t> doodadSet;
 };
 
+// MOPT, 20 bytes: a portal polygon, MOPV[startVertex, +count). On 800 real
+// roots with portals: dot(normal, p) + distance == 0 for every vertex.
+struct Portal {
+    uint16_t startVertex = 0;
+    uint16_t count = 0;
+    Vec3 normal{};
+    float distance = 0;
+};
+
+// MOPR, 8 bytes: a group's link through a portal. Each group owns the
+// MOPR range its MOGP portalStart/portalCount names.
+struct PortalRef {
+    uint16_t portal = 0;  // MOPT index
+    uint16_t group = 0;   // the group on the other side
+    int16_t side = 0;     // +1/-1
+};
+
 // MPVD emitter entry, 844 bytes; four per record (WIKI_FINDINGS/WORLD.md
 // "WMO MPVD"). Names below are value-characterized from the corpus, not
 // from any symbol.
@@ -236,6 +253,13 @@ struct RootFile {
     std::vector<AmbientVolume> ambientVolumes;        // MAVD
     std::vector<AmbientBox> ambientBoxes;             // MBVD
     std::vector<Fog> fogs;                            // MFOG + MFED
+    std::vector<Vec3> portalVertices;                 // MOPV
+    std::vector<Portal> portals;                      // MOPT
+    std::vector<PortalRef> portalRefs;                // MOPR
+    // MOPE (11.1+), one raw 16-byte record per portal; empty when absent.
+    // Real records hold ASCII fragments and "MOP" bytes in the documented
+    // index field, so nothing in them is typed.
+    std::vector<std::array<uint8_t, 16>> portalExtras;
     uint32_t skyboxFileDataId = 0;  // MOSI; 0 = none
     std::string skyboxName;         // MOSB; empty = none
 };

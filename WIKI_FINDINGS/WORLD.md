@@ -425,6 +425,23 @@ The flag histogram fits `SMOPoly::isCollidable` (0x08, or 0x20 without
 - the exception: 146,103 collision-only `MPY2` faces carry only 0x100,
   which is undocumented, so the rule excludes them.
 
+**Portals (2026-10-10, the 800 roots with portals in the seeded 4,000):**
+`MOHD.nPortals` equals the `MOPT` count in all 4,000. The `MOPT` plane
+holds `dot(normal, p) + distance == 0` for every vertex of all 5,069
+portals (never `- distance`), with unit normals; 5,003 are quads. Every
+`MOPR` ref names a valid portal and group (never its own), `side` is
+only ±1, the filler is 0, and the groups' `MOGP` portalStart/portalCount
+ranges partition `MOPR` exactly. A group with no portals may store
+portalStart **0xFFFF** with count 0. 5,037 portals are linked from two
+groups, 28 from one, 3 from none. `side` matches the sign of
+`dot(normal, c) + distance` at the owning group's vertex centroid in
+8,685/10,103 links; PortalCulling.md's front/back test is one
+contributor's guess and reads the other way, so neither is encoded.
+**`MOPE`** (74 of these roots, always one record per portal) doesn't
+hold what the wiki says: its "portalIndex" field is often 0x4D4F50xx
+(the portal index in the low byte under ASCII "MOP"), and its other
+fields hold ASCII fragments and float-like garbage.
+
 ## Gameplay/misc metadata — verified
 
 Four items promoted from a blanket "n/a" to real `extras` candidates after

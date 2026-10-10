@@ -265,6 +265,43 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
             for (uint32_t fog : part.fogs) w.value(static_cast<int64_t>(fog));
             w.endArray();
         }
+        if (!part.portals.empty()) {
+            w.key("portals");
+            w.beginArray();
+            for (const canon::PortalLink& link : part.portals) {
+                w.beginObject();
+                w.key("portal");
+                w.value(static_cast<int64_t>(link.portal));
+                w.key("to_part");
+                w.value(static_cast<int64_t>(link.toPart));
+                w.key("side");
+                w.value(static_cast<int64_t>(link.side));
+                w.endObject();
+            }
+            w.endArray();
+        }
+        w.endObject();
+    }
+    w.endArray();
+
+    w.key("portals");
+    w.beginArray();
+    for (const canon::Portal& portal : mesh.portals) {
+        w.beginObject();
+        w.key("vertices");
+        w.beginArray();
+        for (const canon::Vec3& v : portal.vertices) writeVec3Value(w, v);
+        w.endArray();
+        w.key("normal");
+        writeVec3Value(w, portal.normal);
+        w.key("distance");
+        w.value(static_cast<double>(portal.distance));
+        if (!portal.sourceExtra.empty()) {
+            w.key("source_extra");
+            w.beginArray();
+            for (uint8_t b : portal.sourceExtra) w.value(static_cast<int64_t>(b));
+            w.endArray();
+        }
         w.endObject();
     }
     w.endArray();

@@ -127,6 +127,18 @@ TEST_CASE("canon::assembleModel checks collision indices, per-triangle arrays an
                          "collision triangleParts: expected < 1 parts, got 1", std::runtime_error);
 }
 
+TEST_CASE("canon::assembleModel checks every portal link's portal and part") {
+    canon::Mesh mesh;
+    mesh.parts.resize(2);
+    mesh.portals.resize(1);
+    mesh.parts[0].portals = {{0, 1, 1}};
+    CHECK(canon::assembleModel({}, mesh, {}, {}, {}).mesh.parts[0].portals.size() == 1);
+    mesh.parts[1].portals = {{0, 2, -1}};
+    CHECK_THROWS_WITH_AS(canon::assembleModel({}, mesh, {}, {}, {}),
+                         "part 1's portal link: expected portal < 1 and part < 2, got portal 0 to part 2",
+                         std::runtime_error);
+}
+
 TEST_CASE("canon::assembleModel keeps a scene whose bone references are all in range") {
     canon::Skeleton skeleton;
     skeleton.joints.resize(2);

@@ -412,6 +412,52 @@ TEST_CASE("wmo::parseRoot: an MFED that isn't one per MFOG, or names a set past 
                          "MFOG: expected a multiple of 48 bytes, got 40", wmo::ParseError);
 }
 
+TEST_CASE("wmo::parseRoot: MOPV/MOPT/MOPR read portal polygons and the groups' links, MOPE raw") {
+    std::vector<uint8_t> mopv = floats({0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1});
+    std::vector<uint8_t> mopt(20, 0);
+    put<uint16_t>(mopt, 0x00, 0);
+    put<uint16_t>(mopt, 0x02, 4);
+    put(mopt, 0x04, 1.0f);
+    put(mopt, 0x10, -2.5f);
+    std::vector<uint8_t> mopr(16, 0);
+    put<uint16_t>(mopr, 0x02, 1);
+    put<int16_t>(mopr, 0x04, 1);
+    put<uint16_t>(mopr, 0x0A, 0);
+    put<int16_t>(mopr, 0x0C, -1);
+    std::vector<uint8_t> mogi(64, 0);
+    std::vector<uint8_t> mope(16, 0x7A);
+
+    wmo::RootFile root = wmo::parseRoot(
+        minimalRoot(2, {{"MOGI", mogi}, {"MOPV", mopv}, {"MOPT", mopt}, {"MOPR", mopr}, {"MOPE", mope}}));
+    REQUIRE(root.portalVertices.size() == 4);
+    REQUIRE(root.portals.size() == 1);
+    CHECK(root.portals[0].count == 4);
+    CHECK(root.portals[0].normal == wmo::Vec3{1, 0, 0});
+    CHECK(root.portals[0].distance == -2.5f);
+    REQUIRE(root.portalRefs.size() == 2);
+    CHECK(root.portalRefs[0].group == 1);
+    CHECK(root.portalRefs[0].side == 1);
+    CHECK(root.portalRefs[1].side == -1);
+    REQUIRE(root.portalExtras.size() == 1);
+    CHECK(root.portalExtras[0][15] == 0x7A);
+}
+
+TEST_CASE("wmo::parseRoot: portal ranges and links past their tables throw with both values") {
+    std::vector<uint8_t> mopt(20, 0);
+    put<uint16_t>(mopt, 0x02, 4);
+    CHECK_THROWS_WITH_AS(wmo::parseRoot(minimalRoot(0, {{"MOPV", floats({0, 0, 0})}, {"MOPT", mopt}})),
+                         "MOPT[0]: expected vertices [0, 4) within 1 MOPV vertices", wmo::ParseError);
+    std::vector<uint8_t> mopr(8, 0);
+    put<uint16_t>(mopr, 0x02, 2);
+    CHECK_THROWS_WITH_AS(
+        wmo::parseRoot(minimalRoot(2, {{"MOGI", std::vector<uint8_t>(64, 0)}, {"MOPT", std::vector<uint8_t>(20, 0)},
+                                       {"MOPR", mopr}})),
+        "MOPR[0]: expected portal < 1 and group < 2, got portal 0, group 2", wmo::ParseError);
+    CHECK_THROWS_WITH_AS(
+        wmo::parseRoot(minimalRoot(0, {{"MOPT", std::vector<uint8_t>(40, 0)}, {"MOPE", std::vector<uint8_t>(16, 0)}})),
+        "MOPE: expected one entry per MOPT portal (2), got 1", wmo::ParseError);
+}
+
 TEST_CASE("wmo::groupFileDataId: GFID is row-major [lodTier][group], 0 for holes and out of range") {
     std::vector<uint8_t> gfid;
     for (uint32_t id : {10u, 11u, 20u, 0u}) put(gfid, gfid.size(), id);

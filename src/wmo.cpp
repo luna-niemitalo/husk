@@ -23,6 +23,8 @@ constexpr size_t kMavdSize = 48;
 constexpr size_t kMbvdSize = 128;
 constexpr size_t kMfogSize = 48;
 constexpr size_t kMfedSize = 16;
+constexpr size_t kMoptSize = 20;
+constexpr size_t kMoprSize = 8;
 constexpr size_t kMpvdEmitterOffset = 0x2D0;
 constexpr size_t kMpvdEmitterSize = 844;
 constexpr size_t kMpvdEmitterSlots = 4;
@@ -321,6 +323,29 @@ std::vector<uint16_t> parseFogDoodadSets(const Chunk& c) {
     return out;
 }
 
+std::vector<Portal> parsePortals(const Chunk& c) {
+    std::vector<Portal> out(recordCount(c, kMoptSize));
+    for (size_t i = 0; i < out.size(); ++i) {
+        size_t o = i * kMoptSize;
+        out[i].startVertex = read<uint16_t>(c.data, c.size, o + 0x00, "MOPT");
+        out[i].count = read<uint16_t>(c.data, c.size, o + 0x02, "MOPT");
+        out[i].normal = readVec3(c.data, c.size, o + 0x04, "MOPT");
+        out[i].distance = read<float>(c.data, c.size, o + 0x10, "MOPT");
+    }
+    return out;
+}
+
+std::vector<PortalRef> parsePortalRefs(const Chunk& c) {
+    std::vector<PortalRef> out(recordCount(c, kMoprSize));
+    for (size_t i = 0; i < out.size(); ++i) {
+        size_t o = i * kMoprSize;
+        out[i].portal = read<uint16_t>(c.data, c.size, o + 0x00, "MOPR");
+        out[i].group = read<uint16_t>(c.data, c.size, o + 0x02, "MOPR");
+        out[i].side = read<int16_t>(c.data, c.size, o + 0x04, "MOPR");
+    }
+    return out;
+}
+
 std::vector<Batch> parseBatches(const Chunk& c) {
     std::vector<Batch> out(recordCount(c, kMobaSize));
     for (size_t i = 0; i < out.size(); ++i) {
@@ -424,6 +449,10 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
         else if (c.tag == "MBVD") root.ambientBoxes = parseAmbientBoxes(c);
         else if (c.tag == "MFOG") root.fogs = parseFogs(c);
         else if (c.tag == "MFED") fogDoodadSets = parseFogDoodadSets(c);
+        else if (c.tag == "MOPV") root.portalVertices = readArray<Vec3>(c);
+        else if (c.tag == "MOPT") root.portals = parsePortals(c);
+        else if (c.tag == "MOPR") root.portalRefs = parsePortalRefs(c);
+        else if (c.tag == "MOPE") root.portalExtras = readArray<std::array<uint8_t, 16>>(c);
         else if (c.tag == "MOSI") root.skyboxFileDataId = read<uint32_t>(c.data, c.size, 0, "MOSI");
         else if (c.tag == "MOSB" && c.size > 0) {
             root.skyboxName = stringAt(std::string(reinterpret_cast<const char*>(c.data), c.size), 0);
@@ -447,6 +476,26 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
     for (size_t i = 0; i < root.globalAmbientVolumes.size(); ++i) requireSet("MAVG", i, root.globalAmbientVolumes[i].doodadSet);
     for (size_t i = 0; i < root.ambientVolumes.size(); ++i) requireSet("MAVD", i, root.ambientVolumes[i].doodadSet);
     for (size_t i = 0; i < root.ambientBoxes.size(); ++i) requireSet("MBVD", i, root.ambientBoxes[i].doodadSet);
+    for (size_t i = 0; i < root.portals.size(); ++i) {
+        const Portal& p = root.portals[i];
+        if (p.startVertex + p.count > root.portalVertices.size()) {
+            throw ParseError("MOPT[" + std::to_string(i) + "]: expected vertices [" + std::to_string(p.startVertex) +
+                             ", " + std::to_string(p.startVertex + p.count) + ") within " +
+                             std::to_string(root.portalVertices.size()) + " MOPV vertices");
+        }
+    }
+    for (size_t i = 0; i < root.portalRefs.size(); ++i) {
+        const PortalRef& r = root.portalRefs[i];
+        if (r.portal >= root.portals.size() || r.group >= root.groups.size()) {
+            throw ParseError("MOPR[" + std::to_string(i) + "]: expected portal < " + std::to_string(root.portals.size()) +
+                             " and group < " + std::to_string(root.groups.size()) + ", got portal " +
+                             std::to_string(r.portal) + ", group " + std::to_string(r.group));
+        }
+    }
+    if (!root.portalExtras.empty() && root.portalExtras.size() != root.portals.size()) {
+        throw ParseError("MOPE: expected one entry per MOPT portal (" + std::to_string(root.portals.size()) + "), got " +
+                         std::to_string(root.portalExtras.size()));
+    }
     // Real MFED chunks are either empty (1,699/1,802) or one per MFOG.
     if (!fogDoodadSets.empty()) {
         if (fogDoodadSets.size() != root.fogs.size()) {
