@@ -282,7 +282,24 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   `mesh.attributes`; REFACTOR/BUNDLE_FORMAT.md): WMO face flags/material
   are the first, and select collision; M2 collision is
   `resources.collision`. Portals are `mesh.portals` with
-  per-part links. **Next**: LOD (`MFOB` waits on the CASC side); open
+  per-part links.
+- **Bundle format as structure (2026-10-10, Luna's call, in progress)**:
+  three document kinds (`model`, `placement_set`, `world`) with one
+  contract header (`REFACTOR/BUNDLE_FORMAT.md` "Document kinds and the
+  contract header"). `schema/*.schema.json` is the definition (JSON Schema
+  draft-07, embedded in the binary); `src/bundle_schema.*` validates
+  documents (`husk validate-bundle`) and lints the schema for format
+  antipatterns. Project is C++23. **Stage 1 done** (schema, validator,
+  lint). **The writers do not conform yet**: every bundle husk writes
+  today fails validation. Next, in order: (2) model writer + placement
+  sets to the schema (header, grouped resources, renames, `source`/
+  `unresolved`, payload media types; update `tests/bundle_import_check.py`);
+  (3) terrain tile becomes a `model` in its own frame; (4) `world` document
+  (grid + off-grid placements + map scene, replacing `map_scene`);
+  MantleCore must follow each stage. `/media/luna/data/wow_export` was
+  renamed (`wow_export_old`/`_superseded`, `wow_storage`) on 2026-10-10;
+  corpus runs and 3 DB2 tests need the new path. After the format work:
+  LOD (`MFOB` waits on the CASC side); open
   items per feature in `TODO/WORLD/LIGHTING_TODO.md`, `LIQUID_TODO.md` §1
   and `FOG_VOLUMES_TODO.md` §2.
   Client shaders are unpacked under `example_exports/shaders/`
