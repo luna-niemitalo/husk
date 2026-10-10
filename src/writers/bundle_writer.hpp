@@ -89,6 +89,7 @@
 //     "lights": [ ... ],
 //     "local_lights": [ ... ],
 //     "emitters": { "ribbons": [ ... ], "particles": [ ... ] },
+//     "particulate_volumes": [ ... ],
 //     "placement_sets": [ ... ],
 //     "liquids": [ ... ]
 //   }
@@ -131,6 +132,24 @@
 // ```
 // Every array is row-major, x fastest. Heights of vertices no existing tile
 // touches are not meaningful.
+//
+// ### resources.particulate_volumes (backed by particulate.bin, written only when non-empty)
+// Boxes the client fills with ambient particles (WMO MPVD), model space.
+// Layout and evidence: WIKI_FINDINGS/WORLD.md "WMO MPVD"; names are
+// value-characterized from the corpus.
+// ```json
+// [ { "ref": <Ref, name "mpvd_<i>">,
+//     "position": [x,y,z], "extent": [x,y,z],   // box size; full or half size unverified
+//     "euler_rotation": [x,y,z],                 // radians, axis order unverified
+//     "preset_id": <uint32>, "particle_count": <uint32>, "opacity": <f>,
+//     "envelope": [ { "time": <f, seconds>, "value": <f>, "value2": <f> } ],  // [] = constant
+//     "emitters": [ { "slot": <uint32>, <TextureRef keys>, "framebuffer_blend"?: <name>,
+//                     "source_blend": <uint32, EGxBlend>, "color": [r,g,b,a],
+//                     "tiles_x", "tiles_y", "frames": <uint32, frame count or rate>,
+//                     "parameters": [32 floats, semantics unresolved] } ],
+//     "source_flags": <uint32>,
+//     "source_record": <BufferSlice u8x1, the raw 4,272-byte record, for uncharacterized fields> } ]
+// ```
 //
 // ### resources.local_lights
 // Static lights the model places (WMO MNLD, then MOLT), model space, no bone:

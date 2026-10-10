@@ -156,7 +156,15 @@ placement is implemented, not before.
 
 ## 2. WMO particulate/ambient/box volumes (`MPVD`/`MAVG`/`MAVD`/`MBVD` + refs)
 
-**Current state**: `none`/`none`.
+**Current state (2026-10-10)**: `MPVD` is parsed (`wmo::ParticulateVolume`)
+and exported as the WMO bundle's `resources.particulate_volumes`
+(`canon::ParticulateVolume`, schema in `src/writers/bundle_writer.hpp`):
+characterized fields typed, emitter textures resolved like material
+textures, and each raw 4,272-byte record in `particulate.bin` for the
+fields still uncharacterized. 25 sampled `MPVD` WMOs export cleanly (69
+volumes, 51/70 emitter textures resolved, the rest unlisted). Open:
+`MPVR` group refs; `MAVG`/`MAVD`/`MBVD` (struct-confirmed below, not
+parsed); the `MPVD` semantics listed below.
 
 **Wiki citation**: `documentation/wowdev-wiki/md/WMO.md`, `## MPVD`
 (737–747), `## MAVG` (749–780), `## MAVD` (781–800), `## MBVD` (801–821)

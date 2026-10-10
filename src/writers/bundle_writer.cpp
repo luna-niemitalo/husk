@@ -652,6 +652,57 @@ void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lig
     w.endArray();
 }
 
+void writeParticulateVolumes(json::Writer& w, const std::vector<canon::ParticulateVolume>& volumes,
+                             const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures,
+                             std::vector<uint8_t>& particulateBin) {
+    w.beginArray();
+    for (const canon::ParticulateVolume& v : volumes) {
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, v.ref);
+        writeVec3Field(w, "position", v.position);
+        writeVec3Field(w, "extent", v.extent);
+        writeVec3Field(w, "euler_rotation", v.eulerRotation);
+        writeIntField(w, "preset_id", v.presetId);
+        writeIntField(w, "particle_count", v.particleCount);
+        writeFloatField(w, "opacity", v.opacity);
+        w.key("envelope");
+        w.beginArray();
+        for (const canon::ParticulateVolume::EnvelopeKey& k : v.envelope) {
+            w.beginObject();
+            writeFloatField(w, "time", k.time);
+            writeFloatField(w, "value", k.value);
+            writeFloatField(w, "value2", k.value2);
+            w.endObject();
+        }
+        w.endArray();
+        w.key("emitters");
+        w.beginArray();
+        for (const canon::ParticulateVolume::Emitter& e : v.emitters) {
+            w.beginObject();
+            writeIntField(w, "slot", e.slot);
+            writeTextureRef(w, e.texture, bundleDir, writtenTextures);
+            if (e.blend) {
+                w.key("framebuffer_blend");
+                w.value(framebufferBlendName(*e.blend));
+            }
+            writeIntField(w, "source_blend", e.sourceBlend);
+            writeFloatArrayField(w, "color", e.color.data(), e.color.size());
+            writeIntField(w, "tiles_x", e.tilesX);
+            writeIntField(w, "tiles_y", e.tilesY);
+            writeIntField(w, "frames", e.frames);
+            writeFloatArrayField(w, "parameters", e.parameters.data(), e.parameters.size());
+            w.endObject();
+        }
+        w.endArray();
+        writeIntField(w, "source_flags", v.sourceFlags);
+        w.key("source_record");
+        writeBufferSlice(w, appendArray(particulateBin, "particulate.bin", v.sourceRecord, 1, "u8"));
+        w.endObject();
+    }
+    w.endArray();
+}
+
 void writeRibbons(json::Writer& w, const std::vector<canon::RibbonEmitter>& ribbons,
                   const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures) {
     w.beginArray();
@@ -816,6 +867,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     std::vector<uint8_t> skeletonBin;
     std::vector<uint8_t> animBin;
     std::vector<uint8_t> liquidBin;
+    std::vector<uint8_t> particulateBin;
 
     std::ostringstream manifestStream;
     json::Writer w(manifestStream);
@@ -861,6 +913,8 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     w.key("particles");
     writeParticles(w, model.scene.particles, bundleDir, writtenTextures);
     w.endObject();
+    w.key("particulate_volumes");
+    writeParticulateVolumes(w, model.scene.particulateVolumes, bundleDir, writtenTextures, particulateBin);
     w.key("placement_sets");
     std::vector<OwnedSetEntry> sets;
     for (const canon::Model::OwnedSet& owned : model.placementSets) sets.push_back({&owned.set, owned.alwaysOn});
@@ -875,6 +929,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeFile(bundleDir / "skeleton.bin", skeletonBin);
     writeFile(bundleDir / "animation.bin", animBin);
     if (!model.liquids.empty()) writeFile(bundleDir / "liquid.bin", liquidBin);
+    if (!model.scene.particulateVolumes.empty()) writeFile(bundleDir / "particulate.bin", particulateBin);
 
     std::ofstream manifestFile(bundleDir / "manifest.json", std::ios::binary);
     if (!manifestFile) {

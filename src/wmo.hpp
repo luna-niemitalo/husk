@@ -82,6 +82,38 @@ struct Doodad {
     uint32_t color = 0;  // CImVector (BGRA), raw
 };
 
+// MPVD emitter entry, 844 bytes; four per record (WIKI_FINDINGS/WORLD.md
+// "WMO MPVD"). Names below are value-characterized from the corpus, not
+// from any symbol.
+struct ParticulateEmitter {
+    uint32_t slot = 0;  // 0..3 within the record
+    std::array<float, 32> parameters{};  // emission parameters, per-field semantics unresolved
+    std::array<float, 4> color{};        // RGBA 0..1, byte-quantized
+    uint32_t textureFileDataId = 0;      // particle texture; 0 = slot unused
+    uint32_t blendMode = 0;              // EGxBlend: 2 alpha, 3 additive seen
+    uint32_t tilesX = 0;                 // flipbook grid
+    uint32_t tilesY = 0;
+    uint32_t frames = 0;  // frame count or frame rate: tilesX * tilesY in 142/193 records
+    float unknownA8 = 0;  // entry +0xA8, 1..35
+};
+
+// MPVD, 4,272 bytes: a box volume of ambient particles (dust, snow, ash).
+struct ParticulateVolume {
+    uint32_t flags = 0;  // bit 0 always set, bits 2..4 vary; meaning unresolved
+    Vec3 position{};
+    Vec3 extent{};
+    Vec3 rotation{};  // radians, axis order unverified
+    uint32_t presetId = 0;       // +0x30: shared across unrelated files, not a FileDataID
+    uint32_t particleCount = 0;  // +0x34: count/density-like, 25..14,000
+    float opacity = 0;           // +0x3C: density/opacity-like, 0.09..1
+    // +0x40: (value, value2, time in seconds), time ascending; count at +0x298.
+    std::vector<std::array<float, 3>> envelope;
+    std::vector<ParticulateEmitter> emitters;  // used slots only (texture != 0)
+    // The whole record, for the fields still uncharacterized (+0x04, +0x2C,
+    // +0x38, +0x220, +0x29C, +0x2A0, the trailer).
+    std::vector<uint8_t> record;
+};
+
 // MOLT, 48 bytes. The wiki suspects these only ever fed offline MOCV
 // baking; every populated MOLT in a 4,000-root sample is type 0 (omni).
 struct LegacyLight {
@@ -143,6 +175,7 @@ struct RootFile {
     std::vector<std::array<Vec2, 2>> uvScrollSpeeds;
     std::vector<LegacyLight> legacyLights;  // MOLT
     std::vector<NewLight> newLights;        // MNLD
+    std::vector<ParticulateVolume> particulateVolumes;  // MPVD
     uint32_t skyboxFileDataId = 0;  // MOSI; 0 = none
     std::string skyboxName;         // MOSB; empty = none
 };

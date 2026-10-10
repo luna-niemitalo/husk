@@ -318,6 +318,8 @@ constexpr const char* kWmoGuardTower = "world/wmo/azeroth/buildings/guardtower/g
 constexpr const char* kWmoChamberCap = "world/wmo/dungeon/torghast/9du_torghast_modular_chambercap01.wmo";
 // The wiki's own byte-verified MLIQ example (10x13 vertices, MOMT 46).
 constexpr const char* kWmoLiquidGroup = "world/wmo/dungeon/md_ruinedkeep/ruinedkeep_crypt2_015.wmo";
+// The one MPVD record in the corpus that uses a second emitter slot.
+constexpr const char* kWmoParticulate = "world/wmo/expansion09/exterior/10xt_exterior_tunnel01.wmo";
 }  // namespace fixtures
 
 // reference/WoWDBDefs (gitignored, dev-only checkout, see dbd.hpp's module
@@ -428,5 +430,6 @@ inline std::string testWmoCameron() { return resolve("HUSK_TEST_WMO_CAMERON", fi
 inline std::string testWmoGuardTower() { return resolve("HUSK_TEST_WMO_GUARDTOWER", fixtures::kWmoGuardTower); }
 inline std::string testWmoChamberCap() { return resolve("HUSK_TEST_WMO_CHAMBERCAP", fixtures::kWmoChamberCap); }
 inline std::string testWmoLiquidGroup() { return resolve("HUSK_TEST_WMO_LIQUID_GROUP", fixtures::kWmoLiquidGroup); }
+inline std::string testWmoParticulate() { return resolve("HUSK_TEST_WMO_PARTICULATE", fixtures::kWmoParticulate); }
 
 }  // namespace husk::test

@@ -347,6 +347,13 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, const ListfileI
                 }
             }
         }
+        for (const wmo::ParticulateVolume& v : root.particulateVolumes) {
+            for (const wmo::ParticulateEmitter& e : v.emitters) {
+                if (!inputs.textures.count(e.textureFileDataId)) {
+                    inputs.textures.emplace(e.textureFileDataId, resolveTexture(e.textureFileDataId, *listfile, listfileRoot));
+                }
+            }
+        }
         std::vector<uint32_t> named = root.doodadFileDataIds;
         for (const wmo::NewLight& light : root.newLights) named.push_back(light.cookieFileDataId);
         for (uint32_t fdid : named) {

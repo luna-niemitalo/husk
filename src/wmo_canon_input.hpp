@@ -14,7 +14,8 @@
 // whose parts are the WMO's groups, materials from MOMT, one owned placement
 // set per doodad set (MODS), set 0 always on, and MNLD/MOLT lights as
 // scene.localLights (an MNLD light switches with its doodad set), and each
-// group's MLIQ as a LiquidGrid.
+// group's MLIQ as a LiquidGrid, and MPVD particulate volumes in
+// scene.particulateVolumes.
 namespace husk::wmoinput {
 
 struct WmoInputs {
@@ -23,8 +24,8 @@ struct WmoInputs {
     // when the caller couldn't find or read it -- that part then has no
     // primitives.
     std::vector<std::optional<wmo::GroupFile>> groups;
-    // Material textures and doodad models, keyed by FileDataID, resolved by
-    // the caller (no filesystem access here).
+    // Material and particulate-volume textures and doodad models, keyed by
+    // FileDataID, resolved by the caller (no filesystem access here).
     std::unordered_map<uint32_t, canon::TextureRef> textures;
     std::unordered_map<uint32_t, std::string> assetNames;  // listfile names for doodad and light-cookie FileDataIDs
 };

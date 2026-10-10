@@ -235,6 +235,77 @@ TEST_CASE("wmo::parseRoot: MOLT reads type, attenuation flag, colour, position, 
     CHECK(l.attenuationEnd == 4.0f);
 }
 
+namespace {
+
+// One MPVD record with emitter slots 0 and 2 used.
+std::vector<uint8_t> mpvdRecord(uint32_t keyCount) {
+    std::vector<uint8_t> r(4272, 0);
+    put<uint32_t>(r, 0x00, 21);
+    put(r, 0x08, 1.0f);
+    put(r, 0x18, 7.0f);
+    put(r, 0x28, -3.0f);
+    put<uint32_t>(r, 0x30, 16386);
+    put<uint32_t>(r, 0x34, 500);
+    put(r, 0x3C, 0.5f);
+    for (uint32_t k = 0; k < keyCount && k < 40; ++k) {
+        put(r, 0x40 + 12 * k, 0.25f);
+        put(r, 0x44 + 12 * k, 1.0f);
+        put(r, 0x48 + 12 * k, static_cast<float>(k));
+    }
+    put<uint32_t>(r, 0x298, keyCount);
+    for (uint32_t slot : {0u, 2u}) {
+        size_t e = 0x2D0 + slot * 844;
+        put(r, e + 0x10, -0.5f);
+        put(r, e + 0x80, 1.0f);
+        put(r, e + 0x8C, 0.5f);
+        put<uint32_t>(r, e + 0x94, 100 + slot);
+        put<uint32_t>(r, e + 0x98, 3);
+        put<uint32_t>(r, e + 0x9C, 4);
+        put<uint32_t>(r, e + 0xA0, 2);
+        put<uint32_t>(r, e + 0xA4, 8);
+        put(r, e + 0xA8, 12.0f);
+    }
+    put<uint32_t>(r, 0x10AC, 1);
+    return r;
+}
+
+}  // namespace
+
+TEST_CASE("wmo::parseRoot: MPVD reads header, envelope and the used emitter slots, keeping the raw record") {
+    wmo::RootFile root = wmo::parseRoot(minimalRoot(0, {{"MPVD", mpvdRecord(2)}}));
+    REQUIRE(root.particulateVolumes.size() == 1);
+    const wmo::ParticulateVolume& v = root.particulateVolumes[0];
+    CHECK(v.flags == 21);
+    CHECK(v.position == wmo::Vec3{1, 0, 0});
+    CHECK(v.extent == wmo::Vec3{0, 7, 0});
+    CHECK(v.rotation == wmo::Vec3{0, 0, -3});
+    CHECK(v.presetId == 16386);
+    CHECK(v.particleCount == 500);
+    CHECK(v.opacity == 0.5f);
+    REQUIRE(v.envelope.size() == 2);
+    CHECK(v.envelope[1] == std::array<float, 3>{0.25f, 1.0f, 1.0f});
+    REQUIRE(v.emitters.size() == 2);
+    const wmo::ParticulateEmitter& e = v.emitters[1];
+    CHECK(e.slot == 2);
+    CHECK(e.textureFileDataId == 102);
+    CHECK(e.parameters[4] == -0.5f);
+    CHECK(e.color == std::array<float, 4>{1, 0, 0, 0.5f});
+    CHECK(e.blendMode == 3);
+    CHECK(e.tilesX == 4);
+    CHECK(e.tilesY == 2);
+    CHECK(e.frames == 8);
+    CHECK(e.unknownA8 == 12.0f);
+    CHECK(v.record.size() == 4272);
+    CHECK(v.record[0x10AC] == 1);
+}
+
+TEST_CASE("wmo::parseRoot: MPVD with more than 40 keyframes or a partial record throws") {
+    CHECK_THROWS_WITH_AS(wmo::parseRoot(minimalRoot(0, {{"MPVD", mpvdRecord(41)}})),
+                         "MPVD[0] keyframe count: expected <= 40, got 41", wmo::ParseError);
+    CHECK_THROWS_WITH_AS(wmo::parseRoot(minimalRoot(0, {{"MPVD", std::vector<uint8_t>(4000, 0)}})),
+                         "MPVD: expected a multiple of 4272 bytes, got 4000", wmo::ParseError);
+}
+
 TEST_CASE("wmo::groupFileDataId: GFID is row-major [lodTier][group], 0 for holes and out of range") {
     std::vector<uint8_t> gfid;
     for (uint32_t id : {10u, 11u, 20u, 0u}) put(gfid, gfid.size(), id);
@@ -434,4 +505,19 @@ TEST_CASE("wmo: real ruinedkeep_crypt2_015 -- the wiki's MLIQ example, liquid ti
             CHECK(y0 < g.bounds.max[1]);
         }
     }
+}
+
+TEST_CASE("wmo: real 10xt_exterior_tunnel01 -- the corpus's one two-emitter MPVD record" *
+          doctest::skip(test::testWmoParticulate().empty())) {
+    wmo::RootFile root = wmo::parseRoot(readFile(test::testWmoParticulate()));
+    REQUIRE(root.particulateVolumes.size() == 1);
+    const wmo::ParticulateVolume& v = root.particulateVolumes[0];
+    CHECK(v.extent == wmo::Vec3{86, 74, 109});
+    REQUIRE(v.emitters.size() == 2);
+    CHECK(v.emitters[0].textureFileDataId == 2058148);
+    CHECK(v.emitters[1].slot == 1);
+    CHECK(v.emitters[1].textureFileDataId == 3509651);
+    // Flipbook ints line up across both slots: the 844-byte stride.
+    CHECK(v.emitters[0].tilesX * v.emitters[0].tilesY == v.emitters[0].frames);
+    CHECK(v.emitters[1].tilesX * v.emitters[1].tilesY == v.emitters[1].frames);
 }

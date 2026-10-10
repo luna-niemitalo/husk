@@ -325,6 +325,59 @@ TEST_CASE("buildCanonWmo: liquid type follows WMO.md's rules, with and without t
     CHECK(resolvedType(0, 15) == 0);
 }
 
+TEST_CASE("buildCanonWmo: MPVD records become particulate volumes with resolved emitter textures") {
+    wmo::RootFile root = syntheticRoot();
+    wmo::ParticulateVolume v;
+    v.flags = 21;
+    v.extent = {7, 8, 9};
+    v.presetId = 16386;
+    v.envelope = {{0.5f, 1.0f, 0.0f}, {1.0f, 1.0f, 4.0f}};
+    wmo::ParticulateEmitter dust;
+    dust.slot = 0;
+    dust.textureFileDataId = 101;
+    dust.blendMode = 3;
+    dust.color = {1, 0.5f, 0, 1};
+    dust.tilesX = 4;
+    dust.frames = 16;
+    wmo::ParticulateEmitter odd = dust;
+    odd.slot = 1;
+    odd.textureFileDataId = 555;
+    odd.blendMode = 7;
+    v.emitters = {dust, odd};
+    v.record.assign(4272, 0);
+    root.particulateVolumes = {v};
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {std::nullopt, std::nullopt};
+    canon::TextureRef resolved;
+    resolved.state = canon::TextureRef::State::Resolved;
+    resolved.resolved = canon::Ref{canon::FileDataId{101}, "dust1", canon::NameSource::Listfile};
+    in.textures.emplace(101, resolved);
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    REQUIRE(model.scene.particulateVolumes.size() == 1);
+    const canon::ParticulateVolume& out = model.scene.particulateVolumes[0];
+    CHECK(out.ref.name == "mpvd_0");
+    CHECK(out.extent.z == 9.0f);
+    CHECK(out.presetId == 16386);
+    CHECK(out.sourceFlags == 21);
+    REQUIRE(out.envelope.size() == 2);
+    CHECK(out.envelope[1].time == 4.0f);
+    CHECK(out.envelope[1].value == 1.0f);
+    CHECK(out.envelope[0].value == 0.5f);
+    REQUIRE(out.emitters.size() == 2);
+    CHECK(out.emitters[0].texture.resolved.name == "dust1");
+    CHECK(out.emitters[0].blend == canon::FramebufferBlend::Add);
+    CHECK(out.emitters[0].color[1] == 0.5f);
+    CHECK(out.emitters[0].frames == 16);
+    CHECK(out.emitters[1].slot == 1);
+    CHECK(out.emitters[1].texture.unresolvedReason == "texture FileDataID 555 was not resolved");
+    CHECK_FALSE(out.emitters[1].blend.has_value());
+    CHECK(out.emitters[1].sourceBlend == 7);
+    CHECK(out.sourceRecord.size() == 4272);
+}
+
 TEST_CASE("buildCanonWmo: inconsistent inputs throw with expected and actual") {
     wmo::RootFile root = syntheticRoot();
     wmoinput::WmoInputs in;

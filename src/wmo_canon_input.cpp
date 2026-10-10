@@ -38,6 +38,14 @@ std::array<uint8_t, 4> bgraToRgba(uint32_t bgra) {
             static_cast<uint8_t>(bgra >> 24)};
 }
 
+canon::TextureRef textureById(const WmoInputs& in, uint32_t fdid) {
+    auto it = in.textures.find(fdid);
+    if (it != in.textures.end()) return it->second;
+    canon::TextureRef ref;
+    ref.unresolvedReason = "texture FileDataID " + std::to_string(fdid) + " was not resolved";
+    return ref;
+}
+
 canon::TextureRef textureFor(const WmoInputs& in, uint32_t slot) {
     const wmo::RootFile& root = *in.root;
     canon::TextureRef ref;
@@ -47,10 +55,7 @@ canon::TextureRef textureFor(const WmoInputs& in, uint32_t slot) {
         ref.unresolvedReason = "MOTX path '" + wmo::stringAt(root.textureNames, slot) + "' has no FileDataID";
         return ref;
     }
-    auto it = in.textures.find(slot);
-    if (it != in.textures.end()) return it->second;
-    ref.unresolvedReason = "texture FileDataID " + std::to_string(slot) + " was not resolved";
-    return ref;
+    return textureById(in, slot);
 }
 
 canon::Material buildMaterial(const WmoInputs& in, uint32_t index) {
@@ -207,8 +212,40 @@ canon::LocalLight buildLegacyLight(const WmoInputs& in, uint32_t index) {
     return out;
 }
 
+canon::ParticulateVolume buildParticulateVolume(const WmoInputs& in, uint32_t index) {
+    const wmo::ParticulateVolume& v = in.root->particulateVolumes[index];
+    canon::ParticulateVolume out;
+    out.ref = canon::Ref{canon::RecordIndex{index}, "mpvd_" + std::to_string(index), canon::NameSource::Synthesized};
+    out.position = toCanon(v.position);
+    out.extent = toCanon(v.extent);
+    out.eulerRotation = toCanon(v.rotation);
+    out.presetId = v.presetId;
+    out.particleCount = v.particleCount;
+    out.opacity = v.opacity;
+    for (const auto& [value, value2, time] : v.envelope) out.envelope.push_back({time, value, value2});
+    for (const wmo::ParticulateEmitter& e : v.emitters) {
+        canon::ParticulateVolume::Emitter emitter;
+        emitter.slot = e.slot;
+        emitter.texture = textureById(in, e.textureFileDataId);
+        emitter.blend = framebufferBlendFor(e.blendMode);
+        emitter.sourceBlend = e.blendMode;
+        emitter.color = e.color;
+        emitter.tilesX = e.tilesX;
+        emitter.tilesY = e.tilesY;
+        emitter.frames = e.frames;
+        emitter.parameters = e.parameters;
+        out.emitters.push_back(std::move(emitter));
+    }
+    out.sourceFlags = v.flags;
+    out.sourceRecord = v.record;
+    return out;
+}
+
 canon::Scene buildScene(const WmoInputs& in) {
     canon::Scene scene;
+    for (uint32_t i = 0; i < in.root->particulateVolumes.size(); ++i) {
+        scene.particulateVolumes.push_back(buildParticulateVolume(in, i));
+    }
     for (uint32_t i = 0; i < in.root->newLights.size(); ++i) scene.localLights.push_back(buildNewLight(in, i));
     for (uint32_t i = 0; i < in.root->legacyLights.size(); ++i) scene.localLights.push_back(buildLegacyLight(in, i));
     return scene;

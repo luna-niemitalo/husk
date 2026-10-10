@@ -14,7 +14,7 @@ deletions handled their own back-references).
 
 ---
 
-**2026-10-10 — WMO doodads into the world, WMO lights and liquids.**
+**2026-10-10 — WMO doodads into the world, WMO lights, liquids and particulate volumes.**
 
 - **Terrain onto placement sets**: a tile's `MDDF`/`MODF` placements are
   two world-frame sets (`doodads`, `map_objects`), replacing the terrain
@@ -34,9 +34,12 @@ deletions handled their own back-references).
   lava left unresolved). Real data overturned the wiki's "column major"
   note: the grid is row-major, x fastest (`WIKI_FINDINGS/WORLD.md`).
 - **Particles**: a WMO's only particle data is `MPVD` particulate
-  volumes; a 4,272-byte-record lead is logged in
-  `TODO/WORLD/FOG_VOLUMES_TODO.md`, nothing exported yet. Doodads'
-  own M2 emitters already ship in their model bundles.
+  volumes. After Luna's reverse-engineering pass (c77beaa2, layout in
+  `WIKI_FINDINGS/WORLD.md`), they export as `scene.particulateVolumes` /
+  `resources.particulate_volumes`: typed characterized fields, resolved
+  emitter textures, and each raw record in `particulate.bin`. 25 sampled
+  `MPVD` WMOs clean. Doodads' own M2 emitters already ship in their
+  model bundles.
 
 ---
 

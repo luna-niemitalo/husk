@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -213,11 +214,50 @@ struct LocalLight {
     uint32_t sourceFlags = 0;  // MNLD flags or MOLT's two unknown bytes, raw
 };
 
+// A box the client fills with ambient particles (WMO MPVD: dust, snow,
+// ash), in model space. Layout: WIKI_FINDINGS/WORLD.md "WMO MPVD"; names
+// here are value-characterized from the corpus, not from any symbol, and
+// fields with no characterization at all stay in `sourceRecord`.
+struct ParticulateVolume {
+    Ref ref;  // id = RecordIndex in the source table; name = "mpvd_<index>", Synthesized
+    Vec3 position;
+    Vec3 extent;  // box size per axis; full size or half size unverified
+    Vec3 eulerRotation;  // radians, axis order unverified
+    uint32_t presetId = 0;       // shared across unrelated files; what it names is unresolved
+    uint32_t particleCount = 0;  // count/density-like
+    float opacity = 0;           // density/opacity-like, 0..1
+
+    // An emission envelope: value pulses over time (seconds, ascending).
+    struct EnvelopeKey {
+        float time = 0;
+        float value = 0;
+        float value2 = 0;
+    };
+    std::vector<EnvelopeKey> envelope;  // empty = constant
+
+    struct Emitter {
+        uint32_t slot = 0;  // position in the source record's emitter array
+        TextureRef texture;
+        std::optional<FramebufferBlend> blend;  // nullopt when the source mode has no canon name
+        uint32_t sourceBlend = 0;               // raw EGxBlend
+        std::array<float, 4> color{};           // RGBA 0..1
+        uint32_t tilesX = 0;                    // flipbook grid
+        uint32_t tilesY = 0;
+        uint32_t frames = 0;  // frame count or frame rate, unresolved
+        std::array<float, 32> parameters{};  // emission parameters, per-field semantics unresolved
+    };
+    std::vector<Emitter> emitters;
+
+    uint32_t sourceFlags = 0;
+    std::vector<uint8_t> sourceRecord;  // the whole source record, raw
+};
+
 struct Scene {
     std::vector<Attachment> attachments;
     std::vector<Event> events;
     std::vector<Light> lights;
     std::vector<LocalLight> localLights;
+    std::vector<ParticulateVolume> particulateVolumes;
     std::vector<RibbonEmitter> ribbons;
     std::vector<ParticleEmitter> particles;
 };

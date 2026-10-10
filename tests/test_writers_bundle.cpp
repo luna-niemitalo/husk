@@ -607,6 +607,51 @@ TEST_CASE("writeBundle: liquids slice into liquid.bin, which only exists when th
     CHECK(bin.at(flagsAt + 1) == 0x0F);
 }
 
+TEST_CASE("writeBundle: particulate volumes, their raw records sliced into particulate.bin") {
+    canon::Model model = buildSyntheticModel();
+    fs::path dry = fs::temp_directory_path() / "husk-test-bundle-no-particulate";
+    fs::remove_all(dry);
+    writers::writeBundle(model, dry, "husk test");
+    CHECK(parseManifest(dry)["resources"]["particulate_volumes"].empty());
+    CHECK_FALSE(fs::exists(dry / "particulate.bin"));
+
+    canon::ParticulateVolume v;
+    v.ref = canon::Ref{canon::RecordIndex{0}, "mpvd_0", canon::NameSource::Synthesized};
+    v.extent = {7, 8, 9};
+    v.envelope = {{0.0f, 0.5f, 1.0f}, {4.0f, 1.0f, 1.0f}};
+    canon::ParticulateVolume::Emitter e;
+    e.texture.unresolvedReason = "texture FileDataID 555 was not resolved";
+    e.blend = canon::FramebufferBlend::Add;
+    e.sourceBlend = 3;
+    e.color = {1, 0.5f, 0, 1};
+    e.tilesX = 4;
+    e.tilesY = 4;
+    e.frames = 16;
+    v.emitters = {e};
+    v.sourceRecord.assign(4272, 0);
+    v.sourceRecord[0x10AC] = 2;
+    model.scene.particulateVolumes = {v};
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-particulate";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, "husk test");
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& written = manifest["resources"]["particulate_volumes"][0];
+
+    CHECK(written["ref"]["name"] == "mpvd_0");
+    CHECK(written["extent"] == nlohmann::json::array({7.0, 8.0, 9.0}));
+    CHECK(written["envelope"][1]["time"] == 4.0);
+    const auto& emitter = written["emitters"][0];
+    CHECK(emitter["texture_state"] == "known_unresolved");
+    CHECK(emitter["framebuffer_blend"] == "add");
+    CHECK(emitter["color"] == nlohmann::json::array({1.0, 0.5, 0.0, 1.0}));
+    CHECK(emitter["parameters"].size() == 32);
+    CHECK(written["source_record"]["file"] == "particulate.bin");
+    CHECK(written["source_record"]["count"] == 4272);
+    std::vector<uint8_t> bin = readFile((dir / "particulate.bin").string());
+    size_t at = written["source_record"]["byte_offset"];
+    CHECK(bin.at(at + 0x10AC) == 2);
+}
+
 TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set files") {
     canon::Model model = buildSyntheticModel();
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0x8, {}, {}});

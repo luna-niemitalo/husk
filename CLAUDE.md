@@ -271,10 +271,12 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   `placement_sets`**. WMO `MNLD`/`MOLT` lights are
   `resources.local_lights`, each `MNLD` light switching with its doodad
   set; `MLIQ` liquid is `resources.liquids` with LiquidType resolved.
-  **Next**: WMO particulate volumes (`MPVD`, struct unresolved, a
-  4,272-byte-record lead in `TODO/WORLD/FOG_VOLUMES_TODO.md` §2), fog,
-  then collision/portals/LOD; open items per feature in
-  `TODO/WORLD/LIGHTING_TODO.md` and `LIQUID_TODO.md` §1.
+  `MPVD` particulate volumes are `scene.particulateVolumes`
+  (`resources.particulate_volumes`). **Next**: the rest of
+  `TODO/WORLD/FOG_VOLUMES_TODO.md` (`MAVG`/`MAVD`/`MBVD` ambient volumes,
+  `MFOG` fog, map-level `_mpv`/`_fogs`), then collision/portals/LOD; open
+  items per feature in `TODO/WORLD/LIGHTING_TODO.md`, `LIQUID_TODO.md` §1
+  and `FOG_VOLUMES_TODO.md` §2.
   Client shaders are unpacked under `example_exports/shaders/`
   (`tools/export_shaders.py`).
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,
