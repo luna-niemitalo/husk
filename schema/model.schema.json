@@ -1,0 +1,2361 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/model.schema.json",
+  "title": "model",
+  "description": "An asset in its own local frame, placed by something else: a doodad, an item, a character, a building.",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "model",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "description": "Version of the schema this document conforms to.",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The model this document describes.",
+      "x-layer": "contract"
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, when, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "What exists and is valid for this model.",
+      "properties": {
+        "placement_sets": {
+          "type": "array",
+          "description": "Placement sets this model owns: furniture, decorations, anything it places. Order is identity: selections index this list.",
+          "items": {
+            "type": "object",
+            "description": "One owned set.",
+            "properties": {
+              "reference": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The placement_set document.",
+                "x-index-into": "/references"
+              },
+              "always_on": {
+                "type": "boolean",
+                "description": "Shown wherever the model is placed, regardless of selection."
+              },
+              "instance_count": {
+                "type": "integer",
+                "description": "Number of instances in the set.",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "reference",
+              "always_on",
+              "instance_count"
+            ]
+          }
+        },
+        "customization": {
+          "type": "object",
+          "description": "Customization options a character model offers, each with its valid choices.",
+          "properties": {
+            "options": {
+              "type": "array",
+              "description": "Options in display order.",
+              "items": {
+                "type": "object",
+                "description": "One option.",
+                "properties": {
+                  "ref": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "The option."
+                  },
+                  "order": {
+                    "type": "integer",
+                    "description": "Display order."
+                  },
+                  "category": {
+                    "type": "object",
+                    "description": "The category the option is listed under.",
+                    "properties": {
+                      "ref": {
+                        "$ref": "common.schema.json#/definitions/ref",
+                        "description": "The category."
+                      },
+                      "order": {
+                        "type": "integer",
+                        "description": "Display order."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "ref",
+                      "order"
+                    ]
+                  },
+                  "choices": {
+                    "type": "array",
+                    "description": "Valid choices for the option.",
+                    "items": {
+                      "type": "object",
+                      "description": "One choice.",
+                      "properties": {
+                        "ref": {
+                          "$ref": "common.schema.json#/definitions/ref",
+                          "description": "The choice."
+                        },
+                        "order": {
+                          "type": "integer",
+                          "description": "Display order."
+                        },
+                        "geoset_id": {
+                          "type": "integer",
+                          "description": "Mesh geoset the choice shows; group * 100 + variant."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "ref",
+                        "order"
+                      ]
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "ref",
+                  "order",
+                  "category",
+                  "choices"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "options"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "placement_sets"
+      ],
+      "x-layer": "definition"
+    },
+    "selection": {
+      "type": "object",
+      "description": "What this model, as exported, has chosen from its definition.",
+      "properties": {
+        "placement_sets": {
+          "type": "array",
+          "description": "Owned sets shown beyond the always-on ones.",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A set.",
+            "x-index-into": "/definition/placement_sets"
+          }
+        },
+        "customization": {
+          "type": "array",
+          "description": "Chosen customization choices.",
+          "items": {
+            "type": "object",
+            "description": "One chosen choice.",
+            "properties": {
+              "option": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The option.",
+                "x-index-into": "/definition/customization/options"
+              },
+              "choice": {
+                "type": "integer",
+                "description": "Index into that option's choices.",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "option",
+              "choice"
+            ]
+          }
+        },
+        "equipped": {
+          "type": "array",
+          "description": "Items the model wears.",
+          "items": {
+            "type": "object",
+            "description": "One worn item.",
+            "properties": {
+              "reference": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The item model.",
+                "x-index-into": "/references"
+              },
+              "slots": {
+                "type": "array",
+                "description": "Equipment slots it occupies.",
+                "items": {
+                  "type": "string",
+                  "description": "A slot name."
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "reference",
+              "slots"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "placement_sets"
+      ],
+      "x-layer": "selection"
+    },
+    "references": {
+      "type": "array",
+      "description": "Other documents this model depends on.",
+      "items": {
+        "$ref": "common.schema.json#/definitions/reference",
+        "description": "One dependency."
+      },
+      "x-layer": "contract"
+    },
+    "resources": {
+      "type": "object",
+      "description": "The model's data.",
+      "properties": {
+        "geometry": {
+          "type": "object",
+          "description": "Shape of the model.",
+          "properties": {
+            "mesh": {
+              "type": "object",
+              "description": "Triangle geometry: one shared vertex list, triangle indices, and the ranges that draw them.",
+              "properties": {
+                "positions": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Vertex positions, f32x3.",
+                  "x-unit": "yard"
+                },
+                "normals": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Vertex normals, f32x3, unit length."
+                },
+                "uv0": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "First texture coordinate set, f32x2."
+                },
+                "uv1": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Second texture coordinate set, f32x2."
+                },
+                "uv2": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Third texture coordinate set, f32x2."
+                },
+                "colors": {
+                  "type": "array",
+                  "description": "Vertex colour sets, u8x4 RGBA 0..255 as stored.",
+                  "items": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "One colour set."
+                  }
+                },
+                "joints0": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Skinning joint indices per vertex, u8x4."
+                },
+                "weights0": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Skinning weights per vertex, f32x4."
+                },
+                "indices": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Triangle vertex indices, u32, three per triangle."
+                },
+                "primitives": {
+                  "type": "array",
+                  "description": "Index ranges drawn with one material.",
+                  "items": {
+                    "type": "object",
+                    "description": "One primitive.",
+                    "properties": {
+                      "geoset_id": {
+                        "type": "integer",
+                        "description": "Geoset the range belongs to: group * 100 + variant."
+                      },
+                      "geoset_group": {
+                        "type": "integer",
+                        "description": "Geoset group."
+                      },
+                      "geoset_variant": {
+                        "type": "integer",
+                        "description": "Variant within the group."
+                      },
+                      "index_start": {
+                        "type": "integer",
+                        "description": "First index.",
+                        "minimum": 0
+                      },
+                      "index_count": {
+                        "type": "integer",
+                        "description": "Number of indices.",
+                        "minimum": 0
+                      },
+                      "material_index": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Material that draws it.",
+                        "x-index-into": "/resources/materials"
+                      },
+                      "part": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Part it belongs to.",
+                        "x-index-into": "/resources/geometry/mesh/parts"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "geoset_id",
+                      "geoset_group",
+                      "geoset_variant",
+                      "index_start",
+                      "index_count",
+                      "material_index"
+                    ]
+                  }
+                },
+                "parts": {
+                  "type": "array",
+                  "description": "Named, separately addressable pieces (rooms, wings, shells).",
+                  "items": {
+                    "type": "object",
+                    "description": "One part.",
+                    "properties": {
+                      "ref": {
+                        "$ref": "common.schema.json#/definitions/ref",
+                        "description": "The part."
+                      },
+                      "bounds_min": {
+                        "$ref": "common.schema.json#/definitions/vec3",
+                        "description": "Bounding box minimum.",
+                        "x-unit": "yard"
+                      },
+                      "bounds_max": {
+                        "$ref": "common.schema.json#/definitions/vec3",
+                        "description": "Bounding box maximum.",
+                        "x-unit": "yard"
+                      },
+                      "fog_volumes": {
+                        "type": "array",
+                        "description": "Fog volumes that apply inside the part.",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "A fog volume.",
+                          "x-index-into": "/resources/scene/fog_volumes"
+                        }
+                      },
+                      "portals": {
+                        "type": "array",
+                        "description": "Openings onto other parts.",
+                        "items": {
+                          "type": "object",
+                          "description": "One opening.",
+                          "properties": {
+                            "portal": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "The portal polygon.",
+                              "x-index-into": "/resources/geometry/mesh/portals"
+                            },
+                            "to_part": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "The part on the other side.",
+                              "x-index-into": "/resources/geometry/mesh/parts"
+                            },
+                            "unresolved": {
+                              "type": "object",
+                              "description": "Fields whose meaning is not established.",
+                              "properties": {
+                                "side": {
+                                  "type": "integer",
+                                  "description": "Source sign, +1 or -1."
+                                }
+                              },
+                              "additionalProperties": false,
+                              "required": [
+                                "side"
+                              ]
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "portal",
+                            "to_part",
+                            "unresolved"
+                          ]
+                        }
+                      },
+                      "source": {
+                        "type": "object",
+                        "description": "Source-specific raw values.",
+                        "properties": {
+                          "flags": {
+                            "$ref": "common.schema.json#/definitions/flags",
+                            "description": "The source's flag word."
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "flags"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "ref",
+                      "bounds_min",
+                      "bounds_max",
+                      "source"
+                    ]
+                  }
+                },
+                "portals": {
+                  "type": "array",
+                  "description": "Polygons parts see each other through.",
+                  "items": {
+                    "type": "object",
+                    "description": "One portal.",
+                    "properties": {
+                      "vertices": {
+                        "type": "array",
+                        "description": "Polygon vertices in source order.",
+                        "items": {
+                          "$ref": "common.schema.json#/definitions/vec3",
+                          "description": "A vertex.",
+                          "x-unit": "yard"
+                        },
+                        "x-unit": "yard"
+                      },
+                      "normal": {
+                        "$ref": "common.schema.json#/definitions/vec3",
+                        "description": "Plane normal; dot(normal, p) + distance == 0 on the polygon.",
+                        "x-unit": "1"
+                      },
+                      "distance": {
+                        "type": "number",
+                        "description": "Plane distance.",
+                        "x-unit": "yard"
+                      },
+                      "unresolved": {
+                        "type": "object",
+                        "description": "Fields whose meaning is not established.",
+                        "properties": {
+                          "extra_record": {
+                            "type": "array",
+                            "description": "A 16-byte record attached to the portal, raw.",
+                            "items": {
+                              "type": "integer",
+                              "description": "A byte."
+                            }
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "extra_record"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "vertices",
+                      "normal",
+                      "distance"
+                    ]
+                  }
+                },
+                "attributes": {
+                  "type": "array",
+                  "description": "Per-element data with no dedicated field.",
+                  "items": {
+                    "type": "object",
+                    "description": "A named per-element data channel.",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "description": "Channel name, '<source>.<field>', unique within the mesh."
+                      },
+                      "domain": {
+                        "enum": [
+                          "vertex",
+                          "face",
+                          "part"
+                        ],
+                        "description": "Which elements it covers: vertices, faces (one per triangle of indices, in order) or parts."
+                      },
+                      "data": {
+                        "$ref": "common.schema.json#/definitions/buffer_slice",
+                        "description": "The values; count is the element count."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "domain",
+                      "data"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "positions",
+                "normals",
+                "uv0",
+                "indices",
+                "primitives",
+                "parts",
+                "portals",
+                "attributes"
+              ]
+            },
+            "liquids": {
+              "type": "array",
+              "description": "Liquid surfaces.",
+              "items": {
+                "type": "object",
+                "description": "A liquid surface as a height grid over tiles; vertex (x, y) is at corner + (x, y) * tile_size with height heights[y * verts_x + x].",
+                "properties": {
+                  "part": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Part the liquid belongs to.",
+                    "x-index-into": "/resources/geometry/mesh/parts"
+                  },
+                  "material_index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Material of the surface.",
+                    "x-index-into": "/resources/materials"
+                  },
+                  "liquid_type": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Liquid type; identity kind none when undecided."
+                  },
+                  "corner": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Grid origin.",
+                    "x-unit": "yard"
+                  },
+                  "tile_size": {
+                    "type": "number",
+                    "description": "Edge length of one tile.",
+                    "x-unit": "yard"
+                  },
+                  "verts_x": {
+                    "type": "integer",
+                    "description": "Vertices along x.",
+                    "minimum": 0
+                  },
+                  "verts_y": {
+                    "type": "integer",
+                    "description": "Vertices along y.",
+                    "minimum": 0
+                  },
+                  "heights": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "Vertex heights, f32, row-major, x fastest.",
+                    "x-unit": "yard"
+                  },
+                  "tile_exists": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "Per tile, 1 when liquid is present, u8."
+                  },
+                  "source": {
+                    "type": "object",
+                    "description": "Source-specific raw values.",
+                    "properties": {
+                      "liquid_type": {
+                        "type": "integer",
+                        "description": "Liquid type id as stored."
+                      },
+                      "vertex_data": {
+                        "$ref": "common.schema.json#/definitions/buffer_slice",
+                        "description": "Per vertex raw bytes, u8x4."
+                      },
+                      "tile_flags": {
+                        "$ref": "common.schema.json#/definitions/buffer_slice",
+                        "description": "Per tile raw flags, u8."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "liquid_type",
+                      "vertex_data",
+                      "tile_flags"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "part",
+                  "material_index",
+                  "liquid_type",
+                  "corner",
+                  "tile_size",
+                  "verts_x",
+                  "verts_y",
+                  "heights",
+                  "tile_exists",
+                  "source"
+                ]
+              }
+            },
+            "collision": {
+              "type": "object",
+              "description": "Triangles to collide with, with their own vertices.",
+              "properties": {
+                "positions": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Vertex positions, f32x3.",
+                  "x-unit": "yard"
+                },
+                "indices": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Triangle vertex indices, u32, three per triangle."
+                },
+                "triangle_normals": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Per triangle normal, f32x3."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "positions",
+                "indices"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "mesh",
+            "liquids"
+          ]
+        },
+        "rig": {
+          "type": "object",
+          "description": "Skeleton and its animation.",
+          "properties": {
+            "skeleton": {
+              "type": "object",
+              "description": "Joint hierarchy in bind pose.",
+              "properties": {
+                "joint_count": {
+                  "type": "integer",
+                  "description": "Number of joints.",
+                  "minimum": 0
+                },
+                "parents": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Parent joint per joint, i32, -1 for a root."
+                },
+                "bind_translation": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Bind translation relative to the parent, f32x3.",
+                  "x-unit": "yard"
+                },
+                "joints": {
+                  "type": "array",
+                  "description": "Per joint data.",
+                  "items": {
+                    "type": "object",
+                    "description": "One joint.",
+                    "properties": {
+                      "ref": {
+                        "$ref": "common.schema.json#/definitions/ref",
+                        "description": "The joint."
+                      },
+                      "billboard": {
+                        "enum": [
+                          "none",
+                          "spherical",
+                          "cylindrical_lock_x",
+                          "cylindrical_lock_y",
+                          "cylindrical_lock_z"
+                        ],
+                        "description": "How the joint faces the camera."
+                      },
+                      "structural_label": {
+                        "type": "string",
+                        "description": "Label derived from the hierarchy."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "ref",
+                      "billboard",
+                      "structural_label"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "joint_count",
+                "parents",
+                "bind_translation",
+                "joints"
+              ]
+            },
+            "animation": {
+              "type": "array",
+              "description": "Clips: per joint local transform curves for one sequence.",
+              "items": {
+                "type": "object",
+                "description": "One clip.",
+                "properties": {
+                  "sequence_index": {
+                    "type": "integer",
+                    "description": "Sequence or global sequence.",
+                    "minimum": 0
+                  },
+                  "sequence_kind": {
+                    "$ref": "common.schema.json#/definitions/sequence_kind",
+                    "description": "Sequence or global sequence."
+                  },
+                  "joints": {
+                    "type": "array",
+                    "description": "Joints with curves in this clip.",
+                    "items": {
+                      "type": "object",
+                      "description": "One joint's curves.",
+                      "properties": {
+                        "joint_index": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "The joint.",
+                          "x-index-into": "/resources/rig/skeleton/joints"
+                        },
+                        "translation": {
+                          "type": "object",
+                          "description": "Translation curve.",
+                          "properties": {
+                            "times": {
+                              "$ref": "common.schema.json#/definitions/buffer_slice",
+                              "description": "Keyframe times, f32.",
+                              "x-unit": "second"
+                            },
+                            "values": {
+                              "$ref": "common.schema.json#/definitions/buffer_slice",
+                              "description": "Keyframe values, f32x3."
+                            },
+                            "interpolation": {
+                              "$ref": "common.schema.json#/definitions/interpolation",
+                              "description": "Interpolation between keyframes."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "times",
+                            "values",
+                            "interpolation"
+                          ]
+                        },
+                        "rotation": {
+                          "type": "object",
+                          "description": "Rotation curve, quaternion x, y, z, w.",
+                          "properties": {
+                            "times": {
+                              "$ref": "common.schema.json#/definitions/buffer_slice",
+                              "description": "Keyframe times, f32.",
+                              "x-unit": "second"
+                            },
+                            "values": {
+                              "$ref": "common.schema.json#/definitions/buffer_slice",
+                              "description": "Keyframe values, f32x4."
+                            },
+                            "interpolation": {
+                              "$ref": "common.schema.json#/definitions/interpolation",
+                              "description": "Interpolation between keyframes."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "times",
+                            "values",
+                            "interpolation"
+                          ]
+                        },
+                        "scale": {
+                          "type": "object",
+                          "description": "Scale curve.",
+                          "properties": {
+                            "times": {
+                              "$ref": "common.schema.json#/definitions/buffer_slice",
+                              "description": "Keyframe times, f32.",
+                              "x-unit": "second"
+                            },
+                            "values": {
+                              "$ref": "common.schema.json#/definitions/buffer_slice",
+                              "description": "Keyframe values, f32x3."
+                            },
+                            "interpolation": {
+                              "$ref": "common.schema.json#/definitions/interpolation",
+                              "description": "Interpolation between keyframes."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "times",
+                            "values",
+                            "interpolation"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "joint_index"
+                      ]
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "sequence_index",
+                  "sequence_kind",
+                  "joints"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "skeleton",
+            "animation"
+          ]
+        },
+        "materials": {
+          "type": "array",
+          "description": "Materials; primitives refer to them by index.",
+          "items": {
+            "type": "object",
+            "description": "How primitives are shaded.",
+            "properties": {
+              "layers": {
+                "type": "array",
+                "description": "Texture layers, bottom first.",
+                "items": {
+                  "type": "object",
+                  "description": "One texture layer of a material.",
+                  "properties": {
+                    "identity": {
+                      "$ref": "common.schema.json#/definitions/ref",
+                      "description": "The layer."
+                    },
+                    "role": {
+                      "type": "string",
+                      "description": "What the layer contributes, e.g. diffuse, specular, emission."
+                    },
+                    "uv": {
+                      "type": "string",
+                      "description": "Texture coordinates it samples: uv_set_<n> or environment_mapped."
+                    },
+                    "texture": {
+                      "$ref": "common.schema.json#/definitions/texture_entry",
+                      "description": "The layer's texture."
+                    },
+                    "blend": {
+                      "type": "string",
+                      "description": "How it combines with the layers below."
+                    },
+                    "tint": {
+                      "$ref": "common.schema.json#/definitions/inline_curve",
+                      "description": "Colour multiplier over time.",
+                      "x-unit": "1"
+                    },
+                    "alpha_fade": {
+                      "$ref": "common.schema.json#/definitions/inline_curve",
+                      "description": "Opacity multiplier over time.",
+                      "x-unit": "1"
+                    },
+                    "uv_animation": {
+                      "type": "object",
+                      "description": "Texture coordinate animation.",
+                      "properties": {
+                        "translation": {
+                          "$ref": "common.schema.json#/definitions/inline_curve",
+                          "description": "Translation curve.",
+                          "x-unit": "uv"
+                        },
+                        "rotation": {
+                          "$ref": "common.schema.json#/definitions/inline_curve",
+                          "description": "Rotation curve, quaternion.",
+                          "x-unit": "1"
+                        },
+                        "scaling": {
+                          "$ref": "common.schema.json#/definitions/inline_curve",
+                          "description": "Scale curve.",
+                          "x-unit": "1"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "uv_scroll": {
+                      "$ref": "common.schema.json#/definitions/vec2",
+                      "description": "Constant scroll speed.",
+                      "x-unit": "uv/second"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "identity",
+                    "role",
+                    "uv",
+                    "texture",
+                    "blend"
+                  ]
+                }
+              },
+              "framebuffer_blend": {
+                "enum": [
+                  "opaque",
+                  "alpha_key",
+                  "alpha",
+                  "no_alpha_add",
+                  "add",
+                  "mod",
+                  "mod2x",
+                  "blend_add"
+                ],
+                "description": "How the result combines with what is already drawn."
+              },
+              "diffuse_layer": {
+                "$ref": "common.schema.json#/definitions/ref",
+                "description": "Layer providing diffuse colour."
+              },
+              "specular_layer": {
+                "$ref": "common.schema.json#/definitions/ref",
+                "description": "Layer providing specular."
+              },
+              "emission_layer": {
+                "$ref": "common.schema.json#/definitions/ref",
+                "description": "Layer providing emission."
+              },
+              "alpha_layer": {
+                "$ref": "common.schema.json#/definitions/ref",
+                "description": "Layer providing opacity."
+              },
+              "unlit": {
+                "type": "boolean",
+                "description": "Ignores lighting."
+              },
+              "unfogged": {
+                "type": "boolean",
+                "description": "Ignores fog."
+              },
+              "two_sided": {
+                "type": "boolean",
+                "description": "Drawn from both sides."
+              },
+              "shader": {
+                "$ref": "common.schema.json#/definitions/ref",
+                "description": "Shader program it uses."
+              },
+              "source": {
+                "type": "object",
+                "description": "Source-specific raw values.",
+                "properties": {
+                  "flags": {
+                    "$ref": "common.schema.json#/definitions/flags",
+                    "description": "The source's flag word."
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "flags"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "layers",
+              "unlit",
+              "unfogged",
+              "two_sided",
+              "source"
+            ]
+          }
+        },
+        "scene": {
+          "type": "object",
+          "description": "Objects the model places that are not geometry.",
+          "properties": {
+            "attachments": {
+              "type": "array",
+              "description": "Attachment points.",
+              "items": {
+                "type": "object",
+                "description": "A point other models attach to.",
+                "properties": {
+                  "ref": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "The attachment point."
+                  },
+                  "point_id": {
+                    "type": "integer",
+                    "description": "Attachment point kind id."
+                  },
+                  "bone": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Joint the object moves with; identity is a record_index into the skeleton's joints."
+                  },
+                  "position": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Position in model space (not relative to the joint).",
+                    "x-unit": "yard"
+                  },
+                  "animate_attached": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Whether attached models animate, 0 or 1.",
+                    "x-unit": "1"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "ref",
+                  "point_id",
+                  "bone",
+                  "position",
+                  "animate_attached"
+                ]
+              }
+            },
+            "events": {
+              "type": "array",
+              "description": "Event trigger points.",
+              "items": {
+                "type": "object",
+                "description": "A named trigger point.",
+                "properties": {
+                  "identifier": {
+                    "type": "string",
+                    "description": "Event name."
+                  },
+                  "data": {
+                    "type": "integer",
+                    "description": "Event parameter."
+                  },
+                  "bone": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Joint the object moves with; identity is a record_index into the skeleton's joints."
+                  },
+                  "position": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Position in model space (not relative to the joint).",
+                    "x-unit": "yard"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "identifier",
+                  "data",
+                  "bone",
+                  "position"
+                ]
+              }
+            },
+            "animated_lights": {
+              "type": "array",
+              "description": "Lights attached to joints.",
+              "items": {
+                "type": "object",
+                "description": "A light attached to a joint, with animated colour and range.",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "directional",
+                      "point"
+                    ],
+                    "description": "Light kind."
+                  },
+                  "bone": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Joint the object moves with; identity is a record_index into the skeleton's joints."
+                  },
+                  "position": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Position in model space (not relative to the joint).",
+                    "x-unit": "yard"
+                  },
+                  "ambient_color": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Ambient colour.",
+                    "x-unit": "1"
+                  },
+                  "ambient_intensity": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Ambient intensity.",
+                    "x-unit": "1"
+                  },
+                  "diffuse_color": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Diffuse colour.",
+                    "x-unit": "1"
+                  },
+                  "diffuse_intensity": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Diffuse intensity.",
+                    "x-unit": "1"
+                  },
+                  "attenuation_start": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Distance where falloff begins.",
+                    "x-unit": "yard"
+                  },
+                  "attenuation_end": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Distance where the light reaches zero.",
+                    "x-unit": "yard"
+                  },
+                  "visibility": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "On or off, 0 or 1.",
+                    "x-unit": "1"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "position",
+                  "ambient_color",
+                  "ambient_intensity",
+                  "diffuse_color",
+                  "diffuse_intensity",
+                  "attenuation_start",
+                  "attenuation_end",
+                  "visibility"
+                ]
+              }
+            },
+            "static_lights": {
+              "type": "array",
+              "description": "Placed, unanimated lights.",
+              "items": {
+                "type": "object",
+                "description": "A light placed in the model, not animated.",
+                "properties": {
+                  "ref": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "The light."
+                  },
+                  "kind": {
+                    "enum": [
+                      "point",
+                      "spot",
+                      "directional",
+                      "ambient"
+                    ],
+                    "description": "Light kind."
+                  },
+                  "position": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Position in model space (not relative to the joint).",
+                    "x-unit": "yard"
+                  },
+                  "rotation": {
+                    "$ref": "common.schema.json#/definitions/quat",
+                    "description": "Orientation, when stored as a quaternion.",
+                    "x-unit": "1"
+                  },
+                  "euler_rotation": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Orientation, when stored as Euler angles; axis order not established.",
+                    "x-unit": "radian"
+                  },
+                  "color": {
+                    "$ref": "common.schema.json#/definitions/rgb",
+                    "description": "Colour.",
+                    "x-unit": "1"
+                  },
+                  "intensity": {
+                    "type": "number",
+                    "description": "Intensity.",
+                    "x-unit": "1"
+                  },
+                  "intensity_multiplier": {
+                    "type": "number",
+                    "description": "Extra intensity factor.",
+                    "x-unit": "1"
+                  },
+                  "attenuated": {
+                    "type": "boolean",
+                    "description": "Whether it falls off with distance."
+                  },
+                  "attenuation_start": {
+                    "type": "number",
+                    "description": "Distance where falloff begins.",
+                    "x-unit": "yard"
+                  },
+                  "attenuation_end": {
+                    "type": "number",
+                    "description": "Distance where the light reaches zero.",
+                    "x-unit": "yard"
+                  },
+                  "gradient": {
+                    "type": "object",
+                    "description": "Colour that changes with distance.",
+                    "properties": {
+                      "outer_color": {
+                        "$ref": "common.schema.json#/definitions/rgb",
+                        "description": "Colour at blend_end.",
+                        "x-unit": "1"
+                      },
+                      "blend_start": {
+                        "type": "number",
+                        "description": "Distance where the blend begins.",
+                        "x-unit": "yard"
+                      },
+                      "blend_end": {
+                        "type": "number",
+                        "description": "Distance where the blend ends.",
+                        "x-unit": "yard"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "outer_color",
+                      "blend_start",
+                      "blend_end"
+                    ]
+                  },
+                  "cone": {
+                    "type": "object",
+                    "description": "Spot light cone.",
+                    "properties": {
+                      "falloff_exponent": {
+                        "type": "number",
+                        "description": "Falloff exponent.",
+                        "x-unit": "1"
+                      },
+                      "inner_angle": {
+                        "type": "number",
+                        "description": "Inner angle; half or whole cone not established.",
+                        "x-unit": "radian"
+                      },
+                      "outer_angle": {
+                        "type": "number",
+                        "description": "Outer angle.",
+                        "x-unit": "radian"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "falloff_exponent",
+                      "inner_angle",
+                      "outer_angle"
+                    ]
+                  },
+                  "flicker": {
+                    "type": "object",
+                    "description": "Procedural flicker.",
+                    "properties": {
+                      "mode": {
+                        "enum": [
+                          1,
+                          2,
+                          3
+                        ],
+                        "description": "1 sine, 2 noise, 3 noise step."
+                      },
+                      "intensity": {
+                        "type": "number",
+                        "description": "Flicker strength.",
+                        "x-unit": "1"
+                      },
+                      "speed": {
+                        "type": "number",
+                        "description": "Flicker speed.",
+                        "x-unit": "1"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "mode",
+                      "intensity",
+                      "speed"
+                    ]
+                  },
+                  "casts_shadows": {
+                    "type": "boolean",
+                    "description": "Whether it casts shadows."
+                  },
+                  "shadow_scale": {
+                    "type": "number",
+                    "description": "Shadow scale.",
+                    "x-unit": "1"
+                  },
+                  "cookie": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Texture projected by the light; a cube map for point lights."
+                  },
+                  "placement_set": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Owned set the light switches with; absent means always on.",
+                    "x-index-into": "/definition/placement_sets"
+                  },
+                  "source": {
+                    "type": "object",
+                    "description": "Source-specific raw values.",
+                    "properties": {
+                      "flags": {
+                        "$ref": "common.schema.json#/definitions/flags",
+                        "description": "The source's flag word."
+                      },
+                      "record": {
+                        "$ref": "common.schema.json#/definitions/source_record",
+                        "description": "The source record this entry was decoded from."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "flags",
+                      "record"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "ref",
+                  "kind",
+                  "position",
+                  "color",
+                  "intensity",
+                  "intensity_multiplier",
+                  "attenuated",
+                  "attenuation_start",
+                  "attenuation_end",
+                  "casts_shadows",
+                  "shadow_scale",
+                  "source"
+                ]
+              }
+            },
+            "fog_volumes": {
+              "type": "array",
+              "description": "Fog volumes.",
+              "items": {
+                "type": "object",
+                "description": "A fog sphere: fog applies inside, fading between the radii.",
+                "properties": {
+                  "ref": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "The fog volume."
+                  },
+                  "position": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Position in model space (not relative to the joint).",
+                    "x-unit": "yard"
+                  },
+                  "inner_radius": {
+                    "type": "number",
+                    "description": "Radius of full effect.",
+                    "x-unit": "yard"
+                  },
+                  "outer_radius": {
+                    "type": "number",
+                    "description": "Radius where the effect ends.",
+                    "x-unit": "yard"
+                  },
+                  "interior_exterior_blend": {
+                    "type": "boolean",
+                    "description": "Not drawn; scales the surrounding fog down near the model's exits, ignoring radius."
+                  },
+                  "fog": {
+                    "type": "object",
+                    "description": "Fog settings for one medium.",
+                    "properties": {
+                      "end": {
+                        "type": "number",
+                        "description": "Distance where visibility ends.",
+                        "x-unit": "yard"
+                      },
+                      "start_scalar": {
+                        "type": "number",
+                        "description": "Fog starts at end * start_scalar.",
+                        "x-unit": "1"
+                      },
+                      "color": {
+                        "$ref": "common.schema.json#/definitions/rgba",
+                        "description": "Fog colour.",
+                        "x-unit": "1"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "end",
+                      "start_scalar",
+                      "color"
+                    ]
+                  },
+                  "underwater": {
+                    "type": "object",
+                    "description": "Fog settings for one medium.",
+                    "properties": {
+                      "end": {
+                        "type": "number",
+                        "description": "Distance where visibility ends.",
+                        "x-unit": "yard"
+                      },
+                      "start_scalar": {
+                        "type": "number",
+                        "description": "Fog starts at end * start_scalar.",
+                        "x-unit": "1"
+                      },
+                      "color": {
+                        "$ref": "common.schema.json#/definitions/rgba",
+                        "description": "Fog colour.",
+                        "x-unit": "1"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "end",
+                      "start_scalar",
+                      "color"
+                    ]
+                  },
+                  "placement_set": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Owned set the fog applies with; absent means always.",
+                    "x-index-into": "/definition/placement_sets"
+                  },
+                  "source": {
+                    "type": "object",
+                    "description": "Source-specific raw values.",
+                    "properties": {
+                      "flags": {
+                        "$ref": "common.schema.json#/definitions/flags",
+                        "description": "The source's flag word."
+                      },
+                      "record": {
+                        "$ref": "common.schema.json#/definitions/source_record",
+                        "description": "The source record this entry was decoded from."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "flags",
+                      "record"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "ref",
+                  "position",
+                  "inner_radius",
+                  "outer_radius",
+                  "interior_exterior_blend",
+                  "fog",
+                  "underwater",
+                  "source"
+                ]
+              }
+            },
+            "ambient_color_volumes": {
+              "type": "array",
+              "description": "Ambient colour overrides.",
+              "items": {
+                "type": "object",
+                "description": "A region overriding the ambient colour.",
+                "properties": {
+                  "ref": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "The volume."
+                  },
+                  "shape": {
+                    "enum": [
+                      "global",
+                      "point",
+                      "box"
+                    ],
+                    "description": "Region shape: everywhere, a sphere, or a box."
+                  },
+                  "position": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Sphere centre.",
+                    "x-unit": "yard"
+                  },
+                  "start": {
+                    "type": "number",
+                    "description": "Sphere: distance where the fade begins.",
+                    "x-unit": "yard"
+                  },
+                  "end": {
+                    "type": "number",
+                    "description": "Sphere: distance where it ends; box: fade distance in from the faces.",
+                    "x-unit": "yard"
+                  },
+                  "planes": {
+                    "type": "array",
+                    "description": "Box: six planes; inside where dot(normal, p) <= distance for all.",
+                    "items": {
+                      "type": "object",
+                      "description": "One plane.",
+                      "properties": {
+                        "normal": {
+                          "$ref": "common.schema.json#/definitions/vec3",
+                          "description": "Plane normal.",
+                          "x-unit": "1"
+                        },
+                        "distance": {
+                          "type": "number",
+                          "description": "Plane distance.",
+                          "x-unit": "yard"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "normal",
+                        "distance"
+                      ]
+                    }
+                  },
+                  "colors": {
+                    "type": "array",
+                    "description": "Three colours as stored; which one applies is not established.",
+                    "items": {
+                      "$ref": "common.schema.json#/definitions/rgba",
+                      "description": "A colour.",
+                      "x-unit": "1"
+                    },
+                    "x-unit": "1"
+                  },
+                  "placement_set": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Owned set the volume applies with.",
+                    "x-index-into": "/definition/placement_sets"
+                  },
+                  "source": {
+                    "type": "object",
+                    "description": "Source-specific raw values.",
+                    "properties": {
+                      "flags": {
+                        "$ref": "common.schema.json#/definitions/flags",
+                        "description": "The source's flag word."
+                      },
+                      "record": {
+                        "$ref": "common.schema.json#/definitions/source_record",
+                        "description": "The source record this entry was decoded from."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "flags",
+                      "record"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "ref",
+                  "shape",
+                  "colors",
+                  "source"
+                ]
+              }
+            },
+            "ambient_particle_volumes": {
+              "type": "array",
+              "description": "Drifting particle boxes.",
+              "items": {
+                "type": "object",
+                "description": "A box the client fills with drifting particles (dust, snow, ash).",
+                "properties": {
+                  "ref": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "The volume."
+                  },
+                  "position": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Box centre.",
+                    "x-unit": "yard"
+                  },
+                  "extent": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Box size; full or half size not established.",
+                    "x-unit": "yard"
+                  },
+                  "euler_rotation": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Orientation; axis order not established.",
+                    "x-unit": "radian"
+                  },
+                  "particle_count": {
+                    "type": "integer",
+                    "description": "Particle count.",
+                    "minimum": 0
+                  },
+                  "opacity": {
+                    "type": "number",
+                    "description": "Opacity.",
+                    "x-unit": "1"
+                  },
+                  "envelope": {
+                    "type": "array",
+                    "description": "Emission pulse over time; [] is constant.",
+                    "items": {
+                      "type": "object",
+                      "description": "One key.",
+                      "properties": {
+                        "time": {
+                          "type": "number",
+                          "description": "Time.",
+                          "x-unit": "second"
+                        },
+                        "value": {
+                          "type": "number",
+                          "description": "Value.",
+                          "x-unit": "1"
+                        },
+                        "value2": {
+                          "type": "number",
+                          "description": "Second value.",
+                          "x-unit": "1"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "time",
+                        "value",
+                        "value2"
+                      ]
+                    }
+                  },
+                  "emitters": {
+                    "type": "array",
+                    "description": "Particle kinds.",
+                    "items": {
+                      "type": "object",
+                      "description": "One particle kind inside the volume.",
+                      "properties": {
+                        "slot": {
+                          "type": "integer",
+                          "description": "Position in the source's emitter array.",
+                          "minimum": 0
+                        },
+                        "texture": {
+                          "$ref": "common.schema.json#/definitions/texture_entry",
+                          "description": "Particle texture."
+                        },
+                        "framebuffer_blend": {
+                          "enum": [
+                            "opaque",
+                            "alpha_key",
+                            "alpha",
+                            "no_alpha_add",
+                            "add",
+                            "mod",
+                            "mod2x",
+                            "blend_add"
+                          ],
+                          "description": "How particles combine with what is drawn."
+                        },
+                        "color": {
+                          "$ref": "common.schema.json#/definitions/rgba",
+                          "description": "Particle colour.",
+                          "x-unit": "1"
+                        },
+                        "tiles_x": {
+                          "type": "integer",
+                          "description": "Flipbook columns.",
+                          "minimum": 0
+                        },
+                        "tiles_y": {
+                          "type": "integer",
+                          "description": "Flipbook rows.",
+                          "minimum": 0
+                        },
+                        "frames": {
+                          "type": "integer",
+                          "description": "Flipbook frame count.",
+                          "minimum": 0
+                        },
+                        "source": {
+                          "type": "object",
+                          "description": "Source-specific raw values.",
+                          "properties": {
+                            "blend": {
+                              "type": "integer",
+                              "description": "Blend mode id as stored."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "blend"
+                          ]
+                        },
+                        "unresolved": {
+                          "type": "object",
+                          "description": "Fields whose meaning is not established.",
+                          "properties": {
+                            "parameters": {
+                              "type": "array",
+                              "description": "32 emission parameters.",
+                              "items": {
+                                "type": "number",
+                                "description": "A parameter.",
+                                "x-unit": "1"
+                              },
+                              "x-unit": "1"
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "parameters"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "slot",
+                        "texture",
+                        "color",
+                        "tiles_x",
+                        "tiles_y",
+                        "frames",
+                        "source",
+                        "unresolved"
+                      ]
+                    }
+                  },
+                  "source": {
+                    "type": "object",
+                    "description": "Source-specific raw values.",
+                    "properties": {
+                      "flags": {
+                        "$ref": "common.schema.json#/definitions/flags",
+                        "description": "The source's flag word."
+                      },
+                      "record": {
+                        "$ref": "common.schema.json#/definitions/source_record",
+                        "description": "The source record this entry was decoded from."
+                      },
+                      "record_bytes": {
+                        "$ref": "common.schema.json#/definitions/buffer_slice",
+                        "description": "The whole source record, u8."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "flags",
+                      "record",
+                      "record_bytes"
+                    ]
+                  },
+                  "unresolved": {
+                    "type": "object",
+                    "description": "Fields whose meaning is not established.",
+                    "properties": {
+                      "preset_id": {
+                        "type": "integer",
+                        "description": "Id shared across unrelated files."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "preset_id"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "ref",
+                  "position",
+                  "extent",
+                  "euler_rotation",
+                  "particle_count",
+                  "opacity",
+                  "envelope",
+                  "emitters",
+                  "source",
+                  "unresolved"
+                ]
+              }
+            },
+            "ribbon_emitters": {
+              "type": "array",
+              "description": "Ribbon trails.",
+              "items": {
+                "type": "object",
+                "description": "A ribbon trail emitted from a joint.",
+                "properties": {
+                  "ribbon_id": {
+                    "type": "integer",
+                    "description": "Ribbon id."
+                  },
+                  "bone": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Joint the object moves with; identity is a record_index into the skeleton's joints."
+                  },
+                  "position": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Position in model space (not relative to the joint).",
+                    "x-unit": "yard"
+                  },
+                  "textures": {
+                    "type": "array",
+                    "description": "Textures.",
+                    "items": {
+                      "$ref": "common.schema.json#/definitions/texture_entry",
+                      "description": "A texture."
+                    }
+                  },
+                  "materials": {
+                    "type": "array",
+                    "description": "Render settings per texture.",
+                    "items": {
+                      "type": "object",
+                      "description": "One render setting.",
+                      "properties": {
+                        "framebuffer_blend": {
+                          "enum": [
+                            "opaque",
+                            "alpha_key",
+                            "alpha",
+                            "no_alpha_add",
+                            "add",
+                            "mod",
+                            "mod2x",
+                            "blend_add"
+                          ],
+                          "description": "Blend with what is drawn."
+                        },
+                        "source": {
+                          "type": "object",
+                          "description": "Source-specific raw values.",
+                          "properties": {
+                            "flags": {
+                              "$ref": "common.schema.json#/definitions/flags",
+                              "description": "The source's flag word."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "flags"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "source"
+                      ]
+                    }
+                  },
+                  "color": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Colour.",
+                    "x-unit": "1"
+                  },
+                  "alpha": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Opacity.",
+                    "x-unit": "1"
+                  },
+                  "height_above": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Height above the emitter.",
+                    "x-unit": "yard"
+                  },
+                  "height_below": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Height below the emitter.",
+                    "x-unit": "yard"
+                  },
+                  "texture_slot": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Texture cell index.",
+                    "x-unit": "1"
+                  },
+                  "visibility": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "On or off.",
+                    "x-unit": "1"
+                  },
+                  "edges_per_second": {
+                    "type": "number",
+                    "description": "Emission rate.",
+                    "x-unit": "1/second"
+                  },
+                  "edge_lifetime": {
+                    "type": "number",
+                    "description": "Edge lifetime.",
+                    "x-unit": "second"
+                  },
+                  "gravity": {
+                    "type": "number",
+                    "description": "Gravity.",
+                    "x-unit": "yard/second^2"
+                  },
+                  "texture_rows": {
+                    "type": "integer",
+                    "description": "Texture atlas rows."
+                  },
+                  "texture_columns": {
+                    "type": "integer",
+                    "description": "Texture atlas columns."
+                  },
+                  "priority_plane": {
+                    "type": "integer",
+                    "description": "Draw order bias."
+                  },
+                  "ribbon_color_index": {
+                    "type": "integer",
+                    "description": "Colour index."
+                  },
+                  "texture_transform_lookup_index": {
+                    "type": "integer",
+                    "description": "Unresolved index into the source's texture transform lookup."
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "ribbon_id",
+                  "bone",
+                  "position",
+                  "textures",
+                  "materials",
+                  "color",
+                  "alpha",
+                  "height_above",
+                  "height_below",
+                  "texture_slot",
+                  "visibility",
+                  "edges_per_second",
+                  "edge_lifetime",
+                  "gravity",
+                  "texture_rows",
+                  "texture_columns",
+                  "priority_plane",
+                  "ribbon_color_index",
+                  "texture_transform_lookup_index"
+                ]
+              }
+            },
+            "particle_emitters": {
+              "type": "array",
+              "description": "Particle emitters.",
+              "items": {
+                "type": "object",
+                "description": "A particle emitter attached to a joint.",
+                "properties": {
+                  "particle_id": {
+                    "type": "integer",
+                    "description": "Emitter id."
+                  },
+                  "bone": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Joint the object moves with; identity is a record_index into the skeleton's joints."
+                  },
+                  "position": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Position in model space (not relative to the joint).",
+                    "x-unit": "yard"
+                  },
+                  "textures": {
+                    "type": "array",
+                    "description": "Textures, layer order; up to three.",
+                    "items": {
+                      "$ref": "common.schema.json#/definitions/texture_entry",
+                      "description": "A texture."
+                    }
+                  },
+                  "particle_model": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Model used as the particle."
+                  },
+                  "child_emitters_model": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "Model whose emitters each particle carries."
+                  },
+                  "particle_color_index": {
+                    "type": "integer",
+                    "description": "Colour index."
+                  },
+                  "multi_texture_scale": {
+                    "$ref": "common.schema.json#/definitions/vec2",
+                    "description": "Scale of the extra texture layers.",
+                    "x-unit": "1"
+                  },
+                  "priority_plane": {
+                    "type": "integer",
+                    "description": "Draw order bias."
+                  },
+                  "texture_rows": {
+                    "type": "integer",
+                    "description": "Texture atlas rows."
+                  },
+                  "texture_columns": {
+                    "type": "integer",
+                    "description": "Texture atlas columns."
+                  },
+                  "enabled_in": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "On or off.",
+                    "x-unit": "1"
+                  },
+                  "color": {
+                    "$ref": "common.schema.json#/definitions/lifetime_curve",
+                    "description": "Colour over the particle's life, [r, g, b] as stored (0..255 observed).",
+                    "x-unit": "1"
+                  },
+                  "alpha": {
+                    "$ref": "common.schema.json#/definitions/lifetime_curve",
+                    "description": "Opacity over life.",
+                    "x-unit": "1"
+                  },
+                  "scale": {
+                    "$ref": "common.schema.json#/definitions/lifetime_curve",
+                    "description": "Size [x, y] over life.",
+                    "x-unit": "yard"
+                  },
+                  "head_cell": {
+                    "$ref": "common.schema.json#/definitions/lifetime_curve",
+                    "description": "Head texture cell over life.",
+                    "x-unit": "1"
+                  },
+                  "tail_cell": {
+                    "$ref": "common.schema.json#/definitions/lifetime_curve",
+                    "description": "Tail texture cell over life.",
+                    "x-unit": "1"
+                  },
+                  "scale_variation": {
+                    "$ref": "common.schema.json#/definitions/vec2",
+                    "description": "Random size variation.",
+                    "x-unit": "1"
+                  },
+                  "wind_vector": {
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Wind direction and strength.",
+                    "x-unit": "yard/second"
+                  },
+                  "spline_points": {
+                    "type": "array",
+                    "description": "Emission spline points.",
+                    "items": {
+                      "$ref": "common.schema.json#/definitions/vec3",
+                      "description": "A point.",
+                      "x-unit": "yard"
+                    },
+                    "x-unit": "yard"
+                  },
+                  "multi_texture_scroll_mid": {
+                    "$ref": "common.schema.json#/definitions/vec4",
+                    "description": "Scroll midpoints of the extra layers.",
+                    "x-unit": "uv/second"
+                  },
+                  "multi_texture_scroll_range": {
+                    "$ref": "common.schema.json#/definitions/vec4",
+                    "description": "Scroll ranges of the extra layers.",
+                    "x-unit": "uv/second"
+                  },
+                  "source": {
+                    "type": "object",
+                    "description": "Source-specific raw values.",
+                    "properties": {
+                      "flags": {
+                        "$ref": "common.schema.json#/definitions/flags",
+                        "description": "The source's flag word."
+                      },
+                      "blending_type": {
+                        "type": "integer",
+                        "description": "Blend mode id as stored."
+                      },
+                      "emitter_type": {
+                        "type": "integer",
+                        "description": "Emitter shape id as stored."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "flags",
+                      "blending_type",
+                      "emitter_type"
+                    ]
+                  },
+                  "emission_speed": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Emission speed.",
+                    "x-unit": "yard/second"
+                  },
+                  "speed_variation": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Speed variation.",
+                    "x-unit": "1"
+                  },
+                  "vertical_range": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Vertical range.",
+                    "x-unit": "radian"
+                  },
+                  "horizontal_range": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Horizontal range.",
+                    "x-unit": "radian"
+                  },
+                  "gravity": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Gravity.",
+                    "x-unit": "yard/second^2"
+                  },
+                  "lifespan": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Lifespan.",
+                    "x-unit": "second"
+                  },
+                  "emission_rate": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Emission rate.",
+                    "x-unit": "1/second"
+                  },
+                  "emission_area_length": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Emission area length.",
+                    "x-unit": "yard"
+                  },
+                  "emission_area_width": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Emission area width.",
+                    "x-unit": "yard"
+                  },
+                  "z_source": {
+                    "$ref": "common.schema.json#/definitions/animated",
+                    "description": "Z source.",
+                    "x-unit": "yard"
+                  },
+                  "lifespan_variation": {
+                    "type": "number",
+                    "description": "Lifespan variation.",
+                    "x-unit": "second"
+                  },
+                  "emission_rate_variation": {
+                    "type": "number",
+                    "description": "Emission rate variation.",
+                    "x-unit": "1"
+                  },
+                  "tail_length": {
+                    "type": "number",
+                    "description": "Tail length.",
+                    "x-unit": "1"
+                  },
+                  "twinkle_speed": {
+                    "type": "number",
+                    "description": "Twinkle speed.",
+                    "x-unit": "1"
+                  },
+                  "twinkle_percent": {
+                    "type": "number",
+                    "description": "Twinkle percent.",
+                    "x-unit": "1"
+                  },
+                  "twinkle_scale_min": {
+                    "type": "number",
+                    "description": "Twinkle scale min.",
+                    "x-unit": "1"
+                  },
+                  "twinkle_scale_max": {
+                    "type": "number",
+                    "description": "Twinkle scale max.",
+                    "x-unit": "1"
+                  },
+                  "inherit_velocity_scale": {
+                    "type": "number",
+                    "description": "Inherit velocity scale.",
+                    "x-unit": "1"
+                  },
+                  "drag": {
+                    "type": "number",
+                    "description": "Drag.",
+                    "x-unit": "1"
+                  },
+                  "base_spin": {
+                    "type": "number",
+                    "description": "Base spin.",
+                    "x-unit": "1"
+                  },
+                  "base_spin_variation": {
+                    "type": "number",
+                    "description": "Base spin variation.",
+                    "x-unit": "1"
+                  },
+                  "spin_speed": {
+                    "type": "number",
+                    "description": "Spin speed.",
+                    "x-unit": "1"
+                  },
+                  "spin_speed_variation": {
+                    "type": "number",
+                    "description": "Spin speed variation.",
+                    "x-unit": "1"
+                  },
+                  "wind_time": {
+                    "type": "number",
+                    "description": "Wind time.",
+                    "x-unit": "second"
+                  },
+                  "follow_speed1": {
+                    "type": "number",
+                    "description": "Follow speed1.",
+                    "x-unit": "1"
+                  },
+                  "follow_scale1": {
+                    "type": "number",
+                    "description": "Follow scale1.",
+                    "x-unit": "1"
+                  },
+                  "follow_speed2": {
+                    "type": "number",
+                    "description": "Follow speed2.",
+                    "x-unit": "1"
+                  },
+                  "follow_scale2": {
+                    "type": "number",
+                    "description": "Follow scale2.",
+                    "x-unit": "1"
+                  },
+                  "tumble_min": {
+                    "type": "number",
+                    "description": "Tumble min.",
+                    "x-unit": "1"
+                  },
+                  "tumble_max": {
+                    "type": "number",
+                    "description": "Tumble max.",
+                    "x-unit": "1"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "particle_id",
+                  "bone",
+                  "position",
+                  "textures",
+                  "particle_color_index",
+                  "multi_texture_scale",
+                  "priority_plane",
+                  "texture_rows",
+                  "texture_columns",
+                  "enabled_in",
+                  "color",
+                  "alpha",
+                  "scale",
+                  "head_cell",
+                  "tail_cell",
+                  "scale_variation",
+                  "wind_vector",
+                  "spline_points",
+                  "multi_texture_scroll_mid",
+                  "multi_texture_scroll_range",
+                  "source",
+                  "emission_speed",
+                  "speed_variation",
+                  "vertical_range",
+                  "horizontal_range",
+                  "gravity",
+                  "lifespan",
+                  "emission_rate",
+                  "emission_area_length",
+                  "emission_area_width",
+                  "z_source",
+                  "lifespan_variation",
+                  "emission_rate_variation",
+                  "tail_length",
+                  "twinkle_speed",
+                  "twinkle_percent",
+                  "twinkle_scale_min",
+                  "twinkle_scale_max",
+                  "inherit_velocity_scale",
+                  "drag",
+                  "base_spin",
+                  "base_spin_variation",
+                  "spin_speed",
+                  "spin_speed_variation",
+                  "wind_time",
+                  "follow_speed1",
+                  "follow_scale1",
+                  "follow_speed2",
+                  "follow_scale2",
+                  "tumble_min",
+                  "tumble_max"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "attachments",
+            "events",
+            "animated_lights",
+            "static_lights",
+            "fog_volumes",
+            "ambient_color_volumes",
+            "ambient_particle_volumes",
+            "ribbon_emitters",
+            "particle_emitters"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "geometry",
+        "rig",
+        "materials",
+        "scene"
+      ],
+      "x-layer": "resource"
+    }
+  },
+  "required": [
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references",
+    "resources"
+  ],
+  "additionalProperties": false
+}

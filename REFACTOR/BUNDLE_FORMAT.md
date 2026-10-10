@@ -162,47 +162,76 @@ anchors, correction sets and gear entries all carry bone names today
 husk-synthesized or contextual, never authoritative. The raw joint index stays
 alongside for exactly that reason.
 
-## Manifest structure
+## Document kinds and the contract header — agreed 2026-10-10
+
+Every husk document is one of three **kinds**, decided by what the document
+has to do, not by which WoW file it came from:
+
+| Kind | What it is | Examples |
+|---|---|---|
+| `model` | Content in its own local frame, placed by something else: an asset. | M2 doodad, item, character, WMO building, terrain tile |
+| `placement_set` | No content of its own: instances of other documents, each with a transform and the selection that instance makes. | a WMO's doodad sets, a tile's doodads and buildings |
+| `world` | The root: nothing places it. Holds the tile grid, off-grid placements and the objects owned by the place as a whole. | a map |
+
+A character, an item, a WMO and a doodad are all models; they differ in
+content, not kind. A WMO's doodad sets are its definition (what furniture
+exists, where), and which sets are visible is a selection. A terrain tile
+is a model whose surface is a heightfield, in its own frame, placed by the
+world by translation. Tiles carry no neighbour references: adjacency is the
+world grid's fact, and a tile's definition states only how its own border
+vertices relate to an adjacent tile's. Map-wide fog and particle volumes
+belong to the world, since a volume can span many tiles.
+
+### The contract header
+
+Every document opens with the same header, then its data:
 
 ```
-schema_version        <- the thing that does not exist today
-exported_at           <- wall-clock timestamp, ISO 8601 -- see below
-producer              <- husk version + build
-model                 <- Ref for the model itself
-definition            <- I5: what exists and is valid
-selection             <- I5: what this instance chose
-resources
-  mesh                <- geosets as real data, not tag joints
-  skeleton            <- joints, bind pose, corrections
-  animation           <- clips; one curve representation
-  materials           <- Refs + real texture layers
-  physics             <- full joint graph, no transport-driven reduction
-  attachments         <- attachment points, events, lights (written)
-  emitters            <- ribbon/particle, every field and curve (written)
-  collision
-items                 <- I7: identity → slots[] → components[]
-references            <- other bundles this one points at (see below)
-sources               <- which sources husk could actually ask, per table
+format          "husk-bundle", constant
+kind            "model" | "placement_set" | "world"
+schema_version  version of the schema/ definitions the document conforms to
+subject         Ref: what this document describes
+space           length/angle units, up axis, handedness of every position in it
+provenance      producer, exported_at, input_format, sources[] (per table/file: available or not)
+definition      what exists and is valid for the subject
+selection       what this instance chose; only ever indices into definition
+references      other documents and assets this one depends on: [{ref, kind, uri?}]
+--- data ---
+model: resources {geometry, rig, materials, scene}
+placement_set: instances
+world: grid, placements, scene
 ```
 
-`schema_version` is the load-bearing addition. Today's 13 root-joint extras keys
-and 34 material extras keys have no version at all, so a consumer cannot tell a
-husk that predates a key from one where the key is legitimately absent.
+`provenance.sources` is the absent-vs-unasked record (`CANONICAL_MODEL.md`
+"Settled"): per table, because the real failure is one empty table among
+good ones. `exported_at` lets someone without husk date a bundle.
 
-`exported_at` answers the same question for someone with no husk to check
-`schema_version` against at all — a real, offline consumer holding a bundle
-years later, with only a vague memory of "feature X landed sometime early
-2026." A version number alone can't be reasoned about without husk's own
-version history in hand; a calendar date can, on its own, by anyone. Cheap to
-add, and it's exactly the same "make the file explain itself" motive as
-`schema_version` — just aimed at a human instead of a machine.
+### Structural, not described: `schema/`
 
-`sources` is the manifest half of `CANONICAL_MODEL.md`'s "absent vs. unasked"
-answer: a flat record of which DB2 tables / listfile / texture directories were
-actually readable at write time, so an empty subtree elsewhere in the manifest
-can be read as *"the model has none"* rather than *"nobody asked"*. Per table,
-not per run — a single 0-byte table beside a directory of good ones is this
-project's documented real failure mode, not a hypothetical.
+The format is defined by JSON Schema files in `schema/` (one per kind plus
+shared definitions), embedded into the husk binary. That is the single
+source of truth; prose like this file explains it but does not define it.
+
+- **Instance check** (`husk validate-bundle`, and every test that writes a
+  bundle): the JSON Schema, then what a schema can't say. That covers
+  BufferSlice arithmetic, that files exist, `x-index-into` ranges, and
+  referenced placement sets, validated recursively.
+- **Schema lint** (a test over `schema/` itself) rejects known antipatterns:
+  - no storage opinions: a key, enum value or constant naming a container
+    or API (`dds`, `png`, `blp`, `glb`, `gltf`, `vk`, `bpy`, ...) fails.
+    Linked data is a `Payload` `{uri, media_type}`, the media type a free
+    string: the format says a face has a texture, delivers the type, and
+    doesn't restrict it.
+  - no source-format jargon in keys: keys are lowercase snake_case, and
+    none may contain a source chunk tag (`mpvd`, `mogp`, `vfe2`, ...).
+    Raw source data lives only under a `source` or `unresolved` object.
+  - every property has a description, every top-level property an
+    `x-layer` (`contract`/`definition`/`selection`/`resource`), every
+    real-valued property an `x-unit`.
+  - objects are closed (`additionalProperties: false`): an undocumented key
+    written by a writer fails validation.
+  - `uri` appears only in the shared `Payload` and asset-reference
+    definitions.
 
 ## Attribute channels — per-element data without a dedicated key
 

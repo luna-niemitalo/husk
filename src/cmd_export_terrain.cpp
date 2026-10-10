@@ -19,6 +19,7 @@
 #include "adt.hpp"
 #include "adt_canon_input.hpp"
 #include "blp.hpp"
+#include "bundle_schema.hpp"
 #include "commands.hpp"
 #include "husk_config.hpp"
 #include "groundeffect_db2.hpp"
@@ -732,6 +733,35 @@ int exportWmo(int argc, char** args) {
         return 1;
     }
     return 0;
+}
+
+void addValidateBundleOptions(CLI::App& app, ValidateBundleOptions& opts) {
+    app.add_option("paths", opts.paths, "bundle directories or document files to check");
+    app.add_flag("--lint-schema", opts.lintSchema, "also check the embedded schema/ for format antipatterns");
+}
+
+int validateBundle(int argc, char** args) {
+    CLI::App app{"husk validate-bundle -- check documents against the bundle format's schema", "husk validate-bundle"};
+    ValidateBundleOptions opts;
+    addValidateBundleOptions(app, opts);
+    int exitCode = 0;
+    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+    if (opts.paths.empty() && !opts.lintSchema) {
+        std::cerr << "husk: validate-bundle: expected a bundle path or --lint-schema\n";
+        return 2;
+    }
+
+    std::vector<bundle_schema::Problem> problems;
+    if (opts.lintSchema) problems = bundle_schema::lintSchemas();
+    size_t documents = 0;
+    for (const std::string& path : opts.paths) {
+        std::vector<std::filesystem::path> checked;
+        for (bundle_schema::Problem& p : bundle_schema::validateDocument(path, &checked)) problems.push_back(std::move(p));
+        documents += checked.size();
+    }
+    for (const bundle_schema::Problem& p : problems) std::cout << p.where << ": " << p.message << "\n";
+    std::cout << documents << " documents checked, " << problems.size() << " problems\n";
+    return problems.empty() ? 0 : 1;
 }
 
 int exportMapScene(int argc, char** args) {

@@ -1,0 +1,490 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/world.schema.json",
+  "title": "world",
+  "description": "The root of a place: its tile grid, what it places off the grid, and what belongs to the place as a whole.",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "world",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "description": "Version of the schema this document conforms to.",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The place.",
+      "x-layer": "contract"
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, when, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "A world defines nothing beyond its contents.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "definition"
+    },
+    "selection": {
+      "type": "object",
+      "description": "A world selects nothing.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "selection"
+    },
+    "references": {
+      "type": "array",
+      "description": "Other documents this one depends on.",
+      "items": {
+        "$ref": "common.schema.json#/definitions/reference",
+        "description": "One dependency."
+      },
+      "x-layer": "contract"
+    },
+    "grid": {
+      "type": "object",
+      "description": "Tiles on a regular grid; a missing cell is a hole. Neighbours of cell (i, j) are cells (i +/- 1, j +/- 1).",
+      "properties": {
+        "origin": {
+          "$ref": "common.schema.json#/definitions/vec3",
+          "description": "Position of cell (0, 0)'s placement.",
+          "x-unit": "yard"
+        },
+        "cell_size": {
+          "type": "number",
+          "description": "Edge length of a cell.",
+          "x-unit": "yard"
+        },
+        "axis_i": {
+          "$ref": "common.schema.json#/definitions/vec3",
+          "description": "Unit direction of increasing i.",
+          "x-unit": "1"
+        },
+        "axis_j": {
+          "$ref": "common.schema.json#/definitions/vec3",
+          "description": "Unit direction of increasing j.",
+          "x-unit": "1"
+        },
+        "cells": {
+          "type": "array",
+          "description": "Present cells.",
+          "items": {
+            "type": "object",
+            "description": "One grid cell.",
+            "properties": {
+              "i": {
+                "type": "integer",
+                "description": "Cell column."
+              },
+              "j": {
+                "type": "integer",
+                "description": "Cell row."
+              },
+              "tile": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The tile model placed in the cell, at origin + (i * axis_i + j * axis_j) * cell_size.",
+                "x-index-into": "/references"
+              },
+              "bounds_min": {
+                "$ref": "common.schema.json#/definitions/vec3",
+                "description": "Tile bounds minimum, world frame.",
+                "x-unit": "yard"
+              },
+              "bounds_max": {
+                "$ref": "common.schema.json#/definitions/vec3",
+                "description": "Tile bounds maximum, world frame.",
+                "x-unit": "yard"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "i",
+              "j",
+              "tile",
+              "bounds_min",
+              "bounds_max"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "origin",
+        "cell_size",
+        "axis_i",
+        "axis_j",
+        "cells"
+      ],
+      "x-layer": "resource"
+    },
+    "placements": {
+      "type": "array",
+      "description": "Placement sets the world places directly, off the grid.",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "A placement set document.",
+        "x-index-into": "/references"
+      },
+      "x-layer": "resource"
+    },
+    "scene": {
+      "type": "object",
+      "description": "Objects owned by the place as a whole.",
+      "properties": {
+        "fog_volumes": {
+          "type": "array",
+          "description": "Fog volumes.",
+          "items": {
+            "type": "object",
+            "description": "A fog volume owned by the world, shaped by a model.",
+            "properties": {
+              "ref": {
+                "$ref": "common.schema.json#/definitions/ref",
+                "description": "The fog volume."
+              },
+              "id": {
+                "type": "integer",
+                "description": "The source's own id, unique across the world.",
+                "minimum": 0
+              },
+              "color": {
+                "$ref": "common.schema.json#/definitions/rgb",
+                "description": "Fog colour.",
+                "x-unit": "1"
+              },
+              "intensity": {
+                "type": "array",
+                "description": "Three intensity values; their roles are not established.",
+                "items": {
+                  "type": "number",
+                  "description": "A value.",
+                  "x-unit": "1"
+                },
+                "x-unit": "1"
+              },
+              "position": {
+                "$ref": "common.schema.json#/definitions/vec3",
+                "description": "Centre.",
+                "x-unit": "yard"
+              },
+              "rotation": {
+                "$ref": "common.schema.json#/definitions/quat",
+                "description": "Orientation.",
+                "x-unit": "1"
+              },
+              "radius": {
+                "type": "array",
+                "description": "Three radius values; their roles are not established.",
+                "items": {
+                  "type": "number",
+                  "description": "A value.",
+                  "x-unit": "yard"
+                },
+                "x-unit": "yard"
+              },
+              "animation_periods": {
+                "type": "array",
+                "description": "Four animation periods.",
+                "items": {
+                  "type": "integer",
+                  "description": "A period, as stored."
+                }
+              },
+              "fog_level": {
+                "type": "integer",
+                "description": "Drawn when the viewer's fog quality is at least this, 0..2.",
+                "minimum": 0
+              },
+              "shape": {
+                "$ref": "common.schema.json#/definitions/asset_ref",
+                "description": "Model giving the volume its shape; identity kind none means the client's fallback cube."
+              },
+              "source": {
+                "type": "object",
+                "description": "Source-specific raw values.",
+                "properties": {
+                  "flags": {
+                    "$ref": "common.schema.json#/definitions/flags",
+                    "description": "The source's flag word."
+                  },
+                  "record": {
+                    "$ref": "common.schema.json#/definitions/source_record",
+                    "description": "Source record."
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "flags",
+                  "record"
+                ]
+              },
+              "unresolved": {
+                "type": "object",
+                "description": "Fields whose meaning is not established.",
+                "properties": {
+                  "scalar_18": {
+                    "type": "number",
+                    "description": "A float at record offset 0x18.",
+                    "x-unit": "1"
+                  },
+                  "extension": {
+                    "type": "object",
+                    "description": "Characterized values from the fog's first extension record.",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean",
+                        "description": "Set in 1,539 of 1,542 real records."
+                      },
+                      "extent": {
+                        "$ref": "common.schema.json#/definitions/vec3",
+                        "description": "Positive, extent-like.",
+                        "x-unit": "yard"
+                      },
+                      "parameters": {
+                        "type": "array",
+                        "description": "Thirteen values, default 1.",
+                        "items": {
+                          "type": "number",
+                          "description": "A value.",
+                          "x-unit": "1"
+                        },
+                        "x-unit": "1"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "enabled",
+                      "extent",
+                      "parameters"
+                    ]
+                  },
+                  "palette": {
+                    "type": "object",
+                    "description": "Characterized values from the fog's second extension record.",
+                    "properties": {
+                      "colors": {
+                        "type": "array",
+                        "description": "Three colours.",
+                        "items": {
+                          "$ref": "common.schema.json#/definitions/rgb",
+                          "description": "A colour.",
+                          "x-unit": "1"
+                        },
+                        "x-unit": "1"
+                      },
+                      "mode": {
+                        "type": "number",
+                        "description": "1 or 2.",
+                        "x-unit": "1"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "colors",
+                      "mode"
+                    ]
+                  },
+                  "extension_record": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "First extension record, raw, u8."
+                  },
+                  "palette_record": {
+                    "$ref": "common.schema.json#/definitions/buffer_slice",
+                    "description": "Second extension record, raw, u8."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "ref",
+              "id",
+              "color",
+              "intensity",
+              "position",
+              "rotation",
+              "radius",
+              "animation_periods",
+              "fog_level",
+              "shape",
+              "source",
+              "unresolved"
+            ]
+          }
+        },
+        "ambient_particle_volumes": {
+          "type": "array",
+          "description": "Drifting particle boxes.",
+          "items": {
+            "type": "object",
+            "description": "A drifting particle box owned by the world.",
+            "properties": {
+              "volume": {
+                "$ref": "model.schema.json#/properties/resources/properties/scene/properties/ambient_particle_volumes/items",
+                "description": "The volume, same shape as a model's, world frame."
+              },
+              "id": {
+                "type": "integer",
+                "description": "The source's own id, unique across the world.",
+                "minimum": 0
+              },
+              "bounds_min": {
+                "$ref": "common.schema.json#/definitions/vec3",
+                "description": "World bounds minimum.",
+                "x-unit": "yard"
+              },
+              "bounds_max": {
+                "$ref": "common.schema.json#/definitions/vec3",
+                "description": "World bounds maximum.",
+                "x-unit": "yard"
+              },
+              "boxes": {
+                "type": "array",
+                "description": "Box hierarchy: the first boxes are leaves, every later box has children, one box is the root.",
+                "items": {
+                  "type": "object",
+                  "description": "One box.",
+                  "properties": {
+                    "min": {
+                      "$ref": "common.schema.json#/definitions/vec3",
+                      "description": "Minimum.",
+                      "x-unit": "yard"
+                    },
+                    "max": {
+                      "$ref": "common.schema.json#/definitions/vec3",
+                      "description": "Maximum.",
+                      "x-unit": "yard"
+                    },
+                    "children": {
+                      "type": "array",
+                      "description": "Child boxes.",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "A box.",
+                        "x-index-into": "boxes"
+                      }
+                    },
+                    "source": {
+                      "type": "object",
+                      "description": "Source-specific raw values.",
+                      "properties": {
+                        "complete": {
+                          "type": "integer",
+                          "description": "0 for a root whose sub-boxes share leaves."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "complete"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "min",
+                    "max",
+                    "children",
+                    "source"
+                  ]
+                }
+              },
+              "unresolved": {
+                "type": "object",
+                "description": "Fields whose meaning is not established.",
+                "properties": {
+                  "points": {
+                    "type": "array",
+                    "description": "One record per leaf box: a unit 2D vector and two floats.",
+                    "items": {
+                      "type": "object",
+                      "description": "One record.",
+                      "properties": {
+                        "direction": {
+                          "$ref": "common.schema.json#/definitions/vec2",
+                          "description": "Unit vector.",
+                          "x-unit": "1"
+                        },
+                        "value_08": {
+                          "type": "number",
+                          "description": "Only ever -0.",
+                          "x-unit": "1"
+                        },
+                        "value_0c": {
+                          "type": "number",
+                          "description": "World-coordinate-sized.",
+                          "x-unit": "yard"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "direction",
+                        "value_08",
+                        "value_0c"
+                      ]
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "points"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "volume",
+              "id",
+              "bounds_min",
+              "bounds_max",
+              "boxes",
+              "unresolved"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "fog_volumes",
+        "ambient_particle_volumes"
+      ],
+      "x-layer": "resource"
+    }
+  },
+  "required": [
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references",
+    "grid",
+    "placements",
+    "scene"
+  ],
+  "additionalProperties": false
+}

@@ -48,7 +48,7 @@ if(CCACHE_PROGRAM)
   set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Applied to every target below (husk-lib/husk/husk-tests) via
@@ -74,6 +74,23 @@ add_compile_options(-Wall -Wextra -Wconversion -Wsign-compare -Wno-missing-field
 find_package(TinyGLTF CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
 find_package(SQLite3 REQUIRED)
+find_package(nlohmann_json_schema_validator CONFIG REQUIRED)
+
+# schema/ is the bundle format's definition; it is embedded into the binary
+# so `husk validate-bundle` and the tests check against the same files.
+set(HUSK_SCHEMAS common model placement_set world)
+set(HUSK_SCHEMA_FILES)
+foreach(name IN LISTS HUSK_SCHEMAS)
+  list(APPEND HUSK_SCHEMA_FILES ${CMAKE_SOURCE_DIR}/schema/${name}.schema.json)
+endforeach()
+set(HUSK_EMBEDDED_SCHEMAS ${CMAKE_BINARY_DIR}/generated/bundle_schema_embedded.cpp)
+string(REPLACE ";" "," HUSK_SCHEMA_NAMES "${HUSK_SCHEMAS}")
+add_custom_command(
+  OUTPUT ${HUSK_EMBEDDED_SCHEMAS}
+  COMMAND ${CMAKE_COMMAND} -DSCHEMA_DIR=${CMAKE_SOURCE_DIR}/schema -DOUT=${HUSK_EMBEDDED_SCHEMAS}
+          -DNAMES=${HUSK_SCHEMA_NAMES} -P ${CMAKE_SOURCE_DIR}/cmake/embed_schemas.cmake
+  DEPENDS ${HUSK_SCHEMA_FILES} ${CMAKE_SOURCE_DIR}/cmake/embed_schemas.cmake
+  COMMENT "Embedding schema/")
 
 # Everything except main.cpp, as a library: lets the test binary link against
 # the exact same command/parsing code the real CLI runs, instead of
@@ -111,6 +128,8 @@ add_library(husk-lib STATIC
   src/wmo_canon_input.cpp
   src/wdt_volumes.cpp
   src/map_scene_input.cpp
+  src/bundle_schema.cpp
+  ${HUSK_EMBEDDED_SCHEMAS}
   src/adt_canon_input.cpp
   src/cmd_export_terrain.cpp
   src/skin.cpp
@@ -167,7 +186,8 @@ add_library(husk-lib STATIC
   src/cmd_dump.cpp
 )
 target_include_directories(husk-lib PUBLIC src)
-target_link_libraries(husk-lib PUBLIC tinygltf::tinygltf CLI11::CLI11 SQLite::SQLite3)
+target_link_libraries(husk-lib PUBLIC tinygltf::tinygltf CLI11::CLI11 SQLite::SQLite3
+                      PRIVATE nlohmann_json_schema_validator::validator)
 
 add_executable(husk src/main.cpp)
 target_link_libraries(husk PRIVATE husk-lib)
@@ -210,6 +230,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_wmo_canon_input.cpp
     tests/test_wdt_volumes.cpp
     tests/test_map_scene_input.cpp
+  tests/test_bundle_schema.cpp
     tests/test_canon_diff.cpp
     tests/test_canon_definition.cpp
     tests/test_canon_definition_convergence.cpp

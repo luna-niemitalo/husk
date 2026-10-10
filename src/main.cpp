@@ -351,6 +351,7 @@ struct AllSubcommandOpts {
     husk::commands::ExportWorldOptions exportWorldOpts;
     husk::commands::ExportWmoOptions exportWmoOpts;
     husk::commands::ExportMapSceneOptions exportMapSceneOpts;
+    husk::commands::ValidateBundleOptions validateBundleOpts;
 };
 
 // Builds a throwaway CLI11 App tree matching every subcommand's real flag
@@ -402,6 +403,10 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* exportMapSceneSub =
         root.add_subcommand("export-map-scene", "export a map's fog and particulate volumes to a map-scene bundle");
     husk::commands::addExportMapSceneOptions(*exportMapSceneSub, opts.exportMapSceneOpts);
+
+    CLI::App* validateBundleSub =
+        root.add_subcommand("validate-bundle", "check bundle documents against the format's schema");
+    husk::commands::addValidateBundleOptions(*validateBundleSub, opts.validateBundleOpts);
 
     CLI::App* exportWorldSub =
         root.add_subcommand("export-world", "export every ADT tile of every map to a canonical scene");
@@ -581,6 +586,8 @@ int main(int argc, char** argv) {
         "                               export one WMO building to a canonical object bundle\n"
         "  export-map-scene <map-dir> <out-dir>\n"
         "                               export a map's _fogs.wdt/_mpv.wdt volumes to a map-scene bundle\n"
+        "  validate-bundle <path>... [--lint-schema]\n"
+        "                               check documents against the bundle format's schema\n"
         "  export-world <maps-root> <out-dir> --listfile F --listfile-root D [--map NAME]...\n"
         "                               every tile of every map, parallel, resumable\n"
         "  --version, -V                print the build version and exit\n"
@@ -634,6 +641,9 @@ int main(int argc, char** argv) {
     }
     if (command == "export-map-scene") {
         return husk::commands::exportMapScene(restArgc, rest);
+    }
+    if (command == "validate-bundle") {
+        return husk::commands::validateBundle(restArgc, rest);
     }
     if (command == "--help" || command == "-h") {
         std::cout << usage;

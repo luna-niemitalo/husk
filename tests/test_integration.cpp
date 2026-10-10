@@ -907,7 +907,7 @@ void checkMultiTextureLayerArithmetic(const std::string& m2Path, const std::stri
                 expectedTexCoord = 1;
             }
 
-            if (static_cast<int>(layer - 1) >= additional.ArrayLen()) {
+            if (static_cast<size_t>(layer - 1) >= additional.ArrayLen()) {
                 if (!entryIndexOOR) entryIndexOOR = {bi, layer};
                 continue;
             }

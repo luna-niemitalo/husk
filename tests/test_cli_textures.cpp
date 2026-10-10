@@ -273,8 +273,8 @@ TEST_CASE("husk export: two basename-matching candidates for one hardcoded slot 
     auto alt = model.materials[0].extras.Get("alternate_textures");
     REQUIRE(alt.ArrayLen() == 2);
     std::vector<std::string> altFilenames;
-    for (int i = 0; i < alt.ArrayLen(); ++i) {
-        altFilenames.push_back(alt.Get(i).Get("filename").Get<std::string>());
+    for (size_t i = 0; i < alt.ArrayLen(); ++i) {
+        altFilenames.push_back(alt.Get(static_cast<int>(i)).Get("filename").Get<std::string>());
     }
     CHECK(std::find(altFilenames.begin(), altFilenames.end(), "fuzzytexfaceupper00_00.png") !=
           altFilenames.end());

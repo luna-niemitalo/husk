@@ -31,7 +31,7 @@ namespace {
 std::optional<nlohmann::json> parseJson(const std::string& s) {
     auto parsed = nlohmann::json::parse(s, nullptr, /*allow_exceptions=*/false);
     if (parsed.is_discarded()) return std::nullopt;
-    return parsed;
+    return std::optional<nlohmann::json>{std::in_place, std::move(parsed)};
 }
 
 // run_husk.hpp's runCommand deliberately merges stdout+stderr (`2>&1`,

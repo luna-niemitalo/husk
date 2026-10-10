@@ -91,6 +91,10 @@ int exportWmo(int argc, char** args);
 // writers/bundle_writer.hpp's writeMapSceneBundle).
 int exportMapScene(int argc, char** args);
 
+// `validate-bundle` -- checks documents against the embedded schema/
+// (bundle_schema.hpp), and with --lint-schema the schema itself.
+int validateBundle(int argc, char** args);
+
 // `export-world` -- every tile of every (or the selected) map, plus one
 // shared set of model bundles and terrain textures; parallel, resumable,
 // failures logged and skipped (cmd_export_terrain.cpp).
@@ -238,6 +242,12 @@ struct ExportMapSceneOptions {
     std::string listfileRoot;
 };
 void addExportMapSceneOptions(CLI::App& app, ExportMapSceneOptions& opts);
+
+struct ValidateBundleOptions {
+    std::vector<std::string> paths;
+    bool lintSchema = false;
+};
+void addValidateBundleOptions(CLI::App& app, ValidateBundleOptions& opts);
 
 struct ExportWorldOptions {
     std::string mapsRoot;

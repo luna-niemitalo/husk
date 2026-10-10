@@ -31,6 +31,8 @@ __pycache__/
 *.txt
 *.old*
 *.json
+# schema/ is the bundle format's definition, not generated output.
+!/schema/*.schema.json
 *.jsonl
 *.csv
 *.log

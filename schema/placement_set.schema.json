@@ -1,0 +1,176 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/placement_set.schema.json",
+  "title": "placement_set",
+  "description": "Instances of other documents, each with a transform and what it shows. No content of its own.",
+  "x-status": "implemented",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "husk-bundle",
+      "description": "Identifies a husk document.",
+      "x-layer": "contract"
+    },
+    "kind": {
+      "const": "placement_set",
+      "description": "Document kind.",
+      "x-layer": "contract"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "description": "Version of the schema this document conforms to.",
+      "x-layer": "contract"
+    },
+    "subject": {
+      "$ref": "common.schema.json#/definitions/ref",
+      "description": "The set.",
+      "x-layer": "contract"
+    },
+    "space": {
+      "$ref": "common.schema.json#/definitions/space",
+      "description": "Units and axes of every value in the document.",
+      "x-layer": "contract"
+    },
+    "provenance": {
+      "$ref": "common.schema.json#/definitions/provenance",
+      "description": "Who wrote it, when, from what.",
+      "x-layer": "contract"
+    },
+    "definition": {
+      "type": "object",
+      "description": "A placement set defines nothing beyond its instances.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "definition"
+    },
+    "selection": {
+      "type": "object",
+      "description": "A placement set selects nothing; each instance carries its own selection.",
+      "properties": {},
+      "additionalProperties": false,
+      "x-layer": "selection"
+    },
+    "references": {
+      "type": "array",
+      "description": "Other documents this one depends on.",
+      "items": {
+        "$ref": "common.schema.json#/definitions/reference",
+        "description": "One dependency."
+      },
+      "x-layer": "contract"
+    },
+    "instances": {
+      "type": "array",
+      "description": "The placed documents.",
+      "items": {
+        "type": "object",
+        "description": "One placed document.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Stable within the set; how a runtime addresses the instance. The same id in two sets of one world is one object.",
+            "minimum": 0
+          },
+          "reference": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The placed model.",
+            "x-index-into": "/references"
+          },
+          "translation": {
+            "$ref": "common.schema.json#/definitions/vec3",
+            "description": "Position in the set's parent frame.",
+            "x-unit": "yard"
+          },
+          "rotation": {
+            "$ref": "common.schema.json#/definitions/quat",
+            "description": "Orientation in the set's parent frame.",
+            "x-unit": "1"
+          },
+          "scale": {
+            "type": "number",
+            "description": "Uniform scale.",
+            "x-unit": "1"
+          },
+          "tint": {
+            "type": "object",
+            "description": "Colour sampled at the authored spot; stale once moved.",
+            "properties": {
+              "rgba": {
+                "$ref": "common.schema.json#/definitions/rgba",
+                "description": "Colour.",
+                "x-unit": "1"
+              },
+              "multiplier": {
+                "type": "number",
+                "description": "Intensity factor.",
+                "x-unit": "1"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "rgba",
+              "multiplier"
+            ]
+          },
+          "selection": {
+            "type": "object",
+            "description": "What the placed model shows, indexing the placed model's own definition.",
+            "properties": {
+              "placement_sets": {
+                "type": "array",
+                "description": "The placed model's owned sets shown beyond its always-on ones: indices into its definition.placement_sets.",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "A set of the placed model."
+                }
+              }
+            },
+            "required": [
+              "placement_sets"
+            ],
+            "additionalProperties": false
+          },
+          "source": {
+            "type": "object",
+            "description": "Source-specific raw values.",
+            "properties": {
+              "flags": {
+                "$ref": "common.schema.json#/definitions/flags",
+                "description": "The source's placement flags."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "flags"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "reference",
+          "translation",
+          "rotation",
+          "scale",
+          "source"
+        ]
+      },
+      "x-layer": "resource"
+    }
+  },
+  "required": [
+    "format",
+    "kind",
+    "schema_version",
+    "subject",
+    "space",
+    "provenance",
+    "definition",
+    "selection",
+    "references",
+    "instances"
+  ],
+  "additionalProperties": false
+}

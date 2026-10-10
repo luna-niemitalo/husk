@@ -102,6 +102,10 @@
           doctest
           tinygltf
           cli11
+          # schema/: the bundle format's JSON Schema definitions, validated
+          # by tests and `husk validate-bundle`.
+          nlohmann_json
+          nlohmann_json_schema_validator
           casc-tool.packages.${pkgs.system}.default
           gltf-validator
           blender
@@ -164,6 +168,8 @@
             pkgs.tinygltf
             pkgs.cli11
             pkgs.sqlite
+            pkgs.nlohmann_json
+            pkgs.nlohmann_json_schema_validator
           ];
 
           cmakeFlags = [ "-DHUSK_BUILD_TESTS=OFF" ];

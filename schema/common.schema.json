@@ -1,0 +1,545 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://husk.invalid/schema/common.schema.json",
+  "title": "Shared definitions",
+  "description": "Shapes every husk document kind uses: identity, links to data, byte ranges, the contract header's parts, vectors and curves.",
+  "definitions": {
+    "identity": {
+      "description": "What the thing structurally is. The kind says which identity space the value belongs to; values from different kinds never compare equal.",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "No identity of its own.",
+          "properties": {
+            "kind": {
+              "const": "none",
+              "description": "Identity kind."
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A file identified by its numeric file id.",
+          "properties": {
+            "kind": {
+              "const": "file_data_id",
+              "description": "Identity kind."
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The file id."
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A row of a named data table.",
+          "properties": {
+            "kind": {
+              "const": "db2_row",
+              "description": "Identity kind."
+            },
+            "table": {
+              "type": "string",
+              "description": "Table name."
+            },
+            "row": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Row id within the table."
+            }
+          },
+          "required": [
+            "kind",
+            "table",
+            "row"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A position in a list the surrounding document defines.",
+          "properties": {
+            "kind": {
+              "const": "record_index",
+              "description": "Identity kind."
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Index into that list."
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ref": {
+      "type": "object",
+      "description": "A reference: structural identity plus a display name whose origin is stated. The name is decoration and may be wrong; the identity is what to compare.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/identity",
+          "description": "Structural identity."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name; empty when there is none."
+        },
+        "name_source": {
+          "enum": [
+            "m2_embedded",
+            "adt_embedded",
+            "wmo_embedded",
+            "listfile",
+            "db2",
+            "synthesized",
+            "none"
+          ],
+          "description": "Where the name came from: embedded in the source file, a community file list, a data table, made up by the exporter, or absent."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "name_source"
+      ],
+      "additionalProperties": false
+    },
+    "asset_ref": {
+      "type": "object",
+      "description": "A reference to another document, with a uri when that document was exported alongside. Without a uri the reference is known but unresolved.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/identity",
+          "description": "Structural identity."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name; empty when there is none."
+        },
+        "name_source": {
+          "$ref": "#/definitions/ref/properties/name_source",
+          "description": "Where the name came from."
+        },
+        "uri": {
+          "type": "string",
+          "description": "Path of the referenced document's manifest or file, relative to this document."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "name_source"
+      ],
+      "additionalProperties": false
+    },
+    "payload": {
+      "type": "object",
+      "description": "Data stored in its own file. The media type tells a consumer how to read it; the format does not restrict which types are allowed.",
+      "properties": {
+        "uri": {
+          "type": "string",
+          "description": "Path of the file, relative to this document."
+        },
+        "media_type": {
+          "type": "string",
+          "description": "IANA media type of the file's contents."
+        }
+      },
+      "required": [
+        "uri",
+        "media_type"
+      ],
+      "additionalProperties": false
+    },
+    "buffer_slice": {
+      "type": "object",
+      "description": "A typed array stored as raw little-endian bytes in a binary file next to the document. byte_length is always count * component_count * the component's size.",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Binary file, relative to this document."
+        },
+        "byte_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Start of the array in the file."
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Length of the array in bytes."
+        },
+        "component_type": {
+          "enum": [
+            "u8",
+            "u16",
+            "u32",
+            "i32",
+            "f32"
+          ],
+          "description": "Type of one component."
+        },
+        "component_count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Components per element."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of elements."
+        },
+        "semantic": {
+          "type": "string",
+          "description": "Well-known vertex attribute name, where the array is one."
+        }
+      },
+      "required": [
+        "file",
+        "byte_offset",
+        "byte_length",
+        "component_type",
+        "component_count",
+        "count"
+      ],
+      "additionalProperties": false
+    },
+    "flags": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]+$",
+      "description": "A bit field as stored by the source, in lowercase hex."
+    },
+    "vec2": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Two components."
+    },
+    "vec3": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "Three components: x, y, z."
+    },
+    "vec4": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "Four components."
+    },
+    "quat": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "Rotation quaternion x, y, z, w."
+    },
+    "rgb": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "Colour r, g, b in 0..1 as stored, no gamma conversion."
+    },
+    "rgba": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "Colour r, g, b, a in 0..1 as stored, no gamma conversion."
+    },
+    "space": {
+      "type": "object",
+      "description": "The frame every position, direction and angle in the document is expressed in.",
+      "properties": {
+        "length_unit": {
+          "const": "yard",
+          "description": "Unit of every length."
+        },
+        "angle_unit": {
+          "const": "radian",
+          "description": "Unit of every angle."
+        },
+        "time_unit": {
+          "const": "second",
+          "description": "Unit of every time value."
+        },
+        "up_axis": {
+          "const": "+z",
+          "description": "The axis pointing up."
+        },
+        "handedness": {
+          "const": "right",
+          "description": "Handedness of the axes."
+        }
+      },
+      "required": [
+        "length_unit",
+        "angle_unit",
+        "time_unit",
+        "up_axis",
+        "handedness"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Who wrote the document, when, from what input, and which data sources could be consulted.",
+      "properties": {
+        "producer": {
+          "type": "string",
+          "description": "Exporter name and version."
+        },
+        "exported_at": {
+          "type": "string",
+          "description": "Wall-clock export time, ISO 8601 UTC."
+        },
+        "input_format": {
+          "type": "string",
+          "description": "Name of the input format the document was decoded from; informational."
+        },
+        "sources": {
+          "type": "array",
+          "description": "Every data source the exporter could have asked, and whether it could. An absent value whose source was available means the subject has none; one whose source was unavailable is unknown.",
+          "items": {
+            "type": "object",
+            "description": "One data source.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "What the source is, e.g. a table name or the file list."
+              },
+              "role": {
+                "type": "string",
+                "description": "What the exporter uses it for."
+              },
+              "available": {
+                "type": "boolean",
+                "description": "Whether it could be read."
+              },
+              "detail": {
+                "type": "string",
+                "description": "Why it was unavailable, or where it was read from."
+              }
+            },
+            "required": [
+              "name",
+              "role",
+              "available"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "producer",
+        "exported_at",
+        "input_format",
+        "sources"
+      ],
+      "additionalProperties": false
+    },
+    "reference": {
+      "type": "object",
+      "description": "Another document this one depends on.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "model",
+            "placement_set",
+            "world"
+          ],
+          "description": "Kind of the referenced document."
+        },
+        "asset": {
+          "$ref": "#/definitions/asset_ref",
+          "description": "Identity, and uri when exported alongside."
+        }
+      },
+      "required": [
+        "kind",
+        "asset"
+      ],
+      "additionalProperties": false
+    },
+    "source_record": {
+      "type": "object",
+      "description": "Which source record an entry was decoded from.",
+      "properties": {
+        "table": {
+          "type": "string",
+          "description": "Name of the source table or chunk."
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the record in that table."
+        }
+      },
+      "required": [
+        "table",
+        "index"
+      ],
+      "additionalProperties": false
+    },
+    "sequence_kind": {
+      "enum": [
+        "sequence",
+        "global_sequence"
+      ],
+      "description": "Whether a curve plays during an animation sequence or loops on a global timer."
+    },
+    "interpolation": {
+      "enum": [
+        "step",
+        "linear"
+      ],
+      "description": "How values between keyframes are computed."
+    },
+    "inline_curve": {
+      "type": "object",
+      "description": "Keyframes for one sequence or global sequence.",
+      "properties": {
+        "sequence_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Which sequence or global sequence."
+        },
+        "sequence_kind": {
+          "$ref": "#/definitions/sequence_kind",
+          "description": "Sequence or global sequence."
+        },
+        "interpolation": {
+          "$ref": "#/definitions/interpolation",
+          "description": "Interpolation between keyframes."
+        },
+        "keyframes": {
+          "type": "array",
+          "description": "[time, value] pairs; the value is a number or an array, depending on the property.",
+          "x-unit": "second",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "One keyframe."
+          }
+        }
+      },
+      "required": [
+        "sequence_index",
+        "sequence_kind",
+        "interpolation",
+        "keyframes"
+      ],
+      "additionalProperties": false
+    },
+    "animated": {
+      "type": "array",
+      "description": "A property's curves, one per sequence that animates it; [] means never animated and no value.",
+      "items": {
+        "$ref": "#/definitions/inline_curve"
+      }
+    },
+    "lifetime_curve": {
+      "type": "array",
+      "description": "Keyframes over a particle's own age: [raw timestamp 0..32767 read as a fraction of the lifespan, value].",
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "description": "One keyframe."
+      }
+    },
+    "texture_entry": {
+      "type": "object",
+      "description": "A texture reference and whether it could be resolved.",
+      "properties": {
+        "state": {
+          "enum": [
+            "resolved",
+            "known_unresolved",
+            "ambiguous"
+          ],
+          "description": "Resolved; known but not found; or several plausible candidates."
+        },
+        "identity": {
+          "$ref": "#/definitions/ref",
+          "description": "Identity of the texture: the resolved one, or the one that was looked for."
+        },
+        "payload": {
+          "$ref": "#/definitions/payload",
+          "description": "The texture's data, when it was exported."
+        },
+        "unresolved_reason": {
+          "type": "string",
+          "description": "Why a known texture was not found."
+        },
+        "candidates": {
+          "type": "array",
+          "description": "Plausible textures when the reference is ambiguous.",
+          "items": {
+            "type": "object",
+            "description": "One candidate.",
+            "properties": {
+              "identity": {
+                "$ref": "#/definitions/ref",
+                "description": "Candidate identity."
+              },
+              "category": {
+                "type": "string",
+                "description": "How the candidate was found."
+              },
+              "width": {
+                "type": "integer",
+                "description": "Pixel width."
+              },
+              "height": {
+                "type": "integer",
+                "description": "Pixel height."
+              }
+            },
+            "required": [
+              "identity"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
