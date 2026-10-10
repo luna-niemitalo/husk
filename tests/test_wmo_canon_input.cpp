@@ -252,6 +252,79 @@ TEST_CASE("buildCanonWmo: MOLT lights follow MNLD, always on, rotation only for 
     CHECK(b.sourceFlags == 0x0101);
 }
 
+namespace {
+
+wmo::Liquid liquid2x2(uint16_t material) {
+    wmo::Liquid l;
+    l.vertsX = 3;
+    l.vertsY = 2;
+    l.corner = {10, 20, -5};
+    l.material = material;
+    l.heights = {0, 1, 2, 3, 4, 5};
+    l.vertexData.assign(6, {});
+    l.tiles = {0x44, 0x0F};
+    return l;
+}
+
+// The LiquidType row a group with `groupLiquid`/`groupFlags` resolves to
+// under root flags `rootFlags`; 0 when unresolved.
+uint32_t resolvedType(uint16_t rootFlags, uint32_t groupLiquid, uint32_t groupFlags = 0) {
+    wmo::RootFile root = syntheticRoot();
+    root.header.flags = rootFlags;
+    wmo::GroupFile g = group(3, 1, 0, 1);
+    g.liquidType = groupLiquid;
+    g.flags = groupFlags;
+    g.liquid = liquid2x2(1);
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {g, std::nullopt};
+    canon::Model model = wmoinput::buildCanonWmo(in);
+    REQUIRE(model.liquids.size() == 1);
+    const auto* row = std::get_if<canon::Db2Row>(&model.liquids[0].liquidType.id);
+    CHECK(model.liquids[0].sourceLiquidType == groupLiquid);
+    return row ? row->row : 0;
+}
+
+}  // namespace
+
+TEST_CASE("buildCanonWmo: a group's MLIQ becomes a liquid grid on that part") {
+    wmo::RootFile root = syntheticRoot();
+    wmo::GroupFile g = group(3, 1, 0, 1);
+    g.liquid = liquid2x2(1);
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {std::nullopt, g};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    REQUIRE(model.liquids.size() == 1);
+    const canon::LiquidGrid& l = model.liquids[0];
+    CHECK(l.part == 1);
+    CHECK(std::get<canon::RecordIndex>(l.material).value == 1);
+    CHECK(l.corner.y == 20.0f);
+    CHECK(l.tileSize == doctest::Approx(25.0 / 6.0));
+    CHECK(l.vertsX == 3);
+    CHECK(l.heights.size() == 6);
+    CHECK(l.tileFlags == std::vector<uint8_t>{0x44, 0x0F});
+    CHECK(l.tileExists == std::vector<uint8_t>{1, 0});
+}
+
+TEST_CASE("buildCanonWmo: liquid type follows WMO.md's rules, with and without the DBC-id root flag") {
+    // With MOHD flag 0x4: basic types go through to_wmo_liquid(groupLiquid - 1).
+    CHECK(resolvedType(0x4, 1) == 13);            // water
+    CHECK(resolvedType(0x4, 1, 0x80000) == 14);   // water in an "ocean" group
+    CHECK(resolvedType(0x4, 2) == 14);            // ocean
+    CHECK(resolvedType(0x4, 15) == 19);           // basic 14 & 3 = magma
+    CHECK(resolvedType(0x4, 4) == 20);            // slime
+    CHECK(resolvedType(0x4, 1206) == 1206);       // non-basic: the LiquidType row itself
+    CHECK(resolvedType(0x4, 0) == 0);             // to_wmo_liquid(-1): undecided
+    // Without it: to_wmo_liquid(groupLiquid), non-basic + 1, green lava undecided.
+    CHECK(resolvedType(0, 0) == 13);
+    CHECK(resolvedType(0, 2) == 19);
+    CHECK(resolvedType(0, 40) == 41);
+    CHECK(resolvedType(0, 15) == 0);
+}
+
 TEST_CASE("buildCanonWmo: inconsistent inputs throw with expected and actual") {
     wmo::RootFile root = syntheticRoot();
     wmoinput::WmoInputs in;
@@ -278,6 +351,13 @@ TEST_CASE("buildCanonWmo: inconsistent inputs throw with expected and actual") {
     root.legacyLights.resize(1);
     root.legacyLights[0].type = 7;
     CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "MOLT[0].type: expected 0..3, got 7", std::runtime_error);
+
+    root.legacyLights.clear();
+    wmo::GroupFile wet = group(3, 1, 0, 1);
+    wet.liquid = liquid2x2(9);
+    in.groups = {wet, std::nullopt};
+    CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "liquid 0's material: expected an index < 2 materials, got 9",
+                         std::runtime_error);
 }
 
 TEST_CASE("buildCanonWmo: real guardtower -- every batch in range, every set and doodad carried" *

@@ -566,6 +566,47 @@ TEST_CASE("writeBundle: local lights write their optional blocks only when prese
     }
 }
 
+TEST_CASE("writeBundle: liquids slice into liquid.bin, which only exists when there are liquids") {
+    canon::Model model = buildSyntheticModel();
+    fs::path dry = fs::temp_directory_path() / "husk-test-bundle-no-liquid";
+    fs::remove_all(dry);
+    writers::writeBundle(model, dry, "husk test");
+    CHECK(parseManifest(dry)["resources"]["liquids"].empty());
+    CHECK_FALSE(fs::exists(dry / "liquid.bin"));
+
+    model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "pool", canon::NameSource::WmoEmbedded}, 0, {}, {}});
+    canon::LiquidGrid l;
+    l.material = canon::RecordIndex{0};
+    l.liquidType = canon::Ref{canon::Db2Row{"LiquidType", 13}, "", canon::NameSource::None};
+    l.sourceLiquidType = 1;
+    l.corner = {1, 2, 3};
+    l.tileSize = 25.0f / 6.0f;
+    l.vertsX = 3;
+    l.vertsY = 2;
+    l.heights = {0, 1, 2, 3, 4, 5};
+    l.vertexData.assign(6, {7, 0, 0, 0});
+    l.tileExists = {1, 0};
+    l.tileFlags = {0x44, 0x0F};
+    model.liquids.push_back(l);
+    fs::path wet = fs::temp_directory_path() / "husk-test-bundle-liquid";
+    fs::remove_all(wet);
+    writers::writeBundle(model, wet, "husk test");
+    nlohmann::json manifest = parseManifest(wet);
+    const auto& written = manifest["resources"]["liquids"][0];
+
+    CHECK(written["part"] == 0);
+    CHECK(written["liquid_type"]["id"]["row"] == 13);
+    CHECK(written["verts_x"] == 3);
+    CHECK(written["heights"]["file"] == "liquid.bin");
+    CHECK(written["heights"]["count"] == 6);
+    CHECK(written["vertex_data"]["component_count"] == 4);
+    CHECK(written["tile_exists"]["count"] == 2);
+    std::vector<uint8_t> bin = readFile((wet / "liquid.bin").string());
+    size_t flagsAt = written["tile_flags"]["byte_offset"];
+    CHECK(bin.at(flagsAt) == 0x44);
+    CHECK(bin.at(flagsAt + 1) == 0x0F);
+}
+
 TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set files") {
     canon::Model model = buildSyntheticModel();
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0x8, {}, {}});

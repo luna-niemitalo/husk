@@ -45,170 +45,22 @@ DBC-driven material layer on top; husk's job stops at correct geometry.
 
 ---
 
-## 1. WMO group-file liquid (`MLIQ`)
+## 1. WMO group-file liquid (`MLIQ`) — implemented
 
-**Current state**: `none`/`none`. Husk has no WMO parsing of any kind yet
-(`../../DESIGN.md`'s Non-goals — WMO tracked, not started).
+Read by `src/wmo.cpp` (`parseLiquid`) and exported by `husk export-wmo` as
+the WMO bundle's `resources.liquids` (`canon::LiquidGrid`, schema in
+`src/writers/bundle_writer.hpp`); verified facts in
+`../../WIKI_FINDINGS/WORLD.md`. 154 of 4,000 sampled group files carry it.
+Open:
 
-**Wiki citation**: `documentation/wowdev-wiki/md/WMO.md`, `## MLIQ chunk`
-(lines 1912–2079, group-file section — confirmed by heading level, see
-"Scoping correction" below).
-
-### Struct, as documented
-
-```
-struct header {
-    C2iVector liquidVerts;   // (x, y) vertex counts
-    C2iVector liquidTiles;   // (x, y) tile counts = verts - 1
-    C3Vector  liquidCorner;  // base position
-    uint16_t  liquidMtlId;   // index into root MOMT
-};                            // 30 bytes total
-
-struct SMOLVert {             // xverts*yverts of these, 8 bytes each
-    union {
-        struct { uint8_t flow1, flow2, flow1Pct, filler; float height; } waterVert;
-        struct { int16_t s, t; float height; } magmaVert;  // s/t are UVs, *3.0/256 (ADT) or *1.0/256 (WMO)
-    };
-};
-
-struct SMOLTile {              // xtiles*ytiles of these, 1 byte each
-    uint8_t legacyLiquidType : 4;
-    uint8_t unknown1 : 1;
-    uint8_t unknown2 : 1;
-    uint8_t fishable : 1;
-    uint8_t shared : 1;
-};
-```
-
-Total chunk size = `30 + xverts*yverts*8 + xtiles*ytiles`.
-
-A real subtlety already in the wiki, reconfirmed: **a group can have
-liquid even with no `MLIQ` chunk present at all** — if `MOGP.groupLiquid`
-is set (group flag `0x1000`, `SMOGroup::LIQUIDSURFACE`) but `MLIQ` is
-absent or `xtiles`/`ytiles` are 0, the *entire group* is flat liquid at
-`MOGP.boundingBox.max.z`. Any real implementation has to handle this
-"implicit full-group liquid" case alongside the explicit vertex-grid case,
-or it will silently miss liquid on some real files — flagged here so it
-isn't rediscovered mid-implementation.
-
-### Real-data verification (this session)
-
-Scanned 2,000 real WMO **group** files (`/media/luna/data/wow_export/world/wmo/**/*_NNN.wmo`,
-random sample across `dungeon/`, `expansion06/`, etc.) via an independent
-Python chunk-walker (scratch, not committed — see References). **41/2000
-(2.1%) carry a real `MLIQ` chunk.** `MOGP`'s own header is confirmed **68
-bytes (`0x44`)** on every one of the 2,000 files checked (the `## MOGP
-chunk` struct's modern/post-alpha layout) before its sub-chunks begin — this
-matters because `MLIQ` (and every other group-scoped chunk) is *nested
-inside* `MOGP`'s payload, not a top-level chunk of the group file (see
-"Scoping correction" below).
-
-**Full byte-for-byte confirmation, no discrepancy found**, on
-`world/wmo/dungeon/md_ruinedkeep/ruinedkeep_crypt2_015.wmo`'s `MLIQ` chunk
-(1178 bytes): `liquidVerts=(10,13)`, `liquidTiles=(9,12)`,
-`corner=(91.67, 75.0, -80.36)`, `liquidMtlId=46`. Computed expected total
-size = `30 + (10*13*8) + (9*12) = 30 + 1040 + 108 = 1178` — **exact match**
-against the chunk's real declared size, the same full-accounting discipline
-`.phys`'s `PLYT` verification used. Decoded vertex 0's `height` = -80.36,
-matching `corner.z` closely (a flat water surface near the group's base
-height, as expected); decoded tile 0's byte `0x40` → `legacyLiquidType=0,
-fishable=1, shared=0` — all in-range, plausible.
-
-**Real vertex-count-vs-chunk-size scan across all 41 hits**: not yet
-individually re-verified byte-for-byte beyond the one file above (time
-budget for this session went to breadth across all three sibling docs) —
-recommended as the first sanity step before writing the real parser (cheap:
-just the size-accounting formula above, no field semantics to get wrong).
-
-**Scoping correction, worth stating explicitly** (see wowdev.wiki heading
-structure: `# WMO group file` is a top-level heading at line 1020, and
-*everything* from `## MOGP chunk` (1059) through the file's end — `MOVT`,
-`MONR`, `MOLR`, `MLIQ`, `MOBN`, `MOCV`, `MOLS`/`MOLP`/lightset family,
-`MPVR`/`MAVR`/`MBVR`/`MFVR`, etc. — is nested *inside* that section, i.e.
-inside `MOGP`'s own payload, not top-level chunks of the group file
-container). This session confirmed it empirically too: `MLIQ`/`MOLR` were
-*not found at all* when searched as top-level group-file chunks; both were
-found immediately once the search descended into `MOGP`'s payload past its
-68-byte header. Any parser (husk's own, or a re-derivation from the wiki
-cold) has to know this before writing a single line — see
-`LIGHTING_TODO.md`'s own "Scoping correction" section for the same finding
-applied to the lightset/point-light chunks.
-
-### C++ data-model sketch
-
-Mirrors `src/phys.hpp`'s idiom (real, documented struct; verified against
-real files; explicit "unverified below this" floor where applicable — not
-needed here, `MLIQ`'s one real sample matched perfectly):
-
-```cpp
-// src/wmo.hpp (new) -- WMO root + group file parsing. Chunk tags are
-// byte-reversed on disk, same WMO/ADT convention src/phys.hpp already
-// documents -- husk::readChunks/findChunk work unmodified, same as
-// phys.cpp, passing the already-reversed literal tag constants.
-namespace husk::wmo {
-
-struct Vec3 { float x = 0, y = 0, z = 0; };
-
-// One SMOLVert -- decoded generically as raw bytes + height, since the
-// union's real interpretation (water vs magma) depends on the group's
-// liquidMtlId -> MOMT -> shader family, not decodable from MLIQ alone.
-struct LiquidVertex {
-    uint8_t raw[4]{};  // flow1/flow2/flow1Pct/filler (water) or s/t as 2x int16 (magma) -- exposed raw
-    float height = 0;
-};
-
-struct LiquidTile {
-    uint8_t legacyLiquidType : 4 = 0;
-    bool unknown1 : 1 = false;
-    bool unknown2 : 1 = false;
-    bool fishable : 1 = false;
-    bool shared : 1 = false;
-};
-
-// One group's real MLIQ chunk, dereferenced. `vertices`/`tiles` are
-// row-major per the wiki (WMO's own MLIQ is read column-major per one
-// wiki contributor's own note -- re-verify against a real asymmetric
-// (vertX != vertY) file before trusting either order, see Test plan).
-struct LiquidSurface {
-    int vertsX = 0, vertsY = 0, tilesX = 0, tilesY = 0;
-    Vec3 corner;
-    uint16_t materialId = 0;
-    std::vector<LiquidVertex> vertices;  // vertsX*vertsY
-    std::vector<LiquidTile> tiles;       // tilesX*tilesY
-};
-
-// The "implicit whole-group liquid" case (MOGP.groupLiquid set, no MLIQ
-// chunk, or xtiles/ytiles == 0) -- caller synthesizes a flat single-quad
-// surface at MOGP's own boundingBox.max.z instead of calling parseLiquid.
-struct ImplicitLiquid {
-    uint32_t groupLiquidType = 0;  // MOGP::groupLiquid, pre-resolution
-    float flatHeight = 0;          // MOGP.boundingBox.max.z
-};
-
-}  // namespace husk::wmo
-```
-
-### Consumption plan
-
-Following the collision-mesh precedent (`gltf::NamedMesh::isCollision`,
-`src/cmd_export.cpp`'s `buildCollisionMesh`-equivalent block): a real WMO
-liquid surface becomes a plain, unskinned `gltf::NamedMesh` per group
-(name `liquid_<groupIndex>`), with a flat grid mesh built from
-`liquidVerts`/`liquidTiles` (each tile → 2 triangles, standard grid
-triangulation, skipping tiles whose `SMOLTile` flags indicate "don't
-render" if such a flag is ever confirmed — the wiki doesn't currently
-document one for `MLIQ` the way `MH2O`'s `offset_exists_bitmap` does, so
-default to rendering every tile until real data says otherwise), tagged
-`{"liquid": true, "liquid_type": <resolved-or-raw-int>, "fishable": bool}`
-in glTF `extras` — same "tag it, don't guess at shading" treatment
-`isCollision` already established, just a second boolean key on the same
-node-extras object shape.
-
-- **Parse**: `full` (once implemented against the confirmed struct).
-- **Consumption**: `native` (a real glTF mesh + accessors), plus `extras`
-  for the tag/type/fishable metadata.
-- **glTF ceiling**: `native — 100%` for geometry; the *shader identity*
-  (`LiquidType.dbc`) stays `n/a`, external dependency, by design.
+- **Legacy green lava** (`MOGP.groupLiquid` 15 in a root without MOHD flag
+  0x4) has no `liquid_type`: the client picks per tile by a rule the wiki
+  marks unverified. 34 of 602 liquids in a 120-root sample.
+- Whether `vertex_data` is water flow or magma UV depends on the liquid
+  type's material (`LiquidType` -> `LiquidMaterial`), not resolved.
+- The implicit whole-group liquid (flag 0x1000 with no `MLIQ`) is not
+  built; it never occurred in the sample (flag and chunk always together).
+- No glTF projection.
 
 ---
 
@@ -271,11 +123,7 @@ not worth the implementation/test cost against zero real evidence today.
 
 ## Priority order
 
-1. **`MLIQ`** (item 1): real, byte-perfect verified struct, direct reuse of
-   the collision-mesh `NamedMesh`/`extras` pattern, but blocked on WMO
-   root+group parsing existing at all first (`MOMT` for material
-   resolution, `MOGP` header for the implicit-liquid fallback case).
-2. **`MCLQ`** (item 3): do not implement; watch only, per the corpus's real
+1. **`MCLQ`** (item 3): do not implement; watch only, per the corpus's real
    0/4,000 finding above.
 
 ---
@@ -287,14 +135,7 @@ not worth the implementation/test cost against zero real evidence today.
 this project's existing "personal WoW extraction, gitignored" convention
 before use, same as every other real fixture in this repo):
 
-- `MLIQ`: `world/wmo/dungeon/md_ruinedkeep/ruinedkeep_crypt2_015.wmo`
-  (already byte-verified above, small — 40 vertices/74 triangle-equivalent
-  tiles), plus `world/wmo/dungeon/9du_plaguefalldungeon_sanctum01_000.wmo`
-  (12,346-byte `MLIQ`, a bigger real example) and
-  `world/wmo/dungeon/thor_modan/thor_modan_001.wmo` (23,338 bytes, the
-  largest found in-sample) for a size-range spread. Needs the matching
-  *root* file too (`ruinedkeep_crypt2.wmo` etc.) for `MOMT`/`MOGP` context
-  once WMO root parsing exists.
+- `MLIQ`: `ruinedkeep_crypt2_015.wmo` is in use (`tests/test_wmo.cpp`).
 - `MH2O`: covered by `tests/test_integration_terrain.cpp` (real-data,
   `test_data/`-gated). **Still wanted**: a real tile with
   `0 < liquid_object_or_lvf < 42` to pin the layout inference on a

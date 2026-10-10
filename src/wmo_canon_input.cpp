@@ -214,6 +214,57 @@ canon::Scene buildScene(const WmoInputs& in) {
     return scene;
 }
 
+// WMO.md MLIQ "how to determine LiquidTypeRec to use", transcribed.
+constexpr uint16_t kRootUsesLiquidTypeDbcId = 0x4;
+constexpr uint32_t kGroupLiquidIsOcean = 0x80000;
+constexpr uint32_t kLiquidGreenLava = 15;
+constexpr uint32_t kLiquidEndBasic = 20;
+constexpr uint32_t kLiquidFirstNonBasic = 21;
+
+uint32_t toWmoLiquid(uint32_t basic, uint32_t groupFlags) {
+    switch (basic & 3) {
+        case 0: return (groupFlags & kGroupLiquidIsOcean) ? 14 : 13;  // WMO ocean / water
+        case 1: return 14;
+        case 2: return 19;  // WMO magma
+        default: return 20;  // WMO slime
+    }
+}
+
+// nullopt where the wiki's rules don't decide: groupLiquid 0 under the DBC
+// flag (to_wmo_liquid(-1)), and legacy green lava, which the client
+// resolves per tile by a rule the wiki marks unverified.
+std::optional<uint32_t> liquidTypeId(uint16_t rootFlags, const wmo::GroupFile& g) {
+    uint32_t groupLiquid = g.liquidType;
+    if (rootFlags & kRootUsesLiquidTypeDbcId) {
+        if (groupLiquid == 0) return std::nullopt;
+        return groupLiquid < kLiquidFirstNonBasic ? toWmoLiquid(groupLiquid - 1, g.flags) : groupLiquid;
+    }
+    if (groupLiquid == kLiquidGreenLava) return std::nullopt;
+    return groupLiquid < kLiquidEndBasic ? toWmoLiquid(groupLiquid, g.flags) : groupLiquid + 1;
+}
+
+canon::LiquidGrid buildLiquid(const WmoInputs& in, uint32_t part, const wmo::GroupFile& g) {
+    const wmo::Liquid& l = *g.liquid;
+    canon::LiquidGrid out;
+    out.part = part;
+    out.material = canon::RecordIndex{l.material};
+    out.sourceLiquidType = g.liquidType;
+    if (std::optional<uint32_t> id = liquidTypeId(in.root->header.flags, g)) {
+        out.liquidType = canon::Ref{canon::Db2Row{"LiquidType", *id}, "", canon::NameSource::None};
+    }
+    out.corner = toCanon(l.corner);
+    out.tileSize = wmo::kLiquidTileSize;
+    out.vertsX = l.vertsX;
+    out.vertsY = l.vertsY;
+    out.heights = l.heights;
+    out.vertexData = l.vertexData;
+    out.tileFlags = l.tiles;
+    // MCLQ's convention, which MLIQ shares: low nibble 0xF = no liquid. On 154
+    // real groups, the tiles that pass lie over their group's footprint.
+    for (uint8_t t : l.tiles) out.tileExists.push_back((t & 0x0F) != 0x0F ? 1 : 0);
+    return out;
+}
+
 // Appends one group's vertices and batches to `mesh`. UV and colour sets a
 // group lacks are zero-filled so every vertex has every set; the part's own
 // flags say which sets the group really has.
@@ -308,12 +359,16 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         mesh.parts.push_back(meshPart);
         if (in.groups[part]) appendGroup(in, part, *in.groups[part], mesh, primitiveMaterials, uvSetCount, colorSetCount);
     }
+    std::vector<canon::LiquidGrid> liquids;
+    for (uint32_t part = 0; part < in.groups.size(); ++part) {
+        if (in.groups[part] && in.groups[part]->liquid) liquids.push_back(buildLiquid(in, part, *in.groups[part]));
+    }
 
     std::vector<canon::Material> materials;
     for (uint32_t i = 0; i < root.materials.size(); ++i) materials.push_back(buildMaterial(in, i));
 
     return canon::assembleModel(canon::Skeleton{}, std::move(mesh), std::move(materials), std::move(primitiveMaterials),
-                                {}, buildScene(in), buildPlacementSets(in));
+                                {}, buildScene(in), buildPlacementSets(in), std::move(liquids));
 }
 
 }  // namespace husk::wmoinput

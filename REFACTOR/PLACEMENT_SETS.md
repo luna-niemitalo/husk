@@ -8,7 +8,7 @@ Terrain tiles place their doodads and WMOs as two sets, and `export-world`
 exports every placed WMO as a bundle beside the models. The byte-level
 schema is in `src/writers/bundle_writer.hpp`. WMO `MNLD`/`MOLT` lights are
 `resources.local_lights`; an `MNLD` light names the owned set it switches
-with. **Not yet**: liquids and fog inside WMOs.
+with; `MLIQ` liquid is `resources.liquids`. **Not yet**: fog inside WMOs.
 
 ## The concept
 
@@ -92,8 +92,10 @@ A WMO is an ordinary object bundle, the same shape as a doodad's (Luna,
   is part of the WMO, not a placed asset, so it stays out of the set files
   (invariant 6 keeps those plain asset lists); an `MNLD` light instead
   names the owned set it belongs to and is on while that set is.
-- Later, in the agreed order: liquid (`MLIQ`), lightsets, fog and
-  particulate volumes, then collision, portals and LOD.
+- `resources.liquids`: each group's `MLIQ` height grid, on that group's
+  part.
+- Later, in the agreed order: lightsets, fog and particulate volumes,
+  then collision, portals and LOD.
 
 Terrain bundles use the same format: a tile's `MDDF` and `MODF`
 placements are two world-frame sets (`doodads`, `map_objects`; two because

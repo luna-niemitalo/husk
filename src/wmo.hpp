@@ -162,6 +162,29 @@ struct TriangleInfo {
     uint16_t material = 0;  // 0xFF (MOPY) / 0xFFFF (MPY2): collision-only, not rendered
 };
 
+// MLIQ: a liquid height grid. Vertices and tiles are row-major, x fastest
+// (the wiki's one "column major" note is wrong for real files: on 122 real
+// non-square grids, row-major gives the smoother surface and the vertex
+// usage that matches the tiles); vertex (x, y) sits at corner + (x, y) *
+// kLiquidTileSize, +X/+Y.
+struct Liquid {
+    uint32_t vertsX = 0;
+    uint32_t vertsY = 0;  // tiles are (vertsX - 1) * (vertsY - 1)
+    Vec3 corner{};
+    uint16_t material = 0;  // MOMT index
+    // Per vertex, the 4 bytes before the height: flow1/flow2/flow1Pct/filler
+    // for water, int16 s/t (UV * 256) for magma; which one depends on the
+    // liquid type's material, outside this file.
+    std::vector<std::array<uint8_t, 4>> vertexData;
+    std::vector<float> heights;
+    // SMOLTile: low nibble legacy liquid type (0xF = no liquid here),
+    // 0x40 fishable, 0x80 shared, 0x10/0x20 unknown.
+    std::vector<uint8_t> tiles;
+};
+
+// An ADT unit: a map chunk is 8 of these, a map tile 128 (wiki MLIQ).
+inline constexpr float kLiquidTileSize = 25.0f / 6.0f;
+
 // One group file: the MOGP header plus its sub-chunks.
 struct GroupFile {
     uint32_t version = 0;
@@ -186,6 +209,7 @@ struct GroupFile {
     std::vector<std::vector<Vec2>> uvSets;            // every MOTV, in file order
     std::vector<std::vector<uint32_t>> colorSets;     // every MOCV (BGRA, raw), in file order
     std::vector<Batch> batches;
+    std::optional<Liquid> liquid;  // MLIQ
 };
 
 // Throws ParseError when a required chunk (MVER, MOHD) is missing, a chunk's
@@ -193,8 +217,9 @@ struct GroupFile {
 RootFile parseRoot(const std::vector<uint8_t>& fileBytes);
 
 // Throws ParseError when MVER or MOGP is missing, MOGP is shorter than its
-// 68-byte header, a per-vertex chunk's count differs from MOVT's, or a batch
-// runs past the index buffer.
+// 68-byte header, a per-vertex chunk's count differs from MOVT's, a batch
+// runs past the index buffer, or MLIQ's counts don't match its size or each
+// other (tiles = verts - 1 per axis).
 GroupFile parseGroup(const std::vector<uint8_t>& fileBytes);
 
 // GFID cell for (lodTier, group); 0 when the cell is empty or out of range.

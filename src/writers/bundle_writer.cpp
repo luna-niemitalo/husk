@@ -773,6 +773,34 @@ void writeParticles(json::Writer& w, const std::vector<canon::ParticleEmitter>& 
     w.endArray();
 }
 
+// resources.liquids -- appends every liquid's arrays to `liquidBin`.
+void writeLiquids(json::Writer& w, const canon::Model& model, std::vector<uint8_t>& liquidBin) {
+    w.beginArray();
+    for (const canon::LiquidGrid& l : model.liquids) {
+        w.beginObject();
+        writeIntField(w, "part", l.part);
+        w.key("material_index");
+        w.value(static_cast<int64_t>(std::get<canon::RecordIndex>(l.material).value));
+        w.key("liquid_type");
+        writeRef(w, l.liquidType);
+        writeIntField(w, "source_liquid_type", l.sourceLiquidType);
+        writeVec3Field(w, "corner", l.corner);
+        writeFloatField(w, "tile_size", l.tileSize);
+        writeIntField(w, "verts_x", l.vertsX);
+        writeIntField(w, "verts_y", l.vertsY);
+        w.key("heights");
+        writeBufferSlice(w, appendArray(liquidBin, "liquid.bin", l.heights, 1, "f32"));
+        w.key("vertex_data");
+        writeBufferSlice(w, appendArray(liquidBin, "liquid.bin", l.vertexData, 4, "u8"));
+        w.key("tile_exists");
+        writeBufferSlice(w, appendArray(liquidBin, "liquid.bin", l.tileExists, 1, "u8"));
+        w.key("tile_flags");
+        writeBufferSlice(w, appendArray(liquidBin, "liquid.bin", l.tileFlags, 1, "u8"));
+        w.endObject();
+    }
+    w.endArray();
+}
+
 }  // namespace
 
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir, const std::string& producer,
@@ -787,6 +815,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     std::vector<uint8_t> meshBin;
     std::vector<uint8_t> skeletonBin;
     std::vector<uint8_t> animBin;
+    std::vector<uint8_t> liquidBin;
 
     std::ostringstream manifestStream;
     json::Writer w(manifestStream);
@@ -836,6 +865,8 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     std::vector<OwnedSetEntry> sets;
     for (const canon::Model::OwnedSet& owned : model.placementSets) sets.push_back({&owned.set, owned.alwaysOn});
     writePlacementSets(w, sets, bundleDir, assetUris, producer);
+    w.key("liquids");
+    writeLiquids(w, model, liquidBin);
 
     w.endObject();  // resources
     w.endObject();  // root
@@ -843,6 +874,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeFile(bundleDir / "mesh.bin", meshBin);
     writeFile(bundleDir / "skeleton.bin", skeletonBin);
     writeFile(bundleDir / "animation.bin", animBin);
+    if (!model.liquids.empty()) writeFile(bundleDir / "liquid.bin", liquidBin);
 
     std::ofstream manifestFile(bundleDir / "manifest.json", std::ios::binary);
     if (!manifestFile) {

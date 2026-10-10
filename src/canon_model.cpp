@@ -70,11 +70,37 @@ void requireLightSets(const std::vector<LocalLight>& lights, size_t setCount) {
     }
 }
 
+void requireLiquids(const std::vector<LiquidGrid>& liquids, size_t partCount, size_t materialCount) {
+    for (size_t i = 0; i < liquids.size(); ++i) {
+        const LiquidGrid& l = liquids[i];
+        std::string what = "liquid " + std::to_string(i);
+        if (l.part >= partCount) {
+            throw std::runtime_error(what + "'s part: expected an index < " + std::to_string(partCount) +
+                                      " parts, got " + std::to_string(l.part));
+        }
+        const auto* ri = std::get_if<RecordIndex>(&l.material);
+        if (ri && ri->value >= materialCount) {
+            throw std::runtime_error(what + "'s material: expected an index < " + std::to_string(materialCount) +
+                                      " materials, got " + std::to_string(ri->value));
+        }
+        size_t vertexCount = static_cast<size_t>(l.vertsX) * l.vertsY;
+        size_t tileCount = l.vertsX == 0 || l.vertsY == 0 ? 0 : static_cast<size_t>(l.vertsX - 1) * (l.vertsY - 1);
+        if (l.heights.size() != vertexCount || l.vertexData.size() != vertexCount ||
+            l.tileExists.size() != tileCount || l.tileFlags.size() != tileCount) {
+            throw std::runtime_error(what + ": expected " + std::to_string(vertexCount) + " heights/vertex data and " +
+                                      std::to_string(tileCount) + " tiles, got " + std::to_string(l.heights.size()) +
+                                      "/" + std::to_string(l.vertexData.size()) + " and " +
+                                      std::to_string(l.tileExists.size()) + "/" + std::to_string(l.tileFlags.size()));
+        }
+    }
+}
+
 }  // namespace
 
 Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> materials,
                      std::vector<Identity> primitiveMaterials, std::vector<AnimationClip> animations,
-                     Scene scene, std::vector<Model::OwnedSet> placementSets) {
+                     Scene scene, std::vector<Model::OwnedSet> placementSets,
+                     std::vector<LiquidGrid> liquids) {
     if (primitiveMaterials.size() != mesh.primitives.size()) {
         throw std::runtime_error("primitiveMaterials size (" + std::to_string(primitiveMaterials.size()) +
                                   ") must match mesh.primitives size (" + std::to_string(mesh.primitives.size()) +
@@ -97,6 +123,7 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
     requireParts(mesh);
     requireUniqueInstanceIds(placementSets);
     requireLightSets(scene.localLights, placementSets.size());
+    requireLiquids(liquids, mesh.parts.size(), materials.size());
 
     Model result;
     result.skeleton = std::move(skeleton);
@@ -106,6 +133,7 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
     result.animations = std::move(animations);
     result.scene = std::move(scene);
     result.placementSets = std::move(placementSets);
+    result.liquids = std::move(liquids);
     return result;
 }
 

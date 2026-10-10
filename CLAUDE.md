@@ -270,10 +270,11 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   WMO -- **MantleCore must switch from the old `placements` array to
   `placement_sets`**. WMO `MNLD`/`MOLT` lights are
   `resources.local_lights`, each `MNLD` light switching with its doodad
-  set. **Next**: WMO particulate volumes (`MPVD`, struct unresolved, a
-  4,272-byte-record lead in `TODO/WORLD/FOG_VOLUMES_TODO.md` §2), the
-  light group refs/cookies (`TODO/WORLD/LIGHTING_TODO.md`'s update
-  block), then liquids (`MLIQ`).
+  set; `MLIQ` liquid is `resources.liquids` with LiquidType resolved.
+  **Next**: WMO particulate volumes (`MPVD`, struct unresolved, a
+  4,272-byte-record lead in `TODO/WORLD/FOG_VOLUMES_TODO.md` §2), fog,
+  then collision/portals/LOD; open items per feature in
+  `TODO/WORLD/LIGHTING_TODO.md` and `LIQUID_TODO.md` §1.
   Client shaders are unpacked under `example_exports/shaders/`
   (`tools/export_shaders.py`).
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,

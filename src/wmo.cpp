@@ -215,6 +215,40 @@ std::vector<NewLight> parseNewLights(const Chunk& c) {
     return out;
 }
 
+Liquid parseLiquid(const Chunk& c) {
+    constexpr size_t kHeaderSize = 30;
+    constexpr size_t kVertexSize = 8;
+    auto vertsX = read<int32_t>(c.data, c.size, 0x00, "MLIQ");
+    auto vertsY = read<int32_t>(c.data, c.size, 0x04, "MLIQ");
+    auto tilesX = read<int32_t>(c.data, c.size, 0x08, "MLIQ");
+    auto tilesY = read<int32_t>(c.data, c.size, 0x0C, "MLIQ");
+    if (vertsX < 1 || vertsY < 1 || tilesX != vertsX - 1 || tilesY != vertsY - 1) {
+        throw ParseError("MLIQ: expected tiles = verts - 1 >= 0 per axis, got verts (" + std::to_string(vertsX) +
+                         ", " + std::to_string(vertsY) + ") tiles (" + std::to_string(tilesX) + ", " +
+                         std::to_string(tilesY) + ")");
+    }
+    size_t vertexCount = static_cast<size_t>(vertsX) * static_cast<size_t>(vertsY);
+    size_t tileCount = static_cast<size_t>(tilesX) * static_cast<size_t>(tilesY);
+    size_t expected = kHeaderSize + vertexCount * kVertexSize + tileCount;
+    if (c.size != expected) {
+        throw ParseError("MLIQ: expected " + std::to_string(expected) + " bytes for " + std::to_string(vertsX) + "x" +
+                         std::to_string(vertsY) + " vertices, got " + std::to_string(c.size));
+    }
+    Liquid out;
+    out.vertsX = static_cast<uint32_t>(vertsX);
+    out.vertsY = static_cast<uint32_t>(vertsY);
+    out.corner = readVec3(c.data, c.size, 0x10, "MLIQ");
+    out.material = read<uint16_t>(c.data, c.size, 0x1C, "MLIQ");
+    for (size_t v = 0; v < vertexCount; ++v) {
+        size_t o = kHeaderSize + v * kVertexSize;
+        out.vertexData.push_back(read<std::array<uint8_t, 4>>(c.data, c.size, o, "MLIQ"));
+        out.heights.push_back(read<float>(c.data, c.size, o + 4, "MLIQ"));
+    }
+    const uint8_t* tiles = c.data + kHeaderSize + vertexCount * kVertexSize;
+    out.tiles.assign(tiles, tiles + tileCount);
+    return out;
+}
+
 std::vector<Batch> parseBatches(const Chunk& c) {
     std::vector<Batch> out(recordCount(c, kMobaSize));
     for (size_t i = 0; i < out.size(); ++i) {
@@ -342,6 +376,8 @@ GroupFile parseGroup(const std::vector<uint8_t>& fileBytes) {
             g.colorSets.push_back(readArray<uint32_t>(c));
         } else if (c.tag == "MOBA") {
             g.batches = parseBatches(c);
+        } else if (c.tag == "MLIQ") {
+            g.liquid = parseLiquid(c);
         }
     }
 

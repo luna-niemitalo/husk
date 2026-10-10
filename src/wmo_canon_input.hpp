@@ -13,7 +13,8 @@
 // ordinary object model (REFACTOR/PLACEMENT_SETS.md): no skeleton, one mesh
 // whose parts are the WMO's groups, materials from MOMT, one owned placement
 // set per doodad set (MODS), set 0 always on, and MNLD/MOLT lights as
-// scene.localLights (an MNLD light switches with its doodad set).
+// scene.localLights (an MNLD light switches with its doodad set), and each
+// group's MLIQ as a LiquidGrid.
 namespace husk::wmoinput {
 
 struct WmoInputs {
@@ -34,7 +35,8 @@ const char* shaderName(uint32_t id);
 // Throws std::runtime_error when the inputs contradict each other: a groups
 // list that isn't one per MOGI entry, a batch naming a material past MOMT, a
 // doodad naming a MODI slot past the table, a group with vertices but no
-// normals, or an MNLD/MOLT light type outside the wiki's enum.
+// normals, an MNLD/MOLT light type outside the wiki's enum, or a liquid naming
+// a material past MOMT.
 canon::Model buildCanonWmo(const WmoInputs& inputs);
 
 }  // namespace husk::wmoinput

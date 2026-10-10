@@ -275,6 +275,56 @@ TEST_CASE("wmo::parseGroup: reads the MOGP header and every sub-chunk after it")
     CHECK(g.batches[0].material == 7);  // the large-id flag picks material_id_large
 }
 
+namespace {
+
+// An MLIQ chunk with vertex i's height = i and data bytes {i, 0, 0, 0}, and
+// tile i's byte = tiles[i].
+std::vector<uint8_t> mliq(int32_t vertsX, int32_t vertsY, const std::vector<uint8_t>& tiles,
+                          int32_t tilesX = -1, int32_t tilesY = -1) {
+    std::vector<uint8_t> out;
+    put<int32_t>(out, 0x00, vertsX);
+    put<int32_t>(out, 0x04, vertsY);
+    put<int32_t>(out, 0x08, tilesX < 0 ? vertsX - 1 : tilesX);
+    put<int32_t>(out, 0x0C, tilesY < 0 ? vertsY - 1 : tilesY);
+    put(out, 0x10, 10.0f);
+    put(out, 0x14, 20.0f);
+    put(out, 0x18, -5.0f);
+    put<uint16_t>(out, 0x1C, 3);
+    for (int32_t i = 0; i < vertsX * vertsY; ++i) {
+        put<uint8_t>(out, out.size(), static_cast<uint8_t>(i));
+        put<uint8_t>(out, out.size(), 0);
+        put<uint16_t>(out, out.size(), 0);
+        put(out, out.size(), static_cast<float>(i));
+    }
+    out.insert(out.end(), tiles.begin(), tiles.end());
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("wmo::parseGroup: MLIQ reads its header, row-major vertices and raw tile bytes") {
+    wmo::GroupFile g = wmo::parseGroup(groupFile({{"MLIQ", mliq(3, 2, {0x40, 0x0F})}}));
+    REQUIRE(g.liquid.has_value());
+    const wmo::Liquid& l = *g.liquid;
+    CHECK(l.vertsX == 3);
+    CHECK(l.vertsY == 2);
+    CHECK(l.corner == wmo::Vec3{10, 20, -5});
+    CHECK(l.material == 3);
+    CHECK(l.heights == std::vector<float>{0, 1, 2, 3, 4, 5});
+    CHECK(l.vertexData[4] == std::array<uint8_t, 4>{4, 0, 0, 0});
+    CHECK(l.tiles == std::vector<uint8_t>{0x40, 0x0F});
+    CHECK_FALSE(wmo::parseGroup(groupFile({})).liquid.has_value());
+}
+
+TEST_CASE("wmo::parseGroup: MLIQ counts that disagree with each other or the chunk size throw") {
+    CHECK_THROWS_WITH_AS(wmo::parseGroup(groupFile({{"MLIQ", mliq(3, 2, {0, 0}, 3, 1)}})),
+                         "MLIQ: expected tiles = verts - 1 >= 0 per axis, got verts (3, 2) tiles (3, 1)",
+                         wmo::ParseError);
+    std::vector<uint8_t> shortTiles = mliq(3, 2, {0});
+    CHECK_THROWS_WITH_AS(wmo::parseGroup(groupFile({{"MLIQ", shortTiles}})),
+                         "MLIQ: expected 80 bytes for 3x2 vertices, got 79", wmo::ParseError);
+}
+
 TEST_CASE("wmo::parseGroup: without the large-id flag a batch uses material_id") {
     std::vector<uint8_t> file = groupFile({{"MOVI", u16s({0, 0, 0})},
                                            {"MOVT", floats({0, 0, 0})},
@@ -355,4 +405,33 @@ TEST_CASE("wmo: real chambercap01 -- 4-tier GFID with holes, material_id_large b
     CHECK(g.positions.size() == 1348);
     CHECK(g.uvSets.size() == 2);
     CHECK(g.colorSets.size() == 2);
+}
+
+TEST_CASE("wmo: real ruinedkeep_crypt2_015 -- the wiki's MLIQ example, liquid tiles over the group" *
+          doctest::skip(test::testWmoLiquidGroup().empty())) {
+    wmo::GroupFile g = wmo::parseGroup(readFile(test::testWmoLiquidGroup()));
+    REQUIRE(g.liquid.has_value());
+    const wmo::Liquid& l = *g.liquid;
+    CHECK(l.vertsX == 10);
+    CHECK(l.vertsY == 13);
+    CHECK(l.material == 46);
+    CHECK(l.corner[0] == doctest::Approx(91.6667f));
+    CHECK(l.corner[1] == 75.0f);
+    CHECK(l.heights[0] == doctest::Approx(-80.3648f));
+    // Grid +X/+Y from the corner at kLiquidTileSize. The grid snaps to world
+    // units and overhangs the group's walls by under a tile, so each liquid
+    // tile overlaps the group's bounds rather than sitting inside them.
+    for (uint32_t y = 0; y + 1 < l.vertsY; ++y) {
+        for (uint32_t x = 0; x + 1 < l.vertsX; ++x) {
+            if ((l.tiles[y * (l.vertsX - 1) + x] & 0x0F) == 0x0F) continue;
+            float x0 = l.corner[0] + static_cast<float>(x) * wmo::kLiquidTileSize;
+            float y0 = l.corner[1] + static_cast<float>(y) * wmo::kLiquidTileSize;
+            CAPTURE(x);
+            CAPTURE(y);
+            CHECK(x0 + wmo::kLiquidTileSize > g.bounds.min[0]);
+            CHECK(x0 < g.bounds.max[0]);
+            CHECK(y0 + wmo::kLiquidTileSize > g.bounds.min[1]);
+            CHECK(y0 < g.bounds.max[1]);
+        }
+    }
 }

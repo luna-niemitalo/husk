@@ -316,6 +316,8 @@ constexpr const char* kAdtTile = "world/maps/azeroth/azeroth_32_49.adt";
 constexpr const char* kWmoCameron = "world/wmo/cameron.wmo";
 constexpr const char* kWmoGuardTower = "world/wmo/azeroth/buildings/guardtower/guardtower.wmo";
 constexpr const char* kWmoChamberCap = "world/wmo/dungeon/torghast/9du_torghast_modular_chambercap01.wmo";
+// The wiki's own byte-verified MLIQ example (10x13 vertices, MOMT 46).
+constexpr const char* kWmoLiquidGroup = "world/wmo/dungeon/md_ruinedkeep/ruinedkeep_crypt2_015.wmo";
 }  // namespace fixtures
 
 // reference/WoWDBDefs (gitignored, dev-only checkout, see dbd.hpp's module
@@ -425,5 +427,6 @@ inline std::string testAdtTile() { return resolve("HUSK_TEST_ADT_TILE", fixtures
 inline std::string testWmoCameron() { return resolve("HUSK_TEST_WMO_CAMERON", fixtures::kWmoCameron); }
 inline std::string testWmoGuardTower() { return resolve("HUSK_TEST_WMO_GUARDTOWER", fixtures::kWmoGuardTower); }
 inline std::string testWmoChamberCap() { return resolve("HUSK_TEST_WMO_CHAMBERCAP", fixtures::kWmoChamberCap); }
+inline std::string testWmoLiquidGroup() { return resolve("HUSK_TEST_WMO_LIQUID_GROUP", fixtures::kWmoLiquidGroup); }
 
 }  // namespace husk::test

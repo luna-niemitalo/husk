@@ -14,7 +14,7 @@ deletions handled their own back-references).
 
 ---
 
-**2026-10-10 — WMO doodads into the world, WMO lights.**
+**2026-10-10 — WMO doodads into the world, WMO lights and liquids.**
 
 - **Terrain onto placement sets**: a tile's `MDDF`/`MODF` placements are
   two world-frame sets (`doodads`, `map_objects`), replacing the terrain
@@ -28,6 +28,11 @@ deletions handled their own back-references).
   the doodad set it switches with (13% of real lights use a non-default
   set). 80 seeded light-bearing WMOs export cleanly (7,432 lights, all 692
   cookies listfile-named).
+- **WMO liquids**: `MLIQ` parsed and written as `resources.liquids`
+  (`canon::LiquidGrid`, `liquid.bin`), LiquidType resolved by the wiki's
+  rules (568/568 resolved ids real `LiquidType.db2` rows; legacy green
+  lava left unresolved). Real data overturned the wiki's "column major"
+  note: the grid is row-major, x fastest (`WIKI_FINDINGS/WORLD.md`).
 - **Particles**: a WMO's only particle data is `MPVD` particulate
   volumes; a 4,272-byte-record lead is logged in
   `TODO/WORLD/FOG_VOLUMES_TODO.md`, nothing exported yet. Doodads'

@@ -156,6 +156,17 @@ shader, so the client animates intensity.
 
 ## Liquid/lighting/fog — verified
 
+**WMO `MLIQ`** (154 of 4,000 sampled group files, 2026-10-10):
+
+| Claim | Evidence |
+|---|---|
+| Size is exactly `30 + verts·8 + tiles`, with tiles = verts − 1 per axis | all 154 |
+| Vertices and tiles are **row-major, x fastest** — the wiki's "read it column major" note is wrong for these files | 122 non-square grids: row-major gives the smoother surface in 95 (column-major in 2, rest ties), and the vertex-usage/tile agreement in 95 (column-major never) |
+| The grid runs +X/+Y from `liquidCorner` at 25/6 yd per tile | rendered tile centres within 1 yd of their group's bounds: 151.4 of 154 files (per-file fraction, summed) vs ≤61 for any flipped axis; the grid snaps to world units and overhangs walls by under a tile (`ruinedkeep_crypt2_015`) |
+| Tile low nibble `0xF` = no liquid (MCLQ's convention) | ~47% of tiles; the bounds check above counts only the others |
+| Group flag `0x1000` and `MLIQ` always occur together; the "implicit whole-group liquid" case never appears | 154/154, 3,845 with neither |
+| The wiki's LiquidType rules hold | 568 resolved liquids in 120 roots: every id is a real `LiquidType.db2` row, and no water type sits on a lava/slime-textured material |
+
 `MH2O` covers 67.1% of real ADT tiles (vs. WMO's own `MLIQ` at 2.1%) — clear
 implementation priority. Legacy `MCLQ` confirmed genuinely absent (0/4,000).
 `MOLS`/`MOLP`/`MLSS`/`MLSP`/`MPVR`/`MAVR`/`MBVR`/`MFVR`/`MNLR` are all

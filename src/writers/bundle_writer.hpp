@@ -89,7 +89,8 @@
 //     "lights": [ ... ],
 //     "local_lights": [ ... ],
 //     "emitters": { "ribbons": [ ... ], "particles": [ ... ] },
-//     "placement_sets": [ ... ]
+//     "placement_sets": [ ... ],
+//     "liquids": [ ... ]
 //   }
 // }
 // ```
@@ -115,6 +116,21 @@
 //       "active_sets": [ <Ref> ] } ]   // omitted = the placed asset's always-on sets only
 // }
 // ```
+//
+// ### resources.liquids (backed by liquid.bin, written only when non-empty)
+// Liquid height grids the model owns (WMO MLIQ), model space:
+// ```json
+// [ { "part": <uint32, index into mesh.parts>, "material_index": <uint32, into materials>,
+//     "liquid_type": <Ref, Db2Row LiquidType; id kind "none" when the WMO rules don't decide>,
+//     "source_liquid_type": <uint32, MOGP.groupLiquid raw>,
+//     "corner": [x,y,z], "tile_size": <f, 25/6 yd>, "verts_x": <uint32>, "verts_y": <uint32>,
+//     "heights": <BufferSlice f32x1, verts_x*verts_y>,       // vertex (x,y) at corner + (x,y)*tile_size, Z = heights[y*verts_x+x]
+//     "vertex_data": <BufferSlice u8x4, verts_x*verts_y>,    // raw: water flow bytes, or magma int16 s,t (UV*256)
+//     "tile_exists": <BufferSlice u8x1, (verts_x-1)*(verts_y-1)>,  // 0/1; tile (x,y) spans vertices x..x+1, y..y+1
+//     "tile_flags": <BufferSlice u8x1, same count> } ]       // raw SMOLTile: low nibble legacy type, 0x40 fishable, 0x80 shared
+// ```
+// Every array is row-major, x fastest. Heights of vertices no existing tile
+// touches are not meaningful.
 //
 // ### resources.local_lights
 // Static lights the model places (WMO MNLD, then MOLT), model space, no bone:

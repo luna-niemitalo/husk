@@ -6,6 +6,7 @@
 
 #include "canon_animation.hpp"  // BoneAnimationCurves
 #include "canon_curve.hpp"      // SequenceRef
+#include "canon_liquid.hpp"     // LiquidGrid
 #include "canon_material.hpp"   // Material
 #include "canon_mesh.hpp"       // Mesh
 #include "canon_placement.hpp"  // PlacementSet
@@ -92,6 +93,7 @@ struct Model {
         bool alwaysOn = false;
     };
     std::vector<OwnedSet> placementSets;
+    std::vector<LiquidGrid> liquids;
 };
 
 // Packs already-built canon:: pieces into a Model, validating the
@@ -106,13 +108,16 @@ struct Model {
 // in range for `skeleton.joints`, every primitive's `part` must be in range
 // for `mesh.parts`, instance ids must be unique within each placement set, and a
 // local light's placement set must be a RecordIndex in range for `placementSets`.
+// Each liquid's part and RecordIndex material must be in range, and its
+// arrays sized to its grid.
 //
 // Every argument is taken by value and moved from -- this function's own
 // job is assembly, not borrowing; a caller done building these pieces has
 // no further use for them.
 Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> materials,
                      std::vector<Identity> primitiveMaterials, std::vector<AnimationClip> animations,
-                     Scene scene = {}, std::vector<Model::OwnedSet> placementSets = {});
+                     Scene scene = {}, std::vector<Model::OwnedSet> placementSets = {},
+                     std::vector<LiquidGrid> liquids = {});
 
 // Resolves `model.primitiveMaterials[primitiveIndex]` to an index into
 // `model.materials` -- the one shared implementation of this lookup (I2):
