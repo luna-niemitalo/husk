@@ -17,6 +17,7 @@
 #include "skin.hpp"
 #include "sources/texture_payload.hpp"  // BUNDLE_FORMAT.md's DDS-housed source payload
 #include "writers/bundle_writer.hpp"
+#include "version.hpp"
 #include "writers/gltf_lean.hpp"
 
 // This is `husk export`'s new, second pipeline path (REFACTOR/README.md's
@@ -349,6 +350,8 @@ struct CanonBuild {
     std::vector<skin::Submesh> submeshes;
 };
 
+writers::Provenance m2Provenance() { return writers::Provenance{std::string("husk ") + husk::version(), "m2", {}}; }
+
 CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPath, sources::Catalog& catalog,
                                const std::string& modelPath, uint32_t objectSkinTextureFileDataId,
                                const std::string& animDir, bool bonesAreInline, bool haveSkel,
@@ -406,6 +409,7 @@ CanonBuild buildCanonForExport(const m2::Model& model, const std::string& skinPa
 
     canon::Model canonModel = m2input::buildCanonModel(model, batches, submeshes, triangleIndices,
                                                          externalAnimBlobs, textureResolutions, externalSkeleton);
+    canonModel.subject = writers::subjectRef(modelPath, std::nullopt);
     return CanonBuild{std::move(canonModel), effectiveSequences, std::move(batches), std::move(submeshes)};
 }
 
@@ -433,7 +437,7 @@ void runCanonExport(const m2::Model& model, const std::string& skinPath, const g
         bundleDir += ".canon.bundle";
 
         writers::writeLeanGlb(canonModel, leanGlbPath);
-        writers::writeBundle(canonModel, bundleDir);
+        writers::writeBundle(canonModel, bundleDir, m2Provenance());
         std::cerr << "husk: canon-export: wrote '" << leanGlbPath.string() << "' and '" << bundleDir.string()
                   << "/' alongside '" << outputPath << "'\n";
 
@@ -471,7 +475,7 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, s
                           const std::vector<uint8_t>& skelBytes, const std::string& bundleDir) {
     CanonBuild build = buildCanonForExport(model, skinPath, catalog, modelPath, objectSkinTextureFileDataId, animDir,
                                            bonesAreInline, haveSkel, skelBytes);
-    writers::writeBundle(build.model, bundleDir);
+    writers::writeBundle(build.model, bundleDir, m2Provenance());
 }
 
 }  // namespace husk::commands

@@ -7,6 +7,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <type_traits>
+#include <unordered_map>
 #include <variant>
 
 namespace husk::writers {
@@ -100,6 +101,76 @@ void writeAssetRef(json::Writer& w, const canon::Ref& ref, const AssetUris& uris
     writeRef(w, ref, uri);
 }
 
+canon::Ref subjectRef(const std::filesystem::path& file, std::optional<uint32_t> fileDataId) {
+    canon::Identity id = fileDataId ? canon::Identity{canon::FileDataId{*fileDataId}} : canon::Identity{canon::None{}};
+    return canon::Ref{id, file.stem().string(), canon::NameSource::Listfile};
+}
+
+void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& subject, const Provenance& provenance) {
+    w.key("format");
+    w.value("husk-bundle");
+    w.key("kind");
+    w.value(kind);
+    w.key("schema_version");
+    w.value("1.0.0");
+    w.key("subject");
+    writeRef(w, subject);
+    w.key("space");
+    w.beginObject();
+    w.key("length_unit");
+    w.value("yard");
+    w.key("angle_unit");
+    w.value("radian");
+    w.key("time_unit");
+    w.value("second");
+    w.key("up_axis");
+    w.value("+z");
+    w.key("handedness");
+    w.value("right");
+    w.endObject();
+    w.key("provenance");
+    w.beginObject();
+    w.key("producer");
+    w.value(provenance.producer);
+    w.key("exported_at");
+    w.value(isoTimestampUtc());
+    w.key("input_format");
+    w.value(provenance.inputFormat);
+    w.key("sources");
+    w.beginArray();
+    for (const Provenance::Source& source : provenance.sources) {
+        w.beginObject();
+        w.key("name");
+        w.value(source.name);
+        w.key("role");
+        w.value(source.role);
+        w.key("available");
+        w.value(source.available);
+        if (!source.detail.empty()) {
+            w.key("detail");
+            w.value(source.detail);
+        }
+        w.endObject();
+    }
+    w.endArray();
+    w.endObject();
+}
+
+std::string hexFlags(uint32_t flags) {
+    std::ostringstream out;
+    out << "0x" << std::hex << flags;
+    return out.str();
+}
+
+void writeSourceRecord(json::Writer& w, const canon::SourceRecord& record) {
+    w.beginObject();
+    w.key("table");
+    w.value(record.table);
+    w.key("index");
+    w.value(static_cast<int64_t>(record.index));
+    w.endObject();
+}
+
 namespace {
 
 void writeFloats(json::Writer& w, std::initializer_list<float> values) {
@@ -108,27 +179,68 @@ void writeFloats(json::Writer& w, std::initializer_list<float> values) {
     w.endArray();
 }
 
+// Identity key for deduplicating a set's referenced assets.
+std::string identityKey(const canon::Ref& ref) {
+    std::ostringstream key;
+    std::visit(
+        [&key](const auto& id) {
+            using T = std::decay_t<decltype(id)>;
+            if constexpr (std::is_same_v<T, canon::None>) {
+                key << "none";
+            } else if constexpr (std::is_same_v<T, canon::Db2Row>) {
+                key << "db2:" << id.table << ":" << id.row;
+            } else if constexpr (std::is_same_v<T, canon::FileDataId>) {
+                key << "fdid:" << id.value;
+            } else {
+                key << "record:" << id.value;
+            }
+        },
+        ref.id);
+    key << "/" << ref.name;
+    return key.str();
+}
+
 void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem::path& path, const AssetUris& uris,
-                           const std::string& producer) {
+                           const Provenance& provenance) {
+    std::vector<const canon::Ref*> assets;
+    std::unordered_map<std::string, size_t> assetIndex;
+    std::vector<size_t> instanceAsset;
+    for (const canon::PlacedInstance& instance : set.instances) {
+        auto [it, added] = assetIndex.emplace(identityKey(instance.asset), assets.size());
+        if (added) assets.push_back(&instance.asset);
+        instanceAsset.push_back(it->second);
+    }
+
     std::ostringstream text;
     json::Writer w(text);
     w.beginObject();
-    w.key("schema_version");
-    w.value("0.1.0");
-    w.key("producer");
-    w.value(producer);
-    w.key("kind");
-    w.value("placement_set");
-    w.key("ref");
-    writeRef(w, set.ref);
+    writeContractHeader(w, "placement_set", set.ref, provenance);
+    w.key("definition");
+    w.beginObject();
+    w.endObject();
+    w.key("selection");
+    w.beginObject();
+    w.endObject();
+    w.key("references");
+    w.beginArray();
+    for (const canon::Ref* asset : assets) {
+        w.beginObject();
+        w.key("kind");
+        w.value("model");
+        w.key("asset");
+        writeAssetRef(w, *asset, uris);
+        w.endObject();
+    }
+    w.endArray();
     w.key("instances");
     w.beginArray();
-    for (const canon::PlacedInstance& instance : set.instances) {
+    for (size_t i = 0; i < set.instances.size(); ++i) {
+        const canon::PlacedInstance& instance = set.instances[i];
         w.beginObject();
         w.key("id");
         w.value(static_cast<int64_t>(instance.id));
-        w.key("asset");
-        writeAssetRef(w, instance.asset, uris);
+        w.key("reference");
+        w.value(static_cast<int64_t>(instanceAsset[i]));
         w.key("translation");
         writeFloats(w, {instance.translation.x, instance.translation.y, instance.translation.z});
         w.key("rotation");
@@ -140,20 +252,28 @@ void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem
             w.beginObject();
             w.key("rgba");
             w.beginArray();
-            for (uint8_t c : instance.tint->rgba) w.value(static_cast<int64_t>(c));
+            for (uint8_t c : instance.tint->rgba) w.value(c / 255.0);
             w.endArray();
             w.key("multiplier");
             w.value(static_cast<double>(instance.tint->multiplier));
             w.endObject();
         }
-        w.key("flags");
-        w.value(static_cast<int64_t>(instance.flags));
+        w.key("selection");
+        w.beginObject();
+        w.key("placement_sets");
+        w.beginArray();
         if (instance.activeSets) {
-            w.key("active_sets");
-            w.beginArray();
-            for (const canon::Ref& ref : *instance.activeSets) writeRef(w, ref);
-            w.endArray();
+            for (const canon::Ref& ref : *instance.activeSets) {
+                w.value(static_cast<int64_t>(std::get<canon::RecordIndex>(ref.id).value));
+            }
         }
+        w.endArray();
+        w.endObject();
+        w.key("source");
+        w.beginObject();
+        w.key("flags");
+        w.value(hexFlags(instance.flags));
+        w.endObject();
         w.endObject();
     }
     w.endArray();
@@ -165,28 +285,22 @@ void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem
 
 }  // namespace
 
-void writePlacementSets(json::Writer& w, const std::vector<OwnedSetEntry>& sets, const std::filesystem::path& bundleDir,
-                        const AssetUris& assetUris, const std::string& producer) {
+std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEntry>& sets,
+                                                    const std::filesystem::path& bundleDir, const AssetUris& assetUris,
+                                                    const Provenance& provenance) {
     // Set files sit one level down, in sets/.
     AssetUris setUris;
     for (const auto& [fdid, uri] : assetUris) {
         setUris.emplace(fdid, std::filesystem::path(uri).is_absolute() ? uri : "../" + uri);
     }
     if (!sets.empty()) std::filesystem::create_directories(bundleDir / "sets");
-    w.beginArray();
+    std::vector<SetDocument> out;
     for (size_t i = 0; i < sets.size(); ++i) {
         std::string uri = "sets/" + std::to_string(i) + ".json";
-        writePlacementSetFile(*sets[i].set, bundleDir / uri, setUris, producer);
-        w.beginObject();
-        w.key("ref");
-        writeRef(w, sets[i].set->ref, uri);
-        w.key("always_on");
-        w.value(sets[i].alwaysOn);
-        w.key("instance_count");
-        w.value(static_cast<int64_t>(sets[i].set->instances.size()));
-        w.endObject();
+        writePlacementSetFile(*sets[i].set, bundleDir / uri, setUris, provenance);
+        out.push_back({sets[i].set->ref, uri, sets[i].alwaysOn, sets[i].set->instances.size()});
     }
-    w.endArray();
+    return out;
 }
 
 std::string isoTimestampUtc() {
@@ -227,12 +341,18 @@ std::string textureFileExtension(canon::TextureEncoding encoding) {
     return "png";
 }
 
+std::string textureMediaType(const std::string& extension) {
+    if (extension == "png") return "image/png";
+    if (extension == "dds") return "image/vnd-ms.dds";
+    throw std::logic_error("textureMediaType: no media type for extension '" + extension + "'");
+}
+
 // Writes `texture`'s resolved payload (when it carries one, AUDIT.md §7.4)
-// to `bundleDir/textures/<name>.<ext>` and records a real `uri` alongside
-// its identity -- BUNDLE_FORMAT.md's "Embed or reference" shape. A
-// Resolved identity with no payload (a future reference-only producer)
-// writes `id`/`name`/`name_source` with no `uri`, the documented "husk
-// knows what this is" case, not an error. `writtenTextures` dedupes by
+// to `bundleDir/textures/<name>.<ext>` and records it as the entry's
+// `payload` {uri, media_type} beside its identity -- BUNDLE_FORMAT.md's
+// "Embed or reference" shape. A Resolved identity with no payload (a
+// future reference-only producer) writes the identity with no payload, the
+// documented "husk knows what this is" case, not an error. `writtenTextures` dedupes by
 // filename across the whole bundle (more than one material layer can
 // resolve to the same real texture) so repeated identical bytes are
 // written to disk once, not once per referencing layer.
@@ -246,14 +366,15 @@ std::string textureFileExtension(canon::TextureEncoding encoding) {
 // on disk, or DDS extraction declined for a Palette-encoded source) still
 // gets a real file in the bundle instead of being silently dropped just
 // because the DDS variant wasn't available for it.
-void writeTextureRef(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
-                      std::unordered_set<std::string>& writtenTextures) {
+void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
+                       std::unordered_set<std::string>& writtenTextures) {
+    w.beginObject();
     switch (texture.state) {
         case canon::TextureRef::State::Resolved: {
-            w.key("texture_state");
+            w.key("state");
             w.value("resolved");
-            w.key("texture");
-            std::string uri;
+            w.key("identity");
+            writeRef(w, texture.resolved);
             const canon::TextureRef::Payload* chosen =
                 texture.rawPayload ? &*texture.rawPayload : (texture.payload ? &*texture.payload : nullptr);
             if (chosen) {
@@ -265,8 +386,8 @@ void writeTextureRef(json::Writer& w, const canon::TextureRef& texture, const st
                         stem = "texture";
                     }
                 }
-                std::string filename = stem + "." + textureFileExtension(chosen->encoding);
-                uri = "textures/" + filename;
+                std::string extension = textureFileExtension(chosen->encoding);
+                std::string filename = stem + "." + extension;
                 if (writtenTextures.insert(filename).second) {
                     std::filesystem::path texturesDir = bundleDir / "textures";
                     std::error_code ec;
@@ -277,18 +398,24 @@ void writeTextureRef(json::Writer& w, const canon::TextureRef& texture, const st
                     }
                     writeFile(texturesDir / filename, chosen->bytes);
                 }
+                w.key("payload");
+                w.beginObject();
+                w.key("uri");
+                w.value("textures/" + filename);
+                w.key("media_type");
+                w.value(textureMediaType(extension));
+                w.endObject();
             }
-            writeRef(w, texture.resolved, uri);
             break;
         }
         case canon::TextureRef::State::KnownUnresolved:
-            w.key("texture_state");
+            w.key("state");
             w.value("known_unresolved");
             w.key("unresolved_reason");
             w.value(texture.unresolvedReason);
             break;
         case canon::TextureRef::State::Ambiguous:
-            w.key("texture_state");
+            w.key("state");
             w.value("ambiguous");
             w.key("candidates");
             w.beginArray();
@@ -307,6 +434,7 @@ void writeTextureRef(json::Writer& w, const canon::TextureRef& texture, const st
             w.endArray();
             break;
     }
+    w.endObject();
 }
 
 }  // namespace husk::writers

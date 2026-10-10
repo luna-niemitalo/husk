@@ -20,6 +20,7 @@
 #include "adt_canon_input.hpp"
 #include "blp.hpp"
 #include "bundle_schema.hpp"
+#include "version.hpp"
 #include "commands.hpp"
 #include "husk_config.hpp"
 #include "groundeffect_db2.hpp"
@@ -334,8 +335,9 @@ std::optional<std::filesystem::path> findWmoGroupFile(const std::filesystem::pat
 // A WMO root and its base-LOD group files as a canon::Model. Missing group
 // files are reported through `warn` and leave that part empty; a group file
 // that exists but doesn't parse fails the export.
-canon::Model loadWmoModel(const std::filesystem::path& rootPath, const ListfileIndex* listfile,
-                          const std::string& listfileRoot, const std::function<void(const std::string&)>& warn) {
+canon::Model loadWmoModel(const std::filesystem::path& rootPath, std::optional<uint32_t> fileDataId,
+                          const ListfileIndex* listfile, const std::string& listfileRoot,
+                          const std::function<void(const std::string&)>& warn) {
     wmo::RootFile root = wmo::parseRoot(adt::readFile(rootPath));
     wmoinput::WmoInputs inputs;
     inputs.root = &root;
@@ -375,7 +377,16 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, const ListfileI
             if (listed) inputs.assetNames.emplace(fdid, std::filesystem::path(std::string(*listed)).stem().string());
         }
     }
-    return wmoinput::buildCanonWmo(inputs);
+    canon::Model model = wmoinput::buildCanonWmo(inputs);
+    model.subject = writers::subjectRef(rootPath, fileDataId);
+    return model;
+}
+
+writers::Provenance wmoProvenance(const ListfileIndex* listfile, const std::string& listfilePath) {
+    writers::Provenance out{std::string("husk ") + husk::version(), "wmo", {}};
+    out.sources.push_back({"listfile", "group files, textures and doodad names by FileDataID", listfile != nullptr,
+                           listfile ? listfilePath : "not given"});
+    return out;
 }
 
 // A map directory's _fogs.wdt and _mpv.wdt as a canon::MapScene; nullopt
@@ -708,7 +719,9 @@ int exportWmo(int argc, char** args) {
             announce("listfile: none (group files found by name only, textures stay unresolved)");
         }
 
-        canon::Model model = loadWmoModel(opts.input, listfile.get(), listfileRoot, warn);
+        std::optional<uint32_t> fileDataId =
+            listfile ? sources::fileDataIdForPath(*listfile, opts.input, listfileRoot) : std::nullopt;
+        canon::Model model = loadWmoModel(opts.input, fileDataId, listfile.get(), listfileRoot, warn);
 
         writers::AssetUris modelUris;
         if (!opts.modelsDir.empty()) {
@@ -721,7 +734,7 @@ int exportWmo(int argc, char** args) {
                 }
             }
         }
-        writers::writeBundle(model, opts.output, "husk dev", modelUris);
+        writers::writeBundle(model, opts.output, wmoProvenance(listfile.get(), listfilePath), modelUris);
         size_t instances = 0;
         for (const auto& owned : model.placementSets) instances += owned.set.instances.size();
         std::cout << "wrote " << opts.output << ": " << model.mesh.parts.size() << " parts, "
@@ -991,14 +1004,14 @@ int exportWorld(int argc, char** args) {
                     std::optional<std::filesystem::path> src = wmoSource(fdid);
                     if (src && !std::filesystem::exists(bundle / "manifest.json")) {
                         auto warn = [&](const std::string& w) { errors.add("wmo", std::to_string(fdid), w); };
-                        canon::Model model = loadWmoModel(*src, listfile.get(), opts.listfileRoot, warn);
+                        canon::Model model = loadWmoModel(*src, fdid, listfile.get(), opts.listfileRoot, warn);
                         writers::AssetUris doodadUris;
                         for (uint32_t doodad : placedAssets(model)) {
                             if (exportedModels.count(doodad)) {
                                 doodadUris.emplace(doodad, "../" + modelBundleName(doodad) + "/manifest.json");
                             }
                         }
-                        writers::writeBundle(model, bundle, "husk dev", doodadUris);
+                        writers::writeBundle(model, bundle, wmoProvenance(listfile.get(), opts.listfile), doodadUris);
                     }
                 } catch (...) {
                     errors.add("wmo", std::to_string(fdid), exceptionMessage(std::current_exception()));

@@ -54,12 +54,10 @@ passes I8's second test without adopting any container format at all: the
 "open container" is JSON-describes-byte-range, something `fread`/`mmap`
 plus any JSON library already opens, in any language, with no husk binary
 and no glTF library involved. Implemented in `src/writers/bundle_writer.hpp`
-(`husk::writers::writeBundle`) — that file's own doc comment is now the
-canonical, byte-precise description of the manifest shape (BufferSlice
-fields, `canon::Ref` serialization, per-section layout for
-`resources.mesh`/`skeleton`/`animation`/`materials`); this document only
-records that the question is closed and points there rather than
-duplicating the schema. Covered by `tests/test_writers_bundle.cpp`.
+(`husk::writers::writeBundle`); the manifest shape itself is defined by
+`schema/` (see "Document kinds and the contract header" below), not by
+this document. Covered by `tests/test_writers_bundle.cpp`, which checks
+every written manifest against the schema.
 
 **I3, restated concretely**: a consumer opens `manifest.json` and never looks
 anywhere else. Every path in it is relative to the manifest. There is no
@@ -243,10 +241,10 @@ named `"<source>.<field>"`, instead of growing a typed key for each
 format detail; a consumer reads every channel the same way, and a
 Blender importer maps them onto mesh attributes directly. In-memory twin:
 `canon::AttributeChannel` (`src/canon_attribute.hpp`); the channels
-written today are listed in `src/writers/bundle_writer.hpp`'s mesh schema.
+written today are listed in `src/writers/bundle_writer.hpp`'s header comment.
 First use: a WMO's `MOPY`/`MPY2` per-face flags and material, which
 replaced a separate WMO collision mesh (a consumer selects collidable
-faces by flag). `resources.collision` remains for M2, whose collision
+faces by flag). `resources.geometry.collision` remains for M2, whose collision
 vertices are separate data.
 
 ## Embed or reference — one rule
@@ -530,8 +528,8 @@ instance's minimum, the open-ocean case) or `zero` (a depth-only layout).
 
 ### Placements
 
-Two placement sets (`PLACEMENT_SETS.md`, set-file schema in
-`bundle_writer.hpp`), both always on: `doodads` (`MDDF`, M2s) and
+Two placement sets (`PLACEMENT_SETS.md`, set files are
+`placement_set` documents, `schema/placement_set.schema.json`), both always on: `doodads` (`MDDF`, M2s) and
 `map_objects` (`MODF`, WMOs). Instance `translation` is world-frame,
 `rotation` a world-from-asset quaternion (x, y, z, w), the asset in its own
 native M2/WMO space. Instance ids are ADT uniqueIds: unique within a set,
@@ -577,7 +575,7 @@ places as a whole rather than per tile: `_fogs.wdt` fog volumes and
 `_mpv.wdt` particulate volumes, in the same world frame as terrain tiles
 (verified: every real particulate volume and 1,503/1,542 fogs land on an
 existing tile of their map). A particulate volume carries the same keys as
-a model bundle's `resources.particulate_volumes` entry, plus its world
+a model bundle's `resources.scene.ambient_particle_volumes` entry, plus its world
 bounds, id and `PVPD`/`PVBD` data. Raw records for fields still
 uncharacterized are slices of `map_scene.bin`.
 

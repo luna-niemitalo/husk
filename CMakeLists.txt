@@ -129,6 +129,7 @@ add_library(husk-lib STATIC
   src/wdt_volumes.cpp
   src/map_scene_input.cpp
   src/bundle_schema.cpp
+  src/version.cpp
   ${HUSK_EMBEDDED_SCHEMAS}
   src/adt_canon_input.cpp
   src/cmd_export_terrain.cpp
@@ -192,6 +193,7 @@ target_link_libraries(husk-lib PUBLIC tinygltf::tinygltf CLI11::CLI11 SQLite::SQ
 add_executable(husk src/main.cpp)
 target_link_libraries(husk PRIVATE husk-lib)
 target_compile_definitions(husk PRIVATE HUSK_VERSION="${HUSK_VERSION}")
+set_source_files_properties(src/version.cpp PROPERTIES COMPILE_DEFINITIONS HUSK_VERSION="${HUSK_VERSION}")
 
 option(HUSK_BUILD_TESTS "Build the doctest suite" ON)
 if(HUSK_BUILD_TESTS)

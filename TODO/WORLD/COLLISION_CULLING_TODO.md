@@ -191,10 +191,10 @@ relationship with core geometry makes it adjacent to that milestone.
 
 **Current state (2026-10-10)**: every WMO face's `MOPY`/`MPY2` flags and
 material are mesh attribute channels (`wmo.poly_flags`, `wmo.poly_material`;
-schema in `src/writers/bundle_writer.hpp`), so a consumer selects collidable
+schema in `schema/model.schema.json`), so a consumer selects collidable
 faces by flag (WMO.md `isCollidable`: 0x08, or 0x20 without 0x04).
 Collision-only faces are in the mesh's `indices`, outside every primitive.
-M2 collision is `resources.collision` (`canon::CollisionMesh`, with face
+M2 collision is `resources.geometry.collision` (`canon::CollisionMesh`, with face
 normals). 374 sampled WMO roots (41.3M faces, 8.0M collidable by the rule)
 and 293 sampled M2s export cleanly.
 
@@ -334,10 +334,10 @@ justifies it.
 
 ## 5. Portals / visibility culling (`MOPV`/`MOPT`/`MOPR`/`MOPE`, `MOVV`/`MOVB`)
 
-**Current state (2026-10-10)**: portals are `mesh.portals` (`canon::Portal`:
+**Current state (2026-10-10)**: portals are `resources.geometry.mesh.portals` (`canon::Portal`:
 polygon, plane, raw `MOPE`) and each group's `MOPR` range is its part's
 `portals` links (`canon::PortalLink`: portal, other part, raw side); schema
-in `src/writers/bundle_writer.hpp`. 200 sampled portal-bearing roots export
+in `schema/model.schema.json`. 200 sampled portal-bearing roots export
 cleanly (1,539 portals). Facts: `../../WIKI_FINDINGS/WORLD.md` "Collision &
 culling".
 

@@ -70,10 +70,10 @@ def build_materials(bundle_dir, materials_json):
         # back into `layers` by identity), so this probe takes the
         # simplest real answer: the first resolved-with-bytes layer.
         for layer in mat_json.get("layers", []):
-            texture = layer.get("texture")
-            if layer.get("texture_state") != "resolved" or not texture or not texture.get("uri"):
+            texture = layer.get("texture", {})
+            if texture.get("state") != "resolved" or "payload" not in texture:
                 continue
-            image_path = os.path.join(bundle_dir, texture["uri"])
+            image_path = os.path.join(bundle_dir, texture["payload"]["uri"])
             image = bpy.data.images.load(image_path)
             tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
             tex_node.image = image
@@ -176,8 +176,8 @@ def main():
 
     resources = manifest["resources"]
     materials = build_materials(bundle_dir, resources.get("materials", []))
-    build_mesh(bundle_dir, resources["mesh"], materials)
-    armature_obj = build_armature(bundle_dir, resources["skeleton"])
+    build_mesh(bundle_dir, resources["geometry"]["mesh"], materials)
+    armature_obj = build_armature(bundle_dir, resources["rig"]["skeleton"])
 
     armatures = [o for o in bpy.data.objects if o.type == 'ARMATURE']
     meshes = [o for o in bpy.data.objects if o.type == 'MESH']

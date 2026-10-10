@@ -1101,9 +1101,10 @@
                   "kind": {
                     "enum": [
                       "directional",
-                      "point"
+                      "point",
+                      "unknown"
                     ],
-                    "description": "Light kind."
+                    "description": "Light kind; unknown when the source type has no established meaning."
                   },
                   "bone": {
                     "$ref": "common.schema.json#/definitions/ref",
@@ -1148,6 +1149,20 @@
                     "$ref": "common.schema.json#/definitions/animated",
                     "description": "On or off, 0 or 1.",
                     "x-unit": "1"
+                  },
+                  "source": {
+                    "type": "object",
+                    "description": "Source-specific raw values.",
+                    "properties": {
+                      "type": {
+                        "type": "integer",
+                        "description": "Light type as stored."
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "additionalProperties": false,
@@ -1160,7 +1175,8 @@
                   "diffuse_intensity",
                   "attenuation_start",
                   "attenuation_end",
-                  "visibility"
+                  "visibility",
+                  "source"
                 ]
               }
             },
@@ -2254,14 +2270,14 @@
                     "x-unit": "1"
                   },
                   "tumble_min": {
-                    "type": "number",
-                    "description": "Tumble min.",
-                    "x-unit": "1"
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Minimum tumble rotation per axis.",
+                    "x-unit": "radian"
                   },
                   "tumble_max": {
-                    "type": "number",
-                    "description": "Tumble max.",
-                    "x-unit": "1"
+                    "$ref": "common.schema.json#/definitions/vec3",
+                    "description": "Maximum tumble rotation per axis.",
+                    "x-unit": "radian"
                   }
                 },
                 "additionalProperties": false,

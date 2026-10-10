@@ -9,8 +9,8 @@ covers the rest).
 
 **Update 2026-10-10**: `MNLD` and `MOLT` (items 3 and 1) are parsed
 (`wmo::NewLight`/`LegacyLight`) and exported to the canonical bundle as
-`resources.local_lights` (`canon::LocalLight`; schema in
-`src/writers/bundle_writer.hpp`). An `MNLD` light carries its doodad set as
+`resources.scene.static_lights` (`canon::LocalLight`; schema in
+`schema/model.schema.json`). An `MNLD` light carries its doodad set as
 `placement_set` and switches with it. Checked on 30,044 real `MNLD` records:
 every gap/unused field zero, `lightIndex` = own index, attenuation start <=
 end, `doodadSet` always a valid `MODS` index (13% non-zero). Open, in order:

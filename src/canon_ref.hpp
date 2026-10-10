@@ -68,4 +68,12 @@ struct Ref {
     NameSource source = NameSource::None;
 };
 
+// The source record an entry was decoded from: the source's table (chunk)
+// name and the record's position in it. Kept beside an entry whose own
+// identity is its position in the canon list.
+struct SourceRecord {
+    std::string table;
+    uint32_t index = 0;
+};
+
 }  // namespace husk::canon

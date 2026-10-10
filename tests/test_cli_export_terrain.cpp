@@ -7,6 +7,8 @@
 
 #include <doctest/doctest.h>
 
+#include "bundle_schema.hpp"
+
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -26,6 +28,22 @@ nlohmann::json readJson(const fs::path& path) {
     std::ifstream in(path);
     REQUIRE(in.good());
     return nlohmann::json::parse(in);
+}
+
+// A placement_set document's instances, each with its referenced asset
+// resolved into "asset"; the document is schema-checked on the way.
+nlohmann::json readPlacements(const fs::path& setFile) {
+    std::vector<husk::bundle_schema::Problem> problems = husk::bundle_schema::validateDocument(setFile);
+    std::string report;
+    for (const husk::bundle_schema::Problem& p : problems) report += p.where + ": " + p.message + "\n";
+    INFO(report);
+    CHECK(problems.empty());
+    std::ifstream in(setFile);
+    REQUIRE(in.good());
+    nlohmann::json set = nlohmann::json::parse(in);
+    nlohmann::json instances = set["instances"];
+    for (auto& instance : instances) instance["asset"] = set["references"][instance["reference"].get<size_t>()]["asset"];
+    return instances;
 }
 
 std::string readText(const fs::path& path) {
@@ -100,25 +118,25 @@ TEST_CASE("husk export-terrain: a full tile writes a bundle with textures, layer
 
     nlohmann::json t = readJson(out / "manifest.json")["terrain"];
     CHECK(t["tile_x"] == 32);
-    CHECK(t["textures"][0]["diffuse"]["texture_state"] == "resolved");
-    CHECK(t["textures"][0]["diffuse"]["texture"]["name"] == "grass");
+    CHECK(t["textures"][0]["diffuse"]["state"] == "resolved");
+    CHECK(t["textures"][0]["diffuse"]["identity"]["name"] == "grass");
     // Listed but not extracted locally.
-    CHECK(t["textures"][1]["diffuse"]["texture_state"] == "known_unresolved");
+    CHECK(t["textures"][1]["diffuse"]["state"] == "known_unresolved");
     bool ddsWritten = false;
     for (const auto& e : fs::directory_iterator(out / "textures")) ddsWritten |= e.path().extension() == ".dds";
     CHECK(ddsWritten);
 
     CHECK(t["placement_sets"][0]["instance_count"] == 2);
-    nlohmann::json doodads = readJson(out / "sets" / "0.json")["instances"];
+    nlohmann::json doodads = readPlacements(out / "sets" / "0.json");
     CHECK(doodads[0]["asset"]["id"]["value"] == 555);
     CHECK(doodads[0]["asset"]["name"] == "tree");
     // The MMDX path resolved through the listfile like any FileDataID.
     CHECK(doodads[1]["asset"]["id"]["value"] == 4242);
     CHECK(doodads[1]["asset"]["name_source"] == "listfile");
-    nlohmann::json mapObjects = readJson(out / "sets" / "1.json")["instances"];
+    nlohmann::json mapObjects = readPlacements(out / "sets" / "1.json");
     REQUIRE(mapObjects.size() == 1);
     CHECK(mapObjects[0]["asset"]["name"] == "inn");
-    CHECK(mapObjects[0]["active_sets"][0]["id"]["value"] == 0);
+    CHECK(mapObjects[0]["selection"]["placement_sets"][0] == 0);
 }
 
 TEST_CASE("husk export-terrain: without a listfile, name-table paths stay names and textures stay unresolved") {
@@ -128,8 +146,8 @@ TEST_CASE("husk export-terrain: without a listfile, name-table paths stay names 
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
     nlohmann::json t = readJson(out / "manifest.json")["terrain"];
-    CHECK(t["textures"][0]["diffuse"]["texture_state"] == "known_unresolved");
-    nlohmann::json rock = readJson(out / "sets" / "0.json")["instances"][1]["asset"];
+    CHECK(t["textures"][0]["diffuse"]["state"] == "known_unresolved");
+    nlohmann::json rock = readPlacements(out / "sets" / "0.json")[1]["asset"];
     CHECK(rock["id"]["kind"] == "none");
     CHECK(rock["name"] == "World\\Generic\\Rock.mdx");
     CHECK(rock["name_source"] == "adt_embedded");
@@ -159,10 +177,10 @@ TEST_CASE("husk export-terrain --models-dir links placements to model and WMO bu
     REQUIRE(r.exitCode == 0);
     CHECK(r.output.find("2 linked models") != std::string::npos);
     // Set files sit in sets/, one level below the bundle.
-    nlohmann::json doodads = readJson(out / "sets" / "0.json")["instances"];
+    nlohmann::json doodads = readPlacements(out / "sets" / "0.json");
     CHECK(doodads[0]["asset"]["uri"] == "../../../models/555.canon.bundle/manifest.json");
     CHECK_FALSE(doodads[1]["asset"].contains("uri"));
-    nlohmann::json mapObjects = readJson(out / "sets" / "1.json")["instances"];
+    nlohmann::json mapObjects = readPlacements(out / "sets" / "1.json");
     CHECK(mapObjects[0]["asset"]["uri"] == "../../../models/666.canon.bundle/manifest.json");
 }
 
@@ -269,14 +287,14 @@ TEST_CASE("husk export-terrain reads per-machine flags from --config, and 'none'
     auto r = runHusk("export-terrain " + q(c.tile()) + " " + q(out) + " --config " + q(config));
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    CHECK(readJson(out / "manifest.json")["terrain"]["textures"][0]["diffuse"]["texture_state"] == "resolved");
+    CHECK(readJson(out / "manifest.json")["terrain"]["textures"][0]["diffuse"]["state"] == "resolved");
 
     fs::path optedOut = c.root / "out-none.bundle";
     auto none = runHusk("export-terrain " + q(c.tile()) + " " + q(optedOut) + " --config " + q(config) +
                         " --listfile none");
     REQUIRE(none.exitCode == 0);
     CHECK(none.output.find("listfile: none") != std::string::npos);
-    CHECK(readJson(optedOut / "manifest.json")["terrain"]["textures"][0]["diffuse"]["texture_state"] ==
+    CHECK(readJson(optedOut / "manifest.json")["terrain"]["textures"][0]["diffuse"]["state"] ==
           "known_unresolved");
 }
 
@@ -299,10 +317,10 @@ TEST_CASE("husk export-world: shared textures, per-map tile bundles, logged fail
 
     fs::path tile = out / "maps" / "azeroth" / "azeroth_32_48.bundle";
     nlohmann::json t = readJson(tile / "manifest.json")["terrain"];
-    CHECK(t["textures"][0]["diffuse"]["texture"]["uri"] == "../../../textures/1001.dds");
+    CHECK(t["textures"][0]["diffuse"]["payload"]["uri"] == "../../../textures/1001.dds");
     CHECK(fs::exists(out / "textures" / "1001.dds"));
     CHECK_FALSE(fs::exists(tile / "textures"));
-    nlohmann::json doodads = readJson(tile / "sets" / "0.json")["instances"];
+    nlohmann::json doodads = readPlacements(tile / "sets" / "0.json");
     CHECK(doodads[1]["asset"]["id"]["value"] == 4242);
     CHECK_FALSE(doodads[0]["asset"].contains("uri"));
     CHECK_FALSE(fs::exists(out / "maps" / "other"));

@@ -65,6 +65,16 @@ deletions handled their own back-references).
   channels on the canon mesh (`mesh.attributes`). WMO `MOPY`/`MPY2` flags
   and material became face channels, and the WMO collision mesh was
   removed (unused so far); `resources.collision` is M2-only.
+- **Bundle format as structure**: Luna asked for the canonical format to
+  be checkable, not just described. Agreed three kinds (model,
+  placement_set, world) under one contract header; `schema/` (JSON
+  Schema) is the definition, with a validator and an antipattern lint
+  (`husk validate-bundle`). Model bundles and placement sets now conform:
+  grouped resources, readable synthesized names with the source record in
+  `source.record`, hex flags, `unresolved` for unknown fields, texture
+  payloads with media types, owned sets as references. The validator
+  caught two schema/writer mismatches on the first real exports. Project
+  moved to C++23.
 - **Portals**: `MOPV`/`MOPT`/`MOPR` as `mesh.portals` and per-part links,
   `MOPE` raw. First real run failed on 31 roots: portal-less groups store
   portalStart 0xFFFF with count 0.

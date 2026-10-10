@@ -168,7 +168,7 @@ struct ParticleEmitter {
 // parameters only.
 struct LocalLight {
     enum class Kind { Point, Spot, Directional, Ambient };
-    Ref ref;  // id = RecordIndex in the source table; name = "<table>_<index>", Synthesized
+    Ref ref;  // id = RecordIndex in the scene's list; name synthesized; `origin` names the source record
     Kind kind = Kind::Point;
     Vec3 position;
     // At most one is set. MOLT stores a quaternion (spot/directional only);
@@ -212,6 +212,7 @@ struct LocalLight {
     // nullopt = always on with the model.
     std::optional<Ref> placementSet;
     uint32_t sourceFlags = 0;  // MNLD flags or MOLT's two unknown bytes, raw
+    SourceRecord origin;
 };
 
 // A box the client fills with ambient particles (WMO MPVD: dust, snow,
@@ -219,7 +220,7 @@ struct LocalLight {
 // here are value-characterized from the corpus, not from any symbol, and
 // fields with no characterization at all stay in `sourceRecord`.
 struct ParticulateVolume {
-    Ref ref;  // id = RecordIndex in the source table; name = "mpvd_<index>", Synthesized
+    Ref ref;  // id = RecordIndex in the scene's list; name synthesized; `origin` names the source record
     Vec3 position;
     Vec3 extent;  // box size per axis; full size or half size unverified
     Vec3 eulerRotation;  // radians, axis order unverified
@@ -250,6 +251,7 @@ struct ParticulateVolume {
 
     uint32_t sourceFlags = 0;
     std::vector<uint8_t> sourceRecord;  // the whole source record, raw
+    SourceRecord origin;
 };
 
 // A region that overrides the model's ambient colour (WMO MAVG global,
@@ -258,7 +260,7 @@ struct ParticulateVolume {
 // for the flag), so all three colours and the flags stay raw.
 struct AmbientVolume {
     enum class Shape { Global, Point, Box };
-    Ref ref;  // id = RecordIndex in the source table; name = "<table>_<index>", Synthesized
+    Ref ref;  // id = RecordIndex in the scene's list; name synthesized; `origin` names the source record
     Shape shape = Shape::Global;
     Vec3 position;   // Point
     float start = 0;  // Point: distances from position, start <= end
@@ -274,6 +276,7 @@ struct AmbientVolume {
 
     std::array<std::array<float, 4>, 3> colors{};  // RGBA 0..1 as stored, color1..color3
     uint32_t sourceFlags = 0;
+    SourceRecord origin;
     // The owned placement set this volume applies with (its doodadSetId).
     std::optional<Ref> placementSet;
 };
@@ -283,7 +286,7 @@ struct AmbientVolume {
 // inside a sphere that fades between the two radii. Parts name the fogs
 // that apply to them (MeshPart::fogs).
 struct LocalFog {
-    Ref ref;  // id = RecordIndex in the source table; name = "mfog_<index>", Synthesized
+    Ref ref;  // id = RecordIndex in the scene's list; name synthesized; `origin` names the source record
     Vec3 position;
     float innerRadius = 0;  // source smaller_radius
     float outerRadius = 0;  // source larger_radius
@@ -298,6 +301,7 @@ struct LocalFog {
     Layer fog;
     Layer underwater;
     uint32_t sourceFlags = 0;
+    SourceRecord origin;
     // The owned placement set this fog applies with (MFED doodadSetId);
     // nullopt when the source has no MFED.
     std::optional<Ref> placementSet;

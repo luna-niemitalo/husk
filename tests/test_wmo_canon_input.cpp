@@ -190,7 +190,9 @@ TEST_CASE("buildCanonWmo: MNLD lights become local lights that switch with their
 
     REQUIRE(model.scene.localLights.size() == 2);
     const canon::LocalLight& s0 = model.scene.localLights[0];
-    CHECK(s0.ref.name == "mnld_0");
+    CHECK(s0.ref.name == "light_0");
+    CHECK(s0.origin.table == "MNLD");
+    CHECK(s0.origin.index == 0);
     CHECK(s0.kind == canon::LocalLight::Kind::Spot);
     CHECK(s0.position.z == 3.0f);
     CHECK_FALSE(s0.rotation.has_value());
@@ -242,7 +244,11 @@ TEST_CASE("buildCanonWmo: MOLT lights follow MNLD, always on, rotation only for 
 
     REQUIRE(model.scene.localLights.size() == 3);
     const canon::LocalLight& a = model.scene.localLights[1];
-    CHECK(a.ref.name == "molt_0");
+    // Numbered after the MNLD lights; the source record stays in origin.
+    CHECK(a.ref.name == "light_1");
+    CHECK(std::get<canon::RecordIndex>(a.ref.id).value == 1);
+    CHECK(a.origin.table == "MOLT");
+    CHECK(a.origin.index == 0);
     CHECK(a.kind == canon::LocalLight::Kind::Point);
     CHECK(a.attenuated);
     CHECK_FALSE(a.rotation.has_value());
@@ -360,7 +366,8 @@ TEST_CASE("buildCanonWmo: MPVD records become particulate volumes with resolved 
 
     REQUIRE(model.scene.particulateVolumes.size() == 1);
     const canon::ParticulateVolume& out = model.scene.particulateVolumes[0];
-    CHECK(out.ref.name == "mpvd_0");
+    CHECK(out.ref.name == "particles_0");
+    CHECK(out.origin.table == "MPVD");
     CHECK(out.extent.z == 9.0f);
     CHECK(out.presetId == 16386);
     CHECK(out.sourceFlags == 21);
@@ -404,7 +411,8 @@ TEST_CASE("buildCanonWmo: MAVG, MAVD and MBVD become global, point and box ambie
 
     REQUIRE(model.scene.ambientVolumes.size() == 3);
     const canon::AmbientVolume& g = model.scene.ambientVolumes[0];
-    CHECK(g.ref.name == "mavg_0");
+    CHECK(g.ref.name == "ambient_0");
+    CHECK(g.origin.table == "MAVG");
     CHECK(g.shape == canon::AmbientVolume::Shape::Global);
     // BGRA bytes 99 66 33 FF -> RGBA 0x33 0x66 0x99 0xFF.
     CHECK(g.colors[0][0] == doctest::Approx(0x33 / 255.0));
@@ -412,14 +420,17 @@ TEST_CASE("buildCanonWmo: MAVG, MAVD and MBVD become global, point and box ambie
     CHECK(g.colors[0][3] == 1.0f);
     CHECK(g.placementSet->name == "Set_$DefaultGlobal");
     const canon::AmbientVolume& p = model.scene.ambientVolumes[1];
-    CHECK(p.ref.name == "mavd_0");
+    CHECK(p.ref.name == "ambient_1");
+    CHECK(p.origin.table == "MAVD");
+    CHECK(p.origin.index == 0);
     CHECK(p.shape == canon::AmbientVolume::Shape::Point);
     CHECK(p.position.z == 3.0f);
     CHECK(p.end == 8.0f);
     CHECK(p.sourceFlags == 1);
     CHECK(p.placementSet->name == "Set_B");
     const canon::AmbientVolume& b = model.scene.ambientVolumes[2];
-    CHECK(b.ref.name == "mbvd_0");
+    CHECK(b.ref.name == "ambient_2");
+    CHECK(b.origin.table == "MBVD");
     CHECK(b.shape == canon::AmbientVolume::Shape::Box);
     REQUIRE(b.planes.size() == 6);
     CHECK(b.planes[1].normal.x == 1.0f);
@@ -563,7 +574,9 @@ TEST_CASE("buildCanonWmo: MFOG fogs become local fogs; parts name theirs, MFED p
     REQUIRE(model.scene.fogs.size() == 2);
     CHECK_FALSE(model.scene.fogs[0].placementSet.has_value());
     const canon::LocalFog& f = model.scene.fogs[1];
-    CHECK(f.ref.name == "mfog_1");
+    CHECK(f.ref.name == "fog_1");
+    CHECK(f.origin.table == "MFOG");
+    CHECK(f.origin.index == 1);
     CHECK(f.position.z == 3.0f);
     CHECK(f.innerRadius == 5.0f);
     CHECK(f.outerRadius == 20.0f);

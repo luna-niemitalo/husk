@@ -41,9 +41,9 @@ metadata to preserve**, matching `../../WORLD_COMPLETENESS.md`'s own existing
 ## 1. WMO fog (`MFOG` + `MFED` + `MFOB`)
 
 **Current state (2026-10-10)**: `MFOG` is parsed (`wmo::Fog`) and exported
-as the WMO bundle's `resources.fogs` (`canon::LocalFog`, schema in
-`src/writers/bundle_writer.hpp`), with `MFED`'s doodad set as each fog's
-`placement_set`; every group's `MOGP.fogIds` is `mesh.parts[].fogs`. 253
+as the WMO bundle's `resources.scene.fog_volumes` (`canon::LocalFog`, schema in
+`schema/model.schema.json`), with `MFED`'s doodad set as each fog's
+`placement_set`; every group's `MOGP.fogIds` is `parts[].fog_volumes`. 253
 sampled roots export cleanly (462 fogs, all 300 `MFED` sets). Real-data
 facts: `../../WIKI_FINDINGS/WORLD.md` "WMO `MFOG` / `MFED`".
 
@@ -62,14 +62,14 @@ Open:
 ## 2. WMO particulate/ambient/box volumes (`MPVD`/`MAVG`/`MAVD`/`MBVD` + refs)
 
 **Current state (2026-10-10)**: `MPVD` is parsed (`wmo::ParticulateVolume`)
-and exported as the WMO bundle's `resources.particulate_volumes`
-(`canon::ParticulateVolume`, schema in `src/writers/bundle_writer.hpp`):
+and exported as the WMO bundle's `resources.scene.ambient_particle_volumes`
+(`canon::ParticulateVolume`, schema in `schema/model.schema.json`):
 characterized fields typed, emitter textures resolved like material
 textures, and each raw 4,272-byte record in `particulate.bin` for the
 fields still uncharacterized. 25 sampled `MPVD` WMOs export cleanly (69
 volumes, 51/70 emitter textures resolved, the rest unlisted).
 `MAVG`/`MAVD`/`MBVD` are parsed and exported as
-`resources.ambient_volumes` (`canon::AmbientVolume`: global/point/box,
+`resources.scene.ambient_color_volumes` (`canon::AmbientVolume`: global/point/box,
 three raw colours, raw flags, the doodad set each applies with); 139
 sampled roots clean, covering every `MAVD`/`MBVD` in the sample. Open:
 `MPVR`/`MAVR`/`MBVR` group refs; the client's ambient selection rule and

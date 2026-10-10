@@ -29,17 +29,26 @@ std::string heightSourceName(canon::LiquidHeightSource source) {
 
 void writeTerrainTexture(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
                          std::unordered_set<std::string>& written, const AssetUris& textureUris) {
-    w.beginObject();
     bool hasPayload = texture.payload || texture.rawPayload;
     auto fdid = std::get_if<canon::FileDataId>(&texture.resolved.id);
-    if (texture.state == canon::TextureRef::State::Resolved && !hasPayload && fdid && textureUris.count(fdid->value)) {
-        w.key("texture_state");
-        w.value("resolved");
-        w.key("texture");
-        writeRef(w, texture.resolved, textureUris.at(fdid->value));
-    } else {
-        writeTextureRef(w, texture, bundleDir, written);
+    if (texture.state != canon::TextureRef::State::Resolved || hasPayload || !fdid || !textureUris.count(fdid->value)) {
+        writeTextureEntry(w, texture, bundleDir, written);
+        return;
     }
+    // Exported once, shared by every tile.
+    const std::string& uri = textureUris.at(fdid->value);
+    w.beginObject();
+    w.key("state");
+    w.value("resolved");
+    w.key("identity");
+    writeRef(w, texture.resolved);
+    w.key("payload");
+    w.beginObject();
+    w.key("uri");
+    w.value(uri);
+    w.key("media_type");
+    w.value(textureMediaType(std::filesystem::path(uri).extension().string().substr(1)));
+    w.endObject();
     w.endObject();
 }
 
@@ -281,7 +290,20 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     w.endArray();
     w.key("placement_sets");
     // Both sets are the tile's own content, so both are always on.
-    writePlacementSets(w, {{&terrain.doodads, true}, {&terrain.mapObjects, true}}, bundleDir, modelUris, producer);
+    std::vector<SetDocument> sets = writePlacementSetDocuments({{&terrain.doodads, true}, {&terrain.mapObjects, true}},
+                                                               bundleDir, modelUris, Provenance{producer, "adt", {}});
+    w.beginArray();
+    for (const SetDocument& set : sets) {
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, set.ref, set.uri);
+        w.key("always_on");
+        w.value(set.alwaysOn);
+        w.key("instance_count");
+        w.value(static_cast<int64_t>(set.instanceCount));
+        w.endObject();
+    }
+    w.endArray();
     w.endObject();  // terrain
     w.endObject();  // root
 

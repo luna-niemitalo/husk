@@ -48,8 +48,8 @@ DBC-driven material layer on top; husk's job stops at correct geometry.
 ## 1. WMO group-file liquid (`MLIQ`) — implemented
 
 Read by `src/wmo.cpp` (`parseLiquid`) and exported by `husk export-wmo` as
-the WMO bundle's `resources.liquids` (`canon::LiquidGrid`, schema in
-`src/writers/bundle_writer.hpp`); verified facts in
+the WMO bundle's `resources.geometry.liquids` (`canon::LiquidGrid`, schema in
+`schema/model.schema.json`); verified facts in
 `../../WIKI_FINDINGS/WORLD.md`. 154 of 4,000 sampled group files carry it.
 Open:
 

@@ -5,10 +5,10 @@ Agreed with Luna 2026-10-09; the export target is the canonical bundle
 PlacementSet` (`src/canon_placement.hpp`), WMOs as ordinary object bundles
 that own their doodad sets (`husk export-wmo`, `src/wmo_canon_input.cpp`).
 Terrain tiles place their doodads and WMOs as two sets, and `export-world`
-exports every placed WMO as a bundle beside the models. The byte-level
-schema is in `src/writers/bundle_writer.hpp`. WMO `MNLD`/`MOLT` lights are
-`resources.local_lights`; an `MNLD` light names the owned set it switches
-with; `MLIQ` liquid is `resources.liquids`. **Not yet**: fog inside WMOs.
+exports every placed WMO as a bundle beside the models. The format is
+defined in `schema/` (`model.schema.json`, `placement_set.schema.json`). WMO `MNLD`/`MOLT` lights are
+`resources.scene.static_lights`; an `MNLD` light names the owned set it switches
+with; `MLIQ` liquid is `resources.geometry.liquids`. **Not yet**: fog inside WMOs.
 
 ## The concept
 
@@ -88,14 +88,14 @@ A WMO is an ordinary object bundle, the same shape as a doodad's (Luna,
 - `resources.placement_sets`: one set per `MODS` entry, each a
   `sets/<index>.json`, instances from `MODD` (+ `MODI`/`MDDI`), assets
   pointing at the shared model bundles. Set 0 is always on.
-- `resources.local_lights`: `MNLD` and `MOLT` lights in WMO space. A light
+- `resources.scene.static_lights`: `MNLD` and `MOLT` lights in WMO space. A light
   is part of the WMO, not a placed asset, so it stays out of the set files
   (invariant 6 keeps those plain asset lists); an `MNLD` light instead
   names the owned set it belongs to and is on while that set is.
-- `resources.liquids`: each group's `MLIQ` height grid, on that group's
+- `resources.geometry.liquids`: each group's `MLIQ` height grid, on that group's
   part.
-- `resources.particulate_volumes`: `MPVD` boxes of ambient particles.
-- `resources.ambient_volumes`: `MAVG`/`MAVD`/`MBVD` ambient-colour
+- `resources.scene.ambient_particle_volumes`: `MPVD` boxes of ambient particles.
+- `resources.scene.ambient_color_volumes`: `MAVG`/`MAVD`/`MBVD` ambient-colour
   overrides, each naming the owned set it applies with.
 - Later, in the agreed order: lightsets and fog, then collision, portals
   and LOD.

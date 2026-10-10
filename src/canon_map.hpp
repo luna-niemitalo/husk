@@ -17,7 +17,8 @@ namespace husk::canon {
 
 // A volumetric fog (WDT _fogs VFOG, with its VFEX/VFE2 extras).
 struct FogVolume {
-    Ref ref;  // id = RecordIndex in the source table; name = "vfog_<id>", Synthesized
+    Ref ref;  // id = RecordIndex in the source table; name = "fog_<id>", Synthesized
+    SourceRecord origin;
     uint32_t id = 0;  // the source's own id, unique across a map's files
     Vec3 color;  // RGB 0..1
     std::array<float, 3> intensity{};

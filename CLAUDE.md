@@ -269,19 +269,19 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   two sets (MWDR/MWDS resolved), and `export-world` exports every placed
   WMO -- **MantleCore must switch from the old `placements` array to
   `placement_sets`**. WMO `MNLD`/`MOLT` lights are
-  `resources.local_lights`, each `MNLD` light switching with its doodad
-  set; `MLIQ` liquid is `resources.liquids` with LiquidType resolved.
+  `resources.scene.static_lights`, each `MNLD` light switching with its doodad
+  set; `MLIQ` liquid is `resources.geometry.liquids` with LiquidType resolved.
   `MPVD` particulate volumes are `scene.particulateVolumes`
-  (`resources.particulate_volumes`); `MAVG`/`MAVD`/`MBVD` are
+  (`resources.scene.ambient_particle_volumes`); `MAVG`/`MAVD`/`MBVD` are
   `scene.ambientVolumes`. Map-wide `_fogs.wdt`/`_mpv.wdt` volumes are a new
   `map_scene` bundle (`canon::MapScene`, `husk export-map-scene`,
   `export-world` pass 4) -- MantleCore doesn't read it yet. WMO `MFOG`
-  fogs are `resources.fogs` (`MFED` set per fog), and each part lists
+  fogs are `resources.scene.fog_volumes` (`MFED` set per fog), and each part lists
   its `MOGP.fogIds`; map fogs carry `VFEX`'s typed part. Per-element data
   goes in generic mesh attribute channels (`canon::AttributeChannel`,
-  `mesh.attributes`; REFACTOR/BUNDLE_FORMAT.md): WMO face flags/material
+  `resources.geometry.mesh.attributes`; REFACTOR/BUNDLE_FORMAT.md): WMO face flags/material
   are the first, and select collision; M2 collision is
-  `resources.collision`. Portals are `mesh.portals` with
+  `resources.geometry.collision`. Portals are `resources.geometry.mesh.portals` with
   per-part links.
 - **Bundle format as structure (2026-10-10, Luna's call, in progress)**:
   three document kinds (`model`, `placement_set`, `world`) with one
@@ -289,12 +289,12 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   contract header"). `schema/*.schema.json` is the definition (JSON Schema
   draft-07, embedded in the binary); `src/bundle_schema.*` validates
   documents (`husk validate-bundle`) and lints the schema for format
-  antipatterns. Project is C++23. **Stage 1 done** (schema, validator,
-  lint). **The writers do not conform yet**: every bundle husk writes
-  today fails validation. Next, in order: (2) model writer + placement
-  sets to the schema (header, grouped resources, renames, `source`/
-  `unresolved`, payload media types; update `tests/bundle_import_check.py`);
-  (3) terrain tile becomes a `model` in its own frame; (4) `world` document
+  antipatterns. Project is C++23. **Stages 1-2 done**: schema, validator,
+  lint; model bundles and placement-set files conform, and every writer
+  test validates what it writes. M2 bundles' subject has no FileDataID
+  yet (export-world knows it but the bundle-only path doesn't receive it).
+  **Terrain tile and map-scene bundles do not conform yet.** Next, in
+  order: (3) terrain tile becomes a `model` in its own frame; (4) `world` document
   (grid + off-grid placements + map scene, replacing `map_scene`);
   MantleCore must follow each stage. `/media/luna/data/wow_export` was
   renamed (`wow_export_old`/`_superseded`, `wow_storage`) on 2026-10-10;

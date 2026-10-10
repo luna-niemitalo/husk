@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "bundle_schema.hpp"
 #include "canon_model.hpp"
 #include "m2_canon_input.hpp"
 #include "m2.hpp"
@@ -47,7 +48,16 @@ std::string readTextFile(const fs::path& path) {
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
+writers::Provenance testProvenance() { return writers::Provenance{"husk test", "test", {}}; }
+
+// Every manifest a test reads is also checked against schema/, so the
+// writer can't drift from the format's definition unnoticed.
 nlohmann::json parseManifest(const fs::path& bundleDir) {
+    std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(bundleDir);
+    std::string report;
+    for (const bundle_schema::Problem& p : problems) report += p.where + ": " + p.message + "\n";
+    INFO(report);
+    CHECK(problems.empty());
     std::string text = readTextFile(bundleDir / "manifest.json");
     auto parsed = nlohmann::json::parse(text, nullptr, /*allow_exceptions=*/false);
     REQUIRE(!parsed.is_discarded());
@@ -144,7 +154,7 @@ TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files ex
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-basic";
     fs::remove_all(dir);
 
-    writers::writeBundle(model, dir);
+    writers::writeBundle(model, dir, testProvenance());
 
     CHECK(fs::exists(dir / "manifest.json"));
     CHECK(fs::exists(dir / "mesh.bin"));
@@ -152,10 +162,15 @@ TEST_CASE("writeBundle: synthetic model -- manifest.json is valid JSON, files ex
     CHECK(fs::exists(dir / "animation.bin"));
 
     nlohmann::json manifest = parseManifest(dir);
-    CHECK(manifest["schema_version"] == "0.1.0");
-    CHECK(manifest["endianness"] == "little");
-    CHECK(manifest.contains("exported_at"));
-    CHECK(manifest.contains("producer"));
+    CHECK(manifest["format"] == "husk-bundle");
+    CHECK(manifest["kind"] == "model");
+    CHECK(manifest["schema_version"] == "1.0.0");
+    CHECK(manifest["space"]["length_unit"] == "yard");
+    CHECK(manifest["provenance"]["producer"] == "husk test");
+    CHECK(manifest["provenance"].contains("exported_at"));
+    CHECK(manifest["definition"]["placement_sets"].empty());
+    CHECK(manifest["selection"]["placement_sets"].empty());
+    CHECK(manifest["references"].empty());
 }
 
 TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a real "
@@ -188,7 +203,7 @@ TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a r
 
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-texture-payload";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir);
+    writers::writeBundle(model, dir, testProvenance());
 
     fs::path textureFile = dir / "textures" / "shared_texture.png";
     REQUIRE(fs::exists(textureFile));
@@ -200,8 +215,8 @@ TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a r
     REQUIRE(materials.size() == 2);
     for (auto& mat : materials) {
         auto& layer0 = mat["layers"][0];
-        CHECK(layer0["texture_state"] == "resolved");
-        CHECK(layer0["texture"]["uri"] == "textures/shared_texture.png");
+        CHECK(layer0["texture"]["state"] == "resolved");
+        CHECK(layer0["texture"]["payload"]["uri"] == "textures/shared_texture.png");
     }
 
     // Only one real file on disk despite two referencing layers.
@@ -221,12 +236,12 @@ TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a r
     resolvedNoPayload.resolved.id = canon::FileDataId{99};
     resolvedNoPayload.resolved.name = "unfetched_texture";
     modelNoPayload.materials[0].layers[0].texture = resolvedNoPayload;
-    writers::writeBundle(modelNoPayload, dirNoPayload);
+    writers::writeBundle(modelNoPayload, dirNoPayload, testProvenance());
 
     nlohmann::json manifestNoPayload = parseManifest(dirNoPayload);
     auto& layer0NoPayload = manifestNoPayload["resources"]["materials"][0]["layers"][0];
-    CHECK(layer0NoPayload["texture_state"] == "resolved");
-    CHECK_FALSE(layer0NoPayload["texture"].contains("uri"));
+    CHECK(layer0NoPayload["texture"]["state"] == "resolved");
+    CHECK_FALSE(layer0NoPayload["texture"].contains("payload"));
     CHECK_FALSE(fs::exists(dirNoPayload / "textures"));
 }
 
@@ -259,7 +274,7 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
 
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-texture-rawpayload";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir);
+    writers::writeBundle(model, dir, testProvenance());
 
     // rawPayload wins: a real .dds file with rawPayload's own bytes, not
     // payload's PNG bytes, and no .png file written at all for this texture.
@@ -270,8 +285,8 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
 
     nlohmann::json manifest = parseManifest(dir);
     auto& layer0 = manifest["resources"]["materials"][0]["layers"][0];
-    CHECK(layer0["texture_state"] == "resolved");
-    CHECK(layer0["texture"]["uri"] == "textures/both_variants.dds");
+    CHECK(layer0["texture"]["state"] == "resolved");
+    CHECK(layer0["texture"]["payload"]["uri"] == "textures/both_variants.dds");
 
     // payload-only (no rawPayload) -- falls back to writing the .png
     // variant, same as before rawPayload existed at all (e.g. a source that
@@ -285,7 +300,7 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
     pngOnly.resolved.name = "png_only";
     pngOnly.payload = png;
     modelPngOnly.materials[0].layers[0].texture = pngOnly;
-    writers::writeBundle(modelPngOnly, dirPngOnly);
+    writers::writeBundle(modelPngOnly, dirPngOnly, testProvenance());
 
     fs::path pngFile = dirPngOnly / "textures" / "png_only.png";
     REQUIRE(fs::exists(pngFile));
@@ -293,7 +308,7 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
     CHECK_FALSE(fs::exists(dirPngOnly / "textures" / "png_only.dds"));
 
     nlohmann::json manifestPngOnly = parseManifest(dirPngOnly);
-    CHECK(manifestPngOnly["resources"]["materials"][0]["layers"][0]["texture"]["uri"] ==
+    CHECK(manifestPngOnly["resources"]["materials"][0]["layers"][0]["texture"]["payload"]["uri"] ==
           "textures/png_only.png");
 
     // Neither present -- no uri, no textures/ directory, same as the
@@ -306,7 +321,7 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
     neither.resolved.id = canon::FileDataId{103};
     neither.resolved.name = "neither_variant";
     modelNeither.materials[0].layers[0].texture = neither;
-    writers::writeBundle(modelNeither, dirNeither);
+    writers::writeBundle(modelNeither, dirNeither, testProvenance());
 
     nlohmann::json manifestNeither = parseManifest(dirNeither);
     CHECK_FALSE(manifestNeither["resources"]["materials"][0]["layers"][0]["texture"].contains("uri"));
@@ -318,7 +333,7 @@ TEST_CASE("writeBundle: every BufferSlice's byte range fits inside its named fil
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-slices";
     fs::remove_all(dir);
 
-    writers::writeBundle(model, dir);
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
 
     std::vector<nlohmann::json> slices;
@@ -354,7 +369,7 @@ TEST_CASE("writeBundle: synthetic model round-trips exact byte values via raw fi
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-roundtrip";
     fs::remove_all(dir);
 
-    writers::writeBundle(model, dir);
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
 
     auto readSlice = [&](const nlohmann::json& slice) -> std::vector<uint8_t> {
@@ -370,7 +385,7 @@ TEST_CASE("writeBundle: synthetic model round-trips exact byte values via raw fi
         return bytes;
     };
 
-    const auto& positionsSlice = manifest["resources"]["mesh"]["positions"];
+    const auto& positionsSlice = manifest["resources"]["geometry"]["mesh"]["positions"];
     CHECK(positionsSlice["component_type"] == "f32");
     CHECK(positionsSlice["component_count"] == 3);
     CHECK(positionsSlice["count"] == 3);
@@ -386,7 +401,7 @@ TEST_CASE("writeBundle: synthetic model round-trips exact byte values via raw fi
         CHECK(readBack[i].z == doctest::Approx(model.mesh.positions[i].z));
     }
 
-    const auto& indicesSlice = manifest["resources"]["mesh"]["indices"];
+    const auto& indicesSlice = manifest["resources"]["geometry"]["mesh"]["indices"];
     CHECK(indicesSlice["component_type"] == "u32");
     std::vector<uint8_t> idxBytes = readSlice(indicesSlice);
     REQUIRE(idxBytes.size() == model.mesh.indices.size() * sizeof(uint32_t));
@@ -396,7 +411,7 @@ TEST_CASE("writeBundle: synthetic model round-trips exact byte values via raw fi
 
     // bind_translation is PARENT-RELATIVE (writers::localBindTranslation),
     // not raw globalPosition -- joint 1's expected value is (1,2,3) - (0,0,0).
-    const auto& bindSlice = manifest["resources"]["skeleton"]["bind_translation"];
+    const auto& bindSlice = manifest["resources"]["rig"]["skeleton"]["bind_translation"];
     std::vector<uint8_t> bindBytes = readSlice(bindSlice);
     std::vector<canon::Vec3> bindTranslations(2);
     std::memcpy(bindTranslations.data(), bindBytes.data(), bindBytes.size());
@@ -405,7 +420,7 @@ TEST_CASE("writeBundle: synthetic model round-trips exact byte values via raw fi
     CHECK(bindTranslations[1].y == doctest::Approx(2.0f));
     CHECK(bindTranslations[1].z == doctest::Approx(3.0f));
 
-    const auto& parentsSlice = manifest["resources"]["skeleton"]["parents"];
+    const auto& parentsSlice = manifest["resources"]["rig"]["skeleton"]["parents"];
     CHECK(parentsSlice["component_type"] == "i32");
     std::vector<uint8_t> parentBytes = readSlice(parentsSlice);
     std::vector<int32_t> parents(2);
@@ -419,9 +434,9 @@ TEST_CASE("writeBundle: uv1/joints0/weights0 omitted for an unskinned, single-UV
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-omissions";
     fs::remove_all(dir);
 
-    writers::writeBundle(model, dir);
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
-    const auto& mesh = manifest["resources"]["mesh"];
+    const auto& mesh = manifest["resources"]["geometry"]["mesh"];
 
     CHECK(!mesh.contains("uv1"));
     CHECK(!mesh.contains("joints0"));
@@ -438,9 +453,9 @@ TEST_CASE("writeBundle: uv1/joints0/weights0 present when the canon::Mesh has th
 
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-skinned";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir);
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
-    const auto& mesh = manifest["resources"]["mesh"];
+    const auto& mesh = manifest["resources"]["geometry"]["mesh"];
 
     REQUIRE(mesh.contains("uv1"));
     CHECK(mesh["uv1"]["semantic"] == "TEXCOORD_1");
@@ -457,10 +472,10 @@ TEST_CASE("writeBundle: sparse animation -- only joints with real curve data get
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-sparse-anim";
     fs::remove_all(dir);
 
-    writers::writeBundle(model, dir);
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
 
-    const auto& animation = manifest["resources"]["animation"];
+    const auto& animation = manifest["resources"]["rig"]["animation"];
     REQUIRE(animation.size() == 1);
     CHECK(animation[0]["sequence_index"] == 5);
     CHECK(animation[0]["sequence_kind"] == "sequence");
@@ -495,12 +510,12 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
 
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-scene";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir);
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
-    const auto& resources = manifest["resources"];
+    const auto& scene = manifest["resources"]["scene"];
 
-    REQUIRE(resources["attachments"].size() == 1);
-    const auto& a = resources["attachments"][0];
+    REQUIRE(scene["attachments"].size() == 1);
+    const auto& a = scene["attachments"][0];
     CHECK(a["point_id"] == 11);
     CHECK(a["bone"]["id"]["value"] == 1);
     CHECK(a["position"] == nlohmann::json::array({1.0, 2.0, 3.0}));
@@ -509,11 +524,13 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
     CHECK(a["animate_attached"][0]["sequence_index"] == 2);
     CHECK(a["animate_attached"][0]["interpolation"] == "step");
 
-    CHECK(resources["events"][0]["identifier"] == "$DTH");
-    CHECK_FALSE(resources["lights"][0].contains("bone"));
-    CHECK(resources["emitters"]["ribbons"].empty());
-    const auto& p = resources["emitters"]["particles"][0];
-    CHECK(p["textures"][0]["texture_state"] == "known_unresolved");
+    CHECK(scene["events"][0]["identifier"] == "$DTH");
+    CHECK_FALSE(scene["animated_lights"][0].contains("bone"));
+    CHECK(scene["animated_lights"][0]["kind"] == "directional");
+    CHECK(scene["animated_lights"][0]["source"]["type"] == 0);
+    CHECK(scene["ribbon_emitters"].empty());
+    const auto& p = scene["particle_emitters"][0];
+    CHECK(p["textures"][0]["state"] == "known_unresolved");
     CHECK(p["head_cell"] == nlohmann::json::array({{0, 4}, {32767, 9}}));
     CHECK(p["emission_rate"].empty());
     CHECK_FALSE(p.contains("particle_model"));
@@ -537,13 +554,15 @@ TEST_CASE("writeBundle: local lights write their optional blocks only when prese
     spot.sourceFlags = 0x3;
     canon::LocalLight omni;
     omni.ref = canon::Ref{canon::RecordIndex{0}, "molt_0", canon::NameSource::Synthesized};
+    spot.origin = {"MNLD", 4};
     model.scene.localLights = {spot, omni};
+    model.placementSets.resize(2);
 
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-local-lights";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir, "husk test");
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
-    const auto& lights = manifest["resources"]["local_lights"];
+    const auto& lights = manifest["resources"]["scene"]["static_lights"];
 
     REQUIRE(lights.size() == 2);
     const auto& s = lights[0];
@@ -556,8 +575,10 @@ TEST_CASE("writeBundle: local lights write their optional blocks only when prese
     CHECK(s["flicker"]["mode"] == 2);
     CHECK(s["casts_shadows"] == true);
     CHECK(s["cookie"]["id"]["value"] == 9001);
-    CHECK(s["placement_set"]["name"] == "Set_B");
-    CHECK(s["source_flags"] == 3);
+    CHECK(s["placement_set"] == 1);
+    CHECK(s["source"]["flags"] == "0x3");
+    CHECK(s["source"]["record"]["table"] == "MNLD");
+    CHECK(s["source"]["record"]["index"] == 4);
     const auto& o = lights[1];
     CHECK(o["kind"] == "point");
     for (const char* key : {"rotation", "euler_rotation", "gradient", "cone", "flicker", "cookie", "placement_set"}) {
@@ -570,8 +591,8 @@ TEST_CASE("writeBundle: liquids slice into liquid.bin, which only exists when th
     canon::Model model = buildSyntheticModel();
     fs::path dry = fs::temp_directory_path() / "husk-test-bundle-no-liquid";
     fs::remove_all(dry);
-    writers::writeBundle(model, dry, "husk test");
-    CHECK(parseManifest(dry)["resources"]["liquids"].empty());
+    writers::writeBundle(model, dry, testProvenance());
+    CHECK(parseManifest(dry)["resources"]["geometry"]["liquids"].empty());
     CHECK_FALSE(fs::exists(dry / "liquid.bin"));
 
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "pool", canon::NameSource::WmoEmbedded}, 0, {}, {}});
@@ -590,19 +611,20 @@ TEST_CASE("writeBundle: liquids slice into liquid.bin, which only exists when th
     model.liquids.push_back(l);
     fs::path wet = fs::temp_directory_path() / "husk-test-bundle-liquid";
     fs::remove_all(wet);
-    writers::writeBundle(model, wet, "husk test");
+    writers::writeBundle(model, wet, testProvenance());
     nlohmann::json manifest = parseManifest(wet);
-    const auto& written = manifest["resources"]["liquids"][0];
+    const auto& written = manifest["resources"]["geometry"]["liquids"][0];
 
     CHECK(written["part"] == 0);
     CHECK(written["liquid_type"]["id"]["row"] == 13);
     CHECK(written["verts_x"] == 3);
     CHECK(written["heights"]["file"] == "liquid.bin");
     CHECK(written["heights"]["count"] == 6);
-    CHECK(written["vertex_data"]["component_count"] == 4);
+    CHECK(written["source"]["vertex_data"]["component_count"] == 4);
+    CHECK(written["source"]["liquid_type"] == 1);
     CHECK(written["tile_exists"]["count"] == 2);
     std::vector<uint8_t> bin = readFile((wet / "liquid.bin").string());
-    size_t flagsAt = written["tile_flags"]["byte_offset"];
+    size_t flagsAt = written["source"]["tile_flags"]["byte_offset"];
     CHECK(bin.at(flagsAt) == 0x44);
     CHECK(bin.at(flagsAt + 1) == 0x0F);
 }
@@ -611,8 +633,8 @@ TEST_CASE("writeBundle: particulate volumes, their raw records sliced into parti
     canon::Model model = buildSyntheticModel();
     fs::path dry = fs::temp_directory_path() / "husk-test-bundle-no-particulate";
     fs::remove_all(dry);
-    writers::writeBundle(model, dry, "husk test");
-    CHECK(parseManifest(dry)["resources"]["particulate_volumes"].empty());
+    writers::writeBundle(model, dry, testProvenance());
+    CHECK(parseManifest(dry)["resources"]["scene"]["ambient_particle_volumes"].empty());
     CHECK_FALSE(fs::exists(dry / "particulate.bin"));
 
     canon::ParticulateVolume v;
@@ -633,22 +655,24 @@ TEST_CASE("writeBundle: particulate volumes, their raw records sliced into parti
     model.scene.particulateVolumes = {v};
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-particulate";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir, "husk test");
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
-    const auto& written = manifest["resources"]["particulate_volumes"][0];
+    const auto& written = manifest["resources"]["scene"]["ambient_particle_volumes"][0];
 
     CHECK(written["ref"]["name"] == "mpvd_0");
     CHECK(written["extent"] == nlohmann::json::array({7.0, 8.0, 9.0}));
     CHECK(written["envelope"][1]["time"] == 4.0);
     const auto& emitter = written["emitters"][0];
-    CHECK(emitter["texture_state"] == "known_unresolved");
+    CHECK(emitter["texture"]["state"] == "known_unresolved");
     CHECK(emitter["framebuffer_blend"] == "add");
     CHECK(emitter["color"] == nlohmann::json::array({1.0, 0.5, 0.0, 1.0}));
-    CHECK(emitter["parameters"].size() == 32);
-    CHECK(written["source_record"]["file"] == "particulate.bin");
-    CHECK(written["source_record"]["count"] == 4272);
+    CHECK(emitter["unresolved"]["parameters"].size() == 32);
+    CHECK(emitter["source"]["blend"] == 3);
+    CHECK(written["unresolved"]["preset_id"] == 0);
+    CHECK(written["source"]["record_bytes"]["file"] == "particulate.bin");
+    CHECK(written["source"]["record_bytes"]["count"] == 4272);
     std::vector<uint8_t> bin = readFile((dir / "particulate.bin").string());
-    size_t at = written["source_record"]["byte_offset"];
+    size_t at = written["source"]["record_bytes"]["byte_offset"];
     CHECK(bin.at(at + 0x10AC) == 2);
 }
 
@@ -671,9 +695,9 @@ TEST_CASE("writeBundle: ambient volumes write only their shape's geometry keys")
     model.scene.ambientVolumes = {global, point, box};
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-ambient";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir, "husk test");
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
-    const auto& volumes = manifest["resources"]["ambient_volumes"];
+    const auto& volumes = manifest["resources"]["scene"]["ambient_color_volumes"];
 
     REQUIRE(volumes.size() == 3);
     CHECK(volumes[0]["shape"] == "global");
@@ -699,8 +723,8 @@ TEST_CASE("writeBundle: collision slices into collision.bin, and both are omitte
     canon::Model model = buildSyntheticModel();
     fs::path bare = fs::temp_directory_path() / "husk-test-bundle-no-collision";
     fs::remove_all(bare);
-    writers::writeBundle(model, bare, "husk test");
-    CHECK_FALSE(parseManifest(bare)["resources"].contains("collision"));
+    writers::writeBundle(model, bare, testProvenance());
+    CHECK_FALSE(parseManifest(bare)["resources"]["geometry"].contains("collision"));
     CHECK_FALSE(fs::exists(bare / "collision.bin"));
 
     model.collision.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
@@ -708,9 +732,9 @@ TEST_CASE("writeBundle: collision slices into collision.bin, and both are omitte
     model.collision.triangleNormals = {{0, 0, 1}};
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-collision";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir, "husk test");
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
-    const auto& c = manifest["resources"]["collision"];
+    const auto& c = manifest["resources"]["geometry"]["collision"];
 
     CHECK(c["positions"]["file"] == "collision.bin");
     CHECK(c["positions"]["count"] == 3);
@@ -724,9 +748,9 @@ TEST_CASE("writeBundle: attribute channels slice into mesh.bin with their domain
                              {"test.rgb", canon::AttributeDomain::Vertex, 3, std::vector<float>{1, 2, 3, 4, 5, 6}}};
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-attributes";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir, "husk test");
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
-    const auto& attributes = manifest["resources"]["mesh"]["attributes"];
+    const auto& attributes = manifest["resources"]["geometry"]["mesh"]["attributes"];
 
     REQUIRE(attributes.size() == 2);
     CHECK(attributes[0]["name"] == "wmo.poly_flags");
@@ -753,22 +777,24 @@ TEST_CASE("writeBundle: portals on the mesh, links on their parts") {
     model.mesh.portals[1].sourceExtra.assign(16, 7);
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0, {}, {},
                                 {}, {{1, 1, -1}}});
+    model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{1}, "room", canon::NameSource::WmoEmbedded}, 0, {}, {},
+                                {}, {{1, 0, 1}}});
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-portals";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir, "husk test");
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
-    const auto& mesh = manifest["resources"]["mesh"];
+    const auto& mesh = manifest["resources"]["geometry"]["mesh"];
 
     REQUIRE(mesh["portals"].size() == 2);
     CHECK(mesh["portals"][0]["vertices"][2] == nlohmann::json::array({0.0, 1.0, 1.0}));
     CHECK(mesh["portals"][0]["normal"] == nlohmann::json::array({1.0, 0.0, 0.0}));
     CHECK(mesh["portals"][0]["distance"] == -2.5);
-    CHECK_FALSE(mesh["portals"][0].contains("source_extra"));
-    CHECK(mesh["portals"][1]["source_extra"].size() == 16);
+    CHECK_FALSE(mesh["portals"][0].contains("unresolved"));
+    CHECK(mesh["portals"][1]["unresolved"]["extra_record"].size() == 16);
     const auto& link = mesh["parts"][0]["portals"][0];
     CHECK(link["portal"] == 1);
     CHECK(link["to_part"] == 1);
-    CHECK(link["side"] == -1);
+    CHECK(link["unresolved"]["side"] == -1);
 }
 
 TEST_CASE("writeBundle: local fogs, and the parts that name them") {
@@ -786,14 +812,15 @@ TEST_CASE("writeBundle: local fogs, and the parts that name them") {
     exitFog.sourceFlags = 0x1001;
     exitFog.placementSet = canon::Ref{canon::RecordIndex{0}, "Set_$DefaultGlobal", canon::NameSource::WmoEmbedded};
     model.scene.fogs = {placeholder, exitFog};
+    model.placementSets.resize(1);
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0, {}, {},
                                 {1, 0, 0, 0}});
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{1}, "", canon::NameSource::None}, 0, {}, {}, {}});
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-fogs";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir, "husk test");
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
-    const auto& fogs = manifest["resources"]["fogs"];
+    const auto& fogs = manifest["resources"]["scene"]["fog_volumes"];
 
     REQUIRE(fogs.size() == 2);
     CHECK_FALSE(fogs[0].contains("placement_set"));
@@ -807,11 +834,11 @@ TEST_CASE("writeBundle: local fogs, and the parts that name them") {
     CHECK(f["fog"]["start_scalar"] == 0.25);
     CHECK(f["fog"]["color"][1].get<double>() == doctest::Approx(0.4));
     CHECK(f["underwater"]["start_scalar"] == -0.5);
-    CHECK(f["source_flags"] == 0x1001);
-    CHECK(f["placement_set"]["name"] == "Set_$DefaultGlobal");
-    const auto& parts = manifest["resources"]["mesh"]["parts"];
-    CHECK(parts[0]["fogs"] == nlohmann::json::array({1, 0, 0, 0}));
-    CHECK_FALSE(parts[1].contains("fogs"));
+    CHECK(f["source"]["flags"] == "0x1001");
+    CHECK(f["placement_set"] == 0);
+    const auto& parts = manifest["resources"]["geometry"]["mesh"]["parts"];
+    CHECK(parts[0]["fog_volumes"] == nlohmann::json::array({1, 0, 0, 0}));
+    CHECK_FALSE(parts[1].contains("fog_volumes"));
 }
 
 TEST_CASE("writeMapSceneBundle: fog and particulate volumes, raw records sliced into map_scene.bin") {
@@ -842,7 +869,8 @@ TEST_CASE("writeMapSceneBundle: fog and particulate volumes, raw records sliced 
     fs::path dir = fs::temp_directory_path() / "husk-test-map-scene";
     fs::remove_all(dir);
     writers::writeMapSceneBundle(scene, dir, "husk test");
-    nlohmann::json manifest = parseManifest(dir);
+    // Not a schema kind: map scenes become the world document's scene.
+    nlohmann::json manifest = nlohmann::json::parse(readTextFile(dir / "manifest.json"));
 
     CHECK(manifest["kind"] == "map_scene");
     const auto& s = manifest["map_scene"];
@@ -868,7 +896,7 @@ TEST_CASE("writeMapSceneBundle: fog and particulate volumes, raw records sliced 
     CHECK(p["ref"]["name"] == "pvmi_185");
     CHECK(p["id"] == 185);
     CHECK(p["bounds_max"] == nlohmann::json::array({5.0, 5.0, 10.0}));
-    CHECK(p["source_record"]["count"] == 4272);
+    CHECK(p["source"]["record_bytes"]["count"] == 4272);
     CHECK(p["points"][0]["direction"] == nlohmann::json::array({1.0, 0.0}));
     CHECK(p["boxes"][1]["children"] == nlohmann::json::array({0}));
 
@@ -898,29 +926,41 @@ TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set fil
 
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-wmo";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir, "husk test", {{7001, "models/7001.canon.bundle/manifest.json"}});
+    fs::create_directories(dir / "models" / "7001.canon.bundle");
+    std::ofstream(dir / "models" / "7001.canon.bundle" / "manifest.json") << "{}";
+    writers::writeBundle(model, dir, testProvenance(), {{7001, "models/7001.canon.bundle/manifest.json"}});
     nlohmann::json manifest = parseManifest(dir);
     const auto& resources = manifest["resources"];
+    const auto& mesh = resources["geometry"]["mesh"];
 
-    CHECK(resources["mesh"]["parts"][0]["ref"]["name"] == "hall");
-    CHECK(resources["mesh"]["parts"][0]["ref"]["name_source"] == "wmo_embedded");
-    CHECK(resources["mesh"]["primitives"][0]["part"] == 0);
-    CHECK(resources["mesh"]["colors"][0]["component_type"] == "u8");
-    CHECK(resources["mesh"]["colors"][0]["semantic"] == "COLOR_0");
+    CHECK(mesh["parts"][0]["ref"]["name"] == "hall");
+    CHECK(mesh["parts"][0]["ref"]["name_source"] == "wmo_embedded");
+    CHECK(mesh["parts"][0]["source"]["flags"] == "0x8");
+    CHECK(mesh["primitives"][0]["part"] == 0);
+    CHECK(mesh["colors"][0]["component_type"] == "u8");
+    CHECK(mesh["colors"][0]["semantic"] == "COLOR_0");
     const auto& material = resources["materials"][0];
     CHECK(material["two_sided"] == true);
     CHECK(material["shader"]["name"] == "TwoLayerDiffuse");
     CHECK(material["layers"][0]["uv_scroll"] == nlohmann::json::array({0.5, 0.0}));
 
-    const auto& set = resources["placement_sets"][0];
+    const auto& set = manifest["definition"]["placement_sets"][0];
     CHECK(set["always_on"] == true);
-    CHECK(set["ref"]["uri"] == "sets/0.json");
+    CHECK(set["instance_count"] == 1);
+    const auto& reference = manifest["references"][set["reference"].get<size_t>()];
+    CHECK(reference["kind"] == "placement_set");
+    CHECK(reference["asset"]["uri"] == "sets/0.json");
+    CHECK(reference["asset"]["name"] == "Set_$DefaultGlobal");
     nlohmann::json setFile = nlohmann::json::parse(readTextFile(dir / "sets" / "0.json"));
     CHECK(setFile["kind"] == "placement_set");
+    CHECK(setFile["subject"]["name"] == "Set_$DefaultGlobal");
     const auto& written = setFile["instances"][0];
     CHECK(written["id"] == 7);
-    CHECK(written["asset"]["uri"] == "../models/7001.canon.bundle/manifest.json");
+    const auto& asset = setFile["references"][written["reference"].get<size_t>()]["asset"];
+    CHECK(asset["uri"] == "../models/7001.canon.bundle/manifest.json");
+    CHECK(asset["name"] == "barrel01");
     CHECK(written["scale"] == 2.0);
+    CHECK(written["selection"]["placement_sets"].empty());
     CHECK_FALSE(written.contains("tint"));
 }
 
@@ -946,10 +986,10 @@ TEST_CASE(
 
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-real-fixture";
     fs::remove_all(dir);
-    writers::writeBundle(model, dir);
+    writers::writeBundle(model, dir, testProvenance());
     nlohmann::json manifest = parseManifest(dir);
 
-    const auto& primitives = manifest["resources"]["mesh"]["primitives"];
+    const auto& primitives = manifest["resources"]["geometry"]["mesh"]["primitives"];
     REQUIRE(primitives.size() == model.mesh.primitives.size());
     std::optional<size_t> firstMismatch;
     for (size_t i = 0; i < primitives.size(); ++i) {
@@ -997,7 +1037,7 @@ TEST_CASE("writeBundle: a material's framebuffer blend is written by name, and o
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-framebuffer-blend";
     fs::remove_all(dir);
 
-    writers::writeBundle(model, dir);
+    writers::writeBundle(model, dir, testProvenance());
 
     nlohmann::json manifest = parseManifest(dir);
     const nlohmann::json& materials = manifest["resources"]["materials"];

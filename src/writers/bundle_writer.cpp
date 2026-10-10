@@ -293,14 +293,12 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
         w.beginObject();
         w.key("ref");
         writeRef(w, part.ref);
-        w.key("flags");
-        w.value(static_cast<int64_t>(part.flags));
         w.key("bounds_min");
         writeVec3Value(w, part.boundsMin);
         w.key("bounds_max");
         writeVec3Value(w, part.boundsMax);
         if (!part.fogs.empty()) {
-            w.key("fogs");
+            w.key("fog_volumes");
             w.beginArray();
             for (uint32_t fog : part.fogs) w.value(static_cast<int64_t>(fog));
             w.endArray();
@@ -314,12 +312,20 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
                 w.value(static_cast<int64_t>(link.portal));
                 w.key("to_part");
                 w.value(static_cast<int64_t>(link.toPart));
+                w.key("unresolved");
+                w.beginObject();
                 w.key("side");
                 w.value(static_cast<int64_t>(link.side));
+                w.endObject();
                 w.endObject();
             }
             w.endArray();
         }
+        w.key("source");
+        w.beginObject();
+        w.key("flags");
+        w.value(hexFlags(part.flags));
+        w.endObject();
         w.endObject();
     }
     w.endArray();
@@ -337,10 +343,13 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
         w.key("distance");
         w.value(static_cast<double>(portal.distance));
         if (!portal.sourceExtra.empty()) {
-            w.key("source_extra");
+            w.key("unresolved");
+            w.beginObject();
+            w.key("extra_record");
             w.beginArray();
             for (uint8_t b : portal.sourceExtra) w.value(static_cast<int64_t>(b));
             w.endArray();
+            w.endObject();
         }
         w.endObject();
     }
@@ -463,7 +472,8 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, cons
     writeLayerRole(w, layer.role);
     w.key("uv");
     writeUvRef(w, layer.uv);
-    writeTextureRef(w, layer.texture, bundleDir, writtenTextures);
+    w.key("texture");
+    writeTextureEntry(w, layer.texture, bundleDir, writtenTextures);
     w.key("blend");
     w.value(blendOpName(layer.blendIntoPrevious));
 
@@ -543,12 +553,15 @@ void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& 
         w.value(material.unfogged);
         w.key("two_sided");
         w.value(material.twoSided);
-        w.key("source_flags");
-        w.value(static_cast<int64_t>(material.sourceFlags));
         if (material.shader) {
             w.key("shader");
             writeRef(w, *material.shader);
         }
+        w.key("source");
+        w.beginObject();
+        w.key("flags");
+        w.value(hexFlags(material.sourceFlags));
+        w.endObject();
 
         w.endObject();
     }
@@ -610,11 +623,7 @@ void writeTextureList(json::Writer& w, const std::vector<canon::TextureRef>& tex
                       const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures) {
     w.key("textures");
     w.beginArray();
-    for (const canon::TextureRef& texture : textures) {
-        w.beginObject();
-        writeTextureRef(w, texture, bundleDir, writtenTextures);
-        w.endObject();
-    }
+    for (const canon::TextureRef& texture : textures) writeTextureEntry(w, texture, bundleDir, writtenTextures);
     w.endArray();
 }
 
@@ -653,7 +662,12 @@ void writeLights(json::Writer& w, const std::vector<canon::Light>& lights) {
     w.beginArray();
     for (const canon::Light& l : lights) {
         w.beginObject();
-        writeIntField(w, "type", l.type);
+        w.key("kind");
+        switch (l.type) {
+            case 0: w.value("directional"); break;
+            case 1: w.value("point"); break;
+            default: w.value("unknown"); break;
+        }
         if (l.bone) {
             w.key("bone");
             writeRef(w, *l.bone);
@@ -666,9 +680,26 @@ void writeLights(json::Writer& w, const std::vector<canon::Light>& lights) {
         writeAnimated(w, "attenuation_start", l.attenuationStart, writeScalarValue);
         writeAnimated(w, "attenuation_end", l.attenuationEnd, writeScalarValue);
         writeAnimated(w, "visibility", l.visibility, writeScalarValue);
+        w.key("source");
+        w.beginObject();
+        writeIntField(w, "type", l.type);
+        w.endObject();
         w.endObject();
     }
     w.endArray();
+}
+
+int64_t placementSetIndex(const canon::Ref& set) { return std::get<canon::RecordIndex>(set.id).value; }
+
+// `source`: the raw flag word and the record the entry was decoded from.
+void writeSourceBlock(json::Writer& w, uint32_t flags, const canon::SourceRecord& origin) {
+    w.key("source");
+    w.beginObject();
+    w.key("flags");
+    w.value(hexFlags(flags));
+    w.key("record");
+    writeSourceRecord(w, origin);
+    w.endObject();
 }
 
 void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lights) {
@@ -728,11 +759,8 @@ void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lig
             w.key("cookie");
             writeRef(w, *l.cookie);
         }
-        if (l.placementSet) {
-            w.key("placement_set");
-            writeRef(w, *l.placementSet);
-        }
-        writeIntField(w, "source_flags", l.sourceFlags);
+        if (l.placementSet) writeIntField(w, "placement_set", placementSetIndex(*l.placementSet));
+        writeSourceBlock(w, l.sourceFlags, l.origin);
         w.endObject();
     }
     w.endArray();
@@ -749,7 +777,6 @@ void writeParticulateVolumeFields(json::Writer& w, const canon::ParticulateVolum
     writeVec3Field(w, "position", v.position);
     writeVec3Field(w, "extent", v.extent);
     writeVec3Field(w, "euler_rotation", v.eulerRotation);
-    writeIntField(w, "preset_id", v.presetId);
     writeIntField(w, "particle_count", v.particleCount);
     writeFloatField(w, "opacity", v.opacity);
     w.key("envelope");
@@ -767,23 +794,40 @@ void writeParticulateVolumeFields(json::Writer& w, const canon::ParticulateVolum
     for (const canon::ParticulateVolume::Emitter& e : v.emitters) {
         w.beginObject();
         writeIntField(w, "slot", e.slot);
-        writeTextureRef(w, e.texture, bundleDir, writtenTextures);
+        w.key("texture");
+        writeTextureEntry(w, e.texture, bundleDir, writtenTextures);
         if (e.blend) {
             w.key("framebuffer_blend");
             w.value(framebufferBlendName(*e.blend));
         }
-        writeIntField(w, "source_blend", e.sourceBlend);
         writeFloatArrayField(w, "color", e.color.data(), e.color.size());
         writeIntField(w, "tiles_x", e.tilesX);
         writeIntField(w, "tiles_y", e.tilesY);
         writeIntField(w, "frames", e.frames);
+        w.key("source");
+        w.beginObject();
+        writeIntField(w, "blend", e.sourceBlend);
+        w.endObject();
+        w.key("unresolved");
+        w.beginObject();
         writeFloatArrayField(w, "parameters", e.parameters.data(), e.parameters.size());
+        w.endObject();
         w.endObject();
     }
     w.endArray();
-    writeIntField(w, "source_flags", v.sourceFlags);
-    w.key("source_record");
+    w.key("source");
+    w.beginObject();
+    w.key("flags");
+    w.value(hexFlags(v.sourceFlags));
+    w.key("record");
+    writeSourceRecord(w, v.origin);
+    w.key("record_bytes");
     writeBufferSlice(w, appendArray(bin, binName, v.sourceRecord, 1, "u8"));
+    w.endObject();
+    w.key("unresolved");
+    w.beginObject();
+    writeIntField(w, "preset_id", v.presetId);
+    w.endObject();
 }
 
 void writeParticulateVolumes(json::Writer& w, const std::vector<canon::ParticulateVolume>& volumes,
@@ -820,11 +864,8 @@ void writeLocalFogs(json::Writer& w, const std::vector<canon::LocalFog>& fogs) {
         w.value(f.interiorExteriorBlend);
         writeFogLayer(w, "fog", f.fog);
         writeFogLayer(w, "underwater", f.underwater);
-        writeIntField(w, "source_flags", f.sourceFlags);
-        if (f.placementSet) {
-            w.key("placement_set");
-            writeRef(w, *f.placementSet);
-        }
+        if (f.placementSet) writeIntField(w, "placement_set", placementSetIndex(*f.placementSet));
+        writeSourceBlock(w, f.sourceFlags, f.origin);
         w.endObject();
     }
     w.endArray();
@@ -866,11 +907,8 @@ void writeAmbientVolumes(json::Writer& w, const std::vector<canon::AmbientVolume
             w.endArray();
         }
         w.endArray();
-        writeIntField(w, "source_flags", v.sourceFlags);
-        if (v.placementSet) {
-            w.key("placement_set");
-            writeRef(w, *v.placementSet);
-        }
+        if (v.placementSet) writeIntField(w, "placement_set", placementSetIndex(*v.placementSet));
+        writeSourceBlock(w, v.sourceFlags, v.origin);
         w.endObject();
     }
     w.endArray();
@@ -890,11 +928,15 @@ void writeRibbons(json::Writer& w, const std::vector<canon::RibbonEmitter>& ribb
         w.beginArray();
         for (const canon::RenderState& state : r.materials) {
             w.beginObject();
-            writeIntField(w, "flags", state.flags);
             if (state.blend) {
                 w.key("framebuffer_blend");
                 w.value(framebufferBlendName(*state.blend));
             }
+            w.key("source");
+            w.beginObject();
+            w.key("flags");
+            w.value(hexFlags(state.flags));
+            w.endObject();
             w.endObject();
         }
         w.endArray();
@@ -924,7 +966,6 @@ void writeParticles(json::Writer& w, const std::vector<canon::ParticleEmitter>& 
     for (const canon::ParticleEmitter& p : particles) {
         w.beginObject();
         writeIntField(w, "particle_id", p.particleId);
-        writeIntField(w, "flags", p.flags);
         w.key("bone");
         writeRef(w, p.bone);
         writeVec3Field(w, "position", p.position);
@@ -937,8 +978,6 @@ void writeParticles(json::Writer& w, const std::vector<canon::ParticleEmitter>& 
             w.key("child_emitters_model");
             writeRef(w, *p.childEmittersModel);
         }
-        writeIntField(w, "blending_type", p.blendingType);
-        writeIntField(w, "emitter_type", p.emitterType);
         writeIntField(w, "particle_color_index", p.particleColorIndex);
         writeFloatArrayField(w, "multi_texture_scale", p.multiTextureScale, 2);
         writeIntField(w, "priority_plane", p.priorityPlane);
@@ -992,6 +1031,13 @@ void writeParticles(json::Writer& w, const std::vector<canon::ParticleEmitter>& 
         w.endArray();
         writeFloatArrayField(w, "multi_texture_scroll_mid", p.multiTextureScrollMid, 4);
         writeFloatArrayField(w, "multi_texture_scroll_range", p.multiTextureScrollRange, 4);
+        w.key("source");
+        w.beginObject();
+        w.key("flags");
+        w.value(hexFlags(p.flags));
+        writeIntField(w, "blending_type", p.blendingType);
+        writeIntField(w, "emitter_type", p.emitterType);
+        w.endObject();
         w.endObject();
     }
     w.endArray();
@@ -1007,19 +1053,22 @@ void writeLiquids(json::Writer& w, const canon::Model& model, std::vector<uint8_
         w.value(static_cast<int64_t>(std::get<canon::RecordIndex>(l.material).value));
         w.key("liquid_type");
         writeRef(w, l.liquidType);
-        writeIntField(w, "source_liquid_type", l.sourceLiquidType);
         writeVec3Field(w, "corner", l.corner);
         writeFloatField(w, "tile_size", l.tileSize);
         writeIntField(w, "verts_x", l.vertsX);
         writeIntField(w, "verts_y", l.vertsY);
         w.key("heights");
         writeBufferSlice(w, appendArray(liquidBin, "liquid.bin", l.heights, 1, "f32"));
-        w.key("vertex_data");
-        writeBufferSlice(w, appendArray(liquidBin, "liquid.bin", l.vertexData, 4, "u8"));
         w.key("tile_exists");
         writeBufferSlice(w, appendArray(liquidBin, "liquid.bin", l.tileExists, 1, "u8"));
+        w.key("source");
+        w.beginObject();
+        writeIntField(w, "liquid_type", l.sourceLiquidType);
+        w.key("vertex_data");
+        writeBufferSlice(w, appendArray(liquidBin, "liquid.bin", l.vertexData, 4, "u8"));
         w.key("tile_flags");
         writeBufferSlice(w, appendArray(liquidBin, "liquid.bin", l.tileFlags, 1, "u8"));
+        w.endObject();
         w.endObject();
     }
     w.endArray();
@@ -1041,7 +1090,7 @@ void writeCollision(json::Writer& w, const canon::CollisionMesh& c, std::vector<
 
 }  // namespace
 
-void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir, const std::string& producer,
+void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir, const Provenance& provenance,
                  const AssetUris& assetUris) {
     std::error_code ec;
     std::filesystem::create_directories(bundleDir, ec);
@@ -1057,60 +1106,59 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     std::vector<uint8_t> collisionBin;
     std::vector<uint8_t> particulateBin;
 
+    std::vector<OwnedSetEntry> owned;
+    for (const canon::Model::OwnedSet& set : model.placementSets) owned.push_back({&set.set, set.alwaysOn});
+    std::vector<SetDocument> sets = writePlacementSetDocuments(owned, bundleDir, assetUris, provenance);
+
     std::ostringstream manifestStream;
     json::Writer w(manifestStream);
 
     w.beginObject();
-    w.key("schema_version");
-    w.value("0.1.0");
-    w.key("exported_at");
-    w.value(isoTimestampUtc());
-    w.key("producer");
-    w.value(producer);
-    w.key("endianness");
-    w.value("little");
+    writeContractHeader(w, "model", model.subject, provenance);
+
+    // Owned placement sets are the model's first references, so set i is
+    // reference i.
+    w.key("definition");
+    w.beginObject();
+    w.key("placement_sets");
+    w.beginArray();
+    for (size_t i = 0; i < sets.size(); ++i) {
+        w.beginObject();
+        writeIntField(w, "reference", static_cast<int64_t>(i));
+        w.key("always_on");
+        w.value(sets[i].alwaysOn);
+        writeIntField(w, "instance_count", static_cast<int64_t>(sets[i].instanceCount));
+        w.endObject();
+    }
+    w.endArray();
+    w.endObject();
+
+    w.key("selection");
+    w.beginObject();
+    w.key("placement_sets");
+    w.beginArray();
+    w.endArray();
+    w.endObject();
+
+    w.key("references");
+    w.beginArray();
+    for (const SetDocument& set : sets) {
+        w.beginObject();
+        w.key("kind");
+        w.value("placement_set");
+        w.key("asset");
+        writeRef(w, set.ref, set.uri);
+        w.endObject();
+    }
+    w.endArray();
 
     w.key("resources");
     w.beginObject();
 
+    w.key("geometry");
+    w.beginObject();
     w.key("mesh");
     writeMeshSection(w, model, meshBin);
-
-    w.key("skeleton");
-    writeSkeletonSection(w, model.skeleton, skeletonBin);
-
-    w.key("animation");
-    writeAnimationSection(w, model.skeleton, model.animations, animBin);
-
-    w.key("materials");
-    std::unordered_set<std::string> writtenTextures;
-    writeMaterialsSection(w, model.materials, bundleDir, writtenTextures);
-
-    w.key("attachments");
-    writeAttachments(w, model.scene.attachments);
-    w.key("events");
-    writeEvents(w, model.scene.events);
-    w.key("lights");
-    writeLights(w, model.scene.lights);
-    w.key("local_lights");
-    writeLocalLights(w, model.scene.localLights);
-    w.key("ambient_volumes");
-    writeAmbientVolumes(w, model.scene.ambientVolumes);
-    w.key("fogs");
-    writeLocalFogs(w, model.scene.fogs);
-    w.key("emitters");
-    w.beginObject();
-    w.key("ribbons");
-    writeRibbons(w, model.scene.ribbons, bundleDir, writtenTextures);
-    w.key("particles");
-    writeParticles(w, model.scene.particles, bundleDir, writtenTextures);
-    w.endObject();
-    w.key("particulate_volumes");
-    writeParticulateVolumes(w, model.scene.particulateVolumes, bundleDir, writtenTextures, particulateBin);
-    w.key("placement_sets");
-    std::vector<OwnedSetEntry> sets;
-    for (const canon::Model::OwnedSet& owned : model.placementSets) sets.push_back({&owned.set, owned.alwaysOn});
-    writePlacementSets(w, sets, bundleDir, assetUris, producer);
     w.key("liquids");
     writeLiquids(w, model, liquidBin);
     bool hasCollision = !model.collision.indices.empty();
@@ -1118,6 +1166,41 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
         w.key("collision");
         writeCollision(w, model.collision, collisionBin);
     }
+    w.endObject();
+
+    w.key("rig");
+    w.beginObject();
+    w.key("skeleton");
+    writeSkeletonSection(w, model.skeleton, skeletonBin);
+    w.key("animation");
+    writeAnimationSection(w, model.skeleton, model.animations, animBin);
+    w.endObject();
+
+    w.key("materials");
+    std::unordered_set<std::string> writtenTextures;
+    writeMaterialsSection(w, model.materials, bundleDir, writtenTextures);
+
+    w.key("scene");
+    w.beginObject();
+    w.key("attachments");
+    writeAttachments(w, model.scene.attachments);
+    w.key("events");
+    writeEvents(w, model.scene.events);
+    w.key("animated_lights");
+    writeLights(w, model.scene.lights);
+    w.key("static_lights");
+    writeLocalLights(w, model.scene.localLights);
+    w.key("fog_volumes");
+    writeLocalFogs(w, model.scene.fogs);
+    w.key("ambient_color_volumes");
+    writeAmbientVolumes(w, model.scene.ambientVolumes);
+    w.key("ambient_particle_volumes");
+    writeParticulateVolumes(w, model.scene.particulateVolumes, bundleDir, writtenTextures, particulateBin);
+    w.key("ribbon_emitters");
+    writeRibbons(w, model.scene.ribbons, bundleDir, writtenTextures);
+    w.key("particle_emitters");
+    writeParticles(w, model.scene.particles, bundleDir, writtenTextures);
+    w.endObject();
 
     w.endObject();  // resources
     w.endObject();  // root

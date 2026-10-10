@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -82,26 +83,66 @@ using AssetUris = std::unordered_map<uint32_t, std::string>;
 // produced that bundle, identity only otherwise.
 void writeAssetRef(json::Writer& w, const canon::Ref& ref, const AssetUris& uris);
 
+// Who wrote a document and from what (schema/common.schema.json
+// "provenance"); the writer adds the export time.
+struct Provenance {
+    struct Source {
+        std::string name;
+        std::string role;
+        bool available = false;
+        std::string detail;
+    };
+    std::string producer;
+    std::string inputFormat;
+    std::vector<Source> sources;
+};
+
+// The contract header's first keys, in order: format, kind,
+// schema_version, subject, space, provenance. The caller continues with
+// definition, selection, references and the kind's data.
+// The subject Ref of a document decoded from `file`: identity is the
+// FileDataID when the caller knows it. The name is the file's stem; the
+// corpus's file names come from the community listfile.
+canon::Ref subjectRef(const std::filesystem::path& file, std::optional<uint32_t> fileDataId);
+
+void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& subject, const Provenance& provenance);
+
+// A flag word as stored, lowercase hex ("0x1f").
+std::string hexFlags(uint32_t flags);
+
+void writeSourceRecord(json::Writer& w, const canon::SourceRecord& record);
+
 struct OwnedSetEntry {
     const canon::PlacementSet* set = nullptr;
     bool alwaysOn = false;
 };
 
-// Writes each set as a standalone `sets/<index>.json` under `bundleDir` and
-// the manifest's placement-set array (`[{ref + uri, always_on,
-// instance_count}]`) to `w`. `assetUris` are relative to `bundleDir`. The
-// set-file schema is bundle_writer.hpp's "resources.placement_sets".
-void writePlacementSets(json::Writer& w, const std::vector<OwnedSetEntry>& sets, const std::filesystem::path& bundleDir,
-                        const AssetUris& assetUris, const std::string& producer);
+// A placement_set document written by writePlacementSetDocuments.
+struct SetDocument {
+    canon::Ref ref;
+    std::string uri;  // relative to the bundle directory
+    bool alwaysOn = false;
+    size_t instanceCount = 0;
+};
+
+// Writes each set as a placement_set document `sets/<index>.json` under
+// `bundleDir` (schema/placement_set.schema.json). `assetUris` are relative
+// to `bundleDir`.
+std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEntry>& sets,
+                                                    const std::filesystem::path& bundleDir, const AssetUris& assetUris,
+                                                    const Provenance& provenance);
 
 std::string textureFileExtension(canon::TextureEncoding encoding);
 
-// Writes a TextureRef's `texture_state` and state-specific keys into the
-// currently open object, and its payload file under `bundleDir/textures/`
+// IANA media type of a texture file by its extension ("png", "dds").
+std::string textureMediaType(const std::string& extension);
+
+// Writes a TextureRef as a texture entry object (schema/common.schema.json
+// "texture_entry"), and its payload file under `bundleDir/textures/`
 // (deduped by filename via `writtenTextures`). See the definition for the
 // DDS-over-PNG payload choice.
-void writeTextureRef(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
-                      std::unordered_set<std::string>& writtenTextures);
+void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
+                       std::unordered_set<std::string>& writtenTextures);
 
 std::string isoTimestampUtc();
 

@@ -157,7 +157,7 @@ canon::Ref ownedSetRef(const WmoInputs& in, uint32_t set) {
 canon::LocalLight buildNewLight(const WmoInputs& in, uint32_t index) {
     const wmo::NewLight& l = in.root->newLights[index];
     canon::LocalLight out;
-    out.ref = canon::Ref{canon::RecordIndex{index}, "mnld_" + std::to_string(index), canon::NameSource::Synthesized};
+    out.origin = {"MNLD", index};
     switch (l.type) {
         case 0: out.kind = canon::LocalLight::Kind::Point; break;
         case 1: out.kind = canon::LocalLight::Kind::Spot; break;
@@ -192,7 +192,7 @@ canon::LocalLight buildNewLight(const WmoInputs& in, uint32_t index) {
 canon::LocalLight buildLegacyLight(const WmoInputs& in, uint32_t index) {
     const wmo::LegacyLight& l = in.root->legacyLights[index];
     canon::LocalLight out;
-    out.ref = canon::Ref{canon::RecordIndex{index}, "molt_" + std::to_string(index), canon::NameSource::Synthesized};
+    out.origin = {"MOLT", index};
     switch (l.type) {
         case 0: out.kind = canon::LocalLight::Kind::Point; break;
         case 1: out.kind = canon::LocalLight::Kind::Spot; break;
@@ -223,8 +223,7 @@ std::array<float, 4> rgbaOf(uint32_t bgra) {
 canon::AmbientVolume buildAmbientVolume(const WmoInputs& in, const wmo::AmbientVolume& v, const char* table,
                                         uint32_t index, canon::AmbientVolume::Shape shape) {
     canon::AmbientVolume out;
-    out.ref = canon::Ref{canon::RecordIndex{index}, std::string(table) + "_" + std::to_string(index),
-                         canon::NameSource::Synthesized};
+    out.origin = {table, index};
     out.shape = shape;
     out.position = toCanon(v.position);
     out.start = v.start;
@@ -238,7 +237,7 @@ canon::AmbientVolume buildAmbientVolume(const WmoInputs& in, const wmo::AmbientV
 canon::AmbientVolume buildAmbientBox(const WmoInputs& in, uint32_t index) {
     const wmo::AmbientBox& b = in.root->ambientBoxes[index];
     canon::AmbientVolume out;
-    out.ref = canon::Ref{canon::RecordIndex{index}, "mbvd_" + std::to_string(index), canon::NameSource::Synthesized};
+    out.origin = {"MBVD", index};
     out.shape = canon::AmbientVolume::Shape::Box;
     out.end = b.end;
     for (const auto& [x, y, z, d] : b.planes) out.planes.push_back({canon::Vec3{x, y, z}, d});
@@ -253,7 +252,7 @@ constexpr uint32_t kFogInteriorExteriorBlend = 0x1;
 canon::LocalFog buildFog(const WmoInputs& in, uint32_t index) {
     const wmo::Fog& f = in.root->fogs[index];
     canon::LocalFog out;
-    out.ref = canon::Ref{canon::RecordIndex{index}, "mfog_" + std::to_string(index), canon::NameSource::Synthesized};
+    out.origin = {"MFOG", index};
     out.position = toCanon(f.position);
     out.innerRadius = f.smallerRadius;
     out.outerRadius = f.largerRadius;
@@ -265,26 +264,39 @@ canon::LocalFog buildFog(const WmoInputs& in, uint32_t index) {
     return out;
 }
 
+// Each entry's identity is its position in its canon list; where it came
+// from stays in `origin`.
+template <typename T>
+void nameByPosition(std::vector<T>& entries, const std::string& prefix) {
+    for (uint32_t i = 0; i < entries.size(); ++i) {
+        entries[i].ref = canon::Ref{canon::RecordIndex{i}, prefix + "_" + std::to_string(i), canon::NameSource::Synthesized};
+    }
+}
+
 canon::Scene buildScene(const WmoInputs& in) {
     canon::Scene scene;
     const wmo::RootFile& root = *in.root;
     for (uint32_t i = 0; i < root.globalAmbientVolumes.size(); ++i) {
-        scene.ambientVolumes.push_back(buildAmbientVolume(in, root.globalAmbientVolumes[i], "mavg", i,
+        scene.ambientVolumes.push_back(buildAmbientVolume(in, root.globalAmbientVolumes[i], "MAVG", i,
                                                           canon::AmbientVolume::Shape::Global));
     }
     for (uint32_t i = 0; i < root.ambientVolumes.size(); ++i) {
         scene.ambientVolumes.push_back(
-            buildAmbientVolume(in, root.ambientVolumes[i], "mavd", i, canon::AmbientVolume::Shape::Point));
+            buildAmbientVolume(in, root.ambientVolumes[i], "MAVD", i, canon::AmbientVolume::Shape::Point));
     }
     for (uint32_t i = 0; i < root.ambientBoxes.size(); ++i) scene.ambientVolumes.push_back(buildAmbientBox(in, i));
     for (uint32_t i = 0; i < root.fogs.size(); ++i) scene.fogs.push_back(buildFog(in, i));
     for (uint32_t i = 0; i < in.root->particulateVolumes.size(); ++i) {
         canon::ParticulateVolume v = buildParticulateVolume(root.particulateVolumes[i], in.textures);
-        v.ref = canon::Ref{canon::RecordIndex{i}, "mpvd_" + std::to_string(i), canon::NameSource::Synthesized};
+        v.origin = {"MPVD", i};
         scene.particulateVolumes.push_back(std::move(v));
     }
     for (uint32_t i = 0; i < in.root->newLights.size(); ++i) scene.localLights.push_back(buildNewLight(in, i));
     for (uint32_t i = 0; i < in.root->legacyLights.size(); ++i) scene.localLights.push_back(buildLegacyLight(in, i));
+    nameByPosition(scene.ambientVolumes, "ambient");
+    nameByPosition(scene.fogs, "fog");
+    nameByPosition(scene.particulateVolumes, "particles");
+    nameByPosition(scene.localLights, "light");
     return scene;
 }
 

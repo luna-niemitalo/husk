@@ -17,7 +17,8 @@ canon::Ref modelRef(const MapSceneInputs& in, uint32_t fdid) {
 
 canon::FogVolume buildFog(const MapSceneInputs& in, const wdt::Fog& f, uint32_t index) {
     canon::FogVolume out;
-    out.ref = canon::Ref{canon::RecordIndex{index}, "vfog_" + std::to_string(f.id), canon::NameSource::Synthesized};
+    out.ref = canon::Ref{canon::RecordIndex{index}, "fog_" + std::to_string(f.id), canon::NameSource::Synthesized};
+    out.origin = {"VFOG", index};
     out.id = f.id;
     out.color = toCanon(f.color);
     out.intensity = f.intensity;
@@ -48,7 +49,8 @@ canon::MapParticulateVolume buildParticulate(const MapSceneInputs& in, const wdt
                                              uint32_t index) {
     canon::MapParticulateVolume out;
     out.volume = wmoinput::buildParticulateVolume(v.volume, in.textures);
-    out.volume.ref = canon::Ref{canon::RecordIndex{index}, "pvmi_" + std::to_string(v.id), canon::NameSource::Synthesized};
+    out.volume.ref = canon::Ref{canon::RecordIndex{index}, "particles_" + std::to_string(v.id), canon::NameSource::Synthesized};
+    out.volume.origin = {"PVMI", index};
     out.id = v.id;
     out.boundsMin = toCanon(v.boundsMin);
     out.boundsMax = toCanon(v.boundsMax);

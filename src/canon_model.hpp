@@ -79,6 +79,7 @@ struct AnimationClip {
 // should match the latter, not the former, since a Model with real
 // identity per material is the whole point of this indirection.
 struct Model {
+    Ref subject;  // the model itself; set by whoever knows its identity (the export command)
     Skeleton skeleton;
     Mesh mesh;
     std::vector<Material> materials;
