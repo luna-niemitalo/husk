@@ -1,6 +1,7 @@
 #include "adt_canon_input.hpp"
 
 #include <cmath>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -187,12 +188,12 @@ canon::Ref assetRef(uint32_t nameId, bool isFileDataId, const std::vector<std::s
     return pathRef(names.at(nameId), resolutions);
 }
 
-canon::Placement buildDoodad(const adt::DoodadPlacement& d, const adt::ObjFile& obj, const Resolutions& resolutions) {
-    canon::Placement out;
-    out.kind = canon::Placement::Kind::Model;
+canon::PlacedInstance buildDoodad(const adt::DoodadPlacement& d, const adt::ObjFile& obj,
+                                  const Resolutions& resolutions) {
+    canon::PlacedInstance out;
+    out.id = d.uniqueId;
     out.asset = assetRef(d.nameId, d.flags & adt::kMddfNameIsFileDataId, obj.doodadNames, resolutions);
-    out.uniqueId = d.uniqueId;
-    out.position = placementPosition(d.position);
+    out.translation = placementPosition(d.position);
     out.rotation = placementRotation(d.rotation);
     out.scale = static_cast<float>(d.scale) / 1024.0f;
     out.flags = d.flags;
@@ -201,18 +202,30 @@ canon::Placement buildDoodad(const adt::DoodadPlacement& d, const adt::ObjFile& 
 
 constexpr uint16_t kModfHasScale = 0x4;
 
-canon::Placement buildMapObject(const adt::MapObjectPlacement& m, const adt::ObjFile& obj,
-                                const Resolutions& resolutions) {
-    canon::Placement out;
-    out.kind = canon::Placement::Kind::MapObject;
+canon::PlacedInstance buildMapObject(const adt::MapObjectPlacement& m, const adt::ObjFile& obj,
+                                     const Resolutions& resolutions) {
+    canon::PlacedInstance out;
+    out.id = m.uniqueId;
     out.asset = assetRef(m.nameId, m.flags & adt::kModfNameIsFileDataId, obj.mapObjectNames, resolutions);
-    out.uniqueId = m.uniqueId;
-    out.position = placementPosition(m.position);
+    out.translation = placementPosition(m.position);
     out.rotation = placementRotation(m.rotation);
     out.scale = (m.flags & kModfHasScale) ? static_cast<float>(m.scale) / 1024.0f : 1.0f;
     out.flags = m.flags;
-    out.doodadSet = m.doodadSet;
+    std::vector<canon::Ref> sets;
+    for (uint16_t set : adt::activeDoodadSets(m, obj)) sets.push_back(canon::Ref{canon::RecordIndex{set}, "", canon::NameSource::None});
+    out.activeSets = std::move(sets);
     return out;
+}
+
+// Instance ids are ADT uniqueIds; a set's ids must be unique (PLACEMENT_SETS.md).
+void requireUniqueIds(const canon::PlacementSet& set) {
+    std::set<uint32_t> seen;
+    for (const canon::PlacedInstance& instance : set.instances) {
+        if (!seen.insert(instance.id).second) {
+            throw std::runtime_error(set.ref.name + ": expected unique uniqueIds within the tile, got " +
+                                     std::to_string(instance.id) + " twice");
+        }
+    }
 }
 
 void checkTileCoordinates(const adt::MapChunk& first, uint32_t tileX, uint32_t tileY) {
@@ -359,13 +372,17 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
             for (const adt::LiquidInstance& inst : (*root.liquid)[ci].instances) out.liquids.push_back(buildLiquid(inst, ci));
         }
     }
+    out.doodads.ref = canon::Ref{canon::None{}, "doodads", canon::NameSource::Synthesized};
+    out.mapObjects.ref = canon::Ref{canon::None{}, "map_objects", canon::NameSource::Synthesized};
     if (sources.obj) {
         for (const adt::DoodadPlacement& d : sources.obj->doodads) {
-            out.placements.push_back(buildDoodad(d, *sources.obj, resolutions));
+            out.doodads.instances.push_back(buildDoodad(d, *sources.obj, resolutions));
         }
         for (const adt::MapObjectPlacement& m : sources.obj->mapObjects) {
-            out.placements.push_back(buildMapObject(m, *sources.obj, resolutions));
+            out.mapObjects.instances.push_back(buildMapObject(m, *sources.obj, resolutions));
         }
+        requireUniqueIds(out.doodads);
+        requireUniqueIds(out.mapObjects);
     }
     return out;
 }

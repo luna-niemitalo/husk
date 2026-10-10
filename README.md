@@ -971,9 +971,10 @@ notes (splat layers, untextured chunks, tile-edge seams) are in
   `--db2-dir`/`--dbd-dir`): density plus a weighted doodad set per effect,
   not instances;
 - `MH2O` liquid surfaces, with where each one's heights came from;
-- M2 and WMO placements in the world frame. Placed models are references
-  (`--models-dir` links the ones already exported); WMO geometry is not
-  exported at all yet.
+- M2 and WMO placements in the world frame, as two placement sets
+  (`doodads`, `map_objects`). Placed assets are references (`--models-dir`
+  links the model and WMO bundles already exported); a WMO placement's
+  active doodad sets are resolved, including `MWDR`/`MWDS`.
 
 The input is the root `<map>_<x>_<y>.adt`; its `_obj0`/`_tex0` siblings and
 the map's `<map>.wdt` are found beside it (`--obj`/`--tex`/`--wdt` override,

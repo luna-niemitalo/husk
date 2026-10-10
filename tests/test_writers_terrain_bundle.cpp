@@ -32,12 +32,14 @@ std::vector<uint8_t> readBytes(const fs::path& path) {
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-nlohmann::json readManifest(const fs::path& dir) {
-    std::vector<uint8_t> bytes = readBytes(dir / "manifest.json");
+nlohmann::json readJsonFile(const fs::path& path) {
+    std::vector<uint8_t> bytes = readBytes(path);
     auto parsed = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, /*allow_exceptions=*/false);
     REQUIRE_FALSE(parsed.is_discarded());
     return parsed;
 }
+
+nlohmann::json readManifest(const fs::path& dir) { return readJsonFile(dir / "manifest.json"); }
 
 template <typename T>
 std::vector<T> readSlice(const fs::path& dir, const nlohmann::json& slice) {
@@ -208,7 +210,7 @@ TEST_CASE("writeTerrainBundle: a payload-less resolved texture points at the cal
     CHECK_FALSE(fs::exists(dir / "textures"));
 }
 
-TEST_CASE("writeTerrainBundle: ground effects, liquids and placements") {
+TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     fs::path dir = freshDir("husk-test-terrain-bundle-objects");
     husk::writers::writeTerrainBundle(sampleTerrain(), dir, {{555, "../models/555.canon.bundle/manifest.json"}});
     nlohmann::json t = readManifest(dir)["terrain"];
@@ -232,16 +234,30 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placements") {
     CHECK(ocean["quad_rect"]["width"] == 8);
     CHECK(readSlice<uint8_t>(dir, ocean["quad_exists"]) == std::vector<uint8_t>(64, 1));
 
-    REQUIRE(t["placements"].size() == 2);
-    const nlohmann::json& model = t["placements"][0];
-    CHECK(model["kind"] == "model");
-    CHECK(model["asset"]["uri"] == "../models/555.canon.bundle/manifest.json");
-    CHECK(model["position"][0].get<double>() == doctest::Approx(0.0));
+    REQUIRE(t["placement_sets"].size() == 2);
+    CHECK(t["placement_sets"][0]["ref"]["name"] == "doodads");
+    CHECK(t["placement_sets"][0]["ref"]["uri"] == "sets/0.json");
+    CHECK(t["placement_sets"][0]["always_on"] == true);
+    CHECK(t["placement_sets"][0]["instance_count"] == 1);
+    CHECK(t["placement_sets"][1]["ref"]["name"] == "map_objects");
+    CHECK(t["placement_sets"][1]["ref"]["uri"] == "sets/1.json");
+
+    nlohmann::json doodads = readJsonFile(dir / "sets" / "0.json");
+    REQUIRE(doodads["instances"].size() == 1);
+    const nlohmann::json& model = doodads["instances"][0];
+    CHECK(model["id"] == 1);
+    // The bundle-relative uri, one level further up from sets/.
+    CHECK(model["asset"]["uri"] == "../../models/555.canon.bundle/manifest.json");
+    CHECK(model["translation"][0].get<double>() == doctest::Approx(0.0));
     CHECK(model["rotation"].size() == 4);
-    CHECK_FALSE(model.contains("doodad_set"));
-    const nlohmann::json& building = t["placements"][1];
-    CHECK(building["kind"] == "map_object");
-    CHECK(building["doodad_set"] == 1);
+    CHECK_FALSE(model.contains("active_sets"));
+
+    nlohmann::json mapObjects = readJsonFile(dir / "sets" / "1.json");
+    REQUIRE(mapObjects["instances"].size() == 1);
+    const nlohmann::json& building = mapObjects["instances"][0];
+    REQUIRE(building["active_sets"].size() == 1);
+    CHECK(building["active_sets"][0]["id"]["kind"] == "record_index");
+    CHECK(building["active_sets"][0]["id"]["value"] == 1);
     CHECK_FALSE(building["asset"].contains("uri"));
 }
 

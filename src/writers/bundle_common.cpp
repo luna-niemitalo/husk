@@ -3,6 +3,8 @@
 #include <chrono>
 #include <ctime>
 #include <fstream>
+#include <initializer_list>
+#include <sstream>
 #include <stdexcept>
 #include <type_traits>
 #include <variant>
@@ -96,6 +98,95 @@ void writeAssetRef(json::Writer& w, const canon::Ref& ref, const AssetUris& uris
         if (it != uris.end()) uri = it->second;
     }
     writeRef(w, ref, uri);
+}
+
+namespace {
+
+void writeFloats(json::Writer& w, std::initializer_list<float> values) {
+    w.beginArray();
+    for (float v : values) w.value(static_cast<double>(v));
+    w.endArray();
+}
+
+void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem::path& path, const AssetUris& uris,
+                           const std::string& producer) {
+    std::ostringstream text;
+    json::Writer w(text);
+    w.beginObject();
+    w.key("schema_version");
+    w.value("0.1.0");
+    w.key("producer");
+    w.value(producer);
+    w.key("kind");
+    w.value("placement_set");
+    w.key("ref");
+    writeRef(w, set.ref);
+    w.key("instances");
+    w.beginArray();
+    for (const canon::PlacedInstance& instance : set.instances) {
+        w.beginObject();
+        w.key("id");
+        w.value(static_cast<int64_t>(instance.id));
+        w.key("asset");
+        writeAssetRef(w, instance.asset, uris);
+        w.key("translation");
+        writeFloats(w, {instance.translation.x, instance.translation.y, instance.translation.z});
+        w.key("rotation");
+        writeFloats(w, {instance.rotation.x, instance.rotation.y, instance.rotation.z, instance.rotation.w});
+        w.key("scale");
+        w.value(static_cast<double>(instance.scale));
+        if (instance.tint) {
+            w.key("tint");
+            w.beginObject();
+            w.key("rgba");
+            w.beginArray();
+            for (uint8_t c : instance.tint->rgba) w.value(static_cast<int64_t>(c));
+            w.endArray();
+            w.key("multiplier");
+            w.value(static_cast<double>(instance.tint->multiplier));
+            w.endObject();
+        }
+        w.key("flags");
+        w.value(static_cast<int64_t>(instance.flags));
+        if (instance.activeSets) {
+            w.key("active_sets");
+            w.beginArray();
+            for (const canon::Ref& ref : *instance.activeSets) writeRef(w, ref);
+            w.endArray();
+        }
+        w.endObject();
+    }
+    w.endArray();
+    w.endObject();
+
+    std::string bytes = text.str();
+    writeFile(path, std::vector<uint8_t>(bytes.begin(), bytes.end()));
+}
+
+}  // namespace
+
+void writePlacementSets(json::Writer& w, const std::vector<OwnedSetEntry>& sets, const std::filesystem::path& bundleDir,
+                        const AssetUris& assetUris, const std::string& producer) {
+    // Set files sit one level down, in sets/.
+    AssetUris setUris;
+    for (const auto& [fdid, uri] : assetUris) {
+        setUris.emplace(fdid, std::filesystem::path(uri).is_absolute() ? uri : "../" + uri);
+    }
+    if (!sets.empty()) std::filesystem::create_directories(bundleDir / "sets");
+    w.beginArray();
+    for (size_t i = 0; i < sets.size(); ++i) {
+        std::string uri = "sets/" + std::to_string(i) + ".json";
+        writePlacementSetFile(*sets[i].set, bundleDir / uri, setUris, producer);
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, sets[i].set->ref, uri);
+        w.key("always_on");
+        w.value(sets[i].alwaysOn);
+        w.key("instance_count");
+        w.value(static_cast<int64_t>(sets[i].set->instances.size()));
+        w.endObject();
+    }
+    w.endArray();
 }
 
 std::string isoTimestampUtc() {

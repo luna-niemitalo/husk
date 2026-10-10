@@ -252,6 +252,8 @@ struct ObjSpec {
     std::vector<MapObjectSpec> mapObjects;
     std::vector<std::string> doodadNames;    // MMDX/MMID, written only when non-empty
     std::vector<std::string> mapObjectNames; // MWMO/MWID, written only when non-empty
+    std::vector<std::pair<uint32_t, uint32_t>> doodadSetRanges;  // MWDR, written only when non-empty
+    std::vector<uint16_t> doodadSetIndices;                      // MWDS, written only when non-empty
 };
 
 std::vector<uint8_t> objFile(const ObjSpec& spec) {
@@ -290,6 +292,19 @@ std::vector<uint8_t> objFile(const ObjSpec& spec) {
         putU16(modf, m.scale);
     }
     appendChunk(out, "MODF", modf);
+    if (!spec.doodadSetRanges.empty()) {
+        std::vector<uint8_t> mwdr;
+        for (const auto& [begin, end] : spec.doodadSetRanges) {
+            putU32(mwdr, begin);
+            putU32(mwdr, end);
+        }
+        appendChunk(out, "MWDR", mwdr);
+    }
+    if (!spec.doodadSetIndices.empty()) {
+        std::vector<uint8_t> mwds;
+        for (uint16_t index : spec.doodadSetIndices) putU16(mwds, index);
+        appendChunk(out, "MWDS", mwds);
+    }
     return out;
 }
 

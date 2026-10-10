@@ -52,16 +52,24 @@ float dot(const canon::Vec3& a, const canon::Vec3& b) { return a.x * b.x + a.y *
 
 float degrees(float radians) { return radians * 180.0f / 3.14159265f; }
 
-canon::Placement onlyPlacement(const ObjSpec& obj, const Inputs& inputs = {}) {
+canon::PlacedInstance onlyDoodad(const ObjSpec& obj, const Inputs& inputs = {}) {
     canon::Terrain t = build(RootSpec{}, obj, std::nullopt, inputs);
-    REQUIRE(t.placements.size() == 1);
-    return t.placements[0];
+    REQUIRE(t.doodads.instances.size() == 1);
+    CHECK(t.mapObjects.instances.empty());
+    return t.doodads.instances[0];
 }
 
-canon::Placement placedAt(std::array<float, 3> rotation) {
+canon::PlacedInstance placedAt(std::array<float, 3> rotation) {
     ObjSpec obj;
     obj.doodads.push_back({5, 1, {}, rotation, 1024, 0x40});
-    return onlyPlacement(obj);
+    return onlyDoodad(obj);
+}
+
+// The MODS indices a map object's active_sets name.
+std::vector<uint32_t> setIndices(const canon::PlacedInstance& instance) {
+    std::vector<uint32_t> out;
+    for (const canon::Ref& ref : instance.activeSets.value()) out.push_back(std::get<canon::RecordIndex>(ref.id).value);
+    return out;
 }
 
 }  // namespace
@@ -195,22 +203,21 @@ TEST_CASE("adtinput: liquid surfaces keep their rect and record where their heig
 TEST_CASE("adtinput: MDDF position maps (map-corner-relative, height, ...) onto world X north, Y west, Z up") {
     ObjSpec obj;
     obj.doodads.push_back({777, 42, {kMapHalfExtent - 100.0f, 50.0f, kMapHalfExtent - 200.0f}, {}, 2048, 0x40});
-    canon::Placement p = onlyPlacement(obj);
-    CHECK(p.kind == canon::Placement::Kind::Model);
+    canon::PlacedInstance p = onlyDoodad(obj);
     CHECK(std::get<canon::FileDataId>(p.asset.id).value == 777);
-    CHECK(p.uniqueId == 42);
-    CHECK(p.position.x == doctest::Approx(200.0f));
-    CHECK(p.position.y == doctest::Approx(100.0f));
-    CHECK(p.position.z == 50.0f);
+    CHECK(p.id == 42);
+    CHECK(p.translation.x == doctest::Approx(200.0f));
+    CHECK(p.translation.y == doctest::Approx(100.0f));
+    CHECK(p.translation.z == 50.0f);
     CHECK(p.scale == 2.0f);
     CHECK(p.flags == 0x40);
-    CHECK_FALSE(p.doodadSet.has_value());
+    CHECK_FALSE(p.activeSets.has_value());
 }
 
 TEST_CASE("adtinput: an untilted placement keeps model up as world up, and yaw is a pure rotation about Z") {
     for (float yaw : {0.0f, 37.0f, 90.0f, 215.0f}) {
         CAPTURE(yaw);
-        canon::Placement p = placedAt({0, yaw, 0});
+        canon::PlacedInstance p = placedAt({0, yaw, 0});
         canon::Vec3 up = rotate(p.rotation, {0, 0, 1});
         CHECK(up.z == doctest::Approx(1.0f).epsilon(1e-5));
         CHECK(p.rotation.x == doctest::Approx(0.0f).epsilon(1e-5));
@@ -234,16 +241,48 @@ TEST_CASE("adtinput: tilt about either horizontal placement axis tilts model up 
     }
 }
 
-TEST_CASE("adtinput: MODF placements carry their doodad set, and scale only when flagged") {
+TEST_CASE("adtinput: MODF placements turn on their doodad set, and scale only when flagged") {
     ObjSpec obj;
     obj.mapObjects.push_back({900, 1, {}, {}, 0x8, 2, 0, 2048});
     obj.mapObjects.push_back({901, 2, {}, {}, 0x8 | 0x4, 0, 0, 512});
     canon::Terrain t = build(RootSpec{}, obj);
-    REQUIRE(t.placements.size() == 2);
-    CHECK(t.placements[0].kind == canon::Placement::Kind::MapObject);
-    CHECK(t.placements[0].doodadSet == 2);
-    CHECK(t.placements[0].scale == 1.0f);
-    CHECK(t.placements[1].scale == 0.5f);
+    CHECK(t.doodads.instances.empty());
+    REQUIRE(t.mapObjects.instances.size() == 2);
+    CHECK(setIndices(t.mapObjects.instances[0]) == std::vector<uint32_t>{2});
+    CHECK(t.mapObjects.instances[0].scale == 1.0f);
+    CHECK(t.mapObjects.instances[1].scale == 0.5f);
+}
+
+TEST_CASE("adtinput: with the MWDS flag, MODF.doodadSet picks an MWDR range of MWDS set indices") {
+    ObjSpec obj;
+    obj.mapObjects.push_back({900, 1, {}, {}, 0x8 | 0x80, 1, 0, 1024});
+    obj.doodadSetRanges = {{0, 0}, {1, 3}};
+    obj.doodadSetIndices = {9, 4, 0, 7};
+    canon::Terrain t = build(RootSpec{}, obj);
+    REQUIRE(t.mapObjects.instances.size() == 1);
+    CHECK(setIndices(t.mapObjects.instances[0]) == std::vector<uint32_t>{4, 0, 7});
+}
+
+TEST_CASE("adtinput: an MWDR index or range past its table is a ParseError naming both values") {
+    ObjSpec pastMwdr;
+    pastMwdr.mapObjects.push_back({900, 1, {}, {}, 0x8 | 0x80, 2, 0, 1024});
+    pastMwdr.doodadSetRanges = {{0, 0}};
+    pastMwdr.doodadSetIndices = {0};
+    CHECK_THROWS_WITH(build(RootSpec{}, pastMwdr), doctest::Contains("expected an MWDR index < 1, got 2"));
+
+    ObjSpec pastMwds = pastMwdr;
+    pastMwds.mapObjects[0].doodadSet = 0;
+    pastMwds.doodadSetRanges = {{0, 1}};
+    CHECK_THROWS_WITH(build(RootSpec{}, pastMwds), doctest::Contains("expected begin <= end < 1 MWDS entries, got [0, 1]"));
+}
+
+TEST_CASE("adtinput: a uniqueId twice within one set is an error; the same id across the two sets is not") {
+    ObjSpec obj;
+    obj.doodads.push_back({5, 7, {}, {}, 1024, 0x40});
+    obj.mapObjects.push_back({900, 7, {}, {}, 0x8, 0, 0, 1024});
+    CHECK_NOTHROW(build(RootSpec{}, obj));
+    obj.doodads.push_back({6, 7, {}, {}, 1024, 0x40});
+    CHECK_THROWS_WITH(build(RootSpec{}, obj), doctest::Contains("doodads: expected unique uniqueIds within the tile, got 7 twice"));
 }
 
 TEST_CASE("adtinput: name-table placements resolve through the listfile, else keep the raw path as their name") {
@@ -256,16 +295,17 @@ TEST_CASE("adtinput: name-table placements resolve through the listfile, else ke
     Inputs inputs;
     inputs.gamePaths = {{"World\\Generic\\Tree.mdx", 4242}, {"World\\wmo\\Inn.wmo", 5353}};
     canon::Terrain t = build(RootSpec{}, obj, std::nullopt, inputs);
-    REQUIRE(t.placements.size() == 3);
+    REQUIRE(t.doodads.instances.size() == 2);
+    REQUIRE(t.mapObjects.instances.size() == 1);
 
-    CHECK(std::get<canon::FileDataId>(t.placements[0].asset.id).value == 4242);
+    CHECK(std::get<canon::FileDataId>(t.doodads.instances[0].asset.id).value == 4242);
 
-    const canon::Ref& unlisted = t.placements[1].asset;
+    const canon::Ref& unlisted = t.doodads.instances[1].asset;
     CHECK(std::holds_alternative<canon::None>(unlisted.id));
     CHECK(unlisted.name == "World\\Unlisted\\Rock.mdx");
     CHECK(unlisted.source == canon::NameSource::AdtEmbedded);
 
-    CHECK(std::get<canon::FileDataId>(t.placements[2].asset.id).value == 5353);
+    CHECK(std::get<canon::FileDataId>(t.mapObjects.instances[0].asset.id).value == 5353);
 }
 
 namespace {

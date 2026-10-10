@@ -343,39 +343,45 @@ def load_model(bundle_dir, uri):
 
 
 def build_placements(tile, seen):
-    """`seen` holds unique_ids already placed: a placement straddling a tile
-    border is listed by every tile it touches."""
-    near, measured, linked, duplicates = 0, 0, 0, 0
+    """`seen` holds (set name, id) pairs already placed: a placement
+    straddling a tile border is listed by every tile it touches. Doodad and
+    map-object ids are separate number spaces, hence the set name."""
+    near, measured, linked, duplicates, total = 0, 0, 0, 0, 0
     coll = bpy.data.collections.new("placements")
     bpy.context.scene.collection.children.link(coll)
-    for p in tile.t["placements"]:
-        if p["unique_id"] in seen:
-            duplicates += 1
-            continue
-        seen.add(p["unique_id"])
-        x, y, z = p["position"]
-        if p["kind"] == "model":
-            gy = int((tile.nw[0] - x) // tile.t["chunk_size"])
-            gx = int((tile.nw[1] - y) // tile.t["chunk_size"])
-            if 0 <= gx < 16 and 0 <= gy < 16:
-                ci = gy * 16 + gx
-                fr = (tile.origins[ci][0] - x) / tile.quad
-                fc = (tile.origins[ci][1] - y) / tile.quad
-                r, c = min(int(fr), 7), min(int(fc), 7)
-                measured += 1
-                near += abs(tile.height_at(ci, r, c, fr - r, fc - c) - z) < 1.0
-        uri = p["asset"].get("uri")
-        if not uri:
-            continue
-        linked += 1
-        obj = bpy.data.objects.new("placement_%d" % p["unique_id"], load_model(tile.dir, uri))
-        obj.location = (x, y, z)
-        qx, qy, qz, qw = p["rotation"]
-        obj.rotation_mode = "QUATERNION"
-        obj.rotation_quaternion = Quaternion((qw, qx, qy, qz))
-        obj.scale = (p["scale"],) * 3
-        coll.objects.link(obj)
-    probe("placements", len(tile.t["placements"]))
+    for entry in tile.t["placement_sets"]:
+        set_name = entry["ref"]["name"]
+        set_path = os.path.join(tile.dir, entry["ref"]["uri"])
+        set_dir = os.path.dirname(set_path)
+        for p in json.load(open(set_path))["instances"]:
+            total += 1
+            if (set_name, p["id"]) in seen:
+                duplicates += 1
+                continue
+            seen.add((set_name, p["id"]))
+            x, y, z = p["translation"]
+            if set_name == "doodads":
+                gy = int((tile.nw[0] - x) // tile.t["chunk_size"])
+                gx = int((tile.nw[1] - y) // tile.t["chunk_size"])
+                if 0 <= gx < 16 and 0 <= gy < 16:
+                    ci = gy * 16 + gx
+                    fr = (tile.origins[ci][0] - x) / tile.quad
+                    fc = (tile.origins[ci][1] - y) / tile.quad
+                    r, c = min(int(fr), 7), min(int(fc), 7)
+                    measured += 1
+                    near += abs(tile.height_at(ci, r, c, fr - r, fc - c) - z) < 1.0
+            uri = p["asset"].get("uri")
+            if not uri:
+                continue
+            linked += 1
+            obj = bpy.data.objects.new("%s_%d" % (set_name, p["id"]), load_model(set_dir, uri))
+            obj.location = (x, y, z)
+            qx, qy, qz, qw = p["rotation"]
+            obj.rotation_mode = "QUATERNION"
+            obj.rotation_quaternion = Quaternion((qw, qx, qy, qz))
+            obj.scale = (p["scale"],) * 3
+            coll.objects.link(obj)
+    probe("placements", total)
     probe("placements_already_placed_by_earlier_tile", duplicates)
     probe("placements_with_model_uri", linked)
     probe("doodads_within_1yd_of_terrain_surface", "%d/%d" % (near, measured))

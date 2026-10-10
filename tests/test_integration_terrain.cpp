@@ -123,21 +123,26 @@ TEST_CASE("real ADT: splat alpha never sums past full coverage, so base = 1 - su
 TEST_CASE("real ADT: placements land on their own tile, mostly upright" *
           doctest::skip(testAdtTile().empty())) {
     canon::Terrain t = buildRealTile();
-    REQUIRE_FALSE(t.placements.empty());
+    REQUIRE_FALSE(t.doodads.instances.empty());
     float maxX = t.chunks.front().origin.x;
     float maxY = t.chunks.front().origin.y;
     float minX = maxX - canon::kTerrainTileSize;
     float minY = maxY - canon::kTerrainTileSize;
 
     size_t onTile = 0;
+    size_t total = 0;
     std::vector<float> ups;
-    for (const canon::Placement& p : t.placements) {
-        if (p.position.x >= minX && p.position.x <= maxX && p.position.y >= minY && p.position.y <= maxY) ++onTile;
-        if (p.kind != canon::Placement::Kind::Model) continue;
-        // World z of the rotated model +Z: 1 - 2(x^2 + y^2).
-        ups.push_back(1 - 2 * (p.rotation.x * p.rotation.x + p.rotation.y * p.rotation.y));
+    for (const canon::PlacementSet* set : {&t.doodads, &t.mapObjects}) {
+        for (const canon::PlacedInstance& p : set->instances) {
+            ++total;
+            const canon::Vec3& at = p.translation;
+            if (at.x >= minX && at.x <= maxX && at.y >= minY && at.y <= maxY) ++onTile;
+            if (set != &t.doodads) continue;
+            // World z of the rotated model +Z: 1 - 2(x^2 + y^2).
+            ups.push_back(1 - 2 * (p.rotation.x * p.rotation.x + p.rotation.y * p.rotation.y));
+        }
     }
-    CHECK(static_cast<double>(onTile) / static_cast<double>(t.placements.size()) > 0.9);
+    CHECK(static_cast<double>(onTile) / static_cast<double>(total) > 0.9);
     REQUIRE_FALSE(ups.empty());
     std::nth_element(ups.begin(), ups.begin() + static_cast<long>(ups.size() / 2), ups.end());
     CHECK(ups[ups.size() / 2] > 0.9f);

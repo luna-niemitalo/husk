@@ -42,11 +42,18 @@
 //                    "quad_rect": {x, y, width, height}, "quad_exists": <u8x1>,
 //                    "height_source": "heightmap"|"min_height_level"|"zero",
 //                    "heights": <f32x1>, "depth"?: <f32x1>, "uv"?: <f32x2> } ],
-//     "placements": [ { "kind": "model"|"map_object", "asset": <Ref, uri?>, "unique_id",
-//                       "position": [x,y,z], "rotation": [x,y,z,w], "scale", "flags", "doodad_set"? } ]
+//     "placement_sets": [   // REFACTOR/PLACEMENT_SETS.md; set-file schema in bundle_writer.hpp
+//       { "ref": {name "doodads", uri "sets/0.json"}, "always_on": true, "instance_count" },     // MDDF models
+//       { "ref": {name "map_objects", uri "sets/1.json"}, "always_on": true, "instance_count" }  // MODF WMOs
+//     ]
 //   }
 // }
 // ```
+// Instances are world-frame. Their ids are ADT uniqueIds, unique within a
+// set and map-wide: the same id in two tiles is one object spanning both,
+// to be loaded once. A map object's `active_sets` are the WMO doodad sets
+// (record_index = MODS index) it turns on beyond the always-on set 0, with
+// MWDR/MWDS already resolved.
 namespace husk::writers {
 
 // A resolved terrain texture with no payload of its own is written as a

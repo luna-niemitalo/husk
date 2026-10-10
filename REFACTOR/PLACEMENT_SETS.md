@@ -4,8 +4,10 @@ Agreed with Luna 2026-10-09; the export target is the canonical bundle
 (`BUNDLE_FORMAT.md`), consumed by MantleCore. **Built**: `canon::
 PlacementSet` (`src/canon_placement.hpp`), WMOs as ordinary object bundles
 that own their doodad sets (`husk export-wmo`, `src/wmo_canon_input.cpp`).
-The byte-level schema is in `src/writers/bundle_writer.hpp`. **Not yet**:
-terrain onto sets, WMOs in `export-world`, liquids/lights/fog inside WMOs.
+Terrain tiles place their doodads and WMOs as two sets, and `export-world`
+exports every placed WMO as a bundle beside the models. The byte-level
+schema is in `src/writers/bundle_writer.hpp`. **Not yet**: liquids/lights/
+fog inside WMOs.
 
 ## The concept
 
@@ -88,14 +90,13 @@ A WMO is an ordinary object bundle, the same shape as a doodad's (Luna,
 - Later, in the agreed order: liquid (`MLIQ`), lights (`MOLT`, lightsets,
   `MNLD`), fog and particulate volumes, then collision, portals and LOD.
 
-Terrain bundles move onto the same format: a tile's `MDDF`/`MODF`
-placements become one placement set (world frame), and a `map_object`
-instance gets `activeSets` from `MODF.doodadSet` (or `MWDR`/`MWDS`). The
-terrain bundle's current `placements` array is what MantleCore reads
-today, so that switch is a schema change coordinated with MantleCore, not
-done silently. **Decided (Luna, 2026-10-09)**: it ships in the same change
-that first gives `map_object` placements a real WMO bundle `uri`, so
-MantleCore adapts once.
+Terrain bundles use the same format: a tile's `MDDF` and `MODF`
+placements are two world-frame sets (`doodads`, `map_objects`; two because
+their unique ids are separate number spaces), and a map-object instance
+gets `activeSets` from `MODF.doodadSet` or `MWDR`/`MWDS`. This replaced
+the terrain bundle's old `placements` array in the same change that gave
+WMO placements a real bundle `uri` (Luna, 2026-10-09: MantleCore adapts
+once).
 
 ## Rejected
 

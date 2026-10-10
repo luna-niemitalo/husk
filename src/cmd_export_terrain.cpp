@@ -255,16 +255,25 @@ adtinput::GroundEffectDefinitions loadGroundEffects(const std::string& db2Dir, c
     return out;
 }
 
+// M2s only: what `husk export --bundle-only` can export.
 std::set<uint32_t> referencedModels(const canon::Terrain& terrain) {
     std::set<uint32_t> out;
-    for (const canon::Placement& p : terrain.placements) {
-        if (p.kind != canon::Placement::Kind::Model) continue;
-        if (auto fdid = std::get_if<canon::FileDataId>(&p.asset.id)) out.insert(fdid->value);
+    for (const canon::PlacedInstance& instance : terrain.doodads.instances) {
+        if (auto fdid = std::get_if<canon::FileDataId>(&instance.asset.id)) out.insert(fdid->value);
     }
     for (const canon::GroundEffect& e : terrain.groundEffects) {
         for (const canon::GroundEffectDoodad& d : e.doodads) {
             if (auto fdid = std::get_if<canon::FileDataId>(&d.model.id)) out.insert(fdid->value);
         }
+    }
+    return out;
+}
+
+// Models and WMOs: every bundle a tile can link to.
+std::set<uint32_t> referencedAssets(const canon::Terrain& terrain) {
+    std::set<uint32_t> out = referencedModels(terrain);
+    for (const canon::PlacedInstance& instance : terrain.mapObjects.instances) {
+        if (auto fdid = std::get_if<canon::FileDataId>(&instance.asset.id)) out.insert(fdid->value);
     }
     return out;
 }
@@ -280,7 +289,9 @@ void nameFromListfile(canon::Ref& ref, const ListfileIndex& listfile) {
 }
 
 void nameModelRefs(canon::Terrain& terrain, const ListfileIndex& listfile) {
-    for (canon::Placement& p : terrain.placements) nameFromListfile(p.asset, listfile);
+    for (canon::PlacementSet* set : {&terrain.doodads, &terrain.mapObjects}) {
+        for (canon::PlacedInstance& instance : set->instances) nameFromListfile(instance.asset, listfile);
+    }
     for (canon::GroundEffect& e : terrain.groundEffects) {
         for (canon::GroundEffectDoodad& d : e.doodads) nameFromListfile(d.model, listfile);
     }
@@ -589,7 +600,7 @@ int exportTerrain(int argc, char** args) {
         writers::AssetUris modelUris;
         if (!opts.modelsDir.empty()) {
             std::filesystem::path bundleDir = std::filesystem::absolute(opts.output);
-            for (uint32_t fdid : referencedModels(terrain)) {
+            for (uint32_t fdid : referencedAssets(terrain)) {
                 std::filesystem::path manifest =
                     std::filesystem::absolute(opts.modelsDir) / modelBundleName(fdid) / "manifest.json";
                 if (!std::filesystem::exists(manifest)) continue;
@@ -599,7 +610,8 @@ int exportTerrain(int argc, char** args) {
         writers::writeTerrainBundle(terrain, opts.output, modelUris);
         std::cout << "wrote " << opts.output << ": " << terrain.chunks.size() << " chunks, " << terrain.textures.size()
                   << " textures, " << terrain.groundEffects.size() << " ground effects, " << terrain.liquids.size()
-                  << " liquid surfaces, " << terrain.placements.size() << " placements, " << modelUris.size()
+                  << " liquid surfaces, " << terrain.doodads.instances.size() << " doodads, "
+                  << terrain.mapObjects.instances.size() << " map objects, " << modelUris.size()
                   << " linked models\n";
     } catch (const std::exception& e) {
         std::cerr << "husk: export-terrain: " << e.what() << "\n";
@@ -699,6 +711,8 @@ int exportWorld(int argc, char** args) {
         }
         std::set<std::string> namedPaths;
         std::set<std::string> namedModelPaths;
+        std::set<uint32_t> wmoIds;
+        std::set<std::string> namedWmoPaths;
         std::mutex referencesMutex;
         {
             Progress progress("collect", tiles.size());
@@ -719,6 +733,13 @@ int exportWorld(int argc, char** args) {
                                 namedModelPaths.insert(obj->doodadNames.at(d.nameId));
                             }
                         }
+                        for (const adt::MapObjectPlacement& m : obj->mapObjects) {
+                            if (m.flags & adt::kModfNameIsFileDataId) {
+                                wmoIds.insert(m.nameId);
+                            } else {
+                                namedWmoPaths.insert(obj->mapObjectNames.at(m.nameId));
+                            }
+                        }
                     }
                 } catch (...) {
                     errors.add("collect", tiles[i].root.string(), exceptionMessage(std::current_exception()));
@@ -732,8 +753,44 @@ int exportWorld(int argc, char** args) {
             auto it = gamePaths.find(path);
             if (it != gamePaths.end()) modelIds.insert(it->second);
         }
+        for (const std::string& path : namedWmoPaths) {
+            auto it = gamePaths.find(path);
+            if (it != gamePaths.end()) wmoIds.insert(it->second);
+        }
         std::cout << "resolved " << gamePaths.size() << "/" << namedPaths.size()
                   << " name-table paths against the listfile" << std::endl;
+
+        // The WMOs' own doodads join the model pass. Only roots are read
+        // here; a WMO that can't be found is logged now and skipped silently
+        // when its bundle would be written.
+        auto wmoSource = [&](uint32_t fdid) -> std::optional<std::filesystem::path> {
+            std::optional<std::string_view> listed = listfile->lookup(fdid);
+            if (!listed) return std::nullopt;
+            std::filesystem::path src = std::filesystem::path(opts.listfileRoot) / std::string(*listed);
+            if (!std::filesystem::exists(src)) return std::nullopt;
+            return src;
+        };
+        std::vector<uint32_t> wmos(wmoIds.begin(), wmoIds.end());
+        if (!opts.skipModels) {
+            std::mutex doodadsMutex;
+            Progress progress("wmo roots", wmos.size());
+            parallelFor(wmos.size(), jobs, [&](size_t i) {
+                try {
+                    if (std::optional<std::filesystem::path> src = wmoSource(wmos[i])) {
+                        wmo::RootFile root = wmo::parseRoot(adt::readFile(*src));
+                        std::lock_guard<std::mutex> lock(doodadsMutex);
+                        for (uint32_t fdid : root.doodadFileDataIds) {
+                            if (fdid != 0) modelIds.insert(fdid);
+                        }
+                    } else {
+                        errors.add("wmo", std::to_string(wmos[i]), "not in listfile or not extracted");
+                    }
+                } catch (...) {
+                    errors.add("wmo", std::to_string(wmos[i]), exceptionMessage(std::current_exception()));
+                }
+                progress.tick();
+            });
+        }
 
         // Pass 2: models, in-process, one shared listfile. --db2-dir/--dbd-dir
         // none and an empty config keep per-model DB2 enrichment (legacy glTF
@@ -776,13 +833,45 @@ int exportWorld(int argc, char** args) {
             });
         }
 
-        std::unordered_set<uint32_t> exportedModels;
-        for (const auto& entry : std::filesystem::directory_iterator(modelsDir)) {
-            std::string name = entry.path().filename().string();
-            size_t digits = name.find_first_not_of("0123456789");
-            if (digits == 0 || name.compare(digits, std::string::npos, ".canon.bundle") != 0) continue;
-            if (!std::filesystem::exists(entry.path() / "manifest.json")) continue;
-            exportedModels.insert(static_cast<uint32_t>(std::stoul(name.substr(0, digits))));
+        auto scanExportedModels = [&] {
+            std::unordered_set<uint32_t> exported;
+            for (const auto& entry : std::filesystem::directory_iterator(modelsDir)) {
+                std::string name = entry.path().filename().string();
+                size_t digits = name.find_first_not_of("0123456789");
+                if (digits == 0 || name.compare(digits, std::string::npos, ".canon.bundle") != 0) continue;
+                if (!std::filesystem::exists(entry.path() / "manifest.json")) continue;
+                exported.insert(static_cast<uint32_t>(std::stoul(name.substr(0, digits))));
+            }
+            return exported;
+        };
+        std::unordered_set<uint32_t> exportedModels = scanExportedModels();
+
+        // Pass 2b: WMO bundles, beside the model bundles (a WMO is an
+        // ordinary object bundle), their doodad sets linked to pass 2's models.
+        if (!opts.skipModels) {
+            Progress progress("wmos", wmos.size());
+            parallelFor(wmos.size(), jobs, [&](size_t i) {
+                uint32_t fdid = wmos[i];
+                std::filesystem::path bundle = modelsDir / modelBundleName(fdid);
+                try {
+                    std::optional<std::filesystem::path> src = wmoSource(fdid);
+                    if (src && !std::filesystem::exists(bundle / "manifest.json")) {
+                        auto warn = [&](const std::string& w) { errors.add("wmo", std::to_string(fdid), w); };
+                        canon::Model model = loadWmoModel(*src, listfile.get(), opts.listfileRoot, warn);
+                        writers::AssetUris doodadUris;
+                        for (uint32_t doodad : placedAssets(model)) {
+                            if (exportedModels.count(doodad)) {
+                                doodadUris.emplace(doodad, "../" + modelBundleName(doodad) + "/manifest.json");
+                            }
+                        }
+                        writers::writeBundle(model, bundle, "husk dev", doodadUris);
+                    }
+                } catch (...) {
+                    errors.add("wmo", std::to_string(fdid), exceptionMessage(std::current_exception()));
+                }
+                progress.tick();
+            });
+            exportedModels = scanExportedModels();
         }
 
         // Pass 3: tiles.
@@ -833,7 +922,7 @@ int exportWorld(int argc, char** args) {
                     nameModelRefs(terrain, *listfile);
 
                     writers::AssetUris modelUris;
-                    for (uint32_t fdid : referencedModels(terrain)) {
+                    for (uint32_t fdid : referencedAssets(terrain)) {
                         if (exportedModels.count(fdid)) {
                             modelUris.emplace(fdid, (relToOut / "models" / modelBundleName(fdid) / "manifest.json").generic_string());
                         }

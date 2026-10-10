@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "canon_material.hpp"  // TextureRef
+#include "canon_placement.hpp"
 #include "canon_primitives.hpp"
 #include "canon_ref.hpp"
 
@@ -118,20 +119,6 @@ struct LiquidSurface {
     std::optional<std::vector<Vec2>> uv;
 };
 
-// A reference to another asset placed on this tile. The asset itself is
-// not exported here; `asset` carries identity only (BUNDLE_FORMAT.md's
-// "a reference may be unresolved").
-struct Placement {
-    enum class Kind { Model, MapObject };
-    Kind kind = Kind::Model;
-    Ref asset;
-    uint32_t uniqueId = 0;
-    Vec3 position;  // world frame
-    Quat rotation;  // world-from-model; the asset's own space is its native M2/WMO space
-    float scale = 1.0f;
-    uint16_t flags = 0;
-    std::optional<uint16_t> doodadSet;  // Kind::MapObject only
-};
 
 struct Terrain {
     Ref map;  // the map's directory name; no Map.db2 row is resolved
@@ -141,7 +128,15 @@ struct Terrain {
     std::vector<GroundEffect> groundEffects;
     std::vector<TerrainChunk> chunks;  // index gridY * 16 + gridX
     std::vector<LiquidSurface> liquids;
-    std::vector<Placement> placements;
+
+    // What the tile places (REFACTOR/PLACEMENT_SETS.md), in the world frame:
+    // MDDF models and MODF map objects (WMOs). Two sets because their unique
+    // ids are separate number spaces. Instance ids are ADT uniqueIds, which
+    // are map-wide: the same id in two tiles' sets is one object spanning
+    // both, to be loaded once. A map object's activeSets name the WMO doodad
+    // sets (by MODS index) it turns on beyond the always-on set 0.
+    PlacementSet doodads;
+    PlacementSet mapObjects;
 };
 
 }  // namespace husk::canon

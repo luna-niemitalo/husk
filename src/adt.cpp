@@ -315,6 +315,19 @@ ObjFile parseObj(const std::vector<uint8_t>& bytes) {
             out.mapObjects.push_back(p);
         }
     }
+    if (std::optional<Chunk> mwdr = findChunk(chunks, "MWDR")) {
+        if (mwdr->size % 8 != 0) throw ParseError("MWDR: expected size multiple of 8, got " + std::to_string(mwdr->size));
+        for (size_t b = 0; b < mwdr->size; b += 8) {
+            out.doodadSetRanges.push_back({read<uint32_t>(mwdr->data, mwdr->size, b, "MWDR.begin"),
+                                           read<uint32_t>(mwdr->data, mwdr->size, b + 4, "MWDR.end")});
+        }
+    }
+    if (std::optional<Chunk> mwds = findChunk(chunks, "MWDS")) {
+        if (mwds->size % 2 != 0) throw ParseError("MWDS: expected size multiple of 2, got " + std::to_string(mwds->size));
+        for (size_t b = 0; b < mwds->size; b += 2) {
+            out.doodadSetIndices.push_back(read<uint16_t>(mwds->data, mwds->size, b, "MWDS"));
+        }
+    }
     return out;
 }
 
@@ -425,6 +438,21 @@ std::array<uint8_t, 64 * 64> decodeAlphaMap(const std::vector<uint8_t>& mcal, co
         for (size_t c = 0; c < 64; ++c) out[63 * 64 + c] = out[62 * 64 + c];
     }
     return out;
+}
+
+std::vector<uint16_t> activeDoodadSets(const MapObjectPlacement& m, const ObjFile& obj) {
+    if (!(m.flags & kModfUsesSetsFromMwds)) return {m.doodadSet};
+    if (m.doodadSet >= obj.doodadSetRanges.size()) {
+        throw ParseError("MODF.doodadSet with the MWDS flag: expected an MWDR index < " +
+                         std::to_string(obj.doodadSetRanges.size()) + ", got " + std::to_string(m.doodadSet));
+    }
+    const DoodadSetRange& range = obj.doodadSetRanges[m.doodadSet];
+    if (range.begin > range.end || range.end >= obj.doodadSetIndices.size()) {
+        throw ParseError("MWDR[" + std::to_string(m.doodadSet) + "]: expected begin <= end < " +
+                         std::to_string(obj.doodadSetIndices.size()) + " MWDS entries, got [" +
+                         std::to_string(range.begin) + ", " + std::to_string(range.end) + "]");
+    }
+    return {obj.doodadSetIndices.begin() + range.begin, obj.doodadSetIndices.begin() + range.end + 1};
 }
 
 std::vector<uint8_t> readFile(const std::filesystem::path& path) {

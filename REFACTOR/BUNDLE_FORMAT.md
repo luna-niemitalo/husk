@@ -485,13 +485,19 @@ instance's minimum, the open-ocean case) or `zero` (a depth-only layout).
 
 ### Placements
 
-`model` placements are M2s, `map_object` placements are WMO buildings.
-`position` is world-frame, `rotation` is a world-from-model quaternion
-(x, y, z, w), the model in its own native M2/WMO space. **WMO geometry is
-not exported**: `map_object` placements are identity and transform only,
-with no `uri`. A placement whose tile names it by path and whose path the
-listfile doesn't know has no identity, only its raw path as
-`name` (`name_source: "adt_embedded"`).
+Two placement sets (`PLACEMENT_SETS.md`, set-file schema in
+`bundle_writer.hpp`), both always on: `doodads` (`MDDF`, M2s) and
+`map_objects` (`MODF`, WMOs). Instance `translation` is world-frame,
+`rotation` a world-from-asset quaternion (x, y, z, w), the asset in its own
+native M2/WMO space. Instance ids are ADT uniqueIds: unique within a set,
+and map-wide, so the same id in two tiles' sets is one object to load once.
+A map object's `active_sets` name the WMO's doodad sets (`record_index` =
+`MODS` index) it turns on beyond the always-on set 0, with `MWDR`/`MWDS`
+already resolved. A WMO's `uri` points at its own object bundle when one
+was exported (`export-world`, or `export-terrain --models-dir`). A
+placement whose tile names it by path and whose path the listfile doesn't
+know has no identity, only its raw path as `name` (`name_source:
+"adt_embedded"`).
 
 ### Seams between tiles
 

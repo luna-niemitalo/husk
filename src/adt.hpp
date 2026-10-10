@@ -96,13 +96,30 @@ struct MapObjectPlacement {
 // matching name table (MMID -> MMDX, MWID -> MWMO).
 inline constexpr uint16_t kMddfNameIsFileDataId = 0x40;
 inline constexpr uint16_t kModfNameIsFileDataId = 0x8;
+// With this flag, MODF.doodadSet indexes MWDR, whose range of MWDS entries
+// names every WMO doodad set to turn on (Shadowlands+).
+inline constexpr uint16_t kModfUsesSetsFromMwds = 0x80;
+
+// MWDR entry: an inclusive [begin, end] range of MWDS indices.
+struct DoodadSetRange {
+    uint32_t begin = 0;
+    uint32_t end = 0;
+};
 
 struct ObjFile {
     std::vector<DoodadPlacement> doodads;
     std::vector<MapObjectPlacement> mapObjects;
     std::vector<std::string> doodadNames;     // MMDX via MMID, raw file paths as stored
     std::vector<std::string> mapObjectNames;  // MWMO via MWID
+    std::vector<DoodadSetRange> doodadSetRanges;  // MWDR
+    std::vector<uint16_t> doodadSetIndices;       // MWDS: WMO doodad-set (MODS) indices
 };
+
+// Which of a placed WMO's doodad sets (MODS indices) `m` turns on beyond the
+// always-on set 0: MWDS[MWDR[doodadSet]] when the MWDS flag is set,
+// otherwise doodadSet itself (wowdev.wiki ADT/v18 MODF; WMO.md MODS).
+// Throws ParseError when an MWDR/MWDS index runs past its table.
+std::vector<uint16_t> activeDoodadSets(const MapObjectPlacement& m, const ObjFile& obj);
 
 // MCLY, 16 bytes.
 struct TextureLayer {

@@ -706,90 +706,6 @@ void writeParticles(json::Writer& w, const std::vector<canon::ParticleEmitter>& 
     w.endArray();
 }
 
-// `uris` are relative to the bundle directory; a set file sits one level
-// down, in sets/.
-AssetUris relativeToSetsDir(const AssetUris& uris) {
-    AssetUris out;
-    for (const auto& [fdid, uri] : uris) out.emplace(fdid, std::filesystem::path(uri).is_absolute() ? uri : "../" + uri);
-    return out;
-}
-
-void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem::path& path, const AssetUris& uris,
-                           const std::string& producer) {
-    std::ostringstream text;
-    json::Writer w(text);
-    w.beginObject();
-    w.key("schema_version");
-    w.value("0.1.0");
-    w.key("producer");
-    w.value(producer);
-    w.key("kind");
-    w.value("placement_set");
-    w.key("ref");
-    writeRef(w, set.ref);
-    w.key("instances");
-    w.beginArray();
-    for (const canon::PlacedInstance& instance : set.instances) {
-        w.beginObject();
-        w.key("id");
-        w.value(static_cast<int64_t>(instance.id));
-        w.key("asset");
-        writeAssetRef(w, instance.asset, uris);
-        w.key("translation");
-        writeVec3Value(w, instance.translation);
-        w.key("rotation");
-        writeQuatValue(w, instance.rotation);
-        w.key("scale");
-        w.value(static_cast<double>(instance.scale));
-        if (instance.tint) {
-            w.key("tint");
-            w.beginObject();
-            w.key("rgba");
-            w.beginArray();
-            for (uint8_t c : instance.tint->rgba) w.value(static_cast<int64_t>(c));
-            w.endArray();
-            w.key("multiplier");
-            w.value(static_cast<double>(instance.tint->multiplier));
-            w.endObject();
-        }
-        w.key("flags");
-        w.value(static_cast<int64_t>(instance.flags));
-        if (instance.activeSets) {
-            w.key("active_sets");
-            w.beginArray();
-            for (const canon::Ref& ref : *instance.activeSets) writeRef(w, ref);
-            w.endArray();
-        }
-        w.endObject();
-    }
-    w.endArray();
-    w.endObject();
-
-    std::string bytes = text.str();
-    writeFile(path, std::vector<uint8_t>(bytes.begin(), bytes.end()));
-}
-
-void writePlacementSets(json::Writer& w, const std::vector<canon::Model::OwnedSet>& sets,
-                        const std::filesystem::path& bundleDir, const AssetUris& assetUris,
-                        const std::string& producer) {
-    AssetUris setUris = relativeToSetsDir(assetUris);
-    if (!sets.empty()) std::filesystem::create_directories(bundleDir / "sets");
-    w.beginArray();
-    for (size_t i = 0; i < sets.size(); ++i) {
-        std::string uri = "sets/" + std::to_string(i) + ".json";
-        writePlacementSetFile(sets[i].set, bundleDir / uri, setUris, producer);
-        w.beginObject();
-        w.key("ref");
-        writeRef(w, sets[i].set.ref, uri);
-        w.key("always_on");
-        w.value(sets[i].alwaysOn);
-        w.key("instance_count");
-        w.value(static_cast<int64_t>(sets[i].set.instances.size()));
-        w.endObject();
-    }
-    w.endArray();
-}
-
 }  // namespace
 
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir, const std::string& producer,
@@ -848,7 +764,9 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeParticles(w, model.scene.particles, bundleDir, writtenTextures);
     w.endObject();
     w.key("placement_sets");
-    writePlacementSets(w, model.placementSets, bundleDir, assetUris, producer);
+    std::vector<OwnedSetEntry> sets;
+    for (const canon::Model::OwnedSet& owned : model.placementSets) sets.push_back({&owned.set, owned.alwaysOn});
+    writePlacementSets(w, sets, bundleDir, assetUris, producer);
 
     w.endObject();  // resources
     w.endObject();  // root

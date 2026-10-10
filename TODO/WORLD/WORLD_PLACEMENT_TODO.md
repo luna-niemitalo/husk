@@ -99,15 +99,10 @@ export as linked model bundles (`export-world`); WMOs stay identity-only.
 
 1. **Yaw sign** is the wiki's, unchecked. Needs a landmark: an asymmetric
    doodad with a known in-game facing.
-2. **`MODF` transform** shares the `MDDF` code per the wiki, but nothing
-   renders a WMO yet, so it is unverified.
+2. **`MODF` transform** shares the `MDDF` code per the wiki; unverified
+   until a consumer renders WMO bundles in place.
 3. **`MDDF.flags` `0x200`** (~18% of Elwynn placements) is not in the wiki
    enum; carried through as `flags`, meaning unknown.
-4. **WMO geometry** (`WMO_GEOMETRY_TODO.md`): until it exists, `map_object`
-   placements have no `uri` and the buildings are missing from every scene.
-5. **`MWDR`/`MWDS`** (Shadowlands+ per-`MODF` doodad-set selection) is not
-   read; it only matters once WMOs and their internal doodads export (next
-   section).
 
 ## WMO's own internal doodad set (`MODS`/`MODN`/`MODI`/`MODD`/`MDDI`, `MWDR`/`MWDS`)
 

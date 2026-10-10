@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "canon_material.hpp"
+#include "canon_placement.hpp"
 #include "canon_ref.hpp"
 #include "json_writer.hpp"
 
@@ -71,6 +72,18 @@ using AssetUris = std::unordered_map<uint32_t, std::string>;
 // A Ref whose payload may live in another bundle: `uri` when the exporter
 // produced that bundle, identity only otherwise.
 void writeAssetRef(json::Writer& w, const canon::Ref& ref, const AssetUris& uris);
+
+struct OwnedSetEntry {
+    const canon::PlacementSet* set = nullptr;
+    bool alwaysOn = false;
+};
+
+// Writes each set as a standalone `sets/<index>.json` under `bundleDir` and
+// the manifest's placement-set array (`[{ref + uri, always_on,
+// instance_count}]`) to `w`. `assetUris` are relative to `bundleDir`. The
+// set-file schema is bundle_writer.hpp's "resources.placement_sets".
+void writePlacementSets(json::Writer& w, const std::vector<OwnedSetEntry>& sets, const std::filesystem::path& bundleDir,
+                        const AssetUris& assetUris, const std::string& producer);
 
 std::string textureFileExtension(canon::TextureEncoding encoding);
 

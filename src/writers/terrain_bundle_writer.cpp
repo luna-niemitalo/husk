@@ -18,12 +18,6 @@ namespace {
 constexpr const char* kTerrainBin = "terrain.bin";
 constexpr const char* kLiquidBin = "liquid.bin";
 
-void writeFloatArray(json::Writer& w, std::initializer_list<float> values) {
-    w.beginArray();
-    for (float v : values) w.value(static_cast<double>(v));
-    w.endArray();
-}
-
 std::string heightSourceName(canon::LiquidHeightSource source) {
     switch (source) {
         case canon::LiquidHeightSource::Heightmap: return "heightmap";
@@ -227,29 +221,6 @@ void writeLiquid(json::Writer& w, const canon::LiquidSurface& l, std::vector<uin
     w.endObject();
 }
 
-void writePlacement(json::Writer& w, const canon::Placement& p, const AssetUris& modelUris) {
-    w.beginObject();
-    w.key("kind");
-    w.value(p.kind == canon::Placement::Kind::Model ? "model" : "map_object");
-    w.key("asset");
-    writeAssetRef(w, p.asset, modelUris);
-    w.key("unique_id");
-    w.value(static_cast<int64_t>(p.uniqueId));
-    w.key("position");
-    writeFloatArray(w, {p.position.x, p.position.y, p.position.z});
-    w.key("rotation");
-    writeFloatArray(w, {p.rotation.x, p.rotation.y, p.rotation.z, p.rotation.w});
-    w.key("scale");
-    w.value(static_cast<double>(p.scale));
-    w.key("flags");
-    w.value(static_cast<int64_t>(p.flags));
-    if (p.doodadSet) {
-        w.key("doodad_set");
-        w.value(static_cast<int64_t>(*p.doodadSet));
-    }
-    w.endObject();
-}
-
 }  // namespace
 
 void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::path& bundleDir,
@@ -308,10 +279,9 @@ void writeTerrainBundle(const canon::Terrain& terrain, const std::filesystem::pa
     w.beginArray();
     for (const canon::LiquidSurface& l : terrain.liquids) writeLiquid(w, l, liquidBin);
     w.endArray();
-    w.key("placements");
-    w.beginArray();
-    for (const canon::Placement& p : terrain.placements) writePlacement(w, p, modelUris);
-    w.endArray();
+    w.key("placement_sets");
+    // Both sets are the tile's own content, so both are always on.
+    writePlacementSets(w, {{&terrain.doodads, true}, {&terrain.mapObjects, true}}, bundleDir, modelUris, producer);
     w.endObject();  // terrain
     w.endObject();  // root
 
