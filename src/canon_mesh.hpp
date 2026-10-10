@@ -37,6 +37,7 @@ struct MeshPart {
     uint32_t flags = 0;  // source-format group flags, raw (WMO MOGP flags)
     Vec3 boundsMin;
     Vec3 boundsMax;
+    std::vector<uint32_t> fogs;  // indices into Scene::fogs (WMO MOGP fogIds, all four slots raw)
 };
 
 // One model's worth of real per-vertex geometry + skinning, raw M2 space

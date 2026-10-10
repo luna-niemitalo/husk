@@ -128,6 +128,16 @@ FogsFile parseFogs(const std::vector<uint8_t>& fileBytes) {
         if (c.tag == "VFE2") attachExtras(c, kVfe2Size, kVfe2FogIdOffset, out.fogs, &Fog::extra2);
     }
     for (Fog& f : out.fogs) {
+        if (f.extra.empty()) continue;
+        const uint8_t* d = f.extra.data();
+        size_t n = f.extra.size();
+        Fog::Extra extra;
+        extra.enabled = read<uint32_t>(d, n, 0x00, "VFEX");
+        extra.extent = readVec3(d, n, 0x04, "VFEX");
+        extra.parameters = read<std::array<float, 13>>(d, n, 0x10, "VFEX");
+        f.extraFields = extra;
+    }
+    for (Fog& f : out.fogs) {
         if (f.extra2.empty()) continue;
         const uint8_t* d = f.extra2.data();
         size_t n = f.extra2.size();

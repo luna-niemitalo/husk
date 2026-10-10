@@ -35,6 +35,10 @@ canon::FogVolume buildFog(const MapSceneInputs& in, const wdt::Fog& f, uint32_t 
         palette.mode = f.palette->mode;
         out.palette = palette;
     }
+    if (f.extraFields) {
+        const wdt::Fog::Extra& x = *f.extraFields;
+        out.extra = canon::FogVolume::Extra{x.enabled != 0, toCanon(x.extent), x.parameters};
+    }
     out.sourceExtra = f.extra;
     out.sourceExtra2 = f.extra2;
     return out;

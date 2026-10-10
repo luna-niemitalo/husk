@@ -21,6 +21,8 @@ constexpr size_t kMoltSize = 48;
 constexpr size_t kMnldSize = 184;
 constexpr size_t kMavdSize = 48;
 constexpr size_t kMbvdSize = 128;
+constexpr size_t kMfogSize = 48;
+constexpr size_t kMfedSize = 16;
 constexpr size_t kMpvdEmitterOffset = 0x2D0;
 constexpr size_t kMpvdEmitterSize = 844;
 constexpr size_t kMpvdEmitterSlots = 4;
@@ -295,6 +297,30 @@ std::vector<AmbientBox> parseAmbientBoxes(const Chunk& c) {
     return out;
 }
 
+std::vector<Fog> parseFogs(const Chunk& c) {
+    std::vector<Fog> out(recordCount(c, kMfogSize));
+    for (size_t i = 0; i < out.size(); ++i) {
+        size_t o = i * kMfogSize;
+        Fog& f = out[i];
+        f.flags = read<uint32_t>(c.data, c.size, o + 0x00, "MFOG");
+        f.position = readVec3(c.data, c.size, o + 0x04, "MFOG");
+        f.smallerRadius = read<float>(c.data, c.size, o + 0x10, "MFOG");
+        f.largerRadius = read<float>(c.data, c.size, o + 0x14, "MFOG");
+        for (auto [layer, at] : {std::pair{&f.fog, o + 0x18}, std::pair{&f.underwater, o + 0x24}}) {
+            layer->end = read<float>(c.data, c.size, at + 0x0, "MFOG");
+            layer->startScalar = read<float>(c.data, c.size, at + 0x4, "MFOG");
+            layer->color = read<uint32_t>(c.data, c.size, at + 0x8, "MFOG");
+        }
+    }
+    return out;
+}
+
+std::vector<uint16_t> parseFogDoodadSets(const Chunk& c) {
+    std::vector<uint16_t> out(recordCount(c, kMfedSize));
+    for (size_t i = 0; i < out.size(); ++i) out[i] = read<uint16_t>(c.data, c.size, i * kMfedSize, "MFED");
+    return out;
+}
+
 std::vector<Batch> parseBatches(const Chunk& c) {
     std::vector<Batch> out(recordCount(c, kMobaSize));
     for (size_t i = 0; i < out.size(); ++i) {
@@ -375,6 +401,7 @@ ParticulateVolume parseParticulateVolume(const uint8_t* data, size_t size, size_
 RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
     std::vector<Chunk> chunks = readChunksReversed(fileBytes.data(), fileBytes.size());
     RootFile root;
+    std::vector<uint16_t> fogDoodadSets;
     root.version = readVersion(chunks, "WMO root");
     root.header = parseHeader(requireChunk(chunks, "MOHD", "WMO root"));
     for (const Chunk& c : chunks) {
@@ -395,6 +422,8 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
         else if (c.tag == "MAVG") root.globalAmbientVolumes = parseAmbientVolumes(c);
         else if (c.tag == "MAVD") root.ambientVolumes = parseAmbientVolumes(c);
         else if (c.tag == "MBVD") root.ambientBoxes = parseAmbientBoxes(c);
+        else if (c.tag == "MFOG") root.fogs = parseFogs(c);
+        else if (c.tag == "MFED") fogDoodadSets = parseFogDoodadSets(c);
         else if (c.tag == "MOSI") root.skyboxFileDataId = read<uint32_t>(c.data, c.size, 0, "MOSI");
         else if (c.tag == "MOSB" && c.size > 0) {
             root.skyboxName = stringAt(std::string(reinterpret_cast<const char*>(c.data), c.size), 0);
@@ -418,6 +447,17 @@ RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
     for (size_t i = 0; i < root.globalAmbientVolumes.size(); ++i) requireSet("MAVG", i, root.globalAmbientVolumes[i].doodadSet);
     for (size_t i = 0; i < root.ambientVolumes.size(); ++i) requireSet("MAVD", i, root.ambientVolumes[i].doodadSet);
     for (size_t i = 0; i < root.ambientBoxes.size(); ++i) requireSet("MBVD", i, root.ambientBoxes[i].doodadSet);
+    // Real MFED chunks are either empty (1,699/1,802) or one per MFOG.
+    if (!fogDoodadSets.empty()) {
+        if (fogDoodadSets.size() != root.fogs.size()) {
+            throw ParseError("MFED: expected one entry per MFOG fog (" + std::to_string(root.fogs.size()) + "), got " +
+                             std::to_string(fogDoodadSets.size()));
+        }
+        for (size_t i = 0; i < root.fogs.size(); ++i) {
+            requireSet("MFED", i, fogDoodadSets[i]);
+            root.fogs[i].doodadSet = fogDoodadSets[i];
+        }
+    }
     for (size_t i = 0; i < root.newLights.size(); ++i) {
         int32_t set = root.newLights[i].doodadSet;
         if (set < 0 || static_cast<size_t>(set) >= root.doodadSets.size()) {

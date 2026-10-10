@@ -275,9 +275,10 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   (`resources.particulate_volumes`); `MAVG`/`MAVD`/`MBVD` are
   `scene.ambientVolumes`. Map-wide `_fogs.wdt`/`_mpv.wdt` volumes are a new
   `map_scene` bundle (`canon::MapScene`, `husk export-map-scene`,
-  `export-world` pass 4) -- MantleCore doesn't read it yet. **Next**: WMO
-  `MFOG` fog (`TODO/WORLD/FOG_VOLUMES_TODO.md` §1), then
-  collision/portals/LOD; open
+  `export-world` pass 4) -- MantleCore doesn't read it yet. WMO `MFOG`
+  fogs are `resources.fogs` (`MFED` set per fog), and each part lists
+  its `MOGP.fogIds`; map fogs carry `VFEX`'s typed part. **Next**:
+  collision/portals/LOD (`MFOB` waits on the CASC side); open
   items per feature in `TODO/WORLD/LIGHTING_TODO.md`, `LIQUID_TODO.md` §1
   and `FOG_VOLUMES_TODO.md` §2.
   Client shaders are unpacked under `example_exports/shaders/`

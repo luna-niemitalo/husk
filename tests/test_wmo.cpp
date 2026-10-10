@@ -362,6 +362,56 @@ TEST_CASE("wmo::parseRoot: an ambient volume naming a doodad set past MODS throw
                          "MBVD: expected a multiple of 128 bytes, got 100", wmo::ParseError);
 }
 
+TEST_CASE("wmo::parseRoot: MFOG reads 48-byte fogs, MFED gives each its doodad set") {
+    std::vector<uint8_t> mfog(96, 0);
+    put<uint32_t>(mfog, 48 + 0x00, 0x1);
+    put(mfog, 48 + 0x04, 7.0f);
+    put(mfog, 48 + 0x10, 5.0f);
+    put(mfog, 48 + 0x14, 20.0f);
+    put(mfog, 48 + 0x18, 100.0f);
+    put(mfog, 48 + 0x1C, 0.25f);
+    put<uint32_t>(mfog, 48 + 0x20, 0xFF102030);
+    put(mfog, 48 + 0x24, 50.0f);
+    put(mfog, 48 + 0x28, -0.5f);
+    put<uint32_t>(mfog, 48 + 0x2C, 0xFF0000FF);
+    std::vector<uint8_t> mfed(32, 0);
+    put<uint16_t>(mfed, 16, 1);
+
+    wmo::RootFile withExtra =
+        wmo::parseRoot(minimalRoot(0, {{"MODS", std::vector<uint8_t>(64, 0)}, {"MFOG", mfog}, {"MFED", mfed}}));
+    REQUIRE(withExtra.fogs.size() == 2);
+    const wmo::Fog& f = withExtra.fogs[1];
+    CHECK(f.flags == 0x1);
+    CHECK(f.position == wmo::Vec3{7, 0, 0});
+    CHECK(f.smallerRadius == 5.0f);
+    CHECK(f.largerRadius == 20.0f);
+    CHECK(f.fog.end == 100.0f);
+    CHECK(f.fog.startScalar == 0.25f);
+    CHECK(f.fog.color == 0xFF102030);
+    CHECK(f.underwater.end == 50.0f);
+    CHECK(f.underwater.startScalar == -0.5f);
+    CHECK(f.underwater.color == 0xFF0000FF);
+    CHECK(withExtra.fogs[0].doodadSet == 0);
+    CHECK(f.doodadSet == 1);
+
+    // An empty MFED, the common real case, leaves every fog without a set.
+    wmo::RootFile emptyExtra = wmo::parseRoot(minimalRoot(0, {{"MFOG", mfog}, {"MFED", {}}}));
+    CHECK_FALSE(emptyExtra.fogs[1].doodadSet.has_value());
+}
+
+TEST_CASE("wmo::parseRoot: an MFED that isn't one per MFOG, or names a set past MODS, throws") {
+    std::vector<uint8_t> mfog(96, 0);
+    CHECK_THROWS_WITH_AS(wmo::parseRoot(minimalRoot(0, {{"MFOG", mfog}, {"MFED", std::vector<uint8_t>(16, 0)}})),
+                         "MFED: expected one entry per MFOG fog (2), got 1", wmo::ParseError);
+    std::vector<uint8_t> mfed(32, 0);
+    put<uint16_t>(mfed, 16, 2);
+    CHECK_THROWS_WITH_AS(
+        wmo::parseRoot(minimalRoot(0, {{"MODS", std::vector<uint8_t>(64, 0)}, {"MFOG", mfog}, {"MFED", mfed}})),
+        "MFED[1].doodadSet: expected a MODS index < 2, got 2", wmo::ParseError);
+    CHECK_THROWS_WITH_AS(wmo::parseRoot(minimalRoot(0, {{"MFOG", std::vector<uint8_t>(40, 0)}})),
+                         "MFOG: expected a multiple of 48 bytes, got 40", wmo::ParseError);
+}
+
 TEST_CASE("wmo::groupFileDataId: GFID is row-major [lodTier][group], 0 for holes and out of range") {
     std::vector<uint8_t> gfid;
     for (uint32_t id : {10u, 11u, 20u, 0u}) put(gfid, gfid.size(), id);
@@ -483,6 +533,13 @@ TEST_CASE("wmo: real cameron.wmo -- one group, one FileDataID material, a batch 
     CHECK(root.materials[0].textures[0] == 130069);
     CHECK(root.textureNames.empty());
     CHECK(root.groupFileDataIds == std::vector<uint32_t>{108237});
+    // The wiki's "empty fog entry", byte for byte.
+    REQUIRE(root.fogs.size() == 1);
+    CHECK(root.fogs[0].largerRadius == 0.0f);
+    CHECK(root.fogs[0].fog.end == doctest::Approx(444.4445));
+    CHECK(root.fogs[0].fog.startScalar == 0.25f);
+    CHECK(root.fogs[0].underwater.end == doctest::Approx(222.2222));
+    CHECK(root.fogs[0].underwater.startScalar == -0.5f);
 
     wmo::GroupFile g = wmo::parseGroup(readFile(groupPath(test::testWmoCameron(), 0)));
     CHECK(g.positions.size() == 154);

@@ -114,8 +114,16 @@ TEST_CASE("wdt::parseFogs: VFOG fields, with VFEX and VFE2 attached by VFOG id, 
     put(vfe2, 0x20, 0.5f);
     put(vfe2, 0x34, 0.25f);
     put(vfe2, 0x3C, 2.0f);
+    std::vector<uint8_t> vfex = withId(96, 0x44, 10);
+    put<uint32_t>(vfex, 0x00, 1);
+    put(vfex, 0x04, 600.0f);
+    put(vfex, 0x10, 0.4f);
+    put(vfex, 0x14, -65.0f);
+    put(vfex, 0x28, 0.1f);
+    put(vfex, 0x2C, 25.0f);
+    put(vfex, 0x40, 10.0f);
     wdt::FogsFile f = wdt::parseFogs(file(2, {{"VFOG", concat(vfog(10, 0), vfog(11, 1728356))},
-                                              {"VFEX", concat(withId(96, 0x44, 11), withId(96, 0x44, 10))},
+                                              {"VFEX", concat(withId(96, 0x44, 11), vfex)},
                                               {"VFE2", vfe2}}));
     CHECK(f.version == 2);
     REQUIRE(f.fogs.size() == 2);
@@ -129,6 +137,14 @@ TEST_CASE("wdt::parseFogs: VFOG fields, with VFEX and VFE2 attached by VFOG id, 
     CHECK(a.flags == 3);
     CHECK(a.fogLevel == 1);
     REQUIRE(a.extra.size() == 96);
+    REQUIRE(a.extraFields.has_value());
+    CHECK(a.extraFields->enabled == 1);
+    CHECK(a.extraFields->extent == wdt::Vec3{600, 0, 0});
+    CHECK(a.extraFields->parameters[0] == 0.4f);
+    CHECK(a.extraFields->parameters[1] == -65.0f);
+    CHECK(a.extraFields->parameters[6] == 0.1f);
+    CHECK(a.extraFields->parameters[7] == 25.0f);
+    CHECK(a.extraFields->parameters[12] == 10.0f);
     CHECK(a.extra2.empty());
     CHECK_FALSE(a.palette.has_value());
     const wdt::Fog& b = f.fogs[1];
@@ -207,6 +223,8 @@ TEST_CASE("wdt: real map 2656 -- six paired fogs, five particulate groups, one s
     for (const wdt::Fog& f : fogs.fogs) {
         CAPTURE(f.id);
         CHECK(f.extra.size() == 96);
+        REQUIRE(f.extraFields.has_value());
+        for (int axis = 0; axis < 3; ++axis) CHECK(f.extraFields->extent[axis] > 0.0f);
         REQUIRE(f.palette.has_value());
         CHECK((f.palette->mode == 1.0f || f.palette->mode == 2.0f));
     }

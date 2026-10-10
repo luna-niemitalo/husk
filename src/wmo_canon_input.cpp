@@ -248,6 +248,23 @@ canon::AmbientVolume buildAmbientBox(const WmoInputs& in, uint32_t index) {
     return out;
 }
 
+constexpr uint32_t kFogInteriorExteriorBlend = 0x1;
+
+canon::LocalFog buildFog(const WmoInputs& in, uint32_t index) {
+    const wmo::Fog& f = in.root->fogs[index];
+    canon::LocalFog out;
+    out.ref = canon::Ref{canon::RecordIndex{index}, "mfog_" + std::to_string(index), canon::NameSource::Synthesized};
+    out.position = toCanon(f.position);
+    out.innerRadius = f.smallerRadius;
+    out.outerRadius = f.largerRadius;
+    out.interiorExteriorBlend = (f.flags & kFogInteriorExteriorBlend) != 0;
+    out.fog = {f.fog.end, f.fog.startScalar, rgbaOf(f.fog.color)};
+    out.underwater = {f.underwater.end, f.underwater.startScalar, rgbaOf(f.underwater.color)};
+    out.sourceFlags = f.flags;
+    if (f.doodadSet) out.placementSet = ownedSetRef(in, *f.doodadSet);
+    return out;
+}
+
 canon::Scene buildScene(const WmoInputs& in) {
     canon::Scene scene;
     const wmo::RootFile& root = *in.root;
@@ -260,6 +277,7 @@ canon::Scene buildScene(const WmoInputs& in) {
             buildAmbientVolume(in, root.ambientVolumes[i], "mavd", i, canon::AmbientVolume::Shape::Point));
     }
     for (uint32_t i = 0; i < root.ambientBoxes.size(); ++i) scene.ambientVolumes.push_back(buildAmbientBox(in, i));
+    for (uint32_t i = 0; i < root.fogs.size(); ++i) scene.fogs.push_back(buildFog(in, i));
     for (uint32_t i = 0; i < in.root->particulateVolumes.size(); ++i) {
         canon::ParticulateVolume v = buildParticulateVolume(root.particulateVolumes[i], in.textures);
         v.ref = canon::Ref{canon::RecordIndex{i}, "mpvd_" + std::to_string(i), canon::NameSource::Synthesized};
@@ -439,6 +457,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         meshPart.flags = info.flags;
         meshPart.boundsMin = toCanon(info.bounds.min);
         meshPart.boundsMax = toCanon(info.bounds.max);
+        if (in.groups[part]) meshPart.fogs.assign(in.groups[part]->fogIds.begin(), in.groups[part]->fogIds.end());
         mesh.parts.push_back(meshPart);
         if (in.groups[part]) appendGroup(in, part, *in.groups[part], mesh, primitiveMaterials, uvSetCount, colorSetCount);
     }

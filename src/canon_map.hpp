@@ -38,6 +38,13 @@ struct FogVolume {
         float mode = 0;                // 1 or 2
     };
     std::optional<Palette> palette;
+    // VFEX's characterized part (see wdt::Fog::Extra).
+    struct Extra {
+        bool enabled = false;
+        Vec3 extent;  // extent-like, positive
+        std::array<float, 13> parameters{};  // semantics unresolved, default 1.0
+    };
+    std::optional<Extra> extra;
     std::vector<uint8_t> sourceExtra;   // VFEX record, raw; empty when absent
     std::vector<uint8_t> sourceExtra2;  // VFE2 record, raw; empty when absent
 };

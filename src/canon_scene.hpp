@@ -243,7 +243,7 @@ struct ParticulateVolume {
         std::array<float, 4> color{};           // RGBA 0..1
         uint32_t tilesX = 0;                    // flipbook grid
         uint32_t tilesY = 0;
-        uint32_t frames = 0;  // frame count or frame rate, unresolved
+        uint32_t frames = 0;  // flipbook frame count; may use fewer than tilesX * tilesY tiles
         std::array<float, 32> parameters{};  // emission parameters, per-field semantics unresolved
     };
     std::vector<Emitter> emitters;
@@ -278,6 +278,31 @@ struct AmbientVolume {
     std::optional<Ref> placementSet;
 };
 
+// A fog the model places (WMO MFOG), model space. Per the wiki: fog
+// thickens from `end * startScalar` to `end` (distances from the camera),
+// inside a sphere that fades between the two radii. Parts name the fogs
+// that apply to them (MeshPart::fogs).
+struct LocalFog {
+    Ref ref;  // id = RecordIndex in the source table; name = "mfog_<index>", Synthesized
+    Vec3 position;
+    float innerRadius = 0;  // source smaller_radius
+    float outerRadius = 0;  // source larger_radius
+    // Source flag 0x1 (wiki F_IEBLEND): radius ignored; not drawn, but
+    // scales the area fog down near the model's exits.
+    bool interiorExteriorBlend = false;
+    struct Layer {
+        float end = 0;
+        float startScalar = 0;
+        std::array<float, 4> color{};  // RGBA 0..1 as stored
+    };
+    Layer fog;
+    Layer underwater;
+    uint32_t sourceFlags = 0;
+    // The owned placement set this fog applies with (MFED doodadSetId);
+    // nullopt when the source has no MFED.
+    std::optional<Ref> placementSet;
+};
+
 struct Scene {
     std::vector<Attachment> attachments;
     std::vector<Event> events;
@@ -285,6 +310,7 @@ struct Scene {
     std::vector<LocalLight> localLights;
     std::vector<ParticulateVolume> particulateVolumes;
     std::vector<AmbientVolume> ambientVolumes;
+    std::vector<LocalFog> fogs;
     std::vector<RibbonEmitter> ribbons;
     std::vector<ParticleEmitter> particles;
 };

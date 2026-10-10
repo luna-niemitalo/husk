@@ -40,116 +40,22 @@ metadata to preserve**, matching `../../WORLD_COMPLETENESS.md`'s own existing
 
 ## 1. WMO fog (`MFOG` + `MFED` + `MFOB`)
 
-**Current state**: `none`/`none`.
+**Current state (2026-10-10)**: `MFOG` is parsed (`wmo::Fog`) and exported
+as the WMO bundle's `resources.fogs` (`canon::LocalFog`, schema in
+`src/writers/bundle_writer.hpp`), with `MFED`'s doodad set as each fog's
+`placement_set`; every group's `MOGP.fogIds` is `mesh.parts[].fogs`. 253
+sampled roots export cleanly (462 fogs, all 300 `MFED` sets). Real-data
+facts: `../../WIKI_FINDINGS/WORLD.md` "WMO `MFOG` / `MFED`".
 
-**Wiki citation**: `documentation/wowdev-wiki/md/WMO.md`, `## MFOG chunk`
-(656–698, root-scoped), `## MFED` (822–834, root-scoped), `## MFOB`
-(1012–1019, root-scoped).
-
-### Struct, as documented
-
-```
-struct SMOFog {                    // 48 bytes, root-scoped
-    uint32_t flag_infinite_radius : 1;
-    uint32_t : 3;
-    uint32_t flag_0x10 : 1;
-    uint32_t : 27;
-    C3Vector pos;
-    float smaller_radius;           // start
-    float larger_radius;             // end
-    struct { float end; float start_scalar; CImVector color; } fogs[2];  // [FOG, UWFOG]
-};
-
-struct MFED { uint16_t doodadSetId; char unk1[0xE]; };  // 16 bytes, SL+ (9.0.1.33978)
-
-struct MFOB { /* no struct given -- wiki stub, version-gated Midnight+ (12.1.0.68209) */ };
-```
-
-### Real-data verification (this session)
-
-Scanned 4,000 real WMO root files. **`MFOG`: 777/4,000 (19.4%), and
-every single one is exactly 48 bytes (1 fog entry)** — no file in this
-sample had more than one. Decoded the one real record in
-`world/wmo/cameron.wmo`: `flags=0x0`, `pos=(-0.0, 0.0, 0.0)`,
-`smaller_radius=larger_radius=0.0`, `fog.end=444.444`,
-`fog.start_scalar=0.25`, `fog.color=(255,255,255,255)` white,
-`uwfog.end=222.222`, `uwfog.start_scalar=-0.5`,
-`uwfog.color=(255,0,0,255)` red. **This is an exact, byte-for-byte match
-for the wiki's own documented "empty fog entry" default values** ("The
-empty fog entry has both radiuses set to zero, 444.4445 for end, 0.25 for
-start_scalar, 222.2222 for underwater end, -0.5 for underwater
-start_scalar") — full confirmation of the struct, and a useful practical
-fact: the overwhelming majority of real `MFOG` chunks in this sample are
-just this placeholder default, not an authored fog. A future
-implementation should not be surprised to find "real" `MFOG` data that's
-actually just this default in most files; worth checking a wider sample
-specifically for a *non-default* `MFOG` record before picking a fixture
-(see Test plan).
-
-**`MFED`: 265/4,000 (6.6%)**, every real size found (16, 80, 48 bytes)
-divides evenly by 16 — confirms the 16-byte struct, no correction needed.
-Not individually field-decoded this session (time budget went to `MFOG`'s
-struct confirmation and the higher-value map-level sidecars below); a
-quick follow-up decode (just `doodadSetId` + the 14 unknown trailing
-bytes) is a cheap next step, not a blocker.
-
-**`MFOB`: 0 at full corpus strength (2026-10-11): 0/86,134 `.wmo` files**
-(roots + `MOGP`-nested group chunks; the same scan found 2,736
-`MOLP`-bearing files, so the walker reaches rare chunks). Notable because
-this corpus *is* Midnight (12.1.0, proven by DB2 layouts), yet the wiki's
-version gate (12.1.0.68209) claims the chunk exists there — either it
-landed in a later 12.1.0 build than this extraction, or it's unshipped.
-**The wiki gives no struct at all either.** Handed to the CASC side:
-`MFOB_CASC_REPORT.md`. Do not implement; watch only.
-
-### C++ data-model sketch
-
-```cpp
-// src/wmo.hpp (new, shared with LIQUID_TODO.md's own wmo.hpp sketch)
-namespace husk::wmo {
-
-struct FogLayer { float end = 0, startScalar = 0; uint8_t color[4]{}; };  // BGRA, matches CImVector convention
-
-struct Fog {
-    bool infiniteRadius = false;   // flag bit 0
-    bool flag0x10 = false;         // flag bit 4, meaning undocumented
-    Vec3 pos;
-    float smallerRadius = 0, largerRadius = 0;
-    FogLayer fog, underwaterFog;   // fogs[0], fogs[1]
-};
-
-// MFED, Shadowlands+. One entry per MFOG entry (same array length),
-// matched positionally -- the wiki doesn't document unk1's meaning, kept
-// raw.
-struct FogExtraData {
-    uint16_t doodadSetId = 0;
-    std::array<uint8_t, 14> unk1{};
-};
-
-}  // namespace husk::wmo
-```
-
-### Consumption plan
-
-Following the M2-particle/ribbon precedent: `dump-chunks`-only, full
-records, no `.glb` presence at all — **not even a minimal anchor**, unlike
-every other item in this document. A fog volume has a `pos` + two radii
-(a sphere-like falloff volume, similar in *shape* to a light's attenuation
-sphere but describing atmospheric density, not illumination) but no
-natural "owning node" to anchor it to the way an M2 ribbon/particle
-anchors to a bone joint — a WMO has no skeleton. The anchor could
-reasonably become a standalone glTF node (translation = `pos`, parented
-at the WMO's own root/scene node, not a joint) once WMO root/scene
-structure exists at all — recommend this as a `node-possible, unclaimed`
-target, matching `../../WORLD_COMPLETENESS.md`'s own existing call, once WMO
-placement is implemented, not before.
-
-- **Parse**: `full` for `MFOG` (confirmed); `deref` for `MFED` (struct
-  confirmed by size, fields not yet individually decoded); `n/a` for
-  `MFOB` (no real bytes, no struct).
-- **Consumption**: `diagnostic` (`dump-chunks` JSON).
-- **glTF ceiling**: `node-possible, unclaimed` — matches
-  `../../WORLD_COMPLETENESS.md`'s existing call exactly.
+Open:
+- **Flag bits 0x10, 0x100, 0x1000 (291/4,534), 0x10000**: undocumented,
+  kept raw as `source_flags`. Only 0x1 (F_IEBLEND) is typed.
+- **The four `fogIds` slots**: what distinguishes slot 0 from slots 1..3
+  is undocumented, so all four are written raw.
+- **`MFOB`: 0 at full corpus strength (0/86,134 `.wmo` files)**, though
+  the wiki's version gate (12.1.0.68209) names this Midnight corpus's
+  version; no struct on the wiki either. Handed to the CASC side:
+  `MFOB_CASC_REPORT.md`. Do not implement; watch only.
 
 ---
 
@@ -384,9 +290,11 @@ verifiable foreign-key relationship, not just plausible-looking).
 `Unk1[:3]` decodes as plausible extent-like floats (`(600,600,200)`,
 `(70,70,25)`, `(225,225,225)`) — consistent with the wiki's own "first 3
 floats always seem to have proper values" hedge. **All 16 floats
-characterized corpus-wide 2026-10-11** (five triples + a scalar; `Unk0`
-is an enable flag; `Unk3..8` are zero in every real record) — see
-`../../WIKI_FINDINGS/WORLD.md`'s `VFEX` section.
+characterized corpus-wide 2026-10-11** (`Unk0` is an enable flag;
+`Unk3..8` are zero in every real record; the triple grouping was
+corrected 2026-10-10) — see `../../WIKI_FINDINGS/WORLD.md`'s `VFEX`
+section. Exported: flag and extent typed, the 13 floats from +0x10 as
+`extra.parameters`.
 
 **`VFE2`: reverse-engineered (2026-10-11)** — the undocumented third
 chunk (176 bytes, no `WDT.md` entry at all) is now decoded corpus-wide:

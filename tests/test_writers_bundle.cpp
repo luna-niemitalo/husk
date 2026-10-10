@@ -695,6 +695,49 @@ TEST_CASE("writeBundle: ambient volumes write only their shape's geometry keys")
     CHECK_FALSE(volumes[2].contains("position"));
 }
 
+TEST_CASE("writeBundle: local fogs, and the parts that name them") {
+    canon::Model model = buildSyntheticModel();
+    canon::LocalFog placeholder;
+    placeholder.ref = canon::Ref{canon::RecordIndex{0}, "mfog_0", canon::NameSource::Synthesized};
+    canon::LocalFog exitFog;
+    exitFog.ref = canon::Ref{canon::RecordIndex{1}, "mfog_1", canon::NameSource::Synthesized};
+    exitFog.position = {1, 2, 3};
+    exitFog.innerRadius = 5;
+    exitFog.outerRadius = 20;
+    exitFog.interiorExteriorBlend = true;
+    exitFog.fog = {100, 0.25f, {0.2f, 0.4f, 0.6f, 1.0f}};
+    exitFog.underwater = {50, -0.5f, {0, 0, 1, 1}};
+    exitFog.sourceFlags = 0x1001;
+    exitFog.placementSet = canon::Ref{canon::RecordIndex{0}, "Set_$DefaultGlobal", canon::NameSource::WmoEmbedded};
+    model.scene.fogs = {placeholder, exitFog};
+    model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0, {}, {},
+                                {1, 0, 0, 0}});
+    model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{1}, "", canon::NameSource::None}, 0, {}, {}, {}});
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-fogs";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, "husk test");
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& fogs = manifest["resources"]["fogs"];
+
+    REQUIRE(fogs.size() == 2);
+    CHECK_FALSE(fogs[0].contains("placement_set"));
+    const auto& f = fogs[1];
+    CHECK(f["ref"]["name"] == "mfog_1");
+    CHECK(f["position"] == nlohmann::json::array({1.0, 2.0, 3.0}));
+    CHECK(f["inner_radius"] == 5.0);
+    CHECK(f["outer_radius"] == 20.0);
+    CHECK(f["interior_exterior_blend"] == true);
+    CHECK(f["fog"]["end"] == 100.0);
+    CHECK(f["fog"]["start_scalar"] == 0.25);
+    CHECK(f["fog"]["color"][1].get<double>() == doctest::Approx(0.4));
+    CHECK(f["underwater"]["start_scalar"] == -0.5);
+    CHECK(f["source_flags"] == 0x1001);
+    CHECK(f["placement_set"]["name"] == "Set_$DefaultGlobal");
+    const auto& parts = manifest["resources"]["mesh"]["parts"];
+    CHECK(parts[0]["fogs"] == nlohmann::json::array({1, 0, 0, 0}));
+    CHECK_FALSE(parts[1].contains("fogs"));
+}
+
 TEST_CASE("writeMapSceneBundle: fog and particulate volumes, raw records sliced into map_scene.bin") {
     canon::MapScene scene;
     scene.map = canon::Ref{canon::None{}, "2656", canon::NameSource::Listfile};
@@ -704,6 +747,7 @@ TEST_CASE("writeMapSceneBundle: fog and particulate volumes, raw records sliced 
     fog.position = {1, 2, 3};
     fog.animationPeriods = {3000, 0, 0, 0};
     fog.palette = canon::FogVolume::Palette{{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}, 2.0f};
+    fog.extra = canon::FogVolume::Extra{true, {600, 600, 200}, {0.4f, -15}};
     fog.sourceExtra.assign(96, 0);
     fog.sourceExtra2.assign(176, 0);
     fog.sourceExtra2[0x4C] = 0x7B;
@@ -734,9 +778,13 @@ TEST_CASE("writeMapSceneBundle: fog and particulate volumes, raw records sliced 
     CHECK(f["animation_periods"] == nlohmann::json::array({3000, 0, 0, 0}));
     CHECK(f["model"]["id"]["kind"] == "none");
     CHECK(f["palette"]["mode"] == 2.0);
+    CHECK(f["extra"]["enabled"] == true);
+    CHECK(f["extra"]["extent"] == nlohmann::json::array({600.0, 600.0, 200.0}));
+    REQUIRE(f["extra"]["parameters"].size() == 13);
+    CHECK(f["extra"]["parameters"][1] == -15.0);
     CHECK(f["source_extra"]["count"] == 96);
     CHECK(f["source_extra2"]["file"] == "map_scene.bin");
-    for (const char* key : {"palette", "source_extra", "source_extra2"}) {
+    for (const char* key : {"palette", "extra", "source_extra", "source_extra2"}) {
         CAPTURE(key);
         CHECK_FALSE(s["fog_volumes"][1].contains(key));
     }

@@ -259,6 +259,12 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
         writeVec3Value(w, part.boundsMin);
         w.key("bounds_max");
         writeVec3Value(w, part.boundsMax);
+        if (!part.fogs.empty()) {
+            w.key("fogs");
+            w.beginArray();
+            for (uint32_t fog : part.fogs) w.value(static_cast<int64_t>(fog));
+            w.endArray();
+        }
         w.endObject();
     }
     w.endArray();
@@ -712,6 +718,38 @@ void writeParticulateVolumes(json::Writer& w, const std::vector<canon::Particula
     w.endArray();
 }
 
+void writeFogLayer(json::Writer& w, const char* key, const canon::LocalFog::Layer& layer) {
+    w.key(key);
+    w.beginObject();
+    writeFloatField(w, "end", layer.end);
+    writeFloatField(w, "start_scalar", layer.startScalar);
+    writeFloatArrayField(w, "color", layer.color.data(), layer.color.size());
+    w.endObject();
+}
+
+void writeLocalFogs(json::Writer& w, const std::vector<canon::LocalFog>& fogs) {
+    w.beginArray();
+    for (const canon::LocalFog& f : fogs) {
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, f.ref);
+        writeVec3Field(w, "position", f.position);
+        writeFloatField(w, "inner_radius", f.innerRadius);
+        writeFloatField(w, "outer_radius", f.outerRadius);
+        w.key("interior_exterior_blend");
+        w.value(f.interiorExteriorBlend);
+        writeFogLayer(w, "fog", f.fog);
+        writeFogLayer(w, "underwater", f.underwater);
+        writeIntField(w, "source_flags", f.sourceFlags);
+        if (f.placementSet) {
+            w.key("placement_set");
+            writeRef(w, *f.placementSet);
+        }
+        w.endObject();
+    }
+    w.endArray();
+}
+
 void writeAmbientVolumes(json::Writer& w, const std::vector<canon::AmbientVolume>& volumes) {
     w.beginArray();
     for (const canon::AmbientVolume& v : volumes) {
@@ -963,6 +1001,8 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeLocalLights(w, model.scene.localLights);
     w.key("ambient_volumes");
     writeAmbientVolumes(w, model.scene.ambientVolumes);
+    w.key("fogs");
+    writeLocalFogs(w, model.scene.fogs);
     w.key("emitters");
     w.beginObject();
     w.key("ribbons");
@@ -1050,6 +1090,15 @@ void writeMapSceneBundle(const canon::MapScene& scene, const std::filesystem::pa
             for (const canon::Vec3& c : f.palette->colors) writeVec3Value(w, c);
             w.endArray();
             writeFloatField(w, "mode", f.palette->mode);
+            w.endObject();
+        }
+        if (f.extra) {
+            w.key("extra");
+            w.beginObject();
+            w.key("enabled");
+            w.value(f.extra->enabled);
+            writeVec3Field(w, "extent", f.extra->extent);
+            writeFloatArrayField(w, "parameters", f.extra->parameters.data(), f.extra->parameters.size());
             w.endObject();
         }
         if (!f.sourceExtra.empty()) {

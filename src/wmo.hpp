@@ -107,6 +107,28 @@ struct AmbientBox {
     uint16_t doodadSet = 0;  // MODS index
 };
 
+// MFOG, 48 bytes, with MFED's doodad set. On 4,000 real roots: every root
+// has 1..10, most of them the wiki's "empty fog entry" placeholder (zero
+// radii, ends 444.4445/222.2222); colour alpha is always 0xFF.
+struct Fog {
+    // 0x1 F_IEBLEND (wiki); 0x10, 0x100, 0x1000 and 0x10000 also occur,
+    // undocumented.
+    uint32_t flags = 0;
+    Vec3 position{};
+    float smallerRadius = 0;  // <= largerRadius in 4,526/4,534 real records
+    float largerRadius = 0;
+    struct Layer {
+        float end = 0;
+        float startScalar = 0;  // start = end * startScalar
+        uint32_t color = 0;     // CImVector (BGRA), raw
+    };
+    Layer fog;
+    Layer underwater;
+    // MFED (SL+): the MODS index it applies with; nullopt without MFED.
+    // MFED's other 14 bytes are zero in all 300 real records.
+    std::optional<uint16_t> doodadSet;
+};
+
 // MPVD emitter entry, 844 bytes; four per record (WIKI_FINDINGS/WORLD.md
 // "WMO MPVD"). Names below are value-characterized from the corpus, not
 // from any symbol.
@@ -118,7 +140,7 @@ struct ParticulateEmitter {
     uint32_t blendMode = 0;              // EGxBlend: 2 alpha, 3 additive seen
     uint32_t tilesX = 0;                 // flipbook grid
     uint32_t tilesY = 0;
-    uint32_t frames = 0;  // frame count or frame rate: tilesX * tilesY in 142/193 records
+    uint32_t frames = 0;  // frame count: the vertex shader takes frameIndex % frames
     float unknownA8 = 0;  // entry +0xA8, 1..35
 };
 
@@ -213,6 +235,7 @@ struct RootFile {
     std::vector<AmbientVolume> globalAmbientVolumes;  // MAVG
     std::vector<AmbientVolume> ambientVolumes;        // MAVD
     std::vector<AmbientBox> ambientBoxes;             // MBVD
+    std::vector<Fog> fogs;                            // MFOG + MFED
     uint32_t skyboxFileDataId = 0;  // MOSI; 0 = none
     std::string skyboxName;         // MOSB; empty = none
 };
@@ -267,7 +290,7 @@ struct GroupFile {
     uint16_t transparentBatchCount = 0;
     uint16_t interiorBatchCount = 0;
     uint16_t exteriorBatchCount = 0;
-    std::array<uint8_t, 4> fogIds{};
+    std::array<uint8_t, 4> fogIds{};  // MFOG indices, unused slots 0
     uint32_t liquidType = 0;
     uint32_t wmoAreaTableId = 0;
     uint32_t flags2 = 0;

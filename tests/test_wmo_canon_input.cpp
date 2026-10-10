@@ -52,6 +52,7 @@ wmo::RootFile syntheticRoot() {
     }
     root.doodadColorMultipliers = {1.0f, 2.0f, 3.0f};
     root.doodadSets = {{"Set_$DefaultGlobal", 0, 1}, {"Set_B", 1, 2}};
+    root.fogs.resize(1);  // every real root has an MFOG for its groups' fog id 0
     return root;
 }
 
@@ -458,6 +459,51 @@ TEST_CASE("buildCanonWmo: inconsistent inputs throw with expected and actual") {
     in.groups = {wet, std::nullopt};
     CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "liquid 0's material: expected an index < 2 materials, got 9",
                          std::runtime_error);
+
+    wmo::GroupFile foggy = group(3, 1, 0, 1);
+    foggy.fogIds = {0, 3, 0, 0};
+    in.groups = {std::nullopt, foggy};
+    CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "part 1's fogs: expected indices < 1 scene fogs, got 3",
+                         std::runtime_error);
+}
+
+TEST_CASE("buildCanonWmo: MFOG fogs become local fogs; parts name theirs, MFED picks the doodad set") {
+    wmo::RootFile root = syntheticRoot();
+    wmo::Fog exitFog;
+    exitFog.flags = 0x1001;
+    exitFog.position = {1, 2, 3};
+    exitFog.smallerRadius = 5;
+    exitFog.largerRadius = 20;
+    exitFog.fog = {100, 0.25f, 0xFF336699u};
+    exitFog.underwater = {50, -0.5f, 0xFF0000FFu};
+    exitFog.doodadSet = 1;
+    root.fogs = {wmo::Fog{}, exitFog};
+    wmo::GroupFile g = group(3, 1, 0, 1);
+    g.fogIds = {1, 0, 0, 0};
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {g, std::nullopt};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+
+    REQUIRE(model.scene.fogs.size() == 2);
+    CHECK_FALSE(model.scene.fogs[0].placementSet.has_value());
+    const canon::LocalFog& f = model.scene.fogs[1];
+    CHECK(f.ref.name == "mfog_1");
+    CHECK(f.position.z == 3.0f);
+    CHECK(f.innerRadius == 5.0f);
+    CHECK(f.outerRadius == 20.0f);
+    CHECK(f.interiorExteriorBlend);
+    CHECK(f.sourceFlags == 0x1001);
+    CHECK(f.fog.end == 100.0f);
+    CHECK(f.fog.startScalar == 0.25f);
+    // BGRA bytes 99 66 33 FF -> RGBA 0x33 0x66 0x99 0xFF.
+    CHECK(f.fog.color[0] == doctest::Approx(0x33 / 255.0));
+    CHECK(f.underwater.startScalar == -0.5f);
+    CHECK(f.underwater.color[2] == 1.0f);
+    CHECK(f.placementSet->name == "Set_B");
+    CHECK(model.mesh.parts[0].fogs == std::vector<uint32_t>{1, 0, 0, 0});
+    CHECK(model.mesh.parts[1].fogs.empty());
 }
 
 TEST_CASE("buildCanonWmo: real guardtower -- every batch in range, every set and doodad carried" *

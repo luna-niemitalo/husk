@@ -245,6 +245,31 @@ offset-like), +0x20 a 0.1..1.0 triple, +0x2C a period/speed-like triple
 +0x44 cross-checks 1,542/1,542. `Unk3..Unk8` (+0x48..+0x5C) are **zero in
 every real record** — "default 0" is actually "always 0".
 
+**Correction (2026-10-10, same 1,542 records, per-offset histograms):**
+the +0x14 triple is not negative-valued. Its common value is 1.0 (951,
+884, 721 records per float), it is signed in a minority (60/157/40
+negative), and the three floats range −75..500. Every float from +0x10
+to +0x40 defaults to 1.0, which the wiki's "rest are 1?" already said.
+The triple boundaries are also not crisp: +0x20 moves with neither
+neighbour (non-default together with +0x1C in 454 of 822 records, with
++0x24 in 135 of 573). husk therefore types only `Unk0` and the +0x04
+extent, and carries +0x10..+0x40 as a 13-float array.
+
+## WMO `MFOG` / `MFED` (2026-10-10)
+
+From the seeded 4,000-root sample, plus every group file under it:
+
+- **`MFOG`** is in all 4,000 roots, 1..10 records each (1 in 3,706); 3,655
+  of 4,534 records are the wiki's "empty fog entry" byte for byte. Flags
+  seen: 0x0, 0x1 (F_IEBLEND, 154), 0x1000 (291), 0x11000, 0x10, 0x1010,
+  0x1100; only 0x1 is documented. smaller_radius ≤ larger_radius in
+  4,526/4,534. Colour alpha is always 0xFF.
+- **`MFED`** is in 1,802 roots, and in 1,699 of them it is **empty**. The
+  other 103 have exactly one record per `MFOG` record (the wiki's "shall
+  be same as MFOG count"). Every `doodadSetId` is a valid `MODS` index (4
+  of 300 non-zero). `unk1[0xE]` is zero in all 300 records.
+- **`MOGP.fogIds[4]`** index `MFOG` in all 43,476 real slots.
+
 ## `_fogs.wdt` `VFE2` — reverse-engineered (2026-10-11)
 
 Absent from `WDT.md` entirely (found in real files by two independent husk

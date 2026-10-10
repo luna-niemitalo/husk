@@ -90,6 +90,7 @@
 //     "lights": [ ... ],
 //     "local_lights": [ ... ],
 //     "ambient_volumes": [ ... ],
+//     "fogs": [ ... ],
 //     "emitters": { "ribbons": [ ... ], "particles": [ ... ] },
 //     "particulate_volumes": [ ... ],
 //     "placement_sets": [ ... ],
@@ -147,7 +148,7 @@
 //     "envelope": [ { "time": <f, seconds>, "value": <f>, "value2": <f> } ],  // [] = constant
 //     "emitters": [ { "slot": <uint32>, <TextureRef keys>, "framebuffer_blend"?: <name>,
 //                     "source_blend": <uint32, EGxBlend>, "color": [r,g,b,a],
-//                     "tiles_x", "tiles_y", "frames": <uint32, frame count or rate>,
+//                     "tiles_x", "tiles_y", "frames": <uint32, flipbook frame count>,
 //                     "parameters": [32 floats, semantics unresolved] } ],
 //     "source_flags": <uint32>,
 //     "source_record": <BufferSlice u8x1, the raw 4,272-byte record, for uncharacterized fields> } ]
@@ -167,6 +168,22 @@
 //     "source_flags": <uint32>,
 //     "placement_set": <Ref> } ]                     // the owned set it applies with (doodadSetId)
 // ```
+//
+// ### resources.fogs
+// Fogs the model places (WMO MFOG), model space. Parts name the ones that
+// apply to them (`parts[].fogs`). Semantics per the wiki: fog runs from
+// end * start_scalar to end, inside a sphere fading between the radii.
+// ```json
+// [ { "ref": <Ref, name "mfog_<i>">,
+//     "position": [x,y,z], "inner_radius": <f>, "outer_radius": <f>,
+//     "interior_exterior_blend": <bool>,   // flag 0x1: radius ignored, not drawn; scales the area fog down near exits
+//     "fog":        { "end": <f>, "start_scalar": <f>, "color": [r,g,b,a] },   // 0..1 as stored
+//     "underwater": { "end": <f>, "start_scalar": <f>, "color": [r,g,b,a] },
+//     "source_flags": <uint32>,
+//     "placement_set": <Ref> } ]           // OMITTED without MFED; else the owned set it applies with
+// ```
+// Most real WMOs carry only the wiki's placeholder fog (zero radii, ends
+// 444.4445/222.2222).
 //
 // ### resources.local_lights
 // Static lights the model places (WMO MNLD, then MOLT), model space, no bone:
@@ -217,7 +234,8 @@
 //   "parts": [   // named, separately addressable pieces (WMO groups); [] for an M2
 //     { "ref": <Ref, record_index = part index, name from the source when it has one>,
 //       "flags": <uint32, source group flags raw (WMO MOGP flags)>,
-//       "bounds_min": [x,y,z], "bounds_max": [x,y,z] }
+//       "bounds_min": [x,y,z], "bounds_max": [x,y,z],
+//       "fogs": [ <uint32, index into resources.fogs> x4 ] }   // OMITTED when none; WMO MOGP fogIds, all slots raw
 //   ]
 // }
 // ```
@@ -412,6 +430,8 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
 //         "model": <Ref, FileDataID; id kind "none" = the client's errorcube fallback>,
 //         "fog_level": <uint32, 0..2>,
 //         "palette": { "colors": [[r,g,b] x3], "mode": <f, 1|2> },   // VFE2, candidate roles; OMITTED when absent
+//         "extra": { "enabled": <bool>, "extent": [3 f],            // VFEX; OMITTED when absent
+//                    "parameters": [13 f, semantics unresolved, default 1.0] },
 //         "source_extra": <BufferSlice u8x1, the 96-byte VFEX>,      // OMITTED when absent
 //         "source_extra2": <BufferSlice u8x1, the 176-byte VFE2> } ], // OMITTED when absent
 //     "particulate_volumes": [   // WDT _mpv PVMI groups

@@ -74,6 +74,20 @@ void requireSceneSets(const Scene& scene, size_t setCount) {
     for (size_t i = 0; i < scene.ambientVolumes.size(); ++i) {
         requireOwnedSet(scene.ambientVolumes[i].placementSet, setCount, "ambient volume " + std::to_string(i));
     }
+    for (size_t i = 0; i < scene.fogs.size(); ++i) {
+        requireOwnedSet(scene.fogs[i].placementSet, setCount, "fog " + std::to_string(i));
+    }
+}
+
+void requirePartFogs(const std::vector<MeshPart>& parts, size_t fogCount) {
+    for (size_t p = 0; p < parts.size(); ++p) {
+        for (uint32_t fog : parts[p].fogs) {
+            if (fog >= fogCount) {
+                throw std::runtime_error("part " + std::to_string(p) + "'s fogs: expected indices < " +
+                                          std::to_string(fogCount) + " scene fogs, got " + std::to_string(fog));
+            }
+        }
+    }
 }
 
 void requireLiquids(const std::vector<LiquidGrid>& liquids, size_t partCount, size_t materialCount) {
@@ -129,6 +143,7 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
     requireParts(mesh);
     requireUniqueInstanceIds(placementSets);
     requireSceneSets(scene, placementSets.size());
+    requirePartFogs(mesh.parts, scene.fogs.size());
     requireLiquids(liquids, mesh.parts.size(), materials.size());
 
     Model result;

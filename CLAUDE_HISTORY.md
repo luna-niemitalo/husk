@@ -50,6 +50,13 @@ deletions handled their own back-references).
   4), world frame. Every map in the corpus exports. Real data overturned
   the wiki's `PVBD` hedge: its indices are child boxes in the same `PVBD`,
   a hierarchy with leaves first (WIKI_FINDINGS/WORLD.md).
+- **WMO fog, VFEX**: `MFOG` as `resources.fogs` (`canon::LocalFog`),
+  `MFED`'s doodad set per fog, `MOGP.fogIds` per part. Real `MFED` is
+  usually empty (1,699/1,802), otherwise one per `MFOG`. 253 sampled roots
+  clean. `VFEX`'s flag and extent are typed in the map scene; a
+  per-offset scan corrected the triple grouping in Luna's characterization
+  (+0x14 defaults to 1.0, not negative), so the other 13 floats stay an
+  array. `MFOB` is absent from the corpus and waits on the CASC side.
 
 ---
 

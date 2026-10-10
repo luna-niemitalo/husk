@@ -47,6 +47,16 @@ struct Fog {
         float mode = 0;
     };
     std::optional<Palette> palette;
+    // VFEX's characterized fields (WIKI_FINDINGS/WORLD.md "_fogs.wdt VFEX"),
+    // from 1,542 real records. Its +0x48..+0x5F tail is zero in all of them.
+    struct Extra {
+        uint32_t enabled = 0;  // 1 in 1,539, 0 in 3
+        Vec3 extent{};         // +0x04, positive, 10..hundreds
+        // +0x10..+0x43; 1.0 is the common default of each. Co-variation
+        // doesn't split them into clean triples, so they stay one array.
+        std::array<float, 13> parameters{};
+    };
+    std::optional<Extra> extraFields;
 };
 
 struct FogsFile {
