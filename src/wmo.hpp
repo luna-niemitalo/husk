@@ -139,6 +139,15 @@ struct ParticulateVolume {
     std::vector<uint8_t> record;
 };
 
+inline constexpr size_t kParticulateVolumeSize = 4272;
+
+// One 4,272-byte particulate-volume record at `offset` -- WMO MPVD's
+// records and the head of every _mpv.wdt PVMI blob. `what` names it in
+// errors. Throws ParseError when the record runs past `size`, the envelope
+// count exceeds 40, or the +0x10AC emitter count disagrees with the slots
+// that have a texture.
+ParticulateVolume parseParticulateVolume(const uint8_t* data, size_t size, size_t offset, const std::string& what);
+
 // MOLT, 48 bytes. The wiki suspects these only ever fed offline MOCV
 // baking; every populated MOLT in a 4,000-root sample is type 0 (omni).
 struct LegacyLight {

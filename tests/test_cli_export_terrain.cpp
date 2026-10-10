@@ -73,6 +73,20 @@ Corpus makeCorpus(const std::string& name) {
     return c;
 }
 
+// A _fogs.wdt with one VFOG (id 1659, model 0) and its VFE2.
+std::vector<uint8_t> fogsFile() {
+    std::vector<uint8_t> out = mverChunk();
+    std::vector<uint8_t> vfog(104, 0);
+    setF32(vfog, 0x1C, 100.0f);
+    setU32(vfog, 0x64, 1659);
+    appendChunk(out, "VFOG", vfog);
+    std::vector<uint8_t> vfe2(176, 0);
+    setF32(vfe2, 0x3C, 2.0f);
+    setU32(vfe2, 0x4C, 1659);
+    appendChunk(out, "VFE2", vfe2);
+    return out;
+}
+
 }  // namespace
 
 TEST_CASE("husk export-terrain: a full tile writes a bundle with textures, layers and every placement") {
@@ -347,4 +361,41 @@ TEST_CASE("husk export-world requires --listfile and --listfile-root") {
     auto r = runHusk("export-world /nonexistent /tmp/husk-unused");
     CHECK(r.exitCode != 0);
     CHECK(r.output.find("--listfile") != std::string::npos);
+}
+
+TEST_CASE("husk export-map-scene: a map's _fogs.wdt becomes a map-scene bundle; a map with neither file fails") {
+    Corpus c = makeCorpus("map-scene");
+    writeBytes(c.mapDir() / "azeroth_fogs.wdt", fogsFile());
+    fs::path out = c.root / "scene.bundle";
+    auto r = runHusk("export-map-scene " + q(c.mapDir()) + " " + q(out) + " --listfile none");
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    CHECK(r.output.find("1 fog volumes, 0 particulate volumes") != std::string::npos);
+    nlohmann::json m = readJson(out / "manifest.json");
+    CHECK(m["kind"] == "map_scene");
+    CHECK(m["map_scene"]["map"]["name"] == "azeroth");
+    CHECK(m["map_scene"]["fog_volumes"][0]["id"] == 1659);
+    CHECK(m["map_scene"]["fog_volumes"][0]["palette"]["mode"] == 2.0);
+
+    fs::remove(c.mapDir() / "azeroth_fogs.wdt");
+    auto none = runHusk("export-map-scene " + q(c.mapDir()) + " " + q(c.root / "none.bundle") + " --listfile none");
+    CHECK(none.exitCode == 1);
+    CHECK(none.output.find("expected azeroth_fogs.wdt or azeroth_mpv.wdt") != std::string::npos);
+}
+
+TEST_CASE("husk export-world: maps with volume sidecars get a scene bundle, empty stubs none") {
+    Corpus c = makeCorpus("world-scene");
+    writeBytes(c.mapDir() / "azeroth_fogs.wdt", fogsFile());
+    writeBytes(c.root / "world" / "maps" / "other" / "other.wdt", wdtFile(0x4));
+    writeBytes(c.root / "world" / "maps" / "other" / "other_32_48.adt", rootFile(RootSpec{}));
+    writeBytes(c.root / "world" / "maps" / "other" / "other_fogs.wdt", mverChunk());
+    fs::path out = c.root / "scene";
+    auto r = runHusk("export-world " + q(c.root / "world" / "maps") + " " + q(out) + " " + c.listfileArgs() +
+                     " --skip-models");
+    INFO(r.output);
+    REQUIRE(r.exitCode == 0);
+    CHECK(r.output.find("1 map scenes") != std::string::npos);
+    nlohmann::json m = readJson(out / "maps" / "azeroth" / "azeroth.scene.bundle" / "manifest.json");
+    CHECK(m["map_scene"]["fog_volumes"].size() == 1);
+    CHECK_FALSE(fs::exists(out / "maps" / "other" / "other.scene.bundle"));
 }

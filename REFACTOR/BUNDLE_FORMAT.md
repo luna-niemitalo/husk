@@ -521,3 +521,18 @@ husk applies no transform to heights beyond that one addition, so these are
 expected to be in the source tiles themselves; confirming it byte-for-byte is
 `TODO/WORLD/ADT_TERRAIN_TODO.md`'s open item. Until then a consumer should
 weld tile edges to one side's heights rather than rely on them matching.
+
+## Map scene bundles
+
+**Current**: written by `husk export-map-scene` (one map) and `husk
+export-world` (`maps/<map>/<map>.scene.bundle`, only for maps whose sidecars
+have content). `kind` is `"map_scene"`; the schema is the doc comment on
+`writeMapSceneBundle` in `src/writers/bundle_writer.hpp`. It holds what a map
+places as a whole rather than per tile: `_fogs.wdt` fog volumes and
+`_mpv.wdt` particulate volumes, in the same world frame as terrain tiles
+(verified: every real particulate volume and 1,503/1,542 fogs land on an
+existing tile of their map). A particulate volume carries the same keys as
+a model bundle's `resources.particulate_volumes` entry, plus its world
+bounds, id and `PVPD`/`PVBD` data. Raw records for fields still
+uncharacterized are slices of `map_scene.bin`.
+

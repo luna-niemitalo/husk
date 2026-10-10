@@ -86,6 +86,11 @@ int exportTerrain(int argc, char** args);
 // REFACTOR/PLACEMENT_SETS.md).
 int exportWmo(int argc, char** args);
 
+// `export-map-scene` -- a map's _fogs.wdt and _mpv.wdt volumes to one
+// map-scene bundle (cmd_export_terrain.cpp; schema in
+// writers/bundle_writer.hpp's writeMapSceneBundle).
+int exportMapScene(int argc, char** args);
+
 // `export-world` -- every tile of every (or the selected) map, plus one
 // shared set of model bundles and terrain textures; parallel, resumable,
 // failures logged and skipped (cmd_export_terrain.cpp).
@@ -225,6 +230,14 @@ struct ExportWmoOptions {
     std::string modelsDir;
 };
 void addExportWmoOptions(CLI::App& app, ExportWmoOptions& opts);
+
+struct ExportMapSceneOptions {
+    std::string input;
+    std::string output;
+    std::string listfile;
+    std::string listfileRoot;
+};
+void addExportMapSceneOptions(CLI::App& app, ExportMapSceneOptions& opts);
 
 struct ExportWorldOptions {
     std::string mapsRoot;

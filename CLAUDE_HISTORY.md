@@ -44,6 +44,12 @@ deletions handled their own back-references).
   (global/point/box, raw colours and flags, doodad-set scoped). `MBVD`'s
   plane convention settled on real data (outward planes, inside where
   dot(n, p) <= d); `MAVG` turned out to be in 43% of roots, not 5.8%.
+- **Map scenes (2026-10-11)**: after Luna's `PVMI`/`VFE2` pass
+  (864cf17f), `_fogs.wdt` and `_mpv.wdt` export as a new `map_scene`
+  bundle (`canon::MapScene`, `husk export-map-scene`, `export-world` pass
+  4), world frame. Every map in the corpus exports. Real data overturned
+  the wiki's `PVBD` hedge: its indices are child boxes in the same `PVBD`,
+  a hierarchy with leaves first (WIKI_FINDINGS/WORLD.md).
 
 ---
 

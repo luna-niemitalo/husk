@@ -19,7 +19,6 @@ constexpr size_t kMouvSize = 16;
 constexpr size_t kMobaSize = 24;
 constexpr size_t kMoltSize = 48;
 constexpr size_t kMnldSize = 184;
-constexpr size_t kMpvdSize = 4272;
 constexpr size_t kMavdSize = 48;
 constexpr size_t kMbvdSize = 128;
 constexpr size_t kMpvdEmitterOffset = 0x2D0;
@@ -257,42 +256,11 @@ Liquid parseLiquid(const Chunk& c) {
 }
 
 std::vector<ParticulateVolume> parseParticulateVolumes(const Chunk& c) {
-    std::vector<ParticulateVolume> out(recordCount(c, kMpvdSize));
-    for (size_t i = 0; i < out.size(); ++i) {
-        size_t o = i * kMpvdSize;
-        ParticulateVolume& v = out[i];
-        v.flags = read<uint32_t>(c.data, c.size, o + 0x00, "MPVD");
-        v.position = readVec3(c.data, c.size, o + 0x08, "MPVD");
-        v.extent = readVec3(c.data, c.size, o + 0x14, "MPVD");
-        v.rotation = readVec3(c.data, c.size, o + 0x20, "MPVD");
-        v.presetId = read<uint32_t>(c.data, c.size, o + 0x30, "MPVD");
-        v.particleCount = read<uint32_t>(c.data, c.size, o + 0x34, "MPVD");
-        v.opacity = read<float>(c.data, c.size, o + 0x3C, "MPVD");
-        auto keyCount = read<uint32_t>(c.data, c.size, o + 0x298, "MPVD");
-        if (keyCount > kMpvdEnvelopeSlots) {
-            throw ParseError("MPVD[" + std::to_string(i) + "] keyframe count: expected <= " +
-                             std::to_string(kMpvdEnvelopeSlots) + ", got " + std::to_string(keyCount));
-        }
-        for (uint32_t k = 0; k < keyCount; ++k) {
-            v.envelope.push_back(read<std::array<float, 3>>(c.data, c.size, o + 0x40 + 12 * k, "MPVD"));
-        }
-        for (uint32_t slot = 0; slot < kMpvdEmitterSlots; ++slot) {
-            size_t e = o + kMpvdEmitterOffset + slot * kMpvdEmitterSize;
-            ParticulateEmitter emitter;
-            emitter.slot = slot;
-            emitter.textureFileDataId = read<uint32_t>(c.data, c.size, e + 0x94, "MPVD");
-            // Corpus: an entry is all zero exactly when its texture is 0.
-            if (emitter.textureFileDataId == 0) continue;
-            emitter.parameters = read<std::array<float, 32>>(c.data, c.size, e, "MPVD");
-            emitter.color = read<std::array<float, 4>>(c.data, c.size, e + 0x80, "MPVD");
-            emitter.blendMode = read<uint32_t>(c.data, c.size, e + 0x98, "MPVD");
-            emitter.tilesX = read<uint32_t>(c.data, c.size, e + 0x9C, "MPVD");
-            emitter.tilesY = read<uint32_t>(c.data, c.size, e + 0xA0, "MPVD");
-            emitter.frames = read<uint32_t>(c.data, c.size, e + 0xA4, "MPVD");
-            emitter.unknownA8 = read<float>(c.data, c.size, e + 0xA8, "MPVD");
-            v.emitters.push_back(emitter);
-        }
-        v.record.assign(c.data + o, c.data + o + kMpvdSize);
+    std::vector<ParticulateVolume> out;
+    size_t count = recordCount(c, kParticulateVolumeSize);
+    for (size_t i = 0; i < count; ++i) {
+        out.push_back(parseParticulateVolume(c.data, c.size, i * kParticulateVolumeSize,
+                                             "MPVD[" + std::to_string(i) + "]"));
     }
     return out;
 }
@@ -354,6 +322,55 @@ void requireVertexCount(const char* tag, size_t actual, size_t vertexCount) {
 }
 
 }  // namespace
+
+ParticulateVolume parseParticulateVolume(const uint8_t* data, size_t size, size_t offset, const std::string& what) {
+    if (offset > size || size - offset < kParticulateVolumeSize) {
+        throw ParseError(what + ": expected " + std::to_string(kParticulateVolumeSize) + " bytes at offset " +
+                         std::to_string(offset) + ", chunk is " + std::to_string(size));
+    }
+    const char* tag = what.c_str();
+    size_t o = offset;
+    ParticulateVolume v;
+    v.flags = read<uint32_t>(data, size, o + 0x00, tag);
+    v.position = readVec3(data, size, o + 0x08, tag);
+    v.extent = readVec3(data, size, o + 0x14, tag);
+    v.rotation = readVec3(data, size, o + 0x20, tag);
+    v.presetId = read<uint32_t>(data, size, o + 0x30, tag);
+    v.particleCount = read<uint32_t>(data, size, o + 0x34, tag);
+    v.opacity = read<float>(data, size, o + 0x3C, tag);
+    auto keyCount = read<uint32_t>(data, size, o + 0x298, tag);
+    if (keyCount > kMpvdEnvelopeSlots) {
+        throw ParseError(what + " keyframe count: expected <= " + std::to_string(kMpvdEnvelopeSlots) + ", got " +
+                         std::to_string(keyCount));
+    }
+    for (uint32_t k = 0; k < keyCount; ++k) {
+        v.envelope.push_back(read<std::array<float, 3>>(data, size, o + 0x40 + 12 * k, tag));
+    }
+    for (uint32_t slot = 0; slot < kMpvdEmitterSlots; ++slot) {
+        size_t e = o + kMpvdEmitterOffset + slot * kMpvdEmitterSize;
+        ParticulateEmitter emitter;
+        emitter.slot = slot;
+        emitter.textureFileDataId = read<uint32_t>(data, size, e + 0x94, tag);
+        // Corpus: an entry is all zero exactly when its texture is 0.
+        if (emitter.textureFileDataId == 0) continue;
+        emitter.parameters = read<std::array<float, 32>>(data, size, e, tag);
+        emitter.color = read<std::array<float, 4>>(data, size, e + 0x80, tag);
+        emitter.blendMode = read<uint32_t>(data, size, e + 0x98, tag);
+        emitter.tilesX = read<uint32_t>(data, size, e + 0x9C, tag);
+        emitter.tilesY = read<uint32_t>(data, size, e + 0xA0, tag);
+        emitter.frames = read<uint32_t>(data, size, e + 0xA4, tag);
+        emitter.unknownA8 = read<float>(data, size, e + 0xA8, tag);
+        v.emitters.push_back(emitter);
+    }
+    // The record's last dword counts its emitter entries (812/812 real records).
+    auto declared = read<uint32_t>(data, size, o + 0x10AC, tag);
+    if (declared != v.emitters.size()) {
+        throw ParseError(what + " emitter count: expected the +0x10AC count to match the " +
+                         std::to_string(v.emitters.size()) + " slots with a texture, got " + std::to_string(declared));
+    }
+    v.record.assign(data + o, data + o + kParticulateVolumeSize);
+    return v;
+}
 
 RootFile parseRoot(const std::vector<uint8_t>& fileBytes) {
     std::vector<Chunk> chunks = readChunksReversed(fileBytes.data(), fileBytes.size());

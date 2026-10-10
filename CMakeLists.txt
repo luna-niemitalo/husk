@@ -109,6 +109,8 @@ add_library(husk-lib STATIC
   src/adt.cpp
   src/wmo.cpp
   src/wmo_canon_input.cpp
+  src/wdt_volumes.cpp
+  src/map_scene_input.cpp
   src/adt_canon_input.cpp
   src/cmd_export_terrain.cpp
   src/skin.cpp
@@ -206,6 +208,8 @@ if(HUSK_BUILD_TESTS)
     tests/test_m2_scene_input.cpp
     tests/test_wmo.cpp
     tests/test_wmo_canon_input.cpp
+    tests/test_wdt_volumes.cpp
+    tests/test_map_scene_input.cpp
     tests/test_canon_diff.cpp
     tests/test_canon_definition.cpp
     tests/test_canon_definition_convergence.cpp

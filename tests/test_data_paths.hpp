@@ -320,6 +320,10 @@ constexpr const char* kWmoChamberCap = "world/wmo/dungeon/torghast/9du_torghast_
 constexpr const char* kWmoLiquidGroup = "world/wmo/dungeon/md_ruinedkeep/ruinedkeep_crypt2_015.wmo";
 // The one MPVD record in the corpus that uses a second emitter slot.
 constexpr const char* kWmoParticulate = "world/wmo/expansion09/exterior/10xt_exterior_tunnel01.wmo";
+// A map with 6 VFOG/VFEX/VFE2 fogs and 5 PVMI groups, one a shared-leaf
+// PVBD hierarchy.
+constexpr const char* kMapFogs = "world/maps/2656/2656_fogs.wdt";
+constexpr const char* kMapMpv = "world/maps/2656/2656_mpv.wdt";
 }  // namespace fixtures
 
 // reference/WoWDBDefs (gitignored, dev-only checkout, see dbd.hpp's module
@@ -431,5 +435,7 @@ inline std::string testWmoGuardTower() { return resolve("HUSK_TEST_WMO_GUARDTOWE
 inline std::string testWmoChamberCap() { return resolve("HUSK_TEST_WMO_CHAMBERCAP", fixtures::kWmoChamberCap); }
 inline std::string testWmoLiquidGroup() { return resolve("HUSK_TEST_WMO_LIQUID_GROUP", fixtures::kWmoLiquidGroup); }
 inline std::string testWmoParticulate() { return resolve("HUSK_TEST_WMO_PARTICULATE", fixtures::kWmoParticulate); }
+inline std::string testMapFogs() { return resolve("HUSK_TEST_MAP_FOGS", fixtures::kMapFogs); }
+inline std::string testMapMpv() { return resolve("HUSK_TEST_MAP_MPV", fixtures::kMapMpv); }
 
 }  // namespace husk::test

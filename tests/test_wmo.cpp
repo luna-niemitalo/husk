@@ -265,7 +265,7 @@ std::vector<uint8_t> mpvdRecord(uint32_t keyCount) {
         put<uint32_t>(r, e + 0xA4, 8);
         put(r, e + 0xA8, 12.0f);
     }
-    put<uint32_t>(r, 0x10AC, 1);
+    put<uint32_t>(r, 0x10AC, 2);  // emitter-entry count
     return r;
 }
 
@@ -296,7 +296,15 @@ TEST_CASE("wmo::parseRoot: MPVD reads header, envelope and the used emitter slot
     CHECK(e.frames == 8);
     CHECK(e.unknownA8 == 12.0f);
     CHECK(v.record.size() == 4272);
-    CHECK(v.record[0x10AC] == 1);
+    CHECK(v.record[0x10AC] == 2);
+}
+
+TEST_CASE("wmo::parseRoot: an MPVD emitter count that disagrees with the textured slots throws") {
+    std::vector<uint8_t> r = mpvdRecord(0);
+    put<uint32_t>(r, 0x10AC, 3);
+    CHECK_THROWS_WITH_AS(wmo::parseRoot(minimalRoot(0, {{"MPVD", r}})),
+                         "MPVD[0] emitter count: expected the +0x10AC count to match the 2 slots with a texture, got 3",
+                         wmo::ParseError);
 }
 
 TEST_CASE("wmo::parseRoot: MPVD with more than 40 keyframes or a partial record throws") {

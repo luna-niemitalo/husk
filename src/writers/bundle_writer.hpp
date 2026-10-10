@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <string>
 
+#include "canon_map.hpp"
 #include "canon_model.hpp"
 #include "writers/bundle_common.hpp"  // AssetUris
 
@@ -394,5 +395,35 @@ namespace husk::writers {
 // (FileDataID -> uri relative to `bundleDir`).
 void writeBundle(const canon::Model& model, const std::filesystem::path& bundleDir,
                   const std::string& producer = "husk dev", const AssetUris& assetUris = {});
+
+// A map's scene bundle: what the map places as a whole (fog and particulate
+// volumes), world frame. Raw source records go into map_scene.bin (written
+// only when non-empty), emitter textures into textures/; manifest.json is
+// written last.
+//
+// ```json
+// { "schema_version": "0.1.0", "exported_at", "producer", "kind": "map_scene", "endianness": "little",
+//   "map_scene": {
+//     "map": <Ref, the map's directory name>,
+//     "fog_volumes": [   // WDT _fogs VFOG + VFEX + VFE2
+//       { "ref": <Ref, name "vfog_<id>">, "id": <uint32, unique across the map's files>,
+//         "color": [r,g,b], "intensity": [3 f], "unknown18": <f>, "position": [x,y,z], "rotation": [x,y,z,w],
+//         "radius": [3 f], "animation_periods": [4 i32], "flags": <uint32>,
+//         "model": <Ref, FileDataID; id kind "none" = the client's errorcube fallback>,
+//         "fog_level": <uint32, 0..2>,
+//         "palette": { "colors": [[r,g,b] x3], "mode": <f, 1|2> },   // VFE2, candidate roles; OMITTED when absent
+//         "source_extra": <BufferSlice u8x1, the 96-byte VFEX>,      // OMITTED when absent
+//         "source_extra2": <BufferSlice u8x1, the 176-byte VFE2> } ], // OMITTED when absent
+//     "particulate_volumes": [   // WDT _mpv PVMI groups
+//       { <every resources.particulate_volumes key, world frame; ref name "pvmi_<id>">,
+//         "id": <uint32>, "bounds_min": [x,y,z], "bounds_max": [x,y,z],
+//         "points": [ { "direction": [x,y], "unknown08": <f>, "unknown0c": <f> } ],   // PVPD, semantics unresolved
+//         "boxes": [ { "min": [x,y,z], "max": [x,y,z], "children": [<uint32> into boxes],
+//                      "complete": <uint32> } ] } ]   // PVBD hierarchy: boxes[i < points] = leaf of points[i]
+//   }
+// }
+// ```
+void writeMapSceneBundle(const canon::MapScene& scene, const std::filesystem::path& bundleDir,
+                         const std::string& producer);
 
 }  // namespace husk::writers

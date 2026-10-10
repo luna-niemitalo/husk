@@ -1007,12 +1007,16 @@ bundle as its raw name (`name_source: adt_embedded`).
 ### `husk export-world <maps-root> <out-dir> --listfile F --listfile-root D [OPTIONS]`
 
 Every tile of every map under `<maps-root>` (one subdirectory per map, as
-`world/maps/` extracts), or only the `--map`s given, in three parallel passes:
-collect what the tiles reference, export each referenced M2 once (`export
---bundle-only`, in-process), then export each tile. Output:
+`world/maps/` extracts), or only the `--map`s given, in four parallel passes:
+collect what the tiles reference, export each referenced M2 and WMO once
+(`export --bundle-only` in-process; WMOs as `export-wmo` would), export each
+tile, then each map's fog and particulate volumes (`<map>_fogs.wdt`,
+`<map>_mpv.wdt`; `husk export-map-scene <map-dir> <out-dir>` does one map).
+Output:
 
 ```
 <out-dir>/maps/<map>/<map>_<x>_<y>.bundle/   tile bundles
+<out-dir>/maps/<map>/<map>.scene.bundle/     map-wide fog and particulate volumes, only for maps that have any
 <out-dir>/models/<fdid>.canon.bundle/        one bundle per placed or ground-cover M2
 <out-dir>/textures/<fdid>.dds|.png           ground textures, shared by every tile
 <out-dir>/errors.log                         phase<TAB>item<TAB>message, one line per failure

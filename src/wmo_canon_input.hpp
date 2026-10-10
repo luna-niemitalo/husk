@@ -18,6 +18,9 @@
 // scene.particulateVolumes, and MAVG/MAVD/MBVD in scene.ambientVolumes.
 namespace husk::wmoinput {
 
+// Textures keyed by FileDataID, resolved by the caller.
+using TextureResolutions = std::unordered_map<uint32_t, canon::TextureRef>;
+
 struct WmoInputs {
     const wmo::RootFile* root = nullptr;
     // One entry per root group (MOGI order), the base-LOD group file; nullopt
@@ -26,9 +29,15 @@ struct WmoInputs {
     std::vector<std::optional<wmo::GroupFile>> groups;
     // Material and particulate-volume textures and doodad models, keyed by
     // FileDataID, resolved by the caller (no filesystem access here).
-    std::unordered_map<uint32_t, canon::TextureRef> textures;
+    TextureResolutions textures;
     std::unordered_map<uint32_t, std::string> assetNames;  // listfile names for doodad and light-cookie FileDataIDs
 };
+
+// One particulate-volume record as canon, in the record's own frame (WMO
+// space for MPVD, world for a map's PVMI); emitter textures come from
+// `textures`, unresolved when absent. The caller sets `ref`.
+canon::ParticulateVolume buildParticulateVolume(const wmo::ParticulateVolume& volume,
+                                                const TextureResolutions& textures);
 
 // The wiki name of WMO shader `id` (WMO.md "Shader types"), or nullptr.
 const char* shaderName(uint32_t id);

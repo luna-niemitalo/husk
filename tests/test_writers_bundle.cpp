@@ -695,6 +695,64 @@ TEST_CASE("writeBundle: ambient volumes write only their shape's geometry keys")
     CHECK_FALSE(volumes[2].contains("position"));
 }
 
+TEST_CASE("writeMapSceneBundle: fog and particulate volumes, raw records sliced into map_scene.bin") {
+    canon::MapScene scene;
+    scene.map = canon::Ref{canon::None{}, "2656", canon::NameSource::Listfile};
+    canon::FogVolume fog;
+    fog.ref = canon::Ref{canon::RecordIndex{0}, "vfog_1659", canon::NameSource::Synthesized};
+    fog.id = 1659;
+    fog.position = {1, 2, 3};
+    fog.animationPeriods = {3000, 0, 0, 0};
+    fog.palette = canon::FogVolume::Palette{{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}, 2.0f};
+    fog.sourceExtra.assign(96, 0);
+    fog.sourceExtra2.assign(176, 0);
+    fog.sourceExtra2[0x4C] = 0x7B;
+    canon::FogVolume bare;
+    bare.ref = canon::Ref{canon::RecordIndex{1}, "vfog_1660", canon::NameSource::Synthesized};
+    scene.fogs = {fog, bare};
+    canon::MapParticulateVolume v;
+    v.volume.ref = canon::Ref{canon::RecordIndex{0}, "pvmi_185", canon::NameSource::Synthesized};
+    v.volume.sourceRecord.assign(4272, 0);
+    v.id = 185;
+    v.boundsMax = {5, 5, 10};
+    v.points = {{canon::Vec2{1, 0}, -0.0f, 2717.7f}};
+    v.boxes = {{{-1, -1, 0}, {1, 1, 1}, {}, 1}, {{-2, -2, 0}, {2, 2, 2}, {0}, 1}};
+    scene.particulateVolumes = {v};
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-map-scene";
+    fs::remove_all(dir);
+    writers::writeMapSceneBundle(scene, dir, "husk test");
+    nlohmann::json manifest = parseManifest(dir);
+
+    CHECK(manifest["kind"] == "map_scene");
+    const auto& s = manifest["map_scene"];
+    CHECK(s["map"]["name"] == "2656");
+    REQUIRE(s["fog_volumes"].size() == 2);
+    const auto& f = s["fog_volumes"][0];
+    CHECK(f["id"] == 1659);
+    CHECK(f["position"] == nlohmann::json::array({1.0, 2.0, 3.0}));
+    CHECK(f["animation_periods"] == nlohmann::json::array({3000, 0, 0, 0}));
+    CHECK(f["model"]["id"]["kind"] == "none");
+    CHECK(f["palette"]["mode"] == 2.0);
+    CHECK(f["source_extra"]["count"] == 96);
+    CHECK(f["source_extra2"]["file"] == "map_scene.bin");
+    for (const char* key : {"palette", "source_extra", "source_extra2"}) {
+        CAPTURE(key);
+        CHECK_FALSE(s["fog_volumes"][1].contains(key));
+    }
+    const auto& p = s["particulate_volumes"][0];
+    CHECK(p["ref"]["name"] == "pvmi_185");
+    CHECK(p["id"] == 185);
+    CHECK(p["bounds_max"] == nlohmann::json::array({5.0, 5.0, 10.0}));
+    CHECK(p["source_record"]["count"] == 4272);
+    CHECK(p["points"][0]["direction"] == nlohmann::json::array({1.0, 0.0}));
+    CHECK(p["boxes"][1]["children"] == nlohmann::json::array({0}));
+
+    std::vector<uint8_t> bin = readFile((dir / "map_scene.bin").string());
+    size_t at = f["source_extra2"]["byte_offset"];
+    CHECK(bin.at(at + 0x4C) == 0x7B);
+}
+
 TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set files") {
     canon::Model model = buildSyntheticModel();
     model.mesh.parts.push_back({canon::Ref{canon::RecordIndex{0}, "hall", canon::NameSource::WmoEmbedded}, 0x8, {}, {}});

@@ -24,8 +24,10 @@
 #include "groundeffect_db2.hpp"
 #include "listfile_cache.hpp"
 #include "listfile_index.hpp"
+#include "map_scene_input.hpp"
 #include "sources/listfile_catalog.hpp"
 #include "sources/texture_payload.hpp"
+#include "wdt_volumes.hpp"
 #include "wmo.hpp"
 #include "wmo_canon_input.hpp"
 #include "writers/bundle_common.hpp"
@@ -88,6 +90,17 @@ void addExportTerrainOptions(CLI::App& app, ExportTerrainOptions& opts) {
     app.add_flag("--list-models", opts.listModels,
                  "print '<fdid>\\t<listfile path>' for every model the tile references, then exit")
         ->group("Output");
+}
+
+void addExportMapSceneOptions(CLI::App& app, ExportMapSceneOptions& opts) {
+    addConfigOption(app);
+    app.add_option("input", opts.input, "map directory holding <map>_fogs.wdt and/or <map>_mpv.wdt")->required();
+    app.add_option("output", opts.output, "bundle directory to write")->required();
+    app.add_option("--listfile", opts.listfile,
+                   "community listfile CSV, or 'none': resolves particle textures, names fog models")
+        ->group("Resolution");
+    app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to, or 'none'")
+        ->group("Resolution");
 }
 
 void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts) {
@@ -362,6 +375,51 @@ canon::Model loadWmoModel(const std::filesystem::path& rootPath, const ListfileI
         }
     }
     return wmoinput::buildCanonWmo(inputs);
+}
+
+// A map directory's _fogs.wdt and _mpv.wdt as a canon::MapScene; nullopt
+// when the map has neither file. A file that exists but doesn't parse
+// fails the export.
+std::optional<canon::MapScene> loadMapScene(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
+                                            const std::string& listfileRoot) {
+    std::string map = mapDir.filename().string();
+    std::filesystem::path fogsPath = mapDir / (map + "_fogs.wdt");
+    std::filesystem::path mpvPath = mapDir / (map + "_mpv.wdt");
+    std::optional<wdt::FogsFile> fogs;
+    std::optional<wdt::MpvFile> mpv;
+    try {
+        if (std::filesystem::exists(fogsPath)) fogs = wdt::parseFogs(adt::readFile(fogsPath));
+        if (std::filesystem::exists(mpvPath)) mpv = wdt::parseMpv(adt::readFile(mpvPath));
+    } catch (const std::exception& e) {
+        throw std::runtime_error(map + ": " + e.what());
+    }
+    if (!fogs && !mpv) return std::nullopt;
+
+    mapinput::MapSceneInputs inputs;
+    inputs.map = map;
+    inputs.fogs = fogs ? &*fogs : nullptr;
+    inputs.mpv = mpv ? &*mpv : nullptr;
+    if (listfile) {
+        if (mpv) {
+            for (const wdt::MapParticulateVolume& v : mpv->volumes) {
+                for (const wmo::ParticulateEmitter& e : v.volume.emitters) {
+                    if (!inputs.textures.count(e.textureFileDataId)) {
+                        inputs.textures.emplace(e.textureFileDataId,
+                                                resolveTexture(e.textureFileDataId, *listfile, listfileRoot));
+                    }
+                }
+            }
+        }
+        if (fogs) {
+            for (const wdt::Fog& f : fogs->fogs) {
+                std::optional<std::string_view> listed = f.modelFileDataId ? listfile->lookup(f.modelFileDataId) : std::nullopt;
+                if (listed) {
+                    inputs.assetNames.emplace(f.modelFileDataId, std::filesystem::path(std::string(*listed)).stem().string());
+                }
+            }
+        }
+    }
+    return mapinput::buildMapScene(inputs);
 }
 
 std::set<uint32_t> placedAssets(const canon::Model& model) {
@@ -676,7 +734,42 @@ int exportWmo(int argc, char** args) {
     return 0;
 }
 
-// Three passes over the world, each parallel, each resumable (an output
+int exportMapScene(int argc, char** args) {
+    CLI::App app{"husk export-map-scene -- a map's fog and particulate volumes to a map-scene bundle",
+                 "husk export-map-scene"};
+    ExportMapSceneOptions opts;
+    addExportMapSceneOptions(app, opts);
+    int exitCode = 0;
+    if (!parseArgs(app, argc, args, exitCode)) return exitCode;
+
+    try {
+        std::unique_ptr<ListfileIndex> listfile;
+        std::string listfilePath = unlessNone(opts.listfile);
+        if (!listfilePath.empty()) {
+            listfile = loadListfileCached(listfilePath);
+            std::cerr << "husk: note: listfile: " << listfile->size() << " rows from " << listfilePath << "\n";
+        } else {
+            std::cerr << "husk: note: listfile: none (particle textures stay unresolved, fog models unnamed)\n";
+        }
+        std::filesystem::path mapDir = std::filesystem::path(opts.input).lexically_normal();
+        if (mapDir.filename().empty()) mapDir = mapDir.parent_path();
+        std::optional<canon::MapScene> scene = loadMapScene(mapDir, listfile.get(), unlessNone(opts.listfileRoot));
+        if (!scene) {
+            std::string map = mapDir.filename().string();
+            throw std::runtime_error("expected " + map + "_fogs.wdt or " + map + "_mpv.wdt in " + mapDir.string() +
+                                     ", found neither");
+        }
+        writers::writeMapSceneBundle(*scene, opts.output, "husk dev");
+        std::cout << "wrote " << opts.output << ": " << scene->fogs.size() << " fog volumes, "
+                  << scene->particulateVolumes.size() << " particulate volumes\n";
+    } catch (const std::exception& e) {
+        std::cerr << "husk: export-map-scene: " << e.what() << "\n";
+        return 1;
+    }
+    return 0;
+}
+
+// Four passes over the world, each parallel, each resumable (an output
 // whose manifest.json exists is skipped -- every writer writes it last):
 //   1. read every tile's _obj0/_tex0 once for what it references: model
 //      FileDataIDs and name-table paths (resolved against the listfile in
@@ -685,6 +778,8 @@ int exportWmo(int argc, char** args) {
 //      exportOneModel --bundle-only (one shared listfile, no DB2 enrichment),
 //   3. export each tile to maps/<map>/<tile>.bundle, terrain textures shared
 //      under textures/, uris only to outputs that exist.
+//   4. export each map's fog and particulate volumes to
+//      maps/<map>/<map>.scene.bundle, for maps whose sidecars have any.
 // Failures are logged to errors.log and never stop the run.
 int exportWorld(int argc, char** args) {
     CLI::App app{"husk export-world -- every ADT tile of every map to a canonical scene", "husk export-world"};
@@ -944,7 +1039,38 @@ int exportWorld(int argc, char** args) {
             progress.tick();
         });
 
-        std::cout << "done: " << tiles.size() << " tiles, " << exportedModels.size() << " model bundles, "
+        // Pass 4: map scenes.
+        std::vector<std::filesystem::path> mapDirs;
+        for (const WorldTile& t : tiles) {
+            if (mapDirs.empty() || mapDirs.back() != t.root.parent_path()) mapDirs.push_back(t.root.parent_path());
+        }
+        std::sort(mapDirs.begin(), mapDirs.end());
+        mapDirs.erase(std::unique(mapDirs.begin(), mapDirs.end()), mapDirs.end());
+        std::atomic<size_t> scenes{0};
+        {
+            Progress sceneProgress("map scenes", mapDirs.size());
+            parallelFor(mapDirs.size(), jobs, [&](size_t i) {
+                std::string map = mapDirs[i].filename().string();
+                std::filesystem::path bundle = out / "maps" / map / (map + ".scene.bundle");
+                try {
+                    if (std::filesystem::exists(bundle / "manifest.json")) {
+                        ++scenes;
+                    } else if (std::optional<canon::MapScene> scene =
+                                   loadMapScene(mapDirs[i], listfile.get(), opts.listfileRoot)) {
+                        if (!scene->fogs.empty() || !scene->particulateVolumes.empty()) {
+                            writers::writeMapSceneBundle(*scene, bundle, "husk dev");
+                            ++scenes;
+                        }
+                    }
+                } catch (...) {
+                    errors.add("map-scene", mapDirs[i].string(), exceptionMessage(std::current_exception()));
+                }
+                sceneProgress.tick();
+            });
+        }
+
+        std::cout << "done: " << tiles.size() << " tiles, " << scenes << " map scenes, " << exportedModels.size()
+                  << " model bundles, "
                   << errors.count() << " errors this run (" << (out / "errors.log").string() << ")" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "husk: export-world: " << e.what() << "\n";

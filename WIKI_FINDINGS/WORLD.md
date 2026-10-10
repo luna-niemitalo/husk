@@ -302,6 +302,20 @@ So a `(PVMI, PVPD, PVBD)` group is one particulate volume: `PVMI` holds the
 emitter definition (shared with WMO `MPVD`) plus its world box and id, and
 its trailer's count field ties the `PVPD` records to it explicitly.
 
+**`PVBD` is a box hierarchy, and the wiki's "indices into PVPD" is wrong**
+(all 619 groups, 2026-10-11): the index words name boxes in the same group's
+`PVBD`. They exceed the group's `PVPD` count in 143 groups but never its
+`PVBD` count. Boxes `0..P−1` (P = the group's `PVPD` count) are leaves, one
+per `PVPD` record; every later box has children; exactly one box is nobody's
+child (the root). In the 143 groups whose root has `complete` = 0, the
+root's sub-boxes share leaves (e.g. leaf 0 under two inner boxes), so the
+volume reads as a union of overlapping pieces; with `complete` = 1 it is a
+strict tree. `PVPD`'s 2D vector is a unit vector in 4,467/4,467 records, but
+reading `PVPD` as vertical half-planes bounding the pieces fails (neither
+sign holds; leaf boxes touch their "plane" in 21/4,467) — its meaning stays
+open. Positions are world-frame: every `PVMI` position lands on an existing
+tile of its map under the terrain frame, and inside its own AABB.
+
 ## Collision & culling — verified
 
 WMO's `MOBN`/`MOBR` BSP collision (48% of real group files) maps almost
