@@ -944,6 +944,17 @@ void exportGearAuxItemModels(gltf::Skeleton& skeleton, const husk::ListfileIndex
     }
 }
 
+std::optional<creaturedisplay::Data> loadCreatureDisplays(const ExportOptions& opts, CLI::App& app) {
+    if (!opts.bundleOnly || !app.count("--db2-dir") || !app.count("--dbd-dir")) return std::nullopt;
+    if (opts.db2DirArg == "none" || opts.dbdDirArg == "none") return std::nullopt;
+    std::optional<creaturedisplay::Data> data = creaturedisplay::load(opts.db2DirArg, opts.dbdDirArg, std::cerr);
+    if (!data) {
+        std::cerr << "husk: warning: creature display tables unreadable under --db2-dir '" << opts.db2DirArg
+                  << "'; bundles get no creature variants\n";
+    }
+    return data;
+}
+
 // The single-model export pipeline, unchanged in substance from the old
 // monolithic exportGlb -- factored out so --from-list (below) can call it
 // once per entry, sharing one already-parsed `opts`/`app` and one
@@ -965,7 +976,7 @@ void exportGearAuxItemModels(gltf::Skeleton& skeleton, const husk::ListfileIndex
 // whose entire point is avoiding a per-process copy).
 int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
                     const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile,
-                    std::optional<uint32_t> modelFileDataId) {
+                    std::optional<uint32_t> modelFileDataId, const creaturedisplay::Data* creatures) {
     std::string outputPath = outputPathIn;
     bool skinDirGiven = app.count("--skin-dir") > 0;
     bool lodGiven = !opts.lodArg.empty();
@@ -1296,7 +1307,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                                  modelFileDataId ? modelFileDataId
                                                  : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),
                                  objectSkinTextureFileDataId,
-                                 animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes, outputPath);
+                                 animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes, outputPath, creatures);
             std::cerr << "husk: wrote bundle '" << outputPath << "/'\n";
             return 0;
         }
@@ -1528,9 +1539,12 @@ int exportGlb(int argc, char** args) {
         }
     }
     const husk::ListfileIndex& listfile = *listfilePtr;
+    std::optional<creaturedisplay::Data> creatures = loadCreatureDisplays(opts, app);
+    const creaturedisplay::Data* creaturesPtr = creatures ? &*creatures : nullptr;
 
     if (!batchMode) {
-        return exportOneModel(opts, app, opts.modelPath, opts.outputPath, app.count("--output") > 0, listfile);
+        return exportOneModel(opts, app, opts.modelPath, opts.outputPath, app.count("--output") > 0, listfile,
+                              std::nullopt, creaturesPtr);
     }
 
     std::vector<std::string> modelPaths;
@@ -1568,7 +1582,8 @@ int exportGlb(int argc, char** args) {
         // (or, for anything thrown before it gets that far, caught here).
         int rc = 1;
         try {
-            rc = exportOneModel(opts, app, modelPath, outputPath, /*outputGiven=*/true, listfile);
+            rc = exportOneModel(opts, app, modelPath, outputPath, /*outputGiven=*/true, listfile, std::nullopt,
+                                creaturesPtr);
         } catch (const std::exception& e) {
             std::cerr << "husk: export failed: " << e.what() << "\n";
         }

@@ -189,6 +189,11 @@ public:
     // row is the safer default.
     void registerPathOverride(uint32_t fdid, std::string realContentPath);
 
+    // A FileDataID named outside the model (a creature variant's texture):
+    // the FileDataID tiers only (literal, listfile, store). No pool claim and
+    // no per-slot memo, since it fills no M2 texture-array slot.
+    Resolved<EncodedTexture> textureForFileDataId(uint32_t fdid) const { return resolveFileDataIdTiers(fdid); }
+
     // How many same-basename pool candidates are still unclaimed for
     // `modelPath` -- the diagnostic `buildMaterialsAndPrimitives` used to
     // read straight off its own local `FuzzyTexturePool` (now owned here

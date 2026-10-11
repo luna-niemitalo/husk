@@ -303,6 +303,22 @@ std::optional<lightdb::Data> loadLights(const std::string& db2Dir, const std::st
     return data;
 }
 
+std::optional<creaturedisplay::Data> loadCreatures(const std::string& db2Dir, const std::string& dbdDir,
+                                                  std::string& note) {
+    if (db2Dir.empty() || dbdDir.empty()) {
+        note = "creature variants: none (needs --db2-dir and --dbd-dir)";
+        return std::nullopt;
+    }
+    std::ostringstream err;
+    std::optional<creaturedisplay::Data> data = creaturedisplay::load(db2Dir, dbdDir, err);
+    if (!data) {
+        note = "creature variants: none (creature display DB2s unreadable: " + err.str() + ")";
+        return std::nullopt;
+    }
+    note = "creature variants: " + std::to_string(data->modelDataByFile.size()) + " creature models from " + db2Dir;
+    return data;
+}
+
 std::optional<liquiddb::Data> loadLiquids(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
     if (db2Dir.empty() || dbdDir.empty()) {
         note = "liquid types: identities only (needs --db2-dir and --dbd-dir)";
@@ -1071,7 +1087,8 @@ int exportMap(int argc, char** args) {
 //      FileDataIDs and name-table paths (resolved against the listfile in
 //      one pass for the whole world), plus every GroundEffectDoodad model,
 //   2. export each model once to models/<fdid>.canon.bundle via
-//      exportOneModel --bundle-only (one shared listfile, no DB2 enrichment),
+//      exportOneModel --bundle-only (one shared listfile, no per-model DB2
+//      loads; creature variants from tables loaded once),
 //   3. export each tile to maps/<map>/<tile>.bundle, terrain textures shared
 //      under textures/, uris only to outputs that exist.
 //   4. write each map's world document to maps/<map>/<map>.world.bundle:
@@ -1136,6 +1153,10 @@ int exportWorld(int argc, char** args) {
         std::string lightNote;
         const std::optional<lightdb::Data> lights = loadLights(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), lightNote);
         std::cout << lightNote << std::endl;
+        std::string creatureNote;
+        const std::optional<creaturedisplay::Data> creatures =
+            loadCreatures(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), creatureNote);
+        std::cout << creatureNote << std::endl;
 
         // Pass 1: references.
         std::set<uint32_t> modelIds;
@@ -1258,7 +1279,7 @@ int exportWorld(int argc, char** args) {
                         if (!src) {
                             errors.add("model", std::to_string(fdid), "no local file (listfile or _by_fdid)");
                         } else if (exportOneModel(modelOpts, modelApp, src->string(), bundle.string(), true,
-                                                  *listfile, fdid) != 0) {
+                                                  *listfile, fdid, creatures ? &*creatures : nullptr) != 0) {
                             errors.add("model", std::to_string(fdid), "export failed (see stderr): " + src->string());
                         }
                     }

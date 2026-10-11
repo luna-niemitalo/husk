@@ -1089,3 +1089,49 @@ TEST_CASE("writeBundle: a material's framebuffer blend is written by name, and o
     CHECK(materials[0]["framebuffer_blend"] == "alpha_key");
     CHECK_FALSE(materials[1].contains("framebuffer_blend"));
 }
+
+TEST_CASE("writeBundle: texture slots, a layer's slot and variants in the definition") {
+    canon::Model model = buildSyntheticModel();
+    model.textureSlots = {{"monster_1", 11}};
+    model.materials[0].layers[0].slot = 0;
+    canon::Variant variant;
+    canon::TextureRef skin;
+    skin.state = canon::TextureRef::State::KnownUnresolved;
+    skin.resolved.id = canon::FileDataId{123};
+    skin.unresolvedReason = "not extracted";
+    variant.textures.push_back({0, skin});
+    variant.shownGeosets = std::vector<uint32_t>{0, 203};
+    variant.particleColors.push_back({{1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}});
+    variant.opacity = 0.5f;
+    variant.sources.push_back({canon::Ref{canon::Db2Row{"CreatureDisplayInfo", 7}, "", canon::NameSource::None}, 1.5f, 2});
+    variant.unresolved.push_back({"TextureVariationFileDataID[3]", canon::UnresolvedField::Kind::Id, 99.0, std::nullopt});
+    model.variants.push_back(variant);
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-variants";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, testProvenance());
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& definition = manifest["definition"];
+    CHECK(definition["texture_slots"][0]["name"] == "monster_1");
+    CHECK(definition["texture_slots"][0]["source"]["texture_type"] == 11);
+    CHECK(manifest["resources"]["materials"][0]["layers"][0]["slot"] == 0);
+    const auto& v = definition["variants"][0];
+    CHECK(v["textures"][0]["slot"] == 0);
+    CHECK(v["shown_geosets"] == nlohmann::json::array({0, 203}));
+    CHECK(v["particle_colors"][0]["mid"] == nlohmann::json::array({0.0, 1.0, 0.0, 1.0}));
+    CHECK(v["opacity"] == 0.5);
+    CHECK(v["sources"][0]["ref"]["id"]["row"] == 7);
+    CHECK(v["sources"][0]["scale"] == 1.5);
+    CHECK(v["sources"][0]["base_scale"] == 2);
+    CHECK(v["unresolved"]["fields"][0]["value"] == 99);
+}
+
+TEST_CASE("writeBundle: a model without slots writes neither texture_slots nor variants") {
+    canon::Model model = buildSyntheticModel();
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-no-variants";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, testProvenance());
+    nlohmann::json manifest = parseManifest(dir);
+    CHECK_FALSE(manifest["definition"].contains("texture_slots"));
+    CHECK_FALSE(manifest["definition"].contains("variants"));
+}

@@ -14,6 +14,7 @@
 #include "canon_ref.hpp"        // Identity
 #include "canon_scene.hpp"      // Scene
 #include "canon_skeleton.hpp"   // Skeleton
+#include "canon_variant.hpp"    // TextureSlot, Variant
 
 // husk::canon: canon::Model, the whole-model composition root -- the first
 // place every already-built, independently-convergence-proven canon::
@@ -104,6 +105,10 @@ struct Model {
     std::vector<LiquidGrid> liquids;
     std::vector<LiquidType> liquidTypes;  // each type `liquids` name, once, first-seen order
     CollisionMesh collision;  // empty = the model has none (M2 only)
+    // Replaceable textures material layers read (MaterialLayer::slot), and
+    // the variants that fill them.
+    std::vector<TextureSlot> textureSlots;
+    std::vector<Variant> variants;
 };
 
 // Packs already-built canon:: pieces into a Model, validating the

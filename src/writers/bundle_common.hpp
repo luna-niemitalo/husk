@@ -115,6 +115,7 @@ void writeContractHeader(json::Writer& w, const char* kind, const canon::Ref& su
 std::string hexFlags(uint32_t flags);
 
 void writeSourceRecord(json::Writer& w, const canon::SourceRecord& record);
+void writeUnresolved(json::Writer& w, const std::vector<canon::UnresolvedField>& fields);
 
 struct OwnedSetEntry {
     const canon::PlacementSet* set = nullptr;

@@ -269,9 +269,11 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
     canon::PlacementSet effects = assembleEffects(model, sequenceCount, sceneBlobs, textureResolutions);
     if (!effects.instances.empty()) sets.push_back({std::move(effects), true, true});
 
-    return canon::assembleModel(std::move(skeleton), std::move(mesh), std::move(materials),
-                                 std::move(primitiveMaterials), std::move(animations), std::move(scene),
-                                 std::move(sets), {}, buildCollision(model));
+    canon::Model result = canon::assembleModel(std::move(skeleton), std::move(mesh), std::move(materials),
+                                               std::move(primitiveMaterials), std::move(animations),
+                                               std::move(scene), std::move(sets), {}, buildCollision(model));
+    result.textureSlots = textureSlots(model.textures);
+    return result;
 }
 
 }  // namespace husk::m2input

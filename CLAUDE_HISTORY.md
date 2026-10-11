@@ -14,6 +14,23 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-11 (night) — Creature variants; classification without screenshots.**
+
+- Luna's calls: Phase 5 classification is checked by derivation coverage,
+  not screenshots (too much manual work); it stays the 1.0 gate, and a
+  source no rule covers joins the nearest classified effect (leftovers in
+  `style`/`unresolved`) or, if genuinely unsolvable, is skipped and
+  counted.
+- Creature variants: a model's alternative looks as `definition.variants`
+  over `definition.texture_slots`; M2 creatures get them from
+  CreatureModelData -> CreatureDisplayInfo (textures by slot, shown
+  geosets, ParticleColor ramps, opacity; identical looks merged, each
+  display listed with its scale). Humanoid NPC displays are counted, not
+  variants. Findings in `WIKI_FINDINGS/M2.md` (the fourth texture entry,
+  positional entries, ParticleColor ARGB).
+- DB2 CommonData lookups were a linear scan per record; now indexed at
+  parse (CreatureDisplayInfo load 2.2 s -> 0.6 s per export, same output).
+
 **2026-10-11 (late night) — Effects: M2 emitters, derivations, zone fog.**
 
 - Luna's calls: schema_version is 0.1.0 (the 1.0 release is the one that

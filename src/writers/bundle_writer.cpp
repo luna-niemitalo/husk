@@ -408,6 +408,88 @@ void writeAnimationSection(json::Writer& w, const canon::Skeleton& skeleton,
     w.endArray();
 }
 
+void writeRgba(json::Writer& w, const std::array<float, 4>& rgba) {
+    w.beginArray();
+    for (float c : rgba) w.value(static_cast<double>(c));
+    w.endArray();
+}
+
+void writeVariants(json::Writer& w, const canon::Model& model, const std::filesystem::path& bundleDir,
+                   std::unordered_set<std::string>& writtenTextures) {
+    if (!model.textureSlots.empty()) {
+        w.key("texture_slots");
+        w.beginArray();
+        for (const canon::TextureSlot& slot : model.textureSlots) {
+            w.beginObject();
+            w.key("name");
+            w.value(slot.name);
+            w.key("source");
+            w.beginObject();
+            w.key("texture_type");
+            w.value(static_cast<int64_t>(slot.sourceType));
+            w.endObject();
+            w.endObject();
+        }
+        w.endArray();
+    }
+    if (model.variants.empty()) return;
+    w.key("variants");
+    w.beginArray();
+    for (const canon::Variant& variant : model.variants) {
+        w.beginObject();
+        w.key("textures");
+        w.beginArray();
+        for (const canon::SlotTexture& t : variant.textures) {
+            w.beginObject();
+            w.key("slot");
+            w.value(static_cast<int64_t>(t.slot));
+            w.key("texture");
+            writeTextureEntry(w, t.texture, bundleDir, writtenTextures);
+            w.endObject();
+        }
+        w.endArray();
+        if (variant.shownGeosets) {
+            w.key("shown_geosets");
+            w.beginArray();
+            for (uint32_t id : *variant.shownGeosets) w.value(static_cast<int64_t>(id));
+            w.endArray();
+        }
+        if (!variant.particleColors.empty()) {
+            w.key("particle_colors");
+            w.beginArray();
+            for (const canon::ParticleColorRamp& ramp : variant.particleColors) {
+                w.beginObject();
+                w.key("start");
+                writeRgba(w, ramp.start);
+                w.key("mid");
+                writeRgba(w, ramp.mid);
+                w.key("end");
+                writeRgba(w, ramp.end);
+                w.endObject();
+            }
+            w.endArray();
+        }
+        if (variant.opacity) writeFloatField(w, "opacity", *variant.opacity);
+        w.key("sources");
+        w.beginArray();
+        for (const canon::VariantSource& source : variant.sources) {
+            w.beginObject();
+            w.key("ref");
+            writeRef(w, source.ref);
+            writeFloatField(w, "scale", source.scale);
+            writeFloatField(w, "base_scale", source.baseScale);
+            w.endObject();
+        }
+        w.endArray();
+        if (!variant.unresolved.empty()) {
+            w.key("unresolved");
+            writeUnresolved(w, variant.unresolved);
+        }
+        w.endObject();
+    }
+    w.endArray();
+}
+
 void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, const std::filesystem::path& bundleDir,
                          std::unordered_set<std::string>& writtenTextures) {
     w.beginObject();
@@ -419,6 +501,10 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, cons
     writeUvRef(w, layer.uv);
     w.key("texture");
     writeTextureEntry(w, layer.texture, bundleDir, writtenTextures);
+    if (layer.slot) {
+        w.key("slot");
+        w.value(static_cast<int64_t>(*layer.slot));
+    }
     w.key("blend");
     w.value(blendOpName(layer.blendIntoPrevious));
 
@@ -730,9 +816,11 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
 
     // Owned placement sets are the model's first references, so set i is
     // reference i.
+    std::unordered_set<std::string> writtenTextures;
     w.key("definition");
     w.beginObject();
     writeOwnedSetDefinitions(w, sets);
+    writeVariants(w, model, bundleDir, writtenTextures);
     w.endObject();
     writeOwnedSetSelectionAndReferences(w, sets);
 
@@ -761,7 +849,6 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     w.endObject();
 
     w.key("materials");
-    std::unordered_set<std::string> writtenTextures;
     writeMaterialsSection(w, model.materials, bundleDir, writtenTextures);
 
     w.key("scene");

@@ -249,6 +249,30 @@ replaced a separate WMO collision mesh (a consumer selects collidable
 faces by flag). `resources.geometry.collision` remains for M2, whose collision
 vertices are separate data.
 
+## Texture slots and variants — a model's alternative looks
+
+**Current** (2026-10-11, Luna's call): a model that can be dressed more
+than one way declares it in its `definition`:
+
+- `texture_slots`: the textures its material layers take from outside the
+  model (`{name, source: {texture_type}}`; M2: one per distinct nonzero
+  texture type). A layer that reads one names it as `slot`; the layer's
+  own `texture` is the default.
+- `variants`: each one complete way to dress the model: the textures it
+  puts in slots, the geosets it shows (`shown_geosets`, a closed list;
+  absent = the model's default), particle colour ramps (ramp i recolours
+  emitters whose `particle_color_index` is 11 + i), opacity, and the
+  source rows that produce it, each with its scale. Values husk carries
+  but can't place yet go in the variant's `unresolved`.
+
+M2 creatures fill this from `CreatureModelData` → `CreatureDisplayInfo`
+(`src/creature_variant_input.cpp`, `export --bundle-only` and
+`export-world` with `--db2-dir`/`--dbd-dir`); displays that dress the
+model identically are one variant listing each display. "Variant", not
+"style": an effect instance's `style` is its classic look. A variant
+never swaps the model: a creature that alternates between models is a
+level above the model document and isn't represented yet.
+
 ## Embed or reference — one rule
 
 A payload is either external (`uri`, a relative path) or inline. Either way the

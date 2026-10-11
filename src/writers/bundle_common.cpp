@@ -465,59 +465,6 @@ void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
     w.endObject();
 }
 
-const char* unresolvedKindName(canon::UnresolvedField::Kind kind) {
-    switch (kind) {
-        case canon::UnresolvedField::Kind::Scalar: return "scalar";
-        case canon::UnresolvedField::Kind::Scalars: return "scalars";
-        case canon::UnresolvedField::Kind::Bits: return "bits";
-        case canon::UnresolvedField::Kind::Color: return "color";
-        case canon::UnresolvedField::Kind::Count: return "count";
-        case canon::UnresolvedField::Kind::Id: return "id";
-        case canon::UnresolvedField::Kind::Angle: return "angle";
-        case canon::UnresolvedField::Kind::UnitVector: return "unit_vector";
-        case canon::UnresolvedField::Kind::Words: return "words";
-    }
-    return "scalar";
-}
-
-void writeUnresolved(json::Writer& w, const std::vector<canon::UnresolvedField>& fields) {
-    w.beginObject();
-    w.key("fields");
-    w.beginArray();
-    for (const canon::UnresolvedField& f : fields) {
-        w.beginObject();
-        w.key("field");
-        w.value(f.field);
-        w.key("kind");
-        w.value(unresolvedKindName(f.kind));
-        w.key("value");
-        std::visit(
-            [&w](const auto& v) {
-                using T = std::decay_t<decltype(v)>;
-                if constexpr (std::is_same_v<T, uint32_t>) {
-                    w.value(hexFlags(v));
-                } else if constexpr (std::is_same_v<T, std::vector<uint32_t>>) {
-                    w.beginArray();
-                    for (uint32_t word : v) w.value(hexFlags(word));
-                    w.endArray();
-                } else if constexpr (std::is_same_v<T, std::vector<double>>) {
-                    w.beginArray();
-                    for (double d : v) w.value(d);
-                    w.endArray();
-                } else {
-                    w.value(v);
-                }
-            },
-            f.value);
-        if (f.candidateRole) {
-            w.key("candidate_role");
-            w.value(*f.candidateRole);
-        }
-        w.endObject();
-    }
-    w.endArray();
-    w.endObject();
-}
 
 void writeEffectInstanceFields(json::Writer& w, const canon::EffectPlacement& effect, const InputAssets& assets) {
     w.key("inputs");
@@ -683,6 +630,64 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
 }
 
 }  // namespace
+
+namespace {
+
+const char* unresolvedKindName(canon::UnresolvedField::Kind kind) {
+    switch (kind) {
+        case canon::UnresolvedField::Kind::Scalar: return "scalar";
+        case canon::UnresolvedField::Kind::Scalars: return "scalars";
+        case canon::UnresolvedField::Kind::Bits: return "bits";
+        case canon::UnresolvedField::Kind::Color: return "color";
+        case canon::UnresolvedField::Kind::Count: return "count";
+        case canon::UnresolvedField::Kind::Id: return "id";
+        case canon::UnresolvedField::Kind::Angle: return "angle";
+        case canon::UnresolvedField::Kind::UnitVector: return "unit_vector";
+        case canon::UnresolvedField::Kind::Words: return "words";
+    }
+    return "scalar";
+}
+
+}  // namespace
+
+void writeUnresolved(json::Writer& w, const std::vector<canon::UnresolvedField>& fields) {
+    w.beginObject();
+    w.key("fields");
+    w.beginArray();
+    for (const canon::UnresolvedField& f : fields) {
+        w.beginObject();
+        w.key("field");
+        w.value(f.field);
+        w.key("kind");
+        w.value(unresolvedKindName(f.kind));
+        w.key("value");
+        std::visit(
+            [&w](const auto& v) {
+                using T = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<T, uint32_t>) {
+                    w.value(hexFlags(v));
+                } else if constexpr (std::is_same_v<T, std::vector<uint32_t>>) {
+                    w.beginArray();
+                    for (uint32_t word : v) w.value(hexFlags(word));
+                    w.endArray();
+                } else if constexpr (std::is_same_v<T, std::vector<double>>) {
+                    w.beginArray();
+                    for (double d : v) w.value(d);
+                    w.endArray();
+                } else {
+                    w.value(v);
+                }
+            },
+            f.value);
+        if (f.candidateRole) {
+            w.key("candidate_role");
+            w.value(*f.candidateRole);
+        }
+        w.endObject();
+    }
+    w.endArray();
+    w.endObject();
+}
 
 std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEntry>& sets,
                                                     const std::filesystem::path& bundleDir, const AssetUris& assetUris,

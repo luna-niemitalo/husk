@@ -71,6 +71,162 @@
             ]
           }
         },
+        "texture_slots": {
+          "type": "array",
+          "description": "Textures material layers take from outside the model; the layer's own texture is a default a variant may replace.",
+          "items": {
+            "type": "object",
+            "description": "One slot.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The slot, e.g. monster_1."
+              },
+              "source": {
+                "type": "object",
+                "description": "The slot in the source's terms.",
+                "properties": {
+                  "texture_type": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The source's replaceable texture type (M2 texture type)."
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "texture_type"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "source"
+            ]
+          }
+        },
+        "variants": {
+          "type": "array",
+          "description": "Ways the model is dressed, each a complete choice over its slots, geosets and particle colours.",
+          "items": {
+            "type": "object",
+            "description": "One variant.",
+            "properties": {
+              "textures": {
+                "type": "array",
+                "description": "Textures the variant puts in slots; a slot not listed keeps the layer's texture.",
+                "items": {
+                  "type": "object",
+                  "description": "One filled slot.",
+                  "properties": {
+                    "slot": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "The slot.",
+                      "x-index-into": "/definition/texture_slots"
+                    },
+                    "texture": {
+                      "$ref": "common.schema.json#/definitions/texture_entry",
+                      "description": "The texture."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "slot",
+                    "texture"
+                  ]
+                }
+              },
+              "shown_geosets": {
+                "type": "array",
+                "description": "Mesh geoset ids shown; every other geoset is hidden. Absent: the model's default.",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "A geoset id, group * 100 + variant."
+                }
+              },
+              "particle_colors": {
+                "type": "array",
+                "description": "Particle recolouring: ramp i recolours emitters whose particle_color_index is 11 + i.",
+                "items": {
+                  "type": "object",
+                  "description": "One ramp over a particle's life.",
+                  "properties": {
+                    "start": {
+                      "$ref": "common.schema.json#/definitions/rgba",
+                      "description": "At birth.",
+                      "x-unit": "1"
+                    },
+                    "mid": {
+                      "$ref": "common.schema.json#/definitions/rgba",
+                      "description": "At mid life.",
+                      "x-unit": "1"
+                    },
+                    "end": {
+                      "$ref": "common.schema.json#/definitions/rgba",
+                      "description": "At death.",
+                      "x-unit": "1"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "start",
+                    "mid",
+                    "end"
+                  ]
+                }
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Whole-model opacity; absent: opaque.",
+                "x-unit": "1"
+              },
+              "sources": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Source rows that dress the model this way.",
+                "items": {
+                  "type": "object",
+                  "description": "One source row.",
+                  "properties": {
+                    "ref": {
+                      "$ref": "common.schema.json#/definitions/ref",
+                      "description": "The row."
+                    },
+                    "scale": {
+                      "type": "number",
+                      "description": "The row's own scale.",
+                      "x-unit": "1"
+                    },
+                    "base_scale": {
+                      "type": "number",
+                      "description": "The model data row's scale.",
+                      "x-unit": "1"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ref",
+                    "scale",
+                    "base_scale"
+                  ]
+                }
+              },
+              "unresolved": {
+                "$ref": "common.schema.json#/definitions/unresolved",
+                "description": "Source values the variant carries but husk can't place yet."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "textures",
+              "sources"
+            ]
+          }
+        },
         "customization": {
           "type": "object",
           "description": "Customization options a character model offers, each with its valid choices.",
@@ -920,6 +1076,12 @@
                     "texture": {
                       "$ref": "common.schema.json#/definitions/texture_entry",
                       "description": "The layer's texture."
+                    },
+                    "slot": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "The slot a variant may fill instead of texture.",
+                      "x-index-into": "/definition/texture_slots"
                     },
                     "blend": {
                       "type": "string",

@@ -176,6 +176,15 @@ canon::Ref layerIdentity(uint16_t textureIndex, const m2::Texture& tex) {
     return ref;
 }
 
+// The slot a layer of this texture type reads; textureSlots' order.
+std::optional<uint32_t> slotFor(const std::vector<m2::Texture>& textures, uint32_t type) {
+    std::vector<canon::TextureSlot> slots = textureSlots(textures);
+    for (size_t i = 0; i < slots.size(); ++i) {
+        if (slots[i].sourceType == type) return static_cast<uint32_t>(i);
+    }
+    return std::nullopt;
+}
+
 // Deliberately never resolved here -- see m2_material_input.hpp's own doc
 // comment for why performing texture resolution is out of this function's
 // scope. The honest default when the caller hasn't supplied anything for
@@ -291,6 +300,7 @@ canon::MaterialLayer assemblePrimaryLayer(const skin::Batch& batch, size_t batch
     layer.uv = resolveUvStrict(batch.textureCoordComboIndex, m2, batchIndex);
     layer.identity = layerIdentity(textureIndex, tex);
     layer.texture = resolveTextureRef(textureIndex, textureResolutions);
+    layer.slot = slotFor(m2.textures, tex.type);
     layer.role = resolveRole(layer.uv, tex.type, /*isPrimaryLayer=*/true);
     layer.blendIntoPrevious = blendOp;
 
@@ -356,6 +366,18 @@ canon::MaterialLayer assemblePrimaryLayer(const skin::Batch& batch, size_t batch
 
 }  // namespace
 
+std::vector<canon::TextureSlot> textureSlots(const std::vector<m2::Texture>& textures) {
+    std::vector<canon::TextureSlot> slots;
+    for (const m2::Texture& t : textures) {
+        if (t.type == 0) continue;
+        auto same = [&](const canon::TextureSlot& s) { return s.sourceType == t.type; };
+        if (std::find_if(slots.begin(), slots.end(), same) != slots.end()) continue;
+        const char* name = m2::textureTypeName(t.type);
+        slots.push_back({name ? name : "type_" + std::to_string(t.type), t.type});
+    }
+    return slots;
+}
+
 canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, const M2MaterialInputs& m2,
                                   uint32_t sequenceIndex, const TextureResolutions& textureResolutions) {
     canon::Material result;
@@ -413,6 +435,7 @@ canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, co
         layer.uv = resolveUvBestEffort(static_cast<size_t>(batch.textureCoordComboIndex) + layerOffset, m2);
         layer.identity = layerIdentity(textureIndex, tex);
         layer.texture = resolveTextureRef(textureIndex, textureResolutions);
+        layer.slot = slotFor(m2.textures, tex.type);
         layer.role = resolveRole(layer.uv, tex.type, /*isPrimaryLayer=*/false);
         layer.blendIntoPrevious = blendOp;
         result.layers.push_back(std::move(layer));

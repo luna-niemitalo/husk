@@ -8,6 +8,7 @@
 #include <CLI/CLI.hpp>
 
 #include "canon_policy.hpp"
+#include "creature_display_db2.hpp"
 
 namespace husk {
 class ListfileIndex;
@@ -331,6 +332,11 @@ void addExportOptions(CLI::App& app, ExportOptions& opts);
 // looks it up (store name, else a listfile scan).
 int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& modelPath,
                     const std::string& outputPathIn, bool outputGiven, const husk::ListfileIndex& listfile,
-                    std::optional<uint32_t> modelFileDataId = std::nullopt);
+                    std::optional<uint32_t> modelFileDataId = std::nullopt,
+                    const creaturedisplay::Data* creatures = nullptr);
+
+// --bundle-only's creature variant tables, loaded once per run from
+// --db2-dir/--dbd-dir; nullopt without them (or for a glTF export).
+std::optional<creaturedisplay::Data> loadCreatureDisplays(const ExportOptions& opts, CLI::App& app);
 
 }  // namespace husk::commands
