@@ -5,6 +5,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // WDC5 DB2 parser -- proof of concept, per documentation/wowdev-wiki/md/DB2.md
@@ -225,6 +226,9 @@ struct File {
     std::vector<FieldStorageInfo> fieldStorageInfo;
     std::vector<uint8_t> palletData;
     std::vector<uint8_t> commonData;
+    // commonData's {id, value} exceptions per CommonData field, indexed by
+    // field; built once by parse so a lookup isn't a scan per record.
+    std::vector<std::unordered_map<uint32_t, uint32_t>> commonDataByField;
     std::vector<Section> sections;
 };
 

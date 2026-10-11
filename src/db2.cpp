@@ -180,6 +180,41 @@ FieldStorageInfo parseFieldStorageInfo(const std::vector<uint8_t>& buf, size_t& 
 
 }  // namespace
 
+namespace {
+
+// Whether two storage types' additionalDataSize bytes land in the same
+// physical block. Only two blocks exist (DB2.md's field_storage_info doc
+// comment): common_data (CommonData alone) and pallet_data (BitpackedIndexed
+// *and* BitpackedIndexedArray both -- "you pull a 4-byte value from
+// pallet_data" is said of both type 3 and type 4 alike, and DB2.md is
+// explicit that additional_data_offset sums "any previous fields which are
+// stored in the same block (common_data or pallet_data)", i.e. grouped by
+// block, not by the finer-grained storage type).
+bool sharesAdditionalDataBlock(FieldCompression a, FieldCompression b) {
+    auto isPallet = [](FieldCompression t) {
+        return t == FieldCompression::BitpackedIndexed || t == FieldCompression::BitpackedIndexedArray;
+    };
+    if (isPallet(a) && isPallet(b)) return true;
+    return a == b;
+}
+
+// Sums additionalDataSize over every field before `fieldIndex` that shares
+// `type`'s block (CommonData -> common_data, BitpackedIndexed/
+// BitpackedIndexedArray -> pallet_data, both together) -- DB2.md: "these
+// sections are in the same order as the field_info, so to find the offset,
+// add up the additional_data_size of any previous fields which are stored in
+// the same block".
+uint32_t additionalDataOffset(const std::vector<FieldStorageInfo>& infos, size_t fieldIndex,
+                               FieldCompression type) {
+    uint32_t offset = 0;
+    for (size_t i = 0; i < fieldIndex; ++i) {
+        if (sharesAdditionalDataBlock(infos[i].storageType, type)) offset += infos[i].additionalDataSize;
+    }
+    return offset;
+}
+
+}  // namespace
+
 File parse(const std::vector<uint8_t>& buf) {
     File file;
     size_t pos = 0;
@@ -215,6 +250,18 @@ File parse(const std::vector<uint8_t>& buf) {
     requireBytes(pos, h.commonDataSize, buf.size(), "common_data");
     file.commonData.assign(buf.data() + pos, buf.data() + pos + h.commonDataSize);
     pos += h.commonDataSize;
+    file.commonDataByField.resize(file.fieldStorageInfo.size());
+    for (size_t f = 0; f < file.fieldStorageInfo.size(); ++f) {
+        const FieldStorageInfo& info = file.fieldStorageInfo[f];
+        if (info.storageType != FieldCompression::CommonData) continue;
+        uint32_t offset = additionalDataOffset(file.fieldStorageInfo, f, FieldCompression::CommonData);
+        for (uint32_t i = 0; i < info.additionalDataSize / 8; ++i) {
+            uint32_t entryPos = offset + i * 8;
+            uint32_t id = readU32(file.commonData, entryPos, "commonData entry id");
+            // First entry wins, as the scan this replaces returned.
+            file.commonDataByField[f].emplace(id, readU32(file.commonData, entryPos + 4, "commonData entry value"));
+        }
+    }
 
     // encrypted_status blocks (DB2.md's WDC4+ section): one per section
     // whose tact_key_hash is non-zero, sitting right here, before the
@@ -426,37 +473,6 @@ uint32_t rowIdForRecord(const File& file, const Section& section, const std::vec
     return static_cast<uint32_t>(recordIndex);
 }
 
-// Whether two storage types' additionalDataSize bytes land in the same
-// physical block. Only two blocks exist (DB2.md's field_storage_info doc
-// comment): common_data (CommonData alone) and pallet_data (BitpackedIndexed
-// *and* BitpackedIndexedArray both -- "you pull a 4-byte value from
-// pallet_data" is said of both type 3 and type 4 alike, and DB2.md is
-// explicit that additional_data_offset sums "any previous fields which are
-// stored in the same block (common_data or pallet_data)", i.e. grouped by
-// block, not by the finer-grained storage type).
-bool sharesAdditionalDataBlock(FieldCompression a, FieldCompression b) {
-    auto isPallet = [](FieldCompression t) {
-        return t == FieldCompression::BitpackedIndexed || t == FieldCompression::BitpackedIndexedArray;
-    };
-    if (isPallet(a) && isPallet(b)) return true;
-    return a == b;
-}
-
-// Sums additionalDataSize over every field before `fieldIndex` that shares
-// `type`'s block (CommonData -> common_data, BitpackedIndexed/
-// BitpackedIndexedArray -> pallet_data, both together) -- DB2.md: "these
-// sections are in the same order as the field_info, so to find the offset,
-// add up the additional_data_size of any previous fields which are stored in
-// the same block".
-uint32_t additionalDataOffset(const std::vector<FieldStorageInfo>& infos, size_t fieldIndex,
-                               FieldCompression type) {
-    uint32_t offset = 0;
-    for (size_t i = 0; i < fieldIndex; ++i) {
-        if (sharesAdditionalDataBlock(infos[i].storageType, type)) offset += infos[i].additionalDataSize;
-    }
-    return offset;
-}
-
 uint32_t readPallet4(const std::vector<uint8_t>& palletData, uint32_t byteOffset,
                       const char* what) {
     return readU32(palletData, byteOffset, what);
@@ -541,22 +557,11 @@ std::vector<uint64_t> decodeField(const File& file, const Section& section, size
             return {raw};
         }
         case FieldCompression::CommonData: {
-            uint32_t offset = additionalDataOffset(file.fieldStorageInfo, fieldIndex,
-                                                     FieldCompression::CommonData);
-            // Foreign, per-record exception list: {id, value} pairs, 8 bytes
-            // each, only for rows that deviate from `defaultValue`. Reading
-            // header.recordCount candidate rows here (not id -> row-count,
-            // an unrelated file-level fact) is what actually bounds this
-            // scan.
-            uint32_t entryCount = info.additionalDataSize / 8;
-            uint32_t rowId = rowIdForRecord(file, section, record, recordIndex);
-            for (uint32_t i = 0; i < entryCount; ++i) {
-                uint32_t entryPos = offset + i * 8;
-                uint32_t id = readU32(file.commonData, entryPos, "commonData entry id");
-                if (id == rowId) {
-                    return {readU32(file.commonData, entryPos + 4, "commonData entry value")};
-                }
-            }
+            // {id, value} exceptions for rows that deviate from
+            // `defaultValue` (indexed by parse, File::commonDataByField).
+            const auto& exceptions = file.commonDataByField[fieldIndex];
+            auto hit = exceptions.find(rowIdForRecord(file, section, record, recordIndex));
+            if (hit != exceptions.end()) return {hit->second};
             return {info.defaultValue};
         }
         case FieldCompression::BitpackedIndexed: {
