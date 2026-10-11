@@ -12,6 +12,7 @@ canon::TextureRef::Payload ddsPayloadFromBlp(const std::vector<uint8_t>& blpByte
         case blp::RawEncoding::Bc1: out.encoding = canon::TextureEncoding::Bc1; break;
         case blp::RawEncoding::Bc2: out.encoding = canon::TextureEncoding::Bc2; break;
         case blp::RawEncoding::Bc3: out.encoding = canon::TextureEncoding::Bc3; break;
+        case blp::RawEncoding::Bc5: out.encoding = canon::TextureEncoding::Bc5; break;
         case blp::RawEncoding::Bgra: out.encoding = canon::TextureEncoding::Bgra; break;
     }
     return out;

@@ -52,6 +52,7 @@ enum PixelFormat : uint8_t {
     kDxt1 = 0,
     kDxt3 = 1,
     kDxt5 = 7,
+    kBc5 = 11,  // two BC4 channels (red, green): normal maps
 };
 
 struct Header {
@@ -173,8 +174,10 @@ void decodeExplicitAlphaBlock(const uint8_t* block, std::array<uint8_t, 16>& alp
     }
 }
 
-// DXT5's interpolated alpha block: alpha0, alpha1, then 6 bytes packed as a
-// 48-bit little-endian field, 3 bits/pixel, LSB-first.
+// DXT5's interpolated alpha block (= one BC4 channel): alpha0, alpha1, then
+// 6 bytes packed as a 48-bit little-endian field, 3 bits/pixel, LSB-first.
+// Each in-between level's weights sum to 7 (or 5): checked against
+// Blender's DDS reader on a real BC5 texture, within 1/255.
 void decodeInterpolatedAlphaBlock(const uint8_t* block, std::array<uint8_t, 16>& alpha) {
     uint8_t a0 = block[0];
     uint8_t a1 = block[1];
@@ -183,11 +186,11 @@ void decodeInterpolatedAlphaBlock(const uint8_t* block, std::array<uint8_t, 16>&
     table[1] = a1;
     if (a0 > a1) {
         for (int i = 1; i <= 6; ++i) {
-            table[1 + i] = static_cast<uint8_t>(((6 - i) * a0 + i * a1) / 7);
+            table[1 + i] = static_cast<uint8_t>(((7 - i) * a0 + i * a1) / 7);
         }
     } else {
         for (int i = 1; i <= 4; ++i) {
-            table[1 + i] = static_cast<uint8_t>(((4 - i) * a0 + i * a1) / 5);
+            table[1 + i] = static_cast<uint8_t>(((5 - i) * a0 + i * a1) / 5);
         }
         table[6] = 0;
         table[7] = 255;
@@ -234,11 +237,12 @@ size_t dxtBlockSize(uint8_t preferredFormat) {
             return 8;
         case kDxt3:
         case kDxt5:
+        case kBc5:
             return 16;
         default:
             throw ParseError("colorEncoding is DXT but preferredFormat " +
                               std::to_string(preferredFormat) +
-                              " isn't a supported DXT variant (only DXT1=0, DXT3=1, DXT5=7 are)");
+                              " isn't a supported DXT variant (only DXT1=0, DXT3=1, DXT5=7, BC5=11 are)");
     }
 }
 
@@ -256,6 +260,24 @@ Image decodeDxt(const Header& h, const uint8_t* data) {
     for (uint32_t by = 0; by < blocksY; ++by) {
         for (uint32_t bx = 0; bx < blocksX; ++bx) {
             const uint8_t* block = data + (static_cast<size_t>(by) * blocksX + bx) * blockSize;
+            if (fmt == kBc5) {
+                // Stored channels only: red, green; blue 0, opaque.
+                std::array<uint8_t, 16> red{};
+                std::array<uint8_t, 16> green{};
+                decodeInterpolatedAlphaBlock(block, red);
+                decodeInterpolatedAlphaBlock(block + 8, green);
+                for (uint32_t i = 0; i < 16; ++i) {
+                    uint32_t x = bx * 4 + i % 4;
+                    uint32_t y = by * 4 + i / 4;
+                    if (x >= img.width || y >= img.height) continue;
+                    size_t off = (static_cast<size_t>(y) * img.width + x) * 4;
+                    img.rgba[off + 0] = red[i];
+                    img.rgba[off + 1] = green[i];
+                    img.rgba[off + 2] = 0;
+                    img.rgba[off + 3] = 255;
+                }
+                continue;
+            }
             std::array<uint8_t, 16> alpha{};
             const uint8_t* colorBlock = block;
             if (fmt == kDxt1) {
@@ -417,10 +439,11 @@ RawPayload extractRawPayload(const std::vector<uint8_t>& fileBytes) {
                 case kDxt1: out.encoding = RawEncoding::Bc1; break;
                 case kDxt3: out.encoding = RawEncoding::Bc2; break;
                 case kDxt5: out.encoding = RawEncoding::Bc3; break;
+                case kBc5: out.encoding = RawEncoding::Bc5; break;
                 default:
                     throw ParseError("colorEncoding is DXT but preferredFormat " +
                                       std::to_string(h.preferredFormat) +
-                                      " isn't a supported DXT variant (only DXT1=0, DXT3=1, DXT5=7 are)");
+                                      " isn't a supported DXT variant (only DXT1=0, DXT3=1, DXT5=7, BC5=11 are)");
             }
             size_t blockSize = dxtBlockSize(h.preferredFormat);
             size_t size = dxtBlockCount(h.width, h.height) * blockSize;
@@ -513,6 +536,8 @@ std::vector<uint8_t> encodeDds(const RawPayload& payload) {
             case RawEncoding::Bc1: fcc = fourCc('D', 'X', 'T', '1'); break;
             case RawEncoding::Bc2: fcc = fourCc('D', 'X', 'T', '3'); break;
             case RawEncoding::Bc3: fcc = fourCc('D', 'X', 'T', '5'); break;
+            // The legacy FourCC for BC5_UNORM, read without a DX10 header.
+            case RawEncoding::Bc5: fcc = fourCc('A', 'T', 'I', '2'); break;
             default: fcc = 0; break;  // unreachable: Bgra takes the other branch
         }
         appendU32(out, fcc);

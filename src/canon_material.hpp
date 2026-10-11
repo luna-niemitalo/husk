@@ -44,7 +44,7 @@ using UvRef = std::variant<UvSetIndex, EnvironmentMapped>;
 // doesn't need a second breaking change once that decode moves to a writer
 // (I8: "convert on output, never on intake"), not because a producer emits
 // them yet.
-enum class TextureEncoding { Png, Bc1, Bc2, Bc3, Bgra, Palettized };
+enum class TextureEncoding { Png, Bc1, Bc2, Bc3, Bc5, Bgra, Palettized };
 
 // Three states, not two -- "resolved" isn't the only non-error outcome, same
 // three-state resolution DESIGN.md's §2.11 already establishes for texture

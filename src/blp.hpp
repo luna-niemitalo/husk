@@ -50,7 +50,7 @@ std::vector<uint8_t> encodePng(const Image& img);
 // compressed/raw shapes this decoder already distinguishes while parsing
 // (decode()'s own colorEncoding/preferredFormat switch) -- Palette is
 // deliberately excluded, see extractRawPayload's own doc comment.
-enum class RawEncoding { Bc1, Bc2, Bc3, Bgra };
+enum class RawEncoding { Bc1, Bc2, Bc3, Bc5, Bgra };
 
 struct RawPayload {
     uint32_t width = 0;

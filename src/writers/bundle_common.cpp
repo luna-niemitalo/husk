@@ -373,6 +373,7 @@ std::string textureFileExtension(canon::TextureEncoding encoding) {
         case canon::TextureEncoding::Bc1:
         case canon::TextureEncoding::Bc2:
         case canon::TextureEncoding::Bc3:
+        case canon::TextureEncoding::Bc5:
         case canon::TextureEncoding::Bgra:
         case canon::TextureEncoding::Palettized:
             return "dds";  // BUNDLE_FORMAT.md's "Texture encoding -- settled": DDS houses the compressed blocks verbatim

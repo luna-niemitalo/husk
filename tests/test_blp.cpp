@@ -6,6 +6,7 @@
 // bit layout, same as the Python fixtures' own comment explains.
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <doctest/doctest.h>
 #include <fstream>
@@ -77,7 +78,52 @@ std::vector<uint8_t> dxt3SolidBlock(uint8_t r5, uint8_t g6, uint8_t b5, uint8_t 
     return b;
 }
 
+// One BC4 channel (a DXT5 alpha block): endpoints a0/a1, every pixel `index`.
+std::vector<uint8_t> bc4Block(uint8_t a0, uint8_t a1, uint8_t index) {
+    std::vector<uint8_t> b = {a0, a1};
+    uint64_t bits = 0;
+    for (int i = 0; i < 16; ++i) bits |= static_cast<uint64_t>(index) << (3 * i);
+    for (int i = 0; i < 6; ++i) b.push_back(static_cast<uint8_t>(bits >> (8 * i)));
+    return b;
+}
+
 }  // namespace
+
+TEST_CASE("blp::decode: DXT5 interpolated alpha levels weight the endpoints to 7 (and 5) parts") {
+    for (auto [a0, a1, index, expected] : {std::array<int, 4>{255, 0, 2, 218},   // (6*255 + 1*0) / 7
+                                           std::array<int, 4>{100, 200, 2, 120},  // (4*100 + 1*200) / 5
+                                           std::array<int, 4>{100, 200, 7, 255}}) {
+        auto header = buildHeader(2, 8, 7, 4, 4, {static_cast<uint32_t>(kHeaderSize)});
+        auto alpha = bc4Block(static_cast<uint8_t>(a0), static_cast<uint8_t>(a1), static_cast<uint8_t>(index));
+        auto color = dxt1SolidBlock(0, 0, 31);
+        auto file = header;
+        file.insert(file.end(), alpha.begin(), alpha.end());
+        file.insert(file.end(), color.begin(), color.end());
+        CAPTURE(a0);
+        CAPTURE(index);
+        CHECK(husk::blp::decode(file).rgba[3] == expected);
+    }
+}
+
+TEST_CASE("blp::decode: BC5 (preferredFormat 11) is red and green from two BC4 blocks, blue 0, opaque") {
+    auto header = buildHeader(2, 8, 11, 4, 4, {static_cast<uint32_t>(kHeaderSize)});
+    auto red = bc4Block(200, 0, 0);
+    auto green = bc4Block(255, 0, 2);
+    auto file = header;
+    file.insert(file.end(), red.begin(), red.end());
+    file.insert(file.end(), green.begin(), green.end());
+    auto img = husk::blp::decode(file);
+    CHECK(img.rgba[0] == 200);
+    CHECK(img.rgba[1] == 218);
+    CHECK(img.rgba[2] == 0);
+    CHECK(img.rgba[3] == 255);
+
+    husk::blp::RawPayload raw = husk::blp::extractRawPayload(file);
+    CHECK(raw.encoding == husk::blp::RawEncoding::Bc5);
+    CHECK(raw.bytes.size() == 16);
+    std::vector<uint8_t> dds = husk::blp::encodeDds(raw);
+    CHECK(std::string(dds.begin() + 84, dds.begin() + 88) == "ATI2");
+}
 
 TEST_CASE("blp::decode: DXT1 solid red block") {
     auto header = buildHeader(2, 8, 0, 4, 4, {static_cast<uint32_t>(kHeaderSize)});
