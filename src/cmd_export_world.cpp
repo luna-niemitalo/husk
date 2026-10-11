@@ -79,10 +79,19 @@ bool isRootWmoPath(std::string_view path) {
 // against it.
 class ErrorLog {
 public:
-    explicit ErrorLog(const std::filesystem::path& path) : out_(path, std::ios::app) {
+    ErrorLog(const std::filesystem::path& path, std::filesystem::path sourceRoot)
+        : sourceRoot_(std::move(sourceRoot)), out_(path, std::ios::app) {
         if (!out_) throw std::runtime_error("cannot open " + path.string());
     }
+    // A failure is the item's only while the source tree is still there: a
+    // vanished one (an unmounted store) would otherwise log every remaining
+    // file as missing and finish a useless run, so it stops the run.
     void add(const std::string& phase, const std::string& item, const std::string& message) {
+        std::error_code ec;
+        if (!std::filesystem::is_directory(sourceRoot_, ec)) {
+            throw std::runtime_error("expected the source tree " + sourceRoot_.string() +
+                                     ", got none (unmounted?): stopping at " + phase + " " + item);
+        }
         std::lock_guard<std::mutex> lock(mutex_);
         out_ << phase << '\t' << item << '\t' << message << '\n';
         out_.flush();
@@ -91,6 +100,7 @@ public:
     size_t count() const { return count_; }
 
 private:
+    std::filesystem::path sourceRoot_;
     std::mutex mutex_;
     std::ofstream out_;
     std::atomic<size_t> count_{0};
@@ -180,7 +190,7 @@ int exportWorld(int argc, char** args) {
         // Every texture payload of the export, tiles' and models' alike.
         writers::TextureStore textureStore(texturesDir);
         const writers::StoreLink modelTextures{&textureStore, "../../textures/"};
-        ErrorLog errors(out / "errors.log");
+        ErrorLog errors(out / "errors.log", opts.listfileRoot);
         inputs::Log inputLog(out / "inputs.log", opts.listfileRoot);
         inputs::setRunLog(&inputLog);
         struct RunLogReset {

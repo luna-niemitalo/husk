@@ -518,3 +518,20 @@ TEST_CASE("husk export-world: every map gets a world document linking its export
     CHECK(other["placements"].empty());
     CHECK(other["grid"]["cells"].size() == 1);
 }
+
+TEST_CASE("husk export-world: a source tree that is gone stops the run instead of logging every file") {
+    Corpus c = makeCorpus("world-gone");
+    // A broken tile, so the run has a failure to log.
+    writeBytes(c.mapDir() / "azeroth_33_48.adt", {0, 1, 2, 3});
+    writeBytes(c.mapDir() / "azeroth.wdt", wdtFile(WdtSpec{.tiles = {{32, 48}, {33, 48}}}));
+
+    fs::path out = c.root / "scene";
+    std::string cmd = "export-world " + q(c.root / "world" / "maps") + " " + q(out) + " --listfile " +
+                      q(c.listfile()) + " --listfile-root " + q(c.root / "unmounted") +
+                      " --map azeroth --skip-models --jobs 2";
+    auto r = runHusk(cmd);
+    INFO(r.output);
+    CHECK(r.exitCode == 1);
+    CHECK(r.output.find("expected the source tree") != std::string::npos);
+    CHECK(r.output.find("got none (unmounted?)") != std::string::npos);
+}
