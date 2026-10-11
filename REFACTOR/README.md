@@ -292,6 +292,7 @@ drifting implementations into one exposes *why* things look wrong today.
 | `BUNDLE_FORMAT.md` | The native husk bundle + manifest schema; glTF's demoted role | Independent; carries a reopened design question (physical storage shape at corpus scale) — needs a decision, see Blockers below |
 | `PLACEMENT_SETS.md` | Generic placement sets (WMO furniture, terrain placements, housing layouts) and the WMO bundle as their first user; invariants that keep runtime-movable objects possible | Agreed 2026-10-09, not implemented |
 | `EFFECTS.md` | Fog, volumes and particles in the canonical format: effects as behaviours with inputs, instances that place them, world content vs classic style, a literal tier now and per-item classification later, an evidence ladder for unknown fields, and the implementation plan | Proposed 2026-10-11, not built |
+| `CORPUS_EXPORT.md` | A full canonical export of a game build: the tree, a casc-tool-format content-addressed store across builds (`/media/luna/data/canonical_storage`), mounted at `/media/luna/canonical_export` | Proposed 2026-10-11, not built |
 | `BLENDER_ADDON.md` | Stage 4 consumer — packaging, and deleting every discovery mechanism I3 forbids | Independent to build; final visual pass is Luna's |
 | `CLI_AND_TOOLING.md` | Flag surface, structured output, corpus-tooling cleanup | Independent |
 
@@ -308,7 +309,9 @@ which reads as essentially fully designed and settled already).** What's left
 is implementation effort, not an open decision — the two design questions this
 directory had open are now resolved or explicitly deferred:
 
-- **`BUNDLE_FORMAT.md`'s physical storage shape — settled.** Loose files, one
+- **`BUNDLE_FORMAT.md`'s physical storage shape — settled, then superseded
+  at corpus scale by `CORPUS_EXPORT.md`** (the ZFS dedup assumed below is
+  off on `tank/data`). Loose files, one
   directory per bundle, unchanged from the original design. ZFS (this
   project's real filesystem) already dedups shared payload bytes at the block
   level, which was the concrete cost in question; a content-addressed backing
