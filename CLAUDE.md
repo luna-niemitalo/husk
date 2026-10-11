@@ -350,8 +350,8 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
 - **Corpus store (2026-10-11, `REFACTOR/CORPUS_EXPORT.md`)**: `husk
   store-add` records an export tree as `builds/<game>/<husk>/` in a
   content-addressed store (versioned like casc-tool's, husk's own code);
-  `husk mount` serves it read-only. Store `/media/luna/data/canonical_storage`
-  (empty), mount `/media/luna/canonical_export` (command in
+  `husk mount` serves it read-only. Store `/media/luna/work/canonical_storage`
+  (work pool SSDs: hash-named objects seek on `tank`; empty), mount `/media/luna/canonical_export` (command in
   `development/REFERENCES.md`). Documents no longer carry `exported_at`
   (deterministic). A stored build needs a clean producer: Luna's
   uncommitted `.gitignore` line makes this checkout `-dirty`. export-world

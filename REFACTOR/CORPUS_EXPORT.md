@@ -15,14 +15,17 @@ it is copied in, not linked.
 
 ## Where
 
-| | path | like casc-tool's |
-|---|---|---|
-| store | `/media/luna/data/canonical_storage/` | `/media/luna/data/wow_storage/` |
-| mount | `/media/luna/canonical_export/` | `/media/luna/wow_export/` |
+| | path |
+|---|---|
+| store | `/media/luna/work/canonical_storage/` |
+| mount | `/media/luna/canonical_export/` |
 
-Both are plain directories (the store sits on `tank/data` beside
-`wow_storage`, no dataset of its own). husk writes only under the store
-(its output dir). The mount is read-only; nothing writes through it.
+Both are plain directories. The store is on the work pool's SSDs, not
+`tank`: objects are named by hash, so a build's files land scattered, and
+on `tank`'s spinning raidz1 every cold read of one is a ~20 ms seek
+(measured 2026-10-12 on casc-tool's store, which moved to the work pool for
+the same reason). husk writes only under the store (its output dir). The
+mount is read-only; nothing writes through it.
 
 ## The tree one export produces
 
