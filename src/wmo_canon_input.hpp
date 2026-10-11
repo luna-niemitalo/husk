@@ -40,15 +40,10 @@ struct WmoInputs {
 // resolves into `textures`.
 std::vector<uint32_t> liquidTypeRows(const WmoInputs& in);
 
-// One particulate-volume record as canon, in the record's own frame (WMO
-// space for MPVD, world for a map's PVMI); emitter textures come from
-// `textures`, unresolved when absent. The caller sets `ref`.
-canon::ParticulateVolume buildParticulateVolume(const wmo::ParticulateVolume& volume,
-                                                const TextureResolutions& textures);
-
-// The same record as a classic_particulate_volume effect instance
-// (REFACTOR/EFFECTS.md), placed at the box's centre in the record's frame:
-// the box and emitter atlases as inputs, the particle cap and each
+// One particulate-volume record (WMO MPVD, or the head of a map's PVMI) as
+// a classic_particulate_volume effect instance (REFACTOR/EFFECTS.md),
+// placed at the box's centre in the record's own frame (WMO space, or
+// world): the box and emitter atlases as inputs, the particle cap and each
 // emitter's blend and colour as style, every uncharacterized field
 // unresolved. The caller sets `id`; `origin` names the source record.
 canon::PlacedInstance particulateInstance(const wmo::ParticulateVolume& volume, const TextureResolutions& textures,

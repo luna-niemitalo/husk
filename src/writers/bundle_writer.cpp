@@ -764,70 +764,6 @@ void writeLocalLights(json::Writer& w, const std::vector<canon::LocalLight>& lig
     w.endArray();
 }
 
-// One particulate volume's keys, inside an object the caller opened. Its raw
-// record goes into `bin`, a file named `binName` beside the manifest.
-void writeParticulateVolumeFields(json::Writer& w, const canon::ParticulateVolume& v,
-                                  const std::filesystem::path& bundleDir,
-                                  std::unordered_set<std::string>& writtenTextures, std::vector<uint8_t>& bin,
-                                  const std::string& binName) {
-    w.key("ref");
-    writeRef(w, v.ref);
-    writeVec3Field(w, "position", v.position);
-    writeVec3Field(w, "extent", v.extent);
-    writeVec3Field(w, "euler_rotation", v.eulerRotation);
-    writeIntField(w, "particle_count", v.particleCount);
-    writeFloatField(w, "opacity", v.opacity);
-    w.key("envelope");
-    w.beginArray();
-    for (const canon::ParticulateVolume::EnvelopeKey& k : v.envelope) {
-        w.beginObject();
-        writeFloatField(w, "time", k.time);
-        writeFloatField(w, "value", k.value);
-        writeFloatField(w, "value2", k.value2);
-        w.endObject();
-    }
-    w.endArray();
-    w.key("emitters");
-    w.beginArray();
-    for (const canon::ParticulateVolume::Emitter& e : v.emitters) {
-        w.beginObject();
-        writeIntField(w, "slot", e.slot);
-        w.key("texture");
-        writeTextureEntry(w, e.texture, bundleDir, writtenTextures);
-        if (e.blend) {
-            w.key("framebuffer_blend");
-            w.value(framebufferBlendName(*e.blend));
-        }
-        writeFloatArrayField(w, "color", e.color.data(), e.color.size());
-        writeIntField(w, "tiles_x", e.tilesX);
-        writeIntField(w, "tiles_y", e.tilesY);
-        writeIntField(w, "frames", e.frames);
-        w.key("source");
-        w.beginObject();
-        writeIntField(w, "blend", e.sourceBlend);
-        w.endObject();
-        w.key("unresolved");
-        w.beginObject();
-        writeFloatArrayField(w, "parameters", e.parameters.data(), e.parameters.size());
-        w.endObject();
-        w.endObject();
-    }
-    w.endArray();
-    w.key("source");
-    w.beginObject();
-    w.key("flags");
-    w.value(hexFlags(v.sourceFlags));
-    w.key("record");
-    writeSourceRecord(w, v.origin);
-    w.key("record_bytes");
-    writeBufferSlice(w, appendArray(bin, binName, v.sourceRecord, 1, "u8"));
-    w.endObject();
-    w.key("unresolved");
-    w.beginObject();
-    writeIntField(w, "preset_id", v.presetId);
-    w.endObject();
-}
-
 
 void writeRibbons(json::Writer& w, const std::vector<canon::RibbonEmitter>& ribbons,
                   const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures) {
@@ -1111,14 +1047,11 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
 
 void writeWorldBundle(const canon::World& world, const std::filesystem::path& bundleDir, const Provenance& provenance,
                       const std::vector<std::string>& tileUris, const AssetUris& assetUris) {
-    constexpr const char* kBin = "world.bin";
     if (tileUris.size() != world.cells.size()) {
         throw std::runtime_error("world writer: expected one tile uri per cell (" + std::to_string(world.cells.size()) +
                                  "), got " + std::to_string(tileUris.size()));
     }
     std::filesystem::create_directories(bundleDir);
-    std::vector<uint8_t> bin;
-    std::unordered_set<std::string> writtenTextures;
     std::vector<OwnedSetEntry> owned;
     for (const canon::PlacementSet& set : world.placements) owned.push_back({&set, true});
     std::vector<SetDocument> sets = writePlacementSetDocuments(owned, bundleDir, assetUris, provenance);
@@ -1183,113 +1116,8 @@ void writeWorldBundle(const canon::World& world, const std::filesystem::path& bu
     for (size_t i = 0; i < sets.size(); ++i) w.value(static_cast<int64_t>(world.cells.size() + i));
     w.endArray();
 
-    w.key("scene");
-    w.beginObject();
-    w.key("fog_volumes");
-    w.beginArray();
-    for (const canon::FogVolume& f : world.scene.fogs) {
-        w.beginObject();
-        w.key("ref");
-        writeRef(w, f.ref);
-        writeIntField(w, "id", f.id);
-        writeVec3Field(w, "color", f.color);
-        writeFloatArrayField(w, "intensity", f.intensity.data(), f.intensity.size());
-        writeVec3Field(w, "position", f.position);
-        w.key("rotation");
-        writeQuatValue(w, f.rotation);
-        writeFloatArrayField(w, "radius", f.radius.data(), f.radius.size());
-        w.key("animation_periods");
-        w.beginArray();
-        for (int32_t period : f.animationPeriods) w.value(static_cast<int64_t>(period));
-        w.endArray();
-        writeIntField(w, "fog_level", f.fogLevel);
-        w.key("shape");
-        writeAssetRef(w, f.model, assetUris);
-        writeSourceBlock(w, f.flags, f.origin);
-        w.key("unresolved");
-        w.beginObject();
-        writeFloatField(w, "scalar_18", f.unknown18);
-        if (f.extra) {
-            w.key("extension");
-            w.beginObject();
-            w.key("enabled");
-            w.value(f.extra->enabled);
-            writeVec3Field(w, "extent", f.extra->extent);
-            writeFloatArrayField(w, "parameters", f.extra->parameters.data(), f.extra->parameters.size());
-            w.endObject();
-        }
-        if (f.palette) {
-            w.key("palette");
-            w.beginObject();
-            w.key("colors");
-            w.beginArray();
-            for (const canon::Vec3& c : f.palette->colors) writeVec3Value(w, c);
-            w.endArray();
-            writeFloatField(w, "mode", f.palette->mode);
-            w.endObject();
-        }
-        if (!f.sourceExtra.empty()) {
-            w.key("extension_record");
-            writeBufferSlice(w, appendArray(bin, kBin, f.sourceExtra, 1, "u8"));
-        }
-        if (!f.sourceExtra2.empty()) {
-            w.key("palette_record");
-            writeBufferSlice(w, appendArray(bin, kBin, f.sourceExtra2, 1, "u8"));
-        }
-        w.endObject();
-        w.endObject();
-    }
-    w.endArray();
-
-    w.key("ambient_particle_volumes");
-    w.beginArray();
-    for (const canon::MapParticulateVolume& v : world.scene.particulateVolumes) {
-        w.beginObject();
-        w.key("volume");
-        w.beginObject();
-        writeParticulateVolumeFields(w, v.volume, bundleDir, writtenTextures, bin, kBin);
-        w.endObject();
-        writeIntField(w, "id", v.id);
-        writeVec3Field(w, "bounds_min", v.boundsMin);
-        writeVec3Field(w, "bounds_max", v.boundsMax);
-        w.key("boxes");
-        w.beginArray();
-        for (const canon::MapParticulateVolume::Box& b : v.boxes) {
-            w.beginObject();
-            writeVec3Field(w, "min", b.min);
-            writeVec3Field(w, "max", b.max);
-            w.key("children");
-            w.beginArray();
-            for (uint32_t index : b.children) w.value(static_cast<int64_t>(index));
-            w.endArray();
-            w.key("source");
-            w.beginObject();
-            writeIntField(w, "complete", b.complete);
-            w.endObject();
-            w.endObject();
-        }
-        w.endArray();
-        w.key("unresolved");
-        w.beginObject();
-        w.key("points");
-        w.beginArray();
-        for (const canon::MapParticulateVolume::Point& pt : v.points) {
-            w.beginObject();
-            w.key("direction");
-            writeVec2Value(w, pt.direction);
-            writeFloatField(w, "value_08", pt.unknown08);
-            writeFloatField(w, "value_0c", pt.unknown0C);
-            w.endObject();
-        }
-        w.endArray();
-        w.endObject();
-        w.endObject();
-    }
-    w.endArray();
-    w.endObject();  // scene
     w.endObject();
 
-    if (!bin.empty()) writeFile(bundleDir / kBin, bin);
     std::string bytes = text.str();
     writeFile(bundleDir / "manifest.json", std::vector<uint8_t>(bytes.begin(), bytes.end()));
 }

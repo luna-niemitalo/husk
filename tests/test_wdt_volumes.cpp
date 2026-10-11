@@ -136,7 +136,6 @@ TEST_CASE("wdt::parseFogs: VFOG fields, with VFEX and VFE2 attached by VFOG id, 
     CHECK(a.animationPeriods[0] == 3000);
     CHECK(a.flags == 3);
     CHECK(a.fogLevel == 1);
-    REQUIRE(a.extra.size() == 96);
     REQUIRE(a.extraFields.has_value());
     CHECK(a.extraFields->enabled == 1);
     CHECK(a.extraFields->extent == wdt::Vec3{600, 0, 0});
@@ -145,11 +144,11 @@ TEST_CASE("wdt::parseFogs: VFOG fields, with VFEX and VFE2 attached by VFOG id, 
     CHECK(a.extraFields->parameters[6] == 0.1f);
     CHECK(a.extraFields->parameters[7] == 25.0f);
     CHECK(a.extraFields->parameters[12] == 10.0f);
-    CHECK(a.extra2.empty());
+    CHECK(a.extraFields->unknownRanges.empty());
     CHECK_FALSE(a.palette.has_value());
     const wdt::Fog& b = f.fogs[1];
     CHECK(b.modelFileDataId == 1728356);
-    CHECK(b.extra.size() == 96);
+    REQUIRE(b.extraFields.has_value());
     REQUIRE(b.palette.has_value());
     CHECK(b.palette->colors[0] == wdt::Vec3{1, 0, 0});
     CHECK(b.palette->colors[1] == wdt::Vec3{0.5f, 0, 0});
@@ -222,11 +221,12 @@ TEST_CASE("wdt: real map 2656 -- six paired fogs, five particulate groups, one s
     REQUIRE(fogs.fogs.size() == 6);
     for (const wdt::Fog& f : fogs.fogs) {
         CAPTURE(f.id);
-        CHECK(f.extra.size() == 96);
         REQUIRE(f.extraFields.has_value());
         for (int axis = 0; axis < 3; ++axis) CHECK(f.extraFields->extent[axis] > 0.0f);
+        CHECK(f.extraFields->unknownRanges.empty());
         REQUIRE(f.palette.has_value());
         CHECK((f.palette->mode == 1.0f || f.palette->mode == 2.0f));
+        CHECK(f.palette->unknownRanges.empty());
     }
 
     wdt::MpvFile mpv = wdt::parseMpv(readFile(test::testMapMpv()));

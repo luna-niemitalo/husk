@@ -1,6 +1,9 @@
-// mapinput::buildMapScene: parsed _fogs/_mpv records -> canon::MapScene.
+// mapinput::buildMapEffects: parsed _fogs/_mpv records -> world placement
+// sets of effect instances.
 
 #include <doctest/doctest.h>
+
+#include <algorithm>
 
 #include "map_scene_input.hpp"
 
@@ -20,67 +23,81 @@ wdt::Fog fog(uint32_t id, uint32_t model) {
     return f;
 }
 
+const canon::UnresolvedField* field(const canon::PlacedInstance& i, const std::string& name) {
+    const auto& fields = i.effect->unresolved;
+    auto it = std::find_if(fields.begin(), fields.end(), [&](const canon::UnresolvedField& f) { return f.field == name; });
+    return it == fields.end() ? nullptr : &*it;
+}
+
 }  // namespace
 
-TEST_CASE("buildMapScene: fogs carry their id, model identity and VFE2 palette; raw extras pass through") {
+TEST_CASE("buildMapEffects: fogs are volumetric fog instances by id, their model the shape, VFEX/VFE2 unresolved") {
     wdt::FogsFile fogs;
     fogs.fogs = {fog(1659, 0), fog(1660, 1728356), fog(1661, 4242)};
-    fogs.fogs[1].palette = wdt::Fog::Palette{{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}, 2.0f};
-    fogs.fogs[1].extraFields = wdt::Fog::Extra{1, {600, 600, 200}, {0.4f, -15}};
-    fogs.fogs[1].extra.assign(96, 7);
-    fogs.fogs[1].extra2.assign(176, 8);
+    wdt::Fog::Palette palette;
+    palette.colors = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+    palette.mode = 2.0f;
+    fogs.fogs[1].palette = palette;
+    wdt::Fog::Extra extra;
+    extra.enabled = 1;
+    extra.extent = {600, 600, 200};
+    extra.parameters = {0.4f, -15};
+    fogs.fogs[1].extraFields = extra;
     mapinput::MapSceneInputs in;
     in.map = "2656";
     in.fogs = &fogs;
     in.assetNames.emplace(1728356, "fogvolume_sphere");
+    in.assetNames.emplace(mapinput::kFallbackFogModel, "errorcube");
 
-    canon::MapScene scene = mapinput::buildMapScene(in);
+    std::vector<canon::PlacementSet> sets = mapinput::buildMapEffects(in);
 
-    CHECK(scene.map.name == "2656");
-    CHECK(scene.particulateVolumes.empty());
-    REQUIRE(scene.fogs.size() == 3);
-    const canon::FogVolume& errorcube = scene.fogs[0];
-    CHECK(errorcube.ref.name == "fog_1659");
-    CHECK(errorcube.origin.table == "VFOG");
-    CHECK(std::holds_alternative<canon::None>(errorcube.model.id));
-    CHECK_FALSE(errorcube.palette.has_value());
-    const canon::FogVolume& named = scene.fogs[1];
-    CHECK(std::get<canon::RecordIndex>(named.ref.id).value == 1);
-    CHECK(named.id == 1660);
-    CHECK(named.position.z == 300.0f);
+    REQUIRE(sets.size() == 1);
+    CHECK(sets[0].ref.name == "fogs");
+    REQUIRE(sets[0].instances.size() == 3);
+    const canon::PlacedInstance& errorcube = sets[0].instances[0];
+    CHECK(errorcube.id == 1659);
+    CHECK(errorcube.asset.name == "classic_volumetric_fog");
+    CHECK(errorcube.effect->origin.table == "VFOG");
+    // Model 0: the client's fallback is the shape, and the 0 is kept.
+    CHECK(std::get<canon::Ref>(errorcube.effect->inputs.at(0).value.value).name == "errorcube");
+    CHECK(field(errorcube, "VFOG model (0: the client draws its fallback)"));
+    CHECK_FALSE(field(errorcube, "VFE2+0x3C"));
+
+    const canon::PlacedInstance& named = sets[0].instances[1];
+    CHECK(named.translation.z == 300.0f);
     CHECK(named.rotation.w == 1.0f);
-    CHECK(named.radius[2] == 2.5f);
-    CHECK(named.model.name == "fogvolume_sphere");
-    CHECK(named.model.source == canon::NameSource::Listfile);
-    REQUIRE(named.palette.has_value());
-    CHECK(named.palette->colors[2].z == 1.0f);
-    CHECK(named.palette->mode == 2.0f);
-    REQUIRE(named.extra.has_value());
-    CHECK(named.extra->enabled);
-    CHECK(named.extra->extent.z == 200.0f);
-    CHECK(named.extra->parameters[1] == -15.0f);
-    CHECK_FALSE(errorcube.extra.has_value());
-    CHECK(named.sourceExtra.size() == 96);
-    CHECK(named.sourceExtra2.size() == 176);
-    const canon::FogVolume& unlisted = scene.fogs[2];
-    CHECK(std::get<canon::FileDataId>(unlisted.model.id).value == 4242);
-    CHECK(unlisted.model.source == canon::NameSource::None);
+    const canon::Ref& shape = std::get<canon::Ref>(named.effect->inputs.at(0).value.value);
+    CHECK(shape.name == "fogvolume_sphere");
+    CHECK(shape.source == canon::NameSource::Listfile);
+    const canon::StyleBlock& style = named.effect->style.at(0).blocks.at(0);
+    CHECK(style.volumetricFog->color.x == 0.9f);
+    CHECK(style.volumetricFog->minQuality == 1);
+    CHECK(std::get<std::vector<double>>(field(named, "VFOG radius")->value)[2] == 2.5);
+    CHECK(field(named, "VFEX+0x00")->candidateRole == "gate.enabled");
+    CHECK(std::get<std::vector<double>>(field(named, "VFEX+0x04")->value)[2] == 200.0);
+    CHECK(std::get<std::vector<double>>(field(named, "VFEX+0x10")->value)[1] == -15.0);
+    CHECK(std::get<std::vector<double>>(field(named, "VFE2+0x2C")->value)[2] == 1.0);
+    CHECK(std::get<double>(field(named, "VFE2+0x3C")->value) == 2.0);
+
+    const canon::Ref& unlisted = std::get<canon::Ref>(sets[0].instances[2].effect->inputs.at(0).value.value);
+    CHECK(std::get<canon::FileDataId>(unlisted.id).value == 4242);
+    CHECK(unlisted.source == canon::NameSource::None);
 }
 
-TEST_CASE("buildMapScene: particulate volumes reuse the WMO record mapping, plus bounds, points and box tree") {
+TEST_CASE("buildMapEffects: particulate volumes reuse the WMO instance, with the PVBD tree as the region") {
     wdt::MpvFile mpv;
     wdt::MapParticulateVolume v;
     v.id = 185;
-    v.boundsMin = {-5, -5, 0};
-    v.boundsMax = {5, 5, 10};
     v.volume.position = {1, 2, 3};
+    v.volume.extent = {4, 4, 2};
+    v.boundsMin = {-1, 0, 2};
+    v.boundsMax = {3, 4, 4};
     wmo::ParticulateEmitter dust;
     dust.textureFileDataId = 77;
     dust.blendMode = 2;
     v.volume.emitters = {dust};
-    v.volume.record.assign(4272, 0);
     v.points = {{{1, 0}, -0.0f, 2717.7f}};
-    v.boxes = {{{-1, -1, 0}, {1, 1, 1}, {}, 1}, {{-2, -2, 0}, {2, 2, 2}, {0}, 0}};
+    v.boxes = {{{-1, 0, 2}, {1, 4, 4}, {}, 1}, {{-1, 0, 2}, {3, 4, 4}, {0}, 0}};
     mpv.volumes = {v};
     mapinput::MapSceneInputs in;
     in.map = "2656";
@@ -90,24 +107,51 @@ TEST_CASE("buildMapScene: particulate volumes reuse the WMO record mapping, plus
     resolved.resolved = canon::Ref{canon::FileDataId{77}, "dust1", canon::NameSource::Listfile};
     in.textures.emplace(77, resolved);
 
-    canon::MapScene scene = mapinput::buildMapScene(in);
+    std::vector<canon::PlacementSet> sets = mapinput::buildMapEffects(in);
 
-    CHECK(scene.fogs.empty());
-    REQUIRE(scene.particulateVolumes.size() == 1);
-    const canon::MapParticulateVolume& out = scene.particulateVolumes[0];
-    CHECK(out.volume.ref.name == "particles_185");
-    CHECK(out.volume.origin.table == "PVMI");
+    REQUIRE(sets.size() == 1);
+    CHECK(sets[0].ref.name == "particulate_volumes");
+    REQUIRE(sets[0].instances.size() == 1);
+    const canon::PlacedInstance& out = sets[0].instances[0];
     CHECK(out.id == 185);
-    CHECK(out.volume.position.y == 2.0f);
-    REQUIRE(out.volume.emitters.size() == 1);
-    CHECK(out.volume.emitters[0].texture.resolved.name == "dust1");
-    CHECK(out.volume.emitters[0].blend == canon::FramebufferBlend::Alpha);
-    CHECK(out.boundsMax.z == 10.0f);
-    REQUIRE(out.points.size() == 1);
-    CHECK(out.points[0].direction.x == 1.0f);
-    CHECK(out.points[0].unknown0C == 2717.7f);
-    REQUIRE(out.boxes.size() == 2);
-    CHECK(out.boxes[1].children == std::vector<uint32_t>{0});
-    CHECK(out.boxes[1].complete == 0);
-    CHECK(out.volume.sourceRecord.size() == 4272);
+    CHECK(out.asset.name == "classic_map_particulate_volume");
+    CHECK(out.effect->origin.table == "PVMI");
+    CHECK(out.translation.y == 2.0f);
+    REQUIRE(out.effect->inputs.at(0).name == "pieces");
+    const auto& pieces = std::get<std::vector<canon::InputValue>>(out.effect->inputs.at(0).value.value);
+    REQUIRE(pieces.size() == 2);
+    // Boxes move into the instance's frame: world min (-1, 0, 2) - position (1, 2, 3).
+    const auto& root = std::get<std::vector<canon::NamedInput>>(pieces[1].value);
+    CHECK(std::get<canon::Vec3>(root[0].value.value).x == -2.0f);
+    CHECK(std::get<canon::Vec3>(root[0].value.value).z == -1.0f);
+    CHECK(std::get<std::vector<canon::InputValue>>(root[2].value.value).size() == 1);
+    CHECK_FALSE(std::get<bool>(root[3].value.value));
+    // The root is the world box, and that box is position +- extent / 2: not carried.
+    CHECK_FALSE(field(out, "PVMI bounds (min, max)"));
+    CHECK(std::get<std::vector<double>>(field(out, "PVPD (x, y, +0x08, +0x0C)")->value)[3] == doctest::Approx(2717.7));
+    const auto& emitters = std::get<std::vector<canon::InputValue>>(out.effect->inputs.at(1).value.value);
+    const auto& texture = std::get<std::vector<canon::NamedInput>>(emitters[0].value)[0];
+    CHECK(std::get<canon::TextureRef>(texture.value.value).resolved.name == "dust1");
+    CHECK(out.effect->style.at(1).blocks.at(0).draw->blend == canon::FramebufferBlend::Alpha);
+}
+
+TEST_CASE("buildMapEffects: fog and particulate ids are separate spaces, so each gets its own set") {
+    wdt::FogsFile fogs;
+    fogs.fogs = {fog(185, 0)};
+    wdt::MpvFile mpv;
+    wdt::MapParticulateVolume v;
+    v.id = 185;
+    mpv.volumes = {v};
+    mapinput::MapSceneInputs in;
+    in.fogs = &fogs;
+    in.mpv = &mpv;
+
+    std::vector<canon::PlacementSet> sets = mapinput::buildMapEffects(in);
+
+    REQUIRE(sets.size() == 2);
+    CHECK(sets[0].instances[0].id == 185);
+    CHECK(sets[1].instances[0].id == 185);
+    // A volume without PVBD boxes has its world box as the one piece.
+    const auto& pieces = std::get<std::vector<canon::InputValue>>(sets[1].instances[0].effect->inputs.at(0).value.value);
+    CHECK(pieces.size() == 1);
 }

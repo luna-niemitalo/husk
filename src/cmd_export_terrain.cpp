@@ -458,11 +458,31 @@ std::optional<uint32_t> tileFileDataId(const std::unordered_map<std::string, uin
     return it->second;
 }
 
-// A map directory's _fogs.wdt and _mpv.wdt as a canon::MapScene; nullopt
-// when the map has neither file. A file that exists but doesn't parse
-// fails the export.
-std::optional<canon::MapScene> loadMapScene(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
-                                            const std::string& listfileRoot) {
+bool placesModels(const std::vector<canon::PlacementSet>& sets) {
+    return std::any_of(sets.begin(), sets.end(), [](const canon::PlacementSet& set) {
+        return std::any_of(set.instances.begin(), set.instances.end(), [](const canon::PlacedInstance& i) { return !i.effect; });
+    });
+}
+
+// Every effect husk writes so far is a placeholder (REFACTOR/EFFECTS.md):
+// the summary counts their instances so they stay visible until classified.
+void printPlaceholderEffects(const std::vector<canon::PlacementSet>& sets, const char* command) {
+    std::map<std::string, size_t> counts;
+    for (const canon::PlacementSet& set : sets) {
+        for (const canon::PlacedInstance& i : set.instances) {
+            if (i.effect) ++counts[i.asset.name];
+        }
+    }
+    for (const auto& [effect, count] : counts) {
+        std::cerr << "husk: " << command << ": warning: " << count << " instances of placeholder effect " << effect << "\n";
+    }
+}
+
+// A map directory's _fogs.wdt and _mpv.wdt as world placement sets of
+// effect instances; none when the map has neither file. A file that exists
+// but doesn't parse fails the export.
+std::vector<canon::PlacementSet> loadMapEffects(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
+                                                const std::string& listfileRoot) {
     std::string map = mapDir.filename().string();
     std::filesystem::path fogsPath = mapDir / (map + "_fogs.wdt");
     std::filesystem::path mpvPath = mapDir / (map + "_mpv.wdt");
@@ -474,7 +494,7 @@ std::optional<canon::MapScene> loadMapScene(const std::filesystem::path& mapDir,
     } catch (const std::exception& e) {
         throw std::runtime_error(map + ": " + e.what());
     }
-    if (!fogs && !mpv) return std::nullopt;
+    if (!fogs && !mpv) return {};
 
     mapinput::MapSceneInputs inputs;
     inputs.map = map;
@@ -493,14 +513,14 @@ std::optional<canon::MapScene> loadMapScene(const std::filesystem::path& mapDir,
         }
         if (fogs) {
             for (const wdt::Fog& f : fogs->fogs) {
-                std::optional<std::string_view> listed = f.modelFileDataId ? listfile->lookup(f.modelFileDataId) : std::nullopt;
-                if (listed) {
-                    inputs.assetNames.emplace(f.modelFileDataId, std::filesystem::path(std::string(*listed)).stem().string());
+                uint32_t model = f.modelFileDataId ? f.modelFileDataId : mapinput::kFallbackFogModel;
+                if (std::optional<std::string_view> listed = listfile->lookup(model)) {
+                    inputs.assetNames.emplace(model, std::filesystem::path(std::string(*listed)).stem().string());
                 }
             }
         }
     }
-    return mapinput::buildMapScene(inputs);
+    return mapinput::buildMapEffects(inputs);
 }
 
 std::set<uint32_t> placedAssets(const canon::Model& model) {
@@ -687,8 +707,7 @@ canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& 
         }
     });
     if (failure) std::rethrow_exception(failure);
-    std::optional<canon::MapScene> scene = loadMapScene(mapDir, listfile, listfileRoot);
-    world.scene = scene ? std::move(*scene) : canon::MapScene{canon::Ref{canon::None{}, map, canon::NameSource::Listfile}, {}, {}};
+    for (canon::PlacementSet& set : loadMapEffects(mapDir, listfile, listfileRoot)) world.placements.push_back(std::move(set));
     return world;
 }
 
@@ -1002,15 +1021,15 @@ int exportMap(int argc, char** args) {
         if (unlisted > 0) std::cerr << "husk: note: " << unlisted << " root tiles the WDT's MAIN doesn't list, skipped\n";
         canon::World world = loadWorld(mapDir, wdt, tiles, listfile.get(), unlessNone(opts.listfileRoot),
                                        std::max(1u, std::thread::hardware_concurrency()));
-        if (world.cells.empty() && world.placements.empty()) {
+        if (world.cells.empty() && !placesModels(world.placements)) {
             throw std::runtime_error("expected root tiles " + map + "_<x>_<y>.adt in " + mapDir.string() +
                                      " or a map-wide WMO in " + map + ".wdt, found neither");
         }
         writers::writeWorldBundle(world, opts.output, worldProvenance(mapDir, listfile.get(), listfilePath),
                                   std::vector<std::string>(world.cells.size()));
         std::cout << "wrote " << opts.output << ": " << world.cells.size() << " tiles, " << world.placements.size()
-                  << " off-grid placement sets, " << world.scene.fogs.size()
-                  << " fog volumes, " << world.scene.particulateVolumes.size() << " particulate volumes\n";
+                  << " off-grid placement sets\n";
+        printPlaceholderEffects(world.placements, "export-map");
     } catch (const std::exception& e) {
         std::cerr << "husk: export-map: " << e.what() << "\n";
         return 1;
@@ -1371,9 +1390,15 @@ int exportWorld(int argc, char** args) {
                                 assetUris.emplace(fdid->value, "../../../models/" + modelBundleName(fdid->value) + "/manifest.json");
                             }
                         };
-                        for (const canon::FogVolume& f : world.scene.fogs) link(f.model);
                         for (const canon::PlacementSet& set : world.placements) {
-                            for (const canon::PlacedInstance& instance : set.instances) link(instance.asset);
+                            for (const canon::PlacedInstance& instance : set.instances) {
+                                link(instance.asset);
+                                if (!instance.effect) continue;
+                                // A fog's shape model is a mesh input.
+                                for (const canon::NamedInput& input : instance.effect->inputs) {
+                                    if (auto model = std::get_if<canon::Ref>(&input.value.value)) link(*model);
+                                }
+                            }
                         }
                         writers::writeWorldBundle(world, bundle, worldProvenance(mapDir, listfile.get(), opts.listfile),
                                                   tileUris, assetUris);

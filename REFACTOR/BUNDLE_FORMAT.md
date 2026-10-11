@@ -612,10 +612,10 @@ its `MAID` (the listfile only without one).
   frame, documents under `sets/`. A map without terrain (WDT `MPHD` flag
   0x1) has one, `map_objects`, holding the single WMO its WDT's `MODF`
   places, with the doodad set it turns on; a map with terrain has none.
-- `scene`: what the map places as a whole, world frame. `fog_volumes`
-  (`_fogs.wdt`) and `ambient_particle_volumes` (`_mpv.wdt`; each carries a
-  model's `resources.scene.ambient_particle_volumes` entry as `volume`,
-  plus world bounds, id and the box tree). Every azeroth fog and particle
-  volume lands on one of its cells. Fields still uncharacterized are under
-  `unresolved`, raw records as slices of `world.bin`.
+  The map's volumes are two more sets of effect instances
+  (`EFFECTS.md`): `fogs` (`_fogs.wdt`, `classic_volumetric_fog`) and
+  `particulate_volumes` (`_mpv.wdt`, `classic_map_particulate_volume`),
+  each instance's id its source's own. They are two sets because the two
+  id spaces overlap. Every azeroth fog and particle volume lands on one of
+  its cells.
 

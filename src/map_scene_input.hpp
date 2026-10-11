@@ -3,14 +3,19 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
-#include "canon_map.hpp"
+#include "canon_placement.hpp"
 #include "wdt_volumes.hpp"
 #include "wmo_canon_input.hpp"  // TextureResolutions
 
-// husk::mapinput: a map's volume sidecars -> canon::MapScene. No filesystem
-// access here; the caller reads the files and resolves names and textures.
+// husk::mapinput: a map's volume sidecars -> world placement sets of effect
+// instances (REFACTOR/EFFECTS.md, literal tier). No filesystem access here;
+// the caller reads the files and resolves names and textures.
 namespace husk::mapinput {
+
+// WDT.md _fogs: a VFOG whose model is 0 draws spells/errorcube.m2.
+inline constexpr uint32_t kFallbackFogModel = 166046;
 
 struct MapSceneInputs {
     std::string map;                     // the map's directory name
@@ -20,6 +25,11 @@ struct MapSceneInputs {
     std::unordered_map<uint32_t, std::string> assetNames;  // listfile names for fog models
 };
 
-canon::MapScene buildMapScene(const MapSceneInputs& inputs);
+// World frame. `fogs` holds the _fogs.wdt volumes (classic_volumetric_fog)
+// and `particulate_volumes` the _mpv.wdt ones (classic_map_particulate_volume),
+// each instance's id its source's own id: the two are separate id spaces
+// (31 fog/particulate ids collide within a map in the corpus). A set with
+// no instances is left out.
+std::vector<canon::PlacementSet> buildMapEffects(const MapSceneInputs& inputs);
 
 }  // namespace husk::mapinput

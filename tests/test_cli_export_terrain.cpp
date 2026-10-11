@@ -400,7 +400,8 @@ TEST_CASE("husk export-map: a map's tiles and _fogs.wdt become a world document;
     auto r = runHusk("export-map " + q(c.mapDir()) + " " + q(out) + " --listfile none");
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    CHECK(r.output.find("1 tiles, 0 off-grid placement sets, 1 fog volumes, 0 particulate volumes") != std::string::npos);
+    CHECK(r.output.find("1 tiles, 1 off-grid placement sets") != std::string::npos);
+    CHECK(r.output.find("warning: 1 instances of placeholder effect classic_volumetric_fog") != std::string::npos);
     nlohmann::json m = readTile(out / "manifest.json");
     CHECK(m["kind"] == "world");
     CHECK(m["subject"]["name"] == "azeroth");
@@ -415,8 +416,16 @@ TEST_CASE("husk export-map: a map's tiles and _fogs.wdt become a world document;
     const nlohmann::json& tile = m["references"][cell["tile"].get<size_t>()];
     CHECK(tile["asset"]["name"] == "azeroth_32_48");
     CHECK_FALSE(tile["asset"].contains("uri"));
-    CHECK(m["scene"]["fog_volumes"][0]["id"] == 1659);
-    CHECK(m["scene"]["fog_volumes"][0]["unresolved"]["palette"]["mode"] == 2.0);
+    // The map's fog is an effect instance in the world's "fogs" set.
+    REQUIRE(m["placements"].size() == 1);
+    CHECK(m["references"][m["placements"][0].get<size_t>()]["asset"]["name"] == "fogs");
+    nlohmann::json fogs = readTile(out / "sets" / "0.json");
+    CHECK(fogs["instances"][0]["id"] == 1659);
+    bool modeCarried = false;
+    for (const auto& f : fogs["instances"][0]["unresolved"]["fields"]) {
+        if (f["field"] == "VFE2+0x3C") modeCarried = f["value"] == 2.0;
+    }
+    CHECK(modeCarried);
 
     writeBytes(c.root / "world" / "maps" / "empty" / "empty.wdt", wdtFile(WdtSpec{.tiles = {}}));
     auto none = runHusk("export-map " + q(c.root / "world" / "maps" / "empty") + " " + q(c.root / "none.bundle") +
@@ -498,9 +507,9 @@ TEST_CASE("husk export-world: every map gets a world document linking its export
     REQUIRE(r.exitCode == 0);
     CHECK(r.output.find("2 worlds") != std::string::npos);
     nlohmann::json m = readTile(out / "maps" / "azeroth" / "azeroth.world.bundle" / "manifest.json");
-    CHECK(m["scene"]["fog_volumes"].size() == 1);
+    CHECK(m["placements"].size() == 1);
     CHECK(m["references"][0]["asset"]["uri"] == "../azeroth_32_48.bundle/manifest.json");
     nlohmann::json other = readTile(out / "maps" / "other" / "other.world.bundle" / "manifest.json");
-    CHECK(other["scene"]["fog_volumes"].empty());
+    CHECK(other["placements"].empty());
     CHECK(other["grid"]["cells"].size() == 1);
 }

@@ -73,12 +73,12 @@ Fog parseFog(const Chunk& c, size_t o) {
     return f;
 }
 
-// Attaches each `recordSize` record of `c` to the fog its id at `idOffset`
-// names, through `slot`.
-void attachExtras(const Chunk& c, size_t recordSize, size_t idOffset, std::vector<Fog>& fogs,
-                  std::vector<uint8_t> Fog::*slot) {
-    std::map<uint32_t, Fog*> byId;
-    for (Fog& f : fogs) byId[f.id] = &f;
+// Each `recordSize` record of `c`, by the index of the fog its id at
+// `idOffset` names; `records` is one slot per fog.
+void attachExtras(const Chunk& c, size_t recordSize, size_t idOffset, const std::vector<Fog>& fogs,
+                  std::vector<const uint8_t*>& records) {
+    std::map<uint32_t, size_t> byId;
+    for (size_t f = 0; f < fogs.size(); ++f) byId[fogs[f].id] = f;
     for (size_t i = 0; i < recordCount(c, recordSize); ++i) {
         size_t o = i * recordSize;
         auto id = read<uint32_t>(c.data, c.size, o + idOffset, c.tag.c_str());
@@ -87,13 +87,34 @@ void attachExtras(const Chunk& c, size_t recordSize, size_t idOffset, std::vecto
             throw ParseError(c.tag + "[" + std::to_string(i) + "]: expected the id of a VFOG record, got " +
                              std::to_string(id));
         }
-        std::vector<uint8_t>& target = it->second->*slot;
-        if (!target.empty()) {
+        if (records[it->second]) {
             throw ParseError(c.tag + "[" + std::to_string(i) + "]: expected at most one per VFOG, got a second for id " +
                              std::to_string(id));
         }
-        target.assign(c.data + o, c.data + o + recordSize);
+        records[it->second] = c.data + o;
     }
+}
+
+Fog::Extra parseExtra(const uint8_t* d) {
+    Fog::Extra extra;
+    extra.enabled = read<uint32_t>(d, kVfexSize, 0x00, "VFEX");
+    extra.extent = readVec3(d, kVfexSize, 0x04, "VFEX");
+    extra.parameters = read<std::array<float, 13>>(d, kVfexSize, 0x10, "VFEX");
+    wmo::keepIfNonzero(d, 0x48, kVfexSize, extra.unknownRanges);
+    return extra;
+}
+
+Fog::Palette parsePalette(const uint8_t* d) {
+    Fog::Palette palette;
+    palette.colors = {readVec3(d, kVfe2Size, 0x00, "VFE2"), readVec3(d, kVfe2Size, 0x20, "VFE2"),
+                      readVec3(d, kVfe2Size, 0x2C, "VFE2")};
+    palette.scalars0C = read<std::array<float, 5>>(d, kVfe2Size, 0x0C, "VFE2");
+    palette.scalar38 = read<float>(d, kVfe2Size, 0x38, "VFE2");
+    palette.mode = read<float>(d, kVfe2Size, 0x3C, "VFE2");
+    palette.scalars40 = read<std::array<float, 3>>(d, kVfe2Size, 0x40, "VFE2");
+    palette.scalars50 = read<std::array<float, 8>>(d, kVfe2Size, 0x50, "VFE2");
+    wmo::keepIfNonzero(d, 0x70, kVfe2Size, palette.unknownRanges);
+    return palette;
 }
 
 void requireGroupCounts(const MapParticulateVolume& v, uint32_t declaredPoints, size_t group) {
@@ -123,28 +144,15 @@ FogsFile parseFogs(const std::vector<uint8_t>& fileBytes) {
         if (c.tag != "VFOG") continue;
         for (size_t i = 0; i < recordCount(c, kVfogSize); ++i) out.fogs.push_back(parseFog(c, i * kVfogSize));
     }
+    std::vector<const uint8_t*> extras(out.fogs.size(), nullptr);
+    std::vector<const uint8_t*> palettes(out.fogs.size(), nullptr);
     for (const Chunk& c : chunks) {
-        if (c.tag == "VFEX") attachExtras(c, kVfexSize, kVfexFogIdOffset, out.fogs, &Fog::extra);
-        if (c.tag == "VFE2") attachExtras(c, kVfe2Size, kVfe2FogIdOffset, out.fogs, &Fog::extra2);
+        if (c.tag == "VFEX") attachExtras(c, kVfexSize, kVfexFogIdOffset, out.fogs, extras);
+        if (c.tag == "VFE2") attachExtras(c, kVfe2Size, kVfe2FogIdOffset, out.fogs, palettes);
     }
-    for (Fog& f : out.fogs) {
-        if (f.extra.empty()) continue;
-        const uint8_t* d = f.extra.data();
-        size_t n = f.extra.size();
-        Fog::Extra extra;
-        extra.enabled = read<uint32_t>(d, n, 0x00, "VFEX");
-        extra.extent = readVec3(d, n, 0x04, "VFEX");
-        extra.parameters = read<std::array<float, 13>>(d, n, 0x10, "VFEX");
-        f.extraFields = extra;
-    }
-    for (Fog& f : out.fogs) {
-        if (f.extra2.empty()) continue;
-        const uint8_t* d = f.extra2.data();
-        size_t n = f.extra2.size();
-        Fog::Palette palette;
-        palette.colors = {readVec3(d, n, 0x00, "VFE2"), readVec3(d, n, 0x20, "VFE2"), readVec3(d, n, 0x2C, "VFE2")};
-        palette.mode = read<float>(d, n, 0x3C, "VFE2");
-        f.palette = palette;
+    for (size_t f = 0; f < out.fogs.size(); ++f) {
+        if (extras[f]) out.fogs[f].extraFields = parseExtra(extras[f]);
+        if (palettes[f]) out.fogs[f].palette = parsePalette(palettes[f]);
     }
     return out;
 }

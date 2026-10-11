@@ -220,8 +220,9 @@ on husk's side (`BUNDLE_FORMAT.md` "Seams between tiles").
 
 - `grid.cells[].bounds_min/max`: each tile's world-frame box (terrain and
   liquids), so a tile can be found under a position without opening it.
-- `scene.fog_volumes` (`_fogs.wdt`) and `scene.ambient_particle_volumes`
-  (`_mpv.wdt`), in the world frame.
+- The map's volumes: two of `placements`' sets, `fogs` (`_fogs.wdt`) and
+  `particulate_volumes` (`_mpv.wdt`), effect instances in the world frame
+  (`REFACTOR/EFFECTS.md`).
 - `subject.id`: the WDT's FileDataID. Every document's `subject` now
   carries its FileDataID when husk knows it, M2 bundles included.
 

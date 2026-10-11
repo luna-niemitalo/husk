@@ -35,26 +35,34 @@ struct Fog {
     uint32_t modelFileDataId = 0;  // 0: the client falls back to 166046 (spells/errorcube.m2)
     uint32_t fogLevel = 0;         // 0..2, compared against the client's fog-level setting
     uint32_t id = 0;               // unique across the files
-    // VFEX (96 bytes) and VFE2 (176 bytes, undocumented on the wiki), raw;
-    // empty when absent. Each names its VFOG by id.
-    std::vector<uint8_t> extra;
-    std::vector<uint8_t> extra2;
-    // VFE2's characterized fields (WIKI_FINDINGS/WORLD.md "_fogs.wdt VFE2"):
-    // three byte-quantized RGB colours at +0x00/+0x20/+0x2C and a mode float
-    // at +0x3C, only ever 1.0 or 2.0. Their fog roles are candidates only.
+    // VFEX (96 bytes) and VFE2 (176 bytes, undocumented on the wiki), each
+    // naming its VFOG by id, as fields; nullopt when absent.
+    //
+    // VFE2 (WIKI_FINDINGS/WORLD.md "_fogs.wdt VFE2"): three byte-quantized
+    // RGB colours at +0x00/+0x20/+0x2C and a mode float at +0x3C, only ever
+    // 1.0 or 2.0; their fog roles are candidates only. The other words up to
+    // +0x70 are floats characterized by range only; +0x70.. is zero in all
+    // 1,542 records, kept in `unknownRanges` only if not.
     struct Palette {
         std::array<Vec3, 3> colors{};
         float mode = 0;
+        std::array<float, 5> scalars0C{};  // +0x0C..+0x1F
+        float scalar38 = 0;
+        std::array<float, 3> scalars40{};  // +0x40..+0x4B
+        std::array<float, 8> scalars50{};  // +0x50..+0x6F
+        std::vector<wmo::UnknownRange> unknownRanges;
     };
     std::optional<Palette> palette;
     // VFEX's characterized fields (WIKI_FINDINGS/WORLD.md "_fogs.wdt VFEX"),
-    // from 1,542 real records. Its +0x48..+0x5F tail is zero in all of them.
+    // from 1,542 real records. Its +0x48..+0x5F tail is zero in all of them,
+    // kept in `unknownRanges` only if not.
     struct Extra {
         uint32_t enabled = 0;  // 1 in 1,539, 0 in 3
         Vec3 extent{};         // +0x04, positive, 10..hundreds
         // +0x10..+0x43; 1.0 is the common default of each. Co-variation
         // doesn't split them into clean triples, so they stay one array.
         std::array<float, 13> parameters{};
+        std::vector<wmo::UnknownRange> unknownRanges;
     };
     std::optional<Extra> extraFields;
 };

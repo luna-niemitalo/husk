@@ -25,8 +25,9 @@ struct NamedInput;
 // An input value. Which kind it is comes from the effect's declaration;
 // these are the value shapes husk writes so far. A list holds a list
 // input's elements, a record a record input's fields.
+// Ref: a mesh input, the model by identity.
 struct InputValue {
-    std::variant<double, int64_t, bool, Vec3, TextureRef, std::vector<InputValue>, std::vector<NamedInput>> value;
+    std::variant<double, int64_t, bool, Vec3, TextureRef, Ref, std::vector<InputValue>, std::vector<NamedInput>> value;
 };
 
 struct NamedInput {
@@ -56,6 +57,13 @@ struct StyleBlock {
     // uses is unverified (the wiki ties it to flag 0x1, contradictorily).
     std::optional<std::array<std::array<float, 4>, 3>> ambientColors;
     std::optional<uint32_t> maxParticles;  // the classic particle system's cap
+    // The classic volumetric fog pass: its colour, and the lowest fog
+    // quality setting (0..2) it was drawn at.
+    struct VolumetricFog {
+        Vec3 color;
+        uint32_t minQuality = 0;
+    };
+    std::optional<VolumetricFog> volumetricFog;
     // How the classic client drew the source's particles.
     struct Draw {
         std::optional<FramebufferBlend> blend;  // nullopt when the source mode has no canon name

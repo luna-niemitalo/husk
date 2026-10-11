@@ -14,13 +14,16 @@ shared `unresolved` shape, effect instances in placement sets
 instance refs, inline reference documents, and `validate-bundle`'s input
 checks and placeholder warnings (`--release` fails on them). Sources on
 it (Phase 2): WMO `MFOG` (`classic_local_fog`, `classic_fog_exit_blend`),
-`MAVG`/`MAVD`/`MBVD` (`classic_ambient_global`/`_point`/`_box`) and
-`MPVD` (`classic_particulate_volume`).
+`MAVG`/`MAVD`/`MBVD` (`classic_ambient_global`/`_point`/`_box`), `MPVD`
+(`classic_particulate_volume`), and the map's `VFOG`+`VFEX`+`VFE2`
+(`classic_volumetric_fog`, `shape` region) and `PVMI`/`PVPD`/`PVBD`
+(`classic_map_particulate_volume`, `box_tree` region) in the world
+document's `fogs` and `particulate_volumes` sets. No source ships a raw
+record any more: undescribed ranges are checked and kept only when set.
 
-**Not yet**: every other source still carries its own shape:
-- `canon::FogVolume` mirrors `VFOG`+`VFEX`+`VFE2`, `unknown18` and all;
-- `canon::ParticulateVolume` mirrors a map's `PVMI` (with its raw record);
-- `canon::ParticleEmitter`/`RibbonEmitter` mirror M2's emitters.
+**Not yet**: M2's emitters (`canon::ParticleEmitter`/`RibbonEmitter`)
+still carry their own shape in `resources.scene`; they need the `anchor`
+field (joints) and an inline effects set.
 
 The `anchor` field, gate, priority, provenance and the remaining content
 kinds are not in the schema yet; each joins with its first source.

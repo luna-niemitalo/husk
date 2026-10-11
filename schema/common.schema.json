@@ -821,6 +821,55 @@
         }
       ]
     },
+    "bound_mesh": {
+      "description": "A model, or a binding to one.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/asset_ref",
+          "description": "The model."
+        },
+        {
+          "$ref": "#/definitions/binding",
+          "description": "Where the model comes from."
+        }
+      ]
+    },
+    "tree_box": {
+      "type": "object",
+      "description": "One box of a box tree.",
+      "properties": {
+        "min": {
+          "$ref": "#/definitions/vec3",
+          "description": "Minimum corner.",
+          "x-unit": "yard"
+        },
+        "max": {
+          "$ref": "#/definitions/vec3",
+          "description": "Maximum corner.",
+          "x-unit": "yard"
+        },
+        "children": {
+          "type": "array",
+          "description": "The boxes it splits into, by index in the tree; none for a leaf.",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "A child box."
+          }
+        },
+        "complete": {
+          "type": "boolean",
+          "description": "True: the children partition it. False: they may share leaves, so it is a union of overlapping pieces."
+        }
+      },
+      "required": [
+        "min",
+        "max",
+        "children",
+        "complete"
+      ],
+      "additionalProperties": false
+    },
     "bound_vec3": {
       "description": "Three numbers, or a binding to them.",
       "oneOf": [
@@ -916,6 +965,57 @@
             "kind",
             "center",
             "size"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "The inside of a model's mesh, in the instance's frame.",
+          "properties": {
+            "kind": {
+              "const": "shape",
+              "description": "Region kind."
+            },
+            "model": {
+              "$ref": "#/definitions/bound_mesh",
+              "description": "The model whose mesh bounds the region."
+            }
+          },
+          "required": [
+            "kind",
+            "model"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A box refined by a tree of boxes inside it: the root (the box no other lists as a child) is the whole, the leaves its pieces.",
+          "properties": {
+            "kind": {
+              "const": "box_tree",
+              "description": "Region kind."
+            },
+            "boxes": {
+              "description": "The tree's boxes, or a binding to them.",
+              "oneOf": [
+                {
+                  "type": "array",
+                  "description": "The boxes.",
+                  "items": {
+                    "$ref": "#/definitions/tree_box",
+                    "description": "One box."
+                  }
+                },
+                {
+                  "$ref": "#/definitions/binding",
+                  "description": "Where the boxes come from."
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "boxes"
           ],
           "additionalProperties": false
         },
@@ -1151,6 +1251,27 @@
           },
           "required": [
             "colors"
+          ],
+          "additionalProperties": false
+        },
+        "volumetric_fog": {
+          "type": "object",
+          "description": "The classic client's volumetric fog pass inside the source's region.",
+          "properties": {
+            "color": {
+              "$ref": "#/definitions/rgb",
+              "description": "Fog colour, as stored.",
+              "x-unit": "1"
+            },
+            "min_quality": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Drawn when the viewer's fog quality setting is at least this, 0..2."
+            }
+          },
+          "required": [
+            "color",
+            "min_quality"
           ],
           "additionalProperties": false
         },

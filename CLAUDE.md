@@ -271,13 +271,12 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   `placement_sets`**. WMO `MNLD`/`MOLT` lights are
   `resources.scene.static_lights`, each `MNLD` light switching with its doodad
   set; `MLIQ` liquid is `resources.geometry.liquids` with LiquidType resolved.
-  `MPVD` particulate volumes are `scene.particulateVolumes`
-  (`resources.scene.ambient_particle_volumes`); `MAVG`/`MAVD`/`MBVD` are
-  `scene.ambientVolumes`. Map-wide `_fogs.wdt`/`_mpv.wdt` volumes are the
-  world document's `scene` (`canon::World`, `husk export-map`,
-  `export-world` pass 4). WMO `MFOG` fogs are placeholder effect
-  instances in the doodad set `MFED` names (`REFACTOR/EFFECTS.md`), each
-  part lists them as `{set, id}`; map fogs carry `VFEX`'s typed part. Per-element data
+  Fog and volumes are effects (`REFACTOR/EFFECTS.md`, literal tier, every
+  effect a placeholder): WMO `MFOG`, `MAVG`/`MAVD`/`MBVD` and `MPVD` are
+  effect instances in the doodad set each applies with, parts naming them
+  as `{set, id}`; map-wide `_fogs.wdt`/`_mpv.wdt` volumes are the world
+  document's `fogs` and `particulate_volumes` sets (`husk export-map`,
+  `export-world` pass 4). Per-element data
   goes in generic mesh attribute channels (`canon::AttributeChannel`,
   `resources.geometry.mesh.attributes`; REFACTOR/BUNDLE_FORMAT.md): WMO face flags/material
   are the first, and select collision; M2 collision is

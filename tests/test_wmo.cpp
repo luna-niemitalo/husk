@@ -271,7 +271,7 @@ std::vector<uint8_t> mpvdRecord(uint32_t keyCount) {
 
 }  // namespace
 
-TEST_CASE("wmo::parseRoot: MPVD reads header, envelope and the used emitter slots, keeping the raw record") {
+TEST_CASE("wmo::parseRoot: MPVD reads header, envelope and the used emitter slots; undescribed ranges only when set") {
     wmo::RootFile root = wmo::parseRoot(minimalRoot(0, {{"MPVD", mpvdRecord(2)}}));
     REQUIRE(root.particulateVolumes.size() == 1);
     const wmo::ParticulateVolume& v = root.particulateVolumes[0];
@@ -295,8 +295,18 @@ TEST_CASE("wmo::parseRoot: MPVD reads header, envelope and the used emitter slot
     CHECK(e.tilesY == 2);
     CHECK(e.frames == 8);
     CHECK(e.unknownA8 == 12.0f);
-    CHECK(v.record.size() == 4272);
-    CHECK(v.record[0x10AC] == 2);
+    CHECK(v.unknownRanges.empty());
+
+    std::vector<uint8_t> gap = mpvdRecord(2);
+    put<uint32_t>(gap, 0x274, 7);           // inside the undescribed +0x270..+0x298
+    put<uint32_t>(gap, 0x2D0 + 844 + 4, 9);  // inside the unused emitter slot 1
+    root = wmo::parseRoot(minimalRoot(0, {{"MPVD", gap}}));
+    const std::vector<wmo::UnknownRange>& ranges = root.particulateVolumes[0].unknownRanges;
+    REQUIRE(ranges.size() == 2);
+    CHECK(ranges[0].offset == 0x270);
+    CHECK(ranges[0].words[1] == 7);
+    CHECK(ranges[1].offset == 0x2D0 + 844);
+    CHECK(ranges[1].words.size() == 844 / 4);
 }
 
 TEST_CASE("wmo::parseRoot: an MPVD emitter count that disagrees with the textured slots throws") {

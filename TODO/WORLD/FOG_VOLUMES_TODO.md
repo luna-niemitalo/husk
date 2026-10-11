@@ -223,13 +223,17 @@ but still metadata, not geometry.
 
 ## 3. Map-level fog volumes (`.wdt`'s `_fogs` sidecar: `VFOG`/`VFEX`)
 
-**Current state (2026-10-11)**: parsed (`src/wdt_volumes.cpp`) and exported
-as world documents' `scene.fog_volumes` (`canon::FogVolume`; `husk
-export-map`, `export-world` pass 4). `VFEX`/`VFE2` attach by
-`VFOG.id`; `VFE2`'s colours and mode are typed, both records kept raw.
-Every map in the corpus exports (1,542 fogs, all with `VFEX` and `VFE2`).
-Open: `VFEX` and `VFE2` scalar semantics; fog model shapes are identity
-only (938/1,542 use the errorcube fallback).
+**Current state (2026-10-11)**: parsed (`src/wdt_volumes.cpp`; `VFEX` and
+`VFE2` attach by `VFOG.id` and are read field by field, their zero tails
+checked) and exported as `classic_volumetric_fog` placeholder instances
+in the world document's `fogs` set (`mapinput::buildMapEffects`;
+`REFACTOR/EFFECTS.md`): the shape model as the region (the errorcube
+fallback for model 0, the 0 kept), colour and quality level as style,
+everything else unresolved, `VFEX`'s flag with the candidate role
+`gate.enabled`. All 763 maps with a sidecar export and validate (1,542
+fogs). Open: `VFEX` and `VFE2` scalar semantics, `intensity`, `radius`
+and the animation periods; fog model shapes are identity only (938/1,542
+use the errorcube fallback).
 
 **Wiki citation**: `documentation/wowdev-wiki/md/WDT.md`, `# \_fogs`
 (585–646): `## MVER`, `## VFOG`, `## VFEX`.
@@ -384,14 +388,17 @@ unclaimed` until then.
 ## 4. Map-level particulate volumes (`.wdt`'s `_mpv` sidecar: `PVPD`/`PVMI`/`PVBD`)
 
 **Current state (2026-10-11)**: parsed (`src/wdt_volumes.cpp`, sharing the
-`MPVD` record parser) and exported as world documents'
-`scene.ambient_particle_volumes` (`canon::MapParticulateVolume`). All 619 groups in
-48 maps export. Real data overturned the wiki's `PVBD` hedge: its index
-words name child boxes in the same group's `PVBD`, not `PVPD` points (see
-`../../WIKI_FINDINGS/WORLD.md`). Open: what `PVPD` encodes (unit 2D
-vector + a world-sized float; not vertical half-planes bounding the
-boxes, tested); what `complete` = 0 means beyond "sub-boxes share
-leaves"; 760/846 emitter textures are absent from the local listfile.
+`MPVD` record parser) and exported as `classic_map_particulate_volume`
+placeholder instances in the world document's `particulate_volumes` set,
+each instance id the volume id: the `PVBD` tree (its root is the volume's
+box, all 619) in the instance's frame as the region, the emitters as for
+`MPVD`, `PVPD` unresolved. All 619 groups in 48 maps export and validate,
+846/846 emitter textures resolved. Real data overturned the wiki's `PVBD`
+hedge: its index words name child boxes in the same group's `PVBD`, not
+`PVPD` points (see `../../WIKI_FINDINGS/WORLD.md`). Open: what `PVPD`
+encodes (unit 2D vector + a world-sized float; not vertical half-planes
+bounding the boxes, tested); what `complete` = 0 means beyond "sub-boxes
+share leaves"; the emitter tails 227 map emitters set.
 
 **Wiki citation**: `documentation/wowdev-wiki/md/WDT.md`, `# \_mpv`
 (648–703): `## MVER`, `## PVPD`, `## PVMI`, `## PVBD`.

@@ -171,6 +171,11 @@ struct UnknownRange {
     std::vector<uint32_t> words;  // the range's dwords, raw
 };
 
+// Appends [begin, end) of `record` (dword-aligned, inside the record) to
+// `out` when any dword in it is nonzero. The one place both WMO and map
+// sidecar records apply that rule.
+void keepIfNonzero(const uint8_t* record, size_t begin, size_t end, std::vector<UnknownRange>& out);
+
 // MPVD, 4,272 bytes: a box volume of ambient particles (dust, snow, ash).
 struct ParticulateVolume {
     uint32_t flags = 0;  // bit 0 always set, bits 2..4 vary; meaning unresolved
@@ -194,8 +199,6 @@ struct ParticulateVolume {
     // +0x2A0..+0x2D0, envelope slots past the key count, unused emitter
     // slots, each used emitter's +0xAC.. tail, and +0x1000..+0x10AC.
     std::vector<UnknownRange> unknownRanges;
-    // The whole record, raw: _mpv.wdt volumes still carry it.
-    std::vector<uint8_t> record;
 };
 
 inline constexpr size_t kParticulateVolumeSize = 4272;

@@ -702,32 +702,6 @@ std::vector<canon::InstanceRef> placeParticulate(const WmoInputs& in, EffectPlac
 
 }  // namespace
 
-canon::ParticulateVolume buildParticulateVolume(const wmo::ParticulateVolume& v, const TextureResolutions& textures) {
-    canon::ParticulateVolume out;
-    out.position = toCanon(v.position);
-    out.extent = toCanon(v.extent);
-    out.eulerRotation = toCanon(v.rotation);
-    out.presetId = v.presetId;
-    out.particleCount = v.particleCount;
-    out.opacity = v.opacity;
-    for (const auto& [value, value2, time] : v.envelope) out.envelope.push_back({time, value, value2});
-    for (const wmo::ParticulateEmitter& e : v.emitters) {
-        canon::ParticulateVolume::Emitter emitter;
-        emitter.slot = e.slot;
-        emitter.texture = textureById(textures, e.textureFileDataId);
-        emitter.blend = framebufferBlendFor(e.blendMode);
-        emitter.sourceBlend = e.blendMode;
-        emitter.color = e.color;
-        emitter.tilesX = e.tilesX;
-        emitter.tilesY = e.tilesY;
-        emitter.frames = e.frames;
-        emitter.parameters = e.parameters;
-        out.emitters.push_back(std::move(emitter));
-    }
-    out.sourceFlags = v.flags;
-    out.sourceRecord = v.record;
-    return out;
-}
 
 canon::Model buildCanonWmo(const WmoInputs& in) {
     const wmo::RootFile& root = *in.root;

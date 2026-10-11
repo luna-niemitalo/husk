@@ -1,0 +1,89 @@
+{
+  "definition": {
+    "status": "placeholder",
+    "inputs": {
+      "pieces": {
+        "kind": "list",
+        "description": "The volume as a box tree in the instance's frame: its root is the whole box, its leaves the pieces.",
+        "item": {
+          "kind": "record",
+          "description": "One box of the tree.",
+          "fields": {
+            "min": {
+              "kind": "position",
+              "description": "Minimum corner."
+            },
+            "max": {
+              "kind": "position",
+              "description": "Maximum corner."
+            },
+            "children": {
+              "kind": "list",
+              "description": "The boxes it splits into, by index; none for a leaf.",
+              "item": {
+                "kind": "integer",
+                "description": "A child box."
+              }
+            },
+            "complete": {
+              "kind": "boolean",
+              "description": "True: the children partition it. False: they may share leaves."
+            }
+          }
+        }
+      },
+      "emitters": {
+        "kind": "list",
+        "description": "The particle kinds the volume is filled with, one to four.",
+        "item": {
+          "kind": "record",
+          "description": "One particle kind.",
+          "fields": {
+            "texture": {
+              "kind": "image",
+              "description": "The particle texture: an atlas of animation frames."
+            },
+            "tiles_x": {
+              "kind": "integer",
+              "description": "Atlas columns."
+            },
+            "tiles_y": {
+              "kind": "integer",
+              "description": "Atlas rows."
+            },
+            "frames": {
+              "kind": "integer",
+              "description": "Frames the animation plays, from the first tile."
+            }
+          }
+        }
+      }
+    }
+  },
+  "selection": {},
+  "references": [],
+  "sources": [
+    {
+      "id": "volume",
+      "region": {
+        "kind": "box_tree",
+        "boxes": {"input": "pieces"}
+      }
+    },
+    {
+      "id": "emitter",
+      "parent": "volume",
+      "for_each": "emitters",
+      "content": {
+        "kind": "particles",
+        "look": {
+          "kind": "quad",
+          "image": {"each": "texture"},
+          "tiles_x": {"each": "tiles_x"},
+          "tiles_y": {"each": "tiles_y"},
+          "frames": {"each": "frames"}
+        }
+      }
+    }
+  ]
+}

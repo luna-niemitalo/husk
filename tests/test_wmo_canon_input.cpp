@@ -384,7 +384,6 @@ TEST_CASE("buildCanonWmo: MPVD records become particulate effect instances with 
     odd.textureFileDataId = 555;
     odd.blendMode = 7;
     v.emitters = {dust, odd};
-    v.record.assign(4272, 0);
     root.particulateVolumes = {v};
     wmoinput::WmoInputs in;
     in.root = &root;

@@ -49,11 +49,11 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
 
 // A `world` document (schema/world.schema.json): the map's tile grid, cell
 // i's tile being reference i with uri `tileUris[i]` (empty: known, not
-// exported), and the volumes the map places as a whole, world frame. Raw
-// source records go into world.bin (written only when non-empty), particle
-// textures into textures/, off-grid placement sets into sets/<i>.json;
-// manifest.json is written last. `assetUris` links fog shape models and
-// placed assets. Throws when tileUris doesn't match the cells.
+// exported), and its off-grid placement sets as sets/<i>.json (the
+// map-wide WMO, and the map's volumes as effect instances, their effect
+// documents in effects/ and particle textures in textures/); manifest.json
+// is written last. `assetUris` links placed assets and fog shape models.
+// Throws when tileUris doesn't match the cells.
 void writeWorldBundle(const canon::World& world, const std::filesystem::path& bundleDir, const Provenance& provenance,
                       const std::vector<std::string>& tileUris, const AssetUris& assetUris = {});
 

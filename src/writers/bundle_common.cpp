@@ -208,26 +208,32 @@ std::string identityKey(const canon::Ref& ref) {
 
 void writeVec3(json::Writer& w, const canon::Vec3& v) { writeFloats(w, {v.x, v.y, v.z}); }
 
-// Writes one image input's texture entry; the caller knows where payloads go.
-using TextureWriter = std::function<void(const canon::TextureRef&)>;
+// Writes an image input's texture entry and a mesh input's asset ref; the
+// caller knows where payloads and bundles are relative to the document.
+struct InputAssets {
+    std::function<void(const canon::TextureRef&)> texture;
+    std::function<void(const canon::Ref&)> mesh;
+};
 
-void writeInputValue(json::Writer& w, const canon::InputValue& value, const TextureWriter& writeTexture) {
+void writeInputValue(json::Writer& w, const canon::InputValue& value, const InputAssets& assets) {
     std::visit(
         [&](const auto& v) {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, canon::Vec3>) {
                 writeVec3(w, v);
             } else if constexpr (std::is_same_v<T, canon::TextureRef>) {
-                writeTexture(v);
+                assets.texture(v);
+            } else if constexpr (std::is_same_v<T, canon::Ref>) {
+                assets.mesh(v);
             } else if constexpr (std::is_same_v<T, std::vector<canon::InputValue>>) {
                 w.beginArray();
-                for (const canon::InputValue& element : v) writeInputValue(w, element, writeTexture);
+                for (const canon::InputValue& element : v) writeInputValue(w, element, assets);
                 w.endArray();
             } else if constexpr (std::is_same_v<T, std::vector<canon::NamedInput>>) {
                 w.beginObject();
                 for (const canon::NamedInput& field : v) {
                     w.key(field.name);
-                    writeInputValue(w, field.value, writeTexture);
+                    writeInputValue(w, field.value, assets);
                 }
                 w.endObject();
             } else {
@@ -279,6 +285,15 @@ void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
         w.beginArray();
         for (const auto& color : *style.ambientColors) writeRgba(w, color);
         w.endArray();
+        w.endObject();
+    }
+    if (style.volumetricFog) {
+        w.key("volumetric_fog");
+        w.beginObject();
+        w.key("color");
+        writeVec3(w, style.volumetricFog->color);
+        w.key("min_quality");
+        w.value(static_cast<int64_t>(style.volumetricFog->minQuality));
         w.endObject();
     }
     if (style.maxParticles) {
@@ -356,12 +371,12 @@ void writeUnresolved(json::Writer& w, const std::vector<canon::UnresolvedField>&
     w.endObject();
 }
 
-void writeEffectInstanceFields(json::Writer& w, const canon::EffectPlacement& effect, const TextureWriter& writeTexture) {
+void writeEffectInstanceFields(json::Writer& w, const canon::EffectPlacement& effect, const InputAssets& assets) {
     w.key("inputs");
     w.beginObject();
     for (const auto& [name, value] : effect.inputs) {
         w.key(name);
-        writeInputValue(w, value, writeTexture);
+        writeInputValue(w, value, assets);
     }
     w.endObject();
     if (!effect.style.empty()) {
@@ -444,9 +459,10 @@ void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem
         w.key("scale");
         w.value(static_cast<double>(instance.scale));
         if (instance.effect) {
-            writeEffectInstanceFields(w, *instance.effect, [&](const canon::TextureRef& texture) {
-                writeTextureEntry(w, texture, bundleDir, writtenTextures, "../");
-            });
+            writeEffectInstanceFields(
+                w, *instance.effect,
+                {[&](const canon::TextureRef& texture) { writeTextureEntry(w, texture, bundleDir, writtenTextures, "../"); },
+                 [&](const canon::Ref& model) { writeAssetRef(w, model, uris); }});
             w.key("source");
             w.beginObject();
             w.key("flags");

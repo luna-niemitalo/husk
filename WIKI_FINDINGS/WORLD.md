@@ -430,6 +430,18 @@ sign holds; leaf boxes touch their "plane" in 21/4,467) — its meaning stays
 open. Positions are world-frame: every `PVMI` position lands on an existing
 tile of its map under the terrain frame, and inside its own AABB.
 
+Three more facts (all 619 groups, 2026-10-11):
+- **The tree's root is the AABB.** Every group has exactly one root box.
+  It equals the `PVMI` world AABB, which is position ± extent/2, and all
+  5,662 boxes lie inside it.
+- **Volume ids and fog ids are separate spaces.** `PVMI` and `VFOG` ids
+  collide 31 times within one map, so "globally unique" holds per kind
+  only.
+- **Map emitters use their extended fields.** In WMO `MPVD` the emitter
+  tail (+0xAC onwards) is nonzero once. On the map side, 227 of 846
+  emitter entries set it (194 in slot 0, 31 in slot 1, 2 in slot 2).
+  `PVMI`'s +0x04 is nonzero in all 619 records, against 2 of 193 in WMOs.
+
 ## Collision & culling — verified
 
 WMO's `MOBN`/`MOBR` BSP collision (48% of real group files) maps almost

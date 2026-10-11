@@ -1,0 +1,22 @@
+{
+  "definition": {
+    "status": "placeholder",
+    "inputs": {
+      "shape": {
+        "kind": "mesh",
+        "description": "The model whose mesh the fog fills, in the instance's frame."
+      }
+    }
+  },
+  "selection": {},
+  "references": [],
+  "sources": [
+    {
+      "id": "fog",
+      "region": {
+        "kind": "shape",
+        "model": {"input": "shape"}
+      }
+    }
+  ]
+}

@@ -382,19 +382,28 @@ void requireVertexCount(const char* tag, size_t actual, size_t vertexCount) {
     }
 }
 
-// Keeps [begin, end) of the record at `o` when any dword in it is nonzero.
 void keepIfSet(const uint8_t* data, size_t size, size_t o, size_t begin, size_t end, const char* tag,
                std::vector<UnknownRange>& out) {
-    UnknownRange range{static_cast<uint32_t>(begin), {}};
-    bool set = false;
-    for (size_t at = begin; at < end; at += 4) {
-        range.words.push_back(read<uint32_t>(data, size, o + at, tag));
-        set = set || range.words.back() != 0;
+    if (o + end > size) {
+        throw ParseError(std::string(tag) + ": range [" + std::to_string(begin) + ", " + std::to_string(end) +
+                         ") runs past end (size " + std::to_string(size - o) + ")");
     }
-    if (set) out.push_back(std::move(range));
+    keepIfNonzero(data + o, begin, end, out);
 }
 
 }  // namespace
+
+void keepIfNonzero(const uint8_t* record, size_t begin, size_t end, std::vector<UnknownRange>& out) {
+    UnknownRange range{static_cast<uint32_t>(begin), {}};
+    bool set = false;
+    for (size_t at = begin; at < end; at += 4) {
+        uint32_t word = 0;
+        std::memcpy(&word, record + at, 4);
+        range.words.push_back(word);
+        set = set || word != 0;
+    }
+    if (set) out.push_back(std::move(range));
+}
 
 ParticulateVolume parseParticulateVolume(const uint8_t* data, size_t size, size_t offset, const std::string& what) {
     if (offset > size || size - offset < kParticulateVolumeSize) {
@@ -456,7 +465,6 @@ ParticulateVolume parseParticulateVolume(const uint8_t* data, size_t size, size_
         throw ParseError(what + " emitter count: expected the +0x10AC count to match the " +
                          std::to_string(v.emitters.size()) + " slots with a texture, got " + std::to_string(declared));
     }
-    v.record.assign(data + o, data + o + kParticulateVolumeSize);
     return v;
 }
 

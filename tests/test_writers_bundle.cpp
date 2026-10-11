@@ -29,6 +29,7 @@
 #include "m2.hpp"
 #include "skin.hpp"
 #include "test_data_paths.hpp"
+#include "map_scene_input.hpp"
 #include "wmo_canon_input.hpp"
 #include "writers/bundle_writer.hpp"
 
@@ -847,49 +848,48 @@ TEST_CASE("writeBundle: fog instances in an owned set, the effects they place, a
     CHECK(warnings.size() == 1);
 }
 
-TEST_CASE("writeWorldBundle: tile grid, fog and particulate volumes, raw records sliced into world.bin") {
+TEST_CASE("writeWorldBundle: tile grid, and the map's volumes as effect sets with linked fog shapes") {
     canon::World world;
     world.subject = canon::Ref{canon::FileDataId{775971}, "azeroth", canon::NameSource::Listfile};
     world.cells.push_back({32, 49, canon::Ref{canon::FileDataId{778032}, "azeroth_32_49", canon::NameSource::Listfile},
                            {-533.3f, 0, -10}, {0, 533.3f, 90}});
     world.cells.push_back({33, 49, canon::Ref{canon::None{}, "azeroth_33_49", canon::NameSource::Listfile}, {}, {}});
-    canon::FogVolume fog;
-    fog.ref = canon::Ref{canon::RecordIndex{0}, "fog_1659", canon::NameSource::Synthesized};
-    fog.origin = {"VFOG", 0};
+    wdt::FogsFile fogs;
+    wdt::Fog fog;
     fog.id = 1659;
     fog.flags = 0x11;
     fog.position = {1, 2, 3};
-    fog.animationPeriods = {3000, 0, 0, 0};
-    fog.palette = canon::FogVolume::Palette{{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}, 2.0f};
-    fog.extra = canon::FogVolume::Extra{true, {600, 600, 200}, {0.4f, -15}};
-    fog.sourceExtra.assign(96, 0);
-    fog.sourceExtra2.assign(176, 0);
-    fog.sourceExtra2[0x4C] = 0x7B;
-    canon::FogVolume bare;
-    bare.ref = canon::Ref{canon::RecordIndex{1}, "fog_1660", canon::NameSource::Synthesized};
-    bare.origin = {"VFOG", 1};
-    world.scene.fogs = {fog, bare};
-    canon::MapParticulateVolume v;
-    v.volume.ref = canon::Ref{canon::RecordIndex{0}, "particles_185", canon::NameSource::Synthesized};
-    v.volume.origin = {"PVMI", 0};
-    v.volume.sourceRecord.assign(4272, 0);
+    fog.rotation = {0, 0, 0, 1};
+    fog.modelFileDataId = 1728356;
+    fogs.fogs = {fog};
+    wdt::MpvFile mpv;
+    wdt::MapParticulateVolume v;
     v.id = 185;
-    v.boundsMax = {5, 5, 10};
-    v.points = {{canon::Vec2{1, 0}, -0.0f, 2717.7f}};
-    v.boxes = {{{-1, -1, 0}, {1, 1, 1}, {}, 1}, {{-2, -2, 0}, {2, 2, 2}, {0}, 1}};
-    world.scene.particulateVolumes = {v};
+    v.volume.extent = {10, 10, 10};
+    v.boundsMin = {-5, -5, -5};
+    v.boundsMax = {5, 5, 5};
+    mpv.volumes = {v};
+    mapinput::MapSceneInputs in;
+    in.fogs = &fogs;
+    in.mpv = &mpv;
+    in.assetNames.emplace(1728356, "fogvolume_sphere");
+    world.placements = mapinput::buildMapEffects(in);
 
     fs::path root = fs::temp_directory_path() / "husk-test-world";
     fs::remove_all(root);
     fs::create_directories(root / "azeroth_32_49.bundle");
     std::ofstream(root / "azeroth_32_49.bundle" / "manifest.json") << "{}";
+    fs::create_directories(root / "fogvolume_sphere.bundle");
+    std::ofstream(root / "fogvolume_sphere.bundle" / "manifest.json") << "{}";
     fs::path dir = root / "azeroth.world.bundle";
     writers::Provenance provenance{"husk test", "wdt", {{"_fogs.wdt", "fog volumes", true, ""}}};
-    writers::writeWorldBundle(world, dir, provenance, {"../azeroth_32_49.bundle/manifest.json", ""});
-    nlohmann::json manifest = parseManifest(dir);
+    writers::writeWorldBundle(world, dir, provenance, {"../azeroth_32_49.bundle/manifest.json", ""},
+                              {{1728356, "../fogvolume_sphere.bundle/manifest.json"}});
+    nlohmann::json manifest = parseManifest(dir);  // validates the sets and their effects too
 
     CHECK(manifest["kind"] == "world");
     CHECK(manifest["subject"]["name"] == "azeroth");
+    CHECK_FALSE(manifest.contains("scene"));
     const auto& grid = manifest["grid"];
     CHECK(grid["cell_size"].get<double>() == doctest::Approx(533.3333));
     CHECK(grid["origin"][0].get<double>() == doctest::Approx(32 * 533.3333));
@@ -903,40 +903,24 @@ TEST_CASE("writeWorldBundle: tile grid, fog and particulate volumes, raw records
     CHECK(tile["kind"] == "model");
     CHECK(tile["asset"]["uri"] == "../azeroth_32_49.bundle/manifest.json");
     CHECK_FALSE(manifest["references"][1]["asset"].contains("uri"));
-    CHECK(manifest["placements"].empty());
 
-    const auto& s = manifest["scene"];
-    REQUIRE(s["fog_volumes"].size() == 2);
-    const auto& f = s["fog_volumes"][0];
+    // The off-grid sets follow the tiles: fogs, then particulate volumes.
+    REQUIRE(manifest["placements"].size() == 2);
+    CHECK(manifest["references"][2]["asset"]["name"] == "fogs");
+    CHECK(manifest["references"][3]["asset"]["name"] == "particulate_volumes");
+    nlohmann::json fogSet = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
+    const auto& f = fogSet["instances"][0];
     CHECK(f["id"] == 1659);
-    CHECK(f["position"] == nlohmann::json::array({1.0, 2.0, 3.0}));
-    CHECK(f["animation_periods"] == nlohmann::json::array({3000, 0, 0, 0}));
-    CHECK(f["shape"]["id"]["kind"] == "none");
+    CHECK(f["translation"] == nlohmann::json::array({1.0, 2.0, 3.0}));
+    CHECK(f["inputs"]["shape"]["name"] == "fogvolume_sphere");
+    CHECK(f["inputs"]["shape"]["uri"] == "../../fogvolume_sphere.bundle/manifest.json");
     CHECK(f["source"]["flags"] == "0x11");
-    CHECK(f["source"]["record"]["table"] == "VFOG");
-    const auto& u = f["unresolved"];
-    CHECK(u["palette"]["mode"] == 2.0);
-    CHECK(u["extension"]["enabled"] == true);
-    CHECK(u["extension"]["extent"] == nlohmann::json::array({600.0, 600.0, 200.0}));
-    REQUIRE(u["extension"]["parameters"].size() == 13);
-    CHECK(u["extension"]["parameters"][1] == -15.0);
-    CHECK(u["extension_record"]["count"] == 96);
-    CHECK(u["palette_record"]["file"] == "world.bin");
-    for (const char* key : {"palette", "extension", "extension_record", "palette_record"}) {
-        CAPTURE(key);
-        CHECK_FALSE(s["fog_volumes"][1]["unresolved"].contains(key));
-    }
-    const auto& p = s["ambient_particle_volumes"][0];
-    CHECK(p["volume"]["ref"]["name"] == "particles_185");
-    CHECK(p["id"] == 185);
-    CHECK(p["bounds_max"] == nlohmann::json::array({5.0, 5.0, 10.0}));
-    CHECK(p["unresolved"]["points"][0]["direction"] == nlohmann::json::array({1.0, 0.0}));
-    CHECK(p["boxes"][1]["children"] == nlohmann::json::array({0}));
-    CHECK(p["boxes"][1]["source"]["complete"] == 1);
-
-    std::vector<uint8_t> bin = readFile((dir / "world.bin").string());
-    size_t at = u["palette_record"]["byte_offset"];
-    CHECK(bin.at(at + 0x4C) == 0x7B);
+    nlohmann::json particleSet = nlohmann::json::parse(std::ifstream(dir / "sets" / "1.json"));
+    CHECK(particleSet["instances"][0]["id"] == 185);
+    CHECK(particleSet["instances"][0]["inputs"]["pieces"].size() == 1);
+    CHECK(fs::exists(dir / "effects" / "classic_volumetric_fog.json"));
+    CHECK(fs::exists(dir / "effects" / "classic_map_particulate_volume.json"));
+    CHECK_FALSE(fs::exists(dir / "world.bin"));
 
     CHECK_THROWS(writers::writeWorldBundle(world, root / "mismatch.bundle", provenance, {""}));
 }
