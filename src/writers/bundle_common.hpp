@@ -168,6 +168,32 @@ std::string textureMediaType(const std::string& extension);
 void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
                        std::unordered_set<std::string>& writtenTextures, const std::string& uriPrefix = "");
 
+// A document's resources.textures: every texture entry once, used
+// elsewhere by index (REFACTOR/BUNDLE_FORMAT.md "Textures"). Entries are
+// rendered when added, so identical ones share an index; the table is
+// written once everything that uses it has been.
+class TextureTable {
+public:
+    TextureTable(std::filesystem::path bundleDir, std::unordered_set<std::string>& writtenTextures,
+                 std::string uriPrefix = "")
+        : bundleDir_(std::move(bundleDir)), writtenTextures_(writtenTextures), uriPrefix_(std::move(uriPrefix)) {}
+
+    // The entry's index; its payload file is written on first sight.
+    uint32_t add(const canon::TextureRef& texture);
+    // An entry rendered by the caller (a terrain texture shared across tiles).
+    uint32_t add(const std::function<void(json::Writer&)>& writeEntry);
+    bool empty() const { return entries_.empty(); }
+    // The "textures" member of an open resources object.
+    void write(json::Writer& w) const;
+
+private:
+    std::filesystem::path bundleDir_;
+    std::unordered_set<std::string>& writtenTextures_;
+    std::string uriPrefix_;
+    std::vector<std::string> entries_;
+    std::unordered_map<std::string, uint32_t> index_;
+};
+
 // The schema's framebuffer blend vocabulary.
 std::string framebufferBlendName(canon::FramebufferBlend blend);
 

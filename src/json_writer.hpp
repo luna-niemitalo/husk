@@ -86,6 +86,18 @@ public:
         out_ << inner.substr(inner.find_first_not_of(" \t\r\n"));
     }
 
+    // A value already rendered as JSON text by another Writer (at depth 0),
+    // reindented to sit at the current depth.
+    void rawValue(const std::string& text) {
+        prefix();
+        std::string pad(2 * firstInScope_.size(), ' ');
+        for (char c : text) {
+            out_ << c;
+            if (c == '\n') out_ << pad;
+        }
+        pending_ = false;
+    }
+
 private:
     std::ostream& out_;
     std::vector<bool> firstInScope_;  // one entry per open object/array

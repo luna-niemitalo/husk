@@ -105,7 +105,7 @@
                 "type": "array",
                 "description": "Textures the slot may hold.",
                 "items": {
-                  "$ref": "common.schema.json#/definitions/texture_entry",
+                  "$ref": "common.schema.json#/definitions/texture_index",
                   "description": "One option."
                 }
               }
@@ -1112,7 +1112,7 @@
                       "description": "Texture coordinates it samples: uv_set_<n> or environment_mapped."
                     },
                     "texture": {
-                      "$ref": "common.schema.json#/definitions/texture_entry",
+                      "$ref": "common.schema.json#/definitions/texture_index",
                       "description": "The layer's texture."
                     },
                     "slot": {
@@ -1694,11 +1694,11 @@
                 "description": "A ground texture.",
                 "properties": {
                   "diffuse": {
-                    "$ref": "common.schema.json#/definitions/texture_entry",
+                    "$ref": "common.schema.json#/definitions/texture_index",
                     "description": "Colour texture."
                   },
                   "height": {
-                    "$ref": "common.schema.json#/definitions/texture_entry",
+                    "$ref": "common.schema.json#/definitions/texture_index",
                     "description": "Height texture for height-based blending."
                   },
                   "repeats_per_chunk": {
@@ -2074,6 +2074,14 @@
             "chunks",
             "liquids"
           ]
+        },
+        "textures": {
+          "type": "array",
+          "description": "Every texture the document uses, each once; everything else refers to them by index.",
+          "items": {
+            "$ref": "common.schema.json#/definitions/texture_entry",
+            "description": "One texture."
+          }
         }
       },
       "additionalProperties": false,

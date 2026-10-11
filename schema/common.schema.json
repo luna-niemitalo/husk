@@ -560,6 +560,12 @@
       ],
       "additionalProperties": false
     },
+    "texture_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "A texture: index into the document's resources.textures, where each texture is listed once.",
+      "x-index-into": "/resources/textures"
+    },
     "liquid_type": {
       "type": "object",
       "description": "A liquid type a document's liquids name. Without the liquid DB2s only its identity is known.",
@@ -613,7 +619,7 @@
                 "type": "array",
                 "description": "The slot's frames in animation order; one frame for a still texture.",
                 "items": {
-                  "$ref": "#/definitions/texture_entry",
+                  "$ref": "#/definitions/texture_index",
                   "description": "One frame."
                 }
               },
@@ -826,7 +832,7 @@
       "description": "An image, or a binding to one.",
       "oneOf": [
         {
-          "$ref": "#/definitions/texture_entry",
+          "$ref": "#/definitions/texture_index",
           "description": "The image."
         },
         {
@@ -1275,7 +1281,7 @@
                   "type": "array",
                   "description": "The layers.",
                   "items": {
-                    "$ref": "#/definitions/texture_entry",
+                    "$ref": "#/definitions/texture_index",
                     "description": "One layer."
                   }
                 },
@@ -1314,7 +1320,7 @@
                   "type": "array",
                   "description": "The layers.",
                   "items": {
-                    "$ref": "#/definitions/texture_entry",
+                    "$ref": "#/definitions/texture_index",
                     "description": "One layer."
                   }
                 },

@@ -51,7 +51,7 @@ def read_slice(bundle_dir, slice_json):
     return [values[i:i + component_count] for i in range(0, total, component_count)]
 
 
-def build_materials(bundle_dir, materials_json):
+def build_materials(bundle_dir, materials_json, textures_json):
     """One real Blender Material per resources.materials[] entry
     (bundle_writer.hpp's doc comment) -- base color only, from whichever
     layer actually resolved to real bytes. No blend-op/tint/UV-animation
@@ -70,7 +70,7 @@ def build_materials(bundle_dir, materials_json):
         # back into `layers` by identity), so this probe takes the
         # simplest real answer: the first resolved-with-bytes layer.
         for layer in mat_json.get("layers", []):
-            texture = layer.get("texture", {})
+            texture = textures_json[layer["texture"]]
             if texture.get("state") != "resolved" or "payload" not in texture:
                 continue
             image_path = os.path.join(bundle_dir, texture["payload"]["uri"])
@@ -175,7 +175,7 @@ def main():
         manifest = json.load(f)
 
     resources = manifest["resources"]
-    materials = build_materials(bundle_dir, resources.get("materials", []))
+    materials = build_materials(bundle_dir, resources.get("materials", []), resources.get("textures", []))
     build_mesh(bundle_dir, resources["geometry"]["mesh"], materials)
     armature_obj = build_armature(bundle_dir, resources["rig"]["skeleton"])
 

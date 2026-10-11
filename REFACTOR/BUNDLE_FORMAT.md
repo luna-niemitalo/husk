@@ -147,8 +147,9 @@ This is the rule that makes the bundle traceable — see `CANONICAL_FORMAT.md`
 §5 for the JSON shape of a resource entry (`id`/`name`/`name_source`, plus
 `uri` when the payload is external rather than inline).
 
-`name_source` is one of `m2_embedded` / `adt_embedded` / `wmo_embedded` / `listfile` / `db2` / `synthesized` /
-`none` (I6). It exists because most naming in this project comes from the
+`name_source` is one of `m2_embedded` / `adt_embedded` / `wmo_embedded` / `listfile` / `db2` / `synthesized`
+(I6). A ref with no name (most DB2 rows) carries only its `id`: `name` and
+`name_source` appear together or not at all (2026-10-11). It exists because most naming in this project comes from the
 community listfile — unreliable at best — or is invented by husk. A consumer
 reading `"scalpupperhair00_08"` must be able to tell whether that came from the
 model's own bytes, a DB2 row, or a community guess that may simply be wrong.
@@ -249,6 +250,18 @@ replaced a separate WMO collision mesh (a consumer selects collidable
 faces by flag). `resources.geometry.collision` remains for M2, whose collision
 vertices are separate data.
 
+## Textures — one table per document
+
+**Current** (2026-10-11, Luna's call): every document that uses textures
+(a model; a placement set whose instances take images) lists each one
+once in `resources.textures` (a `texture_entry`: state, identity,
+payload). Everything else names a texture by its index there: material
+layers' `texture`, texture slot `options`, terrain ground textures'
+`diffuse`/`height`, liquid type frames, effect instances' image inputs.
+Identical entries share an index, so a texture used by several layers,
+options or instances appears once. An inline placement set is its own
+document with its own table.
+
 ## Options and presets — what a model may be, and what a source used
 
 **Current** (2026-10-11, Luna's call): a model that can be dressed more
@@ -257,11 +270,14 @@ whether or not the source ever combined it with the rest. Choosing among
 them (which texture, which geosets, what size) is the renderer's call,
 the same as customization choices.
 
-- `texture_slots`: textures material layers take from outside the model
+- `texture_slots`: textures the model takes from outside
   (`{name, source: {texture_type}, options}`; M2: one per distinct
-  nonzero texture type). A layer that reads one names it as `slot`; its
-  own `texture` is the default, and any of the slot's `options` may
-  replace it.
+  nonzero texture type; `options` are indices into `resources.textures`).
+  A layer that reads one names it as `slot`; its own `texture` is the
+  default, and any of the slot's `options` may replace it. A slot no
+  layer reads still lists its options; one husk tied to the model by
+  inference (no texture type; the fourth `TextureVariationFileDataID`)
+  has no `source` and says how in `inferred_from`.
 - `particle_colors`: ways to recolour the model's particles; ramp i of an
   option recolours emitters whose `particle_color_index` is 11 + i.
 - Geoset options are the mesh's own geosets.

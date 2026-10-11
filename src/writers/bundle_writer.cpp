@@ -414,8 +414,7 @@ void writeRgba(json::Writer& w, const std::array<float, 4>& rgba) {
     w.endArray();
 }
 
-void writeOptions(json::Writer& w, const canon::Model& model, const std::filesystem::path& bundleDir,
-                  std::unordered_set<std::string>& writtenTextures) {
+void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& textures) {
     if (!model.textureSlots.empty()) {
         w.key("texture_slots");
         w.beginArray();
@@ -436,7 +435,7 @@ void writeOptions(json::Writer& w, const canon::Model& model, const std::filesys
             }
             w.key("options");
             w.beginArray();
-            for (const canon::TextureRef& option : slot.options) writeTextureEntry(w, option, bundleDir, writtenTextures);
+            for (const canon::TextureRef& option : slot.options) w.value(static_cast<int64_t>(textures.add(option)));
             w.endArray();
             w.endObject();
         }
@@ -515,8 +514,7 @@ void writePresets(json::Writer& w, const std::vector<canon::Preset>& presets) {
     w.endArray();
 }
 
-void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, const std::filesystem::path& bundleDir,
-                         std::unordered_set<std::string>& writtenTextures) {
+void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, TextureTable& textures) {
     w.beginObject();
     w.key("identity");
     writeRef(w, layer.identity);
@@ -525,7 +523,7 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, cons
     w.key("uv");
     writeUvRef(w, layer.uv);
     w.key("texture");
-    writeTextureEntry(w, layer.texture, bundleDir, writtenTextures);
+    w.value(static_cast<int64_t>(textures.add(layer.texture)));
     if (layer.slot) {
         w.key("slot");
         w.value(static_cast<int64_t>(*layer.slot));
@@ -569,9 +567,7 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, cons
     w.endObject();
 }
 
-void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& materials,
-                            const std::filesystem::path& bundleDir,
-                            std::unordered_set<std::string>& writtenTextures) {
+void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& materials, TextureTable& textures) {
     w.beginArray();
     for (const canon::Material& material : materials) {
         w.beginObject();
@@ -579,7 +575,7 @@ void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& 
         w.key("layers");
         w.beginArray();
         for (const canon::MaterialLayer& layer : material.layers) {
-            writeMaterialLayer(w, layer, bundleDir, writtenTextures);
+            writeMaterialLayer(w, layer, textures);
         }
         w.endArray();
 
@@ -842,10 +838,11 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     // Owned placement sets are the model's first references, so set i is
     // reference i.
     std::unordered_set<std::string> writtenTextures;
+    TextureTable textures(bundleDir, writtenTextures);
     w.key("definition");
     w.beginObject();
     writeOwnedSetDefinitions(w, sets);
-    writeOptions(w, model, bundleDir, writtenTextures);
+    writeOptions(w, model, textures);
     w.endObject();
     writeOwnedSetSelectionAndReferences(w, sets, [&](json::Writer& sw) { writePresets(sw, model.presets); });
 
@@ -874,7 +871,7 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     w.endObject();
 
     w.key("materials");
-    writeMaterialsSection(w, model.materials, bundleDir, writtenTextures);
+    writeMaterialsSection(w, model.materials, textures);
 
     w.key("scene");
     w.beginObject();
@@ -895,9 +892,10 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     if (!model.liquidTypes.empty()) {
         w.key("liquid_types");
         writeLiquidTypes(w, model.liquidTypes, [&](const canon::TextureRef& frame) {
-            writeTextureEntry(w, frame, bundleDir, writtenTextures);
+            w.value(static_cast<int64_t>(textures.add(frame)));
         });
     }
+    if (!textures.empty()) textures.write(w);
     w.endObject();  // resources
     w.endObject();  // root
 

@@ -170,7 +170,7 @@ declarations.
 | `direction` | 3 numbers, unit length | — |
 | `rotation` | quaternion x, y, z, w | — |
 | `color`, `color_alpha` | 3 or 4 numbers, linear 0..1 | — |
-| `image` | a texture entry | — |
+| `image` | an index into the document's `resources.textures` | — |
 | `mesh` | an asset reference to a model | — |
 | `spline` | a list of positions | — |
 | `curve` | keyed values: per-animation curves (`seconds`) or over age (`age`) | `of` (a value kind), `clock` |

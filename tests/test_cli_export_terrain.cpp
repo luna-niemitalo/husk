@@ -115,6 +115,11 @@ std::vector<uint8_t> fogsFile() {
     return out;
 }
 
+// Tile ground texture i's diffuse entry, from the tile's resources.textures.
+nlohmann::json groundDiffuse(const nlohmann::json& tile, size_t i) {
+    return tile["resources"]["textures"][tile["resources"]["terrain"]["textures"][i]["diffuse"].get<size_t>()];
+}
+
 }  // namespace
 
 TEST_CASE("husk export-terrain: a full tile writes a bundle with textures, layers and every placement") {
@@ -129,10 +134,10 @@ TEST_CASE("husk export-terrain: a full tile writes a bundle with textures, layer
     nlohmann::json t = readTile(out / "manifest.json");
     CHECK(t["subject"]["name"] == "azeroth_32_48");
     CHECK(t["kind"] == "model");
-    CHECK(t["resources"]["terrain"]["textures"][0]["diffuse"]["state"] == "resolved");
-    CHECK(t["resources"]["terrain"]["textures"][0]["diffuse"]["identity"]["name"] == "grass");
+    CHECK(groundDiffuse(t, 0)["state"] == "resolved");
+    CHECK(groundDiffuse(t, 0)["identity"]["name"] == "grass");
     // Listed but not extracted locally.
-    CHECK(t["resources"]["terrain"]["textures"][1]["diffuse"]["state"] == "known_unresolved");
+    CHECK(groundDiffuse(t, 1)["state"] == "known_unresolved");
     bool ddsWritten = false;
     for (const auto& e : fs::directory_iterator(out / "textures")) ddsWritten |= e.path().extension() == ".dds";
     CHECK(ddsWritten);
@@ -157,7 +162,7 @@ TEST_CASE("husk export-terrain: without a listfile, name-table paths stay names 
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
     nlohmann::json t = readTile(out / "manifest.json");
-    CHECK(t["resources"]["terrain"]["textures"][0]["diffuse"]["state"] == "known_unresolved");
+    CHECK(groundDiffuse(t, 0)["state"] == "known_unresolved");
     nlohmann::json rock = readPlacements(out / "sets" / "0.json")[1]["asset"];
     CHECK(rock["id"]["kind"] == "none");
     CHECK(rock["name"] == "World\\Generic\\Rock.mdx");
@@ -298,14 +303,14 @@ TEST_CASE("husk export-terrain reads per-machine flags from --config, and 'none'
     auto r = runHusk("export-terrain " + q(c.tile()) + " " + q(out) + " --config " + q(config));
     INFO(r.output);
     REQUIRE(r.exitCode == 0);
-    CHECK(readTile(out / "manifest.json")["resources"]["terrain"]["textures"][0]["diffuse"]["state"] == "resolved");
+    CHECK(groundDiffuse(readTile(out / "manifest.json"), 0)["state"] == "resolved");
 
     fs::path optedOut = c.root / "out-none.bundle";
     auto none = runHusk("export-terrain " + q(c.tile()) + " " + q(optedOut) + " --config " + q(config) +
                         " --listfile none");
     REQUIRE(none.exitCode == 0);
     CHECK(none.output.find("listfile: none") != std::string::npos);
-    CHECK(readTile(optedOut / "manifest.json")["resources"]["terrain"]["textures"][0]["diffuse"]["state"] ==
+    CHECK(groundDiffuse(readTile(optedOut / "manifest.json"), 0)["state"] ==
           "known_unresolved");
 }
 
@@ -329,7 +334,7 @@ TEST_CASE("husk export-world: shared textures, per-map tile bundles, logged fail
 
     fs::path tile = out / "maps" / "azeroth" / "azeroth_32_48.bundle";
     nlohmann::json t = readTile(tile / "manifest.json");
-    CHECK(t["resources"]["terrain"]["textures"][0]["diffuse"]["payload"]["uri"] == "../../../textures/1001.dds");
+    CHECK(groundDiffuse(t, 0)["payload"]["uri"] == "../../../textures/1001.dds");
     CHECK(fs::exists(out / "textures" / "1001.dds"));
     CHECK_FALSE(fs::exists(tile / "textures"));
     nlohmann::json doodads = readPlacements(tile / "sets" / "0.json");

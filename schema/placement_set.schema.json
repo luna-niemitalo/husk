@@ -186,6 +186,25 @@
         ]
       },
       "x-layer": "resource"
+    },
+    "resources": {
+      "type": "object",
+      "description": "Data the instances use by index.",
+      "properties": {
+        "textures": {
+          "type": "array",
+          "description": "Every texture an instance input uses, each once.",
+          "items": {
+            "$ref": "common.schema.json#/definitions/texture_entry",
+            "description": "One texture."
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "textures"
+      ],
+      "x-layer": "resource"
     }
   },
   "required": [

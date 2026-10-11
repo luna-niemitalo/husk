@@ -23,6 +23,12 @@ format itself is defined in exactly one place:
 
 ## 1. What changed, in one paragraph
 
+Two document-wide rules first: every texture a document uses is listed
+once in its `resources.textures`, and everything else (material layers,
+terrain ground textures, liquid frames, effect image inputs) holds an
+index into it. A ref without a display name is just `{id}`: `name` and
+`name_source` are present together or not at all.
+
 Every document is one of four kinds. A **world** (one per map) holds the
 tile grid. A **model** is an asset in its own frame; terrain tiles, M2s
 and WMOs are all models. A **placement set** places models and effects.
@@ -114,8 +120,8 @@ come from the world grid (step 3), not from `origins[0]`.
 
 | Old | Now |
 |---|---|
-| `textures[i].diffuse.texture_state == "resolved"` | `textures[i].diffuse.state`: `resolved`, `known_unresolved` or `ambiguous` |
-| `textures[i].diffuse.texture.uri` | `textures[i].diffuse.payload.uri` (with `payload.media_type`); the identity is `diffuse.identity` |
+| `textures[i].diffuse.texture_state == "resolved"` | `textures[i].diffuse` is an index into `resources.textures`; that entry's `state`: `resolved`, `known_unresolved` or `ambiguous` |
+| `textures[i].diffuse.texture.uri` | the entry's `payload.uri` (with `payload.media_type`); its identity is the entry's `identity` |
 | `repeats_per_chunk` | unchanged |
 | `chunks.layers[c][k].texture_index`, `.alpha` | unchanged (`ground_effect_index` is new) |
 
@@ -176,8 +182,8 @@ M2 and WMO bundles share one layout.
 |---|---|
 | `resources.mesh` | `resources.geometry.mesh` |
 | `mesh.positions`, `normals`, `uv0`, `indices`, `primitives[].index_start/index_count/material_index` | unchanged |
-| `materials[m].layers[].texture_state == "resolved"` | `materials[m].layers[].texture.state` |
-| `layers[].texture.uri` | `layers[].texture.payload.uri` |
+| `materials[m].layers[].texture_state == "resolved"` | `materials[m].layers[].texture` is an index into `resources.textures`; that entry's `state` |
+| `layers[].texture.uri` | the entry's `payload.uri` |
 
 A WMO bundle also has:
 - `definition.placement_sets`: its doodad sets, each a document under

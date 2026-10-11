@@ -213,8 +213,8 @@ std::string identityKey(const canon::Ref& ref) {
 
 void writeVec3(json::Writer& w, const canon::Vec3& v) { writeFloats(w, {v.x, v.y, v.z}); }
 
-// Writes an image input's texture entry and a mesh input's asset ref; the
-// caller knows where payloads and bundles are relative to the document.
+// Writes an image input's texture index and a mesh input's asset ref; the
+// caller holds the document's texture table and knows where bundles are.
 struct InputAssets {
     std::function<void(const canon::TextureRef&)> texture;
     std::function<void(const canon::Ref&)> mesh;
@@ -523,8 +523,8 @@ std::string effectUri(const canon::Ref& effect) { return "effects/" + effect.nam
 
 // One placement_set document as text. `prefix` leads from where the
 // document sits to `bundleDir` ("../" from sets/, "" inline in the
-// manifest); `uris` already carry it. Image inputs' payloads go under
-// `bundleDir/textures/`.
+// manifest); `uris` already carry it. Image inputs index the document's
+// own resources.textures; their payloads go under `bundleDir/textures/`.
 std::string placementSetText(const canon::PlacementSet& set, const std::string& prefix, const AssetUris& uris,
                              const Provenance& provenance, const std::filesystem::path& bundleDir,
                              std::unordered_set<std::string>& writtenTextures) {
@@ -538,6 +538,7 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
         instanceAsset.push_back(it->second);
     }
 
+    TextureTable textures(bundleDir, writtenTextures, prefix);
     std::ostringstream text;
     json::Writer w(text);
     w.beginObject();
@@ -585,7 +586,7 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
         if (instance.effect) {
             writeEffectInstanceFields(
                 w, *instance.effect,
-                {[&](const canon::TextureRef& texture) { writeTextureEntry(w, texture, bundleDir, writtenTextures, prefix); },
+                {[&](const canon::TextureRef& texture) { w.value(static_cast<int64_t>(textures.add(texture))); },
                  [&](const canon::Ref& model) { writeAssetRef(w, model, uris); }});
             w.key("source");
             w.beginObject();
@@ -627,6 +628,12 @@ std::string placementSetText(const canon::PlacementSet& set, const std::string& 
         w.endObject();
     }
     w.endArray();
+    if (!textures.empty()) {
+        w.key("resources");
+        w.beginObject();
+        textures.write(w);
+        w.endObject();
+    }
     w.endObject();
     return text.str();
 }
@@ -969,6 +976,26 @@ std::string framebufferBlendName(canon::FramebufferBlend blend) {
     return "opaque";
 }
 
+uint32_t TextureTable::add(const std::function<void(json::Writer&)>& writeEntry) {
+    std::ostringstream text;
+    json::Writer w(text);
+    writeEntry(w);
+    auto [it, added] = index_.emplace(text.str(), static_cast<uint32_t>(entries_.size()));
+    if (added) entries_.push_back(text.str());
+    return it->second;
+}
+
+uint32_t TextureTable::add(const canon::TextureRef& texture) {
+    return add([&](json::Writer& w) { writeTextureEntry(w, texture, bundleDir_, writtenTextures_, uriPrefix_); });
+}
+
+void TextureTable::write(json::Writer& w) const {
+    w.key("textures");
+    w.beginArray();
+    for (const std::string& entry : entries_) w.rawValue(entry);
+    w.endArray();
+}
+
 void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
                        std::unordered_set<std::string>& writtenTextures, const std::string& uriPrefix) {
     w.beginObject();
@@ -1014,6 +1041,10 @@ void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const 
         case canon::TextureRef::State::KnownUnresolved:
             w.key("state");
             w.value("known_unresolved");
+            if (!std::holds_alternative<canon::None>(texture.resolved.id)) {
+                w.key("identity");
+                writeRef(w, texture.resolved);
+            }
             w.key("unresolved_reason");
             w.value(texture.unresolvedReason);
             break;

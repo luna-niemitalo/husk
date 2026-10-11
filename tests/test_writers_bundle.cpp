@@ -85,6 +85,11 @@ void collectBufferSlices(const nlohmann::json& node, std::vector<nlohmann::json>
     }
 }
 
+// A texture a document uses by index, from its resources.textures.
+const nlohmann::json& textureAt(const nlohmann::json& document, const nlohmann::json& index) {
+    return document["resources"]["textures"][index.get<size_t>()];
+}
+
 canon::Joint makeJoint(int parent, canon::Vec3 pos, std::string name) {
     canon::Joint j;
     j.parent = parent;
@@ -215,11 +220,12 @@ TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a r
     nlohmann::json manifest = parseManifest(dir);
     auto& materials = manifest["resources"]["materials"];
     REQUIRE(materials.size() == 2);
-    for (auto& mat : materials) {
-        auto& layer0 = mat["layers"][0];
-        CHECK(layer0["texture"]["state"] == "resolved");
-        CHECK(layer0["texture"]["payload"]["uri"] == "textures/shared_texture.png");
-    }
+    // Both layers name the one table entry.
+    CHECK(materials[0]["layers"][0]["texture"] == materials[1]["layers"][0]["texture"]);
+    CHECK(manifest["resources"]["textures"].size() == 1);
+    const auto& shared = textureAt(manifest, materials[0]["layers"][0]["texture"]);
+    CHECK(shared["state"] == "resolved");
+    CHECK(shared["payload"]["uri"] == "textures/shared_texture.png");
 
     // Only one real file on disk despite two referencing layers.
     size_t textureFileCount = 0;
@@ -242,8 +248,8 @@ TEST_CASE("writeBundle: a Resolved TextureRef carrying a real payload writes a r
 
     nlohmann::json manifestNoPayload = parseManifest(dirNoPayload);
     auto& layer0NoPayload = manifestNoPayload["resources"]["materials"][0]["layers"][0];
-    CHECK(layer0NoPayload["texture"]["state"] == "resolved");
-    CHECK_FALSE(layer0NoPayload["texture"].contains("payload"));
+    CHECK(textureAt(manifestNoPayload, layer0NoPayload["texture"])["state"] == "resolved");
+    CHECK_FALSE(textureAt(manifestNoPayload, layer0NoPayload["texture"]).contains("payload"));
     CHECK_FALSE(fs::exists(dirNoPayload / "textures"));
 }
 
@@ -287,8 +293,8 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
 
     nlohmann::json manifest = parseManifest(dir);
     auto& layer0 = manifest["resources"]["materials"][0]["layers"][0];
-    CHECK(layer0["texture"]["state"] == "resolved");
-    CHECK(layer0["texture"]["payload"]["uri"] == "textures/both_variants.dds");
+    CHECK(textureAt(manifest, layer0["texture"])["state"] == "resolved");
+    CHECK(textureAt(manifest, layer0["texture"])["payload"]["uri"] == "textures/both_variants.dds");
 
     // payload-only (no rawPayload) -- falls back to writing the .png
     // variant, same as before rawPayload existed at all (e.g. a source that
@@ -310,7 +316,7 @@ TEST_CASE("writeBundle: rawPayload (DDS-housed source blocks) wins over payload 
     CHECK_FALSE(fs::exists(dirPngOnly / "textures" / "png_only.dds"));
 
     nlohmann::json manifestPngOnly = parseManifest(dirPngOnly);
-    CHECK(manifestPngOnly["resources"]["materials"][0]["layers"][0]["texture"]["payload"]["uri"] ==
+    CHECK(textureAt(manifestPngOnly, manifestPngOnly["resources"]["materials"][0]["layers"][0]["texture"])["payload"]["uri"] ==
           "textures/png_only.png");
 
     // Neither present -- no uri, no textures/ directory, same as the
@@ -556,7 +562,7 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
     CHECK(set["references"][0]["asset"]["uri"] == "effects/classic_m2_particle_emitter.json");
     const auto& p = set["instances"][0];
     CHECK(p["anchor"]["id"]["value"] == 0);
-    CHECK(p["inputs"]["texture"]["state"] == "known_unresolved");
+    CHECK(textureAt(set, p["inputs"]["texture"])["state"] == "known_unresolved");
     const auto& written = p["style"]["particles"]["particle_system"];
     CHECK(written["head_cell"] == nlohmann::json::array({{0, 4}, {32767, 9}}));
     CHECK(written["emission_rate"].empty());
@@ -693,10 +699,10 @@ TEST_CASE("writeBundle: a particulate instance writes its emitter images into th
     nlohmann::json setDoc = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
     const auto& written = setDoc["instances"][0];
     CHECK(written["inputs"]["size"] == nlohmann::json::array({7.0, 8.0, 9.0}));
-    const auto& texture = written["inputs"]["emitters"][0]["texture"];
+    const auto& texture = textureAt(setDoc, written["inputs"]["emitters"][0]["texture"]);
     CHECK(texture["payload"]["uri"] == "../textures/dust1.png");
     CHECK(fs::exists(dir / "textures" / "dust1.png"));
-    CHECK(written["inputs"]["emitters"][1]["texture"]["state"] == "known_unresolved");
+    CHECK(textureAt(setDoc, written["inputs"]["emitters"][1]["texture"])["state"] == "known_unresolved");
     CHECK(written["style"]["volume"]["particulate"]["max_particles"] == 500);
     REQUIRE(written["style"]["emitter"].size() == 2);
     CHECK(written["style"]["emitter"][0]["draw"]["blend"] == "add");
@@ -1117,7 +1123,8 @@ TEST_CASE("writeBundle: texture slot options and particle colours in the definit
     const auto& definition = manifest["definition"];
     CHECK(definition["texture_slots"][0]["name"] == "monster_1");
     CHECK(definition["texture_slots"][0]["source"]["texture_type"] == 11);
-    CHECK(definition["texture_slots"][0]["options"][0]["state"] == "known_unresolved");
+    CHECK(textureAt(manifest, definition["texture_slots"][0]["options"][0])["state"] == "known_unresolved");
+    CHECK(textureAt(manifest, definition["texture_slots"][0]["options"][0])["identity"]["id"]["value"] == 123);
     CHECK_FALSE(definition["texture_slots"][0].contains("inferred_from"));
     CHECK_FALSE(definition["texture_slots"][1].contains("source"));
     CHECK(definition["texture_slots"][1]["inferred_from"] == "test inference");

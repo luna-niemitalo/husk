@@ -226,20 +226,22 @@ TEST_CASE("writeTerrainBundle: chunk slices hold exactly the canon chunk data") 
 TEST_CASE("writeTerrainBundle: textures embed their payload, or state why they are unresolved") {
     fs::path dir = freshDir("husk-test-terrain-bundle-textures");
     writeTile(sampleTerrain(), dir);
-    nlohmann::json textures = readManifest(dir)["resources"]["terrain"]["textures"];
+    nlohmann::json m = readManifest(dir);
+    const nlohmann::json& textures = m["resources"]["terrain"]["textures"];
+    const nlohmann::json& table = m["resources"]["textures"];
     REQUIRE(textures.size() == 2);
 
     const nlohmann::json& grass = textures[0];
-    CHECK(grass["diffuse"]["state"] == "resolved");
+    const nlohmann::json& grassDiffuse = table[grass["diffuse"].get<size_t>()];
+    CHECK(grassDiffuse["state"] == "resolved");
     CHECK(grass["repeats_per_chunk"] == 8.0);
     // The writer embeds a payload under textures/ and points at it.
-    std::string serialized = grass.dump();
-    CHECK(serialized.find("textures/") != std::string::npos);
+    CHECK(grassDiffuse["payload"]["uri"].get<std::string>().starts_with("textures/"));
     bool anyPayloadFile = false;
     for (const auto& entry : fs::directory_iterator(dir / "textures")) anyPayloadFile |= entry.is_regular_file();
     CHECK(anyPayloadFile);
 
-    CHECK(textures[1]["diffuse"]["state"] == "known_unresolved");
+    CHECK(table[textures[1]["diffuse"].get<size_t>()]["state"] == "known_unresolved");
 }
 
 TEST_CASE("writeTerrainBundle: a payload-less resolved texture points at the caller's shared uri") {
@@ -249,11 +251,13 @@ TEST_CASE("writeTerrainBundle: a payload-less resolved texture points at the cal
     fs::path dir = freshDir("husk-test-terrain-bundle-shared-texture");
     writeTile(terrain, dir, {}, {{1001, "../../textures/1001.dds"}});
     nlohmann::json m = readJsonFile(dir / "manifest.json");
-    nlohmann::json grass = m["resources"]["terrain"]["textures"][0]["diffuse"];
+    const nlohmann::json& table = m["resources"]["textures"];
+    nlohmann::json grass = table[m["resources"]["terrain"]["textures"][0]["diffuse"].get<size_t>()];
     CHECK(grass["state"] == "resolved");
     CHECK(grass["payload"]["uri"] == "../../textures/1001.dds");
     CHECK(grass["payload"]["media_type"] == "image/vnd-ms.dds");
-    CHECK(m["resources"]["liquid_types"][0]["textures"][0]["frames"][0]["payload"]["uri"] == "../../textures/1001.dds");
+    // The water frame is the same shared texture: one table entry.
+    CHECK(m["resources"]["liquid_types"][0]["textures"][0]["frames"][0] == m["resources"]["terrain"]["textures"][0]["diffuse"]);
     CHECK_FALSE(fs::exists(dir / "textures"));
 }
 
@@ -289,9 +293,10 @@ TEST_CASE("writeTerrainBundle: ground effects, liquids and placement sets") {
     CHECK(types[0]["material"]["vertex_format"] == 0);
     CHECK(types[0]["source"]["flags"] == "0xf");
     REQUIRE(types[0]["textures"].size() == 2);
-    CHECK(types[0]["textures"][0]["frames"][0]["state"] == "resolved");
+    const nlohmann::json& table = m["resources"]["textures"];
+    CHECK(table[types[0]["textures"][0]["frames"][0].get<size_t>()]["state"] == "resolved");
     CHECK(types[0]["textures"][1]["source"]["kind"] == 1);
-    CHECK(types[0]["textures"][1]["frames"][0]["state"] == "known_unresolved");
+    CHECK(table[types[0]["textures"][1]["frames"][0].get<size_t>()]["state"] == "known_unresolved");
     CHECK(types[1]["identity"]["id"]["row"] == 2);
     CHECK_FALSE(types[1].contains("material"));
     const nlohmann::json& ocean = t["liquids"][1];

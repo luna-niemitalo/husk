@@ -215,7 +215,7 @@ def build_terrain_material(tile, weight_images):
     total = None
     loaded = []
     for i, tex in enumerate(tile.t["textures"]):
-        d = tex["diffuse"]
+        d = tile.m["resources"]["textures"][tex["diffuse"]]
         if d["state"] != "resolved" or "payload" not in d:
             continue
         mapping = nt.nodes.new("ShaderNodeMapping")
@@ -321,11 +321,11 @@ def load_model(bundle_dir, uri):
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes["Principled BSDF"]
         for layer in mat_json.get("layers", []):
-            tex = layer.get("texture")
-            if layer.get("texture_state") != "resolved" or not tex or "uri" not in tex:
+            tex = res["textures"][layer["texture"]]
+            if tex["state"] != "resolved" or "payload" not in tex:
                 continue
             node = mat.node_tree.nodes.new("ShaderNodeTexImage")
-            node.image = bpy.data.images.load(os.path.join(path, tex["uri"]), check_existing=True)
+            node.image = bpy.data.images.load(os.path.join(path, tex["payload"]["uri"]), check_existing=True)
             mat.node_tree.links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
             # framebuffer_blend is the M2 render blend mode. Opaque ignores
             # texture alpha; alpha_key (foliage) clips it at 0.5; every other
