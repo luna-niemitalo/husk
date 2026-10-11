@@ -1,8 +1,9 @@
 # CORPUS_EXPORT.md — the whole corpus in canonical format (2026-10-11)
 
 **Status: the store and its mount are built** (`husk store-add`, `husk
-mount`, `src/corpus_store.*`, `src/cmd_store.cpp`), and documents are
-deterministic. Not built: input tracking (`inputs.tsv`), `export-corpus`,
+mount`, `src/corpus_store.*`, `src/cmd_store.cpp`), documents are
+deterministic, and `export-world` records each output's inputs
+(`src/input_log.*`). Not built: `export-corpus`,
 `index/`/`corpus.json`, shared effects/materials/rig, `husk view`; open
 items in `TODO/CORPUS_EXPORT_TODO.md`. Today a stored build is an
 `export-world` tree. How a full canonical export of a game build is laid
@@ -59,7 +60,7 @@ builds nest by both:
   objects/ab/cd/abcd…          one output file's bytes, name = md5 of the bytes
   builds/<game>/<husk>/        e.g. builds/12.1.0.69933/e587735/
     files.tsv                  path  md5                     every file of the tree
-    inputs.tsv                 path  input_fdid  input_md5   what each bundle was built from (not built)
+    inputs.tsv                 output  input  md5            what each output was built from
     missing.tsv                phase  item  reason           the tree's errors.log, deduplicated
     meta.json                  game, husk, producer, schema_version, counts,
                                source tree, stored_at
@@ -131,12 +132,31 @@ built; block cloning is active on `tank/data`).
   it matches the source tree; bundles validate through it; writes fail
   with EROFS.
 
-## Not built
+- **Input tracking** (`inputs::`, `export-world` only). Each output (a
+  bundle directory, e.g. `models/1.canon.bundle`) runs in a per-thread
+  scope that worker threads inherit; every source file it *uses* is
+  logged with its md5 to the tree's `inputs.log`, which `store-add`
+  turns into `inputs.tsv` (last row per output and input wins; outputs
+  gone from the tree are dropped). Inputs under `--listfile-root` are
+  relative to it, so they read as game paths; an md5 of a game file is
+  its CKey, comparable with casc-tool's manifests.
+  - Recorded at the read helpers (`readFileBytes`, `adt::readFile`, the
+    anim and texture readers, the DB2 cache on every lookup, the
+    listfile) and at `SharedTextures` cache hits, so reusing what another
+    output read still counts.
+  - Output `*` is the run: files used outside any scope, i.e. the DB2
+    tables and listfile loaded up front. Every output depends on them.
+  - Discovery passes (WDTs, tile and WMO-root reference collection) run in
+    discarding scopes; each tile and world names its WDT itself.
+  - Not tracked: WoWDBDefs definitions (husk-side reference, versioned
+    with husk), and `textures/` files as outputs of their own: a texture
+    is attributed to every bundle that uses it.
+  - Verified on `goralliancegarrisonlevel1`: 2,791 outputs (2,788 model
+    bundles, the tile, the world, the run), 8,927 rows; a doodad lists its
+    `.m2`, `.skin` and `.blp`, a WMO its root, groups and textures, the
+    tile its WDT, ADT, `_obj0`, `_tex0` and ground textures.
 
-- **Input tracking.** Every read through `sources::` records the file's
-  FileDataID and md5 for `inputs.tsv` (the md5 of a source file is its CKey,
-  so it lines up with casc-tool's manifests). DB2 rows count as inputs of
-  the table file.
+## Not built
 - **`export-corpus`**: the driver. Passes: models, WMOs, maps, then
   `index/` and `corpus.json`; textures go into the tree as each pass
   reaches them. Resumable like `export-world`; ends with `store-add`.

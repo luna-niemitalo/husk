@@ -82,6 +82,7 @@ struct IngestResult {
     uint64_t bytes = 0;
     size_t addedObjects = 0;
     size_t missing = 0;
+    size_t inputs = 0;  // inputs.tsv rows
     bool alreadyStored = false;  // the same build was ingested before, with the same files
 };
 
@@ -89,7 +90,8 @@ struct IngestResult {
 // <game>/<producer version>. The producer and schema version come from the
 // tree's own documents, which must agree, and a dirty or unknown producer
 // is refused: a label has to name the code that wrote it. The tree's
-// errors.log becomes missing.tsv instead of a stored file. A build that
+// errors.log and inputs.log become missing.tsv and inputs.tsv instead of
+// stored files. A build that
 // exists with other files is refused; with the same files it is a no-op.
 IngestResult ingestTree(const Store& store, const std::filesystem::path& tree, const std::string& game);
 

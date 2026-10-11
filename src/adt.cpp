@@ -7,6 +7,7 @@
 #include <string>
 
 #include "chunk.hpp"
+#include "input_log.hpp"
 
 namespace husk::adt {
 
@@ -534,6 +535,7 @@ std::vector<uint16_t> activeDoodadSets(const MapObjectPlacement& m, const ObjFil
 std::vector<uint8_t> readFile(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) throw ParseError("cannot open " + path.string());
+    inputs::use(path);
     return std::vector<uint8_t>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 

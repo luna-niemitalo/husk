@@ -2,8 +2,9 @@
 
 Design and current state: `REFACTOR/CORPUS_EXPORT.md`.
 
-1. **`inputs.tsv`**: record each bundle's source FileDataIDs and md5s
-   through `sources::`; DB2 tables as inputs.
+1. **Per-output DB2 inputs**: the tables loaded up front are the run's
+   (`*`), so a DB2 change invalidates everything; attributing rows to the
+   outputs that read them would narrow it.
 2. **`export-corpus`**: every M2 and root WMO from the listfile, every map,
    then `index/` and `corpus.json`; resumable; ends in `store-add`.
 3. **`index/`**: creature displays, NPCs, items, ChrModels, placements by

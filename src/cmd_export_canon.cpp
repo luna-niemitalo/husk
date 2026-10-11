@@ -21,6 +21,7 @@
 #include "writers/bundle_writer.hpp"
 #include "version.hpp"
 #include "writers/gltf_lean.hpp"
+#include "input_log.hpp"
 
 // This is `husk export`'s new, second pipeline path (REFACTOR/README.md's
 // Migration order, stage 3), run entirely alongside the real, still-shipping
@@ -290,6 +291,7 @@ std::optional<std::vector<uint8_t>> resolveExternalAnimBlobForCanon(
         f.open(animPath, std::ios::binary);
     }
     if (!f.is_open()) return std::nullopt;  // not available locally under either naming convention
+    inputs::use(animPath);
 
     std::vector<uint8_t> animFileBytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     if (!animChunked) {

@@ -6,7 +6,10 @@
 #include <stdexcept>
 #include <string>
 
+#include <thread>
+
 #include "corpus_store.hpp"
+#include "input_log.hpp"
 
 namespace fs = std::filesystem;
 using namespace husk;
@@ -154,4 +157,53 @@ TEST_CASE("corpus store: a tree whose producer names no commit, or several, is r
     CHECK_THROWS_WITH_AS(corpus::ingestTree(store, none, "12.1.0.69933"), doctest::Contains("no husk documents"),
                          std::runtime_error);
     CHECK(store.games().empty());
+}
+
+TEST_CASE("input log: uses go to the scope's output, the run's outside any scope, nowhere in a discarding one") {
+    fs::path dir = freshDir("inputs");
+    writeText(dir / "src" / "a.m2", "abc");
+    writeText(dir / "src" / "b.blp", "b");
+    writeText(dir / "elsewhere" / "listfile.csv", "1;x");
+    {
+        inputs::Log log(dir / "inputs.log", dir / "src");
+        inputs::setRunLog(&log);
+        inputs::use(dir / "elsewhere" / "listfile.csv");
+        inputs::use(dir / "elsewhere" / "listfile.csv");
+        {
+            inputs::Scope scope(&log, "models/1.canon.bundle");
+            inputs::use(dir / "src" / "a.m2");
+            inputs::use(dir / "src" / "a.m2");
+            inputs::Scope* caller = inputs::Scope::current();
+            std::thread([&] {
+                inputs::Scope::Adopt adopt(caller);
+                inputs::use(dir / "src" / "b.blp");
+            }).join();
+        }
+        {
+            inputs::Scope discovery(nullptr, "");
+            inputs::use(dir / "src" / "b.blp");
+        }
+        inputs::setRunLog(nullptr);
+    }
+    CHECK(readText(dir / "inputs.log") ==
+          "*\t" + (dir / "elsewhere" / "listfile.csv").string() + "\t" +
+              corpus::hex(corpus::md5File(dir / "elsewhere" / "listfile.csv")) + "\n" +
+              "models/1.canon.bundle\ta.m2\t900150983cd24fb0d6963f7d28e17f72\n" +
+              "models/1.canon.bundle\tb.blp\t" + corpus::hex(corpus::md5File(dir / "src" / "b.blp")) + "\n");
+}
+
+TEST_CASE("corpus store: inputs.log becomes inputs.tsv, last row winning, gone outputs dropped") {
+    fs::path dir = freshDir("ingest-inputs");
+    corpus::Store store(dir / "store");
+    fs::path tree = exportTree("ingest-inputs-tree", "husk e587735");
+    const std::string a(32, 'a'), b(32, 'b'), c(32, 'c');
+    writeText(tree / "inputs.log", "*\tdbfilesclient/x.db2\t" + a + "\n" +
+                                       "models/1.canon.bundle\tm/1.m2\t" + a + "\n" +
+                                       "models/1.canon.bundle\tm/1.m2\t" + b + "\n" +
+                                       "models/9.canon.bundle\tm/9.m2\t" + c + "\n");
+    corpus::IngestResult r = corpus::ingestTree(store, tree, "12.1.0.69933");
+    CHECK(r.inputs == 2);
+    CHECK(r.files == 3);
+    CHECK(readText(store.buildDir(r.id) / "inputs.tsv") ==
+          "output\tinput\tmd5\n*\tdbfilesclient/x.db2\t" + a + "\nmodels/1.canon.bundle\tm/1.m2\t" + b + "\n");
 }

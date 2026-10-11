@@ -7,6 +7,7 @@
 #include "chunk.hpp"
 #include "export_transform.hpp"
 #include "sources/listfile_catalog.hpp"
+#include "input_log.hpp"
 
 namespace husk::commands {
 
@@ -259,6 +260,7 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
             if (!f.is_open()) {
                 continue;  // not available locally under either naming convention
             }
+            inputs::use(animPath);
             std::vector<uint8_t> animFileBytes((std::istreambuf_iterator<char>(f)),
                                                 std::istreambuf_iterator<char>());
             if (animInputs.animChunked) {

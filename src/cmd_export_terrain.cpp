@@ -40,6 +40,7 @@
 #include "writers/bundle_writer.hpp"
 #include "writers/texture_store.hpp"
 #include "writers/terrain_bundle_writer.hpp"
+#include "input_log.hpp"
 
 // `export-terrain` / `export-world`: ADT tiles (root + _obj0 + _tex0 + the
 // map's WDT) to canonical terrain bundles (REFACTOR/BUNDLE_FORMAT.md's
@@ -628,13 +629,16 @@ private:
     std::mutex mutex_;
 };
 
-// Runs work(i) for i in [0, n) on `jobs` threads. `work` handles its own errors.
+// Runs work(i) for i in [0, n) on `jobs` threads. `work` handles its own
+// errors. The workers record source uses for the caller's output.
 template <typename Work>
 void parallelFor(size_t n, unsigned jobs, Work work) {
     std::atomic<size_t> next{0};
     std::vector<std::thread> threads;
+    inputs::Scope* caller = inputs::Scope::current();
     for (unsigned j = 0; j < jobs; ++j) {
-        threads.emplace_back([&] {
+        threads.emplace_back([&, caller] {
+            inputs::Scope::Adopt adopt(caller);
             for (size_t i = next++; i < n; i = next++) work(i);
         });
     }
@@ -787,6 +791,8 @@ public:
     // when unresolved). Two threads may resolve the same new FDID at once;
     // both write identical bytes, so that race is harmless.
     std::pair<canon::TextureRef, std::string> get(uint32_t fdid) {
+        // Every caller used the texture, also when an earlier one read it.
+        if (auto path = sources::localFileForFileDataId(listfile_, listfileRoot_, fdid)) inputs::use(*path);
         {
             std::lock_guard<std::mutex> lock(mutex_);
             auto it = done_.find(fdid);
@@ -1114,6 +1120,15 @@ int exportWorld(int argc, char** args) {
         writers::TextureStore textureStore(texturesDir);
         const writers::StoreLink modelTextures{&textureStore, "../../textures/"};
         ErrorLog errors(out / "errors.log");
+        inputs::Log inputLog(out / "inputs.log", opts.listfileRoot);
+        inputs::setRunLog(&inputLog);
+        struct RunLogReset {
+            ~RunLogReset() { inputs::setRunLog(nullptr); }
+        } runLogReset;
+        auto outputName = [&](const std::filesystem::path& bundle) { return bundle.lexically_relative(out).generic_string(); };
+        auto wdtPathOf = [&](const std::string& map) {
+            return std::filesystem::path(opts.mapsRoot) / map / (map + ".wdt");
+        };
 
         std::map<std::string, adt::WdtFile> wdts;
         for (const auto& mapDir : std::filesystem::directory_iterator(opts.mapsRoot)) {
@@ -1122,6 +1137,8 @@ int exportWorld(int argc, char** args) {
             if (!mapDir.is_directory()) continue;
             if (!opts.maps.empty() && std::find(opts.maps.begin(), opts.maps.end(), map) == opts.maps.end()) continue;
             try {
+                // Each tile and world names its WDT as its own input.
+                inputs::Scope discovery(nullptr, "");
                 wdts.emplace(map, adt::parseWdt(adt::readFile(wdtPath)));
             } catch (...) {
                 errors.add("wdt", wdtPath.string(), exceptionMessage(std::current_exception()) + " (tiles export untextured)");
@@ -1176,6 +1193,7 @@ int exportWorld(int argc, char** args) {
         {
             Progress progress("collect", tiles.size());
             parallelFor(tiles.size(), jobs, [&](size_t i) {
+                inputs::Scope discovery(nullptr, "");
                 try {
                     // Unreadable sidecars are logged once, by pass 3, when the tile itself exports.
                     std::optional<adt::ObjFile> obj =
@@ -1239,6 +1257,7 @@ int exportWorld(int argc, char** args) {
             std::mutex doodadsMutex;
             Progress progress("wmo roots", wmos.size());
             parallelFor(wmos.size(), jobs, [&](size_t i) {
+                inputs::Scope discovery(nullptr, "");
                 try {
                     if (std::optional<std::filesystem::path> src = wmoSource(wmos[i])) {
                         wmo::RootFile root = wmo::parseRoot(adt::readFile(*src));
@@ -1277,6 +1296,7 @@ int exportWorld(int argc, char** args) {
                 std::filesystem::path bundle = modelsDir / modelBundleName(fdid);
                 try {
                     if (!std::filesystem::exists(bundle / "manifest.json")) {
+                        inputs::Scope scope(&inputLog, outputName(bundle));
                         std::optional<std::filesystem::path> src =
                             sources::localFileForFileDataId(*listfile, opts.listfileRoot, fdid);
                         if (!src) {
@@ -1316,6 +1336,7 @@ int exportWorld(int argc, char** args) {
                 try {
                     std::optional<std::filesystem::path> src = wmoSource(fdid);
                     if (src && !std::filesystem::exists(bundle / "manifest.json")) {
+                        inputs::Scope scope(&inputLog, outputName(bundle));
                         auto warn = [&](const std::string& w) { errors.add("wmo", std::to_string(fdid), w); };
                         canon::Model model = loadWmoModel(*src, fdid, listfile.get(), opts.listfileRoot,
                                                           liquids ? &*liquids : nullptr, warn);
@@ -1354,6 +1375,8 @@ int exportWorld(int argc, char** args) {
             std::filesystem::path bundle = out / "maps" / t.map / (t.root.stem().string() + ".bundle");
             try {
                 if (!std::filesystem::exists(bundle / "manifest.json")) {
+                    inputs::Scope scope(&inputLog, outputName(bundle));
+                    if (wdts.count(t.map)) inputs::use(wdtPathOf(t.map));
                     TileName name = parseTileName(t.root);
                     adt::RootFile root = adt::parseRoot(adt::readFile(t.root));
                     Sidecar<adt::ObjFile> objSidecar = loadSidecar(t.root, "auto", "_obj0.adt", "--obj", &adt::parseObj);
@@ -1423,6 +1446,8 @@ int exportWorld(int argc, char** args) {
                 std::filesystem::path bundle = out / "maps" / maps[i] / (maps[i] + ".world.bundle");
                 try {
                     if (!std::filesystem::exists(bundle / "manifest.json")) {
+                        inputs::Scope scope(&inputLog, outputName(bundle));
+                        if (wdts.count(maps[i])) inputs::use(wdtPathOf(maps[i]));
                         // The grid holds the tiles that exported; a failed one
                         // is a hole, already in errors.log from pass 3.
                         std::vector<WorldTile> mapTiles;

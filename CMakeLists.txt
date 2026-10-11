@@ -212,6 +212,7 @@ add_library(husk-lib STATIC
   src/dump_chunks_misc.cpp
   src/cmd_dump.cpp
   src/corpus_store.cpp
+  src/input_log.cpp
   src/cmd_store.cpp
 )
 target_include_directories(husk-lib PUBLIC src)

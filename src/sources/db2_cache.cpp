@@ -6,6 +6,7 @@
 #include <iterator>
 #include <map>
 #include <utility>
+#include "input_log.hpp"
 
 namespace husk::sources {
 
@@ -34,6 +35,7 @@ std::map<CacheKey, ParsedDb2>& cache() {
 }  // namespace
 
 const ParsedDb2* getParsedDb2(const std::string& path, const std::string& dbdDir, std::ostream& err) {
+    inputs::use(path);
     CacheKey key{path, dbdDir};
     auto it = cache().find(key);
     if (it != cache().end()) return &it->second;

@@ -29,6 +29,7 @@
 #include "skel.hpp"
 #include "sources/listfile_catalog.hpp"
 #include "texturefiledata_db2.hpp"
+#include "input_log.hpp"
 
 // The attachX() helper group's definitions -- split out of cmd_export.cpp
 // per FILE_SPLIT_TODO.md's Item 1. See export_extras.hpp for the doc
@@ -47,6 +48,7 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
     if (!f.good() && !f.eof()) {
         throw std::runtime_error("error reading '" + path + "': " + std::strerror(errno));
     }
+    inputs::use(path);
     return bytes;
 }
 

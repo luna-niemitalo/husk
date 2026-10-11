@@ -13,6 +13,7 @@
 #include "export_materials.hpp"
 #include "export_transform.hpp"
 #include "m2_animation.hpp"
+#include "input_log.hpp"
 
 namespace husk::commands {
 
@@ -375,6 +376,7 @@ std::optional<std::vector<uint8_t>> readTextureFileBytes(const std::filesystem::
                                                           const std::string& texturesOutDir) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return std::nullopt;
+    inputs::use(path);
     std::vector<uint8_t> raw((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     // By content too: a casc-tool `_by_fdid/<fdid>` entry has no extension.
     bool isBlp = path.extension() == ".blp" || (raw.size() >= 4 && std::memcmp(raw.data(), "BLP2", 4) == 0);

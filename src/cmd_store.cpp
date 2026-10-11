@@ -398,7 +398,7 @@ int storeAdd(int argc, char** args) {
         for (const std::string& tag : opts.tags) store.setTag(tag, r.id);
         std::cout << (r.alreadyStored ? "already stored: " : "stored: ") << r.id.path() << ", " << r.files
                   << " files, " << r.bytes << " bytes, " << r.addedObjects << " new objects, " << r.missing
-                  << " missing\n";
+                  << " missing, " << r.inputs << " input rows\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "husk: store-add: " << e.what() << "\n";

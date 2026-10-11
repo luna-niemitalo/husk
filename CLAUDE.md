@@ -354,8 +354,10 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   (empty), mount `/media/luna/canonical_export` (command in
   `development/REFERENCES.md`). Documents no longer carry `exported_at`
   (deterministic). A stored build needs a clean producer: Luna's
-  uncommitted `.gitignore` line makes this checkout `-dirty`. Next:
-  `TODO/CORPUS_EXPORT_TODO.md` (inputs.tsv, export-corpus, index/).
+  uncommitted `.gitignore` line makes this checkout `-dirty`. export-world
+  writes `inputs.log` (each output's source files with md5, `src/input_log.*`;
+  `*` = the run's DB2s and listfile), which store-add turns into
+  `inputs.tsv`. Next: `TODO/CORPUS_EXPORT_TODO.md` (export-corpus, index/).
 - **Textures and refs (2026-10-11, Luna)**: each document lists its
   textures once in `resources.textures` and everything uses indices
   (layers, slot options, terrain, liquid frames, effect image inputs);

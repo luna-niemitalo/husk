@@ -5,6 +5,7 @@
 #include <exception>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -118,6 +119,31 @@ std::vector<MissingRow> readErrorLog(const fs::path& path) {
 }
 
 const std::string kErrorLog = "errors.log";
+const std::string kInputLog = "inputs.log";
+
+// inputs.log rows ("output<TAB>input<TAB>md5", appended by every resumed
+// run) as inputs.tsv: the last row for each output and input wins, and an
+// output no longer in the tree is dropped. "*" is the run's.
+std::string inputsTsv(const fs::path& path, const std::set<std::string>& outputs, size_t& rows) {
+    std::map<std::pair<std::string, std::string>, std::string> latest;
+    std::ifstream in(path);
+    std::string line;
+    for (size_t row = 1; std::getline(in, line); row++) {
+        size_t a = line.find('\t');
+        size_t b = a == std::string::npos ? a : line.find('\t', a + 1);
+        if (b == std::string::npos || !parseHex(line.substr(b + 1)))
+            throw std::runtime_error(path.string() + " row " + std::to_string(row) +
+                                     ": expected \"<output><TAB><input><TAB><md5>\", got \"" + line + "\"");
+        std::string output = line.substr(0, a);
+        if (output != "*" && !outputs.count(output)) continue;
+        latest[{output, line.substr(a + 1, b - a - 1)}] = line.substr(b + 1);
+    }
+    std::ostringstream out;
+    out << "output\tinput\tmd5\n";
+    for (const auto& [key, md5] : latest) out << key.first << '\t' << key.second << '\t' << md5 << '\n';
+    rows = latest.size();
+    return out.str();
+}
 
 // The producer's version from "husk <version>": what labels the build.
 std::string huskLabel(const std::string& producer) {
@@ -277,7 +303,7 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
     for (const auto& entry : fs::recursive_directory_iterator(tree)) {
         if (!entry.is_regular_file()) continue;
         fs::path relative = entry.path().lexically_relative(tree);
-        if (relative == kErrorLog) continue;
+        if (relative == kErrorLog || relative == kInputLog) continue;
         // Interrupted writes of the exporters (TextureStore, writeTextAtomic).
         if (relative.extension() == ".partial") continue;
         files.push_back(relative);
@@ -353,6 +379,12 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
         return result;
     }
 
+    std::set<std::string> outputs;
+    for (const fs::path& file : files) {
+        for (fs::path p = file; !p.empty(); p = p.parent_path()) outputs.insert(p.generic_string());
+    }
+    std::string inputs = inputsTsv(tree / kInputLog, outputs, result.inputs);
+
     std::vector<MissingRow> missing = readErrorLog(tree / kErrorLog);
     result.missing = missing.size();
     std::ostringstream missingTsv;
@@ -378,6 +410,8 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
     w.value(static_cast<int64_t>(result.addedObjects));
     w.key("missing");
     w.value(static_cast<int64_t>(result.missing));
+    w.key("inputs");
+    w.value(static_cast<int64_t>(result.inputs));
     w.key("source_tree");
     w.value(fs::absolute(tree).lexically_normal().string());
     w.key("stored_at");
@@ -387,6 +421,7 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
 
     fs::create_directories(dir);
     writeTextAtomic(dir / "missing.tsv", missingTsv.str());
+    if (fs::exists(tree / kInputLog)) writeTextAtomic(dir / "inputs.tsv", inputs);
     writeTextAtomic(dir / "meta.json", meta.str());
     // Last: a build is listed as complete only once files.tsv exists.
     writeTextAtomic(filesPath, filesTsv.str());
