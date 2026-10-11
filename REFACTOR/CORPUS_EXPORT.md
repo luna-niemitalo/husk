@@ -1,7 +1,12 @@
-# CORPUS_EXPORT.md — the whole corpus in canonical format (proposal, 2026-10-11)
+# CORPUS_EXPORT.md — the whole corpus in canonical format (2026-10-11)
 
-**Status: proposal, nothing built.** How a full canonical export of a game
-build is laid out, stored across builds, and browsed. Versioning follows
+**Status: the store and its mount are built** (`husk store-add`, `husk
+mount`, `src/corpus_store.*`, `src/cmd_store.cpp`), and documents are
+deterministic. Not built: input tracking (`inputs.tsv`), `export-corpus`,
+`index/`/`corpus.json`, shared effects/materials/rig, `husk view`; open
+items in `TODO/CORPUS_EXPORT_TODO.md`. Today a stored build is an
+`export-world` tree. How a full canonical export of a game build is laid
+out, stored across builds, and browsed. Versioning follows
 casc-tool's build history store (`~/dev/casc-tool/DESIGN.md`): objects
 named by their md5, a build as a list of paths to objects, tags naming
 builds, the same invariants. husk owns its store and mount outright and
@@ -54,10 +59,10 @@ builds nest by both:
   objects/ab/cd/abcd…          one output file's bytes, name = md5 of the bytes
   builds/<game>/<husk>/        e.g. builds/12.1.0.69933/e587735/
     files.tsv                  path  md5                     every file of the tree
-    inputs.tsv                 path  input_fdid  input_md5   what each bundle was built from
-    missing.tsv                source_fdid  reason           skipped or failed, and why
-    meta.json                  game build, husk revision, schema_version,
-                               listfile md5, flags, counts, export time
+    inputs.tsv                 path  input_fdid  input_md5   what each bundle was built from (not built)
+    missing.tsv                phase  item  reason           the tree's errors.log, deduplicated
+    meta.json                  game, husk, producer, schema_version, counts,
+                               source tree, stored_at
   tags/<name>                  one line: <game>/<husk> (live, ptr, beta, …)
   tmp/                         staging; safe to empty when idle
   logs/                        long runs' output
@@ -65,8 +70,11 @@ builds nest by both:
 
 - **`<game>`** comes from the source mount (`/media/luna/wow_export/live`
   -> `builds/12.1.0.69933`), never from `buildinfo.json`.
-- **`<husk>`** is the short commit. A dirty working tree can't produce a
-  stored build.
+- **`<husk>`** is the producer version every document in the tree names
+  (`git describe` at configure time). `store-add` refuses `-dirty`,
+  `unknown`, and a tree whose documents disagree. Hazard: the version is
+  fixed when CMake configures, so reconfigure after committing; any
+  uncommitted change in the checkout (even `.gitignore`) makes it dirty.
 - **Tags** mirror the source's: `live` names the newest husk export of the
   live game build. Re-exporting with a newer husk moves the tag; the older
   build stays until pruned.
@@ -82,11 +90,15 @@ builds nest by both:
 <mnt>/games/<game>/<husk>/.inputs              inputs.tsv
 ```
 
-Read-only FUSE, unprivileged through `fusermount3` like casc-tool's.
-Bundles reference each other and the texture store by relative uri, so
-they resolve through the mount unchanged. Needs libfuse3 in husk's flake
-(not added; asking). Without FUSE the same tree can be materialized as
-reflinked files (`husk view`, block cloning is active on `tank/data`).
+Read-only FUSE (libfuse3 from the flake), unprivileged through
+`fusermount3`; unmount with `fusermount3 -u <mnt>`. Bundles reference each
+other and the texture store by relative uri, so they resolve through the
+mount unchanged. A build's tree loads from `files.tsv` on first use and
+stays cached (listed builds never change); tags and the build list are
+re-read, so a `store-add` beside a running mount shows within a minute. A
+`files.tsv` the mount can't parse shows as the build's `.error`. Without
+FUSE the tree could be materialized as reflinked files (`husk view`, not
+built; block cloning is active on `tank/data`).
 
 ### Invariants (casc-tool's, applied here)
 
@@ -100,26 +112,38 @@ reflinked files (`husk view`, block cloning is active on `tank/data`).
    This is what makes objects dedupe across builds: a model whose M2,
    sidecars, textures and DB2 rows did not change produces the same bytes.
 
-## What has to change in husk
+## Built
 
-- **Determinism (invariant 4).** Documents carry the export time today
-  (`writeContractHeader`'s provenance), so identical content hashes
-  differently every run. The time moves to `meta.json`. Any absolute
-  source path or other run-dependent value in `provenance.sources` goes the
-  same way.
+- **Determinism (invariant 4).** Documents no longer carry an export time;
+  `meta.json` has `stored_at`. Verified: `fox.m2` and an `export-world` of
+  `goralliancegarrisonlevel1` exported twice are byte-identical (12,371
+  files). `provenance.sources[].detail` still names the listfile path,
+  stable for one machine's config.
+- **`husk store-add <store> <tree> --game L | --game-from DIR [--tag T]`.**
+  Hashes every file (parallel), stores new contents (staged in `tmp/`,
+  re-hashed, renamed read-only), writes `missing.tsv`, `meta.json`, then
+  `files.tsv` last. The same build again is a no-op; other files under an
+  existing build are refused. `--game-from /media/luna/wow_export/live`
+  reads the game label from the source mount's tag link. Measured on the
+  garrison export: 12,367 files share 2,821 contents; a second build with
+  one more map added 7 objects.
+- **`husk mount <store> <mnt>`**, above. Verified: every file read through
+  it matches the source tree; bundles validate through it; writes fail
+  with EROFS.
+
+## Not built
+
 - **Input tracking.** Every read through `sources::` records the file's
   FileDataID and md5 for `inputs.tsv` (the md5 of a source file is its CKey,
   so it lines up with casc-tool's manifests). DB2 rows count as inputs of
   the table file.
-- **Store writing.** husk writes each output to `tmp/`, hashes it, and
-  renames it into `objects/` (or drops it when the object exists), then
-  writes the build's four files.
-- **`husk mount`** (and the `view` fallback), above.
 - **`export-corpus`**: the driver. Passes: models, WMOs, maps, then
-  `index/` and `corpus.json`; textures go into the store as each pass
-  reaches them. Resumable like `export-world`.
-- **Shared rig and materials** before the first full run: `humanmale_hd`
-  alone is 315 MB, 94 MB of it a rig other models share.
+  `index/` and `corpus.json`; textures go into the tree as each pass
+  reaches them. Resumable like `export-world`; ends with `store-add`.
+- **Shared effects, materials and rig** before the first full run:
+  `humanmale_hd` alone is 315 MB, 94 MB of it a rig other models share.
+  (The store already dedupes identical files; sharing saves the tree's own
+  size and the exporter's time.)
 
 ## Incremental export
 
@@ -143,8 +167,5 @@ tree; the tree is now a view of a content-addressed store.
 
 ## Open (Luna)
 
-- **libfuse3 in husk's flake**, for `husk mount`.
-- **Mount point.** `/media/luna/canonical_export` must exist (empty) before
-  the first mount; it's outside husk's dirs, so yours to create.
 - The full run is human-gated: a seeded ~4,000-file sample first, to
   project size and time.

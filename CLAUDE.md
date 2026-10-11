@@ -347,6 +347,15 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   choices indexing `definition.customization` (every ChrModel drawing the
   file; options and geosets, no choice textures yet), items indexing
   `definition.items` (refs only so far). export-world puts every texture in one shared store.
+- **Corpus store (2026-10-11, `REFACTOR/CORPUS_EXPORT.md`)**: `husk
+  store-add` records an export tree as `builds/<game>/<husk>/` in a
+  content-addressed store (versioned like casc-tool's, husk's own code);
+  `husk mount` serves it read-only. Store `/media/luna/data/canonical_storage`
+  (empty), mount `/media/luna/canonical_export` (command in
+  `development/REFERENCES.md`). Documents no longer carry `exported_at`
+  (deterministic). A stored build needs a clean producer: Luna's
+  uncommitted `.gitignore` line makes this checkout `-dirty`. Next:
+  `TODO/CORPUS_EXPORT_TODO.md` (inputs.tsv, export-corpus, index/).
 - **Textures and refs (2026-10-11, Luna)**: each document lists its
   textures once in `resources.textures` and everything uses indices
   (layers, slot options, terrain, liquid frames, effect image inputs);
