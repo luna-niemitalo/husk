@@ -26,9 +26,11 @@ struct NamedInput;
 // An input value. Which kind it is comes from the effect's declaration;
 // these are the value shapes husk writes so far. A list holds a list
 // input's elements, a record a record input's fields.
-// Ref: a mesh input, the model by identity.
+// Ref: a mesh input, the model by identity. std::string: a choice input.
 struct InputValue {
-    std::variant<double, int64_t, bool, Vec3, TextureRef, Ref, std::vector<InputValue>, std::vector<NamedInput>> value;
+    std::variant<double, int64_t, bool, std::string, Vec3, TextureRef, Ref, std::vector<InputValue>,
+                 std::vector<NamedInput>>
+        value;
 };
 
 struct NamedInput {

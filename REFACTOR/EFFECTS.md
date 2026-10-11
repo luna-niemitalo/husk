@@ -34,8 +34,15 @@ value is an optional input or the priority, named in the instance's
 provenance; `validate-bundle` checks every provenance path names a value
 the instance holds. Not yet: `fog_density_to_extinction` (its source,
 the zone fog below, is keyed by time of day, and a medium is one value
-so far), `additive_to_emission`/`alpha_to_albedo` (M2 particle blend
-ids), the gate.
+so far), the gate. A fifth rule, `blend_to_light_role`, gives each
+WMO and map particle-volume emitter its light role (content
+`particles.light.role`): emission for `EGxBlend` Add, albedo for Alpha
+(846/846 map emitters). It replaces the planned `additive_to_emission`/
+`alpha_to_albedo` pair, and states the role only; the colour stays the
+style's. M2 particles get none: their `blendingType` ids are
+self-contradictory on the wiki (1 and 2's names and GL functions swap),
+and 5..7 have two readings the shaders can't decide between
+(`SHADER_FINDINGS/notes/particles.md`).
 
 Phase 4: each map's `Light` zones are `classic_zone_fog` instances (a
 sphere fading between the falloff radii) or `classic_zone_fog_global`
@@ -490,8 +497,7 @@ the field stays absent.
 | `linear_fog_to_extinction` | `extinction` = 3 / (end − start): 95 % opacity across the band | `MFOG` linear fog |
 | `fog_color_to_albedo` | `albedo` = fog colour, linear | zone fog, `MFOG` |
 | `fog_level_to_priority` | `priority` | `VFOG.fogLevel` |
-| `additive_to_emission` | particle `light.emission` = colour × opacity as radiance | M2 additive blend modes |
-| `alpha_to_albedo` | particle `light.albedo` = colour | M2 alpha blend modes |
+| `blend_to_light_role` | particle `light.role`: emission or albedo | WMO/map particle emitters' `EGxBlend` (Add, Alpha); not M2, whose blend ids are unsettled |
 | `count_to_spawn_density` | `spawn` density = count / box volume | `MPVD`/`PVMI` (once box size is verified) |
 
 **Wind response time**: husk derives none in the literal tier, since no

@@ -29,6 +29,15 @@
             "frames": {
               "kind": "integer",
               "description": "Frames the animation plays, from the first tile."
+            },
+            "light_role": {
+              "kind": "choice",
+              "options": [
+                "emission",
+                "albedo"
+              ],
+              "optional": true,
+              "description": "Derived (blend_to_light_role): emission for an additive blend, albedo for an alpha blend."
             }
           }
         }
@@ -82,6 +91,11 @@
         "spawn": {
           "density": {
             "input": "density"
+          }
+        },
+        "light": {
+          "role": {
+            "each": "light_role"
           }
         }
       }

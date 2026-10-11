@@ -430,12 +430,19 @@ TEST_CASE("buildCanonWmo: MPVD records become particulate effect instances with 
     // Derived: the 500-particle cap over the 7 x 8 x 9 box.
     CHECK(effect.inputs.at(2).name == "density");
     CHECK(std::get<double>(effect.inputs.at(2).value.value) == doctest::Approx(500.0 / 504.0));
-    CHECK(effect.derived.at(0).rule == "count_to_spawn_density");
+    auto derivedBy = [&](const std::string& rule) {
+        return std::count_if(effect.derived.begin(), effect.derived.end(), [&](const canon::Derived& d) { return d.rule == rule; });
+    };
+    CHECK(derivedBy("count_to_spawn_density") == 1);
+    // Blend 3 (Add) emits light; blend 7 has no light role to derive.
+    CHECK(derivedBy("blend_to_light_role") == 1);
+    CHECK(effect.derived.at(0).path == "inputs.emitters.0.light_role");
     const auto& emitters = std::get<std::vector<canon::InputValue>>(effect.inputs.at(1).value.value);
     REQUIRE(emitters.size() == 2);
     const auto& dustInput = std::get<std::vector<canon::NamedInput>>(emitters[0].value);
     CHECK(std::get<canon::TextureRef>(dustInput[0].value.value).resolved.name == "dust1");
     CHECK(std::get<int64_t>(dustInput[3].value.value) == 16);
+    CHECK(std::get<std::string>(dustInput.at(4).value.value) == "emission");
     const auto& oddInput = std::get<std::vector<canon::NamedInput>>(emitters[1].value);
     CHECK(std::get<canon::TextureRef>(oddInput[0].value.value).unresolvedReason == "texture FileDataID 555 was not resolved");
 

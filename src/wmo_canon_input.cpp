@@ -673,13 +673,21 @@ canon::PlacedInstance particulateInstance(const wmo::ParticulateVolume& v, const
     std::vector<canon::UnresolvedField>& unresolved = effect.unresolved;
     for (size_t k = 0; k < v.emitters.size(); ++k) {
         const wmo::ParticulateEmitter& e = v.emitters[k];
-        emitters.push_back({std::vector<canon::NamedInput>{
-            {"texture", {textureById(textures, e.textureFileDataId)}},
-            {"tiles_x", {int64_t{e.tilesX}}},
-            {"tiles_y", {int64_t{e.tilesY}}},
-            {"frames", {int64_t{e.frames}}}}});
+        std::vector<canon::NamedInput> fields{{"texture", {textureById(textures, e.textureFileDataId)}},
+                                              {"tiles_x", {int64_t{e.tilesX}}},
+                                              {"tiles_y", {int64_t{e.tilesY}}},
+                                              {"frames", {int64_t{e.frames}}}};
         canon::StyleBlock block;
         block.draw = canon::StyleBlock::Draw{framebufferBlendFor(e.blendMode), e.color};
+        // blend_to_light_role: an additive particle adds light, an
+        // alpha-blended one reflects it (EGxBlend, documented, unlike M2's
+        // particle blend ids).
+        if (block.draw->blend == canon::FramebufferBlend::Add || block.draw->blend == canon::FramebufferBlend::Alpha) {
+            bool additive = block.draw->blend == canon::FramebufferBlend::Add;
+            fields.push_back({"light_role", {std::string(additive ? "emission" : "albedo")}});
+            effect.derived.push_back({"inputs.emitters." + std::to_string(k) + ".light_role", "blend_to_light_role"});
+        }
+        emitters.push_back({std::move(fields)});
         emitterStyle.blocks.push_back(block);
         std::string base = "emitters[" + std::to_string(k) + "]";
         unresolvedScalars(unresolved, base + ".parameters", e.parameters);

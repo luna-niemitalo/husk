@@ -1191,6 +1191,32 @@
                 "density"
               ],
               "additionalProperties": false
+            },
+            "light": {
+              "type": "object",
+              "description": "How a particle meets light; absent: not stated.",
+              "properties": {
+                "role": {
+                  "description": "Emission: it adds its colour as light. Albedo: it reflects the light reaching it.",
+                  "oneOf": [
+                    {
+                      "enum": [
+                        "emission",
+                        "albedo"
+                      ],
+                      "description": "The role."
+                    },
+                    {
+                      "$ref": "#/definitions/binding",
+                      "description": "Where the role comes from."
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "role"
+              ],
+              "additionalProperties": false
             }
           },
           "required": [

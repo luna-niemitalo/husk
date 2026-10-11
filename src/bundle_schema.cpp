@@ -659,7 +659,12 @@ struct Validation {
                 const json* at = &instance;
                 std::stringstream steps(path);
                 for (std::string step; at && std::getline(steps, step, '.');) {
-                    at = at->is_object() && at->contains(step) ? &(*at)[step] : nullptr;
+                    if (at->is_array()) {
+                        bool index = !step.empty() && std::all_of(step.begin(), step.end(), ::isdigit);
+                        at = index && std::stoul(step) < at->size() ? &(*at)[std::stoul(step)] : nullptr;
+                    } else {
+                        at = at->is_object() && at->contains(step) ? &(*at)[step] : nullptr;
+                    }
                 }
                 if (!at) checker.fail(pointer + "/provenance", "expected provenance for a value the instance holds, got '" + path + "'");
             }
