@@ -59,6 +59,15 @@ std::optional<uint32_t> fileDataIdForPath(const husk::ListfileIndex& listfile, c
 std::optional<std::filesystem::path> pathForFileDataId(const husk::ListfileIndex& listfile,
                                                          const std::string& listfileRoot, uint32_t fdid);
 
+// `<listfileRoot>/_by_fdid/<fdid>` when it exists, else nullopt. A
+// casc-tool tree (its mount or `view`) serves every FileDataID of its
+// build there, named by the listfile or not, so this is the one lookup that
+// can't land on another file's bytes: a listfile can give a model's skin
+// names to a different FileDataID (helm_armor_ethereal_d_01_gn_m.m2's
+// `..._gn_m00.skin` is FileDataID 6217827, while its SFID declares
+// 6217937). The entry has no extension; callers know what they asked for.
+std::optional<std::filesystem::path> storePathForFileDataId(const std::string& listfileRoot, uint32_t fdid);
+
 // The real --listfile content name for `fdid`, for human-readable display
 // (Blender image datablock/material names, --slim-textures' written
 // filenames) -- `listfile[fdid]`'s own stem, no root join needed (a display

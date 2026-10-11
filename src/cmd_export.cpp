@@ -1223,7 +1223,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         m2Inputs.sequenceCount = header.sequences.count;
 
         auto skinsToExport =
-            resolveSkinsToExport(header, modelPath, skinDir, skinDirNone, lodGiven, opts.lodArg, opts.skinArg);
+            resolveSkinsToExport(header, modelPath, skinDir, listfileRoot, skinDirNone, lodGiven, opts.lodArg,
+                                 opts.skinArg);
 
         gltf::Mesh baseMesh = buildBaseMesh(vertices);
 

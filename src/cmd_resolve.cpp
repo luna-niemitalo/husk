@@ -282,8 +282,8 @@ int resolve(int argc, char** args) {
         m2Inputs.blob = &blob;
         m2Inputs.sequenceCount = header.sequences.count;
 
-        auto skinsToExport = resolveSkinsToExport(header, opts.model, skinDir, skinDirNone, lodGiven,
-                                                    opts.lodArg, opts.skinArg);
+        auto skinsToExport = resolveSkinsToExport(header, opts.model, skinDir, listfileRoot, skinDirNone,
+                                                    lodGiven, opts.lodArg, opts.skinArg);
 
         husk::sources::Catalog catalog(texturesDir, listfile, listfileRoot, texturesOutDir);
 

@@ -296,10 +296,9 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   **Terrain tile and map-scene bundles do not conform yet.** Next, in
   order: (3) terrain tile becomes a `model` in its own frame; (4) `world` document
   (grid + off-grid placements + map scene, replacing `map_scene`);
-  MantleCore must follow each stage. **Stage 3 waits on the corpus**
-  (see the corpus hazard below): real tiles are needed to verify the new
-  tile frame. After the format work:
-  LOD (`MFOB` waits on the CASC side); open
+  MantleCore must follow each stage. **Stage 3 is unblocked**: the corpus
+  is mounted and the real-tile tests run. After the format work:
+  LOD (`MFOB` exists but is always empty, see `FOG_VOLUMES_TODO.md` §1); open
   items per feature in `TODO/WORLD/LIGHTING_TODO.md`, `LIQUID_TODO.md` §1
   and `FOG_VOLUMES_TODO.md` §2.
   Client shaders are unpacked under `example_exports/shaders/`
@@ -309,9 +308,10 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   nothing on grassy quads (`TODO/WORLD/ADT_TERRAIN_TODO.md` §1), confirming
   MantleCore's south-edge seam cracks are in the source bytes (§2),
   placement yaw sign (`WORLD_PLACEMENT_TODO.md`). `tests/
-  test_integration_terrain.cpp` is written against a real tile
-  (`test_data/world/maps/azeroth/azeroth_32_49.adt` + siblings + WDT) but
-  has never run: copy that tile in and run it once.
+  test_integration_terrain.cpp` runs against the real tile
+  `test_data/world/maps/azeroth/azeroth_32_49.adt` (+ siblings + WDT,
+  copied from the mount 2026-10-11; `test_data/` is gitignored) and
+  passes.
 - **Hazards** (standing facts, not narrative — see `CLAUDE_HISTORY.md` for
   the sessions that established each one):
   - **Corpus location (2026-10-10, Luna)**: the extracted corpus moves
@@ -323,10 +323,15 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
     listfile are in `development/REFERENCES.md` (gitignored, machine-
     local); running that mount command is pre-approved whenever the mount
     is missing. `~/.config/husk/config.toml` (husk's own config, in
-    scope) points at the mount.
-    The old path is still hardcoded in `src/db2.hpp`, three tests
-    (`test_dbd.cpp`, `test_cli_db2.cpp`) and about 20 `tools/` scripts;
-    repoint them when work resumes.
+    scope) points at the mount. Tests, tools and usage docs point there
+    too; evidence citations in TODO/findings docs keep the old path on
+    purpose (they record where something was verified).
+  - **Listfile names can belong to another FileDataID**: e.g.
+    `helm_armor_ethereal_d_01_gn_m00.skin` is FDID 6217827, while that
+    M2's SFID declares 6217937. Same-basename lookups (skins, fuzzy
+    texture pool) can't detect this; the mount's `_by_fdid/<fdid>` can't
+    be wrong. The SFID skin stage reads it; textures, anims and model
+    FDIDs don't yet.
   - `tools/corpus_scan_tasks/unfillable_texture_task.py` is the one true
     source for "does this file's texture actually resolve" —
     `missing_texture_task.py` is an older, simpler check that over-flags;

@@ -8,8 +8,23 @@
 #include <tuple>
 
 #include "export_materials.hpp"  // scanDirOrWarn
+#include "sources/listfile_catalog.hpp"
 
 namespace husk::commands {
+
+namespace {
+
+// The SFID stage's two places for one FileDataID, in order.
+std::optional<std::string> findSfidSkin(const std::string& skinDir, const std::string& listfileRoot,
+                                        uint32_t fdid) {
+    std::filesystem::path named = std::filesystem::path(skinDir) / (std::to_string(fdid) + ".skin");
+    std::error_code ec;
+    if (std::filesystem::exists(named, ec) && !ec) return named.string();
+    if (auto stored = sources::storePathForFileDataId(listfileRoot, fdid)) return stored->string();
+    return std::nullopt;
+}
+
+}  // namespace
 
 const std::vector<uint32_t>& requireSkinFileDataIds(const m2::Header& header,
                                                       const std::string& modelPath) {
@@ -24,6 +39,7 @@ const std::vector<uint32_t>& requireSkinFileDataIds(const m2::Header& header,
 
 std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::Header& header,
                                                                         const std::string& skinDir,
+                                                                        const std::string& listfileRoot,
                                                                         const std::string& modelPath,
                                                                         const std::string& lodArg) {
     if (skinDir.empty()) {
@@ -51,8 +67,7 @@ std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::
     // that discovery to whatever later stage tries to open the file.
     auto resolveOneIndex = [&](size_t index) -> std::string {
         std::string sfidCandidate = pathFor(index);
-        std::error_code ec;
-        if (std::filesystem::exists(sfidCandidate, ec) && !ec) return sfidCandidate;
+        if (auto found = findSfidSkin(skinDir, listfileRoot, ids[index])) return *found;
 
         for (const auto& [lod, path] : findSameBasenameSkins(modelPath)) {
             if (static_cast<size_t>(lod) == index) {
@@ -147,6 +162,7 @@ std::vector<std::pair<int, std::string>> findSameBasenameSkins(const std::string
 std::vector<std::pair<std::string, std::string>> resolveSkin(const m2::Header& header,
                                                                const std::string& modelPath,
                                                                const std::string& skinDir,
+                                                               const std::string& listfileRoot,
                                                                bool skinDirNone) {
     bool sfidPresent = header.skinFileDataIds && !header.skinFileDataIds->empty();
     std::string sfidCandidate;
@@ -155,11 +171,9 @@ std::vector<std::pair<std::string, std::string>> resolveSkin(const m2::Header& h
         sfidCandidate =
             (std::filesystem::path(skinDir) / (std::to_string((*header.skinFileDataIds)[0]) + ".skin"))
                 .string();
-        std::error_code ec;
-        if (std::filesystem::exists(sfidCandidate, ec) && !ec) {
-            std::cerr << "husk: note: 'auto' resolved '" << sfidCandidate
-                      << "' (SFID entry 0, highest-detail LOD)\n";
-            return {{"", sfidCandidate}};
+        if (auto found = findSfidSkin(skinDir, listfileRoot, (*header.skinFileDataIds)[0])) {
+            std::cerr << "husk: note: 'auto' resolved '" << *found << "' (SFID entry 0, highest-detail LOD)\n";
+            return {{"", *found}};
         }
     }
 
@@ -193,6 +207,7 @@ std::vector<std::pair<std::string, std::string>> resolveSkin(const m2::Header& h
 std::vector<std::pair<std::string, std::string>> resolveSkinsToExport(const m2::Header& header,
                                                                         const std::string& modelPath,
                                                                         const std::string& skinDir,
+                                                                        const std::string& listfileRoot,
                                                                         bool skinDirNone, bool lodGiven,
                                                                         const std::string& lodArg,
                                                                         const std::string& skinArg) {
@@ -200,7 +215,7 @@ std::vector<std::pair<std::string, std::string>> resolveSkinsToExport(const m2::
         return {{"", skinArg}};
     }
     if (lodGiven) {
-        auto skinsToExport = resolveAutoSkinPaths(header, skinDir, modelPath, lodArg);
+        auto skinsToExport = resolveAutoSkinPaths(header, skinDir, listfileRoot, modelPath, lodArg);
         for (const auto& [name, path] : skinsToExport) {
             std::cerr << "husk: note: 'auto' resolved '" << path << "'"
                       << (name.empty() ? " (SFID entry 0, highest-detail LOD)\n"
@@ -208,7 +223,7 @@ std::vector<std::pair<std::string, std::string>> resolveSkinsToExport(const m2::
         }
         return skinsToExport;
     }
-    return resolveSkin(header, modelPath, skinDir, skinDirNone);
+    return resolveSkin(header, modelPath, skinDir, listfileRoot, skinDirNone);
 }
 
 }  // namespace husk::commands

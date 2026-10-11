@@ -73,6 +73,28 @@ TEST_CASE("husk export: 'auto' resolution order -- the SFID-declared FileDataID 
     fs::remove_all(dir);
 }
 
+TEST_CASE("husk export: 'auto' reads the SFID FileDataID from --listfile-root's _by_fdid/ before "
+          "trusting a same-basename skin, which a listfile can give to another FileDataID") {
+    auto root = defaultsDir("storeskin");
+    uint32_t fileDataId = 6217937;
+    fs::create_directories(root / "item");
+    fs::create_directories(root / "_by_fdid");
+    writeFile(root / "item" / "storeskin.m2", chunkedM2WithSfid(tinyValidM2(), {fileDataId}));
+    writeFile(root / "_by_fdid" / std::to_string(fileDataId), tinyMatchingSkin());
+    // The decoy: named like this model's skin, but in the real case it is
+    // another FileDataID's bytes.
+    writeFile(root / "item" / "storeskin00.skin", tinyMatchingSkin());
+
+    auto result = runHusk("export " + (root / "item" / "storeskin.m2").string() + " --listfile-root " +
+                          root.string() + " -o " + (root / "out.glb").string());
+    CHECK(result.exitCode == 0);
+    CHECK(result.output.find("_by_fdid/" + std::to_string(fileDataId) + "' (SFID entry 0") !=
+          std::string::npos);
+    CHECK(result.output.find("same-basename numbered scan") == std::string::npos);
+
+    fs::remove_all(root);
+}
+
 TEST_CASE("husk export: --skin-dir none skips the SFID stage entirely -- 'auto' falls straight "
           "to the same-basename scan even when a matching FileDataID-named file also sits in "
           "the model's own directory") {

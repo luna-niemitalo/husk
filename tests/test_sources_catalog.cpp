@@ -9,6 +9,9 @@
 
 #include <doctest/doctest.h>
 
+#include <filesystem>
+#include <fstream>
+
 #include "../src/listfile_index.hpp"
 #include "../src/sources/listfile_catalog.hpp"
 
@@ -16,6 +19,7 @@ using husk::MapListfileIndex;
 using husk::sources::contentNameForFileDataId;
 using husk::sources::fileDataIdForPath;
 using husk::sources::pathForFileDataId;
+using husk::sources::storePathForFileDataId;
 
 TEST_CASE("sources::fileDataIdForPath matches a real listfile row, case-insensitively") {
     std::unordered_map<uint32_t, std::string> listfile{
@@ -74,6 +78,20 @@ TEST_CASE("sources::pathForFileDataId does NOT require listfileRoot non-empty --
     auto result = pathForFileDataId(idx, "", 1);
     REQUIRE(result.has_value());
     CHECK(*result == "world/foo.m2");
+}
+
+TEST_CASE("sources::storePathForFileDataId finds <root>/_by_fdid/<fdid> only when it is a file") {
+    auto root = std::filesystem::temp_directory_path() / "husk-store-path-test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root / "_by_fdid" / "7");
+    std::ofstream(root / "_by_fdid" / "42") << "x";
+
+    CHECK(storePathForFileDataId(root.string(), 42) == root / "_by_fdid" / "42");
+    CHECK_FALSE(storePathForFileDataId(root.string(), 43).has_value());
+    CHECK_FALSE(storePathForFileDataId(root.string(), 7).has_value());
+    CHECK_FALSE(storePathForFileDataId("", 42).has_value());
+
+    std::filesystem::remove_all(root);
 }
 
 TEST_CASE("sources::contentNameForFileDataId returns the listfile row's own stem, no root needed") {

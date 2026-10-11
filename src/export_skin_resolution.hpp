@@ -24,11 +24,13 @@ const std::vector<uint32_t>& requireSkinFileDataIds(const m2::Header& header,
 // entry, so husk export can emit one glTF node per LOD tier in a single
 // .glb (see exportGlb) instead of just one. Each result pairs the entry's
 // own index (for node naming) with its resolved local path. husk doesn't
-// resolve any of these FileDataIDs to a WoW/CASC path itself -- this only
-// ever looks for `<skinDir>/<FileDataID>.skin` on the local filesystem,
-// the same convention `--textures` already uses for PNGs.
+// resolve any of these FileDataIDs to a WoW/CASC path itself -- this looks
+// for `<skinDir>/<FileDataID>.skin` (the convention `--textures` uses for
+// PNGs), then `<listfileRoot>/_by_fdid/<FileDataID>` (a casc-tool tree,
+// sources::storePathForFileDataId), on the local filesystem only.
 std::vector<std::pair<std::string, std::string>> resolveAutoSkinPaths(const m2::Header& header,
                                                                         const std::string& skinDir,
+                                                                        const std::string& listfileRoot,
                                                                         const std::string& modelPath,
                                                                         const std::string& lodArg);
 
@@ -54,13 +56,16 @@ std::vector<std::pair<int, std::string>> findSameBasenameSkins(const std::string
 // -> findSameBasenameSkins only; the literal word "auto" ->
 // resolveAutoSkinPaths only) into the single 'auto' state DESIGN.md
 // decided on. Order matters: the SFID-declared FileDataID (the model's own
-// self-description) is tried first, in `skinDir` (unless `skinDirNone`,
-// which skips this stage entirely); the same-basename numbered scan next
-// to the model is the fallback, tried only when the SFID stage didn't
-// resolve to a file that actually exists.
+// self-description) is tried first, in `skinDir` and then in
+// `listfileRoot`'s `_by_fdid/` (unless `skinDirNone`, which skips this
+// stage entirely); the same-basename numbered scan next to the model is
+// the fallback, tried only when the SFID stage didn't resolve to a file
+// that actually exists. The scan can't tell whose skin it found: a
+// listfile can give this model's skin names to another FileDataID.
 std::vector<std::pair<std::string, std::string>> resolveSkin(const m2::Header& header,
                                                                const std::string& modelPath,
                                                                const std::string& skinDir,
+                                                               const std::string& listfileRoot,
                                                                bool skinDirNone);
 
 // Top-level --skin/--skin-dir/--lod resolution, honoring the same
@@ -76,6 +81,7 @@ std::vector<std::pair<std::string, std::string>> resolveSkin(const m2::Header& h
 std::vector<std::pair<std::string, std::string>> resolveSkinsToExport(const m2::Header& header,
                                                                         const std::string& modelPath,
                                                                         const std::string& skinDir,
+                                                                        const std::string& listfileRoot,
                                                                         bool skinDirNone, bool lodGiven,
                                                                         const std::string& lodArg,
                                                                         const std::string& skinArg);

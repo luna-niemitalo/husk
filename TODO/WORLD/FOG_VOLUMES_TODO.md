@@ -52,10 +52,11 @@ Open:
   kept raw as `source_flags`. Only 0x1 (F_IEBLEND) is typed.
 - **The four `fogIds` slots**: what distinguishes slot 0 from slots 1..3
   is undocumented, so all four are written raw.
-- **`MFOB`: 0 at full corpus strength (0/86,134 `.wmo` files)**, though
-  the wiki's version gate (12.1.0.68209) names this Midnight corpus's
-  version; no struct on the wiki either. Handed to the CASC side:
-  `MFOB_CASC_REPORT.md`. Do not implement; watch only.
+- **`MFOB`: present but always empty.** Build 12.1.0.69933 (the casc-tool
+  mount): 225 of 12,824 roots carry it, every one 0 bytes (the old export
+  had 0/86,134). No struct on the wiki, nothing to decode yet; husk skips
+  it and those roots export and validate clean. Watch for a build where
+  it has a body (`MFOB_CASC_REPORT.md`).
 
 ---
 

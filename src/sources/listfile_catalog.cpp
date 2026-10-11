@@ -41,6 +41,14 @@ std::optional<std::filesystem::path> pathForFileDataId(const husk::ListfileIndex
     return std::filesystem::path(listfileRoot) / std::filesystem::path(*found);
 }
 
+std::optional<std::filesystem::path> storePathForFileDataId(const std::string& listfileRoot, uint32_t fdid) {
+    if (listfileRoot.empty()) return std::nullopt;
+    std::filesystem::path path = std::filesystem::path(listfileRoot) / "_by_fdid" / std::to_string(fdid);
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) return std::nullopt;
+    return path;
+}
+
 std::optional<std::string> contentNameForFileDataId(const husk::ListfileIndex& listfile, uint32_t fdid) {
     if (listfile.empty()) return std::nullopt;
     auto found = listfile.lookup(fdid);

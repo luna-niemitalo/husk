@@ -229,9 +229,10 @@ attenuations, live flicker fields, `lightUnkRecord` all-zero) — its first
 real-data verification.
 
 **`MOS2`**: **0/86,134** — the wiki's "in binary, not in files" claim is
-now confirmed at full-corpus strength, as is **`MFOB`: 0/86,134** despite
-this being a Midnight (12.1.0) corpus (see `TODO/WORLD/MFOB_CASC_REPORT.md`
-for the CASC-side follow-up).
+now confirmed at full-corpus strength. **`MFOB`** was 0/86,134 in that
+export; build 12.1.0.69933 (2026-10-11) has it in 225 of 12,824 roots,
+always 0 bytes, so it exists in the format but carries no data yet (see
+`TODO/WORLD/MFOB_CASC_REPORT.md`).
 
 ## `_fogs.wdt` `VFEX` — fields characterized (2026-10-11)
 

@@ -51,7 +51,17 @@ extraction's true build is not independently pinned beyond "12.1.0").
    a `WIKI_FINDINGS/WORLD.md` note closes the item as
    "watch-only, confirmed absent through 12.1.0".
 
+## Answer from the casc-tool store (2026-10-11)
+
+Question 1 is settled. Build 12.1.0.69933 (`/media/luna/wow_export/live`):
+**225 of 12,824 root WMOs carry an `MFOB` tag, and all 225 are 0 bytes.**
+So the chunk did ship after the old extraction, but as an empty
+placeholder (e.g. `world/wmo/expansion11/troll/12tr_amani_balcony01.wmo`,
+`world/wmo/dungeon/lifepoolsdungeon/10du_lifepoolsdungeon.wmo`). Question
+2 has nothing to pull yet.
+
 ## Disposition in husk
 
-No parser work possible or planned until real bytes exist. Tracked in
-`FOG_VOLUMES_TODO.md` item 1 (watch-only).
+No parser work possible until a build gives `MFOB` a body; husk skips the
+empty chunk and those roots export clean. Re-run the root tag-grep on each
+new stored build. Tracked in `FOG_VOLUMES_TODO.md` item 1 (watch-only).
