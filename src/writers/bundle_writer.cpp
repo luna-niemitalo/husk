@@ -414,6 +414,39 @@ void writeRgba(json::Writer& w, const std::array<float, 4>& rgba) {
     w.endArray();
 }
 
+void writeCustomizationOption(json::Writer& w, uint32_t chrModelId, const canon::Option& option) {
+    w.beginObject();
+    w.key("ref");
+    writeRef(w, option.ref);
+    w.key("chr_model");
+    writeRef(w, canon::Ref{canon::Db2Row{"ChrModel", chrModelId}, "", canon::NameSource::None});
+    w.key("order");
+    w.value(static_cast<int64_t>(option.orderIndex));
+    w.key("category");
+    w.beginObject();
+    w.key("ref");
+    writeRef(w, option.category.ref);
+    w.key("order");
+    w.value(static_cast<int64_t>(option.category.orderIndex));
+    w.endObject();
+    w.key("choices");
+    w.beginArray();
+    for (const canon::Choice& choice : option.choices) {
+        w.beginObject();
+        w.key("ref");
+        writeRef(w, choice.ref);
+        w.key("order");
+        w.value(static_cast<int64_t>(choice.orderIndex));
+        if (choice.geoset) {
+            w.key("geoset_id");
+            w.value(static_cast<int64_t>(choice.geoset->group * 100 + choice.geoset->variant));
+        }
+        w.endObject();
+    }
+    w.endArray();
+    w.endObject();
+}
+
 void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& textures) {
     if (!model.textureSlots.empty()) {
         w.key("texture_slots");
@@ -441,18 +474,18 @@ void writeOptions(json::Writer& w, const canon::Model& model, TextureTable& text
         }
         w.endArray();
     }
-    if (!model.customizationChoices.empty()) {
-        w.key("customization_choices");
+    bool anyOption = std::any_of(model.customization.begin(), model.customization.end(),
+                                 [](const canon::Definition& d) { return !d.options.empty(); });
+    if (anyOption) {
+        w.key("customization");
+        w.beginObject();
+        w.key("options");
         w.beginArray();
-        for (const canon::CustomizationChoice& choice : model.customizationChoices) {
-            w.beginObject();
-            w.key("option");
-            writeRef(w, choice.option);
-            w.key("choice");
-            writeRef(w, choice.choice);
-            w.endObject();
+        for (const canon::Definition& definition : model.customization) {
+            for (const canon::Option& option : definition.options) writeCustomizationOption(w, definition.chrModelId, option);
         }
         w.endArray();
+        w.endObject();
     }
     if (!model.items.empty()) {
         w.key("items");
@@ -516,7 +549,14 @@ void writePresets(json::Writer& w, const std::vector<canon::Preset>& presets) {
         if (!preset.customization.empty()) {
             w.key("customization");
             w.beginArray();
-            for (uint32_t choice : preset.customization) w.value(static_cast<int64_t>(choice));
+            for (const canon::CustomizationPick& pick : preset.customization) {
+                w.beginObject();
+                w.key("option");
+                w.value(static_cast<int64_t>(pick.option));
+                w.key("choice");
+                w.value(static_cast<int64_t>(pick.choice));
+                w.endObject();
+            }
             w.endArray();
         }
         if (!preset.items.empty()) {

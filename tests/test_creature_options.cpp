@@ -127,6 +127,12 @@ TEST_CASE("addCreatureOptions: a humanoid NPC's bake fills the lowest-type slot;
     data.customizationByExtra[77] = {{3, 30}, {4, 40}};
     data.customizationByExtra[78] = {{3, 30}, {4, 40}};
     data.itemsByExtra[77] = {{9000, 0}, {0, 3}, {9011, 11}};
+    // ChrModels 5 and 6 share the file: 5's option is 3 (choice 30), 6's is
+    // 4 (40 and 41).
+    data.chrModelsByFile[kModelFile] = {5, 6};
+    data.customization.options = {{3, 5, "Hair", 0, 0}, {4, 6, "Face", 1, 0}};
+    data.customization.choices = {{30, 3, "Long", 0, std::nullopt}, {41, 4, "", 0, std::nullopt},
+                                  {40, 4, "", 1, std::nullopt}};
     data.itemsByExtra[78] = {{9000, 0}, {0, 3}, {9011, 11}};
 
     canon::Model model = modelWithGeosets({0});
@@ -142,10 +148,14 @@ TEST_CASE("addCreatureOptions: a humanoid NPC's bake fills the lowest-type slot;
     CHECK(p.sources.size() == 2);
     REQUIRE(p.textures.size() == 1);
     CHECK(p.textures[0].slot == 2);
-    REQUIRE(p.customization == std::vector<uint32_t>{0, 1});
-    REQUIRE(model.customizationChoices.size() == 2);
-    CHECK(std::get<canon::Db2Row>(model.customizationChoices[1].choice.id).row == 40);
-    CHECK(std::get<canon::Db2Row>(model.customizationChoices[1].option.id).table == "ChrCustomizationOption");
+    REQUIRE(model.customization.size() == 2);
+    CHECK(model.customization[1].chrModelId == 6);
+    // Option 1 of the flat list is ChrModel 6's first; choice 40 its second.
+    REQUIRE(p.customization.size() == 2);
+    CHECK(p.customization[0].option == 0);
+    CHECK(p.customization[0].choice == 0);
+    CHECK(p.customization[1].option == 1);
+    CHECK(p.customization[1].choice == 1);
     // An empty item row is no item; slot 11 has no name.
     REQUIRE(p.items.size() == 2);
     CHECK(p.items[0].slot == std::optional<std::string>("head"));

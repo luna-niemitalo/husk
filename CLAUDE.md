@@ -343,8 +343,9 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   call, humanoid NPCs, conditional displays) in
   `TODO/CREATURE_OPTIONS_TODO.md`. Humanoid NPCs (2026-10-11) are presets
   on their character model: baked skin as a `skin` option, customization
-  choices and items indexing `definition.customization_choices`/`items`
-  (refs only so far). export-world puts every texture in one shared store.
+  choices indexing `definition.customization` (every ChrModel drawing the
+  file; options and geosets, no choice textures yet), items indexing
+  `definition.items` (refs only so far). export-world puts every texture in one shared store.
 - **Textures and refs (2026-10-11, Luna)**: each document lists its
   textures once in `resources.textures` and everything uses indices
   (layers, slot options, terrain, liquid frames, effect image inputs);

@@ -7,6 +7,7 @@
 #include "canon_animation.hpp"  // BoneAnimationCurves
 #include "canon_collision.hpp"  // CollisionMesh
 #include "canon_curve.hpp"      // SequenceRef
+#include "canon_definition.hpp" // Definition
 #include "canon_liquid.hpp"     // LiquidGrid
 #include "canon_material.hpp"   // Material
 #include "canon_mesh.hpp"       // Mesh
@@ -110,7 +111,10 @@ struct Model {
     // options, and the presets a source uses.
     std::vector<TextureSlot> textureSlots;
     std::vector<ParticleColorOption> particleColorOptions;
-    std::vector<CustomizationChoice> customizationChoices;
+    // A character model's customization: one catalog per ChrModel that
+    // draws the file, in ChrModelID order. Presets index their options as
+    // one list, in that order.
+    std::vector<Definition> customization;
     std::vector<Ref> items;  // items the model can wear, by identity (ItemDisplayInfo rows)
     std::vector<Preset> presets;
 };

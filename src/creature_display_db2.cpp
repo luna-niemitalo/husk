@@ -1,5 +1,6 @@
 #include "creature_display_db2.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <filesystem>
 
@@ -53,7 +54,12 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
     auto items = db2table::readNamedArrayColumns(tablePath(db2Dir, "npcmodelitemslotdisplayinfo.db2"), dbdDir,
                                                  {"NpcModelID", "ItemDisplayInfoID", "ItemSlot"}, err);
     auto textures = texturefiledata::load(db2Dir, dbdDir, err);
-    if (!models || !displays || !colors || !geosets || !extras || !picks || !items || !textures) return std::nullopt;
+    auto chrModels = db2table::readNamedArrayColumns(tablePath(db2Dir, "chrmodel.db2"), dbdDir, {"ID", "DisplayID"}, err);
+    auto customization = chrcustomization::load(db2Dir, dbdDir, err);
+    if (!models || !displays || !colors || !geosets || !extras || !picks || !items || !textures || !chrModels ||
+        !customization) {
+        return std::nullopt;
+    }
 
     Data out;
     for (const auto& row : *models) {
@@ -85,6 +91,20 @@ std::optional<Data> load(const std::string& db2Dir, const std::string& dbdDir, s
         out.extras.emplace(first(row[0]), extra);
     }
     for (const auto& row : *picks) out.customizationByExtra[first(row[0])].push_back({first(row[1]), first(row[2])});
+
+    std::unordered_map<uint32_t, uint32_t> fileByModelData;
+    for (const auto& row : *models) fileByModelData.emplace(first(row[0]), first(row[1]));
+    std::unordered_map<uint32_t, uint32_t> fileByDisplay;
+    for (const auto& row : *displays) {
+        auto file = fileByModelData.find(first(row[1]));
+        if (file != fileByModelData.end()) fileByDisplay.emplace(first(row[0]), file->second);
+    }
+    for (const auto& row : *chrModels) {
+        auto file = fileByDisplay.find(first(row[1]));
+        if (file != fileByDisplay.end()) out.chrModelsByFile[file->second].push_back(first(row[0]));
+    }
+    for (auto& [file, ids] : out.chrModelsByFile) std::sort(ids.begin(), ids.end());
+    out.customization = std::move(*customization);
     for (const auto& row : *items) out.itemsByExtra[first(row[0])].push_back({first(row[1]), first(row[2])});
     return out;
 }

@@ -58,12 +58,11 @@ struct PresetSource {
     float baseScale = 1;
 };
 
-// A character customization choice the model can take, by identity (the
-// option it belongs to, and the choice): the choices sources are seen
-// using, until the model's full customization definition is built.
-struct CustomizationChoice {
-    Ref option;
-    Ref choice;
+// A customization choice a preset makes: indices into Model::customization
+// (canon_definition.hpp) -- the option, and the choice within it.
+struct CustomizationPick {
+    uint32_t option = 0;
+    uint32_t choice = 0;
 };
 
 // An item a preset wears. `slot`: the equipment slot's name, when the
@@ -81,7 +80,7 @@ struct Preset {
     std::optional<std::vector<uint32_t>> shownGeosets;
     std::optional<uint32_t> particleColors;  // index into Model::particleColorOptions
     std::optional<float> opacity;            // 0..1; nullopt = opaque
-    std::vector<uint32_t> customization;  // indices into Model::customizationChoices
+    std::vector<CustomizationPick> customization;
     std::vector<PresetItem> items;
     std::vector<PresetSource> sources;
     // Source values the preset names but husk can't place in an option.

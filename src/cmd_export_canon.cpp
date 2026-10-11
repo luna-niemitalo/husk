@@ -520,6 +520,7 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, s
         creatureinput::addCreatureOptions(
             *creatures, *modelFileDataId, build.model,
             [&](uint32_t fdid) { return optionTexture(catalog, fdid, textureStore, textureUris); }, report);
+        if (!report.notes.empty()) std::cerr << report.notes;
         if (report.displays > 0) {
             std::cerr << "husk: " << build.model.presets.size() << " creature preset(s) from " << report.displays
                       << " display(s), " << report.humanoid << " of them humanoid NPCs\n";

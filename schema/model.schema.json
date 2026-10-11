@@ -167,29 +167,6 @@
             ]
           }
         },
-        "customization_choices": {
-          "type": "array",
-          "description": "Character customization choices the model can take, as sources are seen using them, by identity.",
-          "items": {
-            "type": "object",
-            "description": "One choice.",
-            "properties": {
-              "option": {
-                "$ref": "common.schema.json#/definitions/ref",
-                "description": "The option it belongs to."
-              },
-              "choice": {
-                "$ref": "common.schema.json#/definitions/ref",
-                "description": "The choice."
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "option",
-              "choice"
-            ]
-          }
-        },
         "items": {
           "type": "array",
           "description": "Items the model can wear, by identity.",
@@ -200,7 +177,7 @@
         },
         "customization": {
           "type": "object",
-          "description": "Customization options a character model offers, each with its valid choices.",
+          "description": "Customization options a character model offers, each with its valid choices. A model file several character models share (a race's alternate form) lists every one's options, each naming its character model.",
           "properties": {
             "options": {
               "type": "array",
@@ -212,6 +189,10 @@
                   "ref": {
                     "$ref": "common.schema.json#/definitions/ref",
                     "description": "The option."
+                  },
+                  "chr_model": {
+                    "$ref": "common.schema.json#/definitions/ref",
+                    "description": "The character model the option belongs to."
                   },
                   "order": {
                     "type": "integer",
@@ -267,6 +248,7 @@
                 "additionalProperties": false,
                 "required": [
                   "ref",
+                  "chr_model",
                   "order",
                   "category",
                   "choices"
@@ -430,10 +412,26 @@
                 "type": "array",
                 "description": "Customization choices the combination makes.",
                 "items": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "description": "A choice.",
-                  "x-index-into": "/definition/customization_choices"
+                  "type": "object",
+                  "description": "One choice.",
+                  "properties": {
+                    "option": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "The option.",
+                      "x-index-into": "/definition/customization/options"
+                    },
+                    "choice": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Index into that option's choices."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "option",
+                    "choice"
+                  ]
                 }
               },
               "items": {

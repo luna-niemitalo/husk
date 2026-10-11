@@ -9,13 +9,12 @@ display".
    probabilities; 3,272 of 4,729 multi-display creatures span more than
    one model. An option can't swap the model, so this needs a home above
    the model document (design call, Luna).
-2. **Humanoid NPC presets name, don't resolve**: their customization
-   choices and items are refs only (`definition.customization_choices`,
-   `definition.items`). Next: the character model's
-   customization definition in the bundle (options, choices, their
-   geosets and textures) so a preset's choices index it; then item
-   documents (ItemDisplayInfo geometry, geosets, attachment) for
-   `items`. The bake-slot rule (lowest texture type) and the slot names
+2. **Character customization is options and geosets only**: a choice's
+   textures (ChrCustomizationMaterial onto atlas sections) and bone sets
+   aren't carried yet. Items are `ItemDisplayInfo` refs: item documents
+   (geometry, geosets, attachment) come next. 0.4% of humanmale_hd NPC
+   picks name another ChrModel's choices (43; some ChrModel 2 on male
+   NPCs) and stay unresolved. The bake-slot rule (lowest texture type) and the slot names
    are wow.export's, unchecked against the client.
 3. **Viewer-conditional displays**: `CreatureDisplayInfoCond` (134 rows,
    model and textures by the viewer's race/class/gender) and

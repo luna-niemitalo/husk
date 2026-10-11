@@ -4,7 +4,10 @@
 #include <map>
 #include <set>
 #include <string>
+#include <sstream>
 #include <unordered_map>
+
+#include "canon_definition_builder.hpp"
 
 namespace husk::creatureinput {
 
@@ -91,7 +94,7 @@ canon::Ref db2Ref(const char* table, uint32_t row) {
 struct OptionIndex {
     std::map<std::pair<uint32_t, uint32_t>, uint32_t> textureOption;  // (slot, fdid)
     std::unordered_map<uint32_t, uint32_t> particleOption;            // ParticleColorID
-    std::unordered_map<uint32_t, uint32_t> choice;                    // ChrCustomizationChoiceID
+    std::unordered_map<uint32_t, canon::CustomizationPick> choice;    // ChrCustomizationChoiceID
     std::unordered_map<uint32_t, uint32_t> item;                      // ItemDisplayInfoID
 };
 
@@ -104,6 +107,24 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
 
     std::vector<uint32_t> meshIds = meshGeosetIds(model.mesh);
     OptionIndex index;
+    if (auto chrModels = data.chrModelsByFile.find(modelFileDataId); chrModels != data.chrModelsByFile.end()) {
+        uint32_t optionBase = 0;
+        for (uint32_t chrModel : chrModels->second) {
+            std::ostringstream err;
+            canon::Definition definition = canon::assembleDefinition(data.customization, chrModel, err);
+            report.notes += err.str();
+            for (size_t o = 0; o < definition.options.size(); ++o) {
+                const std::vector<canon::Choice>& choices = definition.options[o].choices;
+                for (size_t c = 0; c < choices.size(); ++c) {
+                    index.choice.emplace(std::get<canon::Db2Row>(choices[c].ref.id).row,
+                                         canon::CustomizationPick{optionBase + static_cast<uint32_t>(o),
+                                                                  static_cast<uint32_t>(c)});
+                }
+            }
+            optionBase += static_cast<uint32_t>(definition.options.size());
+            model.customization.push_back(std::move(definition));
+        }
+    }
     std::map<std::string, size_t> presetByChoices;
 
     auto textureOption = [&](uint32_t slot, uint32_t fdid) {
@@ -151,13 +172,14 @@ void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDat
         }
         if (auto picks = data.customizationByExtra.find(extraId); picks != data.customizationByExtra.end()) {
             for (const creaturedisplay::CustomizationPick& pick : picks->second) {
-                auto [it, added] = index.choice.emplace(pick.choice, static_cast<uint32_t>(model.customizationChoices.size()));
-                if (added) {
-                    model.customizationChoices.push_back(
-                        {db2Ref("ChrCustomizationOption", pick.option), db2Ref("ChrCustomizationChoice", pick.choice)});
-                }
-                preset.customization.push_back(it->second);
                 key += "c" + std::to_string(pick.choice) + ";";
+                auto found = index.choice.find(pick.choice);
+                if (found == index.choice.end()) {
+                    preset.unresolved.push_back(
+                        {"ChrCustomizationChoiceID", canon::UnresolvedField::Kind::Id, double(pick.choice), std::nullopt});
+                    continue;
+                }
+                preset.customization.push_back(found->second);
             }
         }
         if (auto items = data.itemsByExtra.find(extraId); items != data.itemsByExtra.end()) {

@@ -8,13 +8,18 @@
 #include <unordered_map>
 #include <vector>
 
+#include "chrcustomization_db2.hpp"
+
 // Typed reader for the creature display chain: CreatureModelData (which
 // rows draw a given M2), CreatureDisplayInfo (each row one way to dress
 // that model), CreatureDisplayInfoGeosetData and ParticleColor; and for
 // humanoid NPCs, CreatureDisplayInfoExtra (baked skin), its
 // CreatureDisplayInfoOption customization choices,
 // NPCModelItemSlotDisplayInfo equipment and the TextureFileData rows the
-// bakes name. Same db2table-backed pattern as creature_geoset_db2.hpp.
+// bakes name; and for character models, which ChrModel a model file is
+// (ChrModel.DisplayID -> CreatureDisplayInfo -> CreatureModelData) and the
+// customization tables (chrcustomization_db2.hpp). Same db2table-backed
+// pattern as creature_geoset_db2.hpp.
 namespace husk::creaturedisplay {
 
 struct ModelData {
@@ -75,6 +80,11 @@ struct Data {
     // MaterialResourcesID -> texture FileDataID (texturefiledata_db2.hpp's
     // UsageType 0 rule), only for the bakes `extras` name.
     std::unordered_map<uint32_t, uint32_t> bakeTextures;
+    // Model FileDataID -> the ChrModelIDs that draw it, ascending (a race's
+    // alternate form can share another's mesh: humanmale_hd is ChrModel 1
+    // and 45).
+    std::unordered_map<uint32_t, std::vector<uint32_t>> chrModelsByFile;
+    chrcustomization::Data customization;
 };
 
 // Loads the tables from `db2Dir`. nullopt when any can't be read.
