@@ -73,6 +73,10 @@ struct Column {
     std::string name;
     ColumnType type = ColumnType::Int;
     std::optional<RelationTarget> relation;  // set only for a "<Table::Col>"-suffixed type token
+    // The LAYOUT line's <Size>, copied in by resolveFieldNames (a COLUMNS
+    // entry alone has none): what asDeclaredType reads a raw value as.
+    std::optional<uint32_t> declaredBits;
+    bool declaredUnsigned = false;
 };
 
 // One field as declared inside a LAYOUT block -- `nonInline` fields (id or
@@ -91,6 +95,7 @@ struct Field {
     // not needed for plain name resolution, which is why these were
     // previously parsed and discarded.
     std::optional<uint32_t> declaredBits;
+    bool declaredUnsigned = false;  // the <Size>'s "u" prefix
     uint32_t arrayLength = 1;
 };
 
@@ -172,5 +177,13 @@ std::vector<std::string> findNonInlineNonIdFieldNames(const Layout& layout);
 std::optional<std::vector<Column>> resolveFieldNames(const Table& table, const Layout& layout,
                                                       const std::vector<db2::FieldStorageInfo>&
                                                           fieldStorageInfo);
+
+// `raw` (one element db2::decodeField returned for `column`) read as the
+// column's declared int type: truncated to its <Size>, sign-extended unless
+// unsigned. A packed value (pallet, common data) is a 32-bit cell whose
+// bits past a narrower declared size can hold anything; the client reads
+// only the declared width (LiquidObject.LiquidTypeID<16> decodes to
+// 0x3F000005 for row 5). Floats, strings and size-less ints pass through.
+uint64_t asDeclaredType(const Column& column, uint64_t raw);
 
 }  // namespace husk::dbd

@@ -520,8 +520,8 @@ grassy quads in testing (`TODO/WORLD/ADT_TERRAIN_TODO.md`).
 
 `ground_effects` are rules, not instances: a density and a weighted set of
 doodad models per effect, which the client scatters at runtime. Use the
-weights only as ratios; their absolute scale is an open question
-(`WIKI_FINDINGS/WORLD.md`).
+weights as ratios: a rule's weights sum to 100, 16 or 4, among others
+(`WIKI_FINDINGS/ADT.md`).
 
 ### Liquid
 

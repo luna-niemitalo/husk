@@ -18,10 +18,8 @@
 // Data access only: which effect a terrain layer uses is the ADT's own
 // MCLY.effectId, not something this reader decides.
 //
-// Known open question (WIKI_FINDINGS/WORLD.md): `DoodadWeight` decodes to
-// values like 1286/1362 through both husk DB2 paths, where the wiki says a
-// row's weights total ~16. Weights are carried through as read; only their
-// ratios are meaningful to a consumer until that is settled.
+// A row's `DoodadWeight`s are relative: real rows sum to 100, 16, 4 and
+// others (WIKI_FINDINGS/ADT.md), so a consumer uses them as ratios.
 namespace husk::groundeffect {
 
 struct DoodadSlot {

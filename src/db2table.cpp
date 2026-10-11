@@ -104,8 +104,10 @@ std::optional<std::vector<ColumnValues>> readNamedColumns(const std::string& pat
                         break;
                     case ColumnKind::Inline: {
                         std::vector<uint64_t> values = db2::decodeField(file, section, r, res.inlineFieldIndex);
+                        const dbd::Column& column = (*inlineColumns)[res.inlineFieldIndex];
                         row.push_back(values.empty() ? std::nullopt
-                                                      : std::optional<uint32_t>(static_cast<uint32_t>(values[0])));
+                                                     : std::optional<uint32_t>(static_cast<uint32_t>(
+                                                           dbd::asDeclaredType(column, values[0]))));
                         break;
                     }
                     case ColumnKind::Unresolved:
@@ -244,9 +246,10 @@ std::optional<std::vector<ArrayColumnValues>> readNamedArrayColumns(const std::s
                             row.push_back(std::nullopt);
                             break;
                         }
+                        const dbd::Column& column = (*inlineColumns)[res.inlineFieldIndex];
                         std::vector<uint32_t> elements;
                         elements.reserve(values.size());
-                        for (uint64_t v : values) elements.push_back(static_cast<uint32_t>(v));
+                        for (uint64_t v : values) elements.push_back(static_cast<uint32_t>(dbd::asDeclaredType(column, v)));
                         row.push_back(std::move(elements));
                         break;
                     }

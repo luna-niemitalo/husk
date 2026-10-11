@@ -30,8 +30,7 @@ are fine (8-vertex crossed cards, 0.4–1.6 yd). Suspects, all unverified:
 - `dominant_layer` unpacking: 2 bits per quad, LSB-first, row-major is
   assumed (`adtinput::unpackDominantLayer`);
 - `ground_effect_suppressed_rows` (`MCNK.noEffectDoodad`) orientation;
-- the density unit (treated as per quad);
-- the `DoodadWeight` scale (`../../WIKI_FINDINGS/ADT.md`).
+- the density unit (treated as per quad).
 
 Abandoned after three attempts on the time box. The next step is a byte
 dump of one grassy chunk's `predominantTexture`/`noEffectDoodad` next to its

@@ -47,11 +47,11 @@ real tiles from the local corpus. The code that relies on each one is
   all real data.
 - `MH2O` instance rects are always the full 8×8 (38,236/38,236), including
   instances with `liquid_object_or_lvf` < 42.
-- `GroundEffectTexture.DoodadWeight<8>[4]` and `SplatDensity<8>[4]` decode
-  to values like 1286/1362 and 1280 (`0x500`) through both husk DB2 paths
-  (`db2table` and `db2-export`), where the wiki says a row's weights total
-  ~16. Either the WoWDBDefs layout for this build or husk's WDC5 array
-  decode is off. Weights are only used as ratios; not chased further.
+- `GroundEffectTexture.DoodadWeight<8>[4]` are small integers. Of the
+  2,665 rows with a doodad (12.1.0), 1,696 sum to 100, 626 to 4 and 228 to
+  16, so a row's weights are relative and not normalized to one total.
+  The earlier readings of 1286/1362 were husk not truncating packed DB2
+  values to their declared width (`dbd::asDeclaredType`, 2026-10-11).
 
 ## Terrain shader (client `terrain` pixel shader, 12.1.0)
 

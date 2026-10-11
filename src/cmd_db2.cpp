@@ -493,6 +493,9 @@ size_t writeFileTable(sqlite3* db, const LoadedFile& lf, const std::set<std::str
             }
             std::vector<FieldValues> fields = decodeRecordValues(lf.file, section, sectionIndex, lf.bytes, r);
             for (size_t f = 0; f < fields.size(); ++f) {
+                if (lf.dbdNames) {
+                    for (uint64_t& v : fields[f].raw) v = dbd::asDeclaredType((*lf.dbdNames)[f], v);
+                }
                 bool isFloat = !plan[f].empty() && plan[f][0].isFloat;
                 bindFieldValues(stmt, bindIndex, fields[f], isFloat);
                 bindIndex += static_cast<int>(fields[f].str ? 1 : fields[f].raw.size());

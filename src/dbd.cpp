@@ -96,9 +96,9 @@ Field parseFieldLine(std::string line) {
             throw ParseError("dbd: unterminated '<...>' size annotation in '" + line + "'");
         }
         std::string sizeToken = rest.substr(1, close - 1);
-        // "prefixed by u if unsigned int" (README.md) -- signedness isn't
-        // needed for a bit-width check, only the numeric width itself.
+        // "prefixed by u if unsigned int" (README.md).
         if (!sizeToken.empty() && (sizeToken[0] == 'u' || sizeToken[0] == 'U')) {
+            field.declaredUnsigned = true;
             sizeToken = sizeToken.substr(1);
         }
         try {
@@ -279,6 +279,8 @@ std::optional<std::vector<Column>> resolveFieldNames(const Table& table, const L
                 break;
             }
         }
+        column.declaredBits = f.declaredBits;
+        column.declaredUnsigned = f.declaredUnsigned;
         inlineFields.push_back(&f);
         result.push_back(std::move(column));
     }
@@ -313,6 +315,15 @@ std::optional<std::vector<Column>> resolveFieldNames(const Table& table, const L
         }
     }
     return result;
+}
+
+uint64_t asDeclaredType(const Column& column, uint64_t raw) {
+    if (column.type != ColumnType::Int || !column.declaredBits || *column.declaredBits >= 64) return raw;
+    uint64_t mask = (uint64_t{1} << *column.declaredBits) - 1;
+    uint64_t value = raw & mask;
+    bool negative = (value >> (*column.declaredBits - 1)) & 1;
+    if (!column.declaredUnsigned && negative) value |= ~mask;
+    return value;
 }
 
 }  // namespace husk::dbd

@@ -89,6 +89,34 @@ TEST_CASE("dbd::parseDbd: resolveFieldNames carries the relation target through 
     CHECK((*resolved)[0].relation->targetColumn == "ID");
 }
 
+TEST_CASE("dbd::asDeclaredType: a packed 32-bit cell reads as the LAYOUT's declared width and sign") {
+    std::string text =
+        "COLUMNS\n"
+        "int ID\n"
+        "int LiquidTypeID\n"
+        "int Fishable\n"
+        "int Type\n"
+        "float FlowSpeed\n"
+        "\n"
+        "LAYOUT AABBCCDD\n"
+        "$noninline,id$ID<32>\n"
+        "LiquidTypeID<16>\n"
+        "Fishable<u8>\n"
+        "Type<8>\n"
+        "FlowSpeed\n";
+    dbd::Table table = dbd::parseDbd(text, "Test");
+    std::vector<db2::FieldStorageInfo> info = noneFields(4);
+    for (db2::FieldStorageInfo& f : info) f.storageType = db2::FieldCompression::BitpackedIndexed;
+    auto columns = dbd::resolveFieldNames(table, table.layouts[0], info);
+    REQUIRE(columns.has_value());
+    REQUIRE(columns->size() == 4);
+    // Real LiquidObject row 57: the pallet cell holds 0.5f's bits above row 5.
+    CHECK(dbd::asDeclaredType((*columns)[0], 0x3F000005) == 5);
+    CHECK(dbd::asDeclaredType((*columns)[1], 0xFF73A001) == 1);
+    CHECK(dbd::asDeclaredType((*columns)[2], 0xFF) == ~uint64_t{0});
+    CHECK(dbd::asDeclaredType((*columns)[3], 0x3F000000) == 0x3F000000);
+}
+
 TEST_CASE("dbd::parseDbd: one LAYOUT block with a single hash, all fields inline") {
     std::string text =
         "COLUMNS\n"
