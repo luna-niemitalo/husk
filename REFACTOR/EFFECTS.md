@@ -592,10 +592,14 @@ emitter float semantics, `VFOG` density.
   (`example_exports/shaders/`) name the groups.
 - Each entry is checked by coverage, not by eye: on every instance in the
   group, each input the classified effect needs comes from a named
-  derivation rule over the instance's literal fields. An instance no rule
-  covers stays on the literal effect. Switched instances keep the literal
-  look as `style`, so a wrong group is fixed by regrouping, with nothing
-  lost.
+  derivation rule over the instance's literal fields. Switched instances
+  keep the literal look as `style`, so a wrong group is fixed by
+  regrouping, with nothing lost.
+- An instance no rule covers goes to the nearest existing classified
+  effect where possible, with what that effect can't express carried in
+  the instance's `style` and `unresolved`. A source that is genuinely
+  unsolvable is skipped, not exported, and counted in the export's
+  report (Luna, 2026-10-11). Nothing ships on a placeholder at 1.0.
 - No screenshot verification (Luna, 2026-10-11: too much manual work). A
   wrong classification shows up in MantleCore's render.
 
