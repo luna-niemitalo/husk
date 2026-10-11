@@ -304,10 +304,14 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   WDT (`adt::parseWdt`) decides a world's tiles (`MAIN`; the store keeps
   11,014 stale tiles it no longer lists), names them (`MAID`), and places
   a terrain-less map's WMO as the world's off-grid `placements` (228
-  maps). Nothing open in the format work itself. After it:
-  LOD (`MFOB` exists but is always empty, see `FOG_VOLUMES_TODO.md` §1); open
-  items per feature in `TODO/WORLD/LIGHTING_TODO.md`, `LIQUID_TODO.md` §1
-  and `FOG_VOLUMES_TODO.md` §2.
+  maps). Nothing open in the format work itself; MantleCore's migration
+  guide is `REFACTOR/MANTLECORE_MIGRATION.md` (scratch, delete once it has
+  migrated). Liquids (2026-10-11): `resources.liquid_types` (terrain and
+  WMO; DB2 names, materials, texture slots) and
+  `resources.terrain.liquid_objects`, plus MH2O fishable/deep masks. Open
+  per feature: LOD (`MFOB` exists but is always empty,
+  `FOG_VOLUMES_TODO.md` §1), `TODO/WORLD/LIGHTING_TODO.md`,
+  `LIQUID_TODO.md` §1–2, `FOG_VOLUMES_TODO.md` §2–4.
   Client shaders are unpacked under `example_exports/shaders/`
   (`tools/export_shaders.py`).
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,
@@ -354,6 +358,11 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
     resolution helper in the real (legacy) C++ pipeline — check there
     first, not `export_materials.cpp`, for texture-resolution doc/comment
     citations.
+  - DB2 output built before cbd6e38 (2026-10-11) is stale wherever a
+    column is narrower than 32 bits and packed (pallet/common data): husk
+    kept the cell's junk high bits (`LiquidObject.LiquidTypeID` 5 read as
+    0x3F000005). That covers `knowledge.sqlite` and any older `db2-export`
+    database; rebuild before trusting them.
   - Any DB2 code that checks `section.header.tactKeyHash != 0` directly to
     decide whether a section is readable is checking the wrong thing —
     use `db2::Section::recordsAvailable()` (`db2.hpp`) instead. A nonzero

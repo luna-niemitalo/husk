@@ -72,8 +72,10 @@ volumes, 51/70 emitter textures resolved, the rest unlisted).
 `MAVG`/`MAVD`/`MBVD` are parsed and exported as
 `resources.scene.ambient_color_volumes` (`canon::AmbientVolume`: global/point/box,
 three raw colours, raw flags, the doodad set each applies with); 139
-sampled roots clean, covering every `MAVD`/`MBVD` in the sample. Open:
-`MPVR`/`MAVR`/`MBVR` group refs; the client's ambient selection rule and
+sampled roots clean, covering every `MAVD`/`MBVD` in the sample. The
+group refs `MPVR`/`MAVR`/`MBVR`/`MFVR` are each part's
+`ambient_particle_volumes`/`ambient_color_volumes`/`fog_volumes`. Open:
+the client's ambient selection rule and
 flag 0x1's colour choice (wiki unverified and self-contradictory, so not
 encoded); the `MPVD` semantics listed below.
 

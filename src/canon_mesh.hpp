@@ -57,8 +57,12 @@ struct MeshPart {
     uint32_t flags = 0;  // source-format group flags, raw (WMO MOGP flags)
     Vec3 boundsMin;
     Vec3 boundsMax;
-    std::vector<uint32_t> fogs;  // indices into Scene::fogs (WMO MOGP fogIds, all four slots raw)
+    // Indices into Scene::fogs: WMO MFVR when the group has one (its fogIds
+    // are then all 0), else MOGP fogIds, all four slots raw.
+    std::vector<uint32_t> fogs;
     std::vector<PortalLink> portals;
+    std::vector<uint32_t> particulateVolumes;  // indices into Scene::particulateVolumes (WMO MPVR)
+    std::vector<uint32_t> ambientVolumes;      // indices into Scene::ambientVolumes (WMO MAVR, MBVR)
 };
 
 // One model's worth of real per-vertex geometry + skinning, raw M2 space

@@ -327,6 +327,12 @@ struct GroupFile {
     std::vector<std::vector<uint32_t>> colorSets;     // every MOCV (BGRA, raw), in file order
     std::vector<Batch> batches;
     std::optional<Liquid> liquid;  // MLIQ
+    // The root volumes this group uses (8.3+/9.0+): MPVR into MPVD, MAVR
+    // into MAVD, MBVR into MBVD, MFVR into MFOG. Empty when absent.
+    std::vector<uint16_t> particulateVolumeRefs;
+    std::vector<uint16_t> ambientVolumeRefs;
+    std::vector<uint16_t> ambientBoxRefs;
+    std::vector<uint16_t> fogRefs;
 };
 
 // Throws ParseError when a required chunk (MVER, MOHD) is missing, a chunk's

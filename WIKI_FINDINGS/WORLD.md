@@ -285,6 +285,11 @@ From the seeded 4,000-root sample, plus every group file under it:
   be same as MFOG count"). Every `doodadSetId` is a valid `MODS` index (4
   of 300 non-zero). `unk1[0xE]` is zero in all 300 records.
 - **`MOGP.fogIds[4]`** index `MFOG` in all 43,476 real slots.
+- **Group refs `MFVR`/`MPVR`/`MAVR`/`MBVR`** (12.1.0, 3,648 seeded roots,
+  2026-10-11): every ref is inside its root table (`MFOG`, `MPVD`, `MAVD`,
+  `MBVD`; 868/187/236/198 refs). `MFVR` replaces `fogIds`: all 481 groups
+  carrying it have `fogIds` all zero, and it never lists fog 0 (the
+  default fog).
 
 ## `_fogs.wdt` `VFE2` — reverse-engineered (2026-10-11)
 

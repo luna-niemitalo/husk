@@ -181,7 +181,9 @@ M2 and WMO bundles share one layout.
 A WMO bundle also has:
 - `definition.placement_sets`: its doodad sets, each a document under
   `sets/`. Set 0 is always on; an instance's selection adds others.
-- `resources.geometry.mesh.parts`: groups, with bounds and portals.
+- `resources.geometry.mesh.parts`: groups, with bounds, portals, and the
+  scene volumes each uses (`fog_volumes`, `ambient_color_volumes`,
+  `ambient_particle_volumes`, indices into `resources.scene`).
 - `resources.geometry.mesh.attributes`: per-face flags and material, which
   select collision.
 - `resources.geometry.liquids`, and `resources.scene` lights and volumes.

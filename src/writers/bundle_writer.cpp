@@ -304,6 +304,14 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
             for (uint32_t fog : part.fogs) w.value(static_cast<int64_t>(fog));
             w.endArray();
         }
+        for (auto [key, indices] : {std::pair{"ambient_particle_volumes", &part.particulateVolumes},
+                                    std::pair{"ambient_color_volumes", &part.ambientVolumes}}) {
+            if (indices->empty()) continue;
+            w.key(key);
+            w.beginArray();
+            for (uint32_t i : *indices) w.value(static_cast<int64_t>(i));
+            w.endArray();
+        }
         if (!part.portals.empty()) {
             w.key("portals");
             w.beginArray();

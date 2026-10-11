@@ -407,6 +407,35 @@ TEST_CASE("buildCanonWmo: MPVD records become particulate volumes with resolved 
     CHECK(out.sourceRecord.size() == 4272);
 }
 
+TEST_CASE("buildCanonWmo: a group's MAVR/MBVR/MPVR name the scene volumes its part uses; a ref past its table fails") {
+    wmo::RootFile root = syntheticRoot();
+    root.globalAmbientVolumes = {wmo::AmbientVolume{}};
+    root.ambientVolumes = {wmo::AmbientVolume{}, wmo::AmbientVolume{}};
+    root.ambientBoxes = {wmo::AmbientBox{}};
+    root.particulateVolumes = {wmo::ParticulateVolume{}};
+    wmo::GroupFile g = group(3, 1, 0, 1);
+    g.ambientVolumeRefs = {1};
+    g.ambientBoxRefs = {0};
+    g.particulateVolumeRefs = {0};
+    g.fogRefs = {0};
+    wmoinput::WmoInputs in;
+    in.root = &root;
+    in.groups = {std::nullopt, g};
+
+    canon::Model model = wmoinput::buildCanonWmo(in);
+    // Scene order: MAVG 0, MAVD 1-2, MBVD 3.
+    CHECK(model.mesh.parts[1].ambientVolumes == std::vector<uint32_t>{2, 3});
+    CHECK(model.mesh.parts[1].particulateVolumes == std::vector<uint32_t>{0});
+    // MFVR replaces the four fogIds slots.
+    CHECK(model.mesh.parts[1].fogs == std::vector<uint32_t>{0});
+    CHECK(model.mesh.parts[0].ambientVolumes.empty());
+
+    g.ambientBoxRefs = {1};
+    in.groups = {std::nullopt, g};
+    CHECK_THROWS_WITH_AS(wmoinput::buildCanonWmo(in), "WMO group 1's MBVR: expected refs < 1 root records, got 1",
+                         std::runtime_error);
+}
+
 TEST_CASE("buildCanonWmo: MAVG, MAVD and MBVD become global, point and box ambient volumes") {
     wmo::RootFile root = syntheticRoot();
     wmo::AmbientVolume global;

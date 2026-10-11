@@ -575,6 +575,14 @@ GroupFile parseGroup(const std::vector<uint8_t>& fileBytes) {
             g.batches = parseBatches(c);
         } else if (c.tag == "MLIQ") {
             g.liquid = parseLiquid(c);
+        } else if (c.tag == "MPVR") {
+            g.particulateVolumeRefs = readArray<uint16_t>(c);
+        } else if (c.tag == "MAVR") {
+            g.ambientVolumeRefs = readArray<uint16_t>(c);
+        } else if (c.tag == "MBVR") {
+            g.ambientBoxRefs = readArray<uint16_t>(c);
+        } else if (c.tag == "MFVR") {
+            g.fogRefs = readArray<uint16_t>(c);
         }
     }
 

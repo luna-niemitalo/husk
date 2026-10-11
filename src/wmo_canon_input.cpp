@@ -302,6 +302,21 @@ canon::Scene buildScene(const WmoInputs& in) {
     return scene;
 }
 
+// A group's refs into a root table of `count` records, shifted by `offset`
+// into the canon list that holds that table.
+std::vector<uint32_t> volumeRefs(uint32_t part, const char* tag, const std::vector<uint16_t>& refs, size_t count,
+                                 uint32_t offset) {
+    std::vector<uint32_t> out;
+    for (uint16_t r : refs) {
+        if (r >= count) {
+            throw std::runtime_error("WMO group " + std::to_string(part) + "'s " + tag + ": expected refs < " +
+                                     std::to_string(count) + " root records, got " + std::to_string(r));
+        }
+        out.push_back(offset + r);
+    }
+    return out;
+}
+
 // WMO.md MLIQ "how to determine LiquidTypeRec to use", transcribed.
 constexpr uint16_t kRootUsesLiquidTypeDbcId = 0x4;
 constexpr uint32_t kGroupLiquidIsOcean = 0x80000;
@@ -495,7 +510,17 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         meshPart.boundsMax = toCanon(info.bounds.max);
         if (in.groups[part]) {
             const wmo::GroupFile& g = *in.groups[part];
-            meshPart.fogs.assign(g.fogIds.begin(), g.fogIds.end());
+            meshPart.fogs = g.fogRefs.empty() ? std::vector<uint32_t>(g.fogIds.begin(), g.fogIds.end())
+                                              : volumeRefs(part, "MFVR", g.fogRefs, root.fogs.size(), 0);
+            // Scene::ambientVolumes holds MAVG, then MAVD, then MBVD records.
+            uint32_t pointsStart = static_cast<uint32_t>(root.globalAmbientVolumes.size());
+            uint32_t boxesStart = pointsStart + static_cast<uint32_t>(root.ambientVolumes.size());
+            meshPart.particulateVolumes =
+                volumeRefs(part, "MPVR", g.particulateVolumeRefs, root.particulateVolumes.size(), 0);
+            meshPart.ambientVolumes = volumeRefs(part, "MAVR", g.ambientVolumeRefs, root.ambientVolumes.size(), pointsStart);
+            for (uint32_t box : volumeRefs(part, "MBVR", g.ambientBoxRefs, root.ambientBoxes.size(), boxesStart)) {
+                meshPart.ambientVolumes.push_back(box);
+            }
             // A group without portals may store start 0xFFFF with count 0.
             if (g.portalCount != 0 && g.portalStart + g.portalCount > root.portalRefs.size()) {
                 throw std::runtime_error("WMO group " + std::to_string(part) + ": expected MOPR refs [" +
