@@ -58,3 +58,4 @@ nix/flake.lock.bak
 
 # Machine-local paths and commands (development/REFERENCES.md).
 /development/
+reports
