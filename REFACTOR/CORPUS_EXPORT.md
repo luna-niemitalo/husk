@@ -1,10 +1,12 @@
 # CORPUS_EXPORT.md — the whole corpus in canonical format (proposal, 2026-10-11)
 
 **Status: proposal, nothing built.** How a full canonical export of a game
-build is laid out, stored across builds, and browsed. Versioning copies
-casc-tool's build history store (`~/dev/casc-tool/DESIGN.md`) on purpose:
-the same layout, the same invariants, and the same mount serve the
-game files and their canonical form.
+build is laid out, stored across builds, and browsed. Versioning follows
+casc-tool's build history store (`~/dev/casc-tool/DESIGN.md`): objects
+named by their md5, a build as a list of paths to objects, tags naming
+builds, the same invariants. husk owns its store and mount outright and
+never depends on casc-tool being installed or built; any code taken from
+it is copied in, not linked.
 
 ## Where
 
@@ -13,8 +15,9 @@ game files and their canonical form.
 | store | `/media/luna/data/canonical_storage/` | `/media/luna/data/wow_storage/` |
 | mount | `/media/luna/canonical_export/` | `/media/luna/wow_export/` |
 
-husk writes only under the store (its output dir). The mount is
-read-only; nothing writes through it.
+Both are plain directories (the store sits on `tank/data` beside
+`wow_storage`, no dataset of its own). husk writes only under the store
+(its output dir). The mount is read-only; nothing writes through it.
 
 ## The tree one export produces
 
@@ -43,40 +46,47 @@ corpus.json                         what this tree covers, counts, coverage
 
 ## The store
 
+An export has two version axes, the game build and the husk revision, so
+builds nest by both:
+
 ```
 <store>/
   objects/ab/cd/abcd…          one output file's bytes, name = md5 of the bytes
-  builds/<label>/
-    files.tsv                  path  md5   every file of the tree (a casc-tool path build)
+  builds/<game>/<husk>/        e.g. builds/12.1.0.69933/e587735/
+    files.tsv                  path  md5                     every file of the tree
     inputs.tsv                 path  input_fdid  input_md5   what each bundle was built from
     missing.tsv                source_fdid  reason           skipped or failed, and why
-    meta.json                  label, game build, husk revision, schema_version,
+    meta.json                  game build, husk revision, schema_version,
                                listfile md5, flags, counts, export time
-  tags/<name>                  one line: the label (live, ptr, beta, …)
+  tags/<name>                  one line: <game>/<husk> (live, ptr, beta, …)
   tmp/                         staging; safe to empty when idle
   logs/                        long runs' output
 ```
 
-`files.tsv` + `objects/` is exactly casc-tool's *path build*
-(`import` without `--root`), so `casc-tool mount` already serves it:
+- **`<game>`** comes from the source mount (`/media/luna/wow_export/live`
+  -> `builds/12.1.0.69933`), never from `buildinfo.json`.
+- **`<husk>`** is the short commit. A dirty working tree can't produce a
+  stored build.
+- **Tags** mirror the source's: `live` names the newest husk export of the
+  live game build. Re-exporting with a newer husk moves the tag; the older
+  build stays until pruned.
+
+### The mount (`husk mount <store> <mnt>`)
 
 ```
-/media/luna/canonical_export/live -> builds/<label>
-/media/luna/canonical_export/builds/<label>/models/<fdid>.canon.bundle/manifest.json
+<mnt>/live -> games/12.1.0.69933/e587735       one per tag
+<mnt>/games/<game>/current -> <husk>           newest husk export of that game build
+<mnt>/games/<game>/<husk>/models/<fdid>.canon.bundle/manifest.json
+<mnt>/games/<game>/<husk>/.build               meta.json
+<mnt>/games/<game>/<husk>/.missing             missing.tsv
+<mnt>/games/<game>/<husk>/.inputs              inputs.tsv
 ```
 
+Read-only FUSE, unprivileged through `fusermount3` like casc-tool's.
 Bundles reference each other and the texture store by relative uri, so
-they resolve through the mount unchanged.
-
-### Labels and tags
-
-- **Label**: `<game label>+husk-<short commit>`, e.g.
-  `12.1.0.69933+husk-e587735`. The game label comes from the source mount
-  (`/media/luna/wow_export/live` -> `builds/12.1.0.69933`), never from
-  `buildinfo.json`. A dirty working tree can't produce a labelled build.
-- **Tags** mirror the source's: `live` names the newest export of the live
-  game build. Re-exporting the same game build with a newer husk moves the
-  tag; the older label stays until pruned.
+they resolve through the mount unchanged. Needs libfuse3 in husk's flake
+(not added; asking). Without FUSE the same tree can be materialized as
+reflinked files (`husk view`, block cloning is active on `tank/data`).
 
 ### Invariants (casc-tool's, applied here)
 
@@ -101,11 +111,10 @@ they resolve through the mount unchanged.
   FileDataID and md5 for `inputs.tsv` (the md5 of a source file is its CKey,
   so it lines up with casc-tool's manifests). DB2 rows count as inputs of
   the table file.
-- **Store writing.** Either husk writes `objects/` + `files.tsv` itself, or
-  it exports a tree to the work pool and runs `casc-tool import <store>
-  <tree> --label <label> --move`, reusing casc-tool's verified ingestion.
-  Recommended: the import, until a reason to duplicate it appears.
-  `inputs.tsv`, `missing.tsv` and `meta.json` are husk's either way.
+- **Store writing.** husk writes each output to `tmp/`, hashes it, and
+  renames it into `objects/` (or drops it when the object exists), then
+  writes the build's four files.
+- **`husk mount`** (and the `view` fallback), above.
 - **`export-corpus`**: the driver. Passes: models, WMOs, maps, then
   `index/` and `corpus.json`; textures go into the store as each pass
   reaches them. Resumable like `export-world`.
@@ -128,20 +137,14 @@ index: `inputs.tsv` across builds is that edge log.
 ## Supersedes
 
 `REFACTOR/README.md`'s "physical storage shape — settled" assumed ZFS
-dedups shared bytes. It doesn't on `tank/data` (compression and dedup are
-off, `~/dev/casc-tool/DESIGN.md` "Problem"). Bundles stay loose files in a
+dedups shared bytes. It doesn't on `tank/data` (dedup is off,
+`~/dev/casc-tool/DESIGN.md` "Problem"). Bundles stay loose files in a
 tree; the tree is now a view of a content-addressed store.
 
 ## Open (Luna)
 
-- **Dataset.** Creating it is a system mutation, yours to run. Suggested,
-  like `wow_storage`: `zfs create -o compression=zstd -o recordsize=1M
-  tank/data/canonical_storage` (JSON compresses well; DDS less).
+- **libfuse3 in husk's flake**, for `husk mount`.
 - **Mount point.** `/media/luna/canonical_export` must exist (empty) before
-  the first mount.
-- **casc-tool `mount` requires a listfile** even when every build is a path
-  build, which never reads it. Workaround: pass the same listfile; a
-  change belongs in casc-tool.
-- **Label shape.** `+husk-<commit>` is a proposal.
+  the first mount; it's outside husk's dirs, so yours to create.
 - The full run is human-gated: a seeded ~4,000-file sample first, to
   project size and time.
