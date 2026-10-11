@@ -14,6 +14,22 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-11 (later) — WDT tiles and map-wide WMOs, M2 subject FileDataIDs.**
+
+- `adt::parseWdt` (MPHD, MAIN, MAID, global MWMO/MODF, each optional chunk
+  checked against its MPHD flag). A first cut failed a world on any root
+  file MAIN doesn't list; `export-map` over all 974 map directories showed
+  that's normal: 11,014 stale root ADTs (MAIN bit clear, MAID root 0) sit
+  in the store. The WDT now decides the tiles; export-world skips the stale
+  ones. 228 WMO-only maps get their WMO as the world's off-grid placement
+  set. Left failing, correctly: 13 maps with neither tiles nor WMO, 5
+  directories without a WDT. Facts: `WIKI_FINDINGS/WORLD.md` "WDT".
+  (The first corpus loop word-split map names with spaces; those 9 maps
+  export fine.)
+- M2 bundle subjects carry the FileDataID: passed by export-world and gear
+  aux exports, else `sources::fileDataIdForLocalFile` (store name, else one
+  listfile pass). Verified on `creature/fox/fox.m2` (1448182).
+
 **2026-10-11 — Corpus on the casc-tool mount, `_by_fdid` resolution, bundle format stages 3–4.**
 
 - **Corpus**: moved to the casc-tool FUSE mount (`/media/luna/wow_export/live`,
