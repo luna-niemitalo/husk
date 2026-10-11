@@ -249,3 +249,28 @@ TEST_CASE("input log: readUsed records only the candidate it read, hashed from t
     CHECK(readText(dir / "inputs.log") ==
           "models/1.canon.bundle\t_by_fdid/42\t" + corpus::hex(corpus::md5File(dir / "src" / "_by_fdid" / "42")) + "\n");
 }
+
+TEST_CASE("corpus store: an in-progress run is listed until its build is stored") {
+    fs::path dir = freshDir("runs");
+    corpus::Store store(dir / "store");
+    fs::path tree = exportTree("runs-tree", "husk e587735");
+    corpus::BuildId id{"12.1.0.69933", "e587735"};
+
+    store.beginRun(id, tree);
+    CHECK(store.games() == std::vector<std::string>{"12.1.0.69933"});
+    REQUIRE(store.runs("12.1.0.69933").count("e587735"));
+    CHECK(store.runs("12.1.0.69933").at("e587735") == fs::absolute(tree).lexically_normal());
+
+    corpus::ingestTree(store, tree, "12.1.0.69933");
+    CHECK(store.runs("12.1.0.69933").empty());
+
+    store.endRun(id);
+    CHECK_FALSE(fs::exists(dir / "store" / "runs" / "12.1.0.69933" / "e587735"));
+}
+
+TEST_CASE("corpus store: a build is labelled only by a clean producer") {
+    CHECK(corpus::huskLabel("husk d1d6ff6") == "d1d6ff6");
+    CHECK_THROWS_WITH_AS(corpus::huskLabel("husk d1d6ff6-dirty"), doctest::Contains("names no commit"),
+                         std::runtime_error);
+    CHECK_THROWS_WITH_AS(corpus::huskLabel("other 1.0"), doctest::Contains("is not husk's"), std::runtime_error);
+}

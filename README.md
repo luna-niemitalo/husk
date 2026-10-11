@@ -1069,7 +1069,8 @@ link, or `--game`) and the producer every document names; `store-add`
 refuses a `-dirty` or `unknown` producer, so export from a clean,
 reconfigured build. The same build again is a no-op. The tree's
 `errors.log` and `inputs.log` become the build's `missing.tsv` and
-`inputs.tsv`. `export-corpus --sample N` exports a fixed seeded choice of
+`inputs.tsv`. While `export-corpus` runs, the mount shows its tree as it
+grows at `games/<game>/<husk>.partial/`. `export-corpus --sample N` exports a fixed seeded choice of
 the listfile's assets, for size and time projections. Unmount with
 `fusermount3 -u <mountpoint>`.
 

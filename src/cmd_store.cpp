@@ -24,6 +24,7 @@
 #include "commands.hpp"
 #include "corpus_index.hpp"
 #include "corpus_store.hpp"
+#include "version.hpp"
 
 namespace fs = std::filesystem;
 
@@ -173,9 +174,10 @@ bool contains(const std::vector<std::string>& names, const std::string& name) {
 // What a path names (REFACTOR/CORPUS_EXPORT.md "The mount"):
 //   /<tag> -> games/<game>/<husk>          /games/<game>/current -> <husk>
 //   /games/<game>/<husk>/<tree path>       /games/<game>/<husk>/.build .missing .inputs
+//   /games/<game>/<husk>.partial/...       an export still writing its tree, read through
 struct Node {
     enum Kind { None, Dir, Object, Link, Text, Real } kind = None;
-    enum DirKind { Root, Games, Game, Tree } dirKind = Root;
+    enum DirKind { Root, Games, Game, Tree, Passthrough } dirKind = Root;
     std::string game;
     corpus::BuildId id;
     Build* build = nullptr;
@@ -266,6 +268,23 @@ Node resolve(Mount& m, const char* path) {
         n.game = game;
         return n;
     }
+    const std::string kPartial = ".partial";
+    if (parts[2].size() > kPartial.size() && parts[2].ends_with(kPartial)) {
+        auto runs = m.store.runs(game);
+        auto run = runs.find(parts[2].substr(0, parts[2].size() - kPartial.size()));
+        if (run == runs.end()) return {};
+        fs::path real = run->second;
+        for (size_t i = 3; i < parts.size(); i++) real /= parts[i];
+        std::error_code ec;
+        auto status = fs::symlink_status(real, ec);
+        if (ec || !fs::exists(status)) return {};
+        if (fs::is_directory(status)) {
+            Node n = dirNode(Node::Passthrough);
+            n.real = real;
+            return n;
+        }
+        return realNode(real);
+    }
     if (parts[2] == "current") {
         auto newest = m.store.newest(game);
         if (parts.size() != 3 || !newest) return {};
@@ -338,9 +357,15 @@ int fsReaddir(const char* path, void* buf, fuse_fill_dir_t fill, off_t, struct f
             for (const std::string& game : m.store.games()) add(game);
             break;
         case Node::Game:
-            add("current");
+            if (m.store.newest(n.game)) add("current");
             for (const std::string& husk : m.store.huskBuilds(n.game)) add(husk);
+            for (const auto& [husk, _] : m.store.runs(n.game)) add(husk + ".partial");
             break;
+        case Node::Passthrough: {
+            std::error_code ec;
+            for (const auto& entry : fs::directory_iterator(n.real, ec)) add(entry.path().filename().string());
+            break;
+        }
         case Node::Tree:
             if (n.dir == 0) {
                 if (!n.build->error.empty()) add(".error");
@@ -457,10 +482,18 @@ int exportCorpus(int argc, char** args) {
     if (auto exit = parseCommandArgs(app, argc, args)) return *exit;
     try {
         bool storing = !opts.store.empty() && opts.store != "none";
-        // Resolved before the hours of export, so a bad label fails now.
-        std::string game;
-        if (storing) game = resolveGameLabel(opts.game, opts.gameFrom.empty() ? opts.listfileRoot : opts.gameFrom);
-        std::cout << "store: " << (storing ? opts.store + ", game build " + game : "none") << std::endl;
+        // Resolved before the hours of export, so a bad label or a dirty
+        // build fails now.
+        corpus::BuildId run;
+        if (storing) {
+            run.game = resolveGameLabel(opts.game, opts.gameFrom.empty() ? opts.listfileRoot : opts.gameFrom);
+            run.husk = corpus::huskLabel(std::string("husk ") + husk::version());
+            corpus::Store(fs::absolute(opts.store)).beginRun(run, opts.output);
+        }
+        std::cout << "store: " << (storing ? opts.store + ", build " + run.path() + " (in progress as "
+                                                 + run.husk + ".partial in the mount)"
+                                           : "none")
+                  << std::endl;
 
         std::vector<std::string> worldArgs = {(fs::path(opts.listfileRoot) / "world" / "maps").string(),
                                               opts.output,
@@ -486,7 +519,9 @@ int exportCorpus(int argc, char** args) {
         for (std::string& a : worldArgs) argv.push_back(a.data());
         if (int code = exportWorld(static_cast<int>(argv.size()), argv.data()); code != 0) return code;
         printIndex(corpus::buildIndex(opts.output), opts.output);
-        if (storing) storeTree(opts.store, opts.output, game, opts.tags);
+        if (!storing) return 0;
+        storeTree(opts.store, opts.output, run.game, opts.tags);
+        corpus::Store(fs::absolute(opts.store)).endRun(run);
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "husk: export-corpus: " << e.what() << "\n";

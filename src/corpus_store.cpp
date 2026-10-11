@@ -145,7 +145,9 @@ std::string inputsTsv(const fs::path& path, const std::set<std::string>& outputs
     return out.str();
 }
 
-// The producer's version from "husk <version>": what labels the build.
+
+}  // namespace
+
 std::string huskLabel(const std::string& producer) {
     const std::string prefix = "husk ";
     if (producer.rfind(prefix, 0) != 0)
@@ -158,8 +160,6 @@ std::string huskLabel(const std::string& producer) {
         throw std::runtime_error("producer version: expected one path component, got \"" + version + "\"");
     return version;
 }
-
-}  // namespace
 
 std::string hex(const Md5& key) {
     static const char* digits = "0123456789abcdef";
@@ -253,9 +253,12 @@ Store::Put Store::putFile(const fs::path& source) const {
 }
 
 std::vector<std::string> Store::games() const {
-    std::vector<std::string> out = subdirectories(root_ / "builds");
-    std::erase_if(out, [&](const std::string& game) { return huskBuilds(game).empty(); });
-    return out;
+    std::set<std::string> names;
+    for (const std::string& game : subdirectories(root_ / "builds"))
+        if (!huskBuilds(game).empty()) names.insert(game);
+    for (const std::string& game : subdirectories(root_ / "runs"))
+        if (!runs(game).empty()) names.insert(game);
+    return {names.begin(), names.end()};
 }
 
 std::vector<std::string> Store::huskBuilds(const std::string& game) const {
@@ -300,6 +303,35 @@ std::map<std::string, BuildId> Store::tags() const {
             continue;
         }
         out[name] = *id;
+    }
+    return out;
+}
+
+void Store::beginRun(const BuildId& id, const fs::path& tree) const {
+    fs::create_directories(root_ / "runs" / id.game);
+    writeTextAtomic(root_ / "runs" / id.game / id.husk, fs::absolute(tree).lexically_normal().string() + "\n");
+}
+
+void Store::endRun(const BuildId& id) const { fs::remove(root_ / "runs" / id.game / id.husk); }
+
+std::map<std::string, fs::path> Store::runs(const std::string& game) const {
+    std::map<std::string, fs::path> out;
+    std::vector<std::string> stored = huskBuilds(game);
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(root_ / "runs" / game, ec)) {
+        std::string husk = entry.path().filename().string();
+        // writeTextAtomic's staging file, or a run whose build is stored.
+        if (entry.path().extension() == ".partial" || std::find(stored.begin(), stored.end(), husk) != stored.end())
+            continue;
+        std::ifstream in(entry.path());
+        std::string tree;
+        std::getline(in, tree);
+        if (!fs::is_directory(tree)) {
+            std::cerr << "husk: warning: " << entry.path().string() << ": expected an export tree directory, got \""
+                      << tree << "\"\n";
+            continue;
+        }
+        out[husk] = tree;
     }
     return out;
 }

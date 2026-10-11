@@ -72,6 +72,7 @@ builds nest by both:
     meta.json                  game, husk, producer, schema_version, counts,
                                source tree, stored_at
   tags/<name>                  one line: <game>/<husk> (live, ptr, beta, …)
+  runs/<game>/<husk>           one line: the tree an export-corpus run is still writing
   tmp/                         staging; safe to empty when idle
   logs/                        long runs' output
 ```
@@ -96,7 +97,13 @@ builds nest by both:
 <mnt>/games/<game>/<husk>/.build               meta.json
 <mnt>/games/<game>/<husk>/.missing             missing.tsv
 <mnt>/games/<game>/<husk>/.inputs              inputs.tsv
+<mnt>/games/<game>/<husk>.partial/             a run still exporting, read straight from its tree
 ```
+
+`export-corpus` records its run in `runs/` before exporting (refusing a
+dirty build there, not hours later) and removes it once the build is
+stored; until then the mount shows the tree as it grows, and hides the
+`.partial` as soon as the stored build exists.
 
 Read-only FUSE (libfuse3 from the flake), unprivileged through
 `fusermount3`; unmount with `fusermount3 -u <mnt>`. Bundles reference each

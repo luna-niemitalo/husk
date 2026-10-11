@@ -31,6 +31,10 @@ struct BuildId {
 
 // A label is one path component: no separators, no dot-only names.
 bool validLabel(const std::string& label);
+// The <husk> label of a build its documents' producer ("husk <version>")
+// wrote. Throws for a dirty or unknown version: a label has to name the code.
+std::string huskLabel(const std::string& producer);
+
 // "<game>/<husk>", as a tag file holds it.
 std::optional<BuildId> parseBuildPath(const std::string& text);
 
@@ -54,13 +58,22 @@ public:
     // hold bytes other than its name says.
     Put putFile(const std::filesystem::path& source) const;
 
-    // Complete builds only (files.tsv present), and the games having one.
+    // Complete builds only (files.tsv present), and the games having one
+    // or an in-progress run.
     std::vector<std::string> games() const;
     std::vector<std::string> huskBuilds(const std::string& game) const;
     // The game's build stored last (meta.json's stored_at); nullopt if none.
     std::optional<BuildId> newest(const std::string& game) const;
     std::map<std::string, BuildId> tags() const;
     void setTag(const std::string& name, const BuildId& id) const;
+
+    // An export still writing its tree: runs/<game>/<husk> names the tree
+    // until the build is stored, so the mount can show it as it grows.
+    void beginRun(const BuildId& id, const std::filesystem::path& tree) const;
+    void endRun(const BuildId& id) const;
+    // In-progress runs of `game` with no stored build of the same label yet,
+    // and the tree each is writing.
+    std::map<std::string, std::filesystem::path> runs(const std::string& game) const;
 
 private:
     std::filesystem::path root_;
