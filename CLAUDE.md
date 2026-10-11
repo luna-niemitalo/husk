@@ -357,7 +357,9 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   uncommitted `.gitignore` line makes this checkout `-dirty`. export-world
   writes `inputs.log` (each output's source files with md5, `src/input_log.*`;
   `*` = the run's DB2s and listfile), which store-add turns into
-  `inputs.tsv`. Next: `TODO/CORPUS_EXPORT_TODO.md` (export-corpus, index/).
+  `inputs.tsv`. `husk export-corpus` (export-world --all-assets over every
+  map, index-tree, store-add) drives a whole build; `--sample N` projects
+  one. Next: `TODO/CORPUS_EXPORT_TODO.md`.
 - **Textures and refs (2026-10-11, Luna)**: each document lists its
   textures once in `resources.textures` and everything uses indices
   (layers, slot options, terrain, liquid frames, effect image inputs);

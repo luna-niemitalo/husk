@@ -2,11 +2,10 @@
 
 **Status: the store and its mount are built** (`husk store-add`, `husk
 mount`, `src/corpus_store.*`, `src/cmd_store.cpp`), documents are
-deterministic, and `export-world` records each output's inputs
-(`src/input_log.*`). Not built: `export-corpus`,
-`index/`/`corpus.json`, shared effects/materials/rig, `husk view`; open
-items in `TODO/CORPUS_EXPORT_TODO.md`. Today a stored build is an
-`export-world` tree. How a full canonical export of a game build is laid
+deterministic, `export-world` records each output's inputs
+(`src/input_log.*`), `husk export-corpus` drives a whole build, and
+`husk index-tree` writes `index/`. Not built: shared effects/materials/rig,
+`husk view`, prune; open items in `TODO/CORPUS_EXPORT_TODO.md`. How a full canonical export of a game build is laid
 out, stored across builds, and browsed. Versioning follows
 casc-tool's build history store (`~/dev/casc-tool/DESIGN.md`): objects
 named by their md5, a build as a list of paths to objects, tags naming
@@ -37,17 +36,22 @@ wmos/<fdid>.canon.bundle/           every root WMO
 maps/<map>/<map>.world.bundle       + tiles
 effects/<id>.json                   shared effect bodies
 materials/<source>_<id>.json        shared material documents (e.g. layout_103_skin)
-index/                              derived lookup tables, rebuildable from the tree:
-  creature_displays.json            CreatureDisplayInfo id -> (model fdid, preset)
-  npcs.json, items.json, chr_models.json, placements_by_model.json
-corpus.json                         what this tree covers, counts, coverage
+index/                              derived lookup tables, rebuildable from the tree (TSV):
+  creature_displays.tsv             CreatureDisplayInfo row -> model manifest, preset
+  chr_models.tsv                    ChrModel row -> model manifest
+inputs.log, errors.log              the run's records; store-add turns them into
+                                    inputs.tsv and missing.tsv
 ```
+
+There is no separate `corpus.json`: it would be neither one of the five
+document kinds nor needed, since the stored build's `meta.json` and
+`missing.tsv` hold the counts and failures.
 
 - A file's bundle is named by its FileDataID. Creature options, NPC presets
   and character customization stay on the model they belong to; `index/`
   is how a game id (an NPC, a display) finds them.
 - A texture nothing references still goes into `textures/` and is listed in
-  `corpus.json`. Sound, UI and other unrelated files are out of scope.
+  the store's files. Sound, UI and other unrelated files are out of scope.
 - An unsolvable source is skipped and counted (`missing.tsv` below).
 
 ## The store
@@ -156,10 +160,22 @@ built; block cloning is active on `tank/data`).
     `.m2`, `.skin` and `.blp`, a WMO its root, groups and textures, the
     tile its WDT, ADT, `_obj0`, `_tex0` and ground textures.
 
+- **`husk export-corpus <out> [--store S [--game L|--game-from D] [--tag T]...]`**:
+  `export-world` over `<listfile-root>/world/maps` with `--all-assets`
+  (every listfile `.m2` and root `.wmo`, placed or not: 135,129 and
+  14,140 in the 2026-10-08 listfile), then `index-tree`, then with
+  `--store` a `store-add`. The game label is resolved before the export,
+  from `--listfile-root`'s tag link by default. `--map` and `--sample N`
+  (a fixed seeded choice of the listfile assets) bound a projection run.
+- **`husk index-tree <tree>`**: rebuilds `index/` from the model
+  manifests, parsing only `selection` and `definition`
+  (`humanmale_hd`: 1.5 s, 66 MB, ChrModels 1 and 45, 6,381 displays).
+
 ## Not built
-- **`export-corpus`**: the driver. Passes: models, WMOs, maps, then
-  `index/` and `corpus.json`; textures go into the tree as each pass
-  reaches them. Resumable like `export-world`; ends with `store-add`.
+- **More `index/` tables**: NPCs (`Creature` rows -> displays), items
+  (once items are documents), placements by model.
+- **The 193 unnamed `ModelFileData` M2s** (`_unresolved/`): `--all-assets`
+  enumerates the listfile only.
 - **Shared effects, materials and rig** before the first full run:
   `humanmale_hd` alone is 315 MB, 94 MB of it a rig other models share.
   (The store already dedupes identical files; sharing saves the tree's own
