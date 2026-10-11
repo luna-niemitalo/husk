@@ -190,7 +190,10 @@ A WMO bundle also has:
   is the fog a part falls back to.
 - `resources.geometry.mesh.attributes`: per-face flags and material, which
   select collision.
-- `resources.geometry.liquids`, and `resources.scene` lights and volumes.
+- `resources.geometry.liquids`, and `resources.scene` lights.
+An M2's particle and ribbon emitters are no longer `resources.scene` lists:
+they are effect instances anchored to their bones, in an `effects`
+placement set written inline in the manifest (`references[i].document`).
 
 A doodad inside a WMO is placed in the WMO's frame, so its world
 transform is tile ← WMO instance ← doodad instance. Following the

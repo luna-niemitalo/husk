@@ -81,7 +81,8 @@ find_package(nlohmann_json_schema_validator CONFIG REQUIRED)
 # validate-bundle`, the writers and the tests use the same files.
 set(HUSK_SCHEMAS common model placement_set world effect)
 set(HUSK_EFFECTS classic_local_fog classic_fog_exit_blend classic_ambient_global classic_ambient_point
-                 classic_ambient_box classic_particulate_volume classic_volumetric_fog classic_map_particulate_volume)
+                 classic_ambient_box classic_particulate_volume classic_volumetric_fog classic_map_particulate_volume
+                 classic_m2_particle_emitter classic_m2_model_particle_emitter classic_m2_ribbon)
 set(HUSK_SCHEMA_FILES)
 foreach(name IN LISTS HUSK_SCHEMAS)
   list(APPEND HUSK_SCHEMA_FILES ${CMAKE_SOURCE_DIR}/schema/${name}.schema.json)

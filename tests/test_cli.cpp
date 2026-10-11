@@ -291,6 +291,13 @@ TEST_CASE("husk export: a genuinely geometry-less model (0 vertices, empty .skin
     CHECK(fs::exists(dir / "vfx.glb"));
     CHECK(fs::file_size(dir / "vfx.glb") > 0);
 
+    // The native bundle has no glTF rule against an empty mesh: an
+    // emitter-only model exports as one.
+    auto bundle = runHusk("export " + (dir / "vfx.m2").string() + " " + (dir / "vfx.bundle").string() + " --bundle-only");
+    INFO(bundle.output);
+    CHECK(bundle.exitCode == 0);
+    CHECK(fs::exists(dir / "vfx.bundle" / "manifest.json"));
+
     fs::remove_all(dir);
 }
 

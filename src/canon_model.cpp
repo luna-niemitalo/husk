@@ -30,11 +30,15 @@ void requireJoints(const Scene& scene, size_t jointCount) {
     for (size_t i = 0; i < scene.lights.size(); ++i) {
         if (scene.lights[i].bone) requireJoint(*scene.lights[i].bone, jointCount, "light " + std::to_string(i));
     }
-    for (size_t i = 0; i < scene.ribbons.size(); ++i) {
-        requireJoint(scene.ribbons[i].bone, jointCount, "ribbon emitter " + std::to_string(i));
-    }
-    for (size_t i = 0; i < scene.particles.size(); ++i) {
-        requireJoint(scene.particles[i].bone, jointCount, "particle emitter " + std::to_string(i));
+}
+
+void requireAnchors(const std::vector<Model::OwnedSet>& sets, size_t jointCount) {
+    for (const Model::OwnedSet& owned : sets) {
+        for (const PlacedInstance& instance : owned.set.instances) {
+            if (!instance.anchor) continue;
+            requireJoint(*instance.anchor, jointCount,
+                         "placement set '" + owned.set.ref.name + "' instance " + std::to_string(instance.id) + "'s anchor");
+        }
     }
 }
 
@@ -197,6 +201,7 @@ Model assembleModel(Skeleton skeleton, Mesh mesh, std::vector<Material> material
         }
     }
     requireJoints(scene, skeleton.joints.size());
+    requireAnchors(placementSets, skeleton.joints.size());
     requireParts(mesh);
     requireUniqueInstanceIds(placementSets);
     requireSceneSets(scene, placementSets.size());

@@ -77,6 +77,10 @@
             "description": "The placed model or effect.",
             "x-index-into": "/references"
           },
+          "anchor": {
+            "$ref": "common.schema.json#/definitions/ref",
+            "description": "A joint of the model that owns the set: the instance moves with it. Its translation stays in that model's frame at the bind pose. Absent: the set's frame."
+          },
           "translation": {
             "$ref": "common.schema.json#/definitions/vec3",
             "description": "Position in the set's parent frame.",

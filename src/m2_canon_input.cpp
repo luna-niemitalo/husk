@@ -259,15 +259,19 @@ canon::Model buildCanonModel(const m2::Model& model, const std::vector<skin::Bat
     }
 
     const ExternalAnimBlobs noExternalBlobs;
-    canon::Scene scene = assembleScene(model, static_cast<uint32_t>(sequences.size()),
-                                       externalSkeleton ? noExternalBlobs : externalAnimBlobs, textureResolutions,
+    const ExternalAnimBlobs& sceneBlobs = externalSkeleton ? noExternalBlobs : externalAnimBlobs;
+    auto sequenceCount = static_cast<uint32_t>(sequences.size());
+    canon::Scene scene = assembleScene(model, sequenceCount, sceneBlobs,
                                        externalSkeleton && externalSkeleton->attachments
                                            ? &*externalSkeleton->attachments
                                            : nullptr);
+    std::vector<canon::Model::OwnedSet> sets;
+    canon::PlacementSet effects = assembleEffects(model, sequenceCount, sceneBlobs, textureResolutions);
+    if (!effects.instances.empty()) sets.push_back({std::move(effects), true, true});
 
     return canon::assembleModel(std::move(skeleton), std::move(mesh), std::move(materials),
-                                 std::move(primitiveMaterials), std::move(animations), std::move(scene), {}, {},
-                                 buildCollision(model));
+                                 std::move(primitiveMaterials), std::move(animations), std::move(scene),
+                                 std::move(sets), {}, buildCollision(model));
 }
 
 }  // namespace husk::m2input

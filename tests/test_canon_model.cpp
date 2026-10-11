@@ -167,14 +167,23 @@ TEST_CASE("canon::assembleModel keeps a scene whose bone references are all in r
     CHECK(result.scene.lights.size() == 1);
 }
 
-TEST_CASE("canon::assembleModel throws when a scene bone reference is out of range for the skeleton") {
+TEST_CASE("canon::assembleModel throws when a bone reference or an instance anchor is out of range for the skeleton") {
     canon::Skeleton skeleton;
     skeleton.joints.resize(2);
     canon::Scene scene;
-    canon::ParticleEmitter particle;
-    particle.bone = canon::boneRef(2);
-    scene.particles.push_back(particle);
-
+    canon::Attachment attachment;
+    attachment.bone = canon::boneRef(2);
+    scene.attachments.push_back(attachment);
     CHECK_THROWS_WITH_AS(canon::assembleModel(skeleton, canon::Mesh{}, {}, {}, {}, scene),
-                         "particle emitter 0's bone: expected an index < 2 joints, got 2", std::runtime_error);
+                         "attachment 0's bone: expected an index < 2 joints, got 2", std::runtime_error);
+
+    canon::Model::OwnedSet effects;
+    effects.set.ref = canon::Ref{canon::RecordIndex{0}, "effects", canon::NameSource::Synthesized};
+    canon::PlacedInstance emitter;
+    emitter.anchor = canon::boneRef(2);
+    emitter.effect = canon::EffectPlacement{};
+    effects.set.instances.push_back(emitter);
+    CHECK_THROWS_WITH_AS(canon::assembleModel(skeleton, canon::Mesh{}, {}, {}, {}, {}, {effects}),
+                         "placement set 'effects' instance 0's anchor's bone: expected an index < 2 joints, got 2",
+                         std::runtime_error);
 }

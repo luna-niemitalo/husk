@@ -11,6 +11,7 @@
 #include "canon_material.hpp"  // TextureRef, FramebufferBlend
 #include "canon_primitives.hpp"
 #include "canon_ref.hpp"
+#include "canon_scene.hpp"  // ParticleSystem, RibbonSystem
 
 // husk::canon: see canon_policy.hpp for the layer this belongs to.
 // REFACTOR/EFFECTS.md: an effect is a behaviour defined once, in an effect
@@ -64,6 +65,8 @@ struct StyleBlock {
         uint32_t minQuality = 0;
     };
     std::optional<VolumetricFog> volumetricFog;
+    std::optional<ParticleSystem> particleSystem;  // an M2 particle emitter's simulation
+    std::optional<RibbonSystem> ribbonSystem;      // an M2 ribbon's
     // How the classic client drew the source's particles.
     struct Draw {
         std::optional<FramebufferBlend> blend;  // nullopt when the source mode has no canon name

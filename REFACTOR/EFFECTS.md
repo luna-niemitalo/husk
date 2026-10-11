@@ -20,13 +20,14 @@ it (Phase 2): WMO `MFOG` (`classic_local_fog`, `classic_fog_exit_blend`),
 (`classic_map_particulate_volume`, `box_tree` region) in the world
 document's `fogs` and `particulate_volumes` sets. No source ships a raw
 record any more: undescribed ranges are checked and kept only when set.
+M2 particle and ribbon emitters are `classic_m2_particle_emitter`,
+`classic_m2_model_particle_emitter` and `classic_m2_ribbon` instances
+anchored to their bones (`point` region; `quad`, `mesh_instance` and
+`ribbon` looks; the simulation as `particle_system`/`ribbon_system`
+style) in an inline `effects` set the model owns. Phase 2 is done.
 
-**Not yet**: M2's emitters (`canon::ParticleEmitter`/`RibbonEmitter`)
-still carry their own shape in `resources.scene`; they need the `anchor`
-field (joints) and an inline effects set.
-
-The `anchor` field, gate, priority, provenance and the remaining content
-kinds are not in the schema yet; each joins with its first source.
+The gate, priority, provenance and the remaining content kinds are not
+in the schema yet; each joins with its first source (Phase 3 on).
 
 Source facts are in `../WIKI_FINDINGS/WORLD.md`, open items in
 `../TODO/WORLD/FOG_VOLUMES_TODO.md`, and the client's fog code in

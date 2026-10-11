@@ -48,8 +48,7 @@ std::string modelDocument() {
     "rig": {"skeleton": {"joint_count": 0, "parents": )" + slice(108, 0, "i32", 1, 0) + R"(, "bind_translation": )" +
            slice(108, 0, "f32", 3, 0) + R"(, "joints": []}, "animation": []},
     "materials": [{"layers": [], "unlit": false, "unfogged": false, "two_sided": false, "source": {"flags": "0x0"}}],
-    "scene": {"attachments": [], "events": [], "animated_lights": [], "static_lights": [],
-              "ribbon_emitters": [], "particle_emitters": []}}
+    "scene": {"attachments": [], "events": [], "animated_lights": [], "static_lights": []}}
 })";
 }
 
@@ -149,7 +148,8 @@ fs::path writeSet(const std::string& name, const std::string& set) {
 TEST_CASE("bundle_schema: every effect husk writes validates") {
     for (const char* name : {"classic_local_fog", "classic_fog_exit_blend", "classic_ambient_global",
                              "classic_ambient_point", "classic_ambient_box", "classic_particulate_volume",
-                             "classic_volumetric_fog", "classic_map_particulate_volume"}) {
+                             "classic_volumetric_fog", "classic_map_particulate_volume", "classic_m2_particle_emitter",
+                             "classic_m2_model_particle_emitter", "classic_m2_ribbon"}) {
         CAPTURE(name);
         fs::path file = fs::temp_directory_path() / "husk-schema-effects" / (std::string(name) + ".json");
         fs::create_directories(file.parent_path());

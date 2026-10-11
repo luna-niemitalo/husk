@@ -264,6 +264,105 @@ void writeDistanceFog(json::Writer& w, const canon::DistanceFog& fog) {
 
 void writeRgba(json::Writer& w, const std::array<float, 4>& c) { writeFloats(w, {c[0], c[1], c[2], c[3]}); }
 
+void writeRibbonSystem(json::Writer& w, const canon::RibbonSystem& r) {
+    w.beginObject();
+    w.key("materials");
+    w.beginArray();
+    for (const canon::RenderState& state : r.materials) {
+        w.beginObject();
+        if (state.blend) {
+            w.key("framebuffer_blend");
+            w.value(framebufferBlendName(*state.blend));
+        }
+        w.key("source");
+        w.beginObject();
+        w.key("flags");
+        w.value(hexFlags(state.flags));
+        w.endObject();
+        w.endObject();
+    }
+    w.endArray();
+    writeAnimated(w, "color", r.color, writeVec3Value);
+    writeAnimated(w, "alpha", r.alpha, writeScalarValue);
+    writeAnimated(w, "height_above", r.heightAbove, writeScalarValue);
+    writeAnimated(w, "height_below", r.heightBelow, writeScalarValue);
+    writeAnimated(w, "texture_slot", r.textureSlot, writeScalarValue);
+    writeAnimated(w, "visibility", r.visibility, writeScalarValue);
+    writeFloatField(w, "edges_per_second", r.edgesPerSecond);
+    writeFloatField(w, "edge_lifetime", r.edgeLifetime);
+    writeFloatField(w, "gravity", r.gravity);
+    writeIntField(w, "priority_plane", r.priorityPlane);
+    writeIntField(w, "ribbon_color_index", r.ribbonColorIndex);
+    writeIntField(w, "texture_transform_lookup_index", r.textureTransformLookupIndex);
+    w.endObject();
+}
+
+void writeParticleSystem(json::Writer& w, const canon::ParticleSystem& p) {
+    auto writeUint16 = [](json::Writer& w2, uint16_t v) { w2.value(static_cast<int64_t>(v)); };
+    w.beginObject();
+    if (p.childEmittersModel) {
+        w.key("child_emitters_model");
+        writeRef(w, *p.childEmittersModel);
+    }
+    writeIntField(w, "particle_color_index", p.particleColorIndex);
+    writeFloatArrayField(w, "multi_texture_scale", p.multiTextureScale, 2);
+    writeIntField(w, "priority_plane", p.priorityPlane);
+
+    writeAnimated(w, "emission_speed", p.emissionSpeed, writeScalarValue);
+    writeAnimated(w, "speed_variation", p.speedVariation, writeScalarValue);
+    writeAnimated(w, "vertical_range", p.verticalRange, writeScalarValue);
+    writeAnimated(w, "horizontal_range", p.horizontalRange, writeScalarValue);
+    writeAnimated(w, "gravity", p.gravity, writeScalarValue);
+    writeAnimated(w, "lifespan", p.lifespan, writeScalarValue);
+    writeAnimated(w, "emission_rate", p.emissionRate, writeScalarValue);
+    writeAnimated(w, "emission_area_length", p.emissionAreaLength, writeScalarValue);
+    writeAnimated(w, "emission_area_width", p.emissionAreaWidth, writeScalarValue);
+    writeAnimated(w, "z_source", p.zSource, writeScalarValue);
+    writeAnimated(w, "enabled_in", p.enabledIn, writeScalarValue);
+    writeFloatField(w, "lifespan_variation", p.lifespanVariation);
+    writeFloatField(w, "emission_rate_variation", p.emissionRateVariation);
+
+    writeLifetimeCurve(w, "color", p.color, writeVec3Value);
+    writeLifetimeCurve(w, "alpha", p.alpha, writeScalarValue);
+    writeLifetimeCurve(w, "scale", p.scale, writeVec2Value);
+    writeLifetimeCurve(w, "head_cell", p.headCell, writeUint16);
+    writeLifetimeCurve(w, "tail_cell", p.tailCell, writeUint16);
+    w.key("scale_variation");
+    writeVec2Value(w, p.scaleVariation);
+
+    writeFloatField(w, "tail_length", p.tailLength);
+    writeFloatField(w, "twinkle_speed", p.twinkleSpeed);
+    writeFloatField(w, "twinkle_percent", p.twinklePercent);
+    writeFloatField(w, "twinkle_scale_min", p.twinkleScaleMin);
+    writeFloatField(w, "twinkle_scale_max", p.twinkleScaleMax);
+    writeFloatField(w, "inherit_velocity_scale", p.inheritVelocityScale);
+    writeFloatField(w, "drag", p.drag);
+    writeFloatField(w, "base_spin", p.baseSpin);
+    writeFloatField(w, "base_spin_variation", p.baseSpinVariation);
+    writeFloatField(w, "spin_speed", p.spinSpeed);
+    writeFloatField(w, "spin_speed_variation", p.spinSpeedVariation);
+    writeVec3Field(w, "tumble_min", p.tumbleMin);
+    writeVec3Field(w, "tumble_max", p.tumbleMax);
+    writeVec3Field(w, "wind_vector", p.windVector);
+    writeFloatField(w, "wind_time", p.windTime);
+    writeFloatField(w, "follow_speed1", p.followSpeed1);
+    writeFloatField(w, "follow_scale1", p.followScale1);
+    writeFloatField(w, "follow_speed2", p.followSpeed2);
+    writeFloatField(w, "follow_scale2", p.followScale2);
+    w.key("spline_points");
+    w.beginArray();
+    for (const canon::Vec3& point : p.splinePoints) writeVec3Value(w, point);
+    w.endArray();
+    writeFloatArrayField(w, "multi_texture_scroll_mid", p.multiTextureScrollMid, 4);
+    writeFloatArrayField(w, "multi_texture_scroll_range", p.multiTextureScrollRange, 4);
+    w.key("source");
+    w.beginObject();
+    writeIntField(w, "blending_type", p.blendingType);
+    writeIntField(w, "emitter_type", p.emitterType);
+    w.endObject();
+    w.endObject();
+}
+
 void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
     w.beginObject();
     if (style.distanceFog) {
@@ -298,6 +397,14 @@ void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
         w.key("min_quality");
         w.value(static_cast<int64_t>(style.volumetricFog->minQuality));
         w.endObject();
+    }
+    if (style.particleSystem) {
+        w.key("particle_system");
+        writeParticleSystem(w, *style.particleSystem);
+    }
+    if (style.ribbonSystem) {
+        w.key("ribbon_system");
+        writeRibbonSystem(w, *style.ribbonSystem);
     }
     if (style.maxParticles) {
         w.key("particulate");
@@ -405,11 +512,13 @@ void writeEffectInstanceFields(json::Writer& w, const canon::EffectPlacement& ef
 
 std::string effectUri(const canon::Ref& effect) { return "effects/" + effect.name + ".json"; }
 
-// Image inputs' payloads go under `bundleDir/textures/`, one level up from
-// the set file.
-void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem::path& path, const AssetUris& uris,
-                           const Provenance& provenance, const std::filesystem::path& bundleDir,
-                           std::unordered_set<std::string>& writtenTextures) {
+// One placement_set document as text. `prefix` leads from where the
+// document sits to `bundleDir` ("../" from sets/, "" inline in the
+// manifest); `uris` already carry it. Image inputs' payloads go under
+// `bundleDir/textures/`.
+std::string placementSetText(const canon::PlacementSet& set, const std::string& prefix, const AssetUris& uris,
+                             const Provenance& provenance, const std::filesystem::path& bundleDir,
+                             std::unordered_set<std::string>& writtenTextures) {
     std::vector<const canon::PlacedInstance*> assets;
     std::unordered_map<std::string, size_t> assetIndex;
     std::vector<size_t> instanceAsset;
@@ -437,9 +546,8 @@ void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem
         w.key("kind");
         w.value(asset->effect ? "effect" : "model");
         w.key("asset");
-        // Set files sit one level below the effects they place.
         if (asset->effect) {
-            writeRef(w, asset->asset, "../" + effectUri(asset->asset));
+            writeRef(w, asset->asset, prefix + effectUri(asset->asset));
         } else {
             writeAssetRef(w, asset->asset, uris);
         }
@@ -455,6 +563,10 @@ void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem
         w.value(static_cast<int64_t>(instance.id));
         w.key("reference");
         w.value(static_cast<int64_t>(instanceAsset[i]));
+        if (instance.anchor) {
+            w.key("anchor");
+            writeRef(w, *instance.anchor);
+        }
         w.key("translation");
         writeFloats(w, {instance.translation.x, instance.translation.y, instance.translation.z});
         w.key("rotation");
@@ -464,7 +576,7 @@ void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem
         if (instance.effect) {
             writeEffectInstanceFields(
                 w, *instance.effect,
-                {[&](const canon::TextureRef& texture) { writeTextureEntry(w, texture, bundleDir, writtenTextures, "../"); },
+                {[&](const canon::TextureRef& texture) { writeTextureEntry(w, texture, bundleDir, writtenTextures, prefix); },
                  [&](const canon::Ref& model) { writeAssetRef(w, model, uris); }});
             w.key("source");
             w.beginObject();
@@ -507,9 +619,7 @@ void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem
     }
     w.endArray();
     w.endObject();
-
-    std::string bytes = text.str();
-    writeFile(path, std::vector<uint8_t>(bytes.begin(), bytes.end()));
+    return text.str();
 }
 
 }  // namespace
@@ -517,19 +627,26 @@ void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem
 std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEntry>& sets,
                                                     const std::filesystem::path& bundleDir, const AssetUris& assetUris,
                                                     const Provenance& provenance) {
-    // Set files sit one level down, in sets/.
+    // Set files sit one level down, in sets/; inline sets at the bundle root.
     AssetUris setUris;
     for (const auto& [fdid, uri] : assetUris) {
         setUris.emplace(fdid, std::filesystem::path(uri).is_absolute() ? uri : "../" + uri);
     }
-    if (!sets.empty()) std::filesystem::create_directories(bundleDir / "sets");
     std::vector<SetDocument> out;
     std::set<std::string> effects;
     std::unordered_set<std::string> writtenTextures;
     for (size_t i = 0; i < sets.size(); ++i) {
-        std::string uri = "sets/" + std::to_string(i) + ".json";
-        writePlacementSetFile(*sets[i].set, bundleDir / uri, setUris, provenance, bundleDir, writtenTextures);
-        out.push_back({sets[i].set->ref, uri, sets[i].alwaysOn, sets[i].set->instances.size()});
+        const OwnedSetEntry& entry = sets[i];
+        SetDocument doc{entry.set->ref, "", entry.alwaysOn, entry.set->instances.size(), ""};
+        if (entry.inlineDocument) {
+            doc.inlineText = placementSetText(*entry.set, "", assetUris, provenance, bundleDir, writtenTextures);
+        } else {
+            doc.uri = "sets/" + std::to_string(i) + ".json";
+            std::filesystem::create_directories(bundleDir / "sets");
+            std::string text = placementSetText(*entry.set, "../", setUris, provenance, bundleDir, writtenTextures);
+            writeFile(bundleDir / doc.uri, std::vector<uint8_t>(text.begin(), text.end()));
+        }
+        out.push_back(std::move(doc));
         for (const canon::PlacedInstance& instance : sets[i].set->instances) {
             if (instance.effect) effects.insert(instance.asset.name);
         }
@@ -663,6 +780,12 @@ void writeOwnedSetSelectionAndReferences(json::Writer& w, const std::vector<SetD
         w.value("placement_set");
         w.key("asset");
         writeRef(w, set.ref, set.uri);
+        if (!set.inlineText.empty()) {
+            w.key("document");
+            w.beginObject();
+            w.rawMembers(set.inlineText);
+            w.endObject();
+        }
         w.endObject();
     }
     w.endArray();
@@ -707,6 +830,62 @@ std::string textureMediaType(const std::string& extension) {
 // on disk, or DDS extraction declined for a Palette-encoded source) still
 // gets a real file in the bundle instead of being silently dropped just
 // because the DDS variant wasn't available for it.
+void writeVec2Value(json::Writer& w, const canon::Vec2& v) {
+    w.beginArray();
+    w.value(static_cast<double>(v.x));
+    w.value(static_cast<double>(v.y));
+    w.endArray();
+}
+
+void writeVec3Value(json::Writer& w, const canon::Vec3& v) {
+    w.beginArray();
+    w.value(static_cast<double>(v.x));
+    w.value(static_cast<double>(v.y));
+    w.value(static_cast<double>(v.z));
+    w.endArray();
+}
+
+void writeQuatValue(json::Writer& w, const canon::Quat& q) {
+    w.beginArray();
+    w.value(static_cast<double>(q.x));
+    w.value(static_cast<double>(q.y));
+    w.value(static_cast<double>(q.z));
+    w.value(static_cast<double>(q.w));
+    w.endArray();
+}
+
+void writeScalarValue(json::Writer& w, float v) { w.value(static_cast<double>(v)); }
+
+void writeFloatField(json::Writer& w, const char* key, float v) {
+    w.key(key);
+    w.value(static_cast<double>(v));
+}
+
+void writeIntField(json::Writer& w, const char* key, int64_t v) {
+    w.key(key);
+    w.value(v);
+}
+
+void writeVec3Field(json::Writer& w, const char* key, const canon::Vec3& v) {
+    w.key(key);
+    writeVec3Value(w, v);
+}
+
+void writeFloatArrayField(json::Writer& w, const char* key, const float* values, size_t count) {
+    w.key(key);
+    w.beginArray();
+    for (size_t i = 0; i < count; ++i) w.value(static_cast<double>(values[i]));
+    w.endArray();
+}
+
+std::string sequenceKindName(canon::SequenceRef::Kind kind) {
+    return kind == canon::SequenceRef::Kind::GlobalSequence ? "global_sequence" : "sequence";
+}
+
+std::string interpolationName(canon::Interpolation interp) {
+    return interp == canon::Interpolation::Step ? "step" : "linear";
+}
+
 std::string framebufferBlendName(canon::FramebufferBlend blend) {
     switch (blend) {
         case canon::FramebufferBlend::Opaque: return "opaque";

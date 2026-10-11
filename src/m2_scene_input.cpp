@@ -174,14 +174,43 @@ canon::Light assembleLight(const m2::Light& l, const TrackSource& src) {
     return light;
 }
 
-canon::RibbonEmitter assembleRibbon(const m2::Model& model, const m2::Ribbon& r, size_t index, const TrackSource& src,
-                                    const TextureResolutions& resolutions) {
+canon::Ref effectRef(const char* name) { return canon::Ref{canon::None{}, name, canon::NameSource::Synthesized}; }
+
+// An emitter's texture layers as inputs: the first as `texture`, the rest
+// as `extra_layers`. An emitter naming none still gets a texture input,
+// unresolved, since its effect requires one.
+void textureInputs(const std::vector<canon::TextureRef>& textures, std::vector<canon::NamedInput>& inputs) {
+    canon::TextureRef first;
+    if (textures.empty()) {
+        first.unresolvedReason = "the emitter names no texture";
+    } else {
+        first = textures[0];
+    }
+    inputs.push_back({"texture", {first}});
+    if (textures.size() < 2) return;
+    std::vector<canon::InputValue> extra;
+    for (size_t i = 1; i < textures.size(); ++i) extra.push_back({textures[i]});
+    inputs.push_back({"extra_layers", {std::move(extra)}});
+}
+
+// One M2Ribbon as a classic_m2_ribbon instance on its bone.
+canon::PlacedInstance assembleRibbon(const m2::Model& model, const m2::Ribbon& r, size_t index, const TrackSource& src,
+                                     const TextureResolutions& resolutions) {
     std::string what = "ribbon emitter " + std::to_string(index);
-    canon::RibbonEmitter ribbon;
-    ribbon.ribbonId = r.ribbonId;
-    ribbon.bone = canon::boneRef(r.boneIndex);
-    ribbon.position = toCanon(r.position);
-    for (uint16_t t : r.textureIndices) ribbon.textures.push_back(textureFor(model, resolutions, t, what));
+    canon::PlacedInstance instance;
+    instance.asset = effectRef("classic_m2_ribbon");
+    instance.anchor = canon::boneRef(r.boneIndex);
+    instance.translation = toCanon(r.position);
+    canon::EffectPlacement effect;
+    effect.origin = {"M2Ribbon", static_cast<uint32_t>(index)};
+    std::vector<canon::TextureRef> textures;
+    for (uint16_t t : r.textureIndices) textures.push_back(textureFor(model, resolutions, t, what));
+    textureInputs(textures, effect.inputs);
+    effect.inputs.push_back({"tiles_x", {int64_t{r.textureCols}}});
+    effect.inputs.push_back({"tiles_y", {int64_t{r.textureRows}}});
+    effect.unresolved.push_back({"M2Ribbon id", canon::UnresolvedField::Kind::Id, double(r.ribbonId), std::nullopt});
+
+    canon::RibbonSystem ribbon;
     for (uint16_t m : r.materialIndices) {
         if (m >= model.materials.size()) {
             throw std::runtime_error(what + " material index: expected < " + std::to_string(model.materials.size()) +
@@ -204,34 +233,58 @@ canon::RibbonEmitter assembleRibbon(const m2::Model& model, const m2::Ribbon& r,
     ribbon.edgesPerSecond = r.edgesPerSecond;
     ribbon.edgeLifetime = r.edgeLifetime;
     ribbon.gravity = r.gravity;
-    ribbon.textureRows = r.textureRows;
-    ribbon.textureColumns = r.textureCols;
     ribbon.priorityPlane = r.priorityPlane;
     ribbon.ribbonColorIndex = r.ribbonColorIndex;
     ribbon.textureTransformLookupIndex = r.textureTransformLookupIndex;
-    return ribbon;
+    canon::StyleBlock style;
+    style.ribbonSystem = std::move(ribbon);
+    effect.style = {{"ribbon", {std::move(style)}}};
+    instance.effect = std::move(effect);
+    return instance;
 }
 
-canon::ParticleEmitter assembleParticle(const m2::Model& model, const m2::ParticleEmitter& p, size_t index,
-                                        const TrackSource& src, const TextureResolutions& resolutions) {
+// One M2Particle as an instance on its bone: classic_m2_model_particle_emitter
+// when it spawns a model, else classic_m2_particle_emitter.
+canon::PlacedInstance assembleParticle(const m2::Model& model, const m2::ParticleEmitter& p, size_t index,
+                                       const TrackSource& src, const TextureResolutions& resolutions) {
     const std::vector<uint8_t>& blob = model.blob;
-    canon::ParticleEmitter particle;
-    particle.particleId = p.particleId;
-    particle.flags = p.flags;
-    particle.bone = canon::boneRef(p.boneId);
-    particle.position = toCanon(p.position);
+    canon::PlacedInstance instance;
+    instance.anchor = canon::boneRef(p.boneId);
+    instance.translation = toCanon(p.position);
+    instance.flags = p.flags;
+    canon::EffectPlacement effect;
+    effect.origin = {"M2Particle", static_cast<uint32_t>(index)};
+    std::vector<canon::TextureRef> textures;
     for (uint16_t t : particleTextureIndices(p)) {
-        particle.textures.push_back(textureFor(model, resolutions, t, "particle emitter " + std::to_string(index)));
+        textures.push_back(textureFor(model, resolutions, t, "particle emitter " + std::to_string(index)));
     }
-    particle.particleModel = embeddedPath(p.particleModelFilename);
+    if (std::optional<canon::Ref> particleModel = embeddedPath(p.particleModelFilename)) {
+        instance.asset = effectRef("classic_m2_model_particle_emitter");
+        effect.inputs.push_back({"model", {*particleModel}});
+        // Its textures don't draw: the model's own materials do.
+        std::vector<double> fdids;
+        for (const canon::TextureRef& t : textures) {
+            if (auto fdid = std::get_if<canon::FileDataId>(&t.resolved.id)) fdids.push_back(fdid->value);
+        }
+        if (!fdids.empty()) {
+            effect.unresolved.push_back({"textures", canon::UnresolvedField::Kind::Id, std::move(fdids), std::nullopt});
+        }
+    } else {
+        instance.asset = effectRef("classic_m2_particle_emitter");
+        textureInputs(textures, effect.inputs);
+        effect.inputs.push_back({"tiles_x", {int64_t{p.columns}}});
+        effect.inputs.push_back({"tiles_y", {int64_t{p.rows}}});
+        effect.inputs.push_back({"frames", {int64_t{p.rows} * p.columns}});
+    }
+    effect.unresolved.push_back({"M2Particle id", canon::UnresolvedField::Kind::Id, double(p.particleId), std::nullopt});
+
+    canon::ParticleSystem particle;
     particle.childEmittersModel = embeddedPath(p.childEmittersModelFilename);
     particle.blendingType = p.blendingType;
     particle.emitterType = p.emitterType;
     particle.particleColorIndex = p.particleColorIndex;
     std::copy(std::begin(p.multiTexScale), std::end(p.multiTexScale), particle.multiTextureScale);
     particle.priorityPlane = p.priorityPlane;
-    particle.textureRows = p.rows;
-    particle.textureColumns = p.columns;
 
     particle.emissionSpeed = floatTrack(src, p.emissionSpeedTrackOffset);
     particle.speedVariation = floatTrack(src, p.speedVariationTrackOffset);
@@ -280,7 +333,11 @@ canon::ParticleEmitter assembleParticle(const m2::Model& model, const m2::Partic
     for (const m2::Vec3& point : p.splinePoints) particle.splinePoints.push_back(toCanon(point));
     std::copy(std::begin(p.multiTexScrollMid), std::end(p.multiTexScrollMid), particle.multiTextureScrollMid);
     std::copy(std::begin(p.multiTexScrollRange), std::end(p.multiTexScrollRange), particle.multiTextureScrollRange);
-    return particle;
+    canon::StyleBlock style;
+    style.particleSystem = std::move(particle);
+    effect.style = {{"particles", {std::move(style)}}};
+    instance.effect = std::move(effect);
+    return instance;
 }
 
 }  // namespace
@@ -292,7 +349,7 @@ std::vector<uint16_t> particleTextureIndices(const m2::ParticleEmitter& emitter)
 }
 
 canon::Scene assembleScene(const m2::Model& model, uint32_t sequenceCount, const ExternalAnimBlobs& externalAnimBlobs,
-                           const TextureResolutions& textureResolutions, const skel::Attachments* skelAttachments) {
+                           const skel::Attachments* skelAttachments) {
     constexpr auto kStrict = canon::PartialFailurePolicy::Strict;
     const TrackSource modelTracks{model.blob, sequenceCount, externalAnimBlobs};
     canon::Scene scene;
@@ -313,19 +370,30 @@ canon::Scene assembleScene(const m2::Model& model, uint32_t sequenceCount, const
 
     canon::enforcePartialFailurePolicy(model, "lights", kStrict);
     for (const m2::Light& l : model.lights) scene.lights.push_back(assembleLight(l, modelTracks));
+    return scene;
+}
 
-    canon::enforcePartialFailurePolicy(model, "ribbon_emitters", kStrict);
-    for (size_t i = 0; i < model.ribbonEmitters.size(); ++i) {
-        scene.ribbons.push_back(assembleRibbon(model, model.ribbonEmitters[i], i, modelTracks, textureResolutions));
-    }
+canon::PlacementSet assembleEffects(const m2::Model& model, uint32_t sequenceCount,
+                                    const ExternalAnimBlobs& externalAnimBlobs,
+                                    const TextureResolutions& textureResolutions) {
+    constexpr auto kStrict = canon::PartialFailurePolicy::Strict;
+    const TrackSource modelTracks{model.blob, sequenceCount, externalAnimBlobs};
+    canon::PlacementSet effects;
+    effects.ref = canon::Ref{canon::RecordIndex{0}, "effects", canon::NameSource::Synthesized};
 
     // m2::loadModel leaves particleEmitters empty below kMinVerifiedParticleVersion,
     // so a pre-Cataclysm model simply has none here.
     canon::enforcePartialFailurePolicy(model, "particle_emitters", kStrict);
     for (size_t i = 0; i < model.particleEmitters.size(); ++i) {
-        scene.particles.push_back(assembleParticle(model, model.particleEmitters[i], i, modelTracks, textureResolutions));
+        effects.instances.push_back(assembleParticle(model, model.particleEmitters[i], i, modelTracks, textureResolutions));
     }
-    return scene;
+    canon::enforcePartialFailurePolicy(model, "ribbon_emitters", kStrict);
+    for (size_t i = 0; i < model.ribbonEmitters.size(); ++i) {
+        effects.instances.push_back(assembleRibbon(model, model.ribbonEmitters[i], i, modelTracks, textureResolutions));
+    }
+    // Particles first, then ribbons: an instance's id is its position.
+    for (uint32_t i = 0; i < effects.instances.size(); ++i) effects.instances[i].id = i;
+    return effects;
 }
 
 }  // namespace husk::m2input

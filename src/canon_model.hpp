@@ -93,6 +93,9 @@ struct Model {
     struct OwnedSet {
         PlacementSet set;
         bool alwaysOn = false;
+        // Written inside the model's manifest rather than as its own file:
+        // a set nothing else will share (an M2's effects).
+        bool inlineDocument = false;
     };
     std::vector<OwnedSet> placementSets;
     // The fog a part's 0 fog slot names (WMO MFOG record 0, when it is a
@@ -111,7 +114,7 @@ struct Model {
 // `Db2Row` identity, naming a bundle-external material, isn't resolvable
 // against a local `materials` vector at all, so it's accepted unchecked;
 // validating THAT reference is the consumer's job once cross-bundle
-// loading exists). Every bone reference in `scene` must be a `RecordIndex`
+// loading exists). Every bone reference in `scene`, and every instance anchor, must be a `RecordIndex`
 // in range for `skeleton.joints`, every primitive's `part` must be in range
 // for `mesh.parts`, instance ids must be unique within each placement set, and a
 // local light's placement set must be a RecordIndex in range for

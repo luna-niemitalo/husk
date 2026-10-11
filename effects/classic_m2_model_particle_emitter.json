@@ -1,0 +1,26 @@
+{
+  "definition": {
+    "status": "placeholder",
+    "inputs": {
+      "model": {
+        "kind": "mesh",
+        "description": "The model each particle draws."
+      }
+    }
+  },
+  "selection": {},
+  "references": [],
+  "sources": [
+    {
+      "id": "particles",
+      "region": {"kind": "point", "center": [0, 0, 0]},
+      "content": {
+        "kind": "particles",
+        "look": {
+          "kind": "mesh_instance",
+          "model": {"input": "model"}
+        }
+      }
+    }
+  ]
+}

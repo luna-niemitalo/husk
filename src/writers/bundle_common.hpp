@@ -12,6 +12,7 @@
 #include "canon_liquid.hpp"
 #include "canon_material.hpp"
 #include "canon_placement.hpp"
+#include "canon_scene.hpp"  // Animated, LifetimeCurve for the curve writers
 #include "canon_ref.hpp"
 #include "json_writer.hpp"
 
@@ -118,20 +119,23 @@ void writeSourceRecord(json::Writer& w, const canon::SourceRecord& record);
 struct OwnedSetEntry {
     const canon::PlacementSet* set = nullptr;
     bool alwaysOn = false;
+    bool inlineDocument = false;  // written into the owner's manifest, not sets/
 };
 
-// A placement_set document written by writePlacementSetDocuments.
+// A placement_set document written by writePlacementSetDocuments: a file
+// at `uri`, or the document itself in `inlineText` for an inline set.
 struct SetDocument {
     canon::Ref ref;
-    std::string uri;  // relative to the bundle directory
+    std::string uri;  // relative to the bundle directory; empty for an inline set
     bool alwaysOn = false;
     size_t instanceCount = 0;
+    std::string inlineText;
 };
 
-// Writes each set as a placement_set document `sets/<index>.json` under
-// `bundleDir` (schema/placement_set.schema.json), and every effect its
-// instances place as `effects/<name>.json`. `assetUris` are relative to
-// `bundleDir`.
+// Writes each set as a placement_set document (schema/placement_set.schema.json):
+// `sets/<index>.json` under `bundleDir`, or text for the caller to embed for
+// an inline set; and every effect their instances place as
+// `effects/<name>.json`. `assetUris` are relative to `bundleDir`.
 std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEntry>& sets,
                                                     const std::filesystem::path& bundleDir, const AssetUris& assetUris,
                                                     const Provenance& provenance);
@@ -163,6 +167,65 @@ void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const 
 
 // The schema's framebuffer blend vocabulary.
 std::string framebufferBlendName(canon::FramebufferBlend blend);
+
+// Value and field writers every document writer shares.
+void writeVec2Value(json::Writer& w, const canon::Vec2& v);
+void writeVec3Value(json::Writer& w, const canon::Vec3& v);
+void writeQuatValue(json::Writer& w, const canon::Quat& q);
+void writeScalarValue(json::Writer& w, float v);
+void writeFloatField(json::Writer& w, const char* key, float v);
+void writeIntField(json::Writer& w, const char* key, int64_t v);
+void writeVec3Field(json::Writer& w, const char* key, const canon::Vec3& v);
+void writeFloatArrayField(json::Writer& w, const char* key, const float* values, size_t count);
+std::string sequenceKindName(canon::SequenceRef::Kind kind);
+std::string interpolationName(canon::Interpolation interp);
+
+// One curve's keyframes inline (schema "inline_curve"): small, per-material
+// or per-emitter data, deliberately not a BufferSlice. `writeValue` writes
+// one keyframe's value in whatever shape T needs (a number for float, an
+// array for Vec3/Quat).
+template <typename T, typename ValueWriter>
+void writeInlineCurve(json::Writer& w, const canon::Curve<T>& curve, ValueWriter writeValue) {
+    w.beginObject();
+    w.key("sequence_index");
+    w.value(static_cast<int64_t>(curve.sequence.index));
+    w.key("sequence_kind");
+    w.value(sequenceKindName(curve.sequence.kind));
+    w.key("interpolation");
+    w.value(interpolationName(curve.interpolation));
+    w.key("keyframes");
+    w.beginArray();
+    for (const auto& [t, v] : curve.keyframes) {
+        w.beginArray();
+        w.value(static_cast<double>(t));
+        writeValue(w, v);
+        w.endArray();
+    }
+    w.endArray();
+    w.endObject();
+}
+
+template <typename T, typename ValueWriter>
+void writeAnimated(json::Writer& w, const char* key, const canon::Animated<T>& curves, ValueWriter writeValue) {
+    w.key(key);
+    w.beginArray();
+    for (const canon::Curve<T>& curve : curves) writeInlineCurve(w, curve, writeValue);
+    w.endArray();
+}
+
+template <typename T, typename ValueWriter>
+void writeLifetimeCurve(json::Writer& w, const char* key, const canon::LifetimeCurve<T>& curve,
+                        ValueWriter writeValue) {
+    w.key(key);
+    w.beginArray();
+    for (const auto& [timestamp, value] : curve.keyframes) {
+        w.beginArray();
+        w.value(static_cast<int64_t>(timestamp));
+        writeValue(w, value);
+        w.endArray();
+    }
+    w.endArray();
+}
 
 // resources.liquid_types (schema/common.schema.json "liquid_type"), the
 // array only; `writeTexture` writes one frame's texture entry, so terrain

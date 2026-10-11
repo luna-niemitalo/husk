@@ -902,6 +902,26 @@
         },
         {
           "type": "object",
+          "description": "A point: where the source is, its extent stated by its content or style.",
+          "properties": {
+            "kind": {
+              "const": "point",
+              "description": "Region kind."
+            },
+            "center": {
+              "$ref": "#/definitions/bound_vec3",
+              "description": "The point.",
+              "x-unit": "yard"
+            }
+          },
+          "required": [
+            "kind",
+            "center"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
           "description": "A sphere: full strength inside inner_radius, fading out to outer_radius.",
           "properties": {
             "kind": {
@@ -1159,6 +1179,23 @@
             "frames": {
               "$ref": "#/definitions/bound_integer",
               "description": "Frames the animation plays, from the first tile; may be fewer than the tiles."
+            },
+            "extra_layers": {
+              "description": "Further textures layered over the first, in order; absent: one layer.",
+              "oneOf": [
+                {
+                  "type": "array",
+                  "description": "The layers.",
+                  "items": {
+                    "$ref": "#/definitions/texture_entry",
+                    "description": "One layer."
+                  }
+                },
+                {
+                  "$ref": "#/definitions/binding",
+                  "description": "Where the layers come from."
+                }
+              ]
             }
           },
           "required": [
@@ -1167,6 +1204,71 @@
             "tiles_x",
             "tiles_y",
             "frames"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A ribbon: a strip trailing behind the source, textured along its length.",
+          "properties": {
+            "kind": {
+              "const": "ribbon",
+              "description": "Look kind."
+            },
+            "image": {
+              "$ref": "#/definitions/bound_image",
+              "description": "The texture."
+            },
+            "extra_layers": {
+              "description": "Further textures layered over the first, in order; absent: one layer.",
+              "oneOf": [
+                {
+                  "type": "array",
+                  "description": "The layers.",
+                  "items": {
+                    "$ref": "#/definitions/texture_entry",
+                    "description": "One layer."
+                  }
+                },
+                {
+                  "$ref": "#/definitions/binding",
+                  "description": "Where the layers come from."
+                }
+              ]
+            },
+            "tiles_x": {
+              "$ref": "#/definitions/bound_integer",
+              "description": "Atlas columns."
+            },
+            "tiles_y": {
+              "$ref": "#/definitions/bound_integer",
+              "description": "Atlas rows."
+            }
+          },
+          "required": [
+            "kind",
+            "image",
+            "tiles_x",
+            "tiles_y"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A model drawn at each particle, oriented by the particle; it doesn't collide.",
+          "properties": {
+            "kind": {
+              "const": "mesh_instance",
+              "description": "Look kind."
+            },
+            "model": {
+              "$ref": "#/definitions/bound_mesh",
+              "description": "The model."
+            }
+          },
+          "required": [
+            "kind",
+            "model"
           ],
           "additionalProperties": false
         }
@@ -1317,6 +1419,14 @@
             "color"
           ],
           "additionalProperties": false
+        },
+        "particle_system": {
+          "$ref": "#/definitions/particle_system",
+          "description": "The classic particle system an M2 emitter ran."
+        },
+        "ribbon_system": {
+          "$ref": "#/definitions/ribbon_system",
+          "description": "The classic ribbon an M2 emitter drew."
         }
       },
       "additionalProperties": false
@@ -1392,6 +1502,426 @@
         "fields"
       ],
       "additionalProperties": false
+    },
+    "ribbon_system": {
+      "type": "object",
+      "description": "The classic ribbon simulation's settings and curves.",
+      "properties": {
+        "materials": {
+          "type": "array",
+          "description": "Render settings per texture.",
+          "items": {
+            "type": "object",
+            "description": "One render setting.",
+            "properties": {
+              "framebuffer_blend": {
+                "enum": [
+                  "opaque",
+                  "alpha_key",
+                  "alpha",
+                  "no_alpha_add",
+                  "add",
+                  "mod",
+                  "mod2x",
+                  "blend_add"
+                ],
+                "description": "Blend with what is drawn."
+              },
+              "source": {
+                "type": "object",
+                "description": "Source-specific raw values.",
+                "properties": {
+                  "flags": {
+                    "$ref": "#/definitions/flags",
+                    "description": "The source's flag word."
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "flags"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "source"
+            ]
+          }
+        },
+        "color": {
+          "$ref": "#/definitions/animated",
+          "description": "Colour.",
+          "x-unit": "1"
+        },
+        "alpha": {
+          "$ref": "#/definitions/animated",
+          "description": "Opacity.",
+          "x-unit": "1"
+        },
+        "height_above": {
+          "$ref": "#/definitions/animated",
+          "description": "Height above the emitter.",
+          "x-unit": "yard"
+        },
+        "height_below": {
+          "$ref": "#/definitions/animated",
+          "description": "Height below the emitter.",
+          "x-unit": "yard"
+        },
+        "texture_slot": {
+          "$ref": "#/definitions/animated",
+          "description": "Texture cell index.",
+          "x-unit": "1"
+        },
+        "visibility": {
+          "$ref": "#/definitions/animated",
+          "description": "On or off.",
+          "x-unit": "1"
+        },
+        "edges_per_second": {
+          "type": "number",
+          "description": "Emission rate.",
+          "x-unit": "1/second"
+        },
+        "edge_lifetime": {
+          "type": "number",
+          "description": "Edge lifetime.",
+          "x-unit": "second"
+        },
+        "gravity": {
+          "type": "number",
+          "description": "Gravity.",
+          "x-unit": "yard/second^2"
+        },
+        "priority_plane": {
+          "type": "integer",
+          "description": "Draw order bias."
+        },
+        "ribbon_color_index": {
+          "type": "integer",
+          "description": "Colour index."
+        },
+        "texture_transform_lookup_index": {
+          "type": "integer",
+          "description": "Unresolved index into the source's texture transform lookup."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "materials",
+        "color",
+        "alpha",
+        "height_above",
+        "height_below",
+        "texture_slot",
+        "visibility",
+        "edges_per_second",
+        "edge_lifetime",
+        "gravity",
+        "priority_plane",
+        "ribbon_color_index",
+        "texture_transform_lookup_index"
+      ]
+    },
+    "particle_system": {
+      "type": "object",
+      "description": "The classic particle simulation's settings and curves.",
+      "properties": {
+        "child_emitters_model": {
+          "$ref": "#/definitions/ref",
+          "description": "Model whose emitters each particle carries."
+        },
+        "particle_color_index": {
+          "type": "integer",
+          "description": "Colour index."
+        },
+        "multi_texture_scale": {
+          "$ref": "#/definitions/vec2",
+          "description": "Scale of the extra texture layers.",
+          "x-unit": "1"
+        },
+        "priority_plane": {
+          "type": "integer",
+          "description": "Draw order bias."
+        },
+        "enabled_in": {
+          "$ref": "#/definitions/animated",
+          "description": "On or off.",
+          "x-unit": "1"
+        },
+        "color": {
+          "$ref": "#/definitions/lifetime_curve",
+          "description": "Colour over the particle's life, [r, g, b] as stored (0..255 observed).",
+          "x-unit": "1"
+        },
+        "alpha": {
+          "$ref": "#/definitions/lifetime_curve",
+          "description": "Opacity over life.",
+          "x-unit": "1"
+        },
+        "scale": {
+          "$ref": "#/definitions/lifetime_curve",
+          "description": "Size [x, y] over life.",
+          "x-unit": "yard"
+        },
+        "head_cell": {
+          "$ref": "#/definitions/lifetime_curve",
+          "description": "Head texture cell over life.",
+          "x-unit": "1"
+        },
+        "tail_cell": {
+          "$ref": "#/definitions/lifetime_curve",
+          "description": "Tail texture cell over life.",
+          "x-unit": "1"
+        },
+        "scale_variation": {
+          "$ref": "#/definitions/vec2",
+          "description": "Random size variation.",
+          "x-unit": "1"
+        },
+        "wind_vector": {
+          "$ref": "#/definitions/vec3",
+          "description": "Wind direction and strength.",
+          "x-unit": "yard/second"
+        },
+        "spline_points": {
+          "type": "array",
+          "description": "Emission spline points.",
+          "items": {
+            "$ref": "#/definitions/vec3",
+            "description": "A point.",
+            "x-unit": "yard"
+          },
+          "x-unit": "yard"
+        },
+        "multi_texture_scroll_mid": {
+          "$ref": "#/definitions/vec4",
+          "description": "Scroll midpoints of the extra layers.",
+          "x-unit": "uv/second"
+        },
+        "multi_texture_scroll_range": {
+          "$ref": "#/definitions/vec4",
+          "description": "Scroll ranges of the extra layers.",
+          "x-unit": "uv/second"
+        },
+        "source": {
+          "type": "object",
+          "description": "Source-specific raw values.",
+          "properties": {
+            "blending_type": {
+              "type": "integer",
+              "description": "Blend mode id as stored."
+            },
+            "emitter_type": {
+              "type": "integer",
+              "description": "Emitter shape id as stored."
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "blending_type",
+            "emitter_type"
+          ]
+        },
+        "emission_speed": {
+          "$ref": "#/definitions/animated",
+          "description": "Emission speed.",
+          "x-unit": "yard/second"
+        },
+        "speed_variation": {
+          "$ref": "#/definitions/animated",
+          "description": "Speed variation.",
+          "x-unit": "1"
+        },
+        "vertical_range": {
+          "$ref": "#/definitions/animated",
+          "description": "Vertical range.",
+          "x-unit": "radian"
+        },
+        "horizontal_range": {
+          "$ref": "#/definitions/animated",
+          "description": "Horizontal range.",
+          "x-unit": "radian"
+        },
+        "gravity": {
+          "$ref": "#/definitions/animated",
+          "description": "Gravity.",
+          "x-unit": "yard/second^2"
+        },
+        "lifespan": {
+          "$ref": "#/definitions/animated",
+          "description": "Lifespan.",
+          "x-unit": "second"
+        },
+        "emission_rate": {
+          "$ref": "#/definitions/animated",
+          "description": "Emission rate.",
+          "x-unit": "1/second"
+        },
+        "emission_area_length": {
+          "$ref": "#/definitions/animated",
+          "description": "Emission area length.",
+          "x-unit": "yard"
+        },
+        "emission_area_width": {
+          "$ref": "#/definitions/animated",
+          "description": "Emission area width.",
+          "x-unit": "yard"
+        },
+        "z_source": {
+          "$ref": "#/definitions/animated",
+          "description": "Z source.",
+          "x-unit": "yard"
+        },
+        "lifespan_variation": {
+          "type": "number",
+          "description": "Lifespan variation.",
+          "x-unit": "second"
+        },
+        "emission_rate_variation": {
+          "type": "number",
+          "description": "Emission rate variation.",
+          "x-unit": "1"
+        },
+        "tail_length": {
+          "type": "number",
+          "description": "Tail length.",
+          "x-unit": "1"
+        },
+        "twinkle_speed": {
+          "type": "number",
+          "description": "Twinkle speed.",
+          "x-unit": "1"
+        },
+        "twinkle_percent": {
+          "type": "number",
+          "description": "Twinkle percent.",
+          "x-unit": "1"
+        },
+        "twinkle_scale_min": {
+          "type": "number",
+          "description": "Twinkle scale min.",
+          "x-unit": "1"
+        },
+        "twinkle_scale_max": {
+          "type": "number",
+          "description": "Twinkle scale max.",
+          "x-unit": "1"
+        },
+        "inherit_velocity_scale": {
+          "type": "number",
+          "description": "Inherit velocity scale.",
+          "x-unit": "1"
+        },
+        "drag": {
+          "type": "number",
+          "description": "Drag.",
+          "x-unit": "1"
+        },
+        "base_spin": {
+          "type": "number",
+          "description": "Base spin.",
+          "x-unit": "1"
+        },
+        "base_spin_variation": {
+          "type": "number",
+          "description": "Base spin variation.",
+          "x-unit": "1"
+        },
+        "spin_speed": {
+          "type": "number",
+          "description": "Spin speed.",
+          "x-unit": "1"
+        },
+        "spin_speed_variation": {
+          "type": "number",
+          "description": "Spin speed variation.",
+          "x-unit": "1"
+        },
+        "wind_time": {
+          "type": "number",
+          "description": "Wind time.",
+          "x-unit": "second"
+        },
+        "follow_speed1": {
+          "type": "number",
+          "description": "Follow speed1.",
+          "x-unit": "1"
+        },
+        "follow_scale1": {
+          "type": "number",
+          "description": "Follow scale1.",
+          "x-unit": "1"
+        },
+        "follow_speed2": {
+          "type": "number",
+          "description": "Follow speed2.",
+          "x-unit": "1"
+        },
+        "follow_scale2": {
+          "type": "number",
+          "description": "Follow scale2.",
+          "x-unit": "1"
+        },
+        "tumble_min": {
+          "$ref": "#/definitions/vec3",
+          "description": "Minimum tumble rotation per axis.",
+          "x-unit": "radian"
+        },
+        "tumble_max": {
+          "$ref": "#/definitions/vec3",
+          "description": "Maximum tumble rotation per axis.",
+          "x-unit": "radian"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "particle_color_index",
+        "multi_texture_scale",
+        "priority_plane",
+        "enabled_in",
+        "color",
+        "alpha",
+        "scale",
+        "head_cell",
+        "tail_cell",
+        "scale_variation",
+        "wind_vector",
+        "spline_points",
+        "multi_texture_scroll_mid",
+        "multi_texture_scroll_range",
+        "source",
+        "emission_speed",
+        "speed_variation",
+        "vertical_range",
+        "horizontal_range",
+        "gravity",
+        "lifespan",
+        "emission_rate",
+        "emission_area_length",
+        "emission_area_width",
+        "z_source",
+        "lifespan_variation",
+        "emission_rate_variation",
+        "tail_length",
+        "twinkle_speed",
+        "twinkle_percent",
+        "twinkle_scale_min",
+        "twinkle_scale_max",
+        "inherit_velocity_scale",
+        "drag",
+        "base_spin",
+        "base_spin_variation",
+        "spin_speed",
+        "spin_speed_variation",
+        "wind_time",
+        "follow_speed1",
+        "follow_scale1",
+        "follow_speed2",
+        "follow_scale2",
+        "tumble_min",
+        "tumble_max"
+      ]
     }
   }
 }

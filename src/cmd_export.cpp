@@ -1290,9 +1290,8 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                 throw std::runtime_error("--bundle-only: expected exactly 1 resolved skin tier, got " +
                                          std::to_string(skinsToExport.size()));
             }
-            if (namedMeshes.empty()) {
-                throw std::runtime_error("--bundle-only: the resolved skin tier has no renderable geometry");
-            }
+            // A tier without geometry still exports: a model that only emits
+            // (steam, a spell impact) is its effects and skeleton.
             writeCanonBundleOnly(model, skinsToExport.front().second, catalog, modelPath,
                                  modelFileDataId ? modelFileDataId
                                                  : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),

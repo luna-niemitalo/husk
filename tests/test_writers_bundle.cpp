@@ -504,11 +504,26 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
     model.scene.attachments.push_back(attachment);
     model.scene.events.push_back({"$DTH", 7, canon::boneRef(0), {}});
     model.scene.lights.push_back(canon::Light{});
-    canon::ParticleEmitter particle;
-    particle.bone = canon::boneRef(0);
-    particle.textures.push_back(canon::TextureRef{});
-    particle.headCell.keyframes = {{0, 4}, {32767, 9}};
-    model.scene.particles.push_back(particle);
+    canon::PlacedInstance emitter;
+    emitter.asset = canon::Ref{canon::None{}, "classic_m2_particle_emitter", canon::NameSource::Synthesized};
+    emitter.anchor = canon::boneRef(0);
+    emitter.translation = {0, 0, 1};
+    canon::EffectPlacement effect;
+    effect.inputs = {{"texture", {canon::TextureRef{}}}, {"tiles_x", {int64_t{2}}}, {"tiles_y", {int64_t{2}}},
+                     {"frames", {int64_t{4}}}};
+    canon::ParticleSystem system;
+    system.headCell.keyframes = {{0, 4}, {32767, 9}};
+    canon::StyleBlock style;
+    style.particleSystem = system;
+    effect.style = {{"particles", {style}}};
+    effect.origin = {"M2Particle", 0};
+    emitter.effect = effect;
+    canon::Model::OwnedSet effects;
+    effects.set.ref = canon::Ref{canon::RecordIndex{0}, "effects", canon::NameSource::Synthesized};
+    effects.set.instances = {emitter};
+    effects.alwaysOn = true;
+    effects.inlineDocument = true;
+    model.placementSets = {effects};
 
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-scene";
     fs::remove_all(dir);
@@ -530,12 +545,21 @@ TEST_CASE("writeBundle: scene -- attachments, events, lights and emitters with i
     CHECK_FALSE(scene["animated_lights"][0].contains("bone"));
     CHECK(scene["animated_lights"][0]["kind"] == "directional");
     CHECK(scene["animated_lights"][0]["source"]["type"] == 0);
-    CHECK(scene["ribbon_emitters"].empty());
-    const auto& p = scene["particle_emitters"][0];
-    CHECK(p["textures"][0]["state"] == "known_unresolved");
-    CHECK(p["head_cell"] == nlohmann::json::array({{0, 4}, {32767, 9}}));
-    CHECK(p["emission_rate"].empty());
-    CHECK_FALSE(p.contains("particle_model"));
+    CHECK_FALSE(scene.contains("particle_emitters"));
+
+    // The emitter is an instance of the model's inline effects set.
+    const auto& reference = manifest["references"][0];
+    CHECK(reference["kind"] == "placement_set");
+    CHECK_FALSE(reference["asset"].contains("uri"));
+    CHECK_FALSE(fs::exists(dir / "sets"));
+    const auto& set = reference["document"];
+    CHECK(set["references"][0]["asset"]["uri"] == "effects/classic_m2_particle_emitter.json");
+    const auto& p = set["instances"][0];
+    CHECK(p["anchor"]["id"]["value"] == 0);
+    CHECK(p["inputs"]["texture"]["state"] == "known_unresolved");
+    const auto& written = p["style"]["particles"]["particle_system"];
+    CHECK(written["head_cell"] == nlohmann::json::array({{0, 4}, {32767, 9}}));
+    CHECK(written["emission_rate"].empty());
 }
 
 TEST_CASE("writeBundle: local lights write their optional blocks only when present") {

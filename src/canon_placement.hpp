@@ -28,6 +28,10 @@ struct InstanceTint {
 struct PlacedInstance {
     uint32_t id = 0;  // unique within its set; what a runtime addresses
     Ref asset;        // the placed asset's identity
+    // A joint of the model that owns the set: the instance moves with it,
+    // its translation staying in that model's frame at the bind pose (the
+    // convention of canon_scene.hpp's positions). nullopt: the set's frame.
+    std::optional<Ref> anchor;
     Vec3 translation;
     Quat rotation;  // parent-from-asset
     float scale = 1.0f;

@@ -28,8 +28,9 @@
 // - Every position in the scene is in model space, not relative to its
 //   joint; the joint's animation carries it as it would a vertex weighted
 //   1.0 to that joint.
-// - Owned placement sets are written as sets/<i>.json and are the
-//   document's first references, set i being reference i.
+// - Owned placement sets are written as sets/<i>.json, or inline in the
+//   reference's `document` (an M2's effects), and are the document's first
+//   references, set i being reference i.
 // - Mesh attribute channels written today: "wmo.poly_flags" (face, u16,
 //   MOPY/MPY2 flags raw; WMO.md's isCollidable is 0x08, or 0x20 without
 //   0x04, and 0x100 on MPY2 collision-only faces is undocumented) and

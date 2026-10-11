@@ -59,7 +59,7 @@ TEST_CASE("assembleScene: fox attachments carry id, bone, wiki name and a positi
     m2::Model model = m2::loadModel(readFile(test::testFoxM2()));
     REQUIRE(!model.attachments.empty());
 
-    canon::Scene scene = m2input::assembleScene(model, static_cast<uint32_t>(model.sequences.size()), {}, {}, nullptr);
+    canon::Scene scene = m2input::assembleScene(model, static_cast<uint32_t>(model.sequences.size()), {}, nullptr);
 
     REQUIRE(scene.attachments.size() == model.attachments.size());
     for (size_t i = 0; i < model.attachments.size(); ++i) {
@@ -73,35 +73,52 @@ TEST_CASE("assembleScene: fox attachments carry id, bone, wiki name and a positi
     CHECK(scene.events.size() == model.events.size());
 }
 
-TEST_CASE("assembleScene: weapon emitters keep every texture, curve and lifetime curve" *
+TEST_CASE("assembleEffects: weapon emitters become bone-anchored instances keeping every texture and curve" *
           doctest::skip(test::testWeaponParticleA().empty())) {
     m2::Model model = m2::loadModel(readFile(test::testWeaponParticleA()));
     REQUIRE(!model.particleEmitters.empty());
     REQUIRE(!model.ribbonEmitters.empty());
     auto sequenceCount = static_cast<uint32_t>(model.sequences.size());
 
-    canon::Scene scene = m2input::assembleScene(model, sequenceCount, {}, {}, nullptr);
+    canon::PlacementSet effects = m2input::assembleEffects(model, sequenceCount, {}, {});
 
-    REQUIRE(scene.particles.size() == model.particleEmitters.size());
-    for (size_t i = 0; i < model.particleEmitters.size(); ++i) {
+    size_t particles = model.particleEmitters.size();
+    REQUIRE(effects.instances.size() == particles + model.ribbonEmitters.size());
+    for (size_t i = 0; i < particles; ++i) {
         const m2::ParticleEmitter& source = model.particleEmitters[i];
-        const canon::ParticleEmitter& p = scene.particles[i];
-        CHECK(p.textures.size() == m2input::particleTextureIndices(source).size());
+        const canon::PlacedInstance& instance = effects.instances[i];
+        CHECK(instance.id == i);
+        CHECK(std::get<canon::RecordIndex>(instance.anchor->id).value == source.boneId);
+        checkSamePoint(instance.translation, model.bones[source.boneId].pivot);
+        const canon::ParticleSystem& p = *instance.effect->style.at(0).blocks.at(0).particleSystem;
         CHECK(p.emissionRate.size() == sequencesWithKeys(model.blob, source.emissionRateTrackOffset, sequenceCount));
         CHECK(p.color.keyframes.size() == m2::resolveFBlockVec3(model.blob, source.colorTrackBlockOffset).size());
         CHECK(p.scale.keyframes.size() == m2::resolveFBlockVec2(model.blob, source.scaleTrackBlockOffset).size());
-        checkSamePoint(p.position, model.bones[source.boneId].pivot);
+        size_t layers = m2input::particleTextureIndices(source).size();
+        const auto& inputs = instance.effect->inputs;
+        CHECK(inputs.at(0).name == "texture");
+        bool hasExtra = std::any_of(inputs.begin(), inputs.end(), [](const canon::NamedInput& n) { return n.name == "extra_layers"; });
+        CHECK(hasExtra == (layers > 1));
     }
 
-    REQUIRE(scene.ribbons.size() == model.ribbonEmitters.size());
     const m2::Ribbon& ribbonSource = model.ribbonEmitters[0];
-    const canon::RibbonEmitter& ribbon = scene.ribbons[0];
-    CHECK(ribbon.textures.size() == ribbonSource.textureIndices.size());
+    const canon::PlacedInstance& ribbonInstance = effects.instances[particles];
+    CHECK(ribbonInstance.asset.name == "classic_m2_ribbon");
+    const canon::RibbonSystem& ribbon = *ribbonInstance.effect->style.at(0).blocks.at(0).ribbonSystem;
     CHECK(ribbon.materials.size() == ribbonSource.materialIndices.size());
     CHECK(ribbon.heightAbove.size() == sequencesWithKeys(model.blob, ribbonSource.heightAboveTrackOffset, sequenceCount));
     // No resolutions were supplied, so every texture says why it is unresolved.
-    CHECK(ribbon.textures[0].state == canon::TextureRef::State::KnownUnresolved);
-    CHECK(!ribbon.textures[0].unresolvedReason.empty());
+    const auto& texture = std::get<canon::TextureRef>(ribbonInstance.effect->inputs.at(0).value.value);
+    CHECK(texture.state == canon::TextureRef::State::KnownUnresolved);
+    CHECK(!texture.unresolvedReason.empty());
+
+    // An emitter that spawns a model takes the model as its one input.
+    model.particleEmitters[0].particleModelFilename = "spells/ember.m2";
+    canon::PlacementSet withModel = m2input::assembleEffects(model, sequenceCount, {}, {});
+    const canon::PlacedInstance& modelEmitter = withModel.instances[0];
+    CHECK(modelEmitter.asset.name == "classic_m2_model_particle_emitter");
+    REQUIRE(modelEmitter.effect->inputs.size() == 1);
+    CHECK(std::get<canon::Ref>(modelEmitter.effect->inputs[0].value.value).name == "spells/ember.m2");
 }
 
 TEST_CASE("assembleScene: lights resolve every animated property per sequence" *
@@ -110,7 +127,7 @@ TEST_CASE("assembleScene: lights resolve every animated property per sequence" *
     REQUIRE(!model.lights.empty());
     auto sequenceCount = static_cast<uint32_t>(model.sequences.size());
 
-    canon::Scene scene = m2input::assembleScene(model, sequenceCount, {}, {}, nullptr);
+    canon::Scene scene = m2input::assembleScene(model, sequenceCount, {}, nullptr);
 
     REQUIRE(scene.lights.size() == model.lights.size());
     for (size_t i = 0; i < model.lights.size(); ++i) {

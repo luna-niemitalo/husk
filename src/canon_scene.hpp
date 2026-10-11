@@ -76,11 +76,10 @@ struct RenderState {
     std::optional<FramebufferBlend> blend;  // nullopt when the source mode is outside M2BLEND's 0..7
 };
 
-struct RibbonEmitter {
-    uint32_t ribbonId = 0;
-    Ref bone;
-    Vec3 position;
-    std::vector<TextureRef> textures;
+// The classic ribbon an M2 emitter drew (M2Ribbon), as an effect
+// instance's style: the bone, position and textures are the instance's
+// anchor, translation and inputs (REFACTOR/EFFECTS.md).
+struct RibbonSystem {
     std::vector<RenderState> materials;
     Animated<Vec3> color;  // RGB 0..1
     Animated<float> alpha;  // 0..1
@@ -91,8 +90,6 @@ struct RibbonEmitter {
     float edgesPerSecond = 0;
     float edgeLifetime = 0;  // seconds
     float gravity = 0;
-    uint16_t textureRows = 0;
-    uint16_t textureColumns = 0;
     int16_t priorityPlane = 0;
     int8_t ribbonColorIndex = 0;
     // Index into the source model's texture-transform lookup table -- the
@@ -100,23 +97,17 @@ struct RibbonEmitter {
     int8_t textureTransformLookupIndex = 0;
 };
 
-struct ParticleEmitter {
-    uint32_t particleId = 0;
-    uint32_t flags = 0;  // M2Particle flags, raw (wowdev.wiki M2#Particle_Flags)
-    Ref bone;
-    Vec3 position;
-    // One texture, or up to three for a MultiTexture (flags 0x10000000)
-    // emitter, in layer order.
-    std::vector<TextureRef> textures;
-    std::optional<Ref> particleModel;       // set: spawns model particles (a game path, M2Embedded)
+// The classic particle system an M2 emitter ran (M2Particle), as an effect
+// instance's style: the bone, position, textures and particle model are
+// the instance's anchor, translation and inputs, its flags the instance's
+// source flags (REFACTOR/EFFECTS.md).
+struct ParticleSystem {
     std::optional<Ref> childEmittersModel;  // set: child emitters come from this model
     uint8_t blendingType = 0;  // wowdev.wiki M2#Particle_Blendings, raw
     uint8_t emitterType = 0;   // 1 plane, 2 sphere, 3 spline, 4 bone
     uint16_t particleColorIndex = 0;  // ParticleColor.db2 selector, 0 = unmodified
     float multiTextureScale[2] = {0, 0};
     int16_t priorityPlane = 0;
-    uint16_t textureRows = 0;
-    uint16_t textureColumns = 0;
 
     Animated<float> emissionSpeed;
     Animated<float> speedVariation;
@@ -220,8 +211,6 @@ struct Scene {
     std::vector<Event> events;
     std::vector<Light> lights;
     std::vector<LocalLight> localLights;
-    std::vector<RibbonEmitter> ribbons;
-    std::vector<ParticleEmitter> particles;
 };
 
 }  // namespace husk::canon

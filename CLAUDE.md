@@ -316,15 +316,12 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
 - **Effects (2026-10-11, `REFACTOR/EFFECTS.md`)**: the fourth document
   kind, `effect` (bodies checked in as `effects/*.json`, embedded),
   placed by placement-set instances that supply typed inputs, a classic
-  `style` and `unresolved` fields. Every WMO and map volume source is on
-  it as a placeholder effect (literal tier); `validate-bundle` warns on
-  placeholders and `--release` fails. **Next**: M2 particle/ribbon
-  emitters (split `canon::ParticleEmitter` into inputs + a
-  `ParticleSystem` style, a joint `anchor` on placement instances, an
-  inline effects set in the M2 manifest, `point` region, `ribbon` and
-  `mesh_instance` looks; move the curve writers into
-  `writers/bundle_common.cpp`). Then Phase 3 (derivations), `LightData`
-  zone fog, classification before 1.0. Effect documents are written per
+  `style` and `unresolved` fields. Every WMO and map volume source, and
+  every M2 particle/ribbon emitter (bone-anchored, in an inline effects
+  set), is on it as a placeholder effect (literal tier, Phase 2 done);
+  `validate-bundle` warns on placeholders and `--release` fails.
+  **Next**: Phase 3 (derived world content: extinction, priority,
+  emission), `LightData` zone fog, then classification before 1.0. Effect documents are written per
   bundle (`<bundle>/effects/`), not shared across an export-world tree
   yet. The format is at schema_version 0.1.0.
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,

@@ -1,0 +1,46 @@
+{
+  "definition": {
+    "status": "placeholder",
+    "inputs": {
+      "texture": {
+        "kind": "image",
+        "description": "The ribbon texture: an atlas of cells."
+      },
+      "extra_layers": {
+        "kind": "list",
+        "optional": true,
+        "description": "Further textures the ribbon lists after the first, in order.",
+        "item": {
+          "kind": "image",
+          "description": "One texture."
+        }
+      },
+      "tiles_x": {
+        "kind": "integer",
+        "description": "Atlas columns."
+      },
+      "tiles_y": {
+        "kind": "integer",
+        "description": "Atlas rows."
+      }
+    }
+  },
+  "selection": {},
+  "references": [],
+  "sources": [
+    {
+      "id": "ribbon",
+      "region": {"kind": "point", "center": [0, 0, 0]},
+      "content": {
+        "kind": "particles",
+        "look": {
+          "kind": "ribbon",
+          "image": {"input": "texture"},
+          "extra_layers": {"input": "extra_layers"},
+          "tiles_x": {"input": "tiles_x"},
+          "tiles_y": {"input": "tiles_y"}
+        }
+      }
+    }
+  ]
+}
