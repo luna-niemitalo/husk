@@ -149,7 +149,8 @@ TEST_CASE("bundle_schema: every effect husk writes validates") {
     for (const char* name : {"classic_local_fog", "classic_fog_exit_blend", "classic_ambient_global",
                              "classic_ambient_point", "classic_ambient_box", "classic_particulate_volume",
                              "classic_volumetric_fog", "classic_map_particulate_volume", "classic_m2_particle_emitter",
-                             "classic_m2_model_particle_emitter", "classic_m2_ribbon"}) {
+                             "classic_m2_model_particle_emitter", "classic_m2_ribbon", "classic_zone_fog_global",
+                             "classic_zone_fog"}) {
         CAPTURE(name);
         fs::path file = fs::temp_directory_path() / "husk-schema-effects" / (std::string(name) + ".json");
         fs::create_directories(file.parent_path());

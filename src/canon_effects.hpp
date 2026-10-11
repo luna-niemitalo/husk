@@ -48,6 +48,40 @@ struct DistanceFog {
     std::optional<LinearFog> linear;
 };
 
+// One zone light's fog values at a time of day (LightData's fog columns;
+// their roles in the client's fog record are candidates, EFFECTS.md).
+struct FogCycleKey {
+    float time = 0;  // seconds since midnight
+    float end = 0;
+    float scaler = 0;
+    float density = 0;
+    float startOffset = 0;
+    float height = 0;
+    float heightScaler = 0;
+    float heightDensity = 0;
+    float zScalar = 0;
+    float curveStart = 0;
+    float curveEnd = 0;
+    float sunAngle = 0;  // a cosine
+    float sunStrength = 0;
+    float endColorDistance = 0;
+    Vec3 skyColor;
+    Vec3 endColor;
+    Vec3 sunColor;
+    Vec3 heightColor;
+    Vec3 endHeightColor;
+    std::array<float, 4> heightCoefficients{};
+    std::array<float, 4> mainCoefficients{};
+    std::array<float, 4> heightDensityCoefficients{};
+};
+
+// A zone light's fog by the condition the client picks it under; an empty
+// cycle is a condition the zone doesn't state.
+struct ZoneFog {
+    enum Slot { Clear, ClearUnderwater, Storm, StormUnderwater, Death, SlotCount };
+    std::array<std::vector<FogCycleKey>, SlotCount> cycles;
+};
+
 // How the classic client drew one effect source.
 struct StyleBlock {
     std::optional<DistanceFog> distanceFog;
@@ -65,6 +99,7 @@ struct StyleBlock {
         uint32_t minQuality = 0;
     };
     std::optional<VolumetricFog> volumetricFog;
+    std::optional<ZoneFog> zoneFog;
     std::optional<ParticleSystem> particleSystem;  // an M2 particle emitter's simulation
     std::optional<RibbonSystem> ribbonSystem;      // an M2 ribbon's
     // How the classic client drew the source's particles.

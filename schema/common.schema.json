@@ -1475,6 +1475,33 @@
         "ribbon_system": {
           "$ref": "#/definitions/ribbon_system",
           "description": "The classic ribbon an M2 emitter drew."
+        },
+        "zone_fog": {
+          "type": "object",
+          "description": "The classic zone light's fog, by the condition the client picks it under (wowdev.wiki DB/Light).",
+          "properties": {
+            "clear": {
+              "$ref": "#/definitions/fog_cycle",
+              "description": "In clear weather."
+            },
+            "clear_underwater": {
+              "$ref": "#/definitions/fog_cycle",
+              "description": "In clear weather, under water."
+            },
+            "storm": {
+              "$ref": "#/definitions/fog_cycle",
+              "description": "In rain, snow or sandstorm."
+            },
+            "storm_underwater": {
+              "$ref": "#/definitions/fog_cycle",
+              "description": "In storm weather, under water."
+            },
+            "death": {
+              "$ref": "#/definitions/fog_cycle",
+              "description": "While the viewer is dead."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -1999,6 +2026,151 @@
         },
         "required": [
           "kind"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "fog_cycle": {
+      "type": "array",
+      "description": "A zone light's fog values at times of day, ascending; between two keys the client interpolates. Names follow the source table (LightData); their roles in the fog record are candidates (REFACTOR/EFFECTS.md).",
+      "items": {
+        "type": "object",
+        "description": "The values at one time of day.",
+        "properties": {
+          "time": {
+            "type": "number",
+            "description": "Time of day the values hold at.",
+            "x-unit": "second"
+          },
+          "end": {
+            "type": "number",
+            "description": "Fog end (LightData FogEnd).",
+            "x-unit": "yard"
+          },
+          "scaler": {
+            "type": "number",
+            "description": "FogScaler.",
+            "x-unit": "1"
+          },
+          "density": {
+            "type": "number",
+            "description": "Exponential density (FogDensity).",
+            "x-unit": "1/yard"
+          },
+          "start_offset": {
+            "type": "number",
+            "description": "FogStartOffset.",
+            "x-unit": "yard"
+          },
+          "height": {
+            "type": "number",
+            "description": "Height-fog plane (FogHeight).",
+            "x-unit": "yard"
+          },
+          "height_scaler": {
+            "type": "number",
+            "description": "FogHeightScaler.",
+            "x-unit": "1"
+          },
+          "height_density": {
+            "type": "number",
+            "description": "Density inside the height fog (FogHeightDensity).",
+            "x-unit": "1/yard"
+          },
+          "z_scalar": {
+            "type": "number",
+            "description": "Vertical band (FogZScalar).",
+            "x-unit": "yard"
+          },
+          "curve_start": {
+            "type": "number",
+            "description": "Distance-curve near distance (MainFogStartDist).",
+            "x-unit": "yard"
+          },
+          "curve_end": {
+            "type": "number",
+            "description": "Distance-curve far distance (MainFogEndDist).",
+            "x-unit": "yard"
+          },
+          "sun_angle": {
+            "type": "number",
+            "description": "Cosine past which sun fog starts (SunFogAngle).",
+            "x-unit": "1"
+          },
+          "sun_strength": {
+            "type": "number",
+            "description": "Sun fog strength (SunFogStrength).",
+            "x-unit": "1"
+          },
+          "end_color_distance": {
+            "type": "number",
+            "description": "EndFogColorDistance.",
+            "x-unit": "yard"
+          },
+          "sky_color": {
+            "$ref": "#/definitions/rgb",
+            "description": "SkyFogColor.",
+            "x-unit": "1"
+          },
+          "end_color": {
+            "$ref": "#/definitions/rgb",
+            "description": "EndFogColor.",
+            "x-unit": "1"
+          },
+          "sun_color": {
+            "$ref": "#/definitions/rgb",
+            "description": "SunFogColor.",
+            "x-unit": "1"
+          },
+          "height_color": {
+            "$ref": "#/definitions/rgb",
+            "description": "FogHeightColor.",
+            "x-unit": "1"
+          },
+          "end_height_color": {
+            "$ref": "#/definitions/rgb",
+            "description": "EndFogHeightColor.",
+            "x-unit": "1"
+          },
+          "height_coefficients": {
+            "$ref": "#/definitions/vec4",
+            "description": "FogHeightCoefficients. Cubic coefficients x^3, x^2, x, 1.",
+            "x-unit": "1"
+          },
+          "main_coefficients": {
+            "$ref": "#/definitions/vec4",
+            "description": "MainFogCoefficients. Cubic coefficients x^3, x^2, x, 1.",
+            "x-unit": "1"
+          },
+          "height_density_coefficients": {
+            "$ref": "#/definitions/vec4",
+            "description": "HeightDensityFogCoeff. Cubic coefficients x^3, x^2, x, 1.",
+            "x-unit": "1"
+          }
+        },
+        "required": [
+          "time",
+          "end",
+          "scaler",
+          "density",
+          "start_offset",
+          "height",
+          "height_scaler",
+          "height_density",
+          "z_scalar",
+          "curve_start",
+          "curve_end",
+          "sun_angle",
+          "sun_strength",
+          "end_color_distance",
+          "sky_color",
+          "end_color",
+          "sun_color",
+          "height_color",
+          "end_height_color",
+          "height_coefficients",
+          "main_coefficients",
+          "height_density_coefficients"
         ],
         "additionalProperties": false
       }

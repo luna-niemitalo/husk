@@ -264,6 +264,30 @@ void writeDistanceFog(json::Writer& w, const canon::DistanceFog& fog) {
 
 void writeRgba(json::Writer& w, const std::array<float, 4>& c) { writeFloats(w, {c[0], c[1], c[2], c[3]}); }
 
+void writeFogCycleKey(json::Writer& w, const canon::FogCycleKey& k) {
+    w.beginObject();
+    for (auto [key, value] : {std::pair{"time", k.time}, std::pair{"end", k.end}, std::pair{"scaler", k.scaler},
+                              std::pair{"density", k.density}, std::pair{"start_offset", k.startOffset},
+                              std::pair{"height", k.height}, std::pair{"height_scaler", k.heightScaler},
+                              std::pair{"height_density", k.heightDensity}, std::pair{"z_scalar", k.zScalar},
+                              std::pair{"curve_start", k.curveStart}, std::pair{"curve_end", k.curveEnd},
+                              std::pair{"sun_angle", k.sunAngle}, std::pair{"sun_strength", k.sunStrength},
+                              std::pair{"end_color_distance", k.endColorDistance}}) {
+        writeFloatField(w, key, value);
+    }
+    for (auto [key, color] : {std::pair{"sky_color", &k.skyColor}, std::pair{"end_color", &k.endColor},
+                              std::pair{"sun_color", &k.sunColor}, std::pair{"height_color", &k.heightColor},
+                              std::pair{"end_height_color", &k.endHeightColor}}) {
+        writeVec3Field(w, key, *color);
+    }
+    for (auto [key, cubic] : {std::pair{"height_coefficients", &k.heightCoefficients},
+                              std::pair{"main_coefficients", &k.mainCoefficients},
+                              std::pair{"height_density_coefficients", &k.heightDensityCoefficients}}) {
+        writeFloatArrayField(w, key, cubic->data(), cubic->size());
+    }
+    w.endObject();
+}
+
 void writeRibbonSystem(json::Writer& w, const canon::RibbonSystem& r) {
     w.beginObject();
     w.key("materials");
@@ -396,6 +420,20 @@ void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
         writeVec3(w, style.volumetricFog->color);
         w.key("min_quality");
         w.value(static_cast<int64_t>(style.volumetricFog->minQuality));
+        w.endObject();
+    }
+    if (style.zoneFog) {
+        static constexpr const char* kSlots[] = {"clear", "clear_underwater", "storm", "storm_underwater", "death"};
+        w.key("zone_fog");
+        w.beginObject();
+        for (size_t slot = 0; slot < canon::ZoneFog::SlotCount; ++slot) {
+            const std::vector<canon::FogCycleKey>& cycle = style.zoneFog->cycles[slot];
+            if (cycle.empty()) continue;
+            w.key(kSlots[slot]);
+            w.beginArray();
+            for (const canon::FogCycleKey& k : cycle) writeFogCycleKey(w, k);
+            w.endArray();
+        }
         w.endObject();
     }
     if (style.particleSystem) {

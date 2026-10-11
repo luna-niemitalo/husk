@@ -26,6 +26,7 @@
 #include "husk_config.hpp"
 #include "groundeffect_db2.hpp"
 #include "liquid_canon_input.hpp"
+#include "light_db2.hpp"
 #include "liquid_db2.hpp"
 #include "listfile_cache.hpp"
 #include "listfile_index.hpp"
@@ -107,6 +108,9 @@ void addExportMapOptions(CLI::App& app, ExportMapOptions& opts) {
         ->group("Resolution");
     app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to, or 'none'")
         ->group("Resolution");
+    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory for the zone lights (Light, LightData, Map), or 'none'")
+        ->group("Resolution");
+    app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
 }
 
 void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts) {
@@ -281,6 +285,22 @@ adtinput::GroundEffectDefinitions loadGroundEffects(const std::string& db2Dir, c
     adtinput::GroundEffectDefinitions out = adtinput::groundEffectDefinitions(*data);
     note = "ground effects: " + std::to_string(out.size()) + " rules from " + db2Dir;
     return out;
+}
+
+std::optional<lightdb::Data> loadLights(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
+    if (db2Dir.empty() || dbdDir.empty()) {
+        note = "zone lights: none (needs --db2-dir and --dbd-dir)";
+        return std::nullopt;
+    }
+    std::ostringstream err;
+    std::optional<lightdb::Data> data = lightdb::load(db2Dir, dbdDir, err);
+    if (!data) {
+        note = "zone lights: none (light DB2s unreadable: " + err.str() + ")";
+        return std::nullopt;
+    }
+    note = "zone lights: " + std::to_string(data->zones.size()) + " zones, " + std::to_string(data->keysByParams.size()) +
+           " light params from " + db2Dir;
+    return data;
 }
 
 std::optional<liquiddb::Data> loadLiquids(const std::string& db2Dir, const std::string& dbdDir, std::string& note) {
@@ -482,11 +502,11 @@ void printPlaceholderEffects(const std::vector<canon::PlacementSet>& sets, const
     }
 }
 
-// A map directory's _fogs.wdt and _mpv.wdt as world placement sets of
-// effect instances; none when the map has neither file. A file that exists
-// but doesn't parse fails the export.
+// A map directory's _fogs.wdt and _mpv.wdt, and `lights`' zones for the
+// map, as world placement sets of effect instances; none when the map has
+// none of them. A file that exists but doesn't parse fails the export.
 std::vector<canon::PlacementSet> loadMapEffects(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
-                                                const std::string& listfileRoot) {
+                                                const std::string& listfileRoot, const lightdb::Data* lights) {
     std::string map = mapDir.filename().string();
     std::filesystem::path fogsPath = mapDir / (map + "_fogs.wdt");
     std::filesystem::path mpvPath = mapDir / (map + "_mpv.wdt");
@@ -498,12 +518,11 @@ std::vector<canon::PlacementSet> loadMapEffects(const std::filesystem::path& map
     } catch (const std::exception& e) {
         throw std::runtime_error(map + ": " + e.what());
     }
-    if (!fogs && !mpv) return {};
-
     mapinput::MapSceneInputs inputs;
     inputs.map = map;
     inputs.fogs = fogs ? &*fogs : nullptr;
     inputs.mpv = mpv ? &*mpv : nullptr;
+    inputs.lights = lights;
     if (listfile) {
         if (mpv) {
             for (const wdt::MapParticulateVolume& v : mpv->volumes) {
@@ -662,7 +681,8 @@ std::pair<canon::Vec3, canon::Vec3> terrainBounds(const canon::Terrain& terrain)
 // that doesn't parse fails the world, a missing volume file leaves the scene
 // empty.
 canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& wdt, const std::vector<WorldTile>& tiles,
-                       const ListfileIndex* listfile, const std::string& listfileRoot, unsigned jobs) {
+                       const ListfileIndex* listfile, const std::string& listfileRoot, const lightdb::Data* lights,
+                       unsigned jobs) {
     std::string map = mapDir.filename().string();
     std::filesystem::path wdtPath = mapDir / (map + ".wdt");
     std::vector<std::filesystem::path> named{wdtPath};
@@ -711,12 +731,12 @@ canon::World loadWorld(const std::filesystem::path& mapDir, const adt::WdtFile& 
         }
     });
     if (failure) std::rethrow_exception(failure);
-    for (canon::PlacementSet& set : loadMapEffects(mapDir, listfile, listfileRoot)) world.placements.push_back(std::move(set));
+    for (canon::PlacementSet& set : loadMapEffects(mapDir, listfile, listfileRoot, lights)) world.placements.push_back(std::move(set));
     return world;
 }
 
 writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const ListfileIndex* listfile,
-                                    const std::string& listfilePath) {
+                                    const std::string& listfilePath, bool haveLights) {
     std::string map = mapDir.filename().string();
     writers::Provenance out{std::string("husk ") + husk::version(), "wdt", {}};
     out.sources.push_back({"root adt", "the tile grid and each tile's bounds", true, ""});
@@ -725,6 +745,7 @@ writers::Provenance worldProvenance(const std::filesystem::path& mapDir, const L
                            ""});
     out.sources.push_back({"listfile", "tile and map FileDataIDs, particle textures, fog shape models",
                            listfile != nullptr, listfile ? listfilePath : "not given"});
+    out.sources.push_back({"light db2", "the map's zone lights and their fog by time of day", haveLights, ""});
     return out;
 }
 
@@ -1023,13 +1044,16 @@ int exportMap(int argc, char** args) {
             return !wdt.hasTile(name.x, name.y);
         });
         if (unlisted > 0) std::cerr << "husk: note: " << unlisted << " root tiles the WDT's MAIN doesn't list, skipped\n";
+        std::string lightNote;
+        std::optional<lightdb::Data> lights = loadLights(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), lightNote);
+        std::cerr << "husk: note: " << lightNote << "\n";
         canon::World world = loadWorld(mapDir, wdt, tiles, listfile.get(), unlessNone(opts.listfileRoot),
-                                       std::max(1u, std::thread::hardware_concurrency()));
+                                       lights ? &*lights : nullptr, std::max(1u, std::thread::hardware_concurrency()));
         if (world.cells.empty() && !placesModels(world.placements)) {
             throw std::runtime_error("expected root tiles " + map + "_<x>_<y>.adt in " + mapDir.string() +
                                      " or a map-wide WMO in " + map + ".wdt, found neither");
         }
-        writers::writeWorldBundle(world, opts.output, worldProvenance(mapDir, listfile.get(), listfilePath),
+        writers::writeWorldBundle(world, opts.output, worldProvenance(mapDir, listfile.get(), listfilePath, lights.has_value()),
                                   std::vector<std::string>(world.cells.size()));
         std::cout << "wrote " << opts.output << ": " << world.cells.size() << " tiles, " << world.placements.size()
                   << " off-grid placement sets\n";
@@ -1109,6 +1133,9 @@ int exportWorld(int argc, char** args) {
         const std::optional<liquiddb::Data> liquids =
             loadLiquids(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), liquidNote);
         std::cout << liquidNote << std::endl;
+        std::string lightNote;
+        const std::optional<lightdb::Data> lights = loadLights(unlessNone(opts.db2Dir), unlessNone(opts.dbdDir), lightNote);
+        std::cout << lightNote << std::endl;
 
         // Pass 1: references.
         std::set<uint32_t> modelIds;
@@ -1386,7 +1413,8 @@ int exportWorld(int argc, char** args) {
                                                      " for the world document (see its wdt error, if any)");
                         }
                         canon::World world =
-                            loadWorld(mapDir, wdt->second, mapTiles, listfile.get(), opts.listfileRoot, jobs);
+                            loadWorld(mapDir, wdt->second, mapTiles, listfile.get(), opts.listfileRoot,
+                                      lights ? &*lights : nullptr, jobs);
                         writers::AssetUris assetUris;
                         auto link = [&](const canon::Ref& ref) {
                             auto fdid = std::get_if<canon::FileDataId>(&ref.id);
@@ -1404,7 +1432,7 @@ int exportWorld(int argc, char** args) {
                                 }
                             }
                         }
-                        writers::writeWorldBundle(world, bundle, worldProvenance(mapDir, listfile.get(), opts.listfile),
+                        writers::writeWorldBundle(world, bundle, worldProvenance(mapDir, listfile.get(), opts.listfile, lights.has_value()),
                                                   tileUris, assetUris);
                     }
                     ++worlds;

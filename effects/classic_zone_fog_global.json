@@ -1,0 +1,16 @@
+{
+  "definition": {
+    "status": "placeholder",
+    "inputs": {}
+  },
+  "selection": {},
+  "references": [],
+  "sources": [
+    {
+      "id": "fog",
+      "region": {
+        "kind": "everywhere"
+      }
+    }
+  ]
+}

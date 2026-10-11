@@ -82,7 +82,8 @@ find_package(nlohmann_json_schema_validator CONFIG REQUIRED)
 set(HUSK_SCHEMAS common model placement_set world effect)
 set(HUSK_EFFECTS classic_local_fog classic_fog_exit_blend classic_ambient_global classic_ambient_point
                  classic_ambient_box classic_particulate_volume classic_volumetric_fog classic_map_particulate_volume
-                 classic_m2_particle_emitter classic_m2_model_particle_emitter classic_m2_ribbon)
+                 classic_m2_particle_emitter classic_m2_model_particle_emitter classic_m2_ribbon classic_zone_fog_global
+                 classic_zone_fog)
 set(HUSK_SCHEMA_FILES)
 foreach(name IN LISTS HUSK_SCHEMAS)
   list(APPEND HUSK_SCHEMA_FILES ${CMAKE_SOURCE_DIR}/schema/${name}.schema.json)
@@ -167,6 +168,7 @@ add_library(husk-lib STATIC
   src/creature_geoset_db2.cpp
   src/groundeffect_db2.cpp
   src/liquid_db2.cpp
+  src/light_db2.cpp
   src/liquid_canon_input.cpp
   src/chrrace_db2.cpp
   src/animationdata_db2.cpp
@@ -270,6 +272,7 @@ if(HUSK_BUILD_TESTS)
     tests/test_listfile_mmap_real.cpp
     tests/test_db2table.cpp
     tests/test_liquid_db2.cpp
+    tests/test_light_db2.cpp
     tests/test_sources_catalog.cpp
     tests/test_sources_resolved.cpp
     tests/test_sources_texture_catalog.cpp

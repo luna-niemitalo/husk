@@ -32,9 +32,23 @@ and `fog_color_to_albedo` (WMO fog spheres), `fog_level_to_priority`
 (map fogs), `count_to_spawn_density` (particle volumes). Each derived
 value is an optional input or the priority, named in the instance's
 provenance; `validate-bundle` checks every provenance path names a value
-the instance holds. Not yet: `fog_density_to_extinction` (needs
-`LightData`), `additive_to_emission`/`alpha_to_albedo` (M2 particle
-blend ids), the gate.
+the instance holds. Not yet: `fog_density_to_extinction` (its source,
+the zone fog below, is keyed by time of day, and a medium is one value
+so far), `additive_to_emission`/`alpha_to_albedo` (M2 particle blend
+ids), the gate.
+
+Phase 4: each map's `Light` zones are `classic_zone_fog` instances (a
+sphere fading between the falloff radii) or `classic_zone_fog_global`
+(the map-wide zone) in the world document's `zone_fogs` set, read
+through `lightdb` (`Light`, `LightData`, `Map`). Their style is
+`zone_fog`: per condition the client picks (clear, clear underwater,
+storm, storm underwater, death: `LightParams` slots 0..4), the fog
+columns of `LightData` at each time of day, in seconds since midnight.
+Names follow `LightData`; their roles in the fog record are the
+candidates in the table above. Params slots 5..7, and slots naming
+params with no `LightData` rows, stay unresolved. The rest of the row
+(sky, ambient, direct light) is `LIGHTING_TODO.md`'s. Open: `zone_fogs`
+repeats shared `LightParams` per zone (azeroth's set is 7.8 MB).
 
 Source facts are in `../WIKI_FINDINGS/WORLD.md`, open items in
 `../TODO/WORLD/FOG_VOLUMES_TODO.md`, and the client's fog code in

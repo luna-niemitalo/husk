@@ -244,6 +244,8 @@ struct ExportMapOptions {
     std::string output;
     std::string listfile;
     std::string listfileRoot;
+    std::string db2Dir;
+    std::string dbdDir;
 };
 void addExportMapOptions(CLI::App& app, ExportMapOptions& opts);
 

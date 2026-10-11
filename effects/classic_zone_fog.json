@@ -1,0 +1,38 @@
+{
+  "definition": {
+    "status": "placeholder",
+    "inputs": {
+      "inner_radius": {
+        "kind": "number",
+        "unit": "yard",
+        "description": "Radius inside which only this zone's light holds."
+      },
+      "outer_radius": {
+        "kind": "number",
+        "unit": "yard",
+        "description": "Radius where it has blended into the surrounding zones'."
+      }
+    }
+  },
+  "selection": {},
+  "references": [],
+  "sources": [
+    {
+      "id": "fog",
+      "region": {
+        "kind": "sphere",
+        "center": [
+          0,
+          0,
+          0
+        ],
+        "inner_radius": {
+          "input": "inner_radius"
+        },
+        "outer_radius": {
+          "input": "outer_radius"
+        }
+      }
+    }
+  ]
+}

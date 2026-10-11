@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <set>
@@ -148,6 +149,76 @@ canon::PlacedInstance particulateInstance(const MapSceneInputs& in, const wdt::M
     return instance;
 }
 
+// Packed BGRA as stored -> RGB 0..1.
+canon::Vec3 colorOf(uint32_t bgra) {
+    return {static_cast<float>((bgra >> 16) & 0xFF) / 255.0f, static_cast<float>((bgra >> 8) & 0xFF) / 255.0f,
+            static_cast<float>(bgra & 0xFF) / 255.0f};
+}
+
+canon::FogCycleKey cycleKey(const lightdb::FogKey& k) {
+    canon::FogCycleKey out;
+    out.time = static_cast<float>(k.time) * 30.0f;  // half-minutes
+    out.end = k.fogEnd;
+    out.scaler = k.fogScaler;
+    out.density = k.fogDensity;
+    out.startOffset = k.fogStartOffset;
+    out.height = k.fogHeight;
+    out.heightScaler = k.fogHeightScaler;
+    out.heightDensity = k.fogHeightDensity;
+    out.zScalar = k.fogZScalar;
+    out.curveStart = k.mainFogStartDist;
+    out.curveEnd = k.mainFogEndDist;
+    out.sunAngle = k.sunFogAngle;
+    out.sunStrength = k.sunFogStrength;
+    out.endColorDistance = k.endFogColorDistance;
+    out.skyColor = colorOf(k.skyFogColor);
+    out.endColor = colorOf(k.endFogColor);
+    out.sunColor = colorOf(k.sunFogColor);
+    out.heightColor = colorOf(k.fogHeightColor);
+    out.endHeightColor = colorOf(k.endFogHeightColor);
+    out.heightCoefficients = k.fogHeightCoefficients;
+    out.mainCoefficients = k.mainFogCoefficients;
+    out.heightDensityCoefficients = k.heightDensityFogCoefficients;
+    return out;
+}
+
+// One Light zone as an instance: the map-wide one (position and radii 0,
+// wowdev.wiki DB/Light) everywhere, a local one a sphere fading between its
+// falloff radii. Its first five LightParams slots are the style's
+// conditions; a slot naming params LightData has no rows for, and slots
+// 5..7, stay unresolved.
+canon::PlacedInstance zoneInstance(const lightdb::Zone& zone, const lightdb::Data& data) {
+    canon::PlacedInstance instance;
+    instance.id = zone.id;
+    canon::EffectPlacement effect;
+    effect.origin = {"Light", zone.id};
+    bool global = zone.position == std::array<float, 3>{} && zone.falloffStart == 0 && zone.falloffEnd == 0;
+    if (global) {
+        instance.asset = canon::Ref{canon::None{}, "classic_zone_fog_global", canon::NameSource::Synthesized};
+    } else {
+        instance.asset = canon::Ref{canon::None{}, "classic_zone_fog", canon::NameSource::Synthesized};
+        instance.translation = {zone.position[0], zone.position[1], zone.position[2]};
+        effect.inputs = {{"inner_radius", {double{zone.falloffStart}}}, {"outer_radius", {double{zone.falloffEnd}}}};
+    }
+    canon::ZoneFog fog;
+    for (size_t slot = 0; slot < zone.params.size(); ++slot) {
+        uint16_t params = zone.params[slot];
+        if (params == 0) continue;
+        auto keys = data.keysByParams.find(params);
+        if (slot < canon::ZoneFog::SlotCount && keys != data.keysByParams.end()) {
+            for (const lightdb::FogKey& k : keys->second) fog.cycles[slot].push_back(cycleKey(k));
+            continue;
+        }
+        effect.unresolved.push_back({"Light params slot " + std::to_string(slot), canon::UnresolvedField::Kind::Id,
+                                     double(params), std::nullopt});
+    }
+    canon::StyleBlock style;
+    style.zoneFog = std::move(fog);
+    effect.style = {{"fog", {std::move(style)}}};
+    instance.effect = std::move(effect);
+    return instance;
+}
+
 }  // namespace
 
 std::vector<canon::PlacementSet> buildMapEffects(const MapSceneInputs& in) {
@@ -163,8 +234,20 @@ std::vector<canon::PlacementSet> buildMapEffects(const MapSceneInputs& in) {
             particulate.instances.push_back(particulateInstance(in, in.mpv->volumes[i], i));
         }
     }
+    canon::PlacementSet zones;
+    zones.ref = canon::Ref{canon::None{}, "zone_fogs", canon::NameSource::Synthesized};
+    if (in.lights) {
+        std::string dir = in.map;
+        std::transform(dir.begin(), dir.end(), dir.begin(), [](unsigned char c) { return std::tolower(c); });
+        auto mapId = in.lights->mapIds.find(dir);
+        for (const lightdb::Zone& zone : in.lights->zones) {
+            if (mapId != in.lights->mapIds.end() && zone.map == mapId->second) {
+                zones.instances.push_back(zoneInstance(zone, *in.lights));
+            }
+        }
+    }
     std::vector<canon::PlacementSet> out;
-    for (canon::PlacementSet* set : {&fogs, &particulate}) {
+    for (canon::PlacementSet* set : {&fogs, &particulate, &zones}) {
         if (!set->instances.empty()) out.push_back(std::move(*set));
     }
     return out;

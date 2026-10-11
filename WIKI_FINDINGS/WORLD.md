@@ -442,6 +442,25 @@ Three more facts (all 619 groups, 2026-10-11):
   emitter entries set it (194 in slot 0, 31 in slot 1, 2 in slot 2).
   `PVMI`'s +0x04 is nonzero in all 619 records, against 2 of 193 in WMOs.
 
+## Zone lights: `Light.db2` and `LightData.db2` (12.1.0, 2026-10-11)
+
+The wiki's `DB/Light` describes the old DBC. In this build:
+- **Positions and falloffs are world-frame yards as stored.** The wiki's
+  ×36 inches and axis swap don't apply. 3,812 of 4,108 local zones whose
+  map has tiles land on a tile the map's WDT lists.
+- **Map-wide zones.** 56 zones are position (0,0,0) with radii 0, the
+  wiki's map-wide default.
+- **Missing maps.** 1,162 zones name a `ContinentID` that `Map.db2` has no
+  row for (2910 alone: 283).
+- **z = 0.** 443 of the local zones sit at exactly that height. Whether
+  the client measures their falloff in 3D or horizontally is not checked.
+- **`LightData.Time` is half-minutes since midnight.** The values run
+  0..2870, and 1440 (noon) is the most common.
+- **`FogEnd` is 0 in 10,741 of 19,866 rows**, so newer rows state their
+  fog through the density, height and curve columns instead.
+- **Params coverage.** `LightData` names 3,712 distinct `LightParamID`s;
+  `LightParams` has 1,674 rows.
+
 ## Collision & culling — verified
 
 WMO's `MOBN`/`MOBR` BSP collision (48% of real group files) maps almost
