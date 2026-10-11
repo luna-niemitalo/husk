@@ -24,7 +24,6 @@
 #include "commands.hpp"
 #include "corpus_index.hpp"
 #include "corpus_store.hpp"
-#include "husk_config.hpp"
 
 namespace fs = std::filesystem;
 
@@ -46,16 +45,6 @@ std::string gameLabelOf(const fs::path& sourceTree) {
         throw std::runtime_error("--game-from " + sourceTree.string() + ": expected a link to builds/<label>, got " +
                                  target.string());
     return label;
-}
-
-// Same --config every husk command takes (cmd_export_terrain.cpp's
-// counterpart): the store path is a per-machine fact, not a flag to retype.
-void addConfigOption(CLI::App& app) {
-    app.set_config("--config", husk::defaultConfigPath(),
-                   "TOML file of default flag values (see README.md's config-file section) -- explicit CLI "
-                   "flags always override a config value")
-        ->envname("HUSK_CONFIG")
-        ->group("Diagnostics");
 }
 
 // store-add's and export-corpus's build label and tags. `fromDefault`

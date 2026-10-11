@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "husk_config.hpp"
+
 namespace husk::commands {
 
 std::optional<int> parseCommandArgs(CLI::App& app, int argc, char** args) {
@@ -20,6 +22,14 @@ std::optional<int> parseCommandArgs(CLI::App& app, int argc, char** args) {
         return app.exit(e);
     }
     return std::nullopt;
+}
+
+void addConfigOption(CLI::App& app) {
+    app.set_config("--config", husk::defaultConfigPath(),
+                   "TOML file of default flag values (see README.md's config-file section) -- explicit CLI "
+                   "flags always override a config value")
+        ->envname("HUSK_CONFIG")
+        ->group("Diagnostics");
 }
 
 }  // namespace husk::commands

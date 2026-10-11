@@ -154,6 +154,8 @@ add_library(husk-lib STATIC
   ${HUSK_EMBEDDED_SCHEMAS}
   src/adt_canon_input.cpp
   src/cmd_export_terrain.cpp
+  src/cmd_export_world.cpp
+  src/cmd_world_shared.cpp
   src/skin.cpp
   src/skel.cpp
   src/bone.cpp
