@@ -14,6 +14,26 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-11 (evening) — MantleCore migration guide; DB2 width bug; BLP BC5 and DXT5 alpha; liquids; WMO volume refs.**
+
+- `REFACTOR/MANTLECORE_MIGRATION.md`: every key MantleCore's loader reads,
+  mapped to the current format, from a real export-world of "stormgarde
+  keep". Found MantleCore's exact cross-tile pose compare can't hold in
+  tile frames (up to 1.3 mm).
+- Liquid DB2s showed husk read packed DB2 cells at 32 bits instead of the
+  declared width (`dbd::asDeclaredType`); that was also the "DoodadWeight
+  1286" open question. Liquid types/objects then landed for terrain and WMO
+  bundles, checked against 4,000 tiles (Ocean's material disagrees with its
+  stored depth-only layout; the byte inference stays).
+- A BC5 liquid texture failed its tile: added BC5, made an unreadable
+  texture leave only itself unresolved, and, comparing with Blender's DDS
+  reader, found husk's DXT5/BC4 interpolation weights wrong since the C++
+  decoder was written (PNG alpha up to 21/255 too dark).
+- MH2O fishable/deep masks; WMO group refs MPVR/MAVR/MBVR/MFVR (MFVR
+  replaces fogIds).
+- Luna: no `rm` in attended sessions either; overwrite or use fresh temp
+  dirs, clean up once at the end (memory updated).
+
 **2026-10-11 (later) — WDT tiles and map-wide WMOs, M2 subject FileDataIDs.**
 
 - `adt::parseWdt` (MPHD, MAIN, MAID, global MWMO/MODF, each optional chunk
