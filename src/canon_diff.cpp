@@ -197,7 +197,7 @@ Report compareMesh(const canon::Mesh& canonMesh, const gltf::Mesh& legacyMesh, f
         if (!normalMismatch && !near(toGltf(canonMesh.normals[i]), legacyMesh.normals[i], epsilon)) {
             normalMismatch = i;
         }
-        if (!uvMismatch && !near(canonMesh.uv0[i], legacyMesh.texCoords[i], epsilon)) {
+        if (!uvMismatch && !near(canonMesh.uvSets[0][i], legacyMesh.texCoords[i], epsilon)) {
             uvMismatch = i;
         }
     }
@@ -209,13 +209,13 @@ Report compareMesh(const canon::Mesh& canonMesh, const gltf::Mesh& legacyMesh, f
     // (m2_mesh_input.hpp's own doc comment); legacy always emits
     // texCoords2, fabricated-all-zero in that same case. Only a real
     // comparison when canon actually populated one.
-    if (canonMesh.uv1) {
+    if (canonMesh.uvSets.size() > 1) {
         if (legacyMesh.texCoords2.size() != n) {
             r.deviations.push_back("canon populated uv1 but legacy texCoords2 size doesn't match vertex count");
         } else {
             std::optional<size_t> uv1Mismatch;
             for (size_t i = 0; i < n; ++i) {
-                if (!near((*canonMesh.uv1)[i], legacyMesh.texCoords2[i], epsilon)) {
+                if (!near(canonMesh.uvSets[1][i], legacyMesh.texCoords2[i], epsilon)) {
                     uv1Mismatch = i;
                     break;
                 }

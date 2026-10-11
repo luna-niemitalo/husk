@@ -306,10 +306,10 @@ def load_model(bundle_dir, uri):
     if path in _model_cache:
         return _model_cache[path]
     res = json.load(open(os.path.join(path, "manifest.json")))["resources"]
-    mj = res["mesh"]
+    mj = res["geometry"]["mesh"]
     positions = read_slice(path, mj["positions"])
     indices = read_slice(path, mj["indices"])
-    uv0 = read_slice(path, mj["uv0"])
+    uv0 = read_slice(path, mj["uv_sets"][0])
     mesh = bpy.data.meshes.new(os.path.basename(path))
     mesh.from_pydata(positions, [], [tuple(indices[i:i + 3]) for i in range(0, len(indices), 3)])
     uvl = mesh.uv_layers.new(name="uv0")

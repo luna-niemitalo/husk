@@ -227,7 +227,7 @@ TEST_CASE("m2input::assembleMesh converges with the real M2 vertex data + buildS
 
     REQUIRE(mesh.positions.size() == model.vertices.size());
     REQUIRE(mesh.normals.size() == model.vertices.size());
-    REQUIRE(mesh.uv0.size() == model.vertices.size());
+    REQUIRE(mesh.uvSets[0].size() == model.vertices.size());
 
     // Spot-check a handful of vertices -- raw M2 fields, no transform.
     std::vector<size_t> spotChecks = {0, model.vertices.size() / 3, model.vertices.size() / 2,
@@ -241,8 +241,8 @@ TEST_CASE("m2input::assembleMesh converges with the real M2 vertex data + buildS
         CHECK(mesh.normals[vi].x == v.normal.x);
         CHECK(mesh.normals[vi].y == v.normal.y);
         CHECK(mesh.normals[vi].z == v.normal.z);
-        CHECK(mesh.uv0[vi].x == v.texCoords[0].x);
-        CHECK(mesh.uv0[vi].y == v.texCoords[0].y);
+        CHECK(mesh.uvSets[0][vi].x == v.texCoords[0].x);
+        CHECK(mesh.uvSets[0][vi].y == v.texCoords[0].y);
     }
 
     // Independently re-derive expected skinning -- same bounds-check/
@@ -332,7 +332,7 @@ TEST_CASE("m2input::assembleMesh leaves uv1 absent when every vertex's second UV
     std::vector<skin::Batch> batches;
 
     canon::Mesh mesh = m2input::assembleMesh(vertices, /*boneCount=*/0, batches, submeshes, {});
-    CHECK_FALSE(mesh.uv1.has_value());
+    CHECK(mesh.uvSets.size() == 1);
 }
 
 TEST_CASE("m2input::assembleMesh populates uv1 when at least one vertex's second UV coordinate is "
@@ -344,10 +344,10 @@ TEST_CASE("m2input::assembleMesh populates uv1 when at least one vertex's second
     std::vector<skin::Batch> batches;
 
     canon::Mesh mesh = m2input::assembleMesh(vertices, /*boneCount=*/0, batches, submeshes, {});
-    REQUIRE(mesh.uv1.has_value());
-    REQUIRE(mesh.uv1->size() == 2);
-    CHECK((*mesh.uv1)[0].x == 0.0f);
-    CHECK((*mesh.uv1)[0].y == 0.0f);
-    CHECK((*mesh.uv1)[1].x == 0.25f);
-    CHECK((*mesh.uv1)[1].y == 0.75f);
+    REQUIRE(mesh.uvSets.size() == 2);
+    REQUIRE(mesh.uvSets[1].size() == 2);
+    CHECK(mesh.uvSets[1][0].x == 0.0f);
+    CHECK(mesh.uvSets[1][0].y == 0.0f);
+    CHECK(mesh.uvSets[1][1].x == 0.25f);
+    CHECK(mesh.uvSets[1][1].y == 0.75f);
 }

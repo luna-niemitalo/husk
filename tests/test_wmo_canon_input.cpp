@@ -100,9 +100,9 @@ TEST_CASE("buildCanonWmo: groups become parts sharing one vertex buffer, batches
     CHECK(model.mesh.parts[0].flags == 0x8);
     CHECK(model.mesh.parts[1].ref.source == canon::NameSource::None);
     CHECK(model.mesh.positions.size() == 7);
-    REQUIRE(model.mesh.uv1.has_value());
-    CHECK((*model.mesh.uv1)[0].x == 2.0f);
-    CHECK((*model.mesh.uv1)[4].x == 0.0f);  // group 1 has no second set: zero-filled
+    REQUIRE(model.mesh.uvSets.size() >= 2);
+    CHECK(model.mesh.uvSets[1][0].x == 2.0f);
+    CHECK(model.mesh.uvSets[1][4].x == 0.0f);  // group 1 has no second set: zero-filled
     REQUIRE(model.mesh.primitives.size() == 2);
     CHECK(model.mesh.primitives[1].indexStart == 6);
     CHECK(model.mesh.primitives[1].part == 1u);

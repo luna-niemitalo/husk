@@ -26,7 +26,7 @@ canon::Mesh makeCanonMesh() {
     canon::Mesh m;
     m.positions = {{1, 2, 3}, {4, 5, 6}};
     m.normals = {{0, 0, 1}, {0, 1, 0}};
-    m.uv0 = {{0.1f, 0.2f}, {0.3f, 0.4f}};
+    m.uvSets[0] = {{0.1f, 0.2f}, {0.3f, 0.4f}};
     m.skinning = {{{0, 1, 0, 0}, {1.0f, 0.0f, 0.0f, 0.0f}}, {{1, 0, 0, 0}, {1.0f, 0.0f, 0.0f, 0.0f}}};
     m.indices = {0, 1, 0};
     canon::PrimitiveGeoset pg;
@@ -41,7 +41,7 @@ gltf::Mesh makeMatchingLegacyMesh(const canon::Mesh& canonMesh) {
     gltf::Mesh legacy;
     for (const auto& p : canonMesh.positions) legacy.positions.push_back(toGltf(p));
     for (const auto& n : canonMesh.normals) legacy.normals.push_back(toGltf(n));
-    for (const auto& uv : canonMesh.uv0) legacy.texCoords.push_back({uv.x, uv.y});
+    for (const auto& uv : canonMesh.uvSets[0]) legacy.texCoords.push_back({uv.x, uv.y});
     legacy.texCoords2 = {{0, 0}, {0, 0}};  // canon leaves uv1 absent for this all-origin fixture
     for (const auto& sk : canonMesh.skinning) {
         gltf::JointWeights jw;
@@ -103,7 +103,7 @@ TEST_CASE("canon_diff::compareMesh: canon's own uv1/skinning divergences are not
     canon::Mesh canonMesh;
     canonMesh.positions = {{0, 0, 0}};
     canonMesh.normals = {{0, 0, 1}};
-    canonMesh.uv0 = {{0, 0}};
+    canonMesh.uvSets[0] = {{0, 0}};
     // canonMesh.skinning left empty -- unskinned model.
 
     gltf::Mesh legacy;

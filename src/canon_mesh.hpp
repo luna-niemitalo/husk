@@ -71,30 +71,19 @@ struct MeshPart {
 // (see gltf_mesh.hpp's Mesh doc comment for the writer-side Y-up conversion
 // this deliberately does NOT perform -- I1, same "no glTF-shaped convenience
 // baked in" rule canon_skeleton.hpp's Joint::globalPosition already states).
-// positions/normals/uv0/skinning share one index space -- every M2 global
+// positions/normals/uvSets/skinning share one index space -- every M2 global
 // vertex, not a per-primitive-local list -- and `indices`/`primitives` slice
 // into that shared space, mirroring gltf::Mesh's own flat-array-plus-index-
 // buffer shape (gltf_mesh.hpp) exactly.
 struct Mesh {
     std::vector<Vec3> positions;
     std::vector<Vec3> normals;
-    std::vector<Vec2> uv0;
-
-    // M2's second UV set (m2::Vertex::texCoords[1]). No M2-level flag
-    // distinguishes "this model actually samples a second UV set" from
-    // "the field is present but unused" -- wowdev.wiki M2.md's own
-    // tex_coords[2] comment ("two textures, depending on shader used") says
-    // this is a per-batch/shader fact, not a header-level one, and the real
-    // production pipeline (cmd_export.cpp's buildBaseMesh) already emits
-    // texCoords2 unconditionally for every model regardless of actual use.
-    // Rather than mirror that (a real "fabricated all-zero array" case) or
-    // invent a new per-model flag M2 doesn't have, this applies the same
-    // technique the task spec asks for `skinning` below: absent (nullopt)
-    // exactly when every vertex's texCoords[1] is the literal origin --
-    // indistinguishable from "never written," so nothing downstream could
-    // read it as a real second coordinate anyway.
-    std::optional<std::vector<Vec2>> uv1;
-    std::optional<std::vector<Vec2>> uv2;  // a third UV set (WMO groups with three MOTV chunks)
+    // Texture coordinate sets, each one entry per vertex; set 0 is always
+    // present (empty only with no vertices). M2's second set is left out
+    // when every coordinate is the origin: M2 carries no flag saying a model
+    // samples it, and an all-origin set can't be told from one never
+    // written. WMO groups have up to three (MOTV).
+    std::vector<std::vector<Vec2>> uvSets{1};
 
     // Per-vertex colour sets, RGBA bytes as stored (WMO MOCV: baked vertex
     // lighting; the client's FixColorVertexAlpha adjustment is not applied).

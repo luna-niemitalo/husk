@@ -55,7 +55,7 @@ canon::Model buildSyntheticModel() {
 
     model.mesh.positions = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}};
     model.mesh.normals = {{0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}};
-    model.mesh.uv0 = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}};
+    model.mesh.uvSets[0] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}};
     canon::Mesh::Skinning sk;
     sk.joints = {0, 0, 0, 0};
     sk.weights = {1.0f, 0.0f, 0.0f, 0.0f};

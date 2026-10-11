@@ -21,11 +21,19 @@ compositing".
    multiply by both.
 6. **`canon::BlendOp`**: no longer written; only the legacy comparison
    (`canon_diff`) and the glTF writer read it. Remove with the glTF path.
-7. **M2 materials as documents**: the shader formulas as material
+7. **UV animation coverage**: a layer's transform is resolved for
+   sequence 0 only, so transforms animated in other sequences or on a
+   global sequence never reach `uv_maps` (the spell fixture
+   `7037014.m2` has one transform and exports none).
+8. **Environment mapping source**: the fox's vertex shader is
+   `Diffuse_T1_Env` while its texture-coordinate combo gives set 0 for
+   unit 1. Which one the client honours is inferred only
+   (`WIKI_FINDINGS/M2/rendering.md`, `cb0[5].y`).
+9. **M2 materials as documents**: the shader formulas as material
    documents (the combine vocabulary); inline until then.
-8. **NPC bakes and composites**: a bake replaces the whole skin canvas
+10. **NPC bakes and composites**: a bake replaces the whole skin canvas
    (a slot option); nothing says which composite a preset uses vs its
    bake beyond the preset's slot choice.
-9. **Choice textures unplaced**: reported by export (`not placed`) when
+11. **Choice textures unplaced**: reported by export (`not placed`) when
    no layout layer draws the target, the material has no texture file,
    or the related choice isn't the model's.

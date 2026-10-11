@@ -278,6 +278,22 @@ std::optional<canon::MaterialLayer::TextureTransformCurves> resolveUvAnimation(c
     return any ? std::optional<canon::MaterialLayer::TextureTransformCurves>(std::move(curves)) : std::nullopt;
 }
 
+// Texture unit `unit`'s coordinate animation: like its coordinate set, the
+// unit's transform is at textureTransformComboIndex + unit (wowdev.wiki
+// M2/.skin "Texture units"). Best-effort: an out-of-range combo or
+// transform index, or a combo entry of 0xFFFF, means none, same tolerance
+// export_materials.cpp applies to this field.
+std::optional<canon::MaterialLayer::TextureTransformCurves> uvAnimationForUnit(const skin::Batch& batch, uint16_t unit,
+                                                                                 const M2MaterialInputs& m2,
+                                                                                 uint32_t sequenceIndex) {
+    if (batch.textureTransformComboIndex == 0xFFFF) return std::nullopt;
+    size_t comboIndex = static_cast<size_t>(batch.textureTransformComboIndex) + unit;
+    if (comboIndex >= m2.textureTransformCombos.size()) return std::nullopt;
+    uint16_t transformIndex = m2.textureTransformCombos[comboIndex];
+    if (transformIndex >= m2.textureTransforms.size()) return std::nullopt;
+    return resolveUvAnimation(m2.textureTransforms[transformIndex], m2, sequenceIndex);
+}
+
 // The required, layer-0 (primary) texture unit -- every check here throws
 // on the same corruption cases export_materials.cpp's own batch loop does
 // for its base texture, tint, and transparency-fade fields.
@@ -352,17 +368,7 @@ canon::MaterialLayer assemblePrimaryLayer(const skin::Batch& batch, size_t batch
         }
     }
 
-    // textureTransformComboIndex is best-effort even when present (an
-    // out-of-range combo/transform index is skipped, not a failure), same
-    // tolerance export_materials.cpp applies to this field.
-    if (batch.textureTransformComboIndex != 0xFFFF &&
-        batch.textureTransformComboIndex < m2.textureTransformCombos.size()) {
-        uint16_t transformIndex = m2.textureTransformCombos[batch.textureTransformComboIndex];
-        if (transformIndex < m2.textureTransforms.size()) {
-            layer.uvAnimation = resolveUvAnimation(m2.textureTransforms[transformIndex], m2, sequenceIndex);
-        }
-    }
-
+    layer.uvAnimation = uvAnimationForUnit(batch, 0, m2, sequenceIndex);
     return layer;
 }
 
@@ -448,6 +454,7 @@ canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, co
         layer.role = resolveRole(layer.uv, tex.type, /*isPrimaryLayer=*/false);
         layer.blendIntoPrevious = blendOp;
         layer.textureUnit = layerOffset;
+        layer.uvAnimation = uvAnimationForUnit(batch, layerOffset, m2, sequenceIndex);
         result.layers.push_back(std::move(layer));
     }
 

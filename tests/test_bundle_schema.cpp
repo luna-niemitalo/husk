@@ -41,7 +41,7 @@ std::string modelDocument() {
   "resources": {
     "geometry": {
       "mesh": {"positions": )" + slice(0, 36, "f32", 3, 3) + R"(, "normals": )" + slice(36, 36, "f32", 3, 3) +
-           R"(, "uv0": )" + slice(72, 24, "f32", 2, 3) + R"(, "indices": )" + slice(96, 12, "u32", 1, 3) + R"(,
+           R"(, "uv_sets": [)" + slice(72, 24, "f32", 2, 3) + R"(], "indices": )" + slice(96, 12, "u32", 1, 3) + R"(,
                "primitives": [{"geoset_id": 0, "geoset_group": 0, "geoset_variant": 0, "index_start": 0, "index_count": 3, "material_index": 0}],
                "parts": [], "portals": [], "attributes": []},
       "liquids": []},

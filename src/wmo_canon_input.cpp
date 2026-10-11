@@ -578,7 +578,7 @@ std::vector<canon::AttributeChannel> buildFaceAttributes(const WmoInputs& in) {
 // group lacks are zero-filled so every vertex has every set; the part's own
 // flags say which sets the group really has.
 void appendGroup(const WmoInputs& in, uint32_t part, const wmo::GroupFile& g, canon::Mesh& mesh,
-                 std::vector<canon::Identity>& primitiveMaterials, size_t uvSetCount, size_t colorSetCount) {
+                 std::vector<canon::Identity>& primitiveMaterials, size_t colorSetCount) {
     if (!g.positions.empty() && g.normals.size() != g.positions.size()) {
         throw std::runtime_error("WMO group " + std::to_string(part) + ": expected " +
                                   std::to_string(g.positions.size()) + " normals, got " + std::to_string(g.normals.size()));
@@ -589,12 +589,10 @@ void appendGroup(const WmoInputs& in, uint32_t part, const wmo::GroupFile& g, ca
         mesh.positions.push_back(toCanon(g.positions[v]));
         mesh.normals.push_back(toCanon(g.normals[v]));
     }
-    std::vector<std::vector<canon::Vec2>*> uvSets = {&mesh.uv0};
-    if (uvSetCount > 1) uvSets.push_back(&*mesh.uv1);
-    if (uvSetCount > 2) uvSets.push_back(&*mesh.uv2);
-    for (size_t k = 0; k < uvSets.size(); ++k) {
+    for (size_t k = 0; k < mesh.uvSets.size(); ++k) {
         for (size_t v = 0; v < g.positions.size(); ++v) {
-            uvSets[k]->push_back(k < g.uvSets.size() ? canon::Vec2{g.uvSets[k][v][0], g.uvSets[k][v][1]} : canon::Vec2{});
+            mesh.uvSets[k].push_back(k < g.uvSets.size() ? canon::Vec2{g.uvSets[k][v][0], g.uvSets[k][v][1]}
+                                                         : canon::Vec2{});
         }
     }
     for (size_t k = 0; k < colorSetCount; ++k) {
@@ -771,8 +769,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
     std::vector<canon::InstanceRef> particulate = placeParticulate(in, placer);
 
     canon::Mesh mesh;
-    if (uvSetCount > 1) mesh.uv1.emplace();
-    if (uvSetCount > 2) mesh.uv2.emplace();
+    mesh.uvSets.resize(std::max<size_t>(1, uvSetCount));
     mesh.colorSets.resize(colorSetCount);
     std::vector<canon::Identity> primitiveMaterials;
     for (uint32_t part = 0; part < root.groups.size(); ++part) {
@@ -803,7 +800,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
             }
         }
         mesh.parts.push_back(meshPart);
-        if (in.groups[part]) appendGroup(in, part, *in.groups[part], mesh, primitiveMaterials, uvSetCount, colorSetCount);
+        if (in.groups[part]) appendGroup(in, part, *in.groups[part], mesh, primitiveMaterials, colorSetCount);
     }
     for (size_t i = 0; i < root.portals.size(); ++i) {
         const wmo::Portal& p = root.portals[i];

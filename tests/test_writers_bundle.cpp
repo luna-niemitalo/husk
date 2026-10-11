@@ -115,7 +115,7 @@ canon::Model buildSyntheticModel() {
 
     model.mesh.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
     model.mesh.normals = {{0, 0, 1}, {0, 0, 1}, {0, 0, 1}};
-    model.mesh.uv0 = {{0, 0}, {1, 0}, {0, 1}};
+    model.mesh.uvSets[0] = {{0, 0}, {1, 0}, {0, 1}};
     // uv1 left as nullopt; skinning left empty -- the two omission cases.
     model.mesh.indices = {0, 1, 2};
 
@@ -438,7 +438,7 @@ TEST_CASE("writeBundle: synthetic model round-trips exact byte values via raw fi
     CHECK(parents[1] == 0);
 }
 
-TEST_CASE("writeBundle: uv1/joints0/weights0 omitted for an unskinned, single-UV-set model") {
+TEST_CASE("writeBundle: one uv set, no joints0/weights0 for an unskinned, single-UV-set model") {
     canon::Model model = buildSyntheticModel();
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-omissions";
     fs::remove_all(dir);
@@ -447,14 +447,14 @@ TEST_CASE("writeBundle: uv1/joints0/weights0 omitted for an unskinned, single-UV
     nlohmann::json manifest = parseManifest(dir);
     const auto& mesh = manifest["resources"]["geometry"]["mesh"];
 
-    CHECK(!mesh.contains("uv1"));
+    CHECK(mesh["uv_sets"].size() == 1);
     CHECK(!mesh.contains("joints0"));
     CHECK(!mesh.contains("weights0"));
 }
 
-TEST_CASE("writeBundle: uv1/joints0/weights0 present when the canon::Mesh has them") {
+TEST_CASE("writeBundle: a second uv set and joints0/weights0 when the canon::Mesh has them") {
     canon::Model model = buildSyntheticModel();
-    model.mesh.uv1 = std::vector<canon::Vec2>{{0, 1}, {1, 1}, {1, 0}};
+    model.mesh.uvSets.push_back({{0, 1}, {1, 1}, {1, 0}});
     canon::Mesh::Skinning s;
     s.joints = {0, 1, 0, 0};
     s.weights = {0.5f, 0.5f, 0.0f, 0.0f};
@@ -466,8 +466,8 @@ TEST_CASE("writeBundle: uv1/joints0/weights0 present when the canon::Mesh has th
     nlohmann::json manifest = parseManifest(dir);
     const auto& mesh = manifest["resources"]["geometry"]["mesh"];
 
-    REQUIRE(mesh.contains("uv1"));
-    CHECK(mesh["uv1"]["semantic"] == "TEXCOORD_1");
+    REQUIRE(mesh["uv_sets"].size() == 2);
+    CHECK(mesh["uv_sets"][1]["semantic"] == "TEXCOORD_1");
     REQUIRE(mesh.contains("joints0"));
     CHECK(mesh["joints0"]["component_type"] == "u8");
     CHECK(mesh["joints0"]["component_count"] == 4);
@@ -993,7 +993,8 @@ TEST_CASE("writeBundle: parts, colour sets, material flags and placement-set fil
     const auto& material = resources["materials"][0];
     CHECK(material["two_sided"] == true);
     CHECK(material["shader"]["name"] == "TwoLayerDiffuse");
-    CHECK(material["layers"][0]["uv_scroll"] == nlohmann::json::array({0.5, 0.0}));
+    const auto& uvMap = resources["uv_maps"][material["layers"][0]["uv_map"].get<size_t>()];
+    CHECK(uvMap["scroll"] == nlohmann::json::array({0.5, 0.0}));
 
     const auto& set = manifest["definition"]["placement_sets"][0];
     CHECK(set["always_on"] == true);
@@ -1300,4 +1301,29 @@ TEST_CASE("validateDocument: a choice binding an input its material doesn't decl
     std::vector<bundle_schema::Problem> problems = bundle_schema::validateDocument(dir);
     REQUIRE(problems.size() == 1);
     CHECK(problems[0].message.find("target_9") != std::string::npos);
+}
+
+TEST_CASE("writeBundle: layers sampling alike share one uv map; others get their own") {
+    canon::Model model = buildSyntheticModel();
+    canon::MaterialLayer same = model.materials[0].layers[0];
+    canon::MaterialLayer scrolled = same;
+    scrolled.uvScroll = canon::Vec2{0.25f, 0};
+    canon::MaterialLayer environment = same;
+    environment.uv = canon::EnvironmentMapped{};
+    model.materials[0].layers = {same, same, scrolled, environment};
+
+    fs::path dir = fs::temp_directory_path() / "husk-test-bundle-uv-maps";
+    fs::remove_all(dir);
+    writers::writeBundle(model, dir, testProvenance());
+    nlohmann::json manifest = parseManifest(dir);
+    const auto& resources = manifest["resources"];
+    const auto& layers = resources["materials"][0]["layers"];
+
+    REQUIRE(resources["uv_maps"].size() == 3);
+    CHECK(layers[0]["uv_map"] == layers[1]["uv_map"]);
+    CHECK(layers[2]["uv_map"] != layers[0]["uv_map"]);
+    CHECK(resources["uv_maps"][layers[2]["uv_map"].get<size_t>()]["scroll"] == nlohmann::json::array({0.25, 0.0}));
+    CHECK(resources["uv_maps"][layers[3]["uv_map"].get<size_t>()]["set"] == "environment");
+    CHECK(resources["uv_maps"][layers[0]["uv_map"].get<size_t>()]["set"] == 0);
+    CHECK(bundle_schema::validateDocument((dir / "manifest.json").string()).empty());
 }

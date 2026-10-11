@@ -93,10 +93,10 @@ void writeLeanGlb(const canon::Model& model, const std::filesystem::path& output
     bool meshIsSkinned = hasSkeleton && !mesh.skinning.empty();
     size_t n = mesh.positions.size();
 
-    if (mesh.normals.size() != n || mesh.uv0.size() != n) {
+    if (mesh.normals.size() != n || mesh.uvSets[0].size() != n) {
         throw std::runtime_error("writeLeanGlb: mesh positions (" + std::to_string(n) +
                                   "), normals (" + std::to_string(mesh.normals.size()) + "), and uv0 (" +
-                                  std::to_string(mesh.uv0.size()) + ") sizes don't match");
+                                  std::to_string(mesh.uvSets[0].size()) + ") sizes don't match");
     }
     if (meshIsSkinned && mesh.skinning.size() != n) {
         throw std::runtime_error("writeLeanGlb: mesh skinning (" + std::to_string(mesh.skinning.size()) +
@@ -128,7 +128,7 @@ void writeLeanGlb(const canon::Model& model, const std::filesystem::path& output
 
     int posView = gltf::appendBufferView(buffer, views, positionsGltf, TINYGLTF_TARGET_ARRAY_BUFFER);
     int normView = gltf::appendBufferView(buffer, views, normalsGltf, TINYGLTF_TARGET_ARRAY_BUFFER);
-    int uvView = gltf::appendBufferView(buffer, views, mesh.uv0, TINYGLTF_TARGET_ARRAY_BUFFER);
+    int uvView = gltf::appendBufferView(buffer, views, mesh.uvSets[0], TINYGLTF_TARGET_ARRAY_BUFFER);
 
     gltf::Vec3 posMin = positionsGltf.empty() ? gltf::Vec3{} : positionsGltf[0];
     gltf::Vec3 posMax = posMin;
@@ -168,12 +168,12 @@ void writeLeanGlb(const canon::Model& model, const std::filesystem::path& output
     accessors.push_back(uvAcc);
 
     int uv1AccIdx = -1;
-    if (mesh.uv1) {
-        if (mesh.uv1->size() != n) {
-            throw std::runtime_error("writeLeanGlb: mesh uv1 (" + std::to_string(mesh.uv1->size()) +
+    if (mesh.uvSets.size() > 1) {
+        if (mesh.uvSets[1].size() != n) {
+            throw std::runtime_error("writeLeanGlb: mesh uv1 (" + std::to_string(mesh.uvSets[1].size()) +
                                       ") doesn't match position count (" + std::to_string(n) + ")");
         }
-        int uv1View = gltf::appendBufferView(buffer, views, *mesh.uv1, TINYGLTF_TARGET_ARRAY_BUFFER);
+        int uv1View = gltf::appendBufferView(buffer, views, mesh.uvSets[1], TINYGLTF_TARGET_ARRAY_BUFFER);
         tinygltf::Accessor uv1Acc;
         uv1Acc.bufferView = uv1View;
         uv1Acc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;

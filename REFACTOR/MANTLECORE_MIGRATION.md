@@ -41,6 +41,14 @@ it is (`texture_unit`: t0..t3), and `model.schema.json`'s
 emissive and alpha formula, from the client's compiled shaders. WMO
 materials name their `shader` but have no formula yet.
 
+UV maps (2026-10-12): `geometry.mesh.uv0`/`uv1`/`uv2` are now
+`geometry.mesh.uv_sets` (a list, set 0 first). A layer's `uv`,
+`uv_animation` and `uv_scroll` are now `uv_map`, an index into
+`resources.uv_maps`: each entry is a `set` (a uv_sets index, or
+`"environment"`), with its own `transform` curves and `scroll`. Layers
+that sample alike share an entry. M2 layers past the first now carry
+their own texture unit's transform (they had none).
+
 Every document is one of five kinds. A **material** (REFACTOR/MATERIALS.md)
 describes a surface as layers over textures and inputs; a character
 model's skin, hair and eyes are composite materials its customization

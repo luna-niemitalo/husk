@@ -66,7 +66,7 @@ canon::Mesh assembleMesh(const std::vector<m2::Vertex>& vertices, size_t boneCou
     canon::Mesh mesh;
     mesh.positions.reserve(vertices.size());
     mesh.normals.reserve(vertices.size());
-    mesh.uv0.reserve(vertices.size());
+    mesh.uvSets[0].reserve(vertices.size());
 
     std::vector<canon::Vec2> uv1;
     uv1.reserve(vertices.size());
@@ -84,7 +84,7 @@ canon::Mesh assembleMesh(const std::vector<m2::Vertex>& vertices, size_t boneCou
         const auto& v = vertices[vi];
         mesh.positions.push_back(toCanon(v.pos));
         mesh.normals.push_back(toCanon(v.normal));
-        mesh.uv0.push_back(toCanon(v.texCoords[0]));
+        mesh.uvSets[0].push_back(toCanon(v.texCoords[0]));
         uv1.push_back(toCanon(v.texCoords[1]));
         if (!isZeroVec2(v.texCoords[1])) uv1AllZero = false;
 
@@ -105,7 +105,7 @@ canon::Mesh assembleMesh(const std::vector<m2::Vertex>& vertices, size_t boneCou
         }
     }
 
-    if (!uv1AllZero) mesh.uv1 = std::move(uv1);
+    if (!uv1AllZero) mesh.uvSets.push_back(std::move(uv1));
 
     mesh.indices = triangleIndices;
     mesh.primitives = assemblePrimitiveGeosets(batches, submeshes, triangleIndices.size());

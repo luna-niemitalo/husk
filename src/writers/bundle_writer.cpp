@@ -60,19 +60,6 @@ void writeLayerRole(json::Writer& w, const canon::LayerRole& role) {
         role);
 }
 
-void writeUvRef(json::Writer& w, const canon::UvRef& uv) {
-    std::visit(
-        [&w](const auto& u) {
-            using T = std::decay_t<decltype(u)>;
-            if constexpr (std::is_same_v<T, canon::UvSetIndex>) {
-                w.value("uv_set_" + std::to_string(u.index));
-            } else {
-                w.value("environment_mapped");
-            }
-        },
-        uv);
-}
-
 void writeInstanceRef(json::Writer& w, const canon::InstanceRef& ref) {
     w.beginObject();
     w.key("set");
@@ -139,17 +126,14 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
     w.key("normals");
     writeBufferSlice(w, appendArray(meshBin, "mesh.bin", mesh.normals, 3, "f32"), "NORMAL");
 
-    w.key("uv0");
-    writeBufferSlice(w, appendArray(meshBin, "mesh.bin", mesh.uv0, 2, "f32"), "TEXCOORD_0");
+    w.key("uv_sets");
+    w.beginArray();
+    for (size_t k = 0; k < mesh.uvSets.size(); ++k) {
+        std::string semantic = "TEXCOORD_" + std::to_string(k);
+        writeBufferSlice(w, appendArray(meshBin, "mesh.bin", mesh.uvSets[k], 2, "f32"), semantic.c_str());
+    }
+    w.endArray();
 
-    if (mesh.uv1) {
-        w.key("uv1");
-        writeBufferSlice(w, appendArray(meshBin, "mesh.bin", *mesh.uv1, 2, "f32"), "TEXCOORD_1");
-    }
-    if (mesh.uv2) {
-        w.key("uv2");
-        writeBufferSlice(w, appendArray(meshBin, "mesh.bin", *mesh.uv2, 2, "f32"), "TEXCOORD_2");
-    }
     if (!mesh.colorSets.empty()) {
         w.key("colors");
         w.beginArray();
@@ -628,14 +612,72 @@ void writePresets(json::Writer& w, const std::vector<canon::Preset>& presets) {
     w.endArray();
 }
 
-void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, TextureTable& textures) {
+// resources.uv_maps: what a layer samples its texture with (a coordinate
+// set or environment mapping, plus its own animation and scroll), one entry
+// per distinct combination, so layers sampling alike share an index.
+class UvMapTable {
+public:
+    uint32_t add(const canon::MaterialLayer& layer) {
+        std::ostringstream text;
+        json::Writer w(text);
+        w.beginObject();
+        w.key("set");
+        if (auto set = std::get_if<canon::UvSetIndex>(&layer.uv)) {
+            w.value(static_cast<int64_t>(set->index));
+        } else {
+            w.value("environment");
+        }
+        if (layer.uvAnimation) {
+            w.key("transform");
+            w.beginObject();
+            if (layer.uvAnimation->translation) {
+                w.key("translation");
+                writeInlineCurve(w, *layer.uvAnimation->translation, writeVec3Value);
+            }
+            if (layer.uvAnimation->rotation) {
+                w.key("rotation");
+                writeInlineCurve(w, *layer.uvAnimation->rotation, writeQuatValue);
+            }
+            if (layer.uvAnimation->scaling) {
+                w.key("scaling");
+                writeInlineCurve(w, *layer.uvAnimation->scaling, writeVec3Value);
+            }
+            w.endObject();
+        }
+        if (layer.uvScroll) {
+            w.key("scroll");
+            w.beginArray();
+            w.value(static_cast<double>(layer.uvScroll->x));
+            w.value(static_cast<double>(layer.uvScroll->y));
+            w.endArray();
+        }
+        w.endObject();
+        auto [it, added] = index_.try_emplace(text.str(), static_cast<uint32_t>(entries_.size()));
+        if (added) entries_.push_back(text.str());
+        return it->second;
+    }
+
+    // The "uv_maps" member of an open resources object.
+    void write(json::Writer& w) const {
+        w.key("uv_maps");
+        w.beginArray();
+        for (const std::string& entry : entries_) w.rawValue(entry);
+        w.endArray();
+    }
+
+private:
+    std::vector<std::string> entries_;
+    std::unordered_map<std::string, uint32_t> index_;
+};
+
+void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, TextureTable& textures, UvMapTable& uvMaps) {
     w.beginObject();
     w.key("identity");
     writeRef(w, layer.identity);
     w.key("role");
     writeLayerRole(w, layer.role);
-    w.key("uv");
-    writeUvRef(w, layer.uv);
+    w.key("uv_map");
+    w.value(static_cast<int64_t>(uvMaps.add(layer)));
     w.key("texture");
     w.value(static_cast<int64_t>(textures.add(layer.texture)));
     if (layer.slot) {
@@ -655,35 +697,11 @@ void writeMaterialLayer(json::Writer& w, const canon::MaterialLayer& layer, Text
         w.key("alpha_fade");
         writeInlineCurve(w, *layer.alphaFade, writeScalarValue);
     }
-    if (layer.uvAnimation) {
-        w.key("uv_animation");
-        w.beginObject();
-        if (layer.uvAnimation->translation) {
-            w.key("translation");
-            writeInlineCurve(w, *layer.uvAnimation->translation, writeVec3Value);
-        }
-        if (layer.uvAnimation->rotation) {
-            w.key("rotation");
-            writeInlineCurve(w, *layer.uvAnimation->rotation, writeQuatValue);
-        }
-        if (layer.uvAnimation->scaling) {
-            w.key("scaling");
-            writeInlineCurve(w, *layer.uvAnimation->scaling, writeVec3Value);
-        }
-        w.endObject();
-    }
-    if (layer.uvScroll) {
-        w.key("uv_scroll");
-        w.beginArray();
-        w.value(static_cast<double>(layer.uvScroll->x));
-        w.value(static_cast<double>(layer.uvScroll->y));
-        w.endArray();
-    }
-
     w.endObject();
 }
 
-void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& materials, TextureTable& textures) {
+void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& materials, TextureTable& textures,
+                           UvMapTable& uvMaps) {
     w.beginArray();
     for (const canon::Material& material : materials) {
         w.beginObject();
@@ -691,7 +709,7 @@ void writeMaterialsSection(json::Writer& w, const std::vector<canon::Material>& 
         w.key("layers");
         w.beginArray();
         for (const canon::MaterialLayer& layer : material.layers) {
-            writeMaterialLayer(w, layer, textures);
+            writeMaterialLayer(w, layer, textures, uvMaps);
         }
         w.endArray();
 
@@ -1010,8 +1028,10 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeAnimationSection(w, model.skeleton, model.animations, animBin);
     w.endObject();
 
+    UvMapTable uvMaps;
     w.key("materials");
-    writeMaterialsSection(w, model.materials, textures);
+    writeMaterialsSection(w, model.materials, textures, uvMaps);
+    uvMaps.write(w);
 
     w.key("scene");
     w.beginObject();
