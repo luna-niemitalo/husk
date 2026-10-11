@@ -313,6 +313,21 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   `LIQUID_TODO.md` §1–2, `FOG_VOLUMES_TODO.md` §2–4.
   Client shaders are unpacked under `example_exports/shaders/`
   (`tools/export_shaders.py`).
+- **Effects (2026-10-11, `REFACTOR/EFFECTS.md`)**: the fourth document
+  kind, `effect` (bodies checked in as `effects/*.json`, embedded),
+  placed by placement-set instances that supply typed inputs, a classic
+  `style` and `unresolved` fields. Every WMO and map volume source is on
+  it as a placeholder effect (literal tier); `validate-bundle` warns on
+  placeholders and `--release` fails. **Next**: M2 particle/ribbon
+  emitters (split `canon::ParticleEmitter` into inputs + a
+  `ParticleSystem` style, a joint `anchor` on placement instances, an
+  inline effects set in the M2 manifest, `point` region, `ribbon` and
+  `mesh_instance` looks; move the curve writers into
+  `writers/bundle_common.cpp`). Then Phase 3 (derivations), `LightData`
+  zone fog, classification before 1.0. Effect documents are written per
+  bundle (`<bundle>/effects/`), not shared across an export-world tree
+  yet. Open: a non-finite `MNLD` light makes its WMO bundle invalid
+  (`LIGHTING_TODO.md` §3).
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,
   documented feature. Open items, in order: ground-cover scatter placing
   nothing on grassy quads (`TODO/WORLD/ADT_TERRAIN_TODO.md` §1), confirming

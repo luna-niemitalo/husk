@@ -14,6 +14,31 @@ deletions handled their own back-references).
 
 ---
 
+**2026-10-11 (night) — Effects: design, then every WMO and map volume on it.**
+
+- Design (`REFACTOR/EFFECTS.md`, with Luna over several rounds, ingesting
+  MantleCore's effects handoff): an effect is a behaviour with typed
+  inputs, placed by placement-set instances like a model; world content
+  vs classic style; a literal tier now (one placeholder effect per source
+  mechanism, warnings in export, errors with `--release`) and per-item
+  classification as the 1.0 gate; the evidence ladder for unknown fields.
+  Inline and ownerless sets allowed (`PLACEMENT_SETS.md`).
+- Built: the `effect` kind and its validation (input kinds, bindings,
+  inline documents, placeholder warnings), then WMO `MFOG`,
+  `MAVG`/`MAVD`/`MBVD`, `MPVD`, and the map's `VFOG`/`VFEX`/`VFE2` and
+  `PVMI`/`PVPD`/`PVBD`. Every undescribed byte range is checked and kept
+  only when nonzero, so no raw record ships any more. The old per-source
+  canon types and the world document's `scene` are gone.
+- Corpus checks that settled representation choices: MFOG record 0 is
+  the default fog (fogIds left-packed, MFVR never 0); flag 0x1000 radii
+  are usually floats but one Torghast record holds a NaN and an int;
+  MPVD/PVMI extent is the full box size (1,857/1,857 axes); PVBD's root
+  is the AABB (619/619); VFOG and PVMI ids collide per map, hence two
+  world sets; MPVD rotations stay unresolved (2 of 77 use two axes).
+- Verified: 393 seeded WMO roots, all 62 MPVD WMOs (one fails on a
+  pre-existing non-finite MNLD light), all 763 maps with sidecars.
+  Remaining Phase 2 source: M2 emitters (see Resume).
+
 **2026-10-11 (evening) — MantleCore migration guide; DB2 width bug; BLP BC5 and DXT5 alpha; liquids; WMO volume refs.**
 
 - `REFACTOR/MANTLECORE_MIGRATION.md`: every key MantleCore's loader reads,
