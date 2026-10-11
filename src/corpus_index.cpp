@@ -1,8 +1,6 @@
 #include "corpus_index.hpp"
 
 #include <algorithm>
-#include <atomic>
-#include <exception>
 #include <fstream>
 #include <mutex>
 #include <optional>
@@ -10,13 +8,13 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <thread>
 #include <tuple>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include "corpus_store.hpp"
+#include "parallel.hpp"
 
 namespace fs = std::filesystem;
 using nlohmann::json;
@@ -79,31 +77,17 @@ IndexResult buildIndex(const fs::path& tree) {
 
     Rows rows;
     std::mutex rowsMutex;
-    std::atomic<size_t> next{0};
-    std::exception_ptr failure;
-    auto work = [&] {
-        for (size_t i = next++; i < manifests.size(); i = next++) {
-            try {
-                Rows local;
-                indexManifest(readIndexedParts(manifests[i]), manifests[i].lexically_relative(tree).generic_string(),
-                              local);
-                std::lock_guard<std::mutex> lock(rowsMutex);
-                rows.displays.merge(local.displays);
-                rows.chrModels.merge(local.chrModels);
-            } catch (const std::exception& e) {
-                std::lock_guard<std::mutex> lock(rowsMutex);
-                if (!failure)
-                    failure = std::make_exception_ptr(std::runtime_error(manifests[i].string() + ": " + e.what()));
-                next = manifests.size();
-            }
+    parallelFor(manifests.size(), 0, [&](size_t i) {
+        Rows local;
+        try {
+            indexManifest(readIndexedParts(manifests[i]), manifests[i].lexically_relative(tree).generic_string(), local);
+        } catch (const std::exception& e) {
+            throw std::runtime_error(manifests[i].string() + ": " + e.what());
         }
-    };
-    {
-        std::vector<std::jthread> workers;
-        unsigned count = std::max(1u, std::thread::hardware_concurrency());
-        for (unsigned i = 0; i < count; i++) workers.emplace_back(work);
-    }
-    if (failure) std::rethrow_exception(failure);
+        std::lock_guard<std::mutex> lock(rowsMutex);
+        rows.displays.merge(local.displays);
+        rows.chrModels.merge(local.chrModels);
+    });
 
     std::ostringstream displays;
     displays << "display\tmodel\tpreset\n";

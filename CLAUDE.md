@@ -359,7 +359,10 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   `*` = the run's DB2s and listfile), which store-add turns into
   `inputs.tsv`. `husk export-corpus` (export-world --all-assets over every
   map, index-tree, store-add) drives a whole build; `--sample N` projects
-  one. Next: `TODO/CORPUS_EXPORT_TODO.md`.
+  one. The store path is the config key `store` (`--store` overrides; `husk
+  mount <mnt>`). The first full run stopped early: cold reads from
+  casc-tool's store on `tank` cost a ~20 ms seek each, so that store moves
+  to the work pool's SSDs first (`TODO/CORPUS_EXPORT_TODO.md` item 5).
 - **Textures and refs (2026-10-11, Luna)**: each document lists its
   textures once in `resources.textures` and everything uses indices
   (layers, slot options, terrain, liquid frames, effect image inputs);

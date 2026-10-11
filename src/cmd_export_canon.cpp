@@ -281,15 +281,15 @@ std::optional<std::vector<uint8_t>> resolveExternalAnimBlobForCanon(
     if (fileId != 0) {
         animPath = std::filesystem::path(animDir) / (std::to_string(fileId) + ".anim");
     }
-    std::ifstream f;
-    if (!animPath.empty()) inputs::openUsed(f, animPath);
-    if (!f.is_open() && fileId != 0) {
-        if (auto stored = sources::storePathForFileDataId(listfileRoot, fileId)) inputs::openUsed(f, *stored);
+    std::optional<std::vector<uint8_t>> read;
+    if (!animPath.empty()) read = inputs::readUsed(animPath);
+    if (!read && fileId != 0) {
+        if (auto stored = sources::storePathForFileDataId(listfileRoot, fileId)) read = inputs::readUsed(*stored);
     }
-    if (!f.is_open()) inputs::openUsed(f, findAnimFileByBasename(modelPath, animDir, seq.id, seq.variationIndex));
-    if (!f.is_open()) return std::nullopt;  // not available locally under either naming convention
+    if (!read) read = inputs::readUsed(findAnimFileByBasename(modelPath, animDir, seq.id, seq.variationIndex));
+    if (!read) return std::nullopt;  // not available locally under either naming convention
 
-    std::vector<uint8_t> animFileBytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    const std::vector<uint8_t>& animFileBytes = *read;
     if (!animChunked) {
         return m2::extractAnimBlob(animFileBytes, animChunked);
     }

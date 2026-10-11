@@ -5,19 +5,14 @@
 #include <filesystem>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
-// The canonical export store (REFACTOR/CORPUS_EXPORT.md). Owns every path
-// convention under <store>/, so commands never spell one out:
-//
-//   objects/ab/cd/<md5>      one output file's bytes; md5(bytes) == name, always
-//   builds/<game>/<husk>/    files.tsv, missing.tsv, meta.json
-//   tags/<name>              one line: <game>/<husk>
-//   tmp/                     staging for object writes; safe to empty when idle
-//
-// Layout and invariants follow casc-tool's build store on purpose; the code
-// is husk's own so neither tool needs the other.
+// The canonical export store (REFACTOR/CORPUS_EXPORT.md "The store"):
+// owns every path convention under <store>/, so commands never spell one
+// out. Layout and invariants follow casc-tool's build store; the code is
+// husk's own so neither tool needs the other.
 namespace husk::corpus {
 
 using Md5 = std::array<uint8_t, 16>;
@@ -25,6 +20,7 @@ using Md5 = std::array<uint8_t, 16>;
 std::string hex(const Md5& key);
 std::optional<Md5> parseHex(const std::string& text);
 Md5 md5File(const std::filesystem::path& path);
+Md5 md5Bytes(std::span<const uint8_t> bytes);
 
 // A stored build: which game build it was exported from, by which husk.
 struct BuildId {

@@ -286,8 +286,8 @@ struct ExportWorldOptions {
 void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts);
 
 struct StoreAddOptions {
-    std::string store;
     std::string tree;
+    std::string store;
     std::string game;
     std::string gameFrom;
     std::vector<std::string> tags;
@@ -310,9 +310,14 @@ struct ExportCorpusOptions {
 };
 void addExportCorpusOptions(CLI::App& app, ExportCorpusOptions& opts);
 
+struct IndexTreeOptions {
+    std::string tree;
+};
+void addIndexTreeOptions(CLI::App& app, IndexTreeOptions& opts);
+
 struct MountOptions {
-    std::string store;
     std::string mountpoint;
+    std::string store;
     bool foreground = false;
 };
 void addMountOptions(CLI::App& app, MountOptions& opts);

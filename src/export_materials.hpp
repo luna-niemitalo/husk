@@ -219,8 +219,7 @@ BuiltMaterials buildMaterialsAndPrimitives(
 // findSameBasenameSkins's (export_skin_resolution.cpp) same-basename .skin
 // scan -- both need the same missing-vs-unreadable-vs-wrong-type
 // diagnostic. Listings are kept per directory and modification time: a
-// corpus export asks for the same large directories once per model, and a
-// FUSE-served tree rebuilds every listing it is asked for.
+// corpus export asks for the same large directories once per model.
 const std::vector<std::filesystem::directory_entry>& scanDirOrWarn(const std::string& dir, const char* purpose);
 
 }  // namespace husk::commands

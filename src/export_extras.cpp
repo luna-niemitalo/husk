@@ -48,7 +48,7 @@ std::vector<uint8_t> readFileBytes(const std::string& path) {
     if (!f.good() && !f.eof()) {
         throw std::runtime_error("error reading '" + path + "': " + std::strerror(errno));
     }
-    inputs::use(path);
+    inputs::use(path, bytes);
     return bytes;
 }
 

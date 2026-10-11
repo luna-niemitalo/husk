@@ -234,34 +234,27 @@ std::vector<gltf::Animation> buildAnimations(const std::vector<uint8_t>& blob,
                         std::filesystem::path(animInputs.animDir) / (std::to_string(fileId) + ".anim");
                 }
             }
-            // is_open(), not the stream's own bool conversion: a default-
-            // constructed ifstream that never had open() called on it (the
-            // animFileIds-absent/fileId==0 case above) reports goodbit, not
-            // failbit, so `!f` would be false and silently fall through to
-            // reading an unopened stream (empty bytes) instead of trying the
-            // basename fallback.
-            std::ifstream f;
+            std::optional<std::vector<uint8_t>> read;
             if (!animPath.empty()) {
-                inputs::openUsed(f, animPath);
+                read = inputs::readUsed(animPath);
             }
             // The store before the basename convention: a listfile can give
             // this model's .anim names to another FileDataID.
-            if (!f.is_open() && fileId != 0) {
+            if (!read && fileId != 0) {
                 if (auto stored = sources::storePathForFileDataId(animInputs.listfileRoot, fileId)) {
                     animPath = *stored;
-                    inputs::openUsed(f, animPath);
+                    read = inputs::readUsed(animPath);
                 }
             }
-            if (!f.is_open()) {
+            if (!read) {
                 animPath = findAnimFileByBasename(animInputs.modelPath, animInputs.animDir, sourceSeq.id,
                                                    sourceSeq.variationIndex);
-                inputs::openUsed(f, animPath);
+                read = inputs::readUsed(animPath);
             }
-            if (!f.is_open()) {
+            if (!read) {
                 continue;  // not available locally under either naming convention
             }
-            std::vector<uint8_t> animFileBytes((std::istreambuf_iterator<char>(f)),
-                                                std::istreambuf_iterator<char>());
+            const std::vector<uint8_t>& animFileBytes = *read;
             if (animInputs.animChunked) {
                 // Peek at the top-level chunks before handing off to
                 // extractAnimBlob (which only knows AFM2): a .skel-sourced

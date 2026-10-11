@@ -1,5 +1,6 @@
 #include "input_log.hpp"
 
+#include <iterator>
 #include <set>
 #include <stdexcept>
 
@@ -21,7 +22,7 @@ Log::Log(const fs::path& file, fs::path sourceRoot)
     if (!out_) throw std::runtime_error("cannot open " + file.string());
 }
 
-void Log::add(const std::string& output, const fs::path& input) {
+void Log::add(const std::string& output, const fs::path& input, std::span<const uint8_t> const* bytes) {
     fs::path absolute = fs::absolute(input).lexically_normal();
     fs::path relative = absolute.lexically_relative(sourceRoot_);
     std::string name = !relative.empty() && *relative.begin() != ".." ? relative.generic_string() : absolute.string();
@@ -33,7 +34,7 @@ void Log::add(const std::string& output, const fs::path& input) {
         if (it != md5ByInput_.end()) md5 = it->second;
     }
     // Hashed outside the lock: a large input must not stall every thread.
-    if (md5.empty()) md5 = corpus::hex(corpus::md5File(absolute));
+    if (md5.empty()) md5 = corpus::hex(bytes ? corpus::md5Bytes(*bytes) : corpus::md5File(absolute));
     std::lock_guard<std::mutex> lock(mutex_);
     md5ByInput_.emplace(name, md5);
     out_ << output << '\t' << name << '\t' << md5 << '\n';
@@ -48,13 +49,13 @@ Scope::~Scope() { currentScope = previous_; }
 
 Scope* Scope::current() { return currentScope; }
 
-void Scope::use(const fs::path& input) {
+void Scope::use(const fs::path& input, std::span<const uint8_t> const* bytes) {
     if (!log_) return;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!seen_.insert(input.string()).second) return;
     }
-    log_->add(output_, input);
+    log_->add(output_, input, bytes);
 }
 
 Scope::Adopt::Adopt(Scope* scope) : previous_(currentScope) { currentScope = scope; }
@@ -63,18 +64,24 @@ Scope::Adopt::~Adopt() { currentScope = previous_; }
 
 void setRunLog(Log* log) { runLog = log; }
 
-bool openUsed(std::ifstream& f, const fs::path& path) {
-    f.open(path, std::ios::binary);
-    if (f.is_open()) use(path);
-    return f.is_open();
+std::optional<std::vector<uint8_t>> readUsed(const fs::path& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f.is_open()) return std::nullopt;
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    use(path, bytes);
+    return bytes;
 }
 
-void use(const fs::path& input) {
+void use(const fs::path& input, std::span<const uint8_t> const* bytes) {
     if (currentScope) {
-        currentScope->use(input);
+        currentScope->use(input, bytes);
         return;
     }
-    if (runLog) runLog->add(kRun, input);
+    if (runLog) runLog->add(kRun, input, bytes);
 }
+
+void use(const fs::path& input, std::span<const uint8_t> bytes) { use(input, &bytes); }
+
+void use(const fs::path& input) { use(input, nullptr); }
 
 }  // namespace husk::inputs

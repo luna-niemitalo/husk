@@ -39,7 +39,7 @@ std::unordered_map<uint32_t, std::string> loadListfile(const std::string& path) 
     size_t nread = buf.empty() ? 0 : std::fread(buf.data(), 1, buf.size(), f);
     std::fclose(f);
     buf.resize(nread);
-    inputs::use(path);
+    inputs::use(path, std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(buf.data()), buf.size()));
 
     std::unordered_map<uint32_t, std::string> result;
     result.reserve(2'300'000);  // real listfile scale -- avoids dozens of incremental rehashes

@@ -42,6 +42,7 @@
 #include "writers/texture_store.hpp"
 #include "writers/terrain_bundle_writer.hpp"
 #include "input_log.hpp"
+#include "parallel.hpp"
 
 // `export-terrain` / `export-world`: ADT tiles (root + _obj0 + _tex0 + the
 // map's WDT) to canonical terrain bundles (REFACTOR/BUNDLE_FORMAT.md's
@@ -142,11 +143,11 @@ void addExportWorldOptions(CLI::App& app, ExportWorldOptions& opts) {
         ->group("Run");
     app.add_flag("--all-assets", opts.allAssets,
                  "also export every M2 and root WMO the listfile names, placed or not (export-corpus)")
-        ->group("Run");
+        ->group("Selection");
     app.add_option("--sample", opts.sample,
                    "with --all-assets: only this many of them, a fixed seeded random choice (size and time "
                    "projections)")
-        ->group("Run");
+        ->group("Selection");
 }
 
 void addExportWmoOptions(CLI::App& app, ExportWmoOptions& opts) {
@@ -643,21 +644,6 @@ private:
     std::mutex mutex_;
 };
 
-// Runs work(i) for i in [0, n) on `jobs` threads. `work` handles its own
-// errors. The workers record source uses for the caller's output.
-template <typename Work>
-void parallelFor(size_t n, unsigned jobs, Work work) {
-    std::atomic<size_t> next{0};
-    std::vector<std::thread> threads;
-    inputs::Scope* caller = inputs::Scope::current();
-    for (unsigned j = 0; j < jobs; ++j) {
-        threads.emplace_back([&, caller] {
-            inputs::Scope::Adopt adopt(caller);
-            for (size_t i = next++; i < n; i = next++) work(i);
-        });
-    }
-    for (std::thread& t : threads) t.join();
-}
 
 struct WorldTile {
     std::filesystem::path root;

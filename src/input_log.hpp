@@ -1,20 +1,18 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
-// Which source files each output of an export was made from: the corpus
-// store's inputs.tsv (REFACTOR/CORPUS_EXPORT.md "Incremental export").
-//
-// Recorded where a source file is used (read, or taken from a cache filled
-// by an earlier read), not where it is opened, so an output that reuses a
-// cached table still names it. A file used outside any output's scope (the
-// DB2 tables and listfile a run loads up front) is the run's: every output
-// depends on it.
+// Which source files each output of an export used, for the corpus
+// store's inputs.tsv (REFACTOR/CORPUS_EXPORT.md "Input tracking").
 namespace husk::inputs {
 
 // inputs.log beside an export's errors.log: one
@@ -23,7 +21,9 @@ namespace husk::inputs {
 class Log {
 public:
     Log(const std::filesystem::path& file, std::filesystem::path sourceRoot);
-    void add(const std::string& output, const std::filesystem::path& input);
+    // `bytes`: the input's contents when the caller has read them, so it
+    // isn't read again to be hashed; null when it hasn't.
+    void add(const std::string& output, const std::filesystem::path& input, std::span<const uint8_t> const* bytes);
 
 private:
     std::filesystem::path sourceRoot_;
@@ -61,8 +61,8 @@ public:
     };
 
 private:
-    friend void use(const std::filesystem::path& input);
-    void use(const std::filesystem::path& input);
+    friend void use(const std::filesystem::path& input, std::span<const uint8_t> const* bytes);
+    void use(const std::filesystem::path& input, std::span<const uint8_t> const* bytes);
     Log* log_;
     std::string output_;
     Scope* previous_;
@@ -73,11 +73,14 @@ private:
 // The run's log, for uses outside any scope; null when nothing records.
 void setRunLog(Log* log);
 
-// Records that the current output used `input`.
+// Records that the current output used `input`: a file it read (pass its
+// bytes) or took from a cache an earlier read filled.
+void use(const std::filesystem::path& input, std::span<const uint8_t> const* bytes);
+void use(const std::filesystem::path& input, std::span<const uint8_t> bytes);
 void use(const std::filesystem::path& input);
 
-// Opens `path` into `f` and records it only if that open succeeded, so a
+// Reads `path` whole and records it, or nullopt if it can't be opened: a
 // reader trying several candidates records the one it read.
-bool openUsed(std::ifstream& f, const std::filesystem::path& path);
+std::optional<std::vector<uint8_t>> readUsed(const std::filesystem::path& path);
 
 }  // namespace husk::inputs

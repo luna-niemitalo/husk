@@ -155,7 +155,7 @@ TEST_CASE("corpus store: a tree whose producer names no commit, or several, is r
 
     fs::path none = freshDir("none-tree");
     writeText(none / "textures" / "7.dds", "DDS bytes");
-    CHECK_THROWS_WITH_AS(corpus::ingestTree(store, none, "12.1.0.69933"), doctest::Contains("no husk documents"),
+    CHECK_THROWS_WITH_AS(corpus::ingestTree(store, none, "12.1.0.69933"), doctest::Contains("expected husk documents"),
                          std::runtime_error);
     CHECK(store.games().empty());
 }
@@ -235,15 +235,16 @@ TEST_CASE("corpus index: displays find their model and preset, ChrModels their m
           "chr_model\tmodel\n1\tmodels/5.canon.bundle/manifest.json\n45\tmodels/5.canon.bundle/manifest.json\n");
 }
 
-TEST_CASE("input log: openUsed records only the candidate that opened") {
-    fs::path dir = freshDir("open-used");
+TEST_CASE("input log: readUsed records only the candidate it read, hashed from the bytes read") {
+    fs::path dir = freshDir("read-used");
     writeText(dir / "src" / "_by_fdid" / "42", "anim");
     {
         inputs::Log log(dir / "inputs.log", dir / "src");
         inputs::Scope scope(&log, "models/1.canon.bundle");
-        std::ifstream f;
-        CHECK_FALSE(inputs::openUsed(f, dir / "src" / "42.anim"));
-        CHECK(inputs::openUsed(f, dir / "src" / "_by_fdid" / "42"));
+        CHECK_FALSE(inputs::readUsed(dir / "src" / "42.anim"));
+        auto read = inputs::readUsed(dir / "src" / "_by_fdid" / "42");
+        REQUIRE(read);
+        CHECK(std::string(read->begin(), read->end()) == "anim");
     }
     CHECK(readText(dir / "inputs.log") ==
           "models/1.canon.bundle\t_by_fdid/42\t" + corpus::hex(corpus::md5File(dir / "src" / "_by_fdid" / "42")) + "\n");

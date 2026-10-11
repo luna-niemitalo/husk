@@ -376,8 +376,8 @@ std::optional<std::vector<uint8_t>> readTextureFileBytes(const std::filesystem::
                                                           const std::string& texturesOutDir) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return std::nullopt;
-    inputs::use(path);
     std::vector<uint8_t> raw((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    inputs::use(path, raw);
     // By content too: a casc-tool `_by_fdid/<fdid>` entry has no extension.
     bool isBlp = path.extension() == ".blp" || (raw.size() >= 4 && std::memcmp(raw.data(), "BLP2", 4) == 0);
     if (!isBlp) return raw;

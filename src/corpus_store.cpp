@@ -2,20 +2,19 @@
 
 #include <algorithm>
 #include <atomic>
-#include <exception>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <map>
-#include <mutex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
-#include <thread>
 #include <tuple>
 #include <unistd.h>
 
 #include "json_writer.hpp"
 #include "md5.h"
+#include "parallel.hpp"
 #include "writers/bundle_common.hpp"
 
 namespace fs = std::filesystem;
@@ -37,7 +36,6 @@ Md5 finish(MD5_CTX& ctx) {
     return out;
 }
 
-// Copies `source` to `staged`, hashing the bytes as they are written.
 Md5 copyHashing(const fs::path& source, const fs::path& staged) {
     std::ifstream in(source, std::ios::binary);
     if (!in) throw std::runtime_error("cannot open " + source.string());
@@ -107,6 +105,8 @@ std::vector<MissingRow> readErrorLog(const fs::path& path) {
     while (std::getline(in, line)) {
         size_t a = line.find('\t');
         size_t b = a == std::string::npos ? a : line.find('\t', a + 1);
+        // A message spanning lines continues without tabs; its lines stay
+        // rows of their own rather than being dropped.
         if (b == std::string::npos) {
             rows.insert({"", "", line});
             continue;
@@ -154,7 +154,8 @@ std::string huskLabel(const std::string& producer) {
     if (version == "unknown" || version.find("dirty") != std::string::npos)
         throw std::runtime_error("producer \"" + producer +
                                  "\" names no commit: export from a clean, reconfigured build to store it");
-    if (!validLabel(version)) throw std::runtime_error("producer version \"" + version + "\" is not a valid label");
+    if (!validLabel(version))
+        throw std::runtime_error("producer version: expected one path component, got \"" + version + "\"");
     return version;
 }
 
@@ -190,6 +191,13 @@ Md5 md5File(const fs::path& path) {
     std::vector<char> buffer(kChunk);
     while (in.read(buffer.data(), static_cast<std::streamsize>(buffer.size())) || in.gcount() > 0)
         MD5_Update(&ctx, buffer.data(), static_cast<unsigned long>(in.gcount()));
+    return finish(ctx);
+}
+
+Md5 md5Bytes(std::span<const uint8_t> bytes) {
+    MD5_CTX ctx;
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, bytes.data(), static_cast<unsigned long>(bytes.size()));
     return finish(ctx);
 }
 
@@ -250,7 +258,6 @@ std::vector<std::string> Store::games() const {
     return out;
 }
 
-// Only complete builds: ingestTree writes files.tsv last.
 std::vector<std::string> Store::huskBuilds(const std::string& game) const {
     std::vector<std::string> out = subdirectories(root_ / "builds" / game);
     std::erase_if(out, [&](const std::string& husk) {
@@ -280,24 +287,33 @@ std::map<std::string, BuildId> Store::tags() const {
     std::error_code ec;
     for (const auto& entry : fs::directory_iterator(root_ / "tags", ec)) {
         std::string name = entry.path().filename().string();
-        if (!validLabel(name) || name.front() == '.') continue;
+        // setTag's staging files.
+        if (name.front() == '.') continue;
         std::ifstream in(entry.path());
         std::string line;
-        if (!std::getline(in, line)) continue;
-        if (auto id = parseBuildPath(line)) out[name] = *id;
+        std::getline(in, line);
+        // A hand-edited tag is foreign: say so, and leave it out.
+        auto id = parseBuildPath(line);
+        if (!id) {
+            std::cerr << "husk: warning: " << entry.path().string() << ": expected one line \"<game>/<husk>\", got \""
+                      << line << "\"\n";
+            continue;
+        }
+        out[name] = *id;
     }
     return out;
 }
 
 void Store::setTag(const std::string& name, const BuildId& id) const {
-    if (!validLabel(name) || name.front() == '.') throw std::runtime_error("invalid tag name \"" + name + "\"");
+    if (!validLabel(name) || name.front() == '.')
+        throw std::runtime_error("tag name: expected one path component not starting with '.', got \"" + name + "\"");
     fs::create_directories(root_ / "tags");
     writeTextAtomic(root_ / "tags" / name, id.path() + "\n");
 }
 
 IngestResult ingestTree(const Store& store, const fs::path& tree, const std::string& game) {
-    if (!validLabel(game)) throw std::runtime_error("invalid game build label \"" + game + "\"");
-    if (!fs::is_directory(tree)) throw std::runtime_error(tree.string() + " is not a directory");
+    if (!validLabel(game)) throw std::runtime_error("game build label: expected one path component, got \"" + game + "\"");
+    if (!fs::is_directory(tree)) throw std::runtime_error("expected an export tree directory, got " + tree.string());
 
     std::vector<fs::path> files;
     for (const auto& entry : fs::recursive_directory_iterator(tree)) {
@@ -309,7 +325,7 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
         files.push_back(relative);
     }
     std::sort(files.begin(), files.end());
-    if (files.empty()) throw std::runtime_error(tree.string() + " has no files to store");
+    if (files.empty()) throw std::runtime_error("expected files to store under " + tree.string() + ", found none");
 
     struct Row {
         Md5 key{};
@@ -318,28 +334,11 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
         std::optional<DocumentHeader> header;
     };
     std::vector<Row> rows(files.size());
-    std::atomic<size_t> next{0};
-    std::mutex failureMutex;
-    std::exception_ptr failure;
-    auto work = [&] {
-        for (size_t i = next++; i < files.size(); i = next++) {
-            try {
-                fs::path source = tree / files[i];
-                Store::Put put = store.putFile(source);
-                rows[i] = {put.key, fs::file_size(source), put.added, readHeader(source)};
-            } catch (...) {
-                std::lock_guard<std::mutex> lock(failureMutex);
-                if (!failure) failure = std::current_exception();
-                next = files.size();
-            }
-        }
-    };
-    {
-        std::vector<std::jthread> workers;
-        unsigned count = std::max(1u, std::thread::hardware_concurrency());
-        for (unsigned i = 0; i < count; i++) workers.emplace_back(work);
-    }
-    if (failure) std::rethrow_exception(failure);
+    parallelFor(files.size(), 0, [&](size_t i) {
+        fs::path source = tree / files[i];
+        Store::Put put = store.putFile(source);
+        rows[i] = {put.key, fs::file_size(source), put.added, readHeader(source)};
+    });
 
     std::optional<DocumentHeader> build;
     for (size_t i = 0; i < files.size(); i++) {
@@ -353,7 +352,7 @@ IngestResult ingestTree(const Store& store, const fs::path& tree, const std::str
                                      rows[i].header->producer + " / " + rows[i].header->schemaVersion +
                                      ", others " + build->producer + " / " + build->schemaVersion);
     }
-    if (!build) throw std::runtime_error(tree.string() + " holds no husk documents");
+    if (!build) throw std::runtime_error("expected husk documents under " + tree.string() + ", found none");
 
     IngestResult result;
     result.id = {game, huskLabel(build->producer)};

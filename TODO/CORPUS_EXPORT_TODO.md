@@ -10,8 +10,10 @@ Design and current state: `REFACTOR/CORPUS_EXPORT.md`.
 3. **Unnamed M2s**: the 193 `ModelFileData` models the listfile can't name
    are not in `--all-assets`.
 4. **Shared effects, materials, rig** across bundles of one tree.
-5. **Clean producer**: the checkout's uncommitted `.gitignore` line makes
-   every build `-dirty`, which `store-add` refuses.
+5. **The full run**: started 2026-10-11 and stopped after 3,108 of 135,136
+   models. Cold reads from casc-tool's store on `tank` seek (~20 ms each);
+   the store is being copied to the work pool's SSDs. Then: a timed sample,
+   then the run (Luna's go-ahead).
 6. **`husk view`** (reflinked tree) for tools that can't use FUSE.
 7. **Prune**: drop builds, then objects no `files.tsv` lists.
 8. **Incremental export** from the previous build's `inputs.tsv` and a game

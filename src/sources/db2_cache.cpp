@@ -45,7 +45,7 @@ const ParsedDb2* getParsedDb2(const std::string& path, const std::string& dbdDir
     ParsedDb2 parsed;
     try {
         parsed.fileBytes = readFileBytes(path);
-        inputs::use(path);
+        inputs::use(path, parsed.fileBytes);
         parsed.file = db2::parse(parsed.fileBytes);
     } catch (const std::exception& e) {
         err << "husk: db2 cache: couldn't read '" << path << "': " << e.what() << "\n";

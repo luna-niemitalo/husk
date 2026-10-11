@@ -87,7 +87,7 @@ builds nest by both:
   live game build. Re-exporting with a newer husk moves the tag; the older
   build stays until pruned.
 
-### The mount (`husk mount <store> <mnt>`)
+### The mount (`husk mount <mnt>`)
 
 ```
 <mnt>/live -> games/12.1.0.69933/e587735       one per tag
@@ -127,7 +127,9 @@ built; block cloning is active on `tank/data`).
   `goralliancegarrisonlevel1` exported twice are byte-identical (12,371
   files). `provenance.sources[].detail` still names the listfile path,
   stable for one machine's config.
-- **`husk store-add <store> <tree> --game L | --game-from DIR [--tag T]`.**
+- **`husk store-add <tree> --game L | --game-from DIR [--tag T]`.** The
+  store, here and in `mount` and `export-corpus`, is the config key
+  `store` (`--store` overrides).
   Hashes every file (parallel), stores new contents (staged in `tmp/`,
   re-hashed, renamed read-only), writes `missing.tsv`, `meta.json`, then
   `files.tsv` last. The same build again is a no-op; other files under an
@@ -135,14 +137,15 @@ built; block cloning is active on `tank/data`).
   reads the game label from the source mount's tag link. Measured on the
   garrison export: 12,367 files share 2,821 contents; a second build with
   one more map added 7 objects.
-- **`husk mount <store> <mnt>`**, above. Verified: every file read through
+- **`husk mount <mnt>`**, above. Verified: every file read through
   it matches the source tree; bundles validate through it; writes fail
   with EROFS.
 
 - **Input tracking** (`inputs::`, `export-world` only). Each output (a
   bundle directory, e.g. `models/1.canon.bundle`) runs in a per-thread
   scope that worker threads inherit; every source file it *uses* is
-  logged with its md5 to the tree's `inputs.log`, which `store-add`
+  logged with the md5 of the bytes it read (no second read) to the
+  tree's `inputs.log`, which `store-add`
   turns into `inputs.tsv` (last row per output and input wins; outputs
   gone from the tree are dropped). Inputs under `--listfile-root` are
   relative to it, so they read as game paths; an md5 of a game file is
@@ -163,11 +166,11 @@ built; block cloning is active on `tank/data`).
     `.m2`, `.skin` and `.blp`, a WMO its root, groups and textures, the
     tile its WDT, ADT, `_obj0`, `_tex0` and ground textures.
 
-- **`husk export-corpus <out> [--store S [--game L|--game-from D] [--tag T]...]`**:
+- **`husk export-corpus <out> [--store DIR|none] [--game L|--game-from D] [--tag T]...`**:
   `export-world` over `<listfile-root>/world/maps` with `--all-assets`
   (every listfile `.m2` and root `.wmo`, placed or not: 135,129 and
-  14,140 in the 2026-10-08 listfile), then `index-tree`, then with
-  `--store` a `store-add`. The game label is resolved before the export,
+  14,140 in the 2026-10-08 listfile), then `index-tree`, then, unless
+  `--store none`, a `store-add`. The game label is resolved before the export,
   from `--listfile-root`'s tag link by default. `--map` and `--sample N`
   (a fixed seeded choice of the listfile assets) bound a projection run.
 - **`husk index-tree <tree>`**: rebuilds `index/` from the model

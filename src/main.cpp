@@ -355,6 +355,7 @@ struct AllSubcommandOpts {
     husk::commands::StoreAddOptions storeAddOpts;
     husk::commands::MountOptions mountOpts;
     husk::commands::ExportCorpusOptions exportCorpusOpts;
+    husk::commands::IndexTreeOptions indexTreeOpts;
 };
 
 // Builds a throwaway CLI11 App tree matching every subcommand's real flag
@@ -420,6 +421,9 @@ void registerAllSubcommands(CLI::App& root, AllSubcommandOpts& opts) {
     CLI::App* exportCorpusSub =
         root.add_subcommand("export-corpus", "every map and every M2/WMO of a game build, optionally into the store");
     husk::commands::addExportCorpusOptions(*exportCorpusSub, opts.exportCorpusOpts);
+
+    CLI::App* indexTreeSub = root.add_subcommand("index-tree", "(re)build an export tree's index/ lookup tables");
+    husk::commands::addIndexTreeOptions(*indexTreeSub, opts.indexTreeOpts);
 
     CLI::App* mountSub = root.add_subcommand("mount", "browse the canonical store as a read-only filesystem");
     husk::commands::addMountOptions(*mountSub, opts.mountOpts);
@@ -602,10 +606,11 @@ int main(int argc, char** argv) {
         "                               check documents against the bundle format's schema\n"
         "  export-world <maps-root> <out-dir> --listfile F --listfile-root D [--map NAME]...\n"
         "                               every tile of every map, parallel, resumable\n"
-        "  store-add <store> <tree> --game LABEL|--game-from DIR [--tag NAME]...\n"
+        "  store-add <tree> --store DIR --game LABEL|--game-from DIR [--tag NAME]...\n"
         "                               record an export tree as a build in the canonical store\n"
-        "  mount <store> <mountpoint>   browse the canonical store as a read-only filesystem\n"
-        "  export-corpus <out> [--store DIR [--tag NAME]...]\n"
+        "  mount <mountpoint> --store DIR\n"
+        "                               browse the canonical store as a read-only filesystem\n"
+        "  export-corpus <out> [--store DIR|none [--tag NAME]...]\n"
         "                               every map and every M2/WMO, then optionally store-add\n"
         "  index-tree <tree>            (re)build an export tree's index/ lookup tables\n"
         "  --version, -V                print the build version and exit\n"

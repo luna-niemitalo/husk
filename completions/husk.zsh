@@ -20,7 +20,14 @@ _husk() {
         'appearance-string:validate/normalize a husk-appearance/1 string'
         'resolve:print sources::Catalog's texture-resolution ledger as JSON'
         'export-terrain:export one ADT tile to a canonical terrain bundle'
+        'export-wmo:export one WMO building to a canonical object bundle'
+        'export-map:export one map's world document: tile grid and map-wide volumes'
+        'validate-bundle:check bundle documents against the format's schema'
         'export-world:export every ADT tile of every map to a canonical scene'
+        'store-add:record an export tree as a build in the canonical store'
+        'export-corpus:every map and every M2/WMO of a game build, optionally into the store'
+        'index-tree:(re)build an export tree's index/ lookup tables'
+        'mount:browse the canonical store as a read-only filesystem'
     )
 
     if (( CURRENT == 2 )); then
@@ -145,6 +152,34 @@ _husk() {
                 '--list-models[--list-models]' \
                 '1:model:_files'
             ;;
+        export-wmo)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_husk_file_or_none_value' \
+                '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_or_none_value' \
+                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--models-dir[--models-dir]:value:_files' \
+                '1:model:_files'
+            ;;
+        export-map)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_husk_file_or_none_value' \
+                '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_or_none_value' \
+                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '1:model:_files'
+            ;;
+        validate-bundle)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--lint-schema[--lint-schema]' \
+                '--release[--release]' \
+                '1:model:_files'
+            ;;
         export-world)
             _arguments \
                 '(-h --help)'{-h,--help}'[print help and exit]' \
@@ -156,6 +191,48 @@ _husk() {
                 '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_or_none_value' \
                 '--jobs[--jobs]:value:_files' \
                 '--skip-models[--skip-models]' \
+                '--all-assets[--all-assets]' \
+                '--sample[--sample]:value:_files' \
+                '1:model:_files'
+            ;;
+        store-add)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--store[--store]:value:_files' \
+                '--game[--game]:value:_files' \
+                '--game-from[--game-from]:value:_files' \
+                '--tag[--tag]:value:_files' \
+                '1:model:_files'
+            ;;
+        export-corpus)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--map[--map]:value:_files' \
+                '--sample[--sample]:value:_files' \
+                '--listfile[community-listfile.csv snapshot, for FileDataID names]:value:_files' \
+                '--listfile-root[corpus root the listfile paths are relative to]:value:_husk_dir_value' \
+                '--db2-dir[character DB2 directory (texture-layout or customization)]:value:_husk_dir_value' \
+                '--dbd-dir[WoWDBDefs checkout, for --db2-dir column names]:value:_husk_dir_value' \
+                '--jobs[--jobs]:value:_files' \
+                '--store[--store]:value:_files' \
+                '--game[--game]:value:_files' \
+                '--game-from[--game-from]:value:_files' \
+                '--tag[--tag]:value:_files' \
+                '1:model:_files'
+            ;;
+        index-tree)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '1:model:_files'
+            ;;
+        mount)
+            _arguments \
+                '(-h --help)'{-h,--help}'[print help and exit]' \
+                '--config[--config]:value:_files' \
+                '--store[--store]:value:_files' \
+                '--foreground[--foreground]' \
                 '1:model:_files'
             ;;
     esac

@@ -21,9 +21,9 @@
 #include <CLI/CLI.hpp>
 
 #include "commands.hpp"
-#include "husk_config.hpp"
 #include "corpus_index.hpp"
 #include "corpus_store.hpp"
+#include "husk_config.hpp"
 
 namespace fs = std::filesystem;
 
@@ -58,6 +58,56 @@ std::string gameLabelOf(const fs::path& sourceTree) {
         throw std::runtime_error("--game-from " + sourceTree.string() + ": expected a link to builds/<label>, got " +
                                  target.string());
     return label;
+}
+
+// Same --config every husk command takes (cmd_export_terrain.cpp's
+// counterpart): the store path is a per-machine fact, not a flag to retype.
+void addConfigOption(CLI::App& app) {
+    app.set_config("--config", husk::defaultConfigPath(),
+                   "TOML file of default flag values (see README.md's config-file section) -- explicit CLI "
+                   "flags always override a config value")
+        ->envname("HUSK_CONFIG")
+        ->group("Diagnostics");
+}
+
+// store-add's and export-corpus's build label and tags. `fromDefault`
+// names what --game-from falls back to, if anything.
+void addBuildLabelOptions(CLI::App& app, std::string& game, std::string& gameFrom, std::vector<std::string>& tags,
+                          const std::string& fromDefault) {
+    CLI::Option* label = app.add_option("--game", game, "the game build the tree was exported from, e.g. 12.1.0.69933")
+                             ->group("Store");
+    app.add_option("--game-from", gameFrom,
+                   "read the game build from a source mount's tag link instead, e.g. /media/luna/wow_export/live" +
+                       fromDefault)
+        ->excludes(label)
+        ->group("Store");
+    app.add_option("--tag", tags, "point this tag (live, ptr, ...) at the build; repeatable")->group("Store");
+}
+
+// --game, else the label --game-from's tag link names.
+std::string resolveGameLabel(const std::string& game, const std::string& gameFrom) {
+    if (!game.empty()) return game;
+    if (gameFrom.empty()) throw std::runtime_error("expected --game or --game-from, got neither");
+    std::string label = gameLabelOf(gameFrom);
+    std::cout << "game build: " << label << " (from " << gameFrom << ")" << std::endl;
+    return label;
+}
+
+void storeTree(const std::string& storeDir, const std::string& tree, const std::string& game,
+               const std::vector<std::string>& tags) {
+    corpus::Store store(fs::absolute(storeDir));
+    corpus::IngestResult r = corpus::ingestTree(store, tree, game);
+    for (const std::string& tag : tags) store.setTag(tag, r.id);
+    std::cout << (r.alreadyStored ? "already stored: " : "stored: ") << r.id.path() << " in " << store.root().string()
+              << ", " << r.files << " files, " << r.bytes << " bytes, " << r.addedObjects << " new objects, "
+              << r.missing << " missing, " << r.inputs << " input rows";
+    for (const std::string& tag : tags) std::cout << ", tag " << tag;
+    std::cout << "\n";
+}
+
+void printIndex(const corpus::IndexResult& index, const std::string& tree) {
+    std::cout << "index: " << (fs::path(tree) / "index").string() << ", " << index.manifests << " model manifests, "
+              << index.creatureDisplays << " creature displays, " << index.chrModels << " ChrModel links\n";
 }
 
 // --- mount ----------------------------------------------------------------
@@ -375,12 +425,10 @@ void* fsInit(struct fuse_conn_info*, struct fuse_config* cfg) {
 }  // namespace
 
 void addStoreAddOptions(CLI::App& app, StoreAddOptions& opts) {
-    app.add_option("store", opts.store, "the canonical store directory")->required();
+    addConfigOption(app);
     app.add_option("tree", opts.tree, "an export's output directory to record as a build")->required();
-    app.add_option("--game", opts.game, "the game build the tree was exported from, e.g. 12.1.0.69933");
-    app.add_option("--game-from", opts.gameFrom,
-                   "read the game build from a source mount's tag link instead, e.g. /media/luna/wow_export/live");
-    app.add_option("--tag", opts.tags, "point this tag (live, ptr, ...) at the build; repeatable");
+    app.add_option("--store", opts.store, "the canonical store directory")->required()->group("Store");
+    addBuildLabelOptions(app, opts.game, opts.gameFrom, opts.tags, "");
 }
 
 int storeAdd(int argc, char** args) {
@@ -389,18 +437,9 @@ int storeAdd(int argc, char** args) {
     addStoreAddOptions(app, opts);
     int exitCode = 0;
     if (!parseArgs(app, argc, args, exitCode)) return exitCode;
-    if (opts.game.empty() == opts.gameFrom.empty()) {
-        std::cerr << "husk: store-add: give exactly one of --game and --game-from\n";
-        return 2;
-    }
     try {
-        std::string game = opts.game.empty() ? gameLabelOf(opts.gameFrom) : opts.game;
-        corpus::Store store(fs::absolute(opts.store));
-        corpus::IngestResult r = corpus::ingestTree(store, opts.tree, game);
-        for (const std::string& tag : opts.tags) store.setTag(tag, r.id);
-        std::cout << (r.alreadyStored ? "already stored: " : "stored: ") << r.id.path() << ", " << r.files
-                  << " files, " << r.bytes << " bytes, " << r.addedObjects << " new objects, " << r.missing
-                  << " missing, " << r.inputs << " input rows\n";
+        std::string game = resolveGameLabel(opts.game, opts.gameFrom);
+        storeTree(opts.store, opts.tree, game, opts.tags);
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "husk: store-add: " << e.what() << "\n";
@@ -409,23 +448,29 @@ int storeAdd(int argc, char** args) {
 }
 
 void addExportCorpusOptions(CLI::App& app, ExportCorpusOptions& opts) {
-    app.set_config("--config", husk::defaultConfigPath(),
-                   "TOML file of default flag values (see README.md's config-file section)")
-        ->envname("HUSK_CONFIG");
+    addConfigOption(app);
     app.add_option("output", opts.output, "tree to write (export-world's layout, every asset)")->required();
-    app.add_option("--listfile", opts.listfile, "community listfile CSV")->required();
-    app.add_option("--listfile-root", opts.listfileRoot, "the game tree the listfile's paths are relative to")
-        ->required();
-    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory, or 'none'")->default_val("none");
-    app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->default_val("none");
-    app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)");
-    app.add_option("--map", opts.maps, "only this map (repeatable; default every map)");
-    app.add_option("--sample", opts.sample, "only this many listfile assets, a fixed seeded random choice");
-    app.add_option("--store", opts.store, "afterwards, record the tree as a build in this store");
-    app.add_option("--game", opts.game, "with --store: the game build label");
-    app.add_option("--game-from", opts.gameFrom,
-                   "with --store: read the game build from a source mount's tag link (default: --listfile-root)");
-    app.add_option("--tag", opts.tags, "with --store: point this tag at the build; repeatable");
+    // Counterparts: addExportWorldOptions (cmd_export_terrain.cpp), whose
+    // flags these forward.
+    app.add_option("--map", opts.maps, "only these map directories (repeatable); default every map")
+        ->group("Selection");
+    app.add_option("--sample", opts.sample,
+                   "only this many listfile assets, a fixed seeded random choice (size and time projections)")
+        ->group("Selection");
+    app.add_option("--listfile", opts.listfile,
+                   "community listfile CSV: finds texture and model files by FileDataID, resolves "
+                   "name-table (MMDX/MWMO/MTEX) paths to FileDataIDs")
+        ->required()
+        ->group("Resolution");
+    app.add_option("--listfile-root", opts.listfileRoot, "directory the listfile's paths are relative to")
+        ->required()
+        ->group("Resolution");
+    app.add_option("--db2-dir", opts.db2Dir, "DB2 directory, or 'none'")->group("Resolution");
+    app.add_option("--dbd-dir", opts.dbdDir, "WoWDBDefs definitions directory, or 'none'")->group("Resolution");
+    app.add_option("--jobs", opts.jobs, "worker threads (default: hardware threads)")->group("Run");
+    app.add_option("--store", opts.store, "afterwards, record the tree as a build in this store, or 'none'")
+        ->group("Store");
+    addBuildLabelOptions(app, opts.game, opts.gameFrom, opts.tags, " (default: --listfile-root)");
 }
 
 int exportCorpus(int argc, char** args) {
@@ -436,16 +481,18 @@ int exportCorpus(int argc, char** args) {
     int exitCode = 0;
     if (!parseArgs(app, argc, args, exitCode)) return exitCode;
     try {
+        bool storing = !opts.store.empty() && opts.store != "none";
         // Resolved before the hours of export, so a bad label fails now.
         std::string game;
-        if (!opts.store.empty()) game = opts.game.empty() ? gameLabelOf(opts.gameFrom.empty() ? opts.listfileRoot : opts.gameFrom) : opts.game;
+        if (storing) game = resolveGameLabel(opts.game, opts.gameFrom.empty() ? opts.listfileRoot : opts.gameFrom);
+        std::cout << "store: " << (storing ? opts.store + ", game build " + game : "none") << std::endl;
 
         std::vector<std::string> worldArgs = {(fs::path(opts.listfileRoot) / "world" / "maps").string(),
                                               opts.output,
                                               "--listfile", opts.listfile,
                                               "--listfile-root", opts.listfileRoot,
-                                              "--db2-dir", opts.db2Dir,
-                                              "--dbd-dir", opts.dbdDir,
+                                              "--db2-dir", opts.db2Dir.empty() ? "none" : opts.db2Dir,
+                                              "--dbd-dir", opts.dbdDir.empty() ? "none" : opts.dbdDir,
                                               "--config", "/dev/null",
                                               "--all-assets"};
         if (opts.jobs > 0) {
@@ -463,17 +510,8 @@ int exportCorpus(int argc, char** args) {
         std::vector<char*> argv;
         for (std::string& a : worldArgs) argv.push_back(a.data());
         if (int code = exportWorld(static_cast<int>(argv.size()), argv.data()); code != 0) return code;
-        corpus::IndexResult index = corpus::buildIndex(opts.output);
-        std::cout << "index: " << index.manifests << " model manifests, " << index.creatureDisplays
-                  << " creature displays, " << index.chrModels << " ChrModel links\n";
-        if (opts.store.empty()) return 0;
-
-        corpus::Store store(fs::absolute(opts.store));
-        corpus::IngestResult r = corpus::ingestTree(store, opts.output, game);
-        for (const std::string& tag : opts.tags) store.setTag(tag, r.id);
-        std::cout << (r.alreadyStored ? "already stored: " : "stored: ") << r.id.path() << ", " << r.files
-                  << " files, " << r.addedObjects << " new objects, " << r.missing << " missing, " << r.inputs
-                  << " input rows\n";
+        printIndex(corpus::buildIndex(opts.output), opts.output);
+        if (storing) storeTree(opts.store, opts.output, game, opts.tags);
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "husk: export-corpus: " << e.what() << "\n";
@@ -481,16 +519,18 @@ int exportCorpus(int argc, char** args) {
     }
 }
 
+void addIndexTreeOptions(CLI::App& app, IndexTreeOptions& opts) {
+    app.add_option("tree", opts.tree, "an export tree (export-world or export-corpus output)")->required();
+}
+
 int indexTree(int argc, char** args) {
     CLI::App app{"husk index-tree -- (re)build an export tree's index/ lookup tables", "husk index-tree"};
-    std::string tree;
-    app.add_option("tree", tree, "an export tree (export-world or export-corpus output)")->required();
+    IndexTreeOptions opts;
+    addIndexTreeOptions(app, opts);
     int exitCode = 0;
     if (!parseArgs(app, argc, args, exitCode)) return exitCode;
     try {
-        corpus::IndexResult index = corpus::buildIndex(tree);
-        std::cout << index.manifests << " model manifests, " << index.creatureDisplays << " creature displays, "
-                  << index.chrModels << " ChrModel links\n";
+        printIndex(corpus::buildIndex(opts.tree), opts.tree);
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "husk: index-tree: " << e.what() << "\n";
@@ -499,9 +539,11 @@ int indexTree(int argc, char** args) {
 }
 
 void addMountOptions(CLI::App& app, MountOptions& opts) {
-    app.add_option("store", opts.store, "the canonical store directory")->required();
+    addConfigOption(app);
     app.add_option("mountpoint", opts.mountpoint, "an empty directory you own")->required();
-    app.add_flag("--foreground", opts.foreground, "stay attached to the terminal instead of daemonizing");
+    app.add_option("--store", opts.store, "the canonical store directory")->required()->group("Store");
+    app.add_flag("--foreground", opts.foreground, "stay attached to the terminal instead of daemonizing")
+        ->group("Run");
 }
 
 int mount(int argc, char** args) {
