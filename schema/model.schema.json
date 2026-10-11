@@ -73,7 +73,7 @@
         },
         "texture_slots": {
           "type": "array",
-          "description": "Textures material layers take from outside the model; the layer's own texture is a default a variant may replace.",
+          "description": "Textures material layers take from outside the model. The layer's own texture is a default; any option may replace it, whether or not the source ever used it on this model.",
           "items": {
             "type": "object",
             "description": "One slot.",
@@ -96,59 +96,38 @@
                 "required": [
                   "texture_type"
                 ]
+              },
+              "options": {
+                "type": "array",
+                "description": "Textures the slot may hold.",
+                "items": {
+                  "$ref": "common.schema.json#/definitions/texture_entry",
+                  "description": "One option."
+                }
               }
             },
             "additionalProperties": false,
             "required": [
               "name",
-              "source"
+              "source",
+              "options"
             ]
           }
         },
-        "variants": {
+        "particle_colors": {
           "type": "array",
-          "description": "Ways the model is dressed, each a complete choice over its slots, geosets and particle colours.",
+          "description": "Ways to recolour the model's particles; any may be chosen.",
           "items": {
             "type": "object",
-            "description": "One variant.",
+            "description": "One recolouring.",
             "properties": {
-              "textures": {
-                "type": "array",
-                "description": "Textures the variant puts in slots; a slot not listed keeps the layer's texture.",
-                "items": {
-                  "type": "object",
-                  "description": "One filled slot.",
-                  "properties": {
-                    "slot": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "description": "The slot.",
-                      "x-index-into": "/definition/texture_slots"
-                    },
-                    "texture": {
-                      "$ref": "common.schema.json#/definitions/texture_entry",
-                      "description": "The texture."
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "slot",
-                    "texture"
-                  ]
-                }
+              "ref": {
+                "$ref": "common.schema.json#/definitions/ref",
+                "description": "The source row."
               },
-              "shown_geosets": {
+              "ramps": {
                 "type": "array",
-                "description": "Mesh geoset ids shown; every other geoset is hidden. Absent: the model's default.",
-                "items": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "description": "A geoset id, group * 100 + variant."
-                }
-              },
-              "particle_colors": {
-                "type": "array",
-                "description": "Particle recolouring: ramp i recolours emitters whose particle_color_index is 11 + i.",
+                "description": "Ramp i recolours emitters whose particle_color_index is 11 + i.",
                 "items": {
                   "type": "object",
                   "description": "One ramp over a particle's life.",
@@ -176,54 +155,12 @@
                     "end"
                   ]
                 }
-              },
-              "opacity": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1,
-                "description": "Whole-model opacity; absent: opaque.",
-                "x-unit": "1"
-              },
-              "sources": {
-                "type": "array",
-                "minItems": 1,
-                "description": "Source rows that dress the model this way.",
-                "items": {
-                  "type": "object",
-                  "description": "One source row.",
-                  "properties": {
-                    "ref": {
-                      "$ref": "common.schema.json#/definitions/ref",
-                      "description": "The row."
-                    },
-                    "scale": {
-                      "type": "number",
-                      "description": "The row's own scale.",
-                      "x-unit": "1"
-                    },
-                    "base_scale": {
-                      "type": "number",
-                      "description": "The model data row's scale.",
-                      "x-unit": "1"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "ref",
-                    "scale",
-                    "base_scale"
-                  ]
-                }
-              },
-              "unresolved": {
-                "$ref": "common.schema.json#/definitions/unresolved",
-                "description": "Source values the variant carries but husk can't place yet."
               }
             },
             "additionalProperties": false,
             "required": [
-              "textures",
-              "sources"
+              "ref",
+              "ramps"
             ]
           }
         },
@@ -397,6 +334,104 @@
             "required": [
               "reference",
               "slots"
+            ]
+          }
+        },
+        "presets": {
+          "type": "array",
+          "description": "Combinations of the definition's options a source is known to use, and where. A renderer may choose any other combination.",
+          "items": {
+            "type": "object",
+            "description": "One known combination.",
+            "properties": {
+              "textures": {
+                "type": "array",
+                "description": "Texture choices; a slot not listed keeps the layer's texture.",
+                "items": {
+                  "type": "object",
+                  "description": "One choice.",
+                  "properties": {
+                    "slot": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "The slot.",
+                      "x-index-into": "/definition/texture_slots"
+                    },
+                    "option": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Index into the slot's options."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "slot",
+                    "option"
+                  ]
+                }
+              },
+              "shown_geosets": {
+                "type": "array",
+                "description": "Mesh geoset ids shown; every other geoset is hidden. Absent: the preset doesn't choose geosets.",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "A geoset id, group * 100 + variant."
+                }
+              },
+              "particle_colors": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "The particle recolouring.",
+                "x-index-into": "/definition/particle_colors"
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Whole-model opacity; absent: opaque.",
+                "x-unit": "1"
+              },
+              "sources": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Source rows that use the combination, each with the scale it draws the model at.",
+                "items": {
+                  "type": "object",
+                  "description": "One source row.",
+                  "properties": {
+                    "ref": {
+                      "$ref": "common.schema.json#/definitions/ref",
+                      "description": "The row."
+                    },
+                    "scale": {
+                      "type": "number",
+                      "description": "The row's own scale.",
+                      "x-unit": "1"
+                    },
+                    "base_scale": {
+                      "type": "number",
+                      "description": "The model data row's scale.",
+                      "x-unit": "1"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ref",
+                    "scale",
+                    "base_scale"
+                  ]
+                }
+              },
+              "unresolved": {
+                "$ref": "common.schema.json#/definitions/unresolved",
+                "description": "Source values the combination names but husk can't place in an option."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "textures",
+              "sources"
             ]
           }
         }
@@ -1080,7 +1115,7 @@
                     "slot": {
                       "type": "integer",
                       "minimum": 0,
-                      "description": "The slot a variant may fill instead of texture.",
+                      "description": "The slot whose options may replace texture.",
                       "x-index-into": "/definition/texture_slots"
                     },
                     "blend": {

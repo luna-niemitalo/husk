@@ -21,12 +21,12 @@ deletions handled their own back-references).
   source no rule covers joins the nearest classified effect (leftovers in
   `style`/`unresolved`) or, if genuinely unsolvable, is skipped and
   counted.
-- Creature variants: a model's alternative looks as `definition.variants`
-  over `definition.texture_slots`; M2 creatures get them from
-  CreatureModelData -> CreatureDisplayInfo (textures by slot, shown
-  geosets, ParticleColor ramps, opacity; identical looks merged, each
-  display listed with its scale). Humanoid NPC displays are counted, not
-  variants. Findings in `WIKI_FINDINGS/M2.md` (the fourth texture entry,
+- Creature options: first built as whole-look variants, then reshaped on
+  Luna's call. The model declares options, each valid alone (texture
+  options per slot, particle colour options, the mesh geosets); the
+  combinations CreatureDisplayInfo uses are `selection.presets`, each
+  listing its displays with their scale. Humanoid NPC displays are
+  counted, not read. Findings in `WIKI_FINDINGS/M2.md` (the fourth texture entry,
   positional entries, ParticleColor ARGB).
 - DB2 CommonData lookups were a linear scan per record; now indexed at
   parse (CreatureDisplayInfo load 2.2 s -> 0.6 s per export, same output).

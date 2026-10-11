@@ -189,7 +189,7 @@ public:
     // row is the safer default.
     void registerPathOverride(uint32_t fdid, std::string realContentPath);
 
-    // A FileDataID named outside the model (a creature variant's texture):
+    // A FileDataID named outside the model (a creature texture option):
     // the FileDataID tiers only (literal, listfile, store). No pool claim and
     // no per-slot memo, since it fills no M2 texture-array slot.
     Resolved<EncodedTexture> textureForFileDataId(uint32_t fdid) const { return resolveFileDataIdTiers(fdid); }

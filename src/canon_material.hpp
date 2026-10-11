@@ -130,7 +130,7 @@ enum class BlendOp { Modulate, Modulate2x, Add, Replace, Decal, Fade };
 struct MaterialLayer {
     Ref identity;  // stable identity a named slot points at -- never a raw vector index, same reasoning already applied to bones/geosets
     TextureRef texture;
-    // Index into Model::textureSlots when a variant may replace `texture`.
+    // Index into Model::textureSlots when the slot's options may replace `texture`.
     std::optional<uint32_t> slot;
     UvRef uv;
     LayerRole role;

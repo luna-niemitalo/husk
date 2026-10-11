@@ -9,7 +9,7 @@
 #include "canon_diff.hpp"
 #include "canon_model.hpp"
 #include "chunk.hpp"           // readChunks, findChunk (AFSB/AFM2 peek)
-#include "creature_variant_input.hpp"
+#include "creature_options_input.hpp"
 #include "export_extras.hpp"   // readFileBytes
 #include "m2_animation.hpp"    // m2::extractAnimBlob
 #include "m2_canon_input.hpp"  // m2input::buildCanonModel, m2input::ExternalAnimBlobs
@@ -490,13 +490,13 @@ void writeCanonBundleOnly(const m2::Model& model, const std::string& skinPath, s
                                            objectSkinTextureFileDataId, animDir, listfileRoot,
                                            bonesAreInline, haveSkel, skelBytes);
     if (creatures && modelFileDataId) {
-        creatureinput::VariantReport report;
-        build.model.variants = creatureinput::assembleVariants(
+        creatureinput::OptionsReport report;
+        creatureinput::addCreatureOptions(
             *creatures, *modelFileDataId, build.model,
             [&](uint32_t fdid) { return toCanonTextureRef(catalog.textureForFileDataId(fdid), fdid); }, report);
         if (report.displays > 0) {
-            std::cerr << "husk: " << build.model.variants.size() << " creature variant(s) from " << report.displays
-                      << " display(s); " << report.humanoid << " humanoid display(s) are not variants\n";
+            std::cerr << "husk: " << build.model.presets.size() << " creature preset(s) from " << report.displays
+                      << " display(s); " << report.humanoid << " humanoid display(s) not read\n";
         }
     }
     writers::writeBundle(build.model, bundleDir, m2Provenance());

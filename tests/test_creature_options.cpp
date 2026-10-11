@@ -1,4 +1,4 @@
-// src/creature_variant_input.hpp (synthetic display rows) and
+// src/creature_options_input.hpp (synthetic display rows) and
 // src/creature_display_db2.hpp (real 12.1.0 tables on the casc-tool mount,
 // skipped without it).
 
@@ -7,7 +7,7 @@
 #include <sstream>
 
 #include "../src/creature_display_db2.hpp"
-#include "../src/creature_variant_input.hpp"
+#include "../src/creature_options_input.hpp"
 #include "test_data_paths.hpp"
 
 using namespace husk;
@@ -45,13 +45,13 @@ creaturedisplay::Display display(uint32_t id, std::array<uint32_t, 4> textures) 
 
 }  // namespace
 
-TEST_CASE("assembleVariants: displays dressing the model alike are one variant; textures fill slots by type") {
+TEST_CASE("addCreatureOptions: every display texture is a slot option; each distinct combination one preset") {
     creaturedisplay::Data data;
     data.modelDataByFile[kModelFile] = {{1, 2.0f, false}};
     creaturedisplay::Display a = display(10, {100, 200, 0, 0});
     a.scale = 1.5f;
     creaturedisplay::Display b = display(11, {100, 200, 0, 0});
-    creaturedisplay::Display c = display(12, {101, 0, 0, 400});
+    creaturedisplay::Display c = display(12, {101, 200, 0, 400});
     c.alpha = 51;
     creaturedisplay::Display npc = display(13, {0, 0, 0, 0});
     npc.humanoid = true;
@@ -59,66 +59,79 @@ TEST_CASE("assembleVariants: displays dressing the model alike are one variant; 
 
     canon::Model model = modelWithGeosets({0, 101});
     std::vector<uint32_t> asked;
-    creatureinput::VariantReport report;
-    std::vector<canon::Variant> variants = creatureinput::assembleVariants(
+    creatureinput::OptionsReport report;
+    creatureinput::addCreatureOptions(
         data, kModelFile, model, [&](uint32_t fdid) { asked.push_back(fdid); return textureNamed(fdid); }, report);
 
     CHECK(report.displays == 4);
     CHECK(report.humanoid == 1);
-    REQUIRE(variants.size() == 2);
-    // Entry 0 fills type 11 (slot 1), entry 1 type 12 (slot 0).
-    REQUIRE(variants[0].textures.size() == 2);
-    CHECK(variants[0].textures[0].slot == 1);
-    CHECK(std::get<canon::FileDataId>(variants[0].textures[0].texture.resolved.id).value == 100);
-    CHECK(variants[0].textures[1].slot == 0);
-    REQUIRE(variants[0].sources.size() == 2);
-    CHECK(variants[0].sources[0].scale == 1.5f);
-    CHECK(variants[0].sources[0].baseScale == 2.0f);
-    CHECK(std::get<canon::Db2Row>(variants[1].sources[0].ref.id).row == 12);
-    CHECK_FALSE(variants[0].shownGeosets.has_value());
-    // The fourth entry has no texture type: kept, not placed.
-    REQUIRE(variants[1].unresolved.size() == 1);
-    CHECK(variants[1].unresolved[0].field == "TextureVariationFileDataID[3]");
-    CHECK(variants[1].opacity == doctest::Approx(0.2f));
-    // Each FileDataID resolved once.
+    // Entry 0 fills type 11 (slot 1), entry 1 type 12 (slot 0); each texture once.
+    REQUIRE(model.textureSlots[1].options.size() == 2);
+    CHECK(std::get<canon::FileDataId>(model.textureSlots[1].options[1].resolved.id).value == 101);
+    REQUIRE(model.textureSlots[0].options.size() == 1);
     CHECK(asked == std::vector<uint32_t>{100, 200, 101});
+
+    REQUIRE(model.presets.size() == 2);
+    const canon::Preset& first = model.presets[0];
+    REQUIRE(first.textures.size() == 2);
+    CHECK(first.textures[0].slot == 1);
+    CHECK(first.textures[0].option == 0);
+    CHECK(first.textures[1].slot == 0);
+    REQUIRE(first.sources.size() == 2);
+    CHECK(first.sources[0].scale == 1.5f);
+    CHECK(first.sources[0].baseScale == 2.0f);
+    CHECK_FALSE(first.shownGeosets.has_value());
+    const canon::Preset& second = model.presets[1];
+    CHECK(second.textures[0].option == 1);
+    CHECK(second.textures[1].option == 0);
+    CHECK(std::get<canon::Db2Row>(second.sources[0].ref.id).row == 12);
+    // The fourth entry has no texture type: kept, not made an option.
+    REQUIRE(second.unresolved.size() == 1);
+    CHECK(second.unresolved[0].field == "TextureVariationFileDataID[3]");
+    CHECK(second.opacity == doctest::Approx(0.2f));
 }
 
-TEST_CASE("assembleVariants: a model whose displays pick geosets shows 0, 900+ and the picked ones") {
+TEST_CASE("addCreatureOptions: a model whose displays pick geosets shows 0, 900+ and the picked ones") {
     creaturedisplay::Data data;
     data.modelDataByFile[kModelFile] = {{1, 1.0f, true}};
     data.displaysByModelData[1] = {display(10, {}), display(11, {})};
     data.geosetsByDisplay[10] = {102, 201};
     canon::Model model = modelWithGeosets({0, 101, 102, 201, 202, 901});
-    creatureinput::VariantReport report;
-    std::vector<canon::Variant> variants =
-        creatureinput::assembleVariants(data, kModelFile, model, textureNamed, report);
-    REQUIRE(variants.size() == 2);
-    CHECK(*variants[0].shownGeosets == std::vector<uint32_t>{0, 102, 201, 901});
-    CHECK(*variants[1].shownGeosets == std::vector<uint32_t>{0, 901});
+    creatureinput::OptionsReport report;
+    creatureinput::addCreatureOptions(data, kModelFile, model, textureNamed, report);
+    REQUIRE(model.presets.size() == 2);
+    CHECK(*model.presets[0].shownGeosets == std::vector<uint32_t>{0, 102, 201, 901});
+    CHECK(*model.presets[1].shownGeosets == std::vector<uint32_t>{0, 901});
 }
 
-TEST_CASE("assembleVariants: particle colours unpack ARGB to RGBA ramps; an unknown colour id stays unresolved") {
+TEST_CASE("addCreatureOptions: particle colour rows are options with ARGB unpacked to RGBA; an unknown id stays unresolved") {
     creaturedisplay::Data data;
     data.modelDataByFile[kModelFile] = {{1, 1.0f, false}};
     creaturedisplay::Display known = display(10, {});
     known.particleColorId = 5;
-    creaturedisplay::Display missing = display(11, {});
+    creaturedisplay::Display again = display(11, {});
+    again.particleColorId = 5;
+    again.alpha = 0;
+    creaturedisplay::Display missing = display(12, {});
     missing.particleColorId = 6;
-    data.displaysByModelData[1] = {known, missing};
+    data.displaysByModelData[1] = {known, again, missing};
     data.particleColors[5] = {{0xFFFF0000, 0, 0}, {0x8000FF00, 0, 0}, {0xFF0000FF, 0, 0}};
-    creatureinput::VariantReport report;
-    std::vector<canon::Variant> variants =
-        creatureinput::assembleVariants(data, kModelFile, modelWithGeosets({0}), textureNamed, report);
-    REQUIRE(variants.size() == 2);
-    REQUIRE(variants[0].particleColors.size() == 3);
-    CHECK(variants[0].particleColors[0].start == std::array<float, 4>{1, 0, 0, 1});
-    CHECK(variants[0].particleColors[0].mid[1] == 1.0f);
-    CHECK(variants[0].particleColors[0].mid[3] == doctest::Approx(128.0f / 255.0f));
-    CHECK(variants[0].particleColors[0].end == std::array<float, 4>{0, 0, 1, 1});
-    CHECK(variants[1].particleColors.empty());
-    REQUIRE(variants[1].unresolved.size() == 1);
-    CHECK(variants[1].unresolved[0].field == "ParticleColorID");
+    canon::Model model = modelWithGeosets({0});
+    creatureinput::OptionsReport report;
+    creatureinput::addCreatureOptions(data, kModelFile, model, textureNamed, report);
+    REQUIRE(model.particleColorOptions.size() == 1);
+    CHECK(std::get<canon::Db2Row>(model.particleColorOptions[0].ref.id).row == 5);
+    const std::vector<canon::ParticleColorRamp>& ramps = model.particleColorOptions[0].ramps;
+    REQUIRE(ramps.size() == 3);
+    CHECK(ramps[0].start == std::array<float, 4>{1, 0, 0, 1});
+    CHECK(ramps[0].mid[3] == doctest::Approx(128.0f / 255.0f));
+    CHECK(ramps[0].end == std::array<float, 4>{0, 0, 1, 1});
+    REQUIRE(model.presets.size() == 3);
+    CHECK(model.presets[0].particleColors == 0u);
+    CHECK(model.presets[1].particleColors == 0u);
+    CHECK_FALSE(model.presets[2].particleColors.has_value());
+    REQUIRE(model.presets[2].unresolved.size() == 1);
+    CHECK(model.presets[2].unresolved[0].field == "ParticleColorID");
 }
 
 TEST_CASE("creaturedisplay::load: real 12.1.0 tables -- the mana wyrm mount's displays" *

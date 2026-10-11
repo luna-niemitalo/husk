@@ -249,29 +249,39 @@ replaced a separate WMO collision mesh (a consumer selects collidable
 faces by flag). `resources.geometry.collision` remains for M2, whose collision
 vertices are separate data.
 
-## Texture slots and variants — a model's alternative looks
+## Options and presets — what a model may be, and what a source used
 
 **Current** (2026-10-11, Luna's call): a model that can be dressed more
-than one way declares it in its `definition`:
+than one way declares its options in `definition`, each valid on its own
+whether or not the source ever combined it with the rest. Choosing among
+them (which texture, which geosets, what size) is the renderer's call,
+the same as customization choices.
 
-- `texture_slots`: the textures its material layers take from outside the
-  model (`{name, source: {texture_type}}`; M2: one per distinct nonzero
-  texture type). A layer that reads one names it as `slot`; the layer's
-  own `texture` is the default.
-- `variants`: each one complete way to dress the model: the textures it
-  puts in slots, the geosets it shows (`shown_geosets`, a closed list;
-  absent = the model's default), particle colour ramps (ramp i recolours
-  emitters whose `particle_color_index` is 11 + i), opacity, and the
-  source rows that produce it, each with its scale. Values husk carries
-  but can't place yet go in the variant's `unresolved`.
+- `texture_slots`: textures material layers take from outside the model
+  (`{name, source: {texture_type}, options}`; M2: one per distinct
+  nonzero texture type). A layer that reads one names it as `slot`; its
+  own `texture` is the default, and any of the slot's `options` may
+  replace it.
+- `particle_colors`: ways to recolour the model's particles; ramp i of an
+  option recolours emitters whose `particle_color_index` is 11 + i.
+- Geoset options are the mesh's own geosets.
 
-M2 creatures fill this from `CreatureModelData` → `CreatureDisplayInfo`
-(`src/creature_variant_input.cpp`, `export --bundle-only` and
-`export-world` with `--db2-dir`/`--dbd-dir`); displays that dress the
-model identically are one variant listing each display. "Variant", not
-"style": an effect instance's `style` is its classic look. A variant
-never swaps the model: a creature that alternates between models is a
-level above the model document and isn't represented yet.
+`selection.presets` saves the combinations a source is known to use: slot
+choices (`{slot, option}`), the geosets shown (`shown_geosets`, a closed
+list; absent = not chosen), a particle colour option, opacity, and the
+source rows that use it, each with the scale it draws the model at.
+Values the source names but husk can't place in an option go in the
+preset's `unresolved`.
+
+M2 creatures fill both from `CreatureModelData` → `CreatureDisplayInfo`
+(`src/creature_options_input.cpp`, `export --bundle-only` and
+`export-world` with `--db2-dir`/`--dbd-dir`). Options never swap the
+model: a creature that alternates between models is a level above the
+model document and isn't represented yet. Options that are only valid
+together ("this texture only with these geosets") would need a
+constraint form; none is known for creatures. For characters the plan
+is to make such pieces separate options instead (a tunic's skirt as its
+own selectable piece, CANONICAL_MODEL.md "Items by identity, not slot").
 
 ## Embed or reference — one rule
 

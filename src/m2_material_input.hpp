@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "canon_material.hpp"
-#include "canon_variant.hpp"  // TextureSlot
+#include "canon_options.hpp"  // TextureSlot
 #include "m2_animation.hpp"  // m2::Color/TextureWeight/TextureTransform
 #include "m2_header.hpp"     // m2::Material/Texture
 #include "skin.hpp"          // skin::Batch
@@ -157,7 +157,7 @@ canon::Material assembleMaterial(const skin::Batch& batch, size_t batchIndex, co
                                   uint32_t sequenceIndex, const TextureResolutions& textureResolutions = {});
 
 // One slot per distinct replaceable texture type (nonzero M2 texture
-// type) in `textures`, first-seen order: what a variant may fill.
+// type) in `textures`, first-seen order: the slots a texture option may fill.
 std::vector<canon::TextureSlot> textureSlots(const std::vector<m2::Texture>& textures);
 
 }  // namespace husk::m2input

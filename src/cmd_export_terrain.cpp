@@ -306,16 +306,16 @@ std::optional<lightdb::Data> loadLights(const std::string& db2Dir, const std::st
 std::optional<creaturedisplay::Data> loadCreatures(const std::string& db2Dir, const std::string& dbdDir,
                                                   std::string& note) {
     if (db2Dir.empty() || dbdDir.empty()) {
-        note = "creature variants: none (needs --db2-dir and --dbd-dir)";
+        note = "creature options: none (needs --db2-dir and --dbd-dir)";
         return std::nullopt;
     }
     std::ostringstream err;
     std::optional<creaturedisplay::Data> data = creaturedisplay::load(db2Dir, dbdDir, err);
     if (!data) {
-        note = "creature variants: none (creature display DB2s unreadable: " + err.str() + ")";
+        note = "creature options: none (creature display DB2s unreadable: " + err.str() + ")";
         return std::nullopt;
     }
-    note = "creature variants: " + std::to_string(data->modelDataByFile.size()) + " creature models from " + db2Dir;
+    note = "creature options: " + std::to_string(data->modelDataByFile.size()) + " creature models from " + db2Dir;
     return data;
 }
 
@@ -1088,7 +1088,7 @@ int exportMap(int argc, char** args) {
 //      one pass for the whole world), plus every GroundEffectDoodad model,
 //   2. export each model once to models/<fdid>.canon.bundle via
 //      exportOneModel --bundle-only (one shared listfile, no per-model DB2
-//      loads; creature variants from tables loaded once),
+//      loads; creature options from tables loaded once),
 //   3. export each tile to maps/<map>/<tile>.bundle, terrain textures shared
 //      under textures/, uris only to outputs that exist.
 //   4. write each map's world document to maps/<map>/<map>.world.bundle:

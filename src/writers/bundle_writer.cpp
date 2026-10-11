@@ -414,8 +414,8 @@ void writeRgba(json::Writer& w, const std::array<float, 4>& rgba) {
     w.endArray();
 }
 
-void writeVariants(json::Writer& w, const canon::Model& model, const std::filesystem::path& bundleDir,
-                   std::unordered_set<std::string>& writtenTextures) {
+void writeOptions(json::Writer& w, const canon::Model& model, const std::filesystem::path& bundleDir,
+                  std::unordered_set<std::string>& writtenTextures) {
     if (!model.textureSlots.empty()) {
         w.key("texture_slots");
         w.beginArray();
@@ -428,51 +428,70 @@ void writeVariants(json::Writer& w, const canon::Model& model, const std::filesy
             w.key("texture_type");
             w.value(static_cast<int64_t>(slot.sourceType));
             w.endObject();
+            w.key("options");
+            w.beginArray();
+            for (const canon::TextureRef& option : slot.options) writeTextureEntry(w, option, bundleDir, writtenTextures);
+            w.endArray();
             w.endObject();
         }
         w.endArray();
     }
-    if (model.variants.empty()) return;
-    w.key("variants");
+    if (model.particleColorOptions.empty()) return;
+    w.key("particle_colors");
     w.beginArray();
-    for (const canon::Variant& variant : model.variants) {
+    for (const canon::ParticleColorOption& option : model.particleColorOptions) {
         w.beginObject();
-        w.key("textures");
+        w.key("ref");
+        writeRef(w, option.ref);
+        w.key("ramps");
         w.beginArray();
-        for (const canon::SlotTexture& t : variant.textures) {
+        for (const canon::ParticleColorRamp& ramp : option.ramps) {
             w.beginObject();
-            w.key("slot");
-            w.value(static_cast<int64_t>(t.slot));
-            w.key("texture");
-            writeTextureEntry(w, t.texture, bundleDir, writtenTextures);
+            w.key("start");
+            writeRgba(w, ramp.start);
+            w.key("mid");
+            writeRgba(w, ramp.mid);
+            w.key("end");
+            writeRgba(w, ramp.end);
             w.endObject();
         }
         w.endArray();
-        if (variant.shownGeosets) {
+        w.endObject();
+    }
+    w.endArray();
+}
+
+void writePresets(json::Writer& w, const std::vector<canon::Preset>& presets) {
+    if (presets.empty()) return;
+    w.key("presets");
+    w.beginArray();
+    for (const canon::Preset& preset : presets) {
+        w.beginObject();
+        w.key("textures");
+        w.beginArray();
+        for (const canon::SlotChoice& choice : preset.textures) {
+            w.beginObject();
+            w.key("slot");
+            w.value(static_cast<int64_t>(choice.slot));
+            w.key("option");
+            w.value(static_cast<int64_t>(choice.option));
+            w.endObject();
+        }
+        w.endArray();
+        if (preset.shownGeosets) {
             w.key("shown_geosets");
             w.beginArray();
-            for (uint32_t id : *variant.shownGeosets) w.value(static_cast<int64_t>(id));
+            for (uint32_t id : *preset.shownGeosets) w.value(static_cast<int64_t>(id));
             w.endArray();
         }
-        if (!variant.particleColors.empty()) {
+        if (preset.particleColors) {
             w.key("particle_colors");
-            w.beginArray();
-            for (const canon::ParticleColorRamp& ramp : variant.particleColors) {
-                w.beginObject();
-                w.key("start");
-                writeRgba(w, ramp.start);
-                w.key("mid");
-                writeRgba(w, ramp.mid);
-                w.key("end");
-                writeRgba(w, ramp.end);
-                w.endObject();
-            }
-            w.endArray();
+            w.value(static_cast<int64_t>(*preset.particleColors));
         }
-        if (variant.opacity) writeFloatField(w, "opacity", *variant.opacity);
+        if (preset.opacity) writeFloatField(w, "opacity", *preset.opacity);
         w.key("sources");
         w.beginArray();
-        for (const canon::VariantSource& source : variant.sources) {
+        for (const canon::PresetSource& source : preset.sources) {
             w.beginObject();
             w.key("ref");
             writeRef(w, source.ref);
@@ -481,9 +500,9 @@ void writeVariants(json::Writer& w, const canon::Model& model, const std::filesy
             w.endObject();
         }
         w.endArray();
-        if (!variant.unresolved.empty()) {
+        if (!preset.unresolved.empty()) {
             w.key("unresolved");
-            writeUnresolved(w, variant.unresolved);
+            writeUnresolved(w, preset.unresolved);
         }
         w.endObject();
     }
@@ -820,9 +839,9 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     w.key("definition");
     w.beginObject();
     writeOwnedSetDefinitions(w, sets);
-    writeVariants(w, model, bundleDir, writtenTextures);
+    writeOptions(w, model, bundleDir, writtenTextures);
     w.endObject();
-    writeOwnedSetSelectionAndReferences(w, sets);
+    writeOwnedSetSelectionAndReferences(w, sets, [&](json::Writer& sw) { writePresets(sw, model.presets); });
 
     w.key("resources");
     w.beginObject();

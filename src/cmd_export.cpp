@@ -950,7 +950,7 @@ std::optional<creaturedisplay::Data> loadCreatureDisplays(const ExportOptions& o
     std::optional<creaturedisplay::Data> data = creaturedisplay::load(opts.db2DirArg, opts.dbdDirArg, std::cerr);
     if (!data) {
         std::cerr << "husk: warning: creature display tables unreadable under --db2-dir '" << opts.db2DirArg
-                  << "'; bundles get no creature variants\n";
+                  << "'; bundles get no creature options\n";
     }
     return data;
 }

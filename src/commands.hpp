@@ -335,7 +335,7 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                     std::optional<uint32_t> modelFileDataId = std::nullopt,
                     const creaturedisplay::Data* creatures = nullptr);
 
-// --bundle-only's creature variant tables, loaded once per run from
+// --bundle-only's creature display tables, loaded once per run from
 // --db2-dir/--dbd-dir; nullopt without them (or for a glTF export).
 std::optional<creaturedisplay::Data> loadCreatureDisplays(const ExportOptions& opts, CLI::App& app);
 

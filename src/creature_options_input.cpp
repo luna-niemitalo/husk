@@ -1,4 +1,4 @@
-#include "creature_variant_input.hpp"
+#include "creature_options_input.hpp"
 
 #include <algorithm>
 #include <map>
@@ -45,24 +45,45 @@ std::vector<uint32_t> shownGeosets(const std::vector<uint32_t>& meshIds, const s
     return shown;
 }
 
+// First-seen option indices, so the same source value is one option.
+struct OptionIndex {
+    std::map<std::pair<uint32_t, uint32_t>, uint32_t> textureOption;  // (slot, fdid)
+    std::unordered_map<uint32_t, uint32_t> particleOption;            // ParticleColorID
+};
+
 }  // namespace
 
-std::vector<canon::Variant> assembleVariants(const creaturedisplay::Data& data, uint32_t modelFileDataId,
-                                             const canon::Model& model,
-                                             const std::function<canon::TextureRef(uint32_t)>& texture,
-                                             VariantReport& report) {
-    std::vector<canon::Variant> variants;
+void addCreatureOptions(const creaturedisplay::Data& data, uint32_t modelFileDataId, canon::Model& model,
+                        const std::function<canon::TextureRef(uint32_t)>& texture, OptionsReport& report) {
     auto modelRows = data.modelDataByFile.find(modelFileDataId);
-    if (modelRows == data.modelDataByFile.end()) return variants;
+    if (modelRows == data.modelDataByFile.end()) return;
 
     std::vector<uint32_t> meshIds = meshGeosetIds(model.mesh);
-    std::unordered_map<uint32_t, canon::TextureRef> textures;
-    auto textureFor = [&](uint32_t fdid) -> const canon::TextureRef& {
-        auto it = textures.find(fdid);
-        if (it == textures.end()) it = textures.emplace(fdid, texture(fdid)).first;
+    OptionIndex index;
+    std::map<std::string, size_t> presetByChoices;
+
+    auto textureOption = [&](uint32_t slot, uint32_t fdid) {
+        auto [it, added] = index.textureOption.emplace(std::pair{slot, fdid}, 0);
+        if (added) {
+            it->second = static_cast<uint32_t>(model.textureSlots[slot].options.size());
+            model.textureSlots[slot].options.push_back(texture(fdid));
+        }
         return it->second;
     };
-    std::map<std::string, size_t> byLook;
+    auto particleOption = [&](uint32_t id, const creaturedisplay::ParticleColors& colors) {
+        auto [it, added] = index.particleOption.emplace(id, 0);
+        if (added) {
+            it->second = static_cast<uint32_t>(model.particleColorOptions.size());
+            canon::ParticleColorOption option;
+            option.ref = canon::Ref{canon::Db2Row{"ParticleColor", id}, "", canon::NameSource::None};
+            for (size_t i = 0; i < 3; ++i) {
+                option.ramps.push_back(
+                    {argbToRgba(colors.start[i]), argbToRgba(colors.mid[i]), argbToRgba(colors.end[i])});
+            }
+            model.particleColorOptions.push_back(std::move(option));
+        }
+        return it->second;
+    };
 
     for (const creaturedisplay::ModelData& modelData : modelRows->second) {
         auto displays = data.displaysByModelData.find(modelData.id);
@@ -73,7 +94,7 @@ std::vector<canon::Variant> assembleVariants(const creaturedisplay::Data& data, 
                 ++report.humanoid;
                 continue;
             }
-            canon::Variant look;
+            canon::Preset preset;
             std::string key;
             for (size_t i = 0; i < display.textures.size(); ++i) {
                 uint32_t fdid = display.textures[i];
@@ -82,46 +103,41 @@ std::vector<canon::Variant> assembleVariants(const creaturedisplay::Data& data, 
                 std::optional<uint32_t> slot =
                     i < kTypedVariations ? slotForType(model.textureSlots, kFirstVariationType + uint32_t(i)) : std::nullopt;
                 if (slot) {
-                    look.textures.push_back({*slot, textureFor(fdid)});
+                    preset.textures.push_back({*slot, textureOption(*slot, fdid)});
                 } else {
-                    look.unresolved.push_back({"TextureVariationFileDataID[" + std::to_string(i) + "]",
-                                               canon::UnresolvedField::Kind::Id, double(fdid), std::nullopt});
+                    preset.unresolved.push_back({"TextureVariationFileDataID[" + std::to_string(i) + "]",
+                                                 canon::UnresolvedField::Kind::Id, double(fdid), std::nullopt});
                 }
             }
             if (modelData.displaysPickGeosets) {
                 auto picked = data.geosetsByDisplay.find(display.id);
-                look.shownGeosets = shownGeosets(
+                preset.shownGeosets = shownGeosets(
                     meshIds, picked == data.geosetsByDisplay.end() ? std::vector<uint32_t>{} : picked->second);
                 key += "g";
-                for (uint32_t id : *look.shownGeosets) key += std::to_string(id) + ",";
+                for (uint32_t id : *preset.shownGeosets) key += std::to_string(id) + ",";
             }
             if (display.particleColorId != 0) {
                 key += "p" + std::to_string(display.particleColorId) + ";";
                 auto colors = data.particleColors.find(display.particleColorId);
                 if (colors == data.particleColors.end()) {
-                    look.unresolved.push_back({"ParticleColorID", canon::UnresolvedField::Kind::Id,
-                                               double(display.particleColorId), std::nullopt});
+                    preset.unresolved.push_back({"ParticleColorID", canon::UnresolvedField::Kind::Id,
+                                                 double(display.particleColorId), std::nullopt});
                 } else {
-                    for (size_t i = 0; i < 3; ++i) {
-                        look.particleColors.push_back({argbToRgba(colors->second.start[i]),
-                                                       argbToRgba(colors->second.mid[i]),
-                                                       argbToRgba(colors->second.end[i])});
-                    }
+                    preset.particleColors = particleOption(display.particleColorId, colors->second);
                 }
             }
             if (display.alpha != 255) {
-                look.opacity = static_cast<float>(display.alpha) / 255.0f;
+                preset.opacity = static_cast<float>(display.alpha) / 255.0f;
                 key += "a" + std::to_string(display.alpha);
             }
 
-            auto [it, added] = byLook.emplace(key, variants.size());
-            if (added) variants.push_back(std::move(look));
-            variants[it->second].sources.push_back(
+            auto [it, added] = presetByChoices.emplace(key, model.presets.size());
+            if (added) model.presets.push_back(std::move(preset));
+            model.presets[it->second].sources.push_back(
                 {canon::Ref{canon::Db2Row{"CreatureDisplayInfo", display.id}, "", canon::NameSource::None},
                  display.scale, modelData.scale});
         }
     }
-    return variants;
 }
 
 }  // namespace husk::creatureinput

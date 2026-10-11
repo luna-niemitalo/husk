@@ -331,14 +331,17 @@ back down, nothing lost since it was already all in `CLAUDE_HISTORY.md`).
   (mechanical grouping checked by derivation coverage, no screenshots). Effect documents are written per
   bundle (`<bundle>/effects/`), not shared across an export-world tree
   yet. The format is at schema_version 0.1.0.
-- **Creature variants (2026-10-11)**: a model's alternative looks are
-  `definition.variants` over `definition.texture_slots` (layers name their
-  `slot`), filled for M2 creatures from CreatureModelData ->
-  CreatureDisplayInfo (`creaturedisplay`, `creatureinput`; `export
-  --bundle-only` and `export-world` with `--db2-dir`/`--dbd-dir`).
-  REFACTOR/BUNDLE_FORMAT.md "Texture slots and variants"; open items
-  (creatures spanning several models is a design call, humanoid NPCs,
-  conditional displays) in `TODO/CREATURE_VARIANTS_TODO.md`. The DB2
+- **Creature options (2026-10-11, Luna's shape)**: the model declares
+  options, each valid alone (renderer chooses): texture slots with their
+  texture options (layers name their `slot`), particle colour options,
+  the mesh's geosets; `selection.presets` saves the combinations the
+  client uses and where (with scale). Filled for M2 creatures from
+  CreatureModelData -> CreatureDisplayInfo (`creaturedisplay`,
+  `creatureinput`; `export --bundle-only` and `export-world` with
+  `--db2-dir`/`--dbd-dir`). REFACTOR/BUNDLE_FORMAT.md "Options and
+  presets"; open items (creatures spanning several models is a design
+  call, humanoid NPCs, conditional displays) in
+  `TODO/CREATURE_OPTIONS_TODO.md`. The DB2
   parser now indexes CommonData once (it scanned per record).
 - **Terrain export (2026-10-09)**: promoted from WIP to a tested,
   documented feature. Open items, in order: ground-cover scatter placing
