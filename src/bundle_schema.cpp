@@ -426,7 +426,7 @@ struct InputChecker {
         } else if (kind == "rotation" || kind == "color_alpha") {
             expect(isNumbers(value, 4), "4 numbers");
         } else if (kind == "image") {
-            expect(value.is_object() && value.contains("identity"), "a texture entry");
+            expect(value.is_object() && value.contains("state"), "a texture entry");
         } else if (kind == "mesh") {
             expect(value.is_object() && value.contains("id"), "an asset reference");
         } else if (kind == "spline") {
@@ -632,10 +632,28 @@ struct Validation {
             if (!effect) continue;  // the effect's own problem is already reported
             InputChecker inputs{[&](const std::string& p, const std::string& m) { checker.fail(p, m); }};
             inputs.checkFields((*effect)["definition"]["inputs"], instance.value("inputs", json::object()), pointer + "/inputs", "");
-            std::set<std::string> sourceIds;
-            for (const json& source : (*effect)["sources"]) sourceIds.insert(source["id"].get<std::string>());
-            for (const auto& [id, _] : instance.value("style", json::object()).items()) {
-                if (!sourceIds.count(id)) checker.fail(pointer + "/style/" + id, "expected style keyed by one of the effect's source ids, got '" + id + "'");
+            // A source repeated per list element has one style block per element.
+            std::map<std::string, std::string> repeatedOver;
+            for (const json& source : (*effect)["sources"]) repeatedOver[source["id"]] = source.value("for_each", "");
+            const json& inputValues = instance.value("inputs", json::object());
+            for (const auto& [id, style] : instance.value("style", json::object()).items()) {
+                std::string at = pointer + "/style/" + id;
+                auto source = repeatedOver.find(id);
+                if (source == repeatedOver.end()) {
+                    checker.fail(at, "expected style keyed by one of the effect's source ids, got '" + id + "'");
+                    continue;
+                }
+                if (source->second.empty()) {
+                    if (!style.is_object()) checker.fail(at, "expected one style block for source '" + id + "', got a list");
+                    continue;
+                }
+                size_t elements = inputValues.contains(source->second) && inputValues[source->second].is_array()
+                                      ? inputValues[source->second].size()
+                                      : 0;
+                if (!style.is_array() || style.size() != elements) {
+                    checker.fail(at, "expected one style block per element of '" + source->second + "' (" +
+                                         std::to_string(elements) + "), got " + describeValue(style));
+                }
             }
             if ((*effect)["definition"].value("status", "") == "placeholder" && warnings) {
                 std::string name = (*effect)["subject"]["name"];

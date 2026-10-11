@@ -4,23 +4,26 @@
 settled; the rest is proposal.
 
 **Built**: the `effect` kind (`schema/effect.schema.json`; documents in
-`effects/`, embedded and written as is), the input kinds, `everywhere` and
-`sphere`/`planes` regions (with an optional `edge`), `distance_fog.linear`,
-`exit_blend`, the underwater look and `ambient_color` as style, the shared
-`unresolved` shape, effect instances in placement sets
-(`canon::EffectPlacement`, list and record inputs), `{set, id}` instance
-refs, inline reference documents, and `validate-bundle`'s input checks
-and placeholder warnings (`--release` fails on them). Sources on it
-(Phase 2): WMO `MFOG` (`classic_local_fog`, `classic_fog_exit_blend`) and
-`MAVG`/`MAVD`/`MBVD` (`classic_ambient_global`/`_point`/`_box`).
+`effects/`, embedded and written as is), the input kinds, `everywhere`,
+`sphere`, `box` and `planes` regions (with an optional `edge`),
+`particles` content with a `quad` look, `distance_fog.linear`,
+`exit_blend`, the underwater look, `ambient_color`, `particulate` and
+`draw` as style (one block per element for a `for_each` source), the
+shared `unresolved` shape, effect instances in placement sets
+(`canon::EffectPlacement`; list, record and image inputs), `{set, id}`
+instance refs, inline reference documents, and `validate-bundle`'s input
+checks and placeholder warnings (`--release` fails on them). Sources on
+it (Phase 2): WMO `MFOG` (`classic_local_fog`, `classic_fog_exit_blend`),
+`MAVG`/`MAVD`/`MBVD` (`classic_ambient_global`/`_point`/`_box`) and
+`MPVD` (`classic_particulate_volume`).
 
 **Not yet**: every other source still carries its own shape:
 - `canon::FogVolume` mirrors `VFOG`+`VFEX`+`VFE2`, `unknown18` and all;
-- `canon::ParticulateVolume` mirrors `MPVD`/`PVMI`;
+- `canon::ParticulateVolume` mirrors a map's `PVMI` (with its raw record);
 - `canon::ParticleEmitter`/`RibbonEmitter` mirror M2's emitters.
 
-The `anchor` field, gate, priority, provenance and content kinds are not
-in the schema yet; each joins with its first source.
+The `anchor` field, gate, priority, provenance and the remaining content
+kinds are not in the schema yet; each joins with its first source.
 
 Source facts are in `../WIKI_FINDINGS/WORLD.md`, open items in
 `../TODO/WORLD/FOG_VOLUMES_TODO.md`, and the client's fog code in

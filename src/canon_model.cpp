@@ -141,6 +141,9 @@ void requirePartEffects(const std::vector<MeshPart>& parts, const std::vector<Mo
         for (const InstanceRef& volume : parts[p].ambientVolumes) {
             requireEffectInstance(volume, sets, "part " + std::to_string(p) + "'s ambient volume");
         }
+        for (const InstanceRef& volume : parts[p].particulateVolumes) {
+            requireEffectInstance(volume, sets, "part " + std::to_string(p) + "'s particulate volume");
+        }
     }
 }
 

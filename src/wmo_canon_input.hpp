@@ -46,6 +46,14 @@ std::vector<uint32_t> liquidTypeRows(const WmoInputs& in);
 canon::ParticulateVolume buildParticulateVolume(const wmo::ParticulateVolume& volume,
                                                 const TextureResolutions& textures);
 
+// The same record as a classic_particulate_volume effect instance
+// (REFACTOR/EFFECTS.md), placed at the box's centre in the record's frame:
+// the box and emitter atlases as inputs, the particle cap and each
+// emitter's blend and colour as style, every uncharacterized field
+// unresolved. The caller sets `id`; `origin` names the source record.
+canon::PlacedInstance particulateInstance(const wmo::ParticulateVolume& volume, const TextureResolutions& textures,
+                                          canon::SourceRecord origin);
+
 // The wiki name of WMO shader `id` (WMO.md "Shader types"), or nullptr.
 const char* shaderName(uint32_t id);
 

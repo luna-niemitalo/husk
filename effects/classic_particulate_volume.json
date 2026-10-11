@@ -1,0 +1,65 @@
+{
+  "definition": {
+    "status": "placeholder",
+    "inputs": {
+      "size": {
+        "kind": "vector",
+        "unit": "yard",
+        "description": "Full size of the box per axis; the box is centred on the instance."
+      },
+      "emitters": {
+        "kind": "list",
+        "description": "The particle kinds the box is filled with, one to four.",
+        "item": {
+          "kind": "record",
+          "description": "One particle kind.",
+          "fields": {
+            "texture": {
+              "kind": "image",
+              "description": "The particle texture: an atlas of animation frames."
+            },
+            "tiles_x": {
+              "kind": "integer",
+              "description": "Atlas columns."
+            },
+            "tiles_y": {
+              "kind": "integer",
+              "description": "Atlas rows."
+            },
+            "frames": {
+              "kind": "integer",
+              "description": "Frames the animation plays, from the first tile."
+            }
+          }
+        }
+      }
+    }
+  },
+  "selection": {},
+  "references": [],
+  "sources": [
+    {
+      "id": "volume",
+      "region": {
+        "kind": "box",
+        "center": [0, 0, 0],
+        "size": {"input": "size"}
+      }
+    },
+    {
+      "id": "emitter",
+      "parent": "volume",
+      "for_each": "emitters",
+      "content": {
+        "kind": "particles",
+        "look": {
+          "kind": "quad",
+          "image": {"each": "texture"},
+          "tiles_x": {"each": "tiles_x"},
+          "tiles_y": {"each": "tiles_y"},
+          "frames": {"each": "frames"}
+        }
+      }
+    }
+  ]
+}

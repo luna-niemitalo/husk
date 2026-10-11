@@ -259,7 +259,6 @@ struct Scene {
     std::vector<Event> events;
     std::vector<Light> lights;
     std::vector<LocalLight> localLights;
-    std::vector<ParticulateVolume> particulateVolumes;
     std::vector<RibbonEmitter> ribbons;
     std::vector<ParticleEmitter> particles;
 };

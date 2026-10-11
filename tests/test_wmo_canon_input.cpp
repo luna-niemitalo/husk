@@ -361,13 +361,17 @@ TEST_CASE("buildCanonWmo: liquid type follows WMO.md's rules, with and without t
     CHECK(resolvedType(0, 15) == 0);
 }
 
-TEST_CASE("buildCanonWmo: MPVD records become particulate volumes with resolved emitter textures") {
+TEST_CASE("buildCanonWmo: MPVD records become particulate effect instances with resolved emitter textures") {
     wmo::RootFile root = syntheticRoot();
     wmo::ParticulateVolume v;
     v.flags = 21;
+    v.position = {1, 2, 3};
     v.extent = {7, 8, 9};
+    v.rotation = {0, 0, 0.5f};
     v.presetId = 16386;
+    v.particleCount = 500;
     v.envelope = {{0.5f, 1.0f, 0.0f}, {1.0f, 1.0f, 4.0f}};
+    v.unknownRanges = {{0x270, {0, 7}}};
     wmo::ParticulateEmitter dust;
     dust.slot = 0;
     dust.textureFileDataId = 101;
@@ -392,27 +396,46 @@ TEST_CASE("buildCanonWmo: MPVD records become particulate volumes with resolved 
 
     canon::Model model = wmoinput::buildCanonWmo(in);
 
-    REQUIRE(model.scene.particulateVolumes.size() == 1);
-    const canon::ParticulateVolume& out = model.scene.particulateVolumes[0];
-    CHECK(out.ref.name == "particles_0");
-    CHECK(out.origin.table == "MPVD");
-    CHECK(out.extent.z == 9.0f);
-    CHECK(out.presetId == 16386);
-    CHECK(out.sourceFlags == 21);
-    REQUIRE(out.envelope.size() == 2);
-    CHECK(out.envelope[1].time == 4.0f);
-    CHECK(out.envelope[1].value == 1.0f);
-    CHECK(out.envelope[0].value == 0.5f);
-    REQUIRE(out.emitters.size() == 2);
-    CHECK(out.emitters[0].texture.resolved.name == "dust1");
-    CHECK(out.emitters[0].blend == canon::FramebufferBlend::Add);
-    CHECK(out.emitters[0].color[1] == 0.5f);
-    CHECK(out.emitters[0].frames == 16);
-    CHECK(out.emitters[1].slot == 1);
-    CHECK(out.emitters[1].texture.unresolvedReason == "texture FileDataID 555 was not resolved");
-    CHECK_FALSE(out.emitters[1].blend.has_value());
-    CHECK(out.emitters[1].sourceBlend == 7);
-    CHECK(out.sourceRecord.size() == 4272);
+    // Set 0: doodad 0, then the volume.
+    REQUIRE(model.placementSets[0].set.instances.size() == 2);
+    const canon::PlacedInstance& out = model.placementSets[0].set.instances[1];
+    CHECK(out.asset.name == "classic_particulate_volume");
+    CHECK(out.translation.z == 3.0f);
+    CHECK(out.flags == 21);
+    const canon::EffectPlacement& effect = *out.effect;
+    CHECK(effect.origin.table == "MPVD");
+    CHECK(std::get<canon::Vec3>(effect.inputs.at(0).value.value).z == 9.0f);
+    const auto& emitters = std::get<std::vector<canon::InputValue>>(effect.inputs.at(1).value.value);
+    REQUIRE(emitters.size() == 2);
+    const auto& dustInput = std::get<std::vector<canon::NamedInput>>(emitters[0].value);
+    CHECK(std::get<canon::TextureRef>(dustInput[0].value.value).resolved.name == "dust1");
+    CHECK(std::get<int64_t>(dustInput[3].value.value) == 16);
+    const auto& oddInput = std::get<std::vector<canon::NamedInput>>(emitters[1].value);
+    CHECK(std::get<canon::TextureRef>(oddInput[0].value.value).unresolvedReason == "texture FileDataID 555 was not resolved");
+
+    REQUIRE(effect.style.size() == 2);
+    CHECK(effect.style[0].blocks.at(0).maxParticles == 500u);
+    CHECK(effect.style[1].perElement);
+    REQUIRE(effect.style[1].blocks.size() == 2);
+    CHECK(effect.style[1].blocks[0].draw->blend == canon::FramebufferBlend::Add);
+    CHECK(effect.style[1].blocks[0].draw->color[1] == 0.5f);
+    CHECK_FALSE(effect.style[1].blocks[1].draw->blend.has_value());
+
+    auto field = [&](const std::string& name) -> const canon::UnresolvedField* {
+        auto it = std::find_if(effect.unresolved.begin(), effect.unresolved.end(),
+                               [&](const canon::UnresolvedField& f) { return f.field == name; });
+        return it == effect.unresolved.end() ? nullptr : &*it;
+    };
+    REQUIRE(field("emitters[1].blend"));
+    CHECK(std::get<double>(field("emitters[1].blend")->value) == 7);
+    REQUIRE(field("rotation"));
+    CHECK(field("rotation")->kind == canon::UnresolvedField::Kind::Angle);
+    CHECK(std::get<double>(field("preset")->value) == 16386);
+    REQUIRE(field("envelope (time, value, value2)"));
+    CHECK(std::get<std::vector<double>>(field("envelope (time, value, value2)")->value).size() == 6);
+    REQUIRE(field("record+0x270"));
+    CHECK(std::get<std::vector<uint32_t>>(field("record+0x270")->value)[1] == 7);
+    CHECK_FALSE(field("record+0x4"));  // zero fields aren't carried
 }
 
 TEST_CASE("buildCanonWmo: a group's MAVR/MBVR/MPVR name the scene volumes its part uses; a ref past its table fails") {
@@ -435,7 +458,9 @@ TEST_CASE("buildCanonWmo: a group's MAVR/MBVR/MPVR name the scene volumes its pa
     REQUIRE(model.mesh.parts[1].ambientVolumes.size() == 2);
     CHECK(model.mesh.parts[1].ambientVolumes[0].id == 5);
     CHECK(model.mesh.parts[1].ambientVolumes[1].id == 6);
-    CHECK(model.mesh.parts[1].particulateVolumes == std::vector<uint32_t>{0});
+    // The MPVD volume follows them, id 7.
+    REQUIRE(model.mesh.parts[1].particulateVolumes.size() == 1);
+    CHECK(model.mesh.parts[1].particulateVolumes[0].id == 7);
     // MFVR replaces the four fogIds slots; 0 is the default fog, here the
     // empty entry, so no list entry.
     CHECK(model.mesh.parts[1].fogs.empty());
@@ -475,7 +500,7 @@ TEST_CASE("buildCanonWmo: MAVG, MAVD and MBVD become global, point and box ambie
     const canon::PlacedInstance& g = set0[1];
     CHECK(g.asset.name == "classic_ambient_global");
     CHECK(g.effect->origin.table == "MAVG");
-    const auto& colors = *g.effect->style.at(0).second.ambientColors;
+    const auto& colors = *g.effect->style.at(0).blocks.at(0).ambientColors;
     // BGRA bytes 99 66 33 FF -> RGBA 0x33 0x66 0x99 0xFF.
     CHECK(colors[0][0] == doctest::Approx(0x33 / 255.0));
     CHECK(colors[0][2] == doctest::Approx(0x99 / 255.0));
@@ -675,8 +700,8 @@ TEST_CASE("buildCanonWmo: MFOG fogs become effect instances in the set they appl
     CHECK(exit->effect->origin.index == 1);
     CHECK(exit->effect->inputs.empty());
     REQUIRE(exit->effect->style.size() == 1);
-    CHECK(exit->effect->style[0].first == "exit_blend");
-    CHECK(exit->effect->style[0].second.exitBlend);
+    CHECK(exit->effect->style[0].source == "exit_blend");
+    CHECK(exit->effect->style[0].blocks.at(0).exitBlend);
     REQUIRE(exit->effect->unresolved.size() == 3);
     CHECK(exit->effect->unresolved[0].field == "smaller_radius");
     CHECK(exit->effect->unresolved[2].field == "flags");
@@ -688,7 +713,7 @@ TEST_CASE("buildCanonWmo: MFOG fogs become effect instances in the set they appl
     REQUIRE(local->effect->inputs.size() == 2);
     CHECK(local->effect->inputs[0].name == "inner_radius");
     CHECK(std::get<double>(local->effect->inputs[1].value.value) == 8.0);
-    const canon::StyleBlock& style = local->effect->style.at(0).second;
+    const canon::StyleBlock& style = local->effect->style.at(0).blocks.at(0);
     // start = end * startScalar; BGRA bytes 99 66 33 7F -> RGB 0x33 0x66 0x99.
     CHECK(style.distanceFog->linear->start == 20.0f);
     CHECK(style.distanceFog->linear->end == 40.0f);

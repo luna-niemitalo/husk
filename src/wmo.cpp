@@ -382,6 +382,18 @@ void requireVertexCount(const char* tag, size_t actual, size_t vertexCount) {
     }
 }
 
+// Keeps [begin, end) of the record at `o` when any dword in it is nonzero.
+void keepIfSet(const uint8_t* data, size_t size, size_t o, size_t begin, size_t end, const char* tag,
+               std::vector<UnknownRange>& out) {
+    UnknownRange range{static_cast<uint32_t>(begin), {}};
+    bool set = false;
+    for (size_t at = begin; at < end; at += 4) {
+        range.words.push_back(read<uint32_t>(data, size, o + at, tag));
+        set = set || range.words.back() != 0;
+    }
+    if (set) out.push_back(std::move(range));
+}
+
 }  // namespace
 
 ParticulateVolume parseParticulateVolume(const uint8_t* data, size_t size, size_t offset, const std::string& what) {
@@ -396,9 +408,14 @@ ParticulateVolume parseParticulateVolume(const uint8_t* data, size_t size, size_
     v.position = readVec3(data, size, o + 0x08, tag);
     v.extent = readVec3(data, size, o + 0x14, tag);
     v.rotation = readVec3(data, size, o + 0x20, tag);
+    v.unknown04 = read<uint32_t>(data, size, o + 0x04, tag);
+    v.unknown2C = read<float>(data, size, o + 0x2C, tag);
     v.presetId = read<uint32_t>(data, size, o + 0x30, tag);
     v.particleCount = read<uint32_t>(data, size, o + 0x34, tag);
+    v.unknown38 = read<uint32_t>(data, size, o + 0x38, tag);
     v.opacity = read<float>(data, size, o + 0x3C, tag);
+    v.unknown220 = read<std::array<float, 20>>(data, size, o + 0x220, tag);
+    v.unknown29C = read<float>(data, size, o + 0x29C, tag);
     auto keyCount = read<uint32_t>(data, size, o + 0x298, tag);
     if (keyCount > kMpvdEnvelopeSlots) {
         throw ParseError(what + " keyframe count: expected <= " + std::to_string(kMpvdEnvelopeSlots) + ", got " +
@@ -407,22 +424,32 @@ ParticulateVolume parseParticulateVolume(const uint8_t* data, size_t size, size_
     for (uint32_t k = 0; k < keyCount; ++k) {
         v.envelope.push_back(read<std::array<float, 3>>(data, size, o + 0x40 + 12 * k, tag));
     }
+    keepIfSet(data, size, o, 0x40 + 12 * keyCount, 0x220, tag, v.unknownRanges);
+    keepIfSet(data, size, o, 0x270, 0x298, tag, v.unknownRanges);
+    keepIfSet(data, size, o, 0x2A0, kMpvdEmitterOffset, tag, v.unknownRanges);
     for (uint32_t slot = 0; slot < kMpvdEmitterSlots; ++slot) {
-        size_t e = o + kMpvdEmitterOffset + slot * kMpvdEmitterSize;
+        size_t start = kMpvdEmitterOffset + slot * kMpvdEmitterSize;
+        size_t e = o + start;
         ParticulateEmitter emitter;
         emitter.slot = slot;
         emitter.textureFileDataId = read<uint32_t>(data, size, e + 0x94, tag);
         // Corpus: an entry is all zero exactly when its texture is 0.
-        if (emitter.textureFileDataId == 0) continue;
+        if (emitter.textureFileDataId == 0) {
+            keepIfSet(data, size, o, start, start + kMpvdEmitterSize, tag, v.unknownRanges);
+            continue;
+        }
         emitter.parameters = read<std::array<float, 32>>(data, size, e, tag);
         emitter.color = read<std::array<float, 4>>(data, size, e + 0x80, tag);
+        emitter.unknown90 = read<float>(data, size, e + 0x90, tag);
         emitter.blendMode = read<uint32_t>(data, size, e + 0x98, tag);
         emitter.tilesX = read<uint32_t>(data, size, e + 0x9C, tag);
         emitter.tilesY = read<uint32_t>(data, size, e + 0xA0, tag);
         emitter.frames = read<uint32_t>(data, size, e + 0xA4, tag);
         emitter.unknownA8 = read<float>(data, size, e + 0xA8, tag);
+        keepIfSet(data, size, o, start + 0xAC, start + kMpvdEmitterSize, tag, v.unknownRanges);
         v.emitters.push_back(emitter);
     }
+    keepIfSet(data, size, o, 0x1000, 0x10AC, tag, v.unknownRanges);
     // The record's last dword counts its emitter entries (812/812 real records).
     auto declared = read<uint32_t>(data, size, o + 0x10AC, tag);
     if (declared != v.emitters.size()) {

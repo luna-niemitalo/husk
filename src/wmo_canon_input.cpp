@@ -236,7 +236,7 @@ canon::PlacedInstance ambientInstance(const char* effect, const char* table, uin
     canon::StyleBlock style;
     style.ambientColors.emplace();
     for (size_t k = 0; k < 3; ++k) (*style.ambientColors)[k] = rgbaOf(colors[k]);
-    placement.style = {{"ambient", style}};
+    placement.style = {{"ambient", {style}}};
     if (flags != 0) placement.unresolved.push_back({"flags", canon::UnresolvedField::Kind::Bits, flags, std::nullopt});
     instance.effect = std::move(placement);
     return instance;
@@ -334,7 +334,7 @@ canon::PlacedInstance buildFogInstance(const WmoInputs& in, uint32_t index) {
     if (f.flags & kFogExitBlend) {
         instance.asset = canon::Ref{canon::None{}, "classic_fog_exit_blend", canon::NameSource::Synthesized};
         style.exitBlend = true;
-        effect.style = {{"exit_blend", style}};
+        effect.style = {{"exit_blend", {style}}};
         unresolvedFloat("smaller_radius", f.smallerRadius, effect.unresolved);
         unresolvedFloat("larger_radius", f.largerRadius, effect.unresolved);
     } else {
@@ -346,7 +346,7 @@ canon::PlacedInstance buildFogInstance(const WmoInputs& in, uint32_t index) {
             unresolvedFloat("smaller_radius", f.smallerRadius, effect.unresolved);
             unresolvedFloat("larger_radius", f.largerRadius, effect.unresolved);
         }
-        effect.style = {{"fog", style}};
+        effect.style = {{"fog", {style}}};
     }
     if (uint32_t unknown = f.flags & ~kFogExitBlend; unknown != 0) {
         effect.unresolved.push_back({"flags", canon::UnresolvedField::Kind::Bits, unknown, std::nullopt});
@@ -420,7 +420,10 @@ AmbientRefs placeAmbient(const WmoInputs& in, EffectPlacer& placer) {
     return out;
 }
 
-// A group's refs into a list of instances: MAVR, MBVR.
+// MPVD has no doodad set: every volume is in set 0.
+std::vector<canon::InstanceRef> placeParticulate(const WmoInputs& in, EffectPlacer& placer);
+
+// A group's refs into a list of instances: MAVR, MBVR, MPVR.
 void appendRefs(uint32_t part, const char* tag, const std::vector<uint16_t>& refs,
                 const std::vector<canon::InstanceRef>& instances, std::vector<canon::InstanceRef>& out) {
     for (uint16_t r : refs) {
@@ -461,32 +464,10 @@ void nameByPosition(std::vector<T>& entries, const std::string& prefix) {
 
 canon::Scene buildScene(const WmoInputs& in) {
     canon::Scene scene;
-    const wmo::RootFile& root = *in.root;
-    for (uint32_t i = 0; i < in.root->particulateVolumes.size(); ++i) {
-        canon::ParticulateVolume v = buildParticulateVolume(root.particulateVolumes[i], in.textures);
-        v.origin = {"MPVD", i};
-        scene.particulateVolumes.push_back(std::move(v));
-    }
     for (uint32_t i = 0; i < in.root->newLights.size(); ++i) scene.localLights.push_back(buildNewLight(in, i));
     for (uint32_t i = 0; i < in.root->legacyLights.size(); ++i) scene.localLights.push_back(buildLegacyLight(in, i));
-    nameByPosition(scene.particulateVolumes, "particles");
     nameByPosition(scene.localLights, "light");
     return scene;
-}
-
-// A group's refs into a root table of `count` records, shifted by `offset`
-// into the canon list that holds that table.
-std::vector<uint32_t> volumeRefs(uint32_t part, const char* tag, const std::vector<uint16_t>& refs, size_t count,
-                                 uint32_t offset) {
-    std::vector<uint32_t> out;
-    for (uint16_t r : refs) {
-        if (r >= count) {
-            throw std::runtime_error("WMO group " + std::to_string(part) + "'s " + tag + ": expected refs < " +
-                                     std::to_string(count) + " root records, got " + std::to_string(r));
-        }
-        out.push_back(offset + r);
-    }
-    return out;
 }
 
 // WMO.md MLIQ "how to determine LiquidTypeRec to use", transcribed.
@@ -624,6 +605,103 @@ const char* shaderName(uint32_t id) {
     return id < std::size(kNames) ? kNames[id] : nullptr;
 }
 
+namespace {
+
+std::string fieldAt(const std::string& base, uint32_t offset) {
+    char text[16];
+    std::snprintf(text, sizeof(text), "+0x%X", offset);
+    return base + text;
+}
+
+void unresolvedScalar(std::vector<canon::UnresolvedField>& out, std::string field, double value, bool keepZero = false) {
+    if (value != 0 || keepZero) out.push_back({std::move(field), canon::UnresolvedField::Kind::Scalar, value, std::nullopt});
+}
+
+template <size_t N>
+void unresolvedScalars(std::vector<canon::UnresolvedField>& out, std::string field, const std::array<float, N>& values) {
+    if (std::all_of(values.begin(), values.end(), [](float v) { return v == 0; })) return;
+    out.push_back({std::move(field), canon::UnresolvedField::Kind::Scalars, std::vector<double>(values.begin(), values.end()),
+                   std::nullopt});
+}
+
+}  // namespace
+
+canon::PlacedInstance particulateInstance(const wmo::ParticulateVolume& v, const TextureResolutions& textures,
+                                          canon::SourceRecord origin) {
+    canon::PlacedInstance instance;
+    instance.asset = canon::Ref{canon::None{}, "classic_particulate_volume", canon::NameSource::Synthesized};
+    // Every _mpv.wdt volume's world box is centred on its position and its
+    // extent's size (619/619), so the extent is the full size.
+    instance.translation = toCanon(v.position);
+    instance.flags = v.flags;
+    canon::EffectPlacement effect;
+    effect.origin = std::move(origin);
+
+    std::vector<canon::InputValue> emitters;
+    canon::SourceStyle emitterStyle{"emitter", {}, true};
+    std::vector<canon::UnresolvedField>& unresolved = effect.unresolved;
+    for (size_t k = 0; k < v.emitters.size(); ++k) {
+        const wmo::ParticulateEmitter& e = v.emitters[k];
+        emitters.push_back({std::vector<canon::NamedInput>{
+            {"texture", {textureById(textures, e.textureFileDataId)}},
+            {"tiles_x", {int64_t{e.tilesX}}},
+            {"tiles_y", {int64_t{e.tilesY}}},
+            {"frames", {int64_t{e.frames}}}}});
+        canon::StyleBlock block;
+        block.draw = canon::StyleBlock::Draw{framebufferBlendFor(e.blendMode), e.color};
+        emitterStyle.blocks.push_back(block);
+        std::string base = "emitters[" + std::to_string(k) + "]";
+        unresolvedScalars(unresolved, base + ".parameters", e.parameters);
+        if (!block.draw->blend) {
+            unresolved.push_back({base + ".blend", canon::UnresolvedField::Kind::Id, double(e.blendMode), std::nullopt});
+        }
+        unresolvedScalar(unresolved, fieldAt(base, 0x90), e.unknown90);
+        unresolvedScalar(unresolved, fieldAt(base, 0xA8), e.unknownA8);
+    }
+    effect.inputs = {{"size", {toCanon(v.extent)}}, {"emitters", {std::move(emitters)}}};
+    canon::StyleBlock volumeStyle;
+    // The particle cap: the shader bounds its simulation threads by it.
+    volumeStyle.maxParticles = v.particleCount;
+    effect.style = {{"volume", {volumeStyle}, false}, std::move(emitterStyle)};
+
+    // Neither the rotation's axis order nor its sign convention is settled
+    // (2 of 193 records turn about two axes): carried, not applied.
+    if (v.rotation != wmo::Vec3{}) {
+        unresolved.push_back({"rotation", canon::UnresolvedField::Kind::Angle,
+                              std::vector<double>(v.rotation.begin(), v.rotation.end()), std::nullopt});
+    }
+    if (v.flags != 0) unresolved.push_back({"flags", canon::UnresolvedField::Kind::Bits, v.flags, std::nullopt});
+    unresolvedScalar(unresolved, fieldAt("record", 0x04), v.unknown04);
+    unresolvedScalar(unresolved, fieldAt("record", 0x2C), v.unknown2C);
+    unresolved.push_back({"preset", canon::UnresolvedField::Kind::Id, double(v.presetId), std::nullopt});
+    unresolvedScalar(unresolved, fieldAt("record", 0x38), v.unknown38);
+    unresolvedScalar(unresolved, "opacity", v.opacity, true);
+    if (!v.envelope.empty()) {
+        std::vector<double> keys;
+        for (const auto& [value, value2, time] : v.envelope) keys.insert(keys.end(), {time, value, value2});
+        unresolved.push_back({"envelope (time, value, value2)", canon::UnresolvedField::Kind::Scalars, keys, std::nullopt});
+    }
+    unresolvedScalars(unresolved, fieldAt("record", 0x220), v.unknown220);
+    unresolvedScalar(unresolved, fieldAt("record", 0x29C), v.unknown29C);
+    for (const wmo::UnknownRange& range : v.unknownRanges) {
+        unresolved.push_back({fieldAt("record", range.offset), canon::UnresolvedField::Kind::Words, range.words, std::nullopt});
+    }
+    instance.effect = std::move(effect);
+    return instance;
+}
+
+namespace {
+
+std::vector<canon::InstanceRef> placeParticulate(const WmoInputs& in, EffectPlacer& placer) {
+    std::vector<canon::InstanceRef> out;
+    for (uint32_t i = 0; i < in.root->particulateVolumes.size(); ++i) {
+        out.push_back(placer.place(0, particulateInstance(in.root->particulateVolumes[i], in.textures, {"MPVD", i})));
+    }
+    return out;
+}
+
+}  // namespace
+
 canon::ParticulateVolume buildParticulateVolume(const wmo::ParticulateVolume& v, const TextureResolutions& textures) {
     canon::ParticulateVolume out;
     out.position = toCanon(v.position);
@@ -670,6 +748,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
     EffectPlacer placer{sets, static_cast<uint32_t>(root.doodads.size())};
     std::vector<std::optional<canon::InstanceRef>> fogs = placeFogs(in, placer);
     AmbientRefs ambient = placeAmbient(in, placer);
+    std::vector<canon::InstanceRef> particulate = placeParticulate(in, placer);
 
     canon::Mesh mesh;
     if (uvSetCount > 1) mesh.uv1.emplace();
@@ -688,8 +767,7 @@ canon::Model buildCanonWmo(const WmoInputs& in) {
         if (in.groups[part]) {
             const wmo::GroupFile& g = *in.groups[part];
             meshPart.fogs = partFogs(part, g, fogs);
-            meshPart.particulateVolumes =
-                volumeRefs(part, "MPVR", g.particulateVolumeRefs, root.particulateVolumes.size(), 0);
+            appendRefs(part, "MPVR", g.particulateVolumeRefs, particulate, meshPart.particulateVolumes);
             appendRefs(part, "MAVR", g.ambientVolumeRefs, ambient.points, meshPart.ambientVolumes);
             appendRefs(part, "MBVR", g.ambientBoxRefs, ambient.boxes, meshPart.ambientVolumes);
             // A group without portals may store start 0xFFFF with count 0.

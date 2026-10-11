@@ -371,8 +371,8 @@ Header (offsets record-relative; "n/193" = records with the field nonzero):
 | +0x00 | uint32 | flags — WMO values {1, 17, 21, 29} (bit 0 always set, bits 2–4 vary); map-side (`PVMI`) uses far more bits, values 3..415 | 193/193, 619/619 |
 | +0x04 | uint32 | unknown, {0, 2} | 2/193 |
 | +0x08 | float×3 | position (WMO-local in `MPVD`; world-space in `PVMI`) | plausible coords, 192/193 |
-| +0x14 | float×3 | extent (box size; 7..4000 per axis) | 193/193 |
-| +0x20 | float×3 | rotation, radians (mostly 0; ±π seen at +0x28) | sparse |
+| +0x14 | float×3 | extent: the **full** box size, centred on the position (every `PVMI` world AABB is exactly position ± extent/2, 1,857/1,857 axes, 2026-10-11) | 193/193, 619/619 |
+| +0x20 | float×3 | rotation, radians: 0 in 116 of 193 WMO records and all 619 map records; 75 of the other 77 turn about one axis only (z, a few x), 2 about two. Axis order and sign convention unverified | sparse |
 | +0x2C | float | unknown, {0.5..10}, often 1 | 193/193 |
 | +0x30 | uint32 | unknown id — **not** a FileDataID (listfile hits are nonsense: minimaps, emblems), not per-file-constant (15/62 WMOs have several), but *shared across unrelated files* (16386 very common; 66 distinct map-side) — reads as a preset/template reference | 193/193, 39 distinct |
 | +0x34 | uint32 | particle count/density-like int, 25..14,000 | 193/193 |

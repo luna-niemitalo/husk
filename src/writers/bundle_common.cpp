@@ -208,21 +208,26 @@ std::string identityKey(const canon::Ref& ref) {
 
 void writeVec3(json::Writer& w, const canon::Vec3& v) { writeFloats(w, {v.x, v.y, v.z}); }
 
-void writeInputValue(json::Writer& w, const canon::InputValue& value) {
+// Writes one image input's texture entry; the caller knows where payloads go.
+using TextureWriter = std::function<void(const canon::TextureRef&)>;
+
+void writeInputValue(json::Writer& w, const canon::InputValue& value, const TextureWriter& writeTexture) {
     std::visit(
-        [&w](const auto& v) {
+        [&](const auto& v) {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, canon::Vec3>) {
                 writeVec3(w, v);
+            } else if constexpr (std::is_same_v<T, canon::TextureRef>) {
+                writeTexture(v);
             } else if constexpr (std::is_same_v<T, std::vector<canon::InputValue>>) {
                 w.beginArray();
-                for (const canon::InputValue& element : v) writeInputValue(w, element);
+                for (const canon::InputValue& element : v) writeInputValue(w, element, writeTexture);
                 w.endArray();
             } else if constexpr (std::is_same_v<T, std::vector<canon::NamedInput>>) {
                 w.beginObject();
                 for (const canon::NamedInput& field : v) {
                     w.key(field.name);
-                    writeInputValue(w, field.value);
+                    writeInputValue(w, field.value, writeTexture);
                 }
                 w.endObject();
             } else {
@@ -248,6 +253,8 @@ void writeDistanceFog(json::Writer& w, const canon::DistanceFog& fog) {
     w.endObject();
 }
 
+void writeRgba(json::Writer& w, const std::array<float, 4>& c) { writeFloats(w, {c[0], c[1], c[2], c[3]}); }
+
 void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
     w.beginObject();
     if (style.distanceFog) {
@@ -270,8 +277,26 @@ void writeStyleBlock(json::Writer& w, const canon::StyleBlock& style) {
         w.beginObject();
         w.key("colors");
         w.beginArray();
-        for (const auto& color : *style.ambientColors) writeFloats(w, {color[0], color[1], color[2], color[3]});
+        for (const auto& color : *style.ambientColors) writeRgba(w, color);
         w.endArray();
+        w.endObject();
+    }
+    if (style.maxParticles) {
+        w.key("particulate");
+        w.beginObject();
+        w.key("max_particles");
+        w.value(static_cast<int64_t>(*style.maxParticles));
+        w.endObject();
+    }
+    if (style.draw) {
+        w.key("draw");
+        w.beginObject();
+        if (style.draw->blend) {
+            w.key("blend");
+            w.value(framebufferBlendName(*style.draw->blend));
+        }
+        w.key("color");
+        writeRgba(w, style.draw->color);
         w.endObject();
     }
     w.endObject();
@@ -287,6 +312,7 @@ const char* unresolvedKindName(canon::UnresolvedField::Kind kind) {
         case canon::UnresolvedField::Kind::Id: return "id";
         case canon::UnresolvedField::Kind::Angle: return "angle";
         case canon::UnresolvedField::Kind::UnitVector: return "unit_vector";
+        case canon::UnresolvedField::Kind::Words: return "words";
     }
     return "scalar";
 }
@@ -307,6 +333,10 @@ void writeUnresolved(json::Writer& w, const std::vector<canon::UnresolvedField>&
                 using T = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<T, uint32_t>) {
                     w.value(hexFlags(v));
+                } else if constexpr (std::is_same_v<T, std::vector<uint32_t>>) {
+                    w.beginArray();
+                    for (uint32_t word : v) w.value(hexFlags(word));
+                    w.endArray();
                 } else if constexpr (std::is_same_v<T, std::vector<double>>) {
                     w.beginArray();
                     for (double d : v) w.value(d);
@@ -326,20 +356,26 @@ void writeUnresolved(json::Writer& w, const std::vector<canon::UnresolvedField>&
     w.endObject();
 }
 
-void writeEffectInstanceFields(json::Writer& w, const canon::EffectPlacement& effect) {
+void writeEffectInstanceFields(json::Writer& w, const canon::EffectPlacement& effect, const TextureWriter& writeTexture) {
     w.key("inputs");
     w.beginObject();
     for (const auto& [name, value] : effect.inputs) {
         w.key(name);
-        writeInputValue(w, value);
+        writeInputValue(w, value, writeTexture);
     }
     w.endObject();
     if (!effect.style.empty()) {
         w.key("style");
         w.beginObject();
-        for (const auto& [source, block] : effect.style) {
-            w.key(source);
-            writeStyleBlock(w, block);
+        for (const canon::SourceStyle& style : effect.style) {
+            w.key(style.source);
+            if (!style.perElement) {
+                writeStyleBlock(w, style.blocks.at(0));
+                continue;
+            }
+            w.beginArray();
+            for (const canon::StyleBlock& block : style.blocks) writeStyleBlock(w, block);
+            w.endArray();
         }
         w.endObject();
     }
@@ -351,8 +387,11 @@ void writeEffectInstanceFields(json::Writer& w, const canon::EffectPlacement& ef
 
 std::string effectUri(const canon::Ref& effect) { return "effects/" + effect.name + ".json"; }
 
+// Image inputs' payloads go under `bundleDir/textures/`, one level up from
+// the set file.
 void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem::path& path, const AssetUris& uris,
-                           const Provenance& provenance) {
+                           const Provenance& provenance, const std::filesystem::path& bundleDir,
+                           std::unordered_set<std::string>& writtenTextures) {
     std::vector<const canon::PlacedInstance*> assets;
     std::unordered_map<std::string, size_t> assetIndex;
     std::vector<size_t> instanceAsset;
@@ -405,7 +444,9 @@ void writePlacementSetFile(const canon::PlacementSet& set, const std::filesystem
         w.key("scale");
         w.value(static_cast<double>(instance.scale));
         if (instance.effect) {
-            writeEffectInstanceFields(w, *instance.effect);
+            writeEffectInstanceFields(w, *instance.effect, [&](const canon::TextureRef& texture) {
+                writeTextureEntry(w, texture, bundleDir, writtenTextures, "../");
+            });
             w.key("source");
             w.beginObject();
             w.key("flags");
@@ -465,9 +506,10 @@ std::vector<SetDocument> writePlacementSetDocuments(const std::vector<OwnedSetEn
     if (!sets.empty()) std::filesystem::create_directories(bundleDir / "sets");
     std::vector<SetDocument> out;
     std::set<std::string> effects;
+    std::unordered_set<std::string> writtenTextures;
     for (size_t i = 0; i < sets.size(); ++i) {
         std::string uri = "sets/" + std::to_string(i) + ".json";
-        writePlacementSetFile(*sets[i].set, bundleDir / uri, setUris, provenance);
+        writePlacementSetFile(*sets[i].set, bundleDir / uri, setUris, provenance, bundleDir, writtenTextures);
         out.push_back({sets[i].set->ref, uri, sets[i].alwaysOn, sets[i].set->instances.size()});
         for (const canon::PlacedInstance& instance : sets[i].set->instances) {
             if (instance.effect) effects.insert(instance.asset.name);
@@ -646,8 +688,22 @@ std::string textureMediaType(const std::string& extension) {
 // on disk, or DDS extraction declined for a Palette-encoded source) still
 // gets a real file in the bundle instead of being silently dropped just
 // because the DDS variant wasn't available for it.
+std::string framebufferBlendName(canon::FramebufferBlend blend) {
+    switch (blend) {
+        case canon::FramebufferBlend::Opaque: return "opaque";
+        case canon::FramebufferBlend::AlphaKey: return "alpha_key";
+        case canon::FramebufferBlend::Alpha: return "alpha";
+        case canon::FramebufferBlend::NoAlphaAdd: return "no_alpha_add";
+        case canon::FramebufferBlend::Add: return "add";
+        case canon::FramebufferBlend::Mod: return "mod";
+        case canon::FramebufferBlend::Mod2x: return "mod2x";
+        case canon::FramebufferBlend::BlendAdd: return "blend_add";
+    }
+    return "opaque";
+}
+
 void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
-                       std::unordered_set<std::string>& writtenTextures) {
+                       std::unordered_set<std::string>& writtenTextures, const std::string& uriPrefix) {
     w.beginObject();
     switch (texture.state) {
         case canon::TextureRef::State::Resolved: {
@@ -681,7 +737,7 @@ void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const 
                 w.key("payload");
                 w.beginObject();
                 w.key("uri");
-                w.value("textures/" + filename);
+                w.value(uriPrefix + "textures/" + filename);
                 w.key("media_type");
                 w.value(textureMediaType(extension));
                 w.endObject();

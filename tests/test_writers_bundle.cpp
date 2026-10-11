@@ -29,6 +29,7 @@
 #include "m2.hpp"
 #include "skin.hpp"
 #include "test_data_paths.hpp"
+#include "wmo_canon_input.hpp"
 #include "writers/bundle_writer.hpp"
 
 using namespace husk;
@@ -629,51 +630,52 @@ TEST_CASE("writeBundle: liquids slice into liquid.bin, which only exists when th
     CHECK(bin.at(flagsAt + 1) == 0x0F);
 }
 
-TEST_CASE("writeBundle: particulate volumes, their raw records sliced into particulate.bin") {
+TEST_CASE("writeBundle: a particulate instance writes its emitter images into the set, with one style block per emitter") {
     canon::Model model = buildSyntheticModel();
-    fs::path dry = fs::temp_directory_path() / "husk-test-bundle-no-particulate";
-    fs::remove_all(dry);
-    writers::writeBundle(model, dry, testProvenance());
-    CHECK(parseManifest(dry)["resources"]["scene"]["ambient_particle_volumes"].empty());
-    CHECK_FALSE(fs::exists(dry / "particulate.bin"));
-
-    canon::ParticulateVolume v;
-    v.ref = canon::Ref{canon::RecordIndex{0}, "mpvd_0", canon::NameSource::Synthesized};
+    wmo::ParticulateVolume v;
+    v.position = {1, 2, 3};
     v.extent = {7, 8, 9};
-    v.envelope = {{0.0f, 0.5f, 1.0f}, {4.0f, 1.0f, 1.0f}};
-    canon::ParticulateVolume::Emitter e;
-    e.texture.unresolvedReason = "texture FileDataID 555 was not resolved";
-    e.blend = canon::FramebufferBlend::Add;
-    e.sourceBlend = 3;
-    e.color = {1, 0.5f, 0, 1};
-    e.tilesX = 4;
-    e.tilesY = 4;
-    e.frames = 16;
-    v.emitters = {e};
-    v.sourceRecord.assign(4272, 0);
-    v.sourceRecord[0x10AC] = 2;
-    model.scene.particulateVolumes = {v};
+    v.particleCount = 500;
+    wmo::ParticulateEmitter dust;
+    dust.textureFileDataId = 101;
+    dust.blendMode = 3;
+    dust.color = {1, 0.5f, 0, 1};
+    dust.tilesX = 4;
+    dust.tilesY = 4;
+    dust.frames = 16;
+    wmo::ParticulateEmitter odd = dust;
+    odd.textureFileDataId = 555;
+    odd.blendMode = 7;
+    v.emitters = {dust, odd};
+    canon::TextureRef resolved;
+    resolved.state = canon::TextureRef::State::Resolved;
+    resolved.resolved = canon::Ref{canon::FileDataId{101}, "dust1", canon::NameSource::Listfile};
+    resolved.payload = canon::TextureRef::Payload{{1, 2, 3}, canon::TextureEncoding::Png};
+    canon::PlacedInstance instance = wmoinput::particulateInstance(v, {{101, resolved}}, {"MPVD", 0});
+    instance.id = 9;
+    canon::Model::OwnedSet set;
+    set.set.ref = canon::Ref{canon::RecordIndex{0}, "Set_$DefaultGlobal", canon::NameSource::WmoEmbedded};
+    set.alwaysOn = true;
+    set.set.instances = {instance};
+    model.placementSets = {set};
     fs::path dir = fs::temp_directory_path() / "husk-test-bundle-particulate";
     fs::remove_all(dir);
     writers::writeBundle(model, dir, testProvenance());
-    nlohmann::json manifest = parseManifest(dir);
-    const auto& written = manifest["resources"]["scene"]["ambient_particle_volumes"][0];
+    nlohmann::json manifest = parseManifest(dir);  // validates the set against the effect too
+    CHECK_FALSE(manifest["resources"]["scene"].contains("ambient_particle_volumes"));
+    CHECK_FALSE(fs::exists(dir / "particulate.bin"));
 
-    CHECK(written["ref"]["name"] == "mpvd_0");
-    CHECK(written["extent"] == nlohmann::json::array({7.0, 8.0, 9.0}));
-    CHECK(written["envelope"][1]["time"] == 4.0);
-    const auto& emitter = written["emitters"][0];
-    CHECK(emitter["texture"]["state"] == "known_unresolved");
-    CHECK(emitter["framebuffer_blend"] == "add");
-    CHECK(emitter["color"] == nlohmann::json::array({1.0, 0.5, 0.0, 1.0}));
-    CHECK(emitter["unresolved"]["parameters"].size() == 32);
-    CHECK(emitter["source"]["blend"] == 3);
-    CHECK(written["unresolved"]["preset_id"] == 0);
-    CHECK(written["source"]["record_bytes"]["file"] == "particulate.bin");
-    CHECK(written["source"]["record_bytes"]["count"] == 4272);
-    std::vector<uint8_t> bin = readFile((dir / "particulate.bin").string());
-    size_t at = written["source"]["record_bytes"]["byte_offset"];
-    CHECK(bin.at(at + 0x10AC) == 2);
+    nlohmann::json setDoc = nlohmann::json::parse(std::ifstream(dir / "sets" / "0.json"));
+    const auto& written = setDoc["instances"][0];
+    CHECK(written["inputs"]["size"] == nlohmann::json::array({7.0, 8.0, 9.0}));
+    const auto& texture = written["inputs"]["emitters"][0]["texture"];
+    CHECK(texture["payload"]["uri"] == "../textures/dust1.png");
+    CHECK(fs::exists(dir / "textures" / "dust1.png"));
+    CHECK(written["inputs"]["emitters"][1]["texture"]["state"] == "known_unresolved");
+    CHECK(written["style"]["volume"]["particulate"]["max_particles"] == 500);
+    REQUIRE(written["style"]["emitter"].size() == 2);
+    CHECK(written["style"]["emitter"][0]["draw"]["blend"] == "add");
+    CHECK_FALSE(written["style"]["emitter"][1]["draw"].contains("blend"));
 }
 
 TEST_CASE("writeBundle: an ambient box instance writes list and record inputs and its colours as style") {
@@ -690,7 +692,7 @@ TEST_CASE("writeBundle: an ambient box instance writes list and record inputs an
     effect.inputs = {{"planes", {planes}}};
     canon::StyleBlock style;
     style.ambientColors = std::array<std::array<float, 4>, 3>{{{0.2f, 0.4f, 0.6f, 1.0f}, {}, {}}};
-    effect.style = {{"ambient", style}};
+    effect.style = {{"ambient", {style}}};
     effect.unresolved = {{"end", canon::UnresolvedField::Kind::Scalar, 1.5, "region.edge"}};
     effect.origin = {"MBVD", 0};
     box.effect = effect;
@@ -803,7 +805,7 @@ TEST_CASE("writeBundle: fog instances in an owned set, the effects they place, a
     canon::StyleBlock style;
     style.distanceFog = canon::DistanceFog{canon::LinearFog{25, 100, {0.2f, 0.4f, 0.6f}}};
     style.underwater = canon::DistanceFog{canon::LinearFog{-25, 50, {0, 0, 1}}};
-    effect.style = {{"fog", style}};
+    effect.style = {{"fog", {style}}};
     effect.unresolved = {{"flags", canon::UnresolvedField::Kind::Bits, uint32_t{0x1000}, std::nullopt}};
     effect.origin = {"MFOG", 1};
     fog.effect = effect;

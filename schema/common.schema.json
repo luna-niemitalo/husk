@@ -795,6 +795,32 @@
         }
       ]
     },
+    "bound_integer": {
+      "description": "An integer, or a binding to one.",
+      "oneOf": [
+        {
+          "type": "integer",
+          "description": "The value."
+        },
+        {
+          "$ref": "#/definitions/binding",
+          "description": "Where the value comes from."
+        }
+      ]
+    },
+    "bound_image": {
+      "description": "An image, or a binding to one.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/texture_entry",
+          "description": "The image."
+        },
+        {
+          "$ref": "#/definitions/binding",
+          "description": "Where the image comes from."
+        }
+      ]
+    },
     "bound_vec3": {
       "description": "Three numbers, or a binding to them.",
       "oneOf": [
@@ -859,6 +885,37 @@
             "center",
             "inner_radius",
             "outer_radius"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "An axis-aligned box in the instance's frame.",
+          "properties": {
+            "kind": {
+              "const": "box",
+              "description": "Region kind."
+            },
+            "center": {
+              "$ref": "#/definitions/bound_vec3",
+              "description": "Centre.",
+              "x-unit": "yard"
+            },
+            "size": {
+              "$ref": "#/definitions/bound_vec3",
+              "description": "Full size per axis.",
+              "x-unit": "yard"
+            },
+            "edge": {
+              "$ref": "#/definitions/bound_number",
+              "description": "Width of the fade in from the faces; absent: none stated.",
+              "x-unit": "yard"
+            }
+          },
+          "required": [
+            "kind",
+            "center",
+            "size"
           ],
           "additionalProperties": false
         },
@@ -940,13 +997,80 @@
         },
         "region": {
           "$ref": "#/definitions/region",
-          "description": "Where it applies."
+          "description": "Where it applies; absent: the parent's region, or everywhere for a source without one."
+        },
+        "content": {
+          "$ref": "#/definitions/effect_content",
+          "description": "What it puts in the world; absent: nothing beyond its style."
         }
       },
       "required": [
         "id"
       ],
       "additionalProperties": false
+    },
+    "effect_content": {
+      "description": "What an effect source puts in the world.",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Particles.",
+          "properties": {
+            "kind": {
+              "const": "particles",
+              "description": "Content kind."
+            },
+            "look": {
+              "$ref": "#/definitions/particle_look",
+              "description": "How one particle looks."
+            }
+          },
+          "required": [
+            "kind",
+            "look"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "particle_look": {
+      "description": "How one particle looks.",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "A camera-facing textured quad, its texture an atlas of animation frames.",
+          "properties": {
+            "kind": {
+              "const": "quad",
+              "description": "Look kind."
+            },
+            "image": {
+              "$ref": "#/definitions/bound_image",
+              "description": "The texture."
+            },
+            "tiles_x": {
+              "$ref": "#/definitions/bound_integer",
+              "description": "Atlas columns."
+            },
+            "tiles_y": {
+              "$ref": "#/definitions/bound_integer",
+              "description": "Atlas rows."
+            },
+            "frames": {
+              "$ref": "#/definitions/bound_integer",
+              "description": "Frames the animation plays, from the first tile; may be fewer than the tiles."
+            }
+          },
+          "required": [
+            "kind",
+            "image",
+            "tiles_x",
+            "tiles_y",
+            "frames"
+          ],
+          "additionalProperties": false
+        }
+      ]
     },
     "linear_fog": {
       "type": "object",
@@ -1029,15 +1153,68 @@
             "colors"
           ],
           "additionalProperties": false
+        },
+        "particulate": {
+          "type": "object",
+          "description": "The classic ambient particle system's own settings.",
+          "properties": {
+            "max_particles": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Most particles the client simulates at once."
+            }
+          },
+          "required": [
+            "max_particles"
+          ],
+          "additionalProperties": false
+        },
+        "draw": {
+          "type": "object",
+          "description": "How the classic client drew the source's particles.",
+          "properties": {
+            "blend": {
+              "enum": [
+                "opaque",
+                "alpha_key",
+                "alpha",
+                "no_alpha_add",
+                "add",
+                "mod",
+                "mod2x",
+                "blend_add"
+              ],
+              "description": "How a particle combines with what is already drawn."
+            },
+            "color": {
+              "$ref": "#/definitions/rgba",
+              "description": "Colour multiplier, as stored.",
+              "x-unit": "1"
+            }
+          },
+          "required": [
+            "color"
+          ],
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
     "style": {
       "type": "object",
-      "description": "The classic look of an effect instance, by the effect's source id.",
+      "description": "The classic look of an effect instance, by the effect's source id; a source repeated per list element has one look per element.",
       "additionalProperties": {
-        "$ref": "#/definitions/style_block"
+        "oneOf": [
+          {
+            "$ref": "#/definitions/style_block"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/style_block"
+            }
+          }
+        ]
       }
     },
     "unresolved_field": {
@@ -1057,12 +1234,13 @@
             "count",
             "id",
             "angle",
-            "unit_vector"
+            "unit_vector",
+            "words"
           ],
-          "description": "What class of value it is, as far as the data shows."
+          "description": "What class of value it is, as far as the data shows; words are a byte range's raw dwords."
         },
         "value": {
-          "description": "The value as stored: a number, an array of numbers, or a hex string for bits."
+          "description": "The value as stored: a number, an array of numbers, a hex string for bits, or an array of hex strings for words."
         },
         "candidate_role": {
           "type": "string",

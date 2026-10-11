@@ -155,10 +155,14 @@ std::string textureMediaType(const std::string& extension);
 
 // Writes a TextureRef as a texture entry object (schema/common.schema.json
 // "texture_entry"), and its payload file under `bundleDir/textures/`
-// (deduped by filename via `writtenTextures`). See the definition for the
-// DDS-over-PNG payload choice.
+// (deduped by filename via `writtenTextures`). `uriPrefix` leads from the
+// document being written to `bundleDir` ("../" from sets/). See the
+// definition for the DDS-over-PNG payload choice.
 void writeTextureEntry(json::Writer& w, const canon::TextureRef& texture, const std::filesystem::path& bundleDir,
-                       std::unordered_set<std::string>& writtenTextures);
+                       std::unordered_set<std::string>& writtenTextures, const std::string& uriPrefix = "");
+
+// The schema's framebuffer blend vocabulary.
+std::string framebufferBlendName(canon::FramebufferBlend blend);
 
 // resources.liquid_types (schema/common.schema.json "liquid_type"), the
 // array only; `writeTexture` writes one frame's texture entry, so terrain

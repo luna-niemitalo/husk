@@ -40,20 +40,6 @@ std::string interpolationName(canon::Interpolation interp) {
     return interp == canon::Interpolation::Step ? "step" : "linear";
 }
 
-std::string framebufferBlendName(canon::FramebufferBlend blend) {
-    switch (blend) {
-        case canon::FramebufferBlend::Opaque: return "opaque";
-        case canon::FramebufferBlend::AlphaKey: return "alpha_key";
-        case canon::FramebufferBlend::Alpha: return "alpha";
-        case canon::FramebufferBlend::NoAlphaAdd: return "no_alpha_add";
-        case canon::FramebufferBlend::Add: return "add";
-        case canon::FramebufferBlend::Mod: return "mod";
-        case canon::FramebufferBlend::Mod2x: return "mod2x";
-        case canon::FramebufferBlend::BlendAdd: return "blend_add";
-    }
-    return "opaque";
-}
-
 std::string blendOpName(canon::BlendOp op) {
     switch (op) {
         case canon::BlendOp::Modulate: return "modulate";
@@ -307,17 +293,12 @@ void writeMeshSection(json::Writer& w, const canon::Model& model, std::vector<ui
         writeVec3Value(w, part.boundsMin);
         w.key("bounds_max");
         writeVec3Value(w, part.boundsMax);
-        for (auto [key, refs] : {std::pair{"fog_volumes", &part.fogs}, std::pair{"ambient_color_volumes", &part.ambientVolumes}}) {
+        for (auto [key, refs] : {std::pair{"fog_volumes", &part.fogs}, std::pair{"ambient_color_volumes", &part.ambientVolumes},
+                                 std::pair{"ambient_particle_volumes", &part.particulateVolumes}}) {
             if (refs->empty()) continue;
             w.key(key);
             w.beginArray();
             for (const canon::InstanceRef& ref : *refs) writeInstanceRef(w, ref);
-            w.endArray();
-        }
-        if (!part.particulateVolumes.empty()) {
-            w.key("ambient_particle_volumes");
-            w.beginArray();
-            for (uint32_t i : part.particulateVolumes) w.value(static_cast<int64_t>(i));
             w.endArray();
         }
         if (!part.portals.empty()) {
@@ -847,17 +828,6 @@ void writeParticulateVolumeFields(json::Writer& w, const canon::ParticulateVolum
     w.endObject();
 }
 
-void writeParticulateVolumes(json::Writer& w, const std::vector<canon::ParticulateVolume>& volumes,
-                             const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures,
-                             std::vector<uint8_t>& particulateBin) {
-    w.beginArray();
-    for (const canon::ParticulateVolume& v : volumes) {
-        w.beginObject();
-        writeParticulateVolumeFields(w, v, bundleDir, writtenTextures, particulateBin, "particulate.bin");
-        w.endObject();
-    }
-    w.endArray();
-}
 
 void writeRibbons(json::Writer& w, const std::vector<canon::RibbonEmitter>& ribbons,
                   const std::filesystem::path& bundleDir, std::unordered_set<std::string>& writtenTextures) {
@@ -1049,7 +1019,6 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     std::vector<uint8_t> animBin;
     std::vector<uint8_t> liquidBin;
     std::vector<uint8_t> collisionBin;
-    std::vector<uint8_t> particulateBin;
 
     std::vector<OwnedSetEntry> owned;
     for (const canon::Model::OwnedSet& set : model.placementSets) owned.push_back({&set.set, set.alwaysOn});
@@ -1111,8 +1080,6 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
         w.key("default_fog");
         writeInstanceRef(w, *model.defaultFog);
     }
-    w.key("ambient_particle_volumes");
-    writeParticulateVolumes(w, model.scene.particulateVolumes, bundleDir, writtenTextures, particulateBin);
     w.key("ribbon_emitters");
     writeRibbons(w, model.scene.ribbons, bundleDir, writtenTextures);
     w.key("particle_emitters");
@@ -1133,7 +1100,6 @@ void writeBundle(const canon::Model& model, const std::filesystem::path& bundleD
     writeFile(bundleDir / "animation.bin", animBin);
     if (!model.liquids.empty()) writeFile(bundleDir / "liquid.bin", liquidBin);
     if (hasCollision) writeFile(bundleDir / "collision.bin", collisionBin);
-    if (!model.scene.particulateVolumes.empty()) writeFile(bundleDir / "particulate.bin", particulateBin);
 
     std::ofstream manifestFile(bundleDir / "manifest.json", std::ios::binary);
     if (!manifestFile) {

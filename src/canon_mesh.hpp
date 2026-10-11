@@ -63,7 +63,7 @@ struct MeshPart {
     // slots. A 0 slot names the model's default fog (Model::defaultFog).
     std::vector<InstanceRef> fogs;
     std::vector<PortalLink> portals;
-    std::vector<uint32_t> particulateVolumes;  // indices into Scene::particulateVolumes (WMO MPVR)
+    std::vector<InstanceRef> particulateVolumes;  // particle effect instances (WMO MPVR)
     std::vector<InstanceRef> ambientVolumes;   // ambient effect instances (WMO MAVR, then MBVR)
 };
 

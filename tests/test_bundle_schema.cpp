@@ -49,7 +49,7 @@ std::string modelDocument() {
            slice(108, 0, "f32", 3, 0) + R"(, "joints": []}, "animation": []},
     "materials": [{"layers": [], "unlit": false, "unfogged": false, "two_sided": false, "source": {"flags": "0x0"}}],
     "scene": {"attachments": [], "events": [], "animated_lights": [], "static_lights": [],
-              "ambient_particle_volumes": [], "ribbon_emitters": [], "particle_emitters": []}}
+              "ribbon_emitters": [], "particle_emitters": []}}
 })";
 }
 
@@ -148,7 +148,7 @@ fs::path writeSet(const std::string& name, const std::string& set) {
 
 TEST_CASE("bundle_schema: every effect husk writes validates") {
     for (const char* name : {"classic_local_fog", "classic_fog_exit_blend", "classic_ambient_global",
-                             "classic_ambient_point", "classic_ambient_box"}) {
+                             "classic_ambient_point", "classic_ambient_box", "classic_particulate_volume"}) {
         CAPTURE(name);
         fs::path file = fs::temp_directory_path() / "husk-schema-effects" / (std::string(name) + ".json");
         fs::create_directories(file.parent_path());

@@ -56,13 +56,16 @@ Open:
 
 ## 2. WMO particulate/ambient/box volumes (`MPVD`/`MAVG`/`MAVD`/`MBVD` + refs)
 
-**Current state (2026-10-10)**: `MPVD` is parsed (`wmo::ParticulateVolume`)
-and exported as the WMO bundle's `resources.scene.ambient_particle_volumes`
-(`canon::ParticulateVolume`, schema in `schema/model.schema.json`):
-characterized fields typed, emitter textures resolved like material
-textures, and each raw 4,272-byte record in `particulate.bin` for the
-fields still uncharacterized. 25 sampled `MPVD` WMOs export cleanly (69
-volumes, 51/70 emitter textures resolved, the rest unlisted).
+**Current state (2026-10-11)**: `MPVD` is parsed (`wmo::ParticulateVolume`;
+undescribed ranges are checked and kept only when nonzero) and each
+record is a `classic_particulate_volume` placeholder instance in set 0:
+the box (full size, centred) and each emitter's atlas as inputs, the
+particle cap and each emitter's blend and colour as style, the rest
+unresolved; parts' `MPVR` refs are `{set, id}`. All 62 `MPVD` WMOs export
+and validate but one (`11du_brewerydungeon_main01`: a static light with a
+non-finite attenuation, written as null; open, light path), 193 volumes,
+194/194 emitter textures resolved. Map `PVMI` volumes still use the
+older shape (§4).
 `MAVG`/`MAVD`/`MBVD` (2026-10-11) are placeholder effect instances
 (`classic_ambient_global`/`_point`/`_box`, `REFACTOR/EFFECTS.md`) in the
 doodad set each applies with: the three colours as `ambient_color` style,

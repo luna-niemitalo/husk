@@ -397,12 +397,10 @@
                       },
                       "ambient_particle_volumes": {
                         "type": "array",
-                        "description": "Ambient particle volumes the part uses.",
+                        "description": "Ambient particle instances the part uses.",
                         "items": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "description": "An ambient particle volume.",
-                          "x-index-into": "/resources/scene/ambient_particle_volumes"
+                          "$ref": "common.schema.json#/definitions/instance_ref",
+                          "description": "An ambient particle instance."
                         }
                       },
                       "ambient_color_volumes": {
@@ -1420,224 +1418,6 @@
               "$ref": "common.schema.json#/definitions/instance_ref",
               "description": "The fog instance a part's unlisted fog falls back to: the model's own default fog. Absent: the enclosing fog."
             },
-            "ambient_particle_volumes": {
-              "type": "array",
-              "description": "Drifting particle boxes.",
-              "items": {
-                "type": "object",
-                "description": "A box the client fills with drifting particles (dust, snow, ash).",
-                "properties": {
-                  "ref": {
-                    "$ref": "common.schema.json#/definitions/ref",
-                    "description": "The volume."
-                  },
-                  "position": {
-                    "$ref": "common.schema.json#/definitions/vec3",
-                    "description": "Box centre.",
-                    "x-unit": "yard"
-                  },
-                  "extent": {
-                    "$ref": "common.schema.json#/definitions/vec3",
-                    "description": "Box size; full or half size not established.",
-                    "x-unit": "yard"
-                  },
-                  "euler_rotation": {
-                    "$ref": "common.schema.json#/definitions/vec3",
-                    "description": "Orientation; axis order not established.",
-                    "x-unit": "radian"
-                  },
-                  "particle_count": {
-                    "type": "integer",
-                    "description": "Particle count.",
-                    "minimum": 0
-                  },
-                  "opacity": {
-                    "type": "number",
-                    "description": "Opacity.",
-                    "x-unit": "1"
-                  },
-                  "envelope": {
-                    "type": "array",
-                    "description": "Emission pulse over time; [] is constant.",
-                    "items": {
-                      "type": "object",
-                      "description": "One key.",
-                      "properties": {
-                        "time": {
-                          "type": "number",
-                          "description": "Time.",
-                          "x-unit": "second"
-                        },
-                        "value": {
-                          "type": "number",
-                          "description": "Value.",
-                          "x-unit": "1"
-                        },
-                        "value2": {
-                          "type": "number",
-                          "description": "Second value.",
-                          "x-unit": "1"
-                        }
-                      },
-                      "additionalProperties": false,
-                      "required": [
-                        "time",
-                        "value",
-                        "value2"
-                      ]
-                    }
-                  },
-                  "emitters": {
-                    "type": "array",
-                    "description": "Particle kinds.",
-                    "items": {
-                      "type": "object",
-                      "description": "One particle kind inside the volume.",
-                      "properties": {
-                        "slot": {
-                          "type": "integer",
-                          "description": "Position in the source's emitter array.",
-                          "minimum": 0
-                        },
-                        "texture": {
-                          "$ref": "common.schema.json#/definitions/texture_entry",
-                          "description": "Particle texture."
-                        },
-                        "framebuffer_blend": {
-                          "enum": [
-                            "opaque",
-                            "alpha_key",
-                            "alpha",
-                            "no_alpha_add",
-                            "add",
-                            "mod",
-                            "mod2x",
-                            "blend_add"
-                          ],
-                          "description": "How particles combine with what is drawn."
-                        },
-                        "color": {
-                          "$ref": "common.schema.json#/definitions/rgba",
-                          "description": "Particle colour.",
-                          "x-unit": "1"
-                        },
-                        "tiles_x": {
-                          "type": "integer",
-                          "description": "Flipbook columns.",
-                          "minimum": 0
-                        },
-                        "tiles_y": {
-                          "type": "integer",
-                          "description": "Flipbook rows.",
-                          "minimum": 0
-                        },
-                        "frames": {
-                          "type": "integer",
-                          "description": "Flipbook frame count.",
-                          "minimum": 0
-                        },
-                        "source": {
-                          "type": "object",
-                          "description": "Source-specific raw values.",
-                          "properties": {
-                            "blend": {
-                              "type": "integer",
-                              "description": "Blend mode id as stored."
-                            }
-                          },
-                          "additionalProperties": false,
-                          "required": [
-                            "blend"
-                          ]
-                        },
-                        "unresolved": {
-                          "type": "object",
-                          "description": "Fields whose meaning is not established.",
-                          "properties": {
-                            "parameters": {
-                              "type": "array",
-                              "description": "32 emission parameters.",
-                              "items": {
-                                "type": "number",
-                                "description": "A parameter.",
-                                "x-unit": "1"
-                              },
-                              "x-unit": "1"
-                            }
-                          },
-                          "additionalProperties": false,
-                          "required": [
-                            "parameters"
-                          ]
-                        }
-                      },
-                      "additionalProperties": false,
-                      "required": [
-                        "slot",
-                        "texture",
-                        "color",
-                        "tiles_x",
-                        "tiles_y",
-                        "frames",
-                        "source",
-                        "unresolved"
-                      ]
-                    }
-                  },
-                  "source": {
-                    "type": "object",
-                    "description": "Source-specific raw values.",
-                    "properties": {
-                      "flags": {
-                        "$ref": "common.schema.json#/definitions/flags",
-                        "description": "The source's flag word."
-                      },
-                      "record": {
-                        "$ref": "common.schema.json#/definitions/source_record",
-                        "description": "The source record this entry was decoded from."
-                      },
-                      "record_bytes": {
-                        "$ref": "common.schema.json#/definitions/buffer_slice",
-                        "description": "The whole source record, u8."
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "flags",
-                      "record",
-                      "record_bytes"
-                    ]
-                  },
-                  "unresolved": {
-                    "type": "object",
-                    "description": "Fields whose meaning is not established.",
-                    "properties": {
-                      "preset_id": {
-                        "type": "integer",
-                        "description": "Id shared across unrelated files."
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "preset_id"
-                    ]
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "ref",
-                  "position",
-                  "extent",
-                  "euler_rotation",
-                  "particle_count",
-                  "opacity",
-                  "envelope",
-                  "emitters",
-                  "source",
-                  "unresolved"
-                ]
-              }
-            },
             "ribbon_emitters": {
               "type": "array",
               "description": "Ribbon trails.",
@@ -2152,7 +1932,6 @@
             "events",
             "animated_lights",
             "static_lights",
-            "ambient_particle_volumes",
             "ribbon_emitters",
             "particle_emitters"
           ]

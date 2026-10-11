@@ -186,9 +186,8 @@ A WMO bundle also has:
   volumes each uses. `fog_volumes` are `{set, id}` refs to effect
   instances in the doodad sets (`REFACTOR/EFFECTS.md`; a fog is placed by
   its set, its look is the instance's `style`); `ambient_color_volumes`
-  are the same, and `ambient_particle_volumes` are still indices into
-  `resources.scene`. `resources.scene.default_fog` is the fog a part
-  falls back to.
+  and `ambient_particle_volumes` are the same. `resources.scene.default_fog`
+  is the fog a part falls back to.
 - `resources.geometry.mesh.attributes`: per-face flags and material, which
   select collision.
 - `resources.geometry.liquids`, and `resources.scene` lights and volumes.

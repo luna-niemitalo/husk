@@ -160,7 +160,15 @@ struct ParticulateEmitter {
     uint32_t tilesX = 0;                 // flipbook grid
     uint32_t tilesY = 0;
     uint32_t frames = 0;  // frame count: the vertex shader takes frameIndex % frames
+    float unknown90 = 0;  // entry +0x90, mostly 0
     float unknownA8 = 0;  // entry +0xA8, 1..35
+};
+
+// A byte range a record's layout doesn't describe, kept only when it isn't
+// all zero (in the corpus it is), so a build that starts using it shows up.
+struct UnknownRange {
+    uint32_t offset = 0;          // from the record's start
+    std::vector<uint32_t> words;  // the range's dwords, raw
 };
 
 // MPVD, 4,272 bytes: a box volume of ambient particles (dust, snow, ash).
@@ -175,8 +183,18 @@ struct ParticulateVolume {
     // +0x40: (value, value2, time in seconds), time ascending; count at +0x298.
     std::vector<std::array<float, 3>> envelope;
     std::vector<ParticulateEmitter> emitters;  // used slots only (texture != 0)
-    // The whole record, for the fields still uncharacterized (+0x04, +0x2C,
-    // +0x38, +0x220, +0x29C, +0x2A0, the trailer).
+    // Characterized by value range only (WIKI_FINDINGS/WORLD.md "Particulate
+    // volumes").
+    uint32_t unknown04 = 0;               // {0, 2}
+    float unknown2C = 0;                  // 0.5..10, often 1
+    uint32_t unknown38 = 0;               // {0, 1}
+    std::array<float, 20> unknown220{};   // 10 records set the first 5, all 1.0
+    float unknown29C = 0;                 // 0.1..18.8, usually 1
+    // Every other range the layout leaves undescribed: +0x270..+0x298,
+    // +0x2A0..+0x2D0, envelope slots past the key count, unused emitter
+    // slots, each used emitter's +0xAC.. tail, and +0x1000..+0x10AC.
+    std::vector<UnknownRange> unknownRanges;
+    // The whole record, raw: _mpv.wdt volumes still carry it.
     std::vector<uint8_t> record;
 };
 
