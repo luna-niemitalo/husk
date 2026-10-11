@@ -1226,13 +1226,40 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
             resolveSkinsToExport(header, modelPath, skinDir, listfileRoot, skinDirNone, lodGiven, opts.lodArg,
                                  opts.skinArg);
 
-        gltf::Mesh baseMesh = buildBaseMesh(vertices);
-
         bool bonesAreInline = false;
         bool haveSkel = false;
         std::vector<uint8_t> skelBytes;
         auto bones = resolveBones(modelPath, model, skelGiven, skelNone, skelPath, bonesAreInline,
                                    haveSkel, skelBytes, listfile, listfileRoot);
+
+        // The bundle is canon::'s: of the glTF build below it needs only the
+        // character texture context the catalog resolves through, so the
+        // rest (mesh, skinning, extras, legacy materials) is never built.
+        if (opts.bundleOnly) {
+            if (skinsToExport.size() != 1) {
+                throw std::runtime_error("--bundle-only: expected exactly 1 resolved skin tier, got " +
+                                         std::to_string(skinsToExport.size()));
+            }
+            if (!bones.empty()) {
+                gltf::Skeleton skeleton = buildSkeleton(bones);
+                attachCharTextureLayout(db2Dir, dbdDirForChr, charLayoutIdArg, chrModelIdArg, modelPath, listfile,
+                                         listfileRoot, skeleton);
+                attachCustomizationChoices(db2Dir, dbdDirForChr, customizationChoiceIdsArg, chrModelIdArg, modelPath,
+                                            listfile, listfileRoot, skeleton);
+                catalog.setCharacterTextureContext(buildCharacterTextureContext(skeleton));
+            }
+            // A tier without geometry still exports: a model that only emits
+            // (steam, a spell impact) is its effects and skeleton.
+            writeCanonBundleOnly(model, skinsToExport.front().second, catalog, modelPath,
+                                 modelFileDataId ? modelFileDataId
+                                                 : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),
+                                 objectSkinTextureFileDataId,
+                                 animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes, outputPath, creatures, textureStore);
+            std::cerr << "husk: wrote bundle '" << outputPath << "/'\n";
+            return 0;
+        }
+
+        gltf::Mesh baseMesh = buildBaseMesh(vertices);
 
         // AnimationData.db2's real Name column ("Stand", "Walk", ...) --
         // opportunistic, same "--db2-dir/--dbd-dir unlocks this, nothing
@@ -1252,12 +1279,9 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
         if (!bones.empty()) {
             skeleton = buildSkeleton(bones);
             baseMesh.skinning = buildSkinning(vertices, bones.size());
-            // canon:: builds its own clips; legacy ones only feed the .glb and the deviation report.
-            if (!opts.bundleOnly) {
-                animations = resolveAnimationsForModel(animNone, bonesAreInline, haveSkel, model, skelBytes,
-                                                        bones, skeleton, animDir, listfileRoot, modelPath,
-                                                        animationNames.empty() ? nullptr : &animationNames);
-            }
+            animations = resolveAnimationsForModel(animNone, bonesAreInline, haveSkel, model, skelBytes, bones,
+                                                    skeleton, animDir, listfileRoot, modelPath,
+                                                    animationNames.empty() ? nullptr : &animationNames);
             attachBoneCorrections(bonesDir, bonesAreInline, haveSkel, header, skelBytes, skeleton);
             attachEmitterAnchors(model, skeleton);
             attachPlacementNodes(model, header.sequences.count, skeleton);
@@ -1296,21 +1320,6 @@ int exportOneModel(const ExportOptions& opts, CLI::App& app, const std::string& 
                                 modelBasename, texturesOutDir, listfile, listfileRoot,
                                 objectSkinTextureFileDataId, customizationNames, opts.debugTextureWarnings);
 
-        if (opts.bundleOnly) {
-            if (skinsToExport.size() != 1) {
-                throw std::runtime_error("--bundle-only: expected exactly 1 resolved skin tier, got " +
-                                         std::to_string(skinsToExport.size()));
-            }
-            // A tier without geometry still exports: a model that only emits
-            // (steam, a spell impact) is its effects and skeleton.
-            writeCanonBundleOnly(model, skinsToExport.front().second, catalog, modelPath,
-                                 modelFileDataId ? modelFileDataId
-                                                 : sources::fileDataIdForLocalFile(listfile, modelPath, listfileRoot),
-                                 objectSkinTextureFileDataId,
-                                 animDir, listfileRoot, bonesAreInline, haveSkel, skelBytes, outputPath, creatures, textureStore);
-            std::cerr << "husk: wrote bundle '" << outputPath << "/'\n";
-            return 0;
-        }
 
         // --export-canon: canon::Model has no LOD concept (REFACTOR/README.md
         // stage 3), so this only ever runs against an unambiguous single
