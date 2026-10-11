@@ -85,10 +85,12 @@ void writeRef(json::Writer& w, const canon::Ref& ref, const std::string& uri) {
         },
         ref.id);
     w.endObject();
-    w.key("name");
-    w.value(ref.name);
-    w.key("name_source");
-    w.value(nameSourceName(ref.source));
+    if (!ref.name.empty()) {
+        w.key("name");
+        w.value(ref.name);
+        w.key("name_source");
+        w.value(nameSourceName(ref.source));
+    }
     if (!uri.empty()) {
         w.key("uri");
         w.value(uri);

@@ -98,7 +98,8 @@
         },
         "name": {
           "type": "string",
-          "description": "Display name; empty when there is none."
+          "description": "Display name; absent when there is none.",
+          "minLength": 1
         },
         "name_source": {
           "enum": [
@@ -110,15 +111,21 @@
             "synthesized",
             "none"
           ],
-          "description": "Where the name came from: embedded in the source file, a community file list, a data table, made up by the exporter, or absent."
+          "description": "Where the name came from: embedded in the source file, a community file list, a data table, or made up by the exporter. Present exactly when name is."
         }
       },
       "required": [
-        "id",
-        "name",
-        "name_source"
+        "id"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "dependencies": {
+        "name": [
+          "name_source"
+        ],
+        "name_source": [
+          "name"
+        ]
+      }
     },
     "asset_ref": {
       "type": "object",
@@ -130,11 +137,12 @@
         },
         "name": {
           "type": "string",
-          "description": "Display name; empty when there is none."
+          "description": "Display name; absent when there is none.",
+          "minLength": 1
         },
         "name_source": {
           "$ref": "#/definitions/ref/properties/name_source",
-          "description": "Where the name came from."
+          "description": "Where the name came from: embedded in the source file, a community file list, a data table, or made up by the exporter. Present exactly when name is."
         },
         "uri": {
           "type": "string",
@@ -142,11 +150,17 @@
         }
       },
       "required": [
-        "id",
-        "name",
-        "name_source"
+        "id"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "dependencies": {
+        "name": [
+          "name_source"
+        ],
+        "name_source": [
+          "name"
+        ]
+      }
     },
     "payload": {
       "type": "object",
