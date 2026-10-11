@@ -13,28 +13,14 @@ WMO fog (`MFOG`/`MFED`/`MFOB`), WMO particulate/ambient/box volumes
 (`MPVD`/`MAVG`/`MAVD`/`MBVD` + group-scoped reference lists `MPVR`/`MAVR`/
 `MBVR`/`MFVR`), map-level fog volumes (`.wdt`'s `_fogs` sidecar: `VFOG`/
 `VFEX`), and map-level particulate volumes (`.wdt`'s `_mpv` sidecar:
-`PVPD`/`PVMI`/`PVBD`). Every row currently reads `none`/`none`; every claim
-below was checked against real corpus bytes this session
-(`/media/luna/data/wow_export`, read-only).
+`PVPD`/`PVMI`/`PVBD`). Every source here is parsed and exported to the
+bundle (each section's "Current state"); what stays open is field
+semantics. Evidence citations below name the corpus path they were
+checked against.
 
-**Framing, per the investigation brief's own explicit comparison**: this
-whole document is architecturally the closest sibling to M2's own
-particle/ribbon emitters (`../../M2_COMPLETENESS.md`'s Particles/Ribbons rows,
-`src/gltf.hpp`'s `Skeleton::EmitterAnchor`, `src/cmd_dump.cpp`'s
-`dumpEmitters`) — procedural, non-geometric volume descriptions with no
-core-glTF shape, high per-file field count, real curves/parameters worth
-preserving in full somewhere, but nothing a plain glTF viewer can render.
-**The M2 particle/ribbon pattern transfers directly and is the recommended
-target for every item below**: a minimal placement anchor (position +
-identifying id, wherever a stable owning "node" exists to hang it off —
-see the per-item notes on what that anchor point actually is for a
-WMO/map-scope volume, since there's no bone/joint hierarchy the way M2 has
-one) as inert `extras`, full field/curve data via `husk dump-chunks`'s JSON
-output. Unlike `LIQUID_TODO.md`'s `MLIQ`/`MH2O` (real geometry, reaches
-`native`), **nothing in this document should ever target more than
-`extras`/`node-possible` — there is no renderable shape to translate, only
-metadata to preserve**, matching `../../WORLD_COMPLETENESS.md`'s own existing
-"node-possible, unclaimed" ceiling calls for every row here.
+**Target representation**: `../../REFACTOR/FOG_MODEL.md` (proposed, not
+built) — one canonical fog/atmosphere model the sources here fill in,
+with an evidence ladder for fields whose meaning is still open.
 
 ---
 
