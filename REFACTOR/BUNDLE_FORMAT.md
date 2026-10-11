@@ -541,7 +541,9 @@ each slot's frames in animation order as ordinary texture entries. A
 terrain's `resources.terrain.liquid_objects` gives each object's flow and
 flags. Without the DB2s both tables hold identities only. A liquid's own
 arrays (`depth`, `uv`) say what it stores: Ocean's material claims height
-and depth, but its liquids store depth only.
+and depth, but its liquids store depth only. Per chunk,
+`liquid_fishable_rows`/`liquid_deep_rows` (same shape as `hole_rows`) mark
+fishable and deep liquid quads.
 
 ### Placements
 

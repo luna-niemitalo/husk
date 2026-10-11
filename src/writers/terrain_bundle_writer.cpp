@@ -145,6 +145,8 @@ void writeChunksSection(json::Writer& w, const std::vector<canon::TerrainChunk>&
     std::vector<std::array<uint8_t, canon::kTerrainQuadsPerSide>> holeRows;
     std::vector<std::array<uint8_t, canon::kTerrainQuadsPerSide * canon::kTerrainQuadsPerSide>> dominant;
     std::vector<std::array<uint8_t, canon::kTerrainQuadsPerSide>> suppressed;
+    std::vector<std::array<uint8_t, canon::kTerrainQuadsPerSide>> fishable;
+    std::vector<std::array<uint8_t, canon::kTerrainQuadsPerSide>> deep;
     std::vector<uint32_t> areaIndex;
     std::vector<canon::Ref> areas;
     std::map<uint32_t, uint32_t> areaSlot;
@@ -155,6 +157,8 @@ void writeChunksSection(json::Writer& w, const std::vector<canon::TerrainChunk>&
         holeRows.push_back(c.holeRows);
         dominant.push_back(c.dominantLayer);
         suppressed.push_back(c.groundEffectSuppressedRows);
+        fishable.push_back(c.liquidFishableRows);
+        deep.push_back(c.liquidDeepRows);
         uint32_t row = std::get<canon::Db2Row>(c.area.id).row;
         auto [it, inserted] = areaSlot.emplace(row, static_cast<uint32_t>(areas.size()));
         if (inserted) areas.push_back(c.area);
@@ -177,6 +181,10 @@ void writeChunksSection(json::Writer& w, const std::vector<canon::TerrainChunk>&
                                     canon::kTerrainQuadsPerSide * canon::kTerrainQuadsPerSide, "u8"));
     w.key("ground_effect_suppressed_rows");
     writeBufferSlice(w, appendArray(bin, kTerrainBin, suppressed, canon::kTerrainQuadsPerSide, "u8"));
+    w.key("liquid_fishable_rows");
+    writeBufferSlice(w, appendArray(bin, kTerrainBin, fishable, canon::kTerrainQuadsPerSide, "u8"));
+    w.key("liquid_deep_rows");
+    writeBufferSlice(w, appendArray(bin, kTerrainBin, deep, canon::kTerrainQuadsPerSide, "u8"));
     w.key("area_index");
     writeBufferSlice(w, appendArray(bin, kTerrainBin, areaIndex, 1, "u32"));
     w.key("areas");

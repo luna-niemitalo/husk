@@ -166,6 +166,7 @@ TEST_CASE("adtinput: liquid surfaces keep their rect and record where their heig
         LiquidSpec{19, 2, 0, 0, 0, 0, 0, 1, 1, {}, std::vector<uint8_t>(4, 200)},
         LiquidSpec{20, 1, 0, 0, 0, 0, 0, 1, 1, {}, heightUv},
     };
+    spec.liquidAttributes = {{17, {0x0401, 0x0400}}};
     canon::Terrain t = build(spec);
     REQUIRE(t.liquids.size() == 4);
 
@@ -199,6 +200,11 @@ TEST_CASE("adtinput: liquid surfaces keep their rect and record where their heig
     REQUIRE(textured.uv.has_value());
     CHECK((*textured.uv)[0].x == 2.0f);
     CHECK((*textured.uv)[0].y == 1.0f);
+
+    // Chunk 17's attributes: fishable quads (0, 0) and (1, 2), deep (1, 2).
+    CHECK(t.chunks[17].liquidFishableRows == std::array<uint8_t, 8>{0x01, 0x04, 0, 0, 0, 0, 0, 0});
+    CHECK(t.chunks[17].liquidDeepRows == std::array<uint8_t, 8>{0, 0x04, 0, 0, 0, 0, 0, 0});
+    CHECK(t.chunks[18].liquidFishableRows == std::array<uint8_t, 8>{});
 
     // Without the liquid DB2s, each named type and object once, identity only.
     REQUIRE(t.liquidTypes.size() == 3);

@@ -75,7 +75,6 @@ material, texture slots with resolved frames) and terrain its liquid
 objects (flow, fishable). The layout inference was checked against the DB2s
 (WIKI_FINDINGS/ADT.md). Open:
 
-- `MH2O.offset_attributes` (per-chunk fishable/deep masks) is not read.
 - Which texture slot a liquid shader samples for what (diffuse, normal,
   foam, ...) depends on the material and is not resolved; slots are
   carried in `LiquidType` order.

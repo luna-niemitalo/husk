@@ -381,7 +381,12 @@ canon::Terrain buildCanonTerrain(const TileSources& sources, const Resolutions& 
 
     if (root.liquid) {
         for (uint32_t ci = 0; ci < adt::kChunkCount; ++ci) {
-            for (const adt::LiquidInstance& inst : (*root.liquid)[ci].instances) out.liquids.push_back(buildLiquid(inst, ci));
+            const adt::LiquidChunk& chunk = (*root.liquid)[ci];
+            for (const adt::LiquidInstance& inst : chunk.instances) out.liquids.push_back(buildLiquid(inst, ci));
+            for (uint32_t r = 0; r < canon::kTerrainQuadsPerSide; ++r) {
+                out.chunks[ci].liquidFishableRows[r] = static_cast<uint8_t>(chunk.fishable >> (8 * r));
+                out.chunks[ci].liquidDeepRows[r] = static_cast<uint8_t>(chunk.deep >> (8 * r));
+            }
         }
     }
     for (uint32_t row : liquidTypeRows(root)) {

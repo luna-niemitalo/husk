@@ -2568,6 +2568,14 @@
                   "$ref": "common.schema.json#/definitions/buffer_slice",
                   "description": "Per chunk, u8x8: bit c of byte r set means no ground effect on quad (r, c). Bit order unverified."
                 },
+                "liquid_fishable_rows": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Per chunk, u8x8: bit c of byte r set means the liquid on quad (r, c) is fishable. Always within the chunk's liquid quads."
+                },
+                "liquid_deep_rows": {
+                  "$ref": "common.schema.json#/definitions/buffer_slice",
+                  "description": "Per chunk, u8x8: bit c of byte r set means the liquid on quad (r, c) is deep (the source's fatigue flag). Always within the fishable quads."
+                },
                 "area_index": {
                   "$ref": "common.schema.json#/definitions/buffer_slice",
                   "description": "Per chunk, u32: index into areas."
@@ -2649,6 +2657,8 @@
                 "hole_rows",
                 "dominant_layer",
                 "ground_effect_suppressed_rows",
+                "liquid_fishable_rows",
+                "liquid_deep_rows",
                 "area_index",
                 "areas",
                 "layers"

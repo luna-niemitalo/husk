@@ -105,6 +105,10 @@ struct TerrainChunk {
     // ground effects are suppressed (bit c of [r], same shape as holeRows).
     std::array<uint8_t, kTerrainQuadsPerSide * kTerrainQuadsPerSide> dominantLayer{};
     std::array<uint8_t, kTerrainQuadsPerSide> groundEffectSuppressedRows{};
+    // MH2O chunk attributes, same shape as holeRows: quads where liquid is
+    // fishable, and deep (always a subset of fishable in 12.1.0).
+    std::array<uint8_t, kTerrainQuadsPerSide> liquidFishableRows{};
+    std::array<uint8_t, kTerrainQuadsPerSide> liquidDeepRows{};
 };
 
 enum class LiquidHeightSource {

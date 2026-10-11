@@ -66,6 +66,11 @@ real tiles from the local corpus. The code that relies on each one is
     for a file, 0 to 2 for a texture the client generates (`FileDataID` 0).
   - `LiquidObject.FlowDirection` ranges 0–359 (degrees); `FlowSpeed` −1 to 7.
   - 210 of the 576 liquid texture files are BLP BC5 (`preferredFormat` 11).
+- `MH2O` chunk attributes (`fishable`, `deep`, two `uint64` 8×8 masks) use
+  the exists bitmap's order, bit r·8 + c (1,500 seeded tiles, 44,588
+  attribute blocks): every nonzero fishable mask (42,439) and every nonzero
+  deep mask (3,977) lies inside the chunk's liquid quads, and deep inside
+  fishable, while transposed or MSB-first orders break thousands.
 - `GroundEffectTexture.DoodadWeight<8>[4]` are small integers. Of the
   2,665 rows with a doodad (12.1.0), 1,696 sum to 100, 626 to 4 and 228 to
   16, so a row's weights are relative and not normalized to one total.

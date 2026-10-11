@@ -61,6 +61,10 @@ struct LiquidInstance {
 
 struct LiquidChunk {
     std::vector<LiquidInstance> instances;
+    // MH2O chunk attributes, 0 when omitted: bit r * 8 + c is quad (r, c),
+    // the exists bitmap's order (WIKI_FINDINGS/ADT.md).
+    uint64_t fishable = 0;
+    uint64_t deep = 0;
 };
 
 struct RootFile {

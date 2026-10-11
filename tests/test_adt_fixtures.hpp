@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -152,7 +153,9 @@ struct LiquidSpec {
 // MH2O payload: 256 header entries, then every chunk's instances in chunk
 // order, then each instance's exists bitmap and vertex data back to back --
 // the layout the bytes-per-vertex inference relies on.
-std::vector<uint8_t> mh2oPayload(const std::vector<LiquidSpec>& liquids) {
+// `attributes`: chunk -> {fishable, deep}, written after the instance data.
+std::vector<uint8_t> mh2oPayload(const std::vector<LiquidSpec>& liquids,
+                                 const std::map<uint32_t, std::array<uint64_t, 2>>& attributes = {}) {
     std::array<std::vector<const LiquidSpec*>, 256> byChunk;
     for (const LiquidSpec& l : liquids) byChunk[l.chunk].push_back(&l);
 
@@ -186,6 +189,12 @@ std::vector<uint8_t> mh2oPayload(const std::vector<LiquidSpec>& liquids) {
             p.insert(p.end(), l->vertexData.begin(), l->vertexData.end());
         }
     }
+    for (const auto& [chunk, masks] : attributes) {
+        setU32(p, chunk * 12 + 8, static_cast<uint32_t>(p.size()));
+        for (uint64_t m : masks) {
+            for (int i = 0; i < 8; ++i) putU8(p, static_cast<uint8_t>(m >> (8 * i)));
+        }
+    }
     return p;
 }
 
@@ -194,6 +203,7 @@ struct RootSpec {
     uint32_t tileY = 48;
     std::function<ChunkSpec(uint32_t ix, uint32_t iy)> chunk = [](uint32_t, uint32_t) { return ChunkSpec{}; };
     std::vector<LiquidSpec> liquids;  // MH2O written only when non-empty
+    std::map<uint32_t, std::array<uint64_t, 2>> liquidAttributes;  // chunk -> {fishable, deep}
     bool writeMh2o = false;           // force an MH2O chunk even with no instances
     uint32_t chunkCount = 256;
     bool swapFirstTwoChunks = false;
@@ -203,7 +213,9 @@ std::vector<uint8_t> rootFile(const RootSpec& spec) {
     std::vector<uint8_t> out = mverChunk();
     std::vector<uint8_t> mhdr(64, 0);
     appendChunk(out, "MHDR", mhdr);
-    if (!spec.liquids.empty() || spec.writeMh2o) appendChunk(out, "MH2O", mh2oPayload(spec.liquids));
+    if (!spec.liquids.empty() || spec.writeMh2o) {
+        appendChunk(out, "MH2O", mh2oPayload(spec.liquids, spec.liquidAttributes));
+    }
     std::vector<std::vector<uint8_t>> chunks;
     for (uint32_t i = 0; i < spec.chunkCount; ++i) {
         uint32_t ix = i % 16;

@@ -138,7 +138,11 @@ std::array<LiquidChunk, kChunkCount> parseMh2o(const Chunk& mh2o) {
         uint32_t offInstances = read<uint32_t>(d, n, h, "MH2O.offset_instances");
         uint32_t layerCount = read<uint32_t>(d, n, h + 4, "MH2O.layer_count");
         uint32_t offAttributes = read<uint32_t>(d, n, h + 8, "MH2O.offset_attributes");
-        if (offAttributes != 0) dataOffsets.insert(offAttributes);
+        if (offAttributes != 0) {
+            dataOffsets.insert(offAttributes);
+            out[ci].fishable = read<uint64_t>(d, n, offAttributes, "MH2O.attributes.fishable");
+            out[ci].deep = read<uint64_t>(d, n, offAttributes + 8, "MH2O.attributes.deep");
+        }
         out[ci].instances.resize(layerCount);
         for (uint32_t k = 0; k < layerCount; ++k) {
             size_t b = offInstances + k * kMh2oInstanceSize;
